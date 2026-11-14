@@ -26,7 +26,7 @@ The titlebar's "+" (`host.add.set`) holds **Note**, **Link** and **Photo**: Note
 
 The status line at the foot (`host.status.set`) says how many objects show (or "3 of 12" while narrowed), then the kind, the tags and the search text that narrow them, and "Adding 2 photos" while photos upload.
 
-**The AI is optional.** The manifest declares `hooks.ai` as `"optional"` (0.4.23, issue #373): Research works with the AI service off, and an owner can turn the service off without turning Research off. The script asks `host.ai.available()` once at start and shows **Suggest tags** and **Research this** only when it says yes; with it off they are not drawn.
+**The AI is optional.** The manifest declares `hooks.ai` as `"optional"` (0.4.23, issue #373): Research works with AI Assistant off or not installed, and an owner can turn it off without turning Research off. The script asks `host.ai.available()` once at start and shows **Suggest tags** and **Research this** only when it says yes; with it off they are not drawn, and the editor says "AI Assistant is not turned on" where the Suggest tags button would be (only when the answer's reason is `not-set-up`).
 
 ## Photos
 

@@ -596,13 +596,13 @@ export function createSpaceSetup(deps) {
   // The Settings tab (id `modules`; plan-setup-panel.md, step 5). It starts with the First visit section (everyone with this
   // tab). For an owner and the admin: the modules on here (a list: an enabled
   // module is on in every space, so there are no switches; Manage's Modules tab turns one on or off), Turn AI off while
-  // the server has an AI service, then a section per module with its settings for this space. A moderator sees the
+  // AI Assistant is on, then a section per module with its settings for this space. A moderator sees the
   // module settings only. The settings are drawn by module-settings.js in its draft mode (no Save on each).
   function modulesTabHtml() {
     const parts = [layoutsSectionHtml(), firstVisitHtml()];
     if (!state.owner && !state.space.isLobby) parts.unshift(sectionHtml('template-seen', 'Template', `<p id="setup-template-seen"></p><p class="hint">Only the ${esc(word('owner'))} can change it.</p>`, { hidden: true }));
     if (state.owner) {
-      parts.push(sectionHtml('ai', '<i class="fa-solid fa-wand-magic-sparkles fa-fw" aria-hidden="true"></i> AI', `<label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label">Turn AI off in this ${esc(spaceWord())}</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-ai-off"></label><p class="hint">${esc(modulesWord(true))} here can use the server's AI service to summarise and answer questions. Turned off, nobody here can, whatever the roles allow. Saved with Save.</p>`, { hidden: true }));
+      parts.push(sectionHtml('ai', '<i class="fa-solid fa-wand-magic-sparkles fa-fw" aria-hidden="true"></i> AI', `<label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label">Turn AI off in this ${esc(spaceWord())}</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-ai-off"></label><p class="hint">${esc(modulesWord(true))} here can use AI Assistant to summarise and answer questions. Turned off, nobody here can, whatever the roles allow. Saved with Save.</p>`, { hidden: true }));
       parts.push(sectionHtml('ai-sees', 'What AI may see', `<p class="hint">What goes to the AI with a question in this ${esc(spaceWord())}. This only narrows it: the AI never sees what the person asking could not open. Saved with Save.</p><label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label" id="setup-ai-sees-follow-label">Same as the ${esc(word('environment'))}'s choice</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-ai-sees-follow"></label><div id="setup-ai-sees-box"></div>`, { hidden: true }));
     }
     // A moderator has no Members tab, so closing is here for them: the one switch of Who can enter that is theirs.
@@ -1740,11 +1740,11 @@ export function createSpaceSetup(deps) {
     state.ownerPartsIn = true; // the stored budget is known now: the Budget section may show (paintBudgetSection)
     fillFields();
     loadWaiting();
-    // Turn AI off is for a server that has an AI service set up (as the old page's).
+    // Turn AI off is for an environment where AI Assistant is on and set up.
     const aiSection = q('[data-section="ai"]');
-    if (aiSection) aiSection.hidden = !ai || !ai.active || ai.active.provider === 'none';
+    if (aiSection) aiSection.hidden = !ai || ai.moduleOn === false || !ai.active || ai.active.provider === 'none';
     const seesSection = q('[data-section="ai-sees"]');
-    if (seesSection) seesSection.hidden = !ai || !ai.active || ai.active.provider === 'none';
+    if (seesSection) seesSection.hidden = !ai || ai.moduleOn === false || !ai.active || ai.active.provider === 'none';
     state.envSees = fullSees(ai && ai.sees);
     paintAiSees();
     refresh();

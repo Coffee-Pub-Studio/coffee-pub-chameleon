@@ -151,9 +151,10 @@ export function mountAiForm({ get, put, models, source = false, cap = false, usa
   async function loadAi() {
     try {
       const got = await api('GET', get);
+      $('ai-panel').hidden = false;
       showAi(got);
       // The setup is the module's: with AI Assistant not installed and on, say so and leave the fields alone.
-      const off = got.moduleOn === false;
+      const off = got.ai && got.ai.moduleOn === false; // GET /api/ai answers { ai, usage }
       const note = $('ai-module-off');
       if (note) note.hidden = !off;
       for (const el of $('ai-panel').querySelectorAll('input, select, button')) el.disabled = off;
@@ -190,9 +191,17 @@ export function mountAiForm({ get, put, models, source = false, cap = false, usa
       say($('ai-status'), 'saved');
       if (onSave) onSave();
     } catch (err) {
+      $('ai-key').value = ''; // a failed save does not leave the typed key on the page either: type it again
       say($('ai-status'), err.message, true);
     }
   });
 
-  return { load: loadAi };
+  // Leaving the tab: the typed key goes, and the box goes back to its saved state ("Set" or "Not set").
+  function leave() {
+    $('ai-key').value = '';
+    aiKeyMode = 'keep';
+    syncAiPanel();
+  }
+
+  return { load: loadAi, leave };
 }

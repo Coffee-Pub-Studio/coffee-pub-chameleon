@@ -137,6 +137,9 @@ function showModulePart(part) {
   $('module-part-config').hidden = modulePart !== 'config';
   $('module-part-conference').hidden = modulePart !== 'conference';
   $('module-part-ai').hidden = modulePart !== AI_MODULE; // AI Assistant's own setup sits on its module tab
+  // Leaving that tab clears the typed key, and the setup is asked for again each time the tab opens (the module may have
+  // been turned on or off meanwhile).
+  if (modulePart !== AI_MODULE) leaveAiTab();
   $('module-part-module').hidden = ['config', 'conference'].includes(modulePart);
   for (const b of $('module-subtabs').querySelectorAll('.subtab')) {
     const on = b.dataset.modulePart === modulePart;
@@ -180,7 +183,7 @@ function selectTab(name) {
   for (const t of TABS) $(`tab-${t}`).hidden = tab !== t;
   for (const b of $('subtabs').querySelectorAll('.subtab')) b.classList.toggle('active', b.dataset.tab === tab);
   if (tab === 'environment') showEnvPart(part);
-  if (tab === 'modules') showModulePart(modPart);
+  if (tab === 'modules') showModulePart(modPart); else leaveAiTab();
   if (tab === 'about') showCredits();
   nav.draw('secondary'); // the page bar's row holds the Environment tab's parts, or the Modules tab's, only while it is shown
   if (tab === 'environment') requestAnimationFrame(() => scrollToChosen($('env-subtabs')));
@@ -1720,6 +1723,7 @@ setInterval(() => { if (!document.hidden && !$('tab-modules').hidden) loadActivi
 // Its setup, loaded the first time its tab opens; a save draws the list again.
 const aiForm = mountAiForm({ get: '/api/ai', put: '/api/ai', models: '/api/ai/models', source: true, cap: true, usage: true, onSave: () => loadModules() });
 let aiFormLoaded = false;
+function leaveAiTab() { if (aiFormLoaded) { aiForm.leave(); aiFormLoaded = false; } }
 // What AI may see, and this month's use, on the same tab (the owner's; ai-sees.js, ai-use.js).
 const aiSees = mountSees($('ai-sees-box'), { word, idPrefix: 'ai-sees' });
 async function loadAiSees() {

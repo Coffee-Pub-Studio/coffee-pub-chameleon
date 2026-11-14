@@ -660,6 +660,8 @@
     datePicker.refresh();
     hide($('f-save'), !canEdit());
     hide($('form').querySelector('[data-action="suggest-tags"]'), !(state.ai && canEdit() && id && kind !== 'photo'));
+    // With the AI Assistant not turned on, say so where the button would be (not for a photo, which has no tags to suggest).
+    hide($('f-ai-note'), !(state.aiOff && canEdit() && id && kind !== 'photo'));
     hide($('f-delete'), !id || !cur || !mayRemove(cur));
     $('f-delete').textContent = 'Remove';
     // Read-only: no Cancel; the window's own Close in the corner is the one Close. The row goes when nothing in it shows.
@@ -858,7 +860,8 @@
   }
 
   async function checkAi() {
-    try { state.ai = Boolean((await host.ai.available()).available); } catch (err) { state.ai = false; }
+    state.aiOff = false;
+    try { const a = await host.ai.available(); state.ai = Boolean(a.available); state.aiOff = !a.available && a.reason === 'not-set-up'; } catch (err) { state.ai = false; }
     // "Research this" asks in Chat, which a module's own page has none of.
     try { state.chat = Boolean((await host.chat.available()).available); } catch (err) { state.chat = false; }
   }

@@ -603,14 +603,14 @@ async function main() {
       await sleep(800);
       const line = await t2.eval(stateLine);
       const hint = await t2.eval(`document.getElementById('chat-input').placeholder`);
-      expect(/not set up/i.test(line), `the Assistant did not say the AI is not set up before typing ("${line}")`);
+      expect(/not set up|not turned on/i.test(line), `the Assistant did not say the AI is not set up before typing ("${line}")`);
       expect(!/Instruct/.test(hint), `the box still invites a question when there is no AI ("${hint}")`);
       const count = seen.length;
       await t2.typeInto('#chat-input', 'anyone there?');
       await t2.key('Enter');
       await sleep(900);
       expect(seen.length === count, 'a question was sent with no AI set up');
-      expect(/not set up/i.test(await t2.eval(NOTE)), 'no plain note after asking with no AI');
+      expect(/not set up|not turned on/i.test(await t2.eval(NOTE)), 'no plain note after asking with no AI');
       say(`not set up: line "${line}", hint "${hint}"`);
     } finally { await t2.close(); }
     await put({ enabled: true });
