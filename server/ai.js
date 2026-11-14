@@ -194,6 +194,9 @@ class Ai {
     this.usageFile = path.join(this.dir, 'ai-usage.json');
     this.logFile = path.join(this.dir, 'ai-log.jsonl');
     this.env = env;
+    // Whether the AI Assistant module is installed and on: AI is not turned on without it. The environment sets this
+    // (environment.js); a bare Ai (a test) has no modules to ask, so it counts as on.
+    this.moduleOn = () => true;
     // On a host with environments an owner types this environment's address, so requests to it are guarded (server/ai-http.js);
     // a single-environment install's admin is trusted with their own network. The host's managed services are never guarded.
     this.hosted = Boolean(env && env.BASE_DOMAIN);
@@ -337,6 +340,7 @@ class Ai {
       keyUnreadable: unreadable,
       keyProblem: unreadable ? KEY_UNREADABLE : null, // one plain sentence for the AI settings to show, or null
       enabled: c.enabled,
+      moduleOn: Boolean(this.moduleOn()), // false: the AI Assistant module is not installed or is off, so AI is not turned on
       // What AI may see, the environment's choice (server/ai-policy.js): every key, the defaults where none is saved.
       sees: { ...SEES_DEFAULTS, ...readSees(c.sees) },
     };
@@ -416,8 +420,7 @@ class Ai {
     }
   }
 
-  // Whether a patch, if applied, would leave AI enabled: for a caller (a module's enable check, the cascade when the admin turns
-  // AI off) that needs to know before committing to it. Mirrors set()'s own enabled rules without changing anything -- built the
+  // Whether a patch, if applied, would leave AI enabled: for a caller that needs to know before committing to it. Mirrors set()'s own enabled rules without changing anything -- built the
   // same way, over a candidate config, rather than duplicating the rule by hand; applyAiFields may throw on a bad patch, which
   // previews as "would not end up ready" here rather than raising, since set() itself is what actually refuses it.
   previewEnabled(patch) {
@@ -443,10 +446,10 @@ class Ai {
     return next.enabled;
   }
 
-  // Ready to answer: the active source has a provider chosen, this environment has it enabled, and, for a
-  // hosted provider, there is a key.
+  // Ready to answer: the AI Assistant module is installed and on (moduleOn), the active source has a provider chosen, this
+  // environment has it enabled, and, for a hosted provider, there is a key.
   ready() {
-    return this.config.enabled && this.hasActiveService() && !this.effective().keyUnreadable;
+    return this.moduleOn() && this.config.enabled && this.hasActiveService() && !this.effective().keyUnreadable;
   }
 
   // This month's usage: tokens and calls, and tokens by task, by template version, by person and by space.
@@ -700,18 +703,6 @@ class Ai {
     const useKey = typed || saved.key;
     const useWorkspace = (typeof workspace === 'string' && workspace.trim()) || (provider === this.config.provider ? this.config.workspace : '') || '';
     return listModelsFor({ provider, address: asked, key: useKey, workspace: useWorkspace }, this.hosts, this.guard());
-  }
-
-  // The modules switched off along with the service (index.js's PUT /api/ai): remembered here, taken back when it is switched on.
-  rememberCascade(ids) {
-    this.config.cascaded = (Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string');
-    this.saveConfig();
-  }
-
-  takeCascade() {
-    const ids = Array.isArray(this.config.cascaded) ? this.config.cascaded : [];
-    if (ids.length) { this.config.cascaded = []; this.saveConfig(); }
-    return ids;
   }
 
   // The guard on requests to an address an owner typed (see the constructor), or null.

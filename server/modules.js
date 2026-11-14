@@ -73,7 +73,7 @@ const HOOKS = ['schedule', 'notify', 'ai', 'external'];
 function cleanHooks(raw) {
   const hooks = Object.fromEntries(HOOKS.map((h) => [h, Boolean(raw?.[h])]));
   if (raw && Object.prototype.hasOwnProperty.call(raw, 'ai')) {
-    if (raw.ai !== true && raw.ai !== 'optional') throw new ModuleError('module.json: hooks.ai must be true (the module needs the AI service) or "optional" (it uses the service when it is on)');
+    if (raw.ai !== true && raw.ai !== 'optional') throw new ModuleError('module.json: hooks.ai must be true (the module needs AI, so it requires the AI Assistant module) or "optional" (it uses the service when it is on)');
     hooks.ai = raw.ai;
   }
   return hooks;
@@ -131,9 +131,6 @@ function oldNameIn(raw) {
   return null;
 }
 const ID_RE = /^[a-z][a-z0-9-]{1,31}$/;
-// Ids no module may take: 'ai' names the server-wide AI service (not a module) in `missing`/`aiDependents`, the same way a
-// module id would, so it must never also be a real one.
-const RESERVED_IDS = ['ai'];
 // The folders the host keeps inside DATA_DIR/modules/<id>/, which a module's file setting can't name.
 const RESERVED_FOLDERS = ['versions', 'library', 'data', 'uploads', 'trash'];
 const { cleanRows } = require('./setting-list');
@@ -867,7 +864,6 @@ function cleanManifest(raw, files) {
   if (old) throw new ModuleError(old);
   const id = typeof raw.id === 'string' ? raw.id.trim() : '';
   if (!ID_RE.test(id)) throw new ModuleError('module.json: "id" must be 2-32 lowercase letters, digits or dashes, starting with a letter');
-  if (RESERVED_IDS.includes(id)) throw new ModuleError(`module.json: "${id}" is a reserved id and cannot be used`);
   const name = text(raw.name, 40);
   if (!name) throw new ModuleError('module.json: "name" is required');
   const version = typeof raw.version === 'string' ? raw.version.trim() : '';
@@ -1002,6 +998,8 @@ function cleanManifest(raw, files) {
     if (typeof r !== 'string' || !ID_RE.test(r) || r === id) throw new ModuleError('module.json: requires must list other modules by id');
     if (!requires.includes(r)) requires.push(r);
   }
+  // A module that can't work without AI says so the way it names any module it needs: AI is the AI Assistant's.
+  if (raw.hooks && raw.hooks.ai === true && !requires.includes('assistant')) throw new ModuleError('module.json: hooks.ai true needs requires: ["assistant"] (AI comes from the AI Assistant module)');
 
   // How a bundled module gets onto a fresh or updated environment without an admin visiting Modules first (see
   // ModuleManager.autoInstall in index.js's environmentFor): `auto` installs and enables it once, ever, per
@@ -1064,10 +1062,6 @@ class ModuleManager {
     this.file = path.join(this.dir, 'registry.json');
     this.registry = { modules: {} };
     this.manifests = new Map(); // "id@version" -> manifest, so permission checks do not hit the disk
-    // Whether the server-wide AI service is set up and switched on: a module that declares hooks.ai depends on it the way
-    // one module can depend on another (see cleanGeocoder... no, see 'ai' in missing/aiDependents below). Set once, after
-    // both this and the Ai instance exist (index.js), since the AI service is not a module Modules otherwise knows about.
-    this.aiReady = () => false;
     // This environment's words (for the placeholders in a manifest's text) and a module's display name and icon (the
     // owner's, else the template's; null for the manifest's own), set by the environment's build (environment.js).
     this.wordsOf = () => null;
@@ -1235,8 +1229,7 @@ class ModuleManager {
   // Nor does one whose required modules are not all running: turning a module off and uninstalling it already switch
   // what requires it off in the registry, and this keeps that true when the registry says otherwise (a requirement that
   // went off because it was outdated, or because its update waits for approval). The owner's own choice is kept, so it
-  // runs again as soon as what it requires does. (The AI service, the other thing `missing` can name, is not checked
-  // here: turning it off switches its dependents off itself.)
+  // runs again as soon as what it requires does.
   enabled(id, seen = new Set()) {
     const entry = this.registry.modules[id];
     if (!entry || !entry.enabled || seen.has(id)) return null;
@@ -1370,7 +1363,7 @@ class ModuleManager {
       versions: [...entry.versions].sort(compareVersions).reverse(),
       // The installed versions whose manifest uses an old name: kept, but never run or rolled back to.
       outdatedVersions: [...entry.versions].sort(compareVersions).reverse().filter((v) => this.manifestOf(id, v)?.outdated),
-      // What this needs that is not on (module ids, and 'ai' for the AI service), and the enabled modules that need this one.
+      // What this needs that is not on (module ids), and the enabled modules that need this one.
       missing: this.missingFor(manifest),
       dependents: this.dependentsOf(id),
       needsApproval: this.hasPending(pending),
@@ -1415,26 +1408,16 @@ class ModuleManager {
     return out;
   }
 
-  // What a manifest needs that is not there: other modules from `requires`, plus `'ai'` when it declares the `ai` hook and
-  // the AI service is not enabled. The AI service is not a module (Modules knows nothing else about it), so it is named by
-  // this one reserved id rather than added to the registry.
+  // What a manifest needs that is not there: other modules from `requires` that are not on. AI is the AI Assistant
+  // module's: a module that needs it says `requires: ["assistant"]`.
   missingFor(manifest) {
     const waiting = this.needsUpdateFor(manifest);
-    const missing = (manifest.requires || []).filter((r) => !waiting.includes(r) && !this.enabled(r));
-    if (manifest.hooks.ai === true && !this.aiReady()) missing.push('ai');
-    return missing;
+    return (manifest.requires || []).filter((r) => !waiting.includes(r) && !this.enabled(r));
   }
 
-  // The enabled modules that declare the `ai` hook as required (an "optional" one works without the service, so it stays on):
-  // what depends on the AI service, the way `dependentsOf` says what depends
-  // on a module. For the AI service's own admin page, and to cascade turning it off.
-  aiDependents() {
-    return this.enabledAll().filter(({ manifest }) => manifest.hooks.ai === true).map(({ manifest }) => ({ id: manifest.id, name: this.shownName(manifest) }));
-  }
-
-  // A missing id's name for a message: another module's, or "the AI service".
+  // A missing id's name for a message: the module's own.
   missingName(r) {
-    return r === 'ai' ? 'the AI service' : (this.registry.modules[r] ? this.shownName(this.manifestOf(r, this.registry.modules[r].version)) : r);
+    return this.registry.modules[r] ? this.shownName(this.manifestOf(r, this.registry.modules[r].version)) : r;
   }
 
   list() {

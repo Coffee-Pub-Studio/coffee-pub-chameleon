@@ -561,6 +561,9 @@ try {
   assert.ok(fs.existsSync(path.join(dataDir, 'ai-threads.moved.json')) && !fs.existsSync(path.join(dataDir, 'ai-threads.json')));
   const login = async (name, password) => (await call('POST', '/api/login', { body: { login: name, password } })).json.token;
   const owner = await login('admin', 'testpass1234');
+  // AI is on only while the AI Assistant module is installed and on.
+  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   const pat = await login('pat', 'memberpass1234');
   const sam = await login('sam', 'memberpass1234');
   const S = ids.space;
@@ -907,8 +910,6 @@ try {
   n += 1;
 
   // /ai no longer depends on the retired Assistant's Use (decision 12); a space's AI off still refuses.
-  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
-  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   assert.equal((await call('PATCH', '/api/roles/member', { cookie: owner, body: { 'module.assistant.use': false } })).status, 200);
   const stillAi = await call('POST', `/api/spaces/${S}/ai`, { cookie: pat, body: { question: 'Still allowed?' } });
   assert.equal(stillAi.status, 200, stillAi.text);

@@ -199,7 +199,7 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   const moduleSettings = new ModuleSettings(modules.dir, secretsKey);
 
   const ai = new Ai(dataDir, process.env, undefined, managed, secretsKey, moduleSettings.secrets); // its key is the AI Assistant module's sealed secret
-  modules.aiReady = () => ai.ready(); // a module declaring hooks.ai depends on the AI service the way one module depends on another
+  ai.moduleOn = () => modules.enabled('assistant') !== null; // AI is not turned on while the AI Assistant module is not installed or is off
 
   // A person's other calendars (plan-google-calendar.md, Part 2): read through the private-address guard, kept in
   // memory. Their addresses are sealed with the same key as every other secret; without a key (a test that does not

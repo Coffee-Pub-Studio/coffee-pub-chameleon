@@ -278,6 +278,9 @@ fs.writeFileSync(path.join(dataDir, 'chat.json'), JSON.stringify({ spaces: { [S]
 await startServer();
 try {
   const owner = await login('admin', 'testpass1234');
+  // AI is on only while the AI Assistant module is installed and on.
+  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   const pat = await login('pat', 'memberpass1234');
   const sam = await login('sam', 'memberpass1234');
   await listenLive(`/api/live?space=${S}`, owner);
