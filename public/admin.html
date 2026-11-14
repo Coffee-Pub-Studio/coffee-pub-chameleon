@@ -280,7 +280,7 @@
     <section class="tab-stack" id="tab-modules" hidden>
       <!-- The Modules tab's parts (#264), chosen in the page bar's row (the navigation inside a tab, page-tabs.js rowTabs):
            Configuration, then one tab per module that is on (and Conference while it is on), drawn by admin.js.
-           #modules opens Configuration; #modules/<id> a module's tab (#modules/conference, #modules/ai). -->
+           #modules opens Configuration; #modules/<id> a module's tab (#modules/conference, #modules/assistant). -->
       <nav class="subtabs" id="module-subtabs">
         <button class="subtab active" type="button" data-module-part="config">Configuration</button>
       </nav>
@@ -311,9 +311,6 @@
         <button class="sdk-chip" type="button" data-module-filter="configurable" aria-pressed="false">Configurable <span class="sdk-badge" data-count="configurable"></span></button>
         <button class="sdk-chip" type="button" data-module-filter="available" aria-pressed="false">Available <span class="sdk-badge" data-count="available"></span></button>
       </div>
-      <!-- The AI service: server-wide (the service, model and key the Assistant, Chat's AI and Research share), not one
-           module's setting. Its entry here, with its switch, drawn by admin.js; its setup is on its own tab (#modules/ai). -->
-      <div id="ai-row"></div>
       <div id="modules-list" class="stack"></div>
       <!-- The flight schedule (plan-flight-lookup.md, step 5), on a single install only: on a hosted server it is the host console's. Drawn by /flight-schedule.js on /api/flight-schedule. -->
       <section class="panel flight-schedule sdk-groups" id="flight-schedule-section" hidden>
@@ -361,81 +358,81 @@
         </div>
       </div>
 
-      <!-- The AI service's tab (#modules/ai), always there, since it is set up here before it can be turned on: its entry
-           with its switch (admin.js), then its setup, drawn by /ai-form.js on /api/ai. -->
-      <div class="tab-stack" id="module-part-ai" data-module-part="ai" hidden>
-        <div id="ai-tab-card"></div>
-        <section class="panel" id="ai-panel">
-          <h2>Setup</h2>
-          <p class="hint" data-fill><strong>Managed</strong> uses the service the host runs, with its key; <strong>Custom</strong> is a service and key of this {environment}'s own. Setting a service up does not turn the AI on: use the switch above, then give a role <strong>Use AI</strong> on the Roles tab. Using AI, in Chat or in a {module}, needs that permission and the {space}'s own AI switch on ({guests} never can).</p>
-          <div class="ai-fields">
-            <label>Source
-              <select id="ai-source" data-fill>
-                <option value="custom">Custom: this {environment}'s own service and key</option>
-              </select>
-            </label>
-            <div class="sdk-banner" data-kind="info" id="ai-managed-note" hidden><span class="sdk-banner-icon" aria-hidden="true"><i class="fa-solid fa-circle-info"></i></span><span class="sdk-banner-text" id="ai-managed-note-text"></span></div>
-            <label data-ai-custom>Service
-              <select id="ai-provider">
-                <option value="none">None (AI is off)</option>
-                <option value="openai">OpenAI</option>
-                <option value="anthropic">Anthropic</option>
-                <option value="compatible">Other (OpenAI-compatible)</option>
-              </select>
-            </label>
-            <div class="sdk-banner" data-kind="info" id="ai-notice" data-ai-custom hidden><span class="sdk-banner-icon" aria-hidden="true"><i class="fa-solid fa-circle-info"></i></span><span class="sdk-banner-text" id="ai-notice-text"></span></div>
-            <label data-ai-for="compatible">Address <span class="hint">Your own server's address (for example http://localhost:11434 for Ollama), or another company's service that speaks the OpenAI interface. It should be the server's root or end in /v1.</span>
-              <input id="ai-address" type="url" maxlength="300" placeholder="https://" autocomplete="off">
-            </label>
-            <label data-ai-for="anthropic">Workspace id <span class="hint">Only for a key made at the organisation level, which Anthropic then asks to name a workspace: the id from the Anthropic console. A key made inside a workspace needs nothing here.</span>
-              <input id="ai-workspace" type="text" maxlength="100" placeholder="wrkspc_..." autocomplete="off" spellcheck="false">
-            </label>
-            <div class="ai-key" data-ai-for="openai anthropic compatible">
-              <div class="ai-label">Key <span class="hint" id="ai-key-optional" hidden>(optional for a model on your own network)</span></div>
-              <div class="ai-key-row">
-                <span class="sdk-status" id="ai-key-state">not set</span>
-                <input id="ai-key" type="password" maxlength="300" placeholder="paste a new key" autocomplete="new-password" aria-label="New key" hidden>
-                <button class="btn btn-small" type="button" id="ai-key-replace">Set a key</button>
-                <button class="btn btn-small btn-danger" type="button" id="ai-key-clear" hidden>Remove the key</button>
-              </div>
-              <p class="hint" id="ai-key-help">The key is kept on the server and is never shown again.</p>
-            </div>
-            <div class="ai-model" data-ai-for="openai anthropic compatible">
-              <div class="ai-label">Model</div>
-              <div class="ai-model-row">
-                <select id="ai-model-select" aria-label="Model"></select>
-                <input id="ai-model" type="text" maxlength="100" placeholder="the model's name" autocomplete="off" aria-label="Model" hidden>
-                <button class="btn btn-small" type="button" id="ai-models-refresh" title="Load the list of models again"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Refresh</button>
-              </div>
-              <p class="hint" id="ai-models-hint"></p>
-              <button class="linklike" type="button" id="ai-model-manual" hidden>Type a model name instead</button>
-            </div>
-            <label>Monthly allowance <span class="hint">(tokens; 0 for no limit)</span>
-              <input id="ai-cap" type="number" min="0" step="1000" value="0">
-            </label>
-          </div>
-          <div class="row"><button class="btn btn-primary" type="button" id="ai-save">Save</button><span class="status" id="ai-status" role="status"></span></div>
-        </section>
-        <section class="panel" id="ai-use-block" aria-labelledby="ai-use-title">
-          <h2 id="ai-use-title">AI use this month</h2>
-          <div class="ai-usage" id="ai-usage" hidden>
-            <div class="sdk-progress" role="progressbar" aria-label="Monthly allowance used" aria-valuemin="0" aria-valuemax="100" id="ai-meter"><span class="sdk-progress-fill" id="ai-meter-fill"></span></div>
-            <p class="hint" id="ai-usage-text"></p>
-          </div>
-          <div id="ai-use-box"><p class="hint">Loading...</p></div>
-        </section>
-        <section class="panel" id="ai-sees-block" aria-labelledby="ai-sees-title">
-          <h2 id="ai-sees-title">What AI may see</h2>
-          <p class="hint" data-fill>What goes to the AI with a question. This only narrows it: the AI never sees what the person asking could not open. A {space} can set its own on its Set up.</p>
-          <div id="ai-sees-box"></div>
-          <div class="row"><button class="btn btn-primary" type="button" id="ai-sees-save">Save</button><button class="btn" type="button" id="ai-sees-reset">Back to the usual</button><span class="status" id="ai-sees-status" role="status"></span></div>
-        </section>
-      </div>
-
       <!-- An installed module's tab, while it is on: its card, its settings (module-config.html's markup, drawn by
            module-config.js's drawModuleConfig()), then what it is approved to do, its versions and Uninstall. -->
       <div class="tab-stack" id="module-part-module" data-module-part="module" hidden>
         <div id="module-tab-card"></div>
+        <!-- AI Assistant's own setup (#modules/assistant), shown on that module's tab under its card: the company, model and
+             key (drawn by /ai-form.js on /api/ai), the month's use and what AI may see. The key is write-only: this page is
+             never given it, only whether one is set. -->
+        <div class="tab-stack" id="module-part-ai" hidden>
+          <section class="panel" id="ai-panel">
+            <h2>Setup</h2>
+            <p class="status error" id="ai-module-off" role="status" hidden>AI Assistant is not turned on. Turn it on with the switch at the top of this tab to use this setup.</p>
+            <p class="hint" data-fill><strong>Managed</strong> uses the service the host runs, with its key; <strong>Custom</strong> is a service and key of this {environment}'s own. Setting a service up does not turn the AI on: use the switch above, then give a role <strong>Use AI</strong> on the Roles tab. Using AI, in Chat or in a {module}, needs that permission and the {space}'s own AI switch on ({guests} never can).</p>
+            <div class="ai-fields">
+              <label>Source
+                <select id="ai-source" data-fill>
+                  <option value="custom">Custom: this {environment}'s own service and key</option>
+                </select>
+              </label>
+              <div class="sdk-banner" data-kind="info" id="ai-managed-note" hidden><span class="sdk-banner-icon" aria-hidden="true"><i class="fa-solid fa-circle-info"></i></span><span class="sdk-banner-text" id="ai-managed-note-text"></span></div>
+              <label data-ai-custom>Service
+                <select id="ai-provider">
+                  <option value="none">None (AI is off)</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="anthropic">Anthropic</option>
+                  <option value="compatible">Other (OpenAI-compatible)</option>
+                </select>
+              </label>
+              <div class="sdk-banner" data-kind="info" id="ai-notice" data-ai-custom hidden><span class="sdk-banner-icon" aria-hidden="true"><i class="fa-solid fa-circle-info"></i></span><span class="sdk-banner-text" id="ai-notice-text"></span></div>
+              <label data-ai-for="compatible">Address <span class="hint">Your own server's address (for example http://localhost:11434 for Ollama), or another company's service that speaks the OpenAI interface. It should be the server's root or end in /v1.</span>
+                <input id="ai-address" type="url" maxlength="300" placeholder="https://" autocomplete="off">
+              </label>
+              <label data-ai-for="anthropic">Workspace id <span class="hint">Only for a key made at the organisation level, which Anthropic then asks to name a workspace: the id from the Anthropic console. A key made inside a workspace needs nothing here.</span>
+                <input id="ai-workspace" type="text" maxlength="100" placeholder="wrkspc_..." autocomplete="off" spellcheck="false">
+              </label>
+              <div class="ai-key" data-ai-for="openai anthropic compatible">
+                <div class="ai-label">Key <span class="hint" id="ai-key-optional" hidden>(optional for a model on your own network)</span></div>
+                <div class="ai-key-row">
+                  <span class="sdk-status" id="ai-key-state">not set</span>
+                  <input id="ai-key" type="password" maxlength="300" placeholder="paste a new key" name="ai-key-new" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" aria-label="New key" aria-describedby="ai-key-help" hidden>
+                  <button class="btn btn-small" type="button" id="ai-key-replace">Set a key</button>
+                  <button class="btn btn-small btn-danger" type="button" id="ai-key-clear" hidden>Remove the key</button>
+                </div>
+                <p class="hint" id="ai-key-help">The key is kept on the server and is never shown again.</p>
+              </div>
+              <div class="ai-model" data-ai-for="openai anthropic compatible">
+                <div class="ai-label">Model</div>
+                <div class="ai-model-row">
+                  <select id="ai-model-select" aria-label="Model"></select>
+                  <input id="ai-model" type="text" maxlength="100" placeholder="the model's name" autocomplete="off" aria-label="Model" hidden>
+                  <button class="btn btn-small" type="button" id="ai-models-refresh" title="Load the list of models again"><i class="fa-solid fa-rotate" aria-hidden="true"></i> Refresh</button>
+                </div>
+                <p class="hint" id="ai-models-hint"></p>
+                <button class="linklike" type="button" id="ai-model-manual" hidden>Type a model name instead</button>
+              </div>
+              <label>Monthly allowance <span class="hint">(tokens; 0 for no limit)</span>
+                <input id="ai-cap" type="number" min="0" step="1000" value="0">
+              </label>
+            </div>
+            <div class="row"><button class="btn btn-primary" type="button" id="ai-save">Save</button><span class="status" id="ai-status" role="status"></span></div>
+          </section>
+          <section class="panel" id="ai-use-block" aria-labelledby="ai-use-title">
+            <h2 id="ai-use-title">AI use this month</h2>
+            <div class="ai-usage" id="ai-usage" hidden>
+              <div class="sdk-progress" role="progressbar" aria-label="Monthly allowance used" aria-valuemin="0" aria-valuemax="100" id="ai-meter"><span class="sdk-progress-fill" id="ai-meter-fill"></span></div>
+              <p class="hint" id="ai-usage-text"></p>
+            </div>
+            <div id="ai-use-box"><p class="hint">Loading...</p></div>
+          </section>
+          <section class="panel" id="ai-sees-block" aria-labelledby="ai-sees-title">
+            <h2 id="ai-sees-title">What AI may see</h2>
+            <p class="hint" data-fill>What goes to the AI with a question. This only narrows it: the AI never sees what the person asking could not open. A {space} can set its own on its Set up.</p>
+            <div id="ai-sees-box"></div>
+            <div class="row"><button class="btn btn-primary" type="button" id="ai-sees-save">Save</button><button class="btn" type="button" id="ai-sees-reset">Back to the usual</button><span class="status" id="ai-sees-status" role="status"></span></div>
+          </section>
+        </div>
         <div id="module-tab-settings"></div>
         <div id="module-tab-more"></div>
       </div>

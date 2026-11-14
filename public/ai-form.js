@@ -1,7 +1,7 @@
-// The AI service's setup on its tab on Manage > Modules (admin.html, #modules/ai): the host's managed service or a custom
+// AI Assistant's setup on its tab on Manage > Modules (admin.html, #modules/assistant): the host's managed service or a custom
 // one of this environment's own. The person picks a company by name
 // and the server knows its address; the models are listed from the company's own list, not typed. The key is
-// write-only: the page is told only whether one is set, and a typed key replaces it.
+// write-only: the page is told only whether one is set (the field says "Set", never the key), and a typed key replaces it.
 //
 // mountAiForm({ get, put, models, source, cap, usage, onSave }): `get`, `put` and `models` are the API paths; `source`
 // draws the managed/custom choice, `cap` the monthly allowance, `usage` this month's use; `onSave` is
@@ -61,7 +61,7 @@ export function mountAiForm({ get, put, models, source = false, cap = false, usa
     const set = (aiState.keySet || aiKeyMode === 'replace') && aiKeyMode !== 'clear';
     // A saved key this server can't read (the server says why in keyProblem): it counts as none and has to be entered again.
     const problem = aiState.keyProblem && aiKeyMode === 'keep' ? aiState.keyProblem.charAt(0).toUpperCase() + aiState.keyProblem.slice(1) : '';
-    $('ai-key-state').textContent = aiKeyMode === 'clear' ? 'will be removed' : set ? 'set' : problem ? 'can\'t be read' : 'not set';
+    $('ai-key-state').textContent = aiKeyMode === 'clear' ? 'Will be removed' : set ? 'Set' : problem ? 'Can\'t be read' : 'Not set';
     const keyTone = problem ? 'warn' : set ? 'ok' : '';
     if (keyTone) $('ai-key-state').dataset.tone = keyTone; else delete $('ai-key-state').dataset.tone;
     $('ai-key').hidden = aiKeyMode !== 'replace';
@@ -149,7 +149,15 @@ export function mountAiForm({ get, put, models, source = false, cap = false, usa
   }
 
   async function loadAi() {
-    try { showAi(await api('GET', get)); } catch { $('ai-panel').hidden = true; }
+    try {
+      const got = await api('GET', get);
+      showAi(got);
+      // The setup is the module's: with AI Assistant not installed and on, say so and leave the fields alone.
+      const off = got.moduleOn === false;
+      const note = $('ai-module-off');
+      if (note) note.hidden = !off;
+      for (const el of $('ai-panel').querySelectorAll('input, select, button')) el.disabled = off;
+    } catch { $('ai-panel').hidden = true; }
   }
 
   if (source) $('ai-source').addEventListener('change', () => { syncAiPanel(); loadAiModels(); });
@@ -177,6 +185,7 @@ export function mountAiForm({ get, put, models, source = false, cap = false, usa
     say($('ai-status'), 'saving...');
     try {
       await api('PUT', put, body);
+      $('ai-key').value = ''; // the typed key leaves the page the moment the server has it
       await loadAi();
       say($('ai-status'), 'saved');
       if (onSave) onSave();
