@@ -1,5 +1,5 @@
 // What AI may see: the owner's setting for what goes to the AI with a question (plan-ai-integration.md). One section, drawn
-// for Manage's AI service tab (the environment's choice) and for a space's Set up (the space's own, or the environment's).
+// for Manage's AI Assistant tab (the environment's choice) and for a space's Set up (the space's own, or the environment's).
 // It can only narrow what a person's own rights already allow. The values are the server's `sees`:
 //   { attached, relevant, linked, lookup, history, chat, members: true|false, environment: 'never'|'attached'|'readable',
 //     modules: 'all' | [module ids] }

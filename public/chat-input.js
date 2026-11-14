@@ -816,12 +816,18 @@ export function citationParts(text) {
 // What the page says when the AI is not there for this person, in plain words, from the server's `reason` (GET .../ai:
 // 'guest', 'space-off', 'role', 'not-set-up' or 'allowance'; '' when it is there). `words` are this environment's: its
 // word for guests, for the owner and for a space. A reason the page does not know says the server's own sentence, capitalised.
-export function aiNotice(reason, why = '', { guests = '', owner = '', space = '' } = {}) {
+export function noModuleLine(asOwner = false, owner = 'owner') {
+  return asOwner ? 'AI Assistant is not turned on.' : `AI Assistant is not turned on. Ask the ${owner}.`;
+}
+export function aiNotice(reason, why = '', { guests = '', owner = '', space = '', asOwner = false } = {}) {
   switch (reason) {
     case '': return '';
     case 'guest': return `${guests} cannot use AI.`;
     case 'space-off': return `AI is turned off in this ${space}.`;
     case 'role': return `Your role can't use AI here: ask the ${owner}.`;
+    // The module is off or missing (the server says 'not-set-up' for that too, and 'module-off' where it can tell): the
+    // module's own name. An owner is also given the link (chat-input.js, paintAiState).
+    case 'module-off': return noModuleLine(asOwner, owner);
     case 'not-set-up': return 'AI is not set up yet.';
     case 'allowance': return "This month's AI allowance is used up.";
     // The server's own sentence for these (what it is about depends on the setting behind it).
@@ -1011,7 +1017,7 @@ export function keptNoticeTakes(entry, data) {
   return Boolean(cleanKept(data.kept));
 }
 
-export function attachChatInput({ $, api, word, openObject = null, getSpace, getMe, isGuest, keepStoredLink, canvas, resizeChatInput, renderMarkup, frameMessage, addStored, openMenu, isShown = () => true, onAssistantNew = null, isHome = () => false, guestToken = '', pictureBlob = async (entry) => entry.blob }) {
+export function attachChatInput({ $, api, word, openObject = null, getSpace, getMe, isGuest, keepStoredLink, canvas, resizeChatInput, renderMarkup, frameMessage, addStored, openMenu, isShown = () => true, onAssistantNew = null, isHome = () => false, isOwner = () => false, guestToken = '', pictureBlob = async (entry) => entry.blob }) {
   const input = () => $('chat-input');
   // The field's hint when nothing is typed, on one line: the full one when it fits the field, else a shorter one
   // A command's own hint is left alone. In the Assistant, plain words go to the AI (routeLine), and its hint says so.
@@ -1020,7 +1026,7 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
   const NO_AI_HINTS = ['Type / for commands'];
   // Whether the AI is there for this person in this space (GET /api/spaces/:id/ai, asked when Chat opens and when the
   // Assistant shows): unknown until asked, and then the server's reason when it is not.
-  let aiState = { known: false, available: true, reason: '', why: '', at: 0 };
+  let aiState = { known: false, available: true, reason: '', why: '', at: 0, moduleOff: false };
   let view = 'discussion';
   let importOk = false;
   let hintCtx = null;
@@ -1115,7 +1121,7 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     const items = commandList();
     const byName = new Map();
     // /ai is Chat's own command, listed first (not at Home, which has no Assistant, nor for a guest).
-    if (!isHome() && !isGuest()) {
+    if (!isHome() && !isGuest() && !aiState.moduleOff) {
       byName.set('ai', [{ name: 'ai', label: aiState.known && !aiState.available ? `Ask the AI (${aiLine().replace(/\.$/, '').toLowerCase()})` : 'Ask the AI', moduleName: '', word: '', hint: 'Ask the AI a question' }]);
     }
     for (const c of items) {
@@ -1283,7 +1289,7 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     aiContext = [];
     aiWords = null;
     paintContext();
-    aiState = { known: false, available: true, reason: '', why: '', at: 0 };
+    aiState = { known: false, available: true, reason: '', why: '', at: 0, moduleOff: false };
     paintAiState();
     setViewsVisible(Boolean(spaceId()) && !isHome());
     if (!spaceId() || isHome() || !getMe()) return;
@@ -2009,13 +2015,20 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     if (!id || isHome()) return aiState;
     if (!force && aiState.known && Date.now() - aiState.at < 30000) return aiState;
     const was = `${aiState.known}${aiState.available}${aiState.reason}`;
-    if (isGuest()) aiState = { known: true, available: false, reason: 'guest', why: '', at: Date.now() };
+    if (isGuest()) aiState = { known: true, available: false, reason: 'guest', why: '', at: Date.now(), moduleOff: false };
     else {
       try {
         const r = await api('GET', `/api/spaces/${encodeURIComponent(id)}/ai`);
-        aiState = { known: true, available: Boolean(r.available), reason: r.available ? '' : String(r.reason || 'other'), why: r.available ? '' : String(r.why || 'AI is not available'), at: Date.now() };
+        const reason = r.available ? '' : String(r.reason || 'other');
+        // The module off or missing: the server says 'not-set-up' for that and for a missing key. An owner can ask (GET /api/ai
+        // says which); anyone else is told the module is not on, which is also where a missing setup is fixed.
+        let moduleOff = reason === 'module-off';
+        if (reason === 'not-set-up' && !moduleOff) {
+          if (isOwner()) { try { moduleOff = (await api('GET', '/api/ai')).ai?.moduleOn === false; } catch { moduleOff = false; } } else moduleOff = true;
+        }
+        aiState = { known: true, available: Boolean(r.available), reason: moduleOff ? 'module-off' : reason, why: r.available ? '' : String(r.why || 'AI is not available'), at: Date.now(), moduleOff };
       } catch {
-        aiState = { known: false, available: true, reason: '', why: '', at: 0 };
+        aiState = { known: false, available: true, reason: '', why: '', at: 0, moduleOff: false };
       }
     }
     paintAiState();
@@ -2023,7 +2036,7 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     return aiState;
   }
   function aiLine() {
-    return aiState.known && !aiState.available ? aiNotice(aiState.reason, aiState.why, { guests: word('guest', { many: true, cap: true }), owner: word('owner'), space: word('space') }) : '';
+    return aiState.known && !aiState.available ? aiNotice(aiState.reason, aiState.why, { guests: word('guest', { many: true, cap: true }), owner: word('owner'), space: word('space'), asOwner: isOwner() }) : '';
   }
   // The state line above the box: only in the Assistant, only when the AI is not there.
   function paintAiState() {
@@ -2031,6 +2044,21 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     if (!el) return;
     const text = view === 'assistant' && spaceId() && !isHome() ? aiLine() : '';
     el.hidden = !text;
+    const link = text && aiState.moduleOff && isOwner();
+    if (link) {
+      if (el.dataset.moduleOff === '1' && el.textContent.startsWith(text)) return;
+      el.textContent = `${text} `;
+      const a = document.createElement('a');
+      a.href = '/admin#modules/assistant';
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.id = 'chat-ai-turn-on';
+      a.textContent = 'Turn it on';
+      el.append(a, '.');
+      el.dataset.moduleOff = '1';
+      return;
+    }
+    delete el.dataset.moduleOff;
     if (el.textContent !== text) el.textContent = text;
   }
   // The objects dropped on Chat for the next question, as chips the person can take off. They go with one question.
@@ -2128,7 +2156,7 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     return true;
   }
 
-  // Why an ask failed, in plain words: the server's own sentence (403, 429, 400, the AI service), else what happened.
+  // Why an ask failed, in plain words: the server's own sentence (403, 429, 400, AI Assistant), else what happened.
   function whyAiFailed(err) {
     const said = String(err?.serverSaid ? err.message : '').trim();
     const why = said || (err?.status ? 'The server could not take it just now.' : 'The server could not be reached.');

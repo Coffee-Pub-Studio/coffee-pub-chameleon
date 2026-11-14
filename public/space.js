@@ -6911,6 +6911,7 @@ const chatInput = attachChatInput({
   guestToken, // a guest link has no session; the citations call carries it (GitHub #395)
   word,
   getSpace: () => chatSpace(), // Home's chat while it shows on Home (plan-home-lobby.md), else the space's
+  isOwner: () => hasOwnerRights(me),
   isHome: () => Boolean(homeChatSpace), // Home's chat is the Discussion alone (GitHub #326)
   getMe: () => me,
   isGuest: () => !me?.key || me.role === 'guest' || Boolean(guestToken),

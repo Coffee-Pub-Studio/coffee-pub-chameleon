@@ -6510,7 +6510,7 @@ body.chat-window {
 @media (max-width: 640px) { .bgpick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .slot-library { margin-top: 8px; }
 
-/* the AI service panel: its labels, and the model list */
+/* the AI Assistant panel: its labels, and the model list */
 .ai-fields > label, .ai-label { color: var(--text-muted); font-size: var(--label-size); font-weight: var(--weight-medium); }
 .ai-fields > label .hint, .ai-label .hint { font-weight: var(--weight-regular); }
 .ai-label { margin-bottom: 4px; }
@@ -9309,7 +9309,7 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
   }
 }
 
-/* What AI may see (ai-sees.js), on Manage's AI service tab and a space's Set up: the rows are Choice rows; the one choice
+/* What AI may see (ai-sees.js), on Manage's AI Assistant tab and a space's Set up: the rows are Choice rows; the one choice
    and the modules' group sit a step apart under them, the group without a fieldset's own frame. */
 .ai-sees-field {
   display: flex;

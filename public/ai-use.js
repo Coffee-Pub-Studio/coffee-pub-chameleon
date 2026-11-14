@@ -1,4 +1,4 @@
-// This month's AI use, for the owner (Manage's AI service tab): GET /api/ai/usage. Tokens by kind of request, by person and by
+// This month's AI use, for the owner (Manage's AI Assistant tab): GET /api/ai/usage. Tokens by kind of request, by person and by
 // space; calls by kind; the asks that were refused, by reason; the service's failures; the answers cut short; and the last
 // calls as records. A record holds counts and ids, never a question or an answer.
 import { word, escapeHtml as esc } from '/brand.js';
