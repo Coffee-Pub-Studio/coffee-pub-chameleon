@@ -825,7 +825,7 @@ export function aiNotice(reason, why = '', { guests = '', owner = '', space = ''
     case 'guest': return `${guests} cannot use AI.`;
     case 'space-off': return `AI is turned off in this ${space}.`;
     case 'role': return `Your role can't use AI here: ask the ${owner}.`;
-    // The module is off or missing (the server says 'not-set-up' for that too, and 'module-off' where it can tell): the
+    // The module is off or missing (the server says 'module-off'): the
     // module's own name. An owner is also given the link (chat-input.js, paintAiState).
     case 'module-off': return noModuleLine(asOwner, owner);
     case 'not-set-up': return 'AI is not set up yet.';
@@ -2020,12 +2020,8 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
       try {
         const r = await api('GET', `/api/spaces/${encodeURIComponent(id)}/ai`);
         const reason = r.available ? '' : String(r.reason || 'other');
-        // The module off or missing: the server says 'not-set-up' for that and for a missing key. An owner can ask (GET /api/ai
-        // says which); anyone else is told the module is not on, which is also where a missing setup is fixed.
-        let moduleOff = reason === 'module-off';
-        if (reason === 'not-set-up' && !moduleOff) {
-          if (isOwner()) { try { moduleOff = (await api('GET', '/api/ai')).ai?.moduleOn === false; } catch { moduleOff = false; } } else moduleOff = true;
-        }
+        // The server says 'module-off' for the module off or missing, and 'not-set-up' for a missing provider or key.
+        const moduleOff = reason === 'module-off';
         aiState = { known: true, available: Boolean(r.available), reason: moduleOff ? 'module-off' : reason, why: r.available ? '' : String(r.why || 'AI is not available'), at: Date.now(), moduleOff };
       } catch {
         aiState = { known: false, available: true, reason: '', why: '', at: 0, moduleOff: false };

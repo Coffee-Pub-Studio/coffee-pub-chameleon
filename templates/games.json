@@ -2,7 +2,7 @@
   "id": "games",
   "name": "Games",
   "description": "Run a campaign together: the chat, the calendar for sessions, a campaign planner, quests, lore and polls, and every player as an OBS source.",
-  "version": 2,
+  "version": 3,
   "words": {
     "environment": { "one": "group", "many": "groups" },
     "space": { "one": "campaign", "many": "campaigns" },
@@ -13,7 +13,7 @@
   "icons": { "home": "dice-d20" },
   "moduleNames": { "travel": "Campaign planner", "calendar": "Sessions", "todo": "Quests", "research": "Lore", "vault": "Handouts" },
   "moduleIcons": { "travel": "scroll" },
-  "modules": ["travel", "calendar", "polls", "todo", "research", "vault", "chat", "conference"],
+  "modules": ["travel", "calendar", "polls", "todo", "research", "vault", "assistant", "chat", "conference"],
   "settings": { "showCalendar": true, "showMap": false, "calendarFeeds": true },
   "lobby": { "name": "Common room", "description": "Everyone in every campaign." },
   "spaceDefaults": { "opensWith": ["chat", "calendar"] }

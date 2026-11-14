@@ -402,7 +402,7 @@ try {
     await assert.rejects(askIn(ai, w, 'pat', 'Say nothing at the end'), (e) => e.status === 502 && e.message === "The AI didn't finish its answer.");
     fake.clear();
     fake.next({ tools: [] });
-    await assert.rejects(askIn(ai, w, 'pat', 'Say nothing'), (e) => e.status === 502 && e.message === 'The AI service gave no answer.');
+    await assert.rejects(askIn(ai, w, 'pat', 'Say nothing'), (e) => e.status === 502 && e.message === 'The AI Assistant gave no answer.');
   });
 
   await test('TOOLBAD and TOOLUNKNOWN: tool errors naming the problem, each counted as a call, then the answer', async () => {
@@ -440,7 +440,7 @@ try {
     const w = world({ sees: QUIET });
     fake.next({ tools: [search({ words: 'ferry' })] }).next({ status: 500 });
     const before = ai.usageView();
-    await assert.rejects(askIn(ai, w, 'pat', 'When does the ferry leave?'), (e) => e.status === 502 && e.message === 'The AI service had a problem. Try again in a moment.' && e.refund === false);
+    await assert.rejects(askIn(ai, w, 'pat', 'When does the ferry leave?'), (e) => e.status === 502 && e.message === 'The AI Assistant had a problem. Try again in a moment.' && e.refund === false);
     const after = ai.usageView();
     assert.deepEqual([after.tokens - before.tokens, after.calls - before.calls], [12, 1]);
     // A failure on round 1 is slice 1's: given back.
@@ -487,7 +487,7 @@ try {
       const ai = SHAPES.openai();
       const w = world({ sees: QUIET });
       fake.next({ tools: [search({ words: 'ferry' })], delayMs: 300 }).next({ tools: [search({ words: 'boat' })], delayMs: 300 });
-      await assert.rejects(askIn(ai, w, 'pat', 'Slowly?'), (e) => e.status === 502 && e.message === 'The AI service took too long to answer. Try again in a moment.');
+      await assert.rejects(askIn(ai, w, 'pat', 'Slowly?'), (e) => e.status === 502 && e.message === 'The AI Assistant took too long to answer. Try again in a moment.');
       assert.ok(['time', undefined].includes(recordsIn(ai).at(-1).stop));
       assert.equal(recordsIn(ai).at(-1).outcome, 'error');
     } finally { aiTools.LIMITS.ms = was; }
@@ -530,7 +530,7 @@ try {
     // OpenAI's own service refusing tools is an error, never a silent fall back.
     fake.clear();
     fake.refuseTools = true;
-    await assert.rejects(askIn(SHAPES.openai(), w, 'pat', 'Tools?'), (e) => e.status === 502 && e.message === 'The AI service could not answer.');
+    await assert.rejects(askIn(SHAPES.openai(), w, 'pat', 'Tools?'), (e) => e.status === 502 && e.message === 'The AI Assistant could not answer.');
     assert.equal(fake.seen.length, 1);
     fake.refuseTools = false;
   });
@@ -807,7 +807,7 @@ try {
       fake.clear();
       fake.next({ tools: [search({ words: 'ferry' })] }).next({ status: 500 });
       const r = await ask('mo', 'When does the ferry leave?');
-      assert.deepEqual([r.status, r.json.error], [502, 'The AI service had a problem. Try again in a moment.']);
+      assert.deepEqual([r.status, r.json.error], [502, 'The AI Assistant had a problem. Try again in a moment.']);
       assert.equal(await chatCount(), before, 'no part kept');
       assert.equal((await call('GET', '/api/ai/usage', { cookie: owner })).json.usage.tokens - used, 12);
     });
@@ -929,7 +929,7 @@ try {
       fake.clear();
       fake.next({ tools: [search({ words: 'ferry' })] }).next({ status: 500 });
       r = await hask('Second question');
-      assert.deepEqual([r.status, r.json.error], [502, 'The AI service had a problem. Try again in a moment.']);
+      assert.deepEqual([r.status, r.json.error], [502, 'The AI Assistant had a problem. Try again in a moment.']);
       assert.equal(await calls(), 2, 'a failure after a paid round counts once');
       fake.clear();
       fake.next({ status: 500 });

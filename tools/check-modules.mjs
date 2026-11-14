@@ -59,6 +59,24 @@ test('a manifest\'s scopes are environment, space and person', () => {
   assert.throws(() => cleanManifest({ ...base(), settings: [{ key: 'f', label: 'F', type: 'file', scope: 'space' }] }, files), /its scope must be "environment"/);
 });
 
+test('a service-only module (no surface of any kind, hooks.ai true or "optional") needs no page or canvas; anything else keeps the rule', () => {
+  const svc = { id: 'svc', name: 'Svc', version: '1.0.0', scope: ['environment', 'space'], hooks: { ai: 'optional' } };
+  const m = cleanManifest(svc, files);
+  assert.deepEqual([m.surfaces, m.scope], [{}, ['environment', 'space']], 'accepted with no page and no canvas');
+  assert.throws(() => cleanManifest({ ...svc, hooks: undefined }, files), /needs a surfaces\.page/, 'no hook: refused');
+  for (const other of ['schedule', 'notify', 'external']) assert.throws(() => cleanManifest({ ...svc, hooks: { [other]: true } }, files), /needs a surfaces\.page/, `only ${other}: refused`);
+  assert.throws(() => cleanManifest({ ...svc, hooks: { ai: true, schedule: true } }, files), /hooks\.ai true needs requires/, 'ai true still needs requires assistant');
+  assert.equal(cleanManifest({ ...svc, hooks: { ai: true }, requires: ['assistant'] }, files).hooks.ai, true, 'ai true with requires assistant: accepted');
+  assert.throws(() => cleanManifest({ ...svc, hooks: { ai: false } }, files), /needs a surfaces\.page/, 'a hook set false is no hook');
+  assert.throws(() => cleanManifest({ ...svc, scope: ['space'], hooks: {} }, files), /needs a surfaces\.canvas/, 'space scope, no hook: refused');
+  assert.throws(() => cleanManifest({ ...svc, surfaces: { widget: { entry: 'page.html' } } }, files), /needs a surfaces\.page/, 'a widget is a surface: the rule holds');
+  assert.throws(() => cleanManifest({ ...svc, scope: ['space'], surfaces: { page: { entry: 'page.html' } } }, files), /needs a surfaces\.canvas/, 'a page alone does not excuse a space scope');
+  assert.throws(() => cleanManifest({ ...svc, surfaces: { canvas: { entry: 'canvas.html' } } }, files), /needs a surfaces\.page/, 'a canvas alone does not excuse an environment scope');
+  assert.throws(() => cleanManifest({ ...svc, surfaces: { keyed: { path: 'kk', entry: 'page.html' } } }, files), /needs a surfaces\.page/, 'a keyed page is a surface');
+  assert.equal(cleanManifest({ ...svc, surfaces: { page: null, canvas: false } }, files).surfaces.page, undefined, 'null or false surfaces are none, as before');
+  assert.throws(() => cleanManifest({ ...svc, hooks: { ai: 'yes' } }, files), /needs a surfaces\.page/, 'a bad ai hook is not service-only: refused');
+});
+
 test('a secret setting is the environment\'s alone, bounded, and has no default', () => {
   const m = cleanManifest({ ...base(), settings: [{ key: 'apiKey', label: 'Key', type: 'secret', default: 'sk-fake-default', maxLength: 9999 }, { key: 'b', label: 'B', type: 'secret', scope: 'environment', maxLength: 1 }] }, files);
   assert.equal(m.settings[0].type, 'secret');

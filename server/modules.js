@@ -924,8 +924,12 @@ function cleanManifest(raw, files) {
     surfaces.keyed = { path: kpath, entry: cleanEntry(k.entry, files, 'surfaces.keyed') };
   }
   if (raw.surfaces?.destination !== undefined) surfaces.destination = cleanDestinationParts(raw.surfaces.destination, files, scope);
-  if (scope.includes('environment') && !surfaces.page) throw new ModuleError('a module with the "environment" scope needs a surfaces.page');
-  if (scope.includes('space') && !surfaces.canvas) throw new ModuleError('a module with the "space" scope needs a surfaces.canvas');
+  // A service-only module (the AI Assistant) declares no surface of any kind and an `ai` hook (true, which also needs
+  // requires: ["assistant"], or "optional", which is what the Assistant itself declares): it has no page or canvas to
+  // need. Any surface at all, or no ai hook (schedule, notify and external alone do not count), and the usual rules hold.
+  const serviceOnly = !Object.keys(surfaces).length && (raw.hooks?.ai === true || raw.hooks?.ai === 'optional');
+  if (!serviceOnly && scope.includes('environment') && !surfaces.page) throw new ModuleError('a module with the "environment" scope needs a surfaces.page');
+  if (!serviceOnly && scope.includes('space') && !surfaces.canvas) throw new ModuleError('a module with the "space" scope needs a surfaces.canvas');
 
   const permissions = [];
   for (const p of Array.isArray(raw.permissions) ? raw.permissions.slice(0, 20) : []) {
@@ -1165,6 +1169,8 @@ class ModuleManager {
       // Fill in what it left out.
       manifest.hooks = Object.fromEntries(HOOKS.map((h) => [h, h === 'ai' ? (manifest.hooks?.ai === 'optional' ? 'optional' : Boolean(manifest.hooks?.ai)) : Boolean(manifest.hooks?.[h])]));
       manifest.scope = cleanScope(manifest.scope);
+      // A service-only module declares no surfaces at all (cleanManifest).
+      if (!manifest.surfaces || typeof manifest.surfaces !== 'object' || Array.isArray(manifest.surfaces)) manifest.surfaces = {};
       if (!Array.isArray(manifest.permissions)) manifest.permissions = [];
       if (!manifest.access || typeof manifest.access !== 'object') manifest.access = {};
       manifest.requires = Array.isArray(manifest.requires) ? manifest.requires.filter((r) => typeof r === 'string' && ID_RE.test(r) && r !== id).slice(0, 5) : [];

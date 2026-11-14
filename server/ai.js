@@ -65,7 +65,7 @@ const MAX_ITEMS = prompts.MAX_MATERIAL;
 const LOG_DAYS = 30;
 // The longest answer text, with its cut-off note, that is returned and kept: what a stored AI message may hold.
 const MAX_ANSWER_TEXT = CHAT_LIMITS.MAX_AI_TEXT;
-const NO_ANSWER = 'The AI service gave no answer.';
+const NO_ANSWER = 'The AI Assistant gave no answer.';
 
 // An answer's text cut to fit MAX_ANSWER_TEXT, never in the middle of a {{summary:N}} place or a surrogate pair. `cut`: the
 // answer was cut (here, by the provider or mid-object); the page says so from it, so no note is added to the text.

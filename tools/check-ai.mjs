@@ -418,7 +418,7 @@ await test('a non-ok answer: a plain sentence reaches the caller; the service\'s
     failNext = { status: 404, body: { error: { message: 'The model `gpt-bogus` does not exist' } } };
     await assert.rejects(
       ask(ai, 'ask', items, 'a question'),
-      (e) => e instanceof AiError && e.status === 502 && e.message === 'The AI service could not answer.' && !/does not exist|404/.test(e.message),
+      (e) => e instanceof AiError && e.status === 502 && e.message === 'The AI Assistant could not answer.' && !/does not exist|404/.test(e.message),
     );
     assert.ok(logs.some((l) => /404/.test(l) && /does not exist/.test(l)), 'the provider\'s own words go to the log, not the page');
     assert.ok(!logs.some((l) => l.includes('sk-should-never-leak')), 'the key never reaches the log');
@@ -427,13 +427,13 @@ await test('a non-ok answer: a plain sentence reaches the caller; the service\'s
     // 401 and 429 keep their own plain wording, not the provider's raw text appended.
     logs.length = 0;
     failNext = { status: 401, body: { error: { message: 'Incorrect API key provided' } } };
-    await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI service refused the key.');
+    await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI Assistant refused the key.');
     failNext = { status: 429, body: { error: { message: 'rate limited' } } };
-    await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI service is busy. Try again in a moment.');
+    await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI Assistant is busy. Try again in a moment.');
 
     // A body with nothing useful in it: no crash, just the status.
     failNext = { status: 500, body: {} };
-    await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI service had a problem. Try again in a moment.');
+    await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI Assistant had a problem. Try again in a moment.');
   } finally {
     console.warn = origWarn;
   }

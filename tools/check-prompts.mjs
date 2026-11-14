@@ -271,7 +271,7 @@ function world({ sees = {}, spaceSees = null, aiOff = false, noChatRead = [], ex
   };
   const chat = { s1: [] };
   const links = [{ from: ref('research', 'note', 'n1'), to: ref('research', 'note', 'n2') }, { from: ref('research', 'note', 'n1'), to: ref('maps', 'place', 'p1') }, { from: ref('research', 'note', 'n1'), to: ref('research', 'note', 'o1', 'space', 's2') }];
-  const ai = { ready: () => true, view: () => ({}), overCap: () => false, inFlight: () => 0, config: { sees }, key: () => 'sk-ai-key-SECRET-1234567' };
+  const ai = { moduleOn: () => true, ready: () => true, view: () => ({}), overCap: () => false, inFlight: () => 0, config: { sees }, key: () => 'sk-ai-key-SECRET-1234567' };
   const store = {
     spaces, streamKey: 'streamkeySECRET99999', users: Object.values(users),
     userByKey: (k) => users[k] || null,
@@ -877,7 +877,7 @@ try {
     for (const json of [['array'], { answer: 123 }, { answer: '', objects: 'no', used: 'x' }]) {
       fakeA.next({ json });
       const r = await ask('jon', 'an answer that is not one?');
-      assert.deepEqual([r.status, r.json.error], [502, 'The AI service gave no answer.'], JSON.stringify(json));
+      assert.deepEqual([r.status, r.json.error], [502, 'The AI Assistant gave no answer.'], JSON.stringify(json));
     }
     assert.equal((await call('GET', `/api/spaces/${space.id}/chat`, { cookie: tok.jon })).json.messages.length, before, 'nothing kept, not even the question');
     const rec = fs.readFileSync(path.join(dataDir, 'modules', 'assistant', 'ai-log.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);

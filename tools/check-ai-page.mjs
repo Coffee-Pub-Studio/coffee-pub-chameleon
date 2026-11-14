@@ -112,7 +112,7 @@ function unitChecks() {
   expect(c.filter((x) => x.cite).map((x) => x.cite.join('+')).join(',') === '1,2+3', 'citations are not read');
   // The default question is the server's now: no page or module writes it.
   const root = path.join(path.dirname(new URL(import.meta.url).pathname), '..');
-  for (const f of ['modules/research/src/research.js', 'modules/assistant/src/assistant.js', 'public/module-host.js', 'public/sdk/host.js', 'public/chat-input.js']) {
+  for (const f of ['modules/research/src/research.js', 'public/module-host.js', 'public/sdk/host.js', 'public/chat-input.js']) {
     expect(!/should I know about/.test(fs.readFileSync(path.join(root, f), 'utf8').replace(/\/\/.*$/gm, '')), `${f} still writes the default question`);
   }
   expect(/question: '',/.test(fs.readFileSync(path.join(root, 'modules/research/src/research.js'), 'utf8')), 'Research this does not send an empty question with the object');

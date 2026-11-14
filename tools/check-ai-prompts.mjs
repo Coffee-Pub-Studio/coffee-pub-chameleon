@@ -183,8 +183,8 @@ await test('ai-16: error sentences are plain', async () => {
   const warn = console.warn;
   console.warn = () => {};
   try {
-    await assert.rejects(ask(dead, [], 'hello there'), (e) => e.status === 502 && e.message === 'The AI service did not answer. Try again in a moment.' && !/TypeError|fetch|ECONN/.test(e.message));
-    await assert.rejects(ask(setUp(), [], 'ERR500 please'), (e) => e.message === 'The AI service had a problem. Try again in a moment.');
+    await assert.rejects(ask(dead, [], 'hello there'), (e) => e.status === 502 && e.message === 'The AI Assistant did not answer. Try again in a moment.' && !/TypeError|fetch|ECONN/.test(e.message));
+    await assert.rejects(ask(setUp(), [], 'ERR500 please'), (e) => e.message === 'The AI Assistant had a problem. Try again in a moment.');
   } finally { console.warn = warn; }
 });
 
@@ -196,9 +196,9 @@ await test('ai-15: a failed ask is given back only when the service did no work,
     dead.set({ enabled: true, provider: 'compatible', address: 'http://127.0.0.1:1', model: 'm' });
     await assert.rejects(ask(dead, [], 'hello there'), (e) => e.refund === true, 'no connection: given back');
     await assert.rejects(ask(setUp(), [], 'ERR500 please'), (e) => e.refund === true, 'the service down: given back');
-    await assert.rejects(ask(setUp(), [], 'FILTER this'), (e) => e.refund === false && e.message === 'The AI service could not answer.', 'its own refusal: counted');
+    await assert.rejects(ask(setUp(), [], 'FILTER this'), (e) => e.refund === false && e.message === 'The AI Assistant could not answer.', 'its own refusal: counted');
     const blank = setUp();
-    await assert.rejects(ask(blank, [], 'BLANK please'), (e) => e.refund === false && e.message === 'The AI service gave no answer.', 'a blank answer: counted');
+    await assert.rejects(ask(blank, [], 'BLANK please'), (e) => e.refund === false && e.message === 'The AI Assistant gave no answer.', 'a blank answer: counted');
     assert.equal(blank.usageView().tokens, 900, 'the tokens it reported are recorded');
     await assert.rejects(ask(fresh(), [], 'hello there'), (e) => e.refund === true, 'not set up: given back');
   } finally { console.warn = warn; }
@@ -322,7 +322,7 @@ try {
   for (let i = 0; i < 8; i++) {
     r = await ask('quin', 'ERR500 please');
     assert.equal(r.status, 502);
-    assert.equal(r.json.error, 'The AI service had a problem. Try again in a moment.');
+    assert.equal(r.json.error, 'The AI Assistant had a problem. Try again in a moment.');
   }
   for (let i = 0; i < 6; i++) assert.equal((await ask('quin', `fine question ${i}`)).status, 200, `ask ${i}`);
   r = await ask('quin', 'one more question');
@@ -335,10 +335,10 @@ try {
   const usedBefore = (await call('GET', '/api/ai', { cookie: owner })).json.usage.tokens;
   for (let i = 0; i < 5; i++) {
     r = await ask('kit', `BLANK answer ${i}`);
-    assert.deepEqual([r.status, r.json.error], [502, 'The AI service gave no answer.']);
+    assert.deepEqual([r.status, r.json.error], [502, 'The AI Assistant gave no answer.']);
   }
   r = await ask('kit', 'FILTER this one');
-  assert.deepEqual([r.status, r.json.error], [502, 'The AI service could not answer.']);
+  assert.deepEqual([r.status, r.json.error], [502, 'The AI Assistant could not answer.']);
   r = await ask('kit', 'a real question now');
   assert.equal(r.status, 429, `the seventh ask in a minute after six the service answered is slowed: ${r.text}`);
   const usedAfter = (await call('GET', '/api/ai', { cookie: owner })).json.usage.tokens;
@@ -394,10 +394,15 @@ try {
   assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: false, force: true } })).status, 200);
   assert.deepEqual([await isOn('needs-ai'), await isOn('assistant')], [false, false], 'off: the module that needs AI goes with it');
   r = await call('GET', A, { cookie: tok.sam });
-  assert.deepEqual([r.json.available, r.json.reason], [false, 'not-set-up'], 'module off: AI is not turned on');
+  assert.deepEqual([r.json.available, r.json.reason, r.json.why], [false, 'module-off', 'AI Assistant is not turned on.'], 'module off: its own reason, for a member');
+  r = await ask('sam', 'with the assistant off');
+  assert.equal(r.status, 503, 'asking with the assistant off is still a 503');
   assert.deepEqual([(await call('GET', '/api/ai', { cookie: owner })).json.ai.moduleOn, (await call('GET', '/api/ai', { cookie: owner })).json.ai.enabled], [false, true], 'the saved setting stays');
   assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true } })).status, 200);
   assert.equal((await call('GET', A, { cookie: tok.sam })).json.available, true, 'module on again: AI is back, setting as it was');
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: false, force: true } })).status, 200);
+  assert.equal((await call('GET', A, { cookie: owner })).json.reason, 'module-off', 'the owner reads the same');
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true } })).status, 200);
 
   // ai-13 over the wire: a new address does not inherit the saved key.
   assert.equal((await call('PUT', '/api/ai', { cookie: owner, body: { key: 'sk-saved' } })).json.ai.keySet, true);
@@ -412,7 +417,8 @@ try {
   r = await ask('sam', 'and again');
   assert.equal(r.status, 429);
   assert.equal((await call('PUT', '/api/ai', { cookie: owner, body: { monthlyTokens: 0, enabled: false, force: true } })).status, 200);
-  assert.deepEqual([(await call('GET', A, { cookie: tok.sam })).json.reason], ['not-set-up']);
+  r = await call('GET', A, { cookie: tok.sam });
+  assert.deepEqual([r.json.reason, r.json.why], ['not-set-up', 'AI is not set up here.'], 'module on, no provider or key: not-set-up, a member reads it');
 } finally {
   child.kill('SIGTERM');
   await fake.close();

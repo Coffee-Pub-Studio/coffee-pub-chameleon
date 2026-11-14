@@ -156,7 +156,7 @@ function redactSummary(summary, secrets = []) {
 
 // --- The sentences ---------------------------------------------------------------------------------------------------------
 // One set, plain and capitalised, in the template's words. `word` is server/words.js's.
-function sentences(word) {
+function sentences(word, assistant = 'AI Assistant') {
   return {
     signin: 'Sign in first.',
     guest: `${word('guest', { many: true, cap: true })} can't use AI.`,
@@ -165,6 +165,7 @@ function sentences(word) {
     member: `You are not in this ${word('space')}.`,
     chat: `Your role can't chat in this ${word('space')}, so it can't ask the AI there.`,
     module: `Your role can't do that in this ${word('module')}.`,
+    'module-off': `${assistant} is not turned on.`,
     'not-set-up': 'AI is not set up here.',
     'key-unreadable': `The saved AI key can't be read on this server; ${word('owner', { a: true })} needs to enter it again.`,
     allowance: `This ${word('environment')} has used its AI allowance for the month.`,
@@ -179,10 +180,14 @@ function sentences(word) {
 function createAiPolicy(deps) {
   const { store, ai, modules, word, resolveRef, limits, aiCallsRefusal, hasOwnerRights } = deps;
   const LIMIT_KEY = '#ai'; // one count for all AI together, under a key no module id can take
-  const refuse = (status, reason, why) => ({ ok: false, status, reason, why: why || sentences(word)[reason] });
+  // The AI Assistant module as this environment calls it (a module can be renamed).
+  const assistantName = () => { try { return modules.displayOf('assistant').name || 'AI Assistant'; } catch { return 'AI Assistant'; } };
+  const refuse = (status, reason, why) => ({ ok: false, status, reason, why: why || sentences(word, assistantName())[reason] });
 
   // The service itself, whoever asks: { ok } or a refusal (503 not set up or the key unreadable, 429 the allowance).
   function service() {
+    // The AI Assistant module off or not installed is its own reason, so a person can be told which.
+    if (!ai.moduleOn()) return refuse(503, 'module-off');
     if (!ai.ready()) {
       const v = ai.view();
       if (v.keyUnreadable && v.enabled) return refuse(503, 'not-set-up', sentences(word)['key-unreadable']);
@@ -278,7 +283,7 @@ function createAiPolicy(deps) {
     return '';
   }
 
-  return { check, availability, takeTurn, giveBack, sees, admit, secrets, redact: redactText, importRefusal, sentences: () => sentences(word), service };
+  return { check, availability, takeTurn, giveBack, sees, admit, secrets, redact: redactText, importRefusal, sentences: () => sentences(word, assistantName()), service };
 }
 
 module.exports = {
