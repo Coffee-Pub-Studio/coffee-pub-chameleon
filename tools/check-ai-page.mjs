@@ -14,7 +14,7 @@
  *     links to the object it names, the Not sent line when the owner's setting kept it out, and The answer was cut short.;
  *   - every ask sends the browser's time zone; a question over 1,000 characters is refused in the box with the count;
  *   - the notices for the reasons chat, member and module say the server's sentence;
- *   - Manage's AI service tab: the What AI may see rows (saved and reset through /api/ai) and this month's use;
+ *   - Manage's AI Assistant tab: the What AI may see rows (saved and reset through /api/ai) and this month's use;
  *   - a space's Set up: What AI may see follows the environment until its switch is turned off, then saves for the space only.
  *
  *   node tools/check-ai-page.mjs        (no Chromium: SKIPPED, exit 0; that is a skip, never a pass)
@@ -307,18 +307,18 @@ async function cutChecks(open, workspace) {
   } finally { await t.close(); }
 }
 
-// Manage's AI service tab: What AI may see, and this month's use.
+// Manage's AI Assistant tab: What AI may see, and this month's use.
 async function manageChecks(open, S, admin) {
   // AI_PAGE_SIZE limits which widths this runs at; the width it measures against is always the one it opened.
   const only = Number(process.env.AI_PAGE_SIZE);
   for (const size of only ? [only] : [1280, 390]) {
-    const m = await open({ as: 'admin', url: '/admin#modules/ai', wait: '#ai-sees-box' }, size);
+    const m = await open({ as: 'admin', url: '/admin#modules/assistant', wait: '#ai-sees-box' }, size);
     try {
       await sleep(2200);
       const rows = await m.eval(`({ switches: document.querySelectorAll('#ai-sees-box input[role=switch][data-sees]').length, select: !!document.querySelector('#ai-sees-box select'), block: document.getElementById('ai-sees-block').getClientRects().length > 0 })`);
-      expect(rows.block && rows.switches === 7 && rows.select, `What AI may see is not drawn on the AI service tab (${JSON.stringify(rows)})`);
+      expect(rows.block && rows.switches === 7 && rows.select, `What AI may see is not drawn on the AI Assistant tab (${JSON.stringify(rows)})`);
       const wide = await m.eval(`document.documentElement.scrollWidth <= ${size} + 1`);
-      expect(wide, `the AI service tab scrolls sideways at ${size}`);
+      expect(wide, `the AI Assistant tab scrolls sideways at ${size}`);
       await m.eval(`document.getElementById('ai-sees-block').scrollIntoView()`);
       await snap(m, `manage-sees-${size}`);
       await m.eval(`document.getElementById('ai-use-block').scrollIntoView()`);

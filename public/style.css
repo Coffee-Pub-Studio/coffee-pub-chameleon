@@ -6481,12 +6481,14 @@ body.chat-window {
 #region-zoom { width: 60px; text-align: center; }
 #region-filename { width: 200px; }
 
-/* the AI service panel (Modules tab) */
+/* AI Assistant's setup (its Modules tab) */
 .ai-fields { display: flex; flex-direction: column; gap: 12px; margin: 12px 0; }
 .ai-fields label { display: flex; flex-direction: column; gap: 4px; }
 .ai-fields [hidden] { display: none; }
 .ai-key-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ai-key-row input { flex: 1; min-width: 200px; }
+/* On a phone the key's buttons are full-size targets. */
+@media (max-width: 640px) { .ai-key-row .btn, .ai-model-row .btn { min-height: 44px; } .ai-key-row input { min-height: 44px; } }
 /* A saved key the server can't read: the server's sentence, in place of the key's usual hint. */
 .ai-key .hint.error { color: var(--danger-text); }
 .ai-usage { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
