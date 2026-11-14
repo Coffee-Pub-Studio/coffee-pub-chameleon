@@ -101,7 +101,9 @@ function buildModule(dir) {
   // The page and the panel are one file; a dashboard widget is its own (src/<id>-widget.*), and so is a keyed
   // page (src/<id>-keyed.*) -- a transparent box for something like OBS is a different page from the module's
   // own, not a variant of it. Both share the same lib.
-  const shared = build(manifest.id);
+  // Built only when a surface needs it: a service-only module (no surfaces) has no page.
+  let sharedPage = null;
+  const shared = () => (sharedPage ??= build(manifest.id));
   const files = [['module.json', fs.readFileSync(manifestPath)]];
   const seen = new Set();
   // surfaces.destination is a list of parts (plan-calendar-destination.md), each drawn from the module's own page.
@@ -112,7 +114,7 @@ function buildModule(dir) {
     // A destination part whose entry is `<part>.html` is its own page when src/<id>-<part>.html exists (Maps' list part, list.html).
     const partPage = surface === 'destination' ? `${manifest.id}-${path.basename(def.entry, '.html')}` : null;
     const own = partPage && partPage !== manifest.id && srcFiles.includes(`${partPage}.html`) ? partPage : null;
-    files.push([def.entry, Buffer.from(surface === 'widget' ? build(`${manifest.id}-widget`) : surface === 'keyed' ? build(`${manifest.id}-keyed`) : own ? build(own, own) : shared)]);
+    files.push([def.entry, Buffer.from(surface === 'widget' ? build(`${manifest.id}-widget`) : surface === 'keyed' ? build(`${manifest.id}-keyed`) : own ? build(own, own) : shared())]);
   }
   return { manifest, fileCount: files.length, zip: zipFiles(files) };
 }

@@ -148,7 +148,7 @@ async function send(c, url, headers, body, guard, timeoutMs = FETCH_MS) {
     // Given back only when nothing reached the service or the connection failed before it began answering; a timeout or an
     // over-long answer may have been worked on, and billed, so it counts.
     const refund = err.code === 'blocked' || (err.code === 'network' && !err.answered);
-    throw new AiError(err.code === 'timeout' ? 'The AI service took too long to answer. Try again in a moment.' : err.code === 'toolarge' ? 'The AI service sent back too much.' : 'The AI service did not answer. Try again in a moment.', 502, { refund, kind: err.code });
+    throw new AiError(err.code === 'timeout' ? 'The AI Assistant took too long to answer. Try again in a moment.' : err.code === 'toolarge' ? 'The AI Assistant sent back too much.' : 'The AI Assistant did not answer. Try again in a moment.', 502, { refund, kind: err.code });
   }
 }
 
@@ -157,10 +157,10 @@ function statusError(c, res) {
   try { const errJson = JSON.parse(res.text); providerMessage = String(errJson?.error?.message || errJson?.message || ''); } catch { /* not JSON */ }
   console.warn(`[ai] ${c.provider}/${c.model}: ${res.status}${providerMessage ? ` ${oneLine(providerMessage, 300)}` : ''}`);
   return new AiError(
-    res.status === 401 || res.status === 403 ? 'The AI service refused the key.'
-      : res.status === 429 ? 'The AI service is busy. Try again in a moment.'
-        : res.status >= 500 ? 'The AI service had a problem. Try again in a moment.'
-          : 'The AI service could not answer.',
+    res.status === 401 || res.status === 403 ? 'The AI Assistant refused the key.'
+      : res.status === 429 ? 'The AI Assistant is busy. Try again in a moment.'
+        : res.status >= 500 ? 'The AI Assistant had a problem. Try again in a moment.'
+          : 'The AI Assistant could not answer.',
     502,
     // Busy, down or the key refused: the service did no work. Any other refusal (a content filter, say) counts.
     { refund: res.status === 429 || res.status >= 500 || res.status === 401 || res.status === 403, kind: `status-${res.status}` },
@@ -188,13 +188,13 @@ async function complete(c, { structuredRendered, textRendered, mode }, { hosts =
   }
   if (res.status < 200 || res.status >= 300) throw statusError(c, res);
   let json;
-  try { json = JSON.parse(res.text); } catch { throw new AiError('The AI service answered something unreadable.', 502, { kind: 'unreadable' }); }
-  if (!json || typeof json !== 'object') throw new AiError('The AI service answered something unreadable.', 502, { kind: 'unreadable' });
+  try { json = JSON.parse(res.text); } catch { throw new AiError('The AI Assistant answered something unreadable.', 502, { kind: 'unreadable' }); }
+  if (!json || typeof json !== 'object') throw new AiError('The AI Assistant answered something unreadable.', 502, { kind: 'unreadable' });
   const tokens = tokensOf(c.provider, json);
   const { text, structured } = answerOf(c.provider, json, useMode === 'structured');
   const finish = finishOf(c.provider, json);
   if ((typeof text !== 'string' || !text.trim()) && !structured) {
-    throw new AiError(finish === 'filter' ? 'The AI service would not answer that.' : 'The AI service gave no answer.', 502, { tokens: tokens.in + tokens.out, kind: finish === 'filter' ? 'filter' : 'empty' });
+    throw new AiError(finish === 'filter' ? 'The AI Assistant would not answer that.' : 'The AI Assistant gave no answer.', 502, { tokens: tokens.in + tokens.out, kind: finish === 'filter' ? 'filter' : 'empty' });
   }
   // A provider that reports no counts: estimated from characters (about four to a token).
   if (!tokens.in && !tokens.out) {
@@ -329,8 +329,8 @@ async function completeRound(c, { rendered, conversation, tools, force = '', rou
   }
   if (res.status < 200 || res.status >= 300) throw statusError(c, res);
   let json;
-  try { json = JSON.parse(res.text); } catch { throw new AiError('The AI service answered something unreadable.', 502, { kind: 'unreadable' }); }
-  if (!json || typeof json !== 'object') throw new AiError('The AI service answered something unreadable.', 502, { kind: 'unreadable' });
+  try { json = JSON.parse(res.text); } catch { throw new AiError('The AI Assistant answered something unreadable.', 502, { kind: 'unreadable' }); }
+  if (!json || typeof json !== 'object') throw new AiError('The AI Assistant answered something unreadable.', 502, { kind: 'unreadable' });
   const tokens = tokensOf(c.provider, json);
   const calls = callsOf(c.provider, json, round, (conversation || []).flatMap((t) => (Array.isArray(t.calls) ? t.calls.map((x) => x.id) : [])));
   const { text } = answerOf(c.provider, json, false);

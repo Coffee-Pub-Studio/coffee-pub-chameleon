@@ -1,25 +1,14 @@
 {
   "id": "assistant",
   "name": "AI Assistant",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "icon": "wand-magic-sparkles",
   "description": "The AI for Chat and Research: set it up on this {module}'s Manage tab. Chat's Assistant view shows your commands, the AI's answers and what you bring in. This {module} has no window of its own.",
   "author": "Coffee Pub",
   "scope": [
+    "environment",
     "space"
   ],
-  "surfaces": {
-    "canvas": {
-      "entry": "canvas.html",
-      "width": 420,
-      "height": 600,
-      "mode": [
-        "dock",
-        "float"
-      ],
-      "menu": false
-    }
-  },
   "permissions": [
     {
       "key": "use",

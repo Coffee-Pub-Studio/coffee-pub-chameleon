@@ -28,8 +28,8 @@ const LIMITS = { rounds: 4, calls: 8, ms: 120000, resultChars: 8000, resultsChar
 const NOT_FOUND = 'Not found.';
 const NO_MORE = 'No more look-ups; answer now.';
 const DIDNT_FINISH = "The AI didn't finish its answer.";
-const NO_ANSWER = 'The AI service gave no answer.';
-const TOO_LONG = 'The AI service took too long to answer. Try again in a moment.';
+const NO_ANSWER = 'The AI Assistant gave no answer.';
+const TOO_LONG = 'The AI Assistant took too long to answer. Try again in a moment.';
 
 const keyOf = (r) => `${r.module}|${r.kind}|${r.scope}|${r.space || ''}|${r.id}`;
 const placeText = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' && typeof v.name === 'string' ? v.name : '');

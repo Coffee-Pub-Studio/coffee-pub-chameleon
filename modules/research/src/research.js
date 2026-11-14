@@ -861,7 +861,7 @@
 
   async function checkAi() {
     state.aiOff = false;
-    try { const a = await host.ai.available(); state.ai = Boolean(a.available); state.aiOff = !a.available && a.reason === 'not-set-up'; } catch (err) { state.ai = false; }
+    try { const a = await host.ai.available(); state.ai = Boolean(a.available); state.aiOff = !a.available && (a.reason === 'not-set-up' || a.reason === 'module-off'); } catch (err) { state.ai = false; }
     // "Research this" asks in Chat, which a module's own page has none of.
     try { state.chat = Boolean((await host.chat.available()).available); } catch (err) { state.chat = false; }
   }

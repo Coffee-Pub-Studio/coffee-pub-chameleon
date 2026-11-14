@@ -21,6 +21,7 @@ export function reasonWord(reason) {
     member: `Not in the ${word('space')}`,
     chat: `The role cannot chat in the ${word('space')}`,
     module: `The role cannot do that in the ${word('module')}`,
+    'module-off': 'AI Assistant off',
     'not-set-up': 'AI not set up',
     allowance: 'Allowance used up',
     limit: 'Too many asks in a minute',
