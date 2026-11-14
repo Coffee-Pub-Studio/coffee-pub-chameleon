@@ -7659,9 +7659,7 @@ function externalWhy(user) {
       const missing = modules.missingFor(manifest);
       if (missing.length) {
         const names = missing.map((r) => modules.missingName(r)).join(' and ');
-        // The AI service is not on the Modules tab, so only modules get a place to go.
-        const fact = `${name} needs ${names} installed and turned on first.`;
-        return plain(missing.includes('ai') ? fact : `${fact} ${ask(`turn on ${names}`, modulesTab)}`);
+        return plain(`${name} needs ${names} installed and turned on first. ${ask(`turn on ${names}`, modulesTab)}`);
       }
       return plain(ask(`turn on ${name}`, modulesTab));
     }
@@ -9134,7 +9132,7 @@ app.get('/api/destinations/:id', (req, res) => {
 // returns text with any summaries the model wrote (each checked). A module's ask keeps nothing: no question, no answer, no object's text
 // (Chat's own /ai keeps the person's question and answer as private messages). The activity list gets who, which module and task, and
 // how many tokens.
-app.get('/api/ai', requireOwner, (_req, res) => res.json({ ai: ai.view(), usage: ai.usageView(), dependents: modules.aiDependents() }));
+app.get('/api/ai', requireOwner, (_req, res) => res.json({ ai: ai.view(), usage: ai.usageView() }));
 // The AI usage view (plan-ai-integration.md, "Observability"), for owners: this month's tokens and calls by template, person
 // and space, refusals by reason, errors and cut-short answers, and the last 50 call records (never any content).
 app.get('/api/ai/usage', requireOwner, (_req, res) => res.json(ai.usageReport()));
@@ -9180,26 +9178,9 @@ app.put('/api/ai', requireOwner, async (req, res) => {
   try {
     const before = ai.view();
     await ai.checkAddress(req.body || {});
-    // Turning AI off (however the patch does it) while a module depends on it: the admin's page should have asked first (as it
-    // does for a module others `requires`); a caller that skipped that, or forces past it, is handled the same way.
-    if (before.enabled && !ai.previewEnabled(req.body || {}) && req.body?.force !== true) {
-      const dependents = modules.aiDependents();
-      if (dependents.length) throw new AiError(`${dependents.map((m) => m.name).join(' and ')} needs the AI service; turn ${dependents.length === 1 ? 'it' : 'them'} off too?`);
-    }
     const after = ai.set(req.body || {});
-    // The modules switched off with the service are remembered, and switched on again when the service is: turning AI off and on
-    // again leaves everything as it was.
-    if (before.enabled && !after.enabled) {
-      const off = modules.aiDependents();
-      ai.rememberCascade(off.map((m) => m.id));
-      for (const m of off) { moduleHolds.expireModule(m.id); modules.update(m.id, { enabled: false, force: true }); } // a Clear waiting for its Undo is finished while the module is on
-    } else if (!before.enabled && after.enabled) {
-      for (const id of ai.takeCascade()) {
-        try { if (modules.view(id) && !modules.enabled(id)) modules.update(id, { enabled: true }); } catch { /* left off: an owner can switch it on */ }
-      }
-    }
     noteActivity('host', `changed the AI setting (${after.provider}${after.keySet && !before.keySet ? ', key set' : ''})`, currentUser(req)?.key, null);
-    res.json({ ai: after, usage: ai.usageView(), dependents: modules.aiDependents() });
+    res.json({ ai: after, usage: ai.usageView() });
   } catch (err) {
     sendAiError(err, res);
   }

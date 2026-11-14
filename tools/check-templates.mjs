@@ -272,7 +272,6 @@ try {
   const travel = templates.get('travel');
   await test('applying twice gives the same environment: settings, the Lobby, space defaults, icons, modules on in every space', async () => {
     const env = freshEnvironment('twice');
-    env.modules.aiReady = () => true; // an AI service set up, so Research can be on
     const first = await templates.applyTemplate(env, travel);
     const once = snapshot(env);
     const second = await templates.applyTemplate(env, travel);
@@ -307,18 +306,16 @@ try {
 
   await test('a module the plan leaves out is skipped and recorded; what needs a skipped one is skipped too', async () => {
     const noMaps = freshEnvironment('no-maps');
-    noMaps.modules.aiReady = () => true;
     assert.deepEqual(await templates.applyTemplate(noMaps, travel, { allowed: (id) => id !== 'maps' }), [{ id: 'maps', why: 'not in the plan' }]);
     assert.equal(noMaps.modules.isInstalled('maps'), false);
     assert.equal(noMaps.modules.enabled('travel') !== null, true, 'the rest still runs');
   });
 
-  await test('a template that lists the Assistant skips it (retired; ask in Chat with /ai)', async () => {
-    const env = freshEnvironment('no-assistant');
-    env.modules.aiReady = () => true;
+  await test('a template that lists the Assistant gets it, as any module (not retired)', async () => {
+    const env = freshEnvironment('with-assistant');
     const skipped = await templates.applyTemplate(env, { ...travel, modules: [...travel.modules, 'assistant'] });
-    assert.ok(skipped.some((x) => x.id === 'assistant' && /retired/.test(x.why)), JSON.stringify(skipped));
-    assert.equal(env.modules.isInstalled('assistant'), false);
+    assert.deepEqual(skipped, []);
+    assert.equal(env.modules.enabled('assistant') !== null, true);
   });
 
   await test('a template that leaves the conference out switches it off', async () => {
@@ -346,7 +343,6 @@ try {
     assert.deepEqual(templates.problemsOf(raw, { file: 'games.json', bundled }), []);
     // What a person reads, and what a new group is made with.
     const env = freshEnvironment('games');
-    env.modules.aiReady = () => true;
     assert.deepEqual(await templates.applyTemplate(env, t), []);
     templates.useLive(env.store, t);
     const w = env.store.resolvedWords();
@@ -397,7 +393,6 @@ try {
 
   await test('made from a template, its modules are in every space but the Lobby; the Calendar, made for it, is there too', async () => {
     const env = freshEnvironment('lobby-rule');
-    env.modules.aiReady = () => true;
     await templates.applyTemplate(env, travel);
     for (const id of ['travel', 'maps', 'research']) assert.equal(env.modules.isOnIn(id, LOBBY), false, `${id} not in the Lobby`);
     const trip = env.store.addSpace({ name: 'Lisbon' });
@@ -411,7 +406,6 @@ try {
   const switchSnapshot = (env) => ({ ...snapshot(env), words: env.store.settings.words || null });
   await test('a switch offers what the template would add, and applying the confirmed part twice gives the same environment', async () => {
     const env = freshEnvironment('switch');
-    env.modules.aiReady = () => true;
     const icons = env.store.iconIds();
     env.store.updateSettings({ homeIcon: icons[icons.length - 1], conferenceEnabled: false, words: { member: { one: 'player', many: 'players' } } });
     const owned = { homeIcon: env.store.settings.homeIcon, words: env.store.settings.words };
@@ -441,7 +435,6 @@ try {
 
   await test('a switch never turns the conference or a module off, and nothing ticked changes nothing', async () => {
     const env = freshEnvironment('never-off');
-    env.modules.aiReady = () => true; // Research on too (without an AI service it stays off, and a switch offers it)
     await templates.applyTemplate(env, travel);
     const before = snapshot(env);
     const noConference = { ...travel, modules: travel.modules.filter((m) => m !== 'conference' && m !== 'maps') };
@@ -500,7 +493,6 @@ try {
 
   await test('applied once: reactions become the environment\'s, the theme is added and made active; twice gives the same', async () => {
     const env = freshEnvironment('grown');
-    env.modules.aiReady = () => true;
     const t = templates.cleanTemplate(grown());
     await templates.applyTemplate(env, t);
     const once = { reactions: env.store.settings.reactions, active: env.store.settings.activeThemeId, themes: env.store.themes.length };
@@ -512,7 +504,6 @@ try {
 
   await test('a newer version offers only what is new, the rest unticked; confirming applies only what is ticked', async () => {
     const env = freshEnvironment('update');
-    env.modules.aiReady = () => true;
     const v1 = templates.cleanTemplate(grown({ modules: ['travel', 'maps', 'chat', 'conference'] }));
     await templates.applyTemplate(env, v1);
     assert.deepEqual(templates.offerFor(env, v1).modules, [], 'nothing new in the same version');

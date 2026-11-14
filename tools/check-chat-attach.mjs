@@ -227,6 +227,9 @@ async function call(method, urlPath, { body, cookie, raw } = {}) {
 try {
   const login = async (name, password) => (await call('POST', '/api/login', { body: { login: name, password } })).json.token;
   const owner = await login('admin', 'testpass1234');
+  // AI is on only while the AI Assistant module is installed and on.
+  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   const mk = async (name) => (await call('POST', '/api/users', { cookie: owner, body: { login: name, displayName: name[0].toUpperCase() + name.slice(1), role: 'member', password: 'memberpass1234' } })).json.user;
   // One person for each case: the rate limit is per person (a few questions a minute).
   const names = ['sam', 'pat', ...Array.from({ length: 10 }, (_, i) => `a${i + 1}`)];

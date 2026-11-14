@@ -242,6 +242,9 @@ async function call(method, urlPath, { body, cookie } = {}) {
 try {
   const login = async (name, password) => (await call('POST', '/api/login', { body: { login: name, password } })).json.token;
   const owner = await login('admin', 'testpass1234');
+  // AI is on only while the AI Assistant module is installed and on.
+  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   const mk = async (name) => (await call('POST', '/api/users', { cookie: owner, body: { login: name, displayName: name, role: 'member', password: 'memberpass1234' } })).json.user;
   const [pat, sam, quin, mo, kit] = [await mk('pat'), await mk('sam'), await mk('quin'), await mk('mo'), await mk('kit')];
   const space = (await call('POST', '/api/spaces', { cookie: owner, body: { name: 'Trip', members: [pat.key, sam.key, quin.key, mo.key, kit.key] } })).json.space;
@@ -377,24 +380,24 @@ try {
   assert.equal(r.status, 200, `asked in the space, with AI on: answered: ${r.text}`);
   assert.ok(JSON.stringify(seen.at(-1).body).includes('TOPSECRET'), 'and its object is sent');
 
-  // ai-18: AI off and on again brings back what it switched off: a module that needs AI (hooks.ai true) goes off with the
-  // service and comes back with it; one that only uses it when it is on (the Assistant, hooks.ai "optional") stays on throughout.
+  // AI follows the AI Assistant module: with it off (or not installed) AI is not on and the ask is refused as not set up; a module that
+  // needs AI (hooks.ai true, requires assistant) goes off with it by the ordinary dependents rule; PUT /api/ai asks nothing of other modules.
   const { zipFiles } = require('../server/module-build.js');
-  const needsAi = zipFiles([['module.json', Buffer.from(JSON.stringify({ id: 'needs-ai', name: 'Needs AI', version: '1.0.0', scope: ['space'], surfaces: { canvas: { entry: 'canvas.html' } }, hooks: { ai: true } }))], ['canvas.html', Buffer.from('<!doctype html><p>x</p>')]]);
+  const needsAi = zipFiles([['module.json', Buffer.from(JSON.stringify({ id: 'needs-ai', name: 'Needs AI', version: '1.0.0', scope: ['space'], surfaces: { canvas: { entry: 'canvas.html' } }, hooks: { ai: true }, requires: ['assistant'] }))], ['canvas.html', Buffer.from('<!doctype html><p>x</p>')]]);
   const up = await fetch(`http://127.0.0.1:${port}/api/modules`, { method: 'POST', headers: { cookie: `app_session=${owner}`, 'content-type': 'application/zip', accept: 'application/json' }, body: needsAi });
   assert.equal(up.status, 201, await up.clone().text());
   assert.equal((await call('PATCH', '/api/modules/needs-ai', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
-  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
-  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   const isOn = async (id) => (await call('GET', '/api/modules', { cookie: owner })).json.modules.find((m) => m.id === id).enabled;
-  assert.deepEqual((await call('GET', '/api/ai', { cookie: owner })).json.dependents.map((m) => m.id), ['needs-ai'], 'only the module that needs AI depends on it');
-  r = await call('PUT', '/api/ai', { cookie: owner, body: { enabled: false } });
-  assert.deepEqual([r.status, r.json.error], [400, 'Needs AI needs the AI service; turn it off too?'], 'not forced: asked first');
-  assert.deepEqual([await isOn('needs-ai'), await isOn('assistant')], [true, true]);
-  assert.equal((await call('PUT', '/api/ai', { cookie: owner, body: { enabled: false, force: true } })).status, 200);
-  assert.deepEqual([await isOn('needs-ai'), await isOn('assistant')], [false, true], 'off: the module that needs AI goes, the Assistant stays');
-  assert.equal((await call('PUT', '/api/ai', { cookie: owner, body: { enabled: true } })).status, 200);
-  assert.deepEqual([await isOn('needs-ai'), await isOn('assistant')], [true, true], 'on again: the module that needs AI is back, the Assistant still on');
+  assert.deepEqual([(await call('GET', A, { cookie: tok.sam })).json.available, (await call('GET', '/api/ai', { cookie: owner })).json.ai.moduleOn], [true, true], 'module on: AI answers');
+  r = await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: false } });
+  assert.equal(r.status, 400, 'turning the assistant off asks first while a module needs it');
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: false, force: true } })).status, 200);
+  assert.deepEqual([await isOn('needs-ai'), await isOn('assistant')], [false, false], 'off: the module that needs AI goes with it');
+  r = await call('GET', A, { cookie: tok.sam });
+  assert.deepEqual([r.json.available, r.json.reason], [false, 'not-set-up'], 'module off: AI is not turned on');
+  assert.deepEqual([(await call('GET', '/api/ai', { cookie: owner })).json.ai.moduleOn, (await call('GET', '/api/ai', { cookie: owner })).json.ai.enabled], [false, true], 'the saved setting stays');
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true } })).status, 200);
+  assert.equal((await call('GET', A, { cookie: tok.sam })).json.available, true, 'module on again: AI is back, setting as it was');
 
   // ai-13 over the wire: a new address does not inherit the saved key.
   assert.equal((await call('PUT', '/api/ai', { cookie: owner, body: { key: 'sk-saved' } })).json.ai.keySet, true);

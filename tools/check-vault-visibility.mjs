@@ -207,6 +207,8 @@ try {
   const guestToken = must(await as(admin, 'POST', `/api/spaces/${A.id}/guest-link`, {}), 200, 'guest link').json.space.guestToken;
   const streamKey = (await as(admin, 'GET', '/api/me')).json.streamKey;
   must(await as(admin, 'PUT', '/api/ai', { source: 'custom', provider: 'compatible', address: `http://127.0.0.1:${aiStub.address().port}/v1`, model: 'stub-model', key: 'sk-test', enabled: true }), 200, 'point the AI at the stand-in');
+  must(await as(admin, 'POST', '/api/modules/bundled/assistant/install', {}), 201, 'install the AI Assistant, which AI needs');
+  must(await as(admin, 'PATCH', '/api/modules/assistant', { enabled: true, allSpaces: true }), 200, 'turn it on');
   must(await as(admin, 'PATCH', '/api/roles/member', { useAi: true }), 200, 'members use AI');
 
   // The see_all permission: off for each role, never for guests.

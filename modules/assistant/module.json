@@ -1,9 +1,9 @@
 {
   "id": "assistant",
-  "name": "Assistant",
-  "version": "0.1.26",
+  "name": "AI Assistant",
+  "version": "0.1.27",
   "icon": "wand-magic-sparkles",
-  "description": "Chat's Assistant view: your commands, the AI's answers and what you bring in. This {module} has no window of its own.",
+  "description": "The AI for Chat and Research: set it up on this {module}'s Manage tab. Chat's Assistant view shows your commands, the AI's answers and what you bring in. This {module} has no window of its own.",
   "author": "Coffee Pub",
   "scope": [
     "space"

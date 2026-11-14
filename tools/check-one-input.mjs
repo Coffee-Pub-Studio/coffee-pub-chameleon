@@ -123,6 +123,9 @@ try {
     return r.json.token;
   };
   const owner = await login('admin', 'testpass1234');
+  // AI is on only while the AI Assistant module is installed and on.
+  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   const member = (await call('POST', '/api/users', { cookie: owner, body: { login: 'pat', displayName: 'Pat', role: 'member', password: 'memberpass1234' } })).json.user;
   const other = (await call('POST', '/api/users', { cookie: owner, body: { login: 'sam', displayName: 'Sam', role: 'member', password: 'memberpass1234' } })).json.user;
   const space = (await call('POST', '/api/spaces', { cookie: owner, body: { name: 'Trip', members: [member.key, other.key] } })).json.space;
@@ -216,8 +219,6 @@ try {
   assert.deepEqual([lost.status, lost.json.objects.map((o) => o.title)], [200, ['Casa do Largo', 'Bar do Peixe']], lost.text);
   n += 1;
 
-  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
-  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   // The retired Assistant's Use no longer gates /ai or bringing objects in (plan-chat-model.md, decision 12).
   const denied = await call('PATCH', '/api/roles/member', { cookie: owner, body: { 'module.assistant.use': false } });
   assert.equal(denied.status, 200, denied.text);

@@ -677,6 +677,9 @@ try {
     };
     const login = async (name, password) => (await call('POST', '/api/login', { body: { login: name, password } })).json.token;
     const owner = await login('admin', 'testpass1234');
+    // AI is on only while the AI Assistant module is installed and on.
+    assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
+    assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
     const people = {};
     for (const name of ['pat', 'mo', 'nora', 'rae', 'sid']) people[name] = (await call('POST', '/api/users', { cookie: owner, body: { login: name, displayName: name[0].toUpperCase() + name.slice(1), role: 'member', password: 'memberpass1234' } })).json.user;
     const tok = { owner };
@@ -911,6 +914,8 @@ try {
     const ownerCookie = (await hcall('acme', 'POST', '/api/login', { body: { login: 'owner', password: 'owner-password-1' } })).cookie;
     const saved = await hcall('acme', 'PUT', '/api/ai', { cookie: ownerCookie, body: { source: 'custom', provider: 'compatible', address: `${fake.url}/v1`, model: 'fake-1', key: '', enabled: true } });
     assert.equal(saved.status, 200, saved.text);
+    assert.equal((await hcall('acme', 'POST', '/api/modules/bundled/assistant/install', { cookie: ownerCookie, body: {} })).status, 201);
+    assert.equal((await hcall('acme', 'PATCH', '/api/modules/assistant', { cookie: ownerCookie, body: { enabled: true, allSpaces: true } })).status, 200);
     const hspace = (await hcall('acme', 'POST', '/api/spaces', { cookie: ownerCookie, body: { name: 'Athens', members: [] } })).json.space;
     const calls = async () => (await hcall('acme', 'GET', '/api/environment', { cookie: ownerCookie })).json.usage.aiCallsThisMonth;
     const hask = (question) => hcall('acme', 'POST', `/api/spaces/${hspace.id}/ai`, { cookie: ownerCookie, body: { question } });

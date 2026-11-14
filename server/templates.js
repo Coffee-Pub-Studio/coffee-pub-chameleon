@@ -369,9 +369,8 @@ async function turnOnModules(env, ids, { allowed = () => true, modulesDir = MODU
     const manifest = manifests.get(id);
     const missing = (manifest.requires || []).find((r) => failed.has(r));
     let why = null;
-    // Plan-one-input step 8: the Assistant has no window; new installs leave it out. Chat /ai does not need it.
-    if (id === 'assistant') why = 'retired: ask in Chat with /ai';
-    else if (!allowed(id)) why = 'not in the plan';
+    // The AI Assistant is a module like the rest (plan-ai-assistant.md): a template that lists it gets it.
+    if (!allowed(id)) why = 'not in the plan';
     else if (missing) why = `needs ${name(missing)}, which was skipped`;
     else {
       // In every space first, then on: one that installs but can't be turned on yet (Research, until the AI service is

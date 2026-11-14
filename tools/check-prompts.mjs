@@ -637,6 +637,9 @@ async function call(method, urlPath, { body, cookie } = {}) {
 try {
   const login = async (name, password) => (await call('POST', '/api/login', { body: { login: name, password } })).json.token;
   const owner = await login('admin', 'testpass1234');
+  // AI is on only while the AI Assistant module is installed and on.
+  assert.equal((await call('POST', '/api/modules/bundled/assistant/install', { cookie: owner, body: {} })).status, 201);
+  assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
   const mk = async (name) => (await call('POST', '/api/users', { cookie: owner, body: { login: name, displayName: name[0].toUpperCase() + name.slice(1), role: 'member', password: 'memberpass1234' } })).json.user;
   const people = {};
   for (const name of ['pat', 'mo', 'rita', 'nora', 'cleo', 'dan', 'eve', 'fay', 'gil', 'hal', 'ivy', 'jon', 'kim']) people[name] = await mk(name);
@@ -730,7 +733,7 @@ try {
 
   await test('server: a module\'s ask sends only what that module may read (its own objects and those it was approved to link to)', async () => {
     const { zipFiles } = require('../server/module-build.js');
-    const zip = zipFiles([['module.json', Buffer.from(JSON.stringify({ id: 'asker', name: 'Asker', version: '1.0.0', scope: ['space'], surfaces: { canvas: { entry: 'canvas.html' } }, hooks: { ai: true } }))], ['canvas.html', Buffer.from('<!doctype html><p>x</p>')]]);
+    const zip = zipFiles([['module.json', Buffer.from(JSON.stringify({ id: 'asker', name: 'Asker', version: '1.0.0', scope: ['space'], surfaces: { canvas: { entry: 'canvas.html' } }, hooks: { ai: true }, requires: ['assistant'] }))], ['canvas.html', Buffer.from('<!doctype html><p>x</p>')]]);
     const up = await fetch(`http://127.0.0.1:${port}/api/modules`, { method: 'POST', headers: { cookie: `app_session=${owner}`, 'content-type': 'application/zip', accept: 'application/json' }, body: zip });
     assert.equal(up.status, 201, await up.clone().text());
     assert.equal((await call('PATCH', '/api/modules/asker', { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200);
