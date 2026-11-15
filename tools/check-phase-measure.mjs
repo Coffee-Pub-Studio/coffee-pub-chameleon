@@ -88,6 +88,28 @@ await test('a manifest may name the stored fields that fill a summary\'s phase a
   assert.deepEqual(cleanManifest(manifest({ title: 'title', unknown: 'x' }), files).refs.produces[0].summary, { title: 'title' }, 'an unknown field is left out');
 });
 
+await test('the memo keeps an answer until a write, a different sig or its time; it is bounded', () => {
+  const { ModuleData } = require('../server/module-data.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-phase-memo-'));
+  try {
+    const data = new ModuleData(dir);
+    let runs = 0;
+    const ask = (sig = 'a', ttl = 5000) => data.memo('x', sig, ttl, () => { runs += 1; return { runs }; });
+    for (let i = 0; i < 50; i += 1) ask();
+    assert.equal(runs, 1, 'fifty asks, one read');
+    ask('b');
+    assert.equal(runs, 2, 'another sig reads again');
+    const before = data.stampOf('m', 'space:abcd1');
+    data.put('m', 'space:abcd1', 'plan:a', { title: 't' });
+    assert.equal(data.stampOf('m', 'space:abcd1'), before + 1, 'a write moves the stamp');
+    assert.equal(data.stampOf('m', 'space:abcd2'), 0, 'another scope does not move');
+    ask('b', 0);
+    assert.equal(runs, 3, 'a ttl that has passed reads again');
+    for (let i = 0; i < 700; i += 1) data.memo(`n${i}`, 's', 5000, () => i);
+    assert.ok(data.memos.size <= 500, `bounded: ${data.memos.size}`);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 // --- the routes -----------------------------------------------------------------------------------------------------
 
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-phase-measure-'));
@@ -260,6 +282,18 @@ try {
     await put('plan:o1', { title: 'Elsewhere', phase: 'build', done: false }, other.id); // another space
     let got = await states(as(mia));
     assert.deepEqual(got.phases.map((p) => [p.id, p.done, p.goals, p.current]), [['start', false, undefined, true], ['build', false, { done: 1, total: 2 }, undefined], ['wrap', false, undefined, undefined]]);
+    // Decision 38, as accepted: whoever may write an entry decides the goals. A raw entry naming Build with done: false keeps it not
+    // done, and the owner's switch cannot say otherwise.
+    assert.deepEqual(answer(await asAdmin('PUT', `${phasesUrl}/build/done`, { done: true })), [409, { error: 'Build is done when every goal that names it is done, so it has no Done switch.' }]);
+    assert.equal(got.phases[1].done, false);
+    assert.equal('phaseDone' in stored(), false, 'the refused switch stored nothing');
+    // Anyone who may enter reads the counts, a link guest too; someone who may not gets the same 404 as an unknown id.
+    const link = (await asAdmin('POST', `/api/spaces/${space.id}/guest-link`, {})).json.space.guestToken;
+    assert.ok(link, 'a guest link');
+    const viaLink = await call(server, 'GET', `${phasesUrl}?guest=${link}`);
+    assert.deepEqual([viaLink.status, viaLink.json.measure, viaLink.json.phases[1].goals], [200, 'goals', { done: 1, total: 2 }]);
+    assert.equal((await call(server, 'GET', `/api/spaces/${other.id}/phases?guest=${link}`)).status, 404, 'that link, another space');
+    assert.equal((await call(server, 'GET', phasesUrl)).status, 404, 'no sign-in and no link');
     await put('plan:g2', { title: 'Test it', phase: 'build', done: true });
     got = await states(as(mia));
     assert.deepEqual(got.phases[1], { id: 'build', label: 'Build', main: true, done: true, goals: { done: 2, total: 2 } }, 'the entries all done');
@@ -295,6 +329,41 @@ try {
     assert.deepEqual((await states(as(mia))).phases.map((p) => [p.id, p.done]), [['start', true], ['build', false]]);
     assert.equal((await asAdmin('PUT', `${phasesUrl}/wrap/done`, { done: false })).status, 404, 'a phase the template lacks is refused');
     assert.deepEqual(stored().phaseDone, { start: true, wrap: true });
+  });
+
+  await test('a big planner: 5,000 entries answer warm inside the budget, and a write shows on the next ask', async () => {
+    await setTemplate({ phaseMeasure: 'goals' });
+    await stopServer();
+    const file = path.join(root, 'data', 'modules', 'pm-plans', 'data', `space-${space.id}.json`);
+    const rows = {};
+    const at = new Date().toISOString();
+    for (let i = 0; i < 5000; i += 1) rows[`plan:b${i}`] = { value: { title: `Goal ${i}`, phase: 'build', done: i % 2 === 0 }, version: 1, updatedAt: at, by: 'seed' };
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(rows));
+    const big = await startServer();
+    const cookie = cookieOf(await call(big, 'POST', '/api/login', { body: { login: 'admin', password: 'admin-password-1' } }));
+    const get = () => call(big, 'GET', phasesUrl, { cookie });
+    const cold = await get();
+    assert.deepEqual(cold.json.phases[1].goals, { done: 2500, total: 5000 });
+    const t0 = process.hrtime.bigint();
+    const warm = await get();
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.deepEqual(warm.json.phases[1].goals, { done: 2500, total: 5000 });
+    assert.ok(ms < 50, `a warm ask took ${ms.toFixed(1)} ms`);
+    const t1 = process.hrtime.bigint();
+    const many = await Promise.all(Array.from({ length: 50 }, () => get()));
+    const total = Number(process.hrtime.bigint() - t1) / 1e6;
+    assert.ok(many.every((r) => r.json.phases[1].goals.total === 5000));
+    assert.ok(total < 1000, `fifty asks took ${total.toFixed(0)} ms`);
+    const w = await call(big, 'PUT', `/api/modules/pm-plans/data/plan%3Ab1?scope=space&space=${space.id}`, { cookie, body: { value: { title: 'Goal 1', phase: 'build', done: true } } });
+    assert.equal(w.status, 200, w.text);
+    assert.deepEqual((await get()).json.phases[1].goals, { done: 2501, total: 5000 }, 'the next ask sees the write');
+    const del = await call(big, 'DELETE', `/api/modules/pm-plans/data/plan%3Ab3?scope=space&space=${space.id}`, { cookie });
+    assert.equal(del.status, 200, del.text);
+    assert.deepEqual((await get()).json.phases[1].goals, { done: 2501, total: 4999 }, 'and a delete');
+    await stopServer();
+    fs.rmSync(file);
+    await startServer();
   });
 
   await test('the server keeps working after a restart: the switches are read from the file', async () => {

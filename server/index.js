@@ -1824,13 +1824,22 @@ const phasesOfSpace = (spaceId) => { const p = store.lookOf(spaceId).phases; ret
 // there, as objectSummary reads them. Counts only ever leave this (phaseStatesOf): never an entry's words, so it is read
 // whatever the asker may read in the planner. At most 5000 entries a planner.
 const PHASE_ENTRIES_MAX = 5000;
-function phaseEntriesOf(space) {
-  const out = [];
+const PHASE_TALLY_TTL_MS = 5000; // a poll closing by its time makes an entry done with no write, so the count is never older than this
+// The goals' count for one space, { <phase id>: { done, total } }, kept per space while no planner's data in it was written, the
+// planners on there and the phase ids are the same (ModuleData.memo, so per environment and bounded): the phases route, the
+// context and the frames' polls share one read. A write, a module switched on or off or a template change makes the next ask read again.
+function phaseTallyOf(space, phases) {
   const scopeKey = scopeKeyOf('space', { spaceId: space.id });
+  const planners = [];
   for (const { manifest, entry } of modules.enabledAll()) {
     if (!manifest.scope.includes('space') || !modules.onInSpace(entry, manifest, space.id)) continue;
-    for (const produce of manifest.refs.produces) {
-      if (produce.kind !== 'plan' || !produce.summary.phase) continue;
+    const produce = manifest.refs.produces.find((p) => p.kind === 'plan' && p.summary.phase);
+    if (produce) planners.push({ manifest, produce });
+  }
+  const sig = JSON.stringify([phases.map((p) => p.id), planners.map(({ manifest, produce }) => [manifest.id, manifest.version, produce.key, moduleData.stampOf(manifest.id, scopeKey)])]);
+  return moduleData.memo(`phase-goals:${space.id}`, sig, PHASE_TALLY_TTL_MS, () => {
+    const out = [];
+    for (const { manifest, produce } of planners) {
       const prefix = produce.key.replace('{id}', '');
       let n = 0;
       for (const row of moduleData.list(manifest.id, scopeKey, prefix)) {
@@ -1840,8 +1849,8 @@ function phaseEntriesOf(space) {
         out.push(objectSummary({ manifest, produce, ref: { module: manifest.id, kind: produce.kind, scope: 'space', space: space.id } }, id, row.value));
       }
     }
-  }
-  return out;
+    return phaseMeasure.tallyOf(phases, out);
+  });
 }
 // A space's phases with their state under its template's measure (server/phase-measure.js): { measure, phases }. The goals
 // are counted only while the measure is `goals`.
@@ -1851,7 +1860,7 @@ function phaseStatesOf(spaceId) {
   const phases = phaseView(look.phases);
   const measure = look.phaseMeasure || 'dates';
   if (!space) return { measure, phases };
-  const tally = measure === 'goals' ? phaseMeasure.tallyOf(phases, phaseEntriesOf(space)) : null;
+  const tally = measure === 'goals' ? phaseTallyOf(space, phases) : null;
   return { measure, tally, phases: phaseMeasure.statesOf(phases, measure, space.phaseDone, tally) };
 }
 

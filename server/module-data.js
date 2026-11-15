@@ -32,12 +32,34 @@ function moduleFolders(dir) {
   try { return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name); } catch { return []; }
 }
 
+const MEMO_MAX = 500;
+
 class ModuleData extends EventEmitter {
   constructor(modulesDir) {
     super();
     this.setMaxListeners(0);
     this.dir = modulesDir;
     this.cache = new Map(); // "id|scopeKey" -> Map(key -> { value, version, updatedAt, by })
+    this.stamps = new Map(); // "id|scopeKey" -> how many times it was written or dropped: what a memoised read of it is keyed on
+    this.memos = new Map(); // name -> { sig, at, result }, at most MEMO_MAX
+  }
+
+  stampOf(id, scopeKey) {
+    return this.stamps.get(`${id}|${scopeKey}`) || 0;
+  }
+
+  // A derived answer kept while its inputs stay as they were: `sig` (a text naming them, the stamps of the scopes read among
+  // them) must equal the one it was made with, and it must be younger than `ttlMs` (for what time itself changes). One entry per
+  // name, at most MEMO_MAX names (the oldest goes). Per instance, so per environment.
+  memo(name, sig, ttlMs, compute) {
+    const now = Date.now();
+    const kept = this.memos.get(name);
+    if (kept && kept.sig === sig && now - kept.at < ttlMs) return kept.result;
+    const result = compute();
+    this.memos.delete(name);
+    this.memos.set(name, { sig, at: now, result });
+    while (this.memos.size > MEMO_MAX) this.memos.delete(this.memos.keys().next().value);
+    return result;
   }
 
   // scopeKey is 'environment', 'space:<space id>' or 'person:<key>'.
@@ -71,6 +93,7 @@ class ModuleData extends EventEmitter {
   }
 
   persist(id, scopeKey, map) {
+    this.stamps.set(`${id}|${scopeKey}`, this.stampOf(id, scopeKey) + 1);
     const file = this.fileFor(id, scopeKey);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const tmp = `${file}.tmp`;
@@ -143,6 +166,7 @@ class ModuleData extends EventEmitter {
       if (fs.existsSync(file)) { fs.rmSync(file); gone += 1; }
       fs.rmSync(`${file}.tmp`, { force: true });
       this.cache.delete(`${id}|space:${spaceId}`);
+      this.stamps.set(`${id}|space:${spaceId}`, this.stampOf(id, `space:${spaceId}`) + 1);
     }
     return gone;
   }
