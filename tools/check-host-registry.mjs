@@ -2055,7 +2055,7 @@ try {
     const start = () => startServer(hosted, { BASE_DOMAIN: 'localhost', ADMIN_LOGIN: 'boss', ADMIN_PASSWORD: 'host-password-3' });
     server = await start();
     const boss = cookieOf(await call(server, 'admin', 'POST', '/api/host/login', { body: { login: 'boss', password: 'host-password-3' } }));
-    assert.deepEqual((await call(server, 'admin', 'GET', '/api/host/templates', { cookie: boss })).json.templates.map((t) => t.id), ['default', 'games', 'travel']);
+    assert.deepEqual((await call(server, 'admin', 'GET', '/api/host/templates', { cookie: boss })).json.templates.map((t) => t.id).sort(), fs.readdirSync(path.join(ROOT, 'templates')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort(), 'the host console lists every shipped template');
     assert.deepEqual(await call(server, 'admin', 'POST', '/api/host/environments', { cookie: boss, body: { slug: 'nope', name: 'Nope', template: 'camping' } }).then((r) => [r.status, r.json]), [400, { error: 'There is no template called camping.' }]);
     for (const template of [['travel'], { id: 'travel' }, 7]) assert.deepEqual(await call(server, 'admin', 'POST', '/api/host/environments', { cookie: boss, body: { slug: 'nope', name: 'Nope', template } }).then((r) => [r.status, r.json]), [400, { error: 'A template is named by its id, such as games.' }], JSON.stringify(template));
     const plan = { modules: fs.readdirSync(path.join(ROOT, 'modules')).filter((m) => m !== 'budget') };
