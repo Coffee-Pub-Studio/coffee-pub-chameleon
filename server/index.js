@@ -5978,7 +5978,7 @@ function firstVisitFor(found) {
   const stored = space.defaultLayout;
   let layout = 'workspace';
   if (SYSTEM_IDS.includes(stored) && stored !== 'workspace') {
-    if (systemLayoutsFor(found).some((l) => l.id === stored)) layout = stored;
+    if (systemLayoutsFor(found).some((l) => l.id === stored && l.shown)) layout = stored; // one the owner hid is passed over, as lastLayoutFor does
   } else if (stored && store.defaultLayoutOf(space.id)) {
     layout = stored;
   }
@@ -6094,7 +6094,8 @@ app.delete('/api/spaces/:id/layouts/:layoutId', (req, res) => {
 // The owner hid a fixed layout (the space's tabs.hide): a person cannot turn its tab on or off, 409.
 const ownerHidSentence = () => `The ${word('owner')} has hidden this layout.`;
 // The owner shows a fixed layout (it is not in tabs.hide): it is pinned, so a person's own hide of it is refused, 409.
-const pinnedSentence = () => `The ${word('owner')} keeps this one in the bar.`;
+// Those who may set the bar (owners, the admin, moderators) are told where to take it out; a member, who keeps it.
+const pinnedSentence = (found) => (found.canShare ? 'To take this one out of the bar, hide it for everyone in Set up.' : `The ${word('owner')} keeps this one in the bar.`);
 const ownerHid = (found, id) => tabsOf(found.space.tabs).hide.includes(id);
 app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
   const found = layoutSpaceFor(req, res);
@@ -6106,7 +6107,7 @@ app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
   if (error) return res.status(400).json({ error });
   if (patch.tab === false && id === 'workspace') return res.status(400).json({ error: 'The Workspace is always shown.' });
   if (patch.tab !== undefined && ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });
-  if (patch.tab === false) return res.status(409).json({ error: pinnedSentence() });
+  if (patch.tab === false) return res.status(409).json({ error: pinnedSentence(found) });
   try {
     store.layouts.setSystem(found.space.id, found.who.user.key, id, patch);
     res.json({ layout: systemLayoutsFor(found).find((l) => l.id === id) });
@@ -6131,7 +6132,7 @@ function layoutFavorite(on) {
       if (!systemLayoutsFor(found).some((l) => l.id === id)) return res.status(404).json({ error: 'There is no such layout here.' });
       if (id === 'workspace' && !on) return res.status(400).json({ error: 'The Workspace is always shown.' });
       if (ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });
-      if (!on) return res.status(409).json({ error: pinnedSentence() });
+      if (!on) return res.status(409).json({ error: pinnedSentence(found) });
       try {
         if (id !== 'workspace') store.layouts.setSystem(found.space.id, found.who.user.key, id, { tab: on });
         return res.json({ favorites: store.layouts.favorites(found.space.id, found.who.user.key), layout: systemLayoutsFor(found).find((l) => l.id === id) });
@@ -12212,7 +12213,7 @@ app.get('/api/currencies', requireUser, (_req, res) => res.json({ currencies: cu
 // `template`: the template the environment was made from and what was skipped (templateView), or null; `ownHomeIcon` the
 // owner's own home icon (null: the template's or the default).
 // `templateWords` and `templateHomeIcon`: the template's own (null for none), whatever the owner has set over them;
-// `spaceDefaults`: what a new space starts with ({ profile?, opensWith? }, or null for the built-in default).
+// `spaceDefaults`: what a new space starts with ({ profile? }, or null for the built-in default).
 // `showCalendar` and `showMap`: the top bar's Calendar and Map (plan-calendar-destination.md, plan-map-destination.md),
 // off unless an owner or a template turned them on. `calendarFeeds`, `otherCalendars` and `publishedCalendar`: Calendar
 // sharing's three switches (plan-space-calendars.md, decision 7); `otherCalendars` as it reads (store.otherCalendarsOn:

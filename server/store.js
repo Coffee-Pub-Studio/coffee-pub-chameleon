@@ -46,6 +46,15 @@ const SLOTS = ['profile', 'background', ...PARTICIPANT_SLOTS, ...CHARACTER_SLOTS
 // offered for it, on a member's per-space section and (eventually) in
 // Studio's publish UI: Roleplaying wants both, the other two just one.
 const SPACE_PROFILES = ['roleplaying', 'participants', 'characters'];
+// A stale Opens with inside the environment's spaceDefaults (the template decides it now) is dropped on load, so a save never copies it on.
+function stripOpensWith(settings) {
+  const d = settings.spaceDefaults;
+  if (!d || typeof d !== 'object' || Array.isArray(d) || !('opensWith' in d)) return settings;
+  const { opensWith, ...rest } = d; // eslint-disable-line no-unused-vars
+  const out = { ...settings };
+  if (Object.keys(rest).length) out.spaceDefaults = rest; else delete out.spaceDefaults;
+  return out;
+}
 const OPENS_WITH_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const MAX_OPENS_WITH = 20;
 // The module ids a template's Default Workspace opens with (workspace.opensWith), as read: up to 20 distinct strings of
@@ -752,7 +761,7 @@ class Store {
         session: strongKey(raw.secrets?.session, SESSION_KEY_BYTES) ? raw.secrets.session : randomToken(SESSION_KEY_BYTES),
         stream: strongKey(raw.secrets?.stream, STREAM_KEY_BYTES) ? raw.secrets.stream : randomToken(STREAM_KEY_BYTES),
       },
-      settings: { ...DEFAULT_SETTINGS, ...migrateMfaSettings(raw.settings) },
+      settings: stripOpensWith({ ...DEFAULT_SETTINGS, ...migrateMfaSettings(raw.settings) }),
       users: Array.isArray(raw.users) ? raw.users.map((u) => this.sanitizeUser(u)).filter(Boolean) : [],
       spaces: Array.isArray(raw.spaces) ? raw.spaces.map((r) => this.sanitizeSpace(r)).filter(Boolean) : [],
       // Asides (plan-names step 8): their own record, never among the spaces. Each lives only while someone is in it

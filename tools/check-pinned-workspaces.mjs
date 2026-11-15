@@ -33,6 +33,7 @@ const same = (got, want, label) => { assert.deepEqual(got, want, label); n += 1;
 const ok = (cond, label) => { assert.ok(cond, label); n += 1; };
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `check-pinned-${name}-`));
 const PINNED = 'The owner keeps this one in the bar.';
+const TAKE_OUT = 'To take this one out of the bar, hide it for everyone in Set up.';
 const OPENS = 'What a space opens with comes from its template; pick another template to change it.';
 
 // --- part 1: the store -----------------------------------------------------------------------------------------------
@@ -97,6 +98,23 @@ const OPENS = 'What a space opens with comes from its template; pick another tem
   same(JSON.stringify(store.spaceById(plain.id)), before, 'a refusal refuses the whole change');
   // Read from a file, a stored Opens with is dropped.
   ok(!('opensWith' in store.sanitizeSpace({ id: 'abcd', name: 'x', members: [], opensWith: ['chat'] })), 'a stored Opens with is dropped on read');
+  // A stale Opens with in the environment's spaceDefaults is dropped on load and not copied on by a save.
+  {
+    const sdir = tmp('stale');
+    const first = new Store(sdir);
+    first.updateSettings({ spaceDefaults: { profile: 'characters' } });
+    const file = path.join(sdir, 'app.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    raw.settings.spaceDefaults = { profile: 'characters', opensWith: ['chat'] };
+    fs.writeFileSync(file, JSON.stringify(raw));
+    const again = new Store(sdir);
+    same(again.settings.spaceDefaults, { profile: 'characters' }, 'dropped on load');
+    again.updateSettings({ environmentName: 'Saved' });
+    same(JSON.parse(fs.readFileSync(file, 'utf8')).settings.spaceDefaults, { profile: 'characters' }, 'and a save does not copy it on');
+    raw.settings.spaceDefaults = { opensWith: ['chat'] };
+    fs.writeFileSync(file, JSON.stringify(raw));
+    ok(!('spaceDefaults' in new Store(sdir).settings), 'a record with nothing else left is gone');
+  }
   // The environment's settings take no Opens with.
   assert.throws(() => store.updateSettings({ spaceDefaults: { opensWith: ['chat'] } }), (err) => /takes only profile/.test(err.message));
   n += 1;
@@ -186,10 +204,11 @@ try {
   same(Object.values(seen).map((l) => [l.id, l.pinned]), [['workspace', true], ['calendar', true], ['conference', true], ['whiteboard', true], ['documents', true]], 'with nothing hidden, every fixed one is pinned');
   for (const who of ['member', 'mod']) {
     for (const id of ['calendar', 'conference', 'whiteboard', 'documents']) {
+      const want = who === 'mod' ? TAKE_OUT : PINNED; // those who set the bar are told where; a member is told who keeps it
       const r = await expect(`${who} hides ${id}`, 409, 'PATCH', SYS(B.id, id), { token: T[who], body: { tab: false } });
-      assert.equal(r.json.error, PINNED);
+      assert.equal(r.json.error, want);
       const f = await expect(`${who} unfavorites ${id}`, 409, 'DELETE', `${L(B.id)}/${id}/favorite`, { token: T[who] });
-      assert.equal(f.json.error, PINNED);
+      assert.equal(f.json.error, want);
     }
   }
   // The same refusal with other fields beside it: nothing is written (the name stays), and a malformed tab is a plain 400.
@@ -197,6 +216,7 @@ try {
   same((await sysOf(B.id, T.member)).calendar.name, 'Calendar', 'a refusal changes nothing');
   for (const bad of ['false', 0, null, [false]]) await expect(`tab ${JSON.stringify(bad)}`, 400, 'PATCH', SYS(B.id, 'calendar'), { token: T.member, body: { tab: bad } });
   same((await sysOf(B.id, T.member)).calendar.pinned, true, 'and it is still pinned');
+  assert.equal((await expect('the admin hides one', 409, 'PATCH', SYS(B.id, 'calendar'), { token: admin, body: { tab: false } })).json.error, TAKE_OUT, 'the admin is told where');
   const w = await expect('hide the Workspace', 400, 'PATCH', SYS(B.id, 'workspace'), { token: T.member, body: { tab: false } });
   assert.equal(w.json.error, 'The Workspace is always shown.');
   await expect('unfavorite the Workspace', 400, 'DELETE', `${L(B.id)}/workspace/favorite`, { token: T.member });
@@ -220,6 +240,14 @@ try {
   assert.equal((await expect('person hides what the owner hid', 409, 'PATCH', SYS(B.id, 'documents'), { token: T.member, body: { tab: false } })).json.error, 'The owner has hidden this layout.');
   await expect('owner shows it again', 200, 'PATCH', `/api/spaces/${B.id}`, { token: T.mod, body: { tabs: null } });
   same((await sysOf(B.id, T.member)).documents.pinned, true, 'shown again, pinned again');
+
+  // -- a first visit never opens a Fixed Workspace the owner hid
+  await expect('owner sets Documents first', 200, 'PATCH', `/api/spaces/${B.id}`, { token: admin, body: { defaultLayout: 'documents' } });
+  same((await expect('first visit', 200, 'GET', L(B.id), { token: T.member })).json.firstVisit.layout, 'documents', 'shown: it opens first');
+  await expect('owner hides Documents', 200, 'PATCH', `/api/spaces/${B.id}`, { token: admin, body: { tabs: { hide: ['documents'] } } });
+  same((await expect('first visit', 200, 'GET', L(B.id), { token: T.member })).json.firstVisit.layout, 'workspace', 'hidden: the Workspace');
+  same((await expect('for-space', 200, 'GET', `/api/modules/for-space?space=${B.id}`, { token: T.member })).json.firstVisit.layout, 'workspace', 'for-space says the same');
+  await expect('owner clears them', 200, 'PATCH', `/api/spaces/${B.id}`, { token: admin, body: { tabs: null, defaultLayout: null } });
 
   // -- the pin survives a template switch and a deleted template
   await expect('switch Alpha to another template', 200, 'PATCH', `/api/spaces/${A.id}`, { token: admin, body: { template: 'default' } });
