@@ -2,7 +2,7 @@
 
 **Audience:** Thomas decides. If he approves, server-development builds the space record, the routes, the stored last-layout record and the checks, and experience-design builds the Conference view, the owner controls and the menu entry. The stored last-layout record (decision 20) is a core change (`server/`, the stored data format): it is held for an independent read and covered by the full `npm run check`. content-manager documents after.
 
-**Status:** Draft for Thomas, 2026-11-12, by product-planner; updated 2026-11-12 with Thomas's answers to questions 2, 4 and 5 (decisions 12 to 14), to question 1 (decisions 15 to 18, the last about the collapsed call area) on 2026-11-12, to questions 3 and 6 to 12 (decisions 19 to 26) and, on 2026-11-12, to the four open points on the guest fallback, Start call, phones and In the workspace (decisions 27 to 30) and, on 2026-11-13, to the open points on the collapsed rail (decision 31) and, on 2026-11-13, to a correction of decision 28 after trying the call title bar build (decision 32) and, on 2026-11-13, to the two kinds of workspace, the Modules tab of a Fixed Workspace and its schema (decisions 33 to 35, step 12). Nothing here is decided except the lines marked "Thomas" and the decisions below. Nothing is built. From the feedback and from Thomas, in his words:
+**Status:** Draft for Thomas, 2026-11-12, by product-planner; updated 2026-11-12 with Thomas's answers to questions 2, 4 and 5 (decisions 12 to 14), to question 1 (decisions 15 to 18, the last about the collapsed call area) on 2026-11-12, to questions 3 and 6 to 12 (decisions 19 to 26) and, on 2026-11-12, to the four open points on the guest fallback, Start call, phones and In the workspace (decisions 27 to 30) and, on 2026-11-13, to the open points on the collapsed rail (decision 31) and, on 2026-11-13, to a correction of decision 28 after trying the call title bar build (decision 32) and, on 2026-11-13, to the two kinds of workspace, the Modules tab of a Fixed Workspace and its schema (decisions 33 to 35, step 12) and, on 2026-11-15, to Thomas's request in #829, Bring Everyone Here (decision 36, step 13, a proposal only beyond the request). Nothing here is decided except the lines marked "Thomas" and the decisions below. Nothing is built. From the feedback and from Thomas, in his words:
 
 > "we've made conference (video) so secondary, there is no way to have a dedicated call without popping it out."
 
@@ -131,6 +131,10 @@ Thomas, 2026-11-13, after trying the merged call title bar build (#767) and seei
     - A module cannot add controls to a Fixed Workspace on its own. The two rejected options were modules declaring it in their manifest, and each page drawing its own.
     - Adding a switch to a Fixed Workspace later is a one-line change in the list, in our software.
     - **What stays as it is:** the owner's controls over which Fixed Workspaces show in the bar, their order and which opens first (steps 2 and 3). The module's own header and menus inside a Fixed Workspace, such as the Whiteboard's board dropdown and the Documents title-bar select, are module behaviour, not workspace configuration.
+
+Thomas, 2026-11-15, in issue #829 ("Layout: A moderator can select a workspace and 'Bring Everyone Here'"), and its comment narrowing it (DECIDED, the request only; everything else under "Bring Everyone Here" is a proposal):
+
+36. **Bring Everyone Here.** A moderator can select a workspace and press **Bring Everyone Here**. Only a **Fixed Workspace**, or a workspace that is available to everyone, can be pushed. A person's own Customizable Workspace, and any workspace some people cannot have, are never pushed. This is the "bring everyone" idea that decision 26 left out of version 1, now asked for. Who may do it, who is moved, what they see, and the rest are proposals in the section "Bring Everyone Here", with the open questions at the end.
 
 ## Names
 
@@ -377,6 +381,95 @@ A call in its own window stays supported and stays the second-monitor answer: **
 - Moving into Conference moves focus to the page's heading ("Conference") and announces "Conference layout" through `#layout-announce`; pressing the Workspace tab returns focus to that tab.
 - Not checked: a real screen reader, Firefox, Safari.
 
+## Bring Everyone Here
+
+Proposal, except what decision 36 records. Nothing here is built.
+
+**What it is.** A moderator picks a workspace and presses **Bring Everyone Here**. Every person in the space who can open that workspace is shown it. It is a show: one person leads, the others follow. The workspace is one the space already has; nothing new is made.
+
+**What already exists (read in code).**
+- The space's live stream, `GET /api/live?space=<id>`, one per open page, a guest's included (`server/index.js`). Besides `ready`, `presence` and chat events it carries **nudges**: `tellLive(who, space, data)` for one person and `tellLiveSpace(space, data)` for everyone the register has in the space (the asides use it, `aside-started`). A nudge for a person whose stream is reconnecting is held up to 30 seconds and sent when it opens again.
+- The page's handler, `openLiveStream({ onAside })` in `public/space-live.js`, calls `asideNudge(data)` in `public/space.js`. It only passes on messages that carry a `spaceId`.
+- `pressLayoutTab(id, from, { load, remember })` in `public/space.js` shows a layout and, with `remember: false`, writes nothing. `showFirstVisitTab()` already does it that way for a restore.
+- The last layout: `PUT /api/spaces/:id/last-layout` and `lastLayoutFor()`, written only by `rememberLayout()` (built, steps 6 and 11).
+- `systemLayoutsFor(found)` returns `[]` for a guest, so **today no Fixed Workspace is available to a guest** (decision 27: a guest gets the Workspace). `store.systemLayoutOn(spaceId, id)` says whether a Fixed Workspace is on in a space at all.
+- `moderates(user, space)` says a member is ticked as this space's moderator; owners and the admin are `hasOwnerRights`. `PATCH /api/spaces/:id` already lets these three people set `defaultLayout` and `tabs` (decision 22).
+
+**Who may do it (suggested).** The space's owners, the admin and its moderators: the same people who set the default and the tabs. Never a member or a guest. The check is on the server, on every press.
+
+**What can be pushed (decision 36).**
+- A Fixed Workspace: `calendar`, `map`, `conference`, `whiteboard`, `documents`, and the Workspace id `workspace` itself is **not** offered (it is each person's own arrangement).
+- Only while it is on in the space (`systemLayoutOn`). It does not matter whether the owner hid it from the bar: that is about the bar, not about being shown it (suggested).
+- Never a saved layout, shared or personal, and never a layout one person made. "Available to everyone" in the issue is read as "a Fixed Workspace", because a saved layout can name modules some people cannot use.
+- With the templates redesign, a pinned workspace is available to everyone by definition and is pushable by the same rule (see "With the templates redesign").
+
+**Who is moved (suggested).** Everyone in that space right now, that is, everyone with a live stream open there (the register, `live.people(space)`), except the person who pressed. Someone not in the space is not moved and is not told later; they open as they always do.
+- A person who **cannot** open the workspace (the Calendar does not answer for them, the module is off for them, no conference permission) stays where they are, with no notice. The page decides this, not the server, because only the page knows what that person can open (`findSystemLayout()` and the tab list).
+- A person **in a call stays in the call**. Nobody is dropped or muted. The call moves only as the person's own Call position says (beside the work, or the Conference page's rules). Bringing people to Conference puts the call on the page for those who have it in the column, as pressing the tab would.
+- A person in an **Aside** is not in this space's stream (an Aside has its own id, no layouts and no tabs), so they are not moved.
+
+**What a person sees (suggested).**
+- The workspace opens as if they had pressed its tab.
+- One plain line, in the page's existing notice place, for example: "The game master brought everyone to Whiteboard." It names the person by their display name and the workspace by the name this person sees for it (their own rename counts). In words that follow the template, "game master" is whoever the template calls a moderator.
+- The line has one button, **Go back**, which returns to the layout they were on, as pressing that tab would. The line stays until they use it, dismiss it, or press any layout tab. The screen reader hears it through `#layout-announce` (a polite announcement), and focus is not moved.
+- Nothing asks first. It is a show, and stepping back is one press.
+- If the person is already on that workspace, nothing changes and there is no notice.
+- A later push replaces the line; **Go back** returns to what they were on before the first push, not to the previous push.
+
+**The remembered last layout (suggested: unchanged).** Being brought does not write the person's last layout (`remember: false`). It is a show, not a restore. If they leave and return, they open on their own last layout, as decision 20 says. If they press a tab afterward, that press is remembered as always.
+
+**Guests (suggested).** A guest is moved only when the target is available to guests. Today no Fixed Workspace is, so a guest is never moved until that changes; the rule needs no extra code, because the page that cannot open the workspace stays put. The server does not need to know.
+
+**Phones and pop-out windows (suggested).**
+- A phone has no layout tabs and no canvas to switch (the narrow layout shows modules as tabs). The push is **ignored on a phone**: no move and no notice. Decided later if Thomas wants phones to show the matching module tab, see the open questions.
+- When the app or the canvas is popped out (`topbarEl.ownerDocument` is the pop-out's), the page is still one script, so the layout changes in the window that holds the canvas. Not checked here.
+- A call in **Its own window** is another window and is not touched.
+
+**The live mechanism (suggested).** One new server route, and no new stream.
+- `POST /api/spaces/:id/bring-everyone` with `{ layout }`.
+  - `layout` must be a string that is a Fixed Workspace id other than `workspace` and is on in the space. A missing, unknown or non-fixed id gets `400`. A saved layout's id also gets `400`.
+  - The permission check: signed in; the space exists and the person is in it or has owner rights; `hasOwnerRights(user)` or `moderates(user, space)`. A member gets `403`. A guest gets `403`. A space that is not there, or an Aside id, gets `404`, as the layouts routes do.
+  - It sends one nudge to the space with `tellLiveSpace(spaceId, { type: 'layout-bring', spaceId, layout, by: <display name> })`, and answers `200 { layout, brought: <how many streams it was sent to> }`. The count is the number of people in the register for the space, minus the sender; it is information, not a promise they all moved.
+  - It is limited: at most one push per space every few seconds (suggested 5), with `429` and a sentence when asked sooner, so a held button cannot flood the space.
+  - No new environment variable and no stored field. Nothing is written to `layouts.json`, to the space record or to anyone's last layout.
+- The page: `asideNudge()` in `public/space.js` is the one handler for nudges. Add a `layout-bring` branch beside the aside branches (or a new `onBring` next to `onAside` in `openLiveStream`, which keeps the asides' code untouched), and make sure the stream passes the message on (it checks `data.spaceId` today). The branch ignores a message for another space, on a phone, or for a workspace this person cannot open; else it keeps the current tab for **Go back**, calls `pressLayoutTab(id, null, { remember: false })` and shows the line. Held nudges (a reconnecting stream) are delivered after the reconnect; the page treats one older than a few seconds as stale and drops it (the nudge carries `at`; suggested 30 seconds, the register's grace).
+- The control: where a moderator reaches **Bring Everyone Here** is a design choice for experience-design, using the shared pieces. Suggested: an entry on the layout tab's menu (`openHostMenu()`) of a Fixed Workspace tab, shown only to those who may do it and only for a Fixed Workspace. Not a new bar, button row or dialog.
+
+**Permission and audit points.**
+- Server only decides: the page never decides who may push. A hidden menu entry is a courtesy.
+- The sender is the signed-in person from the session, not from the body. The name shown is read from their account on the server, never taken from the request.
+- An audit trail: the server has no activity log for space actions today (`server/index.js` was searched; the only log is the console). Suggested: one console line, `<person> brought <space> to <layout>`, like the other server notes. A stored log is not planned; it would be new.
+- Chat is not touched. Suggested: no chat line is written, so a push leaves no record in the chat. (Open question.)
+
+**Refusals, in plain sentences (suggested).**
+- A member: "Only the owner and moderators can bring everyone here."
+- A guest: the same sentence (`403`).
+- A layout that is not a Fixed Workspace: "Only the fixed workspaces can be shown to everyone."
+- A Fixed Workspace that is not on in the space: "That workspace is not on here."
+- Too soon: "Wait a few seconds, then try again." (`429`).
+- An Aside, or no such space: the existing sentence, `404`.
+- To a person who cannot open it: nothing at all. They are not told they were left out.
+
+**With the templates redesign.** The templates redesign (planned on its own, not read here) pins workspaces. A pinned workspace is available to everyone by definition, so the rule "a Fixed Workspace, or one available to everyone" in decision 36 includes it, with no change to the route's permission check. Only the check for "is this id pushable in this space" changes: it asks the pinned-workspace list as well as the Fixed Workspace list. If a pinned workspace holds modules a person cannot read, the page's "can this person open it" check, as above, still leaves that person where they are. **This plan does not edit or depend on the templates plan's text.**
+
+**Tests and checks to add (suggested).**
+- Server, `tools/check-layouts.mjs` or a new `tools/check-bring-everyone.mjs`: owner, admin and a ticked moderator get `200`; a member and a guest get `403`; an unknown id, `workspace` and a saved layout's id get `400`; a Fixed Workspace that is off gets `400`; an Aside id gets `404`; the second push inside the wait gets `429`; the answer's count excludes the sender; nothing is written (the layouts file and `last` are byte-for-byte unchanged); a person's own last layout is not touched.
+- The stream: with two open streams in a space, the push reaches the second and not the first; a stream in another space is not reached; a held nudge is sent when a reconnecting stream returns.
+- Page, `tools/check-canvas.mjs` (pure): the decision "move, ignore or stay" for a phone, an id the person cannot open, the same workspace, a stale message, a message for another space; **Go back** returns to the earlier tab; `remember: false` means no `PUT last-layout`.
+- **A live check, two or three browsers (headless Chromium, no LiveKit needed):** a moderator, a member and a guest in one space. The moderator opens Whiteboards on the tab menu and presses **Bring Everyone Here**; the member's page shows the Whiteboards workspace and the one-line notice naming the moderator; **Go back** returns the member; the member's remembered last layout is unchanged after the push (read from `GET .../layouts`); the guest's page stays on the Workspace and shows no notice; a member who presses the same route by hand gets `403`; a second push inside the wait gets `429`. Repeat in light and dark for the notice, and at 390px to see the push ignored.
+- **Cannot be checked here:** a person in a real call being moved while staying in it, a Conference push with a real call, and the pop-out window; they need LiveKit or a second real window.
+- Full `npm run check`, then the independent read.
+
+**Risks, ranked.**
+1. **Permission.** A member who can reach the route moves everyone. Mitigation: the check on the server, a test for every role, the independent read.
+2. **Being moved against someone's will** while they work (a half-typed object, an open edit). Mitigation: only the layout changes, nothing is closed or lost, the Workspace is held as it was, **Go back** is one press. A confirm first was not chosen (a show, not a prompt).
+3. **Flooding or abuse** by pressing again and again. Mitigation: the wait, `429`.
+4. **A person cannot open the workspace and sees nothing,** so does not know a push happened. Accepted: they are not told, so no one is shown a screen they cannot use.
+5. **Stale held push** after a reconnect drops someone onto a layout a long time later. Mitigation: the stale rule.
+6. **Phones are left out** (suggested), so a phone player in a briefing is not moved.
+
+**Rollback and off switch.** One route, one stream message and one page branch, in one build step. Reverting the step removes all three; no stored data, no setting and no environment variable stay behind. As a quick off, the menu entry is the only way in from the page, and the route can answer `403` to everyone. There is no setting, because none is decided.
+
 ## Left to build, in order
 
 Each step is one try build, leaves the app working and can be checked alone. Size by job: S about a short sitting, M about half a day, L a day or more. Steps 8 to 10 come from Thomas's answer to question 1 (step 10 is settled by decision 31); steps 8 and 10 are small and can be built before step 1. Step 11 comes from decision 20 (the last layout on the server); it is a core change, so it is held for an independent read, and step 6 waits for it.
@@ -395,6 +488,7 @@ Each step is one try build, leaves the app working and can be checked alone. Siz
 | 11 | **The last layout on the server.** `last` in `layouts.json` (cleaned layout id and `at`, one entry per person per space), `PUT /api/spaces/:id/last-layout`, `last` in `GET .../layouts`, the clean-up in `forgetPerson`, `forgetSpace` and `remove()`, `403` for a guest, `404` for an Aside. Build it before step 6 | server-development | `server/layouts.js`, `server/index.js`, `tools/check-layouts.mjs` | M | Medium: **core change** (`server/`, stored data format); independent read, full `npm run check` |
 | 12 | **The Modules tab of a Fixed Workspace.** Server half: the schema list in the host (one entry per Fixed Workspace, today `calendar` offers `todo` / `inCalendar`, the rest none), `settings` in the `GET .../layouts` entries, and the check that validates the list. Pages half: the Modules tab of a Fixed Workspace draws only the schema's switches or the message "There is nothing to configure here.", and the canvas controls (Arrange, Layouts, **Open for you**, add and remove) are not offered there but stay in a Customizable Workspace. Independent of steps 4 to 9; it can follow step 3 | server-development for the list, the answer and the check; then experience-design for the tab and the message | `server/layouts.js` (or a new file beside it), `server/index.js`, `tools/check-layouts.mjs` or a new `tools/check-fixed-workspaces.mjs`; `public/space-setup.js`, `public/switch-list.js`, `tools/check-setup-tabs.mjs` | S to M | Low |
 | 10 | **The conference icon in the collapsed rail.** The call's icon sits beside the chat button when the column is collapsed. A small dot shows while a call is active (not the elapsed time). Pressing it reopens the call area and does not start a call. It is a button in the tab order named "Show the call" (or similar) and says the call is active to a screen reader, as the unread badge does. Phones unchanged (decisions 18 and 31) | experience-design | `public/space.js` (the rail beside `#side-column-rail-chat`), `public/style.css`, `tools/check-canvas.mjs` | S | Low |
+| 13 | **Bring Everyone Here** (decision 36). Server half: `POST /api/spaces/:id/bring-everyone`, the owner, admin and moderator check, the id check, the wait, the `layout-bring` nudge with `tellLiveSpace`, the console line, and the checks. Pages half: the `layout-bring` branch in `public/space.js` (and the stream passing it on in `public/space-live.js`), the one-line notice with **Go back**, the menu entry on a Fixed Workspace tab. Server first, then the page | server-development for the route, the stream message and the checks; then experience-design for the handler, the notice and the menu entry | `server/index.js`, `tools/check-bring-everyone.mjs` (or `tools/check-layouts.mjs`); `public/space.js`, `public/space-live.js`, `tools/check-canvas.mjs` | M (server S, pages S to M) | Medium: **core change** (`server/`, a new route and permission): held for an independent read and the full `npm run check`. Waits for the Fixed Workspace ids, which are built (steps 1 and 12), so it **can start before the templates redesign** with the five Fixed Workspaces; pinned workspaces join by adding them to the one "is this id pushable" check when that plan lands. Does not wait on the open questions about phones or chat, only on questions 1 and 2 below |
 
 Documentation after each step is content-manager's: [architecture-navigation](../architecture/architecture-navigation.md) (the layout tabs), [architecture-canvas](../architecture/architecture-canvas.md) (the column, remembered layouts), the API document for `tabs` and `defaultLayout`, [userguide-call](../userguides/userguide-call.md), [userguide-spaces](../userguides/userguide-spaces.md), and the CHANGELOG. The Names section of `CLAUDE.md` is Thomas's.
 
@@ -412,6 +506,7 @@ Documentation after each step is content-manager's: [architecture-navigation](..
 - **Step 10.** Live in Chromium: collapse the column, the conference icon shows beside the chat button with no call and without the dot; one press reopens the call area and does not start a call; Tab reaches it, it has an accessible name, and the active state is in its label or a live region as the unread badge does (checked in the page's accessibility tree); a phone width shows no rail and no change. The dot while a call is really active cannot be checked here (no LiveKit); a test can only set the state the page reads.
 - **Step 9.** `tools/check-canvas.mjs` for the pure placement rules (the two new values, the fallback when the column is too narrow). Live in Chromium at 1280, 900 and 641px: Right of the chat and In the workspace place the call (In the workspace with the same title bar, menu and controls), neither is offered at 390px, persist across a reload, and return cleanly to the other positions. **Cannot be checked without a real LiveKit call:** the call tile in the workspace at real size, a screen share, audio and video. With no call, the large Start call button shows In the workspace and not in the side column placements (decision 32); live in Chromium.
 - **Step 7.** Live at 390px (headless Chromium): the call tab is full screen, the tab bar is one tap to the work; `tools/check-narrow.mjs`, `tools/check-phone-targets.mjs`.
+- **Step 13.** The server checks, the stream check, the pure page cases and the live check with a moderator, a member and a guest, as listed under "Bring Everyone Here". A person moved while in a real call cannot be checked here.
 - **Always:** `npm run check` and `npm run check:docs`. Not checked by any step: a real phone, a real screen reader, Firefox, Safari, a real call.
 
 ## Tests and checks to add
@@ -434,7 +529,7 @@ None as a setting. Each step is its own commit; reverting step 4 leaves Conferen
 
 ## Not in version 1
 
-- **"Bring everyone to the Conference":** a moderator putting everyone into the Conference layout for a briefing. Left out of version 1 (Thomas, decision 26).
+- **"Bring everyone to the Conference":** left out of version 1 (decision 26). Decision 36 now asks for bringing everyone to a Fixed Workspace, Conference included if Thomas agrees (open question 3); it is step 13.
 - Cursors, a "follow me" view, shared layouts changing for everyone in real time.
 - Reordering across fixed layouts and favorites (fixed first, then favorites).
 - Per-person order of the fixed tabs.
@@ -459,4 +554,16 @@ Every numbered question is answered (decisions 12 to 26), and so are the guest f
 
 ## Open questions for Thomas
 
-None for the build. All twelve questions are answered and recorded as decisions 12 to 26, the four follow-up points as decisions 27 to 30, the collapsed rail as decision 31 and the two kinds of workspace as decisions 33 to 35. What is still undecided is under "What is not decided".
+About Bring Everyone Here (decision 36), suggestion first. Questions 1 and 2 block step 13; the rest do not, and the suggestion is built if he does not say.
+
+1. **Who may press it?** Suggested: owners, the admin and the space's moderators, never members or guests. Blocks the route's permission check (step 13, server half).
+2. **Does being brought change a person's remembered last layout?** Suggested: no, it is a show; leaving and returning restores their own. Blocks the page handler (step 13, pages half).
+3. **May Conference be brought too?** Suggested: yes, it is a Fixed Workspace, and decision 26 left it out only for version 1. If no, the id check drops `conference`. Does not block.
+4. **Phones.** Suggested: a push is ignored on a phone. The other choice is to open the matching module tab. Does not block.
+5. **A confirm first, or a notice with Go back?** Suggested: no confirm; the notice with **Go back**. Does not block.
+6. **Guests.** Suggested: moved only when the workspace is available to guests, which today is never (decision 27). Does not block.
+7. **A trace.** Suggested: a console line on the server only, no chat line. Does not block.
+8. **A workspace the owner hid from the bar.** Suggested: may still be brought. Does not block.
+9. **Wait for the templates redesign?** Suggested: no; build now for the five Fixed Workspaces and add pinned ones later. Blocks only the order of work, not the build.
+
+Older questions: none for the build. All twelve earlier questions are answered and recorded as decisions 12 to 26, the four follow-up points as decisions 27 to 30, the collapsed rail as decision 31 and the two kinds of workspace as decisions 33 to 35. What is still undecided is under "What is not decided".
