@@ -2,15 +2,29 @@
   "id": "travel",
   "name": "Travel",
   "description": "Plan trips together: the itinerary, places, maps, research and a calendar.",
-  "version": 12,
-  "words": { "space": { "one": "trip", "many": "trips" } },
-  "icons": { "home": "suitcase-rolling" },
-  "lobby": { "name": "Home base", "description": "Everyone on every trip." },
+  "version": 13,
+  "words": {
+    "space": {
+      "one": "trip",
+      "many": "trips"
+    }
+  },
+  "icons": {
+    "home": "suitcase-rolling"
+  },
+  "lobby": {
+    "name": "Home base",
+    "description": "Everyone on every trip."
+  },
   "modules": {
-    "travel": { "name": "Itinerary" },
+    "travel": {
+      "name": "Itinerary"
+    },
     "maps": {},
     "research": {},
-    "vault": { "name": "Documents" },
+    "vault": {
+      "name": "Files"
+    },
     "assistant": {},
     "calendar": {},
     "budget": {},
@@ -21,15 +35,57 @@
     "chat": {},
     "conference": {}
   },
-  "workspace": { "opensWith": ["travel", "chat"] },
+  "workspace": {
+    "opensWith": [
+      "travel",
+      "chat"
+    ]
+  },
   "phases": [
-    { "id": "planning", "icon": "clipboard-list", "label": "Planning" },
-    { "id": "booking", "icon": "ticket", "label": "Booking" },
-    { "id": "buffer", "icon": "hourglass-half", "label": "Buffer" },
-    { "id": "pre-trip", "icon": "suitcase-rolling", "label": "Pre-trip" },
-    { "id": "trip", "icon": "plane", "label": "Trip", "main": true },
-    { "id": "post-trip", "icon": "camera", "label": "Post-trip" }
+    {
+      "id": "planning",
+      "icon": "clipboard-list",
+      "label": "Planning"
+    },
+    {
+      "id": "booking",
+      "icon": "ticket",
+      "label": "Booking"
+    },
+    {
+      "id": "buffer",
+      "icon": "hourglass-half",
+      "label": "Buffer"
+    },
+    {
+      "id": "pre-trip",
+      "icon": "suitcase-rolling",
+      "label": "Pre-trip"
+    },
+    {
+      "id": "trip",
+      "icon": "plane",
+      "label": "Trip",
+      "main": true
+    },
+    {
+      "id": "post-trip",
+      "icon": "camera",
+      "label": "Post-trip"
+    }
   ],
-  "spaceDefaults": { "profile": "participants" },
-  "settings": { "showCalendar": true, "showMap": true, "calendarFeeds": true, "otherCalendars": true }
+  "spaceDefaults": {
+    "profile": "participants"
+  },
+  "settings": {
+    "showCalendar": true,
+    "showMap": true,
+    "calendarFeeds": true,
+    "otherCalendars": true
+  },
+  "call": {
+    "joinOnEntry": false,
+    "position": "top",
+    "layout": "grid"
+  }
 }

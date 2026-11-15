@@ -220,7 +220,7 @@ try {
     const again = await as('PATCH', '/api/settings', { template: 'travel' });
     assert.deepEqual([again.status, again.json.template.offerOpen], [200, true], 'the same template: nothing changes');
     const view = (await as('GET', '/api/environment/template')).json;
-    assert.deepEqual([view.template.id, view.template.source, view.offer.modules.length, view.choices.map((c) => c.id)], ['travel', 'bundled', 8, ['default', 'games', 'travel']]);
+    assert.deepEqual([view.template.id, view.template.source, view.offer.modules.length, view.choices.map((c) => c.id)], ['travel', 'bundled', 8, ['default', 'games', 'learning', 'mentoring', 'project', 'travel']]);
   });
 
   await test('switching to a template puts its phases on the module context at once', async () => {
@@ -298,7 +298,7 @@ try {
     assert.deepEqual(await as('POST', '/api/templates/import', travel.json).then((r) => [r.status, r.json]), [409, { error: 'There is already a template called travel.' }]);
     const mine = await as('POST', '/api/templates/import?id=my-trips', { ...travel.json, name: 'My trips' });
     assert.deepEqual([mine.status, mine.json.template.source, mine.json.template.name], [201, 'own', 'My trips'], mine.text);
-    assert.deepEqual((await as('GET', '/api/environment/template')).json.choices.map((c) => [c.id, c.source]), [['default', 'bundled'], ['games', 'bundled'], ['travel', 'bundled'], ['my-trips', 'own']]);
+    assert.deepEqual((await as('GET', '/api/environment/template')).json.choices.map((c) => [c.id, c.source]), [['default', 'bundled'], ['games', 'bundled'], ['learning', 'bundled'], ['mentoring', 'bundled'], ['project', 'bundled'], ['travel', 'bundled'], ['my-trips', 'own']]);
     assert.equal((await as('PATCH', '/api/settings', { template: 'my-trips' })).status, 200);
     assert.deepEqual(await as('DELETE', '/api/environment/templates/my-trips').then((r) => [r.status, r.json]), [200, { spaces: [], environment: true }]);
     assert.equal((await as('GET', '/api/environment/template')).json.template.id, 'default');
@@ -325,7 +325,7 @@ try {
     assert.deepEqual(r.json.environment.offer.modules.find((m) => m.id === 'maps'), { id: 'maps', name: 'Maps', allowed: false, why: 'not in the plan' });
     const review = await console_('GET', '/api/host/environments/beta/template');
     assert.equal(review.status, 200, review.text);
-    assert.deepEqual([review.json.template.id, review.json.template.offerOpen, review.json.offer.modules.length, review.json.choices.map((c) => c.id)], ['travel', true, r.json.environment.offer.modules.length, ['default', 'games', 'travel']], 'the console reads the offer without switching again');
+    assert.deepEqual([review.json.template.id, review.json.template.offerOpen, review.json.offer.modules.length, review.json.choices.map((c) => c.id)], ['travel', true, r.json.environment.offer.modules.length, ['default', 'games', 'learning', 'mentoring', 'project', 'travel']], 'the console reads the offer without switching again');
     assert.deepEqual(await console_('GET', '/api/host/environments/nope/template').then((x) => [x.status, x.json]), [404, { error: 'no such environment' }]);
     assert.equal(readJson(path.join(hosted, 'environments', 'beta', 'app.json')).templateHistory.length, 1, 'reading it switched nothing');
     const shownIcon = (await call(server, 'beta', 'GET', '/api/branding')).json.homeIcon;
@@ -369,7 +369,7 @@ try {
     const mods = (await asOwner('GET', '/api/modules')).json.modules;
     const on = (id) => mods.find((m) => m.id === id)?.enabled === true;
     for (const id of ['travel', 'calendar', 'polls', 'todo']) assert.equal(on(id), true, `${id} on`);
-    for (const id of ['maps', 'budget']) assert.equal(on(id), false, `${id} off`);
+    for (const id of ['whiteboard']) assert.equal(on(id), false, `${id} off`);
     assert.equal(on('assistant'), true, 'assistant on');
     const campaign = await asOwner('POST', '/api/spaces', { name: 'The Ashen Crown' });
     assert.equal(campaign.status, 200, campaign.text);
@@ -380,7 +380,7 @@ try {
     assert.deepEqual([shown.calendar[0], shown.todo[0]], ['Sessions', 'Quests']);
     const home = (await asOwner('GET', '/api/modules/for-space?space=lobby')).json;
     assert.deepEqual(home.opensWith, ['chat', 'calendar']);
-    assert.equal((await asOwner('GET', '/api/settings')).json.settings.showMap, false);
+    assert.equal((await asOwner('GET', '/api/settings')).json.settings.showMap, true, 'Games has Maps now, so the map is shown');
     assert.equal((await console_('DELETE', '/api/host/environments/dice')).status < 500, true);
   });
 

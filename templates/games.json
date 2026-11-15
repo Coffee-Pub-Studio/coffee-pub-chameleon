@@ -2,24 +2,178 @@
   "id": "games",
   "name": "Games",
   "description": "Run a campaign together: the chat, the calendar for sessions, a campaign planner, quests, lore and polls, and every player as an OBS source.",
-  "version": 4,
+  "version": 5,
   "words": {
-    "space": { "one": "campaign", "many": "campaigns" },
-    "member": { "one": "player", "many": "players" }
+    "space": {
+      "one": "campaign",
+      "many": "campaigns"
+    },
+    "member": {
+      "one": "player",
+      "many": "players"
+    }
   },
-  "icons": { "home": "dice-d20" },
-  "lobby": { "name": "Common room", "description": "Everyone in every campaign." },
+  "icons": {
+    "home": "dice-d20"
+  },
+  "lobby": {
+    "name": "Common room",
+    "description": "Everyone in every campaign."
+  },
   "modules": {
-    "travel": { "name": "Campaign planner", "icon": "scroll" },
-    "calendar": { "name": "Sessions" },
+    "travel": {
+      "name": "Campaign planner",
+      "icon": "scroll"
+    },
+    "maps": {},
+    "research": {
+      "name": "Lore",
+      "settings": {
+        "tags": [
+          {
+            "id": "npc",
+            "label": "Character",
+            "icon": "user",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "place",
+            "label": "Place",
+            "icon": "location-dot",
+            "color": "#22c55e"
+          },
+          {
+            "id": "faction",
+            "label": "Faction",
+            "icon": "flag",
+            "color": "#ef4444"
+          }
+        ]
+      }
+    },
+    "documents": {
+      "starter": {
+        "doc:sessionnotes": {
+          "id": "sessionnotes",
+          "type": "doc",
+          "title": "Session notes",
+          "rev": 1,
+          "chunks": [
+            "notesch1"
+          ],
+          "size": 73,
+          "excerpt": "Session notes: where we left off, what happened, next session.",
+          "preview": "# Session notes\n\n## Where we left off\n\n## What happened\n\n## Next session\n",
+          "paper": "light-white",
+          "by": "template",
+          "at": "2026-01-01T00:00:00.000Z",
+          "editedBy": "template",
+          "editedByName": "Template",
+          "editedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "text:sessionnotes:notesch1": {
+          "id": "notesch1",
+          "doc": "sessionnotes",
+          "text": "# Session notes\n\n## Where we left off\n\n## What happened\n\n## Next session\n"
+        },
+        "doc:handoutone": {
+          "id": "handoutone",
+          "type": "doc",
+          "title": "Handout",
+          "rev": 1,
+          "chunks": [
+            "handout1"
+          ],
+          "size": 47,
+          "excerpt": "A handout for the players.",
+          "preview": "# Handout\n\nWhat the players are given to read.\n",
+          "paper": "light-white",
+          "by": "template",
+          "at": "2026-01-01T00:00:00.000Z",
+          "editedBy": "template",
+          "editedByName": "Template",
+          "editedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "text:handoutone:handout1": {
+          "id": "handout1",
+          "doc": "handoutone",
+          "text": "# Handout\n\nWhat the players are given to read.\n"
+        }
+      }
+    },
+    "budget": {
+      "name": "Costs",
+      "settings": {
+        "categories": [
+          {
+            "id": "snacks",
+            "label": "Snacks",
+            "icon": "pizza-slice",
+            "color": "#f97316"
+          },
+          {
+            "id": "books",
+            "label": "Books and miniatures",
+            "icon": "book",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "venue",
+            "label": "Venue",
+            "icon": "house",
+            "color": "#22c55e"
+          },
+          {
+            "id": "other",
+            "label": "Other",
+            "icon": "tag",
+            "color": "#888888"
+          }
+        ]
+      }
+    },
+    "todo": {
+      "name": "Quests",
+      "settings": {
+        "inCalendar": true
+      }
+    },
+    "calendar": {
+      "name": "Sessions",
+      "labels": {
+        "event": {
+          "one": "session",
+          "many": "sessions"
+        }
+      }
+    },
     "polls": {},
-    "todo": { "name": "Quests" },
-    "research": { "name": "Lore" },
-    "vault": { "name": "Handouts" },
+    "vault": {
+      "name": "Files"
+    },
     "assistant": {},
     "chat": {},
     "conference": {}
   },
-  "workspace": { "opensWith": ["chat", "calendar"] },
-  "settings": { "showCalendar": true, "showMap": false, "calendarFeeds": true }
+  "workspace": {
+    "opensWith": [
+      "chat",
+      "calendar"
+    ],
+    "show": [
+      "calendar",
+      "map"
+    ],
+    "opensFirst": "workspace"
+  },
+  "settings": {
+    "showCalendar": true,
+    "showMap": true,
+    "calendarFeeds": true
+  },
+  "call": {
+    "joinOnEntry": false,
+    "position": "top",
+    "layout": "grid"
+  }
 }
