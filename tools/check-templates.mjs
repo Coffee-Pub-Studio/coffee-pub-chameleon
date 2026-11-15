@@ -133,7 +133,7 @@ try {
     const t = templates.get('travel');
     assert.deepEqual(t.words, { space: { one: 'trip', many: 'trips' } });
     assert.deepEqual(Object.keys(t.modules), ['travel', 'maps', 'research', 'vault', 'assistant', 'calendar', 'budget', 'polls', 'todo', 'documents', 'whiteboard', 'chat', 'conference']);
-    assert.deepEqual([t.modules.travel, t.modules.vault, t.modules.maps], [{ name: 'Itinerary' }, { name: 'Documents' }, {}]);
+    assert.deepEqual([t.modules.travel, t.modules.vault, t.modules.maps], [{ name: 'Itinerary' }, { name: 'Files' }, {}]);
     assert.deepEqual([t.icons.home, t.lobby, t.spaceDefaults, t.workspace], ['suitcase-rolling', { name: 'Home base', description: 'Everyone on every trip.' }, { profile: 'participants' }, { opensWith: ['travel', 'chat'] }]);
     assert.deepEqual(t.settings, { showCalendar: true, showMap: true, calendarFeeds: true, otherCalendars: true });
     assert.deepEqual(t.phases.map((p) => [p.id, p.icon]), [['planning', 'clipboard-list'], ['booking', 'ticket'], ['buffer', 'hourglass-half'], ['pre-trip', 'suitcase-rolling'], ['trip', 'plane'], ['post-trip', 'camera']]);
@@ -142,8 +142,26 @@ try {
     const g = templates.get('games');
     assert.deepEqual(g.words, { space: { one: 'campaign', many: 'campaigns' }, member: { one: 'player', many: 'players' } }, 'Games loses group, game master and whisper (decisions 5 and 32)');
     assert.deepEqual(g.modules.travel, { name: 'Campaign planner', icon: 'scroll' });
-    assert.deepEqual([g.modules.calendar.name, g.modules.todo.name, g.modules.research.name, g.modules.vault.name], ['Sessions', 'Quests', 'Lore', 'Handouts']);
-    assert.deepEqual(g.workspace, { opensWith: ['chat', 'calendar'] });
+    assert.deepEqual([g.modules.calendar.name, g.modules.todo.name, g.modules.research.name, g.modules.vault.name], ['Sessions', 'Quests', 'Lore', 'Files']);
+    assert.deepEqual(g.workspace, { opensWith: ['chat', 'calendar'], show: ['calendar', 'map'], opensFirst: 'workspace' });
+  });
+
+  await test('step 15: the shipped templates (Project, Learning, Mentoring, Games) hold what the plan lists; the Vault is "Files" in each; nothing names a planner that is not built yet', () => {
+    for (const id of ['travel', 'games', 'project', 'learning', 'mentoring']) {
+      const t = templates.get(id);
+      assert.equal(t.modules.vault.name, 'Files', id);
+      assert.deepEqual(t.call, { joinOnEntry: false, position: 'top', layout: 'grid' }, id);
+      assert.equal(Object.keys(t.modules).slice(-2).join(), 'chat,conference', id);
+      for (const planner of ['schedule', 'goals']) assert.equal(Object.hasOwn(t.modules, planner), false, `${id}: ${planner} waits for its module`);
+    }
+    const p = templates.get('project');
+    assert.deepEqual([p.words.space.one, p.icons.home, p.modules.budget.name, p.modules.todo.settings, p.phases.map((x) => x.id), p.phaseMeasure], ['project', 'diagram-project', 'Effort', { inCalendar: true }, ['start', 'build', 'wrap'], 'dates']);
+    assert.deepEqual(p.starterSpaces, [{ name: 'Your first project', description: 'A place to try things.' }]);
+    assert.deepEqual([templates.get('learning').modules.calendar.labels.event.one, templates.get('learning').modules.maps.labels.place.one, templates.get('learning').phaseMeasure], ['session', 'visit', 'goals']);
+    assert.deepEqual([templates.get('mentoring').modules.calendar.labels.event.one, templates.get('mentoring').modules.todo.name], ['check-in', 'Next steps']);
+    for (const id of ['project', 'learning', 'mentoring', 'games']) assert.equal(Object.keys(templates.get(id).modules.documents.starter).length >= 2, true, `${id} starts with a document`);
+    assert.equal(Object.keys(templates.get('games').modules.documents.starter).length, 4, 'session notes and a handout, a record and its text each');
+    assert.equal(Object.hasOwn(templates.get('games').modules, 'maps'), true);
   });
 
   await test('the fields: an unknown one, and every old one (verbs, theme, moduleNames, moduleIcons), is refused with its sentence', () => {
@@ -444,7 +462,7 @@ try {
       assert.deepEqual(await api('DELETE', '/api/environment/templates/travel').then((r) => [r.status, r.json]), [403, { error: 'Shipped templates can\'t be deleted.' }]);
       assert.deepEqual(await api('PATCH', '/api/environment/templates/nope', { name: 'x' }).then((r) => [r.status, r.json]), [404, { error: 'There is no template called nope.' }]);
       const list = (await api('GET', '/api/environment/templates')).json.templates;
-      assert.deepEqual(list.map((t) => [t.id, t.source, t.editable, t.environment]), [['default', 'bundled', false, true], ['games', 'bundled', false, false], ['travel', 'bundled', false, false]]);
+      assert.deepEqual(list.map((t) => [t.id, t.source, t.editable, t.environment]), [['default', 'bundled', false, true], ['games', 'bundled', false, false], ['learning', 'bundled', false, false], ['mentoring', 'bundled', false, false], ['project', 'bundled', false, false], ['travel', 'bundled', false, false]]);
     });
 
     await test('copy: the Default\'s "*" written out as the modules on here; a copy of travel keeps its shape; refusals', async () => {
@@ -470,7 +488,7 @@ try {
         assert.deepEqual([r.status, r.json.error], [status, error], JSON.stringify(body));
       }
       const stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8')).templates;
-      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 1 }], ['trips', 1, { id: 'travel', version: 12 }]]);
+      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 1 }], ['trips', 1, { id: 'travel', version: 13 }]]);
       for (const x of stored) assert.ok(x.createdAt && x.updatedAt, 'dated');
     });
 
@@ -524,7 +542,7 @@ try {
       assert.equal(file.status, 200, file.text);
       const imported = await api('POST', '/api/templates/import?id=from-file', file.json);
       assert.equal(imported.status, 201, imported.text);
-      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 12, null]);
+      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 13, null]);
       const theme = await api('POST', '/api/templates/import?id=themed', { ...file.json, theme: { name: 'x' } });
       assert.deepEqual([theme.status, theme.json.error.slice(0, 32)], [400, '"theme" is not a template field;']);
       const proto = await call(server, '', 'POST', '/api/templates/import', { cookie: admin, raw: `{"format":"template","formatVersion":1,"id":"p1","name":"P","description":"P.","modules":{"chat":{}},"__proto__":{"x":1}}`, type: 'text/plain' });

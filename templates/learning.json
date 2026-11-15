@@ -1,0 +1,183 @@
+{
+  "id": "learning",
+  "name": "Learning",
+  "description": "Learn something together: exercises, reading, a journal and sessions on a calendar.",
+  "version": 1,
+  "words": {
+    "space": {
+      "one": "course",
+      "many": "courses"
+    },
+    "member": {
+      "one": "learner",
+      "many": "learners"
+    }
+  },
+  "home": {
+    "one": "Courses",
+    "many": "Courses"
+  },
+  "icons": {
+    "home": "graduation-cap"
+  },
+  "lobby": {
+    "name": "Common room",
+    "description": "Everyone in every course."
+  },
+  "modules": {
+    "todo": {
+      "name": "Exercises",
+      "settings": {
+        "inCalendar": true
+      }
+    },
+    "documents": {
+      "starter": {
+        "doc:learnjournal": {
+          "id": "learnjournal",
+          "type": "doc",
+          "title": "Learning journal",
+          "rev": 1,
+          "chunks": [
+            "journalc"
+          ],
+          "size": 65,
+          "excerpt": "Learning journal: what I learned, what was hard, next.",
+          "preview": "# Learning journal\n\n## What I learned\n\n## What was hard\n\n## Next\n",
+          "paper": "light-white",
+          "by": "template",
+          "at": "2026-01-01T00:00:00.000Z",
+          "editedBy": "template",
+          "editedByName": "Template",
+          "editedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "text:learnjournal:journalc": {
+          "id": "journalc",
+          "doc": "learnjournal",
+          "text": "# Learning journal\n\n## What I learned\n\n## What was hard\n\n## Next\n"
+        }
+      }
+    },
+    "research": {
+      "name": "Reading",
+      "settings": {
+        "tags": [
+          {
+            "id": "reading",
+            "label": "Reading",
+            "icon": "book-open",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "question",
+            "label": "Question",
+            "icon": "circle-question",
+            "color": "#f97316"
+          },
+          {
+            "id": "idea",
+            "label": "Idea",
+            "icon": "lightbulb",
+            "color": "#eab308"
+          }
+        ]
+      }
+    },
+    "calendar": {
+      "name": "Sessions",
+      "labels": {
+        "event": {
+          "one": "session",
+          "many": "sessions"
+        }
+      }
+    },
+    "budget": {
+      "name": "Time",
+      "settings": {
+        "categories": [
+          {
+            "id": "study",
+            "label": "Study",
+            "icon": "book-open",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "practice",
+            "label": "Practice",
+            "icon": "dumbbell",
+            "color": "#22c55e"
+          },
+          {
+            "id": "review",
+            "label": "Review",
+            "icon": "magnifying-glass",
+            "color": "#f97316"
+          },
+          {
+            "id": "other",
+            "label": "Other",
+            "icon": "tag",
+            "color": "#888888"
+          }
+        ]
+      }
+    },
+    "maps": {
+      "labels": {
+        "place": {
+          "one": "visit",
+          "many": "visits"
+        }
+      }
+    },
+    "vault": {
+      "name": "Files"
+    },
+    "chat": {},
+    "conference": {}
+  },
+  "call": {
+    "joinOnEntry": false,
+    "position": "top",
+    "layout": "grid"
+  },
+  "workspace": {
+    "opensWith": [
+      "todo",
+      "documents",
+      "chat"
+    ],
+    "show": [
+      "calendar",
+      "documents"
+    ],
+    "opensFirst": "workspace"
+  },
+  "phases": [
+    {
+      "id": "explore",
+      "icon": "seedling",
+      "label": "Explore"
+    },
+    {
+      "id": "practice",
+      "icon": "dumbbell",
+      "label": "Practice",
+      "main": true
+    },
+    {
+      "id": "review",
+      "icon": "clipboard-check",
+      "label": "Review"
+    }
+  ],
+  "phaseMeasure": "goals",
+  "spaceDefaults": {
+    "profile": "participants"
+  },
+  "settings": {
+    "showCalendar": true,
+    "showMap": false
+  }
+}

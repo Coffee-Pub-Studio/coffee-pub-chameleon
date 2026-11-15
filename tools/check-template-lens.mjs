@@ -112,7 +112,7 @@ await test('two spaces on two templates: different module sets, names, icons, re
   assert.deepEqual(lp.modules, ['travel', 'maps', 'budget', 'assistant', 'chat', 'conference'], "the project template's own, in its order");
   assert.deepEqual(lg.modules, Object.keys(templates.get('games').modules), "games' own");
   assert.equal(store.moduleOffered(p.id, 'maps'), true);
-  assert.equal(store.moduleOffered(g.id, 'maps'), false, 'games leaves Maps out');
+  assert.equal(store.moduleOffered(g.id, 'whiteboard'), false, 'games leaves the Whiteboard out');
   assert.equal(store.moduleOffered(p.id, 'calendar'), false, 'the project template leaves Calendar out, though games has it');
   assert.deepEqual(lp.names.travel, { name: 'Project plan', icon: 'diagram-project' });
   assert.deepEqual(lg.names.travel, { name: 'Campaign planner', icon: 'scroll' });
@@ -132,7 +132,7 @@ await test('two spaces on two templates: different module sets, names, icons, re
   assert.equal(lp.phaseMeasure, 'progress');
   assert.deepEqual(lp.call, { joinOnEntry: false, position: 'left', layout: 'strip' }, 'the call as stored');
   assert.deepEqual(lp.workspace, { opensWith: ['travel', 'chat'], show: ['calendar'], opensFirst: 'workspace' }, 'the workspace as stored');
-  assert.deepEqual([lg.call, lg.workspace.opensWith], [{}, ['chat', 'calendar']]);
+  assert.deepEqual([lg.call, lg.workspace.opensWith], [{ joinOnEntry: false, position: 'top', layout: 'grid' }, ['chat', 'calendar']]);
   // The answer is the reader's own: changing it changes nothing stored or read again.
   lp.modules.push('calendar');
   lp.names.travel.name = 'Changed';
@@ -176,8 +176,8 @@ await test('locked words read the defaults in every space; Home, the Lobby, no s
     assert.equal(l.words.space.one, 'campaign', String(id));
   }
   store.data.spaces.find((r) => r.id === 'lobby').template = 'project';
-  assert.equal(store.moduleOffered('lobby', 'maps'), false, 'the Lobby never reads a template of its own');
-  assert.equal(store.moduleOffered(null, 'maps'), false, "Home reads the environment's (games has no Maps)");
+  assert.equal(store.moduleOffered('lobby', 'whiteboard'), false, 'the Lobby never reads a template of its own');
+  assert.equal(store.moduleOffered(null, 'whiteboard'), false, "Home reads the environment's (games has no Whiteboard)");
 });
 
 await test('a template id that no longer exists, the off switch, and an aside', () => {
@@ -406,12 +406,12 @@ try {
   const mo = await makeUser('mo');
   const out = await makeUser('ola');
   // The owner's own templates: a project (from travel, with additions) and a lean one (no AI Assistant, no Maps).
-  assert.equal((await owner.as('POST', '/api/environment/templates', { from: 'travel', id: 'project', name: 'Project' })).status, 201);
-  const projectEdit = await owner.as('PATCH', '/api/environment/templates/project', { words: { space: { one: 'project', many: 'projects' } }, modules: { travel: { name: 'Project plan', icon: 'diagram-project' }, maps: {}, budget: { name: 'Effort' }, assistant: {}, documents: {}, chat: {}, conference: {} }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['diagram-project'] });
+  assert.equal((await owner.as('POST', '/api/environment/templates', { from: 'travel', id: 'harbor', name: 'Harbor' })).status, 201);
+  const projectEdit = await owner.as('PATCH', '/api/environment/templates/harbor', { words: { space: { one: 'project', many: 'projects' } }, modules: { travel: { name: 'Project plan', icon: 'diagram-project' }, maps: {}, budget: { name: 'Effort' }, assistant: {}, documents: {}, chat: {}, conference: {} }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['diagram-project'] });
   assert.equal(projectEdit.status, 200, projectEdit.text);
   assert.equal((await owner.as('POST', '/api/environment/templates', { from: 'default', id: 'lean', name: 'Lean' })).status, 201);
   assert.equal((await owner.as('PATCH', '/api/environment/templates/lean', { modules: { travel: { name: 'Plan' }, calendar: {}, chat: {}, conference: {} } })).status, 200);
-  const bridge = (await admin('POST', '/api/spaces', { name: 'Bridge', members: [mia.key, mo.key], template: 'project' })).json.space;
+  const bridge = (await admin('POST', '/api/spaces', { name: 'Bridge', members: [mia.key, mo.key], template: 'harbor' })).json.space;
   const camp = (await admin('POST', '/api/spaces', { name: 'Dragon', members: [mia.key, mo.key], template: 'games' })).json.space;
   const plain = (await admin('POST', '/api/spaces', { name: 'Plain', members: [mia.key] })).json.space;
   const leanSpace = (await admin('POST', '/api/spaces', { name: 'Lean', members: [mia.key], template: 'lean' })).json.space;
@@ -427,7 +427,7 @@ try {
     assert.deepEqual(ids(p), [...canvasOn].sort(), 'the Default template (no TEMPLATE): every module that is on');
     assert.deepEqual(ids(b), canvasOn.filter((id) => ['travel', 'maps', 'budget', 'assistant', 'documents'].includes(id)).sort());
     assert.deepEqual(ids(c), canvasOn.filter((id) => Object.hasOwn(templates.get('games').modules, id)).sort());
-    assert.equal(ids(c).includes('maps'), false, 'games leaves Maps out');
+    assert.equal(ids(c).includes('whiteboard'), false, 'games leaves the Whiteboard out');
     assert.equal(ids(b).includes('calendar'), false, 'the project leaves Calendar out');
     const named = (r, id) => r.json.modules.find((m) => m.id === id);
     assert.deepEqual([named(b, 'travel').name, named(b, 'travel').icon], ['Project plan', 'diagram-project']);
@@ -457,10 +457,10 @@ try {
   await test('a module the template leaves out answers there as a module that is not on; its data stays', async () => {
     const off = `this module is not available in that space for you`;
     for (const [method, url, body] of [
-      ['GET', `/api/modules/maps/context?scope=space&space=${camp.id}`],
-      ['GET', `/api/modules/maps/data?scope=space&space=${camp.id}`],
-      ['PUT', `/api/modules/maps/data/place:x?scope=space&space=${camp.id}`, { value: { name: 'x' } }],
-      ['GET', `/api/modules/maps/settings/values?scope=space&space=${camp.id}`],
+      ['GET', `/api/modules/whiteboard/context?scope=space&space=${camp.id}`],
+      ['GET', `/api/modules/whiteboard/data?scope=space&space=${camp.id}`],
+      ['PUT', `/api/modules/whiteboard/data/place:x?scope=space&space=${camp.id}`, { value: { name: 'x' } }],
+      ['GET', `/api/modules/whiteboard/settings/values?scope=space&space=${camp.id}`],
     ]) {
       const r = await mia.as(method, url, body);
       assert.deepEqual([r.status, r.json?.error], [403, off], `${method} ${url}: ${r.text}`);
@@ -468,9 +468,9 @@ try {
     // The same module answers in a space whose template offers it, and its data written there survives a change of template.
     const put = await mia.as('PUT', `/api/modules/maps/data/place:kept?scope=space&space=${bridge.id}`, { value: { name: 'Kept' } });
     assert.ok([200, 201].includes(put.status), put.text);
-    assert.equal((await admin('PATCH', `/api/spaces/${bridge.id}`, { template: 'games' })).status, 200);
-    assert.equal((await mia.as('GET', `/api/modules/maps/data?scope=space&space=${bridge.id}`)).status, 403, 'off under games');
-    assert.equal((await admin('PATCH', `/api/spaces/${bridge.id}`, { template: 'project' })).status, 200);
+    assert.equal((await admin('PATCH', `/api/spaces/${bridge.id}`, { template: 'lean' })).status, 200);
+    assert.equal((await mia.as('GET', `/api/modules/maps/data?scope=space&space=${bridge.id}`)).status, 403, 'off under a template that leaves Maps out');
+    assert.equal((await admin('PATCH', `/api/spaces/${bridge.id}`, { template: 'harbor' })).status, 200);
     const back = await mia.as('GET', `/api/modules/maps/data?scope=space&space=${bridge.id}`);
     assert.equal(back.status, 200, back.text);
     assert.ok(JSON.stringify(back.json).includes('Kept'), 'back with its data');
@@ -497,8 +497,8 @@ try {
     const campSet = ids(await forSpace(mia.as, camp.id));
     assert.ok(gusSet.every((id) => campSet.includes(id)), `a link guest sees a part of the member's set: ${gusSet} of ${campSet}`);
     assert.ok(gusSet.length > 0, 'a link guest sees some modules');
-    assert.equal(gusSet.includes('maps'), false);
-    const gusMaps = await gus('GET', `/api/modules/maps/data?scope=space&space=${camp.id}`);
+    assert.equal(gusSet.includes('whiteboard'), false);
+    const gusMaps = await gus('GET', `/api/modules/whiteboard/data?scope=space&space=${camp.id}`);
     assert.deepEqual([gusMaps.status, gusMaps.json?.error], [403, 'this module is not available in that space for you'], 'Maps is off there for a guest too');
     const gusOther = await forSpace(gus, bridge.id);
     const gusUnknown = await gus('GET', '/api/modules/for-space?space=zzzzzzzz');
@@ -599,13 +599,13 @@ try {
   await test('an edit of a template is read at once; a deleted template falls back to the environment\'s', async () => {
     const before = await forSpace(mia.as, bridge.id);
     assert.ok(ids(before).includes('budget'));
-    const edit = await owner.as('PATCH', '/api/environment/templates/project', { modules: { travel: { name: 'Roadmap' }, maps: {}, assistant: {}, documents: {}, chat: {}, conference: {} } });
+    const edit = await owner.as('PATCH', '/api/environment/templates/harbor', { modules: { travel: { name: 'Roadmap' }, maps: {}, assistant: {}, documents: {}, chat: {}, conference: {} } });
     assert.equal(edit.status, 200, edit.text);
     const after = await forSpace(mia.as, bridge.id);
     assert.equal(ids(after).includes('budget'), false, 'Budget off at once');
     assert.equal(after.json.modules.find((m) => m.id === 'travel').name, 'Roadmap', 'the new name at once');
     assert.equal((await mia.as('GET', `/api/modules/budget/data?scope=space&space=${bridge.id}`)).status, 403);
-    const gone = await owner.as('DELETE', '/api/environment/templates/project');
+    const gone = await owner.as('DELETE', '/api/environment/templates/harbor');
     assert.deepEqual([gone.status, gone.json], [200, { spaces: ['Bridge'], environment: false }]);
     assert.deepEqual(ids(await forSpace(mia.as, bridge.id)), ids(await forSpace(mia.as, plain.id)), "the environment's (Default) set");
     assert.equal((await forSpace(mia.as, bridge.id)).json.modules.find((m) => m.id === 'travel').name, manifests.get('travel').name);

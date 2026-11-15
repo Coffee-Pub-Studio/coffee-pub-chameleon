@@ -4,11 +4,23 @@
     "fingerprint": "60581f0eec0832c0"
   },
   "games": {
-    "version": 4,
-    "fingerprint": "d8daa2053f4972d9"
+    "version": 5,
+    "fingerprint": "8c1890ebe5c3311b"
+  },
+  "learning": {
+    "version": 1,
+    "fingerprint": "2f8b1cb86ff1aff5"
+  },
+  "mentoring": {
+    "version": 1,
+    "fingerprint": "5de52b2efb7e5c66"
+  },
+  "project": {
+    "version": 1,
+    "fingerprint": "1fe1e66bde9d9ae8"
   },
   "travel": {
-    "version": 12,
+    "version": 13,
     "fingerprint": "ea2521c98e5529f5"
   }
 }

@@ -1,0 +1,182 @@
+{
+  "id": "project",
+  "name": "Project",
+  "description": "Run a project together: tasks, meetings, effort, a brief and a calendar.",
+  "version": 1,
+  "words": {
+    "space": {
+      "one": "project",
+      "many": "projects"
+    }
+  },
+  "home": {
+    "one": "Projects",
+    "many": "Projects"
+  },
+  "icons": {
+    "home": "diagram-project"
+  },
+  "lobby": {
+    "name": "Front desk",
+    "description": "Everyone on every project."
+  },
+  "modules": {
+    "todo": {
+      "settings": {
+        "inCalendar": true
+      }
+    },
+    "calendar": {
+      "labels": {
+        "event": {
+          "one": "meeting",
+          "many": "meetings"
+        }
+      }
+    },
+    "budget": {
+      "name": "Effort",
+      "settings": {
+        "categories": [
+          {
+            "id": "planning",
+            "label": "Planning",
+            "icon": "clipboard-list",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "build",
+            "label": "Build",
+            "icon": "hammer",
+            "color": "#22c55e"
+          },
+          {
+            "id": "review",
+            "label": "Review",
+            "icon": "magnifying-glass",
+            "color": "#f97316"
+          },
+          {
+            "id": "tools",
+            "label": "Tools and services",
+            "icon": "screwdriver-wrench",
+            "color": "#8b5cf6"
+          },
+          {
+            "id": "other",
+            "label": "Other",
+            "icon": "tag",
+            "color": "#888888"
+          }
+        ]
+      }
+    },
+    "documents": {
+      "starter": {
+        "doc:projectbrief": {
+          "id": "projectbrief",
+          "type": "doc",
+          "title": "Project brief",
+          "rev": 1,
+          "chunks": [
+            "briefch1"
+          ],
+          "size": 42,
+          "excerpt": "Project brief: goal, who, when.",
+          "preview": "# Project brief\n\n## Goal\n\n## Who\n\n## When\n",
+          "paper": "light-white",
+          "by": "template",
+          "at": "2026-01-01T00:00:00.000Z",
+          "editedBy": "template",
+          "editedByName": "Template",
+          "editedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "text:projectbrief:briefch1": {
+          "id": "briefch1",
+          "doc": "projectbrief",
+          "text": "# Project brief\n\n## Goal\n\n## Who\n\n## When\n"
+        }
+      }
+    },
+    "maps": {},
+    "research": {
+      "settings": {
+        "tags": [
+          {
+            "id": "decision",
+            "label": "Decision",
+            "icon": "gavel",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "risk",
+            "label": "Risk",
+            "icon": "triangle-exclamation",
+            "color": "#ef4444"
+          },
+          {
+            "id": "reference",
+            "label": "Reference",
+            "icon": "bookmark",
+            "color": "#22c55e"
+          }
+        ]
+      }
+    },
+    "polls": {},
+    "whiteboard": {},
+    "vault": {
+      "name": "Files"
+    },
+    "chat": {},
+    "conference": {}
+  },
+  "call": {
+    "joinOnEntry": false,
+    "position": "top",
+    "layout": "grid"
+  },
+  "workspace": {
+    "opensWith": [
+      "todo",
+      "chat"
+    ],
+    "show": [
+      "calendar",
+      "documents"
+    ],
+    "opensFirst": "workspace"
+  },
+  "phases": [
+    {
+      "id": "start",
+      "icon": "flag",
+      "label": "Start"
+    },
+    {
+      "id": "build",
+      "icon": "hammer",
+      "label": "Build",
+      "main": true
+    },
+    {
+      "id": "wrap",
+      "icon": "clipboard-check",
+      "label": "Wrap up"
+    }
+  ],
+  "phaseMeasure": "dates",
+  "spaceDefaults": {
+    "profile": "participants"
+  },
+  "starterSpaces": [
+    {
+      "name": "Your first project",
+      "description": "A place to try things."
+    }
+  ],
+  "settings": {
+    "showCalendar": true,
+    "showMap": false
+  }
+}

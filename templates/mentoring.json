@@ -1,0 +1,164 @@
+{
+  "id": "mentoring",
+  "name": "Mentoring",
+  "description": "Grow with a mentor: goals, next steps, check-ins and a meeting log.",
+  "version": 1,
+  "words": {
+    "space": {
+      "one": "mentorship",
+      "many": "mentorships"
+    }
+  },
+  "home": {
+    "one": "Mentorships",
+    "many": "Mentorships"
+  },
+  "icons": {
+    "home": "handshake-angle"
+  },
+  "lobby": {
+    "name": "Common room",
+    "description": "Everyone in every mentorship."
+  },
+  "modules": {
+    "todo": {
+      "name": "Next steps",
+      "settings": {
+        "inCalendar": true
+      }
+    },
+    "calendar": {
+      "name": "Check-ins",
+      "labels": {
+        "event": {
+          "one": "check-in",
+          "many": "check-ins"
+        }
+      }
+    },
+    "documents": {
+      "starter": {
+        "doc:meetinglog": {
+          "id": "meetinglog",
+          "type": "doc",
+          "title": "Meeting log",
+          "rev": 1,
+          "chunks": [
+            "logchunk"
+          ],
+          "size": 70,
+          "excerpt": "Meeting log: date, what we talked about, agreed next steps.",
+          "preview": "# Meeting log\n\n## Date\n\n## What we talked about\n\n## Agreed next steps\n",
+          "paper": "light-white",
+          "by": "template",
+          "at": "2026-01-01T00:00:00.000Z",
+          "editedBy": "template",
+          "editedByName": "Template",
+          "editedAt": "2026-01-01T00:00:00.000Z"
+        },
+        "text:meetinglog:logchunk": {
+          "id": "logchunk",
+          "doc": "meetinglog",
+          "text": "# Meeting log\n\n## Date\n\n## What we talked about\n\n## Agreed next steps\n"
+        }
+      }
+    },
+    "research": {
+      "settings": {
+        "tags": [
+          {
+            "id": "feedback",
+            "label": "Feedback",
+            "icon": "comments",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "skill",
+            "label": "Skill",
+            "icon": "star",
+            "color": "#eab308"
+          },
+          {
+            "id": "reading",
+            "label": "Reading",
+            "icon": "book-open",
+            "color": "#22c55e"
+          }
+        ]
+      }
+    },
+    "budget": {
+      "name": "Time",
+      "settings": {
+        "categories": [
+          {
+            "id": "meetings",
+            "label": "Meetings",
+            "icon": "comments",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "practice",
+            "label": "Practice",
+            "icon": "dumbbell",
+            "color": "#22c55e"
+          },
+          {
+            "id": "other",
+            "label": "Other",
+            "icon": "tag",
+            "color": "#888888"
+          }
+        ]
+      }
+    },
+    "vault": {
+      "name": "Files"
+    },
+    "chat": {},
+    "conference": {}
+  },
+  "call": {
+    "joinOnEntry": false,
+    "position": "top",
+    "layout": "grid"
+  },
+  "workspace": {
+    "opensWith": [
+      "todo",
+      "documents",
+      "chat"
+    ],
+    "show": [
+      "calendar",
+      "documents"
+    ],
+    "opensFirst": "workspace"
+  },
+  "phases": [
+    {
+      "id": "start",
+      "icon": "flag",
+      "label": "Getting started"
+    },
+    {
+      "id": "grow",
+      "icon": "seedling",
+      "label": "Growing",
+      "main": true
+    },
+    {
+      "id": "review",
+      "icon": "clipboard-check",
+      "label": "Review"
+    }
+  ],
+  "phaseMeasure": "goals",
+  "spaceDefaults": {
+    "profile": "participants"
+  },
+  "settings": {
+    "showCalendar": true,
+    "showMap": false
+  }
+}
