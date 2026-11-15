@@ -2,7 +2,7 @@
   "id": "learning",
   "name": "Learning",
   "description": "Learn something together: exercises, reading, a journal and sessions on a calendar.",
-  "version": 1,
+  "version": 2,
   "words": {
     "space": {
       "one": "course",
@@ -25,6 +25,13 @@
     "description": "Everyone in every course."
   },
   "modules": {
+    "goals": {
+      "name": "Learning plan",
+      "settings": {
+        "dates": "optional",
+        "progressBy": "steps"
+      }
+    },
     "todo": {
       "name": "Exercises",
       "settings": {
@@ -142,6 +149,7 @@
   },
   "workspace": {
     "opensWith": [
+      "goals",
       "todo",
       "documents",
       "chat"

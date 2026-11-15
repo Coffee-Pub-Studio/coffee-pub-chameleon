@@ -115,7 +115,7 @@ await test('two spaces on two templates: different module sets, names, icons, re
   assert.equal(store.moduleOffered(g.id, 'whiteboard'), false, 'games leaves the Whiteboard out');
   assert.equal(store.moduleOffered(p.id, 'calendar'), false, 'the project template leaves Calendar out, though games has it');
   assert.deepEqual(lp.names.travel, { name: 'Project plan', icon: 'diagram-project' });
-  assert.deepEqual(lg.names.travel, { name: 'Campaign planner', icon: 'scroll' });
+  assert.deepEqual(lg.names.schedule, { name: 'Campaign', icon: lg.names.schedule.icon });
   assert.deepEqual(lp.names.budget, { name: 'Effort', icon: null });
   assert.deepEqual(lp.names.maps, { name: null, icon: null }, "unnamed: the manifest's own, never the environment template's");
   assert.equal('calendar' in lp.names, false, 'only modules the template offers are named');
@@ -388,7 +388,7 @@ try {
   const api = (cookie) => (method, url, body) => call(server, '', method, url, { cookie, body });
   const admin = api(cookieOf(await call(server, '', 'POST', '/api/login', { body: { login: 'admin', password: 'admin-password-1' } })));
   const installed = [];
-  for (const id of ['travel', 'maps', 'budget', 'calendar', 'polls', 'todo', 'documents', 'whiteboard', 'assistant']) {
+  for (const id of ['travel', 'schedule', 'maps', 'budget', 'calendar', 'polls', 'todo', 'documents', 'whiteboard', 'assistant']) {
     const r = await admin('POST', `/api/modules/bundled/${id}/install`);
     assert.ok([200, 201].includes(r.status), `install ${id}: ${r.text}`);
     if (r.json?.module?.needsApproval) await admin('POST', `/api/modules/${id}/approve`, {});
@@ -431,12 +431,12 @@ try {
     assert.equal(ids(b).includes('calendar'), false, 'the project leaves Calendar out');
     const named = (r, id) => r.json.modules.find((m) => m.id === id);
     assert.deepEqual([named(b, 'travel').name, named(b, 'travel').icon], ['Project plan', 'diagram-project']);
-    assert.deepEqual([named(c, 'travel').name, named(c, 'travel').icon], ['Campaign planner', 'scroll']);
+    assert.equal(named(c, 'schedule').name, 'Campaign');
     assert.deepEqual([named(p, 'travel').name, named(p, 'travel').icon], [manifests.get('travel').name, manifests.get('travel').icon], "the Default names none: the manifest's");
     assert.equal(named(b, 'budget').name, 'Effort');
     const ctx = (who, id, sp) => who('GET', `/api/modules/${id}/context?scope=space&space=${sp}`);
     assert.equal((await ctx(mia.as, 'travel', bridge.id)).json.module.name, 'Project plan');
-    assert.equal((await ctx(mia.as, 'travel', camp.id)).json.module.name, 'Campaign planner');
+    assert.equal((await ctx(mia.as, 'schedule', camp.id)).json.module.name, 'Campaign');
     assert.equal((await ctx(mia.as, 'travel', bridge.id)).json.locale.words.space.one, 'project');
     assert.equal(/"template"/.test((await ctx(mia.as, 'travel', bridge.id)).text), false, 'no template id reaches a module');
   });

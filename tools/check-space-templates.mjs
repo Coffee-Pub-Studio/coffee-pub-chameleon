@@ -101,7 +101,7 @@ await test('module names and icons: the owner, the one template the space reads,
   const store = fresh('modules');
   const a = store.addSpace({ name: 'Campaign', template: 'games' });
   const b = store.addSpace({ name: 'Trip' });
-  assert.equal(store.moduleDisplay('travel', a.id).name, 'Campaign planner');
+  assert.equal(store.moduleDisplay('schedule', a.id).name, 'Campaign');
   assert.equal(store.moduleDisplay('calendar', a.id).name, 'Sessions');
   assert.equal(store.moduleDisplay('travel', b.id).name, 'Itinerary');
   assert.equal(store.moduleDisplay('travel').name, 'Itinerary', 'with no space: the environment');
@@ -113,9 +113,9 @@ await test('module names and icons: the owner, the one template the space reads,
   assert.equal(g.moduleDisplay('calendar', tv.id).name, null, "travel does not name it: the manifest's, not the environment template's Sessions");
   assert.equal(g.moduleDisplay('travel', tv.id).icon, null, "an icon only the environment template gives does not show in the space");
   assert.equal(g.moduleDisplay('calendar').name, 'Sessions', 'outside the space, the environment template still names it');
-  store.data.settings.moduleNames = { travel: 'Plans' };
-  assert.equal(store.moduleDisplay('travel', a.id).name, 'Plans', "the owner's own name wins in every space");
-  assert.equal(store.moduleDisplay('travel', a.id).templateName, 'Campaign planner');
+  store.data.settings.moduleNames = { schedule: 'Plans' };
+  assert.equal(store.moduleDisplay('schedule', a.id).name, 'Plans', "the owner's own name wins in every space");
+  assert.equal(store.moduleDisplay('schedule', a.id).templateName, 'Campaign');
   delete store.data.settings.moduleNames;
 });
 
@@ -329,6 +329,8 @@ try {
   const admin = cookieOf(await call(server, 'POST', '/api/login', { body: { login: 'admin', password: 'admin-password-1' } }));
   const as = (cookie) => (method, url, body) => call(server, method, url, { cookie, body });
   const asAdmin = as(admin);
+  for (const id of ['schedule']) assert.equal((await asAdmin('POST', `/api/modules/bundled/${id}/install`)).status, 201, id);
+  assert.equal((await asAdmin('PATCH', '/api/modules/schedule', { enabled: true, allSpaces: true })).status, 200);
   const makeUser = async (login, role = 'member') => {
     const made = await asAdmin('POST', '/api/users', { login, displayName: login, role, password: `${login}-password-1` });
     assert.equal(made.status, 201, made.text);
@@ -600,11 +602,11 @@ try {
   });
 
   await test('the module context: words, phases and the module name are the space\'s; no template id reaches a module', async () => {
-    const ctx = (who, space) => who('GET', `/api/modules/travel/context?scope=space&space=${space}`);
+    const ctx = (who, space) => who('GET', `/api/modules/${space === campaign.id ? 'schedule' : 'travel'}/context?scope=space&space=${space}`);
     const forCampaign = await ctx(mia.as, campaign.id);
     assert.equal(forCampaign.status, 200, forCampaign.text);
     assert.equal(forCampaign.json.locale.words.space.one, 'campaign');
-    assert.equal(forCampaign.json.module.name, 'Campaign planner');
+    assert.equal(forCampaign.json.module.name, 'Campaign');
     assert.deepEqual(forCampaign.json.phases, []);
     const forTrip = await ctx(mia.as, trip.id);
     assert.equal(forTrip.json.locale.words.space.one, 'trip');
@@ -617,7 +619,7 @@ try {
     assert.equal(outsider.status, 404);
     assert.equal(outsider.json.error, 'no such trip');
     const list = (await mia.as('GET', `/api/modules/for-space?space=${campaign.id}`)).json;
-    assert.equal(list.modules.find((m) => m.id === 'travel')?.name, 'Campaign planner');
+    assert.equal(list.modules.find((m) => m.id === 'schedule')?.name, 'Campaign');
   });
 
   await test('branding carries the switch; the switch off ignores every key and keeps them; on restores', async () => {

@@ -130,7 +130,7 @@ try {
       assert.doesNotMatch(s.kept, /campaign|player|whisper|Campaign/, `localStorage: ${s.kept}`);
       // The modules open on the canvas read the space's words and names through their own context (the server answers it per space).
       const modules = await tab.eval(`[...document.querySelectorAll('section[data-module]')].map((e) => e.dataset.module + ': ' + e.textContent.replace(/\\s+/g, ' ')).join(' | ')`);
-      assert.match(modules, /travel: Campaign planner/, modules);
+      assert.match(modules, /schedule: Campaign/, modules);
       assert.match(modules, /This campaign/, modules);
       assert.doesNotMatch(modules, /Itinerary|This trip/, modules);
       if (width > 700) assert.match(s.setupLabel || '', /Campaign/, `Set up reads ${s.setupLabel}`);

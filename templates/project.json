@@ -2,7 +2,7 @@
   "id": "project",
   "name": "Project",
   "description": "Run a project together: tasks, meetings, effort, a brief and a calendar.",
-  "version": 1,
+  "version": 2,
   "words": {
     "space": {
       "one": "project",
@@ -21,6 +21,13 @@
     "description": "Everyone on every project."
   },
   "modules": {
+    "schedule": {
+      "name": "Project plan",
+      "settings": {
+        "datesRequired": true,
+        "dependencies": true
+      }
+    },
     "todo": {
       "settings": {
         "inCalendar": true
@@ -136,6 +143,7 @@
   },
   "workspace": {
     "opensWith": [
+      "schedule",
       "todo",
       "chat"
     ],
