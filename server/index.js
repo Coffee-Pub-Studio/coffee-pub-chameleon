@@ -785,7 +785,7 @@ function environmentFor(slug) {
   // being installed (see plan-stream-module.md's phases: the old GET /view/:key keeps answering on its own
   // until phase 3 removes it); it will matter once that changes, at which point this may need to be awaited.
   // A template's once-only part is applied first, then the automatic installs, in that order (never at the same time).
-  env.templateReady = (pendingTemplate ? applyRecordedTemplate(env, slug, pendingTemplate) : Promise.resolve())
+  env.templateReady = (pendingTemplate ? applyRecordedTemplate(env, slug, pendingTemplate, fresh) : Promise.resolve())
     .then(() => autoInstallBundled(env))
     .catch((err) => console.error(`Auto-install failed for "${slug || DEFAULT_SLUG}": ${err.message}`))
     .then(() => envContext.run(env, () => announceModules(env, fresh)))
@@ -823,7 +823,7 @@ function useTemplate(env, slug, fresh) {
 
 // A template's once-only part (its settings, Lobby, space defaults, icons and modules), then the record's appliedAt,
 // so it never runs again. A module the environment's plan does not include is skipped, and recorded with why.
-async function applyRecordedTemplate(env, slug, template) {
+async function applyRecordedTemplate(env, slug, template, fresh) {
   const where = slug ? `[${slug}] ` : '';
   const names = new Map(bundledModules(BUNDLED_DIR).map((m) => [m.id, m.name]));
   const skipped = await templates.applyTemplate(env, template, {
@@ -836,9 +836,10 @@ async function applyRecordedTemplate(env, slug, template) {
   if (!now || now.id !== template.id || now.switchedAt) return;
   env.store.recordTemplate({ id: template.id, appliedAt: new Date().toISOString(), appliedVersion: template.version, applied: templates.partFingerprints(template), skipped });
   console.log(`${where}Applied the "${template.id}" template${skipped.length ? `; skipped ${skipped.map((x) => `${x.id} (${x.why})`).join(', ')}` : ''}.`);
-  // Its starter spaces, in the same step as appliedAt (nothing awaits between), so they are made once: only here, when
-  // an environment is made from the template, never on a switch, a restore or a later start.
-  envContext.run(env, () => makeStarterSpaces(env, template, where));
+  // Its starter spaces, in the same step as appliedAt (nothing awaits between), so they are made once: only here, and
+  // only when the data directory was fresh (an environment made from the template), never on a switch, a restore (whose
+  // record may say it was never applied) or a later start.
+  if (fresh) envContext.run(env, () => makeStarterSpaces(env, template, where));
 }
 
 // A template's starter spaces (server/starter.js): each made as any new space is, with its starter content, by the
@@ -11324,7 +11325,7 @@ function fillStarter(space, creator, { skip = false, where = '' } = {}) {
     const found = modules.enabled(block.module);
     let ctx = null;
     if (!creator) out.skipped.push({ module: block.module, why: `nobody made the ${word('space')}` });
-    else if (!found || !found.manifest.scope.includes('space')) out.skipped.push({ module: block.module, why: 'is not on' });
+    else if (!found || !found.manifest.scope.includes('space')) out.skipped.push({ module: block.module, why: found ? `does not work in a ${word('space')}` : 'is not on' });
     else {
       const at = moduleAccessAt(found, { user: creator, guestSpace: null }, 'space', space, 'own');
       if (at.error) out.skipped.push({ module: block.module, why: at.error });
@@ -11337,13 +11338,17 @@ function fillStarter(space, creator, { skip = false, where = '' } = {}) {
         if (r.error) out.skipped.push({ module: block.module, key, why: r.error });
         else out.written += 1;
       } catch (err) {
-        out.skipped.push({ module: block.module, key, why: err instanceof StoreError ? err.message : 'could not be written' });
-        if (!(err instanceof StoreError)) console.error(`${where}Starter content for ${block.module} could not be written: ${err.message}`);
+        // putModuleValue stores the value before it tells other modules (objectSync.afterWrite); one thrown after that
+        // is still a key written. Only a key that is not there is skipped.
+        const stored = !(err instanceof StoreError) && Boolean(moduleData.get(ctx.manifest.id, ctx.scopeKey, key));
+        if (stored) out.written += 1;
+        else out.skipped.push({ module: block.module, key, why: err instanceof StoreError ? err.message : 'could not be written' });
+        if (!(err instanceof StoreError)) console.error(`${where}Starter content for ${starter.shown(block.module)} ${starter.shown(key)} ${stored ? 'was written, then failed after' : 'could not be written'}: ${starter.shown(err.message)}`);
       }
     }
   }
   if (out.skipped.length) {
-    console.warn(`${where}Starter content for "${space.name}": wrote ${out.written}, skipped ${out.skipped.map((s) => `${s.module}${s.key ? ` ${String(s.key).slice(0, 40)}` : ''} (${s.why})`).join('; ')}.`);
+    console.warn(`${where}Starter content for "${starter.shown(space.name)}": wrote ${out.written}, skipped ${out.skipped.map((s) => `${starter.shown(s.module)}${s.key ? ` ${starter.shown(s.key)}` : ''} (${starter.shown(s.why)})`).join('; ')}.`);
   }
   return out;
 }

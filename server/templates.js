@@ -22,7 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const words = require('./words');
-const { SPACE_PROFILES, QUALITY_OPTIONS, LANGUAGES, CURRENCIES, LOBBY, displayNameProblem } = require('./store');
+const { SPACE_NAME_MAX, SPACE_PROFILES, QUALITY_OPTIONS, LANGUAGES, CURRENCIES, LOBBY, displayNameProblem } = require('./store');
 const { DEFAULT_REACTION_LIST, DEFAULT_ICON_NAMES } = require('./default-lists');
 const { SYSTEM_IDS } = require('./layouts');
 const { bundledModules, buildModule } = require('./module-build');
@@ -63,7 +63,7 @@ const CALL_LAYOUTS = ['grid', 'strip', 'focus', 'spotlight'];
 const WORKSPACE_KEYS = ['opensWith', 'show', 'opensFirst'];
 const FIXED_WORKSPACES = SYSTEM_IDS.filter((id) => id !== 'workspace');
 const MAX_STARTER_SPACES = 5;
-const STARTER_SPACE_NAME_MAX = 60;
+const STARTER_SPACE_NAME_MAX = SPACE_NAME_MAX; // what the store keeps, so a longer name is refused rather than cut
 const STARTER_SPACE_DESCRIPTION_MAX = 300;
 // Starter content: the module's own data keys (the data route's rule, server/module-data.js) and values.
 const STARTER_KEY_RE = /^[A-Za-z0-9_.:/-]{1,128}$/;

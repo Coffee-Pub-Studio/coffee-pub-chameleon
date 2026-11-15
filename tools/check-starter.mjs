@@ -29,6 +29,9 @@
  *     template lists but that is off is skipped and the space still made.
  *   - A member can't make a space (403), so can't reach starter content for any space; nobody signed in gets 401.
  *
+ * Also: a starter space name over the store's limit (40) is refused; a restore whose template record says it was never
+ * applied makes no starter spaces; every addSpace caller is POST /api/spaces or makeStarterSpaces (a source scan).
+ *
  * Part 3, hosted (BASE_DOMAIN): a host template with starter spaces; an environment made from it gets them once, made by
  * its owner (a member of each); a switch to another template and a restart make none; more than 5 is refused (400).
  */
@@ -45,7 +48,7 @@ process.env.TZ = 'UTC';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const starter = require('../server/starter.js');
-const { Store, LOBBY } = require('../server/store.js');
+const { Store, LOBBY, SPACE_NAME_MAX } = require('../server/store.js');
 const { zipFiles } = require('../server/module-build.js');
 const templates = require('../server/templates.js');
 
@@ -127,6 +130,33 @@ await test('Store#claimStarter: once; never the Lobby or an unknown id; kept, ne
   assert.equal(store.sanitizeSpace({ id: LOBBY, name: 'Lobby', starterDone: true }).starterDone, undefined);
 });
 
+// Every place that makes a space: POST /api/spaces (which gives it its starter content) and makeStarterSpaces (a template's
+// starter spaces). Anything else would be a space made outside the starter rules, so a new caller must be added here on purpose.
+await test('source scan: every addSpace caller is POST /api/spaces or makeStarterSpaces', async () => {
+  const dir = path.join(ROOT, 'server');
+  const found = [];
+  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
+    const lines = fs.readFileSync(path.join(dir, file), 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      if (!/\.addSpace\(/.test(line) || /^\s*\/\//.test(line)) return;
+      let j = i;
+      while (j > 0 && !/^(app\.\w+\(|async function |function )/.test(lines[j])) j -= 1;
+      found.push(`${file}: ${lines[j].slice(0, 60)}`);
+    });
+  }
+  assert.equal(found.length, 2, `two callers: ${found.join(' | ')}`);
+  assert.ok(found.some((f) => /^index\.js: app\.post\('\/api\/spaces',/.test(f)), found.join(' | '));
+  assert.ok(found.some((f) => /^index\.js: function makeStarterSpaces\(/.test(f)), found.join(' | '));
+});
+
+test('log safety: a newline or control character in a module id or key never reaches a log line', () => {
+  assert.equal(starter.shown('a\nWARN forged\r\u2028x\u0000'), 'a WARN forged  x ');
+  const { skipped } = starter.starterBlocks({ modules: { 'bad\nforged line': { starter: { k: 1 } } } }, { optedIn: () => true });
+  assert.deepEqual(skipped, [{ module: 'bad forged line', why: 'is not an id' }]);
+  const none = (v) => !/[\n\r]/.test(v);
+  assert.ok(none(starter.shown('x\n\ry')));
+});
+
 // --- part 2: the routes -------------------------------------------------------------------------------------------------
 
 function startServer(dataDir, env = {}) {
@@ -161,7 +191,7 @@ function call(server, host, method, urlPath, { body, cookie, zip } = {}) {
         const text = Buffer.concat(chunks).toString('utf8');
         let json = null;
         try { json = JSON.parse(text); } catch { /* not JSON */ }
-        resolve({ status: res.statusCode, json, text, headers: res.headers });
+        resolve({ status: res.statusCode, json, text, headers: res.headers, raw: Buffer.concat(chunks) });
       });
     });
     req.on('error', reject);
@@ -388,6 +418,39 @@ try {
     assert.equal((await console_('PATCH', '/api/host/environments/acme', { template: 'starts' })).status, 200);
     await new Promise((r) => setTimeout(r, 300));
     assert.equal((await named()).length, 2, 'no starter spaces on a switch');
+  });
+
+  await test('hosted: a starter space name over the limit is refused; one at the limit is kept whole', async () => {
+    const limit = SPACE_NAME_MAX;
+    const long = await console_('POST', '/api/host/templates', { id: 'longname', name: 'Long', description: 'A long name.', modules: { chat: {} }, starterSpaces: [{ name: 'x'.repeat(limit + 1) }] });
+    assert.deepEqual([long.status, long.json?.error], [400, `starterSpaces[0]: a name is plain text of 1 to ${limit} characters.`]);
+    const ok = await console_('POST', '/api/host/templates', { id: 'fitname', name: 'Fit', description: 'A name that fits.', modules: { chat: {} }, starterSpaces: [{ name: 'y'.repeat(limit) }] });
+    assert.equal(ok.status, 201, ok.text);
+    assert.equal(starter.starterSpacesOf({ starterSpaces: [{ name: 'y'.repeat(limit) }] })[0].name.length, limit, 'what the store keeps is what the template said');
+    assert.equal(new Store(fs.mkdtempSync(path.join(tmp, 'name-'))).sanitizeSpace({ id: 'abcd1234', name: 'y'.repeat(limit) }).name.length, limit);
+  });
+
+  await test('hosted: a restore whose template record was never applied makes no starter spaces', async () => {
+    const backup = await console_('POST', '/api/host/environments/acme/backup');
+    assert.equal(backup.status, 200);
+    const appFile = path.join(tmp, 'hosted', 'environments', 'acme', 'app.json');
+    const app = JSON.parse(fs.readFileSync(appFile, 'utf8'));
+    assert.equal(app.template.id, 'starts');
+    app.template.appliedAt = null;
+    delete app.template.switchedAt;
+    const restore = await call(hs, 'admin', 'POST', '/api/host/environments/acme/restore?backup=1', { cookie: hostCookie, zip: zipFiles([['app.json', Buffer.from(JSON.stringify(app))]]) });
+    assert.equal(restore.status, 200, restore.text);
+    const c = cookieOf(await call(hs, 'acme', 'POST', '/api/login', { body: { login: 'owner-acme', password: 'owner-acme-password-1' } }));
+    // The environment is rebuilt (its template applied again, as before); wait for that, then count.
+    let record = null;
+    for (let i = 0; i < 100 && !record?.appliedAt; i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+      record = JSON.parse(fs.readFileSync(appFile, 'utf8')).template;
+    }
+    assert.ok(record?.appliedAt, 'the template was applied again');
+    await new Promise((r) => setTimeout(r, 300));
+    const list = (await call(hs, 'acme', 'GET', '/api/spaces', { cookie: c })).json.spaces.filter((sp) => sp.id !== LOBBY);
+    assert.equal(list.length, 2, `a restore makes no starter spaces: ${list.map((sp) => sp.name).join(', ')}`);
   });
   await hs.stop();
 

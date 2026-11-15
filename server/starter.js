@@ -26,7 +26,8 @@ const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 // A module's id, as the catalog has them.
 const MODULE_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-const shown = (v) => String(v).slice(0, 40);
+// Text from a template, made safe for a log line: cut short, and any control character (a newline) shown as a space.
+const shown = (v) => String(v).slice(0, 40).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ');
 
 // The starter content `template` gives, as blocks to write: { blocks: [{ module, entries: [[key, value]] }], skipped:
 // [{ module, key?, why }] }. `optedIn(id)`: whether that module, as installed now, takes starter content. A module is
@@ -41,17 +42,17 @@ function starterBlocks(template, { optedIn = () => false } = {}) {
     const entry = template.modules[id];
     if (!isObject(entry) || entry.starter === undefined) continue;
     if (FORBIDDEN_KEYS.has(id) || !MODULE_ID_RE.test(id)) { skipped.push({ module: shown(id), why: 'is not an id' }); continue; }
-    if (!optedIn(id)) { skipped.push({ module: id, why: 'takes no starter content' }); continue; }
-    if (!isObject(entry.starter)) { skipped.push({ module: id, why: 'its starter content is not data by key' }); continue; }
+    if (!optedIn(id)) { skipped.push({ module: shown(id), why: 'takes no starter content' }); continue; }
+    if (!isObject(entry.starter)) { skipped.push({ module: shown(id), why: 'its starter content is not data by key' }); continue; }
     const keys = Object.keys(entry.starter);
-    if (keys.length > MAX_STARTER_KEYS) { skipped.push({ module: id, why: `its starter content has more than ${MAX_STARTER_KEYS} keys` }); continue; }
+    if (keys.length > MAX_STARTER_KEYS) { skipped.push({ module: shown(id), why: `its starter content has more than ${MAX_STARTER_KEYS} keys` }); continue; }
     let size;
-    try { size = Buffer.byteLength(JSON.stringify(entry.starter)); } catch { skipped.push({ module: id, why: 'its starter content is not plain JSON' }); continue; }
-    if (bytes + size > MAX_STARTER_BYTES) { skipped.push({ module: id, why: `the template's starter content is over ${MAX_STARTER_BYTES / 1024} KB` }); continue; }
+    try { size = Buffer.byteLength(JSON.stringify(entry.starter)); } catch { skipped.push({ module: shown(id), why: 'its starter content is not plain JSON' }); continue; }
+    if (bytes + size > MAX_STARTER_BYTES) { skipped.push({ module: shown(id), why: `the template's starter content is over ${MAX_STARTER_BYTES / 1024} KB` }); continue; }
     bytes += size;
     const entries = [];
     for (const key of keys) {
-      if (FORBIDDEN_KEYS.has(key)) { skipped.push({ module: id, key, why: 'is not a key anything may hold' }); continue; }
+      if (FORBIDDEN_KEYS.has(key)) { skipped.push({ module: shown(id), key: shown(key), why: 'is not a key anything may hold' }); continue; }
       entries.push([key, structuredClone(entry.starter[key])]);
     }
     if (entries.length) blocks.push({ module: id, entries });
@@ -76,4 +77,4 @@ function starterSpaceCreator(users) {
   return list.find((u) => u.role === 'owner') || list.find((u) => u.role === 'admin' && !u.hostAdmin) || list.find((u) => u.role === 'admin') || null;
 }
 
-module.exports = { starterBlocks, starterSpacesOf, starterSpaceCreator, FORBIDDEN_KEYS };
+module.exports = { shown, starterBlocks, starterSpacesOf, starterSpaceCreator, FORBIDDEN_KEYS };
