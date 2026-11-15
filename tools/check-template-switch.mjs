@@ -212,6 +212,8 @@ try {
     assert.deepEqual(r.json.offer.modules.map((m) => [m.id, m.allowed]), [['travel', true], ['maps', true], ['research', true], ['vault', true], ['assistant', true], ['budget', true], ['documents', true], ['whiteboard', true]], 'the Calendar is on in every space already; the conference is on');
     assert.deepEqual(r.json.offer.lobby, { name: 'Home base', description: 'Everyone on every trip.' });
     assert.deepEqual(r.json.offer.spaceDefaults, { profile: 'participants' });
+    // The template's version, sent back with a confirm; Travel has no starter spaces to offer (check-starter: those that do).
+    assert.deepEqual([r.json.offer.version, r.json.offer.starterSpaces], [JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'travel.json'), 'utf8')).version, []]);
     const b = await words();
     assert.deepEqual([b.words.space.one, b.words.member.one, b.homeIcon], ['trip', 'player', icon], 'the template\'s words at once; the owner\'s own still win');
     assert.deepEqual(b.verbs, { enter: 'Enter', layout: 'Layout' }, 'the verbs stay the defaults');
@@ -237,7 +239,7 @@ try {
     assert.deepEqual(await as('POST', '/api/environment/template/apply', { modules: 'travel' }).then((r) => [r.status, r.json]), [400, { error: 'Name the modules to turn on as a list of their ids.' }]);
     const r = await as('POST', '/api/environment/template/apply', { modules: ['travel', 'maps'], lobby: false, spaceDefaults: true });
     assert.equal(r.status, 200, r.text);
-    assert.deepEqual([r.json.template.offerOpen, typeof r.json.template.appliedAt, r.json.offer, r.json.template.skipped], [false, 'string', null, []]);
+    assert.deepEqual([r.json.template.offerOpen, typeof r.json.template.appliedAt, r.json.offer, r.json.template.skipped, r.json.made], [false, 'string', null, [], []]);
     const mods = Object.fromEntries((await as('GET', '/api/modules')).json.modules.map((m) => [m.id, m]));
     for (const id of ['travel', 'maps']) assert.deepEqual([id, mods[id].enabled, mods[id].allSpaces], [id, true, true]);
     assert.equal(mods.research, undefined, 'Research, not ticked, not installed');

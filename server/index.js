@@ -850,27 +850,30 @@ async function applyRecordedTemplate(env, slug, template, fresh) {
 // as the space's own, as POST /api/spaces records a chosen one, so a later switch of the environment's template leaves
 // them on it. Only where a space may have its own (store.chosenTemplate: the switch on and the template one a space may
 // choose); otherwise they read the environment's, which is this template now, and that is said in the log.
-function makeStarterSpaces(env, template, where = '') {
-  const list = starter.starterSpacesOf(template);
-  if (!list.length) return;
-  const creator = starter.starterSpaceCreator(env.store.users);
+// `only`: the places in starter.starterSpacesOf(template) to make (a switch's confirmed offer), else every one.
+// `creator`: who makes them (the owner who confirmed), else the environment's first owner. Answers the spaces made.
+function makeStarterSpaces(env, template, where = '', { only = null, creator: by = null } = {}) {
+  const list = starter.starterSpacesOf(template).filter((_, i) => !only || only.includes(i));
+  if (!list.length) return [];
+  const creator = by || starter.starterSpaceCreator(env.store.users);
   let own;
   try {
     own = env.store.chosenTemplate(template.id, null).id;
   } catch (err) {
     console.warn(`${where}The starter ${word('space', { many: true })} read the ${word('environment')}'s template: ${err.message}`);
   }
-  let made = 0;
+  const made = [];
   for (const sp of list) {
     try {
       const space = env.store.addSpace({ name: sp.name, description: sp.description, creator: creator?.key || null, template: own });
       fillStarter(space, creator, { where });
-      made += 1;
+      made.push(space.id);
     } catch (err) {
       console.error(`${where}A starter ${word('space')} could not be made: ${err.message}`);
     }
   }
-  console.log(`${where}Made ${made} starter ${word('space', { many: made !== 1 })} from the "${template.id}" template.`);
+  console.log(`${where}Made ${made.length} starter ${word('space', { many: made.length !== 1 })} from the "${template.id}" template.`);
+  return made;
 }
 
 // --- switching a template (plan-environment-templates.md, "Addendum: switching a template", GitHub #59) ------------
@@ -1079,30 +1082,61 @@ async function switchTemplate(env, slug, value, by) {
 }
 
 // The template as Manage and the console show it, with the offer while it is open: { template, offer }.
+// The offer also carries the template's `version` (sent back with the confirm, so one that changed since is refused) and
+// `starterSpaces`: on a switch not yet confirmed, the template's starter spaces, [{ index, name, description }], none
+// ticked (the page shows them unticked; only those the confirm names are made); otherwise [] (an environment made from
+// the template made them already, and a newer version of the template offers none).
 function templateAnswer(env, slug) {
   const view = templateView(env.store, env);
   const template = view?.offerOpen ? templateFor(env, view.id) : null;
-  return { template: view, offer: template ? templates.offerFor(env, template, { ...templateOptions(env, slug), applied: env.store.templateRecord?.applied || null }) : null };
+  if (!template) return { template: view, offer: null };
+  const record = env.store.templateRecord;
+  const offer = templates.offerFor(env, template, { ...templateOptions(env, slug), applied: record?.applied || null });
+  return { template: view, offer: { ...offer, version: template.version, starterSpaces: starterOffer(record, template) } };
 }
+// The starter spaces a confirm may make (see templateAnswer): only on a switch not yet confirmed.
+const starterOffer = (record, template) => (record?.switchedAt && !record.appliedAt ? starter.starterSpacesOf(template).map((sp, index) => ({ index, ...sp })) : []);
 
-// Applies what was confirmed of the open offer ({ modules: [ids], lobby: boolean, spaceDefaults: boolean }), then
-// records appliedAt and what was skipped, so the offer is not made again for this template. Throws a StoreError for
-// a refusal. Answers templateAnswer.
-async function applyTemplateOffer(env, slug, body) {
+// Applies what was confirmed of the open offer ({ modules: [ids], lobby: boolean, spaceDefaults: boolean,
+// starterSpaces: [indexes], version }), then records appliedAt and what was skipped, so the offer is not made again for
+// this template. `starterSpaces`: the offer's starter spaces the owner ticked, by their `index`; each is made once, by
+// `creator` (the owner who confirmed; the host's confirm: the environment's first owner), through makeStarterSpaces.
+// `version`: the template's version as offered; required with a ticked starter space, and a template whose version
+// changed since is refused whole. Throws a StoreError for a refusal, before anything changes. Answers templateAnswer
+// with `made`: the ids of the starter spaces made.
+async function applyTemplateOffer(env, slug, body, creator = null) {
   const b = body && typeof body === 'object' ? body : {};
+  const spaces = env.store.word('space', { many: true });
   if (b.modules !== undefined && (!Array.isArray(b.modules) || b.modules.some((m) => typeof m !== 'string'))) throw new StoreError(`Name the ${env.store.word('module', { many: true })} to turn on as a list of their ids.`);
   for (const key of ['lobby', 'spaceDefaults']) if (b[key] !== undefined && typeof b[key] !== 'boolean') throw new StoreError(`${key} must be true or false.`);
+  const ticked = b.starterSpaces === undefined ? [] : b.starterSpaces;
+  if (!Array.isArray(ticked) || ticked.some((i) => !Number.isInteger(i) || i < 0)) throw new StoreError(`Name the starter ${spaces} to make as a list of their numbers from the offer.`);
+  if (ticked.length > templates.MAX_STARTER_SPACES) throw new StoreError(`At most ${templates.MAX_STARTER_SPACES} starter ${spaces} can be made.`);
+  if (new Set(ticked).size !== ticked.length) throw new StoreError(`Each starter ${env.store.word('space')} is named once.`);
+  if (b.version !== undefined && !Number.isInteger(b.version)) throw new StoreError("version is the template's version from the offer.");
+  if (ticked.length && b.version === undefined) throw new StoreError(`Send the template's version from the offer with the starter ${spaces} to make.`);
   await env.templateReady;
   const record = env.store.templateRecord;
   if (!record) throw new StoreError(`This ${env.store.word('environment')} has no template to apply.`, 409);
   const template = templateFor(env, record.id);
   if (!template) throw new StoreError(`This server doesn't have the "${record.id}" template any more.`, 409);
   if (!offerIsOpen(record, template, env)) throw new StoreError('This template has already been applied.', 409);
+  if (b.version !== undefined && b.version !== template.version) throw new StoreError('This template changed since it was offered; look at the offer again.', 409);
+  const offered = starterOffer(record, template);
+  const missing = ticked.find((i) => !offered.some((sp) => sp.index === i));
+  if (missing !== undefined) throw new StoreError(`This offer has no starter ${env.store.word('space')} ${missing}.`);
   const skipped = await templates.applyOffer(env, template, { modules: b.modules || [], lobby: b.lobby === true, spaceDefaults: b.spaceDefaults === true }, { ...templateOptions(env, slug), applied: record.applied || null });
+  // Turning modules on awaits, so another confirm or a switch may have come in meanwhile: only the first of two confirms
+  // of the same offer records it and makes its starter spaces (nothing awaits between that check, the record and the
+  // spaces), and a template switched away meanwhile is not recorded as applied.
+  const now = env.store.templateRecord;
+  if (!now || now.id !== record.id || now.switchedAt !== record.switchedAt || now.appliedAt !== record.appliedAt || templateFor(env, record.id)?.version !== template.version) throw new StoreError('This template has already been applied.', 409);
   // Every part is recorded as seen, applied or passed over: it is offered again only when the template changes it.
   env.store.recordTemplate({ ...record, appliedAt: new Date().toISOString(), appliedVersion: template.version, applied: templates.partFingerprints(template), skipped });
-  console.log(`${slug ? `[${slug}] ` : ''}Applied the "${template.id}" template's offer${skipped.length ? `; skipped ${skipped.map((x) => `${x.id} (${x.why})`).join(', ')}` : ''}.`);
-  return templateAnswer(env, slug);
+  const where = slug ? `[${slug}] ` : '';
+  const made = ticked.length ? envContext.run(env, () => makeStarterSpaces(env, template, where, { only: ticked, creator: creator && env.store.userByKey(creator.key) ? creator : null })) : [];
+  console.log(`${where}Applied the "${template.id}" template's offer${skipped.length ? `; skipped ${skipped.map((x) => `${x.id} (${x.why})`).join(', ')}` : ''}.`);
+  return { ...templateAnswer(env, slug), made };
 }
 
 // The Default template as an environment with no template recorded reads it.
@@ -12638,11 +12672,12 @@ app.get('/api/templates/:id/export', requireOwner, (req, res) => {
   const t = templateFor(env, req.params.id);
   sendTemplateFile(res, t && (!t.hidden || env.store.templateRecord?.id === t.id) ? t : null, req.params.id);
 });
-// Confirms the open offer: { modules: [ids], lobby: boolean, spaceDefaults: boolean }; 409 with no template or one
-// already applied.
+// Confirms the open offer: { modules: [ids], lobby: boolean, spaceDefaults: boolean, starterSpaces: [indexes], version }
+// (applyTemplateOffer); the ticked starter spaces are made by the owner confirming. 409 with no template, one already
+// applied, or one whose version changed since the offer.
 app.post('/api/environment/template/apply', requireOwner, async (req, res) => {
   const env = currentEnvironment();
-  res.json(await applyTemplateOffer(env, env.slug, req.body));
+  res.json(await applyTemplateOffer(env, env.slug, req.body, currentUser(req)));
 });
 
 // This environment's own view of itself: its plan and how it stands against each cap (plan-environments.md, "Phase
