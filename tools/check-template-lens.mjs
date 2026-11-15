@@ -325,6 +325,17 @@ await test('ModuleManager#onInSpace: enabled, offered by the template the space 
   assert.equal(mm.revision, before + 1, 'a save of the registry is a new revision');
 });
 
+await test('every reason the AI policy gives has a plain phrase on the owner\'s usage list (public/ai-use.js reasonWord)', () => {
+  const { sentences } = require('../server/ai-policy.js');
+  const reasons = Object.keys(sentences((k) => k));
+  assert.ok(reasons.includes('not-here'));
+  const src = fs.readFileSync(path.join(ROOT, 'public', 'ai-use.js'), 'utf8');
+  const body = /export function reasonWord\(reason\) \{\s*const map = \{([\s\S]*?)\n  \};/.exec(src);
+  assert.ok(body, 'reasonWord and its map are found');
+  const keys = [...body[1].matchAll(/^\s*'?([a-z][a-z-]*)'?:/gm)].map((m) => m[1]);
+  assert.deepEqual(reasons.filter((r) => !keys.includes(r)), [], 'a reason with no phrase');
+});
+
 // --- part 2: the routes ----------------------------------------------------------------------------------------------------
 
 const PRODUCT = 'Testname';
@@ -507,6 +518,46 @@ try {
     assert.ok([401, 403, 404].includes(doraCamp.status), `a space not open to guests: ${doraCamp.status}`);
     assert.equal(/Campaign planner/.test(doraCamp.text), false);
     assert.equal((await admin('PATCH', `/api/spaces/${bridge.id}`, { entry: 'invited' })).status, 200);
+  });
+
+  await test('settings: a module the space\'s template leaves out takes no settings there (space, and person through a space); a disabled one is 404', async () => {
+    assert.ok(installed.includes('polls') && installed.includes('calendar'), `polls and calendar are on: ${installed}`);
+    const off = 'this module is not available in that space for you';
+    const stored = () => JSON.stringify(fs.existsSync(path.join(single, 'modules', 'polls')) ? fs.readdirSync(path.join(single, 'modules', 'polls'), { recursive: true }) : []);
+    const before = stored();
+    for (const [who, label] of [[admin, 'the admin'], [owner.as, 'an owner'], [mo.as, 'its moderator']]) {
+      const r = await who('PUT', `/api/modules/polls/settings/space?space=${bridge.id}`, { values: { addableByDefault: true } });
+      assert.deepEqual([r.status, r.json?.error], [403, off], `${label}: ${r.text}`);
+    }
+    assert.equal(stored(), before, 'nothing saved by a refusal');
+    const read = await mia.as('GET', `/api/modules/polls/settings/values?scope=space&space=${bridge.id}`);
+    assert.deepEqual([read.status, read.json?.error], [403, off], 'and every read agrees');
+    // Where the template offers it, the same write goes through.
+    assert.equal((await admin('PUT', `/api/modules/polls/settings/space?space=${plain.id}`, { values: { addableByDefault: true } })).status, 200);
+    // A person's own setting, asked through a space whose template leaves the module out; with no space it is theirs as ever.
+    const viaSpace = await mia.as('PUT', `/api/modules/calendar/settings/person?space=${bridge.id}`, { values: { defaultView: 'week' } });
+    assert.deepEqual([viaSpace.status, viaSpace.json?.error], [403, off], viaSpace.text);
+    assert.equal((await mia.as('PUT', '/api/modules/calendar/settings/person', { values: { defaultView: 'week' } })).status, 200);
+    assert.equal((await mia.as('PUT', `/api/modules/calendar/settings/person?space=${plain.id}`, { values: { defaultView: 'day' } })).status, 200);
+    // A module that is not installed or not on is still no module at all.
+    for (const id of ['nosuch', '__proto__']) {
+      const r = await admin('PUT', `/api/modules/${id}/settings/space?space=${bridge.id}`, { values: {} });
+      assert.equal(r.status, 404, `${id}: ${r.text}`);
+    }
+  });
+
+  await test('a link guest asking about another space reads the same 403 whether or not that space\'s template offers the module', async () => {
+    const link = (await admin('POST', `/api/spaces/${camp.id}/guest-link`, {})).json.space.guestToken;
+    const gus = (url) => call(server, '', 'GET', `${url}&guest=${encodeURIComponent(link)}`);
+    const answers = [];
+    for (const [id, sp, label] of [['maps', bridge.id, 'offered there'], ['polls', bridge.id, 'left out there'], ['maps', plain.id, 'the Default there']]) {
+      for (const route of ['data', 'context', 'settings/values']) {
+        const r = await gus(`/api/modules/${id}/${route}?scope=space&space=${sp}`);
+        answers.push([route, r.status, r.json?.error]);
+        assert.equal(r.status, 403, `${id} ${route}, ${label}: ${r.text}`);
+      }
+    }
+    assert.equal(new Set(answers.map(([, st, e]) => `${st}|${e}`)).size, 1, `one answer for all: ${JSON.stringify(answers)}`);
   });
 
   await test('Home and the Lobby read the environment\'s template: nav, widgets and the Lobby follow a switch', async () => {

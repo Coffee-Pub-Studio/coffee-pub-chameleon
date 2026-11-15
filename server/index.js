@@ -10867,6 +10867,13 @@ app.put('/api/modules/:id/settings/:scope', (req, res) => {
   if (!place) return;
   const found = modules.enabled(req.params.id);
   if (!found) return res.status(404).json({ error: `no such ${word('module')}` });
+  // A module that is not on in the space (its template leaves it out, or the Lobby is not for it) takes no settings there,
+  // as it answers every other route there (moduleAccess): the space's settings, and a person's own when asked through a space.
+  const named = place.space || (req.params.scope === 'person' && (req.query.space || req.body?.space) ? store.spaceById(String(req.query.space || req.body?.space)) : null);
+  if (named && !closedTo(req, named)) {
+    if (refusedInLobby(found.manifest, named.id)) return res.status(404).json({ error: lobbyRefusal(found.manifest) });
+    if (!modules.isOnIn(found.entry.id, named.id)) return res.status(403).json({ error: `this ${word('module')} is not available in that ${word('space')} for you` });
+  }
   try {
     // A shared setting (its files, or the world address that cuts into them) is the host's while there is
     // one; ignored here rather than refusing the whole save, so a page saving several settings together still
