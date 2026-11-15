@@ -178,7 +178,7 @@ const rememberedSpace = () => { try { return sessionStorage.getItem(REMEMBERED_S
 // Join call (startCall, with the token POST /api/call/join answers) until hanging up, leaving or moving.
 let entered = false;
 let inCall = false;
-// Left the call since entering (Hang up, the conference closed): the environment's "join the call on entering" does
+// Left the call since entering (Hang up, the conference closed): the space's "Join on entry" does
 // not join them again until they enter a space again (GitHub #199). A pull keeps it; join() clears it.
 let leftCall = false;
 // Away (setAway, below): declared up here because what you hear (hearingOff) is set from page load on.
@@ -194,7 +194,7 @@ let activeSpace = LOBBY;
 let ownerOnline = false; // whether that's actually backed by an owner (or the admin) online right now
 // Server-wide call feature toggles (Manage > Settings) -- these defaults
 // hold until init() replaces them with whatever /api/branding actually says.
-let features = { maxQuality: 720, allowScreenShare: true, allowAsides: true, allowPrivate: true, allowReactions: true, callService: true, conferenceEnabled: true, autoJoinCall: false };
+let features = { maxQuality: 720, allowScreenShare: true, allowAsides: true, allowPrivate: true, allowReactions: true, callService: true, conferenceEnabled: true };
 
 // A guest link (/guest/<token>): no account, just a name and this space. The
 // token both identifies which space's guest link this is and, appended to
@@ -1480,11 +1480,11 @@ joinCallButton.innerHTML = '<i class="fa-solid fa-phone fa-fw" aria-hidden="true
 // "Start call" while no one is in the call, "Join call" while one is running (the live stream's people on the call, as
 // the conference's note lists them).
 function paintJoinCall() {
-  const running = liveOthersOnCall().length > 0;
+  const running = liveOthersOnCall().length > 0 || tapPending;
   const verb = running ? 'Join' : 'Start';
   joinCallButton.querySelector('.join-call-verb').textContent = verb;
   joinCallButton.setAttribute('aria-label', `${verb} call`);
-  joinCallButton.title = running ? 'Join the call that is running' : 'Start a call from this chat';
+  joinCallButton.title = tapPending ? 'Join the call' : running ? 'Join the call that is running' : 'Start a call from this chat';
 }
 joinCallButton.addEventListener('click', () => joinTheCall());
 $('call-start').addEventListener('click', () => joinCallButton.click()); // the large one, in the call's own area: the title bar's press, so one way in
@@ -1495,11 +1495,27 @@ const joinCallWanted = () => Boolean(currentSpace) && !homeChatSpace && entered 
 // is there all the time wherever the call could be joined, and while on it.
 const callAreaWanted = () => inCall || joinCallWanted();
 nav.register({ bar: 'secondary', zone: 'left', group: 'call', groupOrder: 1.5, id: 'join-call', order: 1, icon: 'phone', label: 'Start call', element: joinCallButton, visible: joinCallWanted });
-// Entering joins by itself where the environment says so (GitHub #199, branding.autoJoinCall): the rule is
-// shouldAutoJoin (opens-with.js, held by check-canvas), asked once by enterSpace() on each entry, and it joins only
-// where Join the call would show (joinCallWanted), never in an aside, and not for a person who left the call since they
-// entered. The join is the same press as Join the call (joinTheCall), so the microphone, Away and a refusal behave alike.
-const autoJoinOnEntry = () => shouldAutoJoin({ setting: features.autoJoinCall, inCall, canJoin: joinCallWanted(), aside: inAside(), left: leftCall });
+// Entering joins by itself where the space says so (plan-templates-redesign.md, step 4: `call.joinOnEntry`, from the space's
+// look, GET /api/spaces/:id/look; the space's own, else its template's): the rule is shouldAutoJoin (opens-with.js, held by
+// check-canvas), asked once by enterSpace() on each entry, and it joins only where Join the call would show
+// (joinCallWanted), never in an aside, and not for a person who left the call since they entered. The join is the same
+// path as Join the call (startCall), with the microphone and camera off: nothing is asked of the person until they turn
+// one on. Where the browser wants a tap first (browserNeedsTap), the page shows Join the call instead and says why once.
+const autoJoinOnEntry = () => shouldAutoJoin({ setting: spaceCall?.joinOnEntry, inCall, canJoin: joinCallWanted(), aside: inAside(), left: leftCall });
+// A browser starts sound and media only after the person has pressed, tapped or typed on the page; a reloaded page on an
+// iPhone or iPad has had none. Unknown (no userActivation) counts as needing it: a button never hurts.
+const browserNeedsTap = () => !(navigator.userActivation && navigator.userActivation.hasBeenActive);
+const TAP_SAID = 'Your browser needs a tap before the call can start.';
+let tapPending = false; // joining on entry waits for a tap: Join the call shows, and the next join is quiet
+let tapSaid = false; // the sentence is said once for the page, not on every entry
+let quietJoin = false; // the next join leaves the microphone and camera off (joining on entry)
+function askForTap() {
+  tapPending = true;
+  quietJoin = true;
+  paintJoinCall();
+  syncCallPlace();
+  if (!tapSaid) { tapSaid = true; noticeToast(TAP_SAID); }
+}
 // --- end Join the call ---
 
 // --- who is here (space-people.js) ------------------------------------------------------------------
@@ -1902,16 +1918,52 @@ function loadColumnPref() {
   }
   columnPref = readColumnPref(raw);
 }
+// What this person has picked for the call in this space (plan-templates-redesign.md, decision 37): only a pick is written, so
+// the template's start (applyColumnPref) is never kept as if it were theirs. `callPicked`: Call position was picked (or was
+// stored); `ownCallLayout`: the id of the call's layout (VIEWS) they picked, else null.
+let callPicked = false;
+let ownCallLayout = null;
 function saveColumnPref() {
   const id = layoutSpaceId();
   if (!id) return;
-  try { localStorage.setItem(columnKey(id), JSON.stringify(columnPref)); } catch { /* private mode: not remembered */ }
+  const record = { ...columnPref };
+  if (!callPicked) { delete record.callPosition; delete record.callFloat; }
+  if (ownCallLayout) record.callLayout = ownCallLayout;
+  try { localStorage.setItem(columnKey(id), JSON.stringify(record)); } catch { /* private mode: not remembered */ }
 }
 // On entering a space: as it was left in this browser (the fold, and where the call sits); an aside starts open, with
 // the call where it always is there, and remembers nothing.
 function applyColumnPref() {
   loadColumnPref();
+  startCallFromTemplate();
   setColumnCollapsed(columnPref.collapsed, { remember: false });
+}
+// The space's call settings are the START for a person with no choice of their own in this space (decision 37): Position
+// where the call sits beside the work, Layout how its tiles are laid out. What the person picked, and the browser kept
+// under app.column.<space id>, always wins; the start is never written back (saveColumnPref). `window` is not a start:
+// a window opens only from a click. An aside has no record and no start.
+function startCallFromTemplate() {
+  callPicked = false;
+  ownCallLayout = null;
+  const id = layoutSpaceId();
+  if (!id) return;
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(columnKey(id)) || 'null'); } catch { raw = null; }
+  const stored = raw && typeof raw === 'object' ? raw : {};
+  callPicked = CALL_POSITIONS.includes(stored.callPosition);
+  ownCallLayout = VIEWS.some((v) => v.id === stored.callLayout) ? stored.callLayout : null;
+  const want = spaceCall || {};
+  if (!callPicked && typeof want.position === 'string') {
+    if (want.position === 'float') { columnPref.callFloat = true; columnPref.callPosition = 'top'; }
+    else if (CALL_POSITIONS.includes(want.position)) { columnPref.callFloat = false; columnPref.callPosition = want.position; }
+  }
+  const view = ownCallLayout || (VIEWS.some((v) => v.id === want.layout) ? want.layout : null);
+  if (view) {
+    const v = VIEWS.find((x) => x.id === view);
+    prefs.layout = v.layout;
+    if ('follow' in v) prefs.follow = v.follow;
+    syncLayoutPick();
+  }
 }
 // The rail: the chat's unread count (its button opens the column into the chat) and a face per person on the call.
 function syncRail() {
@@ -2041,11 +2093,11 @@ function syncCallPlace() {
   const start = columnEl.querySelector('#call-empty');
   if (start) {
     start.hidden = !empty;
-    const verb = liveOthersOnCall().length > 0 ? 'Join' : 'Start';
+    const verb = liveOthersOnCall().length > 0 || tapPending ? 'Join' : 'Start';
     start.querySelector('#call-start-label').textContent = `${verb} call`;
     start.querySelector('#call-start').setAttribute('aria-label', `${verb} call`);
     const said = start.querySelector('#call-empty-note');
-    if (said) said.textContent = verb === 'Join' ? 'A call is running. You are not in it.' : 'You are not in a call.';
+    if (said) said.textContent = tapPending ? TAP_SAID : verb === 'Join' ? 'A call is running. You are not in it.' : 'You are not in a call.';
   }
   const away = canvas.columnMode() && outside;
   columnEl.classList.toggle('call-away', away);
@@ -2091,7 +2143,7 @@ function popOutCall() {
   syncCallPlace();
 }
 function bringCallBack() {
-  if (columnPref.callFloat && !conferenceShown()) { columnPref.callFloat = false; saveColumnPref(); } // brought back from floating: the column's again (on the Conference layout the choice for the other layouts is kept)
+  if (columnPref.callFloat && !conferenceShown()) { columnPref.callFloat = false; callPicked = true; saveColumnPref(); } // brought back from floating: the column's again (on the Conference layout the choice for the other layouts is kept)
   if (canvas.columnMode()) canvas.returnBuiltin('conference');
   else if (canvas.builtinMode('conference') === 'window') canvas.setMode('conference', 'dock');
   syncCallPlace();
@@ -2101,6 +2153,7 @@ function setCallPosition(pos) {
   if (pos === 'window') { popOutCall(); return; }
   columnPref.callFloat = pos === 'float';
   if (pos !== 'float') columnPref.callPosition = pos;
+  callPicked = true; // a pick: the template's start no longer applies in this space
   saveColumnPref();
   if (pos === 'float') {
     if (callWhere() === 'window') canvas.returnBuiltin('conference');
@@ -2389,6 +2442,9 @@ let envPhaseIcons = {};
 // The look (words, verbs, phases) of the space I am in, as the server sent it for that space (plan-space-templates.md, step 2):
 // { id, look } or null. Held in memory only; the words go to words.js's scoped set, which never reaches localStorage.
 let spaceLook = null;
+// The call settings in force for the space I am in, as its look gave them (joinOnEntry, position, layout), or null: the start for
+// a person with no choice of their own (applyColumnPref), and whether entering joins the call.
+let spaceCall = null;
 const phaseRule = () => window.Phases || null;
 // The phases of a look, cleaned by the rule, and their icons.
 const phasesOf = (list) => (phaseRule() ? phaseRule().cleanPhases(list) : []);
@@ -2398,6 +2454,7 @@ const iconsOf = (list) => Object.fromEntries((Array.isArray(list) ? list : []).f
 function useEnvironmentLook() {
   const had = spaceLook !== null;
   spaceLook = null;
+  spaceCall = null;
   templatePhases = envPhases;
   phaseIcons = envPhaseIcons;
   clearSpaceLook();
@@ -2407,6 +2464,7 @@ function useEnvironmentLook() {
 function adoptLook(id, look) {
   if (!look || typeof look !== 'object') { useEnvironmentLook(); return; }
   spaceLook = { id, look };
+  spaceCall = look.call && typeof look.call === 'object' ? look.call : null;
   templatePhases = phasesOf(look.phases);
   phaseIcons = iconsOf(look.phases);
   setSpaceLook(look);
@@ -3130,7 +3188,7 @@ function setupSaved(space, said, saved = []) {
   }
   loadPresence();
   updateCrumb();
-  if (saved.includes('template')) refreshSpaceLook(); // a change of the space's template: its words and phases follow at once
+  if (saved.includes('template') || saved.includes('call')) refreshSpaceLook(); // a change of the space's template: its words and phases follow at once
   if (saved.includes('defaultLayout') || saved.includes('tabs')) refreshLayouts(); // the Layout menu's Default mark follows the first visit, the bar the owner's tabs
   if (said) saySetup(said);
 }
@@ -4120,7 +4178,8 @@ function setView(id) {
   const view = VIEWS.find((v) => v.id === id) || VIEWS[0];
   prefs.layout = view.layout;
   if ('follow' in view) prefs.follow = view.follow;
-  savePrefs();
+  if (layoutSpaceId()) { ownCallLayout = view.id; saveColumnPref(); } // this person's pick, for this space (decision 37)
+  else savePrefs();
   syncLayoutPick();
   applyLayout();
 }
@@ -6231,13 +6290,14 @@ function updateCrumb() {
 }
 
 // `joinCall`: a pull moving my call with me (reconnectTo); entering a space never joins by itself, unless the
-// environment's "join the call on entering" is on (autoJoinOnEntry, in enterSpace). `pull`: this is a pull, not
+// space's "Join on entry" is on (autoJoinOnEntry, in enterSpace). `pull`: this is a pull, not
 // the person entering again, so having left the call still counts (leftCall stays).
 // Entering is opening the space's live stream (openLive): its first `ready` is the server's yes, its refusal the error
 // said on Home (no such space, not one of mine). The call service is never asked.
 async function join(spaceId = 'lobby', { joinCall = false, pull = false } = {}) {
   if (isHomeRecord(spaceId)) return landOnHome(); // the Lobby is Home now (plan-home-lobby.md, step 2): never entered
   if (!pull) leftCall = false; // entering again: a person who left the call may be joined again
+  tapPending = false; quietJoin = false; // a tap asked for in the last space is not this one's
   viewingHome = false; // entering any space shows it, and its breadcrumb, whatever was on screen before
   homeChatEntering = true; // the chat leaves Home's column at once: the space's history fills it (enterSpace)
   hideHomeChat();
@@ -6319,6 +6379,7 @@ async function liveOpened(opened) {
 async function joinAsGuest(joinedId, joinedName) {
   $('guest-join-error').hidden = true;
   leftCall = false; // a fresh entry
+  tapPending = false; quietJoin = false;
   const entry = ++entries;
   let placed = false;
   try {
@@ -6382,9 +6443,13 @@ function enterSpace({ joinCall = false } = {}) {
   if (currentSpace.isAside && !joinCall) canvas.showBuiltin('conference');
   // A pull while I was on the call (reconnectTo): straight onto this one, with the conference showing, through the
   // join check and the microphone rules a click goes through. Not awaited: the space is entered either way, and a
-  // refusal is said in the "Not in a call" note as for a click. The environment's "join the call on entering"
-  // (GitHub #199, autoJoinOnEntry) joins the same way, once per entry; blocked or refused, the Join row stays.
-  if (joinCall || autoJoinOnEntry()) joinTheCall();
+  // refusal is said in the "Not in a call" note as for a click. The space's "Join on entry"
+  // (autoJoinOnEntry) joins the same way, once per entry, with the microphone and camera off; blocked or refused, the Join row stays.
+  if (joinCall) joinTheCall();
+  else if (autoJoinOnEntry()) {
+    if (browserNeedsTap()) askForTap();
+    else { quietJoin = true; joinTheCall(); }
+  }
 }
 
 // Start the conference: connect to the call service, tiles for everyone in it, their media, and my own microphone.
@@ -6400,6 +6465,8 @@ let callJoining = null; // the join under way, until it is in the call or has ba
 async function startCall() {
   if (callJoining) await callJoining; // a join stopped part-way backs out first: the two would share the microphone
   if (inCall || callJoining || !entered || !currentSpace) return;
+  const quiet = quietJoin; // joining on entry: the microphone and camera stay off, nothing is asked of the person yet
+  quietJoin = false;
   const generation = callGeneration;
   // A stop came meanwhile (stopCall counts callGeneration up: a hang up, leaving, the call service dropping the join),
   // or the conference closed.
@@ -6440,6 +6507,7 @@ async function startCall() {
     console.debug('[app] on the call in', currentSpace.id);
     inCall = true;
     startCallTime();
+    if (tapPending) { tapPending = false; paintJoinCall(); syncCallPlace(); }
     syncCallControl();
     setNoCall(false);
     canvas.updateMenu(); // the phone's Conference tab carries its in-call dot
@@ -6462,7 +6530,10 @@ async function startCall() {
     // call already handles publishing a fresh track the first time, same as
     // it does for anyone who declined the camera here and turns it on later.
     let haveMic = false;
-    try {
+    if (quiet) {
+      // Joined on entry: no microphone is opened, so the browser asks for none. Turning it on later opens it (turnMicOn).
+      console.debug('[app] joined with the microphone and camera off');
+    } else try {
       const track = await openMic();
       if (stopped()) return await backOut();
       await call.localParticipant.publishTrack(track, { source: Track.Source.Microphone, name: 'microphone' });
@@ -6486,7 +6557,7 @@ async function startCall() {
     reflectMic();
     $('cam').classList.remove('on');
     $('cam').classList.add('off');
-    setStatus(haveMic ? `in ${spaceName}` : `in ${spaceName} (no microphone)`);
+    setStatus(haveMic || quiet ? `in ${spaceName}` : `in ${spaceName} (no microphone)`);
     // Call position: Floating window, the person's own choice, floats it from the column as they join.
     if (columnPref.callFloat && callWhere() === 'column' && !conferenceShown()) canvas.liftBuiltin('conference', true, 'person'); // never on the Conference layout: the call is the page
     applyLayout();
@@ -6590,13 +6661,24 @@ function phoneButton() {
   else startCall().catch((err) => setStatus(`call: ${err.message}`, true));
 }
 
+// The microphone on: the one this page publishes (with its level and gate) when none is yet, as after joining on entry,
+// else the one already there.
+async function turnMicOn() {
+  const lp = call.localParticipant;
+  if (!lp.getTrackPublication(Track.Source.Microphone)) {
+    const track = await openMic();
+    await lp.publishTrack(track, { source: Track.Source.Microphone, name: 'microphone' });
+    return;
+  }
+  await lp.setMicrophoneEnabled(true);
+}
 async function toggleMic() {
   if (!inCall) return;
   const enabled = !call.localParticipant.isMicrophoneEnabled;
   // Away, nobody hears you: coming back (the away button) is what turns the microphone on again.
   if (enabled && isAway) { setStatus('away: come back to turn your microphone on'); return; }
   try {
-    await call.localParticipant.setMicrophoneEnabled(enabled);
+    if (enabled) await turnMicOn(); else await call.localParticipant.setMicrophoneEnabled(false);
   } catch (err) {
     setStatus(`microphone: ${err.message}`, true);
   }
@@ -7381,7 +7463,7 @@ function onKey(event) {
     event.preventDefault();
     if (event.repeat || pttHeld || isAway) return; // away, nobody hears you (setAway)
     pttHeld = event.code;
-    call.localParticipant.setMicrophoneEnabled(true).then(reflectMic).catch(() => {});
+    turnMicOn().then(reflectMic).catch(() => {});
     return;
   }
   // Configurable mute/camera shortcuts (Cmd/Ctrl+D and +E by default, same
@@ -8393,7 +8475,6 @@ async function init() {
     allowReactions: branding.allowReactions !== false,
     callService: branding.callService !== false, // the server has LiveKit; with none, no call, Conference or asides at all
     conferenceEnabled: branding.conferenceEnabled !== false,
-    autoJoinCall: branding.autoJoinCall === true, // entering a space joins the call (GitHub #199); off unless the owner turned it on
   };
   applyFeatureFlags();
   // The template's phases (plan-one-bar.md, step 3) come with the branding; none, no status strip.

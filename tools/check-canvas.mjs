@@ -1020,14 +1020,21 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   const startBody = spaceJs.slice(spaceJs.indexOf('async function startCall('), spaceJs.indexOf('\n}\n', spaceJs.indexOf('async function startCall(')));
   if (connects.length !== 1 || !startBody.includes(connects[0])) fail('public/space.js', `only startCall() connects to the call service (found ${JSON.stringify(connects)})`);
   if (/api\('POST', '\/api\/token'/.test(spaceJs)) fail('public/space.js', 'entering never asks for a call token (POST /api/token is the OBS viewer\'s)');
-  // GitHub #199: the one other way on is the environment's "join the call on entering" (branding.autoJoinCall), asked
-  // through autoJoinOnEntry() (shouldAutoJoin, opens-with.js) in the same line, so it is the same join (joinTheCall).
-  const JOIN_LINE = 'if (joinCall || autoJoinOnEntry()) joinTheCall();';
-  const setupJoin = setup.slice(setup.indexOf(JOIN_LINE));
+  // plan-templates-redesign.md, step 4: the one other way on is the space's own "Join on entry" (`call.joinOnEntry`, read from the look,
+  // GET /api/spaces/:id/look), asked through autoJoinOnEntry() (shouldAutoJoin, opens-with.js) in the same function, so it is the same
+  // join (joinTheCall), with the microphone and camera off (quietJoin), or Join the call where the browser needs a tap first.
+  const JOIN_LINE = 'else if (autoJoinOnEntry()) {';
   const setupRest = setup.slice(0, setup.indexOf(JOIN_LINE));
-  if (!setup.includes(JOIN_LINE) || /startCall|joinTheCall|joinOnShow|callStarting|autoJoinOnEntry\(\)/.test(setupRest)) fail('public/space.js', 'entering a space (enterSpace) must never join the call by itself, only a pull that moves the call or the environment\'s setting (if (joinCall || autoJoinOnEntry()))');
-  if (!/const autoJoinOnEntry = \(\) => shouldAutoJoin\(\{ setting: features\.autoJoinCall, inCall, canJoin: joinCallWanted\(\), aside: inAside\(\), left: leftCall \}\);/.test(spaceJs)) fail('public/space.js', 'autoJoinOnEntry() asks shouldAutoJoin with the environment\'s setting, inCall, Join the call\'s own rule (joinCallWanted), the aside and leftCall');
-  if (!/autoJoinCall: branding\.autoJoinCall === true/.test(spaceJs)) fail('public/space.js', 'features.autoJoinCall is read from /api/branding, on only when true');
+  if (!setup.includes('if (joinCall) joinTheCall();') || !setup.includes(JOIN_LINE) || /startCall|joinTheCall|joinOnShow|callStarting|autoJoinOnEntry\(\)/.test(setupRest.replace('if (joinCall) joinTheCall();', ''))) fail('public/space.js', 'entering a space (enterSpace) must never join the call by itself, only a pull that moves the call or the space\'s own setting (if (joinCall) joinTheCall(); else if (autoJoinOnEntry()) {...})');
+  if (!/const autoJoinOnEntry = \(\) => shouldAutoJoin\(\{ setting: spaceCall\?\.joinOnEntry, inCall, canJoin: joinCallWanted\(\), aside: inAside\(\), left: leftCall \}\);/.test(spaceJs)) fail('public/space.js', 'autoJoinOnEntry() asks shouldAutoJoin with the space\'s own joinOnEntry (from its look), inCall, Join the call\'s own rule (joinCallWanted), the aside and leftCall');
+  if (!/browserNeedsTap\(\)\) askForTap\(\);\n    else \{ quietJoin = true; joinTheCall\(\); \}/.test(setup)) fail('public/space.js', 'joining on entry asks for a tap where the browser needs one (askForTap), else joins with the microphone and camera off (quietJoin)');
+  if (!/const quiet = quietJoin;/.test(spaceJs) || !/\} else try \{\n      const track = await openMic\(\);/.test(spaceJs)) fail('public/space.js', 'a quiet join (joining on entry) opens no microphone: startCall() skips openMic() when `quiet`');
+  if (!/spaceCall = look\.call && typeof look\.call === 'object' \? look\.call : null;/.test(spaceJs) || !/\/api\/spaces\/\$\{encodeURIComponent\(id\)\}\/look/.test(spaceJs)) fail('public/space.js', 'the space\'s call settings (look.call) are read from GET /api/spaces/:id/look when entering');
+  // The environment has no join-on-entry setting any more: nothing in public/ reads branding.autoJoinCall or settings.autoJoinCall.
+  for (const f of fs.readdirSync(path.join(ROOT, 'public'), { recursive: true }).filter((n) => /\.(js|html)$/.test(n) && !/^(vendor|lib)[\\/]/.test(n))) {
+    const text = fs.readFileSync(path.join(ROOT, 'public', f), 'utf8');
+    if (/\b(branding|settings|features)\.autoJoinCall\b|autoJoinCall:|set-auto-join-call/.test(text)) fail(`public/${f}`, 'the environment\'s autoJoinCall is gone: joining on entry is the space\'s call.joinOnEntry (look.call)');
+  }
   if (!/^function hangUp\(\) \{\n  if \(pipWindow\) closePopout\(\);\n  leftCall = true;/m.test(spaceJs)) fail('public/space.js', 'Hang up marks leftCall, so the setting does not join them again');
   if (!/if \(!pull\) leftCall = false;/.test(spaceJs) || !/leftCall = false; \/\/ a fresh entry/.test(spaceJs)) fail('public/space.js', 'entering again (join() not as a pull, joinAsGuest()) clears leftCall');
   if (/setAttributes\(/.test(spaceJs)) fail('public/space.js', 'no call attributes: being at the call service is being on the call, and away is said on the live stream');
@@ -1056,7 +1063,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   // or the environment's "join the call on entering", GitHub #199) and by the space bar's Join the call, nothing else.
   if (!/^function joinTheCall\(\) \{\n  if \(!canvas\.showBuiltin\('conference'\)\) return;\n  startCall\(\)/m.test(spaceJs)) fail('public/space.js', 'joinTheCall() shows the conference (canvas.showBuiltin) and then joins (startCall)');
   const sharedCallers = [...spaceJs.matchAll(/^.*\bjoinTheCall\(\).*$/gm)].map((m) => m[0].trim()).filter((line) => !line.startsWith('//') && !line.startsWith('function joinTheCall('));
-  if (sharedCallers.length !== 2 || !setupJoin.includes(sharedCallers.find((l) => l === JOIN_LINE) || '\0') || !sharedCallers.some((l) => l.startsWith('joinCallButton.addEventListener('))) fail('public/space.js', `joinTheCall() is called from enterSpace() (a pull, or the setting) and the space bar's Join the call alone (found ${JSON.stringify(sharedCallers)})`);
+  if (sharedCallers.length !== 3 || !sharedCallers.includes('if (joinCall) joinTheCall();') || !sharedCallers.includes('else { quietJoin = true; joinTheCall(); }') || !sharedCallers.some((l) => l.startsWith('joinCallButton.addEventListener('))) fail('public/space.js', `joinTheCall() is called from enterSpace() (a pull, or the setting) and the space bar's Join the call alone (found ${JSON.stringify(sharedCallers)})`);
   const confDef = spaceJs.slice(spaceJs.indexOf("id: 'conference',"), spaceJs.indexOf("$('conf-close').addEventListener"));
   if (/startCall/.test(confDef)) fail('public/space.js', 'showing the conference (its onChange) must never join the call');
 }
@@ -1956,9 +1963,9 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/let columnPref = \{ collapsed: false, callPosition: 'top', callFloat: false, conferencePosition: 'beside', conferenceCallOnly: false \};/.test(spaceJs) || spaceJs.indexOf('let columnPref = ') > spaceJs.indexOf('const prefs = loadPrefs();')) fail(F, 'columnPref is declared with the tab shown, before anything can ask for it, with the defaults');
   if (!/const columnKey = \(id\) => `app\.column\.\$\{id\}`;/.test(spaceJs)) fail(F, 'the record is kept per space (app.column.<space id>)');
   if (!/function loadColumnPref\(\) \{\n  const id = layoutSpaceId\(\);\n  let raw = null;\n  if \(id\) \{\n    try \{ raw = JSON\.parse\(localStorage\.getItem\(columnKey\(id\)\) \|\| 'null'\); \} catch \{ raw = null; \}\n  \}\n  columnPref = readColumnPref\(raw\);\n\}/.test(spaceJs)) fail(F, 'entering reads the space\'s own record whole (loadColumnPref, readColumnPref); an aside gets the defaults');
-  if (!/function saveColumnPref\(\) \{\n  const id = layoutSpaceId\(\);\n  if \(!id\) return;\n  try \{ localStorage\.setItem\(columnKey\(id\), JSON\.stringify\(columnPref\)\); \}/.test(spaceJs)) fail(F, 'a choice writes the space\'s record whole (saveColumnPref), and nothing in an aside');
-  if (!/function applyColumnPref\(\) \{\n  loadColumnPref\(\);\n  setColumnCollapsed\(columnPref\.collapsed, \{ remember: false \}\);\n\}/.test(spaceJs)) fail(F, 'entering a space applies its record: where the call sits and the fold');
-  if (!/columnPref\.callFloat = pos === 'float';\n  if \(pos !== 'float'\) columnPref\.callPosition = pos;\n  saveColumnPref\(\);/.test(spaceJs)) fail(F, 'a Call position picked beside the work is kept for this space (setCallPosition)');
+  if (!/function saveColumnPref\(\) \{\n  const id = layoutSpaceId\(\);\n  if \(!id\) return;\n  const record = \{ \.\.\.columnPref \};\n  if \(!callPicked\) \{ delete record\.callPosition; delete record\.callFloat; \}\n  if \(ownCallLayout\) record\.callLayout = ownCallLayout;\n  try \{ localStorage\.setItem\(columnKey\(id\), JSON\.stringify\(record\)\); \}/.test(spaceJs)) fail(F, 'a choice writes the space\'s record whole (saveColumnPref), and nothing in an aside');
+  if (!/function applyColumnPref\(\) \{\n  loadColumnPref\(\);\n  startCallFromTemplate\(\);\n  setColumnCollapsed\(columnPref\.collapsed, \{ remember: false \}\);\n\}/.test(spaceJs)) fail(F, 'entering a space applies its record: where the call sits and the fold');
+  if (!/columnPref\.callFloat = pos === 'float';\n  if \(pos !== 'float'\) columnPref\.callPosition = pos;\n  callPicked = true;[^\n]*\n  saveColumnPref\(\);/.test(spaceJs)) fail(F, 'a Call position picked beside the work is kept for this space (setCallPosition)');
   if (!/if \(remember\) \{\n    if \(conferenceShown\(\)\) columnPref\.conferenceCallOnly = on; else columnPref\.collapsed = on;\n    saveColumnPref\(\);\n  \}/.test(spaceJs)) fail(F, 'the fold is kept in the space\'s record without dropping the rest of it; on the Conference layout it is Call only, never the column\'s own fold');
   // The Conference layout's own Call position (step 5): kept apart from the one beside the work, and Call only apart
   // from the position, so the chat comes back where it was.
@@ -1997,7 +2004,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (emptyAt < html.indexOf('id="call-head"') || emptyAt > html.indexOf('id="side-column-strip"')) fail('public/space.html', '#call-empty sits between the call\'s title bar and the call (#side-column-strip)');
   if (!/\$\('call-start'\)\.addEventListener\('click', \(\) => joinCallButton\.click\(\)\)/.test(spaceJs)) fail(F, 'the large Start call presses the title bar\'s (one way into joinTheCall)');
   if (!/function callFillsArea\(place\) \{ return place === 'workspace' \|\| place === 'conference'; \}/.test(spaceJs) || !/const empty = callFillsArea\(place\) && callArea && idle && where !== 'dock' && joinCallWanted\(\);/.test(spaceJs) || !/start\.hidden = !empty;/.test(spaceJs)) fail(F, 'the large Start call shows only where the call fills an area of its own (In the workspace, the Conference layout), never in the side column (Top, Bottom, Left) and never on a call');
-  if (!/const verb = liveOthersOnCall\(\)\.length > 0 \? 'Join' : 'Start';\n    start\.querySelector\('#call-start-label'\)\.textContent = `\$\{verb\} call`;/.test(spaceJs)) fail(F, 'the large button reads Join call while a call runs, Start call while none does, as the title bar\'s');
+  if (!/const verb = liveOthersOnCall\(\)\.length > 0 \|\| tapPending \? 'Join' : 'Start';\n    start\.querySelector\('#call-start-label'\)\.textContent = `\$\{verb\} call`;/.test(spaceJs)) fail(F, 'the large button reads Join call while a call runs, Start call while none does, as the title bar\'s');
   if (!/if \(headPop\) headPop\.hidden = noPop \|\| idle;/.test(spaceJs)) fail(F, 'out of the call the title bar shows Start call and the menu, not Pop out (the menu still has it)');
   if (!/\.side-column-call-empty \{[^}]*display: flex;/.test(css) || !/\.side-column-call-empty\[hidden\] \{\s*display: none;/.test(css) || !/body\.in-aside \.side-column-call-empty \{\s*display: none;/.test(css)) fail('public/style.css', 'the large Start call is a block of the column, hidden when hidden and in an aside (the aside has its own)');
   if (!/\.side-column\.call-bottom \.side-column-call-empty,/.test(css) || !/\.side-column\.call-left > \.side-column-call-empty \{\s*grid-column: 1;\s*grid-row: 2 \/ 6;/.test(css)) fail('public/style.css', 'the large Start call follows the call: at the bottom of the column after its title bar, Left in the call\'s column');
@@ -2040,7 +2047,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   }
   if ((spaceJs.match(/currentLayoutTab = 'workspace'; \/\/[^\n]*\n  syncConferenceView\(\);/g) || []).length !== 2) fail(F, 'leaving a space and entering one drop the Conference layout with the tab');
   if (!/beside: \{ \.\.\.pick, checked: on\('beside'\), icon: 'table-columns', label: 'Beside the chat'/.test(spaceJs) || !/const from = conference \? conferenceItems : columnItems;/.test(spaceJs)) fail(F, 'on the Conference layout Call position offers its own choices (Beside the chat first) and Its own window; nothing floats there');
-  if (!/id="call-empty-note"/.test(emptyHtml) || !/said\.textContent = verb === 'Join' \? 'A call is running\. You are not in it\.' : 'You are not in a call\.';/.test(spaceJs)) fail(F, 'under the large Start call a plain line says there is no call, or that one is running');
+  if (!/id="call-empty-note"/.test(emptyHtml) || !/said\.textContent = tapPending \? TAP_SAID : verb === 'Join' \? 'A call is running\. You are not in it\.' : 'You are not in a call\.';/.test(spaceJs)) fail(F, 'under the large Start call a plain line says there is no call, or that one is running');
   {
     const from = css.indexOf('/* The Conference layout (plan-workspaces.md, step 4');
     const block = from < 0 ? '' : css.slice(from, css.indexOf('/* side-column:end */', from));
@@ -2414,7 +2421,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     };
     const run = new Function('env', `
       const { openLiveStream, liveStreamUrl, peopleFromPresence, api, guestToken, call, tiles, showAway, joinCallButton } = env;
-      let me = env.me; let inCall = false; let isAway = false; let awayMessage = ''; const guestPass = '';
+      let me = env.me; let inCall = false; let tapPending = false; let isAway = false; let awayMessage = ''; const guestPass = '';
       const fetch = async () => { const status = env.fetchStatus(); return { status, ok: status === 200, json: async () => ({ error: 'no such space' }) }; };
       const console = { debug() {} };
       function syncCallControl() { env.synced += 1; paintJoinCall(); }
