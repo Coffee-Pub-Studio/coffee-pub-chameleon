@@ -739,6 +739,9 @@ function environmentFor(slug) {
   env.moduleHolds.onExpire = (hold) => finishHold(hold);
   // A space's own template is read from this environment's catalog; the space the request is about comes from spaceContext.
   env.store.templateById = (id) => templateFor(env, id);
+  // A space's template is read again whenever the host's templates change, as well as this environment's own data and modules.
+  const modulesStamp = env.store.lensStamp;
+  env.store.lensStamp = () => `h${hostRegistry ? hostRegistry.revision || 0 : 0}|${modulesStamp()}`;
   env.store.currentSpace = () => { const c = spaceContext.getStore(); return c && c.env === env ? c.spaceId : null; };
   // A display icon may also be a built-in module's own icon (store.displayIconIds), beside the installed modules' ones.
   const installedIcons = env.store.moduleIconIds;
@@ -1804,11 +1807,14 @@ function branding() {
   return { environmentName: s.environmentName, productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, studio: studioView(STUDIO), hosted: Boolean(BASE_DOMAIN), words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases, spaceTemplates: store.spaceTemplatesOn(), homeIcon: store.homeIcon, templateHomeIcon: store.templateHomeIcon || null, loginText: s.loginText, language: s.language || 'en', clock: s.clock === '24' ? '24' : '12', currency: s.currency || 'USD', allowRegistration: Boolean(s.allowRegistration), guestDoor: guestDoorOn(), mfaOffered, mfaRequired: Boolean(s.mfaRequired), maxQuality: s.maxQuality || 720, allowScreenShare: s.allowScreenShare !== false, allowAsides: s.allowAsides !== false, allowPrivate: s.allowPrivate !== false, allowReactions: s.allowReactions !== false, conferenceEnabled: s.conferenceEnabled !== false, callService: HAS_CALL_SERVICE, autoJoinCall: s.autoJoinCall === true, activeThemeId: s.activeThemeId || null, themeMode: environmentThemeMode(), themeVersion: environmentThemeVersion(), hasIcon: !!store.iconPath(), hasBackground: !!store.siteImagePath('background'), version: VERSION, border: s.border, borderColor: s.borderColor, borderWidth: s.borderWidth || 6, mutedBorder: s.mutedBorder !== false, mutedColor: s.mutedColor || '#b8503f', plate: Boolean(s.plate), plateLayout: s.plateLayout || 'lower-left', plateColor: s.plateColor || '#000000', plateTextColor: s.plateTextColor || '#f1e6d8', plateFontSize: s.plateFontSize || 16, plateOpacity: s.plateOpacity ?? 60, plateTextCase: s.plateTextCase || 'default', charBorder: Boolean(s.charBorder), charBorderColor: s.charBorderColor || '#6fae6b', charMutedBorder: Boolean(s.charMutedBorder), charMutedColor: s.charMutedColor || '#b8503f', charBorderWidth: s.charBorderWidth || 6, pictureBackground: Boolean(s.pictureBackground), pictureColor: s.pictureColor || '#1a1410', pictureScale: s.pictureScale || 100, offlineDim: s.offlineDim ?? 0, offlineTint: s.offlineTint || '#000000', offlineTintOpacity: s.offlineTintOpacity ?? 0, asideDim: s.asideDim ?? 0, asideTint: s.asideTint || '#000000', asideTintOpacity: s.asideTintOpacity ?? 0, privateDim: s.privateDim ?? 0, privateTint: s.privateTint || '#000000', privateTintOpacity: s.privateTintOpacity ?? 0, reactions: Array.isArray(s.reactions) ? s.reactions : [], icons: Array.isArray(s.icons) ? s.icons : [], guestImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.guestImagePath(slot)])), defaultImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.defaultImagePath(slot)])) };
 }
 
-// What a space reads, as the pages and a guest's link paint it: { words, verbs, phases } (lookOf), the phases as branding() shows them.
+// What a space reads, as the pages and a guest's link paint it (lookOf): { words, verbs, phases, phaseMeasure, reactions,
+// icons }, the phases as branding() shows them; the reactions and icons are the fixed core set and then the additions of
+// the template the space reads (plan-templates-redesign.md, decision 12). Never the template's id or name, and never its
+// modules: which modules a person sees there is /api/modules/for-space's, by their permissions.
 const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
 function lookView(spaceId) {
   const look = store.lookOf(spaceId);
-  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases) };
+  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, reactions: look.reactions, icons: look.icons };
 }
 // The phases a space reads, for the rules that walk them (the AI's rollup, covering the main phase).
 const phasesOfSpace = (spaceId) => { const p = store.lookOf(spaceId).phases; return Array.isArray(p) ? p : []; };
@@ -4745,7 +4751,7 @@ app.use('/api/spaces/:id', (req, res, next) => {
   if (!space || !viewer || !spaceAccess.mayEnter(viewer, space)) return next();
   return spaceContext.run({ env: envContext.getStore(), spaceId: space.id }, next);
 });
-// GET /api/spaces/:id/look: what a space reads, { look: { words, verbs, phases } }, for anyone who may enter it: a member, a
+// GET /api/spaces/:id/look: what a space reads, { look: { words, verbs, phases, phaseMeasure, reactions, icons } } (lookView), for anyone who may enter it: a member, a
 // moderator, an owner, the admin, a link guest of that space, a door guest who may enter it. No template id is told. Anyone
 // else gets what an id that does not exist gets: 404 and the same sentence, in the environment's words, whatever the reason
 // (an outsider, a closed space, an aside, the Lobby, an unknown id, no session, the access key). The Lobby has no template of
@@ -4914,7 +4920,7 @@ app.post('/api/spaces/:id/phases/cover', (req, res) => {
   if (!phaseRule.isDay(day)) return res.status(400).json({ error: 'Send the day to cover as YYYY-MM-DD.' });
   const perms = modulePerms(who, space.id);
   const mayWrite = (who.user && hasOwnerRights(who.user)) || modules.enabledAll().some(({ manifest, entry }) => manifest.scope.includes('space')
-    && ModuleManager.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'write'));
+    && modules.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'write'));
   if (!mayWrite) return res.status(403).json({ error: `Only someone who can write in ${word('module', { a: true })} that is on in this ${word('space')} can move its dates.` });
   const phases = phasesOfSpace(space.id);
   const result = phaseRule.coverMain(phases, space.phases, day, { created: space.createdAt });
@@ -6846,7 +6852,7 @@ app.get('/api/spaces/:id/chat/pictures/:pictureId', (req, res) => {
 function chatKeeper(space) {
   for (const found of modules.enabledAll()) {
     const { manifest, entry } = found;
-    if (!manifest.scope.includes('space') || !ModuleManager.onInSpace(entry, manifest, space.id)) continue;
+    if (!manifest.scope.includes('space') || !modules.onInSpace(entry, manifest, space.id)) continue;
     const def = manifest.actions.provides.find((a) => a.name === 'saveLink' && a.input && Object.hasOwn(a.input, 'url'));
     if (def) return { manifest, entry, def };
   }
@@ -7194,7 +7200,7 @@ app.post('/api/spaces/:id/command', (req, res) => {
   const space = found.space;
   const perms = modulePerms(who, space.id);
   const matches = modules.enabledAll()
-    .filter(({ manifest, entry }) => manifest.scope.includes('space') && ModuleManager.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'read'))
+    .filter(({ manifest, entry }) => manifest.scope.includes('space') && modules.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'read'))
     .flatMap(({ manifest }) => (manifest.commands || []).filter((c) => c.name === name).map((c) => ({ module: manifest.id, moduleName: shownModule(manifest).name || manifest.name, action: c.action, label: c.label })));
   if (!matches.length) return res.status(404).json({ error: `No command /${name}` });
   const pick = want ? matches.filter((m) => m.module === want) : matches;
@@ -7239,7 +7245,7 @@ app.get('/api/spaces/:id/actions', (req, res) => {
   const perms = modulePerms(who, space.id);
   const actions = [];
   for (const { manifest, entry } of modules.enabledAll()) {
-    if (!manifest.scope.includes('space') || !ModuleManager.onInSpace(entry, manifest, space.id)) continue;
+    if (!manifest.scope.includes('space') || !modules.onInSpace(entry, manifest, space.id)) continue;
     if (!moduleSpaceAccess(entry, who, space) || !moduleCan(manifest, perms, 'read')) continue;
     const shown = shownModule(manifest);
     let writable = null;
@@ -9073,13 +9079,17 @@ app.get('/api/backgrounds', (req, res) => {
 // widget or not: the top bar's module menu, and public/module.js's way to find a module's page at all. A manifest's
 // surfaces.page.nav is no longer read (plan-primary-nav.md, decision 12): every page is listed, so `nav` is always
 // true, kept only for the pages that still filter on it until the bar is redrawn.
+// Home reads the environment's default template (plan-templates-redesign.md, "Behaviour by role and surface"): a module that
+// can be in a space is listed on Home (the nav, the widgets) only while that template offers it. A module with no space
+// scope (Stream) belongs to the environment alone, outside any template's set (decision 27: Stream is fixed).
+const offeredAtHome = (manifest) => !manifest.scope.includes('space') || store.moduleOffered(null, manifest.id);
 app.get('/api/modules/nav', (req, res) => {
   const who = moduleViewer(req);
   if (!who?.user) return res.json({ modules: [] });
   const perms = modulePerms(who, null);
   res.json({
     modules: modules.enabledAll()
-      .filter(({ manifest }) => manifest.scope.includes('environment') && manifest.surfaces.page && moduleCan(manifest, perms, 'read'))
+      .filter(({ manifest }) => manifest.scope.includes('environment') && manifest.surfaces.page && offeredAtHome(manifest) && moduleCan(manifest, perms, 'read'))
       .map(({ manifest, entry }) => ({ id: manifest.id, ...shownModule(manifest), version: manifest.version, scope: manifest.scope, runMode: modules.runModeOf(entry), page: manifest.surfaces.page.entry, widget: Boolean(manifest.surfaces.widget), nav: true })),
   });
 });
@@ -9094,7 +9104,7 @@ app.get('/api/modules/widgets', (req, res) => {
   const perms = modulePerms(who, null);
   const ctx = destinationContext(who);
   const widgets = modules.enabledAll()
-    .filter(({ manifest }) => manifest.scope.includes('environment') && manifest.surfaces.widget && moduleCan(manifest, perms, 'read'))
+    .filter(({ manifest }) => manifest.scope.includes('environment') && manifest.surfaces.widget && offeredAtHome(manifest) && moduleCan(manifest, perms, 'read'))
     .map(({ manifest, entry }) => ({
       id: manifest.id, ...shownModule(manifest), version: manifest.version, scope: manifest.scope, runMode: modules.runModeOf(entry),
       // The widget's own title stays its own (plan decision 9: a display name replaces the module's name, not a widget's
@@ -10930,7 +10940,10 @@ app.get('/api/modules/for-space', (req, res) => {
   const who = moduleViewer(req);
   if (!who || who.keyed) return res.status(401).json({ error: 'sign in first' }); // the access key opens only a module's keyed page
   const space = store.spaceById(String(req.query.space || ''));
-  if (!space || closedTo(req, space)) return res.status(entryStatus(req, space)).json(entryBody(req, space, `no such ${word('space')}`));
+  // A guest is a guest of one space: any other reads as an id that is not there, so nothing of its template (the names it
+  // gives, what it opens with) is told to someone who may not enter it.
+  const otherSpace = space && !who.user && (!who.guestSpace || who.guestSpace.id !== space.id);
+  if (!space || otherSpace || closedTo(req, space)) return res.status(entryStatus(req, otherSpace ? null : space)).json(entryBody(req, otherSpace ? null : space, `no such ${word('space')}`));
   const perms = modulePerms(who, space.id);
   res.json({
     modules: modules.enabledAll()

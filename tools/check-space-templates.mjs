@@ -2,8 +2,9 @@
 /*
  * check-space-templates.mjs -- a space's own template (documentation/plans/plan-space-templates.md, step 1, server only).
  *
- * Part 1, the store in node: the resolution order (the owner's own words and module names, the space's template, the environment's
- * template, the defaults) for words, the verb, phases and module names; the keys a space's template does not change; a space with no
+ * Part 1, the store in node: the resolution order (the owner's own words and module names, then the one template the place reads --
+ * the space's own, else the environment's -- then the defaults; never two templates mixed, plan-templates-redesign.md, "Resolution
+ * per space") for words, the verb, phases and module names; the keys a space's template does not change; a space with no
  * key reading exactly what the environment reads; an unknown id, the Lobby, another environment's space id and the off switch reading
  * the environment's; an aside reading its origin's words; the phase-date rule after a change; sanitizeSpace and the export lists.
  *
@@ -49,18 +50,19 @@ const wordOf = (look, key) => look.words[key].one;
 await test('a space with no key, the Lobby, and an environment with no template read what the environment reads', () => {
   const store = fresh('plain');
   const a = store.addSpace({ name: 'Lisbon' });
-  assert.deepEqual(store.lookOf(a.id), { words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases: store.templatePhases, template: null });
+  const lookPart = (look) => ({ words: look.words, verbs: look.verbs, phases: look.phases, template: look.template });
+  assert.deepEqual(lookPart(store.lookOf(a.id)), { words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases: store.templatePhases, template: null });
   assert.deepEqual(store.lookOf(null).words, store.resolvedWords());
   assert.deepEqual(store.lookOf('nosuchspace').words, store.resolvedWords());
   assert.equal(store.moduleDisplay('travel', a.id).name, 'Itinerary', 'a space with no key reads the environment template');
   assert.deepEqual(store.moduleDisplay('travel', a.id), store.moduleDisplay('travel'));
   const bare = fresh('bare', { env: null });
   const b = bare.addSpace({ name: 'B' });
-  assert.deepEqual(bare.lookOf(b.id), { words: bare.resolvedWords(), verbs: bare.resolvedVerbs(), phases: bare.templatePhases, template: null }, 'with no template at all');
+  assert.deepEqual(lookPart(bare.lookOf(b.id)), { words: bare.resolvedWords(), verbs: bare.resolvedVerbs(), phases: bare.templatePhases, template: null }, 'with no template at all');
   assert.equal(bare.word('space'), 'space');
 });
 
-await test('the resolution order: the owner, the space template, the environment template, the default', () => {
+await test('the resolution order: the owner, the one template the space reads, the default', () => {
   const store = fresh('order');
   const a = store.addSpace({ name: 'Campaign', template: 'games' });
   assert.equal(a.template, 'games');
@@ -82,11 +84,12 @@ await test('the resolution order: the owner, the space template, the environment
   assert.equal(look.verbs.enter, store.resolvedVerbs().enter);
   assert.equal(wordOf(look, 'host'), 'host');
   assert.equal(wordOf(look, 'admin'), 'admin');
-  // A word of the space template the environment's template lacks, and one both have: the space's wins; one only the environment has stays.
+  // A word of the space template the environment's template lacks, and one both have: the space's wins; one only the environment has
+  // does not show through: a space reads one template, and the default where it has no word.
   const t = fresh('order2', { env: 'games' });
   const tv = t.addSpace({ name: 'Trip', template: 'travel' });
   assert.equal(wordOf(t.lookOf(tv.id), 'space'), 'trip');
-  assert.equal(wordOf(t.lookOf(tv.id), 'member'), 'player', "travel has no member word, so the environment template's shows through");
+  assert.equal(wordOf(t.lookOf(tv.id), 'member'), 'member', "travel has no member word: the default, not the environment template's player");
   assert.equal(t.lookOf(tv.id).phases.length, 6);
   // The owner's own words and module names win everywhere.
   store.updateSettings({ words: { space: { one: 'outing', many: 'outings' } }, moduleNames: undefined });
@@ -94,7 +97,7 @@ await test('the resolution order: the owner, the space template, the environment
   assert.equal(wordOf(store.lookOf(a.id), 'member'), 'player', 'the others still follow the template');
 });
 
-await test('module names and icons: the owner, the space template, the environment template, the manifest', () => {
+await test('module names and icons: the owner, the one template the space reads, the manifest', () => {
   const store = fresh('modules');
   const a = store.addSpace({ name: 'Campaign', template: 'games' });
   const b = store.addSpace({ name: 'Trip' });
@@ -103,12 +106,13 @@ await test('module names and icons: the owner, the space template, the environme
   assert.equal(store.moduleDisplay('travel', b.id).name, 'Itinerary');
   assert.equal(store.moduleDisplay('travel').name, 'Itinerary', 'with no space: the environment');
   assert.equal(store.moduleDisplay('chat', a.id).name, null, 'neither names it: the manifest');
-  // A name the space's template lacks falls through to the environment template's; its icon too.
+  // A name or icon the space's template lacks does not fall through to the environment template's: the manifest's own (null).
   const g = fresh('modules2', { env: 'games' });
   const tv = g.addSpace({ name: 'Trip', template: 'travel' });
   assert.equal(g.moduleDisplay('travel', tv.id).name, 'Itinerary', "the space's template over the environment's");
-  assert.equal(g.moduleDisplay('calendar', tv.id).name, 'Sessions', "travel does not name it: the environment template's shows through");
-  assert.equal(g.moduleDisplay('travel', tv.id).icon, 'scroll', "an icon only the environment template gives still shows");
+  assert.equal(g.moduleDisplay('calendar', tv.id).name, null, "travel does not name it: the manifest's, not the environment template's Sessions");
+  assert.equal(g.moduleDisplay('travel', tv.id).icon, null, "an icon only the environment template gives does not show in the space");
+  assert.equal(g.moduleDisplay('calendar').name, 'Sessions', 'outside the space, the environment template still names it');
   store.data.settings.moduleNames = { travel: 'Plans' };
   assert.equal(store.moduleDisplay('travel', a.id).name, 'Plans', "the owner's own name wins in every space");
   assert.equal(store.moduleDisplay('travel', a.id).templateName, 'Campaign planner');
@@ -522,7 +526,7 @@ try {
       const r = await lookOf(who, campaign.id);
       assert.equal(r.status, 200, `${label}: ${r.text}`);
       assert.equal(keys(r), 'look');
-      assert.equal(keys({ json: r.json.look }), 'words,verbs,phases');
+      assert.equal(keys({ json: r.json.look }), 'words,verbs,phases,phaseMeasure,reactions,icons');
       assert.equal(r.json.look.words.space.one, 'campaign', label);
       assert.equal(r.json.look.words.owner.one, 'owner', label);
       assert.deepEqual(r.json.look.phases, [], label);
@@ -534,7 +538,7 @@ try {
     }
     // With no template key the look is the environment's, as /api/branding tells it.
     const plain = (await lookOf(mia.as, trip.id)).json.look;
-    assert.deepEqual(plain, { words: branding.words, verbs: branding.verbs, phases: branding.phases });
+    assert.deepEqual({ words: plain.words, verbs: plain.verbs, phases: plain.phases }, { words: branding.words, verbs: branding.verbs, phases: branding.phases });
     // An outsider (in no space, the space invited-only), no session, the access key, an unknown id, the Lobby and a made-up aside id.
     assert.equal((await asAdmin('PATCH', `/api/spaces/${campaign.id}`, { entry: 'invited' })).status, 200);
     const hidden = await lookOf(out.as, campaign.id);
@@ -584,7 +588,7 @@ try {
     // The switch off: every space reads the environment's.
     assert.equal((await asAdmin('PATCH', '/api/settings', { spaceTemplates: false })).status, 200);
     const off = (await lookOf(mia.as, campaign.id)).json.look;
-    assert.deepEqual(off, { words: branding.words, verbs: branding.verbs, phases: branding.phases }, 'the switch off');
+    assert.deepEqual({ words: off.words, verbs: off.verbs, phases: off.phases }, { words: branding.words, verbs: branding.verbs, phases: branding.phases }, 'the switch off');
     assert.equal((await asAdmin('PATCH', '/api/settings', { spaceTemplates: true })).status, 200);
     assert.equal((await lookOf(mia.as, campaign.id)).json.look.words.space.one, 'campaign', 'on again');
     // An aside has no record among the spaces: it reads as an unknown id (the store, since an aside needs a call to make).

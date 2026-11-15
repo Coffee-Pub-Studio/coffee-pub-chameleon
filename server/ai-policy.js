@@ -166,6 +166,7 @@ function sentences(word, assistant = 'AI Assistant') {
     chat: `Your role can't chat in this ${word('space')}, so it can't ask the AI there.`,
     module: `Your role can't do that in this ${word('module')}.`,
     'module-off': `${assistant} is not turned on.`,
+    'not-here': `${assistant} is not one of this ${word('space')}'s ${word('module', { many: true })}.`,
     'not-set-up': 'AI is not set up here.',
     'key-unreadable': `The saved AI key can't be read on this server; ${word('owner', { a: true })} needs to enter it again.`,
     allowance: `This ${word('environment')} has used its AI allowance for the month.`,
@@ -218,6 +219,10 @@ function createAiPolicy(deps) {
     } else {
       throw new Error(`no AI purpose ${purpose}`);
     }
+    // The template a space reads decides its modules (plan-templates-redesign.md, decisions 10 and 27): without the AI
+    // Assistant there, nobody asks the AI there, whatever the environment has on. Asked only once the person is let in, so
+    // nothing of a space's template is told to someone who is not.
+    if (space && typeof store.moduleOffered === 'function' && !store.moduleOffered(space.id, 'assistant')) return refuse(403, 'not-here');
     return service();
   }
 
@@ -236,7 +241,9 @@ function createAiPolicy(deps) {
 
   // The setting in force for an ask in `space` (null: no space).
   function sees(space) {
-    const enabled = modules.enabledAll().map(({ manifest }) => manifest.id);
+    // In a space, only the modules its template offers (a module off there is never read there).
+    const enabled = modules.enabledAll().map(({ manifest }) => manifest.id)
+      .filter((id) => !space || typeof store.moduleOffered !== 'function' || store.moduleOffered(space.id, id));
     return effectiveSees(ai.config.sees, space && space.aiSees ? space.aiSees : null, enabled);
   }
 

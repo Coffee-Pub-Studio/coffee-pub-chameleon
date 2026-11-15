@@ -251,6 +251,8 @@ class HostRegistry {
   }
 
   save() {
+    // Goes up on every save, so what an environment read from the host's templates is read again (store.templateNamed).
+    this.revision = (this.revision || 0) + 1;
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
     // Private to the server's own user: it holds the host's secrets. The mode is set again in case an old .tmp

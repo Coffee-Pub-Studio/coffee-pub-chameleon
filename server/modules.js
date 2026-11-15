@@ -1073,6 +1073,12 @@ class ModuleManager {
     // while it is still on: a Clear waiting for its Undo in it and in what needs it is finished first (server/environment.js).
     this.beforeOff = () => {};
     this.displayOf = () => ({ name: null, icon: null, ownName: null, ownIcon: null, templateName: null, templateIcon: null });
+    // Whether the template a space reads offers a module (store.moduleOffered), set by the environment's build. Unset (a
+    // ModuleManager on its own), every module is offered, as under the Default template.
+    this.offeredIn = null;
+    // Goes up on every save of the registry, so what is read from it (a template's "*", the manifests a template is
+    // checked against) is read again after an install, an update or a switch (store.templateNamed).
+    this.revision = 0;
     this.filled = new Map(); // "id@version|words" -> the manifest with its placeholders filled
     this.withPlaceholders = new WeakSet(); // the stored manifests that have any
     try {
@@ -1087,6 +1093,7 @@ class ModuleManager {
   }
 
   save() {
+    this.revision += 1;
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(this.registry, null, 2), { mode: 0o600 });
@@ -1383,24 +1390,28 @@ class ModuleManager {
     };
   }
 
-  // --- where a module is on (plan-modules, "the Lobby is for being together") -------------------------------------
-  // The one check for "is this module on in this space": an enabled module is on in every space (plan-layout-views,
-  // "Killing Available in every space"). The stored `allSpaces` and `spaces` stay on the entry, unread. The Lobby keeps
-  // its one real rule: only a module whose manifest declares surfaces.canvas.lobby runs there.
+  // --- where a module is on (plan-modules, "the Lobby is for being together"; plan-templates-redesign.md, decision 10) --
+  // The one check for "is this module on in this space": a module is on in a space when it is enabled in the catalog, the
+  // template that space reads offers it (offeredIn: the space's own template, else the environment's; "*" offers every
+  // module), and, in the Lobby, its manifest declares surfaces.canvas.lobby. A space cannot turn a module off on its own:
+  // for different modules, it picks another template. A module that is off in a space keeps its data there. The stored
+  // `allSpaces` and `spaces` stay on the entry, unread.
   static lobbyAllowed(manifest) {
     return manifest?.surfaces?.canvas?.lobby === true;
   }
 
-  static onInSpace(entry, manifest, spaceId) {
+  onInSpace(entry, manifest, spaceId) {
     if (!entry || !manifest) return false;
     if (spaceId === LOBBY && !ModuleManager.lobbyAllowed(manifest)) return false;
-    return Boolean(entry.enabled);
+    if (!entry.enabled) return false;
+    return typeof this.offeredIn !== 'function' || Boolean(this.offeredIn(entry.id || manifest.id, spaceId));
   }
 
   // The same, by id, on its active version.
   isOnIn(id, spaceId) {
+    if (typeof id !== 'string' || !Object.hasOwn(this.registry.modules, id)) return false;
     const entry = this.registry.modules[id];
-    return entry ? ModuleManager.onInSpace(entry, this.manifestOf(id, entry.version), spaceId) : false;
+    return entry ? this.onInSpace(entry, this.manifestOf(id, entry.version), spaceId) : false;
   }
 
   // The enabled modules that list `id` in their `requires`.

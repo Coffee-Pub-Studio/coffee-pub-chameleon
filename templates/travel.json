@@ -2,7 +2,7 @@
   "id": "travel",
   "name": "Travel",
   "description": "Plan trips together: the itinerary, places, maps, research and a calendar.",
-  "version": 11,
+  "version": 12,
   "words": { "space": { "one": "trip", "many": "trips" } },
   "icons": { "home": "suitcase-rolling" },
   "lobby": { "name": "Home base", "description": "Everyone on every trip." },
@@ -16,6 +16,8 @@
     "budget": {},
     "polls": {},
     "todo": {},
+    "documents": {},
+    "whiteboard": {},
     "chat": {},
     "conference": {}
   },
