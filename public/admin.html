@@ -469,82 +469,115 @@
       </div>
     </section>
 
-    <!-- The Template tab (plan-environment-templates, addendum 2): what the environment was made from and switching to
-         another, the offer after a switch, what was left out, then the parts a template gives that stay live: the words,
-         the module names and icons, the home icon, the reactions and the icon list. Drawn by admin.js with /template-offer.js. -->
+    <!-- The Template tab (plan-templates-redesign.md, step 11a): short pages, one per setting, chosen in the page bar's row
+         (#tpl-subtabs): the short Template page (the environment's template and the switch), Environment Basics and Experience
+         Labels (of the template chosen at the top of each), the list of templates, and, until their own pages come, the module
+         names, reactions and icons. Each opens by its own address: #template, #template/<id>/basics, #template/<id>/labels,
+         #template/list, #template/more. Drawn by admin.js with /template-fields.js and /template-offer.js. -->
     <section class="tab-stack" id="tab-template" hidden>
-      <div class="panel template-note" id="template-panel">
-        <h2>Template</h2>
-        <p id="template-made"></p>
-        <p class="hint" id="template-about" hidden></p>
-        <p class="hint" id="template-hint" data-fill hidden>It set this {environment}'s words, its home icon and some {module} names. Each is marked "from the template" where it applies; change any of them, and Reset goes back to the template's.</p>
-        <div class="template-switch row" id="template-switch-row">
-          <label class="template-switch-pick">Switch to<select id="template-select"></select></label>
-          <button class="btn" id="template-switch" type="button" disabled>Switch</button>
-          <span class="status" id="template-status" role="status"></span>
-        </div>
-        <p class="hint" id="template-choice-about" hidden></p>
-        <div class="row template-offer-note" id="template-offer-note" hidden>
-          <span class="hint" id="template-offer-note-text"></span>
-          <button class="btn btn-small btn-primary" id="template-offer-open" type="button">Review</button>
-        </div>
-        <div id="template-offer" hidden></div>
-        <div class="template-skipped" id="template-skipped" hidden></div>
-        <!-- Template files (addendum 2): Export of the template in use; a single install also imports files and deletes
-             an imported template it no longer uses. Drawn by admin.js. -->
-        <div class="template-files" id="template-files" hidden>
-          <span class="field-label">Template files</span>
-          <div class="row">
-            <a class="btn btn-small" id="template-export" download hidden title="Download this template as a file"><i class="fa-solid fa-file-export fa-fw" aria-hidden="true"></i> Export</a>
-            <button class="btn btn-small" id="template-import" type="button" hidden title="Add a template from a file"><i class="fa-solid fa-file-import fa-fw" aria-hidden="true"></i> Import…</button>
-            <input id="template-import-file" type="file" accept=".json,application/json" hidden>
-            <span class="status" id="template-files-status" role="status"></span>
+      <nav class="subtabs" id="tpl-subtabs">
+        <button class="subtab active" type="button" data-tpl-part="main">Template</button>
+        <button class="subtab" type="button" data-tpl-part="basics" data-fill>{Environment} Basics</button>
+        <button class="subtab" type="button" data-tpl-part="labels">Experience Labels</button>
+        <button class="subtab" type="button" data-tpl-part="list">Templates</button>
+        <button class="subtab" type="button" data-tpl-part="more" data-fill>{Module} names, reactions and icons</button>
+      </nav>
+
+      <div class="tab-stack" id="tpl-part-main" data-tpl-part="main">
+        <div class="panel template-note" id="template-panel">
+          <h2>Template</h2>
+          <p id="template-made"></p>
+          <p class="hint" id="template-about" hidden></p>
+          <p class="hint" id="template-hint" data-fill hidden>It sets this {environment}'s words, its home icon and some {module} names. Change them on the Experience Labels and {Environment} Basics pages.</p>
+          <div class="template-switch row" id="template-switch-row">
+            <label class="template-switch-pick">Default template<select id="template-select"></select></label>
+            <button class="btn" id="template-switch" type="button" disabled>Switch</button>
+            <span class="status" id="template-status" role="status"></span>
           </div>
-          <ul class="list-rows" id="template-imported" hidden></ul>
+          <p class="hint" id="template-choice-about" hidden></p>
+          <div class="row template-offer-note" id="template-offer-note" hidden>
+            <span class="hint" id="template-offer-note-text"></span>
+            <button class="btn btn-small btn-primary" id="template-offer-open" type="button">Review</button>
+          </div>
+          <div id="template-offer" hidden></div>
+          <div class="template-skipped" id="template-skipped" hidden></div>
+        </div>
+
+        <!-- Whether a space may read a template of its own (plan-space-templates.md). Saved as it is switched. -->
+        <div class="panel" id="space-templates-section">
+          <h2 data-fill>{Space} templates</h2>
+          <label class="sdk-choice-row" data-fill><span class="sdk-choice-text"><span class="sdk-choice-label">Let {a space} use its own template</span></span><input type="checkbox" class="sdk-switch" role="switch" id="set-space-templates"></label>
+          <p class="hint" data-fill>Off, every {space} reads this {environment}'s template. What each {space} chose is kept, and comes back when you turn this on.</p>
+          <span class="status" id="space-templates-status" role="status"></span>
         </div>
       </div>
 
-      <!-- Whether a space may read a template of its own (plan-space-templates.md). Saved as it is switched. -->
-      <div class="panel" id="space-templates-section">
-        <h2 data-fill>{Space} templates</h2>
-        <label class="sdk-choice-row" data-fill><span class="sdk-choice-text"><span class="sdk-choice-label">Let {a space} use its own template</span></span><input type="checkbox" class="sdk-switch" role="switch" id="set-space-templates"></label>
-        <p class="hint" data-fill>Off, every {space} reads this {environment}'s template. What each {space} chose is kept, and comes back when you turn this on.</p>
-        <span class="status" id="space-templates-status" role="status"></span>
+      <!-- Environment Basics and Experience Labels: the fields of one template, chosen at the top of each page. -->
+      <div class="tab-stack" id="tpl-part-basics" data-tpl-part="basics" hidden>
+        <div class="panel" id="tpl-basics-card">
+          <div class="tpl-head" data-tpl-head></div>
+          <h2 data-fill>{Environment} Basics</h2>
+          <div id="tpl-basics-box"></div>
+          <div class="tpl-own-words" id="tpl-own-icon" hidden></div>
+          <div class="row tpl-save" data-tpl-save hidden>
+            <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
+            <span class="status" role="status" data-tpl-status></span>
+          </div>
+        </div>
       </div>
 
-      <!-- What people read for each level and role here (plan-environment-templates, "The vocabulary"): drawn by admin.js. -->
-      <div class="panel" id="words-panel">
-      <h2>Words</h2>
-      <p class="hint" data-fill>What people read here for each level and role: in the header, on every page and in {modules}. Type each as it reads in the middle of a sentence (capitals are added where one is needed). <span id="words-blank">Leave a word blank for its default.</span> The host and admin words are the host's own and don't change. Words you set here apply in every {space}, whatever its template.</p>
-      <div class="words-list" id="words-list"></div>
-      <div class="row">
-        <button class="btn btn-primary" id="save-words" type="button">Save</button>
-        <span class="status" id="words-status" role="status"></span>
-      </div>
+      <div class="tab-stack" id="tpl-part-labels" data-tpl-part="labels" hidden>
+        <div class="panel" id="words-panel">
+          <div class="tpl-head" data-tpl-head></div>
+          <h2>Experience Labels</h2>
+          <p class="hint" data-fill>What people read for {a space}, a {member} and the home page, and what the Lobby is called. A {space}'s own template can change the first two for that {space}.</p>
+          <div id="tpl-labels-box"></div>
+          <div class="row tpl-save" data-tpl-save hidden>
+            <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
+            <span class="status" role="status" data-tpl-status></span>
+          </div>
+          <div class="tpl-own-words" id="tpl-own-words" hidden></div>
+        </div>
       </div>
 
+      <!-- The templates this environment may use: Default first, the shipped ones, then its own. -->
+      <div class="tab-stack" id="tpl-part-list" data-tpl-part="list" hidden>
+        <div class="panel" id="tpl-list-card">
+          <h2>Templates</h2>
+          <p class="hint">The Default template and the shipped ones stay as they are: copy one to change it. A template of your own can be edited and deleted.</p>
+          <ul class="list-rows tpl-list" id="tpl-list"></ul>
+          <form class="tpl-copy" id="tpl-copy-form" hidden novalidate>
+            <h3 id="tpl-copy-title">Copy a template</h3>
+            <div class="tf-form">
+              <label class="tf-field"><span class="field-label">Template Name</span><input type="text" id="tpl-copy-name" maxlength="40" autocomplete="off"></label>
+              <label class="tf-field"><span class="field-label">Id</span><input type="text" id="tpl-copy-id" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false" pattern="[a-z][a-z0-9\-]*"></label>
+            </div>
+            <div class="row">
+              <button class="btn btn-primary" type="submit" id="tpl-copy-go">Make the copy</button>
+              <button class="btn" type="button" id="tpl-copy-cancel">Cancel</button>
+              <span class="status" id="tpl-copy-status" role="status"></span>
+            </div>
+          </form>
+          <!-- Import of a template file as one of your own; each row has its own Export. -->
+          <div class="template-files" id="template-files">
+            <div class="row">
+              <button class="btn" id="template-import" type="button" title="Add a template from a file"><i class="fa-solid fa-file-import fa-fw" aria-hidden="true"></i> Import a file</button>
+              <input id="template-import-file" type="file" accept=".json,application/json" hidden>
+              <span class="status" id="template-files-status" role="status"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Until they have pages of their own (the next step): what this environment calls each module and the icon it wears,
+           the reactions and the icon list. -->
+      <div class="tab-stack" id="tpl-part-more" data-tpl-part="more" hidden>
+        <p class="hint">These move to pages of their own in the next step.</p>
       <!-- What this environment calls each module and the icon it wears: one row per module, drawn by admin.js. -->
       <div class="panel" id="module-names-section">
         <h2 data-fill>{Module} names and icons</h2>
         <p class="hint" data-fill>What each {module} is called here, and its icon. Leave a name blank for its own.</p>
         <div class="module-names" id="module-names"></div>
-      </div>
-
-      <div class="panel" id="home-icon-section">
-      <h2>Home icon</h2>
-      <div class="icon-pick-field">
-        <!-- With a template: its own home icon (or the default when it gives none) as the first choice; saved as none of the owner's. -->
-        <div class="home-icon-template" id="home-icon-template" hidden>
-          <button class="btn btn-small" type="button" id="home-icon-template-btn" aria-pressed="false"><i class="fa-solid fa-fw" aria-hidden="true"></i> <span>Template's own</span></button>
-          <span class="hint" id="home-icon-template-hint"></span>
-        </div>
-        <div class="icon-grid" id="set-home-icon" role="group" aria-label="Home icon"></div>
-      </div>
-      <p class="hint" data-fill>Shown next to the name wherever it's a link back to the {space} list.</p>
-      <div class="row">
-        <button class="btn btn-primary" id="save-home-icon" type="button">Save</button>
-        <span class="status" id="home-icon-status"></span>
-      </div>
       </div>
 
       <div class="panel" id="reactions-section">
@@ -567,6 +600,7 @@
         <button class="btn btn-small" id="icon-add" type="button">Add icon</button>
         <button class="btn btn-primary" id="save-icons" type="button">Save</button>
         <span class="status" id="icons-status"></span>
+      </div>
       </div>
       </div>
     </section>

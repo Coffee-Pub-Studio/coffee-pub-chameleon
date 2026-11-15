@@ -653,14 +653,11 @@ function wordsCheck() {
     assert.deepEqual(Object.keys(defaults), WORDS.KEYS);
     for (const key of WORDS.KEYS) assert.deepEqual(defaults[key], WORDS.resolve(null, null)[key], key);
   });
-  test('Manage\'s word rows name a row by wordName() (WORD_NAMES first) in its label and every status sentence', () => {
-    const admin = fs.readFileSync(path.join(ROOT, 'public', 'admin.js'), 'utf8');
-    assert.match(admin, /const WORD_NAMES = \{ home: 'Home page' \};/);
-    assert.match(admin, /const wordName = \(key\) => WORD_NAMES\[key\] \|\| capitalOf\(DEFAULTS\[key\]\.one\);/);
-    assert.equal((admin.match(/capitalOf\(DEFAULTS\[/g) || []).length, 1, 'DEFAULTS\' own word names a row only inside wordName()');
-    const backTo = [...admin.matchAll(/`\$\{([^}]+)\} is back to /g)].map((m) => m[1]);
-    assert.deepEqual([...new Set(backTo)].sort(), ['name', 'wordName(key)'], 'a word row\'s Reset status names it by wordName(); a verb row by its own name');
-    assert.match(admin, /const name = wordName\(key\);/, 'the row\'s label');
+  test('the template pages name a word row from DEFAULTS, and the Home page row for what it is', () => {
+    const fields = fs.readFileSync(path.join(ROOT, 'public', 'template-fields.js'), 'utf8');
+    assert.match(fields, /const WORD_ROWS = \['space', 'member'\]\.map\(\(key\) => \[key, cap\(DEFAULTS\[key\]\.one\)\]\);/);
+    assert.match(fields, /wordRow\('home', 'Home page'/, 'the Home page row is named for what it is, not for the space word\'s plural');
+    assert.match(fields, /LOCKED\.map\(\(k\) => line\(cap\(DEFAULTS\[k\]\.one\)/, 'the locked words are named from DEFAULTS');
   });
   test('home is changed and refused like any word', () => {
     assert.deepEqual(WORDS.applyPatch({ space: { one: 'trip', many: 'trips' } }, { home: { one: ' Campaign ', many: 'Campaigns' } }), { words: { space: { one: 'trip', many: 'trips' }, home: { one: 'Campaign', many: 'Campaigns' } } });

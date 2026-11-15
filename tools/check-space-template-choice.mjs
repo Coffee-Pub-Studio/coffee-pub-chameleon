@@ -223,11 +223,11 @@ try {
     const r = await tab.eval(`(() => ({
       on: document.getElementById('set-space-templates').checked,
       label: document.getElementById('set-space-templates').closest('label').textContent.trim(),
-      note: document.getElementById('words-panel').textContent.includes('apply in every trip, whatever its template'),
+      note: document.getElementById('template-hint') !== null,
     }))()`);
     assert.equal(r.on, true);
     assert.equal(r.label, 'Let a trip use its own template');
-    assert.equal(r.note, true, 'the Words note');
+    assert.equal(r.note, true, 'the Template note');
     await shot(tab, 'manage-1280');
     assert.equal((await api('PATCH', `/api/spaces/${ctx.trip}`, { template: 'games' })).status, 200);
     await tab.eval(`document.getElementById('set-space-templates').click()`);

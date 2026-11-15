@@ -30,7 +30,10 @@
 export const KEYS = ['host', 'environment', 'space', 'home', 'aside', 'canvas', 'module', 'object', 'admin', 'owner', 'moderator', 'member', 'guest'];
 // The two the host keeps: neither an owner nor a template changes them.
 export const FIXED = ['host', 'admin'];
-export const CHANGEABLE = KEYS.filter((k) => !FIXED.includes(k));
+// The words an owner or a template may change (plan-templates-redesign.md, decision 6): Space, Member and the Home page's
+// plural. Every other word is locked: it reads the same everywhere (decisions 5 and 32).
+export const CHANGEABLE = ['space', 'home', 'member'];
+export const LOCKED = KEYS.filter((k) => !FIXED.includes(k) && !CHANGEABLE.includes(k));
 
 const capital = (text) => (text ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text);
 

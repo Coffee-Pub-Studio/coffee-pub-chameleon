@@ -56,6 +56,8 @@ const SCREENS = [
     specs: [['#setup-content-members button.btn', 'h']] },
   { id: 'Planner', as: 'mia', url: '/modules/travel?space={trip}', wait: '#module-frame >>> .day-add', specs: [...BAR, ['.jointadd', 'h', 'w'], ['.day-add', 'h'], ['.mf-switch-btn', 'h', 'w']] },
   { id: 'Manage, General', as: 'admin', url: '/admin#general', wait: '#tab-environment:not([hidden])', specs: [...BAR, ['.subtab', 'h'], ['.slot-paste', 'h', 'w']] },
+  { id: 'Manage, Template', as: 'admin', url: '/admin#template/list', wait: '#tab-template:not([hidden])', specs: [...BAR, ['.subtab', 'h'], ['#tpl-list .btn', 'h'], ['#template-import', 'h']] },
+  { id: 'Manage, Experience Labels', as: 'admin', url: '/admin#template/travel/labels', wait: '#tab-template:not([hidden])', specs: [['.tpl-head .btn', 'h'], ['#tpl-subtabs .subtab', 'h']] },
   { id: 'Manage, Modules', as: 'admin', url: '/admin#modules', wait: '#tab-modules:not([hidden])', specs: [...BAR, ['.subtab', 'h']] },
 ];
 

@@ -1,6 +1,6 @@
 import { loadBranding, api, wireOverlayBack, renderTopbar, renderPageBar, escapeHtml, getIcons, setUpdateBadge, setManageBadge, manageBadgeLabel, hasOwnerRights, roleLabel, word, setWords, applyWords, themeMode, productName, productMarkSrc, overCall } from '/brand.js';
 import { pickBackground } from '/background-picker.js';
-import { CHANGEABLE, DEFAULTS, homeDefault, words, fill as fillWords, VERBS, DEFAULT_VERBS, verbs } from '/words.js';
+import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
 import { renderOffer, switchConfirm } from '/template-offer.js';
@@ -28,67 +28,23 @@ const hostOnlyHidden = () => environment.hosted && !environment.hostAdmin;
 let users = [];
 let feeds = new Map(); // who has a calendar feed: key -> { on, made, readAt } (loadFeeds)
 
-// The choices come from the icon list on the Template tab. null (only with a template) is the template's own.
-let selectedHomeIcon = 'couch';
-
-// The template this environment was made from (plan-environment-templates.md; GET /api/settings' `template`: { id, name,
-// appliedAt, skipped }), or null for none, and the owner's own words and home icon (`ownWords`, `ownHomeIcon`).
+// The template this environment reads (GET /api/settings' `template`: { id, name, appliedAt, skipped, ... }), and the words and
+// home icon an owner set over it before templates changed (`ownWords`, `ownHomeIcon`, kept until the owner resets them).
 let madeFrom = null;
 let ownWords = {};
 let ownHomeIcon = null;
-// What the template gives, whatever the owner has set over it (`templateWords`: { <key>: { one, many, a? } }, and
-// `templateHomeIcon`), each null for none.
-let templateWords = {};
-let templateHomeIcon = null;
-// The verbs the same way (addendum 4): the owner's own (`ownVerbs`, {} for none) and the template's (`templateVerbs`).
-let ownVerbs = {};
-let templateVerbs = {};
-const DEFAULT_HOME_ICON = 'couch';
+// The Template tab's parts (plan-templates-redesign.md, step 11a), chosen in the page bar's row (#tpl-subtabs). The address names
+// the part: #template, #template/list, #template/more, and #template/<id>/basics or #template/<id>/labels for one template's
+// pages (`tplId`, '' for the environment's own). Declared here: selectTab runs before the rest of the page has loaded.
+const TPL_PARTS = ['main', 'basics', 'labels', 'list', 'more'];
+let tplPart = 'main';
+let tplId = '';
+let tplReady = false; // the templates have been read: the pages can draw
 function useOwnerSettings(settings) {
   madeFrom = settings.template || null;
   ownWords = settings.ownWords || {};
-  ownVerbs = settings.ownVerbs || {};
-  templateVerbs = (madeFrom && settings.templateVerbs) || {};
   ownHomeIcon = settings.ownHomeIcon || null;
-  templateWords = (madeFrom && settings.templateWords) || {};
-  templateHomeIcon = (madeFrom && settings.templateHomeIcon) || null;
 }
-
-function buildHomeIconGrid() {
-  const grid = $('set-home-icon');
-  grid.textContent = '';
-  for (const { id, classes, label } of getIcons()) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.dataset.icon = id;
-    btn.dataset.tip = label || id;
-    btn.setAttribute('aria-label', label || id);
-    btn.innerHTML = `<i class="${escapeHtml(classes)} fa-fw" aria-hidden="true"></i>`;
-    btn.addEventListener('click', () => {
-      selectedHomeIcon = id;
-      renderHomeIconSelection();
-    });
-    grid.appendChild(btn);
-  }
-}
-function renderHomeIconSelection() {
-  for (const btn of $('set-home-icon').children) btn.classList.toggle('selected', btn.dataset.icon === selectedHomeIcon);
-  // With a template, its own icon is the first choice: "Template's own" (or "Default" when it gives none), saved as no
-  // icon of the owner's, so the template's stays in use.
-  const box = $('home-icon-template');
-  box.hidden = !madeFrom;
-  if (!madeFrom) return;
-  const btn = $('home-icon-template-btn');
-  const on = selectedHomeIcon === null;
-  btn.querySelector('span').textContent = templateHomeIcon ? "Template's own" : 'Default';
-  btn.querySelector('i').className = `fa-solid fa-${templateHomeIcon || DEFAULT_HOME_ICON} fa-fw`;
-  btn.setAttribute('aria-pressed', String(on));
-  $('home-icon-template-hint').textContent = on ? 'In use. Pick an icon below to choose your own.' : '';
-}
-$('home-icon-template-btn').addEventListener('click', () => {
-  selectedHomeIcon = null;
-  renderHomeIconSelection();
-});
 
 // A status line's message; a plain one clears after 3 s. Each new message cancels the last one's timer, so an earlier
 // message's clearing never takes a later one with it (two saves within 3 s).
@@ -160,7 +116,24 @@ function scrollToChosen(strip) {
   }
 }
 let tabNow = 'environment';
+// The Template tab's address (without the #): its part, and for a template's own pages the template.
+const tplHash = () => (tplPart === 'main' ? 'template' : tplPart === 'list' || tplPart === 'more' ? `template/${tplPart}` : `template/${tplId || (madeFrom && madeFrom.id) || 'default'}/${tplPart}`);
+function showTplPart(part, id = '') {
+  tplPart = TPL_PARTS.includes(part) ? part : 'main';
+  tplId = id;
+  for (const el of document.querySelectorAll('#tab-template > [data-tpl-part]')) el.hidden = el.dataset.tplPart !== tplPart;
+  for (const b of $('tpl-subtabs').querySelectorAll('.subtab')) {
+    const on = b.dataset.tplPart === tplPart;
+    b.classList.toggle('active', on);
+    if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  }
+  renderTplPart();
+}
 function selectTab(name) {
+  // The Template tab's parts: #template/<id>/basics, #template/<id>/labels, #template/list, #template/more.
+  let tpl = null;
+  const tm = name && /^template\/(?:([a-z][a-z0-9-]{0,31})\/)?(basics|labels|list|more)$/.exec(name);
+  if (tm) { tpl = { part: tm[2], id: tm[1] || '' }; name = 'template'; }
   let part = 'general';
   if (ENV_PARTS.includes(name)) {
     part = name;
@@ -179,18 +152,22 @@ function selectTab(name) {
   if (inTab) name = inTab.id.slice(4);
   const inPart = at && at.closest('#tab-environment > [data-env-part]');
   if (inPart) part = inPart.dataset.envPart;
+  const inTpl = at && at.closest('#tab-template > [data-tpl-part]');
+  if (inTpl) tpl = { part: inTpl.dataset.tplPart, id: '' };
   const tab = TABS.includes(name) ? name : 'environment';
   tabNow = tab;
   for (const t of TABS) $(`tab-${t}`).hidden = tab !== t;
   for (const b of $('subtabs').querySelectorAll('.subtab')) b.classList.toggle('active', b.dataset.tab === tab);
   if (tab === 'environment') showEnvPart(part);
+  if (tab === 'template') showTplPart(tpl ? tpl.part : 'main', tpl ? tpl.id : '');
   if (tab === 'modules') showModulePart(modPart); else leaveAiTab();
   if (tab === 'about') showCredits();
   nav.draw('secondary'); // the page bar's row holds the Environment tab's parts, or the Modules tab's, only while it is shown
   if (tab === 'environment') requestAnimationFrame(() => scrollToChosen($('env-subtabs')));
   if (tab === 'modules') requestAnimationFrame(() => scrollToChosen($('module-subtabs')));
+  if (tab === 'template') requestAnimationFrame(() => scrollToChosen($('tpl-subtabs')));
   scrollToChosen($('subtabs'));
-  const hash = tab === 'environment' ? envPart : tab === 'modules' && modulePart !== 'config' ? `modules/${encodeURIComponent(modulePart)}` : tab;
+  const hash = tab === 'environment' ? envPart : tab === 'template' ? tplHash() : tab === 'modules' && modulePart !== 'config' ? `modules/${encodeURIComponent(modulePart)}` : tab;
   if (location.hash !== `#${hash}`) history.replaceState(null, '', `#${hash}`);
   // Who has a calendar feed changes on their own Profile, so the Users tab asks again each time it opens.
   if (tab === 'users' && users.length) loadFeeds().then(renderUsers);
@@ -266,6 +243,15 @@ $('subtabs').addEventListener('click', (event) => {
 $('env-subtabs').addEventListener('click', (event) => {
   const b = event.target.closest('.subtab');
   if (b) selectTab(b.dataset.envPart);
+});
+$('tpl-subtabs').addEventListener('click', (event) => {
+  const b = event.target.closest('.subtab');
+  if (!b) return;
+  const part = b.dataset.tplPart;
+  const was = tplPart;
+  // Basics and Labels keep the template being worked on; the others have none.
+  selectTab(part === 'main' ? 'template' : part === 'list' || part === 'more' ? `template/${part}` : `template/${tplId || (madeFrom && madeFrom.id) || 'default'}/${part}`);
+  if (tplPart !== was) window.scrollTo(0, 0);
 });
 $('module-subtabs').addEventListener('click', (event) => {
   const b = event.target.closest('.subtab');
@@ -393,8 +379,6 @@ async function loadUsers() {
   spaces = status.spaces || spaces;
   renderUsers();
   renderModules(); // the "(not in <Lobby>)" hints, now the Lobby's name is known
-  // The Words group's descriptions, now the Lobby's name is known (in place: nothing typed there is lost).
-  for (const hint of document.querySelectorAll('#words-list [data-word-about]')) hint.textContent = wordAbout(hint.closest('[data-word-key]').dataset.wordKey);
 }
 
 // --- roles ---------------------------------------------------------------------
@@ -604,7 +588,6 @@ async function saveSettings(patch, statusEl) {
     const answer = await api('PATCH', '/api/settings', patch);
     if (answer && answer.settings) {
       useOwnerSettings(answer.settings);
-      renderHomeIconSelection();
     }
     await loadBranding();
     say(statusEl, 'saved');
@@ -624,197 +607,16 @@ $('set-space-templates').addEventListener('change', async (e) => {
   box.disabled = false;
   box.focus();
 });
-$('save-home-icon').addEventListener('click', () => saveSettings({ homeIcon: selectedHomeIcon }, $('home-icon-status')));
-// --- words ---------------------------------------------------------------------
-// The Words group (Environment tab): the ten level and role words an owner may change, each a singular, a plural and,
-// when "a"/"an" is wrong for it, the singular with its article. Blank is the default, shown as the placeholder. Saved
-// together with Save; Reset puts one back at once. The server checks every word and says why it refused one, and a
-// refused save changes nothing. Host and admin are the host's own words, so they are not here.
-const WORD_ABOUT = {
-  environment: 'What people sign in to',
-  space: 'Where people meet: {lobby}, and each one you add',
-  home: 'The page that lists the {spaces}, named in the top bar',
-  aside: 'A short, private call apart from the {space}',
-  canvas: 'Where {modules} are used in {a space}',
-  module: 'A tool on the {canvas}',
-  object: 'A thing {a module} holds: a task, a note',
-  owner: 'Who runs the {environment}',
-  moderator: 'Who runs things in one {space}',
-  member: 'A person with an account',
-  guest: 'A person in by {a guest} link',
-};
-// A word's description; the space word's names the Lobby by its own name (a template may rename it: "Home base"), or
-// "the first one" until the spaces are loaded.
-function wordAbout(key) {
-  const lobby = spaces.find((sp) => sp.isLobby);
-  const name = !lobby ? 'the first one' : lobby.name === 'Lobby' ? 'the Lobby' : lobby.name;
-  const about = fillWords(WORD_ABOUT[key]).replace('{lobby}', name);
-  // Home's blank is the template's own word when it gives one, else the space word's plural.
-  if (key === 'home') return templateWords.home ? `${about}. Blank uses the template's: ${templateWords.home.many}` : `${about}. Blank follows the ${word('space')} word`;
-  return about;
-}
-// A row's name where it is not the default word itself: home's default is the space word's plural. Every sentence
-// about a row (its label, Reset and its status) names it by wordName().
-const WORD_NAMES = { home: 'Home page' };
-const wordName = (key) => WORD_NAMES[key] || capitalOf(DEFAULTS[key].one);
-// The rows without an article field: home is a name, never "a Trips".
-const NO_ARTICLE = ['home'];
-const usualArticle = (one) => `${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`;
-const capitalOf = (text) => text.charAt(0).toLocaleUpperCase('en') + text.slice(1);
-
-function renderWords() {
-  const list = $('words-list');
-  const now = words();
-  list.textContent = '';
-  // With a template, a blank word is the template's (marked "From the template"), else the default.
-  $('words-blank').textContent = madeFrom ? `Leave a word blank for the ${madeFrom.name || madeFrom.id} template's word, or the default where it gives none.` : 'Leave a word blank for its default.';
-  const head = document.createElement('div');
-  head.className = 'word-row word-row-head';
-  head.setAttribute('aria-hidden', 'true');
-  head.innerHTML = '<span></span><span class="field-label">Singular</span><span class="field-label">Plural</span><span class="field-label">With its article</span><span></span>';
-  list.appendChild(head);
-  for (const key of CHANGEABLE) {
-    const d = key === 'home' ? homeDefault(now.space) : DEFAULTS[key]; // home's default follows the space word in use
-    const w = now[key];
-    const own = Boolean(ownWords[key]);
-    // What a blank field reads: the template's word where it gives one, else the default.
-    const t = templateWords[key] || null;
-    const base = t ? { one: t.one, many: t.many, a: t.a || usualArticle(t.one) } : { one: d.one, many: d.many, a: usualArticle(d.one) };
-    const name = wordName(key);
-    const article = !NO_ARTICLE.includes(key);
-    const note = !t ? '' : own ? `The template's: ${t.one}` : 'From the template';
-    const back = t ? `Back to ${t.one}, the template's` : `Back to ${d.one}, the default`;
-    const row = document.createElement('div');
-    row.className = 'word-row';
-    row.dataset.wordKey = key;
-    row.setAttribute('role', 'group');
-    row.setAttribute('aria-label', name);
-    row.innerHTML = `
-      <div class="word-name"><strong>${escapeHtml(name)}</strong><span class="hint" data-word-about>${escapeHtml(wordAbout(key))}</span>${note ? `<span class="from-template">${escapeHtml(note)}</span>` : ''}</div>
-      <label><span class="word-field-label">Singular</span><input type="text" data-word-part="one" maxlength="30" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(base.one)}" aria-label="${escapeHtml(name)}, singular${t ? `, blank for ${escapeHtml(t.one)}, the template's` : ''}"></label>
-      <label><span class="word-field-label">Plural</span><input type="text" data-word-part="many" maxlength="30" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(base.many)}" aria-label="${escapeHtml(name)}, plural"></label>
-      ${article ? `<label><span class="word-field-label">With its article</span><input type="text" data-word-part="a" maxlength="41" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(base.a)}" aria-label="${escapeHtml(name)}, with its article (optional)"></label>` : '<span></span>'}
-      <button class="btn btn-small" type="button" data-word-reset ${own ? '' : 'disabled'} title="${escapeHtml(back)}" aria-label="Reset ${escapeHtml(name)}: ${escapeHtml(back.charAt(0).toLowerCase() + back.slice(1))}">Reset</button>`;
-    const input = (part) => row.querySelector(`[data-word-part="${part}"]`);
-    if (own) {
-      input('one').value = w.one;
-      input('many').value = w.many;
-      if (article && w.a !== usualArticle(w.one)) input('a').value = w.a;
-    }
-    // The article's placeholder follows the singular being typed ("a trip"), so the usual one is always shown.
-    if (article) {
-      const follow = () => { const typed = input('one').value.trim(); input('a').placeholder = typed ? usualArticle(typed) : base.a; };
-      input('one').addEventListener('input', follow);
-      follow();
-    }
-    list.appendChild(row);
-  }
-  for (const key of VERBS) list.appendChild(verbRow(key));
-}
-
-// A verb's row (addendum 4), under the words: its name, one field (blank for the template's or the default), Reset.
-const VERB_NAMES = { enter: () => fillWords('Button for entering {a space}'), layout: () => fillWords('Button for the {canvas} layout') };
-const VERB_ABOUT = {
-  enter: () => fillWords('The {space} list\'s main button and the {guest} form. {An aside}\'s button always reads Join.'),
-  layout: () => fillWords('The {space} bar\'s menu that shows and hides {modules} on the {canvas}.'),
-};
-function verbRow(key) {
-  const own = ownVerbs[key] || '';
-  const t = templateVerbs[key] || null;
-  const name = VERB_NAMES[key] ? VERB_NAMES[key]() : key;
-  const note = !t ? '' : own ? `The template's: ${t}` : 'From the template';
-  const back = t ? `Back to ${t}, the template's` : `Back to ${DEFAULT_VERBS[key]}, the default`;
-  const row = document.createElement('div');
-  row.className = 'word-row verb-row';
-  row.dataset.verbKey = key;
-  row.setAttribute('role', 'group');
-  row.setAttribute('aria-label', name);
-  row.innerHTML = `
-      <div class="word-name"><strong>${escapeHtml(name)}</strong><span class="hint">${escapeHtml(VERB_ABOUT[key] ? VERB_ABOUT[key]() : '')} Now: ${escapeHtml(verbs()[key])}.</span>${note ? `<span class="from-template">${escapeHtml(note)}</span>` : ''}</div>
-      <label class="verb-field"><span class="word-field-label">Button</span><input type="text" data-verb-input maxlength="20" autocomplete="off" spellcheck="false" placeholder="${escapeHtml(t || DEFAULT_VERBS[key])}" aria-label="${escapeHtml(name)}${t ? `, blank for ${escapeHtml(t)}, the template's` : `, blank for ${escapeHtml(DEFAULT_VERBS[key])}`}"></label>
-      <button class="btn btn-small" type="button" data-verb-reset ${own ? '' : 'disabled'} title="${escapeHtml(back)}" aria-label="Reset ${escapeHtml(name)}: ${escapeHtml(back.charAt(0).toLowerCase() + back.slice(1))}">Reset</button>`;
-  row.querySelector('[data-verb-input]').value = own;
-  return row;
-}
-
-// After the words change (`settings`: the PATCH's answer): the page's own words (data-word and data-fill are done by
-// loadBranding), then the parts this page draws with word(), then the group itself.
+// (The words and the home icon are on the Template tab's Experience Labels and Environment Basics pages, below.)
+// After the words or the template change: the page's own words (data-word and data-fill are done by loadBranding), then the
+// parts this page draws with word().
 async function wordsChanged(settings) {
   if (settings) useOwnerSettings(settings);
   await loadBranding();
-  renderWords();
   loadRoles().catch(() => {});
   loadModules().catch(() => {});
   loadEnvironment().catch(() => {});
 }
-
-$('save-words').addEventListener('click', async () => {
-  const patch = {};
-  for (const row of $('words-list').querySelectorAll('[data-word-key]')) {
-    const key = row.dataset.wordKey;
-    const value = (part) => (row.querySelector(`[data-word-part="${part}"]`)?.value || '').trim(); // home has no article field
-    const [one, many, a] = [value('one'), value('many'), value('a')];
-    if (one || many || a) patch[key] = a ? { one, many, a } : { one, many };
-    else if (ownWords[key]) patch[key] = null; // emptied: back to the template's word or the default
-  }
-  // The verbs (addendum 4), in the same change: a refused one refuses the whole patch.
-  const verbPatch = {};
-  for (const row of $('words-list').querySelectorAll('[data-verb-key]')) {
-    const key = row.dataset.verbKey;
-    const text = row.querySelector('[data-verb-input]').value.trim();
-    if (text && text !== ownVerbs[key]) verbPatch[key] = text;
-    else if (!text && ownVerbs[key]) verbPatch[key] = null; // emptied: back to the template's or the default
-  }
-  if (!Object.keys(patch).length && !Object.keys(verbPatch).length) {
-    say($('words-status'), 'nothing to save');
-    return;
-  }
-  const button = $('save-words');
-  button.disabled = true;
-  try {
-    const answer = await api('PATCH', '/api/settings', { ...(Object.keys(patch).length ? { words: patch } : {}), ...(Object.keys(verbPatch).length ? { verbs: verbPatch } : {}) });
-    await wordsChanged(answer && answer.settings);
-    say($('words-status'), 'saved');
-  } catch (err) {
-    say($('words-status'), err.message, true); // the server's own sentence; nothing was changed
-  } finally {
-    button.disabled = false;
-  }
-});
-
-$('words-list').addEventListener('click', async (event) => {
-  const verbReset = event.target.closest('[data-verb-reset]');
-  if (verbReset) {
-    const key = verbReset.closest('[data-verb-key]').dataset.verbKey;
-    verbReset.disabled = true;
-    try {
-      const answer = await api('PATCH', '/api/settings', { verbs: { [key]: null } });
-      await wordsChanged(answer && answer.settings);
-      const name = VERB_NAMES[key] ? VERB_NAMES[key]() : key;
-      const t = templateVerbs[key];
-      say($('words-status'), t ? `${name} is back to ${t}, the template's` : `${name} is back to ${DEFAULT_VERBS[key]}, the default`);
-      $('words-list').querySelector(`[data-verb-key="${key}"] [data-verb-input]`)?.focus();
-    } catch (err) {
-      verbReset.disabled = false;
-      say($('words-status'), err.message, true);
-    }
-    return;
-  }
-  const reset = event.target.closest('[data-word-reset]');
-  if (!reset) return;
-  const key = reset.closest('[data-word-key]').dataset.wordKey;
-  reset.disabled = true;
-  try {
-    const answer = await api('PATCH', '/api/settings', { words: { [key]: null } });
-    await wordsChanged(answer && answer.settings);
-    const t = templateWords[key];
-    say($('words-status'), t ? `${wordName(key)} is back to ${t.one}, the template's` : key === 'home' ? `${wordName(key)} is back to ${words().home.many}` : `${wordName(key)} is back to its default`);
-    $('words-list').querySelector(`[data-word-key="${key}"] [data-word-part="one"]`)?.focus();
-  } catch (err) {
-    reset.disabled = false;
-    say($('words-status'), err.message, true);
-  }
-});
 
 // Language, time and money: the currency list is the one every picker uses (window.hostCurrency, from /sdk/host.js): the
 // common ones first, then every other the server takes, by name, plus whatever is set if it is in neither (so a code chosen
@@ -2101,8 +1903,8 @@ $('save-icons').addEventListener('click', async () => {
     const { settings } = await api('PATCH', '/api/settings', { icons });
     renderIconRows(settings.icons);
     await loadBranding();
-    buildHomeIconGrid();
-    renderHomeIconSelection();
+    tplFull.clear();
+    renderTplPart(); // the home icon's choices are this list
     say($('icons-status'), 'saved');
   } catch (err) {
     say($('icons-status'), err.message, true);
@@ -2292,26 +2094,36 @@ function applyHosted() {
   for (const el of document.querySelectorAll('[data-host-only]')) el.hidden = hostOnlyHidden();
 }
 
-// --- the Template tab (plan-environment-templates.md, the switching addendum and addendum 2) ------------------------
-// The templates it can switch to (GET /api/environment/template's `choices`: [{ id, name, description, source, version }]),
-// the open offer after a switch (the same answer's `offer`, or the switch's), and whether "Not now" put it away for now.
-let templateChoices = [];
+// --- the Template tab (plan-templates-redesign.md, step 11a; plan-environment-templates.md for switching and the offer) ---------
+// Short pages, one per setting, chosen in the page bar's row (#tpl-subtabs): the short Template page (the environment's
+// default template and the switch), Environment Basics and Experience Labels (the fields of one template, chosen at the top
+// of each; /template-fields.js), the list of templates, and, until their own pages come, the module names, reactions and icons.
+// The templates this environment may use (GET /api/environment/templates: [{ id, name, description, source, version,
+// editable, copiedFrom, spaces, environment }], Default first), the open offer after a switch (GET /api/environment/template's
+// `offer`, or the switch's), and whether "Not now" put it away for now.
+let tplList = [];
 let templateOffer = null;
 let offerPutAway = false;
+const tplFull = new Map(); // id -> the template in full (GET /api/environment/templates/:id), read when a page opens it
 const templateName = (t) => (t && (t.name || t.id)) || '';
+const capitalOf = (text) => text.charAt(0).toLocaleUpperCase('en') + text.slice(1);
+// The kind of a template as a person reads it.
+const kindOf = (t) => (t.id === 'default' ? 'The plain one' : t.source === 'own' ? 'Yours' : 'Shipped');
 // A newer version of the template than the one applied (addendum 2): its offer lists what is new since.
 const templateUpdated = (t) => Boolean(t && t.offerOpen && t.appliedAt && t.version && t.appliedVersion && t.version > t.appliedVersion);
 const offerNote = (t) => (templateUpdated(t) ? `The ${templateName(t)} template was updated: review what's new.` : `The ${templateName(t)} template can turn on more.`);
 async function loadTemplate() {
   try {
-    const answer = await api('GET', '/api/environment/template');
-    templateChoices = answer.choices || [];
-    madeFrom = answer.template || null;
-    templateOffer = answer.offer || null;
+    const [one, list] = await Promise.all([api('GET', '/api/environment/template'), api('GET', '/api/environment/templates')]);
+    madeFrom = one.template || null;
+    templateOffer = one.offer || null;
+    tplList = list.templates || [];
+    tplFull.clear();
   } catch (err) {
     // the tab still shows what the settings said
   }
   renderTemplateNote();
+  renderTplPart();
 }
 // The Template tab's own badge while the offer is open: it waits for the owner's Apply, even after "Not now".
 function renderTemplateBadge() {
@@ -2327,14 +2139,15 @@ function renderTemplateBadge() {
     tab.append(badge);
   }
 }
-// The chooser: "No template", then each template this environment can switch to; Switch only once another is chosen.
+// The chooser: every template this environment may use. Every environment has one, so there is no "none": Default is the
+// plain one. Switch only once another is chosen.
 function renderTemplateSwitch() {
   const select = $('template-select');
-  const current = madeFrom ? madeFrom.id : 'none';
+  const current = madeFrom ? madeFrom.id : 'default';
   const keep = select.dataset.filled ? select.value : current;
-  const options = [new Option('No template', 'none'), ...templateChoices.map((c) => new Option(c.name || c.id, c.id))];
+  const options = tplList.map((c) => new Option(c.name || c.id, c.id));
   // The template in use, even one this server no longer offers, so the chooser always says what is in use.
-  if (madeFrom && !templateChoices.some((c) => c.id === madeFrom.id)) options.push(new Option(templateName(madeFrom), madeFrom.id));
+  if (madeFrom && !tplList.some((c) => c.id === madeFrom.id)) options.push(new Option(templateName(madeFrom), madeFrom.id));
   select.replaceChildren(...options);
   select.value = options.some((o) => o.value === keep) ? keep : current;
   select.dataset.filled = '1';
@@ -2342,20 +2155,20 @@ function renderTemplateSwitch() {
 }
 function syncTemplateSwitch() {
   const select = $('template-select');
-  const current = madeFrom ? madeFrom.id : 'none';
+  const current = madeFrom ? madeFrom.id : 'default';
   const other = select.value !== current;
   $('template-switch').disabled = !other;
   $('template-switch').classList.toggle('btn-primary', other);
-  const chosen = templateChoices.find((c) => c.id === select.value);
+  const chosen = tplList.find((c) => c.id === select.value);
   const about = $('template-choice-about');
-  about.textContent = !other ? '' : chosen ? chosen.description || '' : 'The default words and icons.';
+  about.textContent = !other ? '' : chosen ? chosen.description || '' : '';
   about.hidden = !about.textContent;
 }
 $('template-select').addEventListener('change', syncTemplateSwitch);
 $('template-switch').addEventListener('click', async () => {
   const value = $('template-select').value;
-  const chosen = templateChoices.find((c) => c.id === value);
-  if (!await confirmDialog(switchConfirm(value === 'none' ? null : chosen ? chosen.name || chosen.id : value))) return;
+  const chosen = tplList.find((c) => c.id === value);
+  if (!await confirmDialog(switchConfirm(chosen ? chosen.name || chosen.id : value))) return;
   const button = $('template-switch');
   button.disabled = true;
   say($('template-status'), 'Switching...');
@@ -2365,11 +2178,10 @@ $('template-switch').addEventListener('click', async () => {
     offerPutAway = false;
     useOwnerSettings(answer.settings);
     madeFrom = answer.template || null;
-    selectedHomeIcon = madeFrom ? ownHomeIcon : answer.settings.homeIcon || DEFAULT_HOME_ICON;
-    renderHomeIconSelection();
+    tplId = '';
     await wordsChanged(); // the words, the module names and icons, and every place that shows them
-    renderTemplateNote();
-    say($('template-status'), madeFrom ? `Switched to ${templateName(madeFrom)}` : 'Switched to no template');
+    await loadTemplate();
+    say($('template-status'), `Switched to ${templateName(madeFrom)}`);
     const first = $('template-offer').querySelector('input:not(:disabled), button');
     (first && !$('template-offer').hidden ? first : $('template-select')).focus(); // Switch is off again: never lose focus
   } catch (err) {
@@ -2422,13 +2234,12 @@ function renderTemplateNote() {
   renderTemplateBadge();
   renderTemplateSwitch();
   renderTemplateOffer();
-  renderTemplateFiles();
-  $('template-hint').hidden = !madeFrom;
-  const about = madeFrom && templateChoices.find((c) => c.id === madeFrom.id)?.description;
+  $('template-hint').hidden = !madeFrom || madeFrom.id === 'default';
+  const about = madeFrom && tplList.find((c) => c.id === madeFrom.id)?.description;
   $('template-about').textContent = about || '';
   $('template-about').hidden = !about;
   if (!madeFrom) {
-    $('template-made').innerHTML = `<strong>No template.</strong> This ${escapeHtml(word('environment'))} uses the default words and icons.`;
+    $('template-made').innerHTML = `<strong>The Default template.</strong> This ${escapeHtml(word('environment'))} uses the usual words and icons.`;
     $('template-skipped').hidden = true;
     return;
   }
@@ -2459,27 +2270,196 @@ function renderTemplateNote() {
   box.innerHTML = items.length ? `<p class="hint">Left out:</p><ul>${items.join('')}</ul>` : '';
 }
 
-// Template files (addendum 2): Export of the template in use (hosted and single alike); a single install also imports
-// files (a clashing id asks for a new one) and deletes an imported template it no longer uses.
-function renderTemplateFiles() {
-  const single = !environment.hosted;
-  const exportLink = $('template-export');
-  exportLink.hidden = !madeFrom || !madeFrom.source;
-  if (madeFrom) {
-    exportLink.href = `/api/templates/${encodeURIComponent(madeFrom.id)}/export`;
-    exportLink.title = `Download the ${templateName(madeFrom)} template as a file`;
+// --- the pages of one template: Environment Basics and Experience Labels ---------------------------------------------------
+// The template shown is the address's (#template/<id>/basics), else the environment's own. A template that is not the owner's
+// own is shown read-only, with Copy to change it.
+const currentTplId = () => tplId || (madeFrom && madeFrom.id) || 'default';
+async function templateRecord(id) {
+  if (!tplFull.has(id)) tplFull.set(id, (await api('GET', `/api/environment/templates/${encodeURIComponent(id)}`)).template);
+  return tplFull.get(id);
+}
+const tplPages = {
+  basics: { panel: () => $('tpl-basics-card'), box: () => $('tpl-basics-box') },
+  labels: { panel: () => $('words-panel'), box: () => $('tpl-labels-box') },
+};
+function renderTplPart() {
+  if (!tplReady) return;
+  if (tplPart === 'basics' || tplPart === 'labels') drawTplPage(tplPart);
+  else if (tplPart === 'list') renderTplList();
+}
+let tplDrawing = 0;
+async function drawTplPage(kind) {
+  const { panel, box } = { panel: tplPages[kind].panel(), box: tplPages[kind].box() };
+  const id = currentTplId();
+  const mine = ++tplDrawing;
+  let t;
+  try {
+    t = await templateRecord(id);
+  } catch (err) {
+    box.textContent = err.message;
+    return;
   }
-  $('template-import').hidden = !single;
-  const imported = single ? templateChoices.filter((c) => c.source === 'imported') : [];
-  const list = $('template-imported');
-  list.hidden = !imported.length;
-  list.innerHTML = imported.map((c) => {
-    const inUse = madeFrom && madeFrom.id === c.id;
-    return `<li class="sdk-row list-row"><span class="template-file-name"><strong>${escapeHtml(c.name || c.id)}</strong> <span class="hint">Imported, version ${escapeHtml(String(c.version || 1))}${inUse ? ', in use' : ''}</span></span>`
-      + `<a class="btn btn-small" href="/api/templates/${encodeURIComponent(c.id)}/export" download>Export</a>`
-      + `<button class="btn btn-small btn-danger" type="button" data-template-delete="${escapeHtml(c.id)}"${inUse ? ' disabled title="In use: switch to another template first"' : ''}>Delete</button></li>`;
+  if (mine !== tplDrawing || tplPart !== kind) return; // another page or template was asked for meanwhile
+  const editable = t.editable === true;
+  const forEnvironment = Boolean(madeFrom && madeFrom.id === t.id);
+  const head = panel.querySelector('[data-tpl-head]');
+  head.innerHTML = `<label class="tpl-pick"><span class="field-label">Template</span><select data-tpl-pick>${tplList.map((c) => `<option value="${escapeHtml(c.id)}"${c.id === t.id ? ' selected' : ''}>${escapeHtml(c.name || c.id)}</option>`).join('')}</select></label>`
+    + `<span class="sdk-status" data-tone="${editable ? 'ok' : 'neutral'}">${editable ? 'Yours: you can change it' : t.id === 'default' ? 'The plain one: read only' : 'Shipped: read only'}</span>`
+    + (editable ? '' : `<button class="btn btn-small" type="button" data-tpl-copy>Copy to change it</button>`);
+  if (kind === 'basics') {
+    box.innerHTML = basicsHtml(t, { editable, icons: getIcons() });
+    showChosenIcon(box);
+    drawOwnIcon(forEnvironment);
+  } else {
+    box.innerHTML = labelsHtml(t, { editable, environmentParts: forEnvironment })
+      + (forEnvironment ? '' : `<p class="hint">The home page's name and the Lobby come from the ${escapeHtml(templateName(tplList.find((c) => c.id === madeFrom?.id) || madeFrom))} template, this ${escapeHtml(word('environment'))}'s own.</p>`);
+    drawOwnWords(forEnvironment);
+  }
+  panel.querySelector('[data-tpl-save]').hidden = !editable;
+  say(panel.querySelector('[data-tpl-status]'), '');
+}
+// What an owner set over the template before templates had pages of their own: said, with a way back to the template's.
+function drawOwnWords(forEnvironment) {
+  const box = $('tpl-own-words');
+  const keys = Object.keys(ownWords || {});
+  box.hidden = !forEnvironment || !keys.length;
+  if (box.hidden) return;
+  box.innerHTML = `<p class="hint">You set your own ${keys.map((k) => escapeHtml(word(k))).join(' and ')} word before: ${keys.map((k) => `${escapeHtml(ownWords[k].one)} / ${escapeHtml(ownWords[k].many)}`).join(', ')}. It reads instead of the template's.</p><button class="btn btn-small" type="button" data-own-words-reset>Use the template's</button>`;
+}
+function drawOwnIcon(forEnvironment) {
+  const box = $('tpl-own-icon');
+  box.hidden = !forEnvironment || !ownHomeIcon;
+  if (box.hidden) return;
+  box.innerHTML = `<p class="hint"><i class="fa-solid fa-${escapeHtml(ownHomeIcon)} fa-fw" aria-hidden="true"></i> You set your own home icon before. It shows instead of the template's.</p><button class="btn btn-small" type="button" data-own-icon-reset>Use the template's</button>`;
+}
+for (const id of ['tpl-basics-card', 'words-panel']) {
+  const panel = $(id);
+  wireFields(panel);
+  panel.addEventListener('change', (e) => {
+    const pick = e.target.closest('[data-tpl-pick]');
+    if (pick) location.hash = `template/${pick.value}/${tplPart}`;
+  });
+  panel.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-tpl-copy]')) { startCopy(currentTplId()); return; }
+    const status = panel.querySelector('[data-tpl-status]');
+    if (e.target.closest('[data-own-words-reset]')) {
+      try { const a = await api('PATCH', '/api/settings', { words: Object.fromEntries(Object.keys(ownWords).map((k) => [k, null])) }); await wordsChanged(a.settings); drawOwnWords(true); say(status, 'Back to the template\'s words'); } catch (err) { say(status, err.message, true); }
+      return;
+    }
+    if (e.target.closest('[data-own-icon-reset]')) {
+      try { const a = await api('PATCH', '/api/settings', { homeIcon: null }); await wordsChanged(a.settings); drawOwnIcon(true); say(status, 'Back to the template\'s icon'); } catch (err) { say(status, err.message, true); }
+      return;
+    }
+    const save = e.target.closest('[data-tpl-save-button]');
+    if (!save) return;
+    const box = panel.querySelector('[id$="-box"]');
+    const fields = panel === $('words-panel') ? readLabels(box) : readBasics(box);
+    const id = currentTplId();
+    save.disabled = true;
+    say(status, 'Saving...');
+    try {
+      const { template } = await api('PATCH', `/api/environment/templates/${encodeURIComponent(id)}`, fields);
+      tplFull.set(id, template);
+      await wordsChanged(); // this environment's words and icon follow its template at once
+      await loadTemplate();
+      say(status, `Saved, version ${template.version}`);
+    } catch (err) {
+      say(status, err.message, true);
+    } finally {
+      save.disabled = false;
+    }
+  });
+}
+
+// --- the list of templates ----------------------------------------------------------------------------------------------------
+function renderTplList() {
+  const ul = $('tpl-list');
+  ul.innerHTML = tplList.map((t) => {
+    const id = escapeHtml(t.id);
+    const used = [t.environment ? `Default for this ${escapeHtml(word('environment'))}` : '', t.spaces ? `${t.spaces} ${escapeHtml(word('space', { many: t.spaces !== 1 }))}` : ''].filter(Boolean).join(', ');
+    const own = t.source === 'own';
+    return `<li class="sdk-row list-row tpl-row" data-tpl="${id}"><div class="tpl-row-text"><strong>${escapeHtml(t.name || t.id)}</strong> <span class="sdk-status" data-tone="neutral">${escapeHtml(kindOf(t))}</span> <span class="hint">Version ${escapeHtml(String(t.version || 1))}${used ? `. ${used}` : ''}</span>`
+      + `<div class="hint">${escapeHtml(t.description || '')}${t.copiedFrom ? ` Copied from ${escapeHtml(t.copiedFrom.id)}.` : ''}</div></div>`
+      + `<div class="tpl-row-actions"><a class="btn btn-small" href="#template/${id}/basics">${own ? 'Edit' : 'Open'}</a>`
+      + `<button class="btn btn-small" type="button" data-tpl-action="copy">Copy</button>`
+      + `<a class="btn btn-small" href="/api/templates/${encodeURIComponent(t.id)}/export" download>Export</a>`
+      + (own ? `<button class="btn btn-small btn-danger" type="button" data-tpl-action="delete">Delete</button>` : '')
+      + `</div></li>`;
   }).join('');
-  $('template-files').hidden = exportLink.hidden && !single;
+}
+$('tpl-list').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tpl-action]');
+  if (!b) return;
+  const id = b.closest('[data-tpl]').dataset.tpl;
+  if (b.dataset.tplAction === 'copy') startCopy(id);
+  else deleteTpl(id);
+});
+// Copy: a name and an id for the new template (the id follows the name until it is typed over).
+let copyFrom = '';
+let idTyped = false;
+const slug = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+/, '').replace(/-+$/, '').slice(0, 32);
+function startCopy(fromId) {
+  const from = tplList.find((c) => c.id === fromId);
+  if (!from) return;
+  copyFrom = fromId;
+  idTyped = false;
+  const wasList = tplPart === 'list';
+  if (!wasList) location.hash = 'template/list';
+  const form = $('tpl-copy-form');
+  form.hidden = false;
+  $('tpl-copy-title').textContent = `Copy ${from.name || from.id}`;
+  $('tpl-copy-name').value = `${from.name || from.id} copy`.slice(0, 40);
+  $('tpl-copy-id').value = slug($('tpl-copy-name').value);
+  say($('tpl-copy-status'), '');
+  requestAnimationFrame(() => { form.scrollIntoView({ block: 'nearest' }); $('tpl-copy-name').focus(); $('tpl-copy-name').select(); });
+}
+$('tpl-copy-name').addEventListener('input', () => { if (!idTyped) $('tpl-copy-id').value = slug($('tpl-copy-name').value); });
+$('tpl-copy-id').addEventListener('input', () => { idTyped = true; });
+$('tpl-copy-cancel').addEventListener('click', () => { $('tpl-copy-form').hidden = true; });
+$('tpl-copy-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const go = $('tpl-copy-go');
+  go.disabled = true;
+  try {
+    const { template } = await api('POST', '/api/environment/templates', { from: copyFrom, id: $('tpl-copy-id').value.trim(), name: $('tpl-copy-name').value.trim() });
+    $('tpl-copy-form').hidden = true;
+    await loadTemplate();
+    tplFull.set(template.id, template);
+    location.hash = `template/${template.id}/basics`;
+  } catch (err) {
+    say($('tpl-copy-status'), err.message, true);
+  } finally {
+    go.disabled = false;
+  }
+});
+// Delete: asked first, naming the spaces that read another template after it and what they fall back to; the answer then says
+// what moved.
+async function deleteTpl(id) {
+  const t = tplList.find((c) => c.id === id);
+  if (!t) return;
+  let names = [];
+  if (t.spaces) {
+    try { names = (await api('GET', '/api/spaces')).spaces.filter((sp) => sp.template === id).map((sp) => sp.name); } catch { names = []; }
+  }
+  const back = tplList.find((c) => c.id === (madeFrom && madeFrom.id));
+  const lines = [];
+  if (t.environment) lines.push(`This ${word('environment')} uses it, so it reads the Default template instead.`);
+  if (t.spaces) {
+    const shown = names.slice(0, 5).join(', ') + (names.length > 5 ? ` and ${names.length - 5} more` : '');
+    lines.push(`${shown || `${t.spaces} ${word('space', { many: t.spaces !== 1 })}`} will read ${t.environment ? 'the Default template' : `${back ? `the ${templateName(back)} template` : 'this environment\'s template'}, this ${word('environment')}'s own`}.`);
+  }
+  if (!lines.length) lines.push(`No ${word('space')} or ${word('environment')} uses it.`);
+  if (!await confirmDialog({ title: `Delete the ${templateName(t)} template?`, message: lines.join('\n\n'), action: 'Delete', kind: 'destructive' })) return;
+  try {
+    const answer = await api('DELETE', `/api/environment/templates/${encodeURIComponent(id)}`);
+    if (tplId === id) tplId = '';
+    await wordsChanged();
+    await loadTemplate();
+    const moved = answer.spaces || [];
+    say($('template-files-status'), `Deleted ${templateName(t)}.${answer.environment ? ` This ${word('environment')} reads the Default template.` : ''}${moved.length ? ` ${moved.join(', ')} read${moved.length === 1 ? 's' : ''} the ${word('environment')}'s template.` : ''}`);
+  } catch (err) {
+    say($('template-files-status'), err.message, true);
+  }
 }
 $('template-import').addEventListener('click', () => $('template-import-file').click());
 $('template-import-file').addEventListener('change', async () => {
@@ -2493,10 +2473,9 @@ $('template-import-file').addEventListener('change', async () => {
   let id = '';
   for (;;) {
     try {
-      const { template, dropped } = await api('POST', `/api/templates/import${id ? `?id=${encodeURIComponent(id)}` : ''}`, new Blob([text], { type: 'text/plain' }));
+      const { template } = await api('POST', `/api/templates/import${id ? `?id=${encodeURIComponent(id)}` : ''}`, new Blob([text], { type: 'text/plain' }));
       await loadTemplate();
-      const left = Array.isArray(dropped) && dropped.length ? ` Left out: ${dropped.join(', ')}.` : '';
-      return say(status, `Imported ${template.name}.${left} Switch to it above to use it.`);
+      return say(status, `Imported ${template.name}. It is one of yours now.`);
     } catch (err) {
       // A clash: the same file under another id, if the owner gives one.
       if (/^There is already a template called /.test(err.message)) {
@@ -2506,20 +2485,6 @@ $('template-import-file').addEventListener('change', async () => {
       }
       return say(status, err.message, true);
     }
-  }
-});
-$('template-imported').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-template-delete]');
-  if (!b) return;
-  const t = templateChoices.find((c) => c.id === b.dataset.templateDelete);
-  if (!await confirmDialog({ title: `Delete the ${templateName(t) || b.dataset.templateDelete} template?`, message: 'Its file can be imported again.', action: 'Delete', kind: 'destructive' })) return;
-  try {
-    await api('DELETE', `/api/templates/${encodeURIComponent(b.dataset.templateDelete)}`);
-    await loadTemplate();
-    say($('template-files-status'), 'Deleted');
-    $('template-import').focus();
-  } catch (err) {
-    say($('template-files-status'), err.message, true);
   }
 });
 
@@ -2628,10 +2593,10 @@ async function init() {
   // The page bar's row: the Environment tab's parts, while that tab is shown (#261).
   rowTabs({ strip: $('env-subtabs'), label: `${word('environment', { cap: true })} settings`, visible: () => tabNow === 'environment' });
   // And the Modules tab's: Configuration and a tab per module that is on (#264), while that tab is shown.
+  rowTabs({ strip: $('tpl-subtabs'), label: 'Template', visible: () => tabNow === 'template' });
   rowTabs({ strip: $('module-subtabs'), label: word('module', { many: true, cap: true }), visible: () => tabNow === 'modules' });
   requestAnimationFrame(() => scrollToChosen($('env-subtabs'))); // a link to a part: its tab in view in the row
   await loadBranding();
-  buildHomeIconGrid(); // after the branding: the choices are its icon list
   wireOverlayBack(word('space', { many: true, cap: true }));
   try {
     const info = await api('GET', '/api/me');
@@ -2654,11 +2619,7 @@ async function init() {
     $('set-clock').value = settings.clock === '24' ? '24' : '12';
     fillCurrencies(settings.currency || 'USD');
     useOwnerSettings(settings);
-    // With a template, no icon of the owner's is the template's own (null); without one, as before.
-    selectedHomeIcon = madeFrom ? ownHomeIcon : settings.homeIcon || DEFAULT_HOME_ICON;
-    renderHomeIconSelection();
     setWords(settings.words);
-    renderWords();
     renderTemplateNote();
     await loadThemes();
     await loadRoles();
@@ -2683,6 +2644,7 @@ async function init() {
     showStreamKey();
     await loadUsers();
     await loadEnvironment();
+    tplReady = true;
     await loadTemplate();
     if (!environment.hosted) await flightSchedule.load(); // a hosted server's is the host console's: no section here
     if (firstHash && !TABS.includes(firstHash) && !ENV_PARTS.includes(firstHash)) selectTab(firstHash); // a section drawn just now

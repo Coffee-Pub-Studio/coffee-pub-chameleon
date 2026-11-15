@@ -5,7 +5,7 @@
 // template. Import file from a file (a clashing id asks for another). The editor is its own view (#templates/<id>, or
 // /new), its parts with a jump list beside them.
 import { api, escapeHtml, word } from '/brand.js';
-import { CHANGEABLE, DEFAULTS, homeDefault, VERBS, DEFAULT_VERBS } from '/words.js';
+import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields } from '/template-fields.js';
 import { fileText } from '/file-text.js';
 import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
@@ -13,12 +13,12 @@ import { openHostMenu } from '/host-menu.js';
 const $ = (id) => document.getElementById(id);
 const say = (el, text, error = false) => { el.textContent = text; el.classList.toggle('error', error); el.hidden = !text; };
 let product = ''; // the product's name (PRODUCT_NAME), from the host console's settings; see initTemplates
-// "That isn't a <product> theme file.", or "a theme file" before the name is known.
+// "That isn't a <product> template file.", or "a template file" before the name is known.
 const fileOfKind = (kind) => (product ? `${product} ${kind} file` : `${kind} file`);
 const BUILT_IN = ['conference', 'chat'];
-const SOURCE = { bundled: 'Bundled', host: 'Own', imported: 'Imported' };
-const DEFAULT_HOME_ICON = 'couch';
+const SOURCE = { bundled: 'Bundled', host: 'Own' };
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+const DEFAULT_ID = 'default'; // the Default template: nobody changes, hides or deletes it, the host included
 
 let list = []; // GET /api/host/templates: [{ id, name, description, source, version, hidden, edited, update, usedBy, usedBySpaces }]
 let onChange = () => {};
@@ -27,7 +27,6 @@ let ready = false; // the list has come from host.js
 let pendingView = null; // an editor asked for (#templates/<id>) before the list came
 let editing = null; // the template being edited in full, or null for a new one
 let comparing = null; // the bundled id whose update is open in the compare panel
-let theme = null; // the editor's embedded theme ({ name, author?, light, dark }) or null
 let moduleIds = [...BUILT_IN]; // the modules a template can list: the ones the image ships, then any other a template names
 let shipped = null; // GET /api/host/settings `modules`: [{ id, name, icon }], loaded once
 const moduleName = (id) => (shipped || []).find((m) => m.id === id)?.name || id;
@@ -87,6 +86,7 @@ function renderList() {
   if (!list.length) { box.innerHTML = '<tr class="sdk-table-empty"><td colspan="6">No templates yet.</td></tr>'; return; }
   box.innerHTML = list.map((t) => {
     const editable = t.source === 'host' || t.source === 'bundled';
+    const fixed = t.id === DEFAULT_ID;
     const id = escapeHtml(t.id);
     const name = escapeHtml(t.name || t.id);
     const used = t.usedBy || [];
@@ -97,11 +97,11 @@ function renderList() {
     const spaces = spaceCount ? `<span class="hc-spaces">${spaceCount} ${escapeHtml(word('space', { many: spaceCount !== 1 }))}</span>` : '';
     const usedBy = used.length ? `${names}${used.length > 4 ? `<span class="hc-more-names"> and ${used.length - 4} more</span>` : ''}${spaces ? '<span class="hc-sep">, </span>' : ''}${spaces}` : spaces || '<span class="sdk-table-dim">None</span>';
     return `<tr data-id="${id}">`
-      + `<th scope="row" class="hc-name-cell">${editable ? `<a class="hc-link" href="#templates/${encodeURIComponent(t.id)}">${name}</a>` : name}<span class="sdk-table-sub">${id}</span></th>`
-      + `<td class="hc-chips-cell">${chipOf(SOURCE[t.source] || t.source)}${t.edited ? chipOf('Edited', 'info') : ''}</td>`
+      + `<th scope="row" class="hc-name-cell"><a class="hc-link" href="#templates/${encodeURIComponent(t.id)}">${name}</a><span class="sdk-table-sub">${id}</span></th>`
+      + `<td class="hc-chips-cell">${chipOf(fixed ? 'Default' : SOURCE[t.source] || t.source)}${t.edited ? chipOf('Edited', 'info') : ''}</td>`
       + `<td class="sdk-table-dim">v${escapeHtml(String(t.version || 1))}</td>`
       + `<td class="hc-used">${usedBy}</td>`
-      + `<td>${editable ? `<input class="sdk-switch" type="checkbox" role="switch" data-action="hide"${t.hidden ? ' checked' : ''} aria-label="Hide ${name} from new ${escapeHtml(word('environment', { many: true }))}">` : ''}</td>`
+      + `<td>${editable && !fixed ? `<input class="sdk-switch" type="checkbox" role="switch" data-action="hide"${t.hidden ? ' checked' : ''} aria-label="Hide ${name} from new ${escapeHtml(word('environment', { many: true }))}">` : ''}</td>`
       + `<td class="hc-more-cell"><button class="sdk-icon-btn btn-quiet btn-small" type="button" data-action="template-menu" aria-haspopup="menu" aria-label="More for ${name}"><i class="fa-solid fa-ellipsis-vertical fa-fw" aria-hidden="true"></i></button></td></tr>`;
   }).join('');
 }
@@ -127,12 +127,12 @@ $('template-list').addEventListener('click', (e) => {
   if (more && t) templateMenu(more, t);
 });
 function templateMenu(trigger, t) {
-  const editable = t.source === 'host' || t.source === 'bundled';
+  const editable = (t.source === 'host' || t.source === 'bundled') && t.id !== DEFAULT_ID;
   const unused = !(t.usedBy || []).length && !t.usedBySpaces;
   openHostMenu(trigger, [
-    ...(editable ? [{ label: 'Edit', icon: 'pen', onPick: () => { location.hash = `templates/${t.id}`; } }] : []),
+    { label: editable ? 'Edit' : 'Open', icon: editable ? 'pen' : 'eye', onPick: () => { location.hash = `templates/${t.id}`; } },
     { label: 'Export', icon: 'file-export', onPick: () => exportTemplate(t) },
-    ...(editable ? [{ label: 'Duplicate', icon: 'copy', onPick: () => duplicateTemplate(t) }] : []),
+    { label: 'Copy', icon: 'copy', onPick: () => duplicateTemplate(t) },
     ...(t.source === 'bundled' && t.edited ? [{ label: 'Reset to shipped', icon: 'rotate-left', onPick: () => resetTemplate(t) }] : []),
     ...(t.source === 'host' ? [{ divider: true }, { label: 'Delete', icon: 'trash', danger: true, disabled: !unused, tip: unused ? '' : 'In use: hide it instead', onPick: () => deleteTemplate(t) }] : []),
   ]);
@@ -181,34 +181,36 @@ $('template-notices').addEventListener('click', async (e) => {
 });
 
 async function duplicateTemplate(t) {
-  const id = window.prompt('Id for the new template (lowercase letters, digits and dashes):', '');
+  const id = window.prompt('Id for the copy (lowercase letters, digits and dashes):', '');
   if (!id || !id.trim()) return;
-  const name = window.prompt('Name for the new template:', t.name || '');
+  const name = window.prompt('Name for the copy:', t.name || '');
   if (!name || !name.trim()) return;
   try {
     const made = await api('POST', `/api/host/templates/${encodeURIComponent(t.id)}/duplicate`, { id: id.trim().toLowerCase(), name: name.trim() });
     await reload();
-    say($('templates-status'), `Duplicated ${t.name || t.id} as ${made.template.name}.`);
+    say($('templates-status'), `Copied ${t.name || t.id} as ${made.template.name}.`);
     location.hash = `templates/${made.template.id}`;
   } catch (err) { say($('templates-status'), err.message, true); }
 }
 
 // Labels read at compare time, so they follow the words once the page has them.
 const COMPARE_FIELDS = () => [
-  ['name', 'Name'],
-  ['description', 'Description'],
+  ['name', 'Template Name'],
+  ['description', 'Template Description'],
   ['words', 'Words'],
-  ['verbs', 'Verbs'],
-  ['icons', 'Home icon'],
-  ['moduleNames', `${word('module', { cap: true })} names`],
-  ['moduleIcons', `${word('module', { cap: true })} icons`],
-  ['modules', word('module', { many: true, cap: true })],
-  ['settings', 'Settings'],
+  ['home', 'Home page'],
+  ['icons', 'Home Icon'],
   ['lobby', 'Lobby'],
-  ['spaceDefaults', `New ${word('space')}`],
+  ['modules', word('module', { many: true, cap: true })],
+  ['call', 'Call'],
+  ['workspace', 'Default Workspace'],
+  ['phases', 'Phases'],
+  ['phaseMeasure', 'A phase is done by'],
   ['reactions', 'Reactions'],
-  ['theme', 'Theme'],
   ['iconSet', 'Icons'],
+  ['spaceDefaults', 'Default Profile Image'],
+  ['starterSpaces', `Starter ${word('space', { many: true })}`],
+  ['settings', 'Settings'],
 ];
 const shown = (value) => JSON.stringify(value ?? null, null, 2);
 function openCompare(template) {
@@ -284,74 +286,69 @@ $('te-jump').addEventListener('click', (e) => {
 });
 
 // The modules a template can name: the ones this image ships (by name), then any other module a template lists.
+const moduleKeys = (t) => (t && t.modules && typeof t.modules === 'object' ? Object.keys(t.modules) : []);
 async function loadModuleIds() {
   if (!shipped) shipped = (await api('GET', '/api/host/settings').catch(() => ({}))).modules || null;
   const own = (shipped || []).map((m) => m.id);
   const ids = new Set([...BUILT_IN, ...own]);
   const full = await Promise.all(list.map((t) => api('GET', `/api/host/templates/${encodeURIComponent(t.id)}`).then((a) => a.template).catch(() => null)));
-  for (const t of full) if (t) for (const id of [...(t.modules || []), ...Object.keys(t.moduleNames || {}), ...Object.keys(t.moduleIcons || {})]) ids.add(id);
+  for (const t of full) if (t) for (const id of moduleKeys(t)) ids.add(id);
   const first = [...new Set([...BUILT_IN, ...own])];
   moduleIds = [...first, ...[...ids].filter((id) => !first.includes(id)).sort()];
 }
 
 const iconField = (value, label, placeholder) => `<span class="icon-field"><i class="fa-solid fa-${escapeHtml(value || placeholder)} fa-fw" aria-hidden="true"></i><input type="text" data-icon maxlength="40" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(label)}" autocapitalize="off" spellcheck="false"></span>`;
+const FIXED_WORKSPACES = [['calendar', 'Calendar'], ['map', 'Map'], ['conference', 'Conference'], ['whiteboard', 'Whiteboards'], ['documents', 'Documents']];
+const CALL_POSITIONS = [['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right'], ['float', 'Floating'], ['workspace', 'In the workspace'], ['window', 'In its own window']];
+const CALL_LAYOUTS = [['grid', 'Grid'], ['strip', 'Strip'], ['focus', 'Focus'], ['spotlight', 'Spotlight']];
+const MEASURES = [['dates', 'Its dates'], ['goals', 'Its goals'], ['progress', 'Progress']];
+const options = (list, value) => list.map(([v, l]) => `<option value="${escapeHtml(v)}"${v === value ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
 
 async function openEditor(t) {
   editing = t;
   clearProblems();
   say($('te-status'), '');
   await loadModuleIds();
-  $('template-editor-title').textContent = t ? `Edit ${t.name}` : 'New template';
-  $('te-bundled-hint').hidden = !(t && t.source === 'bundled');
+  // The Default template can't be changed (the server answers 403): its pages show its values and nothing saves.
+  const fixed = Boolean(t && t.id === DEFAULT_ID);
+  $('template-editor').classList.toggle('is-fixed', fixed);
+  $('te-save').hidden = fixed;
+  for (const part of document.querySelectorAll('#template-editor .hc-part')) part.disabled = fixed;
+  $('template-editor-title').textContent = t ? `${fixed ? 'The' : 'Edit'} ${t.name}${fixed ? ' template' : ''}` : 'New template';
+  $('te-bundled-hint').hidden = !(t && t.source === 'bundled' && !fixed);
   $('te-id-label').hidden = Boolean(t);
   $('te-id').value = t ? t.id : '';
-  $('te-name').value = t ? t.name : '';
-  $('te-description').value = t ? t.description : '';
-  const w = (t && t.words) || {};
-  // Home's default is the template's space word's plural ("Trips"), or the default's ("Spaces"); its row is named for
-  // what it is, not for that word.
-  const base = (key) => (key === 'home' ? homeDefault(w.space) : DEFAULTS[key]);
-  const label = (key) => (key === 'home' ? 'Home page' : DEFAULTS[key].one);
-  $('te-words').innerHTML = CHANGEABLE.map((key) => `<div class="word-row" data-word="${key}"><strong>${escapeHtml(cap(label(key)))}</strong>`
-    + `<input type="text" data-part="one" maxlength="30" value="${escapeHtml(w[key]?.one || '')}" placeholder="${escapeHtml(base(key).one)}" aria-label="${escapeHtml(label(key))}, singular">`
-    + `<input type="text" data-part="many" maxlength="30" value="${escapeHtml(w[key]?.many || '')}" placeholder="${escapeHtml(base(key).many)}" aria-label="${escapeHtml(label(key))}, plural"></div>`).join('');
-  // Home's placeholders follow the space word's plural while it is typed (blank: the default's).
-  const spaceMany = $('te-words').querySelector('[data-word="space"] [data-part="many"]');
-  const homeInputs = [...$('te-words').querySelectorAll('[data-word="home"] input')];
-  spaceMany?.addEventListener('input', () => {
-    const d = homeDefault(spaceMany.value.trim() ? { many: spaceMany.value.trim() } : null);
-    for (const input of homeInputs) input.placeholder = d[input.dataset.part];
-  });
-  // The verbs (addendum 4): one field each, blank for the default. `data-verb-key`, not data-verb, which the page fills.
-  const v = (t && t.verbs) || {};
-  const verbLabel = { enter: `Button for entering ${word('space', { a: true })}`, layout: `Button for the ${word('canvas')} layout` };
-  $('te-verbs').innerHTML = VERBS.map((key) => `<div class="word-row" data-verb-key="${key}"><strong>${escapeHtml(verbLabel[key] || key)}</strong>`
-    + `<input type="text" data-verb-input maxlength="20" value="${escapeHtml(v[key] || '')}" placeholder="${escapeHtml(DEFAULT_VERBS[key])}" aria-label="${escapeHtml(verbLabel[key] || key)}"></div>`).join('');
-  $('te-home').value = (t && t.icons && t.icons.home) || '';
-  previewHome();
-  const on = new Set((t && t.modules) || ['chat', 'conference']);
-  const ids = [...new Set([...moduleIds, ...on])];
+  // Environment Basics and Experience Labels are the owner's pages (/template-fields.js): a Home Icon field by name here.
+  $('te-basics').innerHTML = basicsHtml(t, { editable: !fixed, icons: null });
+  $('te-labels').innerHTML = labelsHtml(t, { editable: !fixed, environmentParts: true });
+  const listed = t && t.modules && typeof t.modules === 'object' ? moduleKeys(t) : (t ? moduleIds : ['chat', 'conference']);
+  const on = new Set(listed);
+  const ids = [...new Set([...listed, ...moduleIds])];
   $('te-modules').innerHTML = ids.map((id) => `<label class="sdk-choice-row"><input type="checkbox" data-module="${escapeHtml(id)}"${on.has(id) ? ' checked' : ''}${id === 'chat' ? ' disabled title="Chat can\'t be switched off yet"' : ''}><span class="sdk-choice-text">${escapeHtml(moduleName(id))}</span></label>`).join('');
-  const names = (t && t.moduleNames) || {};
-  const icons = (t && t.moduleIcons) || {};
+  const entries = (t && t.modules && typeof t.modules === 'object' ? t.modules : {});
   $('te-module-display').innerHTML = ids.map((id) => `<div class="module-display-row" data-display="${escapeHtml(id)}"><strong>${escapeHtml(moduleName(id))}</strong>`
-    + `<input type="text" data-name maxlength="40" value="${escapeHtml(names[id] || '')}" placeholder="${escapeHtml(moduleName(id))}" aria-label="${escapeHtml(moduleName(id))}: name">`
-    + `${iconField(icons[id], `${moduleName(id)}: icon, a Font Awesome name`, moduleIcon(id))}</div>`).join('');
-  $('te-lobby-name').value = (t && t.lobby && t.lobby.name) || '';
-  $('te-lobby-description').value = (t && t.lobby && t.lobby.description) || '';
-  $('te-profile').value = (t && t.spaceDefaults && t.spaceDefaults.profile) || '';
+    + `<input type="text" data-name maxlength="40" value="${escapeHtml((entries[id] && entries[id].name) || '')}" placeholder="${escapeHtml(moduleName(id))}" aria-label="${escapeHtml(moduleName(id))}: name">`
+    + `${iconField(entries[id] && entries[id].icon, `${moduleName(id)}: icon, a Font Awesome name`, moduleIcon(id))}</div>`).join('');
+  const w = (t && t.workspace) || {};
+  renderOpens(w.opensWith || []);
+  $('te-show').innerHTML = FIXED_WORKSPACES.map(([id, label]) => `<label class="sdk-choice-row"><input type="checkbox" data-show="${id}"${(w.show || []).includes(id) ? ' checked' : ''}><span class="sdk-choice-text">${escapeHtml(label)}</span></label>`).join('');
+  $('te-opens-first').innerHTML = options([['workspace', 'The workspace'], ...FIXED_WORKSPACES], w.opensFirst || 'workspace');
+  const c = (t && t.call) || {};
+  $('te-join').checked = c.joinOnEntry === true;
+  $('te-call-position').innerHTML = options(CALL_POSITIONS, c.position || 'top');
+  $('te-call-layout').innerHTML = options(CALL_LAYOUTS, c.layout || 'grid');
   renderPhases((t && t.phases) || []);
-  renderOpens((t && t.spaceDefaults && t.spaceDefaults.opensWith) || []);
+  $('te-measure').innerHTML = options(MEASURES, (t && t.phaseMeasure) || 'dates');
   $('te-reactions').replaceChildren(...((t && t.reactions) || []).map(reactionRow));
-  $('te-reactions-on').checked = Boolean(t && t.reactions);
-  $('te-reactions-box').hidden = !$('te-reactions-on').checked;
-  theme = (t && t.theme) || null;
-  renderTheme();
   $('te-icon-set').value = ((t && t.iconSet) || []).join(' ');
   previewIconSet();
+  $('te-starter').replaceChildren(...((t && t.starterSpaces) || []).map(starterRow));
+  $('te-starter-add').disabled = $('te-starter').childElementCount >= MAX_STARTER;
   window.scrollTo(0, 0);
   $('template-editor-title').focus({ preventScroll: true });
 }
+wireFields($('te-basics'));
+wireFields($('te-labels'));
 
 const MAX_PHASES = 12;
 function phaseRow(phase = {}) {
@@ -436,8 +433,6 @@ $('te-opens').addEventListener('click', (e) => {
   btn.focus();
 });
 
-function previewHome() { $('te-home-preview').className = `fa-solid fa-${$('te-home').value.trim() || DEFAULT_HOME_ICON} fa-fw`; }
-$('te-home').addEventListener('input', previewHome);
 $('te-module-display').addEventListener('input', (e) => {
   if (!e.target.matches('[data-icon]')) return;
   e.target.previousElementSibling.className = `fa-solid fa-${e.target.value.trim() || e.target.placeholder} fa-fw`;
@@ -453,95 +448,73 @@ function reactionRow(r = {}) {
   if (r.id) row.dataset.id = r.id;
   return row;
 }
-$('te-reactions-on').addEventListener('change', () => {
-  $('te-reactions-box').hidden = !$('te-reactions-on').checked;
-  if ($('te-reactions-on').checked && !$('te-reactions').childElementCount) $('te-reactions').append(reactionRow());
-});
 $('te-reaction-add').addEventListener('click', () => { const row = reactionRow(); $('te-reactions').append(row); row.querySelector('input').focus(); });
 $('te-reactions').addEventListener('click', (e) => { if (e.target.closest('[data-action="te-reaction-remove"]')) { e.target.closest('.reaction-row').remove(); $('te-reaction-add').focus(); } });
 
-// The theme: a theme file (as Manage > Theme exports it). The server reads it (POST /api/host/themes/check, which stores
-// nothing) and answers the theme as it will be embedded, so this page knows no file format of its own; Save checks the
-// embedded theme again.
-function renderTheme(dropped = []) {
-  const left = dropped.length ? ` Left out: ${dropped.join(', ')}.` : '';
-  $('te-theme-name').textContent = theme ? `${theme.name}${theme.author ? ` by ${theme.author}` : ''}: added to a new ${word('environment')} and used there.${left}` : `None: ${word('environment', { many: true })} keep their own theme.`;
-  $('te-theme-clear').hidden = !theme;
+// Starter spaces: at most 5, each a name and a description.
+const MAX_STARTER = 5;
+function starterRow(sp = {}) {
+  const row = document.createElement('div');
+  row.className = 'phase-row';
+  row.innerHTML = `<input type="text" data-starter-name maxlength="60" value="${escapeHtml(sp.name || '')}" placeholder="Your first trip" aria-label="${escapeHtml(cap(word('space')))} name">`
+    + `<input type="text" data-starter-description maxlength="300" value="${escapeHtml(sp.description || '')}" placeholder="What it is for" aria-label="${escapeHtml(cap(word('space')))} description">`
+    + `<button type="button" class="btn btn-small danger" data-starter="remove">Remove</button>`;
+  return row;
 }
-$('te-theme-pick').addEventListener('click', () => $('te-theme-file').click());
-$('te-theme-clear').addEventListener('click', () => { theme = null; renderTheme(); $('te-theme-pick').focus(); });
-$('te-theme-file').addEventListener('change', async () => {
-  const input = $('te-theme-file');
-  const file = input.files[0];
-  input.value = '';
-  if (!file) return;
-  clearProblems('theme');
-  if (file.size > 1024 * 1024) { showProblems([`theme: That isn't a ${fileOfKind('theme')}.`]); return; }
-  try {
-    const answer = await api('POST', '/api/host/themes/check', new Blob([await fileText(file)], { type: 'text/plain' }));
-    theme = answer.theme;
-    renderTheme(Array.isArray(answer.dropped) ? answer.dropped : []);
-  } catch (err) {
-    showProblems([`theme: ${err.message}`]);
-  }
+$('te-starter-add').addEventListener('click', () => {
+  if ($('te-starter').childElementCount >= MAX_STARTER) return;
+  const row = starterRow();
+  $('te-starter').append(row);
+  $('te-starter-add').disabled = $('te-starter').childElementCount >= MAX_STARTER;
+  row.querySelector('input').focus();
+});
+$('te-starter').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-starter="remove"]');
+  if (!btn) return;
+  btn.closest('.phase-row').remove();
+  $('te-starter-add').disabled = false;
+  $('te-starter-add').focus();
 });
 
-// What the form holds, as template fields. Editing, an emptied optional part is null (the server removes it).
+// What the form holds, as template fields. Editing, an emptied optional part is null (the server removes it). A module's
+// settings, labels and starter content are not on this page: they are kept as the template has them.
 function fields() {
   const gone = editing ? null : undefined;
-  const words = {};
-  for (const row of $('te-words').children) {
-    const one = row.querySelector('[data-part="one"]').value.trim();
-    const many = row.querySelector('[data-part="many"]').value.trim();
-    if (one || many) words[row.dataset.word] = { one, many };
+  const entries = (editing && editing.modules && typeof editing.modules === 'object' ? editing.modules : {});
+  const modules = {};
+  const names = {};
+  for (const row of $('te-module-display').children) names[row.dataset.display] = { name: row.querySelector('[data-name]').value.trim(), icon: row.querySelector('[data-icon]').value.trim().replace(/^fa-/, '') };
+  for (const id of selectedModules()) {
+    const { name, icon } = names[id] || {};
+    const { name: _n, icon: _i, ...kept } = entries[id] || {};
+    modules[id] = { ...(name ? { name } : {}), ...(icon ? { icon } : {}), ...kept };
   }
-  const verbs = {};
-  for (const row of $('te-verbs').children) {
-    const text = row.querySelector('[data-verb-input]').value.trim();
-    if (text) verbs[row.dataset.verbKey] = text;
-  }
-  const moduleNames = {};
-  const moduleIcons = {};
-  for (const row of $('te-module-display').children) {
-    const name = row.querySelector('[data-name]').value.trim();
-    const icon = row.querySelector('[data-icon]').value.trim();
-    if (name) moduleNames[row.dataset.display] = name;
-    if (icon) moduleIcons[row.dataset.display] = icon;
-  }
-  const lobby = {};
-  if ($('te-lobby-name').value.trim()) lobby.name = $('te-lobby-name').value.trim();
-  if ($('te-lobby-description').value.trim()) lobby.description = $('te-lobby-description').value.trim();
-  const reactions = $('te-reactions-on').checked
-    ? [...$('te-reactions').children].map((row) => ({ ...(row.dataset.id ? { id: row.dataset.id } : {}), glyph: row.querySelector('.reaction-glyph').value.trim(), label: row.querySelector('.reaction-label').value.trim() })).filter((r) => r.glyph || r.label)
-    : gone;
+  const reactions = [...$('te-reactions').children].map((row) => ({ ...(row.dataset.id ? { id: row.dataset.id } : {}), glyph: row.querySelector('.reaction-glyph').value.trim(), label: row.querySelector('.reaction-label').value.trim() })).filter((r) => r.glyph || r.label);
   const iconSet = iconSetNames();
   const opensWith = readOpens();
-  const spaceDefaults = {};
-  if ($('te-profile').value) spaceDefaults.profile = $('te-profile').value;
-  if (opensWith.length) spaceDefaults.opensWith = opensWith;
+  const show = [...$('te-show').querySelectorAll('[data-show]:checked')].map((b) => b.dataset.show);
+  const opensFirst = $('te-opens-first').value;
+  const workspace = { ...(opensWith.length ? { opensWith } : {}), ...(show.length ? { show } : {}), ...(opensFirst && opensFirst !== 'workspace' ? { opensFirst } : {}) };
+  const call = { joinOnEntry: $('te-join').checked, position: $('te-call-position').value, layout: $('te-call-layout').value };
+  const starterSpaces = [...$('te-starter').children].map((row) => ({ name: row.querySelector('[data-starter-name]').value.trim(), description: row.querySelector('[data-starter-description]').value.trim() })).filter((sp) => sp.name || sp.description);
   const out = {
-    name: $('te-name').value.trim(),
-    description: $('te-description').value.trim(),
-    words,
-    verbs: Object.keys(verbs).length ? verbs : gone,
+    ...readBasics($('te-basics'), { editing: Boolean(editing) }),
+    ...readLabels($('te-labels'), { editing: Boolean(editing) }),
+    modules,
+    workspace: Object.keys(workspace).length ? workspace : (editing ? null : {}),
+    call,
     phases: readPhases(),
-    icons: $('te-home').value.trim() ? { home: $('te-home').value.trim() } : {},
-    modules: [...$('te-modules').querySelectorAll('[data-module]:checked')].map((i) => i.dataset.module),
-    moduleNames,
-    moduleIcons,
-    lobby,
-    spaceDefaults: Object.keys(spaceDefaults).length ? spaceDefaults : (editing ? null : {}),
-    reactions,
-    theme: theme || gone,
+    phaseMeasure: $('te-measure').value,
+    reactions: reactions.length ? reactions : gone,
     iconSet: iconSet.length ? iconSet : gone,
+    starterSpaces: starterSpaces.length ? starterSpaces : gone,
   };
   if (!editing) out.id = $('te-id').value.trim().toLowerCase();
   for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
   return out;
 }
 
-// The server's problems beside the part they name ("words: ...", "moduleNames.travel: ...", '"id" must ...'); any
-// other at the top.
+// The server's problems beside the part they name ("words: ...", "modules.travel: ...", '"id" must ...'); any other at the top.
 function clearProblems(only) {
   for (const ul of document.querySelectorAll('#template-editor .problems')) if (!only || (ul.dataset.problems || '').split(' ').includes(only)) ul.replaceChildren();
 }
@@ -558,6 +531,7 @@ function showProblems(problems) {
 
 $('template-editor').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (editing && editing.id === DEFAULT_ID) return;
   clearProblems();
   const body = fields();
   const save = $('te-save');

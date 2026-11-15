@@ -1,11 +1,11 @@
 // A template's offer after a switch (plan-environment-templates.md, "Addendum: switching a template", GitHub #59), shared
 // by Manage's Template tab and the host console's environment card. The offer is what the server answers with a switch:
 // { modules: [{ id, name, allowed, why? }], lobby: { name, description } | null, spaceDefaults: { profile?, opensWith? } | null,
-// reactions: [{ id, glyph, label }] | null, theme: { name, author? } | null, iconSet: [Font Awesome names] | null }
-// (addendum 2, "templates grow").
+// reactions: [{ id, glyph, label }] | null, iconSet: [Font Awesome names] | null } (addendum 2, "templates grow"; no theme: the
+// theme left templates, plan-templates-redesign.md decision 13).
 // Modules are ticked by default; one the plan leaves out is shown unticked and disabled, with the server's why. The
-// Lobby, the new-space profile, the reactions, the theme and the icons are unticked (the Lobby's words are the owner's by now). Apply sends what is ticked
-// ({ modules, lobby, spaceDefaults, reactions, theme, iconSet }); even with nothing ticked it closes the offer. Not now only hides it here.
+// Lobby, the new-space profile, the reactions and the icons are unticked (the Lobby's words are the owner's by now). Apply sends what is ticked
+// ({ modules, lobby, spaceDefaults, reactions, iconSet }); even with nothing ticked it closes the offer. Not now only hides it here.
 import { escapeHtml, word } from '/brand.js';
 
 const sentence = (text) => {
@@ -15,16 +15,13 @@ const sentence = (text) => {
 const PROFILE_LABELS = { roleplaying: 'Roleplaying', participants: 'Participants', characters: 'Characters' };
 
 // The question before a switch (the options for confirmDialog): what changes at once, and that nothing is turned off. `name` is
-// the template's, or null for no template.
+// the template's.
 export function switchConfirm(name) {
-  const what = `Words, icons and ${word('module')} names`;
-  return name
-    ? { title: `Switch to the ${name} template?`, message: `${what} change now. Nothing is turned off or removed. Then you choose what else it turns on.`, action: 'Switch' }
-    : { title: 'Switch to no template?', message: `${what} go back to the default ones (or your own) now. Nothing is turned off or removed.`, action: 'Switch' };
+  return { title: `Switch to the ${name} template?`, message: `Words, icons and ${word('module')} names change now. Nothing is turned off or removed. Then you choose what else it turns on.`, action: 'Switch' };
 }
 
 // True when the offer has anything to tick.
-const hasExtras = (offer) => Boolean(offer && (offer.lobby || offer.spaceDefaults || offer.reactions || offer.theme || (offer.iconSet && offer.iconSet.length)));
+const hasExtras = (offer) => Boolean(offer && (offer.lobby || offer.spaceDefaults || offer.reactions || (offer.iconSet && offer.iconSet.length)));
 export const offerHasChoices = (offer) => Boolean(offer && ((offer.modules || []).length || hasExtras(offer)));
 
 // Draws the offer into `box`. `templateName` names the template; `lobbyName` is the Lobby's name as the environment has
@@ -68,10 +65,6 @@ export function renderOffer(box, { templateName, offer, lobbyName = '', apply, l
     const glyphs = list.map((r) => r.glyph).join(' ');
     return `<label class="sdk-choice-row"><input type="checkbox" data-offer-reactions> <span>${list.length ? 'Use its reactions' : 'Turn reactions off'}${glyphs ? ` <span class="offer-glyphs">${escapeHtml(glyphs)}</span>` : ''} <span class="hint">Replaces the reactions you have.</span></span></label>`;
   };
-  const themeRow = () => {
-    const t = offer.theme;
-    return `<label class="sdk-choice-row"><input type="checkbox" data-offer-theme> <span>Add and use the ${escapeHtml(t.name)} theme${t.author ? ` <span class="hint">by ${escapeHtml(t.author)}</span>` : ''}</span></label>`;
-  };
   const iconSetRow = () => {
     const names = offer.iconSet;
     const shown = names.slice(0, 12).map((n) => `<i class="fa-solid fa-${escapeHtml(n)} fa-fw" aria-hidden="true"></i>`).join('');
@@ -83,7 +76,7 @@ export function renderOffer(box, { templateName, offer, lobbyName = '', apply, l
       <h3 id="${uid}">What the ${escapeHtml(templateName)} template can add</h3>
       ${any ? `<p class="hint">Untick anything you don't want. Nothing you have now is turned off.</p>` : `<p class="hint">Nothing more to add: what it lists is already on.</p>`}
       ${mods.length ? `<div class="offer-group"><span class="field-label">Turn on</span>${mods.map(moduleRow).join('')}<p class="hint">Each goes on in every ${escapeHtml(word('space'))}. ${escapeHtml(lobby[0].toUpperCase() + lobby.slice(1))} keeps only chat, the call and ${escapeHtml(word('module', { many: true }))} made for it.</p></div>` : ''}
-      ${hasExtras(offer) ? `<div class="offer-group"><span class="field-label">Also</span>${offer.lobby ? lobbyRow() : ''}${offer.spaceDefaults ? profileRow() : ''}${offer.reactions ? reactionsRow() : ''}${offer.theme ? themeRow() : ''}${offer.iconSet && offer.iconSet.length ? iconSetRow() : ''}</div>` : ''}
+      ${hasExtras(offer) ? `<div class="offer-group"><span class="field-label">Also</span>${offer.lobby ? lobbyRow() : ''}${offer.spaceDefaults ? profileRow() : ''}${offer.reactions ? reactionsRow() : ''}${offer.iconSet && offer.iconSet.length ? iconSetRow() : ''}</div>` : ''}
       <div class="row">
         <button class="btn btn-primary" type="button" data-offer-apply>${any ? 'Apply' : 'Done'}</button>
         <button class="btn" type="button" data-offer-later>Not now</button>
@@ -99,7 +92,6 @@ export function renderOffer(box, { templateName, offer, lobbyName = '', apply, l
       lobby: Boolean(box.querySelector('[data-offer-lobby]')?.checked),
       spaceDefaults: Boolean(box.querySelector('[data-offer-space-defaults]')?.checked),
       reactions: Boolean(box.querySelector('[data-offer-reactions]')?.checked),
-      theme: Boolean(box.querySelector('[data-offer-theme]')?.checked),
     };
     // Sent only when offered, so a server without icon sets never sees the field.
     if (offer && offer.iconSet) body.iconSet = Boolean(box.querySelector('[data-offer-icon-set]')?.checked);

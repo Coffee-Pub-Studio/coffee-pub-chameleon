@@ -406,6 +406,17 @@ try {
       await tab.waitFor(`document.getElementById('env-title').textContent === ${JSON.stringify(link[0])}`, 'the environment from Used by');
       await tab.go('#templates/travel');
       await tab.waitFor(`${tab.visible('#template-editor-view')} && document.getElementById('template-editor-title').textContent.startsWith('Edit ')`, 'the editor');
+      // The editor's parts hold the template's data (the new shape: words, Home page, modules, workspace, call, phases).
+      const got = await tab.evaluate(`({ name: document.querySelector('#te-basics [data-tf=name]').value, words: document.querySelectorAll('#te-labels [data-tf-word]').length, locked: document.querySelectorAll('#te-labels .tf-locked-list .tf-line').length, modules: document.querySelectorAll('#te-modules [data-module]:checked').length, call: document.getElementById('te-call-position').options.length, measure: document.getElementById('te-measure').value, phases: document.getElementById('te-phases').children.length, parts: [...document.querySelectorAll('#te-jump [data-part]')].map((b) => b.textContent) })`);
+      assert.equal(got.name, 'Travel');
+      assert.deepEqual([got.words, got.locked], [3, 8], 'Space, Member and the Home page, and eight locked words');
+      assert.ok(got.modules >= 3 && got.call === 7 && got.measure === 'dates' && got.phases > 0, JSON.stringify(got));
+      assert.ok(!got.parts.some((p) => /verb|theme/i.test(p)), 'no verbs or theme part');
+      await tab.go('#templates/default');
+      await tab.waitFor(`${tab.visible('#template-editor-view')} && document.getElementById('template-editor-title').textContent === 'The Default template'`, 'the Default template, read only');
+      assert.equal(await tab.evaluate(`document.getElementById('te-save').hidden && document.querySelectorAll('#template-editor .hc-part input:not(:disabled)').length === 0`), true, 'the Default template shows no way to save');
+      await tab.go('#templates/travel');
+      await tab.waitFor(`${tab.visible('#template-editor-view')} && document.getElementById('template-editor-title').textContent.startsWith('Edit ')`, 'the editor again');
       await tab.evaluate("document.querySelector('#te-jump [data-part=te-part-icons]').click()");
       await tab.waitFor("document.activeElement.id === 'te-part-icons'", 'the jump to Icons');
       assert.deepEqual(await tab.layoutProblems(), []);

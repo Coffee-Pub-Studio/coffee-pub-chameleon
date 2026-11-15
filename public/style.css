@@ -6684,12 +6684,57 @@ body.chat-window {
 .offer-glyphs { margin-left: 4px; }
 .offer-icons { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 4px; color: var(--text-dim); }
 
-/* Manage > Template > Words: the verb's row under the ten words (addendum 4), one field across the three word columns.
-   On a phone it stacks like a word's row: the name and Reset across the top, the field beneath. */
-.verb-row .verb-field { grid-column: 2 / 5; }
+/* Manage > Template (plan-templates-redesign.md, step 11a) and the host console's template editor: the fields of one template
+   (public/template-fields.js), the pick at the top of a page, the list of templates, the copy form. On a phone every field
+   takes the full width and every button is 44 px tall. */
+.tpl-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; margin-bottom: 12px; }
+.tpl-pick { display: grid; gap: 4px; min-width: 0; flex: 1 1 12rem; max-width: 22rem; }
+.tpl-pick select { width: 100%; min-width: 0; }
+.tpl-save { margin-top: 16px; }
+.tpl-own-words { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.tpl-own-words p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tf-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; min-width: 0; }
+.tf-field { display: grid; gap: 4px; min-width: 0; }
+.tf-field input[type="text"], .tf-field select { width: 100%; min-width: 0; box-sizing: border-box; }
+.tf-wide { grid-column: 1 / -1; }
+.tf-lobby { margin-top: 16px; }
+.tf-labels h3, .tf-locked h3 { margin: 16px 0 4px; font-size: var(--text-14); color: var(--text); text-transform: none; letter-spacing: var(--tracking-normal); }
+.tf-locked { margin-top: 24px; padding-top: 4px; border-top: 1px solid var(--border); }
+.tf-locked .hint { margin: 0 0 8px; }
+.tf-read { display: grid; margin: 0; }
+.tf-line { display: grid; grid-template-columns: minmax(8em, 14em) minmax(0, 1fr); gap: 4px 12px; padding: 8px 0; border-top: 1px solid var(--border); }
+.tf-line:first-child { border-top: none; }
+.tf-line dt { color: var(--text-dim); font-size: var(--text-13); }
+.tf-line dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tf-locked-list { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+.tf-locked-list .tf-line:nth-child(2) { border-top: none; }
+.tf-word { display: grid; grid-template-columns: minmax(7em, 1fr) repeat(3, minmax(0, 1.2fr)); gap: 8px 12px; align-items: end; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+.tf-word:first-child { border-top: none; }
+.tf-word label { display: grid; gap: 4px; min-width: 0; }
+.tf-word input[type="text"] { width: 100%; min-width: 0; box-sizing: border-box; }
+.tf-word-name { color: var(--text); font-size: var(--text-14); align-self: center; }
+.tf-icons .icon-grid { max-height: 14em; overflow-y: auto; }
+.tpl-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.tpl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0; border-top: 1px solid var(--border); }
+.tpl-row:first-child { border-top: none; }
+.tpl-row-text { flex: 1 1 16rem; min-width: 0; overflow-wrap: anywhere; }
+.tpl-row-text .hint { margin: 2px 0 0; }
+.tpl-row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tpl-copy { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
+.tpl-copy h3 { margin: 0; font-size: var(--text-14); text-transform: none; letter-spacing: var(--tracking-normal); }
 @media (max-width: 900px) {
-  .verb-row .verb-field { grid-column: 1 / -1; }
-  .verb-row [data-verb-reset] { grid-column: -2 / -1; grid-row: 1; justify-self: end; align-self: start; }
+  .tf-word { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .tf-word-name { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
+  .tf-form, .tf-locked-list { grid-template-columns: minmax(0, 1fr); }
+  .tf-locked-list .tf-line:nth-child(2) { border-top: 1px solid var(--border); }
+  .tf-word { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .tf-word > label:last-of-type, .tf-word > span:last-child { grid-column: 1 / -1; }
+  .tf-line { grid-template-columns: minmax(0, 1fr); }
+  .tpl-head .btn, .tpl-row-actions .btn, .tpl-own-words .btn, .tpl-copy .btn, .template-files .btn { min-height: 44px; }
+  .tpl-pick { max-width: none; flex-basis: 100%; }
+  .tf-icons .icon-grid button { width: 44px; height: 44px; }
 }
 
 /* --- who is here: the space bar's middle zone (space-people.js) ------------------------------------------------
