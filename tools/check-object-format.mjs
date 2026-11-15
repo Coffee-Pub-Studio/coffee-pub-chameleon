@@ -15,9 +15,11 @@ const require = createRequire(import.meta.url);
 const PRODUCT = 'Testname';
 process.env.PRODUCT_NAME = PRODUCT;
 const {
-  ICONS, KINDS, TRAVEL_KINDS, HANDOFF_KINDS, DETAILS, MAX_IMPORT_OBJECTS, MAX_IMPORT_CANDIDATES,
-  cleanObject, cleanDetails, schema, readObjects, decodeBytes, FormatError,
+  ICONS, KINDS, TRAVEL_KINDS, PLAN_KINDS, HANDOFF_KINDS, DETAILS, MAX_IMPORT_OBJECTS, MAX_IMPORT_CANDIDATES,
+  cleanObject, cleanDetails, schema, readObjects, decodeBytes, FormatError, kindA,
 } = require('../server/object-format.js');
+// The kinds before the planners' joined the catalogue (2026-11-15), as the before-details fixture recorded them.
+const KINDS_BEFORE_PLANS = KINDS.filter((k) => !PLAN_KINDS.includes(k));
 const { MAX_SUMMARIES, parseSummaries } = require('../server/prompts/parse.js');
 const prompts = require('../server/prompts');
 const { fencedRule } = require('../server/prompts/object-rule.js');
@@ -45,8 +47,18 @@ const refusedWith = (sentence) => (e) => e instanceof FormatError && e.status ==
 const OLD_ANSWER = fileFormat.OLD_SENTENCES.answer;
 const OLD_OBJECTS = fileFormat.OLD_SENTENCES.objects;
 
+// Each check runs on its own: a failure is counted and named, and the rest still run (#874).
 let n = 0;
-const test = (name, fn) => { fn(); n += 1; };
+const failed = [];
+const test = (name, fn) => {
+  try {
+    fn();
+    n += 1;
+  } catch (err) {
+    failed.push(name);
+    console.error(`FAIL ${name}\n${err && err.stack ? err.stack : err}`);
+  }
+};
 
 test('the /ai rule asks for one array in one objects fence, each one an object', () => {
   const rule = askSystem();
@@ -378,6 +390,7 @@ const GOOD = {
   flag: [true, true],
   options: [['Yes', 'No', 'Yes', ' ', 3], ['Yes', 'No']],
   upload: ['0123456789abcdef01234567', '0123456789abcdef01234567'],
+  day: ['2026-11-14T09:30', '2026-11-14'],
 };
 // Values of the wrong type or out of range, per value type: each dropped on its own.
 const BAD = {
@@ -389,11 +402,13 @@ const BAD = {
   flag: ['true', 1, null],
   options: ['Yes, No', ['Only one'], [1, 2], []],
   upload: ['../etc/passwd', 'ABCDEF0123456789ABCDEF01', '0123', 7],
+  day: ['2026-02-30', '1899-12-31', '2201-01-01', '0999-01-01', '12:50', '2026-11-14T24:00', 'next week', 20261114, ''],
 };
 
-test('the catalogue: 19 kinds, image for handoffs only, every field typed', () => {
+test('the catalogue: 23 kinds, image for handoffs only, every field typed', () => {
   assert.deepEqual(TRAVEL_KINDS, ['flight', 'train', 'bus', 'ferry', 'car', 'hotel', 'restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show']);
-  assert.deepEqual(KINDS, [...TRAVEL_KINDS, 'event', 'task', 'poll', 'note', 'link']);
+  assert.deepEqual(PLAN_KINDS, ['milestone', 'work', 'goal', 'step']);
+  assert.deepEqual(KINDS, [...TRAVEL_KINDS, 'event', 'task', 'poll', 'note', 'link', ...PLAN_KINDS]);
   assert.deepEqual(HANDOFF_KINDS, ['image']);
   assert.deepEqual(Object.keys(DETAILS), [...KINDS, ...HANDOFF_KINDS]);
   const stop = 'starts ends minutes address';
@@ -407,13 +422,15 @@ test('the catalogue: 19 kinds, image for handoffs only, every field typed', () =
     restaurant: `${stop} partySize name reference`, cafe: `${stop} partySize name reference`, bar: `${stop} partySize name reference`,
     sight: `${stop} tickets reference`, museum: `${stop} tickets reference`, attraction: `${stop} tickets reference`, tour: `${stop} tickets reference`, show: `${stop} tickets reference`,
     event: 'starts ends allDay address', task: 'due', poll: 'options closes multiple', note: '', link: '', image: 'upload name',
+    milestone: 'start done phase under', work: 'start end done phase under', goal: 'why date phase', step: 'date done under',
   };
   for (const [kind, fields] of Object.entries(want)) assert.deepEqual(Object.keys(DETAILS[kind]), fields.split(' ').filter(Boolean), kind);
-  for (const fields of Object.values(DETAILS)) for (const type of Object.values(fields)) assert.match(type, /^(when|point|text:\d+|count:\d+|minutes|flag|options|upload)$/, type);
+  for (const fields of Object.values(DETAILS)) for (const type of Object.values(fields)) assert.match(type, /^(when|day|point|text:\d+|count:\d+|minutes|flag|options|upload)$/, type);
   assert.equal(DETAILS.flight.reference, 'text:60');
   assert.equal(DETAILS.hotel.guests, 'count:99');
   assert.equal(DETAILS.show.tickets, 'count:999');
-  assert.ok(Object.isFrozen(DETAILS) && Object.isFrozen(DETAILS.flight) && Object.isFrozen(TRAVEL_KINDS));
+  assert.deepEqual([DETAILS.goal.why, DETAILS.milestone.phase, DETAILS.step.under], ['text:2000', 'text:40', 'text:80'], 'under is cut at the longest title kept');
+  assert.ok(Object.isFrozen(DETAILS) && Object.isFrozen(DETAILS.flight) && Object.isFrozen(DETAILS.work) && Object.isFrozen(TRAVEL_KINDS) && Object.isFrozen(PLAN_KINDS));
 });
 
 test('every kind keeps each of its fields, and drops each bad value and unknown field on its own', () => {
@@ -433,6 +450,36 @@ test('every kind keeps each of its fields, and drops each bad value and unknown 
   }
   for (const raw of [null, 'x', 5, ['a'], undefined]) assert.equal(cleanDetails('flight', raw), null, JSON.stringify(raw));
   for (const kind of ['nonsense', '', undefined, 'toString', '__proto__']) assert.equal(cleanDetails(kind, { airline: 'X' }), null, String(kind));
+});
+
+test('plan objects: a milestone, work, a goal and its steps read from an import, each field on its own', () => {
+  const plan = [
+    { kind: 'milestone', title: 'Beta ready', date: '2026-12-01', details: { start: '2026-12-01T17:00:00Z', done: false, phase: 'Build', progress: 40 } },
+    { kind: 'work', title: 'Write the **docs**', content: 'Start with the *setup*.', details: { start: '2026-11-20', end: '2026-11-28', under: '**Beta** ready', owners: ['sam'], done: 'no' } },
+    { kind: 'goal', title: 'Run a 10K', details: { why: 'For my **health**.\nAnd fun.', date: '2027-05-01', phase: 'x'.repeat(60) } },
+    { kind: 'step', title: 'Buy shoes', details: { done: true, under: 'Run a 10K' } },
+    { kind: 'step', title: 'Plan in 1850', details: { date: '1850-01-01' } },
+    { kind: 'step', title: 'No details at all' },
+    { kind: 'work', title: 'Wrong end', details: { start: '2026-11-20', end: '2201-01-01' } },
+  ];
+  const out = readObjects(JSON.stringify(plan));
+  assert.deepEqual(out.objects.map((o) => [o.kind, o.title, o.details]), [
+    ['milestone', 'Beta ready', { start: '2026-12-01', done: false, phase: 'Build' }],
+    ['work', 'Write the **docs**', { start: '2026-11-20', end: '2026-11-28', under: 'Beta ready' }],
+    ['goal', 'Run a 10K', { why: 'For my health. And fun.', date: '2027-05-01', phase: 'x'.repeat(40) }],
+    ['step', 'Buy shoes', { done: true, under: 'Run a 10K' }],
+    ['work', 'Wrong end', { start: '2026-11-20' }],
+  ], 'a time on a day dropped, Markdown out of under, no owners or progress, an end past 2200 dropped on its own');
+  assert.equal(out.objects[1].content, 'Start with the *setup*.', 'content keeps its Markdown, as for every kind');
+  assert.deepEqual(out.dropped, [{ at: 5, why: 'it has no content' }, { at: 6, why: 'it has no content' }], 'a step whose only detail was a bad day, or with none, has nothing but a title, as for every kind');
+  assert.equal(cleanDetails('step', { under: 'u'.repeat(200) }).under.length, 80, 'under is no longer than a title');
+  assert.equal(cleanDetails('goal', { under: 'Run a 10K' }), null, 'a goal sits under nothing');
+  assert.equal(cleanDetails('milestone', { start: '2026-11-14', end: '2026-11-20' }).end, undefined, 'a milestone is one day');
+  assert.deepEqual(['milestone', 'work', 'goal', 'step', 'event', 'flight', 'constructor'].map(kindA), ['a milestone', 'a piece of work', 'a goal', 'a step', 'an event', 'a flight', 'a constructor']);
+  // A plan of 60 objects is cut at the import's cap, as any other.
+  const many = Array.from({ length: 60 }, (_, i) => ({ kind: 'step', title: `Step ${i + 1}`, details: { done: false } }));
+  const cut = readObjects(JSON.stringify(many));
+  assert.deepEqual([cut.objects.length, cut.over], [MAX_IMPORT_OBJECTS, 10]);
 });
 
 test('text fields: Markdown and HTML removed, one line, cut at the field length', () => {
@@ -579,6 +626,10 @@ test('the schema\'s details match the catalogue', () => {
         for (const v of ['2026-11-14T12:50', '2026-11-14', '12:50', '23:59', '2026-12-31T00:00']) assert.match(v, new RegExp(p.pattern), v);
         for (const v of ['2026-13-01', '2026-11-32', '24:00', '12:60', '2026-11-14T12:50Z', '9:05']) assert.doesNotMatch(v, new RegExp(p.pattern), v);
       }
+      if (base === 'day') {
+        for (const v of ['2026-11-14', '1900-01-01', '2200-12-31', '2199-02-28']) assert.match(v, new RegExp(p.pattern), v);
+        for (const v of ['1899-12-31', '2201-01-01', '2026-11-14T12:50', '12:50', '2026-13-01']) assert.doesNotMatch(v, new RegExp(p.pattern), v);
+      }
       if (base === 'point') {
         assert.deepEqual(p.oneOf.map((o) => o.type), ['string', 'object']);
         assert.deepEqual(p.oneOf[1].anyOf, [{ required: ['code'] }, { required: ['name'] }]);
@@ -615,7 +666,7 @@ test('old files, pastes and stored AI answers read exactly as before details', (
   // before) and with every kind taken (the plan's text). paste@1 is that text word for word; the in-app prompts have their
   // own golden files (tools/check-prompts.mjs).
   assert.equal(instructions('object'), before.prompts.instructions);
-  assert.equal(instructions('object', { kinds: KINDS }), before.prompts.instructionsEveryKind);
+  assert.equal(instructions('object', { kinds: KINDS_BEFORE_PLANS }), before.prompts.instructionsEveryKind);
 });
 
 test('a booking keeps its travel kind rather than "event" when both are listed', () => {
@@ -669,4 +720,8 @@ test('crafted text cannot stall a read: 120 KB in any field reads in under 100 m
   assert.equal(cleanDetails('hotel', { address: '[Casa](https://casa.example) [x [Rua](https://r.example)' }).address, 'Casa (https://casa.example) [x Rua (https://r.example)');
 });
 
+if (failed.length) {
+  console.error(`check-object-format: ${failed.length} failed, ${n} passed`);
+  process.exit(1);
+}
 console.log(`check-object-format: OK (${n} checks)`);

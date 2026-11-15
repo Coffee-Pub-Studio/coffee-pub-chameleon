@@ -40,28 +40,28 @@
   "icons": {
     "home": "suitcase-rolling"
   },
-  "moduleNames": {
-    "travel": "Itinerary"
+  "modules": {
+    "travel": {
+      "name": "Itinerary"
+    },
+    "maps": {},
+    "research": {},
+    "calendar": {},
+    "chat": {},
+    "conference": {}
   },
-  "moduleIcons": {},
-  "modules": [
-    "travel",
-    "maps",
-    "research",
-    "calendar",
-    "chat",
-    "conference"
-  ],
   "settings": {},
   "lobby": {
     "name": "Home base",
     "description": "Everyone on every trip."
   },
-  "spaceDefaults": {
-    "profile": "participants",
+  "workspace": {
     "opensWith": [
       "travel",
       "chat"
     ]
+  },
+  "spaceDefaults": {
+    "profile": "participants"
   }
 }
