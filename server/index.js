@@ -9041,8 +9041,8 @@ app.get('/api/bus/actions', busRoute((who, req) => {
   return { actions };
 }));
 
-// An object's kind as a person reads it in a refusal: "a flight", "an event", or "an object with no kind".
-const kindWords = (kind) => (kind ? `${/^[aeiou]/.test(kind) ? 'an' : 'a'} ${kind}` : `${word('object', { a: true })} with no kind`);
+// An object's kind as a person reads it in a refusal: "a flight", "a piece of work", or "an object with no kind".
+const kindWords = (kind) => (kind ? objectFormat.kindA(kind) : `${word('object', { a: true })} with no kind`);
 
 // An action's `takes` as a caller sees it: each entry with `may`, whether they hold the entry's permission (true when it
 // names none).

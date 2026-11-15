@@ -28,9 +28,12 @@ const BASES = ['general', 'items', 'both'];
 // The kinds (plan-object-handoff.md, "Kinds and their details"). TRAVEL_KINDS are the 13 from before the plan plus
 // attraction (a theme park, a zoo: #246, a stop like a sight); the prompt lists them when no enabled module declares
 // `takes` (kindsTaken). KINDS is every kind an AI or an import may write. HANDOFF_KINDS pass only between pages
-// (cleanObject's `handoff`), never from an AI or an import.
+// (cleanObject's `handoff`), never from an AI or an import. PLAN_KINDS are a project's and a goal plan's entries
+// (Thomas, 2026-11-15: the planners' kinds join the shared format); like every kind, the prompt lists them only when an
+// enabled module's `takes` names them.
 const TRAVEL_KINDS = Object.freeze(['flight', 'train', 'bus', 'ferry', 'car', 'hotel', 'restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show']);
-const KINDS = [...TRAVEL_KINDS, 'event', 'task', 'poll', 'note', 'link'];
+const PLAN_KINDS = Object.freeze(['milestone', 'work', 'goal', 'step']);
+const KINDS = [...TRAVEL_KINDS, 'event', 'task', 'poll', 'note', 'link', ...PLAN_KINDS];
 const HANDOFF_KINDS = Object.freeze(['image']);
 
 // Each kind's `details` fields and their value types. Every field is optional; a bad one is dropped on its own.
@@ -38,12 +41,20 @@ const HANDOFF_KINDS = Object.freeze(['image']);
 //   text:N    plain text, Markdown removed, cut at N                   count:N a whole number 1 to N
 //   minutes   a whole number 1 to 10080                                flag    true or false
 //   options   2 to 10 strings of up to 80, duplicates dropped          upload  a file id (handoffs only)
+//   day       YYYY-MM-DD, a year from 1900 to 2200 (the planners' days); a time after it is dropped
 const MAX_MINUTES = 10080;
 const MAX_POINT_NAME = 120;
 const MAX_OPTION = 80;
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 10;
 const UPLOAD_ID = /^[a-f0-9]{24}$/; // a module upload's file id (server/module-uploads.js)
+const DAY_YEAR_MIN = 1900;
+const DAY_YEAR_MAX = 2200;
+// `under`: the title of what a plan object sits under (a milestone or work for a project's entries, the goal for a step),
+// matched by the module that keeps it against the titles it holds, so it reaches an object kept earlier from the same
+// import and one already in the plan. A title, never a number: each object is kept on its own, so its place in an import
+// means nothing to the module. Cut at the longest title the format keeps.
+const UNDER = `text:${MAX_TITLE}`;
 const STOP_DETAILS = { starts: 'when', ends: 'when', minutes: 'minutes', address: 'text:200' };
 const DETAILS = deepFreeze({
   flight: { airline: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', terminal: 'text:30', gate: 'text:30', seat: 'text:30', class: 'text:30', reference: 'text:60' },
@@ -65,8 +76,16 @@ const DETAILS = deepFreeze({
   poll: { options: 'options', closes: 'when', multiple: 'flag' },
   note: {},
   link: {},
+  milestone: { start: 'day', done: 'flag', phase: 'text:40', under: UNDER },
+  work: { start: 'day', end: 'day', done: 'flag', phase: 'text:40', under: UNDER },
+  goal: { why: 'text:2000', date: 'day', phase: 'text:40' },
+  step: { date: 'day', done: 'flag', under: UNDER },
   image: { upload: 'upload', name: 'text:120' },
 });
+
+// A kind as a person reads it with "a" or "an" ("a flight", "an event"), for a kind whose word is not just its name.
+const KIND_A = Object.freeze({ work: 'a piece of work' });
+const kindA = (kind) => (Object.hasOwn(KIND_A, kind) ? KIND_A[kind] : null) || `${/^[aeiou]/.test(kind) ? 'an' : 'a'} ${kind}`;
 const ICONS = ['note', 'lightbulb', 'location-dot', 'calendar-days', 'link', 'star', 'bed', 'hotel', 'utensils', 'ticket', 'train', 'plane', 'car', 'ship', 'bus', 'camera', 'circle-info', 'mug-hot', 'landmark', 'mountain', 'umbrella-beach', 'sun', 'moon', 'bell', 'clock', 'wallet', 'triangle-exclamation', 'circle-check', 'heart', 'users', 'bag-shopping', 'music', 'map', 'suitcase', 'hourglass-half', 'flag', 'magnifying-glass', 'list-check', 'scale-balanced', 'coins'];
 
 
@@ -170,6 +189,11 @@ function cleanValue(type, v) {
   const wholeIn = (lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : undefined);
   switch (base) {
     case 'when': return cleanWhen(v);
+    case 'day': {
+      const when = cleanWhen(v);
+      const year = when && /^\d{4}-/.test(when) ? +when.slice(0, 4) : 0;
+      return year >= DAY_YEAR_MIN && year <= DAY_YEAR_MAX ? when.slice(0, 10) : undefined;
+    }
     case 'point': return cleanPoint(v);
     // A whole number is read as its digits (an AI often writes a flight's number as 1234); any other non-string is dropped.
     case 'text': return typeof v === 'string' ? detailText(v, +arg) || undefined : Number.isSafeInteger(v) ? String(v).slice(0, +arg) : undefined;
@@ -316,12 +340,15 @@ function cleanHandoff(raw) {
 // A day and a 24-hour clock as a pattern. An impossible day such as 2026-02-30 still passes; the reader drops it.
 const SCHEMA_DAY = '\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])';
 const SCHEMA_CLOCK = '([01]\\d|2[0-3]):[0-5]\\d';
+// A day in the years 1900 to 2200.
+const SCHEMA_PLAN_DAY = `(19\\d{2}|2[01]\\d{2}|2200)${SCHEMA_DAY.slice('\\d{4}'.length)}`;
 
 // The JSON Schema of one details value type: the shape an AI writes (the reader is looser, see cleanValue).
 function valueSchema(type) {
   const [base, arg] = type.split(':');
   switch (base) {
     case 'when': return { type: 'string', pattern: `^(${SCHEMA_DAY}(T${SCHEMA_CLOCK})?|${SCHEMA_CLOCK})$` };
+    case 'day': return { type: 'string', pattern: `^${SCHEMA_PLAN_DAY}$` };
     case 'point': return {
       oneOf: [
         { type: 'string', minLength: 1, maxLength: MAX_POINT_NAME },
@@ -557,6 +584,7 @@ module.exports = {
   ICONS,
   KINDS,
   TRAVEL_KINDS,
+  PLAN_KINDS,
   HANDOFF_KINDS,
   TAKE_WORDS,
   DETAILS,
@@ -565,6 +593,7 @@ module.exports = {
   cleanObject,
   cleanDetails,
   cleanHandoff,
+  kindA,
   takersOf,
   kindsTaken,
   schema,
