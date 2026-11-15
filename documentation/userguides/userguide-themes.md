@@ -38,6 +38,15 @@ To make the second version, start from the first and adjust it: change the backg
 stays readable. Keep **Text** readable on both backgrounds, and **Text on accent**
 readable on **Primary accent**, in both versions.
 
+## Choose your own theme
+
+An environment has one default theme, and each person may choose another of the environment's themes for themselves. A template no longer carries a theme.
+
+1. Open your profile (the profile menu, **Profile**).
+2. In the **Theme** section, choose from the **Theme** list one of the environment's themes, or the first entry, "The environment's" (with the default theme's name), to follow it again. It saves as you choose it (the line beside it says "Saved") and applies at once, on your open pages too.
+
+Your choice is yours alone: everyone else keeps the environment's. Light or dark is a separate choice, the switch in the profile menu, and works with any theme. If an owner deletes the theme you chose, you are put back on the environment's. Guests have no account and no choice.
+
 ## Preview, then Apply
 
 The preview under the colours, with a sample header, shows the result as you change it. Nothing reaches anyone

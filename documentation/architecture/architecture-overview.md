@@ -104,7 +104,7 @@ framework: the pages are plain HTML, CSS and JavaScript served as they are.
 - **Words.** An environment's levels and roles are shown in its own words (plan-environment-templates, step 1).
   The code names never change; only what people read does. `server/words.js` holds the thirteen keys (`host`,
   `environment`, `space`, `home`, `aside`, `canvas`, `module`, `object`, `admin`, `owner`, `moderator`, `member`,
-  `guest`) and their defaults; `host` and `admin` are the host's and can't be changed. `home` is what the home page,
+  `guest`) and their defaults. Only `space`, `member` and `home` can be changed, by the owner or a template (`words.CHANGEABLE`; plan-templates-redesign decisions 5, 6 and 32); the other ten are locked and read the same everywhere (`host` and `admin` are the host's own). A patch that names a locked word is refused ("The <key> word reads the same everywhere, so it can't be changed."). `home` is what the home page,
   the list of spaces, is called (plan-primary-nav, decision 13). With no word of its own (the owner's, else the
   template's) it follows the resolved `space` word: both its forms are that word's plural with a capital ("Spaces",
   "Trips"; `homeDefault()`), and its `a` takes the usual article ("a Trips"), which nothing shows. `fill()` has no
@@ -117,8 +117,7 @@ framework: the pages are plain HTML, CSS and JavaScript served as they are.
   article must be its singular with the article in front, such as "a `<word>`"."); for `home`
   they read "The word for the home page …"). The server's own sentences go
   through the same words. A space that reads a template of its own has a second context: inside `/api/spaces/:id`
-  routes the server's words are that space's for the keys `space`, `aside`, `canvas`, `module`, `object`,
-  `moderator`, `member`, `guest` and the `layout` verb, and the page's `word()` reads the same set once it has called
+  routes the server's words are that space's for the keys `space` and `member` (`words.SPACE_KEYS`), and the page's `word()` reads the same set once it has called
   `setSpaceLook()`, while `envWord()` always reads the environment's (see [architecture-environments](architecture-environments.md), "A space's own template").
   In the pages, `public/words.js` gives `word(key, { many, cap, a })`, `fill(text)` for placeholders such as
   `{space}`, `{Spaces}` and `{a space}`, and `applyWords(root)`, which fills `data-word` elements (with
@@ -129,9 +128,7 @@ framework: the pages are plain HTML, CSS and JavaScript served as they are.
   `modules/`, on a changeable word typed into text people read; the host console and the start page use the
   host's own words and are allow-listed.
   Beside the words, `branding()` carries `verbs`, the actions a person reads on a button: `enter` (default
-  "Enter"), the word on a space's main button and the guest form, and `layout` (default "Layout"), the space bar's
-  Layout button. Pages read them with `verb('enter')`, `data-verb="enter"` or `{enter}` in `fill()` (and the same for
-  `layout`); the owner sets it with `PATCH /api/settings` `{ verbs }`. See
+  "Enter"), the word on a space's main button and the guest form, and `layout` (default "Layout"). Both are locked: they always read the defaults, and `PATCH /api/settings` `{ verbs }` is refused ("The enter and layout verbs read the same everywhere, so they can't be changed."). Pages read them with `verb('enter')`, `data-verb="enter"` or `{enter}` in `fill()`. See
   [architecture-environments](architecture-environments.md), "Templates", for the contract.
 - **Who sees a link that signs someone in.** A person's personal sign-in link (`linkToken`) is sent only to owners
   and to that person, and never in `GET /api/status`, whatever key the request carries. A space's guest link
@@ -248,18 +245,7 @@ call alone: no chat, no chat pictures, no modules (`inAside()` in `public/space.
   "Call names"). The space page does not wait on presence: joining, a reload back into a space and the join screen
   go ahead with the spaces they already know, `loadPresence()` gives up after three seconds, and the next poll tries
   again (`public/space.js`).
-- A space may carry `opensWith`: the modules its first visit opens, in order, the built-ins `conference` and `chat`
-  included ([plan-entering](../plans/plan-entering.md)). It is up to 20 distinct ids matching `^[a-z][a-z0-9-]{0,31}$`,
-  stored in `app.json`, and absent while not set; the store's space cleaning (`cleanOpensWith()` in `server/store.js`)
-  drops repeats and anything else, and keeps an id for a module that is off or not installed, so turning it back on
-  restores it. It comes with the space wherever the space is answered (`GET /api/presence`, `GET /api/spaces`,
-  `GET /api/status`, `POST /api/spaces`, the `PATCH` answer), and `GET /api/modules/for-space` answers it as
-  `opensWith` beside `spaceDefaultsOpensWith` and `defaultLayout` (a space's default saved layout, which sets `opensWith`; see [api-modules](../api/api-modules.md), "Saved layouts"). Asides never carry it. `PATCH /api/spaces/:id` (owners, the admin and, for `opensWith`, `phases` and
-  `defaultLayout` only, the space's moderators; see [api-modules](../api/api-modules.md), "Phases on a space") takes
-  `opensWith: [ids] | null`: `null`, `[]` or a list with nothing usable left clears it. Anything else that is not an
-  array of strings answers 400 "Opens with must be a list of modules." and nothing in the request is saved; 401
-  "sign in first", 403 "owners only", 404 "no such space". The same cleaning keeps `aiOff` (the space's **Turn AI
-  off in this space**), which until 2026-09-30 was dropped every time `app.json` was loaded.
+- What a space's Workspace opens with is its template's **Default Workspace**, `workspace.opensWith`: up to 20 distinct module ids matching `^[a-z][a-z0-9-]{0,31}$`, the built-ins `conference` and `chat` included ([plan-entering](../plans/plan-entering.md), [plan-templates-redesign](../plans/plan-templates-redesign.md), decision 8), read live through `Store#opensWithOf(spaceId)` (`cleanOpensWith()` in `server/store.js` drops repeats and anything else, and keeps an id for a module that is off or not installed, so turning it back on restores it). A space record carries no `opensWith` of its own any more: the key is gone, a space made before it was removed is read without it, and `PATCH /api/spaces/:id` with one answers 400 "What a space opens with comes from its template; pick another template to change it." (nothing in the request is saved). `GET /api/modules/for-space` answers it as `opensWith` beside `defaultLayout` and `firstVisit` (a space's default saved layout; see [api-modules](../api/api-modules.md), "Saved layouts"). Asides never carry it. The space still keeps `aiOff` (the space's **Turn AI off in this space**), which until 2026-09-30 was dropped every time `app.json` was loaded.
 - `POST /api/token` `{ role: 'viewer', space }` answers an OBS viewer's token, `{ token, livekitUrl, identity, call, spaceId }`, with the access key; 400 for anything else (a person's token is made only by `POST /api/call/join`), 503 with no call service. `POST /api/guest-join` `{ token, name }` answers `{ spaceId, spaceName, permissions, guest: { id, name, pass } }` and no LiveKit token; `pass` proves the guest's id and name to the live stream and to the call. No person's token is minted by entering a space, so nobody is at LiveKit until they join the call, and there is no `call` attribute any more.
 - `POST /api/call/join` is asked by the page just before it joins the call, for the plan's calls cap. A signed-in
   person sends `{ space }` (the Lobby when left out) and must belong to it, or be an owner; a guest sends

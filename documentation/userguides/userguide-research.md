@@ -6,8 +6,8 @@ The Research module keeps what a group finds out while it plans: a note, a link 
 
 ## Set it up (owner)
 
-1. On the Modules tab, choose **Install** beside Research, then **Approve and enable**. It asks to link to other modules' objects. Research can use the AI service but does not need it: it works with the AI service off.
-2. Once enabled it is on in every space; there is no switch per space.
+1. On the Modules tab, choose **Install** beside Research, then **Approve and enable**. It asks to link to other modules' objects. Research can use the AI Assistant but does not need it: it works with the AI Assistant off, and its AI controls are hidden then.
+2. Once enabled it is in every space whose template offers it (see [Modules](userguide-modules.md), "Which modules a space has"); there is no switch per space.
 3. On the Roles tab, under **Module: Research**, choose who can **See research**, who can **Add, change and remove research**, and who can **Remove photos other people added** to a space. By default everyone can see it, members and moderators can edit, guests can see but not edit, and only owners can remove another person's photo. Version 0.2.10 adds that last permission, so updating to it waits for an owner's approval once.
 4. **Well-known tags (optional).** Under Research's settings (**Module Configuration**), add tags with a colour each. A tag on the list wears its colour on every card; any other tag stays plain.
 5. **Suggest tags (optional).** In the dialog, this button asks the AI for tags; it appears only when the AI is set up on the Modules tab and the Roles tab lets the person use it ("Use AI in modules", on for moderators and members unless an owner turns it off; a guest never can). See [Modules](userguide-modules.md). To have a whole conversation with the AI, with research as context, use `/ai` in Chat (see [Chat](userguide-chat.md)).

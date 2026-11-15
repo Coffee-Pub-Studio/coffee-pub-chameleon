@@ -2,7 +2,7 @@
 
 **Audience:** an owner or the admin running a Coffee Pub Chameleon environment, working through the Manage page.
 
-Open the Manage page with the gear button in the top bar, beside **Set up** (owners and the admin; in the narrow layout it is in the menu under your picture). It has seven tabs, in this order: **Environment**,
+Manage has four parts under **Environment** (**General**, **Localization**, **Reactions and Icons** and **Stream**). Open the Manage page with the gear button in the top bar, beside **Set up** (owners and the admin; in the narrow layout it is in the menu under your picture). It has seven tabs, in this order: **Environment**,
 **Template**, **Theme**, **Spaces**, **Roles**, **Users** and **Modules**, plus **About**. In the narrow layout the row of tabs scrolls sideways within itself. (Old addresses still work: `/admin#server` and `#settings` open Environment, `#rooms` opens Spaces, and `#words` and `#home-icon` open the Template tab at that section.) Manage's tabs are in the bar under the top bar. The pages reached from here (a person's profile, a module's configuration, the AI configuration) have **Manage** at the start of that bar, to come back. Only owners and the admin (on a hosted server, the host admin) see it; anyone else asking for it is told "Owners only."
 
 ## Environment
@@ -12,8 +12,8 @@ Open the Manage page with the gear button in the top bar, beside **Set up** (own
   it is used in the top bar's logo box (in place of the home icon), as the favicon, and on the sign-in page. Click it to change it, or paste a
   picture (see "Set a picture" in [Participant and Character Images](userguide-images.md)), and the
   small **x** over its corner to clear it.
-- The home icon, the words and the module names are on the **Template** tab (below).
-- **Call features.** Turns screen sharing, asides, private conversations and reactions on or off for
+- The home icon, the words and the module names belong to a template, and are on the **Template** tab's pages (below). Your own reactions and icons are on this tab's **Reactions and Icons** part (below).
+- **Call features** (on the Conference module's tab, under **Modules**). Turns screen sharing, asides, private conversations and reactions on or off for
   everyone, and sets the highest video quality anyone can pick.
 - **Calendar sharing.** One line, "Calendar sharing is set in Calendar's configuration.", links to the Calendar's configuration page, where the calendar switches are now (see "Calendar sharing (owner)" in [Calendar](userguide-calendar.md)). The **Top bar** and **Calendar apps** sections that used to be here are gone; their switches moved to the Calendar's and Maps' configuration pages (see "Top bar" below). The line shows only while a module that takes part in calendar sharing is installed.
 - **Sign-in page.** A background picture behind the sign-in box, the text under the password field, and **Require two-step sign-in for everyone**: off (the default: anyone may set up an authenticator app on their profile) or on (everyone must, from their next sign-in; a session already open keeps working); see "Two-step sign-in" in [Accounts, roles and permissions](userguide-accounts.md). The switch is not shown when the server does not offer two-step sign-in (`ENABLE_MFA` in the compose file). The Users tab marks accounts that have set it up. Click the picture to upload your own, paste one, or choose **Choose from the library** for one of the pre-made backgrounds that ship with Chameleon (filter by theme and style, pick one, **Use this background**). New pre-made images are added by putting files in `public/assets/images/backgrounds/`; see the README there for the format and file names.
@@ -41,87 +41,43 @@ A switch that can't work yet is shown off and greyed, and its line says why inst
 
 On the Environment tab. **Language** is the interface language (English, until translations arrive). **Clock** is how every time is shown, across the environment and every module: 12-hour (10:30 PM, the default) or 24-hour (22:30). **Currency** is the one amounts are shown in (the Planner's costs and settling up), unless a trip names its own currency in Edit trip. The list has a **Common** group first, then **All currencies**, each by its name in your language: exactly the currencies the server accepts. The server refuses any other code ("XYZ is not a currency this server knows. Choose one from the list, such as USD."). A code saved before this check keeps working and still shows in the list. A trip in the Planner picks its own currency from the same list. Showing a trip's own currency with a conversion beside it needs a source of exchange rates, which is not set up yet.
 
+## Reactions and Icons
+
+On the **Environment** tab, **Reactions and Icons** is yours: it applies to this whole environment and every template. They come after the built-in set and before what a template adds, and a template can't take them away.
+
+- **Reactions.** The emoji tray in the call and on stream, also offered in chat. The built-in set is always there and can't be changed: 105 reactions, the first six being Heart, Black Heart, 100%, Hi, Thumbs up and Thumbs down (keys **1** to **6**). Below it is your own list: **Add reaction**, edit the emoji and label, remove, then **Save**. Reactions are switched off for everyone with **Allow reactions** under **Call features** on the Conference module's tab (**Modules**, then **Conference**), not by emptying the list.
+- **Icons.** The built-in set (113 icons) is always there. Below it, add icons you want available: paste an icon's HTML from fontawesome.com, for example `<i class="fa-solid fa-dice"></i>`, and the preview shows it, then **Save**. These are the choices offered for a space's launch link, the home icon and a module's icon. Only the Free icons that ship with Chameleon will draw, unless you have added your own Pro package (see "Font Awesome Pro" under Theme).
+
+A template can add reactions and icons of its own; they show on the template's **Additional Reactions and Icons** page and appear in the spaces that read it. A repeat of a built-in one is refused. An old link to `#reactions` or `#icons` on the Manage page opens this part.
+
 ## Template
 
-The **Template** tab gathers what a template gives an environment. From the top:
+The **Template** tab holds what a template gives this environment. It is a short page and one page for each part, each at its own address (`#template/<template id>/basics` and so on), with a row of buttons across the top to move between them: **Template**, **Environment Basics**, **Experience Labels**, **Default Workspace**, **Phases**, **Additional Reactions and Icons**, **Modules** (with your environment's words) and **Templates**. How a template reads, and what is in the shipped ones, is in [Templates](userguide-templates.md); this is where to find each part.
 
-- **Template.** Which template the environment uses ("Uses the Travel template.", or "No template."), and a
-  **Switch to** choice for switching to another or to none. See "Switch a template" in
-  [Templates](userguide-templates.md). While a switch has more to offer, the tab shows a small badge.
-- **Let a space use its own template.** A switch, on by default, saved as you flip it. On, an owner or the admin can pick a template for a space (see "A space's own template" in [Spaces](userguide-spaces.md)). Off, every space reads this environment's template; what each space chose is kept and comes back when it is turned on again. The switch is in a section of its own, headed with the environment's word for a space and "templates".
-- **Words** (below).
-- **Module names and icons.** Every module, the built-in Conference and Chat first, with what it is shown as here.
-  See "Show a module under another name" in [Modules](userguide-modules.md).
-- **Home icon.** The icon in the top bar's logo box, beside the environment's name, when no environment icon is
-  uploaded (an uploaded icon takes its place). Choose
-  one from the environment's icons (with a template, **Template's own** is first), then click this section's own
-  **Save**. The icons offered are the **Icons** list (below).
-- **Reactions.** The emoji tray in the call and on stream, also offered in chat. Add, remove, reorder
-  and edit the emoji and label, or leave the list empty to turn reactions off. The first six are keys
-  **1** to **6**. A new environment starts with 105, the first six being Heart, Black Heart, 100%, Hi, Thumbs up and
-  Thumbs down.
-- **Icons.** The icons you want available. Paste an icon's HTML from fontawesome.com, for example
-  `<i class="fa-solid fa-dice"></i>`, and the preview shows it. These icons are the choices offered for a
-  space's launch link, the home icon and a module's icon. Only the Free icons that ship with Chameleon will
-  draw, unless you have added your own Pro package (see "Font Awesome Pro" under Theme). A new environment starts with
-  113 icons.
+- **Template.** The page you land on. It names the template the environment uses ("Uses the Travel template." with its version), and has **Default template**, a choice of every template you may use, with **Switch**. Every environment has one: a new one with none picked uses **Default**, which has the usual words and every module. See "Switch a template" in [Templates](userguide-templates.md). While a switch has more to offer, the tab shows a small badge and a **Review** button.
+- **Let a space use its own template.** A switch under **Space templates** (with your environment's word), on by default, saved as you flip it. On, an owner or the admin can pick a template for a space (see "A space's own template" in [Spaces](userguide-spaces.md)). Off, every space reads this environment's template; what each space chose is kept and comes back when it is turned on again.
+- **Environment Basics.** Of the template you pick at the top of the page: **Template Name**, **Template Description**, **Home Icon** (the icon in the top bar's logo box, beside the environment's name, when no environment icon is uploaded) and **Default Profile Image** (what a new space starts with).
+- **Experience Labels.** The words people read: **Words you can change** (a space and a member; see "Words" below), the home page's name and the Lobby's name and description for the template the environment uses, and **Words that never change**, listed so you can see them.
+- **Default Workspace.** What a new space's Workspace opens with, which Fixed Workspaces a new space shows, and which opens first. A Fixed Workspace shown here is shown for everyone; nobody can hide it.
+- **Phases.** The phases, in order, and **Measured by**: **Dates**, **Goals** or **Progress**.
+- **Additional Reactions and Icons.** Only what this template adds, shown after the core set. Yours are on the Environment tab.
+- **Modules** (the environment's word). One row for each module there is: whether this template offers it, **Shown as** (its name and icon), the words it lets a template rename, its settings the template drives or seeds, and its starter content. The three planners sit together under **Plans**. This is the template's page; **Manage > Modules** is only what is installed.
+- **Templates.** Every template you may use: the Default template and the shipped ones, each with **Open**, **Copy**, and **Export**, and your own with **Edit** and **Delete**, then **Import a file**.
 
-An environment that was still on the old six reactions, or the old 21 icons, moved to the new lists once when the
-server was updated. A list you had changed was kept.
-
-An old link to `#reactions` or `#icons` on the Manage page opens this tab at that section.
+The Default template and a shipped template are read-only on every page, with **Copy to change it**. Copy one to make your own, then edit that. Only the host edits a shipped template. Manage has no page for a template's call settings or starter spaces; a copy keeps those of the one it was copied from, and the host console edits them.
 
 ## Words
 
-On the Template tab, **Words** sets what people in this environment read for its eleven changeable words:
-environment, space, the home page, aside, canvas, module, object, owner, moderator, member and guest. A travel group might call
-a space a "trip" and a member a "traveller"; a game might have a "game master" and "players". The host's own words
-(host and admin) can't be changed here.
+Under **Experience Labels**, you set what people in this environment read for the words you can change: **space**, **member** and the **home page**. A travel group might call a space a "trip" and a member a "traveller". Every other word reads the same everywhere (environment, aside, canvas, module, object, owner, moderator, guest, and the host's own host and admin), and so do the words on the buttons for entering a space (**Enter**) and for the canvas layout: a template can't change them and neither can you.
 
-1. On Manage > **Template**, find **Words**. Each word has a row showing its default. The **Home page** row is
-   what the list of spaces is called in the top bar; blank, it follows the space word ("Spaces", or "Trips" where a
-   space is a trip), or the template's own word when it gives one. It is a name, so type it as it should read, capital included
-   ("Campaigns"); it has no article field.
-2. Type the new word in lower case: its **Singular** and its **Plural** (both are needed). Capitals are added
-   where a sentence needs one.
-3. Fill in **With its article** only when the usual "a" or "an" is wrong for it, such as "an hour". Leave it blank
-   otherwise.
-4. Click **Save**. Every word is saved together, and if the server refuses one, nothing is saved and the message
-   says which word and why ("The word for the home page…" for the home page row): it needs both its singular and its plural, it can be at most 30 characters, it can use
-   only letters, spaces, hyphens and apostrophes, or its article form must be the singular with the article in
-   front ("a trip").
+1. On Manage > **Template**, open **Experience Labels** (for the template your environment uses; a shipped one is read-only, so **Copy to change it**). **Words you can change** has a row for each word, showing its default. The **Home page** row is what the list of spaces is called in the top bar; blank, it follows the space word ("Spaces", or "Trips" where a space is a trip), or the template's own word when it gives one. It is a name, so type it as it should read, capital included ("Campaigns"); it has no article field.
+2. Type the new word in lower case: its **Singular** and its **Plural** (both are needed). Capitals are added where a sentence needs one.
+3. Fill in **With its article** only when the usual "a" or "an" is wrong for it, such as "an hour". Leave it blank otherwise.
+4. Click **Save**. Every word is saved together, and if the server refuses one, nothing is saved and the message says which word and why: it needs both its singular and its plural, it can be at most 30 characters, or it can use only letters, spaces, hyphens and apostrophes.
 
-A blank row uses the default. **Reset** on a row puts that word back to its default at once. Only owners (and the
-admin) can change the words.
+A blank row uses the default. A word you set yourself wins over the template's, and a template's words follow it: change the template and they change at once. **Reset** on a row puts that word back at once. Only owners (and the admin) can change the words. Under the Default template's pages, **Experience Labels** also holds the **Lobby name** and **Lobby description**.
 
-### The words on two buttons
-
-Two rows at the end of **Words** set the word on a button rather than a level or role.
-
-#### The button for entering a space
-
-The last row under the words, **Button for entering a space**, sets the word on each space's main button on the
-space list and on the guest form. It is **Enter** unless the template or you set another, such as "Board" or
-"Go to". An aside's button always reads **Join**, since an aside is a call.
-
-1. On Manage > **Template**, find **Button for entering a space** at the end of **Words**. Its hint says what it
-   reads now.
-2. Type the word as it should read at the start of the button, with its capital: at most 20 characters, using only
-   letters, spaces, hyphens and apostrophes.
-3. Click **Save**. It is saved with the words; if the server refuses it, nothing is saved and the message says why.
-
-#### The button for the canvas layout
-
-The row **Button for the canvas layout** (with your environment's word for canvas) holds a word that no button reads now: the top bar's **Layout** button is gone, and Set up's **Modules** tab does its work. The setting is kept as it was. It is **Layout** unless the template or you set another; at most 20 characters, only letters, spaces, hyphens and apostrophes, then **Save**.
-
-Leave the field blank for the template's word, or **Enter** with no template. When the template gives a word, the
-row says "From the template", or "The template's: <word>" once you have set your own. **Reset** puts it back to
-the template's word, or to **Enter**. Only owners (and the admin) can change it.
-
-Everything people read in this environment follows: the pages, the server's messages, the Roles grid, the texts
-of the built-in modules, the names new spaces get ("New trip", "Trip 3"), and the bundled modules' own words. Until
-the next step of the templates plan, the text a module's `module.json` carries (its description, its settings'
-labels and help) still uses the default words.
+Everything people read in this environment follows: the pages, the server's messages, the Roles grid, the texts of the built-in modules, the names new spaces get ("New trip", "Trip 3"), and the bundled modules' own words. The text a module's `module.json` carries (its description, its settings' labels and help) still uses the default words; a module's own renameable words (its labels, for example "event" read as "meeting") follow the template, on the **Modules** page.
 
 ## Theme
 
@@ -139,7 +95,7 @@ labels and help) still uses the default words.
   licence or your package ever leaves your own server: it is never built into the shared image, never
   uploaded, and no token for it lives in this repository.
 
-The tab ends with a line pointing to **Reactions** and **Icons**, which are on the Template tab.
+The tab has no reactions or icons of its own: yours are under **Environment**, **Reactions and Icons**.
 
 ## Spaces and Users
 
@@ -153,8 +109,7 @@ The grid of what each role can do. See [Accounts, roles and permissions](usergui
 
 ## Modules
 
-Upload and manage add-on features. See [Modules](userguide-modules.md). An enabled module is on in every space; there is no
-per-space switch. **Module Configuration** on Maps' card also holds the **Picture map**, the upload that replaces the
+Upload and manage add-on features: what is installed and on, and each module's own settings. See [Modules](userguide-modules.md). Which modules a space has is its template's (**Template**, **Modules**); there is no per-space switch. The **AI Assistant** has a tab of its own here, with the AI setup (see [Assistant](userguide-assistant.md)). **Module Configuration** on Maps' card also holds the **Picture map**, the upload that replaces the
 world map with your own picture (see "Picture map" in [Maps](userguide-maps.md)); the largest file it takes is
 `MAP_IMAGE_MAX_MB` in the compose file, 100 megabytes unless set.
 

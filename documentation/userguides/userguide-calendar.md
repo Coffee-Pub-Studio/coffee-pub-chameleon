@@ -21,6 +21,8 @@ Whether people may take the Calendar's events into their own calendar app, and b
    - **Published calendar**: "One address with every space's events, for anyone you give it to." See "The published calendar (owner)" below.
 3. Under **Top bar**, **Show in the top bar** puts **Global Calendar** in the profile menu of everyone who may see the Calendar; see "Top bar" in [Manage](userguide-environment-settings.md).
 
+A template can rename the Calendar's event (**Sessions**, **Meetings**, **Check-ins**), and its **Open on** view is the template's start for a person who has not chosen one.
+
 All three switches are off in a new environment, except that an environment made from the Travel template (version 5 or later) starts with **Private addresses** and **Other calendars and busy times** on. In an environment where an owner never set **Other calendars and busy times**, it follows **Private addresses**, as the single **Calendar feeds** switch did before, so nothing changes until you set it.
 
 A switch that waits for an update to the Calendar is shown off and greyed, its line reading "Approve Calendar's update in Manage > Modules first.", with **Go to Modules** after it, to approve the update there. While the Calendar itself is off, the section says "Calendar is off, so none of these work until it is on." Names in these lines are the ones your environment uses.

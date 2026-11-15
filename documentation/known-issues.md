@@ -84,7 +84,30 @@ Documents 0.7 to 0.11.31 ([userguide-documents](userguides/userguide-documents.m
 
 ## Checks
 
-- **`check-module-guards` fails on main** (#686). It is not caused by the documents of this batch; the cause is open.
+- **`check-module-guards` fails on main** (#686): 1 of 28 cases fails. The cause is open. Run on 255fd8e3, 2026-11-15.
+- **`check-spacing` fails on main.** `public/style.css` has 59 values of `6px` where `tools/check-spacing-allow.json` allows 56 (lines 511, 534, 548 and others). Run on 255fd8e3.
+- **`check-action-bar` fails on main.** Its line 114 forbids `>Done<` in Set up, and Set up now has the phases' **Done** switch (`public/space-setup.js`). The check has not been changed for it. 1 of 12 cases fails. Run on 255fd8e3.
+- **`check-conformance` fails on main** (#798): the Manage About tab's **Open-source software** panel has 16px of padding at the top and 24px at the bottom at 390 pixels in dark mode ("padding symmetry", 2 deviations in 2 of 40 windows). A second failing check, #849, was not identified from the code.
+- **`check-template-pages-b` is not in `npm run check`**, so nothing runs it by default.
+
+Workaround for all of them: none needed to use the product; a change that touches them should name the failure and move on (`CLAUDE.md`, "Testing scope").
+
+## Templates and the planners: gaps
+
+The templates redesign ([plan-templates-redesign](plans/plan-templates-redesign.md)) is merged through step 15b. These differ from the plan or are not built. Read from the code on 255fd8e3, 2026-11-15; none was seen in a browser.
+
+- **Some driven settings do not exist.** Budget's unit and split, To-do's owners, Documents' default editor and Maps' real and picture map switches were to be set by templates and are not built. Project's **Effort**, Learning's and Mentoring's **Time** and Games' maps are names and categories only. Workaround: none; the names and categories work.
+- **Some module words are declared and not wired.** Maps (`place`), Research (`note`) and Whiteboard (`board`) declare their labels, and their pages do not read them, so a template renaming one changes nothing there. Workaround: none.
+- **The Planner is still named "Planner".** Decision 45 wants "Planner - Travel" in the catalog. The Itinerary name in the Travel template is unaffected.
+- **The host console does not have the Manage pages.** Its template editor is one form; it does not edit a module's settings, renamed words or starter content (they are kept as they are), and its starter space name box takes 60 characters where the server refuses a name over 40, with the server's sentence. Workaround: edit those in Manage on an owner's copy, or write the template file.
+- **Manage has no page for a template's call settings or starter spaces.** An owner's copy keeps those of the template it was copied from. Workaround: the host console edits them.
+- **"Driven in N spaces" is not shown** on a module's page, so an owner can't see how many spaces a driven setting reaches.
+- **The confirm on changing a space's template is short.** It reads "Its words, phases and <module> names change now. Nothing is removed." and does not list the modules that turn off and on or say that the old planner keeps its plan. Nothing is lost. Workaround: read the new template's **Modules** page first.
+- **Planner - Projects has no phase bands on its Timeline**, and neither new planner takes a drop of an object from another module (the Itinerary does). Workaround: link from the entry's form.
+- **A Calendar copy of a planner entry can be edited by someone who may not edit the planner entry** (#857). This is by design in [plan-plan-calendar-sync](plans/plan-plan-calendar-sync.md), recorded here as a known gap.
+- **Starter content skips the module data route's rate limit.** The server writes it through the same checks as a data write except the per-person limit; the 20 keys and 64 KB caps and the once-only rule are the bound.
+- **The roadmap sync is checked against a stub only.** It has not run against the real project board, and it needs `PROJECT_TOKEN`, `PROJECT_OWNER` and `PROJECT_NUMBER` set in the repository.
+- **A note with a `done` field counts toward a phase.** A phase measured by goals counts any planner entry that names it and has a `done` of true or false; the notes the planners write have none, but one written another way with a `done` would be counted. Workaround: none needed.
 
 ## Documents: paths checked as code only
 
@@ -233,7 +256,7 @@ Workaround: find the object in the module itself.
 ## Saving a bundled template reorders its module list
 
 On the host console, saving an edit to a bundled template, such as Travel, rewrites the order of its module list,
-even when only the description changed. **Review** then lists **Modules** as changed. Seen on 2026-09-30.
+even when only the description changed. **Review** then lists **Modules** as changed. Seen on 2026-09-30, when `modules` was a list; it is an object by module id now, and whether it still reorders was not checked.
 
 Workaround: none is needed for owners, since no offer is made to them. Ignore the **Modules** line in **Review**.
 
@@ -243,21 +266,6 @@ The logo on the host console's bar reads "COFFEE PUB MAGPIE", the product's old 
 The words on that page say Chameleon. GitHub #110.
 
 Workaround: none.
-
-## Opens with notes a module with no canvas as off in this space
-
-A module that has no canvas at all, such as Stream, can be on a space's saved **Opens with** list when it was
-put there through the API. The list keeps it switched on with the note "(off in this space)", where "(can't open on
-the canvas)" is meant. Seen on 2026-09-30.
-
-Workaround: none is needed; switch it off.
-
-## Opens with shows an uninstalled module by its id
-
-A module on a space's saved **Opens with** list that has since been uninstalled is listed with the note "(not
-installed)", under its id rather than its name. Seen on 2026-09-30.
-
-Workaround: none; switch it off to take it off the list.
 
 ## The bell's notices don't open what they are about, and there are no mentions
 

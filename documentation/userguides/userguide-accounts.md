@@ -56,8 +56,7 @@ sign-up is on, expires after 7 days, and works once.
 A guest has no account, for someone dropping in once. While in a call, open the call's **⋮**
 menu, choose **Settings** (shown to people who can manage the space) and, under **Guests**, turn on that space's link. Anyone with it
 lands on a page headed "Enter <space>" that asks only for a name; **Enter** (a door) takes them into that space.
-Where the template or the owner has changed the word for entering a space, the heading and the button use that
-word instead (see "The words on two buttons" in [Manage](userguide-environment-settings.md)). A guest's first visit shows the chat and the call's column,
+The heading and the button read **Enter**: the word for entering a space no longer changes with a template or an owner (see "Words" in [Manage](userguide-environment-settings.md)). A guest's first visit shows the chat and the call's column,
 unless the space's **First visit** setting in **Set up** says otherwise. Entering does
 not put a guest in the call: the guest joins with **Start call** (or **Join call**), and the browser asks for the
 microphone then (see [The call](userguide-call.md)).

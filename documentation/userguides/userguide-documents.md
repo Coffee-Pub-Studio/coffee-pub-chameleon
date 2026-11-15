@@ -11,6 +11,10 @@ Documents holds written notes for a space. Each space has its own list. One pers
 
 An owner always can do both. Tags follow the same rights: reading them needs the first, making one needs the second. Renaming, recolouring and deleting a tag is a separate right ([Spaces](userguide-spaces.md), "Set up").
 
+## Starter documents
+
+A template can give a new space documents to start from, made once when the space is made: a project brief (Project), session notes and a handout (Games), a learning journal (Learning) and a meeting log (Mentoring). They are ordinary documents; edit or delete them like any other. They are never made again, on a change of template or a restore. The default editor (Markdown or Rich text) is each person's own choice; a template does not set it yet.
+
 ## The list
 
 Open Documents from the **Layout** menu, under **Show**. The list shows each document's title, a few words of its start, who last changed it and when.
