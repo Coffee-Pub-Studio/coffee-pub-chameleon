@@ -5,9 +5,8 @@
 //
 // In order:
 //   1. the person's remembered layout for this space (`__open`), if they have been in it before; never for a guest;
-//   2. the space's own "Opens with", leaving out what this person may not open here;
-//   3. the environment's list for a space with none of its own (the template's spaceDefaults.opensWith);
-//   4. with nothing set: the chat and every module on in the space, without the conference; for a guest, the
+//   2. the space's "Opens with" (its template's Default Workspace), leaving out what this person may not open here;
+//   3. with nothing set: the chat and every module on in the space, without the conference; for a guest, the
 //      conference and the chat.
 // A list that is set but holds nothing this person may open gives an empty list (an empty canvas), not the next step.
 //
@@ -30,12 +29,11 @@ export function readAliased(list, aliases = {}) {
   }
   return out;
 }
-export function whatOpens({ remembered = null, own = null, environment = null, modules = [], canOpen = () => true, guest = false, column = false, aliases = {} } = {}) {
+export function whatOpens({ remembered = null, own = null, modules = [], canOpen = () => true, guest = false, column = false, aliases = {} } = {}) {
   const keep = (list) => (column ? list.filter((id) => !COLUMN_IDS.includes(id)) : list);
   if (!guest && Array.isArray(remembered)) return keep(readAliased(remembered, aliases));
   const openable = (list) => keep(readAliased(list, aliases).filter((id) => canOpen(id)));
   if (Array.isArray(own)) return openable(own);
-  if (Array.isArray(environment)) return openable(environment);
   return openable(guest ? ['conference', 'chat'] : ['chat', ...modules]);
 }
 
@@ -75,15 +73,13 @@ export function shouldAutoJoin({ setting = false, inCall = false, canJoin = fals
   return setting === true && !inCall && Boolean(canJoin) && !aside && !left;
 }
 
-// What space settings says under Opens with about what a first visit opens, worked out from the stored list, never from
-// the ticks on screen: with nothing set, what opens instead (the environment's list, else the chat and the modules);
-// with a list set that holds nothing that can open now, that nothing opens; otherwise nothing ('').
-// `nameOf(id)` is the name a person reads; `groupOf(id)` the id whose switch an id sits under, so each name is said once.
-export function opensWithSummary({ list = null, environment = null, modules = [], canOpen = () => true, nameOf = (id) => id, groupOf = (id) => id } = {}) {
-  const opens = whatOpens({ own: list, environment, modules, canOpen });
-  if (Array.isArray(list)) return opens.length ? '' : 'None of the ones switched on can open now, so nothing opens.';
-  const names = [...new Set(opens.map(groupOf))].map(nameOf); // `groupOf`: a part reads as the switch it sits under (To-do as Calendar)
-  if (!names.length) return 'Nothing switched on: nothing opens.';
+// What Set up says a new person sees open: the template's list (a list that names none that can open now, or none at all,
+// gives what the product opens: the chat and the modules). A sentence, read only. `nameOf(id)` is the name a person reads;
+// `groupOf(id)` the id whose name an id sits under, so each name is said once (To-do under Calendar).
+export function opensWithLine({ list = null, modules = [], canOpen = () => true, nameOf = (id) => id, groupOf = (id) => id } = {}) {
+  const opens = whatOpens({ own: list, modules, canOpen });
+  const names = [...new Set(opens.map(groupOf))].map(nameOf);
+  if (!names.length) return 'Nothing opens.';
   const said = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
-  return `Nothing switched on: ${said} ${names.length > 1 ? 'open' : 'opens'}.`;
+  return `${said} ${names.length > 1 ? 'open' : 'opens'}.`;
 }

@@ -46,22 +46,20 @@ const SLOTS = ['profile', 'background', ...PARTICIPANT_SLOTS, ...CHARACTER_SLOTS
 // offered for it, on a member's per-space section and (eventually) in
 // Studio's publish UI: Roleplaying wants both, the other two just one.
 const SPACE_PROFILES = ['roleplaying', 'participants', 'characters'];
+// A stale Opens with inside the environment's spaceDefaults (the template decides it now) is dropped on load, so a save never copies it on.
+function stripOpensWith(settings) {
+  const d = settings.spaceDefaults;
+  if (!d || typeof d !== 'object' || Array.isArray(d) || !('opensWith' in d)) return settings;
+  const { opensWith, ...rest } = d; // eslint-disable-line no-unused-vars
+  const out = { ...settings };
+  if (Object.keys(rest).length) out.spaceDefaults = rest; else delete out.spaceDefaults;
+  return out;
+}
 const OPENS_WITH_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const MAX_OPENS_WITH = 20;
-// What a new space opens with: up to 20 module ids, in order. A sentence when it is not that, else null.
-function opensWithProblem(list) {
-  if (!Array.isArray(list) || list.length > MAX_OPENS_WITH) return `spaceDefaults.opensWith must be a list of at most ${MAX_OPENS_WITH} ${words.word('module')} ids.`;
-  const seen = new Set();
-  for (const id of list) {
-    if (typeof id !== 'string' || !OPENS_WITH_ID.test(id)) return `spaceDefaults.opensWith: ${JSON.stringify(id)} is not ${words.word('module', { a: true })} id.`;
-    if (seen.has(id)) return `spaceDefaults.opensWith: "${id}" is listed twice.`;
-    seen.add(id);
-  }
-  return null;
-}
-// A space's own "Opens with" (plan-entering): the module ids it opens with the first time, in order, the built-ins
-// `conference` and `chat` included. Keeps up to 20 distinct strings of the module id pattern and drops anything else;
-// a module that is off or not installed is kept. null when nothing is left, which means "not set".
+// The module ids a template's Default Workspace opens with (workspace.opensWith), as read: up to 20 distinct strings of
+// the module id pattern, the built-ins `conference` and `chat` included; a module that is off or not installed is kept.
+// null when nothing is left, which means "not set".
 function cleanOpensWith(list) {
   if (!Array.isArray(list)) return null;
   const out = [...new Set(list.filter((id) => typeof id === 'string' && OPENS_WITH_ID.test(id)))].slice(0, MAX_OPENS_WITH);
@@ -763,7 +761,7 @@ class Store {
         session: strongKey(raw.secrets?.session, SESSION_KEY_BYTES) ? raw.secrets.session : randomToken(SESSION_KEY_BYTES),
         stream: strongKey(raw.secrets?.stream, STREAM_KEY_BYTES) ? raw.secrets.stream : randomToken(STREAM_KEY_BYTES),
       },
-      settings: { ...DEFAULT_SETTINGS, ...migrateMfaSettings(raw.settings) },
+      settings: stripOpensWith({ ...DEFAULT_SETTINGS, ...migrateMfaSettings(raw.settings) }),
       users: Array.isArray(raw.users) ? raw.users.map((u) => this.sanitizeUser(u)).filter(Boolean) : [],
       spaces: Array.isArray(raw.spaces) ? raw.spaces.map((r) => this.sanitizeSpace(r)).filter(Boolean) : [],
       // Asides (plan-names step 8): their own record, never among the spaces. Each lives only while someone is in it
@@ -871,10 +869,9 @@ class Store {
       ...(id !== LOBBY && r.requestAccess === true ? { requestAccess: true } : {}),
       // Closed for set up: only owners, the admin and the space's moderators enter it (space-access.js); absent while open. Not the Lobby.
       ...(id !== LOBBY && r.closed === true ? { closed: true } : {}),
-      // What the space opens with the first time someone enters it; absent while not set (see cleanOpensWith).
-      ...(cleanOpensWith(r.opensWith) ? { opensWith: cleanOpensWith(r.opensWith) } : {}),
+      // What the space opens with is its template's (lookOf(...).workspace.opensWith); the record keeps no list of its own.
       // The shared saved layout this space opens with on a first visit (plan-saved-layouts.md, decision 4): its id,
-      // absent while not set. Kept in step with opensWith by updateSpace and syncDefaultLayout.
+      // absent while not set. Kept by updateSpace and syncDefaultLayout.
       ...(cleanLayoutId(r.defaultLayout) ? { defaultLayout: r.defaultLayout } : {}),
       // The owner's tabs (plan-workspaces.md, "Data"): { order?, hide? } of the fixed layouts' ids, cleaned as read (unknown
       // ids dropped, a missing id added at the end); absent while nothing is set. The Lobby has them like any space.
@@ -1480,28 +1477,20 @@ class Store {
       else if (!this.iconIds().includes(patch.homeIcon)) throw new StoreError('unknown home icon');
       else s.homeIcon = patch.homeIcon;
     }
-    // What a new space starts with (a template sets it): its profile, and which modules open. null clears it
-    // (a new space then starts as roleplaying, and opens as the product does). A key left out is left as it is.
+    // What a new space starts with (a template sets it): its profile. null clears it (a new space then starts as
+    // roleplaying). What it opens with is its template's, never stored here. A key left out is left as it is.
     let clearSpaceDefaults = false;
     if (patch.spaceDefaults !== undefined) {
       const given = patch.spaceDefaults;
       if (given === null) { delete s.spaceDefaults; clearSpaceDefaults = true; }
-      else if (!given || typeof given !== 'object' || Array.isArray(given) || Object.keys(given).some((k) => k !== 'profile' && k !== 'opensWith')) throw new StoreError('spaceDefaults takes only profile and opensWith.');
+      else if (!given || typeof given !== 'object' || Array.isArray(given) || Object.keys(given).some((k) => k !== 'profile')) throw new StoreError('spaceDefaults takes only profile.');
       else {
         const next = { ...(s.spaceDefaults || {}) };
         if (given.profile !== undefined) {
           if (!SPACE_PROFILES.includes(given.profile)) throw new StoreError('profile must be roleplaying, participants or characters');
           next.profile = given.profile;
         }
-        if (given.opensWith !== undefined) {
-          if (given.opensWith === null || (Array.isArray(given.opensWith) && given.opensWith.length === 0)) delete next.opensWith;
-          else {
-            const problem = opensWithProblem(given.opensWith);
-            if (problem) throw new StoreError(problem);
-            next.opensWith = [...given.opensWith];
-          }
-        }
-        if (next.profile || (next.opensWith && next.opensWith.length)) s.spaceDefaults = next;
+        if (next.profile) s.spaceDefaults = next;
         else { delete s.spaceDefaults; clearSpaceDefaults = true; }
       }
     }
@@ -2160,8 +2149,11 @@ class Store {
     const own = template === undefined || template === null ? null : this.chosenTemplate(template, null);
     const startsWith = profile ?? own?.spaceDefaults?.profile ?? this.data.settings.spaceDefaults?.profile; // the environment's default (a template's)
     const space = this.sanitizeSpace({ id, name: name || `New ${this.word('space')}`, description, members, profile: startsWith, link, linkIcon, createdAt: new Date().toISOString(), ...(own ? { template: own.id } : {}) });
-    const opensWith = own?.workspace?.opensWith;
-    if (Array.isArray(opensWith) && opensWith.length && cleanOpensWith(opensWith)) space.opensWith = cleanOpensWith(opensWith);
+    // The template seeds which Fixed Workspaces the space shows and which opens first (decisions 36 and 8): the owner
+    // changes them in Set up (tabs, defaultLayout). The environment's template when the space has none of its own.
+    const seeded = this.workspaceSeed((own || this.environmentTemplate())?.workspace);
+    if (seeded.tabs) space.tabs = seeded.tabs;
+    if (seeded.defaultLayout) space.defaultLayout = seeded.defaultLayout;
     space.members = space.members.filter((k) => this.userByKey(k));
     if (creator && this.userByKey(creator) && !this.userByKey(creator).hostAdmin && !space.members.includes(creator)) space.members.push(creator);
     this.data.spaces.push(space);
@@ -2178,6 +2170,23 @@ class Store {
     space.starterDone = true;
     this.save();
     return true;
+  }
+
+  // What a template's `workspace` seeds on a new space: { tabs, defaultLayout }, each null when it gives nothing. `show` names
+  // the Fixed Workspaces in the bar, so every other fixed one is hidden; `opensFirst` is the first visit's layout, taken
+  // only while it is shown (the Workspace is what no default layout means). Pure; the template is trusted as templates.js cleaned it.
+  workspaceSeed(workspace) {
+    const w = isPlainObject(workspace) ? workspace : {};
+    const show = Array.isArray(w.show) ? w.show.filter((id) => SYSTEM_DEFAULTS.includes(id)) : null;
+    const tabs = show ? cleanTabs({ hide: SYSTEM_DEFAULTS.filter((id) => !show.includes(id)) }).tabs : null;
+    const first = typeof w.opensFirst === 'string' && SYSTEM_DEFAULTS.includes(w.opensFirst) && (!show || show.includes(w.opensFirst)) ? w.opensFirst : null;
+    return { tabs, defaultLayout: first };
+  }
+
+  // What a space's Workspace opens with, from its template (the environment's when it has none of its own): the module
+  // ids, or null while the template names none (the page then opens as the product does). Never stored on the space.
+  opensWithOf(spaceId) {
+    return cleanOpensWith(this.lookOf(spaceId).workspace.opensWith);
   }
 
   // A template named for a space, checked: the catalog's entry. 400 with one sentence for a value that is not an id, an id
@@ -2334,17 +2343,8 @@ class Store {
       draft.allowGuests = patch.allowGuests;
       if (!draft.allowGuests && draft.guestToken) draft.guestToken = null;
     }
-    // Opens with: a list of module ids, or null to clear it back to "not set". An empty list is "not set" too.
-    if (patch.opensWith !== undefined) {
-      if (patch.opensWith !== null && (!Array.isArray(patch.opensWith) || patch.opensWith.some((id) => typeof id !== 'string'))) {
-        throw new StoreError(`Opens with must be a list of ${this.word('module', { many: true })}.`);
-      }
-      const list = cleanOpensWith(patch.opensWith);
-      if (list) draft.opensWith = list;
-      else delete draft.opensWith;
-      // Opens with and the default layout are independent (plan-layout-views.md, step 5): the list is the Workspace's
-      // default content, and the default layout says which layout a first visit shows. Editing one leaves the other.
-    }
+    // Opens with is the template's to decide (plan-templates-redesign.md, decision 8): the space has no list of its own.
+    if (patch.opensWith !== undefined) throw new StoreError(`What a ${this.word('space')} opens with comes from its template; pick another template to change it.`);
     // The first visit's layout (plan-layout-views.md, step 5): a shared layout's id, `calendar` or `map` (the system
     // layouts, while they are on in this space), or null for Workspace with Opens with. It does not touch Opens with.
     // Who may do this is the route's to decide (owners, the admin and this space's moderators).
@@ -2414,7 +2414,6 @@ class Store {
     }
     Object.assign(space, draft);
     if (!('budget' in draft)) delete space.budget;
-    if (!('opensWith' in draft)) delete space.opensWith;
     if (!('defaultLayout' in draft)) delete space.defaultLayout;
     if (!('tabs' in draft)) delete space.tabs;
     if (!('publishCalendar' in draft)) delete space.publishCalendar;

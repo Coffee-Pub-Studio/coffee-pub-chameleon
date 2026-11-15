@@ -282,7 +282,8 @@ export function layoutTabs({ system = [], favorites = [], layouts = [], current 
     if (s.id === 'workspace') { out.push(workspaceTab); continue; }
     if (s.tab === false) continue;
     const [word, glyph] = SYSTEM_TAB_DEFAULTS[s.id];
-    out.push({ layout: s.id, kind: 'system', icon: icon(s, glyph), label: name(s, word) });
+    // `pinned`: the owner shows it, so it is in the bar for everyone and nobody hides it (plan-templates-redesign.md, decision 35).
+    out.push({ layout: s.id, kind: 'system', icon: icon(s, glyph), label: name(s, word), ...(s.pinned === true ? { pinned: true } : {}) });
   }
   const known = Array.isArray(layouts) ? layouts.filter((l) => l && typeof l.id === 'string') : [];
   for (const id of guest ? known.map((l) => l.id) : Array.isArray(favorites) ? favorites : []) {

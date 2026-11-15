@@ -111,7 +111,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   let colors = new Map();
   const colorOf = (id) => { const c = compositeById(id); const base = c ? c.main : id; return moduleTint(base, colors.get(base) || null); };
   const tintAttr = (id) => (colorOf(id) ? ` data-tint="${colorOf(id)}"` : '');
-  // What this space opens with, and the environment's list for a space that has none. Both null until a space is loaded.
+  // What this space opens with (its template's Default Workspace), or null. Null until a space is loaded.
   let spaceOpensWith = null;
   let spaceDefaultLayout = null; // the space's default layout when it is a shared one, whole (plan-saved-layouts.md, decision 4), or null
   // What a first visit opens, as the server resolved it (plan-layout-views.md, step 5): { layout, opensWith }, or null.
@@ -119,7 +119,6 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // Set by refresh() for the space just entered, used up by the restore that follows: only entering shows the first
   // visit's layout (a press on the Workspace tab restores the Workspace alone).
   let entering = false;
-  let environmentOpensWith = null;
   let z = 40;
   let order = 0;
   let unread = {}; // module id -> unread notifications, from brand.js
@@ -2377,7 +2376,6 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     const opens = request ? [request.module] : whatOpens({
       remembered: saved.__open,
       own: spaceOpensWith,
-      environment: environmentOpensWith,
       modules: available.map((m) => m.id),
       canOpen: canOpenHere,
       guest,
@@ -2777,7 +2775,6 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     spaceOpensWith = null;
     spaceDefaultLayout = null;
     spaceFirstVisit = null;
-    environmentOpensWith = null;
     entering = Boolean(id);
     if (id) {
       try {
@@ -2800,7 +2797,6 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
         spaceFirstVisit = answer.firstVisit && typeof answer.firstVisit.layout === 'string'
           ? answer.firstVisit
           : { layout: spaceDefaultLayout && spaceOpensWith ? spaceDefaultLayout.id : 'workspace', opensWith: spaceOpensWith };
-        environmentOpensWith = Array.isArray(answer.spaceDefaultsOpensWith) ? answer.spaceDefaultsOpensWith : null;
         showBuiltin(answer.builtin);
       } catch {
         available = [];

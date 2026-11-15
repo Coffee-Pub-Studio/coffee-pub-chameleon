@@ -322,7 +322,7 @@ try {
     };
   };
   const travel = templates.get('travel');
-  await test('applying twice gives the same environment: settings, the Lobby, space defaults (with the workspace\'s opensWith), icons, modules', async () => {
+  await test('applying twice gives the same environment: settings, the Lobby, space defaults, icons, modules', async () => {
     const env = freshEnvironment('twice');
     const t = { ...travel, reactions: [{ id: 'ship', glyph: '\u{1f680}', label: 'Ship it' }], iconSet: ['diagram-project'] };
     const first = await templates.applyTemplate(env, t);
@@ -332,7 +332,7 @@ try {
     assert.deepEqual(snapshot(env), once);
     assert.deepEqual(first, []);
     assert.deepEqual(once.lobby, ['Home base', 'Everyone on every trip.']);
-    assert.deepEqual([once.settings.conferenceEnabled, once.settings.homeIcon, once.settings.spaceDefaults], [true, null, { profile: 'participants', opensWith: ['travel', 'chat'] }]);
+    assert.deepEqual([once.settings.conferenceEnabled, once.settings.homeIcon, once.settings.spaceDefaults], [true, null, { profile: 'participants' }]);
     assert.ok(once.settings.icons.includes('suitcase-rolling'), 'the home icon joins the owner\'s own icons');
     assert.deepEqual([once.settings.icons.includes('diagram-project'), once.settings.reactions], [false, []], 'the template\'s added icons and reactions are not copied into the settings: they are read live');
     const look = env.store.lookOf(null);
@@ -368,7 +368,7 @@ try {
     const t = templates.cleanTemplate(minimal({ modules: { chat: {}, polls: {} }, reactions: [{ id: 'ship', glyph: '\u{1f680}' }], iconSet: ['diagram-project'], lobby: { name: 'Front desk' }, spaceDefaults: { profile: 'participants' }, workspace: { opensWith: ['polls'] } }));
     const offer = templates.offerFor(env, t);
     assert.deepEqual(offer.modules.map((m) => m.id), ['polls']);
-    assert.deepEqual([offer.reactions, offer.iconSet, offer.lobby.name, offer.spaceDefaults], [undefined, undefined, 'Front desk', { profile: 'participants', opensWith: ['polls'] }], 'reactions and icons are never offered: a template\'s additions are live');
+    assert.deepEqual([offer.reactions, offer.iconSet, offer.lobby.name, offer.spaceDefaults], [undefined, undefined, 'Front desk', { profile: 'participants' }], 'reactions and icons are never offered: a template\'s additions are live');
     await templates.applyOffer(env, t, { reactions: true, modules: ['polls'] });
     assert.deepEqual(env.store.settings.reactions, [], 'a reactions tick applies nothing');
     assert.equal(env.modules.enabled('polls') !== null, true);
