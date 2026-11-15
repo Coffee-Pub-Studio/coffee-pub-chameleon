@@ -316,7 +316,8 @@ try {
   await expect('a guest link writes tabs', 401, 'PATCH', `${P(A)}${asGuest}`, { body: { tabs } });
   await expect('a door guest writes tabs', 401, 'PATCH', P(A), { cookie: doorCookie, body: { tabs } });
   // A moderator may send tabs with the other moderator fields, and not with an owners-only field.
-  await expect('a moderator: tabs with opensWith', 200, 'PATCH', P(A), { token: T.mod, body: { tabs, opensWith: ['chat'] } });
+  await expect('a moderator: tabs with the first visit', 200, 'PATCH', P(A), { token: T.mod, body: { tabs, defaultLayout: null } });
+  await expect('a moderator: Opens with is the template\'s', 400, 'PATCH', P(A), { token: T.mod, body: { tabs, opensWith: ['chat'] } });
   await expect('a moderator: tabs with a name', 403, 'PATCH', P(A), { token: T.mod, body: { tabs: null, name: 'Mine' } });
   same((await call('GET', P(A), { token: T.admin })).json.space.name, 'Alpha', 'and nothing of it applied');
   r = (await expect('the moderator\'s Set up read carries the tabs', 200, 'GET', P(A), { token: T.mod })).json.space;
@@ -365,9 +366,11 @@ try {
   same([r.json.layout.name, r.json.layout.icon, r.json.layout.shown, r.json.layout.tab], ['Papers', 'couch', false, false], 'a person may rename and re-icon a hidden tab; it stays hidden');
   r = await expect('rename Conference', 200, 'PATCH', `${SYS}/conference`, { token: T.member, body: { name: 'Call page' } });
   same(r.json.layout.name, 'Call page', 'rename a shown one');
-  r = await expect('hide more', 200, 'PATCH', `${SYS}/whiteboard`, { token: T.member, body: { tab: false } });
-  same([r.json.layout.tab, r.json.layout.shown], [false, true], 'a person may hide more for themselves: tab off, but not hidden by the owner');
-  same((await call('GET', L(A), { token: T.mod })).json.system.find((l) => l.id === 'whiteboard').tab, true, "and it is only theirs: the moderator's tab is on");
+  // The pin rule (plan-templates-redesign.md, decision 9): what the owner shows is pinned, so a person cannot hide more.
+  r = await expect('hide more', 409, 'PATCH', `${SYS}/whiteboard`, { token: T.member, body: { tab: false } });
+  same(r.json.error, 'The owner keeps this one in the bar.', 'the pinned sentence');
+  same((await call('GET', L(A), { token: T.member })).json.system.find((l) => l.id === 'whiteboard').pinned, true, 'a shown one is pinned');
+  same((await call('GET', L(A), { token: T.member })).json.system.find((l) => l.id === 'documents').pinned, false, 'a hidden one is not');
   r = await expect('tab on for a hidden one', 409, 'PATCH', `${SYS}/documents`, { token: T.member, body: { tab: true } });
   same(r.json.error, 'The owner has hidden this layout.', 'the sentence');
   await expect('tab off for a hidden one', 409, 'PATCH', `${SYS}/documents`, { token: T.member, body: { tab: false } });
@@ -383,13 +386,13 @@ try {
   // person made while it was hidden never happened.
   await expect('the owner shows Documents again', 200, 'PATCH', P(A), { token: T.owner, body: { tabs: { order: tabs.order } } });
   got = (await call('GET', L(A), { token: T.member })).json;
-  same(got.system.map((l) => [l.id, l.tab]), [['conference', true], ['workspace', true], ['calendar', true], ['whiteboard', true], ['documents', true]], 'shown again; the person\'s whiteboard tab was turned back on by the favorite');
+  same(got.system.map((l) => [l.id, l.tab]), [['conference', true], ['workspace', true], ['calendar', true], ['whiteboard', true], ['documents', true]], 'shown again, and so pinned again');
   same(got.system.find((l) => l.id === 'documents').name, 'Papers', 'their name for it is still theirs');
-  // A person's own hide survives the owner's change of order, and is not the owner's.
-  await expect('hide Calendar for me', 200, 'PATCH', `${SYS}/calendar`, { token: T.member, body: { tab: false } });
+  // A person's own hide of a pinned tab is refused, whichever route sends it, and the order is the owner's.
+  await expect('hide Calendar for me', 409, 'PATCH', `${SYS}/calendar`, { token: T.member, body: { tab: false } });
+  await expect('unfavorite Calendar for me', 409, 'DELETE', `${L(A)}/calendar/favorite`, { token: T.member });
   await expect('the owner reorders', 200, 'PATCH', P(A), { token: T.owner, body: { tabs: { order: ['calendar', 'documents'] } } });
-  same((await call('GET', L(A), { token: T.member })).json.system.map((l) => [l.id, l.tab]), [['calendar', false], ['documents', true], ['workspace', true], ['conference', true], ['whiteboard', true]], 'the order is the owner\'s; Calendar stays hidden for that person only');
-  same((await call('GET', L(A), { token: T.mod })).json.system.find((l) => l.id === 'calendar').tab, true, 'and not for others');
+  same((await call('GET', L(A), { token: T.member })).json.system.map((l) => [l.id, l.tab]), [['calendar', true], ['documents', true], ['workspace', true], ['conference', true], ['whiteboard', true]], 'the order is the owner\'s; every shown tab is on for the member');
   // Workspace can be anywhere in the order, and is never hidden.
   same((await call('GET', L(A), { token: T.mod })).json.tabs.hide, [], 'nothing hidden');
 

@@ -83,7 +83,7 @@ try {
   };
   const inSpace = async (as, width, mode) => {
     const tab = await open(`/#join=${ctx.trip}`, as, width, mode);
-    await tab.waitFor('button.sdk-strip-fact[data-module=budget]');
+    await tab.waitFor('[data-layout-tab="workspace"]'); // the space has loaded (what opens on entering is its template's now, so no module is a sure sign)
     await sleep(600);
     return tab;
   };

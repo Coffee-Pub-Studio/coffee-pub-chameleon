@@ -210,18 +210,19 @@ await test('a new space starts from its template, else the environment; later ch
   const store = fresh('seed');
   store.updateSettings({ spaceDefaults: { profile: 'characters' } });
   const g = store.addSpace({ name: 'G', template: 'games' });
-  assert.deepEqual(g.opensWith, ['chat', 'calendar'], "the games template's opens-with");
+  assert.deepEqual(store.opensWithOf(g.id), ['chat', 'calendar'], "the games template's opens-with, read live");
+  assert.equal('opensWith' in g, false, 'and never stored on the space');
   assert.equal(g.profile, 'characters', "games has no profile of its own: the environment's");
   const t = store.addSpace({ name: 'T', template: 'travel' });
   assert.equal(t.profile, 'participants');
-  assert.deepEqual(t.opensWith, ['travel', 'chat']);
+  assert.deepEqual(store.opensWithOf(t.id), ['travel', 'chat']);
   const plain = store.addSpace({ name: 'P' });
   assert.equal(plain.profile, 'characters');
-  assert.equal('opensWith' in plain, false, 'no key: nothing new is seeded');
+  assert.deepEqual(store.opensWithOf(plain.id), ['travel', 'chat'], 'no template of its own: the environment\'s, read live');
   const picked = store.addSpace({ name: 'Q', template: 'travel', profile: 'roleplaying' });
   assert.equal(picked.profile, 'roleplaying', 'a profile given wins');
   // A change of template touches only the key.
-  store.updateSpace(g.id, { phases: null, opensWith: ['chat'], description: 'd' });
+  store.updateSpace(g.id, { phases: null, description: 'd' });
   const before = JSON.stringify({ ...store.spaceById(g.id), template: undefined });
   store.updateSpace(g.id, { template: 'travel' });
   assert.equal(JSON.stringify({ ...store.spaceById(g.id), template: undefined }), before);
@@ -379,7 +380,7 @@ try {
     const mod = (await mo.as('GET', `/api/spaces/${campaign.id}`)).json;
     assert.equal(mod.space.template, 'games', 'a moderator reads it');
     assert.equal(mod.look.words.space.one, 'campaign');
-    assert.deepEqual(Object.keys(mod.space).filter((k) => !['id', 'template', 'templateName', 'phases', 'opensWith', 'defaultLayout', 'tabs', 'budget', 'closed'].includes(k)), [], 'and nothing more than the name of that template');
+    assert.deepEqual(Object.keys(mod.space).filter((k) => !['id', 'template', 'templateName', 'phases', 'defaultLayout', 'tabs', 'budget', 'closed'].includes(k)), [], 'and nothing more than the name of that template');
     assert.equal(mod.space.templateName, templates.get('games').name, "a moderator reads the name of that same template, the one the owner's list shows");
     assert.equal('templateName' in (await asAdmin('GET', `/api/spaces/${campaign.id}`)).json.space, false, "the admin's answer is unchanged");
     assert.equal('templateName' in (await owner.as('GET', `/api/spaces/${campaign.id}`)).json.space, false, "an owner's answer is unchanged");
@@ -526,7 +527,11 @@ try {
       const r = await lookOf(who, campaign.id);
       assert.equal(r.status, 200, `${label}: ${r.text}`);
       assert.equal(keys(r), 'look');
+<<<<<<< HEAD
       assert.equal(keys({ json: r.json.look }), 'words,verbs,phases,phaseMeasure,call,reactions,icons');
+=======
+      assert.equal(keys({ json: r.json.look }), 'words,verbs,phases,phaseMeasure,reactions,icons,workspace');
+>>>>>>> 42c679ac (Workspaces: the Default Workspace from the template, Opens with read-only, the pin rule (templates redesign step 8, server half))
       assert.equal(r.json.look.words.space.one, 'campaign', label);
       assert.equal(r.json.look.words.owner.one, 'owner', label);
       assert.deepEqual(r.json.look.phases, [], label);

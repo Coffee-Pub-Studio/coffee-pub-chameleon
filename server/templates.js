@@ -81,10 +81,10 @@ const TEMPLATE_MARKS = ['driven', 'default'];
 const PARTS = ['modules', 'lobby', 'spaceDefaults'];
 const fingerprint = (value) => crypto.createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex').slice(0, 16);
 // The value of one applied-once part: the module ids (their names and icons are live), and what a new space starts with
-// (its profile, and the Default Workspace's opensWith, which a new space takes until the workspaces step reads it live).
+// (its profile; the Default Workspace is read live from the template, so it is not part of this).
 function partValue(template, part) {
   if (part === 'modules') return moduleIdsOf(template);
-  if (part === 'spaceDefaults') return [template.spaceDefaults ?? null, template.workspace?.opensWith ?? null];
+  if (part === 'spaceDefaults') return template.spaceDefaults ?? null;
   return template[part] ?? null;
 }
 function partFingerprints(template) {
@@ -583,11 +583,10 @@ async function turnOnModules(env, ids, { allowed = () => true, modulesDir = MODU
   return skipped;
 }
 
-// What a new space starts with, from a template: its profile, and what the Workspace opens with.
+// What a new space starts with, from a template: its profile (what the Workspace opens with is read live, store.lookOf).
 function spaceDefaultsOf(template) {
   const out = {};
   if (template.spaceDefaults?.profile) out.profile = template.spaceDefaults.profile;
-  if (Array.isArray(template.workspace?.opensWith) && template.workspace.opensWith.length) out.opensWith = [...template.workspace.opensWith];
   return out;
 }
 

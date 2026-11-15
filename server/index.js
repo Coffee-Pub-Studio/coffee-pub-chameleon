@@ -1844,7 +1844,7 @@ function branding() {
 const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
 function lookView(spaceId) {
   const look = store.lookOf(spaceId);
-  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons };
+  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, workspace: look.workspace };
 }
 // The phases a space reads, for the rules that walk them (the AI's rollup, covering the main phase).
 const phasesOfSpace = (spaceId) => { const p = store.lookOf(spaceId).phases; return Array.isArray(p) ? p : []; };
@@ -4987,17 +4987,18 @@ app.get('/api/spaces/:id', requireUser, (req, res) => {
   res.json({ space: theirs, look: lookView(space.id) });
 });
 // Owners and the admin change anything; a member ticked as this space's moderator may send `phases` (the dates on
-// the timeline, plan-one-bar.md step 1), `opensWith`, `defaultLayout` (Set up, step 4) and `tabs` (the owner's tabs, plan-workspaces.md decision 22) and `budget` (the target,
+// the timeline, plan-one-bar.md step 1), `defaultLayout` (Set up, step 4) and `tabs` (the owner's tabs, plan-workspaces.md decision 22) and `budget` (the target,
 // plan-budget-module.md, decision 5) and nothing else: any other field in a moderator's body is "owners only". The values go through store.updateSpace's rules, the same as
 // an owner's. Whether the page may offer Set up comes from /api/me: hasOwnerRights, or
 // user.spaces[<id>].permissions.moderator.
-const MODERATOR_SPACE_FIELDS = ['phases', 'opensWith', 'defaultLayout', 'tabs', 'budget', 'closed', 'call'];
+const MODERATOR_SPACE_FIELDS = ['phases', 'defaultLayout', 'tabs', 'budget', 'closed', 'call'];
 app.patch('/api/spaces/:id', requireUser, (req, res) => {
   const body = req.body || {};
   if (!isOwner(req)) {
     const space = store.spaceById(req.params.id);
     if (!space || closedTo(req, space)) return res.status(entryStatus(req, space)).json(entryBody(req, space, `no such ${word('space')}`));
-    const onlyTheirs = Object.keys(body).every((k) => MODERATOR_SPACE_FIELDS.includes(k));
+    // `opensWith` is no longer anyone's to send (the template decides); a moderator's is let through to the store's own refusal.
+    const onlyTheirs = Object.keys(body).every((k) => MODERATOR_SPACE_FIELDS.includes(k) || k === 'opensWith');
     if (!moderates(currentUser(req), space) || !onlyTheirs) return res.status(403).json({ error: `${word('owner', { many: true })} only` });
   }
   const space = store.updateSpace(req.params.id, body);
@@ -5888,8 +5889,9 @@ function sendLayoutError(err, res) {
 // all folded in by store.roleSet); Whiteboards and Documents while their module is on in the space, on the canvas and
 // readable by this person. Each carries this person's own name, icon and tab choices (store.layouts.systemOf), else its
 // defaults. `shown` is false when the owner hid it (`tabs.hide`); the owner's hide wins, so `tab` is false then whatever the
-// person chose. A guest has none.
-//   { id, kind: 'system', name, icon, tab, shown, defaultName, defaultIcon, modules, settings? }
+// person chose. `pinned` is true while it is shown: the owner keeps it in the bar for everyone and nobody hides it for
+// themselves (`tab` equals `shown`). A guest has none.
+//   { id, kind: 'system', name, icon, tab, shown, pinned, defaultName, defaultIcon, modules, settings? }
 // `settings` (the Fixed Workspaces only, never the Workspace): the switches its Modules tab offers, from the schema in
 // server/fixed-workspaces.js (fixedSettingsFor); [] when there is nothing to configure.
 function systemLayoutsFor(found) {
@@ -5899,7 +5901,9 @@ function systemLayoutsFor(found) {
   const make = (id, defaultName, defaultIcon, modulesOf) => {
     const own = mine[id] || {};
     const shown = !hidden.hide.includes(id);
-    return { id, kind: 'system', name: own.name || defaultName, icon: own.icon || defaultIcon, tab: shown && (id === 'workspace' ? true : own.tab !== false), shown, defaultName, defaultIcon, modules: modulesOf, ...(id === 'workspace' ? {} : { settings: fixedSettingsFor(found, id) }) };
+    // The pin rule (plan-templates-redesign.md, decision 9): a Fixed Workspace the owner shows is pinned, in the bar for
+    // everyone, so a person's own hide of it (a stored `tab: false`) is ignored, never rewritten. The Workspace is always shown.
+    return { id, kind: 'system', name: own.name || defaultName, icon: own.icon || defaultIcon, tab: shown, shown, pinned: shown, defaultName, defaultIcon, modules: modulesOf, ...(id === 'workspace' ? {} : { settings: fixedSettingsFor(found, id) }) };
   };
   const made = new Map([['workspace', make('workspace', 'Workspace', SYSTEM_ICONS.workspace, [])]]);
   for (const [id, dest, moduleId] of [['calendar', 'calendar', 'calendar'], ['map', 'map', 'maps']]) {
@@ -5967,8 +5971,8 @@ function lastLayoutFor(found, system) {
 // What a first visit to a space shows for this viewer, resolved from the stored fields so the page does not re-derive it
 // (plan-layout-views.md, step 5): { layout: 'workspace' | another fixed layout's id | <shared layout id>, opensWith: [ids] | null }.
 // `layout` is the space's defaultLayout while it still resolves (a shared layout that exists; a fixed layout while it
-// is on here for this viewer), else 'workspace'. `opensWith` is the space's own list (the Workspace's default content),
-// or null when it has none (the page then falls back to the environment's list, as before); it is sent whatever `layout` is.
+// is on here for this viewer), else 'workspace'. `opensWith` is the space's template's list (the Workspace's default content),
+// or null when it names none (the page then opens as the product does); it is sent whatever `layout` is.
 function firstVisitFor(found) {
   const space = found.space;
   const stored = space.defaultLayout;
@@ -5978,7 +5982,7 @@ function firstVisitFor(found) {
   } else if (stored && store.defaultLayoutOf(space.id)) {
     layout = stored;
   }
-  return { layout, opensWith: Array.isArray(space.opensWith) && space.opensWith.length ? [...space.opensWith] : null };
+  return { layout, opensWith: store.opensWithOf(space.id) };
 }
 // The icon ids a layout may use: this environment's icon list, the modules' own icons, and the defaults.
 const layoutIconIds = () => [...new Set([...store.iconIds(), ...store.displayIconIds(), ...Object.values(SYSTEM_ICONS), 'object-group'])];
@@ -6086,9 +6090,11 @@ app.delete('/api/spaces/:id/layouts/:layoutId', (req, res) => {
 
 // A person's own name, icon and tab for a system layout in a space (plan-layout-views.md, step 1): { name?, icon?, tab? },
 // name and icon null going back to the default. 200 { layout } (the system layout as GET lists it); 400 for a bad name or
-// icon, or tab false on the Workspace; 403 for a guest; 404 for an id that is not on in this space; 409 for a tab the owner hid.
+// icon, or tab false on the Workspace; 403 for a guest; 404 for an id that is not on in this space; 409 for a tab the owner hid, and 409 for tab false on a shown fixed layout (pinned).
 // The owner hid a fixed layout (the space's tabs.hide): a person cannot turn its tab on or off, 409.
 const ownerHidSentence = () => `The ${word('owner')} has hidden this layout.`;
+// The owner shows a fixed layout (it is not in tabs.hide): it is pinned, so a person's own hide of it is refused, 409.
+const pinnedSentence = () => `The ${word('owner')} keeps this one in the bar.`;
 const ownerHid = (found, id) => tabsOf(found.space.tabs).hide.includes(id);
 app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
   const found = layoutSpaceFor(req, res);
@@ -6100,6 +6106,7 @@ app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
   if (error) return res.status(400).json({ error });
   if (patch.tab === false && id === 'workspace') return res.status(400).json({ error: 'The Workspace is always shown.' });
   if (patch.tab !== undefined && ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });
+  if (patch.tab === false) return res.status(409).json({ error: pinnedSentence() });
   try {
     store.layouts.setSystem(found.space.id, found.who.user.key, id, patch);
     res.json({ layout: systemLayoutsFor(found).find((l) => l.id === id) });
@@ -6112,7 +6119,7 @@ app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
 // any layout they can see (their own or a shared one). PUT makes one a favorite, at the end; DELETE stops it being one.
 // Both answer { favorites } and doing what is already so is a 200 that changes nothing. There is no limit on how many
 // (plan-layout-views.md, decision 13). The ids of the fixed layouts other than `workspace` are the system layouts: PUT/DELETE set their tab
-// (404 while not on in this space; 409 "The owner has hidden this layout." while the owner's tabs hide it) and answer { favorites, layout } with the system layout; `workspace` always has its
+// (404 while not on in this space; 409 "The owner has hidden this layout." while the owner's tabs hide it, 409 "The owner keeps this one in the bar." for DELETE, the person's own hide, while it is shown) and answer { favorites, layout } with the system layout; `workspace` always has its
 // tab: DELETE is a 400 "The Workspace is always shown.", PUT a 200 that changes nothing.
 function layoutFavorite(on) {
   return (req, res) => {
@@ -6124,6 +6131,7 @@ function layoutFavorite(on) {
       if (!systemLayoutsFor(found).some((l) => l.id === id)) return res.status(404).json({ error: 'There is no such layout here.' });
       if (id === 'workspace' && !on) return res.status(400).json({ error: 'The Workspace is always shown.' });
       if (ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });
+      if (!on) return res.status(409).json({ error: pinnedSentence() });
       try {
         if (id !== 'workspace') store.layouts.setSystem(found.space.id, found.who.user.key, id, { tab: on });
         return res.json({ favorites: store.layouts.favorites(found.space.id, found.who.user.key), layout: systemLayoutsFor(found).find((l) => l.id === id) });
@@ -11129,10 +11137,8 @@ app.get('/api/modules/for-space', (req, res) => {
       .map(({ manifest, entry }) => ({ id: manifest.id, ...shownModule(manifest, space.id), color: manifest.color || null, ...(manifest.description ? { description: manifest.description } : {}), version: manifest.version, budget: manifest.budget === true, tags: manifest.tags === true, scope: manifest.scope, runMode: modules.runModeOf(entry), canvas: manifest.surfaces.canvas, commands: manifest.commands || [], permissions: manifest.permissions.map((p) => `module.${manifest.id}.${p.key}`).filter((k) => perms[k]), clear: mayClearHere(manifest, who, perms, space.id), undoSeconds: moduleHolds.seconds })),
     // The built-in modules' names and icons as this environment shows them (the canvas's Conference and Chat switches).
     builtin: BUILTIN_MODULES.map((b) => ({ id: b.id, ...shownModule(b, space.id), ...(b.description ? { description: fillWords(b.description) } : {}) })),
-    // What this space opens with, or null when it has no list of its own. The environment's list is what a new space
-    // opens with when the space itself has none.
-    opensWith: Array.isArray(space.opensWith) && space.opensWith.length ? [...space.opensWith] : null,
-    spaceDefaultsOpensWith: Array.isArray(store.settings.spaceDefaults?.opensWith) && store.settings.spaceDefaults.opensWith.length ? [...store.settings.spaceDefaults.opensWith] : null,
+    // What this space opens with: its template's Default Workspace (store.opensWithOf), or null when the template names none.
+    opensWith: store.opensWithOf(space.id),
     // The space's default layout, whole (as GET /api/spaces/:id/layouts lists it), or null: what a first visit opens,
     // with its places, when Opens with is the space's own list (plan-saved-layouts.md, decision 4).
     defaultLayout: store.defaultLayoutOf(space.id),

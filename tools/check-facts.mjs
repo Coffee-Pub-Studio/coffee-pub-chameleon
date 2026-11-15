@@ -319,7 +319,7 @@ try {
   const moSet = await expect('the moderator sets a target', 200, 'PATCH', P, { cookie: mo, body: { budget: { amount: 10 } } });
   assert.deepEqual(moSet.json.space.budget, { amount: 10 }, 'the moderator\'s answer carries it');
   assert.deepEqual((await expect('the moderator reads it back', 200, 'GET', P, { cookie: mo })).json.space.budget, { amount: 10 });
-  const moAlso = await expect('beside a moderator\'s other field', 200, 'PATCH', P, { cookie: mo, body: { budget: { amount: 1234.567, currency: 'eur' }, opensWith: null } });
+  const moAlso = await expect('beside a moderator\'s other field', 200, 'PATCH', P, { cookie: mo, body: { budget: { amount: 1234.567, currency: 'eur' }, defaultLayout: null } });
   assert.deepEqual(moAlso.json.space.budget, { amount: 1234.57, currency: 'EUR' });
   n += 3;
   const ownersOnly = { error: 'owners only' };
@@ -421,7 +421,7 @@ try {
   assert.deepEqual((await call('GET', P, { cookie: admin })).json.space.budget, { amount: 500, currency: 'USD' }, 'Set up\'s read carries it for the admin');
   const moRead = (await expect('the moderator\'s Set up read', 200, 'GET', P, { cookie: mo })).json.space;
   assert.deepEqual(moRead.budget, { amount: 500, currency: 'USD' }, 'it carries the budget for the moderator');
-  ok(Object.keys(moRead).every((k) => ['id', 'template', 'templateName', 'phases', 'opensWith', 'defaultLayout', 'tabs', 'budget'].includes(k)) && !('name' in moRead) && !('guestToken' in moRead), `only the moderator's fields (${Object.keys(moRead)})`);
+  ok(Object.keys(moRead).every((k) => ['id', 'template', 'templateName', 'phases', 'defaultLayout', 'tabs', 'budget'].includes(k)) && !('name' in moRead) && !('guestToken' in moRead), `only the moderator's fields (${Object.keys(moRead)})`);
   for (const [label, cookie] of [['a member', pat], ['someone outside', out]]) {
     const r = await call('GET', P, { cookie });
     ok((label === 'a member' ? r.status === 403 && r.json?.error === 'owners only' : r.status === 404 && r.json?.error === 'no such space') && !r.text.includes('budget'), `${label} cannot read Set up's record (${r.status})`);
@@ -435,9 +435,9 @@ try {
   assert.deepEqual([samHere.status, samHere.json], [403, ownersOnly], 'a moderator elsewhere may not set it here');
   ok((await call('GET', P, { cookie: sam })).status === 403, 'nor read Set up\'s record here');
   // The moderator's and the admin's own PATCH answers carry it; a member's guest-link answer does not.
-  const moSave = await expect('the moderator saves the first visit', 200, 'PATCH', P, { cookie: mo, body: { opensWith: null } });
+  const moSave = await expect('the moderator saves the first visit', 200, 'PATCH', P, { cookie: mo, body: { defaultLayout: null } });
   assert.deepEqual(moSave.json.space.budget, { amount: 500, currency: 'USD' }, 'the moderator\'s answer carries it');
-  ok('budget' in (await call('PATCH', P, { cookie: admin, body: { opensWith: null } })).json.space, 'the admin\'s answer carries it');
+  ok('budget' in (await call('PATCH', P, { cookie: admin, body: { defaultLayout: null } })).json.space, 'the admin\'s answer carries it');
   const patLink = await call('POST', `/api/spaces/${S}/guest-link`, { cookie: pat, body: {} });
   if (patLink.status === 200) ok(!('budget' in patLink.json.space), 'no budget in a member\'s guest-link answer');
   else ok(!patLink.text.includes('budget'), `a member's guest-link refusal carries no budget (${patLink.status})`);
