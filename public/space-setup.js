@@ -18,7 +18,7 @@
 //               shared layout; a saved id that cannot open now is kept and said why; a default layout can be stopped),
 //               then Turn AI off and What AI may see (an owner's), then a section per module with its settings for this space (module-settings.js, its draft mode)
 // An owner and the admin see every tab; a moderator sees phases and Settings (First visit and the module settings; the
-// server lets a moderator PATCH exactly `phases`, `opensWith`, `defaultLayout` and `budget`, and set a space's module
+// server lets a moderator PATCH exactly `phases`, `defaultLayout`, `tabs`, `closed` and `budget`, and set a space's module
 // settings; the Budget field is on the phases tab, which the three of them see);
 // a member has no Set up. A tab with nothing to show (no phases in the template, no module settings for a moderator) is
 // left out. The Lobby shows no Delete, no member switches and no calendar switch.
@@ -36,7 +36,7 @@
 // budgetEntryProblem, budgetWanted) touch no
 // document, so tools/check-nav.mjs runs them in node; the page hands the panel what it needs (createSpaceSetup's `deps`).
 import { actionBar } from './action-bar.js';
-import { groupOf, switchOn, groupedParts, setSwitch } from './composites.js';
+import { groupOf } from './composites.js';
 import { confirmDialog } from './confirm.js';
 import { mountSees, fullSees, sameSees } from './ai-sees.js';
 import { loadTemplateChoices, spaceTemplatesOn, fillSelect, optionList, changeQuestion, SAME } from './template-choice.js';
@@ -51,7 +51,7 @@ export const SETUP_TABS = Object.freeze(['space', 'members', 'phases', 'modules'
 export const OWNER_TABS = SETUP_TABS;
 export const MODERATOR_TABS = Object.freeze(['phases', 'modules']);
 // The fields a moderator's PATCH may hold (server/index.js, MODERATOR_SPACE_FIELDS).
-export const MODERATOR_FIELDS = Object.freeze(['phases', 'opensWith', 'defaultLayout', 'tabs', 'budget', 'closed']);
+export const MODERATOR_FIELDS = Object.freeze(['phases', 'defaultLayout', 'tabs', 'budget', 'closed']);
 // `phases`: the template has phases. Settings is always there for an owner and a moderator: the First visit section is
 // in it, so it never has nothing to show.
 // `show`: the Modules tab (id `show`: the modules' switches, Arrange and Layouts, for everyone wider than a phone) comes first.
@@ -77,7 +77,7 @@ export const FIELD_TAB = Object.freeze({
   name: 'space', description: 'space', template: 'space', profile: 'space', link: 'space', linkIcon: 'space', publishCalendar: 'space', image: 'space', imageRemoved: 'space', budget: 'phases',
   members: 'members', allowGuests: 'members', entry: 'members', requestAccess: 'members', closed: 'members',
   phases: 'phases',
-  opensWith: 'modules', defaultLayout: 'modules', tabs: 'modules',
+  defaultLayout: 'modules', tabs: 'modules',
   aiOff: 'modules', aiSees: 'modules',
   call: 'space',
 });
@@ -166,10 +166,6 @@ export function withEntrySwitch(draft = {}, which, on) {
   return next;
 }
 
-const sameList = (a, b) => {
-  if (a === null || b === null) return a === b;
-  return a.length === b.length && a.every((id, i) => id === b[i]);
-};
 const sameSet = (a = [], b = []) => a.length === b.length && a.every((k) => b.includes(k));
 const listOrNull = (v) => (Array.isArray(v) && v.length ? v.filter((id) => typeof id === 'string') : null);
 const text = (v) => (typeof v === 'string' ? v.trim() : '');
@@ -282,7 +278,7 @@ export function withOpensFirst(draft = {}, id) {
 }
 
 // The PATCH body for what changed between `before` (the space as it was) and `after` (the panel's draft), each
-// { name, description, profile, link, linkIcon, publishCalendar, members, allowGuests, phases, opensWith, defaultLayout,
+// { name, description, profile, link, linkIcon, publishCalendar, members, allowGuests, phases, defaultLayout,
 // aiOff, budget }; a field left out of `after` is unchanged. The budget goes as null (none) or { amount, currency? }. The phase dates go whole, when any phase's start or end changed
 // (the order of the keys is no change). A name is trimmed, and an empty one is no change. The first visit's layout and
 // Opens with are independent (plan-layout-views.md, step 5): each goes only when it changed, never one for the other.
@@ -323,9 +319,6 @@ export function setupPatch(before = {}, after = {}, { phaseIds = null } = {}) {
   const wasLayout = layoutOrNull(before.defaultLayout);
   const nowLayout = after.defaultLayout === undefined ? wasLayout : layoutOrNull(after.defaultLayout);
   if (nowLayout !== wasLayout) patch.defaultLayout = nowLayout;
-  const wasList = listOrNull(before.opensWith);
-  const nowList = after.opensWith === undefined ? wasList : listOrNull(after.opensWith);
-  if (!sameList(wasList, nowList)) patch.opensWith = nowList;
   return patch;
 }
 
@@ -342,7 +335,7 @@ export function dirtyTabs(patch = {}, { image = false, modules = false, tabs: ha
 const PROBLEM_FIELDS = [
   [/template/i, 'template'],
   [/budget|currenc/i, 'budget'], [/may see/i, 'aiSees'], [/\bAI\b/, 'aiOff'], [/icon/i, 'linkIcon'], [/publish/i, 'publishCalendar'], [/link/i, 'link'], [/member/i, 'members'], [/guest/i, 'allowGuests'],
-  [/opens with/i, 'opensWith'], [/tabs|order|hide|always shown|listed twice|each layout once/i, 'tabs'], [/layout|first visit/i, 'defaultLayout'], [/profile/i, 'profile'], [/phase|date|\b(starts?|ends?)\b/i, 'phases'],
+  [/tabs|order|hide|always shown|listed twice|each layout once/i, 'tabs'], [/layout|first visit/i, 'defaultLayout'], [/profile/i, 'profile'], [/phase|date|\b(starts?|ends?)\b/i, 'phases'],
 ];
 export function problemField(patch = {}, problem = '') {
   const keys = Object.keys(patch);
@@ -356,7 +349,7 @@ export function problemField(patch = {}, problem = '') {
 // the members ("the players") and the guest link switch, which are role words, and each module's settings by its name.
 const FIELD_WORDS = {
   name: 'the name', description: 'the description', template: 'the template', profile: 'the faces in the call', link: 'the launch link', linkIcon: 'the link icon',
-  publishCalendar: 'the published calendar', opensWith: 'Opens with', phases: 'the phase dates', aiOff: 'Turn AI off', aiSees: 'What AI may see',
+  publishCalendar: 'the published calendar', phases: 'the phase dates', aiOff: 'Turn AI off', aiSees: 'What AI may see',
   defaultLayout: 'the first visit', tabs: 'the layouts', call: 'the call settings', image: 'the picture', imageRemoved: 'the picture', budget: 'the budget',
 };
 export function setupSaidWords({ saved = [], failed = null, problem = '' } = {}, { setUp = 'Set up', words = {} } = {}) {
@@ -391,7 +384,6 @@ function beforeOf(space = {}) {
     requestAccess: space.requestAccess === true,
     closed: space.closed === true,
     guestsSeeHidden: space.guestsSeeHidden === true,
-    opensWith: listOrNull(space.opensWith),
     defaultLayout: space.defaultLayout || null,
     tabs: tabsWhole(space.tabs),
     phases: datesCopy(space.phases),
@@ -401,7 +393,7 @@ function beforeOf(space = {}) {
     call: callOf(space.call), // the space's own; null for a key means the template's
   };
 }
-const copyOf = (b) => ({ ...b, tabs: tabsWhole(b.tabs), members: [...b.members], opensWith: b.opensWith ? [...b.opensWith] : null, phases: datesCopy(b.phases), budget: { ...b.budget }, call: { ...b.call }, aiSees: b.aiSees ? { ...b.aiSees, modules: Array.isArray(b.aiSees.modules) ? [...b.aiSees.modules] : b.aiSees.modules } : null });
+const copyOf = (b) => ({ ...b, tabs: tabsWhole(b.tabs), members: [...b.members], phases: datesCopy(b.phases), budget: { ...b.budget }, call: { ...b.call }, aiSees: b.aiSees ? { ...b.aiSees, modules: Array.isArray(b.aiSees.modules) ? [...b.aiSees.modules] : b.aiSees.modules } : null });
 // After a step of the save went through: each field it sent is now what the server answered, in both `before` and the
 // draft, so a value the server normalized (a link stored as https://example.com/ for https://example.com) is no
 // change and leaves no dot. The fields it did not send stay as they were. Answers { before, draft }, new objects.
@@ -421,7 +413,7 @@ const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // --- the panel ----------------------------------------------------------------------------------------------------
 
-// `deps`: { tabOverflow, openMenu, api, word, verb, icons, switchListHtml, wireSwitchList, opensWithSummary, escapeHtml, doc, layoutVerb,
+// `deps`: { tabOverflow, openMenu, api, word, verb, icons, switchListHtml, wireSwitchList, opensWithLine, escapeHtml, doc, layoutVerb,
 // renderModuleSettings }. Returns { open(opts), close(), done(), cancel(), isOpen(), select(tab), el }. `open({ space,
 // owner, moderator, phases, rule, today, tab, onDone, onSaved, onDeleted, onLinks, onTab, onLeave, nameInput })`:
 // `space` the space's record, `phases` the template's phases (a list) and `rule` the Phases object (public/phases.js),
@@ -430,7 +422,7 @@ const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // a part of it did and a later request was refused, `onDeleted(space)` after Delete, `onLinks(space)` after an invite
 // or guest link action, `onTab(id)` as the tab changes, `onLeave()` when the mode ends either way.
 export function createSpaceSetup(deps) {
-  const { api, word, switchListHtml, wireSwitchList, opensWithSummary, escapeHtml, tabOverflow, openMenu: openHostMenu } = deps; // tabOverflow (primary-nav.js) and openMenu (host-menu.js) come from the page
+  const { api, word, switchListHtml, wireSwitchList, opensWithLine, escapeHtml, tabOverflow, openMenu: openHostMenu } = deps; // tabOverflow (primary-nav.js) and openMenu (host-menu.js) come from the page
   const doc = deps.doc || document;
   const el = doc.createElement('aside');
   el.id = 'space-setup';
@@ -637,7 +629,7 @@ export function createSpaceSetup(deps) {
   // shared layouts share. One choice, the space's defaultLayout. Painted by paintLayoutRows(); a draft, saved with Save.
   function layoutsSectionHtml() {
     return `<section class="setup-section" data-section="layouts"><h3 class="setup-heading" id="setup-layouts-heading">Layouts</h3>
-        <p class="hint" id="setup-layouts-hint">Which layouts show in the bar at the top of this ${esc(spaceWord())}, in what order, and which opens first. Everyone in this ${esc(spaceWord())} sees them. Each person can hide more for themselves, but not bring back one you hid. Saved with Save.</p>
+        <p class="hint" id="setup-layouts-hint">Which layouts show in the bar at the top of this ${esc(spaceWord())}, in what order, and which opens first. Everyone in this ${esc(spaceWord())} sees them. One you show is pinned: it stays in the bar for everyone, and nobody can hide it for themselves. Saved with Save.</p>
         <ul class="setup-layout-rows" id="setup-layout-rows" aria-labelledby="setup-layouts-heading" aria-describedby="setup-layouts-hint"></ul>
         <p class="visually-hidden" id="setup-layouts-live" role="status" aria-live="polite"></p></section>`;
   }
@@ -654,9 +646,8 @@ export function createSpaceSetup(deps) {
         <fieldset class="setup-first-visit" id="setup-first-visit" aria-labelledby="setup-first-visit-heading" aria-describedby="setup-first-visit-hint">
           <div class="setup-workspace-content">
             <p class="setup-subheading" id="setup-opens-with-label">In the Workspace, a new person sees these open</p>
-            <div class="opens-with-list setup-opens-with" id="setup-opens-with" role="group" aria-labelledby="setup-opens-with-label" aria-describedby="setup-opens-with-hint"></div>
-            <p class="hint" id="setup-opens-with-note" hidden></p>
-            <p class="hint" id="setup-opens-with-hint">What opens the first time someone new enters, in the Workspace. Calendar takes in To-do.</p>
+            <p class="setup-opens-with-read" id="setup-opens-with" aria-labelledby="setup-opens-with-label" aria-describedby="setup-opens-with-hint"></p>
+            <p class="hint" id="setup-opens-with-hint">This comes from the ${esc(spaceWord())}'s template.</p>
           </div>
           <div class="setup-first-layouts" id="setup-first-visit-layouts"></div>
         </fieldset>
@@ -1183,37 +1174,16 @@ export function createSpaceSetup(deps) {
       ...o.modules.map((m) => ({ id: m.id, name: m.name, icon: m.icon })),
     ];
   }
-  // A saved id that cannot open now, as the old page said it: its name and icon where they are known, and why (from the
-  // installed modules, which an owner can read; a moderator reads the shorter note).
-  function keptChoice(id) {
-    const installed = state.installed;
-    if (!installed) return { id, name: id, icon: 'puzzle-piece', note: `not on in this ${word('space')}` };
-    const m = installed.find((x) => x.id === id);
-    if (!m) return { id, name: id, icon: 'puzzle-piece', note: 'not installed' };
-    const shown = { id, name: m.displayName || m.name, icon: m.displayIcon || m.icon };
-    if (!m.enabled) return { ...shown, note: 'turned off' };
-    return { ...shown, note: `can't open on the ${word('canvas')}` };
-  }
+  // What the template opens a new person with, as a sentence: read only (the template's Default Workspace decides).
   function paintOpensWith() {
-    const list = q('#setup-opens-with');
     const all = choices();
-    const stored = state.draft.opensWith || [];
-    const apart = new Set(groupedParts(all.map((c) => c.id))); // To-do sits under Calendar
-    const rows = all.filter((c) => !apart.has(c.id));
-    const kept = stored.filter((id) => id !== 'conference' && !all.some((c) => c.id === id)).map(keptChoice);
-    list.innerHTML = switchListHtml([...rows, ...kept].map((c) => ({ ...c, on: switchOn(stored, c.id) })), 'opens');
-    wireSwitchList(list);
-    const note = q('#setup-opens-with-note');
-    const summary = opensWithSummary({
-      list: state.draft.opensWith,
-      environment: state.options.environment,
+    q('#setup-opens-with').textContent = opensWithLine({
+      list: state.options.opensWith,
       modules: state.options.modules.map((m) => m.id),
       canOpen: (id) => all.some((c) => c.id === id),
       nameOf: (id) => all.find((c) => c.id === id)?.name || id,
       groupOf: (id) => (all.some((c) => c.id === groupOf(id)) ? groupOf(id) : id),
     });
-    note.textContent = summary;
-    note.hidden = !summary;
   }
   // The layouts that can be what opens first: the fixed ones the server lists for this space (Layouts section), then the shared
   // layouts by name, each with its icon. `fixed` and `shared` are the two parts; the radios of both are one group.
@@ -1245,10 +1215,10 @@ export function createSpaceSetup(deps) {
     list.innerHTML = rows.map((r, i) => {
       const name = escapeHtml(r.name);
       return `<li class="setup-layout-row" data-layout="${escapeHtml(r.id)}">
-        <div class="setup-layout-head"><i class="fa-solid fa-${iconOk(r.icon) ? escapeHtml(r.icon) : 'object-group'} fa-fw" aria-hidden="true"${r.id === 'workspace' ? ' id="setup-workspace-icon"' : ''}></i><span class="setup-layout-name"${r.id === 'workspace' ? ' id="setup-workspace-name"' : ''}>${name}</span>
+        <div class="setup-layout-head"><i class="fa-solid fa-${iconOk(r.icon) ? escapeHtml(r.icon) : 'object-group'} fa-fw" aria-hidden="true"${r.id === 'workspace' ? ' id="setup-workspace-icon"' : ''}></i><span class="setup-layout-name"${r.id === 'workspace' ? ' id="setup-workspace-name"' : ''}>${name}</span>${r.shown && !r.locked ? '<i class="fa-solid fa-thumbtack setup-layout-pinned" data-pinned title="Pinned: kept in the bar for everyone" aria-hidden="true"></i>' : ''}
           <span class="setup-layout-move"><button type="button" class="btn btn-small" data-move="up" aria-label="Move ${name} up"${i === 0 || !can ? ' disabled' : ''}><i class="fa-solid fa-arrow-up" aria-hidden="true"></i> Move up</button><button type="button" class="btn btn-small" data-move="down" aria-label="Move ${name} down"${i === rows.length - 1 || !can ? ' disabled' : ''}><i class="fa-solid fa-arrow-down" aria-hidden="true"></i> Move down</button></span></div>
         <div class="setup-layout-controls">
-          <label class="sdk-choice-row setup-layout-show"><span class="sdk-choice-text"><span class="sdk-choice-label">Show in the bar</span>${r.locked ? '<span class="sdk-choice-desc">The Workspace is always shown.</span>' : ''}</span><input type="checkbox" class="sdk-switch" role="switch" data-layout-show="${escapeHtml(r.id)}" aria-label="Show ${name} in the bar"${r.shown ? ' checked' : ''}${r.locked || !can ? ' disabled' : ''}></label>
+          <label class="sdk-choice-row setup-layout-show"><span class="sdk-choice-text"><span class="sdk-choice-label">Show in the bar</span>${r.locked ? '<span class="sdk-choice-desc">The Workspace is always shown.</span>' : r.shown ? '<span class="sdk-choice-desc">Pinned: kept in the bar for everyone.</span>' : ''}</span><input type="checkbox" class="sdk-switch" role="switch" data-layout-show="${escapeHtml(r.id)}" aria-label="Show ${name} in the bar"${r.shown ? ' checked' : ''}${r.locked || !can ? ' disabled' : ''}></label>
           <label class="setup-choice setup-layout-first"><input type="radio" name="setup-first-visit" value="${escapeHtml(r.id)}"${r.id === 'workspace' ? ' id="setup-first-workspace"' : ''} aria-label="${name} opens first"><span class="setup-choice-name">Opens first</span></label>
         </div></li>`;
     }).join('');
@@ -1632,12 +1602,6 @@ export function createSpaceSetup(deps) {
     if (ai) ai.addEventListener('change', () => { state.draft.aiOff = ai.checked; });
     wireAiSees();
     wireCall();
-    const list = q('#setup-opens-with');
-    if (list) list.addEventListener('change', (event) => {
-      if (event.target.type !== 'checkbox') return;
-      state.draft.opensWith = setSwitch(state.draft.opensWith, event.target.dataset.opens, event.target.checked); // the first visit's choice stays as it is
-      paintOpensWith();
-    });
     const content = q('#setup-content-modules');
     if (content) {
       content.addEventListener('change', layoutsEvent);
@@ -1685,7 +1649,7 @@ export function createSpaceSetup(deps) {
   function takeServerSpace(record) {
     const fresh = beforeOf(record);
     for (const k of Object.keys(fresh)) {
-      if (k === 'opensWith' || k === 'defaultLayout') continue; // loadOptions has these from the first visit's own answer
+      if (k === 'defaultLayout') continue; // loadOptions has this from the first visit's own answer
       if (sameValue(state.draft[k], state.before[k])) {
         state.draft[k] = Array.isArray(fresh[k]) ? [...fresh[k]] : k === 'tabs' ? tabsWhole(fresh[k]) : k === 'phases' ? datesCopy(fresh[k]) : k === 'budget' || k === 'call' ? { ...fresh[k] } : fresh[k];
         state.before[k] = fresh[k];
@@ -1703,7 +1667,7 @@ export function createSpaceSetup(deps) {
     state.callIn = true;
     paintCall();
   }
-  // A moderator's own answer for the space ({ id, phases, opensWith, defaultLayout, budget }) holds the stored budget and
+  // A moderator's own answer for the space ({ id, phases, defaultLayout, budget }) holds the stored budget and
   // nothing else of the record, so only the budget is taken from it; the module list they may use is loadOptions'.
   async function loadModeratorParts(space) {
     let lookCall = null;
@@ -1876,16 +1840,13 @@ export function createSpaceSetup(deps) {
     state.options = {
       modules: (answer.modules || []).filter((m) => !m.canvas || m.canvas.menu !== false),
       builtin: answer.builtin || [],
-      environment: Array.isArray(answer.spaceDefaultsOpensWith) ? answer.spaceDefaultsOpensWith : null,
+      // What the template opens a new person with (its Default Workspace); the space keeps no list of its own. Read only.
+      opensWith: listOrNull((answer.firstVisit && answer.firstVisit.opensWith !== undefined ? answer.firstVisit : answer).opensWith),
       budgetModules: answer.modules || [], // a moderator's list for the Budget section (an owner has GET /api/modules)
     };
     // The server's own view is the freshest: the presence record may lag a save by someone else. What was not touched
     // while it was asked is set from it; the first visit as the server resolved it (a layout no longer there reads as
     // the Workspace, and stays stored until another is picked).
-    if (answer.opensWith !== undefined && sameList(listOrNull(state.draft.opensWith), listOrNull(state.before.opensWith))) {
-      state.draft.opensWith = listOrNull(answer.opensWith);
-      state.before.opensWith = state.draft.opensWith ? [...state.draft.opensWith] : null;
-    }
     const fv = layouts.firstVisit || answer.firstVisit;
     const served = fv && typeof fv.layout === 'string' ? layoutOrNull(fv.layout) : answer.defaultLayout !== undefined ? (answer.defaultLayout ? answer.defaultLayout.id : null) : undefined;
     if (served !== undefined && layoutOrNull(state.draft.defaultLayout) === layoutOrNull(state.before.defaultLayout)) {
@@ -1911,7 +1872,7 @@ export function createSpaceSetup(deps) {
     const before = beforeOf(space);
     state = {
       space, tabs, tab: null, opts, owner: Boolean(opts.owner), before, draft: copyOf(before),
-      options: { modules: [], builtin: [], environment: null }, layouts: { system: [], shared: [], canSetDefault: true },
+      options: { modules: [], builtin: [], opensWith: null }, layouts: { system: [], shared: [], canSetDefault: true },
       image: { file: null, url: '', remove: false }, links: { guestToken: space.guestToken || null, allowGuests: space.allowGuests !== false },
       users: null, saving: false, rule, phaseList, today: opts.today || null, installed: null, moduleSettings: null,
     };
@@ -1970,7 +1931,7 @@ export function createSpaceSetup(deps) {
   const FIELD_INPUT = {
     name: '#setup-name', description: '#setup-description', template: '#setup-template', profile: '#setup-profile', link: '#setup-link', linkIcon: '#setup-link-icon [aria-checked="true"]',
     publishCalendar: '#setup-publish-calendar', members: '#setup-members input', allowGuests: '#setup-allow-guests', entry: '#setup-entry-accounts', closed: '#setup-open', requestAccess: '#setup-request-access', budget: '#setup-budget-amount',
-    opensWith: '#setup-opens-with input', defaultLayout: 'input[name="setup-first-visit"]:checked', tabs: '#setup-layout-rows [data-layout-show]:not(:disabled)', image: '.setup-picture-pick input', imageRemoved: '.setup-picture-pick input',
+    defaultLayout: 'input[name="setup-first-visit"]:checked', tabs: '#setup-layout-rows [data-layout-show]:not(:disabled)', image: '.setup-picture-pick input', imageRemoved: '.setup-picture-pick input',
     phases: '#setup-phase-list input:not(:disabled)', aiOff: '#setup-ai-off', aiSees: '#setup-ai-sees-follow', call: '#setup-call-join',
   };
   // The fields in this environment's words: the members, the guest link switch, and each module's settings by its name.

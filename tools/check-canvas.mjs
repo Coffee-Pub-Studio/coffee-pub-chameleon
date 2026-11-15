@@ -93,7 +93,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-check-'));
   const copy = path.join(tmp, 'opens-with.mjs');
   fs.copyFileSync(path.join(ROOT, 'public/opens-with.js'), copy);
-  const { whatOpens, conferenceAllowed, opensWithSummary, shouldAutoJoin, firstVisitLayout, SYSTEM_TABS } = await import(pathToFileURL(copy).href);
+  const { whatOpens, conferenceAllowed, opensWithLine, shouldAutoJoin, firstVisitLayout, SYSTEM_TABS } = await import(pathToFileURL(copy).href);
   fs.rmSync(tmp, { recursive: true, force: true });
   // GitHub #199: entering joins the call by itself only with the environment's setting on, out of the call, where Join
   // the call would show, not in an aside, and not for a person who left the call since they entered.
@@ -121,19 +121,17 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     ['nothing set, a guest without the conference: the chat',
       { modules: ['todo'], canOpen: noConference, guest: true }, ['chat']],
     ['the remembered layout wins after a first visit',
-      { remembered: ['todo', 'conference'], own: ['chat'], environment: ['notes'], modules: ['todo', 'notes'] }, ['todo', 'conference']],
+      { remembered: ['todo', 'conference'], own: ['chat'], modules: ['todo', 'notes'] }, ['todo', 'conference']],
     ['a remembered empty layout stays empty',
       { remembered: [], own: ['chat'], modules: ['todo'] }, []],
     ['a guest has no remembered layout: the space\'s own list',
       { remembered: ['todo'], own: ['notes', 'chat'], modules: ['todo', 'notes'], guest: true }, ['notes', 'chat']],
-    ['the space\'s own list before the environment\'s, less what may not be opened, in its order',
-      { own: ['notes', 'conference', 'gone', 'chat'], environment: ['todo'], modules: ['notes'], canOpen: (id) => id !== 'gone' }, ['notes', 'conference', 'chat']],
-    ['the environment\'s list for a space with none of its own',
-      { environment: ['todo', 'chat'], modules: ['todo', 'notes'] }, ['todo', 'chat']],
-    ['a guest with the environment\'s list',
-      { environment: ['todo', 'chat'], modules: ['todo'], guest: true }, ['todo', 'chat']],
+    ['the space\'s list (its template\'s), less what may not be opened, in its order',
+      { own: ['notes', 'conference', 'gone', 'chat'], modules: ['notes'], canOpen: (id) => id !== 'gone' }, ['notes', 'conference', 'chat']],
+    ['a guest with the template\'s list',
+      { own: ['todo', 'chat'], modules: ['todo'], guest: true }, ['todo', 'chat']],
     ['a list set with nothing that may be opened leaves the canvas empty',
-      { own: ['gone'], environment: ['chat'], canOpen: (id) => id !== 'gone' }, []],
+      { own: ['gone'], canOpen: (id) => id !== 'gone' }, []],
     ['a repeat opens once',
       { own: ['chat', 'chat', 'todo'] }, ['chat', 'todo']],
     // The always-on column (plan-one-bar.md, step 6): asked with `column`, the conference and the chat are left out of
@@ -179,20 +177,20 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     ['a call service, the switch on, an owner: allowed', conferenceAllowed({ callService: true, conferenceEnabled: true, permitted: true }), true],
     ['a list with the conference, switched off, for an owner', whatOpens({ own: ['conference', 'chat'], canOpen: ownerCanOpen(false) }), ['chat']],
     ['a list with the conference, switched on, for an owner', whatOpens({ own: ['conference', 'chat'], canOpen: ownerCanOpen(true) }), ['conference', 'chat']],
-    // Space settings' sentence comes from the stored list, not the ticks on screen.
-    ['a stored list with nothing that can open: nothing opens, and no module is named',
-      opensWithSummary({ list: ['gone'], environment: ['chat'], modules: ['todo'], canOpen: (id) => id !== 'gone', nameOf: (id) => ({ chat: 'Chat', todo: 'To-do' })[id] || id }),
-      'None of the ones switched on can open now, so nothing opens.'],
-    ['a stored list that opens something: nothing to add', opensWithSummary({ list: ['gone', 'todo'], modules: ['todo'], canOpen: (id) => id !== 'gone' }), ''],
-    ['nothing stored: what opens instead, by name',
-      opensWithSummary({ list: null, modules: ['todo', 'polls'], nameOf: (id) => ({ chat: 'Chat', todo: 'To-do', polls: 'Polls' })[id] }),
-      'Nothing switched on: Chat, To-do and Polls open.'],
-    ['the summary says each switch once: To-do under Calendar',
-      opensWithSummary({ list: null, modules: ['maps', 'calendar', 'todo'], nameOf: (id) => ({ maps: 'Maps', calendar: 'Calendar' })[id] || id, groupOf: (id) => ({ todo: 'calendar' })[id] || id }),
-      'Nothing switched on: chat, Maps and Calendar open.'],
-    ['nothing stored, the environment\'s list: its names',
-      opensWithSummary({ list: null, environment: ['todo'], modules: ['todo', 'polls'], nameOf: (id) => ({ todo: 'To-do' })[id] }),
-      'Nothing switched on: To-do opens.'],
+    // Set up's read-only line says what the template opens a new person with, each name once.
+    ['the template names a list: its names, in its order, less what cannot open',
+      opensWithLine({ list: ['gone', 'chat', 'todo'], modules: ['todo'], canOpen: (id) => id !== 'gone', nameOf: (id) => ({ chat: 'Chat', todo: 'To-do' })[id] || id }),
+      'Chat and To-do open.'],
+    ['one name: it opens',
+      opensWithLine({ list: ['chat'], nameOf: () => 'Chat' }), 'Chat opens.'],
+    ['a list with nothing that can open: nothing opens, and no module is named',
+      opensWithLine({ list: ['gone'], modules: ['todo'], canOpen: (id) => id !== 'gone', nameOf: () => 'To-do' }), 'Nothing opens.'],
+    ['the template names none: what the product opens, by name',
+      opensWithLine({ list: null, modules: ['todo', 'polls'], nameOf: (id) => ({ chat: 'Chat', todo: 'To-do', polls: 'Polls' })[id] }),
+      'Chat, To-do and Polls open.'],
+    ['the line says each switch once: To-do under Calendar',
+      opensWithLine({ list: null, modules: ['maps', 'calendar', 'todo'], nameOf: (id) => ({ maps: 'Maps', calendar: 'Calendar' })[id] || id, groupOf: (id) => ({ todo: 'calendar' })[id] || id }),
+      'chat, Maps and Calendar open.'],
   ];
   for (const [name, got, want] of checks) {
     try {
@@ -228,13 +226,12 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
       fail('public/opens-with.js', `firstVisitLayout, ${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
     }
   }
-  const emptySentence = opensWithSummary({ list: ['gone'], modules: ['todo'], canOpen: (id) => id !== 'gone', nameOf: () => 'To-do' });
-  if (/To-do|Chat/.test(emptySentence)) fail('public/opens-with.js', `a list with nothing openable must not name what would open without it (got "${emptySentence}")`);
   const spaceJs = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
   if (!/allowed: \(\) => conferenceAllowed\(\{ callService: features\.callService, conferenceEnabled: features\.conferenceEnabled/.test(spaceJs)) fail('public/space.js', 'the conference module\'s allowed() must follow the server\'s call service and the environment\'s switch (conferenceAllowed), for owners too');
   if (!/callService: branding\.callService !== false/.test(spaceJs)) fail('public/space.js', 'features.callService must come from branding.callService, so a server with no call service shows no conference');
   const settingsJs = fs.readFileSync(path.join(ROOT, 'public/space-setup.js'), 'utf8');
-  if (!/opensWithSummary\(\{\s*list: state\.draft\.opensWith/.test(settingsJs)) fail('public/space-setup.js', 'the Opens with sentence must come from the list being edited (opensWithSummary with list: state.draft.opensWith)');
+  if (!/opensWithLine\(\{\s*list: state\.options\.opensWith/.test(settingsJs)) fail('public/space-setup.js', 'the Opens with line must come from the template\'s list (opensWithLine with list: state.options.opensWith)');
+  if (/spaceDefaultsOpensWith|state\.draft\.opensWith|data-opens/.test(settingsJs) || /spaceDefaultsOpensWith/.test(fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8'))) fail('public/space-setup.js', 'Opens with is read only: no switches, no draft, no environment list (the template decides)');
   const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');
   const restore = canvasJs.slice(canvasJs.indexOf('function restore('), canvasJs.indexOf('// --- the toolbar button'));
   if (!/whatOpens\(\{[^}]*\bguest,/s.test(restore)) fail('public/canvas.js', 'restore() must ask whatOpens (opens-with.js) for what to open, with whether this is a guest');

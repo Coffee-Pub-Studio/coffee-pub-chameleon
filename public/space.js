@@ -9,7 +9,7 @@ import { renderModuleSettings } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
 import { createCanvas } from '/canvas.js';
 import { layoutDiffers } from '/layouts.js';
-import { conferenceAllowed, opensWithSummary, shouldAutoJoin } from '/opens-with.js';
+import { conferenceAllowed, opensWithLine, shouldAutoJoin } from '/opens-with.js';
 import { switchListHtml, wireSwitchList } from '/switch-list.js';
 import { createWhoHere } from '/space-people.js';
 import { openLiveStream, liveStreamUrl, peopleFromPresence } from '/space-live.js';
@@ -3062,7 +3062,7 @@ nav.register({ id: 'aside-rejoin', bar: 'primary', zone: 'right', group: 'aside'
 // in order, and leaves the mode; Cancel and Escape leave it and drop the edits, asking "Discard your changes?" first
 // when something was edited; a click outside does nothing. A member has no Set up. /?setup=<id>#<tab> opens it from an
 // address (openSetupFor, step 6), as do the space card's Set up link on Home and Manage's Edit link.
-const spaceSetup = createSpaceSetup({ tabOverflow, openMenu: openHostMenu, api, word, verb, icons: getIcons, switchListHtml, wireSwitchList, opensWithSummary, escapeHtml, layoutVerb: () => verb('layout'), renderModuleSettings });
+const spaceSetup = createSpaceSetup({ tabOverflow, openMenu: openHostMenu, api, word, verb, icons: getIcons, switchListHtml, wireSwitchList, opensWithLine, escapeHtml, layoutVerb: () => verb('layout'), renderModuleSettings });
 let settingUp = false;
 const setupNameInput = document.createElement('input');
 setupNameInput.type = 'text';
@@ -3327,12 +3327,12 @@ function layoutMenuItems() {
   // signed in: the choices are their own) holds Favorite or Unfavorite for Calendar and Map (their tab; the Workspace's
   // always stays), then Rename and Change icon (systemRowItems). Never Delete: a system layout stays.
   for (const l of layoutList.system) {
-    const tabbed = l.id !== 'workspace' && l.tab !== false;
+    const pinned = l.id !== 'workspace' && l.pinned === true; // the owner keeps it in the bar
     const ownerHid = l.shown === false; // the owner took it out of the bar: it stays here to choose, and says why it has no tab
     items.push({
       icon: /^[a-z0-9-]{1,40}$/.test(l.icon || '') ? l.icon : 'object-group',
       label: l.name,
-      mark: tabbed ? 'heart' : undefined,
+      mark: pinned ? 'thumbtack' : undefined,
       tag: ownerHid ? 'Hidden in Set up' : l.id !== 'workspace' && l.id === layoutList.firstVisit?.layout ? 'Default' : undefined, // Calendar or Map as the first visit (Set up)
       radio: true,
       checked: l.id === currentLayoutTab,
@@ -3369,7 +3369,8 @@ function systemRowItems(systemId) {
   const l = findSystemLayout(systemId);
   if (!l || !mayFavorite()) return [];
   const entries = [];
-  if (l.id !== 'workspace') {
+  // A pinned one (the owner shows it) has no hide: it stays in the bar for everyone, so there is no Favorite or Unfavorite.
+  if (l.id !== 'workspace' && l.pinned !== true) {
     // The owner's hide wins (the server says 409): no way to turn its tab back on here, and the row says why.
     entries.push(l.shown === false
       ? { icon: 'heart', regular: true, label: 'Favorite', disabled: true, tag: 'Hidden in Set up' }
@@ -3870,7 +3871,7 @@ let layoutTabsDrawn = ''; // what the tabs show now, so an unchanged list keeps 
 function renderLayoutTabs() {
   if (spaceSetup.isOpen()) spaceSetup.redrawShow(); // the Modules tab follows the layout shown (a Fixed Workspace's switches, or the canvas menu)
   const list = layoutTabList();
-  const key = JSON.stringify(list.map((t) => [t.id, t.icon, t.label, t.temp === true]));
+  const key = JSON.stringify(list.map((t) => [t.id, t.icon, t.label, t.temp === true, t.pinned === true]));
   if (key !== layoutTabsDrawn) {
     layoutTabsDrawn = key;
     const doc = layoutTabsEl.ownerDocument;
@@ -3884,7 +3885,9 @@ function renderLayoutTabs() {
       b.dataset.layoutTab = t.layout;
       b.title = t.label;
       b.setAttribute('aria-label', t.label);
-      b.innerHTML = `<i class="fa-solid fa-${escapeHtml(t.icon)} fa-fw" aria-hidden="true"></i><span class="core-label">${escapeHtml(t.label)}</span>`;
+      // A pinned tab wears a small pin: the owner keeps it in the bar, so it has no way to hide it.
+      if (t.pinned) { b.title = `${t.label}. Kept in the bar by the ${word('owner')}.`; b.setAttribute('aria-label', `${t.label}, kept in the bar by the ${word('owner')}`); }
+      b.innerHTML = `<i class="fa-solid fa-${escapeHtml(t.icon)} fa-fw" aria-hidden="true"></i><span class="core-label">${escapeHtml(t.label)}</span>${t.pinned ? '<i class="fa-solid fa-thumbtack layout-tab-pinned" aria-hidden="true"></i>' : ''}`;
       if (!t.temp || t.kind === 'system') return [b]; // a fixed layout's tab is turned on by its Favorite, in the Layout menu
       // A temporary tab (a saved layout shown that is not a favorite): a heart beside it pins it as a favorite.
       const pin = doc.createElement('button');

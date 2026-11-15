@@ -695,13 +695,13 @@ test('the default layout (plan-saved-layouts.md, step 4): Make default in a shar
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'public/style.css'), 'utf8'), /\.setup-module-(about|list|text)/, 'the list\'s styles went with it');
   // Space settings: the line and Stop using it; a list set by hand refreshes it from the answered space.
   assert.match(settingsHtml, /<button type="button" class="btn btn-small" id="setup-opens-with-layout-stop">Stop using it<\/button>/);
-  assert.ok(settingsHtml.indexOf('id="setup-opens-with-layout"') < settingsHtml.indexOf('id="setup-opens-with"'), 'above the switches');
+  assert.ok(settingsHtml.indexOf('id="setup-opens-with-layout"') < settingsHtml.indexOf('id="setup-opens-with"'), 'above the Opens with line');
   assert.match(settings, /`Opens with the layout \$\{known\.name\}`/);
   // Moved to the panel: Calendar or Map as the first visit are choices of their own, named from the layouts payload.
   assert.match(settings, /fixedAvailable\(\)\.filter\(\(r\) => r\.id !== 'workspace'\)\.map\(\(r\) => \(\{ id: r\.id, name: r\.name,/, 'the fixed layouts (Calendar and Map among them) are named choices');
-  // Changed on purpose: the page PATCHed defaultLayout and opensWith at once; the panel keeps both as drafts for Save.
+  // Changed on purpose: the page PATCHed defaultLayout at once; the panel keeps it as a draft for Save. Opens with is read only.
   assert.match(settings, /function stopUsingLayout\(\) \{\n\s*state\.draft\.defaultLayout = null;/, 'Stop using it is a draft change, saved with Save');
-  assert.match(settings, /state\.draft\.opensWith = setSwitch\(state\.draft\.opensWith, event\.target\.dataset\.opens, event\.target\.checked\); \/\/ the first visit's choice stays as it is/, 'a list set by hand leaves the first visit alone');
+  assert.ok(!/state\.draft\.opensWith|data-opens|setSwitch/.test(settings), 'Opens with has no switches and no draft: the template decides');
 });
 
 test('favorite layouts, step 2 (plan-favorite-layouts.md): a ... on every row for anyone signed in, Favorite or Unfavorite first with its heart, the row\'s heart, the notes; a guest gets none', () => {
@@ -817,7 +817,7 @@ test('Rename and Change icon (plan-layout-views.md, step 4): a system row\'s ...
   // The system row's ...: anyone signed in; Favorite/Unfavorite only off the Workspace; Rename and Change icon; no Delete.
   const sysFn = space.slice(space.indexOf('function systemRowItems(systemId) {'), space.indexOf('// A layout\'s ...: Favorite or Unfavorite first'));
   assert.match(sysFn, /if \(!l \|\| !mayFavorite\(\)\) return \[\];/, 'never for a guest');
-  assert.match(sysFn, /if \(l\.id !== 'workspace'\) \{\n[^\n]*\n\s*entries\.push\(l\.shown === false\n[^\n]*\n\s*: l\.tab !== false\n\s*\? \{ icon: 'heart', label: 'Unfavorite', onPick: \(\) => setFavorite\(l, false\) \}\n\s*: \{ icon: 'heart', regular: true, label: 'Favorite', onPick: \(\) => setFavorite\(l, true\) \}\);/, 'the Workspace is never unfavorited');
+  assert.match(sysFn, /if \(l\.id !== 'workspace' && l\.pinned !== true\) \{\n[^\n]*\n\s*entries\.push\(l\.shown === false\n[^\n]*\n\s*: l\.tab !== false\n\s*\? \{ icon: 'heart', label: 'Unfavorite', onPick: \(\) => setFavorite\(l, false\) \}\n\s*: \{ icon: 'heart', regular: true, label: 'Favorite', onPick: \(\) => setFavorite\(l, true\) \}\);/, 'the Workspace is never unfavorited, and a pinned one (the owner shows it) has no Favorite or Unfavorite');
   assert.match(sysFn, /\{ icon: 'pen', label: 'Rename', onPick: \(\) => startRename\(l\.id\) \},\n\s*\{ icon: 'icons', label: 'Change icon', onPick: \(\) => startChangeIcon\(l\.id\) \},/);
   assert.ok(!/Delete|Replace|Make default/.test(sysFn), 'a system layout is not deleted, replaced or made the default here');
   // A saved row: Change icon after Rename, where the layout may be changed (the server refuses a member's PUT on a shared one).
@@ -856,7 +856,7 @@ test('Rename and Change icon (plan-layout-views.md, step 4): a system row\'s ...
   assert.match(change, /if \(system\) await layoutRequest\('PATCH', systemLayoutUrl\(layoutSpaceId\(\), layoutId\), \{ icon: icon === system\.defaultIcon \? null : icon \}\);\n\s*else await layoutRequest\('PUT', layoutUrl\(layoutSpaceId\(\), layoutId\), \{ icon \}\);/, 'the default icon saved as null, so it follows the default');
   assert.match(change, /await refreshLayouts\(\);/);
   // The tabs redraw on a new icon or name (their key holds both).
-  assert.match(space, /const key = JSON\.stringify\(list\.map\(\(t\) => \[t\.id, t\.icon, t\.label, t\.temp === true\]\)\);/);
+  assert.match(space, /const key = JSON\.stringify\(list\.map\(\(t\) => \[t\.id, t\.icon, t\.label, t\.temp === true, t\.pinned === true\]\)\);/);
   assert.match(css, /\.layout-icon-grid \{[^}]*overflow-y: auto;/);
   assert.match(css, /\.layout-field-hint \{[^}]*color: var\(--text-dim\);/);
 });
@@ -2355,16 +2355,16 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   assert.deepEqual(setupTabs({ owner: true }), ['space', 'members', 'phases', 'modules']);
   assert.ok(!setupTabs({ owner: true, show: true }).includes('opens-with'), 'no First visit tab: it is a section of Settings');
   assert.deepEqual(setupTabs({ owner: true, moderator: true }), ['space', 'members', 'phases', 'modules'], 'an owner who is also ticked moderator sees everything');
-  assert.deepEqual(setupTabs({ moderator: true }), ['phases', 'modules'], 'what the server lets a moderator PATCH (phases, opensWith, defaultLayout): Settings holds First visit and the module settings');
+  assert.deepEqual(setupTabs({ moderator: true }), ['phases', 'modules'], 'what the server lets a moderator PATCH (phases, defaultLayout, tabs, closed, budget): Settings holds First visit and the module settings');
   assert.deepEqual(setupTabs({ owner: true, phases: false }), ['space', 'members', 'modules'], 'no phases in the template: no Phases tab');
   assert.deepEqual(setupTabs({ moderator: true, phases: false }), ['modules'], 'a moderator always has Settings: First visit is in it');
   assert.deepEqual(setupTabs({}), [], 'a member has no panel');
   assert.equal(tabOfField('aiOff'), 'modules');
   assert.equal(tabOfField('module:todo'), 'modules', 'a module\'s settings live on the Settings tab');
-  assert.equal(tabOfField('opensWith'), 'modules', 'First visit is a section of the Settings tab');
+  assert.equal(tabOfField('opensWith'), null, 'Opens with is not a field of Set up any more');
   assert.equal(tabOfField('defaultLayout'), 'modules');
   assert.equal(tabOfField('phases'), 'phases');
-  assert.deepEqual([...MODERATOR_FIELDS], ['phases', 'opensWith', 'defaultLayout', 'tabs', 'budget', 'closed'], 'the server\'s MODERATOR_SPACE_FIELDS');
+  assert.deepEqual([...MODERATOR_FIELDS], ['phases', 'defaultLayout', 'tabs', 'budget', 'closed'], 'the server\'s MODERATOR_SPACE_FIELDS');
   const owner = setupTabs({ owner: true });
   assert.equal(pickTab(owner, '#members'), 'members', 'the fragment picks the tab');
   assert.equal(pickTab(owner, '#modules'), 'modules', 'the old page\'s #modules lands on the Settings tab');
@@ -2441,10 +2441,7 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   assert.match(setup, /state\.draft\.phases = answer\.dates;/, 'an edit kept is the draft, sent by Save');
   assert.match(space, /phases: templatePhases, \/\/ drawn inline/);
   assert.match(space, /phaseChip\.addEventListener\('click', \(\) => openPhaseSheetFrom\(phaseChip\)\);/, 'the chip\'s sheet is unchanged');
-  // First visit complete: the kept ids said why (the old page's notes), and Stop using it for a default layout, a draft.
-  assert.match(setup, /if \(!m\) return \{ id, name: id, icon: 'puzzle-piece', note: 'not installed' \};/);
-  assert.match(setup, /if \(!m\.enabled\) return \{ \.\.\.shown, note: 'turned off' \};/);
-  assert.match(setup, /note: `can't open on the \$\{word\('canvas'\)\}`/);
+  // First visit complete: Stop using it for a default layout, a draft (the kept ids and their notes went with the switches).
   assert.match(setup, /`Opens with the layout \$\{known\.name\}`/);
   assert.match(setup, /function stopUsingLayout\(\) \{\n\s*state\.draft\.defaultLayout = null;/, 'Stop using it is a draft, as every field is');
   // The modules tab (step 5): what is on, Turn AI off (an owner's space field), the module settings in the draft mode.
@@ -2457,17 +2454,17 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   assert.match(setup, /<h3 class="setup-heading" id="setup-first-visit-heading">First visit<\/h3>/);
   assert.match(setup, /<fieldset class="setup-first-visit" id="setup-first-visit" aria-labelledby="setup-first-visit-heading"/);
   // Workspace's Opens first radio is the Layouts section's (plan-workspaces.md, step 3); the Workspace's Opens with switches stay in First visit.
-  assert.match(setup, /<fieldset class="setup-first-visit" id="setup-first-visit"[^>]*>\n\s*<div class="setup-workspace-content">[\s\S]*?id="setup-opens-with" role="group"[\s\S]*?<\/div>\n\s*<div class="setup-first-layouts" id="setup-first-visit-layouts"><\/div>/);
+  assert.match(setup, /<fieldset class="setup-first-visit" id="setup-first-visit"[^>]*>\n\s*<div class="setup-workspace-content">[\s\S]*?id="setup-opens-with" aria-labelledby="setup-opens-with-label"[\s\S]*?<\/div>\n\s*<div class="setup-first-layouts" id="setup-first-visit-layouts"><\/div>/);
   assert.match(setup, /layoutRows\(state\.draft\.tabs, state\.layouts\.system\)/, 'the fixed layouts only while the payload lists them');
   assert.match(setup, /\.\.\.shared\.map\(\(l\) => \(\{ id: l\.id, name: l\.name,/, 'the shared layouts by name');
   assert.match(setup, /state\.draft = withOpensFirst\(state\.draft, t\.value\);/, 'Opens first is one group of radios, the Layouts rows and the shared layouts');
-  assert.match(setup, /state\.draft\.opensWith = setSwitch\([^\n]*\); \/\/ the first visit's choice stays as it is\n\s*paintOpensWith\(\);/, 'a switch never touches the layout');
+  assert.match(setup, /<p class="setup-opens-with-read" id="setup-opens-with"[^>]*><\/p>\n\s*<p class="hint" id="setup-opens-with-hint">This comes from the \$\{esc\(spaceWord\(\)\)\}'s template\.<\/p>/, 'Opens with is one read-only line and its reason');
   assert.ok(!/Picking one sets Opens with|id="setup-layout"|picked\.modules\.map/.test(setup), 'the old drop-the-list wording and behaviour are gone');
   assert.ok(!/state\.draft\.opensWith = [^;\n]*modules/.test(setup), 'picking a layout never writes Opens with');
   const css = fs.readFileSync(path.join(ROOT, 'public/style.css'), 'utf8');
   assert.match(css, /\.setup-first-visit \{[^}]*border: 0;/);
   assert.match(css, /\.setup-choice:has\(input:focus-visible\) \{[^}]*outline: 2px solid var\(--accent\);/, 'the keyboard ring on the row');
-  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?#setup-opens-with-layout-stop,\n\s*\.setup-choice \{\n\s*min-height: 44px;/, 'a 44px row on a phone');
+  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?#setup-opens-with-layout-stop,\n\s*\.setup-layout-move \.btn,\n\s*\.setup-choice \{\n\s*min-height: 44px;/, 'a 44px row on a phone');
   assert.match(css, /\.space-setup \.phase-row \{\n\s*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);\n\s*grid-template-areas: "name name" "start end" "days tools" "problem problem";/, 'the rows as cards in the narrow panel');
   assert.match(css, /\.setup-status \{\n\s*margin: 8px 0 0;/, 'the refusal line stands clear of the last hint');
 });
@@ -2485,25 +2482,20 @@ test('Set up\'s call: its own body, only what changed, null for the template\'s;
   assert.equal(tabOfField('call', ['phases', 'modules']), 'modules');
   assert.ok(dirtyTabs({ call: { layout: 'grid' } }, { tabs: ['space', 'modules'] }).has('space'));
 });
-test('Set up: one PATCH of what changed; the first visit\'s layout and Opens with are independent, each sent only when it changed', () => {
+test('Set up: one PATCH of what changed; Opens with is never sent (the template\'s)', () => {
   const before = { name: 'Lisbon', profile: 'participants', opensWith: ['chat', 'todo'], defaultLayout: null };
   assert.deepEqual(setupPatch(before, { ...before }), {});
   assert.deepEqual(setupPatch(before, { ...before, name: '  Porto ' }), { name: 'Porto' }, 'trimmed');
   assert.deepEqual(setupPatch(before, { ...before, name: '   ' }), {}, 'an empty name is no change');
   assert.deepEqual(setupPatch(before, { ...before, profile: 'characters' }), { profile: 'characters' });
-  assert.deepEqual(setupPatch(before, { ...before, opensWith: ['todo', 'chat'] }), { opensWith: ['todo', 'chat'] }, 'the order counts');
-  assert.deepEqual(setupPatch(before, { ...before, opensWith: null }), { opensWith: null }, 'every switch off: not set');
-  assert.deepEqual(setupPatch(before, { ...before, opensWith: [] }), { opensWith: null }, 'an empty list is not set too');
+  assert.deepEqual(setupPatch(before, { ...before, opensWith: ['todo'] }), {}, 'Opens with is the template\'s: a draft that carries one sends nothing');
   assert.deepEqual(setupPatch(before, { ...before, defaultLayout: 'l1' }), { defaultLayout: 'l1' }, 'a layout picked goes alone: Opens with is not touched');
   assert.deepEqual(setupPatch(before, { ...before, defaultLayout: 'calendar' }), { defaultLayout: 'calendar' }, 'Calendar');
   assert.deepEqual(setupPatch(before, { ...before, defaultLayout: 'map' }), { defaultLayout: 'map' }, 'Map');
-  assert.deepEqual(setupPatch(before, { ...before, defaultLayout: 'l1', opensWith: ['calendar'] }), { defaultLayout: 'l1', opensWith: ['calendar'] }, 'both changed: both go, each as it is');
   assert.deepEqual(setupPatch(before, { ...before, defaultLayout: 'workspace' }), {}, 'the Workspace is no layout: no change from none');
   const withLayout = { ...before, defaultLayout: 'l1' };
   assert.deepEqual(setupPatch(withLayout, { ...withLayout, defaultLayout: null }), { defaultLayout: null }, 'back to the Workspace, the list kept');
   assert.deepEqual(setupPatch(withLayout, { ...withLayout, defaultLayout: 'workspace' }), { defaultLayout: null }, 'the Workspace picked goes as null');
-  assert.deepEqual(setupPatch(withLayout, { ...withLayout, opensWith: ['chat'] }), { opensWith: ['chat'] }, 'a changed list leaves the layout');
-  assert.deepEqual(setupPatch(withLayout, { ...withLayout, opensWith: null }), { opensWith: null }, 'every switch off leaves the layout too');
   assert.deepEqual(setupPatch(withLayout, { ...withLayout, defaultLayout: 'map' }), { defaultLayout: 'map' }, 'one layout for another');
   assert.deepEqual(setupPatch(withLayout, { ...withLayout }), {}, 'the same layout again is no change');
   assert.deepEqual(setupPatch(before, { name: 'Porto' }), { name: 'Porto' }, 'fields left out of the draft are unchanged');
@@ -2685,7 +2677,7 @@ test('Set up: the new fields go in the one PATCH only when changed; the dots nam
   assert.deepEqual(setupPatch({ ...before, publishCalendar: undefined }, { ...before, publishCalendar: true }), {}, 'in the calendar unless false');
   assert.deepEqual(setupPatch(before, { ...before, allowGuests: false }), { allowGuests: false });
   assert.deepEqual([...dirtyTabs(setupPatch(before, { ...before, name: 'Porto', allowGuests: false }))].sort(), ['members', 'space'], 'two tabs, two dots');
-  assert.deepEqual([...dirtyTabs({ opensWith: ['chat'] })], ['modules'], 'First visit changes mark the Settings tab');
+  assert.deepEqual([...dirtyTabs({ defaultLayout: 'l1' })], ['modules'], 'First visit changes mark the Settings tab');
   assert.deepEqual([...dirtyTabs({ defaultLayout: 'map' })], ['modules']);
   assert.deepEqual([...dirtyTabs({}, { image: true })], ['space'], 'a picture chosen is the space tab\'s');
   assert.deepEqual([...dirtyTabs({})], []);
@@ -2728,7 +2720,7 @@ test('Set up: the new fields go in the one PATCH only when changed; the dots nam
 test('Set up: the line after Save says what was saved and what to do next', () => {
   assert.equal(setupSaidWords({ saved: [] }), 'Nothing changed. Press Set up to change something.');
   assert.equal(setupSaidWords({ saved: ['name'] }), 'Saved the name. Everyone sees it now; press Set up to change more.');
-  assert.equal(setupSaidWords({ saved: ['name', 'opensWith', 'image'] }), 'Saved the name, Opens with and the picture. Everyone sees it now; press Set up to change more.');
+  assert.equal(setupSaidWords({ saved: ['name', 'defaultLayout', 'image'] }), 'Saved the name, the first visit and the picture. Everyone sees it now; press Set up to change more.');
   assert.equal(setupSaidWords({ saved: ['image', 'imageRemoved'] }), 'Saved the picture. Everyone sees it now; press Set up to change more.', 'one field named once');
   assert.equal(setupSaidWords({ saved: [], failed: 'name', problem: 'owners only' }), 'The name was not saved. Owners only. Change it and press Save again, or Cancel.');
   assert.equal(setupSaidWords({ saved: ['name'], failed: 'image', problem: 'too big.' }), 'The picture was not saved. Too big. The name was saved. Change it and press Save again, or Cancel.', 'what went through before stays said');

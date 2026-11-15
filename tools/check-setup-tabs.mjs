@@ -50,7 +50,7 @@ try {
   };
   const inSpace = async (as, width, mode) => {
     const tab = await open(`/#join=${ctx.trip}`, as, width, mode);
-    await tab.waitFor('button.sdk-strip-fact[data-module=budget]');
+    await tab.waitFor('[data-layout-tab="workspace"]'); // the space has loaded (what opens on entering is its template's now, so no module is a sure sign)
     await sleep(600);
     return tab;
   };
@@ -113,7 +113,7 @@ try {
     assert.ok(s.out > 0);
   });
 
-  await test('Settings holds First visit; changing it marks Settings unsaved and Save keeps it; no module list; the foot note is on Modules', async () => {
+  await test('Settings holds First visit with Opens with as a read-only line; changing First visit marks Settings unsaved; no module list; the foot note is on Modules', async () => {
     const tab = await inSpace('admin', 1280);
     await openSetup(tab);
     const note = await tab.eval(`document.getElementById('setup-modules-note')?.textContent`);
@@ -125,14 +125,23 @@ try {
     assert.equal(s.list, false, 'no read-only module list');
     assert.equal(s.note, false, 'the note is not on Settings');
     assert.equal(s.dot, false, 'nothing changed yet');
-    await tab.eval(`(() => { const i = document.querySelector('#setup-opens-with input'); i.click(); return true; })()`);
-    await sleep(300);
-    assert.equal(await tab.eval(`!document.querySelector('#setup-tab-modules .setup-tab-dot').hidden`), true, 'Settings shows the unsaved dot');
-    await tab.eval(`document.querySelector('.action-bar-save').click()`);
-    await sleep(1500);
+    // Opens with is read only (plan-templates-redesign.md, step 8): one line with the template's list and why, no switches.
+    const line = await tab.eval(`({ text: document.getElementById('setup-opens-with')?.textContent, inputs: document.querySelectorAll('#setup-opens-with input, #setup-opens-with button').length, why: document.getElementById('setup-opens-with-hint')?.textContent })`);
+    assert.match(line.text, /\w.*\.$/, 'the line says what a new person sees open');
+    assert.equal(line.inputs, 0, 'no switches: the template decides');
+    assert.match(line.why, /^This comes from the .+'s template\.$/, 'and why');
+    // A change to First visit marks Settings unsaved; putting it back clears it.
+    const other = await tab.eval(`(() => { const r = [...document.querySelectorAll('input[name="setup-first-visit"]')].find((x) => !x.checked && !x.disabled); if (!r) return null; r.click(); return r.value; })()`);
+    if (other) {
+      await sleep(300);
+      assert.equal(await tab.eval(`!document.querySelector('#setup-tab-modules .setup-tab-dot').hidden`), true, 'Settings shows the unsaved dot');
+      await tab.eval(`document.getElementById('setup-first-workspace').click()`);
+      await sleep(300);
+      assert.equal(await tab.eval(`!document.querySelector('#setup-tab-modules .setup-tab-dot').hidden`), false, 'put back: nothing to save');
+    }
     const r = await fetch(`${server.base}/api/spaces/${ctx.trip}`, { headers: { cookie: cookies.admin.map((c) => `${c.name}=${c.value}`).join('; ') } });
     const space = await r.json();
-    assert.ok(Array.isArray((space.space || space).opensWith), 'Opens with was saved');
+    assert.ok(!('opensWith' in (space.space || space)), 'the space keeps no Opens with of its own');
   });
 
   // Layouts (plan-workspaces.md, step 3): the owner's section in Settings, used with the keyboard; a member's bar follows it.
@@ -201,7 +210,7 @@ try {
     assert.deepEqual(space.tabs.hide, [last.id], 'the hidden one is saved');
     assert.deepEqual(space.tabs.order.filter((id) => layoutsBefore.includes(id)).slice(0, 3), ['workspace', third.id, second.id], 'the order is saved');
     assert.equal(space.defaultLayout, third.id, 'what opens first is saved');
-    assert.ok(Array.isArray(space.opensWith), 'and Opens with is untouched');
+    assert.ok(!('opensWith' in space), 'and the space still has no Opens with of its own');
   });
   await test('Layouts: a member\'s bar follows the owner\'s order and hide, its Layout menu says Hidden in Set up, and the server refuses to turn it on', async () => {
     const owner = await layoutsAs('admin');
@@ -325,7 +334,7 @@ try {
       const put = await tab.eval(`fetch('/api/ai', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, provider: 'compatible', address: 'http://127.0.0.1:9', model: 'm', key: 'check-key' }) }).then((r) => r.status)`);
       assert.equal(put, 200, 'the AI service is saved');
       await tab.eval('location.reload()');
-      await tab.waitFor('button.sdk-strip-fact[data-module=budget]');
+      await tab.waitFor('[data-layout-tab="workspace"]'); // the space has loaded (what opens on entering is its template's now, so no module is a sure sign)
       await sleep(600);
       if (width < 600) { await tab.eval(`document.querySelector('[data-nav-tool="setup"]').click()`); await tab.waitFor('#space-setup .setup-tab'); await sleep(900); } else await openSetup(tab);
       await tab.click('#setup-tab-modules');
