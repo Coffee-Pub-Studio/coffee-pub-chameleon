@@ -1,0 +1,49 @@
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+.msg { padding: var(--space-4); }
+.ic { display: inline-flex; align-items: center; flex: none; }
+.ic svg { width: 1em; height: 1em; fill: currentColor; }
+.body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* The Goals view: one banded card per goal (Cards, system.css), its progress, its steps and its notes; the notes under no goal
+   after them, under a group heading. */
+.goals-view { display: flex; flex-direction: column; gap: var(--space-2); }
+.goal-body { display: flex; flex-direction: column; gap: var(--gap-in); }
+.goal-title { min-width: 0; overflow-wrap: anywhere; }
+.goal.done .goal-title { color: var(--text-muted); }
+.goal-check { color: var(--accent); }
+.goal-meta { display: flex; flex-wrap: wrap; gap: var(--space-1); color: var(--text-muted); font-size: var(--text-12); }
+.chip-words { display: inline-flex; align-items: center; gap: var(--space-1); }
+.goal-why { margin: 0; color: var(--text-muted); font-size: var(--text-14); overflow-wrap: anywhere; white-space: pre-line; }
+.goal-rows { display: flex; flex-direction: column; gap: var(--gap-card-rows); margin: 0; padding: 0; list-style: none; }
+.goal-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.goal-links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); color: var(--text-muted); font-size: var(--text-12); }
+.goal-links b { font-weight: var(--weight-strong); }
+
+/* A step or a note inside a goal: the row (Cards), its tick, its title as the button that opens it, its date. */
+.entry-open { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.entry-text { max-width: 100%; }
+.step.done .entry-text { color: var(--text-muted); text-decoration: line-through; }
+.note-row .ic { color: var(--text-muted); }
+
+/* The List view: the shared outline (host.ui.outline); here only the module's own row inside it. */
+.list-view { display: flex; flex-direction: column; gap: var(--space-2); }
+.out-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.out-row .ic { color: var(--text-muted); }
+.out-row .out-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.out-row.done .out-title { color: var(--text-muted); text-decoration: line-through; }
+.out-row .out-meta { flex: none; color: var(--text-muted); font-size: var(--text-12); white-space: nowrap; }
+
+/* The form: the editor window gives the box; here only the linked objects' line and the delete button's place at the start of
+   the button row. */
+.f-links { display: flex; flex-wrap: wrap; gap: var(--space-1); }
+.f-links:empty { display: none; }
+.link-chip { display: inline-flex; align-items: center; gap: var(--space-1); max-width: 100%; }
+.link-chip .link-words { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdk-editor-actions .grow { flex: 1 1 auto; }
+
+@media (max-width: 640px) {
+  .goal-title { min-height: 44px; }
+  .entry-open { min-height: 44px; justify-content: center; }
+  .out-row { min-height: 44px; }
+}

@@ -41,6 +41,7 @@ const EXPECT = {
   budget: { canvas: /Add a cost.*(Spent|Overview)/ },
   calendar: { page: CALENDAR, canvas: CALENDAR, widget: /Coming up.*October 2026/ },
   documents: { canvas: /Search documents.*No documents yet/ },
+  goals: { canvas: /No goals yet/ }, // not in the Travel template: opened in a space on the Default template
   maps: { page: /Add a place.*(No map yet|Places)/, canvas: /Add a place.*Filter places/ },
   polls: { page: /New poll.*Where do we eat on the first night/, canvas: /New poll.*Where do we eat on the first night/, widget: /Need your vote.*Where do we eat on the first night/ },
   research: { canvas: /Search research/ },
