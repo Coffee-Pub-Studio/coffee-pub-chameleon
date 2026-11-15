@@ -148,9 +148,7 @@
       }
     },
     "polls": {},
-    "vault": {
-      "name": "Files"
-    },
+    "vault": {},
     "assistant": {},
     "chat": {},
     "conference": {}

@@ -133,7 +133,7 @@ try {
     const t = templates.get('travel');
     assert.deepEqual(t.words, { space: { one: 'trip', many: 'trips' } });
     assert.deepEqual(Object.keys(t.modules), ['travel', 'maps', 'research', 'vault', 'assistant', 'calendar', 'budget', 'polls', 'todo', 'documents', 'whiteboard', 'chat', 'conference']);
-    assert.deepEqual([t.modules.travel, t.modules.vault, t.modules.maps], [{ name: 'Itinerary' }, { name: 'Files' }, {}]);
+    assert.deepEqual([t.modules.travel, t.modules.vault, t.modules.maps], [{ name: 'Itinerary' }, {}, {}]);
     assert.deepEqual([t.icons.home, t.lobby, t.spaceDefaults, t.workspace], ['suitcase-rolling', { name: 'Home base', description: 'Everyone on every trip.' }, { profile: 'participants' }, { opensWith: ['travel', 'chat'] }]);
     assert.deepEqual(t.settings, { showCalendar: true, showMap: true, calendarFeeds: true, otherCalendars: true });
     assert.deepEqual(t.phases.map((p) => [p.id, p.icon]), [['planning', 'clipboard-list'], ['booking', 'ticket'], ['buffer', 'hourglass-half'], ['pre-trip', 'suitcase-rolling'], ['trip', 'plane'], ['post-trip', 'camera']]);
@@ -142,14 +142,14 @@ try {
     const g = templates.get('games');
     assert.deepEqual(g.words, { space: { one: 'campaign', many: 'campaigns' }, member: { one: 'player', many: 'players' } }, 'Games loses group, game master and whisper (decisions 5 and 32)');
     assert.deepEqual(g.modules.travel, { name: 'Campaign planner', icon: 'scroll' });
-    assert.deepEqual([g.modules.calendar.name, g.modules.todo.name, g.modules.research.name, g.modules.vault.name], ['Sessions', 'Quests', 'Lore', 'Files']);
+    assert.deepEqual([g.modules.calendar.name, g.modules.todo.name, g.modules.research.name, g.modules.vault], ['Sessions', 'Quests', 'Lore', {}]);
     assert.deepEqual(g.workspace, { opensWith: ['chat', 'calendar'], show: ['calendar', 'map'], opensFirst: 'workspace' });
   });
 
-  await test('step 15: the shipped templates (Project, Learning, Mentoring, Games) hold what the plan lists; the Vault is "Files" in each; nothing names a planner that is not built yet', () => {
+  await test('step 15: the shipped templates (Project, Learning, Mentoring, Games) hold what the plan lists; the Vault keeps its own name, Vault, in each; nothing names a planner that is not built yet', () => {
     for (const id of ['travel', 'games', 'project', 'learning', 'mentoring']) {
       const t = templates.get(id);
-      assert.equal(t.modules.vault.name, 'Files', id);
+      assert.deepEqual(t.modules.vault, {}, id);
       assert.deepEqual(t.call, { joinOnEntry: false, position: 'top', layout: 'grid' }, id);
       assert.equal(Object.keys(t.modules).slice(-2).join(), 'chat,conference', id);
       for (const planner of ['schedule', 'goals']) assert.equal(Object.hasOwn(t.modules, planner), false, `${id}: ${planner} waits for its module`);

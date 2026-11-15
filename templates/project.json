@@ -125,9 +125,7 @@
     },
     "polls": {},
     "whiteboard": {},
-    "vault": {
-      "name": "Files"
-    },
+    "vault": {},
     "chat": {},
     "conference": {}
   },
