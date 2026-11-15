@@ -98,14 +98,16 @@ await test('the resolver: the template, then the space; a missing key is the tem
   assert.equal('call' in store.spaceById(a.id), false, 'the last key cleared stores nothing');
 });
 
-await test('a refused patch changes nothing; the Lobby takes call like any space', () => {
+await test('a refused patch changes nothing; the Lobby refuses call and reads only the template\'s', () => {
   const store = fresh('refuse', 'project');
   const a = store.addSpace({ name: 'A' });
   store.updateSpace(a.id, { call: { position: 'right' } });
   assert.throws(() => store.updateSpace(a.id, { name: 'Renamed', call: { position: 'right', layout: 'wall' } }), (e) => e.status === 400 && /layout must be one of/.test(e.message));
   assert.deepEqual([store.spaceById(a.id).name, store.spaceById(a.id).call], ['A', { position: 'right' }]);
-  store.updateSpace('lobby', { call: { layout: 'focus' } });
-  assert.equal(store.lookOf(null).call.layout, 'strip', 'the Lobby\'s own record does not change the template-level read');
+  assert.throws(() => store.updateSpace('lobby', { call: { layout: 'focus' } }), (e) => e.status === 400 && e.message === "The Lobby follows the template's call.");
+  assert.equal('call' in store.spaceById('lobby'), false, 'nothing stored on the Lobby');
+  store.spaceById('lobby').call = { layout: 'focus' }; // a hand-edited record
+  assert.equal(store.lookOf('lobby').call.layout, 'strip', 'the Lobby reads only the template\'s call');
 });
 
 await test('a template change keeps what a space holds and follows the new template for the rest; an edited template follows at once', () => {
@@ -141,7 +143,7 @@ let child = null;
 function startServer(dataDir, env = {}) {
   child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
     cwd: ROOT,
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, TZ: 'UTC', PRODUCT_NAME: 'Testname', ADMIN_PASSWORD: 'admin-password-1', TEMPLATE: 'travel', ...env },
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, TZ: 'UTC', PRODUCT_NAME: 'Testname', ADMIN_PASSWORD: 'admin-password-1', TEMPLATE: 'travel', ENABLE_GUEST_DOOR: 'true', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
@@ -270,6 +272,25 @@ try {
     assert.equal('call' in all.json.space, false);
     assert.equal('call' in stored(trip.id), false, 'no key stored');
     assert.deepEqual((await lookOf(mia.as, trip.id)).call, DEFAULTS);
+  });
+
+  await test('the Lobby refuses call; a door guest and the access key are refused', async () => {
+    const l = await asAdmin('PATCH', '/api/spaces/lobby', { call: { position: 'left' } });
+    assert.deepEqual([l.status, l.json], [400, { error: "The Lobby follows the template's call." }]);
+    assert.equal('call' in stored('lobby'), false);
+    const door = await call(server, 'POST', '/api/guest-door', { body: { name: 'Dora' } });
+    const dg = cookieOf(door);
+    const body = { call: { position: 'left' } };
+    const before = JSON.stringify(stored(trip.id));
+    for (const [what, cookie] of [['a door guest', dg], ['no one', undefined]]) {
+      const r = await call(server, 'PATCH', `/api/spaces/${trip.id}`, { body, cookie });
+      assert.ok([401, 403].includes(r.status), `${what}: ${r.status}`);
+    }
+    const key = (await asAdmin('GET', '/api/settings')).json.streamKey;
+    assert.ok(key, 'a stream key exists');
+    const k = await call(server, 'PATCH', `/api/spaces/${trip.id}?s=${encodeURIComponent(key)}`, { body });
+    assert.ok([401, 403].includes(k.status), `the access key: ${k.status}`);
+    assert.equal(JSON.stringify(stored(trip.id)), before, 'nothing changed');
   });
 
   await test('a link guest reads the space\'s call; the Lobby\'s look stays refused; the environment has no autoJoinCall', async () => {

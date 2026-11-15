@@ -889,7 +889,7 @@ class Store {
       // booking codes, Budget's amounts); an owner turns it on. Absent means they don't.
       ...(r.guestsSeeHidden === true ? { guestsSeeHidden: true } : {}),
       // The call's own settings for this space (server/call-settings.js): only the keys that hold a usable value; absent while the template's rule.
-      ...(Object.keys(resolveCall(r.call)).length ? { call: resolveCall(r.call) } : {}),
+      ...(id !== LOBBY && Object.keys(resolveCall(r.call)).length ? { call: resolveCall(r.call) } : {}),
       // The template this space reads (plan-space-templates.md): an id; absent means the environment's. Kept as stored, whether or
       // not this server has it (an unknown one reads as the environment's). Never on the Lobby.
       ...(id !== LOBBY && typeof r.template === 'string' && TEMPLATE_ID_RE.test(r.template) ? { template: r.template } : {}),
@@ -1258,7 +1258,7 @@ class Store {
       labels: byModule('labels'),
       settings: byModule('settings'),
       // The template's, then this space's own (an aside reads its origin space's): a missing key is the template's (decision 37).
-      call: resolveCall(t?.call, (nameAt && this.data.spaces.find((r) => r.id === nameAt))?.call),
+      call: resolveCall(t?.call, (nameAt && nameAt !== LOBBY ? this.data.spaces.find((r) => r.id === nameAt) : null)?.call),
       workspace: isPlainObject(t?.workspace) ? structuredClone(t.workspace) : {},
       reactions,
       icons,
@@ -2306,6 +2306,7 @@ class Store {
     // the template gives and this space may change; a key set to null, or the whole of it null, follows the template again.
     // Who may send it is the route's to decide (owners, the admin and this space's moderators).
     if (patch.call !== undefined) {
+      if (id === LOBBY) throw new StoreError("The Lobby follows the template's call.", 400);
       const { call, error } = applyCallPatch(space.call, patch.call);
       if (error) throw new StoreError(error, 400);
       if (Object.keys(call).length) draft.call = call;
