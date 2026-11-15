@@ -7,6 +7,7 @@
 // Lobby, the new-space profile, the reactions and the icons are unticked (the Lobby's words are the owner's by now). Apply sends what is ticked
 // ({ modules, lobby, spaceDefaults, reactions, iconSet }); even with nothing ticked it closes the offer. Not now only hides it here.
 import { escapeHtml, word } from '/brand.js';
+import { shiftSentences } from '/template-choice.js';
 
 const sentence = (text) => {
   const t = String(text || '').trim();
@@ -14,10 +15,11 @@ const sentence = (text) => {
 };
 const PROFILE_LABELS = { roleplaying: 'Roleplaying', participants: 'Participants', characters: 'Characters' };
 
-// The question before a switch (the options for confirmDialog): what changes at once, and that nothing is turned off. `name` is
-// the template's.
-export function switchConfirm(name) {
-  return { title: `Switch to the ${name} template?`, message: `Words, icons and ${word('module')} names change now. Nothing is turned off or removed. Then you choose what else it turns on.`, action: 'Switch' };
+// The question before a switch (the options for confirmDialog): what changes at once, which modules turn off and on in the
+// spaces that read the template (`shift`, from moduleShift), and that their data is kept. `name` is the template's.
+export function switchConfirm(name, shift = null) {
+  const where = `In every ${word('space')} that reads it,`;
+  return { title: `Switch to the ${name} template?`, message: `Words, icons and ${word('module')} names change now. ${shiftSentences(shift, where, word)} Nothing is deleted. Then you choose what else it turns on.`, action: 'Switch' };
 }
 
 // True when the offer has anything to tick.
@@ -74,7 +76,7 @@ export function renderOffer(box, { templateName, offer, lobbyName = '', apply, l
   box.innerHTML = `
     <div class="template-offer" role="group" aria-labelledby="${uid}">
       <h3 id="${uid}">What the ${escapeHtml(templateName)} template can add</h3>
-      ${any ? `<p class="hint">Untick anything you don't want. Nothing you have now is turned off.</p>` : `<p class="hint">Nothing more to add: what it lists is already on.</p>`}
+      ${any ? `<p class="hint">Untick anything you don't want.</p>` : `<p class="hint">Nothing more to add: what it lists is already on.</p>`}
       ${mods.length ? `<div class="offer-group"><span class="field-label">Turn on</span>${mods.map(moduleRow).join('')}<p class="hint">Each goes on in every ${escapeHtml(word('space'))}. ${escapeHtml(lobby[0].toUpperCase() + lobby.slice(1))} keeps only chat, the call and ${escapeHtml(word('module', { many: true }))} made for it.</p></div>` : ''}
       ${hasExtras(offer) ? `<div class="offer-group"><span class="field-label">Also</span>${offer.lobby ? lobbyRow() : ''}${offer.spaceDefaults ? profileRow() : ''}${offer.reactions ? reactionsRow() : ''}${offer.iconSet && offer.iconSet.length ? iconSetRow() : ''}</div>` : ''}
       <div class="row">

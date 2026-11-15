@@ -5,6 +5,7 @@ import { loadBranding, api, renderTopbar, productLockup } from '/brand.js';
 import { wireRegionCut } from '/region-cut.js';
 import { mountEnrolment, mountDisable } from '/mfa-enrol.js';
 import { renderOffer, switchConfirm } from '/template-offer.js';
+import { moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
 import { initTemplates, showTemplatesView } from '/host-templates.js';
@@ -718,7 +719,14 @@ $('env-template-switch-btn').addEventListener('click', async () => {
   if (!t) return;
   const value = $('env-template-select').value;
   const chosen = templates.find((x) => x.id === value);
-  if (!await confirmDialog(switchConfirm(chosen ? chosen.name || chosen.id : value))) return;
+  // Which modules turn off and on: from the two templates in full. The host has no list of one environment's modules, so a
+  // Default template ('*') on either side gives the general sentence.
+  let shift = null;
+  try {
+    const read = async (id) => (await api('GET', `/api/host/templates/${encodeURIComponent(id)}`)).template;
+    shift = moduleShift(await read(t.template ? t.template.id : 'default'), await read(value));
+  } catch (err) { shift = null; }
+  if (!await confirmDialog(switchConfirm(chosen ? chosen.name || chosen.id : value, shift))) return;
   const button = $('env-template-switch-btn');
   button.disabled = true;
   say($('env-template-status'), 'Switching…');

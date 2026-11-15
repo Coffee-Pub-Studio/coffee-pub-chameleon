@@ -5,7 +5,7 @@ import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
 import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm } from '/template-offer.js';
-import { addSpaceFlow } from '/template-choice.js';
+import { addSpaceFlow, moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
 import { fileText } from '/file-text.js';
 import { rowTabs } from '/page-tabs.js';
@@ -2179,7 +2179,13 @@ $('template-select').addEventListener('change', syncTemplateSwitch);
 $('template-switch').addEventListener('click', async () => {
   const value = $('template-select').value;
   const chosen = tplList.find((c) => c.id === value);
-  if (!await confirmDialog(switchConfirm(chosen ? chosen.name || chosen.id : value))) return;
+  // Which modules turn off and on in the spaces that read the template: from the two templates in full and the modules on here.
+  let shift = null;
+  try {
+    await loadCatalog();
+    shift = moduleShift(await templateRecord(madeFrom ? madeFrom.id : 'default'), await templateRecord(value), templateCatalog());
+  } catch (err) { shift = null; }
+  if (!await confirmDialog(switchConfirm(chosen ? chosen.name || chosen.id : value, shift))) return;
   const button = $('template-switch');
   button.disabled = true;
   say($('template-status'), 'Switching...');
@@ -2447,7 +2453,7 @@ function renderTplList() {
     const used = [t.environment ? `Default for this ${escapeHtml(word('environment'))}` : '', t.spaces ? `${t.spaces} ${escapeHtml(word('space', { many: t.spaces !== 1 }))}` : ''].filter(Boolean).join(', ');
     const own = t.source === 'own';
     return `<li class="sdk-row list-row tpl-row" data-tpl="${id}"><div class="tpl-row-text"><strong>${escapeHtml(t.name || t.id)}</strong> <span class="sdk-status" data-tone="neutral">${escapeHtml(kindOf(t))}</span> <span class="hint">Version ${escapeHtml(String(t.version || 1))}${used ? `. ${used}` : ''}</span>`
-      + `<div class="hint">${escapeHtml(t.description || '')}${t.copiedFrom ? ` Copied from ${escapeHtml(t.copiedFrom.id)}.` : ''}</div></div>`
+      + `<div class="hint">${escapeHtml(t.description || '')}${t.copiedFrom ? ` Copied from ${escapeHtml(templateName(tplList.find((x) => x.id === t.copiedFrom.id) || t.copiedFrom))}.` : ''}</div></div>`
       + `<div class="tpl-row-actions"><a class="btn btn-small" href="#template/${id}/basics">${own ? 'Edit' : 'Open'}</a>`
       + `<button class="btn btn-small" type="button" data-tpl-action="copy">Copy</button>`
       + `<a class="btn btn-small" href="/api/templates/${encodeURIComponent(t.id)}/export" download>Export</a>`

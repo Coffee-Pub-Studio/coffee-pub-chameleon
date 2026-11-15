@@ -20,10 +20,45 @@ export function optionList({ choices = [], environment = null } = {}, current = 
   return list;
 }
 
-// The question before a change: what changes and what does not.
-export const changeQuestion = (name, word) => ({
+// Which modules a change of template turns off and on (the template decides a space's modules; a module that turns off keeps
+// its data). `from` and `to` are templates in full ({ modules: '*' | { id: { name? } } }); `catalog` is [{ id, name }], the
+// modules this environment has, needed only to read a '*' (the Default template). Answers { off: [names], on: [names] }, or
+// null when it cannot be told (a template not read, or a '*' with no catalog).
+export function moduleShift(from, to, catalog = null) {
+  if (!from || !to) return null;
+  const known = new Map((catalog || []).map((m) => [m.id, m.name || m.id]));
+  // With a catalog, only modules that are on here count: a template can list one this environment has not turned on.
+  const idsOf = (t) => (t.modules === '*' ? (catalog ? [...known.keys()] : null) : Object.keys(t.modules || {}).filter((id) => !catalog || known.has(id)));
+  const before = idsOf(from);
+  const after = idsOf(to);
+  if (!before || !after) return null;
+  const nameIn = (t, id) => (t.modules && t.modules !== '*' && t.modules[id] && t.modules[id].name) || known.get(id) || id;
+  return {
+    off: before.filter((id) => !after.includes(id)).map((id) => nameIn(from, id)),
+    on: after.filter((id) => !before.includes(id)).map((id) => nameIn(to, id)),
+  };
+}
+
+const list = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '');
+
+// The sentences about modules for a confirm. `where` begins them ("In every trip that reads it,"). Without a shift (it could not
+// be told) it says what the rule is.
+export function shiftSentences(shift, where, word) {
+  const modules = word('module', { many: true });
+  if (!shift) return `${where} ${modules} the new template doesn't list turn off, and ${modules} it lists that were off turn on. A ${word('module')} that turns off keeps its data.`;
+  const { off, on } = shift;
+  if (!off.length && !on.length) return `${where} the same ${modules} stay on.`;
+  const parts = [];
+  if (off.length) parts.push(`${where} ${list(off)} turn${off.length > 1 ? '' : 's'} off. ${off.length > 1 ? 'Their' : 'Its'} data is kept.`);
+  if (on.length) parts.push(`${off.length ? 'And ' : `${where} `}${list(on)} turn${on.length > 1 ? '' : 's'} on.`);
+  return parts.join(' ');
+}
+
+// The question before a change: what changes now, which modules turn off and on (`shift`, from moduleShift) and that what turns
+// off keeps its data.
+export const changeQuestion = (name, word, shift = null) => ({
   title: name ? `Change this ${word('space')} to ${name}?` : `Change this ${word('space')} to the ${word('environment')}'s template?`,
-  message: `Its words, phases and ${word('module')} names change now. Nothing is removed.`,
+  message: `Its words, phases and ${word('module')} names change now. ${shiftSentences(shift, `In this ${word('space')},`, word)} Nothing is deleted.`,
   action: 'Change',
 });
 

@@ -12,6 +12,7 @@
 .hint { margin: 0; color: var(--text-muted); font-size: var(--text-12); }
 .app { background: var(--surface-page); }
 .body { flex: 1; min-height: 0; overflow: auto; }
+.app:has(> .body[hidden]) { flex: 0 0 auto; } /* the empty notice is at the top: the slot takes no room of its own */
 .view { display: grid; gap: var(--gap-in); align-content: start; }
 
 /* ---- the List: one entry's line inside the outline's row ---- */
@@ -80,7 +81,7 @@ button.link-chip:hover { background: var(--fill-selected); }
 .tl-undated-list { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 
 /* ---- states ---- */
-.sdk-empty { max-width: 420px; margin: 8vh auto; }
+.sdk-empty { max-width: 420px; margin: var(--space-6) auto 0; } /* at the top, under the bar */
 
 /* ---- the entry: the editor window (host.ui.editor). The SDK draws the dialog and the form. ---- */
 #f-delete { margin-left: auto; }

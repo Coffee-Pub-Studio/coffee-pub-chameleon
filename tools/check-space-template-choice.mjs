@@ -103,7 +103,9 @@ try {
       await tab.waitFor('dialog.sdk-dialog-confirm[open] [data-ok]');
       const asked = await tab.eval(`document.querySelector('dialog.sdk-dialog-confirm').textContent.replace(/\\s+/g, ' ')`);
       assert.match(asked, /Change this trip to Games\?/);
-      assert.match(asked, /Its words, phases and module names change now\. Nothing is removed\./);
+      assert.match(asked, /Its words, phases and module names change now\. In this trip, .*(turn|stay)/);
+      assert.match(asked, /Nothing is deleted\./);
+      assert.doesNotMatch(asked, /Nothing is removed/);
       await shot(tab, `owner-confirm-${width}`);
       await tab.eval(`document.querySelector('dialog.sdk-dialog-confirm [data-ok]').click()`);
       await sleep(1500);

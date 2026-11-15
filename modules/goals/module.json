@@ -1,7 +1,7 @@
 {
   "id": "goals",
   "name": "Planner - Goals",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icon": "bullseye",
   "color": "green",
   "description": "Plan goals together: each goal with its steps and how far along it is, dates optional.",
@@ -132,10 +132,10 @@
     ]
   },
   "labels": {
-    "goal": { "one": "goal", "many": "goals" },
-    "step": { "one": "step", "many": "steps" },
-    "note": { "one": "note", "many": "notes" },
-    "owner": { "one": "owner", "many": "owners" }
+    "goal": { "one": "goal", "many": "goals", "a": "a goal" },
+    "step": { "one": "step", "many": "steps", "a": "a step" },
+    "note": { "one": "note", "many": "notes", "a": "a note" },
+    "owner": { "one": "owner", "many": "owners", "a": "an owner" }
   },
   "starter": true,
   "settings": [

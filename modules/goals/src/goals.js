@@ -277,7 +277,7 @@
   }
 
   // ---- drawing ---------------------------------------------------------------------------------------------------------
-  const phaseLabel = (id) => { const p = phases().find((x) => x.id === id); return p ? p.label : ''; };
+  const phaseOf = (id) => phases().find((x) => x.id === id) || null;
   function dayWords(day) {
     if (!day) return '';
     const d = new Date(`${day}T12:00:00`);
@@ -373,8 +373,8 @@
     const body = make('div', 'goal-body');
     outer.append(body);
     const meta = make('div', 'goal-meta');
-    const ph = goal.phase ? phaseLabel(goal.phase) : '';
-    if (ph) { meta.append(chipOf('flag', ph)); }
+    const ph = goal.phase ? phaseOf(goal.phase) : null;
+    if (ph && ph.label) { meta.append(chipOf(ph.icon || 'flag', ph.label)); } // the phase's own icon
     if (goal.date && datesOn()) { meta.append(chipOf('calendar', dayWords(goal.date))); }
     const owners = (goal.owners || []).map(personName).filter(Boolean);
     if (owners.length) { meta.append(chipOf('user', `${cap(label('owner', { many: owners.length !== 1 }))}: ${owners.join(', ')}`)); }
@@ -421,6 +421,15 @@
       const empty = make('div', 'sdk-empty');
       empty.append(icon('bullseye'), make('h2', 'sdk-empty-title', `No ${label('goal', { many: true })} yet`));
       empty.append(make('p', 'sdk-empty-text', canEdit() ? `Add ${label('goal', { a: true })} to start the plan, then the ${label('step', { many: true })} that get there.` : `Nobody has added ${label('goal', { a: true })} yet.`));
+      if (canEdit()) {
+        const actions = make('div', 'sdk-empty-actions');
+        const add = make('button', 'btn btn-primary');
+        add.type = 'button';
+        add.append(icon('plus'), document.createTextNode(` ${cap(`Add ${label('goal', { a: true })}`)}`));
+        add.addEventListener('click', () => openEditor({ kind: 'goal' }));
+        actions.append(add);
+        empty.append(actions);
+      }
       parts.push(empty);
     }
     box.replaceChildren(...parts);
