@@ -5,9 +5,13 @@
  * runs: "Cannot access 'x' before initialization") leaves a page blank, and no other check fails on it by name.
  *   - /admin, signed in as the owner: every top-level tab (Environment and its three parts, Template, Theme, the spaces tab,
  *     Roles, Users, Modules and each module's tab inside it, AI Assistant's among them, About) is opened;
- *   - the Name field holds the environment's name, the Template switch has choices, the Words section has rows, and the Theme
- *     swatches are not all black;
- *   - each tab's main data is there (the template's words, module names, reactions and icons; the theme list; the spaces, the roles,
+ *   - the Name field holds the environment's name, the Template switch has choices, and the Theme swatches are not all black;
+ *   - the Template tab's pages (plan-templates-redesign.md, step 11a), each opened by its button and by its address, with its data
+ *     drawn and no sideways scroll: the short Template page (the switch has no "none", the Default template among the choices,
+ *     the switch for a space's own template), Environment Basics and Experience Labels for the Default template (read only),
+ *     a shipped one (read only, Copy to change it) and an owner's own (fields, Save), the list of templates (Default first, the
+ *     shipped ones, the owner's own with Delete), and the module names, reactions and icons that wait for their pages;
+ *   - each tab's main data is there (the template switch; the theme list; the spaces, the roles,
  *     the users, the modules; About's libraries with LiveKit and Node.js, a Licence text control, the version line and the Troubleshooting links);
  *   - for every page: no uncaught error, no console.error, no failed request to /api (status 400 or more) from load to the end;
  *   - the other pages' main scripts, each loaded with no uncaught error: the home and the space, a module's page, the sign-in
@@ -60,6 +64,11 @@ async function main() {
     // No company and no key, so the AI tab asks nobody outside (there is no network here) for a list of models.
     await fetch(`${S.base}/api/ai`, { method: 'PUT', headers: { cookie: S.cookies.admin.map((c) => `${c.name}=${c.value}`).join('; '), 'content-type': 'application/json', origin: S.base }, body: JSON.stringify({ provider: 'none', model: '', clearKey: true, source: 'custom', monthlyTokens: 0 }) });
 
+    // One template of the owner's own, copied from the Default template, so the pages show an editable one too.
+    const asAdmin = { cookie: S.cookies.admin.map((c) => `${c.name}=${c.value}`).join('; '), 'content-type': 'application/json', origin: S.base };
+    const copy = await fetch(`${S.base}/api/environment/templates`, { method: 'POST', headers: asAdmin, body: JSON.stringify({ from: 'default', id: 'mine', name: 'Mine' }) });
+    expect(copy.status === 201, `could not copy the Default template: ${copy.status}`);
+
     browser = await launch(bin);
     const open = async (size) => {
       const tab = new Tab(browser.cdp, S.ctx);
@@ -79,12 +88,47 @@ async function main() {
         const loaded = await tab.eval(`({
           name: document.getElementById('set-environment-name').value,
           templates: document.getElementById('template-select').options.length,
-          words: document.querySelectorAll('#words-list > *').length,
         })`);
         expect(loaded.name === envName, `${size}: the Name field is "${loaded.name}", not "${envName}"`);
         expect(loaded.templates > 0, `${size}: the Template switch has no choices`);
-        expect(loaded.words > 0, `${size}: the Words section has no rows`);
         const seen = (what) => { const n = w.problems.length; return () => w.problems.slice(n).forEach(at(what)); };
+
+        // The Template tab's pages, by their buttons and by their addresses. Each draws its data and does not scroll sideways.
+        const sideways = async (what) => { const w2 = await tab.eval(`document.documentElement.scrollWidth - document.documentElement.clientWidth`); expect(w2 <= 1, `${size}: ${what} scrolls sideways by ${w2} px`); };
+        const pages = async (sz, finish) => {
+          const open2 = async (hash, ready, what) => {
+            const left = seen(what);
+            await tab.eval(`location.hash = ${JSON.stringify(hash)}`); await sleep(1200);
+            expect(await tab.eval(ready), `${sz}: ${what} is not drawn (${hash})`);
+            await sideways(what);
+            left();
+          };
+          const box = (id, sel) => `document.querySelectorAll('#${id} ${sel}').length`;
+          // Environment Basics: the Default template is read only, a shipped one read only with Copy, the owner's own has fields and Save.
+          await open2('template/default/basics', `${box('tpl-basics-box', '.tf-line')} === 4 && ${box('tpl-basics-box', 'input')} === 0 && !!document.querySelector('#tpl-basics-card [data-tpl-copy]') && document.querySelector('#tpl-basics-card [data-tpl-save]').hidden`, 'Environment Basics of the Default template');
+          await open2('template/travel/basics', `${box('tpl-basics-box', '.tf-line')} === 4 && document.querySelector('#tpl-basics-box dd').textContent.trim() === 'Travel'`, 'Environment Basics of a shipped template');
+          await open2('template/mine/basics', `${box('tpl-basics-box', 'input[data-tf=name]')} === 1 && document.querySelector('#tpl-basics-box [data-tf=name]').value === 'Mine' && ${box('tpl-basics-box', '.icon-grid button')} > 5 && !document.querySelector('#tpl-basics-card [data-tpl-save]').hidden && ${box('tpl-basics-box', 'select[data-tf=profile]')} === 1`, 'Environment Basics of an owner\'s own template');
+          // Experience Labels: the editable words, the locked words read only with a reason, no verbs.
+          await open2('template/default/labels', `${box('tpl-labels-box', '.tf-line')} === 10 && ${box('tpl-labels-box', '.tf-locked-list .tf-line')} === 8 && ${box('tpl-labels-box', '.tf-locked .hint')} === 1 && !/enter|layout/i.test(document.querySelector('.tf-locked-list').textContent) && ${box('tpl-labels-box', 'input')} === 0`, 'Experience Labels of the Default template');
+          // The environment's own template (travel here) also has the Home page's word and the Lobby's name and description.
+          await open2('template/travel/labels', `${box('tpl-labels-box', '.tf-line')} === 13 && ${box('tpl-labels-box', '.tf-locked-list .tf-line')} === 8`, 'Experience Labels of the environment\'s own template');
+          await open2('template/mine/labels', `${box('tpl-labels-box', '[data-tf-word]')} === 2 && ${box('tpl-labels-box', 'input[data-tf=lobby-name]')} === 0 && ${box('tpl-labels-box', '.tf-locked-list .tf-line')} === 8`, 'Experience Labels of an owner\'s own template');
+          await open2('template/list', `${box('tpl-list', 'li')} >= 4 && document.querySelector('#tpl-list li').dataset.tpl === 'default' && !document.querySelector('#tpl-list li:first-child [data-tpl-action=delete]') && !!document.querySelector('#tpl-list li[data-tpl=mine] [data-tpl-action=delete]') && !!document.querySelector('#template-import')`, 'the list of templates');
+          await open2('template/more', `document.getElementById('module-names').children.length > 0 && document.getElementById('reactions-list').children.length > 0 && document.getElementById('icons-list').children.length > 0`, 'the module names, reactions and icons');
+          // The buttons of the strip reach the same pages.
+          for (const part of await tab.eval(`[...document.querySelectorAll('#tpl-subtabs .subtab')].map((b) => b.dataset.tplPart)`)) {
+            await click(`#tpl-subtabs .subtab[data-tpl-part="${part}"]`);
+            expect(await tab.eval(`!document.getElementById('tpl-part-${part}').hidden`), `${sz}: the ${part} page of Template did not open`);
+            await sideways(`the ${part} page of Template`);
+          }
+          // A copy through the page: the form takes a name and makes the template; Delete asks first and names what moves.
+          await open2('template/list', `${box('tpl-list', 'li')} >= 4`, 'the list again');
+          await tab.eval(`document.querySelector('#tpl-list li[data-tpl=travel] [data-tpl-action=copy]').click()`); await sleep(500);
+          expect(await tab.eval(`!document.getElementById('tpl-copy-form').hidden && document.getElementById('tpl-copy-id').value.startsWith('travel-copy')`), `${sz}: Copy did not open its form with an id`);
+          await tab.eval(`document.getElementById('tpl-copy-cancel').click()`);
+          await tab.eval(`location.hash = 'template'`); await sleep(500);
+          finish();
+        };
 
         // Every top-level tab by its own button, and the parts inside Environment and Modules.
         const tabs = await tab.eval(`[...document.querySelectorAll('#subtabs .subtab')].map((b) => b.dataset.tab)`);
@@ -116,7 +160,7 @@ async function main() {
           // The tab's main data is drawn, not only free of errors.
           const data = {
             environment: `document.getElementById('set-environment-name').value.length`,
-            template: `document.getElementById('template-select').options.length + document.querySelectorAll('#words-list > *').length + document.querySelectorAll('#module-names > *').length + document.querySelectorAll('#reactions-list > *').length + document.querySelectorAll('#icons-list > *').length`,
+            template: `document.getElementById('template-select').options.length`,
             theme: `document.getElementById('theme-select').options.length`,
             spaces: `document.querySelectorAll('#spaces > *').length`,
             roles: `document.querySelectorAll('#roles-table tr').length`,
@@ -126,7 +170,11 @@ async function main() {
           }[t];
           if (data) expect(await tab.eval(data) > 0, `${size}: the ${t} tab has none of its main data`);
           if (t === 'template') {
-            for (const [id, what] of [['words-list', 'words'], ['module-names', 'module names'], ['reactions-list', 'reactions'], ['icons-list', 'icons']]) expect(await tab.eval(`document.getElementById('${id}').children.length`) > 0, `${size}: the Template tab shows no ${what}`);
+            // The short page: no "none", Default among the choices and the chosen one, the switch for a space's own template.
+            const main = await tab.eval(`({ values: [...document.getElementById('template-select').options].map((o) => o.value), chosen: document.getElementById('template-select').value, own: !!document.getElementById('set-space-templates'), made: document.getElementById('template-made').textContent })`);
+            expect(!main.values.includes('none') && main.values.includes('default') && main.values.includes('travel') && main.values.includes('mine'), `${size}: the Template switch lists ${main.values.join(', ')}`);
+            expect(main.own && /Uses the .+ template/.test(main.made), `${size}: the short Template page is not drawn (${JSON.stringify(main)})`);
+            await pages(size, () => {});
           }
           if (t === 'about') {
             await sleep(800);
@@ -151,7 +199,7 @@ async function main() {
         expect(await tab.eval(`document.getElementById('set-environment-name').value`) === envName, `${size}: after a reload the Name field is not "${envName}"`);
         done();
         for (const p of w.problems) if (!failures.some((f) => f.includes(p))) expect(false, `${size}, /admin: ${p}`);
-        say(`${size}: /admin loads, ${tabs.length} tabs open, ${loaded.words} words, ${loaded.templates} templates, name "${loaded.name}"`);
+        say(`${size}: /admin loads, ${tabs.length} tabs open, ${loaded.templates} templates, name "${loaded.name}"`);
       } finally { w.stop(); await tab.close(); }
 
       // The other pages, one by one.

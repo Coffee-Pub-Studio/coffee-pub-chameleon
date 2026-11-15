@@ -676,11 +676,11 @@ function renderTemplateTab(t) {
   $('env-template-facts').innerHTML = `<dt>Made from</dt><dd>${escapeHtml(templateName(t))}</dd>${tp && tp.version ? `<dt>Version</dt><dd>${escapeHtml(String(tp.appliedVersion || tp.version))}</dd>` : ''}`;
   renderSkipped($('env-template-skipped'), tp);
   const select = $('env-template-select');
-  const current = tp ? tp.id : 'none';
+  const current = tp ? tp.id : 'default';
   const choices = templates.filter((x) => !x.hidden || x.id === current);
   $('env-template-switch').hidden = Boolean(t.refused) || !templates.length;
   if (document.activeElement !== select) {
-    select.replaceChildren(...choices.map((x) => new Option(x.name || x.id, x.id)), new Option('No template', 'none'));
+    select.replaceChildren(...choices.map((x) => new Option(x.name || x.id, x.id)));
     if (tp && !choices.some((x) => x.id === current)) select.append(new Option(tp.name || current, current));
     select.value = current;
   }
@@ -688,7 +688,7 @@ function renderTemplateTab(t) {
   const shown = openOffers.get(t.slug);
   const open = Boolean(tp && tp.offerOpen);
   $('env-offer-none').hidden = open;
-  $('env-offer-none').textContent = t.refused ? 'Nothing can be offered until it opens again.' : tp ? 'Nothing new from this template.' : 'No template to offer anything.';
+  $('env-offer-none').textContent = t.refused ? 'Nothing can be offered until it opens again.' : 'Nothing new from this template.';
   $('env-offer-note').hidden = !open || Boolean(shown);
   $('env-offer-note-text').textContent = open ? `The ${tp.name || tp.id} template can turn on more here.` : '';
   const offerBox = $('env-offer');
@@ -708,7 +708,7 @@ function renderTemplateTab(t) {
   });
 }
 function syncSwitch(t) {
-  const other = $('env-template-select').value !== (t.template ? t.template.id : 'none');
+  const other = $('env-template-select').value !== (t.template ? t.template.id : 'default');
   $('env-template-switch-btn').disabled = !other;
   $('env-template-switch-btn').classList.toggle('btn-primary', other);
 }
@@ -718,7 +718,7 @@ $('env-template-switch-btn').addEventListener('click', async () => {
   if (!t) return;
   const value = $('env-template-select').value;
   const chosen = templates.find((x) => x.id === value);
-  if (!await confirmDialog(switchConfirm(value === 'none' ? null : chosen ? chosen.name || chosen.id : value))) return;
+  if (!await confirmDialog(switchConfirm(chosen ? chosen.name || chosen.id : value))) return;
   const button = $('env-template-switch-btn');
   button.disabled = true;
   say($('env-template-status'), 'Switching…');
@@ -726,7 +726,7 @@ $('env-template-switch-btn').addEventListener('click', async () => {
     const { environment } = await api('PATCH', `/api/host/environments/${encodeURIComponent(t.slug)}`, { template: value });
     if (environment.template && environment.template.offerOpen && environment.offer) openOffers.set(t.slug, { name: environment.template.name || environment.template.id, offer: environment.offer });
     await reloadEnvironments();
-    say($('env-template-status'), environment.template ? `Switched to ${environment.template.name || environment.template.id}.` : 'Switched to no template.');
+    say($('env-template-status'), `Switched to ${environment.template.name || environment.template.id}.`);
     ($('env-offer').querySelector('input:not(:disabled)') || $('env-template-select')).focus();
   } catch (err) {
     button.disabled = false;
@@ -946,8 +946,8 @@ function renderAdmins() {
 }
 
 // --- creating one ----------------------------------------------------------------------------------------------
-// The create form's Plan (the catalog; none chosen means no caps and every module, as before) and Template (None, then
-// each template with its description; hidden when the host has none).
+// The create form's Plan (the catalog; none chosen means no caps and every module, as before) and Template (each template
+// with its description, Default first; hidden when the host has none).
 function renderCreateChoices() {
   const plan = $('new-plan');
   const was = plan.value;
@@ -959,9 +959,9 @@ function renderCreateChoices() {
   const options = slot(box, 'options');
   const chosen = box.querySelector('input:checked')?.value || '';
   const option = (id, name, description) => `<label class="sdk-choice-row sdk-choice-boxed"><input type="radio" name="new-template" value="${escapeHtml(id)}"${id === chosen ? ' checked' : ''}><span class="sdk-choice-text"><span class="sdk-choice-label">${escapeHtml(name)}</span><span class="sdk-choice-desc">${escapeHtml(description)}</span></span></label>`;
-  options.innerHTML = option('', 'None', 'Start plain: the usual words and settings.')
-    + offered.map((t) => option(t.id, t.name || t.id, t.description || '')).join('');
-  if (!options.querySelector('input:checked')) options.querySelector('input').checked = true;
+  // Every environment has a template: Default is the plain one, the first choice.
+  options.innerHTML = offered.map((t) => option(t.id, t.name || t.id, t.description || '')).join('');
+  if (!options.querySelector('input:checked')) (options.querySelector('input[value="default"]') || options.querySelector('input'))?.setAttribute('checked', '');
 }
 // New environment is its own view (#environments/new). Leaving it, by any way (showView), and signing out empty the form;
 // a reset also masks its password again (brand.js), so a typed password never waits in a hidden field.

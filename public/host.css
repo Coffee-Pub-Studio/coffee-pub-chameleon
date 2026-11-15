@@ -132,8 +132,8 @@ fieldset.hc-part > legend.hc-part-name + * { clear: both; }
 .template-editor .problems:empty { display: none; }
 /* The name column is one fixed width (10em) in every row, and the fields may shrink, so a long name or icon never pushes a
    row's fields out of line with the rows around it. */
-.word-row, .module-display-row { display: grid; grid-template-columns: 10em minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; margin-bottom: 8px; }
-.word-row > strong, .module-display-row > strong { min-width: 0; overflow-wrap: anywhere; }
+.module-display-row { display: grid; grid-template-columns: 10em minmax(0, 1fr) minmax(0, 1fr); gap: 8px; align-items: center; margin-bottom: 8px; }
+.module-display-row > strong { min-width: 0; overflow-wrap: anywhere; }
 .module-display-row input[type="text"] { max-width: none; order: 0; }
 .icon-field { display: flex; align-items: center; gap: 8px; }
 .icon-field input { flex: 1; min-width: 0; }
@@ -143,8 +143,8 @@ fieldset.hc-part > legend.hc-part-name + * { clear: both; }
 .phase-row input[type="text"] { flex: 1 1 8rem; min-width: 0; }
 .opens-row .sdk-choice-row { flex: 1; width: auto; min-width: 8rem; }
 @media (max-width: 640px) {
-  .word-row, .module-display-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .word-row > :first-child, .module-display-row > :first-child { grid-column: 1 / -1; }
+  .module-display-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .module-display-row > :first-child { grid-column: 1 / -1; }
 }
 
 .hc-chips-cell > .sdk-status { margin: 0 var(--space-1) var(--space-1) 0; }
