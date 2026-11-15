@@ -9,6 +9,7 @@ format or a manifest's permissions, uploads or refs, and are held for an indepen
 walks the result; content-manager documents it after.
 
 **Status:** Approved for build as a production build (Thomas, 2026-11-15, decision 48); decisions complete, none open.
+Amended 2026-11-15 (decision 50): the pages come first. Step 11 is split into 11a and 11b, and the planners wait for 11a.
 Revised 2026-11-15 by product-planner. Nothing is built yet. The first draft (#831) suggested
 modes inside one Planner; Thomas decided the other way the same day: **dedicated planners, one module per genuinely
 different shape** (decision 28). His test, in his words as recorded: are the variations between the possible planners
@@ -302,6 +303,10 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
 48. **The build is approved as a production build** (Thomas, 2026-11-15). It starts with steps 1 to 3, in order, and
     steps 9 and 10 beside step 1.
 49. **The release dates** are the agreed estimate under "What this does to the release".
+50. **The template changes come first, and planners must not slow them** (Thomas, 2026-11-15: "I do want to make sure I
+    see the template changes happening. We should not slow those down for planners."). Steps 1 to 3, then 11a and 11b,
+    have priority over the planners. Steps 13 and 14 do not start until 11a is merged and Thomas has seen it, unless a
+    builder is free. Step 12 runs beside 11b.
 
 ## How a module changes with its template (the mechanism)
 
@@ -673,6 +678,11 @@ When a template **is edited** (the host's or an owner's own), every space using 
 
 ### Pages (experience-design)
 
+The pages are built in two parts (decision 50). **11a** needs only step 1: the short Template tab, the template list,
+Environment Basics, Experience Labels (only the editable words; the locked words read-only), and the host's console
+versions. **11b** needs the later steps: Modules, Additional Reactions and Icons, Phases, Default Workspace, Set up's
+read-only parts and Profile's theme. Each setting is its own page, not one long scroll.
+
 - **Manage's Template tab** becomes a short page: the environment's default template (the choice and the offer), **Let
   {a space} use its own template**, and the templates this environment may use, each with **Open**, **Copy** and, for
   the owner's own, **Delete**. Opening one goes to its pages, each at its own address (`/admin#template/<id>/basics`
@@ -868,9 +878,13 @@ The first draft's top risk, the Planner changing under travel, is gone: `travel`
   pieces and the module load check about 3.5, the pages about 5, the existing modules about 8, the two planners about 9,
   the templates 2, QA about 3 and documents about 2. The planners cost a little more than modes did (a second module
   shell, a people picker, pieces built for any module), and the Planner costs only a name and a patch bump.
+- **The order change does not move the freeze estimate.** The planners are off the critical path, so holding them back
+  for 11a costs no calendar time; the estimate below stands. What Thomas sees, and when: after step 1 and 11a, he can
+  open Manage > Template and the new pages (Environment Basics, Experience Labels, the template list). After step 3 and
+  11b, the module, reaction, phase and workspace pages. The planners come last.
 - **Calendar time at the fast pace** (several builders in parallel, affected checks only, the whole suite only at
   release prep, independent reads only for core and security): the critical path is the core chain, steps 1 to 3 in
-  order with their reads (about 13 working days), then the Manage pages (about 5) and the shipped templates, then QA
+  order with their reads (about 13 working days), then the Manage pages (about 5, as 11a and 11b) and the shipped templates, then QA
   (about 3): about **22 working days** from Monday 2026-11-16, with three or four builders busy at the peak. The
   planners and the existing modules run beside the core chain and are not on it, which the first draft's Planner modes
   were (they waited for step 3).
@@ -936,7 +950,8 @@ read of the manifest alone.
 | 8 | **Workspaces.** The Default Workspace from the template, Opens with read-only, the pin rule | server-development, then experience-design | S | Core |
 | 9 | **The shared outline pieces.** `host.ui.outline`, `host.util.order`, `host.util.rollup`, `host.ui.progress`, `host.ui.peoplePicker`; `check-outline` | experience-design | M | Core |
 | 10 | **The module load check.** `tools/check-module-load.mjs` | server-development | S | Core (tools) |
-| 11 | **The Manage pages and the console's.** The short Template tab, the six template pages, Modules as the catalog, Set up's read-only parts, Profile's theme; `check-admin-load` grown | experience-design | L | Pages |
+| 11a | **The first Manage and console pages.** Only what needs step 1's template format and catalog: Environment Basics (Template Name, Template Description, Home Icon, Default Profile Image); Experience Labels (only the editable words: Space, Member, the Home plural, the Lobby's name and description, with the locked words shown read-only); the short Template tab (the default template, **Let a space use its own template**); the template list with the fixed Default template, **Copy**, **Edit** and **Delete** of owners' own templates. The host edits the same pages on the console. One page per setting, not one scroll. `check-admin-load` grown to cover them | experience-design | M | Pages |
+| 11b | **The pages that need the later steps.** Modules as the catalog with each module's marks and labels (step 3); Additional Reactions and Icons (7); Phases and their measure (6); the Default Workspace and pins (8); Set up's read-only parts; Profile's theme (7); `check-admin-load` grown again | experience-design | M | Pages |
 | 12 | **Existing modules, each in its own lane:** Documents, Budget, To-do (with owners), Maps, Calendar, Research, Polls, Vault, Whiteboard | each module's builder | M to L in all | Module lane |
 | 13 | **The Schedule outline.** The module, its views, refs and actions; its `template` marks and labels once step 3 lands | experience-design | L | Module lane; manifest read |
 | 14 | **The Goal outline.** As step 13 | experience-design | M to L | Module lane; manifest read |
@@ -944,9 +959,16 @@ read of the manifest alone.
 | 16 | **QA:** the independent and security reads of steps 1 to 10, the manifest reads of 13 and 14, and the live walk under "Verify" | quality-assurance | M | |
 | 17 | **Documentation:** "Doc facts" | content-manager | M | |
 
-Steps 1 to 3 go in order. Steps 9 and 10 can start at once, beside step 1. Steps 4 to 8 run beside each other after 3;
-11 and 12 after 3. Steps 13 and 14 start when 9 lands and add their `template` marks after 3. Step 15 after 12 to 14
-have their settings; 16 and 17 last. No question is open, so no step waits on an answer.
+Steps 1 to 3 go in order. Steps 9 and 10 can start at once, beside step 1. Step 11a starts as soon as step 1 merges,
+beside step 2, because it needs only the new template format and catalog. Steps 4 to 8 run beside each other after 3.
+Step 11b follows steps 2 to 8 (each of its pages starts when the step it needs has merged). Step 12 runs beside 11b,
+after 3. Steps 13 and 14 start when 9 lands and 11a is merged and seen (see the priority rule) and add their `template`
+marks after 3. Step 15 after 12 to 14 have their settings; 16 and 17 last. No question is open, so no step waits on an
+answer.
+
+**Priority** (decision 50): steps 1 to 3, then 11a and 11b, have priority over the planners. Steps 13 and 14, the two new
+planner modules, do not start until 11a is merged and Thomas has seen it, unless a builder is free. The existing modules
+(step 12) run beside 11b.
 
 **Approved order** (decision 48): steps 1 to 3 first, in order, with steps 9 and 10 beside step 1.
 
