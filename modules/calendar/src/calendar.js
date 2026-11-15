@@ -1075,6 +1075,8 @@
         key,
         at,
         payload: { id },
+        // The event it is about: a copy's reminder then reaches only those who may see its original.
+        ref: host.objects.make('event', id, where),
         notify: { title: ev.title, body: label },
         repeat: ev.repeat ? { every: ev.repeat.every, until, tz: TZ } : undefined,
         ...(where || {}),
@@ -1573,7 +1575,9 @@
     const now = Date.now();
     let sent = 0;
     for (const x of [...events.values()]) {
-      if (x.scope !== 'here' || x.ev.repeat || x.ev.announced || announcing.has(x.id) || sent >= 5) continue;
+      // A copy this person may not change is left to someone who may (the write would be refused); an event not yet known to
+      // be a copy or not waits for the next round.
+      if (x.scope !== 'here' || (canHaveCopy(x) && !pairInfo.has(x.key)) || !writable(x) || x.ev.repeat || x.ev.announced || announcing.has(x.id) || sent >= 5) continue;
       const ends = instantOfStart(x.ev).getTime() + durationOf(x.ev);
       if (ends > now || now - ends > WEEK) continue;
       announcing.add(x.id);

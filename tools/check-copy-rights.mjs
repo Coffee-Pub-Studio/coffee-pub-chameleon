@@ -180,15 +180,22 @@ try {
     assert.equal(after.version, before.version);
   });
 
-  await test('without the original\'s edit, the copy is not deleted and the Calendar is not cleared', async () => {
+  await test('without the original\'s edit, the copy is not deleted, and a Clear takes the Calendar\'s own events and leaves the copy', async () => {
     const del = await call('DELETE', copyUrl, undefined, 'sam');
     assert.equal(del.status, 403, del.text);
     assert.match(del.json.error, refusal);
     assert.equal(pair().pair, 'active', 'the pair is still active');
     const clear = await call('DELETE', `/api/modules/calendar/data?${at}`, undefined, 'sam');
-    assert.equal(clear.status, 403, clear.text);
-    assert.match(clear.json.error, /^.+ holds copies from .+ that you can't change, so you can't clear it\.$/);
-    assert.ok((await listed('admin')).includes(`event:${copyId}`));
+    assert.equal(clear.status, 200, clear.text);
+    assert.equal(clear.json.cleared, 1, 'the Calendar\'s own event only');
+    const keys = await listed('admin');
+    assert.ok(keys.includes(`event:${copyId}`), 'the copy stays');
+    assert.ok(!keys.includes('event:own1'));
+    assert.equal(pair().pair, 'active');
+    const back = await call('POST', `/api/modules/calendar/data/restore?${at}`, { restoreToken: clear.json.restoreToken }, 'sam');
+    assert.equal(back.status, 200, back.text);
+    assert.equal(back.json.restored, 1);
+    assert.ok((await listed('admin')).includes('event:own1'));
   });
 
   await test('without the original\'s edit, the copy is still read, and resolves read-only; the Calendar\'s own event is changed as before', async () => {
@@ -227,10 +234,23 @@ try {
     assert.ok(keys.includes('event:own1'), 'the Calendar\'s own event is still listed');
     const one = await call('GET', copyUrl, undefined, 'sam');
     assert.equal(one.status, 404, one.text);
-    const put = await call('PUT', copyUrl, { value: { title: 'Blind', start: '2027-06-20', allDay: true } }, 'sam');
-    assert.equal(put.status, 404, put.text);
+    // A write or delete of a hidden copy answers as for a key that is not there, and changes nothing.
+    const missingUrl = `/api/modules/calendar/data/event:nothinghere?${at}`;
+    for (const body of [{ value: { title: 'Blind', start: '2027-06-20', allDay: true }, version: 5 }]) {
+      const hidden = await call('PUT', copyUrl, body, 'sam');
+      const missing = await call('PUT', missingUrl, body, 'sam');
+      assert.deepEqual([hidden.status, hidden.json], [missing.status, missing.json], 'PUT with a version');
+      assert.equal(hidden.status, 409);
+    }
+    const blind = await call('PUT', copyUrl, { value: { title: 'Blind', start: '2027-06-20', allDay: true } }, 'sam');
+    assert.deepEqual([blind.status, blind.json], [409, { error: 'someone changed this since you read it', current: null }]);
     assert.equal((await plan()).title, 'Walk');
-    assert.equal((await call('DELETE', copyUrl, undefined, 'sam')).status, 404);
+    const hiddenDel = await call('DELETE', copyUrl, undefined, 'sam');
+    const missingDel = await call('DELETE', `/api/modules/calendar/data/event:nothinghere?${at}&version=3`, undefined, 'sam');
+    assert.deepEqual([hiddenDel.status, hiddenDel.json], [200, { key: `event:${copyId}`, deleted: true, version: 0 }]);
+    assert.deepEqual([missingDel.status, missingDel.json], [200, { key: 'event:nothinghere', deleted: true, version: 0 }]);
+    assert.equal(pair().pair, 'active', 'the hidden copy is still there');
+    assert.equal((await copy()).value.title, 'Walk');
     const spaces = await call('GET', '/api/modules/calendar/spaces-data', undefined, 'sam');
     assert.equal(spaces.status, 200, spaces.text);
     assert.ok(!spaces.json.items.some((i) => i.key === `event:${copyId}`), 'not in the spaces read');
@@ -253,6 +273,51 @@ try {
     assert.ok(heard(adminStream).length >= 1, 'the admin hears the copy change');
     assert.equal(heard(samStream).length, 0, 'sam hears nothing of it');
     assert.equal((await copy()).value.title, 'Walk again');
+  });
+
+
+  await test('without the original\'s view, a bus event about the copy reaches neither the stream nor the missed events', async () => {
+    const published = await call('POST', '/api/bus/publish', { module: 'calendar', name: 'ended', ref: copyRef, data: { summary: 'Secret Walk, Jun 15' }, scope: 'space', space: S });
+    assert.equal(published.status, 200, published.text);
+    await call('POST', '/api/bus/publish', { module: 'calendar', name: 'ended', ref: { ...copyRef, id: 'own1' }, data: { summary: 'Dinner, Jun 16' }, scope: 'space', space: S });
+    await pause(400);
+    const busOf = (s) => s.events.filter((e) => e.event === 'bus').map((e) => e.data.data?.summary);
+    assert.ok(busOf(adminStream).includes('Secret Walk, Jun 15'), 'the admin hears it');
+    assert.ok(!busOf(samStream).includes('Secret Walk, Jun 15'), 'sam hears nothing of it');
+    assert.ok(busOf(samStream).includes('Dinner, Jun 16'), 'sam hears of the Calendar\'s own event');
+    const missed = async (as) => (await call('GET', `/api/bus/events?module=todo&scope=space&space=${S}&after=0`, undefined, as)).json.events.map((e) => e.data?.summary);
+    assert.ok((await missed('admin')).includes('Secret Walk, Jun 15'));
+    const sams = await missed('sam');
+    assert.ok(!sams.includes('Secret Walk, Jun 15'), JSON.stringify(sams));
+    assert.ok(sams.includes('Dinner, Jun 16'));
+  });
+
+  await test('without the original\'s view, a new copy\'s links event does not reach the stream', async () => {
+    await ok('PUT', `/api/modules/travel/data/plan:w2?${at}`, { value: { id: 'w2', title: 'Tram', date: '2027-06-18' }, tz: 'UTC' });
+    await pause(400);
+    const second = links().find((l) => l.pair && l.from.id === 'w2');
+    assert.ok(second, 'plan:w2 has a copy');
+    const linksOf = (s) => s.events.filter((e) => e.event === 'links' && e.data.ref.module === 'calendar' && e.data.ref.id === second.to.id);
+    assert.ok(linksOf(adminStream).length >= 1, 'the admin hears it');
+    assert.equal(linksOf(samStream).length, 0, 'sam hears nothing of it');
+  });
+
+  await test('a reminder of a copy reaches only those who may read the original, and its firing too', async () => {
+    const sched = (as, body) => call('POST', `/api/modules/calendar/schedule?${at}`, body, as);
+    const bad = await sched('admin', { key: 'remind:bad', at: Date.now() + 60000, ref: { ...copyRef, module: 'travel' } });
+    assert.equal(bad.status, 400, bad.text);
+    assert.match(bad.json.error, /^a schedule can only be about one of its .+'s own .+, in the same place$/);
+    const blind = await sched('sam', { key: `remind:${copyId}`, at: Date.now() + 60000, ref: copyRef, notify: { title: 'Secret Walk' } });
+    assert.equal(blind.status, 404, blind.text);
+    const set = await sched('admin', { key: `remind:${copyId}`, at: Date.now() + 300, payload: { id: copyId }, ref: copyRef, notify: { title: 'Secret Walk', body: 'Starting now' } });
+    assert.equal(set.status, 200, set.text);
+    const titles = async (as) => (await call('GET', '/api/notifications', undefined, as)).json.notifications.map((x) => x.title);
+    for (let i = 0; i < 60 && !(await titles('mia')).includes('Secret Walk'); i += 1) await pause(250);
+    assert.ok((await titles('mia')).includes('Secret Walk'), 'the moderator, who may read the Planner, is told');
+    assert.ok(!(await titles('sam')).includes('Secret Walk'), 'sam is not');
+    const fired = (s) => s.events.filter((e) => e.event === 'schedule' && e.data.key === `remind:${copyId}`);
+    assert.ok(fired(adminStream).length >= 1, 'the admin\'s stream hears it fire');
+    assert.equal(fired(samStream).length, 0, 'sam\'s does not');
   });
 
   await test('without the original\'s view, the copy is not in the person\'s calendar feed', async () => {
@@ -302,8 +367,34 @@ try {
       assert.ok(keys.includes('event:own1'), `${as}: the Calendar's own event stays`);
       assert.equal((await call('GET', copyUrl, undefined, as)).status, 404, as);
     }
+    // Clear: offered while the Calendar's own events are there, and it takes only those; then neither offered nor refused.
+    const clearOffered = async () => {
+      const r = await call('GET', `/api/modules/for-space?space=${S}`);
+      assert.equal(r.status, 200, r.text);
+      return r.json.modules.find((m) => m.id === 'calendar').clear;
+    };
+    assert.equal(await clearOffered(), true);
+    const clear = await call('DELETE', `/api/modules/calendar/data?${at}`);
+    assert.equal(clear.status, 200, clear.text);
+    assert.equal(clear.json.cleared, 1, 'the Calendar\'s own event; the copies stay');
+    assert.equal(await clearOffered(), false, 'only copies nobody may change are left: Clear is not offered');
+    for (let i = 0; i < 40 && (await call('DELETE', `/api/modules/calendar/data?${at}`)).status === 409; i += 1) await pause(250);
+    const again = await call('DELETE', `/api/modules/calendar/data?${at}`);
+    assert.deepEqual([again.status, again.json], [200, { cleared: 0 }], 'and it is not refused either');
     await ok('PATCH', `/api/spaces/${S}`, { template: null });
     assert.ok((await listed('sam')).includes(`event:${copyId}`), 'back once the template offers the Planner again');
+    assert.equal(pair().pair, 'active');
+  });
+
+  await test('the Calendar page announces an ended event only where it may change it, and its reminders name their event', () => {
+    // Read from the page's source (no browser here): announceEnded skips a copy this person may not change, and one not yet
+    // known to be a copy or not; applyReminder sends the event's reference with its schedule.
+    const src = fs.readFileSync(path.join(ROOT, 'modules', 'calendar', 'src', 'calendar.js'), 'utf8');
+    const announce = src.slice(src.indexOf('async function announceEnded'), src.indexOf('announceEnded();'));
+    assert.match(announce, /\(canHaveCopy\(x\) && !pairInfo\.has\(x\.key\)\) \|\| !writable\(x\)/);
+    assert.match(src, /const writable = \(x\) => !\(pairInfo\.get\(x\.key\) && pairInfo\.get\(x\.key\)\.readOnly\)/);
+    const reminder = src.slice(src.indexOf('async function applyReminder'), src.indexOf('async function save'));
+    assert.match(reminder, /ref: host\.objects\.make\('event', id, where\)/);
   });
 } finally {
   for (const s of streams) s.close();

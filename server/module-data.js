@@ -258,12 +258,14 @@ class ModuleData extends EventEmitter {
 
   // Everything one module holds in one scope goes in one write (Clear, DELETE .../data): answers what was there, each
   // { key, value, version, updatedAt, by }. One 'changes' event names every key, so an open page draws once, not per key.
-  removeAll(id, scopeKey, { by = '' } = {}) {
+  // `keep(key)`: the keys left as they are (copies the clearer may not change); every other key goes.
+  removeAll(id, scopeKey, { by = '', keep = null } = {}) {
     const map = this.load(id, scopeKey);
-    const removed = [...map].map(([key, entry]) => ({ key, ...entry })).sort((a, b) => (a.key < b.key ? -1 : 1));
+    const removed = [...map].filter(([key]) => !keep || !keep(key)).map(([key, entry]) => ({ key, ...entry })).sort((a, b) => (a.key < b.key ? -1 : 1));
     if (!removed.length) return removed;
-    this.persist(id, scopeKey, new Map());
-    this.cache.set(`${id}|${scopeKey}`, new Map());
+    const left = keep ? new Map([...map].filter(([key]) => keep(key))) : new Map();
+    this.persist(id, scopeKey, left);
+    this.cache.set(`${id}|${scopeKey}`, left);
     const at = new Date().toISOString();
     const who = String(by).slice(0, 40);
     const changes = removed.map((e) => ({ module: id, scopeKey, key: e.key, value: null, version: e.version + 1, updatedAt: at, by: who, deleted: true }));

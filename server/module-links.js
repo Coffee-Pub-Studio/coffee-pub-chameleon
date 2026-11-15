@@ -31,11 +31,11 @@ class ModuleLinks extends EventEmitter {
   }
 
   save() {
+    this.index = null; // every change ends here: the pair index is made again when next asked (first, so a failed write can't keep it)
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(this.items));
     fs.renameSync(tmp, this.file);
-    this.index = null; // every change ends here: the pair index is made again when next asked
   }
 
   // Replace everything `from` points at with `tos`. Returns every pointer whose links changed.

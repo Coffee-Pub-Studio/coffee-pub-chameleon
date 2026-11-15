@@ -101,11 +101,19 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   // What a space's template resolves from outside the store: here, the installed modules (index.js adds the host's templates).
   store.lensStamp = () => `m${modules.revision}`;
 
-  // Who a module notification reaches: people who could see that module in that place.
+  // Made before the hooks: a notification about a copy asks it who may see the copy's original.
+  const moduleLinks = new ModuleLinks(modules.dir);
+  // Who a module notification reaches: people who could see that module in that place. One about a copy of another module's
+  // object (`ref`, a schedule's: a reminder of a Calendar copy; GitHub #857) reaches only those who may also read the module
+  // that keeps the original, where it is, and nobody while that module is off there.
   const moduleHooks = new ModuleHooks(modules.dir, {
-    resolveRecipients: ({ module, spaceId }, to) => {
+    resolveRecipients: ({ module, spaceId, ref }, to) => {
       const found = modules.enabled(module);
       if (!found) return [];
+      const original = ref ? moduleLinks.pairIndex().copyOf(ref) : null;
+      const source = original ? modules.enabled(original.module) : null;
+      if (original && (!source || original.scope !== 'space' || !modules.isOnIn(original.module, original.space))) return [];
+      const seesOriginal = (k) => !original || moduleCan(source.manifest, store.spacePermissions(k, original.space), 'read');
       let keys = [];
       if (to === 'space') keys = spaceId ? store.spaceById(spaceId)?.members || [] : [];
       else if (to === 'environment') keys = store.users.map((u) => u.key);
@@ -113,7 +121,7 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
       // A space closed for set up sends its content only to the people who may enter it (spaceAccess.mayEnter).
       const closed = spaceId ? store.spaceById(spaceId) : null;
       const mayEnter = (k) => !spaceAccess.isClosed(closed) || spaceAccess.mayEnter({ key: k, owner: hasOwnerRights(store.userByKey(k)), moderates: store.spaceFlags(k, closed.id).moderator ? [closed.id] : [] }, closed);
-      return keys.filter((k) => store.userByKey(k) && mayEnter(k) && moduleCan(found.manifest, store.spacePermissions(k, spaceId), 'read'));
+      return keys.filter((k) => store.userByKey(k) && mayEnter(k) && moduleCan(found.manifest, store.spacePermissions(k, spaceId), 'read') && seesOriginal(k));
     },
   });
   moduleHooks.start();
@@ -202,7 +210,6 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   const attention = new Attention(dataDir);
   const facts = new Facts(dataDir);
   const tags = new Tags(dataDir); // the shared tags, one list per space (server/tags.js)
-  const moduleLinks = new ModuleLinks(modules.dir);
   const moduleBus = new ModuleBus(modules.dir);
   const moduleSettings = new ModuleSettings(modules.dir, secretsKey);
   // The template layer of every module setting (plan-templates-redesign.md, "The module manifest"): what the template a place
