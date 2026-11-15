@@ -29,7 +29,7 @@
  *     template lists but that is off is skipped and the space still made.
  *   - A member can't make a space (403), so can't reach starter content for any space; nobody signed in gets 401.
  *   - A switch of the environment's template to one with starter spaces makes none and offers them, unticked
- *     (offer.starterSpaces, offer.version); confirming one ticked makes exactly that space, once, with its starter content
+ *     (offer.starterSpaces, offer.version, offer.offerId; every confirm sends offerId and version back); confirming one ticked makes exactly that space, once, with its starter content
  *     written as the owner who confirmed; a repeat is 409 and makes none; a member is refused (403).
  *
  * Also: a starter space name over the store's limit (40) is refused; a restore whose template record says it was never
@@ -50,7 +50,9 @@
  * whole), each on its template, made by the owner; a repeat 409; none ticked makes none; two confirms at once make one;
  * two confirms at once naming different modules turn on only the winner's; the host's confirm makes it by the first
  * owner; the host's stand-in confirming on the environment's route makes it as itself, without joining; another
- * environment untouched.
+ * environment untouched; deleting the owner's own template in use while its offer is confirmed: the two take turns
+ * (a refused confirm turned nothing on) and the environment ends on the Default template; a confirm without offerId and
+ * version (the body the pages sent before) is refused.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -634,13 +636,15 @@ try {
       [{ starterSpaces: [0, 0], version, offerId }, 400, 'Each starter space is named once.'],
       [{ starterSpaces: [0, 1, 2, 3, 4, 5], version, offerId }, 400, 'At most 5 starter spaces can be made.'],
       [{ starterSpaces: [5], version, offerId }, 400, 'This offer has no starter space 5.'],
-      [{ starterSpaces: [0], offerId }, 400, "Send the offer's offerId and version with the starter spaces to make."],
-      [{ starterSpaces: [0], version }, 400, "Send the offer's offerId and version with the starter spaces to make."],
+      [{ starterSpaces: [0], offerId }, 400, "Send the offer's offerId and version."],
+      [{ starterSpaces: [0], version }, 400, "Send the offer's offerId and version."],
+      [{}, 400, "Send the offer's offerId and version."],
+      [{ modules: [], lobby: true, spaceDefaults: true }, 400, "Send the offer's offerId and version.", 'the body the pages sent before offerId'],
       [{ starterSpaces: [0], version: '1', offerId }, 400, "version is the template's version from the offer."],
       [{ starterSpaces: [0], version, offerId: 5 }, 400, "offerId is the offer's own, as the offer gave it."],
       [{ starterSpaces: [0], version: 7, offerId }, 409, CHANGED],
       [{ starterSpaces: [0], version, offerId: '0123456789abcdef' }, 409, CHANGED],
-      [{ modules: [], offerId: '0123456789abcdef' }, 409, CHANGED],
+      [{ modules: [], version, offerId: '0123456789abcdef' }, 409, CHANGED],
     ];
     for (const [body, status, error] of refused) {
       const r = await as('POST', '/api/environment/template/apply', body);
@@ -698,7 +702,7 @@ try {
     // A new switch offers again; a confirm with none ticked makes none.
     assert.equal((await as('PATCH', '/api/settings', { template: 'default' })).status, 200);
     assert.equal((await as('PATCH', '/api/settings', { template: 'five' })).status, 200);
-    const none = await as('POST', '/api/environment/template/apply', {});
+    const none = await as('POST', '/api/environment/template/apply', await offerNow());
     assert.deepEqual([none.status, none.json?.made], [200, []]);
     assert.equal((await named()).length, before + 2, 'none ticked: none made');
 
@@ -715,7 +719,8 @@ try {
     assert.equal(mods.status, 201, mods.text);
     const sw2 = await as('PATCH', '/api/settings', { template: 'mods' });
     assert.deepEqual(sw2.json.offer.modules.map((m) => m.id).sort(), ['budget', 'polls']);
-    const race = await Promise.all([['polls'], ['budget']].map((m) => as('POST', '/api/environment/template/apply', { modules: m })));
+    const modsOffer = { offerId: sw2.json.offer.offerId, version: sw2.json.offer.version };
+    const race = await Promise.all([['polls'], ['budget']].map((m) => as('POST', '/api/environment/template/apply', { modules: m, ...modsOffer })));
     assert.deepEqual(race.map((r) => r.status).sort(), [200, 409], race.map((r) => r.text).join(' | '));
     const winner = race[0].status === 200 ? 'polls' : 'budget';
     const on = (await as('GET', '/api/modules')).json.modules.filter((m) => ['polls', 'budget'].includes(m.id) && m.enabled).map((m) => m.id);
@@ -745,6 +750,28 @@ try {
     assert.equal(byStandIn.status, 200, byStandIn.text);
     const twoMade = (await as('GET', `/api/spaces/${byStandIn.json.made[0]}`)).json.space;
     assert.deepEqual([twoMade.name, twoMade.starterDone, twoMade.members.includes(standInKey), twoMade.members.includes(ownerKey)], ['Two', true, false, false]);
+
+    // Deleting the owner's own template in use while its offer is confirmed: the two take turns, so either the confirm
+    // goes first (200, its module on) and the delete after it, or the delete goes first and the confirm is refused with
+    // nothing turned on; the environment ends on the Default template either way.
+    const td = await console_('POST', '/api/host/templates', { id: 'todos', name: 'Todos', description: 'To-do.', modules: { chat: {}, todo: {} } });
+    assert.equal(td.status, 201, td.text);
+    for (let round = 0; round < 3; round += 1) {
+      const id = `mine${round}`;
+      assert.equal((await as('POST', '/api/environment/templates', { from: 'todos', id, name: `Mine ${round}` })).status, 201);
+      if ((await as('GET', '/api/modules')).json.modules.some((m) => m.id === 'todo' && m.enabled)) assert.equal((await as('PATCH', '/api/modules/todo', { enabled: false })).status, 200);
+      const swm = await as('PATCH', '/api/settings', { template: id });
+      assert.deepEqual(swm.json.offer.modules.map((m) => m.id), ['todo'], swm.text);
+      const [conf, del] = await Promise.all([
+        as('POST', '/api/environment/template/apply', { modules: ['todo'], offerId: swm.json.offer.offerId, version: swm.json.offer.version }),
+        as('DELETE', `/api/environment/templates/${id}`),
+      ]);
+      assert.equal(del.status, 200, del.text);
+      const todoOn = (await as('GET', '/api/modules')).json.modules.some((m) => m.id === 'todo' && m.enabled);
+      if (conf.status === 200) assert.equal(todoOn, true, 'the confirm went first: its module on');
+      else assert.deepEqual([conf.status, todoOn], [409, false], `the delete went first: nothing turned on (${conf.text})`);
+      assert.equal((await as('GET', '/api/environment/template')).json.template.id, 'default', 'never left on a deleted template');
+    }
 
     assert.deepEqual((await named(quiet)).map((sp) => sp.id), quietBefore, 'another environment is untouched');
   });

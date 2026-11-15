@@ -1109,9 +1109,9 @@ const starterOffer = (record, template) => (record?.switchedAt && !record.applie
 // again for this template. `starterSpaces`: the offer's starter spaces ticked, by their `index`; each is made once, by
 // `creator` (the person who confirmed on the environment's own route, the host's stand-in included, as for POST
 // /api/spaces; the host console's confirm: the environment's first owner), through makeStarterSpaces.
-// `offerId` (offerIdOf): which offer is confirmed; required with a ticked starter space, and when sent, an offer that is
-// no longer the open one (another template, a switch away and back, a new version) is refused whole. `version`: the
-// template's version as offered, checked the same way. Throws a StoreError for a refusal, before anything changes.
+// `offerId` (offerIdOf) and `version`: which offer is confirmed, as the offer gave them; both required on every confirm,
+// and an offer that is no longer the open one (another template, a switch away and back, a new version) is refused
+// whole. Throws a StoreError for a refusal, before anything changes.
 // Confirms and switches of one environment run one at a time (templateTurn), so a confirm sees the record as the one
 // before it left it and only the first of two confirms of one offer changes anything. Answers templateAnswer with
 // `made`: the ids of the starter spaces made.
@@ -1130,14 +1130,14 @@ async function applyTemplateOfferNow(env, slug, body, creator) {
   if (new Set(ticked).size !== ticked.length) throw new StoreError(`Each starter ${env.store.word('space')} is named once.`);
   if (b.version !== undefined && !Number.isInteger(b.version)) throw new StoreError("version is the template's version from the offer.");
   if (b.offerId !== undefined && (typeof b.offerId !== 'string' || !b.offerId)) throw new StoreError('offerId is the offer\'s own, as the offer gave it.');
-  if (ticked.length && (b.version === undefined || b.offerId === undefined)) throw new StoreError(`Send the offer's offerId and version with the starter ${spaces} to make.`);
+  if (b.version === undefined || b.offerId === undefined) throw new StoreError("Send the offer's offerId and version.");
   await env.templateReady;
   const record = env.store.templateRecord;
   if (!record) throw new StoreError(`This ${env.store.word('environment')} has no template to apply.`, 409);
   const template = templateFor(env, record.id);
   if (!template) throw new StoreError(`This server doesn't have the "${record.id}" template any more.`, 409);
   if (!offerIsOpen(record, template, env)) throw new StoreError('This template has already been applied.', 409);
-  if ((b.version !== undefined && b.version !== template.version) || (b.offerId !== undefined && b.offerId !== offerIdOf(record, template))) throw new StoreError('This template changed since it was offered; look at the offer again.', 409);
+  if (b.version !== template.version || b.offerId !== offerIdOf(record, template)) throw new StoreError('This template changed since it was offered; look at the offer again.', 409);
   const offered = starterOffer(record, template);
   const missing = ticked.find((i) => !offered.some((sp) => sp.index === i));
   if (missing !== undefined) throw new StoreError(`This offer has no starter ${env.store.word('space')} ${missing}.`);
@@ -12665,18 +12665,27 @@ app.delete('/api/environment/templates/:id', requireOwner, async (req, res) => {
   if (!t || (t.hidden && env.store.templateRecord?.id !== t.id)) return noSuchTemplate(res, req.params.id);
   if (t.id === templates.DEFAULT_ID) return res.status(403).json({ error: defaultNotDeleted() });
   if (t.source !== 'own') return res.status(403).json({ error: "Shipped templates can't be deleted." });
-  await env.templateReady;
-  const environment = env.store.templateRecord?.id === t.id;
-  if (environment) {
-    const d = templates.defaultTemplate();
-    // The Default template applies nothing, so it is recorded as applied: there is no offer to confirm.
-    env.store.switchTemplateRecord({ id: d.id, appliedAt: new Date().toISOString(), appliedVersion: d.version, applied: templates.partFingerprints(d), skipped: [] }, { from: t.id, to: d.id, by: currentUser(req).key });
-    if (env.slug && hostRegistry) hostRegistry.setEnvironmentTemplate(env.slug, d.id);
-  }
-  const spaces = env.store.dropSpaceTemplate(t.id);
-  env.store.removeOwnTemplate(t.id);
-  if (environment) templates.useLive(env.store, templates.defaultTemplate());
-  console.log(`${env.slug ? `[${env.slug}] ` : ''}Deleted the template "${t.id}"${environment ? '; the environment reads the Default template' : ''}${spaces.length ? `; ${spaces.length} read the environment's` : ''}.`);
+  // In its turn with the switches and confirms (templateTurn), so a confirm of its offer never finishes on a deleted
+  // template, and a delete never lands while a confirm turns modules on. Read again in the turn: another delete may
+  // have gone first.
+  const done = await templateTurn(env, async () => {
+    await env.templateReady;
+    if (templateFor(env, t.id)?.source !== 'own') return null;
+    const environment = env.store.templateRecord?.id === t.id;
+    if (environment) {
+      const d = templates.defaultTemplate();
+      // The Default template applies nothing, so it is recorded as applied: there is no offer to confirm.
+      env.store.switchTemplateRecord({ id: d.id, appliedAt: new Date().toISOString(), appliedVersion: d.version, applied: templates.partFingerprints(d), skipped: [] }, { from: t.id, to: d.id, by: currentUser(req).key });
+      if (env.slug && hostRegistry) hostRegistry.setEnvironmentTemplate(env.slug, d.id);
+    }
+    const spaces = env.store.dropSpaceTemplate(t.id);
+    env.store.removeOwnTemplate(t.id);
+    if (environment) templates.useLive(env.store, templates.defaultTemplate());
+    console.log(`${env.slug ? `[${env.slug}] ` : ''}Deleted the template "${t.id}"${environment ? '; the environment reads the Default template' : ''}${spaces.length ? `; ${spaces.length} read the environment's` : ''}.`);
+    return { spaces, environment };
+  });
+  if (!done) return noSuchTemplate(res, req.params.id);
+  const { spaces, environment } = done;
   res.json({ spaces, environment });
 });
 // A template file imported as one of the owner's own, keeping the file's version (at least 1). `?id=` gives it another
@@ -12697,9 +12706,10 @@ app.get('/api/templates/:id/export', requireOwner, (req, res) => {
   const t = templateFor(env, req.params.id);
   sendTemplateFile(res, t && (!t.hidden || env.store.templateRecord?.id === t.id) ? t : null, req.params.id);
 });
-// Confirms the open offer: { modules: [ids], lobby: boolean, spaceDefaults: boolean, starterSpaces: [indexes], version }
-// (applyTemplateOffer); the ticked starter spaces are made by the owner confirming. 409 with no template, one already
-// applied, or one whose version changed since the offer.
+// Confirms the open offer: { offerId, version, modules: [ids], lobby: boolean, spaceDefaults: boolean, starterSpaces:
+// [indexes] } (applyTemplateOffer); `offerId` and `version` as the offer gave them, always; the ticked starter spaces are
+// made by the person confirming. 400 without offerId and version; 409 with no template, one already applied, or an offer
+// that is no longer the open one.
 app.post('/api/environment/template/apply', requireOwner, async (req, res) => {
   const env = currentEnvironment();
   res.json(await applyTemplateOffer(env, env.slug, req.body, currentUser(req)));
