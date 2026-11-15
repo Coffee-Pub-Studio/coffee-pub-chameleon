@@ -13,6 +13,7 @@ const { EventEmitter } = require('events');
 
 const SCOPES = ['environment', 'space', 'person'];
 const { cleanRows } = require('./setting-list');
+const { word } = require('./words');
 const { ModuleSecrets } = require('./module-secrets');
 const TYPES = ['boolean', 'choice', 'number', 'text', 'url', 'file', 'files', 'list', 'color', 'note', 'secret'];
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
@@ -119,6 +120,8 @@ class ModuleSettings extends EventEmitter {
     // own values for the module, unchecked (templateValuesFor checks them against the manifest), `template` its name and
     // `module` what the place calls the module. Without one, no template sets anything.
     this.lens = null;
+    // The modules whose template layer could not be read, each said once in the log (layerOf).
+    this.lensFailLogged = new Set();
     this.data = { environment: {}, spaces: {}, people: {} };
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
@@ -149,7 +152,16 @@ class ModuleSettings extends EventEmitter {
   // module }. `values` holds only what the manifest lets a template set (templateValuesFor).
   layerOf(manifest, place = null) {
     let got = null;
-    try { got = typeof this.lens === 'function' ? this.lens(manifest.id, typeof place === 'string' && place ? place : null) : null; } catch { got = null; }
+    try {
+      got = typeof this.lens === 'function' ? this.lens(manifest.id, typeof place === 'string' && place ? place : null) : null;
+    } catch (err) {
+      // Read as no template rather than failing the request; said once per module, so it is seen.
+      got = null;
+      if (!this.lensFailLogged.has(manifest.id)) {
+        this.lensFailLogged.add(manifest.id);
+        console.warn(`The template's settings for the ${manifest.id} module could not be read, so none apply: ${err && err.message}`);
+      }
+    }
     return {
       values: templateValuesFor(manifest, got && got.settings),
       template: got && typeof got.template === 'string' && got.template ? got.template : null,
@@ -246,7 +258,7 @@ class ModuleSettings extends EventEmitter {
         let same = false;
         try { same = JSON.stringify(cleanValue(def, raw)) === JSON.stringify(layer.values[def.key]); } catch { /* not even a value it takes */ }
         if (same) continue;
-        throw new SettingError(`${layer.module}'s ${def.label} is set by ${layer.template ? `the ${layer.template} template` : 'its template'}; to change it, copy the template.`, 409);
+        throw new SettingError(`${layer.module}'s ${def.label} is set by ${layer.template ? `the ${layer.template} template` : 'its template'}; ask ${word('owner', { a: true })} to copy the template to change it.`, 409);
       }
       if (raw === null && templateMay(def) && def.template === 'default') { forget.push(key); continue; }
       clean[key] = cleanValue(def, raw);

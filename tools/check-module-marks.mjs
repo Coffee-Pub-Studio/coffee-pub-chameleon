@@ -156,7 +156,7 @@ function fresh(name, env = null) {
   settings.lens = (moduleId, place) => store.moduleLens(place, moduleId);
   return { store, settings };
 }
-const sentence = (label, template) => `Marks's ${label} is set by the ${template} template; to change it, copy the template.`;
+const sentence = (label, template) => `Marks's ${label} is set by the ${template} template; ask an owner to copy the template to change it.`;
 const status = (fn) => { try { fn(); return 200; } catch (err) { return err.status; } };
 
 await test('driven: the template\'s value whatever is stored; a different write refused (409) at a space\'s and the environment\'s scope; the same value left out', () => {
@@ -233,7 +233,17 @@ await test('a hostile template sets nothing a manifest does not let it: unmarked
   assert.deepEqual([e.apiKey, e.own, e.unit], [{ set: false }, false, 'hours']);
   // A lens that throws reads as no template, never as an error.
   settings.lens = () => { throw new Error('boom'); };
-  assert.equal(settings.effective(MARKS, { spaceId: s.id }).unit, 'money');
+  const warned = [];
+  const warn = console.warn;
+  console.warn = (...a) => warned.push(a.join(' '));
+  try {
+    assert.equal(settings.effective(MARKS, { spaceId: s.id }).unit, 'money');
+    assert.equal(settings.effective(MARKS, { spaceId: s.id }).unit, 'money');
+    settings.set(MARKS, 'space', { spaceId: s.id }, { own: true }, 'u1');
+  } finally {
+    console.warn = warn;
+  }
+  assert.deepEqual(warned, ["The template's settings for the marks module could not be read, so none apply: boom"], 'said once for the module, however often it is read');
 });
 
 await test('labels: the template\'s word where the manifest declares it, else the manifest\'s; nothing undeclared, no markup', () => {
@@ -393,12 +403,12 @@ try {
   });
 
   await test('a driven write is refused for the admin, an owner and a moderator (409) and a member (403); nothing is stored', async () => {
-    const said = "Timesheet's Counts is set by the Hours template; to change it, copy the template.";
+    const said = "Timesheet's Counts is set by the Hours template; ask an owner to copy the template to change it.";
     for (const who of [admin, owner.as, mo.as]) {
       const r = await who('PUT', `/api/modules/marks/settings/space?space=${h.id}`, { values: { unit: 'money' } });
       assert.deepEqual([r.status, r.json.error], [409, said]);
       const many = await who('PUT', `/api/modules/marks/settings/space?space=${h.id}`, { values: { split: true, limit: 3 } });
-      assert.deepEqual([many.status, many.json.error], [409, "Timesheet's Limit is set by the Hours template; to change it, copy the template."]);
+      assert.deepEqual([many.status, many.json.error], [409, "Timesheet's Limit is set by the Hours template; ask an owner to copy the template to change it."]);
     }
     const member = await mia.as('PUT', `/api/modules/marks/settings/space?space=${h.id}`, { values: { unit: 'money' } });
     assert.equal(member.status, 403);
