@@ -580,7 +580,7 @@
         // With `object` (plan-object-handoff.md): the whole object, its details in the plan's own fields (fromObject).
         acceptSuggestion: async (input) => addHandedIn(input.object ? fromObject(input.object) : fromSuggestion(input)),
         addFromText: async (input) => {
-          if (!composeFromText) throw new Error('the Planner is not open');
+          if (!composeFromText) throw new Error('Travel - Itinerary is not open');
           composeFromText(String(input.text || ''));
           return {};
         },
