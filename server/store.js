@@ -19,6 +19,7 @@ const { LEGACY_ENVIRONMENT_RECORD } = require('./migrate-names');
 const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST, OLD_DEFAULT_REACTIONS, OLD_DEFAULT_ICONS, sameList } = require('./default-lists');
 // The phase timeline rule, the one copy the pages use too (plan-one-bar.md, step 1).
 const phaseRule = require('../public/phases.js');
+const phaseMeasure = require('./phase-measure.js'); // the Done switches (plan-templates-redesign.md, step 6)
 const aiPolicy = require('./ai-policy');
 const { cleanAgreed, hasAgreed } = require('./agreements');
 const { endsWithGuestMark } = require('./guest-door');
@@ -901,6 +902,9 @@ class Store {
       // The template's phases' dates on this space, { <id>: { start?, end? } } (plan-one-bar.md, step 1; the rule is
       // public/phases.js); absent while none is set. Kept as stored: the rule's refusals are updateSpace's.
       ...(Object.keys(phaseRule.cleanDates(r.phases)).length ? { phases: phaseRule.cleanDates(r.phases) } : {}),
+      // The Done switches, { <phase id>: true } (the template's phase measure, progress or goals; setPhaseDone). Apart from the
+      // dates, which a save of the dates replaces whole; absent while none is on.
+      ...(Object.keys(phaseMeasure.cleanDone(r.phaseDone)).length ? { phaseDone: phaseMeasure.cleanDone(r.phaseDone) } : {}),
       // The budget target (#216; budgetOf): { amount?, currency? }, absent while none is set.
       ...(budgetOf(r.budget) ? { budget: budgetOf(r.budget) } : {}),
     };
@@ -2091,6 +2095,7 @@ class Store {
       hasImage: !!this.spaceImagePath(r.id),
       // The phases' dates, always an object here ({} while none is set) so every reader of a space can count on it.
       phases: r.phases ? { ...r.phases } : {},
+      phaseDone: r.phaseDone ? { ...r.phaseDone } : {},
     }));
   }
 
@@ -2372,6 +2377,24 @@ class Store {
     if (!('aiSees' in draft)) delete space.aiSees;
     // Someone taken off the member list loses their address for this space, as removeMember does.
     for (const u of this.data.users) if (!space.members.includes(u.key)) this.dropSpaceCalendarFeed(u, id);
+    this.save();
+    return this.spaceById(id);
+  }
+
+  // One phase's Done switch (the template's phase measure, progress or goals): on or off. The phase must be one this space reads (its
+  // own template's, else the environment's); a switch left from a template that no longer has the phase stays as it is. Who may
+  // flip it, and whether the measure has one, is the route's to decide. Answers the space.
+  setPhaseDone(id, phaseId, done) {
+    const space = this.data.spaces.find((r) => r.id === id);
+    if (!space) throw new StoreError(`no such ${this.word('space')}`, 404);
+    const known = this.phasesOfDraft(space).some((p) => p.id === phaseId);
+    if (!known) throw new StoreError(`There is no phase called "${String(phaseId).slice(0, 40)}".`, 404);
+    if (typeof done !== 'boolean') throw new StoreError('Send done as true or false.', 400);
+    const on = phaseMeasure.cleanDone(space.phaseDone);
+    if (done) on[phaseId] = true;
+    else delete on[phaseId];
+    if (Object.keys(on).length) space.phaseDone = on;
+    else delete space.phaseDone;
     this.save();
     return this.spaceById(id);
   }
