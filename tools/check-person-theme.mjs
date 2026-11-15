@@ -185,7 +185,23 @@ try {
     const id = made.json.theme.id;
     assert.equal((await call('PATCH', '/api/me', { token: ben, body: { theme: id } })).status, 200);
     assert.equal(await themeOf(ben), id);
+    // Ben's and Ann's open pages listen on the notification stream; only Ben's is told.
+    const listen = async (tok) => {
+      const ctl = new AbortController();
+      const res = await fetch(`http://127.0.0.1:${port}/api/notifications/stream`, { headers: { cookie: `app_session=${tok}` }, signal: ctl.signal });
+      const state = { text: '' };
+      (async () => { try { for await (const chunk of res.body) state.text += Buffer.from(chunk).toString(); } catch { /* closed */ } })();
+      return { state, close: () => ctl.abort() };
+    };
+    const benLive = await listen(ben);
+    const annLive = await listen(ann);
+    await new Promise((r) => setTimeout(r, 300));
     assert.equal((await call('DELETE', `/api/themes/${id}`, { token: admin })).status, 200);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.match(benLive.state.text, /event: mode\ndata: \{"themeMode":[^}]*"theme":null\}/, 'the person who chose it is told at once');
+    assert.equal(/event: mode/.test(annLive.state.text), false, 'someone who did not choose it is not');
+    benLive.close();
+    annLive.close();
     assert.equal(await themeOf(ben), null);
     assert.equal((await call('PATCH', '/api/me', { token: ben, body: { theme: id } })).status, 400, 'and it can\'t be chosen again');
     const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'app.json'), 'utf8'));

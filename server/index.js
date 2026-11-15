@@ -12328,7 +12328,10 @@ app.get('/api/themes', requireOwner, (_req, res) => res.json({ themes: store.the
 app.post('/api/themes', requireOwner, (req, res) => res.json({ theme: store.addTheme(req.body || {}) }));
 app.patch('/api/themes/:id', requireOwner, (req, res) => res.json({ theme: watchTheme(() => store.updateTheme(req.params.id, req.body || {})) }));
 app.delete('/api/themes/:id', requireOwner, (req, res) => {
+  // Everyone who had chosen this theme falls back to the environment's: tell each one's open pages now (the 'mode' event).
+  const chosen = store.users.filter((u) => u.theme === req.params.id).map((u) => u.key);
   watchTheme(() => store.removeTheme(req.params.id));
+  for (const key of chosen) themeEvents.emit('mode', { userKey: key, themeMode: store.userByKey(key)?.themeMode || null, theme: null });
   res.json({ ok: true });
 });
 // A theme as a file (documentation/plans/plan-themes.md; server/theme-file.js). Export: any theme, or `default` for

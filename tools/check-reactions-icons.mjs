@@ -98,6 +98,20 @@ try {
     await call('PATCH', '/api/settings', { reactions: mine, icons: myIcons });
   });
 
+  await test('Manage reads and posts the owner\'s OWN lists, so what a template adds never becomes the owner\'s', async () => {
+    const src = fs.readFileSync(path.join(ROOT, 'public', 'admin.js'), 'utf8');
+    assert.ok(/renderReactionRows\(settings\.ownReactions\)/.test(src) && /renderIconRows\(settings\.ownIcons\)/.test(src), 'the rows are filled from ownReactions and ownIcons');
+    assert.equal(/render(Reaction|Icon)Rows\(settings\.(reactions|icons)\)/.test(src), false, 'never from the resolved lists');
+    // What Manage does: read the settings, post the rows back as they are (the glyph, label and id of each, the icon's classes).
+    const got = (await call('GET', '/api/settings')).json.settings;
+    const posted = await call('PATCH', '/api/settings', { reactions: got.ownReactions.map((r) => ({ id: r.id, glyph: r.glyph, label: r.label })), icons: got.ownIcons.map((i) => ({ id: i.id, classes: i.classes, label: i.label })) });
+    assert.equal(posted.status, 200, posted.text);
+    assert.deepEqual([posted.json.settings.ownReactions, posted.json.settings.ownIcons], [got.ownReactions, got.ownIcons], 'a round trip changes nothing');
+    // The stored lists hold none of the resolved lists' extra entries: with a template's additions the page would have saved them.
+    const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'app.json'), 'utf8')).settings;
+    assert.deepEqual([stored.reactions.length, stored.icons.length], [got.ownReactions.length, got.ownIcons.length]);
+  });
+
   await test('an icon the owner adds, and every core icon, may be the home icon; one nobody has may not', async () => {
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'my-cat' })).status, 200);
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'dragon' })).status, 200, 'a core one');

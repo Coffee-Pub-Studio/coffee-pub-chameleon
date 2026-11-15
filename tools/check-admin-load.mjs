@@ -114,7 +114,7 @@ async function main() {
           await open2('template/travel/labels', `${box('tpl-labels-box', '.tf-line')} === 13 && ${box('tpl-labels-box', '.tf-locked-list .tf-line')} === 8`, 'Experience Labels of the environment\'s own template');
           await open2('template/mine/labels', `${box('tpl-labels-box', '[data-tf-word]')} === 2 && ${box('tpl-labels-box', 'input[data-tf=lobby-name]')} === 0 && ${box('tpl-labels-box', '.tf-locked-list .tf-line')} === 8`, 'Experience Labels of an owner\'s own template');
           await open2('template/list', `${box('tpl-list', 'li')} >= 4 && document.querySelector('#tpl-list li').dataset.tpl === 'default' && !document.querySelector('#tpl-list li:first-child [data-tpl-action=delete]') && !!document.querySelector('#tpl-list li[data-tpl=mine] [data-tpl-action=delete]') && !!document.querySelector('#template-import')`, 'the list of templates');
-          await open2('template/more', `document.getElementById('module-names').children.length > 0 && document.getElementById('reactions-list').children.length > 0 && document.getElementById('icons-list').children.length > 0`, 'the module names, reactions and icons');
+          await open2('template/more', `document.getElementById('module-names').children.length > 0 && document.getElementById('reactions-fixed').textContent.length > 0 && document.getElementById('icons-fixed').textContent.length > 0`, 'the module names, reactions and icons');
           // The buttons of the strip reach the same pages.
           for (const part of await tab.eval(`[...document.querySelectorAll('#tpl-subtabs .subtab')].map((b) => b.dataset.tplPart)`)) {
             await click(`#tpl-subtabs .subtab[data-tpl-part="${part}"]`);
