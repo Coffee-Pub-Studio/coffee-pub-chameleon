@@ -369,7 +369,7 @@ test('actions.list passes a valid ref on, cleaned, and drops a bad one; the drop
     const mic = [];
     const doc = { ...listening(), visibilityState: 'visible', body: { classList: { contains: (c) => inSpace && c === 'in-space' } } };
     const win = listening();
-    const h = new Function('document', 'window', 'prefs', 'call', 'hotkeyMatches', 'reflectMic', 'inCall', 'isAway', `let pttHeld = false;\n${src}\nreturn { onKey, onKeyUp };`)(
+    const h = new Function('document', 'window', 'prefs', 'call', 'hotkeyMatches', 'reflectMic', 'inCall', 'isAway', `let pttHeld = false;\n// the page's turnMicOn opens its own microphone first when none is published; here one is, so it only turns it on\nconst turnMicOn = () => call.localParticipant.setMicrophoneEnabled(true);\n${src}\nreturn { onKey, onKeyUp };`)(
       doc, win, { ptt: true, pttKey, muteKey: 'Mod+KeyD', camKey: 'Mod+KeyE' }, { localParticipant: { setMicrophoneEnabled: (on) => { mic.push(on); return Promise.resolve(); } } }, hotkeyMatches, () => {}, inCall, isAway);
     const prevented = [];
     for (const [type, target, code = pttKey, extra = {}] of steps) {
