@@ -112,7 +112,14 @@ function stripTags(s) {
   return i ? out + s.slice(i) : s;
 }
 
-const plain = (s, n, lines) => stripTags(String(s == null ? '' : s)).replace(lines ? /(?!\n)\p{Cc}/gu : /\p{Cc}/gu, ' ').replace(lines ? /[ \t]+/g : /\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, n);
+// Invisible format characters (\p{Cf}: zero-width spaces, left-to-right and right-to-left marks and overrides, isolates, the byte
+// order mark, tag characters) are taken out, so a title and an "under" can't look equal and not match, or read backwards. The one
+// kept is U+200D, the zero-width joiner, only between two emoji (it makes a family or a profession); a stray one goes too. The
+// trade-off: tag characters also spell the flags of England, Scotland and Wales, which lose their tags and show as a black flag.
+const EMOJI = '(?:\\p{Extended_Pictographic}[\\u{FE0F}\\u{1F3FB}-\\u{1F3FF}]?)';
+const JOINED = new RegExp(`(${EMOJI})\u200D(?=${EMOJI})`, 'gu');
+const hidden = (s) => s.replace(JOINED, '$1\uE000').replace(/\p{Cf}/gu, '').replace(/\uE000/g, '\u200D');
+const plain = (s, n, lines) => hidden(stripTags(String(s == null ? '' : s))).replace(lines ? /(?!\n)\p{Cc}/gu : /\p{Cc}/gu, ' ').replace(lines ? /[ \t]+/g : /\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, n);
 
 // A file's bytes as text: UTF-16 when it starts with that byte order mark, else UTF-8. Same rule as public/file-text.js.
 function decodeBytes(buf) {

@@ -33,7 +33,7 @@ const KIND_NOTES = { hotel: 'any stay: hotel, rental, hostel' };
 // A plan kind as the prompt's sentences say it, and one small example of each (placeholders only, as above).
 const PLAN_WORDS = { milestone: 'milestone', work: 'piece of work', goal: 'goal', step: 'step' };
 const PLAN_EXAMPLES = {
-  milestone: '{"kind":"milestone","title":"<title>","date":"<YYYY-MM-DD>","details":{"start":"<YYYY-MM-DD>","phase":"<phase>"}}',
+  milestone: '{"kind":"milestone","title":"<title>","details":{"start":"<YYYY-MM-DD>","phase":"<phase>"}}',
   work: '{"kind":"work","title":"<title>","content":"<notes>","details":{"start":"<YYYY-MM-DD>","end":"<YYYY-MM-DD>","under":"<title of the milestone>"}}',
   goal: '{"kind":"goal","title":"<title>","details":{"why":"<why it matters>","date":"<YYYY-MM-DD>"}}',
   step: '{"kind":"step","title":"<title>","details":{"done":false,"under":"<title of the goal>"}}',

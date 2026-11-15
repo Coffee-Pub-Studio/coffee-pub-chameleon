@@ -474,6 +474,16 @@ test('plan objects: a milestone, work, a goal and its steps read from an import,
   assert.deepEqual(out.dropped, [{ at: 5, why: 'it has no content' }, { at: 6, why: 'it has no content' }], 'a step whose only detail was a bad day, or with none, has nothing but a title, as for every kind');
   assert.equal(cleanDetails('step', { under: 'u'.repeat(200) }).under.length, 80, 'under is no longer than a title');
   assert.equal(cleanDetails('goal', { under: 'Run a 10K' }), null, 'a goal sits under nothing');
+  // Hidden characters are taken out of every text field, so a title and an "under" can't fail to match or be spoofed.
+  assert.equal(cleanDetails('step', { under: 'Run\u200B a\u200B 10K' }).under, 'Run a 10K', 'a zero-width space in under');
+  assert.equal(cleanDetails('step', { under: 'Run\u200Ba\uFEFF10K\u2060' }).under, 'Run a 10K'.replace(/ /g, ''), 'zero-width, byte order mark and word joiner go without leaving a space');
+  const rlo = cleanObject({ title: 'Pay \u202Efdp.exe\u202C now', content: 'c' });
+  assert.equal(rlo.title, 'Pay fdp.exe now', 'a right-to-left override in a title');
+  for (const c of ['\u200E', '\u200F', '\u202A', '\u202B', '\u202D', '\u2061', '\u2064', '\u2066', '\u2069', '\uFEFF', '\u061C']) assert.equal(cleanObject({ kind: 'step', title: `a${c}b`, details: { done: false } }).title, 'ab', `U+${c.codePointAt(0).toString(16)}`);
+  assert.equal(cleanObject({ kind: 'event', title: 'x', content: 'a\u200Bb\nc\u202Ed', details: {} }).content, 'ab\ncd', 'content too, with its lines');
+  const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}', heart = '\u2764\uFE0F', flagless = 'a\u200Db \u200D';
+  assert.equal(cleanObject({ kind: 'step', title: `Family ${family} ${heart} \u{1F44D}\u{1F3FD}`, details: { done: false } }).title, `Family ${family} ${heart} \u{1F44D}\u{1F3FD}`, 'an emoji sequence, its joiners and variation selector, stays whole');
+  assert.equal(cleanObject({ title: flagless, content: 'c' }).title, 'ab', 'a joiner between letters, or alone, goes');
   assert.equal(cleanDetails('milestone', { start: '2026-11-14', end: '2026-11-20' }).end, undefined, 'a milestone is one day');
   assert.deepEqual(['milestone', 'work', 'goal', 'step', 'event', 'flight', 'constructor'].map(kindA), ['a milestone', 'a piece of work', 'a goal', 'a step', 'an event', 'a flight', 'a constructor']);
   // A plan of 60 objects is cut at the import's cap, as any other.
