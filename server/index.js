@@ -8355,6 +8355,8 @@ objectSync.configure({
   pairTo: (ref) => moduleLinks.pairTo(ref),
   addPair: (from, to, by) => moduleLinks.addPair(from, to, by),
   detachPair: (ref) => moduleLinks.detachPair(ref),
+  // Whether a Clear holds this key for its Undo (server/module-holds.js): a held copy is not gone.
+  isHeld: (moduleId, scopeKey, key) => Boolean(moduleHolds.peek(moduleId, scopeKey)?.items.some((item) => item.key === key)),
   removePairs: (ref, keepDetached) => moduleLinks.removePairs(ref, keepDetached),
   newId: () => crypto.randomBytes(8).toString('hex'),
   nameOf: (by) => store.userByKey(by)?.displayName || String(by || ''),
@@ -8824,6 +8826,13 @@ app.post('/api/objects/links', (req, res) => {
     perms = modulePerms(who, null);
   }
   if (!moduleCan(found.manifest, perms, 'write')) return res.status(403).json({ error: `your role can't do that in this ${word('module')}` });
+  // A copy of another module's object (GitHub #857): its links change only for whoever may change its original; one they
+  // may not see is answered as an object that is not there (below, nothing is kept).
+  const copies = from.scope === 'space' && takesCopies(found.manifest) ? copySight(who) : null;
+  const fromRef = plainRef(from);
+  const fromHidden = Boolean(copies && copies.hides(fromRef));
+  const fromRefused = copies && !fromHidden ? copies.changeRefusal(fromRef) : null;
+  if (fromRefused) return res.status(403).json({ error: fromRefused.manifest ? copyChangeText(fromRefused.manifest) : copyHiddenText() });
   // `kind`: replace only the links to objects of that kind (host.files.link keeps the object's other links as they are).
   const only = req.body?.kind === undefined || req.body?.kind === null || req.body?.kind === '' ? null : String(req.body.kind);
   if (only !== null && !/^[a-z][a-z0-9_-]{0,31}$/i.test(only)) return res.status(400).json({ error: `kind is a kind name` });
@@ -8831,7 +8840,7 @@ app.post('/api/objects/links', (req, res) => {
   const mode = req.body?.op === undefined || req.body?.op === null || req.body?.op === '' ? 'replace' : String(req.body.op);
   if (!['replace', 'add', 'remove'].includes(mode) || (mode !== 'replace' && only === null)) return res.status(400).json({ error: 'op is add or remove, with a kind' });
   const tos = [];
-  const held = moduleLinks.from(from);
+  const held = fromHidden ? [] : moduleLinks.from(from);
   for (const to of (Array.isArray(req.body?.to) ? req.body.to : []).slice(0, 20)) {
     if (to && to.scope === 'person') continue; // a shared link never points into someone's private data
     if (only !== null && !(to && to.kind === only)) return res.status(400).json({ error: `every link must be to a ${only}` });
@@ -8866,6 +8875,7 @@ app.post('/api/objects/links', (req, res) => {
       }
     }
   }
+  if (fromHidden) return res.json({ links: mode === 'remove' ? 0 : tos.length }); // as for an object that holds no links
   moduleLinks.set(from, tos, who.user?.key || 'guest', only, mode);
   // Only the links this person can see are counted.
   const counted = mode === 'replace' ? tos : moduleLinks.from(from).filter((l) => l.kind === only);
@@ -9050,6 +9060,7 @@ app.post('/api/bus/publish', busRoute((who, req) => {
       throw refError(400, `an event can only point at one of its ${word('module')}'s own ${word('object', { many: true })}, in the same place`);
     }
     pointer = plainRef(ref);
+    if (copySight(who).hides(pointer)) throw refError(404, 'not found'); // a copy whose original this person may not see (GitHub #857)
   }
   const event = moduleBus.publish({ module: id, name, ref: pointer, data, scopeKey: at.scopeKey, by: who.user?.key || 'guest' });
   if (!event) throw refError(400, 'the event\'s data is too large');
@@ -11558,8 +11569,11 @@ app.delete('/api/modules/:id/data', (req, res) => {
   const often = clearBudget(ctx);
   if (often) return void res.set('Retry-After', String(often.retrySeconds)).status(429).json({ error: `${modules.shownName(ctx.manifest)} was cleared too often just now. Try again in ${often.retrySeconds} ${often.retrySeconds === 1 ? 'second' : 'seconds'}.` });
   // Held first, then cleared: a stop between the two leaves the data where it was.
+  // A copy held says whose copy it is (`copyOf`), so an Undo puts it back only while that pair still is.
+  const pairs = takesCopies(ctx.manifest) ? moduleLinks.pairIndex() : null;
+  const copyOfKey = (key) => { const ref = pairs && copyRefAt(ctx.manifest, ctx.scopeKey, key); return ref ? pairs.copyOf(ref) : null; };
   const held = moduleHolds.hold(ctx.manifest.id, ctx.scopeKey, {
-    items: items.map(({ key, value, version, updatedAt, by }) => ({ key, value, version, updatedAt, by })),
+    items: items.map(({ key, value, version, updatedAt, by }) => { const copyOf = copyOfKey(key); return { key, value, version, updatedAt, by, ...(copyOf ? { copyOf } : {}) }; }),
     files: filesNamedBy(ctx.manifest, items),
     by: ctx.by,
     tz: typeof req.query.tz === 'string' ? req.query.tz : null,
@@ -11584,9 +11598,19 @@ app.post('/api/modules/:id/data/restore', (req, res) => {
   if (hiddenRefused) return res.status(hiddenRefused.status).json({ error: hiddenRefused.error });
   const slow = overLimit(ctx.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
+  // A held copy comes back only while it is still its original's copy (GitHub #857): one whose original was deleted, or lost its
+  // date, while the clear waited would come back as a plain event, so it stays cleared. Undo does not ask the copy rights
+  // again: it puts back what this person was allowed to clear, within the Undo time.
+  const stillCopy = (item) => {
+    if (!item.copyOf) return true;
+    const ref = copyRefAt(ctx.manifest, ctx.scopeKey, item.key);
+    const pair = ref ? moduleLinks.pairTo(ref) : null;
+    return Boolean(pair && pair.pair === 'active' && objectKey(pair.from) === objectKey(item.copyOf));
+  };
+  const stale = hold.items.filter((item) => !stillCopy(item));
   let result;
   try {
-    result = moduleData.restoreMany(ctx.manifest.id, ctx.scopeKey, hold.items, { by: ctx.by });
+    result = moduleData.restoreMany(ctx.manifest.id, ctx.scopeKey, hold.items.filter(stillCopy), { by: ctx.by });
   } catch (err) {
     moduleLimits.refund(ctx.manifest.id, ctx.by, 'write'); // nothing came back, so it was not a save
     if (err instanceof StoreError && err.status === 413) return res.status(413).json({ error: `${modules.shownName(ctx.manifest)}'s storage is full, so nothing came back. Remove something and press Undo again.` });
@@ -11595,11 +11619,15 @@ app.post('/api/modules/:id/data/restore', (req, res) => {
   moduleHolds.drop(ctx.manifest.id, ctx.scopeKey, 'undone');
   // What did not come back is cleared for good: other modules hear of it (unless its key now holds the object they
   // follow) and its files go, as when a hold runs out.
-  if (result.taken.length) {
-    const left = new Set(result.taken);
+  if (result.taken.length || stale.length) {
+    const left = new Set([...result.taken, ...stale.map((item) => item.key)]);
     finishHold({ ...hold, items: hold.items.filter((item) => left.has(item.key)) });
   }
-  res.json({ restored: result.restored.filter((key) => !isBookkeeping(key)).length, skipped: result.taken.length, taken: result.taken.slice(0, 50) });
+  // The copies that came back say what their originals say now (an original edited while the clear waited).
+  for (const item of hold.items) {
+    if (item.copyOf && result.restored.includes(item.key)) objectSync.resyncCopy({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: item.key, by: ctx.by });
+  }
+  res.json({ restored: result.restored.filter((key) => !isBookkeeping(key)).length, skipped: result.taken.length + stale.length, taken: result.taken.slice(0, 50) });
 });
 // Why a restoreToken undoes nothing (moduleHolds.why), as the 410 says it.
 const UNDO_GONE = {
@@ -11673,6 +11701,9 @@ app.post('/api/modules/:id/schedule', (req, res) => {
     pointer = plainRef(ref);
     if (copySight(ctx.who).hides(pointer)) return res.status(404).json({ error: 'not found' });
   }
+  // Nor is a schedule about such a copy replaced by key alone.
+  const had = moduleHooks.refOf(ctx, String(req.body?.key ?? ''));
+  if (had && copySight(ctx.who).hides(had)) return res.status(404).json({ error: 'not found' });
   const slow = overLimit(ctx.manifest.id, ctx.by, 'schedule');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
   try {
@@ -11684,6 +11715,9 @@ app.post('/api/modules/:id/schedule', (req, res) => {
 app.delete('/api/modules/:id/schedule/:key', (req, res) => {
   const ctx = moduleAccess(req, res, 'write');
   if (!ctx || !requireHook(ctx, res, 'schedule')) return;
+  // A schedule about a copy whose original this person may not see is answered as one that is not there (GitHub #857).
+  const had = moduleHooks.refOf(ctx, req.params.key);
+  if (had && copySight(ctx.who).hides(had)) return res.json({ key: req.params.key, cancelled: false });
   res.json(moduleHooks.cancel(ctx, req.params.key));
 });
 app.post('/api/modules/:id/notify', (req, res) => {

@@ -396,6 +396,98 @@ try {
     const reminder = src.slice(src.indexOf('async function applyReminder'), src.indexOf('async function save'));
     assert.match(reminder, /ref: host\.objects\.make\('event', id, where\)/);
   });
+
+  // The reader's second round (#857): a Clear's hold never turns a copy into a plain event; links, notifications, the bus and
+  // schedules by key follow the copy rules.
+  const lee = await call('POST', '/api/users', { login: 'lee', displayName: 'lee', role: 'member', password: PASSWORD });
+  assert.ok(lee.status < 300, lee.text);
+  users.lee = lee.json.user.key;
+  cookies.lee = await login('lee'); // a member who is not in the space
+  await roles('member', { 'module.travel.view': false, 'module.travel.edit': false });
+
+  await test('a Clear, then an edit of the original, then Undo: the copy comes back as a copy, up to date, still hidden from members', async () => {
+    await ok('PUT', `/api/modules/travel/data/plan:w3?${at}`, { value: { id: 'w3', title: 'Ferry', date: '2027-06-19' }, tz: 'UTC' });
+    const w3 = () => links().find((l) => l.pair && l.from.id === 'w3');
+    const w3Copy = w3().to.id;
+    for (let i = 0; i < 40 && (await call('GET', `/api/modules/calendar/data?${at}`)).json.items.length === 0; i += 1) await pause(100);
+    let clear;
+    for (let i = 0; i < 40; i += 1) {
+      clear = await call('DELETE', `/api/modules/calendar/data?${at}`, undefined, 'mia');
+      if (clear.status !== 409) break;
+      await pause(250);
+    }
+    assert.equal(clear.status, 200, clear.text);
+    assert.ok(clear.json.cleared >= 2, 'the moderator, who may change the Planner, clears the copies too');
+    await ok('PUT', planUrl, { value: { ...(await plan()), title: 'Edited while held' }, tz: 'UTC' });
+    await ok('PUT', `/api/modules/travel/data/plan:w3?${at}`, { value: { id: 'w3', title: 'Ferry' }, tz: 'UTC' }); // its date cleared
+    assert.equal(pair().pair, 'active', 'an edit of the original does not detach a held copy');
+    const back = await call('POST', `/api/modules/calendar/data/restore?${at}`, { restoreToken: clear.json.restoreToken }, 'mia');
+    assert.equal(back.status, 200, back.text);
+    assert.equal(pair().pair, 'active', 'the pair is active again');
+    assert.equal((await copy()).value.title, 'Edited while held', 'the copy follows the original');
+    assert.ok(!(await listed('sam')).includes(`event:${copyId}`), 'sam does not see it as a plain event');
+    assert.equal(w3(), undefined, 'the undated original has no pair');
+    assert.ok(!(await listed('admin')).includes(`event:${w3Copy}`), 'and its copy did not come back as a plain event');
+    await ok('PUT', planUrl, { value: { ...(await plan()), title: 'After undo' }, tz: 'UTC' });
+    assert.equal((await copy()).value.title, 'After undo', 'the pair follows the original again');
+  });
+
+  await test('the links of a copy change only for whoever may change its original', async () => {
+    await ok('PUT', `/api/modules/calendar/data/event:own2?${at}`, { value: { id: 'own2', title: 'Lunch', start: '2027-06-17', allDay: true, end: null, desc: '', remind: null, repeat: null, by: 'admin' } });
+    const own = { module: 'calendar', kind: 'event', id: 'own2', scope: 'space', space: S };
+    const linksFrom = () => links().filter((l) => !l.pair && l.from.module === 'calendar' && l.from.id === copyId);
+    const hidden = await call('POST', '/api/objects/links', { module: 'calendar', from: copyRef, to: [own] }, 'sam');
+    assert.equal(hidden.status, 200, hidden.text);
+    assert.equal(linksFrom().length, 0, 'nothing is kept for a copy sam may not see');
+    await roles('member', { 'module.travel.view': true });
+    for (const body of [{ to: [own] }, { to: [own], kind: 'event', op: 'add' }]) {
+      const r = await call('POST', '/api/objects/links', { module: 'calendar', from: copyRef, ...body }, 'sam');
+      assert.equal(r.status, 403, r.text);
+      assert.match(r.json.error, refusal);
+    }
+    assert.equal(linksFrom().length, 0);
+    const r = await call('POST', '/api/objects/links', { module: 'calendar', from: copyRef, to: [own] }, 'mia');
+    assert.equal(r.status, 200, r.text);
+    assert.equal(linksFrom().length, 1, 'the moderator may');
+    await roles('member', { 'module.travel.view': false });
+  });
+
+  await test('a copy\'s notification never reaches someone outside its space, and the bus and schedules by key keep to the copy rules', async () => {
+    await roles('member', { 'module.travel.view': true });
+    const sched = (as, body) => call('POST', `/api/modules/calendar/schedule?${at}`, body, as);
+    const titles = async (as) => (await call('GET', '/api/notifications', undefined, as)).json.notifications.map((x) => x.title);
+    assert.equal((await sched('admin', { key: 'remind:lee', at: Date.now() + 300, ref: copyRef, notify: { to: users.lee, title: 'For lee' } })).status, 200);
+    assert.equal((await sched('admin', { key: 'remind:own-lee', at: Date.now() + 300, notify: { to: users.lee, title: 'Own for lee' } })).status, 200);
+    for (let i = 0; i < 60 && !(await titles('lee')).includes('Own for lee'); i += 1) await pause(250);
+    assert.ok((await titles('lee')).includes('Own for lee'), 'lee hears of what is not a copy');
+    assert.ok(!(await titles('lee')).includes('For lee'), 'nothing about a copy reaches someone outside its space');
+    await roles('member', { 'module.travel.view': false });
+    const pub = await call('POST', '/api/bus/publish', { module: 'calendar', name: 'ended', ref: copyRef, data: { summary: 'x' }, scope: 'space', space: S }, 'sam');
+    assert.equal(pub.status, 404, pub.text);
+    assert.equal((await sched('admin', { key: `remind:${copyId}`, at: Date.now() + 3600000, ref: copyRef, notify: { title: 'Later' } })).status, 200);
+    const over = await sched('sam', { key: `remind:${copyId}`, at: Date.now() + 3600000, notify: { title: 'Mine now' } });
+    assert.equal(over.status, 404, over.text);
+    const cancel = await call('DELETE', `/api/modules/calendar/schedule/${encodeURIComponent(`remind:${copyId}`)}?${at}`, undefined, 'sam');
+    assert.deepEqual([cancel.status, cancel.json], [200, { key: `remind:${copyId}`, cancelled: false }]);
+    const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'modules', 'schedules.json'), 'utf8')).find((x) => x.key === `remind:${copyId}`);
+    assert.equal(stored.notify.title, 'Later', 'the schedule is as the admin set it');
+  });
+
+  await test('a due schedule about a copy, written before the server starts, reaches only those who may see the original', async () => {
+    for (const st of streams) st.close();
+    streams.length = 0;
+    await server.stop();
+    const file = path.join(dataDir, 'modules', 'schedules.json');
+    const list = JSON.parse(fs.readFileSync(file, 'utf8'));
+    list.push({ id: `calendar|space:${S}|remind:boot`, module: 'calendar', scopeKey: `space:${S}`, spaceId: S, key: 'remind:boot', at: Date.now() - 60000, payload: { id: copyId }, notify: { to: 'space', title: 'Boot walk', body: '' }, repeat: null, by: 'admin', ref: copyRef });
+    fs.writeFileSync(file, JSON.stringify(list));
+    server = await startServer(dataDir);
+    for (const who of ['admin', 'sam', 'mia']) cookies[who] = await login(who);
+    const titles = async (as) => (await call('GET', '/api/notifications', undefined, as)).json.notifications.map((x) => x.title);
+    for (let i = 0; i < 60 && !(await titles('mia')).includes('Boot walk'); i += 1) await pause(250);
+    assert.ok((await titles('mia')).includes('Boot walk'), 'the moderator is told');
+    assert.ok(!(await titles('sam')).includes('Boot walk'), 'sam is not');
+  });
 } finally {
   for (const s of streams) s.close();
   if (server) await server.stop();

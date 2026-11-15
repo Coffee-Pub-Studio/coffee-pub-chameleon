@@ -204,6 +204,12 @@ class ModuleHooks extends EventEmitter {
     return { key, at, repeat: Boolean(repeat) };
   }
 
+  // The object a schedule here says it is about (its `ref`), or null.
+  refOf(ctx, key) {
+    const id = this.id(ctx.manifest.id, ctx.scopeKey, key);
+    return this.schedules.find((s) => s.id === id)?.ref || null;
+  }
+
   cancel(ctx, key) {
     const id = this.id(ctx.manifest.id, ctx.scopeKey, key);
     const before = this.schedules.length;

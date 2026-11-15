@@ -281,8 +281,13 @@ function createTwin(ref, wall, zone, by, taker, scopeKey) {
 function updateTwin(pair, wall, zone, by, taker, scopeKey) {
   const key = twinKey(taker.produce, pair.to.id);
   const current = deps.read(taker.moduleId, scopeKey, key);
-  // A copy that is gone was hidden on purpose (deleting it detaches the pair): it is not made again.
-  if (!current) return deps.detachPair(pair.to);
+  // A copy that is gone was hidden on purpose (deleting it detaches the pair): it is not made again. One a Clear holds for its
+  // Undo is not gone yet: the pair stays as it is (an Undo brings the copy back and brings it up to date, resyncCopy; the end
+  // of the hold detaches it), so a copy never comes back as a plain event.
+  if (!current) {
+    if (deps.isHeld && deps.isHeld(taker.moduleId, scopeKey, key)) return;
+    return deps.detachPair(pair.to);
+  }
   const patch = fieldsForTwin(wall, zone, taker.produce.dated);
   const next = patch && changed(current, patch);
   if (next) deps.write(taker.moduleId, scopeKey, key, next, by);
@@ -359,6 +364,28 @@ function mirrorIn(ref, produce, scopeKey, after, zone, by, before = null) {
   // The copy then says what the sender says (its span, its zone, a time "All day" would not erase).
   const copy = changed(after, fieldsForTwin(readWall(sent, sender.dated), wrote, produce.dated));
   if (copy) deps.write(ref.module, scopeKey, twinKey(produce, ref.id), copy, by);
+}
+
+// A copy put back (a Clear's Undo) says again what its original says now: its title and dates as the original would send
+// them. Nothing for a key that is not an active copy. A server write, as every write here.
+function resyncCopy({ module, scopeKey, key, by }) {
+  if (!deps) return;
+  const found = deps.produceFor(module, key);
+  if (!found || found.produce.mirror !== 'in' || found.produce.dated?.form !== 'instant') return;
+  const ref = refOf(module, found.produce, found.id, scopeKey);
+  const pair = ref && deps.pairTo(ref);
+  if (!pair || pair.pair !== 'active') return;
+  const sender = deps.produceOf(pair.from.module, pair.from.kind);
+  const senderScope = scopeKeyOfHolder(pair.from);
+  if (!sender || sender.mirror !== 'out' || sender.dated?.form !== 'wall' || !senderScope) return;
+  const original = deps.read(pair.from.module, senderScope, twinKey(sender, pair.from.id));
+  const copy = deps.read(module, scopeKey, key);
+  if (!original || !copy) return;
+  const kept = found.produce.dated.tz ? acceptZone(copy[found.produce.dated.tz]) : null;
+  const wrote = tripZone(pair.from.module, sender, senderScope) || kept || writerZone(undefined);
+  const patch = fieldsForTwin(readWall(original, sender.dated), wrote, found.produce.dated);
+  const next = patch && changed(copy, patch);
+  if (next) deps.write(module, scopeKey, key, next, by);
 }
 
 // What writing `after` at a copy's key would write back to its original, worked out and written nowhere, so a route can
@@ -445,6 +472,7 @@ module.exports = {
   configure,
   afterWrite,
   writeBack,
+  resyncCopy,
   backfill,
   listen,
 };
