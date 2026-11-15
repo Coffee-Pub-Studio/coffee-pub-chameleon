@@ -6752,13 +6752,13 @@ body.chat-window {
 #tab-template .tf-labels h4 { margin: 12px 0 2px; font-size: var(--text-13); color: var(--text-dim); font-weight: 600; text-transform: none; letter-spacing: var(--tracking-normal); }
 .tp-modules { display: grid; gap: 8px; margin: 8px 0 16px; }
 .tp-module { border: 1px solid var(--border); border-radius: var(--radius-medium); background: var(--surface); min-width: 0; }
-.tp-module-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 12px; min-height: 44px; cursor: pointer; }
+.tp-module-head { display: grid; grid-template-columns: auto minmax(0, 1fr) 11rem; align-items: center; gap: 4px 12px; padding: 8px 12px; min-height: 44px; cursor: pointer; }
 .tp-module-head::-webkit-details-marker { display: none; }
 .tp-module-head::before { content: "\25B8"; color: var(--text-dim); }
 .tp-module[open] > .tp-module-head::before { content: "\25BE"; }
 .tp-offer { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
-.tp-module-head .tp-offer { flex: 1 1 10rem; width: auto; }
-.tp-module-sum { margin-left: auto; }
+.tp-module-head .tp-offer { width: auto; min-width: 0; } /* every row's highlight ends at the same place: the summary has its own column */
+.tp-module-sum { text-align: right; }
 .tp-module-body { padding: 4px 12px 12px; border-top: 1px solid var(--border); min-width: 0; }
 .tp-module-body .tf-form { margin-top: 8px; }
 .tp-settings { display: grid; gap: 0; }
@@ -6777,7 +6777,9 @@ body.chat-window {
   .tp-phase { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .tp-phase .tp-actions { grid-column: 1 / -1; }
   .tp-setting { grid-template-columns: minmax(0, 1fr); }
-  .tp-module-sum { margin-left: 0; flex-basis: 100%; }
+  .tp-module-head { grid-template-columns: auto minmax(0, 1fr); }
+  .tp-module-sum { grid-column: 2; text-align: left; }
+  .tp-module-sum:empty { display: none; }
   .tp-label { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .tp-actions .btn, .tp-phase .tp-main, .tp-module-head, .reaction-row .btn, #tab-template .row .btn, .module-setting .setting-mark .btn { min-height: 44px; }
   .tp-chip { min-width: 44px; height: 44px; }
@@ -8115,7 +8117,7 @@ h4.setup-subheading {
 }
 
 .setup-layout-name {
-  flex: 1 1 8em;
+  flex: 1 1 4em;
   min-width: 0;
   font-weight: var(--weight-strong);
   overflow-wrap: anywhere;
@@ -8123,8 +8125,10 @@ h4.setup-subheading {
 
 .setup-layout-move {
   display: flex;
-  flex-wrap: wrap;
+  flex: none;
+  flex-wrap: nowrap;
   gap: 4px;
+  margin-left: auto;
 }
 
 .setup-layout-controls {

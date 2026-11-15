@@ -33,16 +33,18 @@ export function workspaceHtml(t, { editable, catalog, word }) {
   const first = w.opensFirst || 'workspace';
   const offered = catalog.filter((m) => offers(t, m.id));
   const ordered = [...opens.map((id) => offered.find((m) => m.id === id)).filter(Boolean), ...offered.filter((m) => !opens.includes(m.id))];
-  const nameOf = (id) => (catalog.find((m) => m.id === id) || { name: id }).name;
+  // The template's own name and icon for a module, as the Modules page shows it, else the catalog's.
+  const shownOf = (id) => { const m = catalog.find((x) => x.id === id) || { name: id }; const en = entryOf(t, id); return { name: en.name || m.name, icon: en.icon || m.icon || 'puzzle-piece' }; };
+  const nameOf = (id) => shownOf(id).name;
   const opensAbout = `What a new ${e(word('space'))}'s Workspace opens with. With none ticked it opens the chat and every ${e(word('module'))} that is on.`;
   const pinNote = `A Fixed Workspace shown here is shown for everyone in a new ${e(word('space'))}; nobody can hide it. People still add layouts of their own.`;
   if (!editable) {
-    const openList = opens.length ? opens.map((id) => `${iconTag((catalog.find((m) => m.id === id) || {}).icon || 'puzzle-piece')} ${e(nameOf(id))}`).join('<br>') : `<span class="hint">The chat and every ${e(word('module'))} that is on, the usual</span>`;
+    const openList = opens.length ? opens.map((id) => `${iconTag(shownOf(id).icon)} ${e(nameOf(id))}`).join('<br>') : `<span class="hint">The chat and every ${e(word('module'))} that is on, the usual</span>`;
     const shownList = show.length ? show.map((id) => e((FIXED_WORKSPACES.find(([x]) => x === id) || [id, id])[1])).join(', ') : '<span class="hint">None</span>';
     const firstName = first === 'workspace' ? 'The Workspace' : (FIXED_WORKSPACES.find(([x]) => x === first) || [first, first])[1];
     return `<dl class="tf-read">${line('Opens with', openList)}${line('Fixed Workspaces shown', shownList)}${line('Opens first', e(firstName))}</dl><p class="hint">${pinNote}</p>`;
   }
-  const rows = ordered.map((m) => `<label class="sdk-choice-row"><input type="checkbox" data-tw-open="${e(m.id)}"${opens.includes(m.id) ? ' checked' : ''}><span class="sdk-choice-text">${iconTag(m.icon || 'puzzle-piece')} ${e(m.name)}</span></label>`).join('');
+  const rows = ordered.map((m) => `<label class="sdk-choice-row"><input type="checkbox" data-tw-open="${e(m.id)}"${opens.includes(m.id) ? ' checked' : ''}><span class="sdk-choice-text"><span>${iconTag(shownOf(m.id).icon)} ${e(nameOf(m.id))}</span></span></label>`).join('');
   const fixed = FIXED_WORKSPACES.map(([id, label]) => `<label class="sdk-choice-row"><input type="checkbox" data-tw-show="${id}"${show.includes(id) ? ' checked' : ''}><span class="sdk-choice-text">${e(label)}</span></label>`).join('');
   const firstOptions = [['workspace', 'The Workspace'], ...FIXED_WORKSPACES].map(([v, l]) => `<option value="${e(v)}"${v === first ? ' selected' : ''}>${e(l)}</option>`).join('');
   return `<div class="tf-labels"><h3>Opens with</h3><p class="hint">${opensAbout}</p><div class="tp-checks">${rows}</div>`

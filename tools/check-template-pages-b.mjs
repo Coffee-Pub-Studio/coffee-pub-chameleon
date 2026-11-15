@@ -51,6 +51,27 @@ const catalog = [
 ];
 const tpl = { id: 't', name: 'T', modules: { chat: {}, marks: { name: 'Timesheet', settings: { unit: 'hours' }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:a': { x: 1 } } } }, workspace: { opensWith: ['chat'], show: ['calendar'], opensFirst: 'calendar' }, phases: [{ id: 'a', label: 'Start', main: true }, { id: 'b', label: 'End' }], phaseMeasure: 'goals', reactions: [{ id: 'ship', glyph: '🚀', label: 'Ship' }], iconSet: ['rocket'] };
 
+await test('A template change names the modules that turn off and on, and says their data is kept (switch and a space\'s change)', async () => {
+  const C = await import(pathToFileURL(path.join(ROOT, 'public/template-choice.js')).href);
+  const cat = [{ id: 'chat', name: 'Chat' }, { id: 'travel', name: 'Planner - Travel' }, { id: 'goals', name: 'Goals' }, { id: 'schedule', name: 'Schedule' }];
+  const project = { id: 'p', modules: { chat: {}, schedule: { name: 'Project plan' }, goals: {} } };
+  const shift = C.moduleShift({ id: 'default', modules: '*' }, project, cat);
+  assert.deepEqual(shift, { off: ['Planner - Travel'], on: [] });
+  assert.deepEqual(C.moduleShift(project, { modules: { chat: {}, travel: {}, schedule: {} } }, cat), { off: ['Goals'], on: ['Planner - Travel'] });
+  assert.equal(C.moduleShift({ modules: '*' }, project), null, 'a * with no catalog cannot be told');
+  const asked = C.changeQuestion('Project', word, C.moduleShift(project, { modules: { chat: {} } }, cat));
+  assert.match(asked.message, /In this space, Project plan and Goals turn off\. Their data is kept\./);
+  assert.match(asked.message, /Nothing is deleted\./);
+  assert.doesNotMatch(asked.message, /Nothing is removed/);
+  assert.match(C.changeQuestion('X', word, { off: [], on: ['Goals'] }).message, /In this space, Goals turns on\./);
+  assert.match(C.changeQuestion('X', word, { off: [], on: [] }).message, /the same modules stay on/);
+  assert.match(C.changeQuestion('X', word, null).message, /keeps its data/);
+  const offer = read('public/template-offer.js');
+  assert.ok(!/Nothing is turned off or removed/.test(offer) && /shiftSentences\(shift, where, word\)/.test(offer), 'the switch question names the modules');
+  for (const f of ['public/admin.js', 'public/host.js']) assert.match(read(f), /switchConfirm\([^)]*, shift\)/, `${f} passes the shift`);
+  assert.match(read('public/space-setup.js'), /changeQuestion\([^)]*, word, shift\)/);
+});
+
 await test('Modules: editable rows with marks, words, the starter and the Plans group; no own setting', () => {
   const html = P.modulesHtml(tpl, { editable: true, catalog, word });
   assert.equal((html.match(/<details class="tp-module"/g) || []).length, 3);

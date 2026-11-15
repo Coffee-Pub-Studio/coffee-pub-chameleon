@@ -39,7 +39,7 @@ import { actionBar } from './action-bar.js';
 import { groupOf } from './composites.js';
 import { confirmDialog } from './confirm.js';
 import { mountSees, fullSees, sameSees } from './ai-sees.js';
-import { loadTemplateChoices, spaceTemplatesOn, fillSelect, optionList, changeQuestion, SAME } from './template-choice.js';
+import { loadTemplateChoices, spaceTemplatesOn, fillSelect, optionList, changeQuestion, moduleShift, SAME } from './template-choice.js';
 import { rowsOf, dayWords, plainDays, sameDates, tintOf, rowIconHtml } from './phase-sheet.js';
 
 // The name of the Set up button and of the panel's title: "<space word> Configuration" (Trip Configuration), in the
@@ -2017,7 +2017,15 @@ export function createSpaceSetup(deps) {
     // A change of template asks first: what changes now and what stays (the plan's wording).
     if ('template' in patch) {
       const chosen = optionList(state.templates || {}, patch.template || SAME, word).find((o) => o.value === (patch.template || SAME));
-      if (!await confirmDialog(changeQuestion(patch.template ? chosen.label : '', word))) return false;
+      // Which modules turn off and on here: the template the space reads now against the one it will read, in full.
+      let shift = null;
+      try {
+        const env = (state.templates && state.templates.environment && state.templates.environment.id) || 'default';
+        const read = async (id) => (await api('GET', `/api/environment/templates/${encodeURIComponent(id)}`)).template;
+        const catalog = [{ id: 'chat', name: 'Chat' }, { id: 'conference', name: 'Conference' }, ...(state.installed || []).filter((m) => m.enabled).map((m) => ({ id: m.id, name: m.name }))];
+        shift = moduleShift(await read(state.before.template || env), await read(patch.template || env), catalog);
+      } catch (err) { shift = null; }
+      if (!await confirmDialog(changeQuestion(patch.template ? chosen.label : '', word, shift))) return false;
       if (!state) return false;
     }
     const moduleChanged = moduleChanges();

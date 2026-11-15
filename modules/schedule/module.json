@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "icon": "diagram-project",
   "color": "blue",
   "description": "Plan a project together: milestones, the work with who does it and when, and what waits on what.",
@@ -126,12 +126,12 @@
     ]
   },
   "labels": {
-    "plan": { "one": "plan", "many": "plans" },
-    "milestone": { "one": "milestone", "many": "milestones" },
-    "work": { "one": "work", "many": "work" },
-    "note": { "one": "note", "many": "notes" },
+    "plan": { "one": "plan", "many": "plans", "a": "a plan" },
+    "milestone": { "one": "milestone", "many": "milestones", "a": "a milestone" },
+    "work": { "one": "piece of work", "many": "pieces of work", "a": "a piece of work" },
+    "note": { "one": "note", "many": "notes", "a": "a note" },
     "owner": { "one": "owner", "many": "owners", "a": "an owner" },
-    "tag": { "one": "tag", "many": "tags" }
+    "tag": { "one": "tag", "many": "tags", "a": "a tag" }
   },
   "starter": true,
   "settings": [

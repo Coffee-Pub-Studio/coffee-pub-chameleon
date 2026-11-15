@@ -237,6 +237,7 @@
     if (!state.loaded) return;
     viewSwitch.set(state.view, VIEW_OPTIONS());
     const empty = state.entries.size === 0;
+    hide($('body'), empty); // the empty notice sits at the top, with no empty block above it
     hide($('view-timeline'), empty || state.view !== 'timeline');
     hide($('view-list'), empty || state.view !== 'list');
     if (empty) renderEmpty(); else { $('msg').hidden = true; if (state.view === 'timeline') renderTimeline(); else renderList(); }
@@ -245,17 +246,15 @@
   }
   function renderEmpty() {
     const el = clone('tpl-state');
-    fill(el, { title: `No ${label('plan')} yet`, text: canEdit ? `Add ${kindWord('milestone', { a: true })} or some ${kindWord('work')} to start the ${label('plan')}. Each can have dates, ${label('owner', { many: true })} and what it waits on.` : `Nothing is on the ${label('plan')} yet.` });
+    fill(el, { title: `No ${label('plan')} yet`, text: canEdit ? `Add ${kindWord('milestone', { a: true })} or ${kindWord('work', { a: true })} to start the ${label('plan')}. Each can have dates, ${label('owner', { many: true })} and what it waits on.` : `Nothing is on the ${label('plan')} yet.` });
     const actions = slot(el, 'actions-wrap');
     if (canEdit) {
-      for (const k of ['milestone', 'work']) {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = k === 'milestone' ? 'btn btn-primary' : 'btn';
-        b.append(icon('plus'), ' ', cap(`Add ${kindWord(k, { a: true })}`));
-        b.addEventListener('click', () => openEditor(null, { kind: k }));
-        actions.append(b);
-      }
+      const b = document.createElement('button'); // one clear action; the + in the bar adds the other kinds
+      b.type = 'button';
+      b.className = 'btn btn-primary';
+      b.append(icon('plus'), ' ', cap(`Add ${kindWord('milestone', { a: true })}`));
+      b.addEventListener('click', () => openEditor(null, { kind: 'milestone' }));
+      actions.append(b);
     } else actions.hidden = true;
     $('msg').replaceChildren(...el.childNodes);
     delete $('msg').dataset.kind;
