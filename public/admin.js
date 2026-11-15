@@ -76,7 +76,7 @@ const TABS = ['environment', 'template', 'theme', 'spaces', 'roles', 'users', 'm
 // The Environment tab's parts (#261): General (the plan, the name and icon, the sign-in page), Localization and Stream,
 // each a stack of its own, chosen in the page bar's row (#env-subtabs). The address names the part shown: #general,
 // #localization, #stream (#environment, the tab's own name, opens General).
-const ENV_PARTS = ['general', 'localization', 'stream'];
+const ENV_PARTS = ['general', 'localization', 'reactions', 'stream'];
 let envPart = 'general';
 function showEnvPart(part) {
   envPart = ENV_PARTS.includes(part) ? part : 'general';
@@ -1134,14 +1134,13 @@ function reactionRow(reaction) {
   return row;
 }
 
-// Manage edits the owner's OWN additions (settings.ownReactions / ownIcons); the core and the template's additions are
-// shown read-only above the rows, and never posted back.
-function renderFixed(settings) {
-  const own = (list, mine) => (list || []).filter((x) => !(mine || []).some((m) => m.id === x.id));
-  const rx = own(settings.reactions, settings.ownReactions);
-  const ic = own(settings.icons, settings.ownIcons);
-  $('reactions-fixed').textContent = `Always there: ${rx.length} reactions (the core set and the template's). ${rx.slice(0, 6).map((r) => r.glyph).join(' ')} ...`;
-  $('icons-fixed').textContent = `Always there: ${ic.length} icons (the core set and the template's).`;
+// The Environment tab edits the owner's OWN additions (settings.ownReactions / ownIcons); the built-in set is shown
+// read-only above the rows, and never posted back.
+async function renderFixed(settings) {
+  const envT = madeFrom ? await templateRecord(madeFrom.id).catch(() => null) : null;
+  const core = coreSet(settings, envT);
+  $('reactions-fixed').textContent = `Built in, always there: ${core.reactions.length} reactions. ${core.reactions.slice(0, 6).map((r) => r.glyph).join(' ')} ...`;
+  $('icons-fixed').textContent = `Built in, always there: ${core.icons.length} icons.`;
 }
 
 function renderReactionRows(reactions) {
@@ -2338,8 +2337,6 @@ async function drawTplPage(kind) {
     const envT = forEnvironment ? t : (madeFrom ? await templateRecord(madeFrom.id).catch(() => null) : null);
     if (mine !== tplDrawing || tplPart !== kind) return;
     box.innerHTML = additionsHtml(t, { editable, core: coreSet(settings, envT) });
-    $('tpl-own-additions').hidden = !forEnvironment;
-    if (settings && forEnvironment) { renderReactionRows(settings.ownReactions); renderIconRows(settings.ownIcons); renderFixed(settings); }
   } else if (kind === 'modules') {
     await loadCatalog();
     if (mine !== tplDrawing || tplPart !== kind) return;
