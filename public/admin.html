@@ -478,8 +478,11 @@
         <button class="subtab active" type="button" data-tpl-part="main">Template</button>
         <button class="subtab" type="button" data-tpl-part="basics" data-fill>{Environment} Basics</button>
         <button class="subtab" type="button" data-tpl-part="labels">Experience Labels</button>
+        <button class="subtab" type="button" data-tpl-part="workspace">Default Workspace</button>
+        <button class="subtab" type="button" data-tpl-part="phases">Phases</button>
+        <button class="subtab" type="button" data-tpl-part="reactions">Additional Reactions and Icons</button>
+        <button class="subtab" type="button" data-tpl-part="modules" data-fill>{Modules}</button>
         <button class="subtab" type="button" data-tpl-part="list">Templates</button>
-        <button class="subtab" type="button" data-tpl-part="more" data-fill>{Module} names, reactions and icons</button>
       </nav>
 
       <div class="tab-stack" id="tpl-part-main" data-tpl-part="main">
@@ -568,20 +571,50 @@
         </div>
       </div>
 
-      <!-- Until they have pages of their own (the next step): what this environment calls each module and the icon it wears,
-           the reactions and the icon list. -->
-      <div class="tab-stack" id="tpl-part-more" data-tpl-part="more" hidden>
-        <p class="hint">These move to pages of their own in the next step.</p>
-      <!-- What this environment calls each module and the icon it wears: one row per module, drawn by admin.js. -->
-      <div class="panel" id="module-names-section">
-        <h2 data-fill>{Module} names and icons</h2>
-        <p class="hint" data-fill>What each {module} is called here, and its icon. Leave a name blank for its own.</p>
-        <div class="module-names" id="module-names"></div>
+      <!-- Default Workspace, Phases, Additional Reactions and Icons and Modules (step 11b): each the fields of one template, chosen
+           at the top of each page, drawn by admin.js with /template-pages.js. -->
+      <div class="tab-stack" id="tpl-part-workspace" data-tpl-part="workspace" hidden>
+        <div class="panel" id="tpl-workspace-card">
+          <div class="tpl-head" data-tpl-head></div>
+          <h2>Default Workspace</h2>
+          <div id="tpl-workspace-box"></div>
+          <div class="row tpl-save" data-tpl-save hidden>
+            <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
+            <span class="status" role="status" data-tpl-status></span>
+          </div>
+        </div>
       </div>
 
-      <div class="panel" id="reactions-section">
-      <h2>Reactions</h2>
-      <p class="hint">The emoji tray in the call, and on stream. The first six are also reachable with keys 1 to 6. The core set is always there; the list below is your own additions after it.</p>
+      <div class="tab-stack" id="tpl-part-phases" data-tpl-part="phases" hidden>
+        <div class="panel" id="tpl-phases-card">
+          <div class="tpl-head" data-tpl-head></div>
+          <h2>Phases</h2>
+          <div id="tpl-phases-box"></div>
+          <div class="row tpl-save" data-tpl-save hidden>
+            <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
+            <span class="status" role="status" data-tpl-status></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-stack" id="tpl-part-reactions" data-tpl-part="reactions" hidden>
+        <div class="panel" id="tpl-reactions-card">
+          <div class="tpl-head" data-tpl-head></div>
+          <h2>Additional Reactions and Icons</h2>
+          <p class="hint">The emoji tray in the call, and on stream. The first six are also reachable with keys 1 to 6.</p>
+          <div id="tpl-reactions-box"></div>
+          <div class="row tpl-save" data-tpl-save hidden>
+            <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
+            <span class="status" role="status" data-tpl-status></span>
+          </div>
+        </div>
+        <!-- The owner's own additions, on top of the core set and the template's: this environment's, so shown on its own template's page. -->
+        <div class="panel" id="tpl-own-additions" hidden>
+          <h2>Your own additions</h2>
+          <p class="hint">Added by you for this whole <span data-word="environment"></span>, after the template's. A template can't take them away.</p>
+      <div id="reactions-section">
+      <h3>Reactions</h3>
+      <p class="hint">The core set and the template's are always there; the list below is yours after them.</p>
       <p class="hint" id="reactions-fixed"></p>
       <div class="reactions-list" id="reactions-list"></div>
       <div class="row">
@@ -592,8 +625,8 @@
       </div>
 
 
-      <div class="panel" id="icons-section">
-      <h2>Icons</h2>
+      <div id="icons-section">
+      <h3>Icons</h3>
       <p class="hint">Icons you want available. On fontawesome.com, copy an icon's HTML (like <code>&lt;i class="fa-solid fa-dice"&gt;&lt;/i&gt;</code>) and paste it here; the preview shows what it draws. Only the Free icons that ship with this server will show. The core set is always there; the list below is your own additions.</p>
       <p class="hint" id="icons-fixed"></p>
       <div class="reactions-list" id="icons-list"></div>
@@ -603,6 +636,27 @@
         <span class="status" id="icons-status"></span>
       </div>
       </div>
+        </div>
+      </div>
+
+      <div class="tab-stack" id="tpl-part-modules" data-tpl-part="modules" hidden>
+        <div class="panel" id="tpl-modules-card">
+          <div class="tpl-head" data-tpl-head></div>
+          <h2 data-fill>{Modules}</h2>
+          <p class="hint" data-fill>Which {modules} this template offers, what they are called, the words they let a template rename, and how they work. Open one to see.</p>
+          <div id="tpl-modules-box"></div>
+          <div class="row tpl-save" data-tpl-save hidden>
+            <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
+            <span class="status" role="status" data-tpl-status></span>
+          </div>
+        </div>
+      <!-- What this environment calls each module and the icon it wears: one row per module, drawn by admin.js. -->
+      <div class="panel" id="module-names-section" hidden>
+        <h2 data-fill>{Module} names and icons</h2>
+        <p class="hint" data-fill>What each {module} is called here, and its icon. Leave a name blank for its own.</p>
+        <div class="module-names" id="module-names"></div>
+      </div>
+
       </div>
     </section>
 

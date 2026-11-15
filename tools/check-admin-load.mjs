@@ -10,7 +10,7 @@
  *     drawn and no sideways scroll: the short Template page (the switch has no "none", the Default template among the choices,
  *     the switch for a space's own template), Environment Basics and Experience Labels for the Default template (read only),
  *     a shipped one (read only, Copy to change it) and an owner's own (fields, Save), the list of templates (Default first, the
- *     shipped ones, the owner's own with Delete), and the module names, reactions and icons that wait for their pages;
+ *     shipped ones, the owner's own with Delete), and the Default Workspace, Phases, Additional Reactions and Icons and Modules pages (step 11b);
  *   - each tab's main data is there (the template switch; the theme list; the spaces, the roles,
  *     the users, the modules; About's libraries with LiveKit and Node.js, a Licence text control, the version line and the Troubleshooting links);
  *   - for every page: no uncaught error, no console.error, no failed request to /api (status 400 or more) from load to the end;
@@ -114,7 +114,13 @@ async function main() {
           await open2('template/travel/labels', `${box('tpl-labels-box', '.tf-line')} === 13 && ${box('tpl-labels-box', '.tf-locked-list .tf-line')} === 8`, 'Experience Labels of the environment\'s own template');
           await open2('template/mine/labels', `${box('tpl-labels-box', '[data-tf-word]')} === 2 && ${box('tpl-labels-box', 'input[data-tf=lobby-name]')} === 0 && ${box('tpl-labels-box', '.tf-locked-list .tf-line')} === 8`, 'Experience Labels of an owner\'s own template');
           await open2('template/list', `${box('tpl-list', 'li')} >= 4 && document.querySelector('#tpl-list li').dataset.tpl === 'default' && !document.querySelector('#tpl-list li:first-child [data-tpl-action=delete]') && !!document.querySelector('#tpl-list li[data-tpl=mine] [data-tpl-action=delete]') && !!document.querySelector('#template-import')`, 'the list of templates');
-          await open2('template/more', `document.getElementById('module-names').children.length > 0 && document.getElementById('reactions-fixed').textContent.length > 0 && document.getElementById('icons-fixed').textContent.length > 0`, 'the module names, reactions and icons');
+          // The pages of step 11b: the Default Workspace, Phases, Additional Reactions and Icons (the core set, the template's, the owner's own), Modules.
+          await open2('template/mine/workspace', `${box('tpl-workspace-box', '[data-tw-show]')} === 5 && !document.querySelector('#tpl-workspace-card [data-tpl-save]').hidden`, 'the Default Workspace of an owner\'s own template');
+          await open2('template/mine/phases', `${box('tpl-phases-box', '[data-tp-measure]')} === 1`, 'the Phases of an owner\'s own template');
+          await open2('template/default/phases', `${box('tpl-phases-box', 'input')} === 0 && ${box('tpl-phases-box', '.tf-line')} === 1`, 'the Phases of the Default template');
+          await open2('template/travel/reactions', `${box('tpl-reactions-box', '.tp-chip')} > 20 && !document.getElementById('tpl-own-additions').hidden && document.getElementById('reactions-fixed').textContent.length > 0 && document.getElementById('icons-fixed').textContent.length > 0`, 'the Additional Reactions and Icons of the environment\'s template');
+          await open2('template/travel/modules', `${box('tpl-modules-box', '.tp-module')} > 3 && document.getElementById('module-names').children.length > 0 && !document.getElementById('module-names-section').hidden`, 'the Modules of the environment\'s template, with the module names');
+          await open2('template/default/modules', `${box('tpl-modules-box', '.tp-module')} > 3 && ${box('tpl-modules-box', 'input')} === 0`, 'the Modules of the Default template');
           // The buttons of the strip reach the same pages.
           for (const part of await tab.eval(`[...document.querySelectorAll('#tpl-subtabs .subtab')].map((b) => b.dataset.tplPart)`)) {
             await click(`#tpl-subtabs .subtab[data-tpl-part="${part}"]`);

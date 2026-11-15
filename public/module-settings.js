@@ -161,17 +161,42 @@ function fileHint(def) {
 }
 
 // What a card's controls say now, by key, as the server takes them (a list's rows, the files ticked, a switch, a number).
+// How a template's value reads in a sentence (a choice by its label, a switch as On or Off).
+function valueWords(def, v) {
+  if (def.type === 'boolean') return v ? 'On' : 'Off';
+  if (def.type === 'choice') return ((def.options || []).find((o) => o.value === v) || {}).label || String(v);
+  if (def.type === 'list') return `${Array.isArray(v) ? v.length : 0} in the list`;
+  return String(v);
+}
+// What a template does to a setting, under its control (plan-templates-redesign.md, decision 14): driven (and given) is set by
+// the template and read only; default is the template's until someone's own value is kept, which "Use the template's" drops.
+// A setting the template does not give, or the module's own, says nothing. `templateName` is there only for those who may
+// change the place (an owner, a moderator, the admin).
+function markLine(def, draft) {
+  if (!def.template || def.templateValue === undefined) return '';
+  const from = def.templateName ? `the ${escapeHtml(def.templateName)} template` : 'the template';
+  const given = escapeHtml(valueWords(def, def.templateValue));
+  if (def.locked) return `<p class="setting-mark" data-mark="driven"><span class="sdk-status" data-tone="warn">Driven</span> <span class="hint">Set by ${from}: ${given}. It can't be changed here.</span></p>`;
+  if (def.template !== 'default') return '';
+  if (!def.stored) return `<p class="setting-mark" data-mark="default"><span class="sdk-status" data-tone="neutral">Default</span> <span class="hint">From ${from}. Change it to keep your own.</span></p>`;
+  const reset = def.type === 'list' && draft ? '' : `<button class="btn btn-small" type="button" data-use-template="${escapeHtml(def.key)}">Use the template's</button>`;
+  return `<p class="setting-mark" data-mark="default"><span class="sdk-status" data-tone="neutral">Default</span> <span class="hint">Yours. ${from} has ${given}.</span>${reset}</p>`;
+}
 function readCard(card, module) {
   const values = {};
   for (const el of card.querySelectorAll('[data-key]')) {
     const def = module.settings.find((d) => d.key === el.dataset.key);
     if (!def) continue;
+    if (def.locked) continue; // the template drives it: nothing here writes it
     if (def.type === 'secret') { // sent only when something was typed: an empty box leaves the saved key as it is
       const typed = el.querySelector('[data-secret-input]').value;
       if (typed) values[def.key] = typed;
       continue;
     }
-    values[def.key] = def.type === 'list' ? readList(el) : def.type === 'files' ? [...el.querySelectorAll('input:checked')].map((i) => i.value) : def.type === 'boolean' ? el.checked : def.type === 'number' ? Number(el.value) : el.value;
+    const v = def.type === 'list' ? readList(el) : def.type === 'files' ? [...el.querySelectorAll('input:checked')].map((i) => i.value) : def.type === 'boolean' ? el.checked : def.type === 'number' ? Number(el.value) : el.value;
+    // A default the template seeds, left as it was shown, stays the template's: saving the form does not keep it as the person's own.
+    if (def.template === 'default' && !def.stored && JSON.stringify(v) === JSON.stringify(def.value)) continue;
+    values[def.key] = v;
   }
   return values;
 }
@@ -204,7 +229,7 @@ export async function renderModuleSettings(container, { scope, space = null, onl
   container.innerHTML = modules.map((m) => `
     <div class="module-settings-card${draft ? ' module-settings-draft' : ''}" data-module="${escapeHtml(m.id)}"${draft ? ` role="group" aria-labelledby="module-settings-name-${escapeHtml(m.id)}"` : ''}>
       ${heading ? headingHtml(m) : ''}
-      <div class="module-settings-fields">${m.settings.map((d) => `<div class="module-setting"${d.showWhen ? ` data-when-key="${escapeHtml(d.showWhen.key)}" ${d.showWhen.not !== undefined ? `data-when-not="${escapeHtml(d.showWhen.not)}"` : `data-when-value="${escapeHtml(d.showWhen.value)}"`}` : ''}>${control(d, draft)}${d.help ? `<p class="hint">${escapeHtml(d.help)}</p>` : ''}</div>`).join('')}</div>
+      <div class="module-settings-fields">${m.settings.map((d) => `<div class="module-setting"${d.locked ? ' data-locked' : ''}${d.showWhen ? ` data-when-key="${escapeHtml(d.showWhen.key)}" ${d.showWhen.not !== undefined ? `data-when-not="${escapeHtml(d.showWhen.not)}"` : `data-when-value="${escapeHtml(d.showWhen.value)}"`}` : ''}>${control(d, draft)}${d.help ? `<p class="hint">${escapeHtml(d.help)}</p>` : ''}${markLine(d, draft)}</div>`).join('')}</div>
       ${draft ? '' : '<div class="row"><button class="btn btn-primary btn-small" data-save type="button">Save</button><span class="status" data-status></span></div>'}
     </div>`).join('');
   // What the chosen option says (its own help, more than a line can hold), and the settings that only apply to a choice.
@@ -220,6 +245,8 @@ export async function renderModuleSettings(container, { scope, space = null, onl
     }
     for (const row of card.querySelectorAll('[data-when-key]')) row.hidden = row.dataset.whenNot !== undefined ? value(row.dataset.whenKey) === row.dataset.whenNot : value(row.dataset.whenKey) !== row.dataset.whenValue;
   };
+  // What a template drives is read only: its controls stay, drawn off.
+  for (const row of container.querySelectorAll('.module-setting[data-locked]')) for (const el of row.querySelectorAll('input, select, textarea, button:not([data-use-template])')) el.disabled = true;
   upgradeColourInputs(container); // the colour settings and the list rows' colours: the colour picker over the native input
   for (const box of container.querySelectorAll('[data-list-setting]')) wireList(box, modules.find((m) => m.id === box.closest('.module-settings-card').dataset.module).settings.find((d) => d.key === box.dataset.key));
   for (const card of container.querySelectorAll('.module-settings-card')) {
@@ -233,6 +260,33 @@ export async function renderModuleSettings(container, { scope, space = null, onl
   if (draft) for (const m of modules) remember(m.id);
   const told = () => { if (typeof onChange === 'function') onChange(); };
   container.onclick = async (event) => {
+    const useBtn = event.target.closest('[data-use-template]');
+    if (useBtn) {
+      // Drops the kept value so the template's reads again; at once, as deleting a file is, and the form shows it.
+      const card = useBtn.closest('.module-settings-card');
+      const module = modules.find((m) => m.id === card.dataset.module);
+      const def = module.settings.find((d) => d.key === useBtn.dataset.useTemplate);
+      useBtn.disabled = true;
+      try {
+        const answer = await api('PUT', `/api/modules/${encodeURIComponent(module.id)}/settings/${scope}`, { values: { [def.key]: null }, ...(space ? { space } : {}) });
+        if (!draft) { await renderModuleSettings(container, { scope, space, only, heading }); return; }
+        const fresh = (answer.settings || []).find((d) => d.key === def.key);
+        if (fresh) Object.assign(def, fresh);
+        const el = card.querySelector(`[data-key="${CSS.escape(def.key)}"]`);
+        if (el && def.type === 'boolean') el.checked = Boolean(def.value);
+        else if (el) el.value = def.value;
+        useBtn.closest('.setting-mark').outerHTML = markLine(def, draft);
+        const was = JSON.parse(baseline.get(module.id) || '{}');
+        delete was[def.key];
+        baseline.set(module.id, JSON.stringify(was));
+        refresh(card);
+        told();
+      } catch (err) {
+        useBtn.disabled = false;
+        window.alert(err.message);
+      }
+      return;
+    }
     const delBtn = event.target.closest('[data-delete-file]');
     if (delBtn) {
       const card = delBtn.closest('.module-settings-card');
@@ -322,6 +376,16 @@ export async function renderModuleSettings(container, { scope, space = null, onl
       const answer = await api('PUT', `/api/modules/${encodeURIComponent(module.id)}/settings/${scope}`, { values, ...(space ? { space } : {}) });
       for (const box of card.querySelectorAll('[data-secret-setting]')) showSecretState(box, ((answer.settings || []).find((d) => d.key === box.dataset.key) || {}).value); // the box empties; only Set or Not set shows
       status.textContent = 'saved';
+      // How each setting stands with the template now (a value kept, or back to the template's): its line is drawn again.
+      for (const fresh of answer.settings || []) {
+        const def = module.settings.find((d) => d.key === fresh.key);
+        const row = def && card.querySelector(`[data-key="${CSS.escape(def.key)}"]`)?.closest('.module-setting');
+        if (!row) continue;
+        Object.assign(def, { template: fresh.template, templateValue: fresh.templateValue, templateName: fresh.templateName, locked: fresh.locked, stored: fresh.stored });
+        if (def.type !== 'secret' && def.type !== 'files') def.value = fresh.value;
+        row.querySelector('.setting-mark')?.remove();
+        row.insertAdjacentHTML('beforeend', markLine(def, draft));
+      }
     } catch (err) {
       status.textContent = err.message;
       status.classList.add('error');
