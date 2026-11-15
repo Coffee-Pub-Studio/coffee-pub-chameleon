@@ -43,10 +43,14 @@
  * was made as at and editedAt (starter.asCreator, also checked in node on Games' records), the rest as the template has it.
  * The switch offer, hosted: all five offered and none made by the switch; a member and a member who moderates a space
  * refused (403) on the confirm and the switch; each bad confirm refused with its sentence (not a list of numbers, a
- * repeat, more than 5, a number not in the offer, no version, a version that is no number, a changed version) and
- * nothing made; the template edited after the offer: the old version 409, the new one offered; ticking two makes exactly
- * those (the 40-character name whole), each on its template, made by the owner; a repeat 409; none ticked makes none;
- * two confirms at once make one; the host's confirm makes it by the first owner; another environment untouched.
+ * repeat, more than 5, a number not in the offer, no offerId or version, either malformed, a changed one; an array or a
+ * string body, on both routes) and nothing made, the offer still open; a stale confirm after the host switched to another
+ * template at the same version: 409, nothing made; the first offer replayed after a switch away and back: 409; the
+ * template edited after the offer: 409, the new one offered; ticking two makes exactly those (the 40-character name
+ * whole), each on its template, made by the owner; a repeat 409; none ticked makes none; two confirms at once make one;
+ * two confirms at once naming different modules turn on only the winner's; the host's confirm makes it by the first
+ * owner; the host's stand-in confirming on the environment's route makes it as itself, without joining; another
+ * environment untouched.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -405,17 +409,26 @@ try {
     const e = await owner.as('PATCH', '/api/environment/templates/proj', { modules: { notes: { starter: BRIEF }, chat: {}, conference: {} }, starterSpaces: [{ name: 'Kickoff', description: 'Start here.' }, { name: 'Backlog' }] });
     assert.equal(e.status, 200, e.text);
     const version = e.json.template.version;
+    let offerId;
     const count = async () => (await owner.as('GET', '/api/spaces')).json.spaces.length;
     const before = await count();
     const sw = await owner.as('PATCH', '/api/settings', { template: 'proj' });
     assert.equal(sw.status, 200, sw.text);
     assert.deepEqual(sw.json.offer.starterSpaces, [{ index: 0, name: 'Kickoff', description: 'Start here.' }, { index: 1, name: 'Backlog', description: '' }]);
     assert.equal(sw.json.offer.version, version);
+    ({ offerId } = sw.json.offer);
+    assert.match(offerId, /^[0-9a-f]{16}$/);
     assert.equal(await count(), before, 'the switch itself makes none');
     assert.deepEqual((await owner.as('GET', '/api/environment/template')).json.offer.starterSpaces.map((sp) => sp.index), [0, 1], 'the Template tab reads the same offer');
     // A member is refused, and nothing is made (a member who moderates a space: the hosted part).
-    assert.equal((await mia.as('POST', '/api/environment/template/apply', { starterSpaces: [0], version })).status, 403);
-    const r = await owner.as('POST', '/api/environment/template/apply', { starterSpaces: [0], version });
+    assert.equal((await mia.as('POST', '/api/environment/template/apply', { starterSpaces: [0], version, offerId })).status, 403);
+    for (const bad of [[0], '"x"', '5', 'null']) {
+      const r = await owner.as('POST', '/api/environment/template/apply', bad);
+      assert.equal(r.status, 400, `${JSON.stringify(bad)}: ${r.text}`);
+      assert.equal(typeof r.json?.error, 'string');
+    }
+    assert.equal((await owner.as('GET', '/api/environment/template')).json.template.offerOpen, true, 'a refused body leaves the offer open');
+    const r = await owner.as('POST', '/api/environment/template/apply', { starterSpaces: [0], version, offerId });
     assert.equal(r.status, 200, r.text);
     assert.equal(r.json.made.length, 1);
     assert.equal(r.json.offer, null, 'the offer is closed');
@@ -424,7 +437,7 @@ try {
     assert.deepEqual([made.name, made.description, made.starterDone], ['Kickoff', 'Start here.', true]);
     const items = await dataOf(owner.as, 'notes', made.id);
     assert.deepEqual(items.map((i) => [i.key, i.version, i.by]), [['note:brief', 1, owner.key], ['note:log', 1, owner.key]], 'its starter content, once, as the owner who confirmed');
-    const again = await owner.as('POST', '/api/environment/template/apply', { starterSpaces: [0], version });
+    const again = await owner.as('POST', '/api/environment/template/apply', { starterSpaces: [0], version, offerId });
     assert.deepEqual([again.status, again.json?.error], [409, 'This template has already been applied.']);
     assert.equal(await count(), before + 1, 'a repeat makes none');
     assert.equal((await owner.as('PATCH', '/api/settings', { template: 'default' })).status, 200);
@@ -602,41 +615,73 @@ try {
     const sw = await as('PATCH', '/api/settings', { template: 'five' });
     assert.equal(sw.status, 200, sw.text);
     assert.deepEqual(sw.json.offer.starterSpaces, FIVE.map((sp, index) => ({ index, name: sp.name, description: sp.description || '' })), 'all five offered, unticked');
-    const { version } = sw.json.offer;
+    const { version, offerId } = sw.json.offer;
     assert.equal(version, 1);
     assert.equal((await named()).length, before, 'the switch makes none');
+    const offerNow = async () => { const o = (await as('GET', '/api/environment/template')).json.offer; return { version: o.version, offerId: o.offerId }; };
 
     for (const who of [memb, mod]) {
-      assert.equal((await who.as('POST', '/api/environment/template/apply', { starterSpaces: [0], version })).status, 403);
+      assert.equal((await who.as('POST', '/api/environment/template/apply', { starterSpaces: [0], version, offerId })).status, 403);
       assert.equal((await who.as('PATCH', '/api/settings', { template: 'default' })).status, 403);
     }
+    const CHANGED = 'This template changed since it was offered; look at the offer again.';
     const refused = [
-      [{ starterSpaces: 'all', version }, 400, 'Name the starter spaces to make as a list of their numbers from the offer.'],
-      [{ starterSpaces: ['0'], version }, 400, 'Name the starter spaces to make as a list of their numbers from the offer.'],
-      [{ starterSpaces: [-1], version }, 400, 'Name the starter spaces to make as a list of their numbers from the offer.'],
-      [{ starterSpaces: [0, 0], version }, 400, 'Each starter space is named once.'],
-      [{ starterSpaces: [0, 1, 2, 3, 4, 5], version }, 400, 'At most 5 starter spaces can be made.'],
-      [{ starterSpaces: [5], version }, 400, 'This offer has no starter space 5.'],
-      [{ starterSpaces: [0] }, 400, "Send the template's version from the offer with the starter spaces to make."],
-      [{ starterSpaces: [0], version: '1' }, 400, "version is the template's version from the offer."],
-      [{ starterSpaces: [0], version: 7 }, 409, 'This template changed since it was offered; look at the offer again.'],
+      [[0], 400, 'A confirm is sent as named fields, not as a list or a single value.'],
+      [{ starterSpaces: 'all', version, offerId }, 400, 'Name the starter spaces to make as a list of their numbers from the offer.'],
+      [{ starterSpaces: ['0'], version, offerId }, 400, 'Name the starter spaces to make as a list of their numbers from the offer.'],
+      [{ starterSpaces: [-1], version, offerId }, 400, 'Name the starter spaces to make as a list of their numbers from the offer.'],
+      [{ starterSpaces: [1.5], version, offerId }, 400, 'Name the starter spaces to make as a list of their numbers from the offer.'],
+      [{ starterSpaces: [0, 0], version, offerId }, 400, 'Each starter space is named once.'],
+      [{ starterSpaces: [0, 1, 2, 3, 4, 5], version, offerId }, 400, 'At most 5 starter spaces can be made.'],
+      [{ starterSpaces: [5], version, offerId }, 400, 'This offer has no starter space 5.'],
+      [{ starterSpaces: [0], offerId }, 400, "Send the offer's offerId and version with the starter spaces to make."],
+      [{ starterSpaces: [0], version }, 400, "Send the offer's offerId and version with the starter spaces to make."],
+      [{ starterSpaces: [0], version: '1', offerId }, 400, "version is the template's version from the offer."],
+      [{ starterSpaces: [0], version, offerId: 5 }, 400, "offerId is the offer's own, as the offer gave it."],
+      [{ starterSpaces: [0], version: 7, offerId }, 409, CHANGED],
+      [{ starterSpaces: [0], version, offerId: '0123456789abcdef' }, 409, CHANGED],
+      [{ modules: [], offerId: '0123456789abcdef' }, 409, CHANGED],
     ];
     for (const [body, status, error] of refused) {
       const r = await as('POST', '/api/environment/template/apply', body);
       assert.deepEqual([r.status, r.json?.error], [status, error], JSON.stringify(body));
     }
+    for (const body of ['"five"', 'null']) {
+      const r = await as('POST', '/api/environment/template/apply', body);
+      assert.equal(r.status, 400, `a string or null body: ${body}`);
+    }
+    for (const body of [[0], '"five"']) {
+      const r = await console_('POST', '/api/host/environments/offer/template/apply', body);
+      assert.equal(r.status, 400, `the host's confirm too: ${JSON.stringify(body)}`);
+    }
     assert.equal((await named()).length, before, 'a refusal makes none');
     assert.equal((await as('GET', '/api/environment/template')).json.template.offerOpen, true, 'and leaves the offer open');
 
-    // The template changes after the offer: the old version is refused, the new one offered.
+    // Another template at the same version: the host switches to it after the owner read the offer of five; the owner's
+    // stale confirm is refused, nothing made, and two's offer stays open.
+    const two = await console_('POST', '/api/host/templates', { id: 'two', name: 'Two', description: 'Two spaces.', modules: { chat: {} }, starterSpaces: [{ name: 'Alpha' }, { name: 'Beta' }] });
+    assert.equal(two.status, 201, two.text);
+    assert.equal((await console_('PATCH', '/api/host/environments/offer', { template: 'two' })).status, 200);
+    const other = await as('POST', '/api/environment/template/apply', { starterSpaces: [1], version, offerId });
+    assert.deepEqual([other.status, other.json?.error], [409, CHANGED]);
+    assert.equal((await named()).length, before, 'nothing made from the other template');
+    assert.equal((await as('GET', '/api/environment/template')).json.template.offerOpen, true);
+    // Back to five: the first offer replayed is refused (a switch away and back is another offer).
+    assert.equal((await as('PATCH', '/api/settings', { template: 'five' })).status, 200);
+    const replay = await as('POST', '/api/environment/template/apply', { starterSpaces: [1], version, offerId });
+    assert.deepEqual([replay.status, replay.json?.error], [409, CHANGED]);
+    assert.notEqual((await offerNow()).offerId, offerId);
+
+    // The template changes after the offer: the old one is refused, the new one offered.
+    const beforeEdit = await offerNow();
     assert.equal((await console_('PATCH', '/api/host/templates/five', { description: 'Five spaces, edited.' })).status, 200);
-    const stale = await as('POST', '/api/environment/template/apply', { starterSpaces: [1], version });
-    assert.deepEqual([stale.status, stale.json?.error], [409, 'This template changed since it was offered; look at the offer again.']);
-    const fresh = (await as('GET', '/api/environment/template')).json.offer.version;
-    assert.equal(fresh, 2);
+    const stale = await as('POST', '/api/environment/template/apply', { starterSpaces: [1], ...beforeEdit });
+    assert.deepEqual([stale.status, stale.json?.error], [409, CHANGED]);
+    const fresh = await offerNow();
+    assert.equal(fresh.version, 2);
 
     // Ticking makes exactly those, once, each on its template, made by the owner; the 40-character name whole.
-    const ok = await as('POST', '/api/environment/template/apply', { starterSpaces: [2, 4], version: fresh });
+    const ok = await as('POST', '/api/environment/template/apply', { starterSpaces: [2, 4], ...fresh });
     assert.equal(ok.status, 200, ok.text);
     assert.equal(ok.json.made.length, 2);
     const list = await named();
@@ -646,7 +691,7 @@ try {
       assert.deepEqual([full.template, full.starterDone, full.members.includes(ownerKey)], ['five', true, true]);
     }
     assert.deepEqual(ok.json.made.map((id) => list.find((sp) => sp.id === id).name), ['z'.repeat(SPACE_NAME_MAX), 'Five']);
-    const repeat = await as('POST', '/api/environment/template/apply', { starterSpaces: [2, 4], version: fresh });
+    const repeat = await as('POST', '/api/environment/template/apply', { starterSpaces: [2, 4], ...fresh });
     assert.deepEqual([repeat.status, repeat.json?.error], [409, 'This template has already been applied.']);
     assert.equal((await named()).length, before + 2, 'a repeat makes none');
 
@@ -660,21 +705,46 @@ try {
     // Two confirms of one offer at once: one makes its space, the other is refused.
     assert.equal((await as('PATCH', '/api/settings', { template: 'default' })).status, 200);
     assert.equal((await as('PATCH', '/api/settings', { template: 'five' })).status, 200);
-    const both = await Promise.all([0, 1].map(() => as('POST', '/api/environment/template/apply', { starterSpaces: [0], version: fresh })));
+    const once = await offerNow();
+    const both = await Promise.all([0, 1].map(() => as('POST', '/api/environment/template/apply', { starterSpaces: [0], ...once })));
     assert.deepEqual(both.map((r) => r.status).sort(), [200, 409], both.map((r) => r.text).join(' | '));
     assert.equal((await named()).filter((sp) => sp.name === 'One').length, 1, 'made once');
 
+    // Two confirms at once naming different modules: only the winner's is turned on.
+    const mods = await console_('POST', '/api/host/templates', { id: 'mods', name: 'Mods', description: 'Two modules.', modules: { chat: {}, polls: {}, budget: {} } });
+    assert.equal(mods.status, 201, mods.text);
+    const sw2 = await as('PATCH', '/api/settings', { template: 'mods' });
+    assert.deepEqual(sw2.json.offer.modules.map((m) => m.id).sort(), ['budget', 'polls']);
+    const race = await Promise.all([['polls'], ['budget']].map((m) => as('POST', '/api/environment/template/apply', { modules: m })));
+    assert.deepEqual(race.map((r) => r.status).sort(), [200, 409], race.map((r) => r.text).join(' | '));
+    const winner = race[0].status === 200 ? 'polls' : 'budget';
+    const on = (await as('GET', '/api/modules')).json.modules.filter((m) => ['polls', 'budget'].includes(m.id) && m.enabled).map((m) => m.id);
+    assert.deepEqual(on, [winner], 'only the winner\'s module is on');
+
     // The host's confirm: made by the environment's first owner.
-    assert.equal((await console_('PATCH', '/api/host/environments/offer', { template: 'default' })).status, 200);
-    const hostSwitch = await console_('PATCH', '/api/host/environments/offer', { template: 'five' });
-    assert.deepEqual(hostSwitch.json.environment.offer.starterSpaces.map((sp) => sp.index), [0, 1, 2, 3, 4]);
-    const hostApply = await console_('POST', '/api/host/environments/offer/template/apply', { starterSpaces: [3], version: fresh });
+    assert.equal((await console_('PATCH', '/api/host/environments/offer', { template: 'five' })).status, 200);
+    const hostOffer = (await console_('GET', '/api/host/environments/offer/template')).json.offer;
+    assert.deepEqual(hostOffer.starterSpaces.map((sp) => sp.index), [0, 1, 2, 3, 4]);
+    const hostApply = await console_('POST', '/api/host/environments/offer/template/apply', { starterSpaces: [3], version: hostOffer.version, offerId: hostOffer.offerId });
     assert.equal(hostApply.status, 200, hostApply.text);
     assert.equal(hostApply.json.environment.made.length, 1);
     const four = (await as('GET', `/api/spaces/${hostApply.json.environment.made[0]}`)).json.space;
     assert.deepEqual([four.name, four.template, four.members.includes(ownerKey)], ['Four', 'five', true]);
-    const hostBad = await console_('POST', '/api/host/environments/offer/template/apply', { starterSpaces: [3], version: fresh });
+    const hostBad = await console_('POST', '/api/host/environments/offer/template/apply', { starterSpaces: [3], version: hostOffer.version, offerId: hostOffer.offerId });
     assert.deepEqual([hostBad.status, hostBad.json?.error], [409, 'This template has already been applied.']);
+
+    // The host signed in to the environment as its stand-in confirms on the environment's own route: the stand-in makes
+    // the space (as with POST /api/spaces) and, as it does there, does not join it.
+    assert.equal((await console_('PATCH', '/api/host/environments/offer', { template: 'default' })).status, 200);
+    assert.equal((await console_('PATCH', '/api/host/environments/offer', { template: 'five' })).status, 200);
+    const standIn = await signIn('offer', 'boss', 'host-password-1');
+    const standInKey = ((await standIn('GET', '/api/me')).json.user || {}).key;
+    assert.ok(standInKey);
+    const sOffer = (await standIn('GET', '/api/environment/template')).json.offer;
+    const byStandIn = await standIn('POST', '/api/environment/template/apply', { starterSpaces: [1], version: sOffer.version, offerId: sOffer.offerId });
+    assert.equal(byStandIn.status, 200, byStandIn.text);
+    const twoMade = (await as('GET', `/api/spaces/${byStandIn.json.made[0]}`)).json.space;
+    assert.deepEqual([twoMade.name, twoMade.starterDone, twoMade.members.includes(standInKey), twoMade.members.includes(ownerKey)], ['Two', true, false, false]);
 
     assert.deepEqual((await named(quiet)).map((sp) => sp.id), quietBefore, 'another environment is untouched');
   });

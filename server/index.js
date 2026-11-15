@@ -1063,7 +1063,10 @@ function templateSwitchProblem(env, value) {
 // decision 12). The owner's own words, home icon, reactions, icons and module names are untouched and still win;
 // nothing is turned off. The same template as now changes nothing.
 // `by`: the owner's key, or 'host'. Answers whether anything changed.
-async function switchTemplate(env, slug, value, by) {
+function switchTemplate(env, slug, value, by) {
+  return templateTurn(env, () => switchTemplateNow(env, slug, value, by));
+}
+async function switchTemplateNow(env, slug, value, by) {
   await env.templateReady; // a template picked at creation finishes applying before it can be switched away
   const to = value;
   const from = env.store.templateRecord?.id || templates.DEFAULT_ID; // none recorded reads the Default template
@@ -1082,7 +1085,8 @@ async function switchTemplate(env, slug, value, by) {
 }
 
 // The template as Manage and the console show it, with the offer while it is open: { template, offer }.
-// The offer also carries the template's `version` (sent back with the confirm, so one that changed since is refused) and
+// The offer also carries `offerId` (offerIdOf) and the template's `version`, both sent back with the confirm so one that
+// changed since is refused, and
 // `starterSpaces`: on a switch not yet confirmed, the template's starter spaces, [{ index, name, description }], none
 // ticked (the page shows them unticked; only those the confirm names are made); otherwise [] (an environment made from
 // the template made them already, and a newer version of the template offers none).
@@ -1092,20 +1096,31 @@ function templateAnswer(env, slug) {
   if (!template) return { template: view, offer: null };
   const record = env.store.templateRecord;
   const offer = templates.offerFor(env, template, { ...templateOptions(env, slug), applied: record?.applied || null });
-  return { template: view, offer: { ...offer, version: template.version, starterSpaces: starterOffer(record, template) } };
+  return { template: view, offer: { ...offer, offerId: offerIdOf(record, template), version: template.version, starterSpaces: starterOffer(record, template) } };
 }
+// Which offer this is: the template, its version and the record's switch and apply times, hashed (16 hex characters).
+// A switch away and back, another template at the same version or a new version each give another.
+const offerIdOf = (record, template) => crypto.createHash('sha256').update(JSON.stringify([record?.id || null, record?.switchedAt || null, record?.appliedAt || null, template.id, template.version])).digest('hex').slice(0, 16);
 // The starter spaces a confirm may make (see templateAnswer): only on a switch not yet confirmed.
 const starterOffer = (record, template) => (record?.switchedAt && !record.appliedAt ? starter.starterSpacesOf(template).map((sp, index) => ({ index, ...sp })) : []);
 
 // Applies what was confirmed of the open offer ({ modules: [ids], lobby: boolean, spaceDefaults: boolean,
-// starterSpaces: [indexes], version }), then records appliedAt and what was skipped, so the offer is not made again for
-// this template. `starterSpaces`: the offer's starter spaces the owner ticked, by their `index`; each is made once, by
-// `creator` (the owner who confirmed; the host's confirm: the environment's first owner), through makeStarterSpaces.
-// `version`: the template's version as offered; required with a ticked starter space, and a template whose version
-// changed since is refused whole. Throws a StoreError for a refusal, before anything changes. Answers templateAnswer
-// with `made`: the ids of the starter spaces made.
-async function applyTemplateOffer(env, slug, body, creator = null) {
-  const b = body && typeof body === 'object' ? body : {};
+// starterSpaces: [indexes], version, offerId }), then records appliedAt and what was skipped, so the offer is not made
+// again for this template. `starterSpaces`: the offer's starter spaces ticked, by their `index`; each is made once, by
+// `creator` (the person who confirmed on the environment's own route, the host's stand-in included, as for POST
+// /api/spaces; the host console's confirm: the environment's first owner), through makeStarterSpaces.
+// `offerId` (offerIdOf): which offer is confirmed; required with a ticked starter space, and when sent, an offer that is
+// no longer the open one (another template, a switch away and back, a new version) is refused whole. `version`: the
+// template's version as offered, checked the same way. Throws a StoreError for a refusal, before anything changes.
+// Confirms and switches of one environment run one at a time (templateTurn), so a confirm sees the record as the one
+// before it left it and only the first of two confirms of one offer changes anything. Answers templateAnswer with
+// `made`: the ids of the starter spaces made.
+function applyTemplateOffer(env, slug, body, creator = null) {
+  return templateTurn(env, () => applyTemplateOfferNow(env, slug, body, creator));
+}
+async function applyTemplateOfferNow(env, slug, body, creator) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new StoreError('A confirm is sent as named fields, not as a list or a single value.');
+  const b = body;
   const spaces = env.store.word('space', { many: true });
   if (b.modules !== undefined && (!Array.isArray(b.modules) || b.modules.some((m) => typeof m !== 'string'))) throw new StoreError(`Name the ${env.store.word('module', { many: true })} to turn on as a list of their ids.`);
   for (const key of ['lobby', 'spaceDefaults']) if (b[key] !== undefined && typeof b[key] !== 'boolean') throw new StoreError(`${key} must be true or false.`);
@@ -1114,29 +1129,39 @@ async function applyTemplateOffer(env, slug, body, creator = null) {
   if (ticked.length > templates.MAX_STARTER_SPACES) throw new StoreError(`At most ${templates.MAX_STARTER_SPACES} starter ${spaces} can be made.`);
   if (new Set(ticked).size !== ticked.length) throw new StoreError(`Each starter ${env.store.word('space')} is named once.`);
   if (b.version !== undefined && !Number.isInteger(b.version)) throw new StoreError("version is the template's version from the offer.");
-  if (ticked.length && b.version === undefined) throw new StoreError(`Send the template's version from the offer with the starter ${spaces} to make.`);
+  if (b.offerId !== undefined && (typeof b.offerId !== 'string' || !b.offerId)) throw new StoreError('offerId is the offer\'s own, as the offer gave it.');
+  if (ticked.length && (b.version === undefined || b.offerId === undefined)) throw new StoreError(`Send the offer's offerId and version with the starter ${spaces} to make.`);
   await env.templateReady;
   const record = env.store.templateRecord;
   if (!record) throw new StoreError(`This ${env.store.word('environment')} has no template to apply.`, 409);
   const template = templateFor(env, record.id);
   if (!template) throw new StoreError(`This server doesn't have the "${record.id}" template any more.`, 409);
   if (!offerIsOpen(record, template, env)) throw new StoreError('This template has already been applied.', 409);
-  if (b.version !== undefined && b.version !== template.version) throw new StoreError('This template changed since it was offered; look at the offer again.', 409);
+  if ((b.version !== undefined && b.version !== template.version) || (b.offerId !== undefined && b.offerId !== offerIdOf(record, template))) throw new StoreError('This template changed since it was offered; look at the offer again.', 409);
   const offered = starterOffer(record, template);
   const missing = ticked.find((i) => !offered.some((sp) => sp.index === i));
   if (missing !== undefined) throw new StoreError(`This offer has no starter ${env.store.word('space')} ${missing}.`);
   const skipped = await templates.applyOffer(env, template, { modules: b.modules || [], lobby: b.lobby === true, spaceDefaults: b.spaceDefaults === true }, { ...templateOptions(env, slug), applied: record.applied || null });
-  // Turning modules on awaits, so another confirm or a switch may have come in meanwhile: only the first of two confirms
-  // of the same offer records it and makes its starter spaces (nothing awaits between that check, the record and the
-  // spaces), and a template switched away meanwhile is not recorded as applied.
+  // Nothing that changes the record runs while this one waits (templateTurn; deleting the owner's own template in use
+  // aside, and a restore): if it changed anyway, nothing more is recorded or made.
   const now = env.store.templateRecord;
-  if (!now || now.id !== record.id || now.switchedAt !== record.switchedAt || now.appliedAt !== record.appliedAt || templateFor(env, record.id)?.version !== template.version) throw new StoreError('This template has already been applied.', 409);
+  if (!now || now.id !== record.id || now.switchedAt !== record.switchedAt || now.appliedAt !== record.appliedAt || templateFor(env, record.id)?.version !== template.version) throw new StoreError('This template changed since it was offered; look at the offer again.', 409);
   // Every part is recorded as seen, applied or passed over: it is offered again only when the template changes it.
   env.store.recordTemplate({ ...record, appliedAt: new Date().toISOString(), appliedVersion: template.version, applied: templates.partFingerprints(template), skipped });
   const where = slug ? `[${slug}] ` : '';
   const made = ticked.length ? envContext.run(env, () => makeStarterSpaces(env, template, where, { only: ticked, creator: creator && env.store.userByKey(creator.key) ? creator : null })) : [];
   console.log(`${where}Applied the "${template.id}" template's offer${skipped.length ? `; skipped ${skipped.map((x) => `${x.id} (${x.why})`).join(', ')}` : ''}.`);
   return { ...templateAnswer(env, slug), made };
+}
+
+// One template change at a time per environment: a switch and a confirm each wait for the one before to finish (failed
+// or not), so a confirm never turns anything on for an offer another confirm or a switch has already closed.
+const templateTurns = new WeakMap();
+function templateTurn(env, fn) {
+  const before = templateTurns.get(env) || Promise.resolve();
+  const run = before.then(fn, fn);
+  templateTurns.set(env, run.catch(() => {}));
+  return run;
 }
 
 // The Default template as an environment with no template recorded reads it.
