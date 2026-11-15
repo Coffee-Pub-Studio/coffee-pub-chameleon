@@ -43,6 +43,8 @@ This plan supersedes [plan-product-pages](plan-product-pages.md) and answers que
 [plan-domains](plan-domains.md) ("the app's front door as an environment chooser"). Where the domains plan says "front
 door" or "product page", this plan says "start page" (decision 6).
 
+**Note, 2026-11-15 (product-planner, proposed, not a decision):** [plan-product-pages-templates](plan-product-pages-templates.md) proposes how the website's page presents each template type, a type sheet in the product sheet (slice 1) and a per-type screenshot set from the demos, built by a command over `tools/shots.mjs`. It would change two things here if Thomas agrees: the `product` tier's file names and format (by type, PNG), and `demo` in `GET /api/product` (slice 6) becoming a list, `demos`. Slice 1's product sheet, its check and the tier are still not built. Read on the live page the same day: its cards still say Mentoring has Polls (the template does not turn them on), have no Learning card and say "coming soon" for shipped types.
+
 ## What it is today
 
 On `origin/main` at `7bc8b2d`. Everything is in `server/index.js` (about lines 2794 to 2960) and `public/`.

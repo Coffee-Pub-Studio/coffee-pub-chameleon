@@ -10,6 +10,8 @@ The front page headline (decision 21), lede and meta description (decision 22) a
 
 **Where the pages live:** at `PRODUCT_DOMAIN`, the bare `BASE_DOMAIN` when it is unset; see [plan-domains](plan-domains.md).
 
+**Note, 2026-11-15 (product-planner, proposed, not a decision):** the per-type presentation of the shipped templates (Travel, Games, Project, Learning, Mentoring) is now planned in [plan-product-pages-templates](plan-product-pages-templates.md). Nothing in this record is changed by it. Its decision 2 (the Planner's copy is travel-only) is out of date, because there are three planners; its decisions 7, 8, 10 and 11 describe pages that no longer exist.
+
 ## What it is today
 
 - **One page.** `public/landing.html` (361 lines), `public/landing.css` and `public/landing.js`. The server sends it

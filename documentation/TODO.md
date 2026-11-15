@@ -210,6 +210,7 @@ The open issues labelled `priority: now` or `priority: next`:
 - The calls cap is enforced by the page only: the page asks `POST /api/call/join` before joining, but a token can publish as soon as it is minted, so a modified page could skip the check, as it could before. Making the cap binding means granting publish only after the check.
 - The host console's environment list waits on LiveKit when any environment's plan caps calls (it counts each one's running calls, up to two seconds a request).
 - The product site ([plan-product-site](plans/plan-product-site.md)): the start page is built (the studio's look, 2026-11-08). Still to do: the demo hook (slice 6: **Try the demo** and `demo` in `GET /api/product`) and a Plans list on the start page. Manage's **Upgrade** link is hidden (`plansPage = false` in `public/admin.js`) until the Plans list exists; turning that on is part of the same work.
+- The product pages for the template types ([plan-product-pages-templates](plans/plan-product-pages-templates.md)): proposed 2026-11-15, not decided. A type sheet for Travel, Games, Project, Learning and Mentoring, a not-claim list, a shot list and a command that rebuilds every product screenshot from the demos. Waits on Thomas's answers and on the five demos.
 - #57 An About page.
 
 ## Streaming and OBS
