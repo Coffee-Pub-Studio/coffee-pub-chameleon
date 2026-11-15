@@ -2449,7 +2449,8 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   assert.match(setup, /function stopUsingLayout\(\) \{\n\s*state\.draft\.defaultLayout = null;/, 'Stop using it is a draft, as every field is');
   // The modules tab (step 5): what is on, Turn AI off (an owner's space field), the module settings in the draft mode.
   assert.ok(!/dropTab/.test(setup), 'Settings is never dropped: the First visit section is always in it');
-  assert.match(setup, /aiSection\.hidden = !ai \|\| !ai\.active \|\| ai\.active\.provider === 'none';/, 'Turn AI off only with an AI service');
+  assert.match(setup, /aiSection\.hidden = !ai \|\| ai\.moduleOn === false \|\| !ai\.active \|\| ai\.active\.provider === 'none';/, 'Turn AI off only while the AI Assistant module is on and set up');
+  assert.match(setup, /seesSection\.hidden = !ai \|\| ai\.moduleOn === false \|\| !ai\.active \|\| ai\.active\.provider === 'none';/, 'What AI may see hides the same way');
   // First visit (plan-layout-views.md, step 5): one choice, radios of one name in a fieldset named by the heading; the
   // Workspace first with the Opens with switches directly under it, then Calendar and Map from the layouts' `system`
   // list, then the shared layouts; no select, no "Picking one sets Opens with".
