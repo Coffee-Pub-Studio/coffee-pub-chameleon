@@ -13,7 +13,7 @@
 // of a space (POST /api/spaces) and of an environment's starter spaces.
 //
 // Starter spaces are a template's `starterSpaces`, made once when an environment is made from that template (never on
-// a switch), each then given its starter content as any new space is.
+// a switch), each recorded as using that template and then given its starter content as any new space is.
 //
 // This file holds what can be said without the server: which blocks a template's starter content gives, checked again
 // (a template may have been stored before a module changed, or edited by hand), and who makes the starter spaces. The
@@ -60,6 +60,25 @@ function starterBlocks(template, { optedIn = () => false } = {}) {
   return { blocks, skipped };
 }
 
+// A starter value as the person who made the space wrote it, now (decision 41: "as the person who made it"). A template
+// file can't know who that is or when, so an authored record's own author and time fields are filled in here, on a
+// copy: in a top-level record that has a `by`, `by` and `editedBy` become the creator's key, `editedByName` their name
+// (display name, else login), and `at` and `editedAt` the time given (Documents' doc record: { by, at, editedBy,
+// editedByName, editedAt }; the Schedule outline's entries carry `by`). Only fields the record already has; nothing else
+// in it, no other value and no record without a `by` is changed, so such a record never names anyone else as its author. The
+// module's guards still run on the result (an owner field set to the writer).
+const AUTHOR_KEYS = ['by', 'editedBy'];
+const AUTHOR_NAMES = ['editedByName'];
+const AUTHOR_TIMES = ['at', 'editedAt'];
+function asCreator(value, creator, at) {
+  if (!isObject(value) || !Object.hasOwn(value, 'by') || !creator || typeof creator.key !== 'string') return value;
+  const out = { ...value };
+  for (const k of AUTHOR_KEYS) if (Object.hasOwn(out, k)) out[k] = creator.key;
+  for (const k of AUTHOR_NAMES) if (Object.hasOwn(out, k)) out[k] = [creator.displayName, creator.login].find((v) => typeof v === 'string' && v) || out[k];
+  for (const k of AUTHOR_TIMES) if (Object.hasOwn(out, k)) out[k] = at;
+  return out;
+}
+
 // The starter spaces `template` makes (at most MAX_STARTER_SPACES, each { name, description }), or [].
 function starterSpacesOf(template) {
   const list = template && Array.isArray(template.starterSpaces) ? template.starterSpaces : [];
@@ -77,4 +96,4 @@ function starterSpaceCreator(users) {
   return list.find((u) => u.role === 'owner') || list.find((u) => u.role === 'admin' && !u.hostAdmin) || list.find((u) => u.role === 'admin') || null;
 }
 
-module.exports = { shown, starterBlocks, starterSpacesOf, starterSpaceCreator, FORBIDDEN_KEYS };
+module.exports = { shown, starterBlocks, starterSpacesOf, starterSpaceCreator, asCreator, FORBIDDEN_KEYS };

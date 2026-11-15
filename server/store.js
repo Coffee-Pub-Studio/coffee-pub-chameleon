@@ -625,6 +625,16 @@ function ownReactions(value) {
   const list = cleanReactions(value) || [];
   return list.filter((r) => !DEFAULT_REACTION_LIST.some((c) => c.id === r.id || c.glyph === r.glyph));
 }
+// The icons a template adds, by id, read live and never copied into the owner's own list (decision 12): its `iconSet`,
+// then its home icon and its modules' icons, so the owner's pickers offer what the template uses while it is read.
+// server/templates.js takes only Font Awesome Free solid ones; the shape is checked again here all the same.
+function templateIconIds(template) {
+  if (!template || typeof template !== 'object') return [];
+  const modules = isPlainObject(template.modules) ? Object.values(template.modules).map((m) => (isPlainObject(m) ? m.icon : null)) : [];
+  const ids = [...(Array.isArray(template.iconSet) ? template.iconSet : []), isPlainObject(template.icons) ? template.icons.home : null, ...modules];
+  return [...new Set(ids.filter((id) => typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id)))];
+}
+
 function ownIcons(value) {
   const list = cleanIcons(value) || [];
   return list.filter((i) => !DEFAULT_ICON_LIST.some((c) => c.id === i.id));
@@ -1098,13 +1108,13 @@ class Store {
   }
 
   // Every icon the environment has: the fixed core set, the owner's own additions, then the additions of the template the
-  // environment reads (its `iconSet`). { id, classes, label } each, ids once.
-  allIcons() {
+  // environment reads (templateIconIds). { id, classes, label } each, ids once.
+  // `template`: read another template's additions instead (lookOf, for a space on a template of its own).
+  allIcons(template = this.environmentTemplate()) {
     const out = DEFAULT_ICON_LIST.map((i) => ({ ...i }));
     const add = (i) => { if (i && typeof i.id === 'string' && !out.some((o) => o.id === i.id)) out.push({ id: i.id, classes: i.classes, label: i.label }); };
     for (const i of this.data.settings.icons || []) add(i);
-    const t = this.environmentTemplate();
-    for (const id of Array.isArray(t?.iconSet) ? t.iconSet : []) if (typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id)) add({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') });
+    for (const id of templateIconIds(template)) add({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') });
     return out;
   }
 
@@ -1250,10 +1260,9 @@ class Store {
     };
     for (const r of Array.isArray(this.data.settings.reactions) ? this.data.settings.reactions : []) addReaction(r);
     for (const r of Array.isArray(t?.reactions) ? t.reactions : []) addReaction(r);
-    const icons = this.allIcons();
-    for (const id of Array.isArray(t?.iconSet) ? t.iconSet : []) {
-      if (typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id) && !icons.some((i) => i.id === id)) icons.push({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') });
-    }
+    // The same for icons, with the template this place reads (one template per place: a space on its own reads its own
+    // template's additions, not the environment's); at Home that is the environment's, so this is allIcons there.
+    const icons = this.allIcons(t);
     return {
       template: own ? t.id : null,
       words: this.wordsOf(place),

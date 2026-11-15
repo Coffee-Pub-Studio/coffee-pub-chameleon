@@ -375,7 +375,7 @@ try {
   const edit = await owner.as('PATCH', '/api/environment/templates/hours', { modules: { marks: { name: 'Timesheet', settings: { unit: 'hours', split: false, tint: '#445566', view: 'grid', limit: 7 }, labels: { event: { one: 'meeting', many: 'meetings' } } }, chat: {}, conference: {} } });
   assert.equal(edit.status, 200, edit.text);
   const hostileEdit = await owner.as('PATCH', '/api/environment/templates/hours', { modules: { marks: { settings: { own: true } }, chat: {} } });
-  assert.deepEqual([hostileEdit.status, hostileEdit.json?.error], [400, 'modules.marks.settings: "own" is not a setting the marks module lets a template set.'], 'an own setting is no template\'s');
+  assert.deepEqual([hostileEdit.status, hostileEdit.json?.error], [400, 'modules.marks.settings: "own" is not a setting the Marks module lets a template set.'], 'an own setting is no template\'s');
   const h = (await admin('POST', '/api/spaces', { name: 'Ledger', members: [mo.key, mia.key], template: 'hours' })).json.space;
   const plain = (await admin('POST', '/api/spaces', { name: 'Plain', members: [mo.key, mia.key] })).json.space;
   assert.equal((await admin('PATCH', `/api/users/${mo.key}/spaces/${h.id}`, { permissions: { moderator: true } })).status, 200);

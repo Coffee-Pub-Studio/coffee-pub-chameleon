@@ -242,9 +242,11 @@ try {
     assert.deepEqual(problems(minimal({ modules: Object.fromEntries([['chat', {}], ...Array.from({ length: 61 }, (_, i) => [`m${i}`, {}])]) }))[0], '"modules" can list at most 60 modules.');
     // The real manifests (step 12): a marked setting, a declared label and a starter module are accepted; the rest is refused.
     assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { settings: { inCalendar: true } }, calendar: { labels: { event: { one: 'session', many: 'sessions' } } }, documents: { starter: {} } } })), []);
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, documents: { settings: { coediting: true } } } })), ['modules.documents.settings: "coediting" is not a setting the documents module lets a template set.']);
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, calendar: { labels: { widget: { one: 'session', many: 'sessions' } } } } })), ['modules.calendar.labels: "widget" is not a word the calendar module lets a template rename.']);
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { starter: { 'poll:a': {} } } } })), ['modules.polls: the polls module takes no starter content.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, documents: { settings: { coediting: true } } } })), ['modules.documents.settings: "coediting" is not a setting the Documents module lets a template set.'], 'a module is named by its manifest\'s name, not its id');
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, documents: { name: 'Notebook', settings: { coediting: true } } } })), ['modules.documents.settings: "coediting" is not a setting the Notebook module lets a template set.'], 'and by the template\'s own name for it when it gives a good one');
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { starter: { 'task:a': {} } } } })), ['modules.todo: the To-do module takes no starter content.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, calendar: { labels: { widget: { one: 'session', many: 'sessions' } } } } })), ['modules.calendar.labels: "widget" is not a word the Calendar module lets a template rename.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { starter: { 'poll:a': {} } } } })), ['modules.polls: the Polls module takes no starter content.']);
     const clean = templates.cleanTemplate(minimal({ modules: { chat: { name: '  Talk   here ' }, polls: {} } }));
     assert.deepEqual(clean.modules, { chat: { name: 'Talk here' }, polls: {} });
   });
@@ -361,8 +363,7 @@ try {
     assert.deepEqual(first, []);
     assert.deepEqual(once.lobby, ['Home base', 'Everyone on every trip.']);
     assert.deepEqual([once.settings.conferenceEnabled, once.settings.homeIcon, once.settings.spaceDefaults], [true, null, { profile: 'participants' }]);
-    assert.ok(once.settings.icons.includes('suitcase-rolling'), 'the home icon joins the owner\'s own icons');
-    assert.deepEqual([once.settings.icons.includes('diagram-project'), once.settings.reactions], [false, []], 'the template\'s added icons and reactions are not copied into the settings: they are read live');
+    assert.deepEqual([once.settings.icons, once.settings.reactions], [[], []], 'nothing of the template (its home icon, module icons, added icons or reactions) is copied into the owner\'s own lists (decision 12): they are read live');
     const look = env.store.lookOf(null);
     assert.deepEqual([look.reactions.some((r) => r.id === 'ship'), look.icons.some((i) => i.id === 'diagram-project')], [false, false], 'and an environment on another template does not read them');
     for (const id of ['travel', 'maps', 'research', 'calendar', 'vault']) assert.deepEqual(once.modules[id].slice(1), [true], id);

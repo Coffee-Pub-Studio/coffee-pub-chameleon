@@ -10,7 +10,10 @@
  *   - a template's additions (a host template with `reactions` and `iconSet`) show at once in an environment that reads it,
  *     in a space on it and in /look, and never in one that reads another template; a switch offers none of them (they are
  *     not copied), and the owner's own additions stay when the template changes;
- *   - an icon the owner adds draws wherever icons are validated (the home icon), and a core one always does.
+ *   - an icon the owner adds draws wherever icons are validated (the home icon), and a core one always does;
+ *   - a switch of the environment's template (to an owner's copy of Project, its offer confirmed, back to Default, to
+ *     Project and back) leaves ownReactions and ownIcons, and the stored lists, exactly as they were: the template's home
+ *     icon, module icons and iconSet are offered (and pickable) only while it is read, never copied (decision 12).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -128,6 +131,43 @@ try {
     assert.deepEqual([await look(), await branding()].map((x) => [x.reactions, x.icons]), before);
     const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'app.json'), 'utf8'));
     assert.equal(JSON.stringify(stored.spaces).includes('boat'), false);
+  });
+
+  await test('a template switch, to a copy of Project and back, leaves the owner\'s own reactions and icons as they were; the template\'s icons are read live', async () => {
+    const own = async () => { const s = (await call('GET', '/api/settings')).json.settings; return { ownReactions: s.ownReactions, ownIcons: s.ownIcons }; };
+    const stored = () => { const s = JSON.parse(fs.readFileSync(path.join(dataDir, 'app.json'), 'utf8')).settings; return { reactions: s.reactions, icons: s.icons }; };
+    const before = await own();
+    const storedBefore = stored();
+    assert.deepEqual(before.ownIcons.map((i) => i.id), ['my-cat'], 'the owner has their own');
+    const copy = await call('POST', '/api/environment/templates', { from: 'project', id: 'myproject', name: 'My project' });
+    assert.equal(copy.status, 201, copy.text);
+    const tpl = (await call('GET', '/api/environment/templates/myproject')).json.template;
+    const edit = await call('PATCH', '/api/environment/templates/myproject', { modules: { ...tpl.modules, todo: { ...(tpl.modules.todo || {}), icon: 'list-check' } }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['anchor'] });
+    assert.equal(edit.status, 200, edit.text);
+    const added = ['diagram-project', 'list-check', 'anchor']; // its home icon, a module's icon, its iconSet: none of them core
+    for (const id of added) assert.equal(DEFAULT_ICON_LIST.some((i) => i.id === id), false, `${id} is not core`);
+    for (const [step, body] of [['switch to the copy', { template: 'myproject' }], ['confirm its offer', null], ['switch back to Default', { template: 'default' }], ['switch to Project', { template: 'project' }], ['and back again', { template: 'default' }]]) {
+      const r = body ? await call('PATCH', '/api/settings', body) : await call('POST', '/api/environment/template/apply', { modules: [], lobby: true, spaceDefaults: true });
+      assert.equal(r.status, 200, `${step}: ${r.text}`);
+      assert.deepEqual(await own(), before, `${step}: ownReactions and ownIcons unchanged`);
+      assert.deepEqual(stored(), storedBefore, `${step}: and so is what is stored`);
+      const b = await branding();
+      const on = (await call('GET', '/api/settings')).json.settings.template?.id;
+      if (on === 'myproject') {
+        for (const id of added) assert.ok(ids(b.icons).includes(id), `${step}: ${id} is offered while the template is read`);
+        assert.ok(ids(b.reactions).includes('ship'), `${step}: its reaction too`);
+        assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'list-check' })).status, 200, 'a template\'s icon may be picked while it is read');
+        assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
+        assert.deepEqual(await own(), before, 'picking one copies nothing');
+      } else if (on === 'project') {
+        assert.ok(ids(b.icons).includes('diagram-project'), `${step}: Project's home icon is offered`);
+        assert.equal(ids(b.icons).includes('list-check'), false);
+      } else {
+        for (const id of added) assert.equal(ids(b.icons).includes(id), false, `${step}: ${id} goes with the template`);
+        assert.equal(ids(b.reactions).includes('ship'), false);
+        assert.deepEqual(ids(b.icons).slice(113), ['my-cat'], `${step}: the core and the owner's own`);
+      }
+    }
   });
 } catch (err) {
   failed += 1;

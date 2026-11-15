@@ -176,11 +176,15 @@ function moduleEntryProblems(id, entry, manifest, faDir, say) {
   const where = `modules.${id}`;
   if (!isObject(entry)) { say(`${where} must be an object; ${MODULE_KEYS_SENTENCE}`); return; }
   if (Object.keys(entry).some((k) => !MODULE_KEYS.includes(k))) say(`${where}: ${MODULE_KEYS_SENTENCE}`);
+  let named = null; // the template's own name for the module, when it is a good one
   if (entry.name !== undefined) {
     const name = typeof entry.name === 'string' ? entry.name.replace(/\s+/g, ' ').trim() : '';
     const problem = typeof entry.name !== 'string' || !name ? 'A display name must be text.' : displayNameProblem(name);
     if (problem) say(`${where}.name: ${problem}`);
+    else named = name;
   }
+  // What a sentence calls the module: the name this template gives it, else its manifest's, else its id (a built-in one).
+  const called = shown(named || (typeof manifest?.name === 'string' && manifest.name.trim()) || id);
   if (entry.icon !== undefined && !drawable(entry.icon, faDir)) say(`${where}.icon: "${shown(entry.icon)}" is not a Font Awesome Free solid icon.`);
   if (entry.settings !== undefined) {
     if (!isObject(entry.settings)) say(`${where}.settings must be an object of settings by key.`);
@@ -188,7 +192,7 @@ function moduleEntryProblems(id, entry, manifest, faDir, say) {
       const defs = new Map((Array.isArray(manifest?.settings) ? manifest.settings : []).filter((d) => d && typeof d.key === 'string').map((d) => [d.key, d]));
       for (const [key, value] of Object.entries(entry.settings)) {
         const def = defs.get(key);
-        if (!def || !TEMPLATE_MARKS.includes(def.template)) { say(`${where}.settings: "${shown(key)}" is not a setting the ${id} module lets a template set.`); continue; }
+        if (!def || !TEMPLATE_MARKS.includes(def.template)) { say(`${where}.settings: "${shown(key)}" is not a setting the ${called} module lets a template set.`); continue; }
         if (REFUSED_SETTING_TYPES.includes(def.type)) { say(`${where}.settings: "${key}" is a ${def.type}, so a template can't set it.`); continue; }
         if (def.scope === 'person' && def.template === 'driven') { say(`${where}.settings: "${key}" is each person's own, so a template can only suggest it.`); continue; }
         try {
@@ -204,14 +208,14 @@ function moduleEntryProblems(id, entry, manifest, faDir, say) {
     else {
       const declared = isObject(manifest?.labels) ? manifest.labels : {};
       for (const [key, value] of Object.entries(entry.labels)) {
-        if (!Object.hasOwn(declared, key)) { say(`${where}.labels: "${shown(key)}" is not a word the ${id} module lets a template rename.`); continue; }
+        if (!Object.hasOwn(declared, key)) { say(`${where}.labels: "${shown(key)}" is not a word the ${called} module lets a template rename.`); continue; }
         const { error } = words.cleanWord(key, value);
         if (error) say(`${where}.labels: ${error}`);
       }
     }
   }
   if (entry.starter !== undefined) {
-    if (manifest?.starter !== true) say(`${where}: the ${id} module takes no starter content.`);
+    if (manifest?.starter !== true) say(`${where}: the ${called} module takes no starter content.`);
     else if (!isObject(entry.starter)) say(`${where}.starter must be an object of the module's own data by key.`);
     else {
       const keys = Object.keys(entry.starter);
@@ -540,15 +544,6 @@ function withRequirements(ids, manifests) {
   return out;
 }
 
-// Adds a template's home icon and module icons to the environment's own icon additions, so the owner's pickers offer
-// them (a core one is already there). Never removes one. The template's `iconSet` is not copied: it is read live.
-function addIcons(store, template) {
-  const want = [template.icons.home, ...Object.values(moduleField(template, 'icon'))].filter(Boolean);
-  const have = store.iconIds();
-  const add = [...new Set(want)].filter((id) => !have.includes(id)).map((id) => ({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') }));
-  if (add.length) store.updateSettings({ icons: [...store.settings.icons, ...add] });
-}
-
 // The modules a template turns on once, by id: its own entries (none for '*', which reads as the whole catalog as it is).
 const modulesToTurnOn = (template) => (template.modules === '*' ? [] : moduleIdsOf(template));
 
@@ -592,8 +587,8 @@ function spaceDefaultsOf(template) {
   return out;
 }
 
-// Applies a template's once-only part to an environment made from it (settings, the Lobby, the space defaults, its
-// home and module icons into the icon list, then its modules), and answers what was skipped: [{ id, why }]. Safe
+// Applies a template's once-only part to an environment made from it (settings, the Lobby, the space defaults, then
+// its modules; its icons are read live, store.allIcons), and answers what was skipped: [{ id, why }]. Safe
 // to run again (the same result), but the server runs it only while the record has no appliedAt. `allowed(id)`: whether
 // the billing plan includes a bundled module (a template never widens a plan); `modulesDir` where the bundled modules are.
 async function applyTemplate(env, template, { allowed = () => true, modulesDir = MODULES_DIR, name = (id) => id } = {}) {
@@ -602,15 +597,15 @@ async function applyTemplate(env, template, { allowed = () => true, modulesDir =
   if (template.lobby.name !== undefined || template.lobby.description !== undefined) store.updateSpace(LOBBY, template.lobby);
   const defaults = spaceDefaultsOf(template);
   if (Object.keys(defaults).length) store.updateSettings({ spaceDefaults: defaults });
-  // The home icon itself stays the template's (settings.homeIcon unset) until the owner picks one.
-  addIcons(store, template);
+  // The home icon itself stays the template's (settings.homeIcon unset) until the owner picks one. Its icons are read
+  // live (store.allIcons), never copied into the owner's own list (decision 12).
   if (template.icons.home) store.updateSettings({ homeIcon: null });
   store.updateSettings({ conferenceEnabled: offers(template, 'conference') });
   return turnOnModules(env, modulesToTurnOn(template), { allowed, modulesDir, name });
 }
 
 // --- switching (the switching addendum, GitHub #59) ------------------------------------------------------------------
-// A switch changes only the live part at once (the store's useLive, and the template's icons into the icon list); its
+// A switch changes only the live part at once (the store's useLive; the template's icons are read live); its
 // once-only part is offered, and applied only as confirmed. A switch never turns anything off, never clears the owner's
 // home icon, never touches the environment's settings (decision 1 at approval) or any module's data.
 
@@ -668,7 +663,7 @@ async function applyOffer(env, template, { modules: ids = [], lobby = false, spa
 
 module.exports = {
   PARTS, partFingerprints, appliedPartsChanged, appliedOnceFingerprint, wholeFingerprint, loadTemplates, problemsOf, cleanTemplate, storedFields,
-  get, list, all, defaultTemplate, useLive, applyTemplate, withRequirements, addIcons, turnOnModules, offerFor, applyOffer, moduleIdsOf, offers,
+  get, list, all, defaultTemplate, useLive, applyTemplate, withRequirements, turnOnModules, offerFor, applyOffer, moduleIdsOf, offers,
   bundledManifests, FIELDS, MODULE_KEYS, BUILTIN_MODULE_IDS, SETTINGS, TEMPLATES_DIR, DEFAULT_ID, CALL_POSITIONS, CALL_LAYOUTS, PHASE_MEASURES,
   FIXED_WORKSPACES, MAX_VERSION, MAX_TEMPLATE_BYTES, MAX_STARTER_BYTES, MAX_STARTER_KEYS, MAX_REACTIONS, MAX_ICON_SET, MAX_STARTER_SPACES, MAX_MODULES,
 };

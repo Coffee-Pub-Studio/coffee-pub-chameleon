@@ -33,7 +33,11 @@
  * applied makes no starter spaces; every addSpace caller is POST /api/spaces or makeStarterSpaces (a source scan).
  *
  * Part 3, hosted (BASE_DOMAIN): a host template with starter spaces; an environment made from it gets them once, made by
- * its owner (a member of each); a switch to another template and a restart make none; more than 5 is refused (400).
+ * its owner (a member of each), each recorded as using that template, so a switch of the environment's template leaves
+ * them on it (a space made later, naming none, follows the environment); a switch to another template and a restart make
+ * none; more than 5 is refused (400). An environment made from the shipped Learning template: a new space's starter
+ * document (the real Documents module and record) carries the creator as by, editedBy and editedByName and the time it
+ * was made as at and editedAt (starter.asCreator, also checked in node on Games' records), the rest as the template has it.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -96,6 +100,21 @@ await test('starterBlocks: at most 20 keys a module, 64 KB a template', () => {
   const { blocks, skipped } = starter.starterBlocks({ modules: { m1: { starter: many }, m2: { starter: big }, m3: { starter: big2 } } }, { optedIn: () => true });
   assert.deepEqual(blocks.map((b) => b.module), ['m2']);
   assert.deepEqual(skipped.map((s) => [s.module, s.why]), [['m1', `its starter content has more than ${templates.MAX_STARTER_KEYS} keys`], ['m3', "the template's starter content is over 64 KB"]]);
+});
+
+await test('asCreator: an authored record\'s author and time fields become the creator\'s and now; nothing else', () => {
+  const real = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'games.json'), 'utf8')).modules.documents.starter;
+  const olive = { key: 'k-olive', displayName: 'Olive', login: 'olive' };
+  const now = '2026-11-15T10:00:00.000Z';
+  const doc = starter.asCreator(real['doc:sessionnotes'], olive, now);
+  assert.deepEqual([doc.by, doc.at, doc.editedBy, doc.editedByName, doc.editedAt], ['k-olive', now, 'k-olive', 'Olive', now]);
+  assert.deepEqual({ ...doc, by: 0, at: 0, editedBy: 0, editedByName: 0, editedAt: 0 }, { ...real['doc:sessionnotes'], by: 0, at: 0, editedBy: 0, editedByName: 0, editedAt: 0 });
+  assert.equal(real['doc:sessionnotes'].by, 'template', 'a copy: the template\'s own record is unchanged');
+  assert.equal(starter.asCreator(real['text:sessionnotes:notesch1'], olive, now), real['text:sessionnotes:notesch1'], 'no `by`: as it is');
+  assert.deepEqual(starter.asCreator({ at: '2027-05-01', title: 'A day' }, olive, now), { at: '2027-05-01', title: 'A day' }, 'a time in a record with no author is its own (a day), never now');
+  assert.deepEqual(starter.asCreator({ kind: 'work', title: 'Plan', by: '' }, olive, now), { kind: 'work', title: 'Plan', by: 'k-olive' }, 'a Schedule entry: `by` only, nothing added');
+  assert.deepEqual(starter.asCreator({ by: 'x', editedByName: 'T' }, { key: 'k', login: 'kim' }, now), { by: 'k', editedByName: 'kim' }, 'no display name: the login');
+  for (const v of [null, 'text', 5, ['by'], { by: 'x' }]) assert.deepEqual(starter.asCreator(v, null, now), v, 'nobody: unchanged');
 });
 
 await test('starterSpacesOf and starterSpaceCreator', () => {
@@ -334,7 +353,7 @@ try {
       const r = await setModules('proj', modules);
       assert.deepEqual([r.status, r.json?.error], [400, sentence], JSON.stringify(modules).slice(0, 200));
     };
-    await refusedWith({ notes: {}, plain: { starter: { k: 1 } } }, 'modules.plain: the plain module takes no starter content.');
+    await refusedWith({ notes: {}, plain: { starter: { k: 1 } } }, 'modules.plain: the Plain module takes no starter content.');
     await refusedWith({ notes: { starter: { 'a b': 1 } } }, 'modules.notes.starter: "a b" is not a data key; a key is 1 to 128 letters, digits and . _ : / -.');
     await refusedWith({ notes: { starter: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`note:n${i}`, { title: 'x' }])) } }, 'modules.notes.starter can hold at most 20 keys.');
     await refusedWith({ notes: { starter: { 'note:a': { title: 'a', text: 'x'.repeat(40 * 1024) }, 'note:b': { title: 'b', text: 'y'.repeat(30 * 1024) } } } }, "A template's starter content can be at most 64 KB.");
@@ -394,7 +413,7 @@ try {
   await test('hosted: starter spaces are made once, by the owner, when an environment is made; never on a switch or a restart', async () => {
     const six = await console_('POST', '/api/host/templates', { id: 'six', name: 'Six', description: 'Too many.', modules: { chat: {} }, starterSpaces: Array.from({ length: 6 }, (_, i) => ({ name: `S${i}` })) });
     assert.deepEqual([six.status, six.json?.error], [400, '"starterSpaces" must be a list of at most 5 spaces.']);
-    const t = await console_('POST', '/api/host/templates', { id: 'starts', name: 'Starts', description: 'With spaces.', modules: { chat: {} }, starterSpaces: STARTERS });
+    const t = await console_('POST', '/api/host/templates', { id: 'starts', name: 'Starts', description: 'With spaces.', words: { space: { one: 'venture', many: 'ventures' } }, modules: { chat: {} }, starterSpaces: STARTERS });
     assert.equal(t.status, 201, t.text);
     const made = await console_('POST', '/api/host/environments', { slug: 'acme', name: 'Acme', template: 'starts', owner: { login: 'owner-acme', password: 'owner-acme-password-1' } });
     assert.equal(made.status, 201, made.text);
@@ -410,11 +429,21 @@ try {
       const full = (await as('GET', `/api/spaces/${s.id}`)).json.space;
       assert.equal(full.starterDone, true);
       assert.ok(full.members.includes(key), 'made by the owner, who is a member');
-      assert.equal(full.template, null, "it reads the environment's template");
+      assert.equal(full.template, 'starts', 'each uses the template that made it, recorded as its own (as POST /api/spaces records one)');
     }
     assert.equal((await as('GET', `/api/spaces/${spaces[0].id}`)).json.space.description, 'A place to try things.');
-    // A switch to another template, and back, makes none.
+    // A space the owner makes later, naming none, reads the environment's template, as any does.
+    const later = await as('POST', '/api/spaces', { name: 'Later' });
+    assert.equal(later.status, 200, later.text);
+    assert.equal((await as('GET', `/api/spaces/${later.json.space.id}`)).json.space.template, null);
+    // A switch to another template, and back, makes none; the starter spaces stay on the template that made them.
     assert.equal((await console_('PATCH', '/api/host/environments/acme', { template: 'default' })).status, 200);
+    for (const s of spaces) {
+      assert.equal((await as('GET', `/api/spaces/${s.id}`)).json.space.template, 'starts', 'a switch of the environment\'s template leaves a starter space on its own');
+      assert.equal((await as('GET', `/api/spaces/${s.id}/look`)).json.look.words.space.one, 'venture', 'and it reads it');
+    }
+    assert.equal((await as('GET', `/api/spaces/${later.json.space.id}/look`)).json.look.words.space.one, 'space', 'the later space follows the environment');
+    assert.equal((await as('DELETE', `/api/spaces/${later.json.space.id}`)).status, 200);
     assert.equal((await console_('PATCH', '/api/host/environments/acme', { template: 'starts' })).status, 200);
     await new Promise((r) => setTimeout(r, 300));
     assert.equal((await named()).length, 2, 'no starter spaces on a switch');
@@ -451,6 +480,37 @@ try {
     await new Promise((r) => setTimeout(r, 300));
     const list = (await call(hs, 'acme', 'GET', '/api/spaces', { cookie: c })).json.spaces.filter((sp) => sp.id !== LOBBY);
     assert.equal(list.length, 2, `a restore makes no starter spaces: ${list.map((sp) => sp.name).join(', ')}`);
+  });
+  await test('hosted: a shipped template\'s starter document reads as written by the person who made the space, now (the real Documents module and record)', async () => {
+    const shipped = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'learning.json'), 'utf8')).modules.documents.starter;
+    const made = await console_('POST', '/api/host/environments', { slug: 'learn', name: 'Learn', template: 'learning', owner: { login: 'owner-learn', password: 'owner-learn-password-1' } });
+    assert.equal(made.status, 201, made.text);
+    const c = cookieOf(await call(hs, 'learn', 'POST', '/api/login', { body: { login: 'owner-learn', password: 'owner-learn-password-1' } }));
+    const as = (method, url, body) => call(hs, 'learn', method, url, { cookie: c, body });
+    // The template applies (and installs Documents) after the environment is made: wait for that.
+    const appFile = path.join(tmp, 'hosted', 'environments', 'learn', 'app.json');
+    for (let i = 0; i < 300 && !JSON.parse(fs.readFileSync(appFile, 'utf8')).template?.appliedAt; i += 1) await new Promise((r) => setTimeout(r, 100));
+    const me = (await as('GET', '/api/me')).json;
+    const user = me.user || me;
+    const before = Date.now();
+    const r = await as('POST', '/api/spaces', { name: 'Study' });
+    assert.equal(r.status, 200, r.text);
+    const got = await as('GET', `/api/modules/documents/data?scope=space&space=${r.json.space.id}`);
+    assert.equal(got.status, 200, got.text);
+    const byKey = Object.fromEntries(got.json.items.map((i) => [i.key, i]));
+    assert.deepEqual(Object.keys(byKey).sort(), Object.keys(shipped).sort(), 'every starter key written');
+    const doc = byKey['doc:learnjournal'];
+    assert.equal(doc.by, user.key, 'the row: written as the creator');
+    assert.deepEqual([doc.value.by, doc.value.editedBy, doc.value.editedByName], [user.key, user.key, user.displayName], 'the record\'s own author fields: the creator, not "template"');
+    for (const k of ['at', 'editedAt']) {
+      const t = Date.parse(doc.value[k]);
+      assert.ok(t >= before - 1000 && t <= Date.now() + 1000, `${k} is the time the space was made: ${doc.value[k]}`);
+    }
+    const { by, at, editedBy, editedByName, editedAt, ...rest } = doc.value;
+    const { by: b2, at: a2, editedBy: e2, editedByName: n2, editedAt: t2, ...shippedRest } = shipped['doc:learnjournal'];
+    assert.deepEqual(rest, shippedRest, 'nothing else in the record changes');
+    assert.deepEqual(byKey['text:learnjournal:journalc'].value, shipped['text:learnjournal:journalc'], 'a record with no author (the text) is written as the template has it');
+    assert.equal(JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'learning.json'), 'utf8')).modules.documents.starter['doc:learnjournal'].by, 'template', 'the template itself is untouched');
   });
   await hs.stop();
 
