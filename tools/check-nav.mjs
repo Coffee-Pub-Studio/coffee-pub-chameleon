@@ -2652,15 +2652,15 @@ test('Set up: a budget the field cannot read is refused before anything is sent;
 });
 
 test('Set up: the Budget section shows while a module that reads the target is on, a fact asked for it, or one is set; never in the Lobby (#216)', () => {
-  const planner = { id: 'travel', name: 'Travel - Itinerary', displayName: 'Trip plan', enabled: true, scope: ['environment', 'space'], budget: true };
+  const planner = { id: 'travel', name: 'Planner - Itinerary', displayName: 'Trip plan', enabled: true, scope: ['environment', 'space'], budget: true };
   assert.deepEqual(budgetWanted({ installed: [planner] }), { show: true, name: 'Trip plan' }, 'the Planner is on: shown before anyone opened it, named after it');
   assert.deepEqual(budgetWanted({ installed: [{ ...planner, enabled: false }] }), { show: false, name: '' }, 'turned off: not offered');
   assert.deepEqual(budgetWanted({ installed: [{ ...planner, budget: false }] }), { show: false, name: '' }, 'a module without the marker');
-  assert.deepEqual(budgetWanted({ reported: { name: 'Travel - Itinerary' } }), { show: true, name: 'Travel - Itinerary' }, 'a fact marked budget');
+  assert.deepEqual(budgetWanted({ reported: { name: 'Planner - Itinerary' } }), { show: true, name: 'Planner - Itinerary' }, 'a fact marked budget');
   assert.deepEqual(budgetWanted({ stored: { amount: 4000 } }), { show: true, name: '' }, 'one is set');
   assert.deepEqual(budgetWanted({ stored: { currency: 'EUR' } }), { show: true, name: '' }, 'a currency alone counts as set');
-  const listed = { id: 'travel', name: 'Travel - Itinerary', scope: ['space'], budget: true };
-  assert.deepEqual(budgetWanted({ installed: [listed] }), { show: true, name: 'Travel - Itinerary' }, 'a moderator\'s list (for-space) carries no enabled flag: it lists enabled modules only');
+  const listed = { id: 'travel', name: 'Planner - Itinerary', scope: ['space'], budget: true };
+  assert.deepEqual(budgetWanted({ installed: [listed] }), { show: true, name: 'Planner - Itinerary' }, 'a moderator\'s list (for-space) carries no enabled flag: it lists enabled modules only');
   assert.deepEqual(budgetWanted({ lobby: true, installed: [planner], stored: { amount: 1 } }), { show: false, name: '' }, 'never the Lobby');
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules/travel/module.json'), 'utf8'));
   assert.equal(manifest.budget, true, 'the Planner\'s manifest says it reads the budget');
