@@ -119,7 +119,10 @@
 
   // --- the store -----------------------------------------------------------------------------------------------------
   const remember = (id, value, version) => {
-    if (value && typeof value === 'object') state.entries.set(id, { e: scClean(id, value), version }); else state.entries.delete(id);
+    if (!value || typeof value !== 'object') { state.entries.delete(id); return; }
+    const e = scClean(id, value);
+    if (!e.title) e.title = 'Untitled'; // stored without a title (written some other way): never an empty row or chip
+    state.entries.set(id, { e, version });
   };
   async function loadEntries() {
     state.entries.clear();
@@ -404,13 +407,15 @@
     grid.style.setProperty('--tl-width', `${t.width}px`);
     grid.style.setProperty('--tl-day', `${dayWidth}px`);
     // the weeks
-    $('tl-weeks').replaceChildren(...t.weeks.map((w) => {
+    const weeks = $('tl-weeks');
+    weeks.replaceChildren();
+    for (const w of t.weeks) {
       const c = document.createElement('span');
       c.className = 'tl-week';
       c.style.setProperty('--x', `${w.x}px`);
       c.textContent = dayShort(w.day);
-      return c;
-    }));
+      weeks.append(c);
+    }
     // the rows
     const rows = t.rows.map((r) => {
       const e = entry(r.id);
@@ -423,14 +428,18 @@
       const bar = el.querySelector('.tl-bar');
       bar.style.setProperty('--x', `${r.x}px`);
       bar.style.setProperty('--w', `${r.w}px`);
-      const what = `${cap(kindWord(e.kind))}: ${e.title}, ${span(e)}${e.done ? ', done' : ''}`;
+      const cutWords = r.cut === 'both' ? ', runs past both ends of the Timeline' : r.cut === 'start' ? ', starts before the Timeline' : r.cut === 'end' ? ', runs past the end of the Timeline' : '';
+      if (r.cut) bar.classList.add(`cut-${r.cut}`);
+      const what = `${cap(kindWord(e.kind))}: ${e.title}, ${span(e)}${e.done ? ', done' : ''}${cutWords}`;
       bar.setAttribute('aria-label', what);
       bar.dataset.tip = `${e.title} · ${span(e)}`;
       el.querySelector('.tl-label').setAttribute('aria-label', what);
       for (const b of el.querySelectorAll('[data-action="open"]')) b.addEventListener('click', () => openEditor(e.id));
       return el;
     });
-    $('tl-rows').replaceChildren(...rows);
+    const rowsBox = $('tl-rows');
+    rowsBox.replaceChildren();
+    for (const r of rows) rowsBox.append(r);
     const hasRows = t.rows.length > 0;
     hide($('tl-frame'), !hasRows);
     $('tl-none').textContent = hasRows ? '' : `Nothing on the ${label('plan')} has a date yet.`;
@@ -462,19 +471,23 @@
         lines.append(svgEl('path', { d: `M${x1},${y1} H${bend} V${y2} H${x2}`, class: late ? 'tl-line clash' : 'tl-line', 'marker-end': 'url(#tl-arrow)' }));
       }
     }
-    // what has no day
-    const undated = t.undated.map(entry).filter(Boolean);
+    // what has no day, and what is dated outside the weeks drawn
+    const undated = [...t.undated, ...t.outside].map(entry).filter(Boolean);
     hide($('tl-undated'), !undated.length);
-    $('tl-undated-list').replaceChildren(...undated.map((e) => {
+    $('tl-undated-title').textContent = t.outside.length ? 'Not on the Timeline' : 'Not scheduled';
+    const strip = $('tl-undated-list');
+    strip.replaceChildren();
+    for (const e of undated) {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'link-chip undated';
       if (e.done) b.classList.add('done');
-      b.append(icon(KIND_ICON[e.kind]), document.createTextNode(e.title));
-      b.setAttribute('aria-label', `${cap(kindWord(e.kind))}: ${e.title}, no date`);
+      const when = span(e);
+      b.append(icon(KIND_ICON[e.kind]), document.createTextNode(when ? `${e.title} (${when})` : e.title));
+      b.setAttribute('aria-label', `${cap(kindWord(e.kind))}: ${e.title}, ${when || 'no date'}`);
       b.addEventListener('click', () => openEditor(e.id));
-      return b;
-    }));
+      strip.append(b);
+    }
     // bring today into sight once, the first time it is drawn
     if (!timelineScrolled && hasRows && t.today !== null) {
       timelineScrolled = true;
@@ -566,7 +579,14 @@
     if (ownersPick) ownersPick.destroy();
     ownersPick = host.ui.peoplePicker($('f-owners'), { people: state.people, value: shown.owners, name: cap(label('owner', { many: true })) });
     // part of: the milestones (never itself, never something under it)
-    const milestones = list().filter((x) => x.kind === 'milestone' && x.id !== id && !(id && x.parent === id));
+    const below = new Set(); // everything under this entry, however deep: never a place to put it
+    if (id) {
+      const kids = new Map();
+      for (const x of list()) if (x.parent) { if (!kids.has(x.parent)) kids.set(x.parent, []); kids.get(x.parent).push(x.id); }
+      const stack = [id];
+      while (stack.length) for (const k of kids.get(stack.pop()) || []) if (!below.has(k)) { below.add(k); stack.push(k); }
+    }
+    const milestones = list().filter((x) => x.kind === 'milestone' && x.id !== id && !below.has(x.id));
     $('f-parent').replaceChildren(...[{ id: '', title: 'Nothing: at the top' }, ...milestones].map((x) => Object.assign(document.createElement('option'), { value: x.id, textContent: x.title })));
     $('f-parent').value = shown.parent && milestones.some((x) => x.id === shown.parent) ? shown.parent : '';
     hide($('f-parent-field'), !milestones.length && !shown.parent);
@@ -631,8 +651,8 @@
       ref: ed.ref,
     });
     // what the person typed, checked before it is cleaned away
-    if ($('f-start').value && !scIsDay($('f-start').value)) { editorError('The start is a day, such as 2026-10-14.'); return; }
-    if (kind === 'work' && $('f-end').value && !scIsDay($('f-end').value)) { editorError('The end is a day, such as 2026-10-14.'); return; }
+    if ($('f-start').value && !scIsDay($('f-start').value)) { editorError('The start is a day from 1900 to 2200, such as 2026-10-14.'); return; }
+    if (kind === 'work' && $('f-end').value && !scIsDay($('f-end').value)) { editorError('The end is a day from 1900 to 2200, such as 2026-10-14.'); return; }
     if (kind === 'work' && $('f-start').value && $('f-end').value && $('f-end').value < $('f-start').value) { editorError('The end is before the start.'); return; }
     const problem = scProblem(draft, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) });
     if (problem) { editorError(problem); (draft.title ? $('f-start') : $('f-title')).focus(); return; }
@@ -662,16 +682,14 @@
   });
 
   // --- what other modules may ask of this one ----------------------------------------------------------------------------------
-  // An add per kind. When the plan needs dates and none came, the editor opens with what came, to be finished there.
-  const REFUSED = `you may not add to the ${label('plan')} here`;
+  // An add per kind, saved at once. What it was sent is checked first (scActionProblem): a missing title, a day the plan can't
+  // hold, or no day when the plan needs dates is refused with one sentence; nothing opens on anyone's screen.
+  const REFUSED = `You may not add to the ${label('plan')} here.`;
   async function addFrom(kind, input, ctx) {
     if (!canEdit) throw new Error(REFUSED);
+    const problem = scActionProblem(kind, input, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) });
+    if (problem) throw new Error(problem);
     const e = scFromAction(kind, input, (ctx && ctx.by) || info.user.key);
-    if (!e.title) throw new Error(`the ${kindWord(kind)} needs a title`);
-    if (scProblem(e, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) })) {
-      openEditor(null, { kind, title: e.title, start: e.start, end: e.end, notes: e.notes, ref: e.ref });
-      return {};
-    }
     const saved = await saveEntry({ ...e, id: host.util.id(), order: orderAtEnd(null) });
     return { ref: pointer(saved.id) };
   }

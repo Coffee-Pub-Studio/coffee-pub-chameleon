@@ -10,8 +10,9 @@
 //   owners   people's keys (work)
 //   waitsOn  ids of the entries it waits on (milestone and work)
 //   ticked   a milestone ticked done by hand
-//   done     milestone and work: true or false (a milestone: ticked, or every entry under it done). A note has none, so the
-//            phase measure (server/phase-measure.js) never counts it.
+//   done     milestone and work: true or false (a milestone: ticked, or every entry under it done). A note this page writes
+//            has none, so the phase measure (server/phase-measure.js) does not count it; the server does not hold anyone to
+//            that, so a note written some other way with a `done` would be counted.
 //   progress a milestone with entries under it: how many are done, 0 to 100
 //   phase    the id of one of the template's phases, or absent
 //   tags     ids from the `tags` setting
@@ -26,10 +27,17 @@ const SC_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SC_TITLE_MAX = 120;
 const SC_NOTES_MAX = 2000;
 const SC_LIST_MAX = 50;
+// The days the plan holds: from 1900 to 2200. A day outside is no day (the entry reads as undated).
+const SC_YEAR_MIN = 1900;
+const SC_YEAR_MAX = 2200;
+// The most weeks the Timeline draws (two years). An entry wholly outside the weeks drawn is listed under the Timeline instead,
+// and a bar that runs past either end is cut there.
+const SC_WEEKS_MAX = 104;
 
 function scIsDay(s) {
   if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
   const [y, m, d] = s.split('-').map(Number);
+  if (y < SC_YEAR_MIN || y > SC_YEAR_MAX) return false;
   const t = new Date(Date.UTC(y, m - 1, d));
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
@@ -136,14 +144,20 @@ function scOrdered(entries) {
   const cmp = (a, b) => (a.order && b.order && a.order !== b.order ? (a.order < b.order ? -1 : 1) : a.order && !b.order ? -1 : !a.order && b.order ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const out = [];
   const seen = new Set();
-  const walk = (e, level) => {
-    if (seen.has(e.id)) return;
-    seen.add(e.id);
-    out.push({ entry: e, level });
-    for (const c of (kids.get(e.id) || []).sort(cmp)) walk(c, level + 1);
+  // Depth first with a stack of its own, so a very long chain of parents never runs out of call stack.
+  const walk = (start) => {
+    const stack = [[start, 1]];
+    while (stack.length) {
+      const [e, level] = stack.pop();
+      if (seen.has(e.id)) continue;
+      seen.add(e.id);
+      out.push({ entry: e, level });
+      const cs = (kids.get(e.id) || []).slice().sort(cmp);
+      for (let i = cs.length - 1; i >= 0; i -= 1) stack.push([cs[i], level + 1]);
+    }
   };
-  for (const r of roots.sort(cmp)) walk(r, 1);
-  for (const e of list) if (!seen.has(e.id)) walk(e, 1); // a loop of parents: shown at the top, never lost
+  for (const r of roots.sort(cmp)) walk(r);
+  for (const e of list) if (!seen.has(e.id)) walk(e); // a loop of parents: shown at the top, never lost
   return out;
 }
 
@@ -219,9 +233,11 @@ function scLate(e, today) {
 }
 
 // The Timeline: weeks across, one row per dated milestone and work in the outline's order. `o.dayWidth` is pixels per day.
-// Answers { from, days, width, weeks: [{ day, x }], rows: [{ id, kind, x, w, row }], lines: [{ from, to }], undated: [id],
-// today: x | null }. The range runs from the Monday before the first day to the Sunday after the last, at least six weeks,
-// and takes in today when today is within four weeks of it.
+// Answers { from, days, width, weeks: [{ day, x }], rows: [{ id, kind, x, w, row, cut }], lines: [{ from, to }], undated: [id],
+// outside: [id], today: x | null }. The range runs from the Monday before the first day to the Sunday after the last, at least
+// six weeks and at most SC_WEEKS_MAX, and takes in today when today is within four weeks of it. When the days span more than
+// that, the weeks drawn start at the first day, or half a year before today when the first day is earlier still; an entry
+// wholly outside them is in `outside`, and a bar running past an end is cut there (`cut`: 'start', 'end' or 'both').
 function scTimeline(entries, o) {
   const dayWidth = o && o.dayWidth > 0 ? o.dayWidth : 16;
   const today = o && scIsDay(o.today) ? o.today : '';
@@ -237,7 +253,7 @@ function scTimeline(entries, o) {
     if (!last || b > last) last = b;
   }
   if (!first) {
-    if (!today) return { from: '', days: 0, width: 0, weeks: [], rows: [], lines: [], undated, today: null };
+    if (!today) return { from: '', days: 0, width: 0, weeks: [], rows: [], lines: [], undated, outside: [], today: null };
     first = today;
     last = today;
   }
@@ -245,21 +261,55 @@ function scTimeline(entries, o) {
     if (today < first) first = today;
     if (today > last) last = today;
   }
-  const from = scMonday(scAddDays(first, -1));
+  let from = scMonday(scAddDays(first, -1));
   let days = scDayNumber(scAddDays(scMonday(last), 7)) - scDayNumber(from);
   if (days < 42) days = 42;
+  if (days > SC_WEEKS_MAX * 7) {
+    days = SC_WEEKS_MAX * 7;
+    if (today && scDayNumber(today) - 182 > scDayNumber(first)) from = scMonday(scAddDays(today, -182));
+  }
+  const lo = scDayNumber(from);
+  const hi = lo + days - 1; // the last day drawn
   const x = (day) => (scDayNumber(day) - scDayNumber(from)) * dayWidth;
   const weeks = [];
   for (let i = 0; i < days; i += 7) weeks.push({ day: scAddDays(from, i), x: i * dayWidth });
-  const rows = dated.map((e, i) => {
-    const end = e.kind === 'work' && e.end ? e.end : e.start;
-    return { id: e.id, kind: e.kind, x: x(e.start), w: (scDayNumber(end) - scDayNumber(e.start) + 1) * dayWidth, row: i };
-  });
+  const outside = [];
+  const rows = [];
+  for (const e of dated) {
+    const a = scDayNumber(e.start);
+    const b = scDayNumber(e.kind === 'work' && e.end ? e.end : e.start);
+    if (b < lo || a > hi) { outside.push(e.id); continue; }
+    const s = Math.max(a, lo);
+    const t = Math.min(b, hi);
+    const cut = a < lo && b > hi ? 'both' : a < lo ? 'start' : b > hi ? 'end' : '';
+    rows.push({ id: e.id, kind: e.kind, x: (s - lo) * dayWidth, w: (t - s + 1) * dayWidth, row: rows.length, ...(cut ? { cut } : {}) });
+  }
+  const shown = new Set(rows.map((r) => r.id));
   const at = new Set(rows.map((r) => r.id));
   const lines = [];
-  for (const e of dated) for (const w of e.waitsOn) if (at.has(w)) lines.push({ from: w, to: e.id });
+  for (const e of dated) if (shown.has(e.id)) for (const w of e.waitsOn) if (at.has(w)) lines.push({ from: w, to: e.id });
   const todayX = today && scDayNumber(today) >= scDayNumber(from) && scDayNumber(today) < scDayNumber(from) + days ? x(today) : null;
-  return { from, days, width: days * dayWidth, weeks, rows, lines, undated, today: todayX };
+  return { from, days, width: days * dayWidth, weeks, rows, lines, undated, outside, today: todayX };
+}
+
+// What is wrong with what an add action was sent (addMilestone, addWork, addNote), as one plain sentence, or ''. A day given
+// must be one the plan holds; when the plan needs dates, a milestone needs its day and work a start or an end (one day given is
+// a one-day span). Nothing is opened for a person to finish: the action is refused, with the reason.
+function scActionProblem(kind, input, o) {
+  const i = input && typeof input === 'object' ? input : {};
+  const label = (o && o.label) || ((k) => k);
+  const word = label(kind);
+  if (typeof i.title !== 'string' || !scLine(i.title, SC_TITLE_MAX)) return `The ${word} needs a title.`;
+  const fields = kind === 'milestone' ? ['date'] : kind === 'work' ? ['start', 'end'] : [];
+  for (const f of fields) {
+    const v = i[f];
+    if (v !== undefined && v !== null && v !== '' && !scIsDay(v)) return `A day must be from ${SC_YEAR_MIN} to ${SC_YEAR_MAX}, written like 2026-10-14.`;
+  }
+  if (o && o.datesRequired) {
+    if (kind === 'milestone' && !i.date) return `The ${word} needs a day.`;
+    if (kind === 'work' && !i.start && !i.end) return `The ${word} needs a start and an end.`;
+  }
+  return '';
 }
 
 // A new entry from one of the add actions (addMilestone, addWork, addNote), before it is checked.

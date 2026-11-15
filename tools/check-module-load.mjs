@@ -141,8 +141,10 @@ async function main() {
     for (const m of bundled) expect(installed.some((x) => x.id === m.id && x.enabled !== false), `${m.id} is not installed and enabled`);
     const nav = (await api('GET', '/api/modules/nav')).json?.modules || [];
     const forSpace = (await api('GET', `/api/modules/for-space?space=${S.ctx.trip}`)).json?.modules || [];
-    // A module the seeded trip's template does not list (the Travel template's set) is opened in a space on the Default template,
-    // which lists every module (plan-templates-redesign.md decision 33): a space whose template lists it.
+    // The seeded trip is on the Travel template: every module that template lists must be on there, as before. Only a module the
+    // Travel template does not list (templates/travel.json) is opened in a space on the Default template, which lists every module
+    // (plan-templates-redesign.md decision 33), so it too opens in a space whose template lists it.
+    const travelListed = new Set(Object.keys(JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'travel.json'), 'utf8')).modules || {}));
     const made = await api('POST', '/api/spaces', { name: 'Every module', template: 'default' });
     expect(made.status < 300 && made.json?.space?.id, `making a space on the Default template answered ${made.status}: ${JSON.stringify(made.json)}`);
     const everySpace = made.json?.space?.id || S.ctx.trip;
@@ -158,8 +160,13 @@ async function main() {
       if (s.page && (m.scope || ['environment']).includes('environment') && nav.some((x) => x.id === m.id)) at.page = true;
       if (s.canvas) {
         at.canvas = true;
-        spaceOf[m.id] = forSpace.some((x) => x.id === m.id) ? S.ctx.trip : everySpace;
-        expect(forSpace.some((x) => x.id === m.id) || forEvery.some((x) => x.id === m.id), `${m.id} declares a canvas but neither space's list has it`);
+        if (travelListed.has(m.id)) {
+          spaceOf[m.id] = S.ctx.trip;
+          expect(forSpace.some((x) => x.id === m.id), `${m.id} declares a canvas and the Travel template lists it, but the trip's list has none for it`);
+        } else {
+          spaceOf[m.id] = everySpace;
+          expect(forEvery.some((x) => x.id === m.id), `${m.id} declares a canvas but the Default template space's list has none for it`);
+        }
       }
       if (s.widget) { at.widget = true; expect(tiles.some((x) => x.id === m.id), `${m.id} declares a widget but the home page's list has none for it`); }
       const none = !s.page && !s.canvas && !s.widget && !s.destination && !s.keyed;

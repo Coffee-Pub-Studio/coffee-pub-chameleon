@@ -3,7 +3,8 @@
  * check-schedule-lib.mjs -- Planner - Projects' pure rules (modules/schedule/src/schedule-lib.js) and its manifest: the three
  * kinds and their fields, what is stored, the checks before a save under each `datesRequired` value, the outline's order, a
  * milestone's done and progress from what is under it, the plan's progress by milestones and by work, "waits on" loops, the
- * Timeline's weeks, bars and lines, the add actions, and the manifest's marks, labels, starter, permissions and refs summary
+ * Timeline's weeks, bars and lines (bounded however far apart the days are), the add actions and their refusals, the
+ * days the plan holds (1900 to 2200), a 50,000-long chain of parents, and the manifest's marks, labels, starter, permissions and refs summary
  * (the `plan` kind convention, with the `phase` and `done` a phase measured by goals reads). No page, no host, no network.
  * Usage: node modules/schedule/test/check-schedule-lib.mjs. Exits 1 on any failure.
  */
@@ -14,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const code = fs.readFileSync(path.join(dir, 'src', 'schedule-lib.js'), 'utf8');
-const NAMES = ['SC_PREFIX', 'SC_KINDS', 'scIsDay', 'scClean', 'scValue', 'scProblem', 'scOrdered', 'scMilestoneChanges', 'scProgress', 'scMakesLoop', 'scMonday', 'scAddDays', 'scLate', 'scTimeline', 'scFromAction'];
+const NAMES = ['SC_PREFIX', 'SC_KINDS', 'scIsDay', 'scClean', 'scValue', 'scProblem', 'scOrdered', 'scMilestoneChanges', 'scProgress', 'scMakesLoop', 'scMonday', 'scAddDays', 'scLate', 'scTimeline', 'scFromAction', 'scActionProblem', 'SC_WEEKS_MAX'];
 const L = new Function(`${code}\nreturn { ${NAMES.join(', ')} };`)();
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
 
@@ -218,6 +219,68 @@ test('the manifest', () => {
   assert.deepEqual(plan.summary, { title: 'title', when: 'start', end: 'end', done: 'done', phase: 'phase', progress: 'progress' }, 'the phase measure reads phase and done');
   assert.deepEqual(manifest.refs.consumes, ['*']);
   assert.equal(L.SC_PREFIX + '{id}', plan.key, 'the page stores where the refs say');
+});
+
+test('the days the plan holds: 1900 to 2200', () => {
+  assert.equal(L.scIsDay('1900-01-01'), true);
+  assert.equal(L.scIsDay('2200-12-31'), true);
+  assert.equal(L.scIsDay('1899-12-31'), false);
+  assert.equal(L.scIsDay('2201-01-01'), false);
+  assert.equal(L.scIsDay('0100-01-01'), false);
+  assert.equal(L.scIsDay('9999-12-31'), false);
+  const e = L.scClean('huge', { kind: 'work', title: 'x', start: '0100-01-01', end: '9999-12-31' });
+  assert.deepEqual([e.start, e.end], ['', ''], 'a day outside is no day: the entry is undated');
+});
+
+test('the Timeline is bounded however far apart the days are', () => {
+  const huge = L.scClean('huge', { kind: 'work', title: 'Forever', start: '0100-01-01', end: '9999-12-31' });
+  const t0 = L.scTimeline([huge], { dayWidth: 16, today: '2026-10-15' });
+  assert.deepEqual([t0.rows.length, t0.undated], [0, ['huge']], 'days outside the window: Not scheduled');
+  const wide = [
+    L.scClean('a', { kind: 'work', title: 'A', start: '1900-01-01', end: '2200-12-31', order: 'a' }),
+    L.scClean('b', { kind: 'milestone', title: 'B', start: '2026-11-01', order: 'b' }),
+    L.scClean('c', { kind: 'milestone', title: 'C', start: '1900-06-01', order: 'c' }),
+    L.scClean('d', { kind: 'milestone', title: 'D', start: '2200-06-01', order: 'd', waitsOn: ['b'] }),
+  ];
+  const started = Date.now();
+  const t = L.scTimeline(wide, { dayWidth: 16, today: '2026-10-15' });
+  assert.ok(Date.now() - started < 200, 'quick');
+  assert.equal(t.days, L.SC_WEEKS_MAX * 7, 'at most two years of weeks');
+  assert.equal(t.weeks.length, L.SC_WEEKS_MAX);
+  assert.equal(t.from, '2026-04-13', 'half a year before today when the first day is earlier still');
+  assert.deepEqual(t.rows.map((r) => [r.id, r.cut || '']), [['a', 'both'], ['b', '']], 'a bar past both ends is cut at both');
+  assert.deepEqual(t.rows[0], { id: 'a', kind: 'work', x: 0, w: t.width, row: 0, cut: 'both' });
+  assert.deepEqual(t.outside, ['c', 'd'], 'wholly outside the weeks drawn: listed under the Timeline');
+  assert.deepEqual(t.lines, [], 'no line to an entry that is not drawn');
+  assert.ok(t.today !== null);
+  const noToday = L.scTimeline(wide, { dayWidth: 16 });
+  assert.equal(noToday.from, '1899-12-25', 'with no today, the weeks start at the first day');
+  assert.equal(noToday.weeks.length, L.SC_WEEKS_MAX);
+});
+
+test('a 50,000-long chain of parents', () => {
+  const es = [];
+  for (let i = 0; i < 50000; i += 1) es.push(L.scClean(`e${i}`, { title: `E${i}`, parent: i ? `e${i - 1}` : undefined }));
+  const got = L.scOrdered(es);
+  assert.equal(got.length, 50000);
+  assert.deepEqual([got[0].entry.id, got[49999].entry.id, got[49999].level], ['e0', 'e49999', 50000]);
+  const t = L.scTimeline(es, { dayWidth: 16, today: '2026-10-15' });
+  assert.equal(t.undated.length, 50000);
+});
+
+test('the add actions\' refusals', () => {
+  const label = (k) => ({ milestone: 'session', work: 'scene' }[k] || k);
+  const o = { datesRequired: true, label };
+  assert.equal(L.scActionProblem('milestone', { title: 'Kick-off' }, o), 'The session needs a day.');
+  assert.equal(L.scActionProblem('work', { title: 'Build' }, o), 'The scene needs a start and an end.');
+  assert.equal(L.scActionProblem('work', { title: 'Build', end: '2026-10-22' }, o), '', 'one day is a one-day span');
+  assert.equal(L.scActionProblem('note', { title: 'x' }, o), '', 'a note never needs a day');
+  assert.equal(L.scActionProblem('milestone', { title: 'Kick-off' }, { datesRequired: false, label }), '', 'dates optional: saved at once');
+  assert.equal(L.scActionProblem('milestone', { title: '  ' }, o), 'The session needs a title.');
+  assert.equal(L.scActionProblem('milestone', { title: 5 }, o), 'The session needs a title.');
+  assert.equal(L.scActionProblem('milestone', { title: 'x', date: '0100-01-01' }, { datesRequired: false }), 'A day must be from 1900 to 2200, written like 2026-10-14.');
+  assert.equal(L.scActionProblem('work', { title: 'x', start: '2026-10-01', end: '9999-12-31' }, { datesRequired: false }), 'A day must be from 1900 to 2200, written like 2026-10-14.');
+  assert.equal(L.scActionProblem('milestone', { title: 'x', date: '2026-10-20' }, o), '');
 });
 
 if (fails.length) {

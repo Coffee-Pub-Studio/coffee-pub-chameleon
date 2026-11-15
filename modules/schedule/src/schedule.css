@@ -67,6 +67,8 @@ button.link-chip:hover { background: var(--fill-selected); }
 .tl-row[data-kind="milestone"].done .tl-bar::before { background: var(--ok); }
 .tl-row[data-kind="milestone"].late .tl-bar { box-shadow: none; }
 .tl-row[data-kind="milestone"].late .tl-bar::before { background: var(--danger); }
+.tl-bar.cut-start, .tl-bar.cut-both { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.tl-bar.cut-end, .tl-bar.cut-both { border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .tl-bar:focus-visible, .tl-label:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .tl-lines { position: absolute; top: 29px; left: var(--tl-label); pointer-events: none; overflow: visible; z-index: 1; }
 .tl-line { fill: none; stroke: var(--text-muted); stroke-width: 1.5; }
