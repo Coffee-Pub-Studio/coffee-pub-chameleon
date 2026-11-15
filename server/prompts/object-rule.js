@@ -4,7 +4,7 @@
 // this rule describes. The paste template and the in-app templates share these lines so they cannot drift.
 'use strict';
 
-const { KINDS, TRAVEL_KINDS, DETAILS, ICONS, BASES } = require('../object-format');
+const { KINDS, TRAVEL_KINDS, PLAN_KINDS, DETAILS, ICONS, BASES } = require('../object-format');
 
 const listWords = (list, last = 'or') => (list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} ${last} ${list[list.length - 1]}`);
 
@@ -20,9 +20,36 @@ function promptExample(kinds, withProvenance) {
 }
 
 // What a details field needs said beside its name. A `when` is explained once, in the dates line.
-const FIELD_NOTES = { 'flight.minutes': 'time in the air', 'car.from': 'pick-up', 'car.to': 'drop-off', 'car.departs': 'pick-up', 'car.arrives': 'drop-off', 'restaurant.name': "the booking's name", 'cafe.name': "the booking's name", 'bar.name': "the booking's name" };
+const FIELD_NOTES = {
+  'flight.minutes': 'time in the air', 'car.from': 'pick-up', 'car.to': 'drop-off', 'car.departs': 'pick-up', 'car.arrives': 'drop-off', 'restaurant.name': "the booking's name", 'cafe.name': "the booking's name", 'bar.name': "the booking's name",
+  'milestone.start': 'its day', 'milestone.phase': "the phase's name", 'milestone.under': 'the title of what it sits under',
+  'work.start': 'first day', 'work.end': 'last day', 'work.phase': "the phase's name", 'work.under': 'the title of what it sits under',
+  'goal.why': 'why it matters', 'goal.date': 'the day it is due', 'goal.phase': "the phase's name",
+  'step.date': 'the day it is due', 'step.under': "its goal's title",
+};
 const TYPE_NOTES = { flag: 'true or false', options: '2 to 10 short answers' };
 const KIND_NOTES = { hotel: 'any stay: hotel, rental, hostel' };
+
+// A plan kind as the prompt's sentences say it, and one small example of each (placeholders only, as above).
+const PLAN_WORDS = { milestone: 'milestone', work: 'piece of work', goal: 'goal', step: 'step' };
+const PLAN_EXAMPLES = {
+  milestone: '{"kind":"milestone","title":"<title>","date":"<YYYY-MM-DD>","details":{"start":"<YYYY-MM-DD>","phase":"<phase>"}}',
+  work: '{"kind":"work","title":"<title>","content":"<notes>","details":{"start":"<YYYY-MM-DD>","end":"<YYYY-MM-DD>","under":"<title of the milestone>"}}',
+  goal: '{"kind":"goal","title":"<title>","details":{"why":"<why it matters>","date":"<YYYY-MM-DD>"}}',
+  step: '{"kind":"step","title":"<title>","details":{"done":false,"under":"<title of the goal>"}}',
+};
+
+// The lines for a plan's kinds, when any is listed: how a plan is split up, what "under" is, and one example of each.
+function planLines(listed, noun) {
+  const plan = listed.filter((k) => PLAN_KINDS.includes(k));
+  if (!plan.length) return [];
+  const under = plan.some((k) => DETAILS[k].under);
+  const lines = [`A plan is one ${noun} for each ${listWords(plan.map((k) => PLAN_WORDS[k]), 'and')}.${under ? ' Write each one after what it sits under, and put that one\'s title in "under".' : ''}`];
+  const general = listed.filter((k) => k === 'event' || k === 'task');
+  if (general.length) lines.push(`For a plan, use ${listWords(plan)} rather than ${listWords(general.map((k) => `"${k}"`))}.`);
+  lines.push(`For example: ${plan.map((k) => PLAN_EXAMPLES[k]).join(' ')}`);
+  return lines;
+}
 
 // One line per kind, or per run of kinds with the same fields ("restaurant, cafe, bar: ..."), for the kinds listed.
 function detailsLines(kinds) {
@@ -87,6 +114,7 @@ function fieldLines({ noun, kinds = TRAVEL_KINDS, withProvenance, numbers = 'the
       ? `"details" holds what a booking or plan says. Every field is optional; leave out what you do not know, and write nothing in "content" that is already in "details":`
       : 'These kinds take no "details":');
     lines.push(...detailsLines(listed));
+    lines.push(...planLines(listed, noun));
   }
   const tail = withProvenance
     ? `"basis" says where the ${noun} comes from: "general" (your own knowledge), "items" (the data) or "both". "sources" are ${numbers}.`

@@ -191,6 +191,174 @@
     render();
   }
 
+  // ---- the plan as a JSON file: Export, and Import (add to the plan, or replace it) -------------------------------------------------
+  // The format is in src/FORMAT.md; the rules (what is read, what is refused) are in goals-lib-file.js. A file is read whole and
+  // checked before anything is written. The writes are the plan's own (host.storage.set, one entry at a time, as an edit is), so
+  // they need the edit right and meet the same guards; Replace needs the clear right as well. A write that fails puts back what was
+  // there. For a short time after, Undo puts back what the import changed.
+  const F = GoalsFile;
+  const UNDO_SECONDS = 30;
+  let importing = false;
+  let undoTimer = 0;
+  let undoPlan = null; // { created: [ids], was: [{ id, value }] }: what the last import changed
+  const canClear = () => host.can('clear');
+  const say = (text, kind) => { if (text && host.ui && host.ui.toast) host.ui.toast(String(text), kind ? { kind } : undefined).catch(() => {}); };
+  function deliver(blob, name) {
+    if (host.files && typeof host.files.save === 'function') return host.files.save(blob, { name });
+    const address = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = address;
+    a.download = name;
+    a.rel = 'noopener';
+    a.hidden = true;
+    $('app').append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(address), 60000);
+    return true;
+  }
+  async function exportPlan() {
+    if (!entries.size) { say('There is nothing in the plan to export yet.'); return; }
+    try {
+      const body = JSON.stringify(F.exportFile(list(), { module: info.module.id }), null, 2);
+      await deliver(new Blob([body], { type: 'application/json' }), F.exportName(host.util.ymd(new Date())));
+    } catch (err) { say('This browser would not save the file.', 'danger'); }
+  }
+  // What a file holds, in the plan's words: "2 goals, 5 steps and 1 note".
+  function countWords(raws) {
+    const parts = L.KINDS.map((k) => [k, raws.filter((e) => e.kind === k).length]).filter((x) => x[1]).map(([k, n]) => `${n} ${label(k, { many: n !== 1 })}`);
+    return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0] || 'nothing';
+  }
+  // Puts back what an import changed: the entries it made come off, the ones it replaced or removed return. Others' work is left.
+  async function putBack(plan) {
+    for (const id of plan.created) {
+      const x = entries.get(id);
+      if (!x) continue;
+      try { await host.storage.delete(keyOf(id), { version: x.version }); } catch (err) { /* gone already */ }
+      entries.delete(id);
+      made = null;
+    }
+    for (const w of plan.was) {
+      const x = entries.get(w.id);
+      const row = await host.storage.set(keyOf(w.id), w.value, x ? { version: x.version } : {});
+      keep(row.key, row.value, row.version);
+    }
+    await syncAll();
+    render();
+  }
+  async function applyImport(items, mode) {
+    const plan = { created: [], was: [] };
+    importing = true;
+    try {
+      const keepIds = new Set(items.map((x) => x.id));
+      for (const it of items) {
+        const had = entries.get(it.id);
+        if (had) plan.was.push({ id: it.id, value: L.stored(had.e) }); else plan.created.push(it.id);
+        const row = await host.storage.set(keyOf(it.id), it.value, had ? { version: had.version } : {});
+        keep(row.key, row.value, row.version);
+      }
+      if (mode === 'replace') {
+        for (const old of list().filter((e) => !keepIds.has(e.id))) {
+          const had = entries.get(old.id);
+          if (!had) continue;
+          plan.was.push({ id: old.id, value: L.stored(had.e) });
+          await host.storage.delete(keyOf(old.id), { version: had.version });
+          entries.delete(old.id);
+          made = null;
+        }
+      }
+    } catch (err) {
+      try { await putBack(plan); } catch (again) { /* what could not be put back is read on the next load */ }
+      throw err;
+    } finally { importing = false; }
+    await syncAll();
+    render();
+    return plan;
+  }
+  function offerUndo(plan, text) {
+    clearTimeout(undoTimer);
+    undoPlan = plan;
+    $('undo-text').textContent = text;
+    $('undo').hidden = false;
+    undoTimer = setTimeout(() => { undoPlan = null; $('undo').hidden = true; }, UNDO_SECONDS * 1000);
+  }
+  $('undo-btn').addEventListener('click', async () => {
+    const plan = undoPlan;
+    clearTimeout(undoTimer);
+    undoPlan = null;
+    $('undo').hidden = true;
+    if (!plan) return;
+    try { await putBack(plan); say('Put back.', 'success'); } catch (err) { say((err && err.message) || 'It could not be put back.', 'danger'); }
+  });
+  // Check file: the same reading as Import, nothing written. Says what the file would add, or its problems.
+  async function showCheck(file, parsed) {
+    const name = String(file.name || 'the file').slice(0, 60);
+    let o;
+    if (parsed.problem) {
+      const all = parsed.problems || [parsed.problem];
+      o = { title: all.length > 1 ? `This file has ${all.length} problems` : 'This file has a problem', message: `${all.map((p, i) => (all.length > 1 ? `${i + 1}. ${p}` : p)).join('\n\n')}${all.length > 5 && parsed.problems ? '\n\nOnly the first problems are listed: fix them and check again.' : ''}`, action: 'OK', cancel: 'Close' };
+    } else {
+      const n = parsed.entries.length;
+      o = { title: `This file is good: it would add ${n} ${n === 1 ? 'entry' : 'entries'}`, message: `${countWords(parsed.entries)}, from ${name}. Nothing was changed.`, action: 'OK', cancel: 'Close' };
+    }
+    try { await host.ui.confirm(o); } catch (err) { /* closed */ }
+  }
+  async function importFile(file, mode) {
+    if (!file || importing || !canEdit() || (mode === 'replace' && !canClear())) return;
+    if (file.size > F.LIMITS.maxBytes) { say(`The file is too big: at most ${F.LIMITS.maxBytes / 1024 / 1024} MB.`, 'danger'); return; }
+    let text;
+    try { text = await file.text(); } catch (err) { say('That file could not be read.', 'danger'); return; }
+    const parsed = F.parseFile(text, { label });
+    if (mode === 'check') { await showCheck(file, parsed); return; }
+    if (parsed.problem) { say(parsed.problem, 'danger'); return; }
+    if (mode === 'add' && entries.size + parsed.entries.length > F.LIMITS.maxPlan) { say(`The plan holds at most ${F.LIMITS.maxPlan} entries. This file would make ${entries.size + parsed.entries.length}.`, 'danger'); return; }
+    const words = countWords(parsed.entries);
+    const name = String(file.name || 'the file').slice(0, 60);
+    let ok = false;
+    try {
+      ok = await host.ui.confirm(mode === 'add'
+        ? { title: `Add ${words} to the plan?`, message: `From ${name}. What is in the plan now stays.`, action: 'Add to the plan' }
+        : { title: 'Replace the plan?', message: `The ${entries.size} ${entries.size === 1 ? 'entry' : 'entries'} in the plan come off it and ${words} from ${name} go in.\n\nYou can undo this for ${UNDO_SECONDS} seconds.`, action: 'Replace the plan', kind: 'destructive' });
+    } catch (err) { ok = false; }
+    if (!ok) return;
+    try {
+      const items = F.importEntries(parsed.entries, { mode, existing: list(), newId: () => host.util.id(), orderAfter: (prev) => host.util.order(prev, null), by: me, dates: datesOn() });
+      const plan = await applyImport(items, mode);
+      offerUndo(plan, mode === 'add' ? `Added ${words}.` : `Replaced the plan with ${words}.`);
+    } catch (err) {
+      say(err && err.status === 409 ? 'Someone else changed the plan just now. Nothing was imported. Try again.' : `Nothing was imported. ${(err && err.message) || ''}`.trim(), 'danger');
+    }
+  }
+  let picker = null;
+  function pickFile(mode) {
+    if (!canEdit() || importing || (mode === 'replace' && !canClear())) return;
+    if (!picker) {
+      picker = document.createElement('input');
+      picker.type = 'file';
+      picker.accept = '.json,application/json';
+      picker.hidden = true;
+      picker.setAttribute('aria-label', 'Plan file');
+      picker.addEventListener('change', () => { const f = picker.files && picker.files[0]; const m = picker.dataset.mode; picker.value = ''; importFile(f, m); });
+      $('app').append(picker);
+    }
+    picker.dataset.mode = mode;
+    picker.click();
+  }
+  function moreItems() {
+    const items = [{ id: 'export', label: 'Export as JSON', icon: 'file-export', disabled: !entries.size, hint: entries.size ? '' : 'Nothing yet', onClick: exportPlan }];
+    if (canEdit()) items.push({ id: 'check', label: 'Check file', icon: 'file-circle-check', disabled: importing, onClick: () => pickFile('check') });
+    if (canEdit()) items.push({ id: 'import-add', label: 'Import JSON: add to the plan', icon: 'file-import', disabled: importing, onClick: () => pickFile('add') });
+    if (canEdit() && canClear()) items.push({ id: 'import-replace', label: 'Import JSON: replace the plan', icon: 'file-import', danger: true, disabled: importing, onClick: () => pickFile('replace') });
+    return items;
+  }
+  host.on('toolbar', (e) => {
+    if (e.id !== 'plan-more') return;
+    host.menu.show({ id: 'plan-more', at: { x: Number(e.x) || 0, y: 4 }, items: moreItems() });
+  });
+  function syncToolbar() {
+    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'ellipsis', title: 'Export and import', zone: 'end' }]).catch(() => {});
+  }
+
   // ---- live changes --------------------------------------------------------------------------------------------------
   let drawQueued = false;
   function queueRender() {
@@ -489,6 +657,7 @@
     $('view-list').hidden = view !== 'list';
     if (view === 'goals') drawGoals(tree); else drawList();
     syncAdd();
+    syncToolbar();
     syncStatus(tree);
   }
 

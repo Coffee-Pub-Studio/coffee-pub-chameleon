@@ -23,7 +23,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const PRODUCT = 'Testname';
 process.env.PRODUCT_NAME = PRODUCT;
-const { KINDS, TRAVEL_KINDS, cleanHandoff, takersOf, kindsTaken } = require('../server/object-format.js');
+const { KINDS: EVERY_KIND, TRAVEL_KINDS, PLAN_KINDS, DETAILS, cleanHandoff, takersOf, kindsTaken } = require('../server/object-format.js');
+// Every kind but the plan kinds, which the bundled-like stand-ins and the bundled modules below do not take (yet): their own
+// stand-ins (`projects`, `goalPlans`) do.
+const KINDS = EVERY_KIND.filter((k) => !PLAN_KINDS.includes(k));
 const prompts = require('../server/prompts');
 const { productName } = require('../server/product-name.js');
 // The copied instructions: the registry's paste template (server/prompts/paste.js), as GET /api/objects/format renders it.
@@ -76,6 +79,8 @@ const calendar = manifest('stand-days', [{ name: 'createEvent', takes: [{ kinds:
 const research = manifest('stand-notes', [{ name: 'saveNote', takes: [{ kinds: ['note', '*', 'text'], as: 'a note' }] }, { name: 'saveLink', takes: [{ kinds: ['link'], as: 'a link' }] }, { name: 'savePhoto', takes: [{ kinds: ['image'], as: 'an image' }] }]);
 const polls = manifest('stand-polls', [{ name: 'draftPoll', takes: [{ kinds: ['poll', 'text'], as: 'a poll', permission: 'create' }] }]);
 const older = manifest('stand-older', [{ name: 'acceptSuggestion', input: { title: 'string', kind: 'string?' } }]);
+const projects = manifest('stand-projects', [{ name: 'addEntry', takes: [{ kinds: ['milestone', 'work', 'note'], as: '{kind}' }] }]);
+const goalPlans = manifest('stand-goals', [{ name: 'addEntry', takes: [{ kinds: ['goal', 'step'], as: '{kind}' }] }]);
 const notTyped = manifest('stand-other', [{ name: 'acceptSuggestion', input: { title: 'string' } }, { name: 'addStop', input: { title: 'string', kind: 'string?' } }]);
 
 await test('the prompt\'s kinds: only those some enabled module names, in the catalogue\'s order', () => {
@@ -107,7 +112,6 @@ await test('the copied instructions for different sets of modules: each kind wit
   assert.match(every, /\n- hotel \(any stay: hotel, rental, hostel\): address, checkIn/);
   assert.match(every, /Leave out tags, place and links when you have nothing for them, and content when "details" says it all\. Add no fields other than these\./);
   // Every field of every listed kind is named on its line.
-  const { DETAILS } = require('../server/object-format.js');
   for (const kind of KINDS) {
     const line = every.split('\n').find((l) => l.startsWith('- ') && l.slice(2).split(/ \(|:/)[0].split(/, | and /).includes(kind));
     assert.ok(line, kind);
@@ -134,6 +138,42 @@ await test('the copied instructions for different sets of modules: each kind wit
   assert.match(none, /never guess a date or a year\. .* Write a date as YYYY-MM-DD\.\n/);
   assert.match(none, /Leave out tags, place and links when you have nothing for them\. Add no fields/);
   assert.ok(travelOnly.includes('- hotel (any stay: hotel, rental, hostel): address, checkIn, checkOut, roomType, guests, reference'));
+});
+
+await test('the plan kinds: listed only when an enabled module takes them, each with its fields, its "under" and an example', () => {
+  assert.deepEqual(kindsTaken([projects]), ['note', 'milestone', 'work']);
+  assert.deepEqual(kindsTaken([goalPlans]), ['goal', 'step']);
+  assert.deepEqual(kindsTaken([planner, todo, calendar, research, polls, projects, goalPlans]), EVERY_KIND, 'every kind, in the catalogue\'s order');
+  assert.deepEqual(kindsTaken([todo, calendar]).filter((k) => PLAN_KINDS.includes(k)), [], '"*" names none of them');
+  const plans = instructions('object', { kinds: kindsTaken([todo, projects, goalPlans]) });
+  assert.match(plans, /Set "kind" to what the object is: task, note, milestone, work, goal or step\. /);
+  assert.match(plans, /\n- milestone: start \(its day\), done \(true or false\), phase \(the phase's name\), under \(the title of what it sits under\)\n/);
+  assert.match(plans, /\n- work: start \(first day\), end \(last day\), done \(true or false\), phase \(the phase's name\), under \(the title of what it sits under\)\n/);
+  assert.match(plans, /\n- goal: why \(why it matters\), date \(the day it is due\), phase \(the phase's name\)\n/);
+  assert.match(plans, /\n- step: date \(the day it is due\), done \(true or false\), under \(its goal's title\)\n/);
+  assert.match(plans, /\nA plan is one object for each milestone, piece of work, goal and step\. Write each one after what it sits under, and put that one's title in "under"\.\n/);
+  assert.match(plans, /\nFor a plan, use milestone, work, goal or step rather than "task"\.\n/);
+  for (const kind of PLAN_KINDS) {
+    const example = new RegExp(`\\{"kind":"${kind}","title":"<title>"[^\\n]*?"details":\\{[^}]*\\}\\}`).exec(plans);
+    assert.ok(example, `an example of ${kind}`);
+    const parsed = JSON.parse(example[0]);
+    for (const field of Object.keys(parsed.details)) assert.ok(field in DETAILS[kind], `${kind}.${field} is one of its fields`);
+    assert.equal(cleanHandoff(parsed), null, `${kind}'s example, copied back as it is, is no object (its title is a placeholder)`);
+  }
+  // Only the goal plans: no milestone or work, and no event or task sentence; a goal alone has no "under".
+  const goalsOnly = instructions('object', { kinds: kindsTaken([goalPlans]) });
+  assert.ok(!/milestone|piece of work|rather than/.test(goalsOnly));
+  assert.match(goalsOnly, /\nA plan is one object for each goal and step\. Write each one after/);
+  const goalAlone = instructions('object', { kinds: ['goal'] });
+  assert.match(goalAlone, /\nA plan is one object for each goal\.\nFor example: \{"kind":"goal"/);
+  // None taken: no plan words at all, and the travel and every-kind texts are as before (check-object-format's fixture).
+  for (const text of [instructions('object'), instructions('object', { kinds: kindsTaken([planner, todo, calendar, research, polls]) })]) {
+    assert.ok(!/milestone|"under"|A plan is/.test(text));
+  }
+  // The in-app answer rule says the same.
+  const ask = prompts.render(prompts.template('ask'), { question: 'Plan it.', material: [], context: {}, history: [], kinds: kindsTaken([projects, goalPlans]), words: { object: 'object', objects: 'objects', space: 'space' } }).messages[0].content;
+  assert.match(ask, /\n- step: date \(the day it is due\), done \(true or false\), under \(its goal's title\)\n/);
+  assert.match(ask, /\nFor example: \{"kind":"milestone"/);
 });
 
 // --- the bundled modules (plan-object-handoff.md, steps 6 and 7) -------------------------------------------------------
@@ -172,7 +212,7 @@ await test('the bundled Research, To-do, Calendar and Polls declare what they ta
   assert.equal(takersOf(providesOf(research, 'saveNote').takes, 'image').length, 0, 'a picture is only for savePhoto');
   // With every bundled module on, the prompt lists every kind; the Planner off, still every kind but the travel ones.
   const every = await Promise.all(['travel', 'research', 'todo', 'calendar', 'polls', 'maps', 'stream', 'assistant'].map(bundled));
-  assert.deepEqual(kindsTaken(every), KINDS);
+  assert.deepEqual(kindsTaken(every), KINDS, 'every kind but the plan kinds, which no bundled module here takes yet');
   assert.deepEqual(kindsTaken(every.filter((m) => m.id !== 'travel')), ['event', 'task', 'poll', 'note', 'link']);
   assert.deepEqual(kindsTaken([todo]), ['task']);
 });
@@ -353,6 +393,9 @@ const zips = [
     { name: 'addPoll', label: 'Start a poll', local: true, input: { text: 'string' } },
   ] } }),
   writeModule('stand-asker', 'Asker', { ...writes, actions: { uses: ['stand-days:createEvent', 'stand-polls:draftPoll', 'stand-polls:addPoll'] } }),
+  writeModule('stand-projects', 'Projects', { ...writes, actions: { provides: [
+    { name: 'addEntry', label: 'Add it to the plan', input: { title: 'string?', object: 'object?' }, takes: projects.actions.provides[0].takes },
+  ] } }),
   writeModule('stand-older', 'Older', { ...writes, actions: { provides: [
     { name: 'acceptSuggestion', label: 'Add it, typed', input: { title: 'string', kind: 'string?' } },
   ] } }),
@@ -611,7 +654,7 @@ try {
     let format = await shown();
     assert.match(format.instructions, /Set "kind" to what the object is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, sight, museum, attraction, tour, show, event, task, poll or note\./);
     assert.match(format.instructions, /\n- task: due\n/);
-    assert.deepEqual(format.schema.$defs.object.properties.kind.enum, KINDS);
+    assert.deepEqual(format.schema.$defs.object.properties.kind.enum, EVERY_KIND);
     await turn('stand-polls', false);
     format = await shown();
     assert.ok(!/\bpoll\b/.test(format.instructions), 'Votes off: no poll');
@@ -619,7 +662,7 @@ try {
     format = await shown();
     assert.match(format.instructions, /Set "kind" to what the object is: task\. /);
     assert.ok(!format.instructions.includes('flight'));
-    assert.deepEqual(format.schema.$defs.object.properties.kind.enum, KINDS, 'the schema stays one schema');
+    assert.deepEqual(format.schema.$defs.object.properties.kind.enum, EVERY_KIND, 'the schema stays one schema');
     await turn('stand-older', true);
     format = await shown();
     assert.match(format.instructions, /Set "kind" to what the object is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, sight, museum, attraction, tour, show or task\./, 'the old typed keeper beside Tasks: the travel kinds and task');
@@ -647,6 +690,26 @@ try {
     assert.equal(claimed.json.ok, true, claimed.text);
     const done = await call('POST', '/api/bus/actions/complete', { token: again, body: { module: 'stand-plans', id: old.id, scope: 'space', space: S, result: { ok: true } } });
     assert.equal(done.json.ok, true, done.text);
+  });
+
+  await test('live: a module that takes the plan kinds: the instructions list them, the bus keeps their details, a refusal names a piece of work', async () => {
+    const shown = async () => (await call('GET', '/api/objects/format', { token: pat })).json;
+    assert.ok(!/milestone/.test((await shown()).instructions), 'off: not listed');
+    await turn('stand-projects', true);
+    const format = await shown();
+    assert.match(format.instructions, /, note, milestone or work\. Leave it out only when none fits\./);
+    assert.match(format.instructions, /\n- work: start \(first day\), end \(last day\), done \(true or false\), phase \(the phase's name\), under \(the title of what it sits under\)\n/);
+    assert.match(format.instructions, /\nA plan is one object for each milestone and piece of work\. Write each one after what it sits under/);
+    assert.ok(!/\bgoal\b|\bstep\b/.test(format.instructions), 'nothing takes goals or steps');
+    let r = await send(pat, 'stand-projects:addEntry', { object: { kind: 'work', title: 'Write the docs', details: { start: '2026-11-20T09:00', end: '1850-01-01', under: '**Beta** ready', owners: ['sam'] } } });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual((await pending('stand-projects')).find((a) => a.id === r.json.id).input.object, { icon: 'note', title: 'Write the docs', kind: 'work', details: { start: '2026-11-20', under: 'Beta ready' } });
+    r = await send(pat, 'stand-projects:addEntry', { object: { kind: 'step', title: 'Buy shoes', details: { done: true } } });
+    assert.deepEqual([r.status, r.json], [400, { error: 'Projects cannot take a step' }]);
+    r = await send(pat, 'stand-plans:acceptSuggestion', { title: 'Docs', object: { kind: 'work', title: 'Docs', details: { start: '2026-11-20' } } });
+    assert.deepEqual([r.status, r.json], [400, { error: 'Plans cannot take a piece of work' }]);
+    await turn('stand-projects', false);
+    assert.ok(!/milestone/.test((await shown()).instructions), 'off again: not listed');
   });
 
   await test('live: after its minute a local request is not handed out and reads expired; a finished one is read for ten minutes; a picture never added goes', async () => {

@@ -11,6 +11,8 @@
 <body>
 <div id="app" class="app sdk-slot" hidden>
   <p class="sdk-form-error" id="note" role="alert" hidden></p>
+  <!-- after an import: what was done, and Undo for a short while -->
+  <div class="undo" id="undo" role="status" hidden><span class="undo-text" id="undo-text"></span><button class="btn btn-small" type="button" id="undo-btn">Undo</button></div>
   <main id="body" class="body">
     <section id="view-goals" class="goals-view" aria-live="polite"></section>
     <section id="view-list" class="list-view" hidden></section>
