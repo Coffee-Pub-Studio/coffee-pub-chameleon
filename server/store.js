@@ -21,6 +21,7 @@ const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('./default-lists');
 const phaseRule = require('../public/phases.js');
 const phaseMeasure = require('./phase-measure.js'); // the Done switches (plan-templates-redesign.md, step 6)
 const aiPolicy = require('./ai-policy');
+const { applyCallPatch, resolveCall } = require('./call-settings');
 const { cleanAgreed, hasAgreed } = require('./agreements');
 const { endsWithGuestMark } = require('./guest-door');
 
@@ -333,9 +334,6 @@ const DEFAULT_SETTINGS = {
   // The video and voice conference. Off, nobody (an admin included) has the "See and join the conference" permission, so joins carry
   // no media and the space page shows no conference; chat, presence and the modules carry on.
   conferenceEnabled: true,
-  // Join the call on entering a space (GitHub #199): off by default, so entering a space never joins the call unless an
-  // owner turns this on. The page reads it from branding() as `autoJoinCall`.
-  autoJoinCall: false,
   // The top bar's Calendar destination (plan-calendar-destination.md, decision 12): off until an owner turns it on (or a
   // template does, as Travel's does when an environment is made from it).
   showCalendar: false,
@@ -890,6 +888,8 @@ class Store {
       // The space's guests see the fields modules keep from guests (a module's guards.hidden: the Planner's costs and
       // booking codes, Budget's amounts); an owner turns it on. Absent means they don't.
       ...(r.guestsSeeHidden === true ? { guestsSeeHidden: true } : {}),
+      // The call's own settings for this space (server/call-settings.js): only the keys that hold a usable value; absent while the template's rule.
+      ...(Object.keys(resolveCall(r.call)).length ? { call: resolveCall(r.call) } : {}),
       // The template this space reads (plan-space-templates.md): an id; absent means the environment's. Kept as stored, whether or
       // not this server has it (an unknown one reads as the environment's). Never on the Lobby.
       ...(id !== LOBBY && typeof r.template === 'string' && TEMPLATE_ID_RE.test(r.template) ? { template: r.template } : {}),
@@ -1257,7 +1257,8 @@ class Store {
       names,
       labels: byModule('labels'),
       settings: byModule('settings'),
-      call: isPlainObject(t?.call) ? { ...t.call } : {},
+      // The template's, then this space's own (an aside reads its origin space's): a missing key is the template's (decision 37).
+      call: resolveCall(t?.call, (nameAt && this.data.spaces.find((r) => r.id === nameAt))?.call),
       workspace: isPlainObject(t?.workspace) ? structuredClone(t.workspace) : {},
       reactions,
       icons,
@@ -1513,10 +1514,6 @@ class Store {
     if (patch.allowPrivate !== undefined) s.allowPrivate = Boolean(patch.allowPrivate);
     if (patch.allowReactions !== undefined) s.allowReactions = Boolean(patch.allowReactions);
     if (patch.conferenceEnabled !== undefined) s.conferenceEnabled = Boolean(patch.conferenceEnabled);
-    if (patch.autoJoinCall !== undefined) {
-      if (typeof patch.autoJoinCall !== 'boolean') throw new StoreError('autoJoinCall is true or false');
-      s.autoJoinCall = patch.autoJoinCall;
-    }
     if (patch.showCalendar !== undefined) s.showCalendar = Boolean(patch.showCalendar);
     if (patch.showMap !== undefined) s.showMap = Boolean(patch.showMap);
     if (patch.calendarFeeds !== undefined) {
@@ -2305,6 +2302,15 @@ class Store {
       if (patch.guestsSeeHidden) draft.guestsSeeHidden = true;
       else delete draft.guestsSeeHidden;
     }
+    // The call's settings (plan-templates-redesign.md, decisions 16 and 37): { joinOnEntry?, position?, layout? }, each a default
+    // the template gives and this space may change; a key set to null, or the whole of it null, follows the template again.
+    // Who may send it is the route's to decide (owners, the admin and this space's moderators).
+    if (patch.call !== undefined) {
+      const { call, error } = applyCallPatch(space.call, patch.call);
+      if (error) throw new StoreError(error, 400);
+      if (Object.keys(call).length) draft.call = call;
+      else delete draft.call;
+    }
     if (patch.profile !== undefined) {
       if (!SPACE_PROFILES.includes(patch.profile)) throw new StoreError('profile must be roleplaying, participants or characters');
       draft.profile = patch.profile;
@@ -2412,6 +2418,7 @@ class Store {
     if (!('tabs' in draft)) delete space.tabs;
     if (!('publishCalendar' in draft)) delete space.publishCalendar;
     if (!('guestsSeeHidden' in draft)) delete space.guestsSeeHidden;
+    if (!('call' in draft)) delete space.call;
     if (!('phases' in draft)) delete space.phases;
     if (!('template' in draft)) delete space.template;
     if (!('entry' in draft)) delete space.entry;

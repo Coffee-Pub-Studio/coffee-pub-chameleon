@@ -27,6 +27,7 @@ const { DEFAULT_REACTION_LIST, DEFAULT_ICON_NAMES } = require('./default-lists')
 const { SYSTEM_IDS } = require('./layouts');
 const { bundledModules, buildModule } = require('./module-build');
 const { cleanValue } = require('./module-settings');
+const { CALL_KEYS, CALL_POSITIONS, CALL_LAYOUTS } = require('./call-settings');
 
 const ROOT = path.join(__dirname, '..');
 const TEMPLATES_DIR = path.join(ROOT, 'templates');
@@ -56,9 +57,6 @@ const REACTION_ID_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 const CORE_REACTIONS = DEFAULT_REACTION_LIST;
 const CORE_ICONS = DEFAULT_ICON_NAMES;
 // The core call settings a template may give (decision 16). The tile layouts are the call's own (public/space.js).
-const CALL_KEYS = ['joinOnEntry', 'position', 'layout'];
-const CALL_POSITIONS = ['top', 'bottom', 'left', 'right', 'float', 'workspace', 'window'];
-const CALL_LAYOUTS = ['grid', 'strip', 'focus', 'spotlight'];
 // The Default Workspace (decision 8): the Fixed Workspaces are every system layout but the Workspace itself.
 const WORKSPACE_KEYS = ['opensWith', 'show', 'opensFirst'];
 const FIXED_WORKSPACES = SYSTEM_IDS.filter((id) => id !== 'workspace');
