@@ -36,6 +36,23 @@ anything is written; if the first problem is found, Import says it in one senten
 A note has no dates, no `waitsOn` and no `done`. A milestone has no `end`. When the plan's setting "Dates are needed" is on,
 every milestone needs `start` and all work needs `start` and `end`.
 
+## Check a file before you import it
+
+- **Offline, any JSON Schema validator** (draft 2020-12): check the file against `project-plan.schema.json`, beside this file. It checks the
+  types, the allowed words, the lengths, the day pattern and the limits above.
+- **In the page:** the Export and import menu has **Check file**. It reads a file the way Import does and writes nothing. It says
+  "This file is good" with what it would add, or lists the problems (the first and up to five more, one for each entry), so a file
+  can be fixed in one round.
+
+The schema cannot say these; only Check file and Import do:
+- a day is a real day (`2026-02-30` is not) from 1900 to 2200; the pattern only checks `YYYY-MM-DD`
+- work's `end` is not before its `start`
+- each `id` is used once; every `parent` and `waitsOn` names an `id` in the file; nothing is part of itself or waits on itself, and
+  there are no loops
+- a `parent` is a milestone; `waitsOn` names milestones or work, not notes
+- when the plan's setting "Dates are needed" is on, a milestone has a `start` and work has a `start` and an `end`
+- text lengths count after trimming spaces
+
 ## Add and Replace
 
 - **Add to the plan** gives every entry a new id and puts the entries after what is there. `parent` and `waitsOn` follow.

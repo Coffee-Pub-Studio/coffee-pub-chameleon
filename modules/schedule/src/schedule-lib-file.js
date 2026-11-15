@@ -57,73 +57,89 @@ function scParseFile(text, o) {
     return t ? `Entry ${i + 1} ("${t}")` : `Entry ${i + 1}`;
   };
   const list = data.entries;
-  for (let i = 0; i < list.length; i += 1) {
-    const v = list[i];
-    const w = who(i, v);
-    if (!v || typeof v !== 'object' || Array.isArray(v)) return { problem: `${w} must be written like { "kind": "note", "title": "..." }.` };
-    if (v.id !== undefined && v.id !== null && v.id !== '') {
-      if (typeof v.id !== 'string' || !SC_ID.test(v.id)) return { problem: `${w}: "id" must be 1 to 64 letters, digits, dashes or underscores.` };
-      if (seen.has(v.id)) return { problem: `${w}: the id "${v.id}" is used twice.` };
-      seen.set(v.id, v);
-    }
-    if (!SC_KINDS.includes(v.kind)) return { problem: `${w}: "kind" must be ${SC_KINDS.map((k) => `"${k}"`).join(', ').replace(/, ("note")$/, ' or $1')}.` };
-    if (typeof v.title !== 'string' || !scLine(v.title, 1)) return { problem: `${w}: "title" is needed.` };
-    if (v.title.trim().length > SC_TITLE_MAX) return { problem: `${w}: "title" is over ${SC_TITLE_MAX} characters.` };
-    if (v.notes !== undefined && v.notes !== null) {
-      if (typeof v.notes !== 'string') return { problem: `${w}: "notes" must be text.` };
-      if (v.notes.trim().length > SC_NOTES_MAX) return { problem: `${w}: "notes" is over ${SC_NOTES_MAX} characters.` };
-    }
-    for (const f of ['start', 'end']) {
-      const d = v[f];
-      if (d !== undefined && d !== null && d !== '' && !scIsDay(d)) return { problem: `${w}: "${f}" must be a day like 2026-10-14, from ${SC_YEAR_MIN} to ${SC_YEAR_MAX}.` };
-    }
-    if (v.kind === 'work' && v.start && v.end && v.end < v.start) return { problem: `${w}: "end" is before "start".` };
-    for (const f of ['owners', 'waitsOn', 'tags']) {
-      const l = v[f];
-      if (l === undefined || l === null) continue;
-      if (!Array.isArray(l) || l.some((x) => typeof x !== 'string')) return { problem: `${w}: "${f}" must be a list of text.` };
-      if (l.length > SC_LIST_MAX) return { problem: `${w}: "${f}" has more than ${SC_LIST_MAX}.` };
-    }
-    for (const f of ['done', 'ticked']) if (v[f] !== undefined && v[f] !== null && typeof v[f] !== 'boolean') return { problem: `${w}: "${f}" must be true or false.` };
-    if (v.phase !== undefined && v.phase !== null && v.phase !== '' && !(typeof v.phase === 'string' && /^[a-z][a-z0-9-]{0,40}$/.test(v.phase))) return { problem: `${w}: "phase" must be lower case letters, digits and dashes.` };
-    if (v.order !== undefined && v.order !== null && v.order !== '' && !(typeof v.order === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.order))) return { problem: `${w}: "order" must be letters and digits.` };
-    if (v.by !== undefined && v.by !== null && typeof v.by !== 'string') return { problem: `${w}: "by" must be text.` };
-    if (v.ref !== undefined && v.ref !== null && !scCleanRef(v.ref)) return { problem: `${w}: "ref" must be a pointer as Export writes it.` };
-    if (v.parent !== undefined && v.parent !== null && v.parent !== '' && typeof v.parent !== 'string') return { problem: `${w}: "parent" must be the id of another entry.` };
-    if (v.progress !== undefined && v.progress !== null && !(Number.isInteger(v.progress) && v.progress >= 0 && v.progress <= 100)) return { problem: `${w}: "progress" must be a whole number from 0 to 100.` };
-    const problem = scProblem(scClean('x', v), { datesRequired: Boolean(o && o.datesRequired), label });
-    if (problem) return { problem: `${w}: ${problem}` };
+  const problems = [];
+  const MAXP = 6; // the first and up to five more, one for each entry
+  for (let i = 0; i < list.length && problems.length < MAXP; i += 1) {
+    const p = (() => {
+      const v = list[i];
+      const w = who(i, v);
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return `${w} must be written like { "kind": "note", "title": "..." }.`;
+      if (v.id !== undefined && v.id !== null && v.id !== '') {
+        if (typeof v.id !== 'string' || !SC_ID.test(v.id)) return `${w}: "id" must be 1 to 64 letters, digits, dashes or underscores.`;
+        if (seen.has(v.id)) return `${w}: the id "${v.id}" is used twice.`;
+        seen.set(v.id, v);
+      }
+      if (!SC_KINDS.includes(v.kind)) return `${w}: "kind" must be ${SC_KINDS.map((k) => `"${k}"`).join(', ').replace(/, ("note")$/, ' or $1')}.`;
+      if (typeof v.title !== 'string' || !scLine(v.title, 1)) return `${w}: "title" is needed.`;
+      if (v.title.trim().length > SC_TITLE_MAX) return `${w}: "title" is over ${SC_TITLE_MAX} characters.`;
+      if (v.notes !== undefined && v.notes !== null) {
+        if (typeof v.notes !== 'string') return `${w}: "notes" must be text.`;
+        if (v.notes.trim().length > SC_NOTES_MAX) return `${w}: "notes" is over ${SC_NOTES_MAX} characters.`;
+      }
+      for (const f of ['start', 'end']) {
+        const d = v[f];
+        if (d !== undefined && d !== null && d !== '' && !scIsDay(d)) return `${w}: "${f}" must be a day like 2026-10-14, from ${SC_YEAR_MIN} to ${SC_YEAR_MAX}.`;
+      }
+      if (v.kind === 'work' && v.start && v.end && v.end < v.start) return `${w}: "end" is before "start".`;
+      for (const f of ['owners', 'waitsOn', 'tags']) {
+        const l = v[f];
+        if (l === undefined || l === null) continue;
+        if (!Array.isArray(l) || l.some((x) => typeof x !== 'string')) return `${w}: "${f}" must be a list of text.`;
+        if (l.length > SC_LIST_MAX) return `${w}: "${f}" has more than ${SC_LIST_MAX}.`;
+      }
+      for (const f of ['done', 'ticked']) if (v[f] !== undefined && v[f] !== null && typeof v[f] !== 'boolean') return `${w}: "${f}" must be true or false.`;
+      if (v.phase !== undefined && v.phase !== null && v.phase !== '' && !(typeof v.phase === 'string' && /^[a-z][a-z0-9-]{0,40}$/.test(v.phase))) return `${w}: "phase" must be lower case letters, digits and dashes.`;
+      if (v.order !== undefined && v.order !== null && v.order !== '' && !(typeof v.order === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.order))) return `${w}: "order" must be letters and digits.`;
+      if (v.by !== undefined && v.by !== null && typeof v.by !== 'string') return `${w}: "by" must be text.`;
+      if (v.ref !== undefined && v.ref !== null && !scCleanRef(v.ref)) return `${w}: "ref" must be a pointer as Export writes it.`;
+      if (v.parent !== undefined && v.parent !== null && v.parent !== '' && typeof v.parent !== 'string') return `${w}: "parent" must be the id of another entry.`;
+      if (v.progress !== undefined && v.progress !== null && !(Number.isInteger(v.progress) && v.progress >= 0 && v.progress <= 100)) return `${w}: "progress" must be a whole number from 0 to 100.`;
+      const problem = scProblem(scClean('x', v), { datesRequired: Boolean(o && o.datesRequired), label });
+      if (problem) return `${w}: ${problem}`;
+    return '';
+    })();
+    if (p) problems.push(p);
   }
+  if (problems.length) return { problem: problems[0], problems };
 
   // Entries that name others: each must be in the file, and none may loop.
   const kindOf = new Map([...seen].map(([id, v]) => [id, v.kind]));
-  for (let i = 0; i < list.length; i += 1) {
-    const v = list[i];
-    const w = who(i, v);
-    if (v.parent) {
-      if (!seen.has(v.parent)) return { problem: `${w}: "parent" names "${v.parent}", which is not an id in the file.` };
-      if (v.parent === v.id) return { problem: `${w}: it cannot be part of itself.` };
-      if (kindOf.get(v.parent) !== 'milestone') return { problem: `${w}: "parent" must be a milestone.` };
-      const up = new Set([v.id].filter(Boolean));
-      for (let p = v.parent; p; p = seen.get(p).parent) {
-        if (up.has(p)) return { problem: `${w}: the entries are part of each other in a loop.` };
-        up.add(p);
+  for (let i = 0; i < list.length && problems.length < MAXP; i += 1) {
+    const p = (() => {
+      const v = list[i];
+      const w = who(i, v);
+      if (v.parent) {
+        if (!seen.has(v.parent)) return `${w}: "parent" names "${v.parent}", which is not an id in the file.`;
+        if (v.parent === v.id) return `${w}: it cannot be part of itself.`;
+        if (kindOf.get(v.parent) !== 'milestone') return `${w}: "parent" must be a milestone.`;
+        const up = new Set([v.id].filter(Boolean));
+        for (let p = v.parent; p; p = seen.get(p).parent) {
+          if (up.has(p)) return `${w}: the entries are part of each other in a loop.`;
+          up.add(p);
+        }
       }
-    }
-    for (const t of Array.isArray(v.waitsOn) ? v.waitsOn : []) {
-      if (!seen.has(t)) return { problem: `${w}: "waitsOn" names "${t}", which is not an id in the file.` };
-      if (t === v.id) return { problem: `${w}: it cannot wait on itself.` };
-      if (kindOf.get(t) === 'note') return { problem: `${w}: "waitsOn" names "${t}", a note; only milestones and work can be waited on.` };
-    }
+      for (const t of Array.isArray(v.waitsOn) ? v.waitsOn : []) {
+        if (!seen.has(t)) return `${w}: "waitsOn" names "${t}", which is not an id in the file.`;
+        if (t === v.id) return `${w}: it cannot wait on itself.`;
+        if (kindOf.get(t) === 'note') return `${w}: "waitsOn" names "${t}", a note; only milestones and work can be waited on.`;
+      }
+    return '';
+    })();
+    if (p) problems.push(p);
   }
   const graph = list.filter((v) => v.id).map((v) => ({ id: v.id, waitsOn: v.kind === 'note' ? [] : (Array.isArray(v.waitsOn) ? v.waitsOn : []) }));
-  for (let i = 0; i < list.length; i += 1) {
-    const v = list[i];
-    if (!v.id || v.kind === 'note') continue;
-    for (const t of Array.isArray(v.waitsOn) ? v.waitsOn : []) {
-      if (scMakesLoop(graph, v.id, t) && t !== v.id) return { problem: `${who(i, v)}: it and "${t}" wait on each other in a loop.` };
-    }
+  for (let i = 0; i < list.length && problems.length < MAXP; i += 1) {
+    const p = (() => {
+      const v = list[i];
+      if (!v.id || v.kind === 'note') return '';
+      for (const t of Array.isArray(v.waitsOn) ? v.waitsOn : []) {
+        if (scMakesLoop(graph, v.id, t) && t !== v.id) return `${who(i, v)}: it and "${t}" wait on each other in a loop.`;
+      }
+    return '';
+    })();
+    if (p) problems.push(p);
   }
+  if (problems.length) return { problem: problems[0], problems };
   return { entries: list };
 }
 

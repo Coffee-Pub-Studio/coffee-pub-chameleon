@@ -32,6 +32,19 @@ anything is written; if a problem is found, Import says the first one in one sen
 
 A note has no `done` and no date. Steps and notes keep the order the file lists them in, under their goal.
 
+## Check a file before you import it
+
+- **Offline, any JSON Schema validator** (draft 2020-12): check the file against `goal-plan.schema.json`, beside this file. It checks the
+  types, the allowed words, the lengths, the day pattern and the limits above.
+- **In the page:** the Export and import menu has **Check file**. It reads a file the way Import does and writes nothing. It says
+  "This file is good" with what it would add, or lists the problems (the first and up to five more, one for each entry), so a file
+  can be fixed in one round.
+
+The schema cannot say these; only Check file and Import do:
+- a `date` is a real day (`2026-02-30` is not) from 1900 to 2200; the pattern only checks `YYYY-MM-DD`
+- each `id` is used once; every `parent` names the `id` of a goal in the file
+- text lengths count after trimming spaces
+
 ## Add and Replace
 
 - **Add to the plan** gives every entry a new id and puts the goals after what is there. `parent` follows.

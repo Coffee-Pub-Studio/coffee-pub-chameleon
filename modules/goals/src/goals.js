@@ -290,12 +290,26 @@
     if (!plan) return;
     try { await putBack(plan); say('Put back.', 'success'); } catch (err) { say((err && err.message) || 'It could not be put back.', 'danger'); }
   });
+  // Check file: the same reading as Import, nothing written. Says what the file would add, or its problems.
+  async function showCheck(file, parsed) {
+    const name = String(file.name || 'the file').slice(0, 60);
+    let o;
+    if (parsed.problem) {
+      const all = parsed.problems || [parsed.problem];
+      o = { title: all.length > 1 ? `This file has ${all.length} problems` : 'This file has a problem', message: `${all.map((p, i) => (all.length > 1 ? `${i + 1}. ${p}` : p)).join('\n\n')}${all.length > 5 && parsed.problems ? '\n\nOnly the first problems are listed: fix them and check again.' : ''}`, action: 'OK', cancel: 'Close' };
+    } else {
+      const n = parsed.entries.length;
+      o = { title: `This file is good: it would add ${n} ${n === 1 ? 'entry' : 'entries'}`, message: `${countWords(parsed.entries)}, from ${name}. Nothing was changed.`, action: 'OK', cancel: 'Close' };
+    }
+    try { await host.ui.confirm(o); } catch (err) { /* closed */ }
+  }
   async function importFile(file, mode) {
     if (!file || importing || !canEdit() || (mode === 'replace' && !canClear())) return;
     if (file.size > F.LIMITS.maxBytes) { say(`The file is too big: at most ${F.LIMITS.maxBytes / 1024 / 1024} MB.`, 'danger'); return; }
     let text;
     try { text = await file.text(); } catch (err) { say('That file could not be read.', 'danger'); return; }
     const parsed = F.parseFile(text, { label });
+    if (mode === 'check') { await showCheck(file, parsed); return; }
     if (parsed.problem) { say(parsed.problem, 'danger'); return; }
     if (mode === 'add' && entries.size + parsed.entries.length > F.LIMITS.maxPlan) { say(`The plan holds at most ${F.LIMITS.maxPlan} entries. This file would make ${entries.size + parsed.entries.length}.`, 'danger'); return; }
     const words = countWords(parsed.entries);
@@ -332,6 +346,7 @@
   }
   function moreItems() {
     const items = [{ id: 'export', label: 'Export as JSON', icon: 'file-export', disabled: !entries.size, hint: entries.size ? '' : 'Nothing yet', onClick: exportPlan }];
+    if (canEdit()) items.push({ id: 'check', label: 'Check file', icon: 'file-circle-check', disabled: importing, onClick: () => pickFile('check') });
     if (canEdit()) items.push({ id: 'import-add', label: 'Import JSON: add to the plan', icon: 'file-import', disabled: importing, onClick: () => pickFile('add') });
     if (canEdit() && canClear()) items.push({ id: 'import-replace', label: 'Import JSON: replace the plan', icon: 'file-import', danger: true, disabled: importing, onClick: () => pickFile('replace') });
     return items;

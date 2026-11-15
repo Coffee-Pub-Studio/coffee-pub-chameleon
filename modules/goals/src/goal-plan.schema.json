@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Planner - Goals plan file",
+  "description": "A goal plan file, as Export writes it and Import reads it (format \"goal-plan\", version 1). This schema says what a JSON Schema can say. Import also checks what it cannot: a date must be a real day from 1900 to 2200 (2026-02-30 and 2300-01-01 match the pattern but are refused); every `parent` names the `id` of a goal in the file; each `id` is used once; text lengths count after trimming. Use the Check file entry in the Export and import menu for those.",
+  "$comment": "The format is written out in FORMAT.md beside this file. Fields that are not listed are ignored by Import, so additionalProperties is left open.",
+  "type": "object",
+  "required": ["format", "version", "entries"],
+  "properties": {
+    "format": { "const": "goal-plan" },
+    "version": { "const": 1 },
+    "exportedAt": { "type": "string" },
+    "module": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["kind", "title"],
+      "properties": {
+        "id": { "type": ["string", "null"], "pattern": "^([A-Za-z0-9_-]{1,64})?$", "description": "1 to 64 letters, digits, dashes or underscores; used once in the file. Needed only when another entry names this one." },
+        "kind": { "enum": ["goal", "step", "note"] },
+        "title": { "type": "string", "maxLength": 200, "pattern": "\\S", "description": "Up to 200 characters, not only spaces." },
+        "parent": { "type": ["string", "null"], "description": "The id of a goal in the file. A step needs one; a goal has none." },
+        "why": { "type": ["string", "null"], "maxLength": 2000 },
+        "text": { "type": ["string", "null"], "maxLength": 8000 },
+        "date": { "type": ["string", "null"], "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$", "description": "YYYY-MM-DD, a real day from 1900 to 2200 (checked by Import, not by this pattern)." },
+        "owners": { "type": ["array", "null"], "maxItems": 50, "items": { "type": "string" }, "description": "People's keys; leave out unless the file came from this environment." },
+        "done": { "type": ["boolean", "null"] },
+        "progress": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+        "phase": { "type": ["string", "null"], "maxLength": 40, "pattern": "^([a-z][a-z0-9-]*)?$" },
+        "order": { "type": ["string", "null"], "pattern": "^([0-9A-Za-z]{1,200})?$" },
+        "by": { "type": ["string", "null"], "maxLength": 200 },
+        "links": {
+          "type": ["array", "null"],
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": ["module", "kind", "id", "scope"],
+            "properties": { "module": { "type": "string" }, "kind": { "type": "string" }, "id": { "type": "string" }, "scope": { "enum": ["environment", "space"] }, "space": { "type": "string" } }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "step" } }, "required": ["kind"] },
+          "then": { "required": ["parent"], "properties": { "parent": { "type": "string", "minLength": 1 } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "goal" } }, "required": ["kind"] },
+          "then": { "properties": { "parent": { "enum": [null, ""] } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "note" } }, "required": ["kind"] },
+          "then": { "$comment": "A note has no done and no date; Import ignores them. It may name a goal as its parent, or sit at the top." }
+        }
+      ]
+    }
+  }
+}

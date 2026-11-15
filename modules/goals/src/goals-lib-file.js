@@ -68,6 +68,8 @@ const GoalsFile = (() => {
     if (data.entries.length > LIMITS.maxEntries) return { problem: `The file has ${data.entries.length} entries: at most ${LIMITS.maxEntries}.` };
 
     const list = data.entries;
+  const problems = [];
+  const MAXP = 6; // the first and up to five more, one for each entry
     const seen = new Map();
     const who = (i, v) => {
       const t = v && typeof v === 'object' && typeof v.title === 'string' ? clean(v.title).replace(/\s+/g, ' ').slice(0, 40) : '';
@@ -79,47 +81,57 @@ const GoalsFile = (() => {
       if (v[f].trim().length > max) return `"${f}" is over ${max} characters.`;
       return '';
     };
-    for (let i = 0; i < list.length; i += 1) {
-      const v = list[i];
-      const w = who(i, v);
-      if (!v || typeof v !== 'object' || Array.isArray(v)) return { problem: `${w} must be written like { "kind": "note", "title": "..." }.` };
-      if (v.id !== undefined && v.id !== null && v.id !== '') {
-        if (typeof v.id !== 'string' || !ID.test(v.id)) return { problem: `${w}: "id" must be 1 to 64 letters, digits, dashes or underscores.` };
-        if (seen.has(v.id)) return { problem: `${w}: the id "${v.id}" is used twice.` };
-        seen.set(v.id, v);
-      }
-      if (!KINDS.includes(v.kind)) return { problem: `${w}: "kind" must be "goal", "step" or "note".` };
-      if (typeof v.title !== 'string' || !clean(v.title)) return { problem: `${w}: "title" is needed.` };
-      if (clean(v.title).length > 200) return { problem: `${w}: "title" is over 200 characters.` };
-      const limits = [['why', 2000], ['text', 8000]];
-      for (const [f, max] of limits) { const p = text1(v, f, max); if (p) return { problem: `${w}: ${p}` }; }
-      if (v.date !== undefined && v.date !== null && v.date !== '' && !isDay(v.date)) return { problem: `${w}: "date" must be a day like 2026-10-14, from ${LIMITS.yearMin} to ${LIMITS.yearMax}.` };
-      for (const f of ['owners']) {
-        if (v[f] === undefined || v[f] === null) continue;
-        if (!Array.isArray(v[f]) || v[f].some((x) => typeof x !== 'string')) return { problem: `${w}: "${f}" must be a list of text.` };
-        if (v[f].length > 50) return { problem: `${w}: "${f}" has more than 50.` };
-      }
-      if (v.done !== undefined && v.done !== null && typeof v.done !== 'boolean') return { problem: `${w}: "done" must be true or false.` };
-      if (v.progress !== undefined && v.progress !== null && !(Number.isFinite(v.progress) && v.progress >= 0 && v.progress <= 100)) return { problem: `${w}: "progress" must be a number from 0 to 100.` };
-      if (v.phase !== undefined && v.phase !== null && v.phase !== '' && !(typeof v.phase === 'string' && v.phase.length <= 40 && /^[a-z][a-z0-9-]*$/.test(v.phase))) return { problem: `${w}: "phase" must be lower case letters, digits and dashes.` };
-      if (v.order !== undefined && v.order !== null && v.order !== '' && !(typeof v.order === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.order))) return { problem: `${w}: "order" must be letters and digits.` };
-      if (v.by !== undefined && v.by !== null && (typeof v.by !== 'string' || v.by.length > 200)) return { problem: `${w}: "by" must be text.` };
-      if (v.parent !== undefined && v.parent !== null && v.parent !== '' && typeof v.parent !== 'string') return { problem: `${w}: "parent" must be the id of ${label('goal', { a: true })} in the file.` };
-      if (v.links !== undefined && v.links !== null) {
-        if (!Array.isArray(v.links) || v.links.length > 20) return { problem: `${w}: "links" must be a list of at most 20.` };
-        if (L.cleanLinks(v.links).length !== v.links.length) return { problem: `${w}: each of "links" must be a pointer as Export writes it, and none twice.` };
-      }
+    for (let i = 0; i < list.length && problems.length < MAXP; i += 1) {
+      const p = (() => {
+        const v = list[i];
+        const w = who(i, v);
+        if (!v || typeof v !== 'object' || Array.isArray(v)) return `${w} must be written like { "kind": "note", "title": "..." }.`;
+        if (v.id !== undefined && v.id !== null && v.id !== '') {
+          if (typeof v.id !== 'string' || !ID.test(v.id)) return `${w}: "id" must be 1 to 64 letters, digits, dashes or underscores.`;
+          if (seen.has(v.id)) return `${w}: the id "${v.id}" is used twice.`;
+          seen.set(v.id, v);
+        }
+        if (!KINDS.includes(v.kind)) return `${w}: "kind" must be "goal", "step" or "note".`;
+        if (typeof v.title !== 'string' || !clean(v.title)) return `${w}: "title" is needed.`;
+        if (clean(v.title).length > 200) return `${w}: "title" is over 200 characters.`;
+        const limits = [['why', 2000], ['text', 8000]];
+        for (const [f, max] of limits) { const q = text1(v, f, max); if (q) return `${w}: ${q}`; }
+        if (v.date !== undefined && v.date !== null && v.date !== '' && !isDay(v.date)) return `${w}: "date" must be a day like 2026-10-14, from ${LIMITS.yearMin} to ${LIMITS.yearMax}.`;
+        for (const f of ['owners']) {
+          if (v[f] === undefined || v[f] === null) continue;
+          if (!Array.isArray(v[f]) || v[f].some((x) => typeof x !== 'string')) return `${w}: "${f}" must be a list of text.`;
+          if (v[f].length > 50) return `${w}: "${f}" has more than 50.`;
+        }
+        if (v.done !== undefined && v.done !== null && typeof v.done !== 'boolean') return `${w}: "done" must be true or false.`;
+        if (v.progress !== undefined && v.progress !== null && !(Number.isFinite(v.progress) && v.progress >= 0 && v.progress <= 100)) return `${w}: "progress" must be a number from 0 to 100.`;
+        if (v.phase !== undefined && v.phase !== null && v.phase !== '' && !(typeof v.phase === 'string' && v.phase.length <= 40 && /^[a-z][a-z0-9-]*$/.test(v.phase))) return `${w}: "phase" must be lower case letters, digits and dashes.`;
+        if (v.order !== undefined && v.order !== null && v.order !== '' && !(typeof v.order === 'string' && /^[0-9A-Za-z]{1,200}$/.test(v.order))) return `${w}: "order" must be letters and digits.`;
+        if (v.by !== undefined && v.by !== null && (typeof v.by !== 'string' || v.by.length > 200)) return `${w}: "by" must be text.`;
+        if (v.parent !== undefined && v.parent !== null && v.parent !== '' && typeof v.parent !== 'string') return `${w}: "parent" must be the id of ${label('goal', { a: true })} in the file.`;
+        if (v.links !== undefined && v.links !== null) {
+          if (!Array.isArray(v.links) || v.links.length > 20) return `${w}: "links" must be a list of at most 20.`;
+          if (L.cleanLinks(v.links).length !== v.links.length) return `${w}: each of "links" must be a pointer as Export writes it, and none twice.`;
+        }
+      return '';
+      })();
+      if (p) problems.push(p);
     }
-    for (let i = 0; i < list.length; i += 1) {
-      const v = list[i];
-      const w = who(i, v);
-      if (v.kind === 'goal' && v.parent) return { problem: `${w}: ${label('goal', { a: true })} stays at the top, so it has no "parent".` };
-      if (v.kind === 'step' && !v.parent) return { problem: `${w}: ${label('step', { a: true })} needs a "parent": the id of ${label('goal', { a: true })} in the file.` };
-      if (!v.parent) continue;
-      if (!seen.has(v.parent)) return { problem: `${w}: "parent" names "${v.parent}", which is not an id in the file.` };
-      if (seen.get(v.parent).kind !== 'goal') return { problem: `${w}: "parent" must be ${label('goal', { a: true })}.` };
+    if (problems.length) return { problem: problems[0], problems };
+    for (let i = 0; i < list.length && problems.length < MAXP; i += 1) {
+      const p = (() => {
+        const v = list[i];
+        const w = who(i, v);
+        if (v.kind === 'goal' && v.parent) return `${w}: ${label('goal', { a: true })} stays at the top, so it has no "parent".`;
+        if (v.kind === 'step' && !v.parent) return `${w}: ${label('step', { a: true })} needs a "parent": the id of ${label('goal', { a: true })} in the file.`;
+        if (!v.parent) return '';
+        if (!seen.has(v.parent)) return `${w}: "parent" names "${v.parent}", which is not an id in the file.`;
+        if (seen.get(v.parent).kind !== 'goal') return `${w}: "parent" must be ${label('goal', { a: true })}.`;
+      return '';
+      })();
+      if (p) problems.push(p);
     }
-    return { entries: list };
+    if (problems.length) return { problem: problems[0], problems };
+  return { entries: list };
   }
 
   // The entries to write, from what parseFile answered, as { id, value } (value: what is stored). `o`: { mode: 'add' | 'replace',
