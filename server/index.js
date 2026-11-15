@@ -28,6 +28,7 @@ const { FIXED_WORKSPACE_SETTINGS } = require('./fixed-workspaces');
 const { LayoutError, cleanLayout, cleanSystemPatch, tabsOf, SYSTEM_IDS, SYSTEM_ICONS } = require('./layouts');
 const { ModuleLimits } = require('./module-limits');
 const { ModuleSettings, SettingError } = require('./module-settings');
+const { effectiveLabels } = require('./module-labels');
 const { GeocodeCache, askService, keyOf: keyOfPlace, ENOUGH } = require('./geocode');
 const { FlightSchedule, FlightLookupError, findFlights, parseNumber: parseFlightNumber } = require('./flight-lookup');
 const airportList = require('./airports');
@@ -739,6 +740,9 @@ function environmentFor(slug) {
   env.moduleHolds.onExpire = (hold) => finishHold(hold);
   // A space's own template is read from this environment's catalog; the space the request is about comes from spaceContext.
   env.store.templateById = (id) => templateFor(env, id);
+  // A space's template is read again whenever the host's templates change, as well as this environment's own data and modules.
+  const modulesStamp = env.store.lensStamp;
+  env.store.lensStamp = () => `h${hostRegistry ? hostRegistry.revision || 0 : 0}|${modulesStamp()}`;
   env.store.currentSpace = () => { const c = spaceContext.getStore(); return c && c.env === env ? c.spaceId : null; };
   // A display icon may also be a built-in module's own icon (store.displayIconIds), beside the installed modules' ones.
   const installedIcons = env.store.moduleIconIds;
@@ -1115,7 +1119,7 @@ async function autoInstallBundled(env) {
         const manifest = env.modules.manifestOf(bundled.id, installed.version);
         const values = {};
         for (const def of manifest.settings || []) {
-          if (def.scope === 'environment' && def.type !== 'secret' && env.store.settings[def.key] !== undefined) values[def.key] = env.store.settings[def.key];
+          if (def.scope === 'environment' && def.type !== 'secret' && def.template !== 'driven' && env.store.settings[def.key] !== undefined) values[def.key] = env.store.settings[def.key];
         }
         if (Object.keys(values).length) env.moduleSettings.set(manifest, 'environment', {}, values, null);
       } catch (err) {
@@ -1804,11 +1808,14 @@ function branding() {
   return { environmentName: s.environmentName, productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, studio: studioView(STUDIO), hosted: Boolean(BASE_DOMAIN), words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases, spaceTemplates: store.spaceTemplatesOn(), homeIcon: store.homeIcon, templateHomeIcon: store.templateHomeIcon || null, loginText: s.loginText, language: s.language || 'en', clock: s.clock === '24' ? '24' : '12', currency: s.currency || 'USD', allowRegistration: Boolean(s.allowRegistration), guestDoor: guestDoorOn(), mfaOffered, mfaRequired: Boolean(s.mfaRequired), maxQuality: s.maxQuality || 720, allowScreenShare: s.allowScreenShare !== false, allowAsides: s.allowAsides !== false, allowPrivate: s.allowPrivate !== false, allowReactions: s.allowReactions !== false, conferenceEnabled: s.conferenceEnabled !== false, callService: HAS_CALL_SERVICE, autoJoinCall: s.autoJoinCall === true, activeThemeId: s.activeThemeId || null, themeMode: environmentThemeMode(), themeVersion: environmentThemeVersion(), hasIcon: !!store.iconPath(), hasBackground: !!store.siteImagePath('background'), version: VERSION, border: s.border, borderColor: s.borderColor, borderWidth: s.borderWidth || 6, mutedBorder: s.mutedBorder !== false, mutedColor: s.mutedColor || '#b8503f', plate: Boolean(s.plate), plateLayout: s.plateLayout || 'lower-left', plateColor: s.plateColor || '#000000', plateTextColor: s.plateTextColor || '#f1e6d8', plateFontSize: s.plateFontSize || 16, plateOpacity: s.plateOpacity ?? 60, plateTextCase: s.plateTextCase || 'default', charBorder: Boolean(s.charBorder), charBorderColor: s.charBorderColor || '#6fae6b', charMutedBorder: Boolean(s.charMutedBorder), charMutedColor: s.charMutedColor || '#b8503f', charBorderWidth: s.charBorderWidth || 6, pictureBackground: Boolean(s.pictureBackground), pictureColor: s.pictureColor || '#1a1410', pictureScale: s.pictureScale || 100, offlineDim: s.offlineDim ?? 0, offlineTint: s.offlineTint || '#000000', offlineTintOpacity: s.offlineTintOpacity ?? 0, asideDim: s.asideDim ?? 0, asideTint: s.asideTint || '#000000', asideTintOpacity: s.asideTintOpacity ?? 0, privateDim: s.privateDim ?? 0, privateTint: s.privateTint || '#000000', privateTintOpacity: s.privateTintOpacity ?? 0, reactions: Array.isArray(s.reactions) ? s.reactions : [], icons: Array.isArray(s.icons) ? s.icons : [], guestImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.guestImagePath(slot)])), defaultImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.defaultImagePath(slot)])) };
 }
 
-// What a space reads, as the pages and a guest's link paint it: { words, verbs, phases } (lookOf), the phases as branding() shows them.
+// What a space reads, as the pages and a guest's link paint it (lookOf): { words, verbs, phases, phaseMeasure, reactions,
+// icons }, the phases as branding() shows them; the reactions and icons are the fixed core set and then the additions of
+// the template the space reads (plan-templates-redesign.md, decision 12). Never the template's id or name, and never its
+// modules: which modules a person sees there is /api/modules/for-space's, by their permissions.
 const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
 function lookView(spaceId) {
   const look = store.lookOf(spaceId);
-  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases) };
+  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, reactions: look.reactions, icons: look.icons };
 }
 // The phases a space reads, for the rules that walk them (the AI's rollup, covering the main phase).
 const phasesOfSpace = (spaceId) => { const p = store.lookOf(spaceId).phases; return Array.isArray(p) ? p : []; };
@@ -4745,7 +4752,7 @@ app.use('/api/spaces/:id', (req, res, next) => {
   if (!space || !viewer || !spaceAccess.mayEnter(viewer, space)) return next();
   return spaceContext.run({ env: envContext.getStore(), spaceId: space.id }, next);
 });
-// GET /api/spaces/:id/look: what a space reads, { look: { words, verbs, phases } }, for anyone who may enter it: a member, a
+// GET /api/spaces/:id/look: what a space reads, { look: { words, verbs, phases, phaseMeasure, reactions, icons } } (lookView), for anyone who may enter it: a member, a
 // moderator, an owner, the admin, a link guest of that space, a door guest who may enter it. No template id is told. Anyone
 // else gets what an id that does not exist gets: 404 and the same sentence, in the environment's words, whatever the reason
 // (an outsider, a closed space, an aside, the Lobby, an unknown id, no session, the access key). The Lobby has no template of
@@ -4914,7 +4921,7 @@ app.post('/api/spaces/:id/phases/cover', (req, res) => {
   if (!phaseRule.isDay(day)) return res.status(400).json({ error: 'Send the day to cover as YYYY-MM-DD.' });
   const perms = modulePerms(who, space.id);
   const mayWrite = (who.user && hasOwnerRights(who.user)) || modules.enabledAll().some(({ manifest, entry }) => manifest.scope.includes('space')
-    && ModuleManager.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'write'));
+    && modules.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'write'));
   if (!mayWrite) return res.status(403).json({ error: `Only someone who can write in ${word('module', { a: true })} that is on in this ${word('space')} can move its dates.` });
   const phases = phasesOfSpace(space.id);
   const result = phaseRule.coverMain(phases, space.phases, day, { created: space.createdAt });
@@ -5796,8 +5803,13 @@ function fixedSettingsFor(found, id) {
     if (!manifest.scope.includes('space') || refusedInLobby(manifest, found.space.id) || !moduleSpaceAccess(entry, found.who, found.space) || !moduleCan(manifest, perms, 'read')) continue;
     if (!settingOffered(def, def.scope === 'space' ? found.space.id : null)) continue;
     const values = moduleSettings.effective(manifest, { spaceId: found.space.id, userKey: found.who.user?.key || null });
-    const canChange = def.scope === 'person' ? Boolean(found.who.user) : def.scope === 'space' ? found.canShare : Boolean(found.who.user) && hasOwnerRights(found.who.user);
-    out.push({ module: moduleId, moduleName: shownModule(manifest).name, key: setting, label: def.label, type: 'boolean', scope: def.scope, value: typeof values[setting] === 'boolean' ? values[setting] : Boolean(def.default), canChange, ...(def.help ? { help: def.help } : {}) });
+    // A setting the space's template drives (and gives) is nobody's to change: `locked` says so.
+    // (A person's setting is never driven, so never locked. An environment one is locked here when this space's template
+    // drives it, since a write would not change what the space reads, or when the environment's own template does.)
+    const lockedAt = (place) => Boolean(moduleSettings.marks(manifest, def.scope, def.scope === 'space' ? { spaceId: found.space.id } : {}, place)[setting]?.locked);
+    const locked = def.scope !== 'person' && (lockedAt(found.space.id) || (def.scope === 'environment' && lockedAt(null)));
+    const canChange = !locked && (def.scope === 'person' ? Boolean(found.who.user) : def.scope === 'space' ? found.canShare : Boolean(found.who.user) && hasOwnerRights(found.who.user));
+    out.push({ module: moduleId, moduleName: shownModule(manifest).name, key: setting, label: def.label, type: 'boolean', scope: def.scope, value: typeof values[setting] === 'boolean' ? values[setting] : Boolean(def.default), canChange, ...(locked ? { locked: true } : {}), ...(def.help ? { help: def.help } : {}) });
   }
   return out;
 }
@@ -6846,7 +6858,7 @@ app.get('/api/spaces/:id/chat/pictures/:pictureId', (req, res) => {
 function chatKeeper(space) {
   for (const found of modules.enabledAll()) {
     const { manifest, entry } = found;
-    if (!manifest.scope.includes('space') || !ModuleManager.onInSpace(entry, manifest, space.id)) continue;
+    if (!manifest.scope.includes('space') || !modules.onInSpace(entry, manifest, space.id)) continue;
     const def = manifest.actions.provides.find((a) => a.name === 'saveLink' && a.input && Object.hasOwn(a.input, 'url'));
     if (def) return { manifest, entry, def };
   }
@@ -7194,7 +7206,7 @@ app.post('/api/spaces/:id/command', (req, res) => {
   const space = found.space;
   const perms = modulePerms(who, space.id);
   const matches = modules.enabledAll()
-    .filter(({ manifest, entry }) => manifest.scope.includes('space') && ModuleManager.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'read'))
+    .filter(({ manifest, entry }) => manifest.scope.includes('space') && modules.onInSpace(entry, manifest, space.id) && moduleSpaceAccess(entry, who, space) && moduleCan(manifest, perms, 'read'))
     .flatMap(({ manifest }) => (manifest.commands || []).filter((c) => c.name === name).map((c) => ({ module: manifest.id, moduleName: shownModule(manifest).name || manifest.name, action: c.action, label: c.label })));
   if (!matches.length) return res.status(404).json({ error: `No command /${name}` });
   const pick = want ? matches.filter((m) => m.module === want) : matches;
@@ -7239,7 +7251,7 @@ app.get('/api/spaces/:id/actions', (req, res) => {
   const perms = modulePerms(who, space.id);
   const actions = [];
   for (const { manifest, entry } of modules.enabledAll()) {
-    if (!manifest.scope.includes('space') || !ModuleManager.onInSpace(entry, manifest, space.id)) continue;
+    if (!manifest.scope.includes('space') || !modules.onInSpace(entry, manifest, space.id)) continue;
     if (!moduleSpaceAccess(entry, who, space) || !moduleCan(manifest, perms, 'read')) continue;
     const shown = shownModule(manifest);
     let writable = null;
@@ -9073,13 +9085,17 @@ app.get('/api/backgrounds', (req, res) => {
 // widget or not: the top bar's module menu, and public/module.js's way to find a module's page at all. A manifest's
 // surfaces.page.nav is no longer read (plan-primary-nav.md, decision 12): every page is listed, so `nav` is always
 // true, kept only for the pages that still filter on it until the bar is redrawn.
+// Home reads the environment's default template (plan-templates-redesign.md, "Behaviour by role and surface"): a module that
+// can be in a space is listed on Home (the nav, the widgets) only while that template offers it. A module with no space
+// scope (Stream) belongs to the environment alone, outside any template's set (decision 27: Stream is fixed).
+const offeredAtHome = (manifest) => !manifest.scope.includes('space') || store.moduleOffered(null, manifest.id);
 app.get('/api/modules/nav', (req, res) => {
   const who = moduleViewer(req);
   if (!who?.user) return res.json({ modules: [] });
   const perms = modulePerms(who, null);
   res.json({
     modules: modules.enabledAll()
-      .filter(({ manifest }) => manifest.scope.includes('environment') && manifest.surfaces.page && moduleCan(manifest, perms, 'read'))
+      .filter(({ manifest }) => manifest.scope.includes('environment') && manifest.surfaces.page && offeredAtHome(manifest) && moduleCan(manifest, perms, 'read'))
       .map(({ manifest, entry }) => ({ id: manifest.id, ...shownModule(manifest), version: manifest.version, scope: manifest.scope, runMode: modules.runModeOf(entry), page: manifest.surfaces.page.entry, widget: Boolean(manifest.surfaces.widget), nav: true })),
   });
 });
@@ -9094,7 +9110,7 @@ app.get('/api/modules/widgets', (req, res) => {
   const perms = modulePerms(who, null);
   const ctx = destinationContext(who);
   const widgets = modules.enabledAll()
-    .filter(({ manifest }) => manifest.scope.includes('environment') && manifest.surfaces.widget && moduleCan(manifest, perms, 'read'))
+    .filter(({ manifest }) => manifest.scope.includes('environment') && manifest.surfaces.widget && offeredAtHome(manifest) && moduleCan(manifest, perms, 'read'))
     .map(({ manifest, entry }) => ({
       id: manifest.id, ...shownModule(manifest), version: manifest.version, scope: manifest.scope, runMode: modules.runModeOf(entry),
       // The widget's own title stays its own (plan decision 9: a display name replaces the module's name, not a widget's
@@ -10827,14 +10843,27 @@ function settingOffered(def, spaceId) {
   const other = modules.enabled(def.needsModule);
   return Boolean(other) && (!spaceId || modules.isOnIn(other.entry.id, spaceId));
 }
+// Each setting also says how it stands with the template of the place it is kept for (plan-templates-redesign.md, "The
+// module manifest"; the environment's own template for an environment or a person setting, the space's for a space
+// setting): `template` "driven", "default" or null (the module's own), `templateValue` when that template gives one,
+// `locked` true while a driven one is given (nobody may write it), `stored` whether a value of this scope's own is kept
+// (a "default" one with none reads the template's; null resets it), and `templateName`, the template's name, only on the
+// environment's and a space's settings (an owner, the admin and a space's moderators read those), never on a person's.
 const withValues = (manifest, scope, ctx) => {
   const values = moduleSettings.values(manifest, scope, ctx);
+  const marks = moduleSettings.marks(manifest, scope, ctx);
+  const templateName = scope === 'person' ? null : moduleSettings.layerOf(manifest, scope === 'space' ? ctx.spaceId : null).template;
   return manifest.settings.filter((d) => d.scope === scope && settingOffered(d, ctx.spaceId)).map((d) => {
     const shared = settingIsShared(manifest, d);
-    const { shared: _manifestFlag, ...own } = d; // the manifest's "host" string is not an answer: `shared` below is true or absent
+    const { shared: _manifestFlag, template: _mark, ...own } = d; // the manifest's "host" string is not an answer: `shared` below is true or absent
+    const m = marks[d.key] || { template: null, given: false, locked: false, stored: false };
     return {
       ...own,
       value: shared ? sharedValue(manifest, d) : values[d.key],
+      template: m.template,
+      ...(m.given ? { templateValue: m.templateValue, ...(templateName ? { templateName } : {}) } : {}),
+      locked: m.locked,
+      stored: m.stored,
       ...(shared ? { shared: true } : {}),
       // `folder` stays the manifest's folder NAME; the scan's full path goes under `path`.
       ...(d.type === 'file' || d.type === 'files' ? (({ files, folder, ...rest }) => ({ available: files, path: folder, ...rest }))(inspectModuleFiles(manifest, d.folder)) : {}),
@@ -10857,6 +10886,13 @@ app.put('/api/modules/:id/settings/:scope', (req, res) => {
   if (!place) return;
   const found = modules.enabled(req.params.id);
   if (!found) return res.status(404).json({ error: `no such ${word('module')}` });
+  // A module that is not on in the space (its template leaves it out, or the Lobby is not for it) takes no settings there,
+  // as it answers every other route there (moduleAccess): the space's settings, and a person's own when asked through a space.
+  const named = place.space || (req.params.scope === 'person' && (req.query.space || req.body?.space) ? store.spaceById(String(req.query.space || req.body?.space)) : null);
+  if (named && !closedTo(req, named)) {
+    if (refusedInLobby(found.manifest, named.id)) return res.status(404).json({ error: lobbyRefusal(found.manifest) });
+    if (!modules.isOnIn(found.entry.id, named.id)) return res.status(403).json({ error: `this ${word('module')} is not available in that ${word('space')} for you` });
+  }
   try {
     // A shared setting (its files, or the world address that cuts into them) is the host's while there is
     // one; ignored here rather than refusing the whole save, so a page saving several settings together still
@@ -10909,7 +10945,9 @@ app.get('/api/modules/:id/context', (req, res) => {
     // How the server shows language, time and money (Manage > Settings), for every module to follow.
     // `currencies`: the codes the server takes (as GET /api/currencies), for a module's currency picker.
     // `words`: every level's and role's words in this environment, as branding()'s (server/words.js), for host.locale().words.
-    locale: { language: store.settings.language || 'en', clock: store.settings.clock === '24' ? '24' : '12', currency: store.settings.currency || 'USD', currencies: currencyCodes(store.settings.currency), words: look.words },
+    // `labels`: the module's renameable words (its manifest's `labels`) as this place reads them, the template's where it
+    // renames one, else the manifest's; plain words only (server/module-labels.js), for host.locale().labels and host.util.label.
+    locale: { language: store.settings.language || 'en', clock: store.settings.clock === '24' ? '24' : '12', currency: store.settings.currency || 'USD', currencies: currencyCodes(store.settings.currency), words: look.words, labels: effectiveLabels(manifest, look.labels[manifest.id]) },
     // The space this read is in, or null outside one; its `phases` are the dates set on it ({} while none; plan-one-bar.md
     // step 1). The top-level `phases` is the template's, live, or [] when there is none. `budget` is the space's budget
     // target, { amount?, currency? } (#216; set in Set up by an owner, the admin or a moderator of the space), or null
@@ -10930,7 +10968,10 @@ app.get('/api/modules/for-space', (req, res) => {
   const who = moduleViewer(req);
   if (!who || who.keyed) return res.status(401).json({ error: 'sign in first' }); // the access key opens only a module's keyed page
   const space = store.spaceById(String(req.query.space || ''));
-  if (!space || closedTo(req, space)) return res.status(entryStatus(req, space)).json(entryBody(req, space, `no such ${word('space')}`));
+  // A guest is a guest of one space: any other reads as an id that is not there, so nothing of its template (the names it
+  // gives, what it opens with) is told to someone who may not enter it.
+  const otherSpace = space && !who.user && (!who.guestSpace || who.guestSpace.id !== space.id);
+  if (!space || otherSpace || closedTo(req, space)) return res.status(entryStatus(req, otherSpace ? null : space)).json(entryBody(req, otherSpace ? null : space, `no such ${word('space')}`));
   const perms = modulePerms(who, space.id);
   res.json({
     modules: modules.enabledAll()

@@ -512,9 +512,11 @@ const list = () => [...all().values()].map((t) => ({ id: t.id, name: t.name, des
 // The Default template (decision 3): what an environment with none recorded reads.
 const defaultTemplate = () => get(DEFAULT_ID);
 
-// The live part of a template (its words, the Home word, phases, home icon and module names and icons) onto an
+// The live part of a template (the template itself, its words, the Home word, phases, home icon and module names and icons) onto an
 // environment's store. Answers the template; null clears it (the store then reads the defaults).
 function useLive(store, template) {
+  // The whole template too: which modules it offers, its phase measure, call, workspace and additions (store.lookOf).
+  store.envTemplate = template || null;
   store.templateWords = template ? { ...template.words, ...(template.home ? { home: template.home } : {}) } : null;
   store.templatePhases = template ? template.phases || [] : null;
   store.templateModuleNames = template ? moduleField(template, 'name') : null;

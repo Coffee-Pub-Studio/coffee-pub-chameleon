@@ -18,6 +18,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { Store, randomToken, hasOwnerRights } = require('./store');
 const { ModuleManager } = require('./modules');
+const { BUILTIN_MODULE_IDS } = require('./templates');
 const { ModuleData } = require('./module-data');
 const { ModuleHolds, HOLD_SECONDS } = require('./module-holds');
 const { ModuleHooks } = require('./module-hooks');
@@ -92,6 +93,13 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   modules.beforeOff = (id) => { for (const m of [id, ...modules.dependentsOf(id)]) moduleHolds.expireModule(m); };
   modules.displayOf = (id) => store.moduleDisplay(id);
   store.moduleIconIds = () => Object.entries(modules.registry.modules).map(([id, e]) => modules.storedManifestOf(id, e.version)?.icon).filter(Boolean);
+  // A space's modules are its template's (plan-templates-redesign.md, decision 10): the one check, onInSpace, asks this
+  // environment's own store which modules the template a space reads offers. Never another environment's.
+  modules.offeredIn = (id, spaceId) => store.moduleOffered(typeof spaceId === 'string' ? spaceId : null, id);
+  // The catalog a template's "*" reads as: every installed module, then the built-in ones.
+  store.catalogModuleIds = () => [...Object.keys(modules.registry.modules), ...BUILTIN_MODULE_IDS];
+  // What a space's template resolves from outside the store: here, the installed modules (index.js adds the host's templates).
+  store.lensStamp = () => `m${modules.revision}`;
 
   // Who a module notification reaches: people who could see that module in that place.
   const moduleHooks = new ModuleHooks(modules.dir, {
@@ -197,6 +205,9 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   const moduleLinks = new ModuleLinks(modules.dir);
   const moduleBus = new ModuleBus(modules.dir);
   const moduleSettings = new ModuleSettings(modules.dir, secretsKey);
+  // The template layer of every module setting (plan-templates-redesign.md, "The module manifest"): what the template a place
+  // reads gives the module, through the one resolver.
+  moduleSettings.lens = (moduleId, place) => store.moduleLens(place, moduleId);
 
   const ai = new Ai(dataDir, process.env, undefined, managed, secretsKey, moduleSettings.secrets); // its key is the AI Assistant module's sealed secret
   ai.moduleOn = () => modules.enabled('assistant') !== null; // AI is not turned on while the AI Assistant module is not installed or is off

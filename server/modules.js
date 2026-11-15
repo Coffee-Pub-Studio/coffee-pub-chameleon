@@ -610,6 +610,9 @@ function cleanCommands(raw, actions) {
 // The settings a module declares: up to 40, each with a scope (who chooses it), a type and a default.
 const SETTING_TYPES = ['boolean', 'choice', 'number', 'text', 'url', 'file', 'files', 'list', 'color', 'note', 'secret'];
 const SETTING_SCOPES = ['environment', 'space', 'person'];
+// A setting's `template` mark, and the types a template can never set (server/module-settings.js keeps both).
+const { TEMPLATE_MARKS, REFUSED_TEMPLATE_TYPES } = require('./module-settings');
+const { cleanLabels } = require('./module-labels');
 const COLOR_RE = /^#[0-9a-f]{6}$/i;
 // A path a keyed surface (surfaces.keyed.path) may not claim: the host's own top-level routes, kept here so a
 // module manifest is refused up front rather than claiming a path nothing would ever route to it. "view" is
@@ -811,6 +814,16 @@ function cleanSettings(raw) {
     } else {
       def.default = Boolean(r.default);
     }
+    // `template`: whether a template may set it (plan-templates-redesign.md, "The module manifest", 1). "driven": the
+    // space's template sets it, read-only while it does; "default": the template seeds it, a stored value wins. Absent: the
+    // module's own, which no template can touch. Never a key, a file or an outside address, and a person's own setting
+    // may only be seeded.
+    if (r.template !== undefined) {
+      if (!TEMPLATE_MARKS.includes(r.template)) throw new ModuleError(`module.json: setting "${key}" template must be "driven" or "default"`);
+      if (REFUSED_TEMPLATE_TYPES.includes(type)) throw new ModuleError(`module.json: setting "${key}" is a ${type}, so a template can't set it.`);
+      if (def.scope === 'person' && r.template === 'driven') throw new ModuleError(`module.json: setting "${key}" is each person's own, so a template can only seed it ("template": "default").`);
+      def.template = r.template;
+    }
     out.push(def);
   }
   return out;
@@ -986,6 +999,12 @@ function cleanManifest(raw, files) {
     }
   }
   for (const d of settings) if (d.needsModule === id) throw new ModuleError(`module.json: setting "${d.key}" needsModule must be another module`);
+  // The words a template may rename (plan-templates-redesign.md, "The module manifest", 2), and whether the module takes
+  // starter content (3): objects a template creates once when a space is made, so only a module with the "space" scope.
+  const labels = cleanLabels(raw.labels, (sentence) => new ModuleError(sentence));
+  if (raw.starter !== undefined && typeof raw.starter !== 'boolean') throw new ModuleError('module.json: starter must be true or false');
+  if (raw.starter === true && !scope.includes('space')) throw new ModuleError('module.json: starter needs the "space" scope, since starter content is written into a new space');
+  const starter = raw.starter === true;
   const geocoder = cleanGeocoder(raw.geocoder, settings);
   const regionSource = cleanRegionSource(raw.regionSource, settings);
   const pictureMap = cleanPictureMap(raw.pictureMap, settings);
@@ -1025,7 +1044,7 @@ function cleanManifest(raw, files) {
   if (raw.content !== undefined && raw.content !== 'padded' && raw.content !== 'flush') throw new ModuleError('module.json: content must be "padded" or "flush"');
   const content = raw.content === 'flush' ? 'flush' : 'padded';
 
-  return { id, name, version, description: text(raw.description, 200), author: text(raw.author, 60), icon, color, scope, surfaces, permissions, hooks, refs, storage, guards, events, actions, commands, access, settings, requires, geocoder, uploads, library, regionSource, pictureMap, lookups, budget, tags, content, install, live };
+  return { id, name, version, description: text(raw.description, 200), author: text(raw.author, 60), icon, color, scope, surfaces, permissions, hooks, refs, storage, guards, events, actions, commands, access, settings, requires, geocoder, uploads, library, regionSource, pictureMap, lookups, budget, tags, content, install, live, labels, starter };
 }
 
 // The sentence for a zip's pages that draw or restyle what the host draws (server/module-layout.js), or null when they do not.
@@ -1073,6 +1092,12 @@ class ModuleManager {
     // while it is still on: a Clear waiting for its Undo in it and in what needs it is finished first (server/environment.js).
     this.beforeOff = () => {};
     this.displayOf = () => ({ name: null, icon: null, ownName: null, ownIcon: null, templateName: null, templateIcon: null });
+    // Whether the template a space reads offers a module (store.moduleOffered), set by the environment's build. Unset (a
+    // ModuleManager on its own), every module is offered, as under the Default template.
+    this.offeredIn = null;
+    // Goes up on every save of the registry, so what is read from it (a template's "*", the manifests a template is
+    // checked against) is read again after an install, an update or a switch (store.templateNamed).
+    this.revision = 0;
     this.filled = new Map(); // "id@version|words" -> the manifest with its placeholders filled
     this.withPlaceholders = new WeakSet(); // the stored manifests that have any
     try {
@@ -1087,6 +1112,7 @@ class ModuleManager {
   }
 
   save() {
+    this.revision += 1;
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(this.registry, null, 2), { mode: 0o600 });
@@ -1212,6 +1238,9 @@ class ModuleManager {
       } catch {
         manifest.settings = [];
       }
+      // Labels that no longer read rename nothing; starter content only for a module with the "space" scope.
+      try { manifest.labels = cleanLabels(manifest.labels, (sentence) => new ModuleError(sentence)); } catch { manifest.labels = {}; }
+      manifest.starter = manifest.starter === true && manifest.scope.includes('space');
       try { manifest.geocoder = cleanGeocoder(manifest.geocoder, manifest.settings); } catch { manifest.geocoder = null; }
       try { manifest.regionSource = cleanRegionSource(manifest.regionSource, manifest.settings); } catch { manifest.regionSource = null; }
       try { manifest.pictureMap = cleanPictureMap(manifest.pictureMap, manifest.settings); } catch { manifest.pictureMap = null; }
@@ -1383,24 +1412,28 @@ class ModuleManager {
     };
   }
 
-  // --- where a module is on (plan-modules, "the Lobby is for being together") -------------------------------------
-  // The one check for "is this module on in this space": an enabled module is on in every space (plan-layout-views,
-  // "Killing Available in every space"). The stored `allSpaces` and `spaces` stay on the entry, unread. The Lobby keeps
-  // its one real rule: only a module whose manifest declares surfaces.canvas.lobby runs there.
+  // --- where a module is on (plan-modules, "the Lobby is for being together"; plan-templates-redesign.md, decision 10) --
+  // The one check for "is this module on in this space": a module is on in a space when it is enabled in the catalog, the
+  // template that space reads offers it (offeredIn: the space's own template, else the environment's; "*" offers every
+  // module), and, in the Lobby, its manifest declares surfaces.canvas.lobby. A space cannot turn a module off on its own:
+  // for different modules, it picks another template. A module that is off in a space keeps its data there. The stored
+  // `allSpaces` and `spaces` stay on the entry, unread.
   static lobbyAllowed(manifest) {
     return manifest?.surfaces?.canvas?.lobby === true;
   }
 
-  static onInSpace(entry, manifest, spaceId) {
+  onInSpace(entry, manifest, spaceId) {
     if (!entry || !manifest) return false;
     if (spaceId === LOBBY && !ModuleManager.lobbyAllowed(manifest)) return false;
-    return Boolean(entry.enabled);
+    if (!entry.enabled) return false;
+    return typeof this.offeredIn !== 'function' || Boolean(this.offeredIn(entry.id || manifest.id, spaceId));
   }
 
   // The same, by id, on its active version.
   isOnIn(id, spaceId) {
+    if (typeof id !== 'string' || !Object.hasOwn(this.registry.modules, id)) return false;
     const entry = this.registry.modules[id];
-    return entry ? ModuleManager.onInSpace(entry, this.manifestOf(id, entry.version), spaceId) : false;
+    return entry ? this.onInSpace(entry, this.manifestOf(id, entry.version), spaceId) : false;
   }
 
   // The enabled modules that list `id` in their `requires`.

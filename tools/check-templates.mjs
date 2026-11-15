@@ -132,7 +132,7 @@ try {
   await test('the travel and games templates in the new shape: the same behaviour, their modules one entry each', () => {
     const t = templates.get('travel');
     assert.deepEqual(t.words, { space: { one: 'trip', many: 'trips' } });
-    assert.deepEqual(Object.keys(t.modules), ['travel', 'maps', 'research', 'vault', 'assistant', 'calendar', 'budget', 'polls', 'todo', 'chat', 'conference']);
+    assert.deepEqual(Object.keys(t.modules), ['travel', 'maps', 'research', 'vault', 'assistant', 'calendar', 'budget', 'polls', 'todo', 'documents', 'whiteboard', 'chat', 'conference']);
     assert.deepEqual([t.modules.travel, t.modules.vault, t.modules.maps], [{ name: 'Itinerary' }, { name: 'Documents' }, {}]);
     assert.deepEqual([t.icons.home, t.lobby, t.spaceDefaults, t.workspace], ['suitcase-rolling', { name: 'Home base', description: 'Everyone on every trip.' }, { profile: 'participants' }, { opensWith: ['travel', 'chat'] }]);
     assert.deepEqual(t.settings, { showCalendar: true, showMap: true, calendarFeeds: true, otherCalendars: true });
@@ -468,7 +468,7 @@ try {
         assert.deepEqual([r.status, r.json.error], [status, error], JSON.stringify(body));
       }
       const stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8')).templates;
-      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 1 }], ['trips', 1, { id: 'travel', version: 11 }]]);
+      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 1 }], ['trips', 1, { id: 'travel', version: 12 }]]);
       for (const x of stored) assert.ok(x.createdAt && x.updatedAt, 'dated');
     });
 
@@ -522,7 +522,7 @@ try {
       assert.equal(file.status, 200, file.text);
       const imported = await api('POST', '/api/templates/import?id=from-file', file.json);
       assert.equal(imported.status, 201, imported.text);
-      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 11, null]);
+      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 12, null]);
       const theme = await api('POST', '/api/templates/import?id=themed', { ...file.json, theme: { name: 'x' } });
       assert.deepEqual([theme.status, theme.json.error.slice(0, 32)], [400, '"theme" is not a template field;']);
       const proto = await call(server, '', 'POST', '/api/templates/import', { cookie: admin, raw: `{"format":"template","formatVersion":1,"id":"p1","name":"P","description":"P.","modules":{"chat":{}},"__proto__":{"x":1}}`, type: 'text/plain' });
@@ -608,14 +608,14 @@ try {
     for (let i = 0; i < 100 && !server.output().includes('[out] Applied the "travel" template'); i += 1) await new Promise((r) => setTimeout(r, 50));
     assert.equal((await call(server, 'out', 'GET', '/api/branding')).json.words.space.one, 'trip');
     assert.deepEqual((await call(server, 'out', 'GET', '/api/branding')).json.words.home, { one: 'Trips', many: 'Trips', a: 'a Trips' }, 'branding\'s home, from the template\'s space word');
-    const edited = await console_('PATCH', '/api/host/templates/travel', { words: { space: { one: 'journey', many: 'journeys' } }, modules: { ...shipped.modules, whiteboard: {} } });
+    const edited = await console_('PATCH', '/api/host/templates/travel', { words: { space: { one: 'journey', many: 'journeys' } }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }] });
     assert.deepEqual([edited.status, edited.json.template.id, edited.json.template.version, edited.json.template.edited, edited.json.template.source], [200, 'travel', shipped.version + 1, true, 'bundled'], edited.text);
     assert.equal((await call(server, 'out', 'GET', '/api/branding')).json.words.space.one, 'journey', 'the new word, with no restart');
     const owner = cookieOf(await call(server, 'out', 'POST', '/api/login', { body: { login: 'owner', password: 'owner-password-1' } }));
     const tab = await call(server, 'out', 'GET', '/api/environment/template', { cookie: owner });
     assert.equal(tab.json.template.offerOpen, true);
-    assert.ok(tab.json.offer.modules.some((m) => m.id === 'whiteboard'), 'a changed module is offered, not forced');
-    assert.equal((await call(server, 'out', 'GET', '/api/modules', { cookie: owner })).json.modules.some((m) => m.id === 'whiteboard'), false);
+    assert.ok((tab.json.offer.reactions || []).some((r) => r.id === 'ship'), 'a changed part is offered, not forced');
+    assert.equal((await call(server, 'out', 'GET', '/api/branding')).json.reactions.some((r) => r.id === 'ship'), false);
   });
 
   await test('the host and the Default template: no edit, hide or delete; a copy lists the image\'s modules; ids unique across every environment', async () => {

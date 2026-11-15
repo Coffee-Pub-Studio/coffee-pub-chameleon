@@ -274,6 +274,11 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const SITE_IMAGES = ['icon', 'background'];
 // Every user belongs to the Lobby; it cannot be deleted.
 const LOBBY = 'lobby';
+const MODULE_ID_SHAPE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+// Whether a template offers module `id`: "*" (the Default template's) for every module, else an entry by that id. No
+// template (null) reads as the Default template. Read with Object.hasOwn, so no id reaches an object's prototype.
+const templateOffers = (template, id) => !template || template.modules === '*' || (isPlainObject(template.modules) && Object.hasOwn(template.modules, id));
 // A template's id (server/templates.js ID_RE): the only shape a space's `template` may have.
 const TEMPLATE_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
@@ -690,6 +695,18 @@ class Store {
     this.templateById = () => null;
     this.currentSpace = () => null;
     this.unknownTemplatesLogged = new Set();
+    // The environment's default template, whole (cleanTemplate's shape), as templates.useLive last set it; null reads as
+    // the Default template: every module, nothing added (plan-templates-redesign.md, "Resolution per space").
+    this.envTemplate = null;
+    // The module ids this environment's catalog has (installed, and built in), for a template's "*"; set by the
+    // environment's build. null: not known (a Store on its own), so "*" lists none.
+    this.catalogModuleIds = () => null;
+    // What a space's template resolves from outside this file (the host's templates, the installed modules), as a short
+    // text that changes whenever they do; set by the environment's build. With `revision` (every save here), it keys the
+    // memo of templates by id, so an edit anywhere is read on the very next ask.
+    this.lensStamp = () => '';
+    this.revision = 0;
+    this.templateMemo = { stamp: null, fn: null, byId: new Map() };
   }
 
   load() {
@@ -909,6 +926,7 @@ class Store {
   }
 
   save() {
+    this.revision = (this.revision || 0) + 1; // what was read from the data before this may have changed (templateNamed's memo)
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
     // Private to the server's own user: it holds password hashes, session and link tokens. The mode is set again in
@@ -1079,6 +1097,25 @@ class Store {
     return this.data.settings.spaceTemplates !== false;
   }
 
+  // A template from this environment's catalog by id (templateById), or null. Remembered until anything it is read from
+  // changes: this store's data (every save), the host's templates and the installed modules (lensStamp), or the lookup
+  // itself (a new templateById). So an edit of a template is read on the very next ask, and a read in a loop (every
+  // module, every space) costs one catalog lookup per template.
+  templateNamed(id) {
+    if (typeof id !== 'string' || !id) return null;
+    const stamp = `${this.revision}|${this.lensStamp()}`;
+    const memo = this.templateMemo;
+    if (memo.stamp !== stamp || memo.fn !== this.templateById) {
+      this.templateMemo = { stamp, fn: this.templateById, byId: new Map() };
+    }
+    const byId = this.templateMemo.byId;
+    if (!byId.has(id)) {
+      if (byId.size >= 200) byId.clear(); // ids come from stored spaces, never from a request; a bound all the same
+      byId.set(id, this.templateById(id) || null);
+    }
+    return byId.get(id);
+  }
+
   // The template a space (or an aside, through the space it was pulled out of) reads, from the catalog, or null: the space has
   // no key, the switch is off, it is the Lobby, or the id is one this server no longer has (said once in the log).
   // Never answers a thing about a space that is not in this environment.
@@ -1090,7 +1127,7 @@ class Store {
       space = aside && aside.origin ? this.data.spaces.find((r) => r.id === aside.origin) || null : null;
     }
     if (!space || space.id === LOBBY || typeof space.template !== 'string') return null;
-    const found = this.templateById(space.template);
+    const found = this.templateNamed(space.template);
     if (!found && !this.unknownTemplatesLogged.has(space.template)) {
       this.unknownTemplatesLogged.add(space.template);
       console.warn(`A space uses the template "${space.template.slice(0, 40)}", which this server does not have, so it reads the environment's.`);
@@ -1098,21 +1135,135 @@ class Store {
     return found || null;
   }
 
-  // What a space (or an aside) reads, in the order the owner's own words first, then the space's template, then the
-  // environment's template, then the defaults: { words, verbs, phases, template }. Only the keys in words.SPACE_KEYS
-  // change; every locked word and both verbs read the same everywhere (plan-templates-redesign.md, decisions 5 and 32), and
-  // `home` is the environment's. An aside has no phases of its own: its phases are the environment's. With no space, no
-  // key, or the switch off, it answers what resolvedWords(), resolvedVerbs() and templatePhases answer.
-  lookOf(id = null) {
-    const env = { words: this.resolvedWords(), verbs: this.resolvedVerbs(), phases: this.templatePhases, template: null };
+  // --- the lens: what a template gives a place (plan-templates-redesign.md, "Resolution per space") -------------------
+  // One template per place, never two mixed: a space's own (spaceTemplateFor: while the switch is on and the id exists),
+  // else the environment's default template (environmentTemplate), else the Default template (null here: every module,
+  // nothing added). The Lobby, Home (no space) and an id this environment does not have read the environment's; an aside
+  // reads its origin space's.
+  lensTemplateOf(id = null) {
+    const own = id ? this.spaceTemplateFor(id) : null;
+    return { template: own || this.environmentTemplate(), own: Boolean(own) };
+  }
+
+  // The environment's default template: the one its record names, read from the catalog as a space's is (so an edit is read
+  // at once, whatever refreshed the live part), else the one templates.useLive last set (the Default template when the
+  // record names one this server no longer has), else null (the Default template).
+  environmentTemplate() {
+    const id = this.data.template && typeof this.data.template.id === 'string' ? this.data.template.id : null;
+    return (id && this.templateNamed(id)) || this.envTemplate || null;
+  }
+
+  // Whether the template a place reads offers module `moduleId` (a template's `modules`: "*" for every module, else its
+  // entries by id). The one rule behind ModuleManager#onInSpace: the template decides a space's modules (decision 10).
+  // `spaceId` null: the environment's own (Home).
+  moduleOffered(spaceId, moduleId) {
+    if (typeof moduleId !== 'string' || !moduleId) return false;
+    const { template } = this.lensTemplateOf(typeof spaceId === 'string' ? spaceId : null);
+    return templateOffers(template, moduleId);
+  }
+
+  // The words a place reads: the owner's own, then that place's template, then the defaults. Only the keys in
+  // words.SPACE_KEYS follow a space's own template; every locked word and both verbs read the same everywhere
+  // (decisions 5 and 32), and `home` is the environment's. With no space, no key, or the switch off: resolvedWords().
+  wordsOf(id = null) {
+    const env = this.resolvedWords();
     const t = id ? this.spaceTemplateFor(id) : null;
     if (!t) return env;
-    const full = words.resolve(this.data.settings.words, { ...words.ownOnly(this.templateWords), ...words.ownOnly(t.words) });
-    for (const k of words.SPACE_KEYS) env.words[k] = full[k];
-    const isSpace = this.data.spaces.some((r) => r.id === id);
-    if (isSpace) env.phases = Array.isArray(t.phases) ? t.phases : [];
-    env.template = t.id;
+    const full = words.resolve(this.data.settings.words, words.ownOnly(t.words));
+    for (const k of words.SPACE_KEYS) env[k] = full[k];
     return env;
+  }
+
+  // Everything a template gives a place, resolved (plan-templates-redesign.md, "Resolution per space"). Every route and
+  // page reads a template through this; no other code reads one for a space.
+  //   template: the space's own template id, or null while it reads the environment's (never told to a page: /look)
+  //   words, verbs: as wordsOf(); verbs are locked
+  //   phases, phaseMeasure: the template's, as stored; an aside has none of its own, so it reads the environment's
+  //   modules: the module ids the template offers that this environment's catalog has, in the template's order ("*": the
+  //            catalog's order). Whether one is on is ModuleManager#onInSpace (enabled, offered, and the Lobby's rule)
+  //   names: { <module id>: { name, icon } } for each of those: the owner's own, then the template's, else null (the
+  //          manifest's own)
+  //   labels, settings: { <module id>: {...} }, only for modules the template gives some to (step 3 supplies what a
+  //          manifest lets a template set; templates.cleanTemplate keeps only those)
+  //   call, workspace: the template's, as stored ({} when it gives none)
+  //   reactions, icons: the fixed core set (server/default-lists.js), then the template's additions; nothing removes one
+  lookOf(id = null) {
+    const place = typeof id === 'string' && id ? id : null;
+    const { template: t, own } = this.lensTemplateOf(place);
+    const isSpace = Boolean(place) && this.data.spaces.some((r) => r.id === place);
+    const entries = t && isPlainObject(t.modules) ? t.modules : null;
+    const catalog = this.catalogModuleIds();
+    const known = Array.isArray(catalog) ? new Set(catalog) : null;
+    // Only ids of a module's shape: nothing else (a hand-edited registry's "__proto__", say) becomes a key of the answer.
+    const offered = (!t || t.modules === '*'
+      ? (known ? [...known] : [])
+      : (entries ? Object.keys(entries).filter((m) => !known || known.has(m)) : [])).filter((m) => MODULE_ID_SHAPE.test(m));
+    const byModule = (field) => {
+      const out = {};
+      for (const m of offered) {
+        const v = entries && Object.hasOwn(entries, m) && isPlainObject(entries[m]) ? entries[m][field] : null;
+        if (isPlainObject(v) && Object.keys(v).length) out[m] = structuredClone(v);
+      }
+      return out;
+    };
+    // An aside's names are its origin space's, as its words are.
+    const aside = !isSpace && place ? this.data.asides.find((a) => a.id === place) : null;
+    const nameAt = isSpace ? place : (aside && aside.origin) || null;
+    const names = {};
+    for (const m of offered) {
+      const d = this.moduleDisplay(m, nameAt);
+      names[m] = { name: d.name, icon: d.icon };
+    }
+    // A copy: the template's own list is the catalog's, which no reader may change.
+    const phases = structuredClone(own && isSpace ? (Array.isArray(t.phases) ? t.phases : []) : this.templatePhases);
+    const measureFrom = own && isSpace ? t : this.environmentTemplate();
+    const additions = (list, core, same) => (Array.isArray(list) ? list.filter((x) => !core.some((c) => same(c, x))) : []);
+    const reactions = [
+      ...DEFAULT_REACTION_LIST.map((r) => ({ ...r })),
+      ...additions(t?.reactions, DEFAULT_REACTION_LIST, (c, x) => c.id === x?.id || c.glyph === x?.glyph)
+        .filter((r) => isPlainObject(r) && typeof r.id === 'string' && typeof r.glyph === 'string')
+        .map((r) => ({ id: r.id, glyph: r.glyph, label: typeof r.label === 'string' && r.label ? r.label : r.glyph })),
+    ];
+    const icons = [
+      ...DEFAULT_ICON_LIST.map((i) => ({ ...i })),
+      ...additions(t?.iconSet, DEFAULT_ICON_LIST, (c, x) => c.id === x)
+        .filter((i) => typeof i === 'string' && /^[a-z0-9-]{1,40}$/.test(i))
+        .map((i) => ({ id: i, classes: `fa-solid fa-${i}`, label: i.replace(/-/g, ' ') })),
+    ];
+    return {
+      template: own ? t.id : null,
+      words: this.wordsOf(place),
+      verbs: this.resolvedVerbs(),
+      phases,
+      phaseMeasure: (measureFrom && typeof measureFrom.phaseMeasure === 'string' && measureFrom.phaseMeasure) || 'dates',
+      modules: offered,
+      names,
+      labels: byModule('labels'),
+      settings: byModule('settings'),
+      call: isPlainObject(t?.call) ? { ...t.call } : {},
+      workspace: isPlainObject(t?.workspace) ? structuredClone(t.workspace) : {},
+      reactions,
+      icons,
+    };
+  }
+
+  // What one module's entry in the template a place reads gives it, for the settings layer (server/module-settings.js) and
+  // the labels a module reads: { settings, labels } as the template holds them (unchecked: the reader checks them against
+  // the module's manifest), `template` the template's name and `module` what the place calls the module. `settings` and
+  // `labels` are null when the template gives none (the Default template, whose modules are "*", gives none). The name
+  // is for those who may change the module's settings (an owner, the admin, a space's moderators), never for a module.
+  moduleLens(place, moduleId) {
+    const at = typeof place === 'string' && place ? place : null;
+    const { template: t } = this.lensTemplateOf(at);
+    const entry = t && isPlainObject(t.modules) && typeof moduleId === 'string' && Object.hasOwn(t.modules, moduleId) && isPlainObject(t.modules[moduleId]) ? t.modules[moduleId] : null;
+    const isSpace = Boolean(at) && this.data.spaces.some((r) => r.id === at);
+    const aside = !isSpace && at ? this.data.asides.find((a) => a.id === at) : null;
+    return {
+      settings: entry && isPlainObject(entry.settings) ? entry.settings : null,
+      labels: entry && isPlainObject(entry.labels) ? entry.labels : null,
+      template: t && typeof t.name === 'string' && t.name ? t.name : null,
+      module: this.moduleDisplay(moduleId, isSpace ? at : (aside && aside.origin) || null).name || null,
+    };
   }
 
   // The phases a space record reads, for a draft not saved yet: its template's (live), else the environment's.
@@ -1125,7 +1276,7 @@ class Store {
   // The words in force for the current request: the space's when the request is about one (currentSpace), else the environment's.
   wordsNow() {
     const id = typeof this.currentSpace === 'function' ? this.currentSpace() : null;
-    return id ? this.lookOf(id).words : this.resolvedWords();
+    return id ? this.wordsOf(id) : this.resolvedWords();
   }
 
   // Every level's and role's words for this environment (server/words.js): the owner's, else the template's, else
@@ -1156,13 +1307,14 @@ class Store {
   moduleDisplay(id, spaceId = null) {
     const own = (map) => { const v = this.data.settings[map]?.[id]; return typeof v === 'string' && v ? v : null; };
     const from = (map) => { const v = map && typeof map === 'object' ? map[id] : null; return typeof v === 'string' && v ? v : null; };
-    // In a space with a template of its own: the owner's, then the space's template's, then the environment's template's.
+    // In a space with a template of its own: the owner's, then that template's, then the manifest's; the environment's
+    // template is not read there (one template per place, plan-templates-redesign.md, "Resolution per space").
     const st = spaceId && this.data.spaces.some((r) => r.id === spaceId) ? this.spaceTemplateFor(spaceId) : null;
-    // A space's template keeps its names and icons in `modules` (server/templates.js), one entry per module id.
-    const entry = (t) => (t && t.modules && typeof t.modules === 'object' && Object.hasOwn(t.modules, id) ? t.modules[id] : null);
+    // A template keeps its names and icons in `modules` (server/templates.js), one entry per module id.
+    const entry = (t) => (t && isPlainObject(t.modules) && Object.hasOwn(t.modules, id) && isPlainObject(t.modules[id]) ? t.modules[id] : null);
     const text = (v) => (typeof v === 'string' && v ? v : null);
-    const templateName = (st && text(entry(st)?.name)) || from(this.templateModuleNames);
-    const templateIcon = (st && text(entry(st)?.icon)) || from(this.templateModuleIcons);
+    const templateName = st ? text(entry(st)?.name) : from(this.templateModuleNames);
+    const templateIcon = st ? text(entry(st)?.icon) : from(this.templateModuleIcons);
     const ownName = own('moduleNames');
     const ownIcon = own('moduleIcons');
     // An icon applies only while it can be drawn (displayIconIds); one that cannot now (its module uninstalled, its
