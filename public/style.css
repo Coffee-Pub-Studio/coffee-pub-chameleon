@@ -1823,6 +1823,17 @@ body.in-space .subnav {
   min-width: 0;
 }
 
+/* On a phone a page's row of tabs (#env-subtabs, #tpl-subtabs, #module-subtabs: rowTabs() in page-tabs.js) wraps onto as many lines as it
+   needs, so every tab is on the screen and none hides past the edge. Each line is 44px: the strip's 7px above and below the 30px tab, and
+   14px between lines, the hit area (system.css, 44px) fills it. Wider than a phone it is one strip that scrolls sideways. */
+@media (max-width: 640px) {
+  .subnav.page-bar .nav-left > .subtabs.page-bar-control {
+    flex-wrap: wrap;
+    row-gap: calc(2 * var(--tab-phone-pad));
+    overflow: visible;
+  }
+}
+
 /* On a phone the anchor names the page, so the bar holds only its controls; a bar with none shown is not drawn. */
 @media (max-width: 640px) {
   .topbar > .page-bar:not(:has(> .nav-left > :not([hidden], [data-nav-divider]))):not(:has(> .nav-right > :not([hidden]))) {

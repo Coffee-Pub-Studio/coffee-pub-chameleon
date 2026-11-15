@@ -95,6 +95,19 @@ async function main() {
 
         // The Template tab's pages, by their buttons and by their addresses. Each draws its data and does not scroll sideways.
         const sideways = async (what) => { const w2 = await tab.eval(`document.documentElement.scrollWidth - document.documentElement.clientWidth`); expect(w2 <= 1, `${size}: ${what} scrolls sideways by ${w2} px`); };
+        // A row of a page's tabs (Manage's Environment and Template rows): every tab inside the window, nothing scrolling sideways.
+        // On a phone the row wraps and each tab's hit area (its box or its ::after) is 44 px tall; wider, it stays one line.
+        const rowFits = async (id, what) => {
+          const r = await tab.eval(`(() => { const v = innerWidth; const tabs = [...document.querySelectorAll('#${id} .subtab')].filter((b) => b.getClientRects().length);
+            return { v, tabs: tabs.map((b) => { const a = getComputedStyle(b, '::after'); const q = b.getBoundingClientRect(); return { t: b.textContent.trim(), l: q.left, r: q.right, top: Math.round(q.top), h: Math.max(q.height, a.content !== 'none' && a.position === 'absolute' ? parseFloat(a.height) || 0 : 0) }; }) }; })()`);
+          expect(r.tabs.length > 1, `${size}: ${what}: the row has no tabs drawn`);
+          for (const t of r.tabs) {
+            expect(t.l >= -0.5 && t.r <= r.v + 0.5, `${size}: ${what}: "${t.t}" is not inside the window (${Math.round(t.l)} to ${Math.round(t.r)} of ${r.v})`);
+            if (size <= 640) expect(t.h >= 43.5, `${size}: ${what}: "${t.t}" is ${Math.round(t.h)} px tall (44 is the least)`);
+          }
+          if (size > 640) expect(new Set(r.tabs.map((t) => t.top)).size === 1, `${size}: ${what}: the row wraps on a wide screen`);
+          await sideways(what);
+        };
         const pages = async (sz, finish) => {
           const open2 = async (hash, ready, what) => {
             const left = seen(what);
@@ -128,6 +141,7 @@ async function main() {
             expect(await tab.eval(`!document.getElementById('tpl-part-${part}').hidden`), `${sz}: the ${part} page of Template did not open`);
             await sideways(`the ${part} page of Template`);
           }
+          await rowFits('tpl-subtabs', 'the Template row of tabs');
           // A copy through the page: the form takes a name and makes the template; Delete asks first and names what moves.
           await open2('template/list', `${box('tpl-list', 'li')} >= 4`, 'the list again');
           await tab.eval(`document.querySelector('#tpl-list li[data-tpl=travel] [data-tpl-action=copy]').click()`); await sleep(500);
@@ -151,6 +165,7 @@ async function main() {
               expect(await tab.eval(`!document.getElementById('env-part-${p}').hidden`), `${size}: the ${p} part of Environment did not open`);
             }
             await click('#env-subtabs .subtab[data-env-part="general"]');
+            await rowFits('env-subtabs', 'the Environment row of tabs');
           }
           if (t === 'theme') {
             const sw = await tab.eval(`[...document.querySelectorAll('#tab-theme input[type=color]')].map((i) => i.value)`);

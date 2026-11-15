@@ -2663,7 +2663,7 @@ async function init() {
   // And the Modules tab's: Configuration and a tab per module that is on (#264), while that tab is shown.
   rowTabs({ strip: $('tpl-subtabs'), label: 'Template', visible: () => tabNow === 'template' });
   rowTabs({ strip: $('module-subtabs'), label: word('module', { many: true, cap: true }), visible: () => tabNow === 'modules' });
-  requestAnimationFrame(() => scrollToChosen($('env-subtabs'))); // a link to a part: its tab in view in the row
+  requestAnimationFrame(() => { for (const id of ['env-subtabs', 'tpl-subtabs', 'module-subtabs']) scrollToChosen($(id)); }); // a link to a part: its tab in view in the row
   await loadBranding();
   wireOverlayBack(word('space', { many: true, cap: true }));
   try {
