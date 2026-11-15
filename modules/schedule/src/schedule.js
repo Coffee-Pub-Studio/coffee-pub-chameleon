@@ -111,7 +111,7 @@
   }
   const setIcon = (node, name) => { if (node) { node.dataset.icon = name || ''; delete node.dataset.shown; node.textContent = ''; } };
   const icon = (name) => { const s = document.createElement('span'); s.className = 'ic'; s.dataset.icon = name; return s; };
-  const say = (text) => { if (text && host.ui && host.ui.toast) host.ui.toast(String(text)).catch(() => {}); };
+  const say = (text, kind) => { if (text && host.ui && host.ui.toast) host.ui.toast(String(text), kind ? { kind } : undefined).catch(() => {}); };
   const dayDate = (d) => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd); };
   const thisYear = new Date().getFullYear();
   const dayShort = (d) => { const x = dayDate(d); return x.toLocaleDateString(undefined, { month: 'short', day: 'numeric', ...(x.getFullYear() !== thisYear ? { year: 'numeric' } : {}) }); };
@@ -226,6 +226,7 @@
   const ADDS = () => (canEdit ? SC_KINDS.map((k) => ({ id: k, label: cap(`Add ${kindWord(k, { a: true })}`), icon: KIND_ICON[k] })) : []);
   function chrome() {
     host.add.set(ADDS()).catch(() => {});
+    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'ellipsis', title: 'More', zone: 'end' }]).catch(() => {});
     const p = scProgress(list(), state.settings.progressBy);
     const what = state.settings.progressBy === 'work' ? kindWord('work', { many: true }) : kindWord('milestone', { many: true });
     host.status.set(p.total ? [{ text: `${p.done} of ${p.total} ${what} done`, icon: 'diagram-project' }] : []).catch(() => {});
@@ -707,6 +708,157 @@
     });
   }
 
+  // --- the plan as a JSON file: Export, and Import (add to the plan, or replace it) -----------------------------------------------------
+  // The format is in src/FORMAT.md; the rules (what is read, what is refused) are in schedule-lib-file.js. A file is read whole and
+  // checked before anything is written. The writes are the plan's own (host.storage.set, one entry at a time, as an edit is), so
+  // they need the edit right and meet the same guards; Replace needs the clear right as well. A write that fails puts back what was
+  // there. For a short time after, Undo puts back what the import changed.
+  const UNDO_SECONDS = 30;
+  let importing = false;
+  let undoTimer = 0;
+  let undoPlan = null; // { created: [ids], was: [{ id, value }] }: what the last import changed
+  const canClear = () => host.can('clear');
+  function deliver(blob, name) {
+    if (host.files && typeof host.files.save === 'function') return host.files.save(blob, { name });
+    const address = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = address;
+    a.download = name;
+    a.rel = 'noopener';
+    a.hidden = true;
+    $('app').append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(address), 60000);
+    return true;
+  }
+  async function exportPlan() {
+    if (!state.entries.size) { say('There is nothing in the plan to export yet.'); return; }
+    try {
+      const body = JSON.stringify(scExportFile(list(), { module: info.module.id }), null, 2);
+      await deliver(new Blob([body], { type: 'application/json' }), scExportName(today()));
+    } catch (err) { say('This browser would not save the file.', 'danger'); }
+  }
+  // What a file holds, in the plan's words: "3 milestones, 5 work and 1 note".
+  function countWords(entries) {
+    const parts = SC_KINDS.map((k) => [k, entries.filter((e) => e.kind === k).length]).filter((x) => x[1]).map(([k, n]) => `${n} ${kindWord(k, { many: n !== 1 })}`);
+    return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0] || 'nothing';
+  }
+  const storedNow = (id) => { const x = state.entries.get(id); return x ? { id, value: scValue(x.e), version: x.version } : null; };
+  // Puts back what an import changed: the entries it made come off, the ones it replaced or removed return. Others' work is left.
+  async function putBack(plan) {
+    for (const id of plan.created) {
+      const x = state.entries.get(id);
+      if (!x) continue;
+      try { await host.storage.delete(SC_PREFIX + id, { version: x.version }); } catch (err) { /* gone already */ }
+      state.entries.delete(id);
+      host.objects.setLinks(pointer(id), []).catch(() => {});
+    }
+    for (const w of plan.was) {
+      const x = state.entries.get(w.id);
+      const saved = await host.storage.set(SC_PREFIX + w.id, w.value, x ? { version: x.version } : {});
+      state.entries.set(w.id, { e: scClean(w.id, w.value), version: saved && saved.version });
+      host.objects.setLinks(pointer(w.id), w.value.ref ? [w.value.ref] : []).catch(() => {});
+    }
+    await settleMilestones();
+    render();
+  }
+  async function applyImport(entries, mode) {
+    const plan = { created: [], was: [] };
+    importing = true;
+    try {
+      const keep = new Set(entries.map((e) => e.id));
+      for (const e of entries) {
+        const had = storedNow(e.id);
+        if (had) plan.was.push({ id: e.id, value: had.value }); else plan.created.push(e.id);
+        await write(e, had ? had.version : undefined);
+      }
+      if (mode === 'replace') {
+        for (const old of list().filter((x) => !keep.has(x.id))) {
+          const had = storedNow(old.id);
+          if (!had) continue;
+          plan.was.push({ id: old.id, value: had.value });
+          await host.storage.delete(SC_PREFIX + old.id, { version: had.version });
+          state.entries.delete(old.id);
+          host.objects.setLinks(pointer(old.id), []).catch(() => {});
+        }
+      }
+    } catch (err) {
+      try { await putBack(plan); } catch (again) { /* what could not be put back is read on the next load */ }
+      throw err;
+    } finally { importing = false; }
+    for (const e of entries) if (e.ref) host.objects.setLinks(pointer(e.id), [e.ref]).catch(() => {});
+    await settleMilestones();
+    render();
+    return plan;
+  }
+  function offerUndo(plan, text) {
+    clearTimeout(undoTimer);
+    undoPlan = plan;
+    $('undo-text').textContent = text;
+    $('undo').hidden = false;
+    undoTimer = setTimeout(() => { undoPlan = null; $('undo').hidden = true; }, UNDO_SECONDS * 1000);
+  }
+  $('undo-btn').addEventListener('click', async () => {
+    const plan = undoPlan;
+    clearTimeout(undoTimer);
+    undoPlan = null;
+    $('undo').hidden = true;
+    if (!plan) return;
+    try { await putBack(plan); say('Put back.', 'success'); } catch (err) { say((err && err.message) || 'It could not be put back.', 'danger'); }
+  });
+  async function importFile(file, mode) {
+    if (!file || importing || !canEdit || (mode === 'replace' && !canClear())) return;
+    if (file.size > SC_FILE.maxBytes) { say(`The file is too big: at most ${SC_FILE.maxBytes / 1024 / 1024} MB.`, 'danger'); return; }
+    let text;
+    try { text = await file.text(); } catch (err) { say('That file could not be read.', 'danger'); return; }
+    const parsed = scParseFile(text, { label: (k) => kindWord(k), datesRequired: state.settings.datesRequired });
+    if (parsed.problem) { say(parsed.problem, 'danger'); return; }
+    if (mode === 'add' && state.entries.size + parsed.entries.length > SC_FILE.maxPlan) { say(`The plan holds at most ${SC_FILE.maxPlan} entries. This file would make ${state.entries.size + parsed.entries.length}.`, 'danger'); return; }
+    const words = countWords(parsed.entries);
+    const name = String(file.name || 'the file').slice(0, 60);
+    let ok = false;
+    try {
+      ok = await host.ui.confirm(mode === 'add'
+        ? { title: `Add ${words} to the ${label('plan')}?`, message: `From ${name}. What is in the ${label('plan')} now stays.`, action: 'Add to the plan' }
+        : { title: `Replace the ${label('plan')}?`, message: `The ${state.entries.size} ${state.entries.size === 1 ? 'entry' : 'entries'} in the ${label('plan')} come off it and ${words} from ${name} go in.\n\nYou can undo this for ${UNDO_SECONDS} seconds.`, action: 'Replace the plan', kind: 'destructive' });
+    } catch (err) { ok = false; }
+    if (!ok) return;
+    let entries;
+    try {
+      entries = scImportEntries(parsed.entries, { mode, existing: list(), newId: () => host.util.id(), orderAfter: (prev) => host.util.order(prev, null), by: info.user.key });
+      const plan = await applyImport(entries, mode);
+      offerUndo(plan, mode === 'add' ? `Added ${words}.` : `Replaced the ${label('plan')} with ${words}.`);
+    } catch (err) {
+      say(err && err.status === 409 ? 'Someone else changed the plan just now. Nothing was imported. Try again.' : `Nothing was imported. ${(err && err.message) || ''}`.trim(), 'danger');
+    }
+  }
+  let picker = null;
+  function pickFile(mode) {
+    if (!canEdit || importing || (mode === 'replace' && !canClear())) return;
+    if (!picker) {
+      picker = document.createElement('input');
+      picker.type = 'file';
+      picker.accept = '.json,application/json';
+      picker.hidden = true;
+      picker.setAttribute('aria-label', 'Plan file');
+      picker.addEventListener('change', () => { const f = picker.files && picker.files[0]; const m = picker.dataset.mode; picker.value = ''; importFile(f, m); });
+      $('app').append(picker);
+    }
+    picker.dataset.mode = mode;
+    picker.click();
+  }
+  function moreItems() {
+    const items = [{ id: 'export', label: 'Export as JSON', icon: 'file-export', disabled: !state.entries.size, hint: state.entries.size ? '' : 'Nothing yet', onClick: exportPlan }];
+    if (canEdit) items.push({ id: 'import-add', label: 'Import JSON: add to the plan', icon: 'file-import', disabled: importing, onClick: () => pickFile('add') });
+    if (canEdit && canClear()) items.push({ id: 'import-replace', label: 'Import JSON: replace the plan', icon: 'file-import', danger: true, disabled: importing, onClick: () => pickFile('replace') });
+    return items;
+  }
+  host.on('toolbar', (e) => {
+    if (e.id !== 'plan-more') return;
+    host.menu.show({ id: 'plan-more', at: { x: Number(e.x) || 0, y: 4 }, items: moreItems() });
+  });
+
   // --- settings, phases ---------------------------------------------------------------------------------------------------------
   function takeSettings(v) {
     const s = v && typeof v === 'object' ? v : {};
@@ -752,7 +904,7 @@
       let mine = '';
       try { mine = localStorage.getItem(VIEW_KEY) || ''; } catch (err) { /* none */ }
       state.view = mine === 'list' || mine === 'timeline' ? mine : narrow ? 'list' : state.settings.defaultView;
-      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
+      await Promise.all([...new Set(['plus', 'pen', 'trash', 'rotate-left', 'circle-check', 'link', 'ellipsis', 'file-export', 'file-import', 'flag', 'bars-progress', 'note-sticky', 'diagram-project', 'chart-gantt', 'list', ...state.settings.tags.map((t) => t.icon).filter(Boolean)])].map(wantIcon));
       state.loaded = true;
       render();
       loadLinks().catch(() => {});

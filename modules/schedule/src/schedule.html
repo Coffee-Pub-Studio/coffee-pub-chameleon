@@ -17,6 +17,8 @@
   the title, the toolbar row (the view switch), the "+" and the status line; #app is the content slot.
 -->
 <div id="app" class="app sdk-slot" hidden>
+  <!-- after an import: what was done, and Undo for a short while -->
+  <div class="undo" id="undo" role="status" hidden><span class="undo-text" id="undo-text"></span><button class="btn btn-small" type="button" id="undo-btn">Undo</button></div>
   <main id="body" class="body">
     <!-- Timeline: weeks across, work as bars, milestones as marks, the "waits on" lines; what has no day below -->
     <section id="view-timeline" class="view" aria-label="Timeline" hidden>
