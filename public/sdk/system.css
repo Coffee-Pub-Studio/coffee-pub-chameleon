@@ -5385,7 +5385,139 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
 .sdk-mic > i {
   position: relative;
 }
+/* ---- a bar with its words: host.ui.progress ("2 of 4") ---- */
+.sdk-progress-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-13);
+}
+.sdk-progress-words {
+  flex: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 /* progress:end */
+
+/* ================= Outline (host.ui.outline) =================
+   An ordered, nested list the module fills: each entry is a row (.sdk-outline-row) of a fold button, the module's own content and a
+   handle. The handle is the drag source, the tab stop (a roving one) and the opener of the row menu: a grip on a screen with a mouse,
+   a "..." on a phone or a touch screen. Where a drag would land is drawn on the row under the pointer: a line above (.drop-before)
+   or below (.drop-after) it, or a fill (.drop-into) when the entry goes inside it. Every button keeps the 44px target of a phone.
+     .sdk-outline          the container, .sdk-outline-body its list or its empty line (.sdk-outline-empty)
+     .sdk-outline-list     a level; .sdk-outline-item an entry, .sdk-outline-row its line
+     .sdk-outline-fold     the fold button, .sdk-outline-fold-gap what holds its place on an entry with no children
+     .sdk-outline-content  the module's own row; .sdk-outline-handle the handle (.sdk-outline-grip, .sdk-outline-dots its two faces)
+     .sdk-outline-live     the polite line a screen reader hears a move in (not drawn) */
+/* outline:start */
+.sdk-outline {
+  position: relative;
+  min-width: 0;
+}
+
+.sdk-outline-body { min-width: 0; }
+
+.sdk-outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-card-rows);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sdk-outline-list .sdk-outline-list {
+  margin-inline-start: var(--space-6);
+  margin-top: var(--gap-card-rows);
+  padding-inline-start: var(--space-2);
+  border-inline-start: 1px solid var(--edge-hairline);
+}
+
+.sdk-outline-top { margin-inline-start: 0; }
+
+.sdk-outline-item {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.sdk-outline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  min-height: var(--btn-h-small);
+  padding: var(--space-0) var(--space-1);
+  border-radius: var(--radius-small);
+  color: var(--text-primary);
+}
+.sdk-outline-row:hover { background: var(--fill-hover); }
+
+.sdk-outline-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-14);
+  line-height: var(--leading-body);
+}
+
+.sdk-outline-fold-gap {
+  flex: none;
+  width: var(--btn-h-small);
+}
+
+.sdk-outline-fold .ic { transition: transform var(--motion-fast) var(--ease-out); }
+.sdk-outline-fold[aria-expanded="true"] .ic { transform: rotate(90deg); }
+
+.sdk-outline-handle { cursor: grab; touch-action: manipulation; }
+.sdk-outline-handle:active { cursor: grabbing; }
+.sdk-outline-handle .sdk-outline-dots { display: none; }
+
+.sdk-outline-item.dragging > .sdk-outline-row { opacity: 0.5; }
+
+.sdk-outline-row.drop-before { box-shadow: inset 0 2px 0 var(--accent-fill); }
+.sdk-outline-row.drop-after { box-shadow: inset 0 -2px 0 var(--accent-fill); }
+.sdk-outline-row.drop-into {
+  background: var(--fill-selected);
+  outline: 2px solid var(--accent-fill);
+  outline-offset: -2px;
+}
+
+.sdk-outline-empty {
+  margin: 0;
+  padding: var(--pad-empty-y) var(--pad-empty-x);
+  color: var(--text-muted);
+  font-size: var(--text-14);
+  text-align: center;
+}
+
+.sdk-outline-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A phone or a touch screen: no dragging, a 44px line, and the handle is a "..." that opens the menu. */
+@media (max-width: 640px), (pointer: coarse) {
+  .sdk-outline-row { min-height: 44px; }
+  .sdk-outline-fold-gap { width: 44px; }
+  .sdk-outline-handle .sdk-outline-grip { display: none; }
+  .sdk-outline-handle .sdk-outline-dots { display: block; }
+  .sdk-outline-handle { cursor: pointer; }
+  .sdk-outline-list .sdk-outline-list { margin-inline-start: var(--space-4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sdk-outline-fold .ic { transition: none; }
+}
+/* outline:end */
 
 /* ================= Choice rows (design system step 27) =================
    Source: public/design-system/proposed-choices.css, without the .ds-proposed prefix. This is the row .sdk-check was: a whole-row choice,
