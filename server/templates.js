@@ -79,7 +79,8 @@ const REFUSED_SETTING_TYPES = ['secret', 'file', 'files', 'url', 'note'];
 const TEMPLATE_MARKS = ['driven', 'default'];
 // The applied-once parts an update can offer, each with a fingerprint of the template's value kept in the record once
 // applied or passed over (addendum 2), so a part is offered again only when the template changed it.
-const PARTS = ['modules', 'reactions', 'iconSet', 'lobby', 'spaceDefaults'];
+// Reactions and icons are not among them: a template's additions are read live (Store#lookOf), at once, on any change.
+const PARTS = ['modules', 'lobby', 'spaceDefaults'];
 const fingerprint = (value) => crypto.createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex').slice(0, 16);
 // The value of one applied-once part: the module ids (their names and icons are live), and what a new space starts with
 // (its profile, and the Default Workspace's opensWith, which a new space takes until the workspaces step reads it live).
@@ -539,24 +540,13 @@ function withRequirements(ids, manifests) {
   return out;
 }
 
-// Adds a template's icons (its home icon, its module icons and, with `iconSet`, the icons it adds) to the environment's
-// icon list, so the owner's pickers offer them. Never removes one.
-function addIcons(store, template, { iconSet = false } = {}) {
-  const want = [template.icons.home, ...Object.values(moduleField(template, 'icon')), ...(iconSet ? template.iconSet || [] : [])].filter(Boolean);
+// Adds a template's home icon and module icons to the environment's own icon additions, so the owner's pickers offer
+// them (a core one is already there). Never removes one. The template's `iconSet` is not copied: it is read live.
+function addIcons(store, template) {
+  const want = [template.icons.home, ...Object.values(moduleField(template, 'icon'))].filter(Boolean);
   const have = store.iconIds();
   const add = [...new Set(want)].filter((id) => !have.includes(id)).map((id) => ({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') }));
   if (add.length) store.updateSettings({ icons: [...store.settings.icons, ...add] });
-}
-
-// The template's added reactions the environment's tray does not have yet (by glyph or id), or [].
-function missingReactions(store, template) {
-  const have = Array.isArray(store.settings.reactions) ? store.settings.reactions : [];
-  return (template.reactions || []).filter((r) => !have.some((h) => h.glyph === r.glyph || h.id === r.id));
-}
-// Adds the template's reactions to the environment's tray, after the ones there (decision 12: a template only adds).
-function addReactions(store, template) {
-  const add = missingReactions(store, template);
-  if (add.length) store.updateSettings({ reactions: [...(store.settings.reactions || []), ...add] });
 }
 
 // The modules a template turns on once, by id: its own entries (none for '*', which reads as the whole catalog as it is).
@@ -604,7 +594,7 @@ function spaceDefaultsOf(template) {
 }
 
 // Applies a template's once-only part to an environment made from it (settings, the Lobby, the space defaults, its
-// icons into the icon list, its added reactions, then its modules), and answers what was skipped: [{ id, why }]. Safe
+// home and module icons into the icon list, then its modules), and answers what was skipped: [{ id, why }]. Safe
 // to run again (the same result), but the server runs it only while the record has no appliedAt. `allowed(id)`: whether
 // the billing plan includes a bundled module (a template never widens a plan); `modulesDir` where the bundled modules are.
 async function applyTemplate(env, template, { allowed = () => true, modulesDir = MODULES_DIR, name = (id) => id } = {}) {
@@ -614,10 +604,9 @@ async function applyTemplate(env, template, { allowed = () => true, modulesDir =
   const defaults = spaceDefaultsOf(template);
   if (Object.keys(defaults).length) store.updateSettings({ spaceDefaults: defaults });
   // The home icon itself stays the template's (settings.homeIcon unset) until the owner picks one.
-  addIcons(store, template, { iconSet: true });
+  addIcons(store, template);
   if (template.icons.home) store.updateSettings({ homeIcon: null });
   store.updateSettings({ conferenceEnabled: offers(template, 'conference') });
-  addReactions(store, template);
   return turnOnModules(env, modulesToTurnOn(template), { allowed, modulesDir, name });
 }
 
@@ -631,8 +620,6 @@ async function applyTemplate(env, template, { allowed = () => true, modulesDir =
 //            the plan allows it ({ id, name, allowed, why? }); the conference when listed and off
 //   lobby: the template's Lobby name and description when they differ from the Lobby's own, else null
 //   spaceDefaults: the new-space profile, and what a new space opens with, for each that differs from the environment's, else null
-//   reactions: the reactions it adds that the tray does not have, else null
-//   iconSet: the icons it adds that the icon list does not have, else null
 function offerFor(env, template, { allowed = () => true, modulesDir = MODULES_DIR, name = (id) => id, applied = null } = {}) {
   const { store, modules } = env;
   // With fingerprints from the last time this template's once-only part was applied or passed over, a part is offered
@@ -656,29 +643,23 @@ function offerFor(env, template, { allowed = () => true, modulesDir = MODULES_DI
   const defaultsOffer = {};
   if (wanted.profile && wanted.profile !== haveDefaults?.profile) defaultsOffer.profile = wanted.profile;
   if (wanted.opensWith && JSON.stringify(wanted.opensWith) !== JSON.stringify(haveDefaults?.opensWith || [])) defaultsOffer.opensWith = wanted.opensWith;
-  const missingIcons = changed('iconSet') ? (template.iconSet || []).filter((id) => !store.iconIds().includes(id)) : [];
-  const reactions = changed('reactions') ? missingReactions(store, template) : [];
   return {
-    iconSet: missingIcons.length ? missingIcons : null,
-    reactions: reactions.length ? reactions : null,
     modules: offered,
     lobby: changed('lobby') && lobbyDiffers ? { name: template.lobby.name ?? lobby?.name ?? '', description: template.lobby.description ?? lobby?.description ?? '' } : null,
     spaceDefaults: changed('spaceDefaults') && Object.keys(defaultsOffer).length ? defaultsOffer : null,
   };
 }
 
-// Applies what was confirmed of the offer: `modules` (ids from the offer; anything else is ignored), and `lobby`,
-// `spaceDefaults`, `reactions` and `iconSet` (true to take the template's). Answers what was skipped: every offered
+// Applies what was confirmed of the offer: `modules` (ids from the offer; anything else is ignored), and `lobby` and
+// `spaceDefaults` (true to take the template's). Answers what was skipped: every offered
 // module the plan leaves out, and any confirmed one that could not be turned on, with why. Turns nothing off.
-async function applyOffer(env, template, { modules: ids = [], lobby = false, spaceDefaults = false, reactions = false, iconSet = false } = {}, opts = {}) {
+async function applyOffer(env, template, { modules: ids = [], lobby = false, spaceDefaults = false } = {}, opts = {}) {
   const { store } = env;
   const offer = offerFor(env, template, opts);
   const offeredIds = new Set(offer.modules.map((m) => m.id));
   const chosen = [...new Set((Array.isArray(ids) ? ids : []).filter((id) => typeof id === 'string' && offeredIds.has(id)))];
   if (lobby === true && offer.lobby) store.updateSpace(LOBBY, offer.lobby);
   if (spaceDefaults === true && offer.spaceDefaults) store.updateSettings({ spaceDefaults: offer.spaceDefaults });
-  if (reactions === true && offer.reactions) addReactions(store, template);
-  if (iconSet === true && offer.iconSet) addIcons(store, template, { iconSet: true });
   if (chosen.includes('conference')) store.updateSettings({ conferenceEnabled: true }); // offered only while off; never turned off
   const skipped = offer.modules.filter((m) => !m.allowed).map((m) => ({ id: m.id, why: m.why }));
   const allowedChosen = chosen.filter((id) => !BUILTIN_MODULE_IDS.includes(id) && offer.modules.find((m) => m.id === id).allowed);

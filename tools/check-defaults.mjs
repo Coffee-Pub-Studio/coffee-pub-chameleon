@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 /*
- * check-defaults.mjs -- the reactions and icons every environment starts with (GitHub #169, server/default-lists.js):
- * a fresh store has the curated sets; the once-only move from the old defaults takes an environment still on exactly
- * them (reactions and icons judged separately, single and hosted alike, since each environment has its own store),
- * leaves one an owner changed alone, and changes nothing the second time; a template may carry the full reaction set
- * and icon set; and every default icon draws from the Font Awesome Free this server ships.
+ * check-defaults.mjs -- the fixed core reactions and icons (GitHub #169, server/default-lists.js; plan-templates-redesign.md,
+ * decision 12): the curated sets themselves; a fresh store's own lists are empty (the core is never stored: lookOf reads it);
+ * a stored list that repeats the core is trimmed to the owner's own additions, single and hosted alike; a template only adds;
+ * and every default icon draws from the Font Awesome Free this server ships. check-reactions-icons.mjs covers the routes.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -22,7 +21,7 @@ const { buildEnvironment } = require('../server/environment.js');
 const templates = require('../server/templates.js');
 const { bundledModules } = require('../server/module-build.js');
 
-const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST, OLD_DEFAULT_REACTIONS, OLD_DEFAULT_ICONS } = lists;
+const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = lists;
 const FA = path.dirname(require.resolve('@fortawesome/fontawesome-free/package.json'));
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-defaults-'));
 let n = 0;
@@ -32,7 +31,7 @@ const test = (name, fn) => {
 };
 const quiet = () => {};
 let dirs = 0;
-// An environment folder holding `settings` (and nothing else of note) as an app.json from before #169.
+// An environment folder holding `settings` (and nothing else of note) as an app.json.
 function oldEnvironment(settings) {
   const dir = path.join(base, `env-${(dirs += 1)}`);
   fs.mkdirSync(dir, { recursive: true });
@@ -54,10 +53,6 @@ test('the curated lists themselves', () => {
   assert.equal(new Set(DEFAULT_ICON_LIST.map((i) => i.id)).size, 113, 'icon ids are unique (no repeats)');
   // Each survives the store's own cleaning unchanged: the field shapes and id rules hold.
   assert.deepEqual(cleanReactions(clone(DEFAULT_REACTION_LIST)), DEFAULT_REACTION_LIST, 'cleanReactions keeps every reaction as it is');
-  const store = new Store(path.join(base, 'shape'));
-  store.updateSettings({ icons: clone(DEFAULT_ICON_LIST), reactions: clone(DEFAULT_REACTION_LIST) });
-  assert.deepEqual(store.settings.icons, DEFAULT_ICON_LIST, 'the store takes all 113 icons as they are');
-  assert.deepEqual(store.settings.reactions, DEFAULT_REACTION_LIST, 'the store takes all 105 reactions as they are');
   const dice = DEFAULT_ICON_LIST.find((i) => i.id === 'dice-d20');
   assert.deepEqual(dice, { id: 'dice-d20', classes: 'fa-solid fa-dice-d20', label: 'dice d20' }, 'an icon entry');
   assert.deepEqual(DEFAULT_ICON_LIST.find((i) => i.id === 'xbox'), { id: 'xbox', classes: 'fa-brands fa-xbox', label: 'xbox' }, 'a brands entry');
@@ -73,79 +68,43 @@ test('every default icon draws from the bundled Font Awesome Free', () => {
   }
 });
 
-test('a fresh store starts with the curated sets', () => {
+test('a fresh store keeps none of the core in its settings; lookOf reads all of it', () => {
   const dir = path.join(base, 'fresh');
   const store = new Store(dir);
-  assert.deepEqual(store.settings.reactions, DEFAULT_REACTION_LIST);
-  assert.deepEqual(store.settings.icons, DEFAULT_ICON_LIST);
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [[], []], 'the owner\'s own additions: none yet');
+  const look = store.lookOf(null);
+  assert.deepEqual(look.reactions, DEFAULT_REACTION_LIST);
+  assert.deepEqual(look.icons, DEFAULT_ICON_LIST);
   const s = stored(dir);
-  assert.deepEqual([s.reactionsCuratedSeeded, s.iconsCuratedSeeded], [true, true], 'the once-only flags are stored');
-  assert.deepEqual(s.reactions, DEFAULT_REACTION_LIST, 'and saved');
+  assert.deepEqual([s.reactions, s.icons], [[], []], 'and saved so');
+  assert.equal(s.reactionsCuratedSeeded, undefined, 'no once-only flags: nothing is moved from an older list');
 });
 
-test('an untouched environment moves to the curated sets', () => {
-  const dir = oldEnvironment({ reactions: clone(OLD_DEFAULT_REACTIONS), icons: clone(OLD_DEFAULT_ICONS) });
+test('a stored list that repeats the core is trimmed to the owner\'s own additions', () => {
+  const dir = oldEnvironment({
+    reactions: [...clone(DEFAULT_REACTION_LIST), { id: 'yes', glyph: '✅', label: 'Yes' }, { id: 'again', glyph: DEFAULT_REACTION_LIST[0].glyph, label: 'Heart twice' }],
+    icons: [...clone(DEFAULT_ICON_LIST), { id: 'dragon-x', classes: 'fa-solid fa-dragon', label: 'dragon x' }],
+  });
   const store = new Store(dir);
-  assert.deepEqual(store.settings.reactions, DEFAULT_REACTION_LIST);
-  assert.deepEqual(store.settings.icons, DEFAULT_ICON_LIST);
-  assert.deepEqual(stored(dir).icons, DEFAULT_ICON_LIST, 'saved');
+  assert.deepEqual(store.settings.reactions, [{ id: 'yes', glyph: '✅', label: 'Yes' }]);
+  assert.deepEqual(store.settings.icons, [{ id: 'dragon-x', classes: 'fa-solid fa-dragon', label: 'dragon x' }]);
+  assert.deepEqual(stored(dir).reactions, [{ id: 'yes', glyph: '✅', label: 'Yes' }], 'saved trimmed');
+  const look = store.lookOf(null);
+  assert.deepEqual(look.reactions.slice(0, 105), DEFAULT_REACTION_LIST, 'the core first, whole');
+  assert.deepEqual(look.reactions.slice(105).map((r) => r.id), ['yes']);
+  // An owner's save that leaves the core out, or repeats it, changes none of it.
+  store.updateSettings({ reactions: [], icons: clone(DEFAULT_ICON_LIST.slice(0, 3)) });
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [[], []]);
+  assert.equal(store.lookOf(null).reactions.length, 105);
+  assert.equal(store.lookOf(null).icons.length, 113);
 });
 
-test('an environment from before the starter icons, with none, gets the curated icons', () => {
-  const dir = path.join(base, 'pre-seed');
-  fs.mkdirSync(dir);
-  fs.writeFileSync(path.join(dir, 'app.json'), JSON.stringify({ settings: { reactions: clone(OLD_DEFAULT_REACTIONS) } }));
-  const store = new Store(dir);
-  assert.deepEqual(store.settings.icons, DEFAULT_ICON_LIST);
-  assert.deepEqual(store.settings.reactions, DEFAULT_REACTION_LIST);
-});
-
-test('a customised environment is left alone, and the two lists are judged separately', () => {
-  const reactions = clone(OLD_DEFAULT_REACTIONS);
-  reactions[5].label = 'Natural 20';
-  const icons = [...clone(OLD_DEFAULT_ICONS), { id: 'dragon', classes: 'fa-solid fa-dragon', label: 'dragon' }];
-  const dir = oldEnvironment({ reactions, icons });
-  const store = new Store(dir);
-  assert.deepEqual(store.settings.reactions, reactions, 'a relabelled reaction keeps the owner\'s list');
-  assert.deepEqual(store.settings.icons, icons, 'an added icon keeps the owner\'s list');
-
-  const reordered = [OLD_DEFAULT_REACTIONS[1], OLD_DEFAULT_REACTIONS[0], ...OLD_DEFAULT_REACTIONS.slice(2)].map(clone);
-  const one = new Store(oldEnvironment({ reactions: reordered, icons: clone(OLD_DEFAULT_ICONS) }));
-  assert.deepEqual(one.settings.reactions, reordered, 'reordered reactions are a change');
-  assert.deepEqual(one.settings.icons, DEFAULT_ICON_LIST, 'while untouched icons still move');
-
-  const fewer = clone(OLD_DEFAULT_ICONS).slice(1);
-  const two = new Store(oldEnvironment({ reactions: clone(OLD_DEFAULT_REACTIONS), icons: fewer }));
-  assert.deepEqual(two.settings.reactions, DEFAULT_REACTION_LIST, 'untouched reactions move');
-  assert.deepEqual(two.settings.icons, fewer, 'while a shortened icon list stays');
-
-  const off = new Store(oldEnvironment({ reactions: [], icons: clone(OLD_DEFAULT_ICONS) }));
-  assert.deepEqual(off.settings.reactions, [], 'reactions turned off stay off');
-});
-
-test('running twice changes nothing, and the old list picked again later is kept', () => {
-  const dir = oldEnvironment({ reactions: clone(OLD_DEFAULT_REACTIONS), icons: clone(OLD_DEFAULT_ICONS) });
-  new Store(dir);
-  const once = fs.readFileSync(path.join(dir, 'app.json'), 'utf8');
-  new Store(dir);
-  assert.equal(fs.readFileSync(path.join(dir, 'app.json'), 'utf8'), once, 'a second load writes nothing new');
-  const store = new Store(dir);
-  store.updateSettings({ reactions: clone(OLD_DEFAULT_REACTIONS), icons: clone(OLD_DEFAULT_ICONS) });
-  const again = new Store(dir);
-  assert.deepEqual(again.settings.reactions, OLD_DEFAULT_REACTIONS, 'an owner who picks the old six keeps them');
-  assert.deepEqual(again.settings.icons, OLD_DEFAULT_ICONS, 'an owner who picks the old 21 keeps them');
-});
-
-test('a hosted install: each environment\'s store moves on its own', () => {
-  const untouched = oldEnvironment({ reactions: clone(OLD_DEFAULT_REACTIONS), icons: clone(OLD_DEFAULT_ICONS) });
-  const custom = oldEnvironment({ reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }], icons: clone(OLD_DEFAULT_ICONS) });
-  const a = buildEnvironment(untouched, { slug: 'one', log: quiet });
-  const b = buildEnvironment(custom, { slug: 'two', log: quiet });
+test('a hosted install: each environment\'s store keeps its own additions', () => {
+  const a = buildEnvironment(oldEnvironment({ reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }] }), { slug: 'one', log: quiet });
+  const b = buildEnvironment(oldEnvironment({}), { slug: 'two', log: quiet });
   try {
-    assert.deepEqual(a.store.settings.reactions, DEFAULT_REACTION_LIST);
-    assert.deepEqual(a.store.settings.icons, DEFAULT_ICON_LIST);
-    assert.deepEqual(b.store.settings.reactions, [{ id: 'yes', glyph: '✅', label: 'Yes' }]);
-    assert.deepEqual(b.store.settings.icons, DEFAULT_ICON_LIST);
+    assert.deepEqual(a.store.lookOf(null).reactions.map((r) => r.id).slice(-1), ['yes']);
+    assert.equal(b.store.lookOf(null).reactions.length, 105, 'the other environment never reads them');
   } finally {
     for (const env of [a, b]) env.close?.();
   }

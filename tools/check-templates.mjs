@@ -322,7 +322,7 @@ try {
     };
   };
   const travel = templates.get('travel');
-  await test('applying twice gives the same environment: settings, the Lobby, space defaults (with the workspace\'s opensWith), icons, added reactions, modules', async () => {
+  await test('applying twice gives the same environment: settings, the Lobby, space defaults (with the workspace\'s opensWith), icons, modules', async () => {
     const env = freshEnvironment('twice');
     const t = { ...travel, reactions: [{ id: 'ship', glyph: '\u{1f680}', label: 'Ship it' }], iconSet: ['diagram-project'] };
     const first = await templates.applyTemplate(env, t);
@@ -333,9 +333,10 @@ try {
     assert.deepEqual(first, []);
     assert.deepEqual(once.lobby, ['Home base', 'Everyone on every trip.']);
     assert.deepEqual([once.settings.conferenceEnabled, once.settings.homeIcon, once.settings.spaceDefaults], [true, null, { profile: 'participants', opensWith: ['travel', 'chat'] }]);
-    assert.ok(once.settings.icons.includes('suitcase-rolling') && once.settings.icons.includes('diagram-project'), 'the home icon and the added icon join the icon list');
-    assert.equal(once.settings.reactions.filter((id) => id === 'ship').length, 1, 'the added reaction joins the tray once, after the core set');
-    assert.equal(once.settings.reactions[0], 'heart', 'the core set is untouched');
+    assert.ok(once.settings.icons.includes('suitcase-rolling'), 'the home icon joins the owner\'s own icons');
+    assert.deepEqual([once.settings.icons.includes('diagram-project'), once.settings.reactions], [false, []], 'the template\'s added icons and reactions are not copied into the settings: they are read live');
+    const look = env.store.lookOf(null);
+    assert.deepEqual([look.reactions.some((r) => r.id === 'ship'), look.icons.some((i) => i.id === 'diagram-project')], [false, false], 'and an environment on another template does not read them');
     for (const id of ['travel', 'maps', 'research', 'calendar', 'vault']) assert.deepEqual(once.modules[id].slice(1), [true], id);
     assert.equal(env.store.addSpace({ name: 'Lisbon' }).profile, 'participants');
   });
@@ -349,7 +350,7 @@ try {
     assert.deepEqual([after.settings.reactions, after.settings.icons, after.lobby], [before.settings.reactions, before.settings.icons, before.lobby]);
     assert.equal(after.settings.conferenceEnabled, true);
     const offer = templates.offerFor(env, templates.defaultTemplate());
-    assert.deepEqual(offer, { iconSet: null, reactions: null, modules: [], lobby: null, spaceDefaults: null });
+    assert.deepEqual(offer, { modules: [], lobby: null, spaceDefaults: null });
   });
 
   await test('a module the plan leaves out is skipped and recorded; a template that leaves the conference out switches it off', async () => {
@@ -367,13 +368,13 @@ try {
     const t = templates.cleanTemplate(minimal({ modules: { chat: {}, polls: {} }, reactions: [{ id: 'ship', glyph: '\u{1f680}' }], iconSet: ['diagram-project'], lobby: { name: 'Front desk' }, spaceDefaults: { profile: 'participants' }, workspace: { opensWith: ['polls'] } }));
     const offer = templates.offerFor(env, t);
     assert.deepEqual(offer.modules.map((m) => m.id), ['polls']);
-    assert.deepEqual([offer.reactions.map((r) => r.id), offer.iconSet, offer.lobby.name, offer.spaceDefaults], [['ship'], ['diagram-project'], 'Front desk', { profile: 'participants', opensWith: ['polls'] }]);
+    assert.deepEqual([offer.reactions, offer.iconSet, offer.lobby.name, offer.spaceDefaults], [undefined, undefined, 'Front desk', { profile: 'participants', opensWith: ['polls'] }], 'reactions and icons are never offered: a template\'s additions are live');
     await templates.applyOffer(env, t, { reactions: true, modules: ['polls'] });
-    assert.ok(env.store.settings.reactions.some((r) => r.id === 'ship'));
+    assert.deepEqual(env.store.settings.reactions, [], 'a reactions tick applies nothing');
     assert.equal(env.modules.enabled('polls') !== null, true);
     assert.equal(env.store.spaceById(LOBBY).name !== 'Front desk', true, 'the Lobby was not ticked');
     const again = templates.offerFor(env, t);
-    assert.deepEqual([again.reactions, again.modules], [null, []]);
+    assert.deepEqual(again.modules, []);
   });
 
   await test('the live part: words, the Home word, phases, the home icon and module names and icons, from the modules entries', () => {
@@ -613,9 +614,8 @@ try {
     assert.equal((await call(server, 'out', 'GET', '/api/branding')).json.words.space.one, 'journey', 'the new word, with no restart');
     const owner = cookieOf(await call(server, 'out', 'POST', '/api/login', { body: { login: 'owner', password: 'owner-password-1' } }));
     const tab = await call(server, 'out', 'GET', '/api/environment/template', { cookie: owner });
-    assert.equal(tab.json.template.offerOpen, true);
-    assert.ok((tab.json.offer.reactions || []).some((r) => r.id === 'ship'), 'a changed part is offered, not forced');
-    assert.equal((await call(server, 'out', 'GET', '/api/branding')).json.reactions.some((r) => r.id === 'ship'), false);
+    assert.equal(tab.json.template.offerOpen, false, 'nothing the edit changed is applied once: the added reaction is live');
+    assert.equal((await call(server, 'out', 'GET', '/api/branding')).json.reactions.some((r) => r.id === 'ship'), true, 'the template\'s added reaction is in the tray at once');
   });
 
   await test('the host and the Default template: no edit, hide or delete; a copy lists the image\'s modules; ids unique across every environment', async () => {

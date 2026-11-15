@@ -16,7 +16,7 @@ const words = require('./words');
 const { shortProductName } = require('./product-name');
 const { Layouts, SYSTEM_IDS: LAYOUT_SYSTEM_IDS, cleanTabs } = require('./layouts');
 const { LEGACY_ENVIRONMENT_RECORD } = require('./migrate-names');
-const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST, OLD_DEFAULT_REACTIONS, OLD_DEFAULT_ICONS, sameList } = require('./default-lists');
+const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('./default-lists');
 // The phase timeline rule, the one copy the pages use too (plan-one-bar.md, step 1).
 const phaseRule = require('../public/phases.js');
 const phaseMeasure = require('./phase-measure.js'); // the Done switches (plan-templates-redesign.md, step 6)
@@ -110,9 +110,7 @@ const cleanLayoutId = (id) => (typeof id === 'string' && LAYOUT_ID.test(id) ? id
 // A space's optional "launch" link (their VTT, wiki, playlist, whatever) --
 // shown as a button next to Join and in the in-call toolbar. The icon is
 // picked from the admin's Font Awesome list (Theme tab), stored as that
-// icon's id, so a bad value can't render nothing. This is the starting list (Thomas's curated set, GitHub #169;
-// server/default-lists.js).
-const DEFAULT_ICONS = DEFAULT_ICON_LIST;
+// icon's id, so a bad value can't render nothing.
 const DEFAULT_SPACE_LINK_ICON = 'link';
 const DEFAULT_HOME_ICON = 'couch';
 // A module's display name (settings.moduleNames), at most this long.
@@ -418,12 +416,12 @@ const DEFAULT_SETTINGS = {
   privateDim: 0,
   privateTint: '#000000',
   privateTintOpacity: 0,
-  // Font Awesome icons picked on the Theme tab: { id, classes, label }.
-  icons: DEFAULT_ICONS,
-  // The reaction tray in the call: id (also the 1-6 shortcut order and the
-  // data-channel payload), glyph (what's drawn), label (button title/alt).
-  // Thomas's curated set (GitHub #169; server/default-lists.js), 105 of them.
-  reactions: DEFAULT_REACTION_LIST,
+  // The owner's own additions to the fixed core icons (server/default-lists.js): { id, classes, label }. Never the core
+  // ones themselves; store.allIcons() is the core, these, and the environment's template's.
+  icons: [],
+  // The owner's own additions to the fixed core reaction tray: id (also the data-channel payload), glyph (what's drawn),
+  // label (button title/alt). Never the core ones; the call's tray is lookOf(): the core's 105, these, then the template's.
+  reactions: [],
 };
 
 // A theme is a light and a dark set of colours, each keyed by the colour role it sets (public/sdk/system.css): the key IS the
@@ -560,6 +558,7 @@ function cleanAuthor(value) {
   return typeof value === 'string' ? cleanThemeText(value, 60) : '';
 }
 // The most themes one environment keeps (Thomas's decision, 2026-09-25); an import past it is refused.
+const THEME_ID = /^[a-z0-9-]{1,40}$/; // the shape of a theme id (a made one, or a shipped one)
 const MAX_THEMES = 100;
 
 function cleanColor(value) {
@@ -613,6 +612,17 @@ function cleanIcons(value) {
     out.push({ id, classes, label });
   }
   return out;
+}
+
+// The owner's own additions: what is left of a list once the fixed core set (server/default-lists.js) is taken out of it,
+// by id or, for a reaction, by glyph. Nothing here can hide or replace a core entry.
+function ownReactions(value) {
+  const list = cleanReactions(value) || [];
+  return list.filter((r) => !DEFAULT_REACTION_LIST.some((c) => c.id === r.id || c.glyph === r.glyph));
+}
+function ownIcons(value) {
+  const list = cleanIcons(value) || [];
+  return list.filter((i) => !DEFAULT_ICON_LIST.some((c) => c.id === i.id));
 }
 
 // Short, URL-safe, unambiguous: 8 lowercase letters and digits, no 0/o/1/l/i.
@@ -803,32 +813,14 @@ class Store {
       data.settings.activeThemeId = null;
       seededThemes = true;
     }
-    // Same once-only idea for the starter Font Awesome icons: a list saved
-    // before they existed keeps what it has and gains the starters up front.
-    // The starters were then the old 21 (OLD_DEFAULT_ICONS), so that is what
-    // it gains; a list that ends up exactly those moves on just below.
-    let seededIcons = false;
-    if (!data.settings.iconsSeeded) {
-      const have = Array.isArray(raw.settings?.icons) ? raw.settings.icons : [];
-      data.settings.icons = [...OLD_DEFAULT_ICONS.filter((d) => !have.some((i) => i.id === d.id)), ...have].map((i) => ({ ...i }));
-      data.settings.iconsSeeded = true;
-      seededIcons = true;
-    }
-    // Once each (GitHub #169): an environment still on exactly the old default reactions (the six, ids, glyphs and
-    // labels, in order) gets the curated set, and one on exactly the old 21 starter icons gets the curated icons. Judged
-    // separately; a list the owner (or a template) changed is kept as it is. The flag is set either way, so an owner
-    // who later picks the old six by hand keeps them.
-    let curatedLists = false;
-    if (!data.settings.reactionsCuratedSeeded) {
-      if (sameList(data.settings.reactions, OLD_DEFAULT_REACTIONS)) data.settings.reactions = structuredClone(DEFAULT_REACTION_LIST);
-      data.settings.reactionsCuratedSeeded = true;
-      curatedLists = true;
-    }
-    if (!data.settings.iconsCuratedSeeded) {
-      if (sameList(data.settings.icons, OLD_DEFAULT_ICONS)) data.settings.icons = structuredClone(DEFAULT_ICONS);
-      data.settings.iconsCuratedSeeded = true;
-      curatedLists = true;
-    }
+    // The owner's own reactions and icons are only additions to the fixed core set (plan-templates-redesign.md, decision 12):
+    // whatever a stored list repeats of the core, or that is not a reaction or icon, is dropped, so the core never lives in
+    // the settings and nothing in them hides one of it.
+    const ownReactionsBefore = JSON.stringify(raw.settings?.reactions ?? []);
+    const ownIconsBefore = JSON.stringify(raw.settings?.icons ?? []);
+    data.settings.reactions = ownReactions(raw.settings?.reactions);
+    data.settings.icons = ownIcons(raw.settings?.icons);
+    const trimmedLists = ownReactionsBefore !== JSON.stringify(data.settings.reactions) || ownIconsBefore !== JSON.stringify(data.settings.icons);
     // Once: environments made before the home icon was stored only as the owner's choice kept the default ("couch") as
     // if chosen, which hid a template's home icon after a switch. A stored default from then is not a choice; one
     // picked from now on is (the flag stays set, so an owner who picks the default later keeps it). An owner who
@@ -841,7 +833,7 @@ class Store {
     }
     // A host admin's stand-in stored with a sign-in of its own (dropped by sanitizeUser) is written back without it.
     const standInSignIn = Array.isArray(raw.users) && raw.users.some((u) => u && typeof u === 'object' && u.hostAdmin && (u.passwordHash || u.linkToken || u.mfa));
-    if (data.secrets.session !== raw.secrets?.session || data.secrets.stream !== raw.secrets?.stream || standInSignIn || !Array.isArray(raw.spaces) || seededThemes || seededIcons || clearedHomeIcon || curatedLists) {
+    if (data.secrets.session !== raw.secrets?.session || data.secrets.stream !== raw.secrets?.stream || standInSignIn || !Array.isArray(raw.spaces) || seededThemes || clearedHomeIcon || trimmedLists) {
       this.data = data;
       this.save();
     }
@@ -999,6 +991,9 @@ class Store {
       callPrefs: this.sanitizeCallPrefs(u.callPrefs),
       // Their own light or dark (GitHub #62); left off while they follow the environment's default mode.
       ...(u.themeMode === 'light' || u.themeMode === 'dark' ? { themeMode: u.themeMode } : {}),
+      // Their own theme (plan-templates-redesign.md, decision 13): the id of one of the environment's themes, left off while
+      // they follow the environment's. Read only through personTheme(), which also checks the theme is still there.
+      ...(typeof u.theme === 'string' && THEME_ID.test(u.theme) ? { theme: u.theme } : {}),
       // Their calendar feed's address (plan-google-calendar.md): only the SHA-256 of its token, never the token; left
       // off while they have none.
       ...(cleanCalendarFeed(u.calendarFeed) ? { calendarFeed: cleanCalendarFeed(u.calendarFeed) } : {}),
@@ -1090,8 +1085,19 @@ class Store {
     return typeof s.otherCalendars === 'boolean' ? s.otherCalendars : s.calendarFeeds === true;
   }
 
+  // Every icon the environment has: the fixed core set, the owner's own additions, then the additions of the template the
+  // environment reads (its `iconSet`). { id, classes, label } each, ids once.
+  allIcons() {
+    const out = DEFAULT_ICON_LIST.map((i) => ({ ...i }));
+    const add = (i) => { if (i && typeof i.id === 'string' && !out.some((o) => o.id === i.id)) out.push({ id: i.id, classes: i.classes, label: i.label }); };
+    for (const i of this.data.settings.icons || []) add(i);
+    const t = this.environmentTemplate();
+    for (const id of Array.isArray(t?.iconSet) ? t.iconSet : []) if (typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id)) add({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') });
+    return out;
+  }
+
   iconIds() {
-    return (this.data.settings.icons || []).map((i) => i.id);
+    return this.allIcons().map((i) => i.id);
   }
 
   // --- a space's own template (plan-space-templates.md) ---------------------------------------------------------------
@@ -1190,7 +1196,8 @@ class Store {
   //   labels, settings: { <module id>: {...} }, only for modules the template gives some to (step 3 supplies what a
   //          manifest lets a template set; templates.cleanTemplate keeps only those)
   //   call, workspace: the template's, as stored ({} when it gives none)
-  //   reactions, icons: the fixed core set (server/default-lists.js), then the template's additions; nothing removes one
+  //   reactions, icons: the fixed core set (server/default-lists.js), the owner's own additions (settings), then the template's
+  //          additions; nothing removes one, and a space has none of its own (the environment's and its template's are read)
   lookOf(id = null) {
     const place = typeof id === 'string' && id ? id : null;
     const { template: t, own } = this.lensTemplateOf(place);
@@ -1221,19 +1228,20 @@ class Store {
     // A copy: the template's own list is the catalog's, which no reader may change.
     const phases = structuredClone(own && isSpace ? (Array.isArray(t.phases) ? t.phases : []) : this.templatePhases);
     const measureFrom = own && isSpace ? t : this.environmentTemplate();
-    const additions = (list, core, same) => (Array.isArray(list) ? list.filter((x) => !core.some((c) => same(c, x))) : []);
-    const reactions = [
-      ...DEFAULT_REACTION_LIST.map((r) => ({ ...r })),
-      ...additions(t?.reactions, DEFAULT_REACTION_LIST, (c, x) => c.id === x?.id || c.glyph === x?.glyph)
-        .filter((r) => isPlainObject(r) && typeof r.id === 'string' && typeof r.glyph === 'string')
-        .map((r) => ({ id: r.id, glyph: r.glyph, label: typeof r.label === 'string' && r.label ? r.label : r.glyph })),
-    ];
-    const icons = [
-      ...DEFAULT_ICON_LIST.map((i) => ({ ...i })),
-      ...additions(t?.iconSet, DEFAULT_ICON_LIST, (c, x) => c.id === x)
-        .filter((i) => typeof i === 'string' && /^[a-z0-9-]{1,40}$/.test(i))
-        .map((i) => ({ id: i, classes: `fa-solid fa-${i}`, label: i.replace(/-/g, ' ') })),
-    ];
+    // The fixed core set first, then the owner's own additions, then the template's: a repeat of anything before it is
+    // left out, so no list has one twice and nothing changes or removes a core one.
+    const reactions = DEFAULT_REACTION_LIST.map((r) => ({ ...r }));
+    const addReaction = (r) => {
+      if (!isPlainObject(r) || typeof r.id !== 'string' || typeof r.glyph !== 'string') return;
+      if (reactions.some((c) => c.id === r.id || c.glyph === r.glyph)) return;
+      reactions.push({ id: r.id, glyph: r.glyph, label: typeof r.label === 'string' && r.label ? r.label : r.glyph });
+    };
+    for (const r of Array.isArray(this.data.settings.reactions) ? this.data.settings.reactions : []) addReaction(r);
+    for (const r of Array.isArray(t?.reactions) ? t.reactions : []) addReaction(r);
+    const icons = this.allIcons();
+    for (const id of Array.isArray(t?.iconSet) ? t.iconSet : []) {
+      if (typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id) && !icons.some((i) => i.id === id)) icons.push({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') });
+    }
     return {
       template: own ? t.id : null,
       words: this.wordsOf(place),
@@ -1335,7 +1343,7 @@ class Store {
   // environment's icons whose classes are exactly that, or any installed or built-in module's own icon.
   // A template's module icons count too: server/templates.js only takes Font Awesome Free solid icons.
   displayIconIds(spaceTemplate = null) {
-    const solid = (this.data.settings.icons || []).filter((i) => i.classes === `fa-solid fa-${i.id}`).map((i) => i.id);
+    const solid = this.allIcons().filter((i) => i.classes === `fa-solid fa-${i.id}`).map((i) => i.id);
     const of = (t) => (t && typeof t === 'object' ? Object.values(t) : []);
     const ofModules = (t) => (t && t.modules && typeof t.modules === 'object' ? Object.values(t.modules).map((m) => m && m.icon).filter((i) => typeof i === 'string') : []);
     return [...new Set([...solid, ...this.moduleIconIds(), ...of(this.templateModuleIcons), ...ofModules(spaceTemplate)])];
@@ -1590,14 +1598,9 @@ class Store {
     applyDimTint('offline');
     applyDimTint('aside');
     applyDimTint('private');
-    if (patch.reactions !== undefined) {
-      const reactions = cleanReactions(patch.reactions);
-      if (reactions) s.reactions = reactions;
-    }
-    if (patch.icons !== undefined) {
-      const icons = cleanIcons(patch.icons);
-      if (icons) s.icons = icons;
-    }
+    // The owner's own additions to the fixed core set: a save that repeats or leaves out a core one changes nothing of it.
+    if (patch.reactions !== undefined && Array.isArray(patch.reactions)) s.reactions = ownReactions(patch.reactions);
+    if (patch.icons !== undefined && Array.isArray(patch.icons)) s.icons = ownIcons(patch.icons);
     Object.assign(this.data.settings, s);
     if (clearWords) delete this.data.settings.words;
     if (clearSpaceDefaults) delete this.data.settings.spaceDefaults;
@@ -1703,15 +1706,18 @@ class Store {
     if (!theme) throw new StoreError('no such theme', 404);
     this.data.settings.themes = this.data.settings.themes.filter((t) => t.id !== id);
     if (this.data.settings.activeThemeId === id) this.data.settings.activeThemeId = null;
+    for (const u of this.data.users) if (u.theme === id) delete u.theme; // anyone who chose it follows the environment's again
     this.save();
     return theme;
   }
 
   // Both of the live theme's sets, for /theme.css to send at once (server/theme-css.js): { light, dark }, a theme
   // with only one set showing it in both modes. The default theme, when no saved theme is live, gives both of its sets.
-  activeThemeSets() {
+  // `personal`: a person's own theme id (personTheme) to show instead of the environment's.
+  activeThemeSets(personal = null) {
     const s = this.data.settings;
-    const theme = s.activeThemeId ? s.themes.find((t) => t.id === s.activeThemeId) : null;
+    const wanted = (personal && s.themes.some((t) => t.id === personal) ? personal : null) || s.activeThemeId;
+    const theme = wanted ? s.themes.find((t) => t.id === wanted) : null;
     if (!theme) return { light: this.defaultTheme.light, dark: this.defaultTheme.dark };
     return { light: theme.light || theme.dark || null, dark: theme.dark || theme.light || null };
   }
@@ -1726,6 +1732,27 @@ class Store {
     else user.themeMode = mode;
     this.save();
     return user.themeMode || null;
+  }
+
+  // A person's own theme (decision 13): the id of the theme they chose, or null while they follow the environment's. A
+  // theme the owner has since deleted reads as none.
+  personTheme(user) {
+    const id = user && typeof user.theme === 'string' ? user.theme : null;
+    return id && this.data.settings.themes.some((t) => t.id === id) ? id : null;
+  }
+
+  // Their own theme, chosen among the environment's themes (never free-form: an id from the list, or null to follow the
+  // environment's again, which leaves the key off the account). Answers the id now kept.
+  setPersonTheme(key, id) {
+    const user = this.userByKey(key);
+    if (!user) throw new StoreError('no such user', 404);
+    if (id !== null) {
+      if (typeof id !== 'string' || !this.data.settings.themes.some((t) => t.id === id)) throw new StoreError(`That theme is not one of this ${this.word('environment')}'s themes.`);
+    }
+    if (id === null) delete user.theme;
+    else user.theme = id;
+    this.save();
+    return user.theme || null;
   }
 
   // A user's video-box settings with the server defaults filled in.
