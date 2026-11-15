@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planner - Projects</title>
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<!--
+  The page and every piece of markup the script clones. The script fills a clone by hooks only:
+    [data-slot=name]   set its textContent (or hide it when there is no value)
+    [data-icon=name]   replace its content with host.ui.icon(name)
+  It sets no style of its own except the values a drawing needs (a bar's place and width, as custom properties). The host draws
+  the title, the toolbar row (the view switch), the "+" and the status line; #app is the content slot.
+-->
+<div id="app" class="app sdk-slot" hidden>
+  <main id="body" class="body">
+    <!-- Timeline: weeks across, work as bars, milestones as marks, the "waits on" lines; what has no day below -->
+    <section id="view-timeline" class="view" aria-label="Timeline" hidden>
+      <div class="tl-frame" id="tl-frame" tabindex="0" aria-label="Timeline, scrolls sideways">
+        <div class="tl-grid" id="tl-grid">
+          <div class="tl-head" id="tl-head"><div class="tl-corner"></div><div class="tl-weeks" id="tl-weeks"></div></div>
+          <div class="tl-rows" id="tl-rows"></div>
+          <svg class="tl-lines" id="tl-lines" aria-hidden="true"></svg>
+        </div>
+      </div>
+      <p class="hint" id="tl-none" hidden></p>
+      <div class="tl-undated" id="tl-undated" hidden>
+        <h2 class="tl-undated-title" id="tl-undated-title">Not scheduled</h2>
+        <div class="tl-undated-list" id="tl-undated-list"></div>
+      </div>
+    </section>
+
+    <!-- List: the outline (host.ui.outline), with the plan's progress above it -->
+    <section id="view-list" class="view" aria-label="List" hidden>
+      <div class="list-progress" id="list-progress"></div>
+      <div id="outline"></div>
+    </section>
+  </main>
+
+  <!-- an entry, in the editor window (host.ui.editor): a form for someone who may edit, read-only for anyone else -->
+  <dialog id="editor" class="sdk-editor">
+    <form id="form" class="sdk-form" novalidate>
+      <h3 id="editor-title">Add</h3>
+      <div class="sdk-hint" id="f-readonly" hidden></div>
+      <label class="sdk-field"><span class="sdk-label">Kind</span><select id="f-kind" name="kind"></select><span class="sdk-hint"></span></label>
+      <label class="sdk-field"><span class="sdk-label">Title</span><input id="f-title" name="title" type="text" maxlength="120" required autocomplete="off"><span class="sdk-hint"></span></label>
+      <div class="sdk-form-row" id="f-dates">
+        <div class="sdk-field sdk-m" role="group" aria-labelledby="f-start-label"><span class="sdk-label" id="f-start-label">Starts</span><input id="f-start" name="start" type="date" aria-labelledby="f-start-label"><span class="sdk-hint"></span></div>
+        <div class="sdk-field sdk-m" role="group" aria-labelledby="f-end-label" id="f-end-field"><span class="sdk-label" id="f-end-label">Ends</span><input id="f-end" name="end" type="date" aria-labelledby="f-end-label"><span class="sdk-hint"></span></div>
+      </div>
+      <div class="sdk-field" role="group" aria-labelledby="f-owners-label" id="f-owners-field">
+        <span class="sdk-label" id="f-owners-label"></span>
+        <div id="f-owners"></div>
+      </div>
+      <label class="sdk-field" id="f-parent-field"><span class="sdk-label" id="f-parent-label">Part of</span><select id="f-parent" name="parent"></select><span class="sdk-hint"></span></label>
+      <div class="sdk-field" role="group" aria-labelledby="f-waits-label" id="f-waits-field">
+        <span class="sdk-label" id="f-waits-label">Waits on</span>
+        <div class="sdk-choice-list" id="f-waits"></div>
+        <span class="sdk-hint" id="f-waits-note"></span>
+      </div>
+      <label class="sdk-field" id="f-phase-field"><span class="sdk-label">Phase</span><select id="f-phase" name="phase"></select><span class="sdk-hint"></span></label>
+      <div class="sdk-field" role="group" aria-labelledby="f-tags-label" id="f-tags-field">
+        <span class="sdk-label" id="f-tags-label">Tags</span>
+        <div class="sdk-choice-list" id="f-tags"></div>
+      </div>
+      <label class="sdk-choice-row" id="f-done-field"><input id="f-done" name="done" type="checkbox"><span id="f-done-label">Done</span></label>
+      <label class="sdk-field"><span class="sdk-label">Notes</span><textarea id="f-notes" name="notes" rows="3" maxlength="2000"></textarea><span class="sdk-hint"></span></label>
+      <div class="sdk-field" id="f-links-field" hidden>
+        <span class="sdk-label">Linked</span>
+        <div class="links" id="f-links"></div>
+      </div>
+      <div class="sdk-hint" id="f-by"></div>
+      <div class="sdk-form-error" id="f-error" role="alert" hidden></div>
+      <div class="sdk-editor-actions" id="f-actions">
+        <button class="btn btn-danger" type="button" id="f-delete" hidden>Delete</button>
+        <button class="btn btn-quiet" type="button" id="f-cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" id="f-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+</div>
+<div id="loading" class="msg" aria-busy="true"><div class="sdk-skel-list"><div class="sdk-skel sdk-skel-block"></div><div class="sdk-skel sdk-skel-block"></div><div class="sdk-skel sdk-skel-block"></div></div></div>
+<div id="msg" class="sdk-empty" hidden></div>
+
+<!-- ============================ templates ============================ -->
+
+<!-- an entry's line in the List (inside the outline's row) -->
+<template id="tpl-line">
+  <div class="line">
+    <button class="tick sdk-icon-btn btn-quiet btn-small" type="button" data-action="tick" hidden><span class="ic ring"></span></button>
+    <span class="kind-mark" data-slot="mark-wrap"><span class="ic" data-icon=""></span></span>
+    <span class="main">
+      <button class="title sdk-open" type="button" data-action="open"><span data-slot="title"></span></button>
+      <span class="sub" data-slot="sub"></span>
+      <span class="chips" data-slot="chips-wrap"></span>
+      <span class="linked" data-slot="linked-wrap"></span>
+    </span>
+    <span class="roll" data-slot="roll-wrap"></span>
+  </div>
+</template>
+
+<!-- one row of the Timeline: its name (stays on the left as the frame scrolls) and its track -->
+<template id="tpl-tl-row">
+  <div class="tl-row">
+    <button class="tl-label" type="button" data-action="open"><span class="ic" data-icon=""></span><span class="tl-name" data-slot="name"></span></button>
+    <div class="tl-track"><button class="tl-bar" type="button" data-action="open"><span class="tl-bar-text" data-slot="bar"></span></button></div>
+  </div>
+</template>
+
+<template id="tpl-state"><div class="sdk-empty"><span class="ic" data-icon="diagram-project"></span><h2 class="sdk-empty-title" data-slot="title"></h2><p class="sdk-empty-text" data-slot="text"></p><div class="sdk-empty-actions" data-slot="actions-wrap"></div></div></template>
+<template id="tpl-check"><label class="sdk-choice-row"><input type="checkbox"><span data-slot="name"></span></label></template>
+
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>

@@ -44,6 +44,7 @@ const EXPECT = {
   maps: { page: /Add a place.*(No map yet|Places)/, canvas: /Add a place.*Filter places/ },
   polls: { page: /New poll.*Where do we eat on the first night/, canvas: /New poll.*Where do we eat on the first night/, widget: /Need your vote.*Where do we eat on the first night/ },
   research: { canvas: /Search research/ },
+  schedule: { page: /works inside a/, canvas: /No plan yet.*Add a milestone/ }, // not in the Travel template: opened in a space on the Default template
   stream: { page: /Access key/ },
   todo: { page: TODO_IN_CALENDAR, canvas: TODO_IN_CALENDAR, widget: /Due soon.*Book the Sintra train/ }, // the page and the window are the Calendar's To-do panel while the Calendar is on
   travel: { page: /Itinerary works inside a/, canvas: /Add.*Days.*Bookings/ },
@@ -140,6 +141,15 @@ async function main() {
     for (const m of bundled) expect(installed.some((x) => x.id === m.id && x.enabled !== false), `${m.id} is not installed and enabled`);
     const nav = (await api('GET', '/api/modules/nav')).json?.modules || [];
     const forSpace = (await api('GET', `/api/modules/for-space?space=${S.ctx.trip}`)).json?.modules || [];
+    // The seeded trip is on the Travel template: every module that template lists must be on there, as before. Only a module the
+    // Travel template does not list (templates/travel.json) is opened in a space on the Default template, which lists every module
+    // (plan-templates-redesign.md decision 33), so it too opens in a space whose template lists it.
+    const travelListed = new Set(Object.keys(JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'travel.json'), 'utf8')).modules || {}));
+    const made = await api('POST', '/api/spaces', { name: 'Every module', template: 'default' });
+    expect(made.status < 300 && made.json?.space?.id, `making a space on the Default template answered ${made.status}: ${JSON.stringify(made.json)}`);
+    const everySpace = made.json?.space?.id || S.ctx.trip;
+    const forEvery = (await api('GET', `/api/modules/for-space?space=${everySpace}`)).json?.modules || [];
+    const spaceOf = {};
     const tiles = (await api('GET', '/api/modules/widgets')).json?.widgets || [];
 
     // What each module's manifest says it has, against what the server lists for it.
@@ -148,7 +158,16 @@ async function main() {
       const s = m.surfaces || {};
       const at = { id: m.id, name: m.name, page: false, canvas: false, widget: false };
       if (s.page && (m.scope || ['environment']).includes('environment') && nav.some((x) => x.id === m.id)) at.page = true;
-      if (s.canvas) { at.canvas = true; expect(forSpace.some((x) => x.id === m.id), `${m.id} declares a canvas but the space's list has none for it`); }
+      if (s.canvas) {
+        at.canvas = true;
+        if (travelListed.has(m.id)) {
+          spaceOf[m.id] = S.ctx.trip;
+          expect(forSpace.some((x) => x.id === m.id), `${m.id} declares a canvas and the Travel template lists it, but the trip's list has none for it`);
+        } else {
+          spaceOf[m.id] = everySpace;
+          expect(forEvery.some((x) => x.id === m.id), `${m.id} declares a canvas but the Default template space's list has none for it`);
+        }
+      }
       if (s.widget) { at.widget = true; expect(tiles.some((x) => x.id === m.id), `${m.id} declares a widget but the home page's list has none for it`); }
       const none = !s.page && !s.canvas && !s.widget && !s.destination && !s.keyed;
       at.none = none;
@@ -204,7 +223,7 @@ async function main() {
         if (!want) continue; // already failed above, by name
         for (const kind of ['page', 'canvas', 'widget']) if (at[kind]) expect(want[kind] instanceof RegExp, `${at.id} has a ${kind} but EXPECT has no regex for it (tools/check-module-load.mjs)`);
         if (at.page && want.page) await visit(size, `${at.id} page`, `/modules/${at.id}`, AREA, want.page);
-        if (at.canvas && want.canvas) await visit(size, `${at.id} canvas`, `/modules/${at.id}?space=${S.ctx.trip}&popout=1`, AREA, want.canvas);
+        if (at.canvas && want.canvas) await visit(size, `${at.id} canvas`, `/modules/${at.id}?space=${spaceOf[at.id]}&popout=1`, AREA, want.canvas);
       }
       // The widgets: the home page, once, each tile by itself.
       const tab = await open(size);

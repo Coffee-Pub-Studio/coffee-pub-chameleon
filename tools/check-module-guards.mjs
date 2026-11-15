@@ -89,13 +89,14 @@ await test('manifest: guards are read, and refused with a sentence', () => {
   for (const [raw, message] of bad) assert.throws(() => clean(raw), message, JSON.stringify(raw));
 });
 
-await test('manifest: every bundled module reads, guards and all; Polls, Budget, the Planner and Research declare theirs', () => {
+await test('manifest: every bundled module reads, guards and all; Polls, Budget, the Planner, Planner - Projects and Research declare theirs', () => {
   for (const id of fs.readdirSync(path.join(ROOT, 'modules'))) {
     const dir = path.join(ROOT, 'modules', id);
     if (!fs.existsSync(path.join(dir, 'module.json'))) continue;
     const raw = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
     const m = { guards: guards.cleanGuards(raw.guards, (raw.permissions || []).map((p) => p.key), ModuleError) };
     if (['polls', 'budget', 'research'].includes(id)) assert.ok(m.guards && m.guards.clear && m.guards.keys.length, `${id} has guards with keys`);
+    else if (id === 'schedule') assert.deepEqual(m.guards, { clear: 'clear', hidden: [], keys: [], exclusive: null, only: false }, 'schedule guards its Clear only');
     else if (id !== 'travel') assert.equal(m.guards, null, `${id} declares none`);
     if (id === 'travel') assert.deepEqual(m.guards.hidden, ['cost', 'estimate', 'confirm', 'paidBy']);
     if (id === 'budget') assert.deepEqual(m.guards.hidden, ['planned', 'actual', 'amount', 'paidBy', 'sharedBy']);
