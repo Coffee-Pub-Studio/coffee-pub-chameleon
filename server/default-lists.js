@@ -1,8 +1,8 @@
 'use strict';
 
-// The reaction tray and the Font Awesome icon list every environment starts with (GitHub #169: Thomas's curated
-// sets), and the lists that were the defaults before them, kept so Store#load can tell an environment still on them
-// (and move it to these once) from one whose owner changed them. server/store.js uses these; nothing else should.
+// The FIXED core reaction tray and Font Awesome icon list (GitHub #169: Thomas's curated sets; plan-templates-redesign.md,
+// decision 12). Every environment and every space has all of them and nothing removes one; an owner's own additions
+// (settings.reactions, settings.icons) and a template's (`reactions`, `iconSet`) come after them. server/store.js reads these.
 
 // The reaction tray: { id, glyph, label }, in order. The first six are the 1-6 shortcuts in the call.
 const DEFAULT_REACTION_LIST = [
@@ -138,28 +138,4 @@ function iconEntry(spec) {
 }
 const DEFAULT_ICON_LIST = DEFAULT_ICON_NAMES.map(iconEntry);
 
-// The defaults before #169, exactly as an environment stored them.
-const OLD_DEFAULT_REACTIONS = [
-  { id: 'heart', glyph: '❤️', label: 'Heart' },
-  { id: 'up', glyph: '👍', label: 'Thumbs up' },
-  { id: 'down', glyph: '👎', label: 'Thumbs down' },
-  { id: 'laugh', glyph: '😂', label: 'Laugh' },
-  { id: 'question', glyph: '❓', label: 'Question' },
-  { id: 'nat20', glyph: '🎲', label: 'Nat 20!' },
-];
-const OLD_STARTER_ICONS = [
-  'link', 'globe', 'gamepad', 'dice-d20', 'dice-d6', 'scroll', 'book',
-  'book-open', 'map', 'compass', 'music', 'headphones', 'video', 'tv',
-  'comments', 'wand-magic-sparkles', 'chess', 'users', 'house', 'star', 'couch',
-];
-const OLD_DEFAULT_ICONS = OLD_STARTER_ICONS.map(iconEntry);
-
-// Whether a stored list is exactly `old`: the same entries, field for field, in the same order (and nothing else on them).
-function sameList(stored, old) {
-  if (!Array.isArray(stored) || stored.length !== old.length) return false;
-  return stored.every((entry, i) => entry && typeof entry === 'object' && !Array.isArray(entry)
-    && Object.keys(entry).length === Object.keys(old[i]).length
-    && Object.keys(old[i]).every((k) => entry[k] === old[i][k]));
-}
-
-module.exports = { DEFAULT_REACTION_LIST, DEFAULT_ICON_NAMES, DEFAULT_ICON_LIST, OLD_DEFAULT_REACTIONS, OLD_STARTER_ICONS, OLD_DEFAULT_ICONS, sameList };
+module.exports = { DEFAULT_REACTION_LIST, DEFAULT_ICON_NAMES, DEFAULT_ICON_LIST };

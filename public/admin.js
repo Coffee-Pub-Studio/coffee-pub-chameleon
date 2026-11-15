@@ -1134,6 +1134,16 @@ function reactionRow(reaction) {
   return row;
 }
 
+// Manage edits the owner's OWN additions (settings.ownReactions / ownIcons); the core and the template's additions are
+// shown read-only above the rows, and never posted back.
+function renderFixed(settings) {
+  const own = (list, mine) => (list || []).filter((x) => !(mine || []).some((m) => m.id === x.id));
+  const rx = own(settings.reactions, settings.ownReactions);
+  const ic = own(settings.icons, settings.ownIcons);
+  $('reactions-fixed').textContent = `Always there: ${rx.length} reactions (the core set and the template's). ${rx.slice(0, 6).map((r) => r.glyph).join(' ')} ...`;
+  $('icons-fixed').textContent = `Always there: ${ic.length} icons (the core set and the template's).`;
+}
+
 function renderReactionRows(reactions) {
   const list = $('reactions-list');
   list.textContent = '';
@@ -1168,7 +1178,8 @@ $('save-reactions').addEventListener('click', async () => {
     .filter((r) => r.glyph);
   try {
     const { settings } = await api('PATCH', '/api/settings', { reactions });
-    renderReactionRows(settings.reactions);
+    renderReactionRows(settings.ownReactions);
+    renderFixed(settings);
     say($('reactions-status'), 'saved');
   } catch (err) {
     say($('reactions-status'), err.message, true);
@@ -1901,7 +1912,8 @@ $('save-icons').addEventListener('click', async () => {
     .filter((i) => i.classes);
   try {
     const { settings } = await api('PATCH', '/api/settings', { icons });
-    renderIconRows(settings.icons);
+    renderIconRows(settings.ownIcons);
+    renderFixed(settings);
     await loadBranding();
     tplFull.clear();
     renderTplPart(); // the home icon's choices are this list
@@ -2636,8 +2648,9 @@ async function init() {
     $('set-mfa-required').checked = Boolean(settings.mfaRequired);
     $('set-allow-registration').checked = Boolean(settings.allowRegistration);
     paintGuestDoor(settings);
-    renderReactionRows(settings.reactions);
-    renderIconRows(settings.icons);
+    renderReactionRows(settings.ownReactions);
+    renderIconRows(settings.ownIcons);
+    renderFixed(settings);
     renderSiteImages(settings);
     renderGuestImages(settings);
     renderDefaultImages(settings);

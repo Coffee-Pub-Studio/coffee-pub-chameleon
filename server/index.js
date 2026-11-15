@@ -1003,7 +1003,7 @@ function offerIsOpen(record, template, env = null) {
   // read, so a changed part the environment already has still shows as an offer until it is opened.
   if (!env?.modules) return templates.appliedPartsChanged(record, template);
   const offer = templates.offerFor(env, template, { ...templateOptions(env, env.slug), applied: record.applied || null });
-  return Boolean(offer.modules.length || offer.reactions || offer.iconSet || offer.lobby || offer.spaceDefaults);
+  return Boolean(offer.modules.length || offer.lobby || offer.spaceDefaults);
 }
 
 // Why a `template` a switch names can't be used (one sentence), or null: a template this environment can see and that
@@ -1054,14 +1054,14 @@ function templateAnswer(env, slug) {
 async function applyTemplateOffer(env, slug, body) {
   const b = body && typeof body === 'object' ? body : {};
   if (b.modules !== undefined && (!Array.isArray(b.modules) || b.modules.some((m) => typeof m !== 'string'))) throw new StoreError(`Name the ${env.store.word('module', { many: true })} to turn on as a list of their ids.`);
-  for (const key of ['lobby', 'spaceDefaults', 'reactions', 'iconSet']) if (b[key] !== undefined && typeof b[key] !== 'boolean') throw new StoreError(`${key} must be true or false.`);
+  for (const key of ['lobby', 'spaceDefaults']) if (b[key] !== undefined && typeof b[key] !== 'boolean') throw new StoreError(`${key} must be true or false.`);
   await env.templateReady;
   const record = env.store.templateRecord;
   if (!record) throw new StoreError(`This ${env.store.word('environment')} has no template to apply.`, 409);
   const template = templateFor(env, record.id);
   if (!template) throw new StoreError(`This server doesn't have the "${record.id}" template any more.`, 409);
   if (!offerIsOpen(record, template, env)) throw new StoreError('This template has already been applied.', 409);
-  const skipped = await templates.applyOffer(env, template, { modules: b.modules || [], lobby: b.lobby === true, spaceDefaults: b.spaceDefaults === true, reactions: b.reactions === true, iconSet: b.iconSet === true }, { ...templateOptions(env, slug), applied: record.applied || null });
+  const skipped = await templates.applyOffer(env, template, { modules: b.modules || [], lobby: b.lobby === true, spaceDefaults: b.spaceDefaults === true }, { ...templateOptions(env, slug), applied: record.applied || null });
   // Every part is recorded as seen, applied or passed over: it is offered again only when the template changes it.
   env.store.recordTemplate({ ...record, appliedAt: new Date().toISOString(), appliedVersion: template.version, applied: templates.partFingerprints(template), skipped });
   console.log(`${slug ? `[${slug}] ` : ''}Applied the "${template.id}" template's offer${skipped.length ? `; skipped ${skipped.map((x) => `${x.id} (${x.why})`).join(', ')}` : ''}.`);
@@ -1715,6 +1715,8 @@ function publicUser(req, u, opts = {}) {
     player: { ...u.player, effective: store.effectivePlayer(u) },
     callPrefs: u.callPrefs,
     themeMode: u.themeMode || null, // their own light or dark; null follows the environment's default (GitHub #62)
+    // Their own theme (an id of the environment's themes; null follows the environment's). Only ever the person's own.
+    ...(opts.self ? { theme: store.personTheme(u) } : {}),
     viewUrl: `${baseUrl(req)}/view/${u.key}`,
     createdAt: u.createdAt,
   };
@@ -1806,7 +1808,7 @@ function branding() {
   const s = store.settings;
   // The template's ordered phases, for the phase chip (plan-one-bar.md, step 3); [] with no template or none in it.
   const phases = (Array.isArray(store.templatePhases) ? store.templatePhases : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
-  return { environmentName: s.environmentName, productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, studio: studioView(STUDIO), hosted: Boolean(BASE_DOMAIN), words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases, spaceTemplates: store.spaceTemplatesOn(), homeIcon: store.homeIcon, templateHomeIcon: store.templateHomeIcon || null, loginText: s.loginText, language: s.language || 'en', clock: s.clock === '24' ? '24' : '12', currency: s.currency || 'USD', allowRegistration: Boolean(s.allowRegistration), guestDoor: guestDoorOn(), mfaOffered, mfaRequired: Boolean(s.mfaRequired), maxQuality: s.maxQuality || 720, allowScreenShare: s.allowScreenShare !== false, allowAsides: s.allowAsides !== false, allowPrivate: s.allowPrivate !== false, allowReactions: s.allowReactions !== false, conferenceEnabled: s.conferenceEnabled !== false, callService: HAS_CALL_SERVICE, autoJoinCall: s.autoJoinCall === true, activeThemeId: s.activeThemeId || null, themeMode: environmentThemeMode(), themeVersion: environmentThemeVersion(), hasIcon: !!store.iconPath(), hasBackground: !!store.siteImagePath('background'), version: VERSION, border: s.border, borderColor: s.borderColor, borderWidth: s.borderWidth || 6, mutedBorder: s.mutedBorder !== false, mutedColor: s.mutedColor || '#b8503f', plate: Boolean(s.plate), plateLayout: s.plateLayout || 'lower-left', plateColor: s.plateColor || '#000000', plateTextColor: s.plateTextColor || '#f1e6d8', plateFontSize: s.plateFontSize || 16, plateOpacity: s.plateOpacity ?? 60, plateTextCase: s.plateTextCase || 'default', charBorder: Boolean(s.charBorder), charBorderColor: s.charBorderColor || '#6fae6b', charMutedBorder: Boolean(s.charMutedBorder), charMutedColor: s.charMutedColor || '#b8503f', charBorderWidth: s.charBorderWidth || 6, pictureBackground: Boolean(s.pictureBackground), pictureColor: s.pictureColor || '#1a1410', pictureScale: s.pictureScale || 100, offlineDim: s.offlineDim ?? 0, offlineTint: s.offlineTint || '#000000', offlineTintOpacity: s.offlineTintOpacity ?? 0, asideDim: s.asideDim ?? 0, asideTint: s.asideTint || '#000000', asideTintOpacity: s.asideTintOpacity ?? 0, privateDim: s.privateDim ?? 0, privateTint: s.privateTint || '#000000', privateTintOpacity: s.privateTintOpacity ?? 0, reactions: Array.isArray(s.reactions) ? s.reactions : [], icons: Array.isArray(s.icons) ? s.icons : [], guestImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.guestImagePath(slot)])), defaultImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.defaultImagePath(slot)])) };
+  return { environmentName: s.environmentName, productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, studio: studioView(STUDIO), hosted: Boolean(BASE_DOMAIN), words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases, spaceTemplates: store.spaceTemplatesOn(), homeIcon: store.homeIcon, templateHomeIcon: store.templateHomeIcon || null, loginText: s.loginText, language: s.language || 'en', clock: s.clock === '24' ? '24' : '12', currency: s.currency || 'USD', allowRegistration: Boolean(s.allowRegistration), guestDoor: guestDoorOn(), mfaOffered, mfaRequired: Boolean(s.mfaRequired), maxQuality: s.maxQuality || 720, allowScreenShare: s.allowScreenShare !== false, allowAsides: s.allowAsides !== false, allowPrivate: s.allowPrivate !== false, allowReactions: s.allowReactions !== false, conferenceEnabled: s.conferenceEnabled !== false, callService: HAS_CALL_SERVICE, autoJoinCall: s.autoJoinCall === true, activeThemeId: s.activeThemeId || null, themeMode: environmentThemeMode(), themeVersion: environmentThemeVersion(), hasIcon: !!store.iconPath(), hasBackground: !!store.siteImagePath('background'), version: VERSION, border: s.border, borderColor: s.borderColor, borderWidth: s.borderWidth || 6, mutedBorder: s.mutedBorder !== false, mutedColor: s.mutedColor || '#b8503f', plate: Boolean(s.plate), plateLayout: s.plateLayout || 'lower-left', plateColor: s.plateColor || '#000000', plateTextColor: s.plateTextColor || '#f1e6d8', plateFontSize: s.plateFontSize || 16, plateOpacity: s.plateOpacity ?? 60, plateTextCase: s.plateTextCase || 'default', charBorder: Boolean(s.charBorder), charBorderColor: s.charBorderColor || '#6fae6b', charMutedBorder: Boolean(s.charMutedBorder), charMutedColor: s.charMutedColor || '#b8503f', charBorderWidth: s.charBorderWidth || 6, pictureBackground: Boolean(s.pictureBackground), pictureColor: s.pictureColor || '#1a1410', pictureScale: s.pictureScale || 100, offlineDim: s.offlineDim ?? 0, offlineTint: s.offlineTint || '#000000', offlineTintOpacity: s.offlineTintOpacity ?? 0, asideDim: s.asideDim ?? 0, asideTint: s.asideTint || '#000000', asideTintOpacity: s.asideTintOpacity ?? 0, privateDim: s.privateDim ?? 0, privateTint: s.privateTint || '#000000', privateTintOpacity: s.privateTintOpacity ?? 0, reactions: store.lookOf(null).reactions, icons: store.lookOf(null).icons, guestImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.guestImagePath(slot)])), defaultImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.defaultImagePath(slot)])) };
 }
 
 // What a space reads, as the pages and a guest's link paint it (lookOf): { words, verbs, phases, phaseMeasure, reactions,
@@ -1879,7 +1881,7 @@ function escapeXml(text) {
 // the page's tokens, so the server reads the theme's stored values (the bundled theme's when a set lacks one).
 function plateColours(person) {
   const mode = person?.themeMode || environmentThemeMode();
-  const set = store.activeThemeSets()[mode] || DEFAULT_THEME[mode] || {};
+  const set = store.activeThemeSets(store.personTheme(person))[mode] || DEFAULT_THEME[mode] || {};
   const fallback = DEFAULT_THEME[mode] || {};
   const pick = (k) => (/^#[0-9a-f]{6}$/i.test(set[k] || '') ? set[k] : fallback[k]);
   return { bg: pick('surface-page'), fg: pick('accent-fill') };
@@ -3799,7 +3801,7 @@ app.get('/theme.css', (req, res) => {
   // Both modes, each under its own <html data-theme-mode> (server/theme-css.js); a page without the attribute shows
   // the signed-in person's own mode, else the environment's default, so the first paint is already right.
   const person = currentUser(req);
-  res.send(themeCssLib.themeCss(env.store.activeThemeSets(), person?.themeMode || environmentThemeMode()));
+  res.send(themeCssLib.themeCss(env.store.activeThemeSets(env.store.personTheme(person)), person?.themeMode || environmentThemeMode()));
 });
 
 // A library module's share links (server/vault-share.js): the signed-in routes that make and turn them off, and the
@@ -4031,22 +4033,39 @@ app.get('/api/me', requireUser, (req, res) => {
   });
 });
 
-// The signed-in person's own account settings. So far only themeMode (GitHub #62): 'light' or 'dark', or null to
-// follow the environment's default mode again. Every field is checked before any is kept, so a refused save changes
-// nothing. The person's other open pages are told at once (the 'mode' event on /api/notifications/stream).
-const ME_FIELDS = ['themeMode'];
-app.patch('/api/me', requireUser, (req, res) => {
+// The signed-in person's own account settings: themeMode (GitHub #62), 'light' or 'dark', or null to follow the
+// environment's default mode again; and theme (plan-templates-redesign.md, decision 13), the id of one of the environment's
+// themes, or null to follow the environment's again. Only ever the caller's own account: the body names no person. Every
+// field is checked before any is kept, so a refused save changes nothing. The person's other open pages are told at once
+// (the 'mode' event on /api/notifications/stream). A guest has no account and no choice of theme: 403.
+const ME_FIELDS = ['themeMode', 'theme'];
+const guestsGetNoTheme = () => `${word('guest', { many: true, cap: true })} can't choose a theme.`;
+app.patch('/api/me', (req, res, next) => (!currentUser(req) && hasGuestAccess(req) ? res.status(403).json({ error: guestsGetNoTheme() }) : next()), requireUser, (req, res) => {
   const body = req.body;
   if (!body || typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'send the changes as JSON, such as {"themeMode":"dark"}' });
   const unknown = Object.keys(body).find((k) => !ME_FIELDS.includes(k));
-  if (unknown) return res.status(400).json({ error: `${unknown} can't be changed here` });
+  if (unknown) return res.status(400).json({ error: `${unknown.slice(0, 40)} can't be changed here` });
   if (!Object.keys(body).length) return res.status(400).json({ error: 'there is nothing to change' });
-  const { themeMode } = body;
-  if (themeMode !== null && themeMode !== 'light' && themeMode !== 'dark') return res.status(400).json({ error: `the mode is light or dark, or null to follow the ${word('environment')}'s default` });
+  const has = (k) => Object.hasOwn(body, k);
+  if (has('themeMode') && body.themeMode !== null && body.themeMode !== 'light' && body.themeMode !== 'dark') return res.status(400).json({ error: `the mode is light or dark, or null to follow the ${word('environment')}'s default` });
+  // An id from the environment's own list, never anything else: no colours, no CSS and no address is read from the body.
+  if (has('theme') && body.theme !== null && (typeof body.theme !== 'string' || !store.themes.some((t) => t.id === body.theme))) return res.status(400).json({ error: `That theme is not one of this ${word('environment')}'s themes.` });
   const user = currentUser(req);
-  const mode = store.setThemeMode(user.key, themeMode);
-  themeEvents.emit('mode', { userKey: user.key, themeMode: mode });
+  const mode = has('themeMode') ? store.setThemeMode(user.key, body.themeMode) : (user.themeMode || null);
+  const theme = has('theme') ? store.setPersonTheme(user.key, body.theme) : store.personTheme(user);
+  themeEvents.emit('mode', { userKey: user.key, themeMode: mode, theme });
   res.json({ user: publicUser(req, store.userByKey(user.key), { self: true }), themeMode: environmentThemeMode() });
+});
+
+// The themes a person may choose from, for their own choice: { themes: [{ id, name }], theme, environmentTheme }, where `theme`
+// is theirs (null: the environment's) and `environmentTheme` the environment's (null: the product's own). Names and ids only
+// (the colours come through /theme.css). Not for a guest: 403.
+app.get('/api/me/themes', (req, res, next) => (!currentUser(req) && hasGuestAccess(req) ? res.status(403).json({ error: guestsGetNoTheme() }) : next()), requireUser, (req, res) => {
+  res.set('Cache-Control', 'no-store').json({
+    themes: store.themes.map((t) => ({ id: t.id, name: t.name })),
+    theme: store.personTheme(currentUser(req)),
+    environmentTheme: store.settings.activeThemeId || null,
+  });
 });
 
 // Enrolment (documentation/plans/plan-mfa.md): for the signed-in person, or -- with no session yet -- whoever
@@ -11453,7 +11472,7 @@ app.get('/api/notifications/stream', requireUser, (req, res) => {
   // GitHub #62: the owner's theme changed (everyone re-fetches /theme.css), or this person picked light or dark on
   // another page or device (this page sets <html data-theme-mode> to match).
   const onTheme = listenIn(env, (t) => sseWrite(res, `event: theme\ndata: ${JSON.stringify(t)}\n\n`));
-  const onMode = listenIn(env, ({ userKey, themeMode }) => { if (userKey === key) sseWrite(res, `event: mode\ndata: ${JSON.stringify({ themeMode })}\n\n`); });
+  const onMode = listenIn(env, ({ userKey, themeMode, theme }) => { if (userKey === key) sseWrite(res, `event: mode\ndata: ${JSON.stringify({ themeMode, theme: theme ?? null })}\n\n`); });
   themeEvents.on('theme', onTheme);
   themeEvents.on('mode', onMode);
   // The module list changed: a bare event; the page asks again for the modules this person may use here.
@@ -12092,7 +12111,7 @@ app.get('/api/currencies', requireUser, (_req, res) => res.json({ currencies: cu
 // calendarFeeds until an owner sets it); `publishedCalendarFeed`: { on, made, readAt }, the published calendar's one
 // address as it stands (plan-space-calendars.md, section 2), never its hash. `topBarReasons`: { calendar, map }, why
 // each cannot show whatever its switch (one sentence), or null.
-const ownerSettings = () => ({ ...branding(), guestDoorHost: hostGuestDoorOn(), guestDoorOpen: guestDoorHasOpenSpace(), guestHours: currentEnvironment().guestLimits.hours, ownWords: store.ownWords(), ownHomeIcon: store.settings.homeIcon || null, template: templateView(store, currentEnvironment()), templateWords: store.templateWordsView(), templateHomeIcon: store.templateHomeIcon || null, spaceDefaults: store.settings.spaceDefaults || null, showCalendar: store.settings.showCalendar === true, showMap: store.settings.showMap === true, calendarFeeds: store.settings.calendarFeeds === true, otherCalendars: store.otherCalendarsOn(), publishedCalendar: store.settings.publishedCalendar === true, publishedCalendarFeed: feedView(store.publishedCalendarFeed), topBarReasons: destinationReasons() });
+const ownerSettings = () => ({ ...branding(), guestDoorHost: hostGuestDoorOn(), guestDoorOpen: guestDoorHasOpenSpace(), guestHours: currentEnvironment().guestLimits.hours, ownWords: store.ownWords(), ownHomeIcon: store.settings.homeIcon || null, ownReactions: store.settings.reactions, ownIcons: store.settings.icons, template: templateView(store, currentEnvironment()), templateWords: store.templateWordsView(), templateHomeIcon: store.templateHomeIcon || null, spaceDefaults: store.settings.spaceDefaults || null, showCalendar: store.settings.showCalendar === true, showMap: store.settings.showMap === true, calendarFeeds: store.settings.calendarFeeds === true, otherCalendars: store.otherCalendarsOn(), publishedCalendar: store.settings.publishedCalendar === true, publishedCalendarFeed: feedView(store.publishedCalendarFeed), topBarReasons: destinationReasons() });
 app.get('/api/settings', requireOwner, (_req, res) => res.json({ settings: ownerSettings(), streamKey: store.streamKey }));
 // `template` (an id) switches the environment's template (the switching addendum): taken out of the body before the
 // settings; an unknown one refuses the whole change. With it, the answer also carries `template` and `offer`.
@@ -12309,7 +12328,10 @@ app.get('/api/themes', requireOwner, (_req, res) => res.json({ themes: store.the
 app.post('/api/themes', requireOwner, (req, res) => res.json({ theme: store.addTheme(req.body || {}) }));
 app.patch('/api/themes/:id', requireOwner, (req, res) => res.json({ theme: watchTheme(() => store.updateTheme(req.params.id, req.body || {})) }));
 app.delete('/api/themes/:id', requireOwner, (req, res) => {
+  // Everyone who had chosen this theme falls back to the environment's: tell each one's open pages now (the 'mode' event).
+  const chosen = store.users.filter((u) => u.theme === req.params.id).map((u) => u.key);
   watchTheme(() => store.removeTheme(req.params.id));
+  for (const key of chosen) themeEvents.emit('mode', { userKey: key, themeMode: store.userByKey(key)?.themeMode || null, theme: null });
   res.json({ ok: true });
 });
 // A theme as a file (documentation/plans/plan-themes.md; server/theme-file.js). Export: any theme, or `default` for

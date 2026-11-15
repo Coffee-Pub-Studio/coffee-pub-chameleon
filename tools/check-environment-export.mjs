@@ -58,7 +58,7 @@ function seededApp(secrets = strong) {
     users: [
       {
         key: 'ownerkey', login: 'owner', displayName: 'Owner', role: 'owner', passwordHash: `scrypt$${hex(16)}`, linkToken: token(24), mfa,
-        images: { profile: 'profile.png' }, player: {}, callPrefs: { gain: 120 }, themeMode: 'light', createdAt: '2026-01-01T00:00:00.000Z',
+        images: { profile: 'profile.png' }, player: {}, callPrefs: { gain: 120 }, themeMode: 'light', theme: 'strong-coffee', createdAt: '2026-01-01T00:00:00.000Z',
         calendarFeed: feed(),
         externalCalendars: [{ id: 'cal1', name: 'Work', url: `aesgcm$${hex(24)}`, readAt: null, error: null }],
         // What they agreed to (server/agreements.js): left out of the copy, so everyone is asked again after a restore of it.

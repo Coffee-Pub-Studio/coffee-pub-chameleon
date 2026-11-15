@@ -41,7 +41,7 @@ const LAYOUTS_FILE = 'layouts.json';
 const APP_FIELDS = ['version', 'migrations', 'template', 'templateHistory', 'templates', 'settings', 'users', 'spaces', 'asides'];
 const APP_LEFT_OUT = ['secrets', 'invites'];
 // A person (Store#sanitizeUser).
-const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'createdAt'];
+const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'createdAt'];
 const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed'];
 // A person's own record for one space (user.spaces[<space id>]).
 const USER_SPACE_FIELDS = ['images', 'useDefaultImages', 'permissions', 'joined'];
@@ -54,7 +54,7 @@ const ASIDE_FIELDS = ['id', 'members', 'origin', 'private', 'createdAt'];
 // The settings: every default one, the once-only flags load() sets, and those stored only while set.
 const SETTINGS_FIELDS = [
   ...Object.keys(DEFAULT_SETTINGS),
-  'builtinThemesSeeded', 'iconsSeeded', 'reactionsCuratedSeeded', 'iconsCuratedSeeded', 'homeIconChoiceSeeded',
+  'builtinThemesSeeded', 'homeIconChoiceSeeded',
   'words', 'spaceDefaults', 'otherCalendars', 'spaceTemplates',
 ];
 const SETTINGS_LEFT_OUT = ['publishedCalendarFeed'];
