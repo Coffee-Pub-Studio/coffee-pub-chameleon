@@ -190,7 +190,7 @@ other nine modules have no `test/` folder, so their checks live in `tools/check-
 | Settings, Manage, templates | [plan-setup-panel](plan-setup-panel.md) and [plan-environment-templates](plan-environment-templates.md) built; [plan-space-templates](plan-space-templates.md) draft | #202, #214, #266, #267, #291, #333 | owner-set layouts (#266, #267); every overridable word listed (#333) |
 | Design system | [plan-design-system](plan-design-system.md), [plan-design-system-approval](plan-design-system-approval.md) | #249, #371, #492, #683 | the restyle with the product site's system (#683, "plan first") |
 | Product site, name, licensing | [plan-product-site](plan-product-site.md) built; [plan-rename-chameleon](plan-rename-chameleon.md) drafted | #426, #72, #49 | the name is half done (known issue: "The logo still reads the old name"); the licence lock (#72) |
-| Checks and documents | `package.json`'s `check` script runs 161 distinct tool scripts, plus the module tests | #686, #402, #764 | a failing check on main (#686); a flaky one (#402); the known failures in `CLAUDE.md` |
+| Checks and documents | `package.json`'s `check` script runs 161 distinct tool scripts, plus the module tests | #686, #798, #849, #402, #764 | three failing checks on main (#686 `check-module-guards`, #798 `check-conformance`, #849 `check-destinations`, filed after the 2026-11-14 list); a flaky one (#402); the known failures in `CLAUDE.md` |
 
 ### Open issues (the 2026-11-14 list, 146 open): a draft gating table
 
@@ -221,7 +221,9 @@ High confidence, 22:
 | #72 | 6 | The licence lock and the About page; a licence must exist first. | Release work for the licence (decision 13). |
 | #780 | 6 | Re-check every licence and attribution before a public release. | Part of the licence inventory (Track 4). |
 | #426 | 4, 7 | The product's name; a rename changes ids and words. | Finished before the freeze (decision 14). |
-| #686 | 5 | A live check fails on main. | Release step 4. |
+| #686 | 5 | A live check fails on main (`check-module-guards`). | Release step 4. |
+| #798 | 5 | `check-conformance` fails on main (a padding symmetry at 390 pixels in dark mode). | Release step 4. |
+| #849 | 5 | `check-destinations` fails on main. | Release step 4. Filed after the 2026-11-14 list. |
 | #402 | 5 | A check cannot clean up after itself (`ENOTEMPTY`). | Release step 4. |
 | #764 | 5 | `check-setup-tabs` fails when the machine is busy. | Release step 4. |
 | #29 | 3, 5 | The canvas and layout were never tried in a real call. | The real call (decisions 16 and 22), step 10. |
@@ -598,7 +600,7 @@ A proposal. Every step is a gate. The number and the rule change are decided; th
 2. **Version.** `package.json` says `0.4.0` today, and the CHANGELOG's `[Unreleased]` section holds everything since
    (the entry for #629 to #715 says it was written afterwards from the code). The release number is `1.0.0` (decision 4). Every module keeps its own version in `tools/module-versions.json`.
 3. **Changelog.** content-manager writes the release entry from the commits and checks it against the code.
-4. **Checks.** `npm run check` green on a clean machine, with the known failures resolved (#686, #402, #764). The two
+4. **Checks.** `npm run check` green on a clean machine, with the known failures resolved (#686, #798, #849, #402, #764). The two
    root-only `check-names` cases are a known note, not a defect.
 5. **Image.** `.github/workflows/image.yml` builds `ghcr.io/drowbe/coffee-pub-collaborator` (the repository is named
    Chameleon now; whether the image is renamed is the rename plan's question). Tag the image with the release number;
