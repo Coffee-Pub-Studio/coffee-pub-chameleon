@@ -368,15 +368,15 @@ try {
     assert.deepEqual([lobby.name, lobby.description], ['Common room', 'Everyone in every campaign.']);
     const mods = (await asOwner('GET', '/api/modules')).json.modules;
     const on = (id) => mods.find((m) => m.id === id)?.enabled === true;
-    for (const id of ['travel', 'calendar', 'polls', 'todo']) assert.equal(on(id), true, `${id} on`);
+    for (const id of ['calendar', 'polls', 'todo']) assert.equal(on(id), true, `${id} on`);
     for (const id of ['whiteboard']) assert.equal(on(id), false, `${id} off`);
     assert.equal(on('assistant'), true, 'assistant on');
     const campaign = await asOwner('POST', '/api/spaces', { name: 'The Ashen Crown' });
     assert.equal(campaign.status, 200, campaign.text);
     assert.equal(campaign.json.space.profile, 'roleplaying');
     const inside = (await asOwner('GET', `/api/modules/for-space?space=${campaign.json.space.id}`)).json.modules;
-    const shown = Object.fromEntries(inside.filter((m) => ['travel', 'calendar', 'todo'].includes(m.id)).map((m) => [m.id, [m.name, m.icon]]));
-    assert.deepEqual(shown.travel, ['Campaign planner', 'scroll']);
+    const shown = Object.fromEntries(inside.filter((m) => ['calendar', 'todo'].includes(m.id)).map((m) => [m.id, [m.name, m.icon]]));
+    assert.deepEqual(inside.filter((m) => m.id === 'schedule').map((m) => m.name), ['Campaign']);
     assert.deepEqual([shown.calendar[0], shown.todo[0]], ['Sessions', 'Quests']);
     const home = (await asOwner('GET', '/api/modules/for-space?space=lobby')).json;
     assert.deepEqual(home.opensWith, ['chat', 'calendar']);

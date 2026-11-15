@@ -2,7 +2,7 @@
   "id": "mentoring",
   "name": "Mentoring",
   "description": "Grow with a mentor: goals, next steps, check-ins and a meeting log.",
-  "version": 1,
+  "version": 2,
   "words": {
     "space": {
       "one": "mentorship",
@@ -21,6 +21,19 @@
     "description": "Everyone in every mentorship."
   },
   "modules": {
+    "goals": {
+      "name": "Development plan",
+      "labels": {
+        "owner": {
+          "one": "mentee",
+          "many": "mentees"
+        }
+      },
+      "settings": {
+        "dates": "optional",
+        "progressBy": "steps"
+      }
+    },
     "todo": {
       "name": "Next steps",
       "settings": {
@@ -123,6 +136,7 @@
   },
   "workspace": {
     "opensWith": [
+      "goals",
       "todo",
       "documents",
       "chat"

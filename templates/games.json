@@ -2,7 +2,7 @@
   "id": "games",
   "name": "Games",
   "description": "Run a campaign together: the chat, the calendar for sessions, a campaign planner, quests, lore and polls, and every player as an OBS source.",
-  "version": 5,
+  "version": 6,
   "words": {
     "space": {
       "one": "campaign",
@@ -21,9 +21,52 @@
     "description": "Everyone in every campaign."
   },
   "modules": {
-    "travel": {
-      "name": "Campaign planner",
-      "icon": "scroll"
+    "schedule": {
+      "name": "Campaign",
+      "labels": {
+        "milestone": {
+          "one": "session",
+          "many": "sessions"
+        },
+        "work": {
+          "one": "scene",
+          "many": "scenes"
+        },
+        "tag": {
+          "one": "story thread",
+          "many": "story threads"
+        }
+      },
+      "settings": {
+        "datesRequired": false,
+        "dependencies": false,
+        "tags": [
+          {
+            "id": "mainquest",
+            "label": "Main quest",
+            "icon": "scroll",
+            "color": "#3b82f6"
+          },
+          {
+            "id": "villain",
+            "label": "The villain",
+            "icon": "skull",
+            "color": "#ef4444"
+          },
+          {
+            "id": "mystery",
+            "label": "Mystery",
+            "icon": "magnifying-glass",
+            "color": "#8b5cf6"
+          },
+          {
+            "id": "side",
+            "label": "Side story",
+            "icon": "compass",
+            "color": "#22c55e"
+          }
+        ]
+      }
     },
     "maps": {},
     "research": {

@@ -141,20 +141,29 @@ try {
     assert.equal(t.phaseMeasure, 'dates');
     const g = templates.get('games');
     assert.deepEqual(g.words, { space: { one: 'campaign', many: 'campaigns' }, member: { one: 'player', many: 'players' } }, 'Games loses group, game master and whisper (decisions 5 and 32)');
-    assert.deepEqual(g.modules.travel, { name: 'Campaign planner', icon: 'scroll' });
+    assert.equal(Object.hasOwn(g.modules, 'travel'), false, 'Games has the Schedule outline, not the Planner (decision 42)');
     assert.deepEqual([g.modules.calendar.name, g.modules.todo.name, g.modules.research.name, g.modules.vault], ['Sessions', 'Quests', 'Lore', {}]);
     assert.deepEqual(g.workspace, { opensWith: ['chat', 'calendar'], show: ['calendar', 'map'], opensFirst: 'workspace' });
   });
 
-  await test('step 15: the shipped templates (Project, Learning, Mentoring, Games) hold what the plan lists; the Vault keeps its own name, Vault, in each; nothing names a planner that is not built yet', () => {
+  await test('step 15: the shipped templates (Project, Learning, Mentoring, Games) hold what the plan lists; the Vault keeps its own name, Vault, in each; each lists its own planner (decisions 42 and 43)', () => {
     for (const id of ['travel', 'games', 'project', 'learning', 'mentoring']) {
       const t = templates.get(id);
       assert.deepEqual(t.modules.vault, {}, id);
       assert.deepEqual(t.call, { joinOnEntry: false, position: 'top', layout: 'grid' }, id);
       assert.equal(Object.keys(t.modules).slice(-2).join(), 'chat,conference', id);
-      for (const planner of ['schedule', 'goals']) assert.equal(Object.hasOwn(t.modules, planner), false, `${id}: ${planner} waits for its module`);
+      const planners = Object.keys(t.modules).filter((m) => ['travel', 'schedule', 'goals'].includes(m));
+      assert.deepEqual(planners, { travel: ['travel'], games: ['schedule'], project: ['schedule'], learning: ['goals'], mentoring: ['goals'] }[id], `${id} lists its own planner, and only that one`);
     }
     const p = templates.get('project');
+    assert.deepEqual([p.modules.schedule, p.workspace.opensWith], [{ name: 'Project plan', settings: { datesRequired: true, dependencies: true } }, ['schedule', 'todo', 'chat']]);
+    const gs = templates.get('games').modules.schedule;
+    assert.deepEqual([gs.name, gs.settings.datesRequired, gs.settings.dependencies, gs.labels.milestone.one, gs.labels.work.one, gs.labels.tag.one, gs.settings.tags.length > 0], ['Campaign', false, false, 'session', 'scene', 'story thread', true]);
+    for (const [id, name] of [['learning', 'Learning plan'], ['mentoring', 'Development plan']]) {
+      const l = templates.get(id);
+      assert.deepEqual([l.modules.goals.name, l.modules.goals.settings, l.workspace.opensWith], [name, { dates: 'optional', progressBy: 'steps' }, ['goals', 'todo', 'documents', 'chat']], id);
+    }
+    assert.deepEqual(templates.get('mentoring').modules.goals.labels, { owner: { one: 'mentee', many: 'mentees' } });
     assert.deepEqual([p.words.space.one, p.icons.home, p.modules.budget.name, p.modules.todo.settings, p.phases.map((x) => x.id), p.phaseMeasure], ['project', 'diagram-project', 'Effort', { inCalendar: true }, ['start', 'build', 'wrap'], 'dates']);
     assert.deepEqual(p.starterSpaces, [{ name: 'Your first project', description: 'A place to try things.' }]);
     assert.deepEqual([templates.get('learning').modules.calendar.labels.event.one, templates.get('learning').modules.maps.labels.place.one, templates.get('learning').phaseMeasure], ['session', 'visit', 'goals']);
@@ -401,7 +410,7 @@ try {
     const t = templates.get('games');
     templates.useLive(env.store, t);
     assert.deepEqual([env.store.resolvedWords().space.one, env.store.resolvedWords().member.one, env.store.resolvedWords().home.one], ['campaign', 'player', 'Campaigns']);
-    assert.deepEqual(env.store.moduleDisplay('travel'), { name: 'Campaign planner', icon: 'scroll', ownName: null, ownIcon: null, templateName: 'Campaign planner', templateIcon: 'scroll' });
+    assert.equal(env.store.moduleDisplay('schedule').name, 'Campaign');
     assert.equal(env.store.homeIcon, 'dice-d20');
     templates.useLive(env.store, templates.cleanTemplate(minimal({ home: { one: 'Base camps', many: 'Base camps' } })));
     assert.equal(env.store.resolvedWords().home.one, 'Base camps', 'the template\'s Home word');

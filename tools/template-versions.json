@@ -4,20 +4,20 @@
     "fingerprint": "60581f0eec0832c0"
   },
   "games": {
-    "version": 5,
-    "fingerprint": "8c1890ebe5c3311b"
+    "version": 6,
+    "fingerprint": "0b035d03ce3e02be"
   },
   "learning": {
-    "version": 1,
-    "fingerprint": "2f8b1cb86ff1aff5"
+    "version": 2,
+    "fingerprint": "fed153211b44332e"
   },
   "mentoring": {
-    "version": 1,
-    "fingerprint": "5de52b2efb7e5c66"
+    "version": 2,
+    "fingerprint": "409681aa18118d59"
   },
   "project": {
-    "version": 1,
-    "fingerprint": "1fe1e66bde9d9ae8"
+    "version": 2,
+    "fingerprint": "8e01636686ab23fb"
   },
   "travel": {
     "version": 13,
