@@ -925,6 +925,581 @@
     return api;
   }
 
+  // ---- The shared outline pieces (plan-templates-redesign.md, "The shared outline pieces") ----------------------------------------
+  // host.util.order, host.util.rollup, host.ui.progress, host.ui.peoplePicker and host.ui.outline. They never write data and never
+  // call the host for anything but icons and the people of the space; every piece of text a person typed goes in with textContent.
+  // The pure parts (order keys, the tree, the moves, the rollup) sit between the markers below so tools/check-outline.mjs can
+  // slice them out of this file and run them in Node; the pieces that draw (createOutline and the rest) are tried in Chromium.
+  // outline:start
+  // An order key: a short string of 0-9, A-Z and a-z that sorts (by character code) between its two neighbours. Nothing is
+  // renumbered when two people insert at once: each makes a key between the same two neighbours, the two keys may be equal, and
+  // the outline lists equal keys by id, so every screen shows the same order. Keys never end in "0", so there is always room
+  // between two of them.
+  const ORDER_DIGITS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+  const ORDER_KEY = /^[0-9A-Za-z]{1,200}$/;
+  const orderDigit = (i) => ORDER_DIGITS[i];
+  const orderIndex = (c) => ORDER_DIGITS.indexOf(c);
+  // A key strictly between a ('' is the start) and b (null is the end), with a < b and no key ending in "0". After the last key and
+  // before the first it steps one character (so a long list of adds at either end stays short); between two it takes the middle.
+  function orderMid(a, b) {
+    if (b === null) {
+      if (!a) return orderDigit(ORDER_DIGITS.length >> 1);
+      const i = orderIndex(a[0]);
+      return i < ORDER_DIGITS.length - 1 ? orderDigit(i + 1) : a[0] + orderMid(a.slice(1), null);
+    }
+    let n = 0;
+    while ((a[n] || '0') === b[n]) n += 1;
+    if (n > 0) return b.slice(0, n) + orderMid(a.slice(n), b.slice(n));
+    const da = a ? orderIndex(a[0]) : 0;
+    const db = orderIndex(b[0]);
+    if (!a && db > 1) return orderDigit(db - 1);
+    if (db - da > 1) return orderDigit(Math.round((da + db) / 2));
+    if (b !== null && b.length > 1) return b.slice(0, 1);
+    return orderDigit(da) + orderMid(a.slice(1), null);
+  }
+  function outlineOrder(before, after) {
+    const a = before === undefined || before === null || before === '' ? '' : before;
+    const b = after === undefined || after === null || after === '' ? null : after;
+    const bad = (k) => typeof k !== 'string' || !ORDER_KEY.test(k) || k.endsWith('0');
+    if (a !== '' && bad(a)) throw new RangeError('host.util.order: the key before is not an order key');
+    if (b !== null && bad(b)) throw new RangeError('host.util.order: the key after is not an order key');
+    if (b !== null && a >= b) throw new RangeError('host.util.order: the key before must sort before the key after');
+    const key = orderMid(a, b);
+    if (key.length > 200) throw new RangeError('host.util.order: the key would be longer than 200 characters');
+    return key;
+  }
+
+  // The entries as a tree: [{ id, parent?, order?, done? ... }] (`id` a non-empty string; a `parent` that is not an entry, is itself
+  // or makes a loop reads as no parent; a repeated id keeps the first). Siblings sort by `order` (strings by character code,
+  // numbers by value, none last), then by id. Returns { roots, byId, list } of nodes { id, entry, parent, children, level }.
+  function outlineCompare(a, b) {
+    const x = a.entry.order;
+    const y = b.entry.order;
+    const kind = (v) => (typeof v === 'number' && Number.isFinite(v) ? 0 : typeof v === 'string' ? 1 : 2);
+    const ka = kind(x);
+    const kb = kind(y);
+    if (ka !== kb) return ka - kb;
+    if (ka < 2 && x !== y) return x < y ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  }
+  function outlineTree(entries) {
+    const byId = new Map();
+    for (const e of Array.isArray(entries) ? entries : []) {
+      if (!e || typeof e !== 'object' || typeof e.id !== 'string' || !e.id || byId.has(e.id)) continue;
+      byId.set(e.id, { id: e.id, entry: e, parent: null, children: [], level: 1 });
+    }
+    for (const node of byId.values()) {
+      const pid = node.entry.parent;
+      node.parent = typeof pid === 'string' && pid && pid !== node.id ? byId.get(pid) || null : null;
+    }
+    // A loop of parents: walk up from each entry once, marking what is on the walk (1) and what is known to end at the top (2); meeting
+    // an entry on the same walk is a loop, and that entry lets go of its parent. Every entry is walked once: linear.
+    const mark = new Map();
+    for (const start of byId.values()) {
+      if (mark.has(start)) continue;
+      const path = [];
+      let p = start;
+      while (p && !mark.has(p)) { mark.set(p, 1); path.push(p); p = p.parent; }
+      if (p && mark.get(p) === 1) p.parent = null;
+      for (const q of path) mark.set(q, 2);
+    }
+    const roots = [];
+    for (const node of byId.values()) (node.parent ? node.parent.children : roots).push(node);
+    roots.sort(outlineCompare);
+    const list = [];
+    const stack = roots.slice().reverse();
+    for (const r of roots) r.level = 1;
+    while (stack.length) {
+      const node = stack.pop();
+      list.push(node);
+      node.children.sort(outlineCompare);
+      for (const c of node.children) c.level = node.level + 1;
+      for (let i = node.children.length - 1; i >= 0; i -= 1) stack.push(node.children[i]);
+    }
+    return { roots, byId, list };
+  }
+  // How many levels a node's subtree takes, itself included.
+  function outlineHeight(node) {
+    let most = 1;
+    const stack = [[node, 1]];
+    while (stack.length) {
+      const [n, h] = stack.pop();
+      if (h > most) most = h;
+      for (const c of n.children) stack.push([c, h + 1]);
+    }
+    return most;
+  }
+  const outlineValid = (n) => Boolean(n) && typeof n.entry.order === 'string' && ORDER_KEY.test(n.entry.order) && !n.entry.order.endsWith('0');
+  // Where an entry would go: under `parentId` (null: the top) at `index` among that parent's other children. { id, parent, order,
+  // index, count } (index and count for the words a screen reader hears), or null when it is no change, is into itself or its own
+  // children, or goes deeper than `depth` levels.
+  function outlinePlace(tree, id, parentId, index, depth) {
+    const node = tree.byId.get(id);
+    if (!node) return null;
+    const parent = parentId === null ? null : tree.byId.get(parentId) || null;
+    if (parentId !== null && !parent) return null;
+    for (let p = parent; p; p = p.parent) if (p === node) return null;
+    const level = parent ? parent.level + 1 : 1;
+    if (level + outlineHeight(node) - 1 > depth) return null;
+    const sibs = (parent ? parent.children : tree.roots).filter((n) => n !== node);
+    const at = Math.max(0, Math.min(Math.floor(index), sibs.length));
+    if (node.parent === parent && (parent ? parent.children : tree.roots).indexOf(node) === at) return null;
+    const prev = sibs[at - 1];
+    const next = sibs[at];
+    let key;
+    try {
+      if ((prev && !outlineValid(prev)) || (next && !outlineValid(next))) throw new RangeError('not keys');
+      const a = prev ? prev.entry.order : null;
+      let b = next ? next.entry.order : null;
+      if (a !== null && b !== null && a >= b) { // two entries share a key: go after all of them
+        let k = at;
+        while (k < sibs.length && outlineValid(sibs[k]) && sibs[k].entry.order <= a) k += 1;
+        b = k < sibs.length && outlineValid(sibs[k]) ? sibs[k].entry.order : null;
+      }
+      key = outlineOrder(a, b);
+    } catch (err) { // keys that are not order keys (or a loop of ties): after the last good one
+      const good = sibs.filter(outlineValid).map((n) => n.entry.order).sort();
+      try { key = outlineOrder(good.length ? good[good.length - 1] : null, null); } catch (err2) { return null; }
+    }
+    return { id, parent: parentId, order: key, index: at, count: sibs.length + 1 };
+  }
+  // The four keyboard and menu moves of one entry, each a place or null: { up, down, indent, outdent }.
+  function outlineMoves(tree, id, depth) {
+    const node = tree.byId.get(id);
+    const none = { up: null, down: null, indent: null, outdent: null };
+    if (!node) return none;
+    const pid = node.parent ? node.parent.id : null;
+    const sibs = node.parent ? node.parent.children : tree.roots;
+    const i = sibs.indexOf(node);
+    const before = i > 0 ? sibs[i - 1] : null;
+    return {
+      up: i > 0 ? outlinePlace(tree, id, pid, i - 1, depth) : null,
+      down: i < sibs.length - 1 ? outlinePlace(tree, id, pid, i + 1, depth) : null,
+      indent: before ? outlinePlace(tree, id, before.id, before.children.length, depth) : null,
+      outdent: node.parent ? outlinePlace(tree, id, node.parent.parent ? node.parent.parent.id : null, (node.parent.parent ? node.parent.parent.children : tree.roots).indexOf(node.parent) + 1, depth) : null,
+    };
+  }
+  // Dropping `dragId` on `targetId`: zone 'before' or 'after' the target (as its sibling), or 'into' it (its last child; an open
+  // target with children takes 'after' as its first child, since that is where it is drawn). null when it may not go there.
+  function outlineDrop(tree, dragId, targetId, zone, depth, isOpen) {
+    const drag = tree.byId.get(dragId);
+    const target = tree.byId.get(targetId);
+    if (!drag || !target || drag === target) return null;
+    for (let p = target.parent; p; p = p.parent) if (p === drag) return null;
+    const pid = target.parent ? target.parent.id : null;
+    const others = (target.parent ? target.parent.children : tree.roots).filter((n) => n !== drag);
+    const kids = target.children.filter((n) => n !== drag);
+    if (zone === 'into') return outlinePlace(tree, dragId, target.id, kids.length, depth);
+    if (zone === 'before') return outlinePlace(tree, dragId, pid, others.indexOf(target), depth);
+    if (kids.length && (typeof isOpen === 'function' ? isOpen(target) : true)) return outlinePlace(tree, dragId, target.id, 0, depth);
+    return outlinePlace(tree, dragId, pid, others.indexOf(target) + 1, depth);
+  }
+  // host.util.rollup(entries, { done(entry) }?): for each entry that has children, { done, total } counted over the entries below
+  // it at any depth that have no children of their own (an entry with children is what its children make it). An entry is done when
+  // `entry.done` is truthy, or `o.done(entry)` says so. Returns an object keyed by id with only those entries; a loop of parents
+  // or a parent that is not there is read as the tree reads it (see outlineTree).
+  function outlineRollup(entries, o) {
+    const tree = outlineTree(entries);
+    const isDone = o && typeof o.done === 'function' ? o.done : (e) => Boolean(e && e.done);
+    const tally = new Map();
+    const out = Object.create(null);
+    for (let i = tree.list.length - 1; i >= 0; i -= 1) {
+      const n = tree.list[i];
+      if (!n.children.length) { let d = false; try { d = Boolean(isDone(n.entry)); } catch (err) { /* not done */ } tally.set(n, { done: d ? 1 : 0, total: 1 }); continue; }
+      let done = 0;
+      let total = 0;
+      for (const c of n.children) { const t = tally.get(c); done += t.done; total += t.total; }
+      tally.set(n, { done, total });
+      out[n.id] = { done, total };
+    }
+    return out;
+  }
+  // outline:end
+
+  // The words the outline says itself; the module passes its own as `labels` (it does not translate these).
+  const OUTLINE_WORDS = {
+    empty: 'Nothing here yet.', name: 'Outline', move: 'Move', open: 'Open', moveUp: 'Move up', moveDown: 'Move down', indent: 'Indent', outdent: 'Outdent',
+    fold: 'Fold', unfold: 'Unfold', moved: (n, of) => `Moved to place ${n} of ${of}.`,
+  };
+  let outlineSeq = 0;
+  // host.ui.outline(el, { entries, depth?, name?, labels?, canEdit?, collapsed?, title?(entry), row?(entry, contentEl, info), menu?(entry),
+  //   onOpen?(entry), onMove({ id, parent, order }), onFold?(id, folded) }) -> { set(entries), fold(id, folded?), focus(id), destroy() }.
+  // deps: { icon(name) -> Promise<svg>, menu(args) } from the module's host.
+  function createOutline(el, o, deps) {
+    if (!el || el.nodeType !== 1) throw new Error('host.ui.outline needs an element');
+    const options = o || {};
+    const doc = el.ownerDocument;
+    const depth = Math.max(1, Math.min(5, Math.floor(Number(options.depth)) || 2));
+    const words = { ...OUTLINE_WORDS };
+    for (const [k, v] of Object.entries(options.labels || {})) if (k in OUTLINE_WORDS && typeof v === typeof OUTLINE_WORDS[k]) words[k] = v;
+    const editable = options.canEdit !== false;
+    const seq = ++outlineSeq;
+    const MIME = `application/x-host-outline-${seq}`; // one instance's own drag type: a drag from anywhere else is never its drag
+    let tree = outlineTree([]);
+    const folded = new Set(Array.isArray(options.collapsed) ? options.collapsed.filter((x) => typeof x === 'string') : []);
+    let current = ''; // the entry whose handle is the tab stop
+    let said = null; // the move the module was told of, to announce once a later set() shows it
+    let late = false; // a set() that waits because a person is typing in a row's own field
+    let drag = null; // { id, handle } while this outline's own handle is being dragged
+    let dropAt = null; // { row, cls } the row showing where it would land
+    let dead = false;
+    const make = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+    const ids = new WeakMap(); // an item's element -> its entry id (never read back from the page)
+    const idOf = (node) => { const li = node && node.closest ? node.closest('li.sdk-outline-item') : null; return li && el.contains(li) ? ids.get(li) || '' : ''; };
+    const svg = async (parent, name) => { try { const s = await deps.icon(name); if (s && !dead) parent.innerHTML = s; } catch (err) { /* no icon */ } };
+
+    el.classList.add('sdk-outline');
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-label', typeof options.name === 'string' && options.name ? options.name : words.name);
+    const live = make('div', 'sdk-outline-live');
+    live.setAttribute('role', 'status');
+    const body = make('div', 'sdk-outline-body');
+    el.replaceChildren(body, live);
+
+    const titleOf = (n) => {
+      let t = '';
+      try { if (typeof options.title === 'function') t = String(options.title(n.entry) ?? ''); } catch (err) { /* the row's own text */ }
+      return (t || n.entry.title || n.entry.name || n.id).toString().replace(/\s+/g, ' ').trim().slice(0, 80);
+    };
+    const open = (n) => !folded.has(n.id);
+    const handles = () => [...el.querySelectorAll('.sdk-outline-handle')];
+    const say = (text) => { live.textContent = ''; setTimeout(() => { if (!dead) live.textContent = text; }, 30); };
+
+    function perform(plan) {
+      if (!plan || !editable || typeof options.onMove !== 'function') return;
+      said = { id: plan.id, parent: plan.parent, order: plan.order, text: typeof words.moved === 'function' ? words.moved(plan.index + 1, plan.count) : String(words.moved) };
+      try {
+        const r = options.onMove({ id: plan.id, parent: plan.parent, order: plan.order });
+        if (r && typeof r.catch === 'function') r.catch((err) => console.error(err));
+      } catch (err) { console.error(err); }
+    }
+
+    // One entry's line, without its children.
+    function item(n) {
+      const li = make('li', 'sdk-outline-item');
+      ids.set(li, n.id);
+      li.setAttribute('data-level', String(n.level));
+      const row = make('div', 'sdk-outline-row');
+      const kids = n.children.length;
+      if (kids) {
+        const f = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-outline-fold');
+        f.type = 'button';
+        f.setAttribute('aria-expanded', String(open(n)));
+        f.setAttribute('aria-label', `${open(n) ? words.fold : words.unfold}: ${titleOf(n)}`);
+        const ic = make('span', 'ic'); ic.setAttribute('aria-hidden', 'true');
+        f.append(ic); svg(ic, 'chevron-right');
+        row.append(f);
+      } else row.append(make('span', 'sdk-outline-fold-gap'));
+      const content = make('div', 'sdk-outline-content');
+      let made = false;
+      if (typeof options.row === 'function') {
+        try { options.row(n.entry, content, { level: n.level, children: kids, folded: !open(n), canEdit: editable }); made = Boolean(content.firstChild); } catch (err) { console.error(err); content.replaceChildren(); }
+      }
+      if (!made) content.textContent = titleOf(n);
+      row.append(content);
+      if (editable) {
+        const h = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-outline-handle');
+        h.type = 'button';
+        h.draggable = true;
+        h.tabIndex = n.id === current ? 0 : -1;
+        h.setAttribute('aria-haspopup', 'menu');
+        h.setAttribute('aria-keyshortcuts', 'Alt+ArrowUp Alt+ArrowDown Alt+ArrowLeft Alt+ArrowRight');
+        h.setAttribute('aria-label', `${words.move}: ${titleOf(n)}`);
+        h.dataset.tip = words.move;
+        const grip = make('span', 'ic sdk-outline-grip'); grip.setAttribute('aria-hidden', 'true'); svg(grip, 'grip-vertical');
+        const dots = make('span', 'ic sdk-outline-dots'); dots.setAttribute('aria-hidden', 'true'); svg(dots, 'ellipsis-vertical');
+        h.append(grip, dots);
+        row.append(h);
+      }
+      li.append(row);
+      return li;
+    }
+    // The levels are drawn nested down to `depth`; an entry below that (data written elsewhere) is drawn flat, in order, under the
+    // line of the one at the last level, so a very deep list is never a very deep page.
+    function build(nodes, ul) {
+      for (const n of nodes) {
+        const li = item(n);
+        ul.append(li);
+        if (!n.children.length || !open(n)) continue;
+        if (n.level < depth) {
+          const sub = make('ul', 'sdk-outline-list');
+          build(n.children, sub);
+          li.append(sub);
+        } else {
+          const stack = n.children.slice().reverse();
+          const flat = make('ul', 'sdk-outline-list');
+          while (stack.length) {
+            const d = stack.pop();
+            flat.append(item(d));
+            if (d.children.length && open(d)) for (let i = d.children.length - 1; i >= 0; i -= 1) stack.push(d.children[i]);
+          }
+          li.append(flat);
+        }
+      }
+    }
+
+    function draw() {
+      if (dead) return;
+      const act = (deps.root && deps.root.activeElement) || doc.activeElement;
+      // A person typing in a field of their own row: the redraw waits until they leave it (focusout), so their text and focus stay.
+      if (act && el.contains(act) && act.closest && act.closest('.sdk-outline-content') && act.matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) { late = true; return; }
+      late = false;
+      // Focus goes back only to a handle or fold button that had it; anything else keeps it where it is.
+      const hadEl = act && el.contains(act) && act.closest ? act.closest('.sdk-outline-handle, .sdk-outline-fold') : null;
+      const had = hadEl ? { id: idOf(hadEl), cls: hadEl.classList.contains('sdk-outline-handle') ? 'handle' : 'fold' } : null;
+      drag = null; // a rebuilt list has no handle being dragged
+      if (!tree.byId.has(current)) current = tree.roots[0] ? tree.roots[0].id : '';
+      clearDrop();
+      if (!tree.list.length) {
+        const p = make('p', 'sdk-outline-empty', typeof options.empty === 'string' && options.empty ? options.empty : words.empty);
+        body.replaceChildren(p);
+        said = null;
+        return;
+      }
+      const ul = make('ul', 'sdk-outline-list sdk-outline-top');
+      build(tree.roots, ul);
+      body.replaceChildren(ul);
+      if (had && had.id) { const h = had.cls === 'handle' ? handleOf(had.id) || foldOf(had.id) : foldOf(had.id) || handleOf(had.id); if (h) h.focus(); }
+      if (said) { // told only once the list shows the move
+        const n = tree.byId.get(said.id);
+        if (n && (n.parent ? n.parent.id : null) === said.parent && n.entry.order === said.order) say(said.text);
+        said = null;
+      }
+    }
+    const itemOf = (id) => { for (const li of el.querySelectorAll('li.sdk-outline-item')) if (ids.get(li) === id) return li; return null; };
+    const handleOf = (id) => { const li = itemOf(id); return li ? li.querySelector(':scope > .sdk-outline-row > .sdk-outline-handle') : null; };
+    const foldOf = (id) => { const li = itemOf(id); return li ? li.querySelector(':scope > .sdk-outline-row > .sdk-outline-fold') : null; };
+    function setCurrent(id) {
+      current = id;
+      for (const h of handles()) h.tabIndex = idOf(h) === id ? 0 : -1;
+    }
+    function toggle(id, to) {
+      const n = tree.byId.get(id);
+      if (!n || !n.children.length) return;
+      const wasOpen = open(n);
+      const next = to === undefined ? !wasOpen : Boolean(to);
+      if (next === wasOpen) return;
+      if (next) folded.delete(id); else folded.add(id);
+      draw();
+      if (typeof options.onFold === 'function') { try { options.onFold(id, !next); } catch (err) { console.error(err); } }
+    }
+
+    function showMenu(id, anchor) {
+      const n = tree.byId.get(id);
+      if (!n) return;
+      const m = outlineMoves(tree, id, depth);
+      const go = (plan) => () => perform(plan);
+      const items = [];
+      if (typeof options.onOpen === 'function') items.push({ id: 'open', label: words.open, icon: 'arrow-up-right-from-square', onClick: () => { try { options.onOpen(n.entry); } catch (err) { console.error(err); } } }, { separator: true });
+      items.push(
+        { id: 'up', label: words.moveUp, icon: 'arrow-up', disabled: !m.up, onClick: go(m.up) },
+        { id: 'down', label: words.moveDown, icon: 'arrow-down', disabled: !m.down, onClick: go(m.down) },
+        { id: 'indent', label: words.indent, icon: 'indent', disabled: !m.indent, onClick: go(m.indent) },
+        { id: 'outdent', label: words.outdent, icon: 'outdent', disabled: !m.outdent, onClick: go(m.outdent) },
+      );
+      let extra = [];
+      try { extra = typeof options.menu === 'function' ? options.menu(n.entry) : []; } catch (err) { console.error(err); }
+      if (Array.isArray(extra) && extra.length) items.push({ separator: true }, ...extra);
+      // When the menu closes with focus nowhere (a pick or Escape), it goes back to this entry's handle.
+      deps.menu({ id: 'sdk-outline-menu', anchor, items, onClose: () => { const a = (deps.root && deps.root.activeElement) || doc.activeElement; if (!a || a === doc.body) { const h = handleOf(id); if (h) h.focus(); } } });
+    }
+
+    // ---- the keyboard and the pointer, on the outline itself ----
+    const onClick = (e) => {
+      const fold = e.target.closest ? e.target.closest('.sdk-outline-fold') : null;
+      if (fold && el.contains(fold)) { toggle(idOf(fold)); return; }
+      const h = e.target.closest ? e.target.closest('.sdk-outline-handle') : null;
+      if (h && el.contains(h)) { setCurrent(idOf(h)); showMenu(idOf(h), h); return; }
+      if (typeof options.onOpen === 'function' && e.target.closest) {
+        const content = e.target.closest('.sdk-outline-content');
+        if (content && el.contains(content) && !e.target.closest('a, button, input, select, textarea, label, [contenteditable]')) {
+          const n = tree.byId.get(idOf(content));
+          if (n) { try { options.onOpen(n.entry); } catch (err) { console.error(err); } }
+        }
+      }
+    };
+    const onFocusIn = (e) => { const h = e.target.closest ? e.target.closest('.sdk-outline-handle') : null; if (h && el.contains(h)) setCurrent(idOf(h)); };
+    const onKey = (e) => {
+      // Alt+Left and Alt+Right are the browser's Back and Forward: never while focus is in the outline.
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight') && el.contains(e.target)) e.preventDefault();
+      const h = e.target.closest ? e.target.closest('.sdk-outline-handle, .sdk-outline-fold') : null;
+      if (!h || !el.contains(h) || e.ctrlKey || e.metaKey) return;
+      const id = idOf(h);
+      const isHandle = h.classList.contains('sdk-outline-handle');
+      if (e.altKey && !e.shiftKey && isHandle) {
+        const m = outlineMoves(tree, id, depth);
+        const plan = { ArrowUp: m.up, ArrowDown: m.down, ArrowRight: m.indent, ArrowLeft: m.outdent }[e.key];
+        if (e.key in { ArrowUp: 1, ArrowDown: 1, ArrowRight: 1, ArrowLeft: 1 }) { e.preventDefault(); perform(plan); }
+        return;
+      }
+      if (e.altKey || e.shiftKey) return;
+      const list = handles();
+      const at = list.indexOf(h);
+      const go = (to) => { if (to && to !== h) { e.preventDefault(); to.focus(); } };
+      if (e.key === 'ArrowDown' && isHandle) go(list[at + 1]);
+      else if (e.key === 'ArrowUp' && isHandle) go(list[at - 1]);
+      else if (e.key === 'Home' && isHandle) go(list[0]);
+      else if (e.key === 'End' && isHandle) go(list[list.length - 1]);
+      else if (e.key === 'ArrowRight' && tree.byId.get(id) && tree.byId.get(id).children.length && !open(tree.byId.get(id))) { e.preventDefault(); toggle(id, true); }
+      else if (e.key === 'ArrowLeft' && tree.byId.get(id) && tree.byId.get(id).children.length && open(tree.byId.get(id))) { e.preventDefault(); toggle(id, false); }
+    };
+    function clearDrop() {
+      if (dropAt) { dropAt.row.classList.remove('drop-before', 'drop-after', 'drop-into'); dropAt = null; }
+    }
+    const dragStart = (e) => {
+      const h = e.target.closest ? e.target.closest('.sdk-outline-handle') : null;
+      if (!h || !el.contains(h) || !editable) { return; }
+      const id = idOf(h);
+      if (!id || !e.dataTransfer) { e.preventDefault(); return; }
+      drag = { id, handle: h };
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData(MIME, id);
+      const row = h.closest('.sdk-outline-row');
+      if (row && e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(row, 16, 16);
+      const li = h.closest('li');
+      if (li) li.classList.add('dragging');
+    };
+    // Where the pointer is over a row: the top third puts the entry before it, the bottom third after it, the middle inside it.
+    function planFor(e) {
+      if (!drag || !tree.byId.has(drag.id)) return null;
+      const row = e.target.closest ? e.target.closest('.sdk-outline-row') : null;
+      if (!row || !el.contains(row)) return null;
+      const id = idOf(row);
+      const rect = row.getBoundingClientRect();
+      const f = rect.height ? (e.clientY - rect.top) / rect.height : 0.5;
+      const zone = f < 0.33 ? 'before' : f > 0.66 ? 'after' : 'into';
+      let plan = outlineDrop(tree, drag.id, id, zone, depth, open);
+      let shown = zone === 'after' && plan && plan.parent === id ? 'into' : zone;
+      if (!plan && zone === 'into') { shown = f < 0.5 ? 'before' : 'after'; plan = outlineDrop(tree, drag.id, id, shown, depth, open); if (plan && shown === 'after' && plan.parent === id) shown = 'into'; }
+      return plan ? { plan, row, shown } : null;
+    }
+    const dragOver = (e) => {
+      if (drag && !(drag.handle && drag.handle.isConnected && el.contains(drag.handle))) drag = null; // its handle is gone: no drag of ours
+      if (!drag || !e.dataTransfer || ![...(e.dataTransfer.types || [])].includes(MIME)) return; // not this outline's own drag: left alone
+      const hit = planFor(e);
+      clearDrop();
+      if (!hit) { e.dataTransfer.dropEffect = 'none'; return; }
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      hit.row.classList.add(`drop-${hit.shown}`);
+      dropAt = { row: hit.row };
+    };
+    const dragLeave = (e) => { if (!e.relatedTarget || !el.contains(e.relatedTarget)) clearDrop(); };
+    const drop = (e) => {
+      if (!drag || !e.dataTransfer || ![...(e.dataTransfer.types || [])].includes(MIME)) return;
+      const hit = planFor(e);
+      e.preventDefault();
+      clearDrop();
+      drag = null;
+      if (hit) perform(hit.plan);
+    };
+    const onFocusOut = () => { if (late) setTimeout(() => { if (late && !dead) draw(); }, 0); };
+    const dragEnd = () => { clearDrop(); drag = null; for (const li of el.querySelectorAll('li.dragging')) li.classList.remove('dragging'); };
+    const on = [['click', onClick], ['keydown', onKey], ['focusin', onFocusIn], ['dragstart', dragStart], ['dragover', dragOver], ['dragleave', dragLeave], ['drop', drop], ['dragend', dragEnd], ['focusout', onFocusOut]];
+    for (const [t, f] of on) el.addEventListener(t, f);
+
+    const api = {
+      set(entries) { tree = outlineTree(entries); draw(); },
+      fold(id, to) { toggle(String(id), to); },
+      focus(id) { const h = handleOf(String(id)) || foldOf(String(id)); if (h) h.focus(); },
+      destroy() { dead = true; for (const [t, f] of on) el.removeEventListener(t, f); el.replaceChildren(); el.classList.remove('sdk-outline'); el.removeAttribute('role'); el.removeAttribute('aria-label'); },
+    };
+    api.set(options.entries);
+    return api;
+  }
+
+  // host.ui.progress(el, { done, total, label?, words?(done, total) }) -> { set({ done, total }), destroy() }: a small bar and the words
+  // "2 of 4". Numbers that are not whole counts read as 0; done never passes total.
+  function createProgress(el, o) {
+    if (!el || el.nodeType !== 1) throw new Error('host.ui.progress needs an element');
+    const options = o || {};
+    const doc = el.ownerDocument;
+    el.classList.add('sdk-progress-line');
+    el.replaceChildren();
+    const bar = doc.createElement('div');
+    bar.className = 'sdk-progress sdk-progress-short';
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', typeof options.label === 'string' && options.label ? options.label : 'Progress');
+    bar.setAttribute('aria-valuemin', '0');
+    const fill = doc.createElement('span');
+    fill.className = 'sdk-progress-fill';
+    bar.append(fill);
+    const text = doc.createElement('span');
+    text.className = 'sdk-progress-words';
+    el.append(bar, text);
+    const count = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+    const api = {
+      set(next) {
+        const total = count(next && next.total);
+        const done = Math.min(count(next && next.done), total);
+        let said = `${done} of ${total}`;
+        try { if (typeof options.words === 'function') said = String(options.words(done, total)); } catch (err) { /* the plain words */ }
+        fill.style.setProperty('--pct', `${total ? Math.round((done / total) * 100) : 0}%`);
+        bar.setAttribute('aria-valuemax', String(total || 1));
+        bar.setAttribute('aria-valuenow', String(done));
+        bar.setAttribute('aria-valuetext', said);
+        text.textContent = said;
+      },
+      destroy() { el.replaceChildren(); el.classList.remove('sdk-progress-line'); },
+    };
+    api.set(options);
+    return api;
+  }
+
+  // host.ui.peoplePicker(el, { people?, value?, multiple?, name?, none?, gone?, onChange(keys) }) -> { get(), set(keys), setPeople(list), ready, destroy() }.
+  // The people of the space as the same chips the Planner's owners use (a tick box or a radio in a label). `people` is [{ key, name }];
+  // left out, host.people() is asked. `value` is the keys chosen. A chosen key that is no longer in the list shows as `gone` ("No longer here")
+  // so it can be taken off. One person only (`multiple: false`) adds `none` ("No one") as the first choice.
+  let peopleSeq = 0;
+  function createPeoplePicker(el, o, deps) {
+    if (!el || el.nodeType !== 1) throw new Error('host.ui.peoplePicker needs an element');
+    const options = o || {};
+    const doc = el.ownerDocument;
+    const many = options.multiple !== false;
+    const group = `sdk-people-${++peopleSeq}`;
+    const clean = (list) => (Array.isArray(list) ? list : []).filter((p) => p && typeof p.key === 'string' && p.key && p.key.length <= 200).map((p) => ({ key: p.key, name: typeof p.name === 'string' && p.name ? p.name : p.key }));
+    let people = clean(options.people);
+    const keys = (v) => [...new Set((Array.isArray(v) ? v : typeof v === 'string' && v ? [v] : []).filter((k) => typeof k === 'string' && k && k.length <= 200))].slice(0, many ? 500 : 1);
+    let chosen = keys(options.value);
+    let dead = false;
+    el.classList.add('sdk-people');
+    el.setAttribute('role', many ? 'group' : 'radiogroup');
+    el.setAttribute('aria-label', typeof options.name === 'string' && options.name ? options.name : many ? 'People' : 'Person');
+    function chip(key, text, on) {
+      const label = doc.createElement('label');
+      const input = doc.createElement('input');
+      input.type = many ? 'checkbox' : 'radio';
+      if (!many) input.name = group;
+      input.value = key;
+      input.checked = on;
+      label.append(input, doc.createTextNode(text));
+      return label;
+    }
+    function draw() {
+      if (dead) return;
+      const known = new Set(people.map((p) => p.key));
+      const rows = [];
+      if (!many) rows.push(chip('', typeof options.none === 'string' && options.none ? options.none : 'No one', !chosen.length));
+      for (const p of people) rows.push(chip(p.key, p.name, chosen.includes(p.key)));
+      for (const k of chosen) if (!known.has(k)) rows.push(chip(k, typeof options.gone === 'string' && options.gone ? options.gone : 'No longer here', true));
+      el.replaceChildren(...rows);
+    }
+    const onChange = () => {
+      chosen = [...el.querySelectorAll('input:checked')].map((i) => i.value).filter(Boolean);
+      if (typeof options.onChange === 'function') { try { options.onChange(chosen.slice()); } catch (err) { console.error(err); } }
+    };
+    el.addEventListener('change', onChange);
+    draw();
+    const ready = options.people ? Promise.resolve() : Promise.resolve(deps.people()).then((list) => { people = clean(list); draw(); }).catch(() => {});
+    return {
+      get: () => chosen.slice(),
+      set(next) { chosen = keys(next); draw(); },
+      setPeople(list) { people = clean(list); draw(); },
+      ready,
+      destroy() { dead = true; el.removeEventListener('change', onChange); el.replaceChildren(); el.classList.remove('sdk-people'); },
+    };
+  }
+
   // The kind picker (host.ui.kindPicker): one row that names the chosen kind of thing with its icon in its colour, a list
   // of the kinds in groups when opened, typing to filter, recently chosen kinds first. The ARIA combobox pattern (an
   // editable field with a listbox). Styles in /sdk/host.css (.sdk-kind); see documentation/plans/plan-editor-window.md,
@@ -1878,6 +2453,15 @@
         const n = Number(amount) || 0;
         try { return new Intl.NumberFormat([], { style: 'currency', currency: code }).format(n); } catch (err) { return `${n.toFixed(2)} ${code}`; }
       },
+      // An order key that sorts between two neighbours (the shared outline pieces): order(before, after) with null for no neighbour on
+      // that side; order(null, null) is the first key, order(last, null) one after the last. Keys are short strings of 0-9, A-Z, a-z
+      // that never end in "0"; compare them as plain strings. Two people inserting between the same two entries may make the same key;
+      // host.ui.outline lists equal keys by id, so nobody's list is renumbered. Throws RangeError for a key that is not one or a
+      // `before` that does not sort before `after`.
+      order: outlineOrder,
+      // The progress of each parent in a list of entries { id, parent, done }: rollup(entries) is { <parent id>: { done, total } }, counted
+      // over the entries below it at any depth that have no children of their own. `rollup(entries, { done(entry) })` says what counts as done.
+      rollup: outlineRollup,
       // Dates as "2026-09-24" (a local day): text from a Date, and back.
       ymd: (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
       // The phase timeline of the space this module is in (public/phases.js timelineOf, the rule the server runs; see
@@ -2481,6 +3065,19 @@
           },
         };
       },
+      // The shared outline (plan-templates-redesign.md): an ordered tree of the module's entries { id, parent, order } drawn in `el`, up to
+      // `depth` levels (2). The module draws each row's words (row(entry, contentEl, { level, children, folded, canEdit })) and
+      // writes a move; the outline only reports it: onMove({ id, parent, order }) (order from host.util.order), then the module calls
+      // set(entries) with the new list. Moves: drag the handle, or the handle's menu (Move up, Move down, Indent, Outdent, and the
+      // module's own items from menu(entry)), or Alt+Up, Alt+Down, Alt+Right (indent), Alt+Left (outdent) on the focused handle; Up, Down,
+      // Home and End walk the handles, Left and Right fold and unfold. On a phone the handle shows as a "..." and only opens the menu.
+      // { set(entries), fold(id, folded?), focus(id), destroy() }. See createOutline above for every option.
+      outline: (el, o) => createOutline(el, o, { root: env.root, icon: (name) => menuIcon(name), menu: (args) => showMenu(args) }),
+      // A small bar and the words "2 of 4": progress(el, { done, total, label?, words?(done, total) }) -> { set({ done, total }), destroy() }.
+      progress: (el, o) => createProgress(el, o),
+      // The people of the space as chips to tick (one or more): peoplePicker(el, { value, multiple?, onChange(keys) }) ->
+      // { get(), set(keys), setPeople(list), ready, destroy() }. It asks host.people() unless `people` ([{ key, name }]) is given.
+      peoplePicker: (el, o) => createPeoplePicker(el, o, { people: () => call('people') }),
       // A button in the same toolbar row as the view switches (a chooser that opens a menu, say: Research's Tags),
       // drawn after the switches made before it. { id, label?, icon?, iconOnly?, on?, disabled?, zone?, onClick }. `zone: 'end'`
       // puts it in the row's right zone, after the search and Filters, in the order made ('start' or none: the left; any other value is ignored). onClick gets the

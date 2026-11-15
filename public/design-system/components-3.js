@@ -61,6 +61,20 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
     ],
   });
 
+  // ---- Outline (host.ui.outline, host.ui.progress) ----
+  const olItem = (title, o = {}) => '<li class="sdk-outline-item' + (o.cls || '') + '"><div class="sdk-outline-row' + (o.row || '') + '">' + (o.kids ? '<button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-outline-fold" aria-expanded="true" aria-label="Fold: ' + title + '"><span class="ic" aria-hidden="true">' + fa('chevron-right') + '</span></button>' : '<span class="sdk-outline-fold-gap"></span>') + '<div class="sdk-outline-content">' + title + '</div><button type="button" class="sdk-icon-btn btn-quiet btn-small sdk-outline-handle" aria-haspopup="menu" aria-label="Move: ' + title + '"><span class="ic sdk-outline-grip" aria-hidden="true">' + fa('grip-vertical') + '</span><span class="ic sdk-outline-dots" aria-hidden="true">' + fa('ellipsis-vertical') + '</span></button></div>' + (o.kids || '') + '</li>';
+  F.push({
+    id: 'outline', group: 'Content', name: 'Outline and progress',
+    desc: 'The shared ordered, nested list (<code>host.ui.outline</code>): each entry is <code>.sdk-outline-row</code>, a fold button, the module\'s own content and a handle. The handle drags, takes the keyboard and opens the row menu; on a phone it is a "..." and there is no dragging. A drop shows as <code>.drop-before</code>, <code>.drop-after</code> or <code>.drop-into</code> on the row under the pointer. The small bar and its words are <code>.sdk-progress-line</code> (<code>host.ui.progress</code>).',
+    variants: [
+      { wide: true, n: 'Outline .sdk-outline', ctx: 'host', sel: '.sdk-outline', html: '<div class="sdk-outline" role="group" aria-label="Plan" style="max-width:420px"><div class="sdk-outline-body"><ul class="sdk-outline-list sdk-outline-top">' + olItem('Book the venue') + olItem('Plan the day', { kids: '<ul class="sdk-outline-list">' + olItem('Morning walk') + olItem('Lunch') + '</ul>' }) + olItem('Send the invites') + '</ul></div></div>' },
+      { wide: true, n: 'Where a drag lands', ctx: 'host', sel: '.sdk-outline-row', html: '<div class="sdk-outline" style="max-width:420px"><ul class="sdk-outline-list">' + olItem('Before this one', { row: ' drop-before' }) + olItem('Inside this one', { row: ' drop-into' }) + olItem('After this one', { row: ' drop-after' }) + olItem('Being dragged', { cls: ' dragging' }) + '</ul></div>' },
+      { wide: true, n: 'Empty .sdk-outline-empty', ctx: 'host', sel: '.sdk-outline-empty', html: '<div class="sdk-outline" style="max-width:420px"><div class="sdk-outline-body"><p class="sdk-outline-empty">Nothing here yet.</p></div></div>' },
+      { wide: true, n: 'Progress .sdk-progress-line', ctx: 'host', sel: '.sdk-progress-line', html: '<div style="display:grid;gap:10px;max-width:260px"><div class="sdk-progress-line"><div class="sdk-progress sdk-progress-short" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="2" aria-valuetext="2 of 4"><span class="sdk-progress-fill" style="--pct:50%"></span></div><span class="sdk-progress-words">2 of 4</span></div><div class="sdk-progress-line"><div class="sdk-progress sdk-progress-short" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" aria-valuetext="0 of 0"><span class="sdk-progress-fill" style="--pct:0%"></span></div><span class="sdk-progress-words">0 of 0</span></div></div>' },
+    ],
+    notMounted: 'the phone look (the "..." handle) and the drag itself; the live piece below draws the real thing.',
+  });
+
   // ---- Chips, badges and counts ----
   F.push({
     id: 'chips', group: 'Content', name: 'Chips, badges and counts',
@@ -199,6 +213,25 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
           { separator: true }, { heading: 'Danger' }, { label: 'Not now', disabled: true }, { label: 'Delete', icon: 'trash', danger: true }] }); };
         document.getElementById('mb').addEventListener('click', open); open();
         setTimeout(function () { var c = document.querySelector('.sdk-menu-category'); if (c) c.dispatchEvent(new MouseEvent('click', { bubbles: true })); }, 400);`,
+    },
+    {
+      id: 'live-outline', block: 'outline', name: 'Live: outline, progress and people picker', height: 420, title: 'Live outline',
+      desc: 'host.ui.outline, host.ui.progress and host.ui.peoplePicker mounted by the real SDK. Drag a handle, or press Enter on one for its menu; Alt and the arrow keys move the focused entry. This page writes the moves itself, as a module would.',
+      body: '<div class="dsf-live"><div id="ol"></div><div id="ol-pg" style="margin-top:12px"></div><div id="ol-who" style="margin-top:12px"></div></div>',
+      script: `
+        var data = [
+          { id: 'a', order: 'G', title: 'Book the venue' },
+          { id: 'b', order: 'V', title: 'Plan the day' },
+          { id: 'c', order: 'G', parent: 'b', title: 'Morning walk', done: true },
+          { id: 'd', order: 'V', parent: 'b', title: 'Lunch' },
+          { id: 'e', order: 'k', title: 'Send the invites', done: true }];
+        var pg = host.ui.progress(document.getElementById('ol-pg'), { done: 0, total: 0 });
+        var draw = function () { var r = host.util.rollup(data); pg.set(r.b || { done: 0, total: 0 }); ol.set(data); };
+        var ol = host.ui.outline(document.getElementById('ol'), { entries: data, name: 'Plan',
+          title: function (x) { return x.title; },
+          onMove: function (m) { data = data.map(function (x) { return x.id === m.id ? Object.assign({}, x, { parent: m.parent || undefined, order: m.order }) : x; }); draw(); } });
+        draw();
+        host.ui.peoplePicker(document.getElementById('ol-who'), { people: [{ key: 'mia', name: 'Mia' }, { key: 'sam', name: 'Sam' }], value: ['mia'] });`,
     },
     {
       id: 'live-switch', block: 'tabs', name: 'Live: view switch, more button, toast', height: 230, title: 'Live view switch and toast',
