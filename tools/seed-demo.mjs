@@ -91,10 +91,11 @@ export async function runSeed({ base, login = 'admin', adminPassword, today, say
   say(`Signed in as ${admin.login || login}.`);
 
   // --- the environment-wide setup: the template and the modules. This is the seeder's, never the loader's. ---
-  // An environment with no template gets the demo's (travel when none is asked for), as a fresh data folder always did.
+  // An environment on the Default template (a fresh data folder) gets the demo's (travel when none is asked for); any other
+  // template is left as it is, and the demo's space reads the demo's own template.
   const current = ((await ok('admin', 'GET', '/api/settings')).settings.template || {}).id || null;
   const templateId = demo || (current && DEMOS.some((d) => d.id === current) ? current : 'travel');
-  if (!current) {
+  if (!current || current === 'default') {
     await ok('admin', 'PATCH', '/api/settings', { template: templateId });
     say(`Switched the template to ${templateId} (it had none).`);
   }

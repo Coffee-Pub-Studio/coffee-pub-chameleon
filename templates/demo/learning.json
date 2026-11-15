@@ -20,11 +20,11 @@
         {
           "as": "marta",
           "data": {
-            "plan:g1": {"kind":"goal","title":"Introduce yourself and make small talk","why":"The first five minutes of any conversation.","parent":null,"order":"a1","owners":["@dev","@holly","@femi"],"date":"today-28","shownDate":"today-28","phase":"explore","done":true,"progress":100,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g1": {"kind":"goal","title":"Introduce yourself and make small talk","why":"The first five minutes of any conversation.","parent":null,"order":"a5","owners":["@dev","@holly","@femi"],"date":"today-28","shownDate":"today-28","phase":"explore","done":true,"progress":100,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g1x1": {"kind":"step","title":"Greetings and goodbyes","parent":"g1","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g1x2": {"kind":"step","title":"Say where you are from and what you do","parent":"g1","order":"a2","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g1x3": {"kind":"step","title":"Ask three questions back","parent":"g1","order":"a3","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
-            "plan:g2": {"kind":"goal","title":"Order food and drinks","why":"So the trip in spring starts well.","parent":null,"order":"a2","owners":["@dev","@holly","@femi"],"date":"today-17","shownDate":"today-17","phase":"explore","done":true,"progress":100,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g2": {"kind":"goal","title":"Order food and drinks","why":"So the trip in spring starts well.","parent":null,"order":"a6","owners":["@dev","@holly","@femi"],"date":"today-17","shownDate":"today-17","phase":"explore","done":true,"progress":100,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g2x1": {"kind":"step","title":"The words for a cafe and a market","parent":"g2","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g2x2": {"kind":"step","title":"Role-play ordering at a cafe","parent":"g2","order":"a2","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g2x3": {"kind":"step","title":"Ask for the bill and pay","parent":"g2","order":"a3","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
@@ -33,16 +33,16 @@
             "plan:g3x2": {"kind":"step","title":"Ten irregular verbs: fui, hice, tuve, estuve...","parent":"g3","order":"a2","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g3x3": {"kind":"step","title":"Tell the group about your weekend","parent":"g3","order":"a3","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g3x4": {"kind":"step","title":"Write five sentences in the journal","parent":"g3","order":"a4","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
-            "plan:g4": {"kind":"goal","title":"Ask for and follow directions","why":"Getting around a new city without a phone.","parent":null,"order":"a4","owners":["@dev","@holly","@femi"],"date":"today+11","shownDate":"today+11","phase":"practice","done":false,"progress":33,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g4": {"kind":"goal","title":"Ask for and follow directions","why":"Getting around a new city without a phone.","parent":null,"order":"a1","owners":["@dev","@holly","@femi"],"date":"today+11","shownDate":"today+11","phase":"practice","done":false,"progress":33,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g4x1": {"kind":"step","title":"Left, right, straight on, across from","parent":"g4","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g4x2": {"kind":"step","title":"Listen to directions at normal speed","parent":"g4","order":"a2","done":false,"date":"today+4","shownDate":"today+4","createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g4x3": {"kind":"step","title":"Lead a walk around the town map in class","parent":"g4","order":"a3","done":false,"date":"today+11","shownDate":"today+11","createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g4n1": {"kind":"note","title":"Tip from Marta","text":"Shadow the podcast at 0.75 speed: say each sentence out loud just after you hear it.","parent":"g4","order":"a4","createdAt":"ms:today-20T10:00","by":"@marta"},
-            "plan:g5": {"kind":"goal","title":"Hold a ten-minute conversation","why":"The real test: talking without notes.","parent":null,"order":"a5","owners":["@dev","@holly","@femi"],"date":"today+25","shownDate":"today+25","phase":"practice","done":false,"progress":33,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g5": {"kind":"goal","title":"Hold a ten-minute conversation","why":"The real test: talking without notes.","parent":null,"order":"a2","owners":["@dev","@holly","@femi"],"date":"today+25","shownDate":"today+25","phase":"practice","done":false,"progress":33,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g5x1": {"kind":"step","title":"Two minutes with a partner","parent":"g5","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g5x2": {"kind":"step","title":"Five minutes at the conversation club","parent":"g5","order":"a2","done":false,"date":"today+9","shownDate":"today+9","createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g5x3": {"kind":"step","title":"Ten minutes with a native speaker","parent":"g5","order":"a3","done":false,"createdAt":"ms:today-36T10:00","by":"@marta"},
-            "plan:g6": {"kind":"goal","title":"Pass the A2 practice exam","why":"A check that the course did its job.","parent":null,"order":"a6","owners":["@dev","@holly","@femi"],"date":"start+0","shownDate":"start+0","phase":"review","done":false,"progress":0,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g6": {"kind":"goal","title":"Pass the A2 practice exam","why":"A check that the course did its job.","parent":null,"order":"a4","owners":["@dev","@holly","@femi"],"date":"start+0","shownDate":"start+0","phase":"review","done":false,"progress":0,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g6x1": {"kind":"step","title":"The listening paper","parent":"g6","order":"a1","done":false,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g6x2": {"kind":"step","title":"The reading paper","parent":"g6","order":"a2","done":false,"createdAt":"ms:today-36T10:00","by":"@marta"},
             "plan:g6x3": {"kind":"step","title":"The speaking test with Marta","parent":"g6","order":"a3","done":false,"date":"start+0","shownDate":"start+0","createdAt":"ms:today-36T10:00","by":"@marta"},
@@ -119,36 +119,6 @@
         }
       ]
     },
-    "polls": {
-      "what": "polls",
-      "count": ["poll:"],
-      "steps": [
-        {
-          "as": "marta",
-          "data": {
-            "poll:p1": {"id":"p1","question":"Conversation club next time: where?","options":[{"id":"o1","text":"The cafe by the station"},{"id":"o2","text":"On the call"}],"multi":false,"addable":true,"closed":false,"closesAt":null,"createdAt":"ms:today-2T10:00","by":"Marta Ruiz","byKey":"@marta"}
-          }
-        },
-        {
-          "as": "dev",
-          "data": {
-            "vote:p1:@dev": {"options":["o1"],"name":"Dev Anand","at":"ms:today-2T12:00"}
-          }
-        },
-        {
-          "as": "holly",
-          "data": {
-            "vote:p1:@holly": {"options":["o1"],"name":"Holly Brooks","at":"ms:today-2T13:00"}
-          }
-        },
-        {
-          "as": "femi",
-          "data": {
-            "vote:p1:@femi": {"options":["o2"],"name":"Femi Adeyemi","at":"ms:today-1T09:00"}
-          }
-        }
-      ]
-    },
     "chat": {
       "messages": [
         {"as":"marta","text":"¡Hola a todos! Week 6. We have finished Explore, and the past tense goal is done too. Well done."},
@@ -161,8 +131,8 @@
         {"as":"marta","text":"> I understood\n¡Muy bien, Holly!"},
         {"as":"dev","text":"My phone is in Spanish now. I turned off my alarm twice by mistake."},
         {"as":"femi","text":"That is commitment."},
-        {"as":"marta","text":"Vote for where the conversation club meets next time, please."},
-        {"as":"dev","text":"Voted for the cafe. Real coffee helps."},
+        {"as":"marta","text":"Conversation club is at the cafe by the station this time."},
+        {"as":"dev","text":"Good. Real coffee helps."},
         {"as":"holly","text":"My journal has weeks 3 to 5 now, in Documents."},
         {"as":"marta","text":"Practice exam is at the end of the course. No stress, it is a check, not a grade."}
       ]

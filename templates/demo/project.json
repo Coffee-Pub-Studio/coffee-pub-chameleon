@@ -8,7 +8,7 @@
   "guestLink": true,
   "budget": {"amount":8000,"currency":"USD"},
   "phases": {
-    "start": {"start":"today-35","end":"today-12"},
+    "start": {"start":"today-35"},
     "build": {"start":"today-11","end":"start+0"},
     "wrap": {"start":"start+1","end":"start+12"}
   },
