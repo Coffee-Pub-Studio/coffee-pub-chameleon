@@ -12,7 +12,8 @@
 // name are the file's; a space or an account that merely has the same name is refused and left alone.
 //
 // THE DATA FILE (read by readDemoFile). One JSON object; a key that starts with "_" (`_about`) is a note and is ignored.
-//   template, name, description, anchor (days after today that the story's first day, "start", falls on), tz,
+//   template, label (the plain name a list shows: "Travel demo"), name, description, anchor (days after today that the story's
+//   first day, "start", falls on), tz,
 //   guestLink (make the guest link), budget ({ amount, currency }), phases ({ "<phase id>": { start, end } }),
 //   people ([{ login, displayName, role, moderator }]), modules ({ "<module id>": block }).
 // A module block is { as?, tz?, what?, count?: [key prefixes], steps: [{ as?, data: { "<key>": <value> } }] } (or
@@ -46,7 +47,7 @@ const DEMO_DIR = path.join(__dirname, '..', 'templates', 'demo');
 const MARKER = 'Demo data from npm run seed:demo.';
 const TEMPLATE_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const MODULE_ID_RE = /^[a-z0-9-]+$/;
-const TOP_KEYS = ['template', 'name', 'description', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules'];
+const TOP_KEYS = ['template', 'label', 'name', 'description', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules'];
 
 class DemoError extends Error {}
 
@@ -62,6 +63,7 @@ function problemsOf(raw, templateId, word = defaultWord) {
   for (const k of Object.keys(raw)) if (!k.startsWith('_') && !TOP_KEYS.includes(k)) out.push(`"${k}" is not a field of a demo file`);
   if (raw.template !== templateId) out.push(`"template" must be "${templateId}"`);
   if (typeof raw.name !== 'string' || !raw.name.trim()) out.push('"name" must be text');
+  if (raw.label !== undefined && (typeof raw.label !== 'string' || !raw.label.trim() || raw.label.length > 40)) out.push('"label" must be text of 40 characters or fewer');
   if (typeof raw.description !== 'string') out.push('"description" must be text');
   if (!Number.isInteger(raw.anchor) || raw.anchor < 0) out.push('"anchor" must be a whole number of days, 0 or more');
   if (!Array.isArray(raw.people) || !raw.people.length) out.push('"people" must be a list of people');
@@ -94,6 +96,20 @@ function readDemoFile(templateId, { dir = DEMO_DIR, words = defaultWord } = {}) 
   return raw;
 }
 const hasDemo = (templateId, opts) => Boolean(readDemoFile(templateId, opts));
+// Every demo there is, by its template's id: [{ id, label, name }], in the order of their ids. A file that is not valid is
+// left out (readDemoFile throws for it; the checks name it).
+function listDemos({ dir = DEMO_DIR } = {}) {
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch { return []; }
+  const out = [];
+  for (const f of names.filter((n) => n.endsWith('.json')).sort()) {
+    const id = f.slice(0, -5);
+    let file = null;
+    try { file = readDemoFile(id, { dir }); } catch { file = null; }
+    if (file) out.push({ id, label: file.label || `${id[0].toUpperCase()}${id.slice(1)} demo`, name: file.name });
+  }
+  return out;
+}
 
 // --- offsets ---------------------------------------------------------------------------------------------------------
 const OFFSET_RE = /^(ms:)?([a-z]+)([+-])(\d+)(?:T(\d\d):(\d\d))?(Z)?$/;
@@ -196,7 +212,11 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
   if (me.status !== 200 || !me.json || !me.json.user) throw new DemoError('The session is not signed in.');
   const callerKey = me.json.user.key;
   const branding = await ok('caller', 'GET', '/api/branding');
-  const phaseIds = new Set((branding.phases || []).map((p) => p.id));
+  // The demo's space reads the demo's own template (a space's own template, plan-space-templates.md) when the environment's
+  // default is another one, so a games demo in a travel environment still reads as a campaign. That is the space's own
+  // record, never an environment-wide setting. Off (settings.spaceTemplates), it reads the environment's, and the report says so.
+  const envTemplate = (((await ok('caller', 'GET', '/api/settings')).settings || {}).template || {}).id || null;
+  const ownTemplate = file.template !== envTemplate ? file.template : null;
 
   // --- what is already there, and what must be left alone: all checked before anything is changed ---
   const existing = (await ok('caller', 'GET', '/api/users')).users || [];
@@ -253,10 +273,32 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
   // --- reset only the demo space, then make it ---
   for (const id of old) { await ok('caller', 'DELETE', `/api/spaces/${id}`); say(`Removed the old demo ${word('space')}.`); }
   const members = [...new Set([...logins.map((l) => keys[l]), callerKey].filter(Boolean))];
+  const description = `${MARKER} ${file.description}`.trim();
+  let space = null;
+  if (ownTemplate && branding.spaceTemplates !== false) {
+    const r = await call('caller', 'POST', '/api/spaces', { name: file.name, description, members, starter: false, template: ownTemplate });
+    if (r.status < 300 && r.json && r.json.space) space = r.json.space;
+    else skipped.push({ module: 'template', why: `The demo ${word('space')} could not use the ${file.template} template (${(r.json && r.json.error) || `answered ${r.status}`}), so it reads this ${word('environment')}'s own.` });
+  } else if (ownTemplate) {
+    skipped.push({ module: 'template', why: `This ${word('environment')} does not let a ${word('space')} use its own template, so the demo ${word('space')} reads the ${word('environment')}'s own and not the ${file.template} template.` });
+  }
   // starter: false: a demo load writes its own data, never the template's starter content.
-  const space = (await ok('caller', 'POST', '/api/spaces', { name: file.name, description: `${MARKER} ${file.description}`.trim(), members, starter: false })).space;
+  if (!space) space = (await ok('caller', 'POST', '/api/spaces', { name: file.name, description, members, starter: false })).space;
   for (const p of file.people.filter((x) => x.moderator)) await ok('caller', 'PATCH', `/api/users/${keys[p.login]}/spaces/${space.id}`, { permissions: { moderator: true } });
   const ctx = { today, start, keys, space: space.id, base, now };
+
+  // What this space reads: its phases (its template's) and the modules on in it (enabled here AND offered by its template).
+  const look = (await ok('caller', 'GET', `/api/spaces/${space.id}/look`)).look || {};
+  const phaseIds = new Set((Array.isArray(look.phases) ? look.phases : []).map((p) => p.id));
+  const here = await call('caller', 'GET', `/api/modules/for-space?space=${encodeURIComponent(space.id)}`);
+  if (here.status === 200 && here.json && Array.isArray(here.json.modules)) {
+    const onHere = new Set(here.json.modules.map((m) => m.id));
+    for (const [id, b] of Object.entries(file.modules)) {
+      if (id === 'chat' || off.has(id) || onHere.has(id)) continue;
+      off.add(id);
+      skipped.push({ module: id, why: `${nameOf(id)} is not part of the template this demo ${word('space')} reads, so the ${countOf(id, b)} demo ${b.what || word('object', { many: true })} were not made.` });
+    }
+  }
 
   const patch = {};
   if (file.phases) {
@@ -322,4 +364,4 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
   return { demo: true, space, start, created, skipped, refused, people, guestUrl };
 }
 
-module.exports = { loadDemo, readDemoFile, hasDemo, problemsOf, resolveString, resolveValue, DemoError, MARKER, DEMO_DIR, dayPlus };
+module.exports = { loadDemo, readDemoFile, hasDemo, listDemos, problemsOf, resolveString, resolveValue, DemoError, MARKER, DEMO_DIR, dayPlus };

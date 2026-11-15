@@ -1,0 +1,124 @@
+{
+  "_about": "The demo of the mentoring template: a mentor and a new team lead. Read by server/demo-loader.js, which writes it through the real module routes; the format is described in templates/demo/travel.json and the loader. Its phases are measured by goals. Dates are offsets: \"start\" is the next check-in (today plus \"anchor\" days).",
+  "template": "mentoring",
+  "label": "Mentoring demo",
+  "name": "Demo: Zoe and Omar",
+  "description": "A first year as a team lead, with a mentor: goals, next steps, check-ins and a meeting log. Reset by running it again.",
+  "anchor": 2,
+  "people": [
+    {"login":"omar","displayName":"Omar Haddad","role":"member","moderator":true},
+    {"login":"zoe","displayName":"Zoe Lindqvist","role":"member","moderator":false}
+  ],
+  "modules": {
+    "goals": {
+      "what": "plan entries",
+      "count": ["plan:"],
+      "steps": [
+        {
+          "as": "omar",
+          "data": {
+            "plan:g1": {"kind":"goal","title":"Agree how we work together","why":"A rhythm we both keep, and a place for the notes.","parent":null,"order":"a1","owners":["@zoe"],"date":"today-42","shownDate":"today-42","phase":"start","done":true,"progress":100,"createdAt":"ms:today-44T10:00","by":"@omar"},
+            "plan:g1x1": {"kind":"step","title":"Meet every two weeks for 45 minutes","parent":"g1","order":"a1","done":true,"createdAt":"ms:today-44T10:00","by":"@omar"},
+            "plan:g1x2": {"kind":"step","title":"Write down what I want from this year","parent":"g1","order":"a2","done":true,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g1x3": {"kind":"step","title":"Agree that notes go in the Meeting log","parent":"g1","order":"a3","done":true,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g2": {"kind":"goal","title":"Run one-to-ones people look forward to","why":"They are the most useful half hour of my week, when they work.","parent":null,"order":"a2","owners":["@zoe"],"date":"today+10","shownDate":"today+10","phase":"grow","done":false,"progress":75,"createdAt":"ms:today-44T10:00","by":"@omar"},
+            "plan:g2x1": {"kind":"step","title":"Ask each person what a good one-to-one is for them","parent":"g2","order":"a1","done":true,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g2x2": {"kind":"step","title":"Keep a shared agenda with each person","parent":"g2","order":"a2","done":true,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g2x3": {"kind":"step","title":"Move one-to-ones off Friday afternoons","parent":"g2","order":"a3","done":true,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g2x4": {"kind":"step","title":"Ask the team how the new format feels","parent":"g2","order":"a4","done":false,"date":"today+10","shownDate":"today+10","createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g3": {"kind":"goal","title":"Give clear, kind feedback","why":"Say the hard thing early and well, instead of late and badly.","parent":null,"order":"a3","owners":["@zoe"],"date":"today+31","shownDate":"today+31","phase":"grow","done":false,"progress":33,"createdAt":"ms:today-44T10:00","by":"@omar"},
+            "plan:g3x1": {"kind":"step","title":"Read the notes on the situation, behaviour, impact model","parent":"g3","order":"a1","done":true,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g3x2": {"kind":"step","title":"Two role-plays with Omar","parent":"g3","order":"a2","done":false,"date":"start+0","shownDate":"start+0","createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g3x3": {"kind":"step","title":"Give one piece of feedback each week for a month","parent":"g3","order":"a3","done":false,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g3n1": {"kind":"note","title":"Omar's tip","text":"Ask before you give it: \"Can I give you some feedback on the demo?\" It changes how it lands.","parent":"g3","order":"a4","createdAt":"ms:today-14T10:00","by":"@omar"},
+            "plan:g4": {"kind":"goal","title":"Plan the team's next quarter","why":"Three outcomes the team chose, not a list handed down.","parent":null,"order":"a4","owners":["@zoe"],"date":"today+45","shownDate":"today+45","phase":"grow","done":false,"progress":0,"createdAt":"ms:today-44T10:00","by":"@omar"},
+            "plan:g4x1": {"kind":"step","title":"List what the team owns today","parent":"g4","order":"a1","done":false,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g4x2": {"kind":"step","title":"Draft three outcomes","parent":"g4","order":"a2","done":false,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g4x3": {"kind":"step","title":"Review the draft with the team","parent":"g4","order":"a3","done":false,"date":"today+40","shownDate":"today+40","createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g5": {"kind":"goal","title":"Look back and set the next goals","why":"Six months in: what changed, and what is next.","parent":null,"order":"a5","owners":["@zoe"],"date":"today+75","shownDate":"today+75","phase":"review","done":false,"progress":0,"createdAt":"ms:today-44T10:00","by":"@omar"},
+            "plan:g5x1": {"kind":"step","title":"Write a one-page look back","parent":"g5","order":"a1","done":false,"createdAt":"ms:today-44T10:00","by":"@zoe"},
+            "plan:g5x2": {"kind":"step","title":"Pick the next two goals together","parent":"g5","order":"a2","done":false,"createdAt":"ms:today-44T10:00","by":"@zoe"}
+          }
+        }
+      ]
+    },
+    "todo": {
+      "what": "next steps",
+      "count": ["task:"],
+      "steps": [
+        {
+          "as": "omar",
+          "data": {
+            "task:n01": {"id":"n01","title":"Ask each person what they want from one-to-ones","notes":"Zoe. Five people, five answers.","due":"today-30","remind":false,"done":true,"doneAt":"ms:today-31T17:00","createdAt":"ms:now","by":"Zoe Lindqvist","links":[{"module":"goals","kind":"plan","id":"g2x1","scope":"space","space":"{space}"}]},
+            "task:n02": {"id":"n02","title":"Set up a shared agenda for each one-to-one","notes":"Zoe.","due":"today-24","remind":false,"done":true,"doneAt":"ms:today-25T17:00","createdAt":"ms:now","by":"Zoe Lindqvist","links":[{"module":"goals","kind":"plan","id":"g2x2","scope":"space","space":"{space}"}]},
+            "task:n03": {"id":"n03","title":"Move the Friday one-to-ones","notes":"Zoe. Two moved to the morning.","due":"today-15","remind":false,"done":true,"doneAt":"ms:today-16T17:00","createdAt":"ms:now","by":"Zoe Lindqvist","links":[{"module":"goals","kind":"plan","id":"g2x3","scope":"space","space":"{space}"}]},
+            "task:n04": {"id":"n04","title":"Read the feedback notes Omar shared","notes":"Zoe. In Research.","due":"today-8","remind":false,"done":true,"doneAt":"ms:today-9T17:00","createdAt":"ms:now","by":"Omar Haddad","links":[{"module":"goals","kind":"plan","id":"g3x1","scope":"space","space":"{space}"}]},
+            "task:n05": {"id":"n05","title":"Write two feedback situations for the role-play","notes":"Zoe. Real ones, names changed.","due":"start-1","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Omar Haddad","links":[{"module":"goals","kind":"plan","id":"g3x2","scope":"space","space":"{space}"}]},
+            "task:n06": {"id":"n06","title":"Send the team three questions about the new format","notes":"Zoe. Short, anonymous.","due":"today+6","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Zoe Lindqvist","links":[{"module":"goals","kind":"plan","id":"g2x4","scope":"space","space":"{space}"}]},
+            "task:n07": {"id":"n07","title":"List what the team owns today","notes":"Zoe. One line each.","due":"today+20","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Zoe Lindqvist","links":[{"module":"goals","kind":"plan","id":"g4x1","scope":"space","space":"{space}"}]},
+            "task:n08": {"id":"n08","title":"Book the quarter planning workshop room","notes":"Zoe.","due":"today+25","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Zoe Lindqvist","links":[{"module":"goals","kind":"plan","id":"g4","scope":"space","space":"{space}"}]}
+          }
+        }
+      ]
+    },
+    "calendar": {
+      "what": "check-ins",
+      "count": ["event:"],
+      "steps": [
+        {
+          "as": "omar",
+          "data": {
+            "event:m-checkin": {"id":"m-checkin","by":"Omar Haddad","desc":"Agenda in the Meeting log. Notes after.","remind":30,"repeat":{"every":"2weeks","until":"start+84"},"title":"Check-in: Zoe and Omar","allDay":false,"start":"start-42T16:00Z","end":"start-42T16:45Z"},
+            "event:m-shadow": {"id":"m-shadow","by":"Omar Haddad","desc":"Watch how the agenda is run. Say nothing, take notes.","remind":null,"repeat":null,"title":"Zoe sits in on Omar's team meeting","allDay":false,"start":"today-20T10:00Z","end":"today-20T11:00Z"},
+            "event:m-workshop": {"id":"m-workshop","by":"Omar Haddad","desc":"Zoe runs it with her team. Omar is on call for questions.","remind":1440,"repeat":null,"title":"Quarter planning workshop","allDay":false,"start":"today+40T13:00Z","end":"today+40T16:00Z"}
+          }
+        }
+      ]
+    },
+    "research": {
+      "what": "research objects",
+      "count": ["note:","link:","answer:"],
+      "steps": [
+        {
+          "as": "omar",
+          "data": {
+            "note:f1": {"text":"\"More time on what I am stuck on, less on status.\" Three of five said the same.","sub":"","kind":"note","title":"From the team: one-to-ones","body":"\"More time on what I am stuck on, less on status.\" Three of five said the same.","tags":["feedback"],"date":"","by":"Zoe Lindqvist","at":"today-29T10:00Z"},
+            "note:f2": {"text":"Open with the goal of the meeting, time-box each part, end with who does what by when.","sub":"","kind":"note","title":"Facilitation","body":"Open with the goal of the meeting, time-box each part, end with who does what by when.","tags":["skill"],"date":"","by":"Omar Haddad","at":"today-20T10:00Z"},
+            "link:f3": {"text":"Describe the moment, what the person did, and what it changed. Leave out what you think they meant.","sub":"","kind":"link","title":"Situation, behaviour, impact: a short guide","tags":["reading"],"date":"","by":"Omar Haddad","at":"today-12T10:00Z","url":"https://example.com/sbi-feedback","excerpt":"Describe the moment, what the person did, and what it changed."},
+            "link:f4": {"text":"A plan for the day: what we own, what we want, what we drop.","sub":"","kind":"link","title":"Running a planning workshop in three hours","tags":["reading"],"date":"","by":"Zoe Lindqvist","at":"today-5T10:00Z","url":"https://example.com/planning-workshop","excerpt":"A plan for the day: what we own, what we want, what we drop."}
+          }
+        }
+      ]
+    },
+    "documents": {
+      "what": "documents",
+      "count": ["doc:"],
+      "steps": [
+        {
+          "as": "omar",
+          "data": {
+            "doc:mlogzoe1": {"id":"mlogzoe1","type":"doc","title":"Meeting log","rev":1,"chunks":["mlogzoc1"],"size":977,"excerpt":"Meeting log Check-in 4 What we talked about: the new one-to-one format is working; two people asked for more time on what they are stuck on. Feedback is the next thing to practise. Agreed next steps: Zoe writes two real situations for a role-play. Zoe asks the team three short questions about the ne","preview":"# Meeting log\n\n## Check-in 4\n\n**What we talked about:** the new one-to-one format is working; two people asked for more time on what they are stuck on. Feedback is the next thing to practise.\n\n**Agreed next steps:**\n\n- Zoe writes two real situations for a role-play.\n- Zoe asks the team three short questions about the new format.\n- Omar shares the notes on situation, behaviour, impact.","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@omar","at":"today-42T17:00Z","editedBy":"@zoe","editedByName":"Zoe Lindqvist","editedAt":"today-2T17:00Z"},
+            "text:mlogzoe1:mlogzoc1": {"id":"mlogzoc1","doc":"mlogzoe1","text":"# Meeting log\n\n## Check-in 4\n\n**What we talked about:** the new one-to-one format is working; two people asked for more time on what they are stuck on. Feedback is the next thing to practise.\n\n**Agreed next steps:**\n\n- Zoe writes two real situations for a role-play.\n- Zoe asks the team three short questions about the new format.\n- Omar shares the notes on situation, behaviour, impact.\n\n## Check-in 3\n\n**What we talked about:** Friday afternoon one-to-ones get cancelled. Sitting in on Omar's team meeting.\n\n**Agreed next steps:**\n\n- Move the Friday one-to-ones.\n- Zoe sits in on Omar's team meeting.\n\n## Check-in 2\n\n**What we talked about:** what Zoe wants from this year: better one-to-ones, clear feedback, and a quarter plan the team owns.\n\n**Agreed next steps:**\n\n- Put the three goals in the Development plan.\n- Ask each person what a good one-to-one is for them.\n\n## Check-in 1\n\n**What we talked about:** how we work together. Every two weeks, 45 minutes, notes here.\n"}
+          }
+        }
+      ]
+    },
+    "chat": {
+      "messages": [
+        {"as":"omar","text":"Hi Zoe. Next check-in is in two days. Anything you want on the agenda?"},
+        {"as":"zoe","text":"Feedback. I have one I keep putting off."},
+        {"as":"omar","text":"Good, that is what the role-plays are for. Bring it, names changed."},
+        {"as":"zoe","text":"The one-to-ones are better. Two people said they finally get time on what they are stuck on."},
+        {"as":"omar","text":"> finally get time on what they are stuck on\nThat is the whole point. Well done."},
+        {"as":"zoe","text":"I ticked the Friday one off. Two moved to the morning, one is now a walk."},
+        {"as":"omar","text":"The plan shows it: {base}/modules/goals?space={space}"},
+        {"as":"zoe","text":"Getting started is done, and one-to-ones are three of four."},
+        {"as":"omar","text":"I shared a short guide on situation, behaviour, impact in Research."},
+        {"as":"zoe","text":"Read it on the train. The \"leave out what you think they meant\" part is hard."},
+        {"as":"omar","text":"It is. We will practise exactly that."},
+        {"as":"zoe","text":"I wrote up last time in the Meeting log."},
+        {"as":"omar","text":"Thanks. See you on the check-in."}
+      ]
+    }
+  }
+}

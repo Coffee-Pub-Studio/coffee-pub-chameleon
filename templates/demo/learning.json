@@ -1,0 +1,171 @@
+{
+  "_about": "The demo of the learning template: a small Spanish course, a tutor and three learners. Read by server/demo-loader.js, which writes it through the real module routes; the format is described in templates/demo/travel.json and the loader. Its phases are measured by goals, so the goals that name a phase say how far along it is. Dates are offsets: \"start\" is the practice exam (today plus \"anchor\" days).",
+  "template": "learning",
+  "label": "Learning demo",
+  "name": "Demo: Conversational Spanish",
+  "description": "A twelve-week Spanish course: goals with steps, exercises, a journal and reading. Reset by running it again.",
+  "anchor": 42,
+  "guestLink": true,
+  "people": [
+    {"login":"marta","displayName":"Marta Ruiz","role":"member","moderator":true},
+    {"login":"dev","displayName":"Dev Anand","role":"member","moderator":false},
+    {"login":"holly","displayName":"Holly Brooks","role":"member","moderator":false},
+    {"login":"femi","displayName":"Femi Adeyemi","role":"member","moderator":false}
+  ],
+  "modules": {
+    "goals": {
+      "what": "plan entries",
+      "count": ["plan:"],
+      "steps": [
+        {
+          "as": "marta",
+          "data": {
+            "plan:g1": {"kind":"goal","title":"Introduce yourself and make small talk","why":"The first five minutes of any conversation.","parent":null,"order":"a1","owners":["@dev","@holly","@femi"],"date":"today-28","shownDate":"today-28","phase":"explore","done":true,"progress":100,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g1x1": {"kind":"step","title":"Greetings and goodbyes","parent":"g1","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g1x2": {"kind":"step","title":"Say where you are from and what you do","parent":"g1","order":"a2","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g1x3": {"kind":"step","title":"Ask three questions back","parent":"g1","order":"a3","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g2": {"kind":"goal","title":"Order food and drinks","why":"So the trip in spring starts well.","parent":null,"order":"a2","owners":["@dev","@holly","@femi"],"date":"today-17","shownDate":"today-17","phase":"explore","done":true,"progress":100,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g2x1": {"kind":"step","title":"The words for a cafe and a market","parent":"g2","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g2x2": {"kind":"step","title":"Role-play ordering at a cafe","parent":"g2","order":"a2","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g2x3": {"kind":"step","title":"Ask for the bill and pay","parent":"g2","order":"a3","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g3": {"kind":"goal","title":"Talk about your week","why":"The past tense, so we can tell a story.","parent":null,"order":"a3","owners":["@dev","@holly","@femi"],"date":"today-3","shownDate":"today-3","phase":"practice","done":true,"progress":100,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g3x1": {"kind":"step","title":"Regular verbs in the past tense","parent":"g3","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g3x2": {"kind":"step","title":"Ten irregular verbs: fui, hice, tuve, estuve...","parent":"g3","order":"a2","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g3x3": {"kind":"step","title":"Tell the group about your weekend","parent":"g3","order":"a3","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g3x4": {"kind":"step","title":"Write five sentences in the journal","parent":"g3","order":"a4","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g4": {"kind":"goal","title":"Ask for and follow directions","why":"Getting around a new city without a phone.","parent":null,"order":"a4","owners":["@dev","@holly","@femi"],"date":"today+11","shownDate":"today+11","phase":"practice","done":false,"progress":33,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g4x1": {"kind":"step","title":"Left, right, straight on, across from","parent":"g4","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g4x2": {"kind":"step","title":"Listen to directions at normal speed","parent":"g4","order":"a2","done":false,"date":"today+4","shownDate":"today+4","createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g4x3": {"kind":"step","title":"Lead a walk around the town map in class","parent":"g4","order":"a3","done":false,"date":"today+11","shownDate":"today+11","createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g4n1": {"kind":"note","title":"Tip from Marta","text":"Shadow the podcast at 0.75 speed: say each sentence out loud just after you hear it.","parent":"g4","order":"a4","createdAt":"ms:today-20T10:00","by":"@marta"},
+            "plan:g5": {"kind":"goal","title":"Hold a ten-minute conversation","why":"The real test: talking without notes.","parent":null,"order":"a5","owners":["@dev","@holly","@femi"],"date":"today+25","shownDate":"today+25","phase":"practice","done":false,"progress":33,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g5x1": {"kind":"step","title":"Two minutes with a partner","parent":"g5","order":"a1","done":true,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g5x2": {"kind":"step","title":"Five minutes at the conversation club","parent":"g5","order":"a2","done":false,"date":"today+9","shownDate":"today+9","createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g5x3": {"kind":"step","title":"Ten minutes with a native speaker","parent":"g5","order":"a3","done":false,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g6": {"kind":"goal","title":"Pass the A2 practice exam","why":"A check that the course did its job.","parent":null,"order":"a6","owners":["@dev","@holly","@femi"],"date":"start+0","shownDate":"start+0","phase":"review","done":false,"progress":0,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g6x1": {"kind":"step","title":"The listening paper","parent":"g6","order":"a1","done":false,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g6x2": {"kind":"step","title":"The reading paper","parent":"g6","order":"a2","done":false,"createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:g6x3": {"kind":"step","title":"The speaking test with Marta","parent":"g6","order":"a3","done":false,"date":"start+0","shownDate":"start+0","createdAt":"ms:today-36T10:00","by":"@marta"},
+            "plan:n0": {"kind":"note","title":"How we work","text":"One class a week, the conversation club every other week, and twenty minutes a day on the exercises. Write in the journal after every class.","parent":null,"order":"a7","createdAt":"ms:today-36T10:00","by":"@marta"}
+          }
+        }
+      ]
+    },
+    "todo": {
+      "what": "exercises",
+      "count": ["task:"],
+      "steps": [
+        {
+          "as": "marta",
+          "data": {
+            "task:x01": {"id":"x01","title":"Learn the twenty cafe words","notes":"Flashcards in Reading.","due":"today-20","remind":false,"done":true,"doneAt":"ms:today-4T18:00","createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g2","scope":"space","space":"{space}"}]},
+            "task:x02": {"id":"x02","title":"Write five sentences about last weekend","notes":"In the Learning journal.","due":"today-5","remind":false,"done":true,"doneAt":"ms:today-4T18:00","createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g3","scope":"space","space":"{space}"}]},
+            "task:x03": {"id":"x03","title":"Podcast episode 12: note five new words","notes":"","due":"today-2","remind":false,"done":true,"doneAt":"ms:today-4T18:00","createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g3","scope":"space","space":"{space}"}]},
+            "task:x04": {"id":"x04","title":"Draw a map of your street and label it","notes":"Bring it to class.","due":"today+2","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g4","scope":"space","space":"{space}"}]},
+            "task:x05": {"id":"x05","title":"Podcast episode 13: the directions one","notes":"Listen twice. The second time without the transcript.","due":"today+4","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g4x2","scope":"space","space":"{space}"}]},
+            "task:x06": {"id":"x06","title":"Prepare three questions for the conversation club","notes":"","due":"today+8","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g5","scope":"space","space":"{space}"}]},
+            "task:x07": {"id":"x07","title":"Ser or estar: worksheet 4","notes":"Answers are on the back. No peeking.","due":"today+6","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Marta Ruiz","links":[]},
+            "task:x08": {"id":"x08","title":"Record a one-minute voice note about your week","notes":"Send it to Marta.","due":"today+10","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g5","scope":"space","space":"{space}"}]},
+            "task:x09": {"id":"x09","title":"Do last year's listening paper at home","notes":"","due":"start-4","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g6","scope":"space","space":"{space}"}]},
+            "task:x10": {"id":"x10","title":"Learn the numbers to one hundred","notes":"For prices and addresses.","due":"today-25","remind":false,"done":true,"doneAt":"ms:today-4T18:00","createdAt":"ms:now","by":"Marta Ruiz","links":[{"module":"goals","kind":"plan","id":"g2","scope":"space","space":"{space}"}]}
+          }
+        }
+      ]
+    },
+    "calendar": {
+      "what": "sessions",
+      "count": ["event:"],
+      "steps": [
+        {
+          "as": "marta",
+          "data": {
+            "event:l-class": {"id":"l-class","by":"Marta Ruiz","desc":"Room 4, or the call if you cannot come.","remind":60,"repeat":{"every":"week","until":"start+0"},"title":"Spanish class","allDay":false,"start":"today-35T18:30Z","end":"today-35T20:00Z"},
+            "event:l-club": {"id":"l-club","by":"Marta Ruiz","desc":"Spanish only. Coffee is on whoever speaks English first.","remind":null,"repeat":{"every":"2weeks","until":"start+0"},"title":"Conversation club","allDay":false,"start":"today-19T19:00Z","end":"today-19T20:00Z"},
+            "event:l-exam": {"id":"l-exam","by":"Marta Ruiz","desc":"Listening, reading, then the speaking test one by one.","remind":1440,"repeat":null,"title":"A2 practice exam","allDay":false,"start":"start+0T09:00Z","end":"start+0T12:00Z"},
+            "event:l-film": {"id":"l-film","by":"Marta Ruiz","desc":"Spanish subtitles, not English ones.","remind":null,"repeat":null,"title":"Film night with subtitles","allDay":false,"start":"today+15T19:30Z","end":"today+15T21:30Z"}
+          }
+        }
+      ]
+    },
+    "research": {
+      "what": "reading objects",
+      "count": ["note:","link:","answer:"],
+      "steps": [
+        {
+          "as": "marta",
+          "data": {
+            "link:b1": {"text":"A one-page table with the past tense of each, and an example sentence.","sub":"","kind":"link","title":"The twenty most common irregular verbs","tags":["reading"],"date":"","by":"Marta Ruiz","at":"today-10T10:00Z","url":"https://example.com/irregular-verbs","excerpt":"A one-page table with the past tense of each, and an example sentence."},
+            "link:b2": {"text":"Short episodes at a slow pace, with transcripts.","sub":"","kind":"link","title":"Slow Spanish podcast, episodes 10 to 15","tags":["reading"],"date":"","by":"Holly Brooks","at":"today-12T10:00Z","url":"https://example.com/slow-spanish","excerpt":"Short episodes at a slow pace, with transcripts."},
+            "answer:b3": {"text":"Ser for what something is (who, what, where from, when). Estar for how and where it is right now. \"Soy profesora\" but \"estoy cansada\".","sub":"","kind":"answer","title":"When do I use ser and when estar?","content":"Ser for what something is (who, what, where from, when). Estar for how and where it is right now. \"Soy profesora\" but \"estoy cansada\".","tags":["question"],"date":"","by":"Dev Anand","at":"today-8T10:00Z"},
+            "note:b4": {"text":"Fui is the past of both ir (to go) and ser (to be). The sentence tells you which.","sub":"","kind":"note","title":"Why \"fui\" is two verbs","body":"Fui is the past of both ir (to go) and ser (to be). The sentence tells you which.","tags":["question"],"date":"","by":"Femi Adeyemi","at":"today-6T10:00Z"},
+            "note:b5": {"text":"Sticky notes on the fridge, the door, the window. Holly says it works.","sub":"","kind":"note","title":"Label things at home","body":"Sticky notes on the fridge, the door, the window. Holly says it works.","tags":["idea"],"date":"","by":"Holly Brooks","at":"today-15T10:00Z"},
+            "note:b6": {"text":"Dev is trying it. So far he has turned off his alarm by mistake twice.","sub":"","kind":"note","title":"Swap phones to Spanish for a week","body":"Dev is trying it. So far he has turned off his alarm by mistake twice.","tags":["idea"],"date":"","by":"Dev Anand","at":"today-3T10:00Z"}
+          }
+        }
+      ]
+    },
+    "documents": {
+      "what": "documents",
+      "count": ["doc:"],
+      "steps": [
+        {
+          "as": "marta",
+          "data": {
+            "doc:journal1": {"id":"journal1","type":"doc","title":"Learning journal","rev":1,"chunks":["journac1"],"size":651,"excerpt":"Learning journal Week 5 What I learned: the past tense of ir and ser are the same, fui. The sentence tells you which. What was hard: hearing the difference between \"hablo\" and \"habló\" at full speed. Next: podcast episode 13, and the map of my street. Week 4 What I learned: I told the group about my","preview":"# Learning journal\n\n## Week 5\n\n**What I learned:** the past tense of ir and ser are the same, fui. The sentence tells you which.\n\n**What was hard:** hearing the difference between \"hablo\" and \"habló\" at full speed.\n\n**Next:** podcast episode 13, and the map of my street.\n\n## Week 4\n\n**What I learned:** I told the group about my weekend: \"Fui al mercado y compré pan.\" Nobody laughed.","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@holly","at":"today-28T20:00Z","editedBy":"@holly","editedByName":"Holly Brooks","editedAt":"today-1T20:00Z"},
+            "text:journal1:journac1": {"id":"journac1","doc":"journal1","text":"# Learning journal\n\n## Week 5\n\n**What I learned:** the past tense of ir and ser are the same, fui. The sentence tells you which.\n\n**What was hard:** hearing the difference between \"hablo\" and \"habló\" at full speed.\n\n**Next:** podcast episode 13, and the map of my street.\n\n## Week 4\n\n**What I learned:** I told the group about my weekend: \"Fui al mercado y compré pan.\" Nobody laughed.\n\n**What was hard:** remembering tuve and estuve.\n\n**Next:** five sentences in this journal. Done.\n\n## Week 3\n\n**What I learned:** how to order a coffee, ask for the bill and pay.\n\n**What was hard:** numbers over twenty.\n\n**Next:** learn the numbers to one hundred.\n"},
+            "doc:verbsht1": {"id":"verbsht1","type":"doc","title":"Past tense cheat sheet","rev":1,"chunks":["verbshc1"],"size":453,"excerpt":"Past tense cheat sheet Verb I you he, she hablar (to speak) hablé hablaste habló comer (to eat) comí comiste comió ir, ser (to go, to be) fui fuiste fue hacer (to do) hice hiciste hizo tener (to have) tuve tuviste tuvo estar (to be) estuve estuviste estuvo Tip: the accent on the last letter changes","preview":"# Past tense cheat sheet\n\n| Verb | I | you | he, she |\n| --- | --- | --- | --- |\n| hablar (to speak) | hablé | hablaste | habló |\n| comer (to eat) | comí | comiste | comió |\n| ir, ser (to go, to be) | fui | fuiste | fue |\n| hacer (to do) | hice | hiciste | hizo |\n| tener (to have) | tuve | tuviste | tuvo |\n| estar (to be) | estuve | estuviste | estuvo |","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@marta","at":"today-9T17:00Z","editedBy":"@marta","editedByName":"Marta Ruiz","editedAt":"today-9T17:00Z"},
+            "text:verbsht1:verbshc1": {"id":"verbshc1","doc":"verbsht1","text":"# Past tense cheat sheet\n\n| Verb | I | you | he, she |\n| --- | --- | --- | --- |\n| hablar (to speak) | hablé | hablaste | habló |\n| comer (to eat) | comí | comiste | comió |\n| ir, ser (to go, to be) | fui | fuiste | fue |\n| hacer (to do) | hice | hiciste | hizo |\n| tener (to have) | tuve | tuviste | tuvo |\n| estar (to be) | estuve | estuviste | estuvo |\n\nTip: the accent on the last letter changes who did it. Hablo is \"I speak\"; habló is \"he spoke\".\n"}
+          }
+        }
+      ]
+    },
+    "polls": {
+      "what": "polls",
+      "count": ["poll:"],
+      "steps": [
+        {
+          "as": "marta",
+          "data": {
+            "poll:p1": {"id":"p1","question":"Conversation club next time: where?","options":[{"id":"o1","text":"The cafe by the station"},{"id":"o2","text":"On the call"}],"multi":false,"addable":true,"closed":false,"closesAt":null,"createdAt":"ms:today-2T10:00","by":"Marta Ruiz","byKey":"@marta"}
+          }
+        },
+        {
+          "as": "dev",
+          "data": {
+            "vote:p1:@dev": {"options":["o1"],"name":"Dev Anand","at":"ms:today-2T12:00"}
+          }
+        },
+        {
+          "as": "holly",
+          "data": {
+            "vote:p1:@holly": {"options":["o1"],"name":"Holly Brooks","at":"ms:today-2T13:00"}
+          }
+        },
+        {
+          "as": "femi",
+          "data": {
+            "vote:p1:@femi": {"options":["o2"],"name":"Femi Adeyemi","at":"ms:today-1T09:00"}
+          }
+        }
+      ]
+    },
+    "chat": {
+      "messages": [
+        {"as":"marta","text":"¡Hola a todos! Week 6. We have finished Explore, and the past tense goal is done too. Well done."},
+        {"as":"holly","text":"It still feels hard at full speed."},
+        {"as":"marta","text":"That is normal. Directions next: the plan is here {base}/modules/goals?space={space}"},
+        {"as":"dev","text":"I put a question about ser and estar in Reading. Marta answered it, thank you."},
+        {"as":"femi","text":"Is the map of our street for this week?"},
+        {"as":"marta","text":"Yes, bring it to class. It is in Exercises."},
+        {"as":"holly","text":"Fui al mercado el sábado y pedí un café. The man answered in Spanish and I understood."},
+        {"as":"marta","text":"> I understood\n¡Muy bien, Holly!"},
+        {"as":"dev","text":"My phone is in Spanish now. I turned off my alarm twice by mistake."},
+        {"as":"femi","text":"That is commitment."},
+        {"as":"marta","text":"Vote for where the conversation club meets next time, please."},
+        {"as":"dev","text":"Voted for the cafe. Real coffee helps."},
+        {"as":"holly","text":"My journal has weeks 3 to 5 now, in Documents."},
+        {"as":"marta","text":"Practice exam is at the end of the course. No stress, it is a check, not a grade."}
+      ]
+    }
+  }
+}

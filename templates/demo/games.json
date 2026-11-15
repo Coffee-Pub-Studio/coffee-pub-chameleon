@@ -1,0 +1,211 @@
+{
+  "_about": "The demo of the games template: one campaign, a game master and three players. Read by server/demo-loader.js, which writes it through the real module routes; the format is described in templates/demo/travel.json and the loader. Dates are offsets: \"start\" is the next session (today plus \"anchor\" days).",
+  "template": "games",
+  "label": "Games demo",
+  "name": "Demo: The Salt Crown",
+  "description": "A sea campaign for four: a drowned town, a stolen crown and three silver bells. Reset by running it again.",
+  "anchor": 3,
+  "guestLink": true,
+  "budget": {"amount":300,"currency":"USD"},
+  "people": [
+    {"login":"ren","displayName":"Ren Calloway","role":"member","moderator":true},
+    {"login":"ada","displayName":"Ada Moreau","role":"member","moderator":false},
+    {"login":"tobi","displayName":"Tobi Lind","role":"member","moderator":false},
+    {"login":"ines","displayName":"Ines Vale","role":"member","moderator":false}
+  ],
+  "modules": {
+    "schedule": {
+      "what": "campaign entries",
+      "count": ["plan:"],
+      "steps": [
+        {
+          "as": "ren",
+          "data": {
+            "plan:s1": {"kind":"milestone","title":"Session 1: The wreck at Gull Point","start":"today-42","done":true,"progress":100,"tags":["mainquest"],"notes":"The party meets on the road to Saltmere.","order":"a1","by":"@ren"},
+            "plan:s1s1": {"kind":"work","title":"Storm on the coast road","start":"today-42","end":"today-42","owners":[],"done":true,"tags":["mainquest"],"parent":"s1","notes":"Wagon lost a wheel. Garran carried the lantern.","order":"a2","by":"@ren"},
+            "plan:s1s2": {"kind":"work","title":"Salvage the captain's chest","start":"today-42","end":"today-42","owners":[],"done":true,"tags":["mainquest"],"parent":"s1","notes":"Half a sea chart, a silver bell and a wet letter.","order":"a3","by":"@ren"},
+            "plan:s1s3": {"kind":"work","title":"A stranger in the tide pools","start":"today-42","end":"today-42","owners":[],"done":true,"tags":["mystery"],"parent":"s1","notes":"Watched them, then walked into the sea.","order":"a4","by":"@ren"},
+            "plan:dt1": {"kind":"work","title":"Downtime: repairs and letters home","start":"today-41","end":"today-29","owners":["@ada","@tobi","@ines"],"done":true,"tags":["side"],"order":"a5","by":"@ren"},
+            "plan:s2": {"kind":"milestone","title":"Session 2: Smugglers' tide","start":"today-28","done":true,"progress":100,"tags":["mainquest","side"],"order":"a6","by":"@ren"},
+            "plan:s2s1": {"kind":"work","title":"Bargain at the Copper Kettle","start":"today-28","end":"today-28","owners":[],"done":true,"tags":["side"],"parent":"s2","order":"a7","by":"@ren"},
+            "plan:s2s2": {"kind":"work","title":"Chase through the net sheds","start":"today-28","end":"today-28","owners":[],"done":true,"tags":["mainquest"],"parent":"s2","order":"a8","by":"@ren"},
+            "plan:s2s3": {"kind":"work","title":"The smugglers' half of the map","start":"today-28","end":"today-28","owners":[],"done":true,"tags":["mystery"],"parent":"s2","notes":"The two halves meet at the old lighthouse.","order":"a9","by":"@ren"},
+            "plan:dt2": {"kind":"work","title":"Downtime: Garran's diving lessons","start":"today-27","end":"today-15","owners":["@tobi"],"done":true,"tags":["side"],"order":"b1","by":"@ren"},
+            "plan:s3": {"kind":"milestone","title":"Session 3: The lighthouse keeper","start":"today-14","done":true,"progress":100,"tags":["mystery"],"order":"b2","by":"@ren"},
+            "plan:s3s1": {"kind":"work","title":"Climb the dark lighthouse","start":"today-14","end":"today-14","owners":[],"done":true,"tags":["mainquest"],"parent":"s3","order":"b3","by":"@ren"},
+            "plan:s3s2": {"kind":"work","title":"Old Harrow's log","start":"today-14","end":"today-14","owners":[],"done":true,"tags":["mystery"],"parent":"s3","notes":"The last page: \"The bells ring for her. Not for us.\"","order":"b4","by":"@ren"},
+            "plan:s3s3": {"kind":"work","title":"First sight of the Tide Court","start":"today-14","end":"today-14","owners":[],"done":true,"tags":["villain"],"parent":"s3","order":"b5","by":"@ren"},
+            "plan:dt3": {"kind":"work","title":"Downtime: rumours in Saltmere","start":"today-13","end":"start-1","owners":["@ines","@ada"],"done":false,"tags":["side","mystery"],"order":"b6","by":"@ren"},
+            "plan:s4": {"kind":"milestone","title":"Session 4: Under Saltmere","start":"start+0","done":false,"progress":0,"tags":["mainquest"],"notes":"Next session. The town above, the town below.","order":"b7","by":"@ren"},
+            "plan:s4s1": {"kind":"work","title":"The flooded stair","start":"start+0","end":"start+0","owners":[],"done":false,"tags":["mainquest"],"parent":"s4","notes":"Breath rules: three rounds, then Constitution saves.","order":"b8","by":"@ren"},
+            "plan:s4s2": {"kind":"work","title":"Bargain with the eel king","start":"start+0","end":"start+0","owners":[],"done":false,"tags":["side"],"parent":"s4","notes":"He wants three silver bells. They have one.","order":"b9","by":"@ren"},
+            "plan:s4s3": {"kind":"work","title":"The bell that rings under water","start":"start+0","end":"start+0","owners":[],"done":false,"tags":["mystery"],"parent":"s4","order":"c1","by":"@ren"},
+            "plan:s5": {"kind":"milestone","title":"Session 5: The drowned chapel","start":"start+14","done":false,"progress":0,"tags":["mystery","villain"],"order":"c2","by":"@ren"},
+            "plan:s5s1": {"kind":"work","title":"Find the chapel door at low tide","start":"start+14","end":"start+14","owners":[],"done":false,"tags":["mystery"],"parent":"s5","order":"c3","by":"@ren"},
+            "plan:s5s2": {"kind":"work","title":"The Tide Court's offer","start":"start+14","end":"start+14","owners":[],"done":false,"tags":["villain"],"parent":"s5","notes":"They offer Sable her brother back. The price is the crown.","order":"c4","by":"@ren"},
+            "plan:s6": {"kind":"milestone","title":"Session 6: Court of tides","start":"start+28","done":false,"tags":["villain"],"order":"c5","by":"@ren"},
+            "plan:s7": {"kind":"milestone","title":"Finale: The Salt Crown rises","start":"start+42","done":false,"tags":["mainquest","villain"],"notes":"Two sessions if the players want it.","order":"c6","by":"@ren"},
+            "plan:n1": {"kind":"note","title":"Loose threads","notes":"Who sent the stranger? Why does the letter carry the harbourmaster's seal? Ada asked twice about the silver bell.","tags":["mystery"],"order":"c7","by":"@ren"},
+            "plan:n2": {"kind":"note","title":"Player wishes","notes":"Ines wants a heist. Tobi wants a sea monster he can talk to. Ada wants to meet her old coven.","tags":["side"],"order":"c8","by":"@ren"}
+          }
+        }
+      ]
+    },
+    "research": {
+      "what": "lore entries",
+      "count": ["note:","link:","answer:"],
+      "steps": [
+        {
+          "as": "ren",
+          "data": {
+            "note:l1": {"text":"Captain of the Gull's Daughter, wrecked at Gull Point. Missing, thought drowned. Her chest held half a sea chart and a silver bell.","sub":"","kind":"note","title":"Captain Ysolde Marr","body":"Captain of the Gull's Daughter, wrecked at Gull Point. Missing, thought drowned. Her chest held half a sea chart and a silver bell.","tags":["character"],"date":"","by":"Ren Calloway","at":"today-40T20:00Z"},
+            "note:l2": {"text":"Kept the light for forty years. Wrote every ship that passed in his log. Gone since the night the bells began.","sub":"","kind":"note","title":"Old Harrow, the lighthouse keeper","body":"Kept the light for forty years. Wrote every ship that passed in his log. Gone since the night the bells began.","tags":["character"],"date":"","by":"Ren Calloway","at":"today-13T20:00Z"},
+            "note:l3": {"text":"Drowned nobles who still hold court below Saltmere. Polite, patient and very old. They want the Salt Crown back on a drowned head.","sub":"","kind":"note","title":"The Tide Court","body":"Drowned nobles who still hold court below Saltmere. Polite, patient and very old. They want the Salt Crown back on a drowned head.","tags":["faction"],"date":"","by":"Ren Calloway","at":"today-13T20:30Z"},
+            "note:l4": {"text":"Smugglers who mend nets by day. They owe the party one favour after the chase.","sub":"","kind":"note","title":"The Net-Menders","body":"Smugglers who mend nets by day. They owe the party one favour after the chase.","tags":["faction"],"date":"","by":"Ines Vale","at":"today-27T21:00Z"},
+            "note:l5": {"text":"A fishing town built on top of an older one. At night you can hear bells from under the harbour.","sub":"","kind":"note","title":"Saltmere","body":"A fishing town built on top of an older one. At night you can hear bells from under the harbour.","tags":["place"],"date":"","by":"Ren Calloway","at":"today-41T19:00Z"},
+            "note:l6": {"text":"Black rocks, a broken mast and the tide pools where the stranger stood.","sub":"","kind":"note","title":"Gull Point","body":"Black rocks, a broken mast and the tide pools where the stranger stood.","tags":["place"],"date":"","by":"Ada Moreau","at":"today-41T21:00Z"},
+            "note:l7": {"text":"The tavern on the harbour. Ask for Mags; never ask about the back room.","sub":"","kind":"note","title":"The Copper Kettle","body":"The tavern on the harbour. Ask for Mags; never ask about the back room.","tags":["place"],"date":"","by":"Tobi Lind","at":"today-27T22:00Z"},
+            "note:l8": {"text":"A crown of white coral and salt. Whoever wears it can call the tide. Three bells open the way to it.","sub":"","kind":"note","title":"The Salt Crown","body":"A crown of white coral and salt. Whoever wears it can call the tide. Three bells open the way to it.","tags":["mystery"],"date":"","by":"Ren Calloway","at":"today-12T20:00Z"}
+          }
+        }
+      ]
+    },
+    "documents": {
+      "what": "documents",
+      "count": ["doc:"],
+      "steps": [
+        {
+          "as": "ren",
+          "data": {
+            "doc:gmnotes1": {"id":"gmnotes1","type":"doc","title":"Session notes","rev":1,"chunks":["gmnotec1"],"size":762,"excerpt":"Session notes Session 3: The lighthouse keeper Climbed the lighthouse in the dark. Garran fell once and blamed the stairs. Found Old Harrow's log. Last page: \"The bells ring for her. Not for us.\" First sight of the Tide Court, down in the water below the rocks. Session 2: Smugglers' tide Struck a de","preview":"# Session notes\n\n## Session 3: The lighthouse keeper\n\n- Climbed the lighthouse in the dark. Garran fell once and blamed the stairs.\n- Found Old Harrow's log. Last page: \"The bells ring for her. Not for us.\"\n- First sight of the Tide Court, down in the water below the rocks.\n\n## Session 2: Smugglers' tide\n\n- Struck a deal with the Net-Menders at the Copper Kettle.","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@ren","at":"today-13T22:00Z","editedBy":"@ren","editedByName":"Ren Calloway","editedAt":"today-2T21:00Z"},
+            "text:gmnotes1:gmnotec1": {"id":"gmnotec1","doc":"gmnotes1","text":"# Session notes\n\n## Session 3: The lighthouse keeper\n\n- Climbed the lighthouse in the dark. Garran fell once and blamed the stairs.\n- Found Old Harrow's log. Last page: \"The bells ring for her. Not for us.\"\n- First sight of the Tide Court, down in the water below the rocks.\n\n## Session 2: Smugglers' tide\n\n- Struck a deal with the Net-Menders at the Copper Kettle.\n- Chase through the net sheds. Sable lost her hat and kept the map.\n- The two halves of the chart meet at the old lighthouse.\n\n## Session 1: The wreck at Gull Point\n\n- Met on the coast road in a storm.\n- Salvaged the captain's chest: half a chart, a silver bell, a wet letter.\n- A stranger in the tide pools watched us, then walked into the sea.\n\n## Next session\n\nUnder Saltmere. Bring the bell.\n"},
+            "doc:handharr": {"id":"handharr","type":"doc","title":"Handout: Harrow's last letter","rev":1,"chunks":["handhac1"],"size":447,"excerpt":"Harrow's last letter Found folded inside the lighthouse log, written in a shaking hand. To whoever keeps the light after me, The bells began on the first night of the new moon. Three of them, under the harbour, where no church has stood for two hundred years. I rowed out to listen. Something below w","preview":"# Harrow's last letter\n\n*Found folded inside the lighthouse log, written in a shaking hand.*\n\nTo whoever keeps the light after me,\n\nThe bells began on the first night of the new moon. Three of them, under the harbour, where no church has stood for two hundred years.\n\nI rowed out to listen. Something below was singing the old court songs. It knew my name.","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@ren","at":"today-14T18:00Z","editedBy":"@ren","editedByName":"Ren Calloway","editedAt":"today-14T18:00Z"},
+            "text:handharr:handhac1": {"id":"handhac1","doc":"handharr","text":"# Harrow's last letter\n\n*Found folded inside the lighthouse log, written in a shaking hand.*\n\nTo whoever keeps the light after me,\n\nThe bells began on the first night of the new moon. Three of them, under the harbour, where no church has stood for two hundred years.\n\nI rowed out to listen. Something below was singing the old court songs. It knew my name.\n\nIf you find the captain's chest, do not ring the bell. Not until you have all three.\n\nH.\n"},
+            "doc:rulesgm1": {"id":"rulesgm1","type":"doc","title":"House rules","rev":1,"chunks":["rulesgc1"],"size":285,"excerpt":"House rules Sessions start at 7. We stop at 10:30, even mid-fight. If you miss a session, your character is \"busy in town\" and keeps their share. Roll in the open. The GM rolls behind the screen. Anyone can call a pause, no questions asked. Snacks rotate: see Costs.","preview":"# House rules\n\n1. Sessions start at 7. We stop at 10:30, even mid-fight.\n2. If you miss a session, your character is \"busy in town\" and keeps their share.\n3. Roll in the open. The GM rolls behind the screen.\n4. Anyone can call a pause, no questions asked.\n5. Snacks rotate: see Costs.","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@ren","at":"today-49T20:00Z","editedBy":"@ren","editedByName":"Ren Calloway","editedAt":"today-49T20:00Z"},
+            "text:rulesgm1:rulesgc1": {"id":"rulesgc1","doc":"rulesgm1","text":"# House rules\n\n1. Sessions start at 7. We stop at 10:30, even mid-fight.\n2. If you miss a session, your character is \"busy in town\" and keeps their share.\n3. Roll in the open. The GM rolls behind the screen.\n4. Anyone can call a pause, no questions asked.\n5. Snacks rotate: see Costs.\n"}
+          }
+        }
+      ]
+    },
+    "todo": {
+      "what": "quests",
+      "count": ["task:"],
+      "steps": [
+        {
+          "as": "ren",
+          "data": {
+            "task:q1": {"id":"q1","title":"Recover the captain's chest","notes":"Done in session 1.","due":"today-42","remind":false,"done":true,"doneAt":"ms:today-14T22:00","createdAt":"ms:now","by":"Ren Calloway","links":[{"module":"schedule","kind":"plan","id":"s1s2","scope":"space","space":"{space}"}]},
+            "task:q2": {"id":"q2","title":"Return Harrow's log to the harbourmaster","notes":"Done. She was not pleased to see it.","due":"today-14","remind":false,"done":true,"doneAt":"ms:today-14T22:00","createdAt":"ms:now","by":"Ada Moreau","links":[]},
+            "task:q3": {"id":"q3","title":"Find out who the stranger is","notes":"The stranger in the tide pools. Nobody in town will say.","due":"start+14","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Ines Vale","links":[{"module":"schedule","kind":"plan","id":"s1s3","scope":"space","space":"{space}"}]},
+            "task:q4": {"id":"q4","title":"Pay the eel king's toll: three silver bells","notes":"We have one bell. Two to go.","due":"start+0","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Tobi Lind","links":[{"module":"schedule","kind":"plan","id":"s4s2","scope":"space","space":"{space}"}]},
+            "task:q5": {"id":"q5","title":"Warn Saltmere about the bells","notes":"Who will believe us?","due":"start+7","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Ada Moreau","links":[]},
+            "task:q6": {"id":"q6","title":"Learn to breathe under water","notes":"Garran. Three lessons left with the diver.","due":"start+0","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Tobi Lind","links":[]},
+            "task:q7": {"id":"q7","title":"Find Sable's brother","notes":"Last seen on the Gull's Daughter.","due":"start+28","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Ines Vale","links":[{"module":"schedule","kind":"plan","id":"s5s2","scope":"space","space":"{space}"}]},
+            "task:q8": {"id":"q8","title":"GM prep: map of the flooded stair","notes":"Ren. Big paper, wet-erase markers.","due":"start-1","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Ren Calloway","links":[{"module":"schedule","kind":"plan","id":"s4s1","scope":"space","space":"{space}"}]},
+            "task:q9": {"id":"q9","title":"GM prep: the eel king's voice and stats","notes":"Ren. Slow, wet, very polite.","due":"start-2","remind":false,"done":true,"doneAt":"ms:today-1T20:00","createdAt":"ms:now","by":"Ren Calloway","links":[]}
+          }
+        }
+      ]
+    },
+    "calendar": {
+      "what": "sessions",
+      "count": ["event:"],
+      "steps": [
+        {
+          "as": "ren",
+          "data": {
+            "event:g-zero": {"id":"g-zero","by":"Ren Calloway","desc":"Make characters, agree the house rules.","remind":null,"repeat":null,"title":"Session zero: characters and table rules","allDay":false,"start":"today-49T19:00Z","end":"today-49T21:30Z"},
+            "event:g-night": {"id":"g-night","by":"Ren Calloway","desc":"Back room. Doors at 6:45.","remind":120,"repeat":{"every":"2weeks","until":"start+42"},"title":"Game night at The Lantern Room","allDay":false,"start":"today-42T19:00Z","end":"today-42T22:30Z"},
+            "event:g-sheets": {"id":"g-sheets","by":"Ren Calloway","desc":"New spells and hit points before we play.","remind":null,"repeat":null,"title":"Level 4: update your character sheets","allDay":true,"start":"start-1","end":null},
+            "event:g-paint": {"id":"g-paint","by":"Ren Calloway","desc":"Bring a brush. The eel king needs a face.","remind":null,"repeat":null,"title":"Mini painting night","allDay":false,"start":"start+7T18:30Z","end":"start+7T21:00Z"},
+            "event:g-away": {"id":"g-away","by":"Ren Calloway","desc":"","remind":null,"repeat":null,"title":"Ines away (play without Sable)","allDay":true,"start":"start+20","end":"start+23"}
+          }
+        }
+      ]
+    },
+    "budget": {
+      "what": "costs",
+      "count": ["cost:"],
+      "steps": [
+        {
+          "as": "ren",
+          "data": {
+            "cost:c1": {"notes":"","by":"Ren Calloway","sharedBy":["@ren","@ada","@tobi","@ines"],"date":"today-42","title":"Pizza, session 1","category":"snacks","categoryName":"Snacks","planned":40,"actual":38,"amount":38,"done":true,"paidBy":"@tobi"},
+            "cost:c2": {"notes":"","by":"Ren Calloway","sharedBy":["@ren","@ada","@tobi","@ines"],"date":"today-28","title":"Pizza and drinks, session 2","category":"snacks","categoryName":"Snacks","planned":40,"actual":44.5,"amount":44.5,"done":true,"paidBy":"@ada"},
+            "cost:c3": {"notes":"","by":"Ren Calloway","sharedBy":["@ren","@ada","@tobi","@ines"],"date":"today-14","title":"Snacks, session 3","category":"snacks","categoryName":"Snacks","planned":30,"actual":26,"amount":26,"done":true,"paidBy":"@ines"},
+            "cost:c4": {"notes":"","by":"Ren Calloway","sharedBy":[],"date":"","title":"Snacks, session 4","category":"snacks","categoryName":"Snacks","planned":35,"amount":35,"done":false},
+            "cost:c5": {"notes":"Three nights paid ahead.","by":"Ren Calloway","sharedBy":["@ren","@ada","@tobi","@ines"],"date":"today-42","title":"Back room at The Lantern Room","category":"venue","categoryName":"Venue","planned":60,"actual":60,"amount":60,"done":true,"paidBy":"@ren"},
+            "cost:c6": {"notes":"","by":"Ren Calloway","sharedBy":["@ren"],"date":"today-35","title":"Sea monsters book","category":"books","categoryName":"Books and miniatures","planned":45,"actual":42,"amount":42,"done":true,"paidBy":"@ren"},
+            "cost:c7": {"notes":"","by":"Ren Calloway","sharedBy":[],"date":"","title":"Miniature for the eel king","category":"books","categoryName":"Books and miniatures","planned":18,"amount":18,"done":false},
+            "cost:c8": {"notes":"","by":"Ren Calloway","sharedBy":["@ren","@ada","@tobi","@ines"],"date":"today-30","title":"Battle map paper and markers","category":"other","categoryName":"Other","planned":20,"actual":17.5,"amount":17.5,"done":true,"paidBy":"@tobi"}
+          }
+        }
+      ]
+    },
+    "polls": {
+      "what": "polls",
+      "count": ["poll:"],
+      "steps": [
+        {
+          "as": "ren",
+          "data": {
+            "poll:p1": {"id":"p1","question":"Session 6: which night works?","options":[{"id":"o1","text":"The usual night"},{"id":"o2","text":"A day later"},{"id":"o3","text":"The weekend, afternoon"}],"multi":true,"addable":false,"closed":false,"closesAt":"ms:start+10T18:00","createdAt":"ms:today-1T10:00","by":"Ren Calloway","byKey":"@ren"},
+            "vote:p1:@ren": {"options":["o1","o3"],"name":"Ren Calloway","at":"ms:today-1T10:00"}
+          }
+        },
+        {
+          "as": "ada",
+          "data": {
+            "vote:p1:@ada": {"options":["o1"],"name":"Ada Moreau","at":"ms:today-1T12:00"}
+          }
+        },
+        {
+          "as": "tobi",
+          "data": {
+            "vote:p1:@tobi": {"options":["o1","o2"],"name":"Tobi Lind","at":"ms:today-1T13:00"}
+          }
+        },
+        {
+          "as": "ines",
+          "data": {
+            "poll:p2": {"id":"p2","question":"Snacks for session 4?","options":[{"id":"o1","text":"Pizza again"},{"id":"o2","text":"Dumplings from the corner place"},{"id":"o3","text":"Everyone brings one thing"}],"multi":false,"addable":true,"closed":false,"closesAt":null,"createdAt":"ms:today-2T10:00","by":"Ines Vale","byKey":"@ines"},
+            "vote:p2:@ines": {"options":["o2"],"name":"Ines Vale","at":"ms:today-2T10:00"}
+          }
+        },
+        {
+          "as": "tobi",
+          "data": {
+            "vote:p2:@tobi": {"options":["o2"],"name":"Tobi Lind","at":"ms:today-2T11:00"}
+          }
+        },
+        {
+          "as": "ada",
+          "data": {
+            "vote:p2:@ada": {"options":["o3"],"name":"Ada Moreau","at":"ms:today-2T12:00"}
+          }
+        }
+      ]
+    },
+    "chat": {
+      "messages": [
+        {"as":"ren","text":"Welcome to the Salt Crown. Session 4 is in three days, same place, 7 sharp."},
+        {"as":"ada","text":"Brisa is ready. She has been staring at that silver bell all week."},
+        {"as":"tobi","text":"Garran has had two diving lessons. He can hold his breath for almost a minute."},
+        {"as":"ines","text":"> almost a minute\nThat is not long, Garran."},
+        {"as":"ren","text":"The Campaign has the next sessions, and the scenes I have so far: {base}/modules/schedule?space={space}"},
+        {"as":"ines","text":"Saw it. \"Bargain with the eel king\" sounds like my kind of night."},
+        {"as":"ada","text":"I put Old Harrow and the Tide Court in Lore, with what we found out."},
+        {"as":"tobi","text":"Who has the letter? I want to read it again before we go down."},
+        {"as":"ren","text":"It is in Documents as a handout: Harrow's last letter."},
+        {"as":"ines","text":"Reminder: snacks poll. Dumplings are winning."},
+        {"as":"tobi","text":"Voted dumplings. Obviously."},
+        {"as":"ada","text":"Please level up your sheets before we play, there is a reminder in Sessions."},
+        {"as":"ren","text":"And vote for the night of session 6. I will lock it at the weekend."},
+        {"as":"ines","text":"I am away for a few days later in the month, it is on the calendar. Play without Sable if you need to."},
+        {"as":"ren","text":"> Play without Sable\nShe will be \"busy in town\", as the house rules say."},
+        {"as":"tobi","text":"Bringing the dice that roll badly so they can learn from the good ones."},
+        {"as":"ada","text":"See you all under Saltmere."}
+      ]
+    }
+  }
+}

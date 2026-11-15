@@ -17,13 +17,24 @@
 // It talks only to that address, so no other environment is touched. Hosted, the map files are the host's, so none is made.
 // SEED_TODAY=YYYY-MM-DD fakes the day (for the check). SEED_NO_AI=1 skips the "/ai" exchanges that are otherwise made when an
 // AI service is set up. Every date is worked out from today, so a nightly run keeps the demo ahead of the day.
+// SEED_DEMO=<template id> picks the demo (travel, games, project, learning, mentoring); left out, it is the environment's
+// template's own demo, else travel. The demo's space reads the demo's own template, so any demo fills any environment.
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { loadDemo, readDemoFile, DemoError, MARKER: LOADER_MARKER, dayPlus: loaderDayPlus } = require('../server/demo-loader.js');
+const { loadDemo, readDemoFile, listDemos, DemoError, MARKER: LOADER_MARKER, dayPlus: loaderDayPlus } = require('../server/demo-loader.js');
 
 export const SPACE_NAME = readDemoFile('travel').name;
+export const DEMOS = listDemos();
+// What a demo's two /ai questions are, when an AI service is set up (the loader never asks the AI).
+const AI_QUESTIONS = {
+  travel: ['What should we do on the free day in Lisbon?', 'Is the Lisboa Card worth it for three people?'],
+  games: ['Give me three hooks for the next session at the drowned chapel.', 'Who could be working for the Tide Court?'],
+  project: ['What is at risk for the launch date?', 'Write a short update for the bakery staff.'],
+  learning: ['Give me five questions to practise the past tense.', 'What should I review before the practice exam?'],
+  mentoring: ['How do I open a hard feedback conversation?', 'Suggest an agenda for the next check-in.'],
+};
 export const MARKER = LOADER_MARKER;
 export const dayPlus = loaderDayPlus;
 
@@ -40,8 +51,9 @@ const MODULE_IDS = ['travel', 'maps', 'todo', 'polls', 'calendar', 'budget', 're
 class SeedError extends Error {}
 
 // ---------------------------------------------------------------------------------------------------------------------
-export async function runSeed({ base, login = 'admin', adminPassword, today, say = console.log, allowHosted = false, demoEnvironment = '', searchUrl = '', noAi = false }) {
+export async function runSeed({ base, login = 'admin', adminPassword, today, say = console.log, allowHosted = false, demoEnvironment = '', searchUrl = '', noAi = false, demo = '' }) {
   if (!isDay(today)) throw new SeedError('SEED_TODAY must be a day, YYYY-MM-DD.');
+  if (demo && !DEMOS.some((d) => d.id === demo)) throw new SeedError(`There is no demo called ${demo}. SEED_DEMO is one of: ${DEMOS.map((d) => d.id).join(', ')}.`);
   const jars = {};
   const call = async (as, method, url, body) => {
     const headers = { accept: 'application/json' };
@@ -78,16 +90,14 @@ export async function runSeed({ base, login = 'admin', adminPassword, today, say
   const admin = await signIn('admin', login, adminPassword);
   say(`Signed in as ${admin.login || login}.`);
 
-  // --- the environment-wide setup: the template (phases) and the modules. This is the seeder's, never the loader's. ---
-  let phases = brand.json.phases || [];
-  if (!phases.length) {
-    const s = await ok('admin', 'GET', '/api/settings');
-    if (s.settings.template) throw new SeedError(`This ${s.settings.words?.environment || 'environment'} uses a template without phases, so there is no plan to date. Use the travel template, or a fresh data folder.`);
-    await ok('admin', 'PATCH', '/api/settings', { template: 'travel' });
-    say('Switched the template to travel (it had none), for the phases.');
-    phases = (await ok('admin', 'GET', '/api/branding')).phases || [];
+  // --- the environment-wide setup: the template and the modules. This is the seeder's, never the loader's. ---
+  // An environment with no template gets the demo's (travel when none is asked for), as a fresh data folder always did.
+  const current = ((await ok('admin', 'GET', '/api/settings')).settings.template || {}).id || null;
+  const templateId = demo || (current && DEMOS.some((d) => d.id === current) ? current : 'travel');
+  if (!current) {
+    await ok('admin', 'PATCH', '/api/settings', { template: templateId });
+    say(`Switched the template to ${templateId} (it had none).`);
   }
-  if (phases.length < 6) throw new SeedError('The template has fewer than six phases; the demo plan needs the travel template.');
   const listed = await ok('admin', 'GET', '/api/modules');
   const have = new Map((listed.modules || []).map((m) => [m.id, m]));
   const moduleIds = [...MODULE_IDS, ...(listed.bundled || []).map((b) => b.id).filter((id) => !MODULE_IDS.includes(id))];
@@ -127,7 +137,6 @@ export async function runSeed({ base, login = 'admin', adminPassword, today, say
   }
 
   // --- the loader: the marked demo people and the marked demo space, from templates/demo/<template id>.json ---
-  const templateId = ((await ok('admin', 'GET', '/api/settings')).settings.template || {}).id;
   let report;
   try { report = await loadDemo({ base, templateId, today, session: { cookie: jars.admin }, say }); } catch (e) { throw e instanceof DemoError ? new SeedError(e.message) : e; }
   if (!report.demo) throw new SeedError(report.message);
@@ -137,26 +146,31 @@ export async function runSeed({ base, login = 'admin', adminPassword, today, say
   const users = Object.fromEntries(report.people.map((p) => [p.login, p.key]));
   const pass = Object.fromEntries(report.people.map((p) => [p.login, p.password]));
   for (const p of report.people) await signIn(p.login, p.login, p.password);
+  const file = readDemoFile(templateId);
+  const asker = (file.people.find((p) => p.moderator) || file.people[0]).login;
 
   // --- the AI exchanges (the loader never asks the AI; this command does, when a service is set up) ---
   let aiDone = 0;
   if (!noAi) {
-    const a = await call('mia', 'GET', `/api/spaces/${space.id}/ai`);
+    const a = await call(asker, 'GET', `/api/spaces/${space.id}/ai`);
     if (a.status === 200 && a.json && a.json.available) {
-      for (const q of ['What should we do on the free day in Lisbon?', 'Is the Lisboa Card worth it for three people?']) {
-        const r = await call('mia', 'POST', `/api/spaces/${space.id}/ai`, { question: q, refs: [] });
+      for (const q of AI_QUESTIONS[templateId] || []) {
+        const r = await call(asker, 'POST', `/api/spaces/${space.id}/ai`, { question: q, refs: [] });
         if (r.status < 300) aiDone += 1;
       }
     }
   }
 
   // --- counts ---
-  const planRows = ((await ok('admin', 'GET', `/api/modules/travel/data?scope=space&space=${space.id}&prefix=plan:`)).items || []).map((i) => i.value);
+  const planner = Object.keys(file.modules).find((id) => ['travel', 'schedule', 'goals'].includes(id));
+  const planRows = planner && !(report.skipped || []).some((x) => x.module === planner) ? ((await ok('admin', 'GET', `/api/modules/${planner}/data?scope=space&space=${space.id}&prefix=plan:`)).items || []).map((i) => i.value) : [];
   const c = report.created;
-  const counts = { planner: planRows.length, places: c.maps, calendar: c.calendar, todo: c.todo, polls: c.polls, budget: c.budget, research: c.research, chat: c.chat + aiDone * 2 };
+  const counts = templateId === 'travel'
+    ? { planner: planRows.length, places: c.maps, calendar: c.calendar, todo: c.todo, polls: c.polls, budget: c.budget, research: c.research, documents: c.documents, chat: c.chat + aiDone * 2 }
+    : { ...c, chat: (c.chat || 0) + aiDone * 2 };
   const settings = (await ok('admin', 'GET', '/api/settings')).settings;
   const mapReason = settings.topBarReasons && settings.topBarReasons.map;
-  return { space, S, users, pass, guestUrl: report.guestUrl, counts, mapReason, aiDone, planRows, configured, hosted: Boolean(brand.json.hosted), created: report.created, skipped: report.skipped };
+  return { demo: templateId, label: file.label, space, S, users, pass, guestUrl: report.guestUrl, counts, mapReason, aiDone, planRows, configured, hosted: Boolean(brand.json.hosted), created: report.created, skipped: report.skipped };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -165,7 +179,21 @@ async function main() {
   console.log(`Using the server at ${base}.`);
   const today = process.env.SEED_TODAY || new Date().toISOString().slice(0, 10);
   const login = process.env.ADMIN_LOGIN || 'admin';
-  const r = await runSeed({ base, login, adminPassword: process.env.ADMIN_PASSWORD, today, allowHosted: process.env.DEMO_ALLOW_HOSTED === '1', demoEnvironment: process.env.DEMO_ENVIRONMENT || '', searchUrl: process.env.SEED_SEARCH_URL || '', noAi: process.env.SEED_NO_AI === '1' });
+  const r = await runSeed({ base, login, adminPassword: process.env.ADMIN_PASSWORD, today, allowHosted: process.env.DEMO_ALLOW_HOSTED === '1', demoEnvironment: process.env.DEMO_ENVIRONMENT || '', searchUrl: process.env.SEED_SEARCH_URL || '', noAi: process.env.SEED_NO_AI === '1', demo: process.env.SEED_DEMO || '' });
+  if (r.demo !== 'travel') {
+    console.log('');
+    console.log(`Done. The ${r.label} space "${r.space.name}" is ready.`);
+    console.log(`  Open it:  ${base}/#join=${r.space.id}`);
+    if (r.guestUrl) console.log(`  Guest link: ${r.guestUrl}`);
+    console.log('  People (one-time passwords, new on every run):');
+    for (const [l, p] of Object.entries(r.pass)) console.log(`    ${l.padEnd(16)} ${p}`);
+    console.log('    You, the admin, are in the space too.');
+    console.log(`  Made: ${Object.entries(r.counts).map(([id, n]) => `${id} ${n}`).join(' | ')}`);
+    console.log('  Set up for you:');
+    for (const line of r.configured) console.log(`    ${line}`);
+    console.log(`  To reset: run SEED_DEMO=${r.demo} npm run seed:demo again. It removes and rebuilds only this space and its demo people.`);
+    return;
+  }
   // The map file: made and ticked here unless SEED_MAP=0. Hosted, the map files are the host's, so none is made.
   if (process.env.SEED_MAP === '0') r.configured.push('Map file: skipped (SEED_MAP=0).');
   else if (r.hosted) r.configured.push('Map file: not made on a hosted install (the host keeps the map files); the host ticks one for this environment.');
@@ -179,14 +207,14 @@ async function main() {
   console.log('');
   console.log(`Done. The demo space "${SPACE_NAME}" is ready (the trip runs ${r.S} to ${dayPlus(r.S, 9)}).`);
   console.log(`  Open it:  ${base}/#join=${r.space.id}`);
-  console.log(`  Planner:  ${base}/modules/travel?space=${r.space.id}`);
+  console.log(`  Itinerary:  ${base}/modules/travel?space=${r.space.id}`);
   if (r.guestUrl) console.log(`  Guest link: ${r.guestUrl}`);
   console.log('  People (one-time passwords, new on every run):');
   console.log(`    mia (moderator)  ${r.pass.mia}`);
   console.log(`    lee (member)     ${r.pass.lee}`);
   console.log(`    sam (member)     ${r.pass.sam}`);
   console.log('    You, the admin, are in the space too.');
-  console.log(`  Planner ${c.planner} objects | Places ${c.places} | Calendar ${c.calendar} events | To-do ${c.todo} | Polls ${c.polls} | Budget ${c.budget} costs | Research ${c.research} | Chat ${c.chat} messages${r.aiDone ? ' (with /ai answers)' : ''}`);
+  console.log(`  Itinerary ${c.planner} entries | Places ${c.places} | Calendar ${c.calendar} events | To-do ${c.todo} | Polls ${c.polls} | Budget ${c.budget} costs | Research ${c.research} | Documents ${c.documents} | Chat ${c.chat} messages${r.aiDone ? ' (with /ai answers)' : ''}`);
   console.log('  Set up for you:');
   for (const line of r.configured) console.log(`    ${line}`);
   console.log('  To reset: run npm run seed:demo again. It removes and rebuilds only this space and the three demo people.');
