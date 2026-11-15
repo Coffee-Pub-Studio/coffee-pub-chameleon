@@ -1324,10 +1324,17 @@ async function startNotifications() {
       // ignore a malformed event
     }
   });
+  let seenPersonTheme; // undefined until the first 'mode' event says which theme this person has
   // This person picked light or dark on another page or device.
   source.addEventListener('mode', (ev) => {
     try {
-      setAccountMode({ themeMode: JSON.parse(ev.data).themeMode });
+      const said = JSON.parse(ev.data);
+      setAccountMode({ themeMode: said.themeMode });
+      // The theme this person chose on another page or device (Profile; null: the environment's): the stylesheet is fetched again.
+      if (Object.hasOwn(said, 'theme') && said.theme !== seenPersonTheme) {
+        seenPersonTheme = said.theme;
+        window.appTheme?.reload?.();
+      }
     } catch {
       // ignore a malformed event
     }

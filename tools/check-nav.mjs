@@ -2156,7 +2156,7 @@ test('the status strip: the chip and its journey bar, a tool of the space bar\'s
   // The words are the story sentence (Phases.storyParts), written only when it changes, each clause after the first its
   // own span so the end gives way whole and the label's text stays the whole sentence.
   const chipUpdate = space.slice(space.indexOf('function updatePhaseChip('), space.indexOf('async function savePhases('));
-  assert.match(chipUpdate, /const parts = R\.storyParts\(bands, today\);\n\s*const words = parts\.join\(' · '\);/, 'the chip says the story sentence');
+  assert.match(chipUpdate, /const parts = measured \? measured\.parts : R\.storyParts\(bands, today\);\n\s*const words = parts\.join\(' · '\);/, 'the chip says the story sentence (or, under goals and progress, the phase and how far)');
   assert.ok(!/chipWords/.test(chipUpdate), 'not the old words');
   assert.match(space, /if \(phaseChip\.querySelector\('\.sdk-strip-sentence'\)\.textContent !== words\) \{\n\s*writeStory\(parts\);/, 'the status changes only when the sentence changes');
   assert.match(space, /span\.className = i \? 'story-part' : 'story-part story-lead';\n\s*span\.textContent = i \? ` · \$\{part\}` : part;/, 'the clauses, their separators in their text');
@@ -2211,7 +2211,7 @@ test('the status strip: the chip and its journey bar, a tool of the space bar\'s
   assert.match(look, /\.sdk-band\[data-state="current"\] \{ background: var\(--fill-selected\); color: var\(--jr-now\); font-weight: var\(--weight-strong\); \}/, 'today\'s band the selected fill');
   assert.match(look, /--jr-past: 12%;\n\s*--jr-ahead: 22%;/);
   assert.match(look, /\.sdk-strip-dot \{[^}]*background: var\(--tint, var\(--accent-fill\)\);/, 'the chip\'s dot in the tint');
-  assert.match(space, /const here = bands\.find\(\(b\) => b\.current\) \|\| [^\n]*\n\s*const dot = phaseChip\.querySelector\('\.sdk-strip-dot'\);\n\s*if \(here\) dot\.dataset\.tint = here\.tint;/, 'the chip\'s dot takes the tint of the phase today is in');
+  assert.match(space, /const here = bands\.find\(\(b\) => b\.current\) \|\| [^\n]*\n\s*const dot = phaseChip\.querySelector\('\.sdk-strip-dot'\);\n\s*if \(measured && R\.tintOf\) dot\.dataset\.tint = R\.tintOf\(measured\.tint\);\n\s*else if \(here\) dot\.dataset\.tint = here\.tint;/, 'the chip\'s dot takes the tint of the phase today is in (or, measured, of the phase now)');
   for (const m of (look + stripCssOf(css)).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const borders = m[2].split(';').map((d) => d.trim()).filter((d) => /^border(-top|-right|-bottom|-left)?(-color)?\s*:/.test(d));
     for (const d of borders) assert.ok(!/--tint|--accent|currentColor/.test(d), `${m[1].trim()}: a coloured border (${d})`);
@@ -2424,7 +2424,10 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   assert.match(setup, /Happens at once; it does not wait for Save\./);
   assert.match(setup, /These work at once; they are not part of Save\./, 'the invite and the guest link say they are actions');
   assert.ok(!/setup-people|#\$\{PEOPLE_TAB\}|PEOPLE_TAB/.test(setup), 'the link to the page\'s Members tab is gone');
-  assert.ok(!/addEventListener\('change', async/.test(setup), 'nothing in the panel saves as it is clicked');
+  // The one exception is a phase's Done switch (plan-templates-redesign.md, step 6): an action at once, like Delete, said on its row.
+  const saving = setup.match(/addEventListener\('change', async \(event\) => \{\n[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\n[^\n]*\/phases\//g) || [];
+  assert.equal((setup.match(/addEventListener\('change', async/g) || []).length, saving.length, 'nothing in the panel saves as it is clicked but a phase\'s Done switch');
+  assert.ok(saving.length <= 1);
   assert.match(setup, /state\.links = \{ guestToken: answer\.space\.guestToken \|\| null, allowGuests: answer\.space\.allowGuests !== false \};/, 'the guest link reads the record the in-space controls read');
   assert.match(space, /onLinks: \(\) => loadPresence\(\)\.then\(\(\) => renderGuestLink\(\)\),/, 'and the in-space controls follow the panel');
   assert.match(space, /function setupDeleted\(space\) \{\n\s*forgetSpace\(\);\n\s*if \(entered\) leaveSpaceNow\(\);/, 'after Delete: Home, and a reload does not try it');

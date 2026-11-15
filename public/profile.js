@@ -1265,7 +1265,38 @@ async function init() {
   // Your own modules' tabs (not when an owner is editing someone else's profile), before the address picks a tab.
   buildModuleTabs();
   render();
+  loadThemeChoice();
   selectTab(location.hash.slice(1));
+}
+
+// Your own theme (decision 13): one of the environment's themes, or the environment's own ("" in the list). Own profile only;
+// a guest has none. The page's stylesheet is fetched again at once, and the other pages follow the account's change.
+async function loadThemeChoice() {
+  const section = $('section-theme');
+  if (editingKey) return;
+  let answer;
+  try { answer = await api('GET', '/api/me/themes'); } catch { return; }
+  const themes = Array.isArray(answer.themes) ? answer.themes : [];
+  const usual = themes.find((t) => t.id === answer.environmentTheme);
+  const pick = $('theme-pick');
+  pick.replaceChildren(new Option(`The ${word('environment')}'s${usual ? `: ${usual.name}` : ''}`, ''), ...themes.map((t) => new Option(t.name, t.id)));
+  pick.value = answer.theme && themes.some((t) => t.id === answer.theme) ? answer.theme : '';
+  section.hidden = false;
+  pick.addEventListener('change', async () => {
+    const was = answer.theme || '';
+    pick.disabled = true;
+    try {
+      await api('PATCH', '/api/me', { theme: pick.value || null });
+      answer.theme = pick.value || null;
+      await window.appTheme?.reload?.();
+      sayField($('theme-status'), 'Saved');
+    } catch (err) {
+      pick.value = was;
+      sayField($('theme-status'), err.message, true);
+    } finally {
+      pick.disabled = false;
+    }
+  });
 }
 
 // The modules on here with settings of your own (#263): only yours, never on someone else's profile. None when the

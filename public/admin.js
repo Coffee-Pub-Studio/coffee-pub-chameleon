@@ -3,6 +3,7 @@ import { pickBackground } from '/background-picker.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
+import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm } from '/template-offer.js';
 import { addSpaceFlow } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
@@ -34,9 +35,9 @@ let madeFrom = null;
 let ownWords = {};
 let ownHomeIcon = null;
 // The Template tab's parts (plan-templates-redesign.md, step 11a), chosen in the page bar's row (#tpl-subtabs). The address names
-// the part: #template, #template/list, #template/more, and #template/<id>/basics or #template/<id>/labels for one template's
-// pages (`tplId`, '' for the environment's own). Declared here: selectTab runs before the rest of the page has loaded.
-const TPL_PARTS = ['main', 'basics', 'labels', 'list', 'more'];
+// the part: #template, #template/list, and #template/<id>/basics, /labels, /workspace, /phases, /reactions or /modules for one
+// template's pages (`tplId`, '' for the environment's own). Declared here: selectTab runs before the rest of the page has loaded.
+const TPL_PARTS = ['main', 'basics', 'labels', 'workspace', 'phases', 'reactions', 'modules', 'list'];
 let tplPart = 'main';
 let tplId = '';
 let tplReady = false; // the templates have been read: the pages can draw
@@ -117,7 +118,7 @@ function scrollToChosen(strip) {
 }
 let tabNow = 'environment';
 // The Template tab's address (without the #): its part, and for a template's own pages the template.
-const tplHash = () => (tplPart === 'main' ? 'template' : tplPart === 'list' || tplPart === 'more' ? `template/${tplPart}` : `template/${tplId || (madeFrom && madeFrom.id) || 'default'}/${tplPart}`);
+const tplHash = () => (tplPart === 'main' ? 'template' : tplPart === 'list' ? `template/${tplPart}` : `template/${tplId || (madeFrom && madeFrom.id) || 'default'}/${tplPart}`);
 function showTplPart(part, id = '') {
   tplPart = TPL_PARTS.includes(part) ? part : 'main';
   tplId = id;
@@ -130,9 +131,9 @@ function showTplPart(part, id = '') {
   renderTplPart();
 }
 function selectTab(name) {
-  // The Template tab's parts: #template/<id>/basics, #template/<id>/labels, #template/list, #template/more.
+  // The Template tab's parts: #template/<id>/<part> (basics, labels, workspace, phases, reactions, modules) and #template/list.
   let tpl = null;
-  const tm = name && /^template\/(?:([a-z][a-z0-9-]{0,31})\/)?(basics|labels|list|more)$/.exec(name);
+  const tm = name && /^template\/(?:([a-z][a-z0-9-]{0,31})\/)?(basics|labels|workspace|phases|reactions|modules|list)$/.exec(name);
   if (tm) { tpl = { part: tm[2], id: tm[1] || '' }; name = 'template'; }
   let part = 'general';
   if (ENV_PARTS.includes(name)) {
@@ -250,7 +251,7 @@ $('tpl-subtabs').addEventListener('click', (event) => {
   const part = b.dataset.tplPart;
   const was = tplPart;
   // Basics and Labels keep the template being worked on; the others have none.
-  selectTab(part === 'main' ? 'template' : part === 'list' || part === 'more' ? `template/${part}` : `template/${tplId || (madeFrom && madeFrom.id) || 'default'}/${part}`);
+  selectTab(part === 'main' ? 'template' : part === 'list' ? `template/${part}` : `template/${tplId || (madeFrom && madeFrom.id) || 'default'}/${part}`);
   if (tplPart !== was) window.scrollTo(0, 0);
 });
 $('module-subtabs').addEventListener('click', (event) => {
@@ -2292,10 +2293,14 @@ async function templateRecord(id) {
 const tplPages = {
   basics: { panel: () => $('tpl-basics-card'), box: () => $('tpl-basics-box') },
   labels: { panel: () => $('words-panel'), box: () => $('tpl-labels-box') },
+  workspace: { panel: () => $('tpl-workspace-card'), box: () => $('tpl-workspace-box') },
+  phases: { panel: () => $('tpl-phases-card'), box: () => $('tpl-phases-box') },
+  reactions: { panel: () => $('tpl-reactions-card'), box: () => $('tpl-reactions-box') },
+  modules: { panel: () => $('tpl-modules-card'), box: () => $('tpl-modules-box') },
 };
 function renderTplPart() {
   if (!tplReady) return;
-  if (tplPart === 'basics' || tplPart === 'labels') drawTplPage(tplPart);
+  if (tplPages[tplPart]) drawTplPage(tplPart);
   else if (tplPart === 'list') renderTplList();
 }
 let tplDrawing = 0;
@@ -2321,6 +2326,25 @@ async function drawTplPage(kind) {
     box.innerHTML = basicsHtml(t, { editable, icons: getIcons() });
     showChosenIcon(box);
     drawOwnIcon(forEnvironment);
+  } else if (kind === 'workspace') {
+    await loadCatalog();
+    if (mine !== tplDrawing || tplPart !== kind) return;
+    box.innerHTML = workspaceHtml(t, { editable, catalog: templateCatalog(), word });
+  } else if (kind === 'phases') {
+    box.innerHTML = phasesHtml(t, { editable, word });
+  } else if (kind === 'reactions') {
+    let settings = null;
+    try { settings = (await api('GET', '/api/settings')).settings; } catch { /* the page reads without the core set */ }
+    const envT = forEnvironment ? t : (madeFrom ? await templateRecord(madeFrom.id).catch(() => null) : null);
+    if (mine !== tplDrawing || tplPart !== kind) return;
+    box.innerHTML = additionsHtml(t, { editable, core: coreSet(settings, envT) });
+    $('tpl-own-additions').hidden = !forEnvironment;
+    if (settings && forEnvironment) { renderReactionRows(settings.ownReactions); renderIconRows(settings.ownIcons); renderFixed(settings); }
+  } else if (kind === 'modules') {
+    await loadCatalog();
+    if (mine !== tplDrawing || tplPart !== kind) return;
+    box.innerHTML = modulesHtml(t, { editable, catalog: templateCatalog(true), word });
+    $('module-names-section').hidden = !forEnvironment;
   } else {
     box.innerHTML = labelsHtml(t, { editable, environmentParts: forEnvironment })
       + (forEnvironment ? '' : `<p class="hint">The home page's name and the Lobby come from the ${escapeHtml(templateName(tplList.find((c) => c.id === madeFrom?.id) || madeFrom))} template, this ${escapeHtml(word('environment'))}'s own.</p>`);
@@ -2328,6 +2352,36 @@ async function drawTplPage(kind) {
   }
   panel.querySelector('[data-tpl-save]').hidden = !editable;
   say(panel.querySelector('[data-tpl-status]'), '');
+}
+// The modules a template can offer (the installed ones that are on, and the built-in ones), each { id, name, icon, settings, labels,
+// starter } as the catalog gives it (GET /api/modules), for the Default Workspace and Modules pages. `full` keeps the settings and
+// words; the workspace page needs only names.
+async function loadCatalog() {
+  if (!modulesLoaded) await loadModules().catch(() => {});
+}
+function templateCatalog(full = false) {
+  const own = (m) => ({ id: m.id, name: m.name, icon: m.icon || 'puzzle-piece', ...(full ? { settings: m.settings || [], labels: m.labels || {}, starter: m.starter === true } : {}) });
+  const ids = new Set();
+  const out = [];
+  for (const m of [...builtinModules.filter((b) => b.id === 'chat' || b.id === 'conference'), ...installedModules.filter((m) => m.enabled)]) {
+    if (ids.has(m.id)) continue;
+    ids.add(m.id);
+    out.push(own(m));
+  }
+  return out;
+}
+// The core set of reactions and icons: what the environment reads, without its owner's own additions and its template's.
+function coreSet(settings, envTemplate) {
+  if (!settings) return { reactions: [], icons: [] };
+  const mine = (list) => new Set((list || []).map((x) => x.id));
+  const ownR = mine(settings.ownReactions);
+  const ownI = mine(settings.ownIcons);
+  const tplR = mine(envTemplate && envTemplate.reactions);
+  const tplI = new Set((envTemplate && envTemplate.iconSet) || []);
+  return {
+    reactions: (settings.reactions || []).filter((r) => !ownR.has(r.id) && !tplR.has(r.id)),
+    icons: (settings.icons || []).filter((i) => !ownI.has(i.id) && !tplI.has(i.id)),
+  };
 }
 // What an owner set over the template before templates had pages of their own: said, with a way back to the template's.
 function drawOwnWords(forEnvironment) {
@@ -2343,9 +2397,10 @@ function drawOwnIcon(forEnvironment) {
   if (box.hidden) return;
   box.innerHTML = `<p class="hint"><i class="fa-solid fa-${escapeHtml(ownHomeIcon)} fa-fw" aria-hidden="true"></i> You set your own home icon before. It shows instead of the template's.</p><button class="btn btn-small" type="button" data-own-icon-reset>Use the template's</button>`;
 }
-for (const id of ['tpl-basics-card', 'words-panel']) {
+for (const id of ['tpl-basics-card', 'words-panel', 'tpl-workspace-card', 'tpl-phases-card', 'tpl-reactions-card', 'tpl-modules-card']) {
   const panel = $(id);
   wireFields(panel);
+  wirePages(panel);
   panel.addEventListener('change', (e) => {
     const pick = e.target.closest('[data-tpl-pick]');
     if (pick) location.hash = `template/${pick.value}/${tplPart}`;
@@ -2364,8 +2419,13 @@ for (const id of ['tpl-basics-card', 'words-panel']) {
     const save = e.target.closest('[data-tpl-save-button]');
     if (!save) return;
     const box = panel.querySelector('[id$="-box"]');
-    const fields = panel === $('words-panel') ? readLabels(box) : readBasics(box);
     const id = currentTplId();
+    const fields = panel === $('words-panel') ? readLabels(box)
+      : panel === $('tpl-workspace-card') ? readWorkspace(box)
+      : panel === $('tpl-phases-card') ? readPhases(box)
+      : panel === $('tpl-reactions-card') ? readAdditions(box)
+      : panel === $('tpl-modules-card') ? readModules(box, tplFull.get(id) || {})
+      : readBasics(box);
     save.disabled = true;
     say(status, 'Saving...');
     try {

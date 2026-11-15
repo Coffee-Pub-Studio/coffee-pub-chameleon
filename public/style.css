@@ -6737,6 +6737,55 @@ body.chat-window {
   .tf-icons .icon-grid button { width: 44px; height: 44px; }
 }
 
+/* Manage > Template, the rest of the pages (plan-templates-redesign.md, step 11b; public/template-pages.js): the Default Workspace,
+   Phases, Additional Reactions and Icons and Modules, and how a module setting's mark reads in every form (module-settings.js). */
+.tp-checks { display: grid; gap: 2px; margin: 4px 0 8px; }
+.tp-phases { display: grid; gap: 8px; margin: 8px 0; }
+.tp-phase { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) auto auto; gap: 8px 12px; align-items: end; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+.tp-phase:first-child { border-top: none; }
+.tp-phase .tf-field input { width: 100%; min-width: 0; box-sizing: border-box; }
+.tp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.tp-phase-list { margin: 4px 0 0; padding-left: 1.4em; }
+.tp-phase-list li { padding: 2px 0; overflow-wrap: anywhere; }
+.tp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; max-height: 12em; overflow-y: auto; }
+.tp-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--surface); font-size: var(--text-16, 1rem); }
+#tab-template .tf-labels h4 { margin: 12px 0 2px; font-size: var(--text-13); color: var(--text-dim); font-weight: 600; text-transform: none; letter-spacing: var(--tracking-normal); }
+.tp-modules { display: grid; gap: 8px; margin: 8px 0 16px; }
+.tp-module { border: 1px solid var(--border); border-radius: var(--radius-medium); background: var(--surface); min-width: 0; }
+.tp-module-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 8px 12px; min-height: 44px; cursor: pointer; }
+.tp-module-head::-webkit-details-marker { display: none; }
+.tp-module-head::before { content: "\25B8"; color: var(--text-dim); }
+.tp-module[open] > .tp-module-head::before { content: "\25BE"; }
+.tp-offer { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.tp-module-head .tp-offer { flex: 1 1 10rem; width: auto; }
+.tp-module-sum { margin-left: auto; }
+.tp-module-body { padding: 4px 12px 12px; border-top: 1px solid var(--border); min-width: 0; }
+.tp-module-body .tf-form { margin-top: 8px; }
+.tp-settings { display: grid; gap: 0; }
+.tp-setting { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 4px 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+.tp-setting:first-child { border-top: none; }
+.tp-setting-name, .tp-setting-value { min-width: 0; overflow-wrap: anywhere; }
+.tp-setting-value input[type="text"], .tp-setting-value input[type="number"], .tp-setting-value select { width: 100%; min-width: 0; box-sizing: border-box; }
+.tp-setting-about { grid-column: 1 / -1; margin: 0; }
+.tp-switch { display: inline-flex; align-items: center; min-height: 32px; }
+.tp-label { grid-template-columns: minmax(7em, 1fr) repeat(2, minmax(0, 1.4fr)) 0; }
+/* A module setting a template drives or seeds, wherever the form is drawn (Manage > Modules, Set up, Profile). */
+.module-setting .setting-mark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 0 0; }
+.module-setting .setting-mark .btn { min-height: 32px; }
+.module-setting[data-locked] input:disabled, .module-setting[data-locked] select:disabled { opacity: 1; cursor: default; }
+@media (max-width: 640px) {
+  .tp-phase { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .tp-phase .tp-actions { grid-column: 1 / -1; }
+  .tp-setting { grid-template-columns: minmax(0, 1fr); }
+  .tp-module-sum { margin-left: 0; flex-basis: 100%; }
+  .tp-label { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .tp-actions .btn, .tp-phase .tp-main, .tp-module-head, .reaction-row .btn, #tab-template .row .btn, .module-setting .setting-mark .btn { min-height: 44px; }
+  .tp-chip { min-width: 44px; height: 44px; }
+  .tp-switch { min-height: 44px; min-width: 44px; }
+  .module-display .icon-pick summary, .module-display .icon-pick .icon-grid button, .module-display .btn, .module-display input[type="text"] { min-width: 44px; min-height: 44px; box-sizing: border-box; }
+  .tp-checks .sdk-choice-row, .tp-module-body .sdk-choice-row, .tp-module-body .tf-field input:not([type="checkbox"]), .tp-module-body .tf-field select, .tp-module-body .tp-setting-value input:not([type="checkbox"]), .tp-module-body .tp-setting-value select, .tp-module-body .tf-word input, .tp-phase input[type="text"], #tpl-part-workspace select, #tpl-part-phases select, .tp-offer.sdk-choice-row, .reaction-row input[type="text"] { min-height: 44px; box-sizing: border-box; }
+}
+
 /* --- who is here: the space bar's middle zone (space-people.js) ------------------------------------------------
    Everyone in this space now, as a row of small square portraits and a few words ("You and Alex", "You and 3
    others", "5 in this space"), a camera mark on those on the call; its list opens under it, the same popover as the

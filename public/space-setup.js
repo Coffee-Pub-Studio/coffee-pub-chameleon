@@ -609,10 +609,12 @@ export function createSpaceSetup(deps) {
             <span class="phase-row-days"></span>
             <div class="phase-row-tools"><button type="button" class="btn btn-small phase-skip" aria-label="Skip ${esc(p.label)}: clear its dates">Skip</button></div>
             <div class="phase-row-off" hidden><span class="phase-row-off-word">Not scheduled</span><button type="button" class="btn btn-small phase-add" aria-label="Add dates for ${esc(p.label)}"><i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i> Add dates</button></div>
+            <div class="phase-row-done" data-done-for="${esc(p.id)}" hidden></div>
             <p class="phase-row-problem" hidden></p>
           </li>`).join('');
     return `<section class="setup-section" data-section="phases"><h3 class="setup-heading" id="setup-phases-heading">Phases</h3>
         <p class="setup-phases-now" id="setup-phases-now"></p>
+        <p class="hint setup-phases-measure" id="setup-phases-measure" hidden></p>
         <div class="phase-first setup-phase-first" id="setup-phase-first" hidden>
           <label class="phase-first-label" for="setup-phase-first-day">Start the first phase on</label>
           <input type="date" class="phase-date" id="setup-phase-first-day">
@@ -1022,6 +1024,7 @@ export function createSpaceSetup(deps) {
     paintBudget();
     paintCall();
     paintPhases();
+    if (q('#setup-phase-list') && !state.phaseStatesAsked) { state.phaseStatesAsked = true; loadPhaseStates(); }
     if (opts.nameInput && state.owner) opts.nameInput.value = draft.name;
   }
 
@@ -1324,6 +1327,53 @@ export function createSpaceSetup(deps) {
     const firstDay = q('#setup-phase-first-day');
     if (nothing && !firstDay.value) firstDay.value = state.today || '';
   }
+  // How the template measures its phases (plan-templates-redesign.md, step 6): by dates as before, or by goals or progress, where
+  // each phase shows what the server counts (GET /api/spaces/:id/phases) and a Done switch for a phase no goal names. The switch
+  // acts at once, as the server holds it (PUT .../done), for an owner and a moderator.
+  async function loadPhaseStates() {
+    const mine = state;
+    try {
+      const answer = await api('GET', `/api/spaces/${encodeURIComponent(mine.space.id)}/phases`);
+      if (state !== mine) return;
+      mine.phaseStates = answer;
+      paintDone();
+    } catch { /* the dates are still there */ }
+  }
+  function paintDone() {
+    const note = q('#setup-phases-measure');
+    const got = state && state.phaseStates;
+    if (!note || !got) return;
+    const goals = got.measure === 'goals';
+    note.hidden = got.measure !== 'goals' && got.measure !== 'progress';
+    note.textContent = goals ? 'These phases are measured by goals: a phase is done when every goal that names it is done. One no goal names has a Done switch.' : 'These phases are measured by progress: switch a phase to Done when it is done.';
+    for (const p of got.phases || []) {
+      const box = q(`.phase-row-done[data-done-for="${CSS.escape(p.id)}"]`);
+      if (!box) continue;
+      box.hidden = note.hidden;
+      if (note.hidden) continue;
+      const counted = p.goals && p.goals.total > 0;
+      box.innerHTML = counted
+        ? `<span class="phase-row-count">${p.goals.done} of ${p.goals.total} ${p.goals.total === 1 ? 'goal' : 'goals'} done</span>${p.done ? ' <span class="sdk-chip-tag" data-tone="ok">Done</span>' : ''}`
+        : `<label class="sdk-choice-row phase-row-switch"><span class="sdk-choice-text">Done</span><input type="checkbox" class="sdk-switch" role="switch" data-phase-done="${esc(p.id)}" aria-label="${esc(p.label)} is done"${p.done ? ' checked' : ''}></label>`;
+      box.closest('.phase-row').classList.toggle('done', p.done === true);
+    }
+  }
+  el.addEventListener('change', async (event) => {
+    const box = event.target.closest && event.target.closest('[data-phase-done]');
+    if (!box || !state) return;
+    box.disabled = true;
+    try {
+      const answer = await api('PUT', `/api/spaces/${encodeURIComponent(state.space.id)}/phases/${encodeURIComponent(box.dataset.phaseDone)}/done`, { done: box.checked });
+      state.phaseStates = answer;
+      paintDone();
+      sayIn('#setup-phases-status', box.checked ? 'Marked done.' : 'Marked not done.');
+      if (typeof state.opts.onPhaseStates === 'function') state.opts.onPhaseStates(answer);
+    } catch (err) {
+      box.checked = !box.checked;
+      box.disabled = false;
+      sayIn('#setup-phases-status', err.message);
+    }
+  });
   // A refusal's sentence by its row (and read out); an edit kept clears every row's.
   function phaseProblem(id, words) {
     for (const row of el.querySelectorAll('#setup-phase-list .phase-row')) {

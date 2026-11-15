@@ -2439,6 +2439,10 @@ let templatePhases = []; // the phases the page reads now: the space's own once 
 let phaseIcons = {}; // phase id -> its icon, when the template gives one
 let envPhases = []; // the environment's phases, from /api/branding, cleaned by the rule: what Home and a space with no look of its own read
 let envPhaseIcons = {};
+// What the template's measure says of each phase of this space (GET /api/spaces/:id/phases, plan-templates-redesign.md, step 6):
+// { measure, phases: [{ id, label, done?, goals?: { done, total }, current? }] } while the measure is goals or progress, else null.
+let phaseStates = null;
+let phaseMeasure = 'dates';
 // The look (words, verbs, phases) of the space I am in, as the server sent it for that space (plan-space-templates.md, step 2):
 // { id, look } or null. Held in memory only; the words go to words.js's scoped set, which never reaches localStorage.
 let spaceLook = null;
@@ -2455,6 +2459,8 @@ function useEnvironmentLook() {
   const had = spaceLook !== null;
   spaceLook = null;
   spaceCall = null;
+  phaseStates = null;
+  phaseMeasure = 'dates';
   templatePhases = envPhases;
   phaseIcons = envPhaseIcons;
   clearSpaceLook();
@@ -2467,6 +2473,9 @@ function adoptLook(id, look) {
   spaceCall = look.call && typeof look.call === 'object' ? look.call : null;
   templatePhases = phasesOf(look.phases);
   phaseIcons = iconsOf(look.phases);
+  phaseMeasure = look.phaseMeasure === 'goals' || look.phaseMeasure === 'progress' ? look.phaseMeasure : 'dates';
+  phaseStates = null;
+  if (phaseMeasure !== 'dates') loadPhaseStates();
   setSpaceLook(look);
   paintLook();
 }
@@ -2721,6 +2730,7 @@ async function loadAttention() {
     const answer = await api('GET', `/api/spaces/${encodeURIComponent(id)}/attention`);
     if (ticket !== attentionAsked || attention.spaceId !== id) return; // a newer read, or another space, took over
     attention = { spaceId: id, modules: Array.isArray(answer.modules) ? answer.modules : [], total: Number(answer.total) || 0 };
+    if (phaseMeasure !== 'dates') loadPhaseStates(); // a goal done in a planner moves the count
     if (attention.total > 0) attentionSeen = true;
     updatePhaseChip();
   } catch (err) {
@@ -2921,6 +2931,30 @@ function announceBudget(spaceId, budget) {
 }
 window.addEventListener('focus', () => { if (currentSpace && !document.hidden) loadPresence(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && currentSpace) loadPresence(); });
+let phaseStatesAsked = 0;
+async function loadPhaseStates() {
+  const id = currentSpace && !currentSpace.isAside && !guestToken && me && me.role !== 'guest' ? currentSpace.id : null;
+  if (!id || phaseMeasure === 'dates') return;
+  const ticket = ++phaseStatesAsked;
+  try {
+    const answer = await api('GET', `/api/spaces/${encodeURIComponent(id)}/phases`);
+    if (ticket !== phaseStatesAsked || !currentSpace || currentSpace.id !== id) return;
+    phaseStates = answer && answer.measure !== 'dates' ? answer : null;
+    updatePhaseChip();
+  } catch { /* the chip keeps what it had */ }
+}
+// The chip's words under goals and progress: the phase now (the first not done) and how far, "Build · 2 of 4". Goals counts the
+// goals that name the phase; with none named, and under progress, the phases done of all. Null for dates.
+function measuredStory() {
+  if (!phaseStates || !Array.isArray(phaseStates.phases) || !phaseStates.phases.length) return null;
+  const list = phaseStates.phases;
+  const here = list.find((p) => p.current) || null;
+  const phasesDone = list.filter((p) => p.done).length;
+  if (!here) return { parts: ['All done', `${phasesDone} of ${list.length}`], tint: list.length - 1, detail: `All ${list.length} phases are done` };
+  const counted = phaseStates.measure === 'goals' && here.goals && here.goals.total > 0;
+  const tally = counted ? `${here.goals.done} of ${here.goals.total}` : `${phasesDone} of ${list.length}`;
+  return { parts: [here.label, tally], tint: list.indexOf(here), detail: counted ? `${here.goals.done} of ${here.goals.total} goals done in ${here.label}` : `${phasesDone} of ${list.length} phases done` };
+}
 function updatePhaseChip() {
   announcePhases();
   followAttentionSpace();
@@ -2934,19 +2968,22 @@ function updatePhaseChip() {
   if (!show || !R || !phasesWanted()) return;
   const today = phaseToday();
   const bands = phaseTimeline();
-  const parts = R.storyParts(bands, today);
+  const measured = measuredStory();
+  const parts = measured ? measured.parts : R.storyParts(bands, today);
   const words = parts.join(' · ');
   // Written only when the sentence changes: the status is polite, and the presence poll runs this every few seconds.
   if (phaseChip.querySelector('.sdk-strip-sentence').textContent !== words) {
     writeStory(parts);
-    phaseChip.title = `${words}. Phases`;
-    phaseChip.setAttribute('aria-label', `${words}. Phases`);
+    const said = measured ? `${words}, ${measured.detail}` : words;
+    phaseChip.title = `${said}. Phases`;
+    phaseChip.setAttribute('aria-label', `${said}. Phases`);
   }
   // The dot takes the colour of the phase today is in (before the first, the first; past the last, the last).
   const datedNow = bands.filter((b) => b.dated);
   const here = bands.find((b) => b.current) || datedNow.filter((b) => b.start <= today).pop() || datedNow[0] || null;
   const dot = phaseChip.querySelector('.sdk-strip-dot');
-  if (here) dot.dataset.tint = here.tint; else delete dot.dataset.tint;
+  if (measured && R.tintOf) dot.dataset.tint = R.tintOf(measured.tint);
+  else if (here) dot.dataset.tint = here.tint; else delete dot.dataset.tint;
   drawStatusTrack(bands, today);
   fitFacts(); // the sentence or the bar may have changed the room
 }
@@ -3124,6 +3161,7 @@ function enterSetup({ tab = location.hash } = {}) {
     // The budget field (#216) shows while a module here reads the target: one whose manifest says so (Set up reads the
     // module list itself), one that reported a fact marked `budget` (named after it; later facts: offerBudget), or one set.
     budget: budgetReported() ? budgetSource() : null,
+    onPhaseStates: (answer) => { phaseStates = answer; updatePhaseChip(); }, // a Done switch the owner moved
     onDone: setupSaved,
     onSaved: (saved, fields) => setupSaved(saved, '', fields), // a part went through before a refusal: the page follows it
     onDeleted: setupDeleted,
