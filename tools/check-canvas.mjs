@@ -885,7 +885,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   assert.deepEqual(aliasesFor(['maps']), { 'dest:calendar': [], 'dest:map': ['maps'] }, 'the Map off (no map file): a stored dest:map reads as Maps as it is');
   assert.deepEqual(readAs(Object.freeze(['maps', 'travel', 'maps']), aliasesFor(['maps', 'travel'], ['map'])), ['dest:map', 'travel'], 'a stored list naming maps twice reads as one Map, where the first is named');
   assert.deepEqual(readAs(['dest:map', 'travel'], aliasesFor(['maps', 'travel'])), ['maps', 'travel'], 'a stored dest:map reads as Maps where there is no map file');
-  const mapList = [{ id: 'travel', name: 'Planner', icon: 'route' }, { id: 'maps', name: 'Maps', icon: 'map-location-dot', color: 'pink', version: '0.9.0', scope: ['environment', 'space'] }];
+  const mapList = [{ id: 'travel', name: 'Planner - Itinerary', icon: 'route' }, { id: 'maps', name: 'Maps', icon: 'map-location-dot', color: 'pink', version: '0.9.0', scope: ['environment', 'space'] }];
   const mapShown = composeList(mapList, ['map']);
   assert.deepEqual(mapShown.map((m) => m.id), ['travel', 'dest:map'], 'the Show list: one Map in Maps\' place');
   if (mapShown[1].name !== 'Maps' || mapShown[1].icon !== 'map-location-dot' || mapShown[1].color !== 'pink' || mapShown[1].composite?.path !== '/map') fail(F, 'the Map composite reads as Maps: its name, icon and colour, its page /map');

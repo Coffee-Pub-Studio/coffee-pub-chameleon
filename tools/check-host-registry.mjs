@@ -1974,14 +1974,14 @@ try {
     assert.equal((await as('PATCH', '/api/modules/travel', { enabled: true, allSpaces: true })).status, 200);
     const planner = async () => (await as('GET', '/api/modules')).json.modules.find((m) => m.id === 'travel');
     const before = await planner();
-    assert.deepEqual([before.name, before.displayName, before.displayIcon, before.ownDisplayName, before.ownDisplayIcon], ['Planner', null, null, null, null], 'no display name: reads as today');
+    assert.deepEqual([before.name, before.displayName, before.displayIcon, before.ownDisplayName, before.ownDisplayIcon], ['Planner - Itinerary', null, null, null, null], 'no display name: reads as today');
     const stream = async () => (await as('GET', '/api/modules')).json.modules.find((m) => m.id === 'stream');
     assert.equal((await stream()).settings.find((d) => d.key === 'asideDim').label, 'Aside: dim (%)', 'a placeholder in the default words reads as the text did');
     assert.match(before.description, /the events, tasks and polls your space already has\.$/);
 
     const saved = await as('PATCH', '/api/modules/travel', { displayName: '  Itinerary  ', displayIcon: 'compass' });
     assert.equal(saved.status, 200, saved.text);
-    assert.deepEqual([saved.json.module.name, saved.json.module.version, saved.json.module.icon, saved.json.module.displayName, saved.json.module.displayIcon], ['Planner', before.version, before.icon, 'Itinerary', 'compass'], 'the module\'s own name, version and icon stay beside the display ones');
+    assert.deepEqual([saved.json.module.name, saved.json.module.version, saved.json.module.icon, saved.json.module.displayName, saved.json.module.displayIcon], ['Planner - Itinerary', before.version, before.icon, 'Itinerary', 'compass'], 'the module\'s own name, version and icon stay beside the display ones');
     const shown = (list) => list.find((m) => m.id === 'travel');
     const nav = shown((await as('GET', '/api/modules/nav')).json.modules);
     assert.deepEqual([nav.name, nav.icon], ['Itinerary', 'compass'], 'the nav');
@@ -2043,7 +2043,7 @@ try {
     await as('PATCH', '/api/modules/conference', { displayName: '', displayIcon: null });
     const settings = readJson(path.join(single, 'app.json')).settings;
     assert.deepEqual(['moduleNames' in settings, 'moduleIcons' in settings], [false, false], 'nothing stored once every display name is cleared');
-    assert.equal(shown((await as('GET', '/api/modules/nav')).json.modules).name, 'Planner');
+    assert.equal(shown((await as('GET', '/api/modules/nav')).json.modules).name, 'Planner - Itinerary');
     await server.stop();
     server = null;
   });

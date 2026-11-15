@@ -18,7 +18,7 @@
   try {
     info = await host.ready();
   } catch (err) {
-    $('msg').textContent = 'Planner could not start: ' + err.message;
+    $('msg').textContent = 'Planner - Itinerary could not start: ' + err.message;
     return;
   }
   if (info.context.scope !== 'space') {
@@ -999,7 +999,7 @@
     if (mode === 'clear') {
       const r = plan.previewClear(day);
       const kept = r.kept ? ` ${words(r.kept, 'object', 'objects')} from other ${host.util.word('module', { many: true })} stay, because they follow their own date.` : '';
-      return { text: r.moved ? `Take ${stopsText(Object.keys(r.changes))} off ${dayLong(day)}? They stay in the Planner, unscheduled.${kept}` : `Nothing on ${dayLong(day)} to take off.${kept}`, ok: r.moved > 0 };
+      return { text: r.moved ? `Take ${stopsText(Object.keys(r.changes))} off ${dayLong(day)}? They stay in Planner - Itinerary, unscheduled.${kept}` : `Nothing on ${dayLong(day)} to take off.${kept}`, ok: r.moved > 0 };
     }
     const to = $('day-to').value;
     const rest = $('day-rest').checked;

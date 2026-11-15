@@ -327,7 +327,7 @@
       "messages": [
         {"as":"mia","text":"Okay, the Demo: Portugal space is open. Ten days, three cities."},
         {"as":"sam","text":"Finally. Is the flight booked yet?"},
-        {"as":"mia","text":"Booked, seats 23A to C. Check the Planner."},
+        {"as":"mia","text":"Booked, seats 23A to C. Check the Itinerary."},
         {"as":"lee","text":"Found it. Day one is just the flight: {base}/modules/travel?space={space}"},
         {"as":"sam","text":"> Day one is just the flight\nGood, we can pack in the morning."},
         {"as":"lee","text":"Did anyone look at the hotel in Lisbon?"},
@@ -347,7 +347,7 @@
         {"as":"mia","text":"Weekly call Thursday at 7, fifteen minutes."},
         {"as":"lee","text":"I will be there. Also, the Douro day needs the rental car; pick-up is the evening before."},
         {"as":"sam","text":"> pick-up is the evening before\nGot it, and drop-off at the airport on the last morning."},
-        {"as":"mia","text":"Everything for the trip is in the Planner, Places and To-do. Add what you find."},
+        {"as":"mia","text":"Everything for the trip is in the Itinerary, Places and To-do. Add what you find."},
         {"as":"lee","text":"Added three places near the hotel to Maps."},
         {"as":"sam","text":"Great. Two months and we are in Lisbon."}
       ]
