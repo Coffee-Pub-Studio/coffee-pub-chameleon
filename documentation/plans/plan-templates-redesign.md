@@ -205,8 +205,13 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
     pick another template.
 11. **Phases stay independent of the planners.** The template defines the set, the space's Set up holds the dates,
     modules read them. A phase set gains a **measure**: `dates`, `goals` or `progress`.
-12. **Reactions and icons:** the environment holds the fixed main set, which nobody removes; templates only add; a
-    space has none of its own.
+12. **Reactions and icons:** the environment level owns the owner's own reactions and icons for every template
+    (Manage > Environment > Reactions and Icons, merged as #852); a template only adds; a space has none of its own.
+    Manage > Template > Additional Reactions and Icons shows only the template's additions (Thomas, 2026-11-15).
+    **Divergence called out (2026-11-15):** the plan said the environment holds a fixed main set and the owner's
+    editing of reactions and icons moves to the template's Additional Reactions and Icons page. Thomas said the
+    environment level owns the owner's own reactions and icons for every template. What now stands: the owner edits
+    them under Manage > Environment > Reactions and Icons; the template page lists only its additions.
 13. **Theme leaves templates.** The environment sets the default; each person may choose their own theme.
 14. **Templates drive how a module works**, what things are called included. Each module's manifest marks each of its
     settings as **driven** (the template sets it; shown read-only), **default** (the template seeds it; the owner may
@@ -284,7 +289,12 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
     names it is done. A phase no entry names uses the **Done** switch as the fallback.
 39. **The host edits templates on the same pages as Manage and the console**, one code. Shipped templates are editable
     only by the host.
-40. **The Lobby's words go on Experience Labels** with the other words. Travel's Vault is named "Files".
+40. **The Lobby's words go on Experience Labels** with the other words. (The second sentence, "Travel's Vault is named
+    "Files"", is replaced by decision 51.)
+51. **Vault everywhere:** the Vault is called Vault in every shipped template (Thomas, 2026-11-15).
+    **Divergence called out (2026-11-15):** decision 40 said Travel's Vault is named "Files", and the shipped-templates
+    table said Vault ("Files", decision 40). Thomas said "Vault everywhere". What now stands: no shipped template
+    renames the Vault; the name "Files" is not used.
 41. **The server writes starter content, once, when the space is made**, through the data route's own checks, as the
     person who made it, for modules that opt in.
 42. **The campaign plan uses the Schedule outline, with dates optional.** Sessions are milestones, scenes are work, story
@@ -600,7 +610,7 @@ name "Planner - Projects" (decision 43).
 
 | Template | Its planner (name shown) | Planner settings | Other modules and their settings |
 |---|---|---|---|
-| **Travel** | Planner - Travel, `travel` (shown "Itinerary", as today) | none | As today: To-do, Budget (money), Maps, Calendar, Documents, Research, Polls, Vault ("Files", decision 40), Whiteboard, AI Assistant |
+| **Travel** | Planner - Travel, `travel` (shown "Itinerary", as today) | none | As today: To-do, Budget (money), Maps, Calendar, Documents, Research, Polls, Vault (named Vault, decision 51), Whiteboard, AI Assistant |
 | **Project** | Schedule outline ("Project plan") | `datesRequired` true, `dependencies` true | To-do (owners, `inCalendar` on), Calendar (Meeting, Deadline), Budget ("Effort", unit `effort`, money optional), Documents (a project brief), Maps (a normal map), Research, Polls, Whiteboard, Vault |
 | **Learning** | Goal outline ("Learning plan") | `dates` optional, `progressBy` steps | To-do (exercises tied to a goal), Documents (a learning journal), Research, Calendar (Session), Budget ("Time", unit `hours`), Maps (visits) |
 | **Mentoring** | Goal outline ("Development plan") | `dates` optional, `progressBy` steps; `owner` reads "mentee" | To-do (the mentee owns tasks), Calendar (Check-in), Documents (a meeting log), Research, Budget ("Time", unit `hours`) |
@@ -633,7 +643,7 @@ To-do's owners are a new To-do setting (`owners`, boolean, space, `default`, off
 
 ### Phases and their measure (server-development, then experience-design; core)
 
-- `dates`: as today. `progress`: Set up shows a **Done** switch per phase (`space.phases.<id>.done`); the current phase
+- `dates`: as today. `progress`: Set up shows a **Done** switch per phase (stored as `space.phaseDone`, `{ <phase id>: true }`); the current phase
   is the first not done. `goals`: decision 38: a phase is done when every planner entry that names it is done, read from the `phase` and `done` in the refs summary; a phase no entry names uses the same **Done** switch.
 - `host.phases()` gains `measure` and each phase's `done`. The phase chip reads "<phase> · 2 of 4" for `progress` and
   `goals`, the date for `dates`.
@@ -641,8 +651,9 @@ To-do's owners are a new To-do setting (`owners`, boolean, space, `default`, off
 ### Reactions, icons and theme (server-development, then experience-design; core)
 
 - The core set is read from `server/default-lists.js`; additions come from the space's template. `allowReactions` stays
-  the environment's switch. Manage's Reactions and Icons panels move to the template's Additional Reactions and Icons
-  page.
+  the environment's switch. The owner's own reactions and icons stay on Manage > Environment > Reactions and Icons
+  (#852) and apply to every template; Manage > Template > Additional Reactions and Icons shows only the template's
+  additions. (Divergence called out under decision 12.)
 - The environment's default theme stays. Each person gains `theme: <theme id> | null` on their account, chosen in
   Profile among the environment's themes; light and dark stay as today.
 
@@ -692,7 +703,8 @@ read-only parts and Profile's theme. Each setting is its own page, not one long 
     the Home plural and the Lobby's name and description (decision 40). The locked words are not listed.
   - **Default Workspace:** what the Workspace opens with, and which Fixed Workspaces a new space shows.
   - **Phases:** the list and the measure.
-  - **Additional Reactions and Icons:** the core set, read-only, then the template's additions.
+  - **Additional Reactions and Icons:** only the template's additions. The core set and the owner's own reactions and
+    icons are on Manage > Environment > Reactions and Icons (decision 12).
   - **Modules:** one row per catalog module: whether this template offers it, its display name and icon, its driven and
     default settings, and its starter content (keep or remove only, in version 1). The planners sit together under
     "Plans", so an owner sees they are alternatives.
@@ -740,6 +752,9 @@ environment's default template.
   environment, owner and aside words removed; its planner the Schedule outline (decision 42); Maps with picture maps; starter session notes
   and a handout); **Project**, **Learning** and **Mentoring** new, per "What each template turns on".
   `tools/template-versions.json` records each.
+- **What step 15 shipped:** Travel, Games, Project, Learning and Mentoring. Games carries the interim `travel` planner,
+  not the Schedule outline of decision 42, and no template has a `schedule` or `goals` planner line until steps 13 and
+  14 land (those planners do not exist before then). Each template's Vault is named Vault (decision 51).
 
 ## Behaviour by role and surface
 
