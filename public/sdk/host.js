@@ -3185,9 +3185,13 @@
     // when the owner sets, replaces or clears the picture map, this answers the new value and host.on('environment', fn)
     // hears it ({ pictureMap }), so a module redraws what depends on it without a reload.
     get environment() { return { pictureMap: (info && info.environment && info.environment.pictureMap) || null }; },
-    // The environment's template's phases, [{ id, label, main? }], or [] when it has none. Live: a template edit
-    // is in the next hello. Answered from the hello, so it is there once host.ready() has resolved.
-    phases: () => (info && Array.isArray(info.phases) ? info.phases : []),
+    // The environment's template's phases, [{ id, label, main?, icon? }], or [] when it has none, with their state under the
+    // template's measure. The list has a `measure` property: 'dates' (the default; no state), 'progress' (each phase has
+    // `done`, the owner's Done switch) or 'goals' (`done` too, and `goals: { done, total }` while planner entries name the phase: it is
+    // done when they all are; else the switch). Under progress and goals the first phase not done has `current: true`.
+    // Live: a template edit is in the next hello, a switch or an entry in the next look; host.on('phaseStates', ({ phases,
+    // measure })) says when it changed. Answered from the hello, so it is there once host.ready() has resolved.
+    phases: () => Object.assign(info && Array.isArray(info.phases) ? info.phases.slice() : [], { measure: (info && info.phaseMeasure) || 'dates' }),
     // The main phase's end moved later to cover `day` (YYYY-MM-DD), every later boundary shifted with it (POST
     // /api/spaces/:id/phases/cover; plan-one-bar.md step 2), for anyone with write in a module on in this space.
     // Resolves with the space's new phases, or null when nothing moved (the day is covered already, is before the
@@ -4750,6 +4754,10 @@
       if (e.created) info.space.createdAt = e.created;
     }
     try { e.timeline = host.util.phaseTimeline(); } catch (err) { e.timeline = []; }
+  });
+  // The phases' state changed (a Done switch, or a goal that names a phase): keep host.phases() current. Registered first.
+  host.on('phaseStates', (e) => {
+    if (info && e && Array.isArray(e.phases)) { info.phases = e.phases; info.phaseMeasure = e.measure || 'dates'; }
   });
   // The space's budget target changed: keep host.space().budget current. Registered first, so it runs before the module's.
   host.on('space', (e) => {

@@ -1451,9 +1451,23 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     contextInfo.space = { ...contextInfo.space, budget: b };
     send('space', { budget: b });
   };
+  // The phases' state under the template's measure (Done switches and counts) as the module was last told it: it hears
+  // 'phaseStates' ({ phases, measure }) only when it differs, and the SDK keeps host.phases() current.
+  let toldStates = null;
+  const tellStates = (list, measure) => {
+    if (!ready || keyed || scope !== 'space' || !contextInfo || !Array.isArray(list)) return;
+    const key = JSON.stringify([list, measure || 'dates']);
+    if (toldStates === null) toldStates = JSON.stringify([contextInfo.phases || [], contextInfo.phaseMeasure || 'dates']);
+    if (key === toldStates) return;
+    toldStates = key;
+    contextInfo.phases = list;
+    contextInfo.phaseMeasure = measure || 'dates';
+    send('phaseStates', { phases: list, measure: contextInfo.phaseMeasure });
+  };
   const hearPhases = (d) => {
     if (!d || d.space !== spaceId) return;
     if (d.phases && typeof d.phases === 'object') tellPhases(d.phases, d.created);
+    if (Array.isArray(d.states)) tellStates(d.states, d.measure);
     if ('budget' in d) tellSpace(d.budget);
   };
   const onPhasesEvent = (event) => hearPhases(event.detail);
@@ -1469,7 +1483,7 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     if (!window.__phasesHost) {
       phasesLook = () => {
         if (!ready || document.hidden || !contextInfo || !(contextInfo.phases || []).length) return;
-        api('GET', url('/context', scope)).then((a) => { if (a && a.space) { tellPhases(a.space.phases, a.space.createdAt); tellSpace(a.space.budget); } }).catch(() => { /* the next look asks again */ });
+        api('GET', url('/context', scope)).then((a) => { if (a) tellStates(a.phases, a.phaseMeasure); return a; }).then((a) => { if (a && a.space) { tellPhases(a.space.phases, a.space.createdAt); tellSpace(a.space.budget); } }).catch(() => { /* the next look asks again */ });
       };
       phasesTimer = setInterval(phasesLook, 60000);
       window.addEventListener('focus', phasesLook);
@@ -1496,6 +1510,7 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       contextInfo = answer;
       ready = true;
       toldPhases = answer.space ? phasesKey(answer.space.phases, answer.space.createdAt) : null;
+      toldStates = null;
       setTimeout(() => { for (const [event, data] of queued.splice(0)) send(event, data); }, 50);
       return {
         user: contextInfo.user,
@@ -1507,6 +1522,7 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
         locale: contextInfo.locale || { language: 'en', clock: '12', currency: 'USD', words: words() },
         space: contextInfo.space || null,
         phases: Array.isArray(contextInfo.phases) ? contextInfo.phases : [],
+        phaseMeasure: contextInfo.phaseMeasure || 'dates',
         // Facts about the environment (host.environment): the picture map, { file, minZoom, maxZoom, tileType }, or null.
         environment: (toldFacts = environmentFacts(contextInfo)),
         theme: readTheme(),

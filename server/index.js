@@ -77,6 +77,7 @@ const { eraseSpace } = require('./space-erase');
 const { DEFAULT_THEME, Store, StoreError, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
 const phaseRule = require('../public/phases.js');
+const phaseMeasure = require('./phase-measure.js'); // a phase's Done switch and the count of the goals that name it (plan-templates-redesign.md, step 6)
 const auth = require('./auth');
 const { buildEnvironment, flushEnvironment, setAsideEnvironment } = require('./environment');
 const { exportEntries, restoreEntries } = require('./environment-export');
@@ -1819,6 +1820,49 @@ function lookView(spaceId) {
 }
 // The phases a space reads, for the rules that walk them (the AI's rollup, covering the main phase).
 const phasesOfSpace = (spaceId) => { const p = store.lookOf(spaceId).phases; return Array.isArray(p) ? p : []; };
+// The summaries of the entries that name a phase in one space: every planner's entry (refs kind `plan`) in a module that is on
+// there, as objectSummary reads them. Counts only ever leave this (phaseStatesOf): never an entry's words, so it is read
+// whatever the asker may read in the planner. At most 5000 entries a planner.
+const PHASE_ENTRIES_MAX = 5000;
+const PHASE_TALLY_TTL_MS = 5000; // a poll closing by its time makes an entry done with no write, so the count is never older than this
+// The goals' count for one space, { <phase id>: { done, total } }, kept per space while no planner's data in it was written, the
+// planners on there and the phase ids are the same (ModuleData.memo, so per environment and bounded): the phases route, the
+// context and the frames' polls share one read. A write, a module switched on or off or a template change makes the next ask read again.
+function phaseTallyOf(space, phases) {
+  const scopeKey = scopeKeyOf('space', { spaceId: space.id });
+  const planners = [];
+  for (const { manifest, entry } of modules.enabledAll()) {
+    if (!manifest.scope.includes('space') || !modules.onInSpace(entry, manifest, space.id)) continue;
+    const produce = manifest.refs.produces.find((p) => p.kind === 'plan' && p.summary.phase);
+    if (produce) planners.push({ manifest, produce });
+  }
+  const sig = JSON.stringify([phases.map((p) => p.id), planners.map(({ manifest, produce }) => [manifest.id, manifest.version, produce.key, moduleData.stampOf(manifest.id, scopeKey)])]);
+  return moduleData.memo(`phase-goals:${space.id}`, sig, PHASE_TALLY_TTL_MS, () => {
+    const out = [];
+    for (const { manifest, produce } of planners) {
+      const prefix = produce.key.replace('{id}', '');
+      let n = 0;
+      for (const row of moduleData.list(manifest.id, scopeKey, prefix)) {
+        const id = row.key.slice(prefix.length);
+        if (!row.value || !REF_ID_RE.test(id)) continue;
+        if ((n += 1) > PHASE_ENTRIES_MAX) break;
+        out.push(objectSummary({ manifest, produce, ref: { module: manifest.id, kind: produce.kind, scope: 'space', space: space.id } }, id, row.value));
+      }
+    }
+    return phaseMeasure.tallyOf(phases, out);
+  });
+}
+// A space's phases with their state under its template's measure (server/phase-measure.js): { measure, phases }. The goals
+// are counted only while the measure is `goals`.
+function phaseStatesOf(spaceId) {
+  const space = store.spaceById(spaceId);
+  const look = store.lookOf(spaceId);
+  const phases = phaseView(look.phases);
+  const measure = look.phaseMeasure || 'dates';
+  if (!space) return { measure, phases };
+  const tally = measure === 'goals' ? phaseTallyOf(space, phases) : null;
+  return { measure, tally, phases: phaseMeasure.statesOf(phases, measure, space.phaseDone, tally) };
+}
 
 function initials(name) {
   const words = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -4927,6 +4971,38 @@ app.post('/api/spaces/:id/phases/cover', (req, res) => {
   const result = phaseRule.coverMain(phases, space.phases, day, { created: space.createdAt });
   if (!result.moved) return res.status(204).end();
   res.json({ phases: store.updateSpace(space.id, { phases: result.dates }).phases });
+});
+// GET /api/spaces/:id/phases: { measure, phases } -- the template's phases as this space reads them, with the state the measure gives
+// (dates: none; progress: `done`; goals: `done` and `goals: { done, total }` while entries name the phase; the first phase
+// not done is `current: true`). For anyone who may enter the space, answered as /look answers (404 for anyone else).
+app.get('/api/spaces/:id/phases', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const space = store.spaceById(req.params.id);
+  const viewer = space && !space.isLobby && space.id !== LOBBY ? presenceViewer(req) : null;
+  if (!space || !viewer || viewer.all || !spaceAccess.mayEnter(viewer, space)) return res.status(404).json({ error: spaceContext.exit(() => `no such ${word('space')}`) });
+  const { measure, phases } = phaseStatesOf(space.id);
+  res.json({ measure, phases });
+});
+// PUT /api/spaces/:id/phases/:phase/done { done: true | false }: one phase's Done switch, for an owner, the admin or that space's
+// moderator. The template must measure by progress, or by goals for a phase no entry names (409 with a sentence otherwise); an
+// unknown phase is 404, a `done` that is not true or false 400. Answers { measure, phases } as the GET does.
+app.put('/api/spaces/:id/phases/:phase/done', requireUser, (req, res) => {
+  const space = store.spaceById(req.params.id);
+  if (!space || (!isOwner(req) && closedTo(req, space))) return res.status(entryStatus(req, space)).json(entryBody(req, space, `no such ${word('space')}`));
+  if (!isOwner(req) && !moderates(currentUser(req), space)) return res.status(403).json({ error: `${word('owner', { many: true })} only` });
+  if (typeof req.body?.done !== 'boolean') return res.status(400).json({ error: 'Send done as true or false.' });
+  const look = store.lookOf(space.id);
+  const phase = (Array.isArray(look.phases) ? look.phases : []).find((p) => p.id === req.params.phase);
+  if (!phase) return res.status(404).json({ error: `There is no phase called "${String(req.params.phase).slice(0, 40)}".` });
+  const measure = look.phaseMeasure || 'dates';
+  if (measure === 'dates') return res.status(409).json({ error: `Phases here are measured by their dates, so ${phase.label} has no Done switch.` });
+  if (measure === 'goals') {
+    const counted = phaseStatesOf(space.id).tally?.[phase.id];
+    if (counted && counted.total > 0) return res.status(409).json({ error: `${phase.label} is done when every goal that names it is done, so it has no Done switch.` });
+  }
+  store.setPhaseDone(space.id, phase.id, req.body.done);
+  const { phases } = phaseStatesOf(space.id);
+  res.json({ measure, phases });
 });
 app.delete('/api/spaces/:id', requireOwner, (req, res) => {
   eraseSpace(currentEnvironment(), req.params.id); // everything kept for it, then the space; throws 500 if a step fails (server/space-erase.js)
@@ -8121,6 +8197,12 @@ function objectSummary({ manifest, produce, ref, hide }, id, value, withText = f
   // `color`: a place's own colour, one of the eight theme tints by name (plan-places-library.md, step 4); a pin takes it before its category's.
   const color = field('color');
   if (typeof color === 'string' && SUMMARY_TINTS.includes(color)) summary.color = color;
+  // `phase`: the id of the template phase the object names (plan-templates-redesign.md, decision 38), the shape a phase id has;
+  // `progress`: a whole number from 0 to 100. Anything else is left out.
+  const phase = field('phase');
+  if (typeof phase === 'string' && phase.length <= 40 && phaseMeasure.PHASE_ID.test(phase)) summary.phase = phase;
+  const progress = field('progress');
+  if (typeof progress === 'number' && Number.isFinite(progress)) summary.progress = Math.min(100, Math.max(0, Math.round(progress)));
   const marked = field('spaces');
   if (Array.isArray(marked)) {
     const ids = [...new Set(marked.filter((k) => typeof k === 'string' && k && k.length <= 64 && store.spaceById(k)))].slice(0, 20);
@@ -10956,7 +11038,10 @@ app.get('/api/modules/:id/context', (req, res) => {
     // without the module's read permission). `guestsSeeHidden`: true while an owner lets this space's guests see the fields
     // modules keep from guests (costs and booking codes), so a page can say what a guest sees.
     space: here ? { id: here.id, name: here.name, createdAt: here.createdAt, phases: here.phases, budget: (who.user && here.budget) || null, guestsSeeHidden: here.guestsSeeHidden === true } : null,
-    phases: phases.map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) })),
+    // `phases` carry their state under the measure (host.phases(): `done`, `goals`, `current`; see server/phase-measure.js) and
+    // `phaseMeasure` is the template's: dates, goals or progress. Outside a space there is no state to carry.
+    phases: here ? phaseStatesOf(here.id).phases : phaseView(phases),
+    phaseMeasure: look.phaseMeasure || 'dates',
     // Facts about the environment every module may need. `pictureMap`: { file, minZoom, maxZoom, tileType } while the
     // environment's map is a picture of an invented world (a module that declares `pictureMap` names the file), else null.
     environment: { pictureMap: pictureMapOf() },

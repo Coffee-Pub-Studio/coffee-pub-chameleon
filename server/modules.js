@@ -81,8 +81,9 @@ function cleanHooks(raw) {
 // What an object's summary (what another module may show of it) can carry, and which of the producing module's own
 // stored fields fill it (`refs.produces[].summary`). See documentation/api/api-module-sdk.md ("Objects").
 // `doneAt`: a time (milliseconds) after which the summary's `done` is true whatever the `done` field says (a poll that
-// closes by its time).
-const SUMMARY_FIELDS = ['title', 'subtitle', 'when', 'end', 'allDay', 'done', 'doneAt', 'place', 'category', 'text', 'amount', 'planned', 'paidBy', 'sharedBy', 'icon', 'visit', 'color', 'spaces'];
+// closes by its time). `phase`: the id of the template phase an entry names (a planner's; a phase measured by goals is done when every
+// entry that names it is done); `progress`: how far along it is, a whole number from 0 to 100.
+const SUMMARY_FIELDS = ['title', 'subtitle', 'when', 'end', 'allDay', 'done', 'doneAt', 'place', 'category', 'text', 'amount', 'planned', 'paidBy', 'sharedBy', 'icon', 'visit', 'color', 'spaces', 'phase', 'progress'];
 const REF_KIND_RE = /^[a-z][a-z0-9-]{0,23}$/;
 const REF_CONSUME_RE = /^[a-z][a-z0-9-]{1,31}:[a-z][a-z0-9-]{0,23}$/;
 const SCOPES = ['environment', 'space', 'person'];
