@@ -350,7 +350,7 @@
     const items = shown.map(({ rec, t }) => (thumbs ? thumbItem(rec, t) : row(rec, t)));
     if (!showTrash) for (const id of unreadable) { const li = el('li', thumbs ? 'thumb-item unreadable' : 'row unreadable'); li.append(el('span', 'row-title', 'This document could not be read.')); items.push(li); }
     if (!items.length) {
-      const text = q || filterTags.length ? 'Nothing matches that.' : showTrash ? 'The trash is empty.' : canEdit ? 'No documents yet.' : 'Nothing has been written here yet.';
+      const text = q || filterTags.length ? 'Nothing matches that.' : showTrash ? 'The trash is empty.' : canEdit ? `No ${host.util.label('document', { many: true })} yet.` : 'Nothing has been written here yet.';
       const li = el('li', 'meta', text);
       li.setAttribute('role', 'status');
       items.push(li);
@@ -1829,7 +1829,7 @@
       const shared = Boolean(ed && ed.co);
       const rules = shared ? coRemoveRules(coLockNow()) : { off: false }; // a locked shared document: Rename and Delete are off, with the reason (New document is about other documents)
       const off = () => (rules.off ? { disabled: true, hint: rules.reason } : {});
-      if (!ed || ed.co) acts.push({ id: 'new', label: 'New document' });
+      if (!ed || ed.co) acts.push({ id: 'new', label: `New ${host.util.label('document')}` });
       if (!ed || (ed.co && ed.co.ready && !ed.co.dead && ed.co.editor)) { acts.push({ id: 'rename', label: 'Rename', ...off() }); acts.push({ id: 'delete', label: 'Delete', ...off() }); }
       else if (ed && !ed.co) acts.push({ id: 'rename', label: 'Rename' });
     }
@@ -1850,7 +1850,7 @@
   // From the title bar's select: a pick of a document, New document, Rename, Delete.
   async function newDoc() { // asks for the title first, so a Cancel leaves the open document as it is
     let title = null;
-    try { title = await host.ui.prompt({ title: 'New document', label: 'Title', action: 'Create', maxLength: DL.titleMax }); } catch (err) { note(cleanMsg(err)); return; }
+    try { title = await host.ui.prompt({ title: `New ${host.util.label('document')}`, label: 'Title', action: 'Create', maxLength: DL.titleMax }); } catch (err) { note(cleanMsg(err)); return; }
     if (title === null) return;
     await leaveThen(async () => { const id = await create(title, ''); render(); if (openId) closeDoc(); openDoc(id); });
   }
@@ -1944,7 +1944,7 @@
     for (const b of [insertButton, paperButton, tagButton]) if (b) b.set({ disabled: joining() });
     host.toolbar.set(items).catch(() => {});
     paintHeader();
-    if (host.add) host.add.set(!ed && !openId && canEdit && !showTrash ? [{ id: 'new', label: 'New document', icon: 'plus' }, { id: 'open', label: 'Open Markdown file', icon: 'file-import' }] : []).catch(() => {});
+    if (host.add) host.add.set(!ed && !openId && canEdit && !showTrash ? [{ id: 'new', label: `New ${host.util.label('document')}`, icon: 'plus' }, { id: 'open', label: 'Open Markdown file', icon: 'file-import' }] : []).catch(() => {});
     output.offerPrint(viewShown());
     renderStatus();
   }

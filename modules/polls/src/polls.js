@@ -773,7 +773,7 @@
         items: [
           { id: 'toggle', label: isClosed(x.p) ? 'Reopen poll' : 'End poll', icon: isClosed(x.p) ? 'lock-open' : 'lock', onClick: () => setClosed(key) },
           { separator: true },
-          { id: 'delete', label: 'Delete poll', icon: 'trash', danger: true, onClick: (item, b) => remove(key, b) },
+          { id: 'delete', label: `Delete ${host.util.label('poll')}`, icon: 'trash', danger: true, onClick: (item, b) => remove(key, b) },
         ],
       });
     }
@@ -848,7 +848,7 @@
   }
   // New poll is the host's "+" (host.add.set, one action: it runs at once) wherever Polls is drawn: a window's titlebar,
   // popped out, or its own page. Typing is `/p` in Chat, which opens the same form.
-  host.add.set(canCreate ? [{ id: 'poll', label: 'New poll', icon: 'square-poll-horizontal' }] : []).catch(() => {});
+  host.add.set(canCreate ? [{ id: 'poll', label: `New ${host.util.label('poll')}`, icon: 'square-poll-horizontal' }] : []).catch(() => {});
   host.on('add', (e) => { if (e.id === 'poll' && canCreate) openEditor(); });
   if (host.actions && host.actions.provide) {
     host.actions.provide({

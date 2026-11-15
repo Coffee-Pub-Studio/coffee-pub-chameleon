@@ -1,7 +1,7 @@
 {
   "id": "documents",
   "name": "Documents",
-  "version": "0.11.31",
+  "version": "0.11.32",
   "icon": "file-lines",
   "color": "orange",
   "description": "Shared notes for the {space}: session notes, handouts and plans. One person edits at a time and everyone reads along.",
@@ -51,6 +51,8 @@
     "bytes": 2048,
     "perSecond": 30
   },
+  "starter": true,
+  "labels": { "document": { "one": "document", "many": "documents" } },
   "settings": [
     {
       "key": "coediting",

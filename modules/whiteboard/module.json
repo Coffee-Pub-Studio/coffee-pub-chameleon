@@ -1,12 +1,13 @@
 {
   "id": "whiteboard",
   "name": "Whiteboard",
-  "version": "0.1.64",
+  "version": "0.1.65",
   "icon": "chalkboard",
   "color": "teal",
   "content": "flush",
   "description": "A shared board for the {space}: draw, add notes, text, shapes and pictures, and move them around together.",
   "author": "Coffee Pub",
+  "labels": { "board": { "one": "board", "many": "boards" } },
   "scope": [
     "space"
   ],
