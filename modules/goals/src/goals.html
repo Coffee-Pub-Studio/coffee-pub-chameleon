@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Goals</title>
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<div id="app" class="app sdk-slot" hidden>
+  <p class="sdk-form-error" id="note" role="alert" hidden></p>
+  <main id="body" class="body">
+    <section id="view-goals" class="goals-view" aria-live="polite"></section>
+    <section id="view-list" class="list-view" hidden></section>
+  </main>
+
+  <!-- the form for a goal, a step or a note: an editor window over everything (host.ui.editor) -->
+  <dialog id="editor" class="sdk-editor">
+    <form id="form" class="sdk-form" novalidate>
+      <h3 id="editor-title">New goal</h3>
+      <label class="sdk-field"><span class="sdk-label">Title</span><input id="f-title" type="text" maxlength="200" required><span class="sdk-hint"></span></label>
+      <label class="sdk-field" id="f-parent-row"><span class="sdk-label" id="f-parent-label">Under</span><select id="f-parent"></select><span class="sdk-hint"></span></label>
+      <label class="sdk-field" id="f-why-row"><span class="sdk-label">Why <span class="sdk-optional">(optional)</span></span><textarea id="f-why" rows="3" maxlength="2000"></textarea><span class="sdk-hint"></span></label>
+      <label class="sdk-field" id="f-text-row"><span class="sdk-label">Text <span class="sdk-optional">(optional)</span></span><textarea id="f-text" rows="5" maxlength="8000"></textarea><span class="sdk-hint"></span></label>
+      <div class="sdk-field" id="f-owners-row" role="group" aria-labelledby="f-owners-label"><span class="sdk-label" id="f-owners-label"></span><div id="f-owners"></div><span class="sdk-hint"></span></div>
+      <div class="sdk-form-row">
+        <div class="sdk-field sdk-m" id="f-date-row" role="group" aria-labelledby="f-date-label"><span class="sdk-label" id="f-date-label">Date <span class="sdk-optional">(optional)</span></span><input id="f-date" type="date" aria-labelledby="f-date-label"><span class="sdk-hint"></span></div>
+        <label class="sdk-field sdk-m" id="f-phase-row"><span class="sdk-label">Phase <span class="sdk-optional">(optional)</span></span><select id="f-phase"></select><span class="sdk-hint"></span></label>
+      </div>
+      <div class="sdk-field" id="f-links-row" role="group" aria-labelledby="f-links-label"><span class="sdk-label" id="f-links-label">Linked <span class="sdk-optional">(optional)</span></span><div id="f-links" class="f-links"></div><div><button class="btn btn-small" type="button" id="f-link">Link something</button></div><span class="sdk-hint"></span></div>
+      <div class="sdk-choice-list" id="f-done-row"><label class="sdk-choice-row"><input id="f-done" type="checkbox"><span id="f-done-label">Done</span></label></div>
+      <p class="sdk-hint" id="f-derived" hidden></p>
+      <div class="sdk-form-error" id="f-error" role="alert" hidden></div>
+      <div class="sdk-editor-actions">
+        <button class="btn btn-danger" type="button" id="f-delete" hidden>Delete</button>
+        <span class="grow"></span>
+        <button class="btn btn-quiet" type="button" id="f-cancel">Cancel</button>
+        <button class="btn btn-primary" type="button" id="f-save">Save</button>
+      </div>
+    </form>
+  </dialog>
+</div>
+<div id="loading" class="msg" aria-busy="true"><div class="sdk-skel-list"><div class="sdk-skel sdk-skel-block"></div><div class="sdk-skel sdk-skel-block"></div><div class="sdk-skel sdk-skel-block"></div></div></div>
+<div id="msg" class="sdk-empty" hidden></div>
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>

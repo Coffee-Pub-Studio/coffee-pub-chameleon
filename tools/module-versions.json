@@ -15,6 +15,10 @@
     "version": "0.11.32",
     "hash": "7e797b04543e5bf8"
   },
+  "goals": {
+    "version": "0.1.0",
+    "hash": "2be2dba55fc057b5"
+  },
   "maps": {
     "version": "0.10.4",
     "hash": "7161f280de7a8f30"

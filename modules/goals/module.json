@@ -1,0 +1,182 @@
+{
+  "id": "goals",
+  "name": "Planner - Goals",
+  "version": "0.1.0",
+  "icon": "bullseye",
+  "color": "green",
+  "description": "Plan goals together: each goal with its steps and how far along it is, dates optional.",
+  "author": "Coffee Pub",
+  "scope": [
+    "environment",
+    "space"
+  ],
+  "surfaces": {
+    "page": {
+      "entry": "page.html"
+    },
+    "canvas": {
+      "entry": "canvas.html",
+      "width": 440,
+      "height": 600,
+      "mode": [
+        "dock",
+        "float"
+      ]
+    }
+  },
+  "permissions": [
+    {
+      "key": "view",
+      "label": "See the goals",
+      "default": {
+        "member": true,
+        "guest": true,
+        "moderator": true
+      }
+    },
+    {
+      "key": "edit",
+      "label": "Add and change goals",
+      "default": {
+        "member": true,
+        "guest": false,
+        "moderator": true
+      }
+    },
+    {
+      "key": "clear",
+      "label": "Clear all goals",
+      "default": {
+        "member": false,
+        "guest": false,
+        "moderator": true
+      }
+    }
+  ],
+  "access": {
+    "read": "view",
+    "write": "edit"
+  },
+  "guards": {
+    "clear": "clear"
+  },
+  "actions": {
+    "provides": [
+      {
+        "name": "addGoal",
+        "label": "Add it as a goal",
+        "description": "Add a new goal to the plan.",
+        "effect": "write",
+        "input": {
+          "title": "string",
+          "why": "text?",
+          "date": "date?"
+        }
+      },
+      {
+        "name": "addStep",
+        "label": "Add a step to the goal",
+        "description": "Add a new step under a goal of the plan.",
+        "effect": "write",
+        "input": {
+          "goal": "ref:goals:plan",
+          "title": "string",
+          "date": "date?"
+        }
+      },
+      {
+        "name": "addNote",
+        "label": "Add it as a note to the plan",
+        "description": "Add a note to the plan, under a goal if one is given.",
+        "effect": "write",
+        "input": {
+          "title": "string",
+          "text": "text?",
+          "goal": "ref:goals:plan?"
+        }
+      }
+    ]
+  },
+  "refs": {
+    "produces": [
+      {
+        "kind": "plan",
+        "name": "{name}",
+        "open": true,
+        "backlinks": true,
+        "key": "plan:{id}",
+        "dated": {
+          "title": "title",
+          "day": "shownDate"
+        },
+        "mirror": "out",
+        "categoryNames": {
+          "goal": "Goal",
+          "step": "Step",
+          "note": "Note"
+        },
+        "summary": {
+          "title": "title",
+          "subtitle": "why",
+          "when": "shownDate",
+          "done": "done",
+          "phase": "phase",
+          "progress": "progress",
+          "category": "kind",
+          "text": "text"
+        }
+      }
+    ],
+    "consumes": [
+      "*"
+    ]
+  },
+  "labels": {
+    "goal": { "one": "goal", "many": "goals" },
+    "step": { "one": "step", "many": "steps" },
+    "note": { "one": "note", "many": "notes" },
+    "owner": { "one": "owner", "many": "owners" }
+  },
+  "starter": true,
+  "settings": [
+    {
+      "key": "dates",
+      "template": "driven",
+      "label": "Dates",
+      "type": "choice",
+      "scope": "space",
+      "default": "optional",
+      "help": "Whether goals and steps show a date at all. Dates are never required.",
+      "options": [
+        { "value": "optional", "label": "Optional" },
+        { "value": "off", "label": "Off" }
+      ]
+    },
+    {
+      "key": "progressBy",
+      "template": "driven",
+      "label": "A goal's progress",
+      "type": "choice",
+      "scope": "space",
+      "default": "steps",
+      "help": "Steps: a goal is as far along as its steps that are done, and done when they all are. Done: a goal is ticked done or not.",
+      "options": [
+        { "value": "steps", "label": "Its steps" },
+        { "value": "done", "label": "Done or not" }
+      ]
+    },
+    {
+      "key": "defaultView",
+      "template": "default",
+      "label": "Open on",
+      "type": "choice",
+      "scope": "person",
+      "default": "goals",
+      "help": "The view you see first when you open the plan.",
+      "options": [
+        { "value": "goals", "label": "Goals" },
+        { "value": "list", "label": "List" }
+      ]
+    }
+  ]
+}
