@@ -24,6 +24,7 @@ const crypto = require('crypto');
 const words = require('./words');
 const { SPACE_NAME_MAX, SPACE_PROFILES, QUALITY_OPTIONS, LANGUAGES, CURRENCIES, LOBBY, displayNameProblem } = require('./store');
 const { DEFAULT_REACTION_LIST, DEFAULT_ICON_NAMES } = require('./default-lists');
+const { deepFreeze } = require('./deep-freeze');
 const { SYSTEM_IDS } = require('./layouts');
 const { bundledModules, buildModule } = require('./module-build');
 const { cleanValue } = require('./module-settings');
@@ -495,7 +496,8 @@ function loadTemplates({ dir = TEMPLATES_DIR, modulesDir = MODULES_DIR, faDir = 
     try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (err) { problems.push(`templates/${f}: not valid JSON (${err.message}).`); continue; }
     const wrong = problemsOf(raw, { file, manifests, faDir });
     if (wrong.length) { for (const p of wrong) problems.push(`templates/${f}: ${p}`); continue; }
-    found.set(raw.id, cleanTemplate(raw, { manifests }));
+    // Frozen: every environment reads the same bundled template live (useLive), so none may change it.
+    found.set(raw.id, deepFreeze(cleanTemplate(raw, { manifests })));
   }
   if (!problems.length && !found.has(DEFAULT_ID)) problems.push(`templates/${DEFAULT_ID}.json: the Default template is missing, and the server needs it.`);
   if (problems.length) throw new Error(`A template is not valid, so the server will not start:\n  ${problems.join('\n  ')}`);

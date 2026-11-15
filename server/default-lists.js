@@ -1,5 +1,7 @@
 'use strict';
 
+const { deepFreeze } = require('./deep-freeze');
+
 // The FIXED core reaction tray and Font Awesome icon list (GitHub #169: Thomas's curated sets; plan-templates-redesign.md,
 // decision 12). Every environment and every space has all of them and nothing removes one; an owner's own additions
 // (settings.reactions, settings.icons) and a template's (`reactions`, `iconSet`) come after them. server/store.js reads these.
@@ -137,5 +139,10 @@ function iconEntry(spec) {
   return { id: name, classes: `fa-${style} fa-${name}`, label: name.replace(/-/g, ' ') };
 }
 const DEFAULT_ICON_LIST = DEFAULT_ICON_NAMES.map(iconEntry);
+
+// Every environment reads these same lists, so none may change them.
+deepFreeze(DEFAULT_REACTION_LIST);
+deepFreeze(DEFAULT_ICON_NAMES);
+deepFreeze(DEFAULT_ICON_LIST);
 
 module.exports = { DEFAULT_REACTION_LIST, DEFAULT_ICON_NAMES, DEFAULT_ICON_LIST };
