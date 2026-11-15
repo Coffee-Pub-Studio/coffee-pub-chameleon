@@ -1,0 +1,193 @@
+{
+  "id": "schedule",
+  "name": "Planner - Projects",
+  "version": "0.1.0",
+  "icon": "diagram-project",
+  "color": "blue",
+  "description": "Plan a project together: milestones, the work with who does it and when, and what waits on what.",
+  "author": "Coffee Pub",
+  "scope": [
+    "environment",
+    "space"
+  ],
+  "surfaces": {
+    "page": {
+      "entry": "page.html"
+    },
+    "canvas": {
+      "entry": "canvas.html",
+      "width": 560,
+      "height": 600,
+      "mode": [
+        "dock",
+        "float"
+      ]
+    }
+  },
+  "permissions": [
+    {
+      "key": "view",
+      "label": "See the plan",
+      "default": {
+        "member": true,
+        "guest": true,
+        "moderator": true
+      }
+    },
+    {
+      "key": "edit",
+      "label": "Add and change the plan",
+      "default": {
+        "member": true,
+        "guest": false,
+        "moderator": true
+      }
+    },
+    {
+      "key": "clear",
+      "label": "Clear the whole plan",
+      "default": {
+        "member": false,
+        "guest": false,
+        "moderator": true
+      }
+    }
+  ],
+  "access": {
+    "read": "view",
+    "write": "edit"
+  },
+  "guards": {
+    "clear": "clear"
+  },
+  "actions": {
+    "provides": [
+      {
+        "name": "addMilestone",
+        "label": "Add it to the plan as a milestone",
+        "description": "Add a milestone to the plan, on the day given if there is one.",
+        "effect": "write",
+        "input": {
+          "title": "string",
+          "date": "date?",
+          "notes": "text?",
+          "ref": "ref?"
+        }
+      },
+      {
+        "name": "addWork",
+        "label": "Add it to the plan as work",
+        "description": "Add work to the plan, from the start day to the end day given if there are any.",
+        "effect": "write",
+        "input": {
+          "title": "string",
+          "start": "date?",
+          "end": "date?",
+          "notes": "text?",
+          "ref": "ref?"
+        }
+      },
+      {
+        "name": "addNote",
+        "label": "Add it to the plan as a note",
+        "description": "Add a note to the plan.",
+        "effect": "write",
+        "input": {
+          "title": "string",
+          "notes": "text?",
+          "ref": "ref?"
+        }
+      }
+    ],
+    "uses": []
+  },
+  "refs": {
+    "produces": [
+      {
+        "kind": "plan",
+        "name": "{name}",
+        "open": true,
+        "backlinks": true,
+        "key": "plan:{id}",
+        "dated": { "title": "title", "day": "start", "endDay": "end" },
+        "mirror": "out",
+        "summary": {
+          "title": "title",
+          "when": "start",
+          "end": "end",
+          "done": "done",
+          "phase": "phase",
+          "progress": "progress"
+        }
+      }
+    ],
+    "consumes": [
+      "*"
+    ]
+  },
+  "labels": {
+    "plan": { "one": "plan", "many": "plans" },
+    "milestone": { "one": "milestone", "many": "milestones" },
+    "work": { "one": "work", "many": "work" },
+    "note": { "one": "note", "many": "notes" },
+    "owner": { "one": "owner", "many": "owners", "a": "an owner" },
+    "tag": { "one": "tag", "many": "tags" }
+  },
+  "starter": true,
+  "settings": [
+    {
+      "key": "datesRequired",
+      "label": "Dates are needed",
+      "type": "boolean",
+      "scope": "space",
+      "template": "driven",
+      "default": true,
+      "help": "On: every milestone needs a date, and all work a start and an end. Off: dates are optional, and the Timeline shows only what has one."
+    },
+    {
+      "key": "dependencies",
+      "label": "Waits on",
+      "type": "boolean",
+      "scope": "space",
+      "template": "driven",
+      "default": true,
+      "help": "Let a milestone or work wait on others, and draw the lines between them on the Timeline."
+    },
+    {
+      "key": "progressBy",
+      "label": "Progress counts",
+      "type": "choice",
+      "scope": "space",
+      "template": "driven",
+      "default": "milestones",
+      "options": [
+        { "value": "milestones", "label": "Milestones done" },
+        { "value": "work", "label": "Work done" }
+      ],
+      "help": "What the plan's progress counts."
+    },
+    {
+      "key": "defaultView",
+      "label": "Opens on",
+      "type": "choice",
+      "scope": "space",
+      "template": "default",
+      "default": "timeline",
+      "options": [
+        { "value": "timeline", "label": "Timeline" },
+        { "value": "list", "label": "List" }
+      ],
+      "help": "The view a person sees first. Their own choice wins once they pick one, and a phone opens on the List."
+    },
+    {
+      "key": "tags",
+      "label": "Tags",
+      "type": "list",
+      "scope": "space",
+      "template": "default",
+      "maxLength": 30,
+      "default": [],
+      "help": "Tags a milestone, work or note may carry, such as a story thread or a team."
+    }
+  ]
+}

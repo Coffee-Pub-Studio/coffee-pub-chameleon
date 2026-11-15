@@ -27,6 +27,10 @@
     "version": "0.4.36",
     "hash": "57253d11bf9f4dda"
   },
+  "schedule": {
+    "version": "0.1.0",
+    "hash": "fcbf76d5128d2ff6"
+  },
   "stream": {
     "version": "0.1.15",
     "hash": "79a00d61cc45ecfe"
