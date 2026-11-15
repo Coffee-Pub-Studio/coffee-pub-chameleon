@@ -205,6 +205,9 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   const moduleLinks = new ModuleLinks(modules.dir);
   const moduleBus = new ModuleBus(modules.dir);
   const moduleSettings = new ModuleSettings(modules.dir, secretsKey);
+  // The template layer of every module setting (plan-templates-redesign.md, "The module manifest"): what the template a place
+  // reads gives the module, through the one resolver.
+  moduleSettings.lens = (moduleId, place) => store.moduleLens(place, moduleId);
 
   const ai = new Ai(dataDir, process.env, undefined, managed, secretsKey, moduleSettings.secrets); // its key is the AI Assistant module's sealed secret
   ai.moduleOn = () => modules.enabled('assistant') !== null; // AI is not turned on while the AI Assistant module is not installed or is off

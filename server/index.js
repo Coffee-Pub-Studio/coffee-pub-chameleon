@@ -28,6 +28,7 @@ const { FIXED_WORKSPACE_SETTINGS } = require('./fixed-workspaces');
 const { LayoutError, cleanLayout, cleanSystemPatch, tabsOf, SYSTEM_IDS, SYSTEM_ICONS } = require('./layouts');
 const { ModuleLimits } = require('./module-limits');
 const { ModuleSettings, SettingError } = require('./module-settings');
+const { effectiveLabels } = require('./module-labels');
 const { GeocodeCache, askService, keyOf: keyOfPlace, ENOUGH } = require('./geocode');
 const { FlightSchedule, FlightLookupError, findFlights, parseNumber: parseFlightNumber } = require('./flight-lookup');
 const airportList = require('./airports');
@@ -1118,7 +1119,7 @@ async function autoInstallBundled(env) {
         const manifest = env.modules.manifestOf(bundled.id, installed.version);
         const values = {};
         for (const def of manifest.settings || []) {
-          if (def.scope === 'environment' && def.type !== 'secret' && env.store.settings[def.key] !== undefined) values[def.key] = env.store.settings[def.key];
+          if (def.scope === 'environment' && def.type !== 'secret' && def.template !== 'driven' && env.store.settings[def.key] !== undefined) values[def.key] = env.store.settings[def.key];
         }
         if (Object.keys(values).length) env.moduleSettings.set(manifest, 'environment', {}, values, null);
       } catch (err) {
@@ -5802,8 +5803,13 @@ function fixedSettingsFor(found, id) {
     if (!manifest.scope.includes('space') || refusedInLobby(manifest, found.space.id) || !moduleSpaceAccess(entry, found.who, found.space) || !moduleCan(manifest, perms, 'read')) continue;
     if (!settingOffered(def, def.scope === 'space' ? found.space.id : null)) continue;
     const values = moduleSettings.effective(manifest, { spaceId: found.space.id, userKey: found.who.user?.key || null });
-    const canChange = def.scope === 'person' ? Boolean(found.who.user) : def.scope === 'space' ? found.canShare : Boolean(found.who.user) && hasOwnerRights(found.who.user);
-    out.push({ module: moduleId, moduleName: shownModule(manifest).name, key: setting, label: def.label, type: 'boolean', scope: def.scope, value: typeof values[setting] === 'boolean' ? values[setting] : Boolean(def.default), canChange, ...(def.help ? { help: def.help } : {}) });
+    // A setting the space's template drives (and gives) is nobody's to change: `locked` says so.
+    // (A person's setting is never driven, so never locked. An environment one is locked here when this space's template
+    // drives it, since a write would not change what the space reads, or when the environment's own template does.)
+    const lockedAt = (place) => Boolean(moduleSettings.marks(manifest, def.scope, def.scope === 'space' ? { spaceId: found.space.id } : {}, place)[setting]?.locked);
+    const locked = def.scope !== 'person' && (lockedAt(found.space.id) || (def.scope === 'environment' && lockedAt(null)));
+    const canChange = !locked && (def.scope === 'person' ? Boolean(found.who.user) : def.scope === 'space' ? found.canShare : Boolean(found.who.user) && hasOwnerRights(found.who.user));
+    out.push({ module: moduleId, moduleName: shownModule(manifest).name, key: setting, label: def.label, type: 'boolean', scope: def.scope, value: typeof values[setting] === 'boolean' ? values[setting] : Boolean(def.default), canChange, ...(locked ? { locked: true } : {}), ...(def.help ? { help: def.help } : {}) });
   }
   return out;
 }
@@ -10837,14 +10843,27 @@ function settingOffered(def, spaceId) {
   const other = modules.enabled(def.needsModule);
   return Boolean(other) && (!spaceId || modules.isOnIn(other.entry.id, spaceId));
 }
+// Each setting also says how it stands with the template of the place it is kept for (plan-templates-redesign.md, "The
+// module manifest"; the environment's own template for an environment or a person setting, the space's for a space
+// setting): `template` "driven", "default" or null (the module's own), `templateValue` when that template gives one,
+// `locked` true while a driven one is given (nobody may write it), `stored` whether a value of this scope's own is kept
+// (a "default" one with none reads the template's; null resets it), and `templateName`, the template's name, only on the
+// environment's and a space's settings (an owner, the admin and a space's moderators read those), never on a person's.
 const withValues = (manifest, scope, ctx) => {
   const values = moduleSettings.values(manifest, scope, ctx);
+  const marks = moduleSettings.marks(manifest, scope, ctx);
+  const templateName = scope === 'person' ? null : moduleSettings.layerOf(manifest, scope === 'space' ? ctx.spaceId : null).template;
   return manifest.settings.filter((d) => d.scope === scope && settingOffered(d, ctx.spaceId)).map((d) => {
     const shared = settingIsShared(manifest, d);
-    const { shared: _manifestFlag, ...own } = d; // the manifest's "host" string is not an answer: `shared` below is true or absent
+    const { shared: _manifestFlag, template: _mark, ...own } = d; // the manifest's "host" string is not an answer: `shared` below is true or absent
+    const m = marks[d.key] || { template: null, given: false, locked: false, stored: false };
     return {
       ...own,
       value: shared ? sharedValue(manifest, d) : values[d.key],
+      template: m.template,
+      ...(m.given ? { templateValue: m.templateValue, ...(templateName ? { templateName } : {}) } : {}),
+      locked: m.locked,
+      stored: m.stored,
       ...(shared ? { shared: true } : {}),
       // `folder` stays the manifest's folder NAME; the scan's full path goes under `path`.
       ...(d.type === 'file' || d.type === 'files' ? (({ files, folder, ...rest }) => ({ available: files, path: folder, ...rest }))(inspectModuleFiles(manifest, d.folder)) : {}),
@@ -10926,7 +10945,9 @@ app.get('/api/modules/:id/context', (req, res) => {
     // How the server shows language, time and money (Manage > Settings), for every module to follow.
     // `currencies`: the codes the server takes (as GET /api/currencies), for a module's currency picker.
     // `words`: every level's and role's words in this environment, as branding()'s (server/words.js), for host.locale().words.
-    locale: { language: store.settings.language || 'en', clock: store.settings.clock === '24' ? '24' : '12', currency: store.settings.currency || 'USD', currencies: currencyCodes(store.settings.currency), words: look.words },
+    // `labels`: the module's renameable words (its manifest's `labels`) as this place reads them, the template's where it
+    // renames one, else the manifest's; plain words only (server/module-labels.js), for host.locale().labels and host.util.label.
+    locale: { language: store.settings.language || 'en', clock: store.settings.clock === '24' ? '24' : '12', currency: store.settings.currency || 'USD', currencies: currencyCodes(store.settings.currency), words: look.words, labels: effectiveLabels(manifest, look.labels[manifest.id]) },
     // The space this read is in, or null outside one; its `phases` are the dates set on it ({} while none; plan-one-bar.md
     // step 1). The top-level `phases` is the template's, live, or [] when there is none. `budget` is the space's budget
     // target, { amount?, currency? } (#216; set in Set up by an owner, the admin or a moderator of the space), or null

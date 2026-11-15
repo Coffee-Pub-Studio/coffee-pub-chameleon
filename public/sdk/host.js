@@ -2378,9 +2378,10 @@
     // Resolves with { user, context, permissions, theme, module }. `context` is { scope: 'environment' | 'space' | 'keyed',
     // spaceId }: the module's own page, a space's canvas (with that space's id), or a keyed page.
     ready: () => readyPromise,
-    // { language, clock: '12' | '24', currency, words }: the environment's settings for how these are shown. See
-    // host.util.time, host.util.hour12, host.util.money and host.util.word, which apply them. `words` is every level's
-    // and role's word here, by code name: { space: { one: 'space', many: 'spaces', a: 'a space' }, ... }.
+    // { language, clock: '12' | '24', currency, words, labels }: the environment's settings for how these are shown. See
+    // host.util.time, host.util.hour12, host.util.money, host.util.word and host.util.label, which apply them. `words` is
+    // every level's and role's word here, by code name: { space: { one: 'space', many: 'spaces', a: 'a space' }, ... };
+    // `labels` the module's own renameable words (its manifest's `labels`), as this place's template reads them, the same shape.
     locale,
 
     // Where the module's page is: `root` is what to look elements up in (document.getElementById becomes
@@ -2433,6 +2434,17 @@
         const w = (set[key] && set[key].one && set[key].many ? set[key] : null) || DEFAULT_WORDS[key];
         if (!w) throw new Error(`host.util.word: there is no word called ${key}`);
         const text = o && o.a ? w.a || `${/^[aeiou]/i.test(w.one) ? 'an' : 'a'} ${w.one}` : o && o.many ? w.many : w.one;
+        return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
+      },
+      // One of the module's own renameable words (its manifest's `labels`), as this place reads it: the template's where
+      // it renames it, else the manifest's. The twin of word: label('event') "meeting", label('event', { many: true, cap:
+      // true }) "Meetings", label('event', { a: true }) "a meeting". A key the manifest does not declare (or before
+      // ready) answers `fallback` when given, else the key itself. Plain text: set it with textContent, never as HTML.
+      label: (key, o) => {
+        const set = locale().labels;
+        const w = set && typeof set === 'object' && Object.prototype.hasOwnProperty.call(set, key) && set[key] && typeof set[key].one === 'string' && typeof set[key].many === 'string' ? set[key] : null;
+        if (!w) return o && typeof o.fallback === 'string' ? o.fallback : String(key);
+        const text = o && o.a ? (typeof w.a === 'string' && w.a ? w.a : `${/^[aeiou]/i.test(w.one) ? 'an' : 'a'} ${w.one}`) : o && o.many ? w.many : w.one;
         return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
       },
       // Fill every element marked data-word="<code name>" in `root` (an element, a fragment or the module's root) with

@@ -1247,6 +1247,25 @@ class Store {
     };
   }
 
+  // What one module's entry in the template a place reads gives it, for the settings layer (server/module-settings.js) and
+  // the labels a module reads: { settings, labels } as the template holds them (unchecked: the reader checks them against
+  // the module's manifest), `template` the template's name and `module` what the place calls the module. `settings` and
+  // `labels` are null when the template gives none (the Default template, whose modules are "*", gives none). The name
+  // is for those who may change the module's settings (an owner, the admin, a space's moderators), never for a module.
+  moduleLens(place, moduleId) {
+    const at = typeof place === 'string' && place ? place : null;
+    const { template: t } = this.lensTemplateOf(at);
+    const entry = t && isPlainObject(t.modules) && typeof moduleId === 'string' && Object.hasOwn(t.modules, moduleId) && isPlainObject(t.modules[moduleId]) ? t.modules[moduleId] : null;
+    const isSpace = Boolean(at) && this.data.spaces.some((r) => r.id === at);
+    const aside = !isSpace && at ? this.data.asides.find((a) => a.id === at) : null;
+    return {
+      settings: entry && isPlainObject(entry.settings) ? entry.settings : null,
+      labels: entry && isPlainObject(entry.labels) ? entry.labels : null,
+      template: t && typeof t.name === 'string' && t.name ? t.name : null,
+      module: this.moduleDisplay(moduleId, isSpace ? at : (aside && aside.origin) || null).name || null,
+    };
+  }
+
   // The phases a space record reads, for a draft not saved yet: its template's (live), else the environment's.
   phasesOfDraft(draft) {
     const t = this.spaceTemplatesOn() && draft.id !== LOBBY && typeof draft.template === 'string' ? this.templateById(draft.template) : null;
