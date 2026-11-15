@@ -11584,7 +11584,7 @@ app.delete('/api/modules/:id/data', (req, res) => {
 // Undo of a Clear: puts back exactly what that clear held (each value with its writer and time, its files kept), in one
 // write and one 'changes' event; it counts as one save against the write limit. The same permission as the clear. A key
 // that holds something now keeps it and is named in `taken` (a bookkeeping key keeps it unnamed); the rest come back.
-// Answers { restored, skipped, taken }, counting objects only. A token that undoes nothing is a 410 that says why.
+// Answers { restored, skipped, taken, gone?, outOfDate? }, counting objects only (gone and outOfDate: copies of other modules' objects, below). A token that undoes nothing is a 410 that says why.
 app.post('/api/modules/:id/data/restore', (req, res) => {
   const ctx = moduleAccess(req, res, 'own');
   if (!ctx) return;
@@ -11623,11 +11623,23 @@ app.post('/api/modules/:id/data/restore', (req, res) => {
     const left = new Set([...result.taken, ...stale.map((item) => item.key)]);
     finishHold({ ...hold, items: hold.items.filter((item) => left.has(item.key)) });
   }
-  // The copies that came back say what their originals say now (an original edited while the clear waited).
+  // The copies that came back say what their originals say now (an original edited while the clear waited). One that can't be
+  // written (the module full, 413) stays as it was held, and the Undo still stands; the original's next edit updates it.
+  const tz = typeof req.query.tz === 'string' && req.query.tz ? req.query.tz : hold.tz;
+  let outOfDate = 0;
   for (const item of hold.items) {
-    if (item.copyOf && result.restored.includes(item.key)) objectSync.resyncCopy({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: item.key, by: ctx.by });
+    if (!item.copyOf || !result.restored.includes(item.key)) continue;
+    try {
+      objectSync.resyncCopy({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: item.key, by: ctx.by, tz });
+    } catch (err) {
+      if (!(err instanceof StoreError)) throw err;
+      outOfDate += 1;
+      console.error(`A copy put back by an Undo could not be brought up to date: ${err.message}`);
+    }
   }
-  res.json({ restored: result.restored.filter((key) => !isBookkeeping(key)).length, skipped: result.taken.length + stale.length, taken: result.taken.slice(0, 50) });
+  // `gone`: copies this person cleared whose originals were deleted or lost their date while the clear waited; they stay cleared.
+  // `outOfDate`: copies that came back as they were held. Each only when there are any.
+  res.json({ restored: result.restored.filter((key) => !isBookkeeping(key)).length, skipped: result.taken.length, taken: result.taken.slice(0, 50), ...(stale.length ? { gone: stale.length } : {}), ...(outOfDate ? { outOfDate } : {}) });
 });
 // Why a restoreToken undoes nothing (moduleHolds.why), as the 410 says it.
 const UNDO_GONE = {

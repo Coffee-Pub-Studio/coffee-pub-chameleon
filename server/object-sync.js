@@ -367,8 +367,11 @@ function mirrorIn(ref, produce, scopeKey, after, zone, by, before = null) {
 }
 
 // A copy put back (a Clear's Undo) says again what its original says now: its title and dates as the original would send
-// them. Nothing for a key that is not an active copy. A server write, as every write here.
-function resyncCopy({ module, scopeKey, key, by }) {
+// them, read in the zone an edit of the original would use (updateTwin: the trip's, else the writer's, here the one who undoes),
+// so a copy's time does not depend on a clear in between. Nothing for a key that is not an active copy, or whose original's
+// module is off (the copy stays as it was held; the original's next edit brings it up to date). A server write, as every write
+// here; it throws what the write throws (413 when the module is full).
+function resyncCopy({ module, scopeKey, key, by, tz }) {
   if (!deps) return;
   const found = deps.produceFor(module, key);
   if (!found || found.produce.mirror !== 'in' || found.produce.dated?.form !== 'instant') return;
@@ -381,8 +384,7 @@ function resyncCopy({ module, scopeKey, key, by }) {
   const original = deps.read(pair.from.module, senderScope, twinKey(sender, pair.from.id));
   const copy = deps.read(module, scopeKey, key);
   if (!original || !copy) return;
-  const kept = found.produce.dated.tz ? acceptZone(copy[found.produce.dated.tz]) : null;
-  const wrote = tripZone(pair.from.module, sender, senderScope) || kept || writerZone(undefined);
+  const wrote = tripZone(pair.from.module, sender, senderScope) || writerZone(tz);
   const patch = fieldsForTwin(readWall(original, sender.dated), wrote, found.produce.dated);
   const next = patch && changed(copy, patch);
   if (next) deps.write(module, scopeKey, key, next, by);

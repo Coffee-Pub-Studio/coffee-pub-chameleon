@@ -423,6 +423,9 @@ try {
     assert.equal(pair().pair, 'active', 'an edit of the original does not detach a held copy');
     const back = await call('POST', `/api/modules/calendar/data/restore?${at}`, { restoreToken: clear.json.restoreToken }, 'mia');
     assert.equal(back.status, 200, back.text);
+    assert.equal(back.json.gone, 1, 'the undated original\'s copy is said to be gone');
+    assert.equal(back.json.skipped, 0, 'not as a key taken by something new');
+    assert.deepEqual(back.json.taken, []);
     assert.equal(pair().pair, 'active', 'the pair is active again');
     assert.equal((await copy()).value.title, 'Edited while held', 'the copy follows the original');
     assert.ok(!(await listed('sam')).includes(`event:${copyId}`), 'sam does not see it as a plain event');
@@ -487,6 +490,52 @@ try {
     for (let i = 0; i < 60 && !(await titles('mia')).includes('Boot walk'); i += 1) await pause(250);
     assert.ok((await titles('mia')).includes('Boot walk'), 'the moderator is told');
     assert.ok(!(await titles('sam')).includes('Boot walk'), 'sam is not');
+  });
+
+  const undoAll = async (token) => call('POST', `/api/modules/calendar/data/restore?${at}&tz=Asia/Tokyo`, { restoreToken: token });
+  const clearAll = async () => {
+    let r;
+    for (let i = 0; i < 40; i += 1) {
+      r = await call('DELETE', `/api/modules/calendar/data?${at}`);
+      if (r.status !== 409) break;
+      await pause(250);
+    }
+    assert.equal(r.status, 200, r.text);
+    return r.json;
+  };
+
+  await test('an Undo brings a copy up to date in the zone an edit would use: the trip\'s, else the one who undoes', async () => {
+    const cleared = await clearAll();
+    await ok('PUT', planUrl, { value: { ...(await plan()), title: 'Zoned', date: '2027-06-15', time: '10:00' }, tz: 'UTC' });
+    const back = await undoAll(cleared.restoreToken);
+    assert.equal(back.status, 200, back.text);
+    assert.equal((await copy()).value.start, '2027-06-15T01:00:00.000Z', '10:00 in Tokyo, the zone of the one who undoes');
+    await ok('PUT', planUrl, { value: { ...(await plan()), time: '11:00' }, tz: 'Asia/Tokyo' });
+    assert.equal((await copy()).value.start, '2027-06-15T02:00:00.000Z', 'as an edit in the same zone gives');
+  });
+
+  await test('an Undo whose copy can\'t be brought up to date (the module full) still stands, and says so', async () => {
+    const dir = path.join(dataDir, 'modules', 'calendar', 'data');
+    const total = () => fs.readdirSync(dir).reduce((sum, f) => sum + fs.statSync(path.join(dir, f)).size, 0);
+    const cleared = await clearAll();
+    const before = (await call('GET', planUrl)).json.item.value.title;
+    // Room for what comes back, and not for a copy 3,000 characters longer.
+    const used = total();
+    await ok('PUT', planUrl, { value: { ...(await plan()), title: 'L'.repeat(3000) }, tz: 'UTC' });
+    const heldSize = JSON.parse(fs.readFileSync(path.join(dataDir, 'modules', 'calendar', 'trash', `space-${S}.json`), 'utf8')).items.reduce((n, i) => n + JSON.stringify(i).length + 20, 0);
+    fs.writeFileSync(path.join(dir, 'filler.bin'), Buffer.alloc(5 * 1024 * 1024 - used - heldSize - 1500));
+    try {
+      const back = await undoAll(cleared.restoreToken);
+      assert.equal(back.status, 200, back.text);
+      assert.equal(back.json.outOfDate, 1, JSON.stringify(back.json));
+      assert.equal((await copy()).value.title, before, 'the copy stays as it was held');
+      assert.equal(pair().pair, 'active');
+      assert.equal((await undoAll(cleared.restoreToken)).status, 410, 'the Undo was done');
+    } finally {
+      fs.rmSync(path.join(dir, 'filler.bin'), { force: true });
+    }
+    await ok('PUT', planUrl, { value: { ...(await plan()), title: 'Room again' }, tz: 'UTC' });
+    assert.equal((await copy()).value.title, 'Room again', 'the original\'s next edit brings it up to date');
   });
 } finally {
   for (const s of streams) s.close();
