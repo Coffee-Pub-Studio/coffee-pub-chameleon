@@ -1,20 +1,21 @@
 # Templates Redesign Plan
 
-**Audience:** Thomas decides the open questions at the end; everything under "Decisions" is already his. If he approves,
-server-development builds the template format, the resolution per space, the module manifest fields, the shared outline
-pieces of the SDK and the checks; experience-design builds the Manage pages, Set up, the host console pages and the two
+**Audience:** Thomas has decided everything under "Decisions"; no question is open. server-development builds the
+template format, the resolution per space, the module manifest fields, the shared outline pieces of the SDK and the
+checks; experience-design builds the Manage pages, Set up, the host console pages and the two
 new planner modules; each existing module's change is its own module-lane build with a version bump. Steps marked
 **core** touch `server/`, `public/sdk/`, `public/module-host.js`, `public/module-frame.js`, `tools/`, the stored data
 format or a manifest's permissions, uploads or refs, and are held for an independent read. quality-assurance reads and
 walks the result; content-manager documents it after.
 
-**Status:** Draft for Thomas, revised 2026-11-15 by product-planner. Nothing is built. The first draft (#831) suggested
+**Status:** Approved for build as a production build (Thomas, 2026-11-15, decision 48); decisions complete, none open.
+Revised 2026-11-15 by product-planner. Nothing is built yet. The first draft (#831) suggested
 modes inside one Planner; Thomas decided the other way the same day: **dedicated planners, one module per genuinely
 different shape** (decision 28). His test, in his words as recorded: are the variations between the possible planners
 bigger than their shared core? He judged yes. He also answered three of the first draft's questions (the `aside` word and
-the `enter` verb, the Default template's modules, and what may follow the release); they are now decisions 32 to 34. The
-remaining questions are renumbered. Timing, in Thomas's words: "BEFORE THE FREEZE". This moves the freeze; see "What this
-does to the release".
+the `enter` verb, the Default template's modules, and what may follow the release); they are decisions 32 to 34. He then
+answered the thirteen questions that were left (decisions 35 to 47) and approved the build (decision 48). Timing, in
+Thomas's words: "BEFORE THE FREEZE". This moves the freeze; see "What this does to the release".
 
 Thomas, 2026-11-15, the outcome he wants: a template changes what a module is, how it behaves and what it is called, so
 a space feels like a trip, a project, a course or a mentoring relationship. His four tests: (1) today's travel behaviour
@@ -252,11 +253,12 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
 
 28. **Dedicated planners, one module per genuinely different shape**, not modes inside one Planner. Thomas's test: are
     the variations between the possible planners bigger than their shared core? He judged yes. Three shapes:
-    - **Itinerary**: the existing Planner module (`travel`), untouched. No change of behaviour is the acceptance test.
+    - **Itinerary**: the existing Planner module (`travel`), catalog name "Planner - Travel" (decision 45). No change of
+      behaviour is the acceptance test.
     - **Schedule outline**: a project plan of milestones, work with owners and dates, and what waits on what.
     - **Goal outline**: a learning or mentoring plan of goals, steps and progress, dates optional.
 
-    Which shape the campaign plan uses is open (question 8).
+    The campaign plan uses the Schedule outline (decision 42).
 29. **Differences inside a shape are template settings**, marked `driven` or `default` in that module's manifest
     (decision 14): its labels, whether dates are required, what counts as progress, its default view.
 30. **The shared parts live in the platform, not in copied code:** phases, refs and the `plan` kind, To-do's `linkTask`,
@@ -268,6 +270,38 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
 33. **The fixed Default template offers the whole catalog** (question 3). An environment that never picks a template
     works as it does today.
 34. **Nothing moves after the release** (question 10). The full scope lands before the freeze.
+
+**The answers to the open questions** (Thomas, 2026-11-15):
+
+35. **An owner's environment-wide change to a setting a template seeds: the owner's value wins everywhere**, as their own
+    words do today. To differ by kind of space, the owner copies the template and changes it there. Reason: one place
+    where a value lives.
+36. **The template seeds which Fixed Workspaces a new space shows**, as a default the owner changes in Set up.
+37. **The three call settings (`joinOnEntry`, `position`, `layout`) are all `default`.** The owner or a moderator may
+    change joining for the space; a person's own position and layout win once picked.
+38. **A phase measured by goals counts from the linked planner entries that name it**: it is done when every entry that
+    names it is done. A phase no entry names uses the **Done** switch as the fallback.
+39. **The host edits templates on the same pages as Manage and the console**, one code. Shipped templates are editable
+    only by the host.
+40. **The Lobby's words go on Experience Labels** with the other words. Travel's Vault is named "Files".
+41. **The server writes starter content, once, when the space is made**, through the data route's own checks, as the
+    person who made it, for modules that opt in.
+42. **The campaign plan uses the Schedule outline, with dates optional.** Sessions are milestones, scenes are work, story
+    threads are tags.
+43. **Names.** Every planner is named "Planner - <Kind>" in the catalog: the existing `travel` module is "Planner -
+    Travel", the Schedule outline is "Planner - Projects" and the Goal outline is "Planner - Goals". The ids stay
+    `schedule` and `goals`; the `travel` id is unchanged. A template may still rename a planner in its own labels (Travel
+    shows "Itinerary", Project "Project plan").
+44. **The Schedule outline holds its own work entries** (spans, owners, what they wait on), with To-do's tasks linked
+    under them.
+45. **The Planner's catalog name becomes "Planner - Travel"** (answers question 11): words only, a patch version bump and
+    no change of behaviour. The Travel template can still show it as it does today.
+46. **The Default template keeps the whole catalog**, and the Modules page groups the planners under "Plans".
+47. **Third-party planners are allowed by convention.** The shared outline pieces and the `plan` kind are public in the
+    SDK guide; a template lists an outside planner as it lists ours. No registry and no core rule for "a planner".
+48. **The build is approved as a production build** (Thomas, 2026-11-15). It starts with steps 1 to 3, in order, and
+    steps 9 and 10 beside step 1.
+49. **The release dates** are the agreed estimate under "What this does to the release".
 
 ## How a module changes with its template (the mechanism)
 
@@ -311,7 +345,7 @@ Against Thomas's four tests:
 | **Risk** | The itinerary shares a package, a version and a data key with four new modes; test 1 rests on a test that the old path is untouched | The itinerary is not opened. A defect in a new planner stays in that planner. The new risk is the SDK pieces, which are core and read |
 | **The freeze** | The four modes wait on the `mode` setting (step 3) and sit on the critical path; a fifth mode after the freeze changes a frozen module | The planners start as soon as the SDK pieces land, beside the core chain; a new shape after the freeze is a new module and touches nothing frozen |
 | **Extensibility by outsiders** | An outsider cannot add a mode to our module | An outsider builds a planner on the same SDK pieces and `plan` kind and is listed by a template like ours |
-| **The module list in admin** | One Planner in Manage > Modules | Three planners in the catalog (Planner, Schedule, Goals; names in question 9). A space sees only its template's one. The Default template shows all three (question 12) |
+| **The module list in admin** | One Planner in Manage > Modules | Three planners in the catalog (Planner - Travel, Planner - Projects, Planner - Goals; decision 43). A space sees only its template's one. The Default template shows all three, grouped under "Plans" (decision 46) |
 
 ## The contract
 
@@ -354,7 +388,7 @@ replaced, the bundled files are rewritten, `formatVersion` stays 1, and there is
 ```
 
 (The Documents key `doc:brief` and its value stand for whatever Documents' own data format is; the builder of the
-Documents step writes the real one. The module id `schedule` is question 9's suggestion.)
+Documents step writes the real one. The module id `schedule` is decision 43's.)
 
 - **`modules`** becomes one object by module id, in display order: `{ name?, icon?, settings?, labels?, starter? }`.
   It replaces `modules` (the list), `moduleNames` and `moduleIcons`. Any other key is refused: "modules.<id>: a
@@ -372,9 +406,9 @@ Documents step writes the real one. The module id `schedule` is question 9's sug
 - **`verbs`**: removed. The `layout` and `enter` verbs are locked (decisions 5 and 32).
 - **`call`**: the three core call settings (decision 16). `joinOnEntry` true or false; `position` one of `top`,
   `bottom`, `left`, `right`, `float`, `workspace`, `window`; `layout` one of the call's tile layouts. Their marks are
-  question 3.
+  decision 37: all three `default`.
 - **`workspace`**: the Default Workspace (decision 8): `opensWith` (module ids, at most 20, each in this template's
-  `modules`), `show` (the Fixed Workspaces a new space shows, question 2), `opensFirst` (a fixed layout id, default
+  `modules`), `show` (the Fixed Workspaces a new space shows, decision 36), `opensFirst` (a fixed layout id, default
   `workspace`).
 - **`phases`** as today (at most 12), plus **`phaseMeasure`**: `dates` (the default), `goals` or `progress`.
 - **`reactions`** and **`iconSet`** are additions only (decision 12): a repeat of the core set is refused.
@@ -442,8 +476,8 @@ Additions to `module.json`, checked at install (`server/modules.js`) and documen
 - **Driven:** while the space's template gives a value, that value applies and the setting is read-only: the forms show
   it with "Set by the <template name> template." A write of it answers 409 "<label> is set by the <template name>
   template." When the template gives none, the setting behaves as own.
-- **Default:** the template's value replaces the manifest's `default`. A stored value at the setting's scope wins
-  (question 1 for the environment scope). The form marks it "From the template" with **Reset**.
+- **Default:** the template's value replaces the manifest's `default`. A stored value at the setting's scope wins,
+  and the owner's value at the environment's scope wins in every space (decision 35). The form marks it "From the template" with **Reset**.
 - `ModuleSettings#effective(manifest, { spaceId, userKey, template })` takes the template layer, so
   `GET /api/modules/:id/settings/values` and `host.settings.get()` answer the resolved values.
   `GET /api/module-settings/:scope` adds, per setting, `template: "driven" | "default" | null`, `templateValue` and
@@ -505,12 +539,12 @@ the AI Assistant treat any planner's entries alike without knowing which planner
 
 ### The planners
 
-**Itinerary: the Planner (`travel`), untouched.** No code, manifest or version change in this plan. The Travel template
-lists it and names it as today. Its `markers` and `suggestFlights` stay own settings. Whether its catalog name changes
-to "Itinerary" is question 11.
+**Itinerary: the Planner (`travel`), no change of behaviour.** No code change; only the catalog name and a patch
+version. The Travel template lists it and names it as today. Its `markers` and `suggestFlights` stay own settings. Its catalog name becomes
+"Planner - Travel" (decision 45): words only, a patch version bump of `travel` and nothing else.
 
-**Schedule outline** (experience-design; module lane, its manifest held for a narrow read). Module id and name:
-question 9 (suggested `schedule`, "Schedule").
+**Schedule outline** (experience-design; module lane, its manifest held for a narrow read). Module id `schedule`, catalog
+name "Planner - Projects" (decision 43).
 
 - **Scope** `["environment", "space"]`; data at space scope. **Surfaces:** `page` and `canvas` (`dock`, `float`). No
   widget in version 1.
@@ -518,8 +552,7 @@ question 9 (suggested `schedule`, "Schedule").
   moderator), `clear` ("Clear the whole plan": moderator). `access: { read: "view", write: "edit" }`, `guards: { clear:
   "clear" }`. No uploads.
 - **Kinds of entry:** `milestone` (a title, a date, done when its work is done or when ticked); `work` (a title, start
-  and end dates, owners, what it waits on, done); `note`. Whether `work` is its own kind or only To-do's tasks under a
-  milestone is question 10.
+  and end dates, owners, what it waits on, done); `note`. `work` is its own kind (decision 44); To-do's tasks link under it.
 - **Views:** **Timeline** (weeks across, work as bars, milestones as marks, "waits on" lines; entries with no date in a
   "Not scheduled" strip below) and **List** (the outline). `host.ui.viewSwitch`.
 - **Refs:** produces `plan` (the convention), `dated` from `start` and `end` with `mirror: "out"` so the Calendar shows
@@ -533,12 +566,12 @@ question 9 (suggested `schedule`, "Schedule").
 | `dependencies` | boolean | driven | true | "Waits on" between entries, and its lines |
 | `progressBy` | choice `work`, `milestones` | driven | `milestones` | What the plan's chip counts |
 | `defaultView` | choice `timeline`, `list` | default | `timeline` | The view a person opens first; their own choice wins |
-| `tags` | list | default | none | Tags an entry may carry (Games' story threads, question 8) |
+| `tags` | list | default | none | Tags an entry may carry (Games' story threads, decision 42) |
 
 - **Labels:** `plan`, `milestone`, `work`, `note`, `owner`, `tag`.
 
-**Goal outline** (experience-design; module lane, its manifest held for a narrow read). Module id and name: question 9
-(suggested `goals`, "Goals").
+**Goal outline** (experience-design; module lane, its manifest held for a narrow read). Module id `goals`, catalog name
+"Planner - Goals" (decision 43).
 
 - **Scope, surfaces, permissions, access, guards:** as the Schedule outline, in its own words ("See the goals", "Add and
   change goals", "Clear all goals"). No uploads.
@@ -546,7 +579,7 @@ question 9 (suggested `schedule`, "Schedule").
   goal: a title, an optional date, done); `note`.
 - **Views:** **Goals** (one card per goal with its progress and its steps) and **List** (the outline).
 - **Refs:** produces `plan`, `dated` only for entries with a date, `mirror: "out"`; its summary carries `phase` and
-  `progress` (question 4); consumes `*`. To-do tasks, Documents, Research and Calendar sessions link to a goal or a step
+  `progress` (decision 38); consumes `*`. To-do tasks, Documents, Research and Calendar sessions link to a goal or a step
   as any object does.
 - **Settings:**
 
@@ -562,11 +595,11 @@ question 9 (suggested `schedule`, "Schedule").
 
 | Template | Its planner (name shown) | Planner settings | Other modules and their settings |
 |---|---|---|---|
-| **Travel** | Planner, `travel` (as today) | none | As today: To-do, Budget (money), Maps, Calendar, Documents, Research, Polls, Vault ("Files", question 6), Whiteboard, AI Assistant |
+| **Travel** | Planner - Travel, `travel` (shown "Itinerary", as today) | none | As today: To-do, Budget (money), Maps, Calendar, Documents, Research, Polls, Vault ("Files", decision 40), Whiteboard, AI Assistant |
 | **Project** | Schedule outline ("Project plan") | `datesRequired` true, `dependencies` true | To-do (owners, `inCalendar` on), Calendar (Meeting, Deadline), Budget ("Effort", unit `effort`, money optional), Documents (a project brief), Maps (a normal map), Research, Polls, Whiteboard, Vault |
 | **Learning** | Goal outline ("Learning plan") | `dates` optional, `progressBy` steps | To-do (exercises tied to a goal), Documents (a learning journal), Research, Calendar (Session), Budget ("Time", unit `hours`), Maps (visits) |
 | **Mentoring** | Goal outline ("Development plan") | `dates` optional, `progressBy` steps; `owner` reads "mentee" | To-do (the mentee owns tasks), Calendar (Check-in), Documents (a meeting log), Research, Budget ("Time", unit `hours`) |
-| **Games** | Question 8; suggested Schedule outline ("Campaign") | `datesRequired` false, `dependencies` false; `milestone` reads "session", `work` "scene", `tag` "story thread" | Maps (real and picture maps), Research, Documents (session notes, a handout), Budget (money), To-do (preparation), Calendar (Session), AI Assistant |
+| **Games** | Schedule outline ("Campaign", decision 42) | `datesRequired` false, `dependencies` false; `milestone` reads "session", `work` "scene", `tag` "story thread" | Maps (real and picture maps), Research, Documents (session notes, a handout), Budget (money), To-do (preparation), Calendar (Session), AI Assistant |
 | **Default** | All three (decision 33) | none | Every module in the catalog |
 
 To-do's owners are a new To-do setting (`owners`, boolean, space, `default`, off), using `host.ui.peoplePicker`.
@@ -591,12 +624,12 @@ To-do's owners are a new To-do setting (`owners`, boolean, space, `default`, off
   `PUT /api/modules/:id/data/:key` (space scope only). The space records `starterDone: true` whether or not every write
   passed. A write that fails is logged and skipped; the space is still made. **Never** on a change of template, a
   restore, or a demo load.
-- **Limits:** at most 20 keys per module and 64 KB of starter content per template. Who writes it is question 7.
+- **Limits:** at most 20 keys per module and 64 KB of starter content per template. The server writes it (decision 41).
 
 ### Phases and their measure (server-development, then experience-design; core)
 
 - `dates`: as today. `progress`: Set up shows a **Done** switch per phase (`space.phases.<id>.done`); the current phase
-  is the first not done. `goals`: question 4.
+  is the first not done. `goals`: decision 38: a phase is done when every planner entry that names it is done, read from the `phase` and `done` in the refs summary; a phase no entry names uses the same **Done** switch.
 - `host.phases()` gains `measure` and each phase's `done`. The phase chip reads "<phase> · 2 of 4" for `progress` and
   `goals`, the date for `dates`.
 
@@ -614,13 +647,13 @@ To-do's owners are a new To-do setting (`owners`, boolean, space, `default`, off
   with** becomes read-only, naming the template. The space's own `opensWith` key is removed.
 - **The pin rule** (decision 9): a Fixed Workspace the owner shows is shown for everyone. A person's own hide of it is
   refused (409 "The owner keeps this one in the bar.") and a stored hide is ignored.
-- A new space's `tabs` start from the template's `workspace.show` and `opensFirst` (question 2).
+- A new space's `tabs` start from the template's `workspace.show` and `opensFirst` (decision 36).
 
 ### What happens to an existing space when its template changes
 
 Shown before the change, in the confirm: "Change this {space} to Project? Its words, {modules} and how they work change
 now. Nothing is deleted.", then the modules that turn off and on, by name. When the planner changes, it adds: "The
-Itinerary keeps its plan; it comes back if you change back. The Project plan starts empty."
+{old planner} keeps its plan; it comes back if you change back. The {new planner} starts empty."
 
 | Part | After the change |
 |---|---|
@@ -646,7 +679,7 @@ When a template **is edited** (the host's or an owner's own), every space using 
   and so on), with a jump list (a strip on a phone):
   - **Environment Basics:** name, description, Home icon, the default profile pictures ("New spaces use").
   - **Experience Labels:** Space and Member; each module's renameable labels; for the environment's default template,
-    the Home plural and the Lobby's name and description (question 6). The locked words are not listed.
+    the Home plural and the Lobby's name and description (decision 40). The locked words are not listed.
   - **Default Workspace:** what the Workspace opens with, and which Fixed Workspaces a new space shows.
   - **Phases:** the list and the measure.
   - **Additional Reactions and Icons:** the core set, read-only, then the template's additions.
@@ -660,7 +693,7 @@ When a template **is edited** (the host's or an owner's own), every space using 
   on and off switches, driven settings read-only and default ones editable; Opens with read-only; the call's three
   settings.
 - **Profile:** the theme choice.
-- **The host console:** the same pages for the host's templates (question 5).
+- **The host console:** the same pages for the host's templates (decision 39). Shipped templates are editable only by the host; an owner copies one to change it.
 - Words people read are plain and short; every colour comes from the theme tokens; menus use `host.menu.show`.
 
 ### SDK (both; core)
@@ -676,9 +709,9 @@ When a template **is edited** (the host's or an owner's own), every space using 
 
 | Module | Change |
 |---|---|
-| Planner (`travel`) | None (test 1) |
-| Schedule outline (new) | The whole module, version 0.1.0 |
-| Goal outline (new) | The whole module, version 0.1.0 |
+| Planner (`travel`) | Catalog name "Planner - Travel" and a patch bump; nothing else (test 1) |
+| Schedule outline (new) | The whole module, version 0.1.0, named "Planner - Projects" |
+| Goal outline (new) | The whole module, version 0.1.0, named "Planner - Goals" |
 | Budget | `unit` (driven) and `split` (default, money only); categories marked default; each entry keeps its unit; labels |
 | Documents | `defaultEditor` (default; Markdown in every shipped template at release, #687); `starter: true`; labels |
 | To-do | `inCalendar` marked default; `owners` (new, default) with `host.ui.peoplePicker`; labels |
@@ -694,7 +727,7 @@ environment's default template.
 ### The shipped templates (server-development; files in `templates/`)
 
 - **Default** (new); **Travel** rewritten in the new shape with no change of behaviour; **Games** rewritten (its
-  environment, owner and aside words removed; its planner per question 8; Maps with picture maps; starter session notes
+  environment, owner and aside words removed; its planner the Schedule outline (decision 42); Maps with picture maps; starter session notes
   and a handout); **Project**, **Learning** and **Mentoring** new, per "What each template turns on".
   `tools/template-versions.json` records each.
 
@@ -741,8 +774,8 @@ environment's default template.
   call settings; the manifest marks and their install refusals; driven writes refused; starter content written once and
   never again; the phase measure; the pin rule; a module off by template answering as off on its data route; the
   shared outline pieces (order keys, rollup, outline moves by keyboard); each planner's kinds, settings and refs.
-- **Test 1, by a tool:** the Planner's files are byte-for-byte unchanged (`git diff` of `modules/travel/` empty) and its
-  existing tests and the travel demo pass.
+- **Test 1, by a tool:** the only change in `modules/travel/` is the catalog name and the patch version (`git diff`
+  shows nothing else), and its existing tests and the travel demo pass.
 - **`check-admin-load` for every Manage page:** every new template page, for a shipped and an owner's template, the
   Profile theme choice and the console's template pages, at 1280 and 390, failing on any page error, `console.error` or
   API answer of 400 or more. It runs on every change that touches `public/`.
@@ -779,8 +812,7 @@ environment's default template.
 ## Risks, ranked
 
 1. **The freeze slips further than sized.** This touches every part of templates, every module, and adds two modules.
-   Mitigation: the core chain goes first; the planners start beside it on the SDK pieces; answers to the blocking
-   questions in the first days.
+   Mitigation: the core chain goes first; the planners start beside it on the SDK pieces.
 2. **The shared outline pieces are frozen with the release.** An SDK call is part of the frozen contract. Mitigation:
    two planners use them before the freeze, which settles their shape; an independent read.
 3. **A module off in a space still answering there** (data, actions, widgets, the AI's context). Mitigation:
@@ -802,9 +834,9 @@ environment's default template.
 11. **A blank Manage page or a planner that does not load** (#828). Mitigation: `check-admin-load` and
     `check-module-load`.
 12. **Three planners in a Default environment** read as clutter (decision 33). Mitigation: the Modules page groups them
-    under "Plans"; question 12.
+    under "Plans" (decision 46).
 
-The first draft's top risk, the Planner changing under travel, is gone: `travel` is not touched.
+The first draft's top risk, the Planner changing under travel, is gone: `travel`'s code is not touched, only its name.
 
 ## Rollback and off switch
 
@@ -825,7 +857,7 @@ The first draft's top risk, the Planner changing under travel, is gone: `travel`
 - A schema language for plans (candidate A), and modes inside one module (candidate C).
 - Moving or converting a plan from one planner to another.
 - Widgets for the new planners, and the Planner adopting the shared outline pieces.
-- A fourth planner for campaigns, unless question 8 decides it.
+- A fourth planner for campaigns; the Schedule outline serves (decision 42).
 
 ## What this does to the release
 
@@ -835,7 +867,7 @@ The first draft's top risk, the Planner changing under travel, is gone: `travel`
 - **Size.** About **49 builder-days**, against about 45 in the first draft: core steps about 17, the shared outline
   pieces and the module load check about 3.5, the pages about 5, the existing modules about 8, the two planners about 9,
   the templates 2, QA about 3 and documents about 2. The planners cost a little more than modes did (a second module
-  shell, a people picker, pieces built for any module), and the Planner costs nothing.
+  shell, a people picker, pieces built for any module), and the Planner costs only a name and a patch bump.
 - **Calendar time at the fast pace** (several builders in parallel, affected checks only, the whole suite only at
   release prep, independent reads only for core and security): the critical path is the core chain, steps 1 to 3 in
   order with their reads (about 13 working days), then the Manage pages (about 5) and the shipped templates, then QA
@@ -844,10 +876,20 @@ The first draft's top risk, the Planner changing under travel, is gone: `travel`
   were (they waited for step 3).
 - **The earliest freeze:** about **2026-12-11 to 2026-12-18**, against the first draft's 2026-12-14 to 2026-12-21. In
   plain words: a little more work in total, a few days earlier at best and the same at worst, because the planners left
-  the critical path. It assumes the blocking questions are answered in the first two or three days.
-- **The board.** Every "1 Before the freeze" row of `.github/roadmap-board.csv` still ends 2026-11-25. Once Thomas
-  confirms this estimate, its end moves to the freeze date he accepts, and "3 Before the first customer" and "4 Real-call
-  tests" move by the same amount (about three weeks). Until then its dates stand (decision 18).
+  the critical path. The blocking questions are now answered (decisions 35 to 47).
+- **The board, the agreed estimate** (Thomas, 2026-11-15, decisions 18 and 49). The "Before the freeze" phase, which
+  ends 2026-11-25 on `.github/roadmap-board.csv`, moves to end about **2026-12-18**, the late end of the earliest freeze
+  above (2026-12-11 to 2026-12-18). The rest of the board follows:
+
+  | Phase | Dates |
+  |---|---|
+  | Before the freeze | ends about 2026-12-18 |
+  | Real-call tests | 2026-12-21 to 2026-12-30 |
+  | Before the first customer | 2026-12-21 to 2027-01-22 |
+  | After release | 2027-01-25 to 2027-03-05 |
+  | Later / ideas | 2027-01-25 to 2027-04-23 |
+
+  These are estimates, not promises. The board file itself is not changed by this plan.
 - **The "verified" bar** (plan-release decision 16) gains joining on entry and the call settings a template sets, in the
   real two-person call on each device. A Travel space is walked against the previous build before the freeze.
 - **The per-module done lists** (plan-release step 4) gain two, for the Schedule outline and the Goal outline, and each
@@ -904,84 +946,10 @@ read of the manifest alone.
 
 Steps 1 to 3 go in order. Steps 9 and 10 can start at once, beside step 1. Steps 4 to 8 run beside each other after 3;
 11 and 12 after 3. Steps 13 and 14 start when 9 lands and add their `template` marks after 3. Step 15 after 12 to 14
-have their settings; 16 and 17 last. Steps that wait on a question marked "blocks" are named there.
+have their settings; 16 and 17 last. No question is open, so no step waits on an answer.
 
-## Open questions for Thomas
+**Approved order** (decision 48): steps 1 to 3 first, in order, with steps 9 and 10 beside step 1.
 
-My suggestion is first in each. "Blocks" names the step that waits for the answer. Questions 1 to 7 are the first
-draft's 4 to 9 and 11; 8 to 13 are new.
+## Open questions
 
-**1. An owner's change to a setting a template seeds, at the environment's scope. Blocks step 3.**
-- **Suggested: the owner's own value wins in every space, as their own words do today.** To differ by kind of space,
-  the owner copies the template and changes it there.
-- The owner's change is kept per template ("for every Project space"): more precise, but a second place where values
-  live.
-
-**2. Does the template seed which Fixed Workspaces a new space shows? Does not block.**
-- **Suggested: yes, as a default the owner changes in Set up.**
-- No: every new space shows them all, as today.
-
-**3. The marks of the three call settings. Does not block step 4's server half.**
-- **Suggested: all three default.** The owner or a moderator may change joining for the space; a person's own position
-  and layout win once picked.
-- Joining on entry driven: a Games space always joins, and no owner can turn it off without copying the template.
-
-**4. How a phase measured by goals counts them. Blocks the `goals` part of step 6 and the Goal outline's phase field.**
-- **Suggested: a phase is done when every planner entry that names it is done.** A planner names the phase in its refs
-  summary (`phase` beside `done`); the Goal outline's goals do. A phase with none falls back to a **Done** switch.
-- The owner ticks each phase done, as with `progress`: nothing to build in modules, but goals and phases never meet.
-
-**5. Where the host edits templates. Blocks step 11.**
-- **Suggested: the same pages in both places**, one code.
-- Keep the console's one form and build Manage's pages beside it: two editors to keep in step.
-
-**6. Two points of wording. Does not block.**
-- The Lobby's words: **Suggested: on Experience Labels**, with the other words (not Environment Basics).
-- Travel calls the Vault "Documents", which is also a module's name. **Suggested: "Files".**
-
-**7. Who writes starter content. Blocks step 5.**
-- **Suggested: the server, once, when the space is made**, through the data route's own checks, as the person who made
-  it, for modules that opt in.
-- Each module writes its own on its first open: no server writes, but someone who may write must open it, and two
-  people opening it at once must not both write.
-
-**8. Which shape the campaign plan uses. Blocks step 15 for Games, and the `tags` setting of step 13.**
-- **Suggested: the Schedule outline, with dates optional.** Sessions are milestones, in order, dated when known (the
-  Calendar shows them); scenes are work under a session; story threads are tags an entry carries, so a thread runs
-  across sessions. Settings and labels only: `datesRequired` and `dependencies` off, "session", "scene", "story
-  thread". It draws in Maps and Research through links, as any planner does.
-- The Goal outline: threads as goals and scenes as steps. Threads fit, but sessions, the spine of a campaign, have no
-  place, and dates are optional at best.
-- A fourth module, a narrative planner (threads across sessions, scenes with places and characters). Truest to a
-  campaign, but about 4 more builder-days and a fourth module before the freeze. Under decision 28 it can come after
-  the release as a new module, touching nothing frozen, if the Schedule outline proves too thin.
-
-**9. The new planners' ids and names. Blocks the start of steps 13 and 14.**
-- **Suggested: `schedule`, shown "Schedule", and `goals`, shown "Goals".** Short, and each says its shape; templates
-  show them as "Project plan", "Learning plan", "Development plan" or "Campaign". The SDK already has `host.schedule`
-  (timed jobs), a different thing; the module's id does not meet it in code.
-- `timeline` and `goals`: avoids the overlap with `host.schedule`, but "Timeline" is also one of the module's views.
-- `project-plan` and `learning-plan`: plain, but they name a template, not a shape, and read oddly in Games or Mentoring.
-
-**10. Does the Schedule outline hold its own work, or only milestones with To-do's tasks under them? Blocks step 13.**
-- **Suggested: its own work entries**, with start and end dates, owners and what they wait on, and To-do's tasks linked
-  under them. A project plan needs spans and order between them, which a To-do task (one due date, no waiting on) does
-  not have.
-- Milestones only, with To-do's tasks under each: less to build (about a day) and one place for tasks, but no spans on
-  the Timeline and no "waits on" unless To-do gains them.
-
-**11. Does the Planner's catalog name change to "Itinerary"? Does not block.**
-- **Suggested: yes**, words only, a patch version bump and no behaviour change: in Manage > Modules the three read
-  Itinerary, Schedule and Goals, each naming its shape. The Travel template still shows it as today.
-- Keep "Planner": no change at all to `travel`, but "Planner" beside two other planners says less.
-
-**12. The Default template and three planners. Does not block.**
-- **Suggested: keep the whole catalog, as decided (decision 33).** An environment on Default works as today plus two
-  modules it can disable in Manage > Modules; the Modules page groups the planners.
-- The Default template offers every module but the two new planners: it stays exactly as today, at the cost of one
-  exception to "the whole catalog".
-
-**13. Third-party planners. Does not block; shapes the documentation.**
-- **Suggested: yes, by convention only.** The shared outline pieces and the `plan` kind are public in the SDK guide; a
-  template lists an outside planner as it lists ours. No registry and no core rule for "a planner".
-- Not in version 1: the pieces stay undocumented for outsiders until after the release.
+None open. Thomas answered all thirteen on 2026-11-15; they are decisions 35 to 47.
