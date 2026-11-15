@@ -15,6 +15,7 @@ import { mountSees } from '/ai-sees.js';
 import { drawAiUse } from '/ai-use.js';
 
 const $ = (id) => document.getElementById(id);
+let aiFormLoaded = false; // read by the first tab switch, so it is declared before any code runs (a let read earlier throws and stops the page)
 const userCards = new Map(); // key -> the user's card element
 let me = null;
 let streamKey = '';
@@ -1722,7 +1723,6 @@ setInterval(() => { if (!document.hidden && !$('tab-modules').hidden) loadActivi
 // (#modules/assistant), under its card. It is the module's: its switch is the module's switch, and the key is write-only.
 // Its setup, loaded the first time its tab opens; a save draws the list again.
 const aiForm = mountAiForm({ get: '/api/ai', put: '/api/ai', models: '/api/ai/models', source: true, cap: true, usage: true, onSave: () => loadModules() });
-let aiFormLoaded = false;
 function leaveAiTab() { if (aiFormLoaded) { aiForm.leave(); aiFormLoaded = false; } }
 // What AI may see, and this month's use, on the same tab (the owner's; ai-sees.js, ai-use.js).
 const aiSees = mountSees($('ai-sees-box'), { word, idPrefix: 'ai-sees' });
