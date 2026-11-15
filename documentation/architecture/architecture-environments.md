@@ -695,7 +695,7 @@ one. The old `/api/host/tenants...` paths are gone and answer 404; there is no a
 
 | Route | Answer |
 |---|---|
-| `GET /api/host/environments` | `{ environments: [{ ...the registry record, usage: { members, storageBytes, aiCallsThisMonth, spaces }, refused, template }] }`, `template` being `{ id, name, source, version, appliedVersion, appliedAt, offerOpen, skipped: [{ id, name, why }] }` or null, read from the environment itself (see "Templates"); every field is present even for an environment that isn't open |
+| `GET /api/host/environments` | `{ environments: [{ ...the registry record, usage: { members, storageBytes, aiCallsThisMonth, spaces }, refused, template }] }`, `template` being `{ id, name, source, version, appliedVersion, appliedAt, offerOpen, skipped: [{ id, name, why }] }` (the Default template's view for an environment that has none recorded), read from the environment itself (see "Templates"); every field is present even for an environment that isn't open |
 | `GET /api/host/settings` | `{ baseDomain, productDomain, version, hostAdmins, productName, contactEmail, productSiteUrl, plans, signup, billingSecretSet, modules }`; `modules` is `[{ id, name, icon }]`, the conference and the chat first, then the bundled modules by id, for the template editor; `productDomain` is the product host (`PRODUCT_DOMAIN`, else the base), and the console is always `admin.<baseDomain>`, so there is no console field |
 | `PUT /api/host/plans` `{ free: { name, caps }, ...named plans }` | `{ plans }`, the saved catalog. 400 `Give the plan a name.` when a plan's name is empty or only spaces (nothing is saved). Loading is lenient: a stored plan with no name loads under its id, and the next save asks for a name |
 | `GET /api/host/templates` | `{ templates: [{ id, name, description, source, version, hidden, edited, update, usedBy: [slugs] }] }`, every template the host can see (see "Templates"); `edited` is true for a bundled template with the host's edits, and `update` is `{ shippedVersion }` while its "updated in this image" notice is open, else null |
@@ -711,9 +711,9 @@ one. The old `/api/host/tenants...` paths are gone and answer 404; there is no a
 | `POST /api/host/themes/check`, a theme file's text (or its JSON) as the body, at most 16 KB | For the template editor's theme picker: reads the file exactly as `POST /api/themes/import` does and stores nothing. 200 `{ theme: { name, author?, light, dark }, dropped }`, `dropped` listing the keys left out; 400 `{ error }` with the theme file's sentence (`That isn't a <product> theme file.`, also for a body over 16 KB or one the parser can't read; `This theme was made by a newer version of <product>.`; `That theme file is in an older format. Export the theme again and import the new file.`; or the no complete set sentence); 403 from another origin with a cookie (`sameOriginOnly`) |
 | `POST /api/host/environments/:slug/owners/:login/first-password` | 200 `{ url }`, a new first-password link (24 hours, single use); see "The first password". The list's `awaitingFirstPassword` is the owners it is for |
 | `POST /api/host/environments` `{ slug, name, plan?, template?, owner?: { login, displayName, password } }` | 201 `{ environment }`; 409 `"<slug>" is already in use`; a bad slug answers `cleanSlug`'s own error; 400 `There is no template called <id>.` or `A template is named by its id, such as travel.` |
-| `PATCH /api/host/environments/:slug` `{ name?, plan?, status?, template? }` | `{ environment }`; 404 `no such environment`; 400 for a status not in the list. With `template` (an id, or `"none"`) it switches the environment's template, building the environment if it isn't built yet, and `environment` also carries `template` and `offer` (see "Templates"); 400 `There is no template called <id>.` or `A template is named by its id, or "none" for no template.` |
+| `PATCH /api/host/environments/:slug` `{ name?, plan?, status?, template? }` | `{ environment }`; 404 `no such environment`; 400 for a status not in the list. With `template` (an id; there is no "none") it switches the environment's template, building the environment if it isn't built yet, and `environment` also carries `template` and `offer` (see "Templates"); 400 `There is no template called <id>.`, `A template is named by its id.` or `Every environment has a template; pick Default for the plain one.` |
 | `GET /api/host/environments/:slug/template` | `{ template, offer, choices }`, as the owner's `GET /api/environment/template`; read-only; 404 `no such environment` |
-| `POST /api/host/environments/:slug/template/apply` `{ modules?, lobby?, spaceDefaults?, reactions?, theme?, iconSet? }` | `{ environment }` with `template` and `offer`; the same body and refusals as the owner's apply; 404 `no such environment` |
+| `POST /api/host/environments/:slug/template/apply` `{ modules?, lobby?, spaceDefaults? }` | `{ environment }` with `template` and `offer`; the same body and refusals as the owner's apply; 404 `no such environment` |
 | `DELETE /api/host/environments/:slug` | `{ ok: true }`, the data moved to `DATA_DIR/environments-deleted/<slug>-<ms>/`, never removed; 404 `no such environment` |
 | `POST /api/host/environments/:slug/backup` | the environment's folder as a zip (`Content-Disposition` `<slug>-backup.zip`), every regular file byte for byte, private chat and person data included; a symbolic link is not followed and is logged by path; 404 `no such environment` |
 | `POST /api/host/environments/:slug/restore` | see "Refused environments", Restore |
@@ -766,7 +766,7 @@ The host's backup is not filtered.
 
 - **Left out of `app.json`:** `secrets` (the session key and the stream key), `invites`; on each person `passwordHash`,
   `linkToken`, `mfa`, `externalCalendars`, `calendarFeed`, `firstPassword`; on each space `guestToken`; `settings.publishedCalendarFeed`.
-  `ai.json` is kept with its `key` emptied.
+  The AI Assistant's setting (`modules/assistant/ai.json`) is kept without any `key`; the key is the module's sealed secret in `modules/secrets.json`, which is never copied.
 - **Left out of the files:** `secrets.key`, the pre-names copies, `chat-private.json`, `ai-threads.moved.json`, each person's
   module data, hold and uploads (`modules/<id>/data|trash/person-<key>.json`, `modules/<id>/uploads/person-<key>/`), a library
   module's `*.shares.json`, and half-written files (`*.tmp`, `*.part`, names starting with a dot).
@@ -792,228 +792,176 @@ than 43 base64url characters, or a stream key shorter than 24. The result for pe
 
 ## Templates
 
-A template sets an environment up for one use when it is made (plan-environment-templates; the owner's view is
-[userguide-templates](../userguides/userguide-templates.md)). It is data, not code: `templates/<id>.json` at the
-repository's root (the Dockerfile copies `templates/`), the host's own and a single install's imported ones, all
-read and checked by `server/templates.js`. Nothing in the code knows which template names which module.
+A template is a lens over the environment's catalog ([plan-templates-redesign](../plans/plan-templates-redesign.md), built in steps 1 to 15b; the owner's view is [userguide-templates](../userguides/userguide-templates.md)). It is data, not code: `templates/<id>.json` at the repository's root (the Dockerfile copies `templates/`), the host's own and an owner's own, all read and checked by `server/templates.js`. Nothing in the code knows which template names which module.
 
-**Where templates come from** (addendum 2, GitHub #68). `templateCatalog()` in `server/index.js` gathers them, each
-with a `source`:
+**Three tiers.** The **environment** is the catalog: the modules installed, the fixed core reactions and icons, its default template and its own default theme. A **template** is a lens over it: the words people may rename, which modules a space has and what they are called, how each module behaves, the phases, the Default Workspace, the call's defaults, extra reactions and icons, starter spaces and starter content. A **space** has its template (its own, or the environment's) and its own dates and data. Every route and page reads a template through one resolver, `Store#lookOf(spaceId)` (below).
 
-- `bundled`: `templates/<id>.json`, released with the image. On a hosted server the host can edit one in place; the
-  edit is kept in `host.json`, not in the file (see "Editing a bundled template").
-- `host`: `host.json`'s `templates: [{ ...the template, version, hidden, createdAt, updatedAt }]`, made, edited and
-  imported on the host console (`HostRegistry#putTemplate`, `#removeTemplate`). Only on a hosted server.
-- `imported`: a single install's `app.json` `templates: [...]`, from files its owner imports, so a backup carries
-  them (`Store#putImportedTemplate`, `#removeImportedTemplate`). Only without `BASE_DOMAIN`.
+**Where templates come from.** `templateCatalog(env)` in `server/index.js` gathers them, each with a `source`:
 
-Ids are unique across them: a new or imported template with a taken id is refused with 409. A host or imported
-template that has a bundled template's id keeps it, and that bundled one isn't offered on that server (logged once),
-so an environment's template never changes under it. A stored template that fails its check is left out with a log
-line.
+- `bundled`: `templates/<id>.json`, released with the image. On a hosted server the host can edit one in place; the edit is kept in `host.json`, not in the file (see "Editing a bundled template"). The **Default** template is bundled and nobody edits, hides or deletes it, the host included.
+- `host`: `host.json`'s `templates: [{ ...the template, version, hidden, createdAt, updatedAt }]`, made, edited and imported on the host console (`HostRegistry#putTemplate`, `#removeTemplate`). Only on a hosted server.
+- `own`: an owner's own, in the environment's `app.json` `templates: [{ ...the template, version, createdAt, updatedAt, copiedFrom: { id, version } }]` (`Store#putOwnTemplate`, `#removeOwnTemplate`), on a hosted server and a single install alike. An owner copies any template the environment may use, edits and deletes their own, imports a file as one and exports any. At most 20 (`MAX_OWN_TEMPLATES`). A backup carries them, and the owner's copy of an environment does too.
 
-**The file.** `{ id, name, description, version?, words, verbs?, icons: { home }, moduleNames, moduleIcons, modules, settings,
-lobby: { name, description }, phases?, spaceDefaults: { profile?, opensWith? }, reactions?, theme?, iconSet? }`, the same shape and checks
-for every source. `words` covers only the eleven changeable keys, `home` among them (never `host` or
-`admin`), in the form Manage takes. `verbs` (addendum 4) is `{ enter?: "<text>", layout?: "<text>" }`: the word on the button for
-entering a space, tidied, 1 to 20 characters of letters, spaces, hyphens and apostrophes; a verb that isn't text,
-null included, is refused with "verbs: The <verb> verb must be text." (leaving the key out is how a file asks for the
-default), and an unknown key with "verbs: there is no verb called "<key>"; the verbs are enter, layout.". Travel sets none. `icons.home` and `moduleIcons` must be plain solid Font Awesome Free icons.
-`modules` lists module ids, bundled or built in, and must include `chat`. `settings` takes only `language`,
-`clock`, `currency`, `loginText`, `allowRegistration`, `mfaRequired`, `maxQuality`, `allowScreenShare`,
-`allowAsides`, `allowPrivate`, `allowReactions`, `showCalendar`, `showMap` (booleans: the top bar's destinations; Travel sets both, from version 4), `calendarFeeds`, `otherCalendars` and `publishedCalendar` (booleans: Calendar sharing's switches, [plan-space-calendars](../plans/plan-space-calendars.md); Travel sets the first two, from version 5), `activeThemeId` and `themeMode`. `spaceDefaults.profile` is
-`roleplaying`, `participants` or `characters`. `spaceDefaults.opensWith` is up to 20 module ids, bundled or built in,
-none twice, in the order a new space opens them (plan-planner-phases; nothing opens from it until that plan's step 6).
-`phases` is up to 12 `{ id, label, main?, icon? }`: `id` as a module id and unique, `label` 1 to 40 characters, `main: true`
-on at most one, `icon` a Font Awesome Free solid icon that can be drawn (refused as `phases[<i>]: icon "<name>" is not a Font Awesome Free solid icon.`); any other key is refused (`phases[<i>]: "<key>" is not a phase field; a phase takes id, label, main and icon.`). A phase's icon is optional; it shows beside the phase's name in the status strip's journey bar where it fits, and in `host.phases()`. A phase has no colour in the template: the one it wears everywhere comes from its place in the list ([architecture-canvas](architecture-canvas.md), "Phases"). The fields added by addendum 2:
+Ids are unique across every source an environment sees: a new, copied or imported template with a taken id is refused with 409 (the host's own new, duplicated and imported templates are also checked against every environment's own, and the sentence names the environment). A host template that has a bundled template's id keeps it, and the bundled one isn't offered on that server (logged once). An owner's template whose id another source has is left out (logged once). A stored template that fails its check is left out with a log line.
 
-- `version`: a whole number, 1 or more (a bundled file without one is 1). A host template's counts up on every
-  edit; an imported one keeps the file's.
-- `reactions`: `[{ id?, glyph, label? }]`, at most 120 (`MAX_REACTIONS`), a glyph of 1 to 8 characters and a label of at most 40, then
-  cleaned by `cleanReactions`.
-- `theme`: an embedded theme in the theme file's shape, `{ name, author?, light, dark }` without the theme file's `format` and `formatVersion`,
-  checked as a theme import is (`server/theme-file.js`).
-- `iconSet`: at most 120 (`MAX_ICON_SET`) Font Awesome Free solid names, none twice, for the environment's icon list. It is separate
-  from `icons`, which stays `{ home }`.
+### The file
 
-**The defaults** (GitHub #169). An environment starts with Thomas's curated lists, `server/default-lists.js`: 105
-reactions, whose first six are the **1** to **6** keys (Heart, Black Heart, 100%, Hi, Thumbs up, Thumbs down), and 113
-icons (111 solid, and the brands `bluesky` and `xbox`). An existing environment still on exactly the old six reactions,
-or exactly the old 21 starter icons, moves to the curated list once, on its next start; the two are judged
-separately, and lists an owner or a template changed are kept. The settings flags `reactionsCuratedSeeded` and
-`iconsCuratedSeeded` record that the run happened, so an owner who later picks the old list by hand keeps it.
-`tools/check-defaults.mjs` holds this.
-
-Every bundled file is checked when the server starts, and an invalid one stops the start with a line naming each
-problem; a host template and an import are checked before they are saved. `tools/check-templates.mjs` (in `npm run
-check`) checks the same.
-
-**A bundled template's version is raised by hand** when its applied-once part (modules, settings, Lobby, space
-defaults, reactions, icon set or theme) changes; a change to its words, verbs or icons alone needs none, since
-those are live. `tools/template-versions.json` keeps each bundled template's version beside a fingerprint of that part
-(`templates.appliedOnceFingerprint()`), and `check-templates` fails when the part changed but the version didn't, or
-when either is new and not recorded. After raising `version`, record it with
-`node tools/check-templates.mjs --update`.
-
-**Picked at creation.** When an environment is made: `POST /api/host/environments` `{ template }`, the product
-page's `POST /api/product/signup` `{ template }` (`GET /api/product` lists `templates`), or `TEMPLATE=<id>` on a
-single install's new data folder. `TEMPLATE` on existing data, or on a hosted server, is ignored with a log line;
-an unknown id stops the start with a line listing the templates there are. It can be switched later (below).
-
-**Applied once, then the owner's.** Its settings, its modules (turned on, and on in every space), the Lobby's name
-and description, `spaceDefaults`, its reactions (they become the environment's list), its icon set (added to the
-icon list, never removing one) and its theme are applied when the environment is made. The theme is added as a new
-theme ("Name (2)" on a clash, never overwriting) and made active; a theme with the very same colors already there is
-made active instead of added again. It is all recorded in `app.json`'s `template`: `{ id, appliedAt,
-appliedVersion, applied, switchedAt?, skipped: [{ id, why }] }`. `applied` holds a fingerprint of each applied-once
-part (`modules`, `reactions`, `theme`, `iconSet`, `lobby`, `spaceDefaults`; `templates.partFingerprints()`) as it
-was when last applied or passed over. A record from before versions reads as `appliedVersion` 1. A module is skipped when the plan doesn't include it, when it needs a skipped one,
-or (Research) until the AI service is on; the environment's page on the console and Manage's **Template** tab list them. Its modules go
-on in every space they may be in, which leaves the Lobby out for a module not made for it (plan-modules, "the Lobby
-is for being together"). A backup carries the record, and a restore brings it back. The view the pages get
-(`templateView()` in `server/index.js`) is `{ id, name, source, version, appliedVersion, appliedAt, offerOpen,
-skipped: [{ id, name, why }] }`; `source` is `bundled`, `host` or `imported`, or null when this server doesn't have
-the template.
-
-**Followed live.** Its words, verbs, phases, home icon and module display names and icons are read from the template on
-every build, and a host template's edit reaches every built environment using it at once (`refreshTemplateLive()`), as the layer between the default and the owner's own: an owner's change wins, and a reset goes
-back to the template's. `GET` and `PATCH /api/settings` give the owner `template`, `ownHomeIcon`, `templateWords`,
-`templateHomeIcon`, `ownVerbs`, `templateVerbs` and `spaceDefaults` (the verbs are described below); `PATCH` takes `homeIcon: null` (back to the template's) and
-`spaceDefaults: { profile?, opensWith? } | null` (400 `spaceDefaults takes only profile and opensWith.`, `profile must be roleplaying,
-participants or characters`, or a sentence naming a bad `opensWith` entry). A key left out is kept; `opensWith: null`
-or `[]` removes it, and with neither left `spaceDefaults` is cleared. The phases reach modules through the module
-context (`store.templatePhases`; [api-modules](../api/api-modules.md), `GET /api/modules/:id/context`). `GET /api/modules` adds `templateDisplayName` and `templateDisplayIcon`.
-**The verbs** (addendum 4, "the word for entering a space"). Beside the ten words, `server/words.js` keeps a small
-set of verbs: the actions a person reads at the start of a button. There are two: `enter`, default "Enter", on a space's main button and the guest form; and `layout`, default "Layout", once on the top bar's Layout button (plan-layout-menu, decision 1); that button is gone, so no control reads it now. A verb is
-one string, with no plural or article, never lower-cased; it is not a level or role, so it stays out of `words` and
-the Names. It resolves as the owner's (`settings.verbs.enter`), else the template's (`store.templateVerbs`, set by
-`useLive()`), else the default (`resolveVerbs()`). `branding()` carries `verbs`, resolved (`{ enter: "Enter", layout: "Layout" }`);
-the owner's settings view adds `ownVerbs` (what the owner set, `{}` for none) and `templateVerbs` (the template's own:
-null with no template, `{}` for a template that sets none). `PATCH /api/settings` `{ verbs: { enter: "<text>" |
-null } }` is owner only; null returns it to the template's or the default, and a refused verb refuses the whole
-patch with one sentence: `Verbs must be given by name, each as text.`, `There is no verb called <key>; the verbs are
-enter, layout.`, `The <verb> verb must be text, or null to use the default.`, `The <verb> verb must be 1 to 20 characters.` or
-`The <verb> verb can use only letters, spaces, hyphens and apostrophes.`. The verbs are not in `host.locale()`: no
-module enters a space. In the pages, `public/words.js` (re-exported by `brand.js`) gives `verb(key)`, `verbs()` and
-`setVerbs()`, fills `data-verb="enter"` elements and `{enter}` in `fill()` and `data-fill`, and keeps an
-environment's own verbs under `app.verbs` in the browser. A space's card, its pop-out button's title ("<verb> in a
-pop-out window") and the guest form's heading and button read the verb; an aside's card reads the fixed **Join**
-with a phone icon, and **Back to <space>** stays fixed text. `check-names --words` has no rule for it (a one-word
-label can't be told from code such as `e.key === 'Enter'`).
-`settings.homeIcon` is stored only when an owner picks one (null otherwise, so the template's shows, else the
-default). Environments made before this stored the default `couch` as if chosen; the first start clears a stored
-`couch` once and sets `homeIconChoiceSeeded`, so an owner who picks it from then on keeps it.
-
-**Switched later** (plan-environment-templates, "Addendum: switching a template", GitHub #59). An owner or the
-host can switch an environment to another template, or to none. `switchTemplate()` in `server/index.js` waits for
-a creation-time template to finish applying, then replaces the record with `{ id, appliedAt: null, switchedAt,
-skipped: [] }` (none removes it), runs `templates.useLive()` against the new template and adds its icons to the
-icon list (`templates.addIcons()`), and follows the registry entry on a hosted server. Words, verbs, the home icon and
-module display names and icons change at once; the owner's own still win. Nothing is turned off and no data is
-touched. A record with `switchedAt` is never applied on its own at the next start, the way a creation-time one
-is. Each switch adds `{ from, to, at, by }` (`by`: the owner's key or `host`) to `app.json`'s `templateHistory`,
-kept to the last 20 and not shown to owners. Switching to the template already in use changes nothing.
-
-**The offer.** A template's once-only part is an offer (`offerOpen: true`) after a switch, until it is applied, and
-when the template's `version` is above the record's `appliedVersion` (`offerIsOpen()`). For an environment that isn't open (the console's list), `offerOpen` is read from the stored record alone: a newer version counts only if a part it applies once changed since it was applied (`templates.appliedPartsChanged()`), so it can over-report a part the environment already has until the environment is opened. An update offers only the
-parts whose fingerprint differs from the record's `applied`, so a part the template didn't change is never offered
-again, whatever the owner did with it since; a record without `applied` (a switch, or one from before) is compared
-with the environment as it is. A newer version with nothing to offer (it changed only live parts) opens no offer.
-`templates.offerFor()`: `{ modules: [{ id, name, allowed, why? }], lobby: { name, description } | null,
-spaceDefaults: { profile?, opensWith? } | null, reactions: [{ id, glyph, label }] | null, theme: { name, author? } | null,
-iconSet: [names] | null }`. `modules` holds each module the template lists (with what it requires) that
-isn't already on in every space it may be in, `allowed: false` with `why: "not in the plan"` when the plan leaves
-it out, and the conference when listed and off. `lobby` is the template's Lobby name and description when they
-differ from the Lobby's, `spaceDefaults` its new-space profile and its `opensWith`, each only when it differs (one
-tick applies both), `reactions` the template's list when
-it differs from the environment's (it replaces them), `theme` the template's theme unless it is already the active
-one, and `iconSet` the names missing from the icon list. `templates.applyOffer()` applies only what is confirmed:
-the ticked modules (installed if needed, enabled, `allSpaces`), and the Lobby, the profile, the reactions, the theme
-and the icon set only when `true`; it never turns anything off. Applying, even with nothing ticked, writes
-`appliedAt`, `appliedVersion`, `applied` (every part, applied or passed over) and `skipped` (every refused module,
-and any confirmed one that couldn't be turned on), so the offer closes. The template's settings are never offered.
-
-**Hidden and deleted.** A host template can be hidden (`PATCH { hidden: true }`): it is left out of the create
-form, sign-up (`GET /api/product`) and every switch's choices, and an environment using it keeps it and still sees
-it among its own choices. Deleting a host template answers 409 while any environment's registry entry names it; a
-bundled one can be hidden (no new version) but not deleted (403). A single install's owner can delete an imported template only when
-the environment doesn't use it.
-
-**Template files** (`server/template-file.js`). `<name>.template.json`, at most 64 KB:
+One shape for every source. The product is not released, so the shape was replaced, not migrated: `formatVersion` stays 1 and a file in the old shape (`verbs`, `moduleNames`, `moduleIcons`, `theme`, a list for `modules`) is refused.
 
 ```json
 {
-  "format": "template", "formatVersion": 1,
-  "id": "harbour", "name": "Harbour", "description": "...", "version": 3,
-  "words": {}, "icons": { "home": "anchor" }, "iconSet": ["anchor", "ship"],
-  "moduleNames": {}, "moduleIcons": {}, "modules": ["chat", "conference"],
-  "settings": {}, "lobby": {}, "spaceDefaults": {},
-  "reactions": [{ "id": "wave", "glyph": "...", "label": "Wave" }],
-  "theme": { "name": "Harbour", "author": "Thomas", "light": { }, "dark": null }
+  "id": "project", "name": "Project", "description": "Run a project together: ...", "version": 2,
+  "words": { "space": { "one": "project", "many": "projects" } },
+  "home": { "one": "Projects", "many": "Projects" },
+  "icons": { "home": "diagram-project" },
+  "lobby": { "name": "Front desk", "description": "Everyone on every project." },
+  "modules": {
+    "schedule": { "name": "Project plan", "settings": { "datesRequired": true, "dependencies": true } },
+    "calendar": { "labels": { "event": { "one": "meeting", "many": "meetings" } } },
+    "documents": { "starter": { "doc:projectbrief": { }, "text:projectbrief:briefch1": { } } },
+    "chat": {}
+  },
+  "call": { "joinOnEntry": false, "position": "top", "layout": "grid" },
+  "workspace": { "opensWith": ["schedule", "todo", "chat"], "show": ["calendar", "documents"], "opensFirst": "workspace" },
+  "phases": [{ "id": "start", "label": "Start" }, { "id": "build", "label": "Build", "main": true }],
+  "phaseMeasure": "dates",
+  "reactions": [{ "id": "ship", "glyph": "...", "label": "Ship it" }],
+  "iconSet": ["rocket"],
+  "spaceDefaults": { "profile": "participants" },
+  "starterSpaces": [{ "name": "Your first project", "description": "A place to try things." }],
+  "settings": { "showCalendar": true, "showMap": false }
 }
 ```
 
-`templateToFile()` writes every field the template has (a part it lacks is left out), the theme in the theme file's
-shape without its `format` and `formatVersion`. The marker is read by `readMarker()` in `server/file-format.js`, the
-one rule for the theme, template and objects files. `readTemplateFile()` refuses, in order: over 64 KB, not JSON,
-not an object, or a marker that isn't `"format": "template"` with a whole-number `formatVersion` ("That isn't a
-<product> template file."); a file from before the formats were named by kind, with no `format` and a top-level key
-named after a past product name followed by `Template` ("That template file is in an older format. Export the
-template again and import the new file."); a newer `formatVersion` ("This template was made by a newer version of
-<product>."); then the template's own check (the first problem is the
-error, `problems` lists every one). Unknown keys, at the top level and inside the theme and its sets, are dropped
-and listed in `dropped` (`plan`, `theme.glow`, `theme.light.shine`). An import keeps the file's `version`. Any
-template can be exported, a bundled one included. To start a host template from another, the console's
-**Duplicate** is the one step.
+`problemsOf()` in `server/templates.js` checks every field; a key it does not know is refused with `"<key>" is not a template field; the fields are ...`, never dropped (a file is the easiest way to hand a server a hostile template). A template is at most 128 KB (`MAX_TEMPLATE_BYTES`) and 16 levels deep, and no key anywhere may be `__proto__`, `constructor` or `prototype`. The fields:
 
-**Editing a bundled template** (addendum 3, GitHub #91, hosted servers only). `host.json` keeps `bundledEdits: [{ id,
-template, version, base: { version, fingerprint, whole }, hidden, updatedAt }]`, one record per bundled id the host
-has touched (`HostRegistry#bundledEdit`, `#putBundledEdit`, `#removeBundledEdit`). `template` is the whole edited
-template, or null after a reset or for a record that only hides. The merge is whole, not field by field: while
-`template` is set it is the template, and the shipped file is not read (`templateCatalog()`), so "keep mine" means
-exactly what the host sees. `version` is what environments see: the first edit is the shipped version plus one,
-and every later edit, reset or take-new adds one; it never goes down. `base` is the shipped file the edit was made
-against: its version, `templates.appliedOnceFingerprint()` and `templates.wholeFingerprint()` (every field but the
-version, so a shipped change to words alone still counts; `verbs` counts only when the template sets one, so a
-template without verbs keeps the fingerprint it had before the field existed). While `base` differs from the shipped file, an edited
-template carries `update: { shippedVersion }`, the console's notice. At start, `reconcileBundledEdits()` moves a
-record with no edit onto the new shipped file with `version` + 1 and no notice, and leaves one with an edit as it
-is. A record for an id this image no longer ships is ignored, with a log line; one that fails its check is logged
-and the shipped template used. Every edit, reset and take-new runs `refreshTemplateLive()`, so environments get
-the live part at once and are offered the rest. `tools/check-templates.mjs` covers it, and
-`tools/check-template-switch.mjs` edits and resets Travel.
+- `id` (lowercase letters, digits and dashes, starting with a letter; it must match the file's name), `name` (1 to 40 characters), `description` (1 to 200), `version` (a whole number, 1 to 1,000,000; a bundled file without one is 1).
+- **`modules`**: `"*"` (every module the catalog has: the Default template) or one object by module id, in display order, each `{ name?, icon?, settings?, labels?, starter? }`. Any other key is refused: `modules.<id>: a template sets only name, icon, settings, labels and starter.` That sentence is how a template never reaches a module's permissions, uploads, refs, actions, hooks, events, destinations, secrets or files. At most 60 entries; `chat` must be listed (it has no switch of its own yet). `name` is a display name (the store's `displayNameProblem`) and `icon` a plain solid Font Awesome Free icon. `settings` holds only keys the module's manifest marks `driven` or `default` (a key marked own or unknown: `modules.<id>.settings: "<key>" is not a setting the <id> module lets a template set.`; of a refused type: `... "<key>" is a <type>, so a template can't set it.`; a person's own marked driven: `... is each person's own, so a template can only suggest it.`), each value checked by the module's own setting rules (`cleanValue`, `server/module-settings.js`). `labels` holds only keys the manifest declares in `labels`, each `{ one, many, a? }` by the word rules (`words.cleanWord`). `starter` (below) only for a module whose manifest says `"starter": true`.
+- **`words`**: only `space` and `member` (`words.SPACE_KEYS`). A locked word is refused: `words: "<key>" reads the same everywhere, so a template can't change it.` `home` is its own field (`{ one, many }`), as is `lobby` (`{ name?, description? }`, 40 and 300 characters); both are read only when the template is the environment's default template. There is no `verbs`: the `enter` and `layout` verbs are locked. `icons` takes only `home`.
+- **`call`**: `{ joinOnEntry?, position?, layout? }`, the three core call settings, each a default the owner, a moderator and each person may change. `position` is one of `top`, `bottom`, `left`, `right`, `float`, `workspace`, `window`; `layout` one of `grid`, `strip`, `focus`, `spotlight` (`server/call-settings.js`).
+- **`workspace`**: the Default Workspace: `opensWith` (at most 20 module ids, each in this template's `modules`, none twice), `show` (the Fixed Workspaces a new space shows: `calendar`, `map`, `conference`, `whiteboard`, `documents`) and `opensFirst` (a layout id, `workspace` by default).
+- **`phases`** (at most 12, `{ id, label, main?, icon? }` as before) and **`phaseMeasure`**: `dates` (the default), `goals` or `progress`.
+- **`reactions`** (at most 40) and **`iconSet`** (at most 60): additions only. A repeat of the core set is refused: `reactions[<i>]: <glyph> is in the core set already; a template only adds.` `theme` is gone; the theme left templates.
+- **`spaceDefaults`**: `profile` only (`roleplaying`, `participants` or `characters`).
+- **`starterSpaces`**: at most 5 `{ name, description? }`, a name of at most 40 characters (what a space's name may be; a longer one is refused, not cut) and a description of at most 300.
+- **`settings`**: the environment-wide allow-list applied once when an environment is made from the template: `language`, `clock`, `currency`, `loginText`, `allowRegistration`, `mfaRequired`, `maxQuality`, `allowScreenShare`, `allowAsides`, `allowPrivate`, `allowReactions`, `showCalendar`, `showMap`, `calendarFeeds`, `otherCalendars` and `publishedCalendar`. No theme keys.
 
-**Who may export and import.** The host admin exports and imports any template on the console (the host routes in
-"The host API: environments"). A single install's owner imports, exports any template it can see, and deletes
-imported ones. On a hosted server an owner may only export the template their environment uses, read-only, so they
-can take it to a single install; import and delete answer 403 `On a hosted server, the host manages templates.`
-Both imports sit behind `sameOriginOnly`.
+**The Default template** (`templates/default.json`, id `default`, version 1): `"modules": "*"` and the call's own defaults (`joinOnEntry` off, `position` `top`, `layout` `grid`), nothing else. An environment always has a template: one with none recorded reads `default`, `TEMPLATE=` unset means `default`, and there is no "none". `PATCH` of it answers 403 `The Default template can't be changed; copy it to make your own.` and `DELETE` 403 `The Default template can't be deleted; every environment falls back to it.` (the environment's own word). A copy of it writes the `"*"` out as the modules enabled now, by id, with the chat and the conference.
+
+**The shipped templates** (`templates/`, recorded in `tools/template-versions.json`): `default` (1), `travel` (13), `games` (6), `project` (2), `learning` (2) and `mentoring` (2). Travel lists the Planner (shown "Itinerary") and no other planner; Project lists the Schedule outline (`schedule`, "Project plan"); Games lists it too ("Campaign", with sessions, scenes and story threads for its labels); Learning and Mentoring list the Goal outline (`goals`, "Learning plan" and "Development plan"). Every template's Vault is named Vault (it renames none; decision 51). The AI Assistant is listed by Travel and Games and left out of the others. Each shipped template's modules, call, workspace, phases and measure are in its file; the table in [userguide-templates](../userguides/userguide-templates.md) says them in words.
+
+Every bundled file is checked when the server starts, and an invalid one (or a missing Default template) stops the start with a line naming each problem; a host template, an owner's and an import are checked before they are saved. `tools/check-templates.mjs` (in `npm run check`) checks the same, against the real manifests.
+
+**A bundled template's version is raised by hand** when what it applies or creates once changes (its modules, settings, Lobby, space defaults, reactions, icon set, workspace, starter spaces and starter content; `templates.appliedOnceFingerprint()`); a change to words, phases or names alone needs none, since those are live. `tools/template-versions.json` keeps each bundled template's version beside a fingerprint of that part, and `check-templates` fails when the part changed but the version didn't, or when either is new and not recorded. After raising `version`, record it with `node tools/check-templates.mjs --update`.
+
+### Resolution per space
+
+`Store#lookOf(spaceId)` (`server/store.js`) answers everything a template gives a place: `{ template, words, verbs, phases, phaseMeasure, modules, names, labels, settings, call, workspace, reactions, icons }`.
+
+- **Which template.** The space's own (`space.template`, while `settings.spaceTemplates` is on and the id exists), else the environment's default template, else `default`. Never two mixed. The Lobby, Home (no space) and an id this server no longer has (said once in the log) read the environment's; an aside reads the template of the space it was pulled out of.
+- **Words.** The owner's own words for `space` and `member`, then the template's, then the defaults. Every locked word and both verbs read the defaults whatever any template holds. `home` is the environment's.
+- **Modules.** `modules` lists the ids the template offers that the catalog has (`"*"`: the catalog's order). Whether one is **on in a space** is `ModuleManager#onInSpace(entry, manifest, spaceId)`, the one check every route asks: enabled in the catalog, offered by the template that space reads (`store.moduleOffered`, set as `modules.offeredIn` when the environment is built), and, in the Lobby, its manifest declares `surfaces.canvas.lobby`. A space cannot turn a module off on its own; for different modules it reads another template. A module off in a space answers there as a module that is off does, and keeps its data. `store.catalogModuleIds` is what a template's `"*"` reads as: every installed module and the built-in ones; `store.lensStamp` (the module registry's revision) and the host's templates are what the memo of templates by id (`templateNamed`) is thrown away on, so an edit is read on the very next ask.
+- **Names, labels, settings.** `names` is `{ <id>: { name, icon } }` (the owner's own, then the template's, else null: the manifest's); `labels` and `settings` are the template's entries as stored, each only for a module the template gives some. They are not trusted: the manifest layer re-checks them (below).
+- **Call.** The defaults, then the template's `call`, then the space's own `call` (`resolveCall`); a key the space does not hold is the template's. An aside reads its origin's.
+- **Reactions and icons.** The fixed core set (`server/default-lists.js`: 105 reactions, 113 icons, read-only), then the owner's own additions (`settings.reactions`, `settings.icons`: Manage > Environment > Reactions and Icons), then the template's `reactions` and `iconSet`. A repeat of anything before it is left out, so no list has one twice and nothing removes or changes a core one. A space has none of its own.
+- **Phases and the measure.** The template's own for a space on a template of its own; an aside reads the environment's.
+
+`Store#moduleLens(place, moduleId)` is what the settings layer reads: the template's `settings` and `labels` for that module at that place, the template's name (for those who may change settings, never for a module) and what the place calls the module.
+
+**The server's own sentences.** `server/words.js` `useCurrent` reads `store.wordsNow()`: the words of the space the request is about, else the environment's. The space comes from a second `AsyncLocalStorage`, `spaceContext`, set by a router in front of every `/api/spaces/:id` route, and only when the viewer may enter that space (`spaceAccess.mayEnter`); for anyone else the answer to an id reads exactly as for an id that does not exist.
+
+**The pages.** `public/words.js` keeps the environment's words (and `localStorage`) and adds a scoped set: `setSpaceLook(look)` when `space.js` has read the space's look on entering, `clearSpaceLook()` on Home, another space or out, and `envWord(key)` for what is above a space (the switcher, the bell, Home). The scoped set is never written to `localStorage`.
+
+### The manifest marks, labels and starter
+
+The server reads three additions to `module.json` ([api-modules](../api/api-modules.md), "Module manifest"), checked at install (`server/modules.js`): a `template` mark on a setting (`driven` or `default`; absent is the module's own), `labels`, and `starter`. The settings layer (`server/module-settings.js`) takes a template layer:
+
+- `ModuleSettings#layerOf(manifest, place)` asks `lens` (set by `server/environment.js` to `store.moduleLens`) for the template's values at that place and keeps only the keys the manifest marks (`templateValuesFor`), each made to fit by the setting's own rules, in a null-prototype object; one it cannot read is left out, not a failure.
+- `values()` and `effective()` resolve **driven** (the template's value wins whatever is stored), **default** (a stored value wins; else the template's; else the manifest's default; so an owner's environment-wide value wins in every space) and **own** (the manifest's). `defaults()` is the same with nothing stored.
+- A write of a driven setting the template gives a value is refused with 409 `<module>'s <label> is set by the <template> template; ask an owner to copy the template to change it.` (the same value is left out, so a form saving several settings still saves the rest). A `null` for a default setting forgets the stored value, so the template's applies again (the forms' **Reset**).
+- `GET /api/module-settings/:scope` and the module's own settings answer each setting with `template` (`driven`, `default` or null), `templateValue` and `templateName` (only while the template gives it), `locked` and `stored`. Every other module setting is the module's own, and a template never touches it.
+
+`labels` are read as `effectiveLabels(manifest, templateLabels)` (`server/module-labels.js`): for each key the manifest declares, the template's word when it is a good one, else the manifest's. The module context carries them as `locale.labels`, and the SDK as `host.locale().labels` and `host.util.label` ([api-module-sdk](../api/api-module-sdk.md)).
+
+### Starter spaces and starter content
+
+`server/starter.js` holds what can be said without the server; the writes are `fillStarter()` in `server/index.js`.
+
+- **When.** Once, when a space is made (`POST /api/spaces`, and each of an environment's starter spaces). `Store#claimStarter(spaceId)` records `starterDone: true` on the space first and answers true only once, so nothing writes twice, whether or not every write passed. Never on a change of template, a restore or a demo load (`POST /api/spaces` takes `starter: false`, which the demo loader sends; it claims the space and writes nothing). The Lobby has none.
+- **What.** The template's `modules.<id>.starter`: the module's own data keys and values, written into that space only, as the person who made it, through `moduleAccessAt` and `putModuleValue`: the module on there and opted in as installed now, that person's write permission, the module's guards, the key rule and the size caps, and never over a value already there (`expected: 0`). At most 20 keys per module and 64 KB per template (`starterBlocks`); a module that takes none, a module id that is no id, a prototype key and a starter over the limits are each left out and said in the log. A write that fails is skipped and logged; the space is still made.
+- **Starter spaces.** A template's `starterSpaces` are made once, when an environment is made from the template, in the same step that records `appliedAt` and only when the data folder was fresh (`makeStarterSpaces`): never on a switch, a restore or a later start. The creator is the environment's first owner, else its admin, else the host admin's stand-in, else nobody (the spaces are made; their starter content is skipped). A space that cannot be made is logged and the rest still are.
+- **No rate limit.** Starter writes go through `putModuleValue` and so skip the module data route's rate limit (`overLimit`); the caps above are the only bound.
+
+### The phases' measure
+
+`phaseMeasure` says what a phase is measured by (`server/phase-measure.js`, pure; `phaseStatesOf(spaceId)` and `phaseTallyOf` in `server/index.js` read the entries):
+
+- `dates`: the dates on the space's timeline, as before; no state.
+- `progress`: a **Done** switch per phase, stored on the space as `phaseDone: { <phase id>: true }` (`Store#setPhaseDone`; at most 50 ids, so stale ones are kept as the phase dates are). The first phase not done is the current one.
+- `goals`: every planner entry that names the phase is done. The entries are every module's `plan` refs in a module on in that space whose `summary` maps `phase` (read with `objectSummary`, at most 5,000 a planner); an entry counts when it has a `phase` that is one of the template's and a `done` that is true or false (`tallyOf`). A phase no entry names uses the same switch. The count is kept per space for 5 seconds (`PHASE_TALLY_TTL_MS`, `ModuleData.memo`), and is read again at once when any planner's data, the planners on or the phase ids change, so a poll that closes by its time is never more than 5 seconds old. A phase id such as `constructor` or `toString` is counted and measured like any other (the tally has no prototype).
+- Routes: `GET /api/spaces/:id/phases` and `PUT /api/spaces/:id/phases/:phase/done` ([api-modules](../api/api-modules.md), "Phases on a space"). The module context carries each phase with its state and `phaseMeasure`, so `host.phases()` has them.
+
+### Core call settings
+
+A space may hold `call: { joinOnEntry?, position?, layout? }`, each a key the template's `call` supplies when missing; `PATCH /api/spaces/:id { call }` ([api-modules](../api/api-modules.md)) is for owners, the admin and the space's moderators. The environment's old `autoJoinCall` setting is gone. The page reads the resolved values from the space's look (`look.call`, with `CALL_DEFAULTS` under them); a person's own position and layout, kept in their browser, win once picked, and a start from the template is never written to that record. Joining on entry joins with the microphone and camera off; where the browser wants a tap first (`browserNeedsTap()`: no user activation yet, as on a reloaded page on an iPhone or iPad, and an unknown counts as needing it), the page shows **Join the call** and says once "Your browser needs a tap before the call can start." The rule is `shouldAutoJoin()` in `public/opens-with.js` (never in an aside, only where **Join the call** would show, not for a person who left the call since they entered). They move to the call's manifest when the call becomes a module (plan-release decision 7).
+
+### Workspaces and pins
+
+The Default Workspace is the template's: `workspace.opensWith` is read live (`Store#opensWithOf`), so a space keeps no `opensWith` of its own (the key is gone from the record, and `PATCH` with it answers 400 `What a space opens with comes from its template; pick another template to change it.`). A new space's `tabs` and first visit are seeded from `workspace.show` and `opensFirst`, then the owner owns them. The **pin rule**: a Fixed Workspace the owner shows is `pinned` on its system layout, and nobody hides it for themselves, by any route (`PATCH .../layouts/system/:id` with `tab: false`, `DELETE .../layouts/:id/favorite`): 409 `The owner keeps this one in the bar.` for a person, and for someone who may set the owner's tabs `To take this one out of the bar, hide it for everyone in Set up.`; a hide already stored is ignored and never rewritten, the Workspace is always shown, and the owner's own hide still wins with its own sentence.
+
+### Each person's theme
+
+A person's account may carry `theme: <theme id> | null` (kept by `Store#setPersonTheme`, in the owner's copy of an environment); `PATCH /api/me { theme }` and `GET /api/me/themes` ([api-modules](../api/api-modules.md)). `/theme.css` for that person is the chosen theme's, the environment's for everyone else. Deleting a theme puts everyone who chose it back on the environment's and tells their open pages at once (the `mode` event). A guest has no choice: 403.
+
+### Followed live, and applied once
+
+Live (read from the template on every build, and a host template's or an owner's edit reaches every space reading it at once, `refreshTemplateLive()`): words, the Home word, phases and their measure, the home icon, module names, labels and settings, the module set, the call, the Default Workspace, and the added reactions and icons. Applied once, when an environment is made from the template (or offered on a switch): `settings`, the Lobby's name and description, `spaceDefaults`, the module list (turned on, and on in every space they may be in), the template's home and module icons added to the icon list, and `starterSpaces`. It is recorded in `app.json`'s `template`: `{ id, appliedAt, appliedVersion, applied, switchedAt?, skipped: [{ id, why }] }`; `applied` holds a fingerprint of each applied-once part the offer can carry (`modules`, `lobby`, `spaceDefaults`; `templates.partFingerprints()`). A module is skipped when the plan doesn't include it or when it needs a skipped one; the console's page for the environment and Manage's **Template** tab list them. A backup carries the record. The view the pages get (`templateView()`) is `{ id, name, source, version, appliedVersion, appliedAt, offerOpen, skipped: [{ id, name, why }] }`; `source` is `bundled`, `host` or `own`, or null when this server doesn't have the template. A reaction, an icon or a theme is no longer offered or applied from a template: a template's reactions and icons are read live, and it has no theme.
+
+**Picked at creation.** When an environment is made: `POST /api/host/environments` `{ template }`, the product page's `POST /api/product/signup` `{ template }` (`GET /api/product` lists `templates`), or `TEMPLATE=<id>` on a single install's new data folder. `TEMPLATE` on existing data, or on a hosted server, is ignored with a log line; an unknown id stops the start with a line listing the templates there are. With none, the Default template.
+
+**Switched later** (plan-environment-templates, "Addendum: switching a template"). An owner or the host can switch an environment to another template; there is no "none" (`Every environment has a template; pick Default for the plain one.`). `switchTemplate()` waits for a creation-time template to finish applying, then replaces the record with `{ id, appliedAt: null, switchedAt, skipped: [] }` (the Default template, which applies nothing, is recorded as applied at once), runs `templates.useLive()` and adds the template's icons to the icon list, and follows the registry entry on a hosted server. Words, phases, the module set, labels, settings, the call and the workspace change at once; nothing is deleted and no data is touched. Each switch adds `{ from, to, at, by }` to `templateHistory` (the last 20). A space that changes template follows the same rules: each planner keeps its own data (the old planner turns off in that space with its plan kept; the new one starts with its own), driven settings follow at once, a default setting someone stored is kept, phase dates are kept, starter content is never made again and a value someone stored for the call is kept.
+
+**The offer.** A template's once-only part is an offer (`offerOpen: true`) after a switch until it is applied, and when the template's `version` is above the record's `appliedVersion` (`offerIsOpen()`). `templates.offerFor()` answers `{ modules: [{ id, name, allowed, why? }], lobby: { name, description } | null, spaceDefaults: { profile? } | null }`: the modules the template lists (with what they require) that aren't already on in every space they may be in, `allowed: false` with `why: "not in the plan"` when the plan leaves one out, the conference when listed and off, the Lobby's name and description when they differ, and the profile new spaces start with. `templates.applyOffer()` applies only what is confirmed; applying, even with nothing ticked, writes `appliedAt`, `appliedVersion`, `applied` and `skipped`, so the offer closes. The template's settings are never offered.
+
+**Hidden and deleted.** A host template can be hidden (`PATCH { hidden: true }`): it is left out of the create form, sign-up and every switch's choices, and an environment using it keeps it. Deleting a host template answers 409 while any environment's registry entry or any space names it; a bundled one can be hidden (no new version) but not deleted (403). An owner's own template can be deleted at any time (decision 3): every space that used it reads the environment's template, and an environment that used it reads the Default template, recorded as applied; the answer lists what moved (below).
+
+**Template files** (`server/template-file.js`). `<name>.template.json`, at most 128 KB, `{ "format": "template", "formatVersion": 1, ...the template's fields }` (`templateToFile()` writes every field the template has; the marker is `readMarker()` in `server/file-format.js`, the one rule for the theme, template and objects files). `readTemplateFile()` refuses, in order: over the size, not JSON, not an object, or a marker that isn't `"format": "template"` with a whole-number `formatVersion` ("That isn't a <product> template file."); a file from before the formats were named by kind ("That template file is in an older format. Export the template again and import the new file."); a newer `formatVersion` ("This template was made by a newer version of <product>."); then the template's own check (the first problem is the error, `problems` lists every one). An unknown key anywhere in the file is a problem, not a drop. An import keeps the file's `version`. Any template can be exported, a bundled one included. To start a host template from another, the console's **Duplicate** is the one step.
+
+**Editing a bundled template** (addendum 3, hosted servers only). `host.json` keeps `bundledEdits: [{ id, template, version, base: { version, fingerprint, whole }, hidden, updatedAt }]`, one record per bundled id the host has touched (not the Default template). The merge is whole: while `template` is set it is the template, and the shipped file is not read. `version` is what environments see: the first edit is the shipped version plus one and every later edit, reset or take-new adds one. `base` is the shipped file the edit was made against; while it differs from the shipped file an edited template carries `update: { shippedVersion }`, the console's notice. At start, `reconcileBundledEdits()` moves a record with no edit onto the new shipped file with `version` + 1 and no notice, and leaves one with an edit as it is. Every edit, reset and take-new runs `refreshTemplateLive()`. `tools/check-templates.mjs` covers it, and `tools/check-template-switch.mjs` edits and resets Travel.
+
+### Routes
+
+The host's routes are in "The host API: environments". An owner's:
 
 | Route (owner) | Answer |
 |---|---|
-| `PATCH /api/settings` `{ template: "<id>" \| "none", ...settings? }` | `{ settings, template, offer }`; any other fields save as before. 400 `There is no template called <id>.` or `A template is named by its id, or "none" for no template.` |
-| `GET /api/environment/template` | `{ template, offer, choices }`: the view above (or null), the open offer (or null), and each template the environment can see that isn't hidden (plus the one it uses) as `{ id, name, description, source, version, hidden }` |
-| `POST /api/environment/template/apply` `{ modules?: [ids], lobby?, spaceDefaults?, reactions?, theme?, iconSet?: boolean }` | `{ template, offer }`; ids not in the offer are ignored. 400 `Name the modules to turn on as a list of their ids.` or `<key> must be true or false.`; 409 `This environment has no template to apply.`, `This template has already been applied.` or `This server doesn't have the "<id>" template any more.` (the module and environment words are the environment's own) |
+| `PATCH /api/settings` `{ template: "<id>", ...settings? }` | `{ settings, template, offer }`; any other fields save as before. 400 `Every environment has a template; pick Default for the plain one.` for `null` or `"none"`; 400 `A template is named by its id.` or `There is no template called <id>.` |
+| `GET /api/environment/template` | `{ template, offer, choices }`: the view above, the open offer (or null), and each template the environment can see that isn't hidden (plus the one it uses) as `{ id, name, description, source, version, hidden }` |
+| `POST /api/environment/template/apply` `{ modules?: [ids], lobby?, spaceDefaults?: boolean }` | `{ template, offer }`; ids not in the offer are ignored. 400 `Name the modules to turn on as a list of their ids.` or `<key> must be true or false.`; 409 `This environment has no template to apply.`, `This template has already been applied.` or `This server doesn't have the "<id>" template any more.` |
+| `GET /api/environment/templates` | `{ templates: [{ id, name, description, source, version, hidden, editable, copiedFrom, spaces, environment }] }`: every template the environment may use (and the one it has), Default first; `editable` is true for an owner's own, `spaces` how many spaces read it, `environment` whether it is the environment's default |
+| `GET /api/environment/templates/:id` | `{ template }` in full, with `editable`; 404 `There is no template called <id>.` |
+| `POST /api/environment/templates` `{ from, id, name }` | 201 `{ template }`: a copy of any template the environment may use, at version 1, with `copiedFrom`. 400 `A copy takes only from, id and name; "<key>" is not one of them.`, `There is no template called <from> to copy.` or `{ error, problems }`; 409 `There is already a template called <id>.` or `This environment has 20 templates of its own, the most it can keep; delete one first.` |
+| `PATCH /api/environment/templates/:id` `{ ...fields }` | `{ template }`: the owner's own template with those fields (a field sent as `null` is removed); checked as every template is; the version goes up and every space reading it follows on the next read. 403 `The Default template can't be changed; copy it to make your own.` or `Shipped templates stay as they are; copy one to change it.`; 400 `A template's id can't be changed; copy it to make one with another id.`, `A template's version is the server's to set.` or `{ error, problems }`; 409 `This template has reached its highest version; copy it to go on changing it.` |
+| `DELETE /api/environment/templates/:id` | `{ spaces: [names], environment: true \| false }`: what moved to the environment's template, and whether the environment itself now reads Default. 403 for the Default template and for a shipped or host one (`Shipped templates can't be deleted.`) |
+| `POST /api/templates/import[?id=<new id>]`, the file's text as the body | 201 `{ template }` as one of the owner's own (the file's `version`); on any install, hosted or not. 400 and 409 as the host's import; 403 from another origin with a cookie (`sameOriginOnly`) |
+| `GET /api/templates/:id/export` | The template file, for any template the environment can see; 404 `There is no template called <id>.` |
 
-| `POST /api/templates/import[?id=<new id>]`, the file's text as the body | Single install only. 201 `{ template, dropped }`; 400 and 409 as the host's import; 403 `On a hosted server, the host manages templates.` |
-| `GET /api/templates/:id/export` | The template file, for any template the environment can see; on a hosted server only the one it uses, else 403 `On a hosted server, the host manages templates.`; 404 `There is no template called <id>.` |
-| `DELETE /api/templates/:id` | Single install only. `{ ok: true }`; 403 `Bundled templates can't be deleted.` or the hosted refusal; 404 as above; 409 `This environment uses this template. Switch to another one first.` (the environment's own word) |
-
-`tools/check-template-switch.mjs` (in `npm run check`) covers switching, the offer and applying it, host templates
-(made, used, edited, hidden, refused deletion, exported and imported) and a single install's imports.
-`tools/check-templates.mjs` covers the new fields, template files, the update offer and the bundled versions.
+The old `DELETE /api/templates/:id` (an imported template, single install only) is gone with the `imported` source; and a hosted owner may now import and export like any other. `tools/check-template-switch.mjs` (in `npm run check`) covers switching, the offer and applying it, host templates (made, used, edited, hidden, refused deletion, exported and imported) and an owner's own; `tools/check-templates.mjs` covers the shape, the files, the update offer and the bundled versions.
 
 ### A space's own template
 
 A space can read a template of its own ([plan-space-templates](../plans/plan-space-templates.md), #750; the routes are in [api-modules](../api/api-modules.md), "A space's own template"). Everything above is resolved once for the environment; this adds a second key, the space.
 
-- **Stored.** A space record gains an optional `template: "<id>"` (`sanitizeSpace` keeps only a well-formed id, and never on the Lobby). Absent means the environment's. Nothing is "applied" to a space, so there is no record of it and no migration. `settings.spaceTemplates` is the owner's off switch (absent reads as on): off, `lookOf` answers the environment's for every space and the keys stay on the records. It is in the environment's copy (`SETTINGS_FIELDS` in `server/environment-export.js`).
-- **Resolved.** `Store#lookOf(spaceId)` answers `{ words, verbs, phases, template }`. For a space with a usable `template` it takes the owner's own words (`settings.words`) over the space's template's words over the environment's template's, but only for the keys in `words.SPACE_KEYS` (`space`, `aside`, `canvas`, `module`, `object`, `moderator`, `member`, `guest`) and the verbs in `words.SPACE_VERBS` (`layout`); `environment`, `owner`, `home`, `host`, `admin` and the `enter` verb stay the environment's. Its phases are the template's own (`[]` when it has none: no chip), except for an aside, which reads the environment's phases. With no space, no `template`, the switch off or an id this server no longer has (logged once per id), it answers exactly what `resolvedWords()`, `resolvedVerbs()` and `templatePhases` answer. `Store#moduleDisplay(id, spaceId)` and `shownModule(manifest, spaceId)` do the same for a module's name and icon, the owner's own `settings.moduleNames` first. An aside reads the template of the space it was pulled out of (`spaceTemplateFor`).
-- **The server's own sentences.** `server/words.js` `useCurrent` now reads `store.wordsNow()`: the words of the space the request is about, else the environment's. The space comes from a second `AsyncLocalStorage`, `spaceContext`, set by a router in front of every `/api/spaces/:id` route, and only when the viewer may enter that space (`spaceAccess.mayEnter`); for anyone else the answer to an id reads exactly as for an id that does not exist. The store reads it through `store.currentSpace()`, which answers only for the environment it was set in, so a callback that outlives its request never speaks for another's space (the same gotcha as above).
-- **Reads.** `GET /api/spaces/:id` and the space lists carry `template`; `GET /api/spaces/:id/look` answers `{ look: { words, verbs, phases } }` for anyone who may enter, and 404 as an unknown id for everyone else, with no template id in any body and `Cache-Control: no-store`; `GET /api/guest-link/:token` carries `look`; the module context answers the space's `locale.words`, `phases` and `module` name and icon. The access key reads no template.
-- **Choosing and refusing.** `updateSpace` and `addSpace` check a template through `chosenTemplate`: an id this environment's catalog can see, hidden ones only if the space already has it, 409 while the switch is off. Owners and the admin only: `template` is not in `MODERATOR_SPACE_FIELDS`. A host template, or a single install's imported one, that a space names cannot be deleted (409), and `usedBySpaces` counts them on the console.
-- **Phase dates.** `updateSpace` checks `phases` against `phasesOfDraft(draft)`, the phases the space will read. Dates the record holds for ids the template lacks are kept and never fail a save; the page sends only the phases it shows.
-- **In the pages.** `public/words.js` keeps the environment's words (and `localStorage`) as before and adds a scoped set: `setSpaceLook(look)` when `space.js` has read the space's look on entering, `clearSpaceLook()` on Home, another space or out, and `envWord(key)` for what is above a space (the switcher, the bell, Home). The scoped set is never written to `localStorage`. `public/template-choice.js` draws the choice in Set up's Space tab and the Add dialog; `public/admin.js` has the Manage switch and `public/host-templates.js` the console's "Used by". `tools/check-space-templates.mjs`, `tools/check-space-look.mjs` and `tools/check-space-template-choice.mjs` hold it. Read from the code on main; none of it was run in a browser or on a second environment for this document.
+- **Stored.** A space record gains an optional `template: "<id>"` (`sanitizeSpace` keeps only a well-formed id, and never on the Lobby). Absent means the environment's. `settings.spaceTemplates` is the owner's off switch (absent reads as on): off, `lookOf` answers the environment's for every space and the keys stay on the records. It is in the environment's copy (`SETTINGS_FIELDS` in `server/environment-export.js`).
+- **Resolved.** As above: the space's template wins for words (`space`, `member`), phases and their measure, the module set, names, labels, settings, the call's defaults, the Default Workspace and the added reactions and icons. The earlier plan's rule that a space's template never changes modules, settings, reactions or icons is replaced ([plan-templates-redesign](../plans/plan-templates-redesign.md), "What this replaces"). Home, the Lobby and every list across spaces stay the environment's.
+- **Reads.** `GET /api/spaces/:id` and the space lists carry `template`; `GET /api/spaces/:id/look` answers `{ look }` for anyone who may enter, and 404 as an unknown id for everyone else, with no template id in any body and `Cache-Control: no-store`; `GET /api/guest-link/:token` carries `look`; the module context answers the space's `locale.words`, `locale.labels`, `phases`, `phaseMeasure` and `module` name and icon. The access key reads no template.
+- **Choosing and refusing.** `updateSpace` and `addSpace` check a template through `chosenTemplate`: an id this environment's catalog can see, hidden ones only if the space already has it, 409 while the switch is off. Owners and the admin only: `template` is not in `MODERATOR_SPACE_FIELDS`. A host template that a space names cannot be deleted (409), and `usedBySpaces` counts them on the console; an owner's own can, and the spaces fall back.
+- **Phase dates.** `updateSpace` checks `phases` against `phasesOfDraft(draft)`, the phases the space will read. Dates the record holds for ids the template lacks are kept and never fail a save.
+- **In the pages.** `public/template-choice.js` draws the choice in Set up's Space tab and the Add dialog; `public/admin.js` has the Manage switch; `public/host-templates.js` the console's "Used by". `tools/check-space-templates.mjs`, `tools/check-space-look.mjs` and `tools/check-space-template-choice.mjs` hold it.
+
+### The pages
+
+Manage's **Template** tab is a short page (the environment's default template with **Switch**, the offer, **Let a space use its own template**) and one page per part, each at its own address: `#template/<id>/basics`, `/labels`, `/workspace`, `/phases`, `/reactions`, `/modules`, and `#template/list`. `public/admin.js` draws them with `public/template-fields.js` (Environment Basics, Experience Labels) and `public/template-pages.js` (Default Workspace, Phases, Additional Reactions and Icons, Modules): each part is markup drawn into a box, read back as template fields and wired once, and a template that is not editable draws plain lines instead of fields. The Modules page groups the three planners (`PLANNER_IDS`: `travel`, `schedule`, `goals`) under **Plans**. The console's editor (`public/host-templates.js`, `public/host.html`) is one form with a jump list (a strip on a phone) of the parts Environment Basics, Experience Labels, Modules, Default Workspace, Call, Phases, Reactions, Icons and Starter spaces, with one **Save**. It shares Basics and Labels with Manage; its Modules part does not edit a module's settings, labels or starter content (they are kept as the template has them), so the console lacks the Manage pages' Modules and Additional Reactions and Icons views. Manage has no page for a template's call or starter spaces; an owner's copy keeps those of the template it was copied from. `tools/check-admin-load.mjs` opens every Manage tab and template page at 1280 and 390 pixels, and `tools/check-template-pages-b.mjs` covers the later pages (it is not in `npm run check`).
 
 ## The Studio alias
 

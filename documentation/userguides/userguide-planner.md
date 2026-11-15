@@ -2,12 +2,12 @@
 
 **Audience:** a player or game master planning a trip with the Planner module on a Coffee Pub Chameleon server, and an owner setting it up.
 
-The Planner module plans one trip for a space, day by day. In an environment set up from the Travel template it is shown as the **Itinerary**, and its window is named for that, not for the trip. The space's Calendar events, to-dos and polls that fall on the trip's days join the plan, and the module adds what a trip needs on top: stops, stays, journeys and notes. Install and enable it first; see [Modules](userguide-modules.md).
+The Planner module plans one trip for a space, day by day. It is one of three planners: this one, a day-by-day plan, [Planner - Projects](userguide-planner-projects.md) (milestones and work) and [Planner - Goals](userguide-planner-goals.md) (goals and steps). A space's template says which one it has. In an environment set up from the Travel template it is shown as the **Itinerary**, and its window is named for that, not for the trip. The space's Calendar events, to-dos and polls that fall on the trip's days join the plan, and the module adds what a trip needs on top: stops, stays, journeys and notes. Install and enable it first; see [Modules](userguide-modules.md).
 
 ## Set it up (owner)
 
 1. On the Modules tab, choose **Install** beside Planner under **Available with this server**, then **Approve and enable**. It asks to add two permissions to the Roles tab, to link to other modules' objects and to ask other modules to do things.
-2. Once enabled it is on in every space; there is no switch per space.
+2. Once enabled it is in every space whose template offers it (the Travel and Default templates do); there is no switch per space.
 3. On the Roles tab, under **Module: Planner**, choose who can **See the trip** and who can **Plan the trip**. By default everyone can see it, members and moderators can plan, and guests can see but not plan. **Clear the whole trip** decides who may use **Clear** on the Planner's menu (see "Clear the whole plan" below); it is on for moderators and off for members, and an owner always may.
 4. Optionally, under the Planner's settings (**Module Configuration** on its card), turn off **Suggest flights from earlier trips**. It is on by default: "Fill a flight from the same flight number saved before on this server. Flights saved here also help others; turn this off to keep them out." Off, the flight form has no **Look up a flight** row, and nothing saved here is kept for others. See "Look up a flight" below.
 
@@ -97,7 +97,7 @@ The Planner can fill in a flight from its number when someone on this server has
 
 **The flight number is saved tidy.** A flight's number is saved as the airline code and the number with one space, in capitals: "wn2483" and "WN 2483" both become "WN 2483". A number that isn't in that form (such as "Southwest 2483") is saved as you typed it. Other journeys keep their number as typed.
 
-**A flight nobody has saved yet** can't be looked up. Fill it in by hand, or, if you have the booking confirmation and the AI service is set up, paste it into Chat and ask `/ai`, or use **Bring in research**: the flight is kept here with its fields filled (see "What other modules bring" below, and "Bring in research from another AI" in [Chat](userguide-chat.md)).
+**A flight nobody has saved yet** can't be looked up. Fill it in by hand, or, if you have the booking confirmation and the AI Assistant is set up, paste it into Chat and ask `/ai`, or use **Bring in research**: the flight is kept here with its fields filled (see "What other modules bring" below, and "Bring in research from another AI" in [Chat](userguide-chat.md)).
 
 **An airport code fills its name.** In any flight form, type an airport code such as MDW in **Departure airport** or **Arrival airport** (or the return's) and leave the box: when its name box is empty and the code is a known airport, the name is filled, such as "Chicago Midway". A four-letter code such as KMDW is looked up too: the name is filled when its box is empty, and the code box then shows the three-letter code, MDW, the one the cards and the lookup use. This works even with **Suggest flights from earlier trips** off.
 

@@ -8,11 +8,10 @@ a module or an aside something else; the buttons and menus follow its words (see
 
 ## Enter a space and join the call
 
-Home lists the spaces you belong to. **Enter** (or the word your environment uses in its place) is one click, and
+Home lists the spaces you belong to. **Enter** is one click, and
 puts you in the space: the top bar stays, now naming the space you are in (see "The top bar" in
 [Spaces](userguide-spaces.md)), with the status strip under it when the space has phases, the call and the chat in a
-column at the left, and the Workspace beside them. Entering never puts you in the call, and nothing asks for your
-microphone until you join.
+column at the left, and the Workspace beside them. Entering puts you in the call only where the space is set to join on entry (see "Joining on entry" below); otherwise it never does, and either way nothing asks for your microphone until you turn it on.
 
 Who can: anyone whose role allows **See and join the conference**, while the owner has not switched the conference
 off.
@@ -29,6 +28,14 @@ Joining a call that is already running is never refused. If the server does not 
 server to join the call. Try again in a moment."
 
 Once you are in the call, its tiles appear under the call's title bar, with the toolbar under them.
+
+### Joining on entry
+
+A space can be set to put you in the call when you enter it. It is the **Join on entry** choice under **Call** in the space's Set up (see [Spaces](userguide-spaces.md), "Set up"), which starts at what the space's template says; it is off unless a template or an owner, the admin or a moderator turns it on. There is no longer a switch for it in Manage.
+
+- You join with your **microphone and camera off**. Nothing asks for them until you turn one on.
+- It joins only where **Join the call** would show: not in an aside, and not if you left the call since you entered.
+- Some browsers will not start sound or media until you have pressed or tapped something on the page, as on an iPhone or iPad after the page is reloaded. There the call does not start by itself: **Join the call** shows instead, and the page says once "Your browser needs a tap before the call can start." Press it, and the join is still quiet, with the microphone and camera off.
 
 Keys: **M** microphone, **D** deafen, **V** camera, **S** share screen, **C** collapse or open the column, **R**
 reactions, **L** change the tiles, **F** full screen, **1** to **6** send a reaction.
@@ -84,7 +91,7 @@ Once you are in the call, the area at the top of the column has:
 
 ### Call position
 
-**Call position** chooses where the call sits. It is in the call's **⋮** menu (Chat's **⋮** menu no longer has it). What it offers depends on the layout tab shown.
+**Call position** chooses where the call sits. It is in the call's **⋮** menu (Chat's **⋮** menu no longer has it). Where it starts for a person who has not picked one is the space's **Position** under **Call** in Set up, which follows the space's template (and the call's **Layout**, its tile layout, starts the same way); once you pick one yourself, yours wins and is kept in your browser, for each space. What it offers depends on the layout tab shown.
 
 **Beside the work**, in every layout except **Conference**, seven choices:
 
@@ -137,7 +144,7 @@ only an icon and the count ("5 here").
 
 Each space remembers the modules you had open in the Workspace when you last used it, in which mode (docked, floating or in a window),
 and how big, and opens them again when you enter. It also remembers which layout you last used (the Workspace, the **Conference** layout and so on) and opens on that. The first time, the space's **First visit** setting decides (see
-"What opens when you enter" and "Set up" in [Spaces](userguide-spaces.md)). The call is never joined by entering.
+"What opens when you enter" and "Set up" in [Spaces](userguide-spaces.md)). The call is joined by entering only where the space says so (see "Joining on entry" above).
 
 ## Leaving the call, staying in the space
 

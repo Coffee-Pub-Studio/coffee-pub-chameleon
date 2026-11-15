@@ -19,6 +19,10 @@ On Home, click the **Due soon** card's heading to open the full list. Choose **N
 - Under the toolbar the environment's list also shows the lists of every space you belong to that has To-do on. Each is headed by its space's icon and name, and a row of your spaces shows or hides each one. You can tick off and change a space's task here if you may change tasks in that space; otherwise it opens read-only and says "Only people who can add tasks in <space> can change this."
 - A new task asks **Where** it goes: the environment's own list (if you may change tasks there) or one of the spaces where you may. It starts empty every time, and **Save** says "Pick a space first." until you choose (in your environment's word for space). A task already saved stays where it is.
 
+## What a template changes
+
+The template a space reads can show To-do under another name (**Quests**, **Exercises**, **Next steps**) and rename its word for a task. **Show in the Calendar** (the module's setting) is the template's start, and an owner's own choice for the whole environment wins. A template does not give a task an owner yet; owners on tasks are not built.
+
 ## To-do beside Global Calendar
 
 When an owner turns on **Show in the top bar** on the Calendar's configuration page, the To-do is the **To-do** tab on the right of Global Calendar (see [Calendar](userguide-calendar.md), "Global Calendar"). It lists the open tasks from the environment and the spaces chosen under **Trips** (your environment's word for spaces), grouped **Overdue**, **Today**, **This week**, **Later** and **No date**, each with its space's icon, a tick box and its due date. **Open**, **Done** and **All** and **Add task** are at its top; ticking, changing and adding work in place, with **Where** as above. While Global Calendar is on, the To-do's own page and the **Due soon** heading lead to it. In the narrow layout it is the **To-do** tab at the bottom. Tasks with a due date also show on the calendar itself, on their due day (see "On the Calendar" below).

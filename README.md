@@ -16,6 +16,7 @@ Browser Source, so a recorded session shows their camera or a picture you chose.
 - Roles and permissions: admin, owner, moderator, member and guest, with a grid to decide what each can do.
 - Guest links for someone dropping in once, with no account.
 - A Vault for a space's files (photos, audio, video, PDFs and notes), linkable from other tools and shareable by a link with people outside the space.
+- Templates that set a space up for one use (a trip, a campaign, a project, a course, mentoring): its words, its modules and planner, its phases and how the call starts.
 - Your own colors and icons, and add-on modules you can install from a zip.
 
 ## Requirements

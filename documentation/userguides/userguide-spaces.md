@@ -198,6 +198,14 @@ Trip and Post-trip, and Trip is the main one). A space dates them, and the dates
 Phases only inform. They do not lock anything; they say where the space is, what leads on a day, and where an
 object with no date waits.
 
+**How a template measures its phases.** The template says what tells a phase is done:
+
+- **Dates** (Travel and Project, and the default): the dates above. Nothing else changes.
+- **Progress**: each phase on Set up's **Phases** tab has a **Done** switch. The first phase not done is the one the space is in. The owner, the admin and the space's moderators flip it, and it acts at once, not on **Save**.
+- **Goals** (Learning and Mentoring): a phase is done when every goal in the planner that names it is done, and the tab shows "2 of 4 goals done" beside it. A phase no goal names has the **Done** switch instead; one a goal names has none.
+
+Under progress and goals the phase chip reads the phase the space is in and how far, such as "Practice · 2 of 4" (goals done in that phase, or, with none named, the phases done of all), and "All done · 3 of 3" once every phase is.
+
 **Who can:** anyone in the space reads the sheet. Owners, the admin and the space's moderators change the dates.
 
 To change the dates from the strip:
@@ -248,12 +256,10 @@ top bar once you are in the space (see "Set up" below). On a narrow
 card the launch link moves to a line of its own under **Enter**. A space you are still connected to offers
 **Back to <space>** instead of Enter; a long name is cut short with "…", and hovering over the button shows it in full.
 
-**Enter** is the default word. The template or the owner can change it, for example to "Board" (see "The word on
-the button for entering a space" in [Manage](userguide-environment-settings.md)).
+**Enter** is the word on that button everywhere: it reads the same in every environment and template (see "Words" in [Manage](userguide-environment-settings.md)).
 
 An aside you are part of also shows on the list while it lasts, as a card with **Join** (the narrow layout) and a pop-out
-button, "Join in a pop-out window". An aside is a call, so its button always reads Join, whatever the word for
-entering a space.
+button, "Join in a pop-out window". An aside is a call, so its button always reads Join, not **Enter**.
 
 The card says who is there: "3 here · 2 in the call", "3 here" when nobody is in the call, or "Nobody here". Someone
 who has stepped into an aside is not counted as here. In the row of members, someone in the call has a small camera
@@ -308,9 +314,9 @@ What you see on entering is the first of these that applies:
 1. A link or a notice that opens one object, which wins.
 2. **The layout you last used in this space**, if you have one and it is still there. The server keeps it for each person and space, so it follows you to another browser. A change of layout by you writes it; opening the space again does not.
 3. The space's **Opens first** layout, set by an owner, the admin or a moderator under **Layouts** (see "Set up" below): the Workspace, or the Calendar, the Map, the Conference, Whiteboards, Documents or a shared saved layout. If you have been in the space before and have no layout kept yet, the Workspace opens as you left it.
-4. The Workspace, with the modules switched on under **Opens with** or, when the owner has chosen nothing, what the environment sets for a new space, else the chat and every module on in the space.
+4. The Workspace, with what the space's template says it opens with (its **Default Workspace**), else the chat and every module on in the space.
 
-A guest has no layout kept: a guest gets the owner's **Opens first** every time, and the Workspace when that layout is one a guest cannot use (Calendar, Map, Conference, Whiteboards, Documents), with the chat and the call's tiles when nothing else is set. A layout that has gone, is switched off, or has been hidden by the owner is skipped, and the next rule applies. The call is always out of the call, showing **Start call** (or **Join call**): entering never joins it, for anyone (see [The call](userguide-call.md)).
+A guest has no layout kept: a guest gets the owner's **Opens first** every time, and the Workspace when that layout is one a guest cannot use (Calendar, Map, Conference, Whiteboards, Documents), with the chat and the call's tiles when nothing else is set. A layout that has gone, is switched off, or has been hidden by the owner is skipped, and the next rule applies. The call shows **Start call** (or **Join call**) and entering joins it only where the space says so with **Join on entry** in Set up (off unless the template or the space turns it on); a join on entry starts with your microphone and camera off (see [The call](userguide-call.md)).
 
 After that, each person's own arrangement of the Workspace is remembered for each space: the modules open, how, and how big. In the narrow layout, the first tab shown is the first thing opened.
 
@@ -324,7 +330,7 @@ Set up is where a space is named, pictured and arranged. It is one panel on the 
 **Save**. The panel is 460 pixels wide, with a stronger shadow so that it reads as floating above the page.
 
 **Who can:** owners and the admin see every tab. A space's moderators see **Modules**, **Phases** and **Settings**
-(the First visit section and the module settings only). A member or a guest sees the **Modules** tab alone, which has
+(the read-only line for what opens, **Layouts**, the call and the module settings). A member or a guest sees the **Modules** tab alone, which has
 nothing to save: the panel is then titled **Modules** and has **Close**. In the narrow layout there is no **Modules**
 tab (the modules are tabs along the bottom).
 
@@ -375,15 +381,12 @@ The tabs, in this order, with your environment's words for them:
   (see [Budget](userguide-budget.md)).
 - **Settings**: five kinds of section.
   - **Template** (a moderator sees this; owners and the admin choose it on the **Space** tab): a line naming the template the space reads, "This <space> reads the <template> template.", with "Only the <owner> can change it." Until the template's name is read, the line shows the template's id.
-  - **Layouts** (owners, the admin and moderators): one row for each layout the space can show, in the order the bar shows them. Each has **Show in the bar** (the Workspace's is on and cannot be turned off), **Move up** and **Move down** (buttons, no dragging; a line announces "<name> moved to position N.") and **Opens first**, a choice of one that is the space's first-visit layout. It is part of **Save**. Everyone in the space sees the bar this makes; each person can hide more for themselves but cannot bring back what you hid.
-  - **First visit**: what someone sees the first time they enter. Under **Layouts**, **Opens first** picks the layout; the shared saved layouts are listed here with the same choice. Under **In the Workspace, a new person sees these open**, the **Opens with** switches (the chat, and each module on in the space) say what the Workspace holds. Owners and the
-    admin choose which; a moderator can change the **Opens with** switches. A switch that cannot open now stays in the
-    list with a note saying why ("(not installed)", "(turned off)", "(can't open on the canvas)"), so turning it back
-    on restores it. **Stop using it** returns to the Workspace. After a first visit each person's own arrangement is
-    remembered.
-  - **AI** (while the server has an AI service; owners and the admin): **Turn AI off in this space** and **What AI may see**
+  - **Layouts** (owners, the admin and moderators): one row for each layout the space can show, in the order the bar shows them. Each has **Show in the bar** (the Workspace's is on and cannot be turned off; one that is shown is **pinned**: it is in the bar for everyone and nobody can hide it for themselves, and a person who tries is told "The <owner> keeps this one in the bar."), **Move up** and **Move down** (buttons, no dragging; a line announces "<name> moved to position N.") and **Opens first**, a choice of one that is the space's first-visit layout. It is part of **Save**. Everyone in the space sees the bar this makes; each person can hide more for themselves but cannot bring back what you hid.
+  - **First visit**: what someone sees the first time they enter. Under **Layouts**, **Opens first** picks the layout; the shared saved layouts are listed here with the same choice. Under **In the Workspace, a new person sees these open** is one line, read-only: what the space's template says the Workspace opens with, and "This comes from the <space>'s template." There are no **Opens with** switches any more; to change it, give the space another template, or edit your own template's **Default Workspace** in Manage. **Stop using it** returns to the Workspace. After a first visit each person's own arrangement is remembered.
+  - **Call** (every space but the Lobby and an aside; owners, the admin and moderators; on the **Space** tab, or **Settings** if there is none): **Join on entry** (**Join the call on entry** or **Do not join on entry**), **Position** (**Top of the column**, **Bottom of the column**, **Left of the chat**, **Right of the chat**, **Floating window**, **In the workspace**, **Its own window**) and **Layout** (**Grid**, **Strip**, **Focus**, **Spotlight**). Each starts at **Same as the template**, with a line under it saying what that is now ("Now: joins on entry."). Saved with **Save**. Joining on entry starts with the microphone and camera off. A person's own position and layout, picked in the call, win once they pick them.
+  - **AI** (while the AI Assistant is on and the space's template offers it; owners and the admin): **Turn AI off in this space** and **What AI may see**
     (tick **Same as the environment's choice** off to set what goes to the AI for this space alone, as described in
-    [Modules](userguide-modules.md), "The AI service"; **Let AI look things up** can be turned off for one space, but not
+    [Modules](userguide-modules.md), "The AI Assistant"; **Let AI look things up** can be turned off for one space, but not
     on when the environment has it off). The switches under **What AI may see** sit at the right, with their words at
     the left.
   - **Tags** (not on the Lobby): the space's shared tags, which every module that has tags uses (Documents, for one).
@@ -392,8 +395,7 @@ The tabs, in this order, with your environment's words for them:
     Only people with the **Rename, recolour and delete tags** right see the controls (moderators and owners by default;
     the admin always; change it on the Roles tab). Everyone else sees the list of tags. Tags are made from a module's tag
     picker, not here.
-  - A section for each module with its settings for this space. Every module that is turned on is in every space; an
-    owner turns one on or off on the **Modules** tab of Manage (see [Modules](userguide-modules.md)). A moderator sees the
+  - A section for each module with its settings for this space. The modules a space has are its template's; an owner turns one on or off for the whole environment on the **Modules** tab of Manage (see [Modules](userguide-modules.md)). A setting the template drives shows "Set by the <template> template." and is read-only; one it seeds shows "From the template" with **Reset**. A moderator sees the
     module settings only. A file a module holds is deleted at once, not on **Save**. There is no longer a read-only
     list of modules on this tab: the switches are on the **Modules** tab.
 
@@ -437,7 +439,11 @@ To change it later:
 2. In **Template**, choose another template, or "Same as the <environment>" to go back.
 3. Choose **Save**. It first asks "Change this <space> to <template>?" and says "Its words, phases and <module> names change now. Nothing is removed." Choose **Change**.
 
-What a space's template changes, inside that space only: the words for space, aside, canvas, module, object, moderator, member and guest and the layout button's verb; the phases; and the names and icons of modules. Anything an owner set by hand in Manage still wins. What stays the environment's everywhere: the words for environment, owner, home, host and admin, the entering button's verb, and every list that spans spaces (Home, the **Spaces** menu, the bell). It does not change which modules exist or any setting, reaction, icon or theme. A space made with a template starts with that template's **Opens with** and faces in the call; a later change does not touch them.
+What a space's template changes, inside that space only: the words for a space and a member; the phases and how they are measured; the modules the space has, and their names, icons, words and settings; what the Workspace opens with and which workspaces a new space shows; how the call starts (**Join on entry**, **Position** and **Layout**, until the space's own **Call** section says otherwise); and the reactions and icons it adds. Anything an owner set by hand in Manage still wins where it is theirs to set. What stays the environment's everywhere: the words that never change (environment, aside, canvas, module, object, owner, moderator, guest, host, admin and the entering button's word), the home page's word, and every list that spans spaces (Home, the **Spaces** menu, the bell). A space made with a template starts with that template's picture profile, workspaces and, if it has any, starter content (once: see below); a later change of template does not touch what is already there.
+
+When you change a space's template, the confirm still reads "Its words, phases and <module> names change now. Nothing is removed."; it does not yet list the modules that turn off and on, so look at the new template's **Modules** page first. A module the new template leaves out is off in that space and keeps its data; it comes back as it was. If the planner changes, the old planner keeps its plan and the new one starts empty; nothing is copied or deleted, and changing back shows the old plan as it was.
+
+**Starter content.** A template can give a new space things to start from (a project brief, session notes). They are made once, when the space is made, as you: if a module can't take one (it is off, or you may not add to it) it is skipped and the space is made anyway. They are never made again, on a change of template or a restore. A template can also make **starter spaces** for a new environment, once.
 
 Phase dates stay on the space when the new template lacks the phase, and come back if you switch back: changing templates loses no date. A moderator reads the template but cannot change it. If Manage's switch is off, every space reads the environment's template and what each space chose is kept for when it is turned on again.
 

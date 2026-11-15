@@ -20,7 +20,7 @@ the compose file.
 | `MIGRATE_ENVIRONMENT_SLUG` | unset | For one start only: the environment that the data already here becomes, when you turn a single-environment install into several. Remove it afterwards. |
 | `PREVIOUS_BASE_DOMAINS` | empty | Old base domains whose links redirect to the new one while you move a server's addresses ("Moving a server's addresses" in the guide). |
 | `RESERVED_SLUGS` | empty; for example `studio,shop` | Names no new environment may take, on top of the built-in list (`www`, `api`, `admin`, `mail`, `livekit` and others). Comma separated. An environment that already has one keeps working. |
-| `TEMPLATE` | unset; for example `travel` | One environment set up for one use, from a template in `templates/`: its words, icons, modules and Lobby. Only on a fresh data folder, and only without `BASE_DOMAIN` (with it, the host console and sign-up pick a template for each new environment). Ignored, with a line in the log, on data that already exists. |
+| `TEMPLATE` | unset; for example `travel` | One environment set up for one use, from a template in `templates/`: its words, icons, modules and Lobby (unset, the environment uses the **Default** template). Only on a fresh data folder, and only without `BASE_DOMAIN` (with it, the host console and sign-up pick a template for each new environment). Ignored, with a line in the log, on data that already exists. |
 | `SIGNUP` | off | `on` turns on the server's sign-up route for a free environment. The start page has no sign-up form now, so nothing a person sees uses it yet. Needs `BASE_DOMAIN`. |
 | `CONTACT_EMAIL` | unset | Where the sign-up answer sends someone to write when sign-up is off. A commented example in the file. |
 

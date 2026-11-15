@@ -43,7 +43,7 @@ same host are not affected.
 
 An environment can be made from a template, such as Travel, which calls spaces trips and turns on the modules a
 trip needs. Manage's **Template** tab says which one, lists any module it couldn't turn on, with why, and lets
-you switch to another template or to none. See [Templates](userguide-templates.md).
+you switch to another template (the plain one is **Default**). See [Templates](userguide-templates.md).
 
 ## Signing up
 

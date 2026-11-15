@@ -2,17 +2,16 @@
 
 **Audience:** an owner setting up the AI on a Coffee Pub Chameleon server, and anyone asking it questions or bringing in research from another AI.
 
-The AI is asked from Chat now, in its **Assistant** tab or with `/ai`; see [Chat](userguide-chat.md), "Ask the AI". The Assistant tab shows only your own commands and answers. The Assistant module has no window of its own and is not on Set up's **Modules** tab. A new install leaves it out, even when its template lists it. Where it is installed, it keeps its **Use the assistant** permission, which decides who may use `/ai` and bring in research, and the AI hook; **Ask the assistant** asks in Chat. Research brought in from another AI comes in through Chat too.
+The AI is asked from Chat now, in its **Assistant** tab or with `/ai`; see [Chat](userguide-chat.md), "Ask the AI". The Assistant tab shows only your own commands and answers. The **AI Assistant** is a module (it was two things, a module and an "AI service"; they are one now), and it holds the AI setup. It has no window of its own and is not on Set up's **Modules** tab; Chat's Assistant tab is where its answers show. `/ai` and Research's AI controls need it installed and on: without it Chat says "AI Assistant is not turned on.", and a space whose template leaves it out says it is not one of the space's modules. The Travel and Games templates offer it; the others do not, though the Default template offers every module. Research brought in from another AI comes in through Chat too.
 
 ## Set it up (owner)
 
-1. Set up the AI itself first: on the Modules tab, **AI service** (none, OpenAI, Anthropic, or another OpenAI-compatible service), a model and a key, then **Approve and enable**. See [Modules](userguide-modules.md).
-2. Optional: to limit who may use `/ai` by role, choose **Install** beside Assistant on the Modules tab, then **Approve and enable**. A module that is enabled is on in every space.
-3. On the Roles tab, under Module: Assistant, **Use the assistant** no longer decides who may use `/ai`. **Use AI in modules**, under AI, does, for `/ai` and for AI inside other modules (Research's **Suggest tags**) alike. It starts on for moderators and members. Guests never can, and nobody can in a space where **Turn AI off in this space** is ticked.
+1. On Manage, **Modules**, choose **Install** beside **AI Assistant**, then **Approve and enable**. Its own tab (**Modules**, then **AI Assistant**) holds the setup: a company (none, OpenAI, Anthropic, or another OpenAI-compatible service), a model and a key, then the switch at the top of the tab. See [Modules](userguide-modules.md), "The AI Assistant".
+2. On the Roles tab, under Module: AI Assistant, **Use the assistant** is the permission the module holds; **Use AI in modules**, under AI, is what decides who may use `/ai` and AI inside other modules (Research's **Suggest tags**) alike. It starts on for moderators and members. Guests never can, and nobody can in a space where **Turn AI off in this space** is ticked.
 
-4. Optional: on the AI configuration page, choose what goes to the AI with a question (**What AI may see**) and read **AI use this month**. Both are described in [Modules](userguide-modules.md), "The AI service". By default the AI is sent the objects a person attaches, related and linked objects, and the person's own earlier questions, and may look this space's objects up while it answers (only those the person could open), never the chat or the list of people, and never another space's objects.
+3. Optional: on the same tab, choose what goes to the AI with a question (**What AI may see**) and read **AI use this month**. Both are described in [Modules](userguide-modules.md), "The AI Assistant". By default the AI is sent the objects a person attaches, related and linked objects, and the person's own earlier questions, and may look this space's objects up while it answers (only those the person could open), never the chat or the list of people, and never another space's objects.
 
-Without the Assistant installed, `/ai` works the same way for anyone signed in whose role may use AI, wherever AI is not turned off.
+Who may use it: anyone signed in whose role may use AI, wherever AI is not turned off, while the AI Assistant is installed and on.
 
 Under each answer, **AI used:** says what went with the question, so a person can check an answer against what the AI was given; see [Chat](userguide-chat.md), "Ask the AI".
 
