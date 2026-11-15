@@ -23,11 +23,11 @@ function cleanDone(raw) {
   return out;
 }
 
-// What the entries say, { <phase id>: { done, total } }, from object summaries (server/index.js objectSummary): only an
+// What the entries say, { <phase id>: { done, total } } (an object with no prototype; read it with Object.hasOwn), from object summaries (server/index.js objectSummary): only an
 // entry that names one of `phases` and says done or not done counts (a note with no done is not a goal to finish).
 function tallyOf(phases, summaries) {
   const known = new Set((Array.isArray(phases) ? phases : []).map((p) => p.id));
-  const out = {};
+  const out = Object.create(null); // no prototype: a phase called `constructor` or `toString` must not land on Object's own members
   for (const s of Array.isArray(summaries) ? summaries : []) {
     if (!s || typeof s.phase !== 'string' || !known.has(s.phase) || typeof s.done !== 'boolean') continue;
     const t = out[s.phase] || (out[s.phase] = { done: 0, total: 0 });
@@ -47,8 +47,9 @@ function statesOf(phases, measure, switches, tally) {
   const on = cleanDone(switches);
   let current = false;
   return list.map((p) => {
-    const t = measure === 'goals' && tally && tally[p.id] && tally[p.id].total > 0 ? tally[p.id] : null;
-    const done = t ? t.done === t.total : on[p.id] === true;
+    const counted = measure === 'goals' && tally && Object.hasOwn(tally, p.id) ? tally[p.id] : null;
+    const t = counted && counted.total > 0 ? counted : null;
+    const done = t ? t.done === t.total : Object.hasOwn(on, p.id) && on[p.id] === true;
     const out = { ...p, done, ...(t ? { goals: { done: t.done, total: t.total } } : {}) };
     if (!done && !current) { out.current = true; current = true; }
     return out;

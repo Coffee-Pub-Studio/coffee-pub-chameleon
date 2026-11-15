@@ -46,9 +46,33 @@ await test('tallyOf counts only entries that name a known phase and say done or 
     { phase: 'nope', done: true }, { done: true }, { phase: 5, done: true }, null, 'x', { phase: 'start', done: 'yes' },
     { phase: 'wrap', done: true },
   ]);
-  assert.deepEqual(t, { build: { done: 1, total: 2 }, wrap: { done: 1, total: 1 } });
-  assert.deepEqual(M.tallyOf(PHASES, null), {});
-  assert.deepEqual(M.tallyOf(null, [{ phase: 'build', done: true }]), {});
+  assert.deepEqual({ ...t }, { build: { done: 1, total: 2 }, wrap: { done: 1, total: 1 } });
+  assert.deepEqual({ ...M.tallyOf(PHASES, null) }, {});
+  assert.deepEqual({ ...M.tallyOf(null, [{ phase: 'build', done: true }]) }, {});
+});
+
+await test('phase ids that are Object members are counted from entries and touch nothing global', () => {
+  const ids = ['constructor', 'toString', 'hasOwnProperty', '__proto__', 'valueOf'];
+  const phases = ids.map((id) => ({ id, label: id }));
+  const t = M.tallyOf(phases, ids.flatMap((id) => [{ phase: id, done: true }, { phase: id, done: false }]));
+  for (const id of ids) {
+    assert.equal(Object.hasOwn(t, id), true, id);
+    assert.deepEqual({ ...t[id] }, { done: 1, total: 2 }, id);
+  }
+  assert.equal(Object.total, undefined);
+  assert.equal(Object.done, undefined);
+  assert.equal(Function.prototype.total, undefined);
+  assert.equal(Object.prototype.total, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(t)).constructor, { done: 1, total: 2 });
+  const states = M.statesOf(phases, 'goals', {}, t);
+  assert.deepEqual(states.map((p) => p.goals), ids.map(() => ({ done: 1, total: 2 })));
+  assert.equal(states.every((p) => p.done === false), true);
+  // no entries and no switch: not done, and a prototype member is never mistaken for a count or a switch
+  const bare = M.statesOf(phases, 'goals', {}, M.tallyOf(phases, []));
+  assert.equal(bare.every((p) => p.done === false && !p.goals), true);
+  const all = M.tallyOf([{ id: 'constructor' }], [{ phase: 'constructor', done: true }]);
+  assert.deepEqual(M.statesOf([{ id: 'constructor', label: 'c' }], 'goals', {}, all)[0].done, true);
+  assert.equal(Object.total, undefined);
 });
 
 await test('dates: the phases as they are, no state', () => {
@@ -311,6 +335,21 @@ try {
     assert.deepEqual((await states(as(mia))).phases[1].goals, undefined, 'off in this space: its entries name nothing');
     await setTemplate({ modules: whole });
     assert.deepEqual((await states(as(mia))).phases[1].goals, { done: 2, total: 2 });
+  });
+
+  await test('a phase called constructor is measured by its goals and its Done switch answers 409', async () => {
+    await setTemplate({ phases: [{ id: 'constructor', label: 'Build' }, { id: 'wrap', label: 'Wrap up' }], phaseMeasure: 'goals' });
+    await put('plan:c1', { title: 'One', phase: 'constructor', done: true });
+    await put('plan:c2', { title: 'Two', phase: 'constructor', done: false });
+    let got = await states(as(mia));
+    assert.deepEqual(got.phases.map((p) => [p.id, p.done, p.goals, p.current]), [['constructor', false, { done: 1, total: 2 }, true], ['wrap', false, undefined, undefined]]);
+    assert.deepEqual(answer(await asAdmin('PUT', `${phasesUrl}/constructor/done`, { done: true })), [409, { error: 'Build is done when every goal that names it is done, so it has no Done switch.' }]);
+    assert.equal((await asAdmin('PUT', `${phasesUrl}/wrap/done`, { done: true })).status, 200, 'a phase no entry names still has the switch');
+    await put('plan:c2', { title: 'Two', phase: 'constructor', done: true });
+    got = await states(as(mia));
+    assert.deepEqual(got.phases.map((p) => [p.id, p.done]), [['constructor', true], ['wrap', true]]);
+    assert.equal((await asAdmin('PUT', `${phasesUrl}/wrap/done`, { done: false })).status, 200);
+    await setTemplate({ phases: PHASES, phaseMeasure: 'goals' });
   });
 
   await test('a phase named in a way that is not a phase id counts for nothing', async () => {

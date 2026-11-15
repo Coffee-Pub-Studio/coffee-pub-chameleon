@@ -5050,7 +5050,8 @@ app.put('/api/spaces/:id/phases/:phase/done', requireUser, (req, res) => {
   const measure = look.phaseMeasure || 'dates';
   if (measure === 'dates') return res.status(409).json({ error: `Phases here are measured by their dates, so ${phase.label} has no Done switch.` });
   if (measure === 'goals') {
-    const counted = phaseStatesOf(space.id).tally?.[phase.id];
+    const tally = phaseStatesOf(space.id).tally;
+    const counted = tally && Object.hasOwn(tally, phase.id) ? tally[phase.id] : null;
     if (counted && counted.total > 0) return res.status(409).json({ error: `${phase.label} is done when every goal that names it is done, so it has no Done switch.` });
   }
   store.setPhaseDone(space.id, phase.id, req.body.done);
