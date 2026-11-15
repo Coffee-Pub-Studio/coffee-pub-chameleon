@@ -226,7 +226,7 @@
   const ADDS = () => (canEdit ? SC_KINDS.map((k) => ({ id: k, label: cap(`Add ${kindWord(k, { a: true })}`), icon: KIND_ICON[k] })) : []);
   function chrome() {
     host.add.set(ADDS()).catch(() => {});
-    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'ellipsis', title: 'More', zone: 'end' }]).catch(() => {});
+    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'ellipsis', title: 'Export and import', zone: 'end' }]).catch(() => {});
     const p = scProgress(list(), state.settings.progressBy);
     const what = state.settings.progressBy === 'work' ? kindWord('work', { many: true }) : kindWord('milestone', { many: true });
     host.status.set(p.total ? [{ text: `${p.done} of ${p.total} ${what} done`, icon: 'diagram-project' }] : []).catch(() => {});

@@ -341,7 +341,7 @@
     host.menu.show({ id: 'plan-more', at: { x: Number(e.x) || 0, y: 4 }, items: moreItems() });
   });
   function syncToolbar() {
-    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'ellipsis', title: 'More', zone: 'end' }]).catch(() => {});
+    host.toolbar.set([{ type: 'button', id: 'plan-more', icon: 'ellipsis', title: 'Export and import', zone: 'end' }]).catch(() => {});
   }
 
   // ---- live changes --------------------------------------------------------------------------------------------------
