@@ -66,8 +66,8 @@ export function conferenceAllowed({ callService = true, conferenceEnabled = true
   return callService !== false && conferenceEnabled !== false && Boolean(permitted);
 }
 
-// Whether entering a space joins the call by itself (GitHub #199, the environment's "join the call on entering"
-// switch, branding.autoJoinCall). Only with the switch on; never while already in the call; only for a person the Join
+// Whether entering a space joins the call by itself (GitHub #199; the space's `call.joinOnEntry`, from its look). Only with
+// the setting on (`setting`); never while already in the call; only for a person the Join
 // button would show to (`canJoin`: connected, the conference allowed here for them); never in an aside (an aside is the
 // call already, and a pull into one keeps the call on its own); and not for a person who left the call since they
 // entered (`left`): they stay out until they enter again. Asked once per entry, so a join never repeats.

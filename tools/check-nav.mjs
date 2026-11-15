@@ -2328,7 +2328,7 @@ fs.copyFileSync(path.join(ROOT, 'public/space-setup.js'), setupCopy);
   copyImports('space-setup.js');
   assert.ok(['action-bar.js', 'phase-sheet.js', 'ai-sees.js'].every((f) => copied.has(f)), 'the panel\'s imports are copied with it');
 }
-const { setupTabs, pickTab, setupAddress, setupPatch, dirtyTabs, takeSaved, problemField, setupSaidWords, configurationLabel, MODERATOR_FIELDS, tabOfField, LAYOUT_IDS, tabsWhole, layoutRows, withLayoutShown, withLayoutMoved, movedWords, withOpensFirst, budgetEntryProblem, budgetWanted, BUDGET_NOT_A_NUMBER } = await import(pathToFileURL(setupCopy).href);
+const { setupTabs, pickTab, setupAddress, setupPatch, dirtyTabs, takeSaved, problemField, setupSaidWords, configurationLabel, MODERATOR_FIELDS, tabOfField, LAYOUT_IDS, tabsWhole, layoutRows, withLayoutShown, withLayoutMoved, movedWords, withOpensFirst, budgetEntryProblem, budgetWanted, BUDGET_NOT_A_NUMBER, callPatch, callTabOf } = await import(pathToFileURL(setupCopy).href);
 fs.rmSync(tmp, { recursive: true, force: true });
 
 test('Set up: a right-zone tool after your picture, before the window controls, for owners, the admin and moderators; Save and Cancel are the panel\'s action bar, not the top bar\'s', () => {
@@ -2416,7 +2416,7 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   for (const id of ['setup-open', 'setup-entry-accounts', 'setup-allow-guests', 'setup-entry-guests']) assert.match(setup, new RegExp(`switchRow\\('${id}'`), `the panel has the Who can enter switch #${id}`);
   assert.match(setup, /if \(!space\.isLobby\) \{\n\s*parts\.push\(sectionHtml\('calendar'/, 'the Lobby has no calendar switch and no Delete');
   assert.match(setup, /\$\{id === 'space' && !space\.isLobby \? dangerSectionHtml\(\) : ''\}<\/div>`/, 'Delete is drawn last on the space tab, after the budget section, and not on the Lobby');
-  assert.ok(setup.indexOf("${id === budgetTabOf(tabs) && !space.isLobby ? budgetSectionHtml() : ''}${id === 'space'") > 0, 'Budget comes before Delete');
+  assert.ok(setup.indexOf("${id === budgetTabOf(tabs) && !space.isLobby ? budgetSectionHtml() : ''}${id === callTabOf(tabs) && callAsked() ? callSectionHtml() : ''}${id === 'space'") > 0, 'Budget comes before the Call, and both before Delete');
   assert.ok(!/parts\.push\(sectionHtml\('danger'/.test(setup), 'spaceTabHtml no longer puts Delete in the middle');
   assert.match(setup, /space\.isLobby\n\s*\? `<p class="hint">Everyone belongs to the/, 'the Lobby has no member switches');
   assert.match(setup, /Delete \$\{state\.space\.name\}\? Its \$\{membersWord\(\)\} stay in the Lobby\./, 'Delete\'s question names the space');
@@ -2472,6 +2472,19 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   assert.match(css, /\.setup-status \{\n\s*margin: 8px 0 0;/, 'the refusal line stands clear of the last hint');
 });
 
+
+test('Set up\'s call: its own body, only what changed, null for the template\'s; the Space tab for an owner, Settings for a moderator', () => {
+  assert.deepEqual(callPatch({ call: {} }, { call: {} }), {});
+  assert.deepEqual(callPatch({}, { call: { position: 'left' } }), { call: { position: 'left' } });
+  assert.deepEqual(callPatch({ call: { position: 'left', layout: 'strip' } }, { call: { position: null, layout: 'strip', joinOnEntry: true } }), { call: { joinOnEntry: true, position: null } }, 'null follows the template again');
+  assert.deepEqual(callPatch({ call: { joinOnEntry: false } }, { call: { joinOnEntry: false } }), {}, 'false is a value, not none');
+  assert.deepEqual(callPatch({ call: { position: 'sideways' } }, { call: {} }), {}, 'a value the page cannot use reads as none');
+  assert.deepEqual(setupPatch({ name: 'A' }, { name: 'A', call: { position: 'left' } }), {}, 'the call is never in the body of the rest');
+  assert.equal(callTabOf(['space', 'members', 'phases', 'modules']), 'space');
+  assert.equal(callTabOf(['phases', 'modules']), 'modules');
+  assert.equal(tabOfField('call', ['phases', 'modules']), 'modules');
+  assert.ok(dirtyTabs({ call: { layout: 'grid' } }, { tabs: ['space', 'modules'] }).has('space'));
+});
 test('Set up: one PATCH of what changed; the first visit\'s layout and Opens with are independent, each sent only when it changed', () => {
   const before = { name: 'Lisbon', profile: 'participants', opensWith: ['chat', 'todo'], defaultLayout: null };
   assert.deepEqual(setupPatch(before, { ...before }), {});

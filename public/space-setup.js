@@ -79,6 +79,7 @@ export const FIELD_TAB = Object.freeze({
   phases: 'phases',
   opensWith: 'modules', defaultLayout: 'modules', tabs: 'modules',
   aiOff: 'modules', aiSees: 'modules',
+  call: 'space',
 });
 // A module's settings, in the save's lists and its words, are `module:<id>`; they live on the Settings tab (id `modules`), as does the First visit section.
 // The tab the budget is on: the phases tab (every role with a Set up has it), else, when the template has no phases, the
@@ -117,7 +118,34 @@ export function modulesTabView(entry = null, word = undefined) {
 
 export const budgetTabOf = (tabs) => (tabs.includes('phases') ? 'phases' : tabs.includes('space') ? 'space' : 'modules');
 // Closing a space is an owner's on the Members tab, and a moderator's on the Settings tab (which has no Members tab).
-export const tabOfField = (f, tabs = null) => (f === 'budget' && tabs ? budgetTabOf(tabs) : f === 'closed' && tabs && !tabs.includes('members') ? 'modules' : FIELD_TAB[f] || (String(f).startsWith('module:') ? 'modules' : null));
+// The call's three settings (plan-templates-redesign.md, step 4; decision 37): on the space tab (an owner's), else the Settings tab (a moderator's).
+export const callTabOf = (tabs) => (tabs.includes('space') ? 'space' : 'modules');
+// What Set up offers for each, in the words a person reads (the call's own menu and layout buttons say the same). `null` is the
+// template's. The values are the server's (server/call-settings.js).
+export const CALL_POSITION_CHOICES = Object.freeze([
+  ['top', 'Top of the column'], ['bottom', 'Bottom of the column'], ['left', 'Left of the chat'], ['right', 'Right of the chat'],
+  ['float', 'Floating window'], ['workspace', 'In the workspace'], ['window', 'Its own window'],
+]);
+export const CALL_LAYOUT_CHOICES = Object.freeze([['grid', 'Grid'], ['strip', 'Strip'], ['focus', 'Focus'], ['spotlight', 'Spotlight']]);
+export const CALL_SAME = 'Same as the template';
+const callOf = (c) => {
+  const o = c && typeof c === 'object' ? c : {};
+  return {
+    joinOnEntry: typeof o.joinOnEntry === 'boolean' ? o.joinOnEntry : null,
+    position: CALL_POSITION_CHOICES.some(([v]) => v === o.position) ? o.position : null,
+    layout: CALL_LAYOUT_CHOICES.some(([v]) => v === o.layout) ? o.layout : null,
+  };
+};
+// The call's own PATCH body, `{ call: { <key>: value | null } }` with only the keys that changed (null follows the template
+// again), or {} when none did. Sent alone, never mixed with the rest (a moderator's body may hold the call only).
+export function callPatch(before = {}, after = {}) {
+  const was = callOf(before.call);
+  const now = callOf(after.call);
+  const call = {};
+  for (const k of Object.keys(was)) if (was[k] !== now[k]) call[k] = now[k];
+  return Object.keys(call).length ? { call } : {};
+}
+export const tabOfField = (f, tabs = null) => (f === 'call' && tabs ? callTabOf(tabs) : f === 'budget' && tabs ? budgetTabOf(tabs) : f === 'closed' && tabs && !tabs.includes('members') ? 'modules' : FIELD_TAB[f] || (String(f).startsWith('module:') ? 'modules' : null));
 
 // The four switches of Who can enter, from the stored fields: `open` (Members of the space; off = closed for set up),
 // `accounts` (all the environment's members), `invited` (Invited guests: the guest link) and `visiting` (Visiting guests, from
@@ -329,7 +357,7 @@ export function problemField(patch = {}, problem = '') {
 const FIELD_WORDS = {
   name: 'the name', description: 'the description', template: 'the template', profile: 'the faces in the call', link: 'the launch link', linkIcon: 'the link icon',
   publishCalendar: 'the published calendar', opensWith: 'Opens with', phases: 'the phase dates', aiOff: 'Turn AI off', aiSees: 'What AI may see',
-  defaultLayout: 'the first visit', tabs: 'the layouts', image: 'the picture', imageRemoved: 'the picture', budget: 'the budget',
+  defaultLayout: 'the first visit', tabs: 'the layouts', call: 'the call settings', image: 'the picture', imageRemoved: 'the picture', budget: 'the budget',
 };
 export function setupSaidWords({ saved = [], failed = null, problem = '' } = {}, { setUp = 'Set up', words = {} } = {}) {
   const wordOf = (f) => words[f] || FIELD_WORDS[f] || f;
@@ -338,7 +366,7 @@ export function setupSaidWords({ saved = [], failed = null, problem = '' } = {},
   if (failed) {
     const what = wordOf(failed);
     const why = problem ? ` ${problem[0].toUpperCase()}${problem.slice(1).replace(/\.?$/, '.')}` : '';
-    const many = ['members', 'phases'].includes(failed) || String(failed).startsWith('module:'); // "the players", "the Maps settings"
+    const many = ['members', 'phases', 'call'].includes(failed) || String(failed).startsWith('module:'); // "the players", "the Maps settings"
     return `${what[0].toUpperCase()}${what.slice(1)} ${many ? 'were' : 'was'} not saved.${why}${names.length ? ` ${list[0].toUpperCase()}${list.slice(1)} ${names.length > 1 ? 'were' : 'was'} saved.` : ''} Change it and press Save again, or Cancel.`;
   }
   if (!names.length) return `Nothing changed. Press ${setUp} to change something.`;
@@ -370,9 +398,10 @@ function beforeOf(space = {}) {
     aiOff: space.aiOff === true,
     aiSees: space.aiSees && typeof space.aiSees === 'object' ? fullSees(space.aiSees) : null,
     budget: budgetText(space.budget),
+    call: callOf(space.call), // the space's own; null for a key means the template's
   };
 }
-const copyOf = (b) => ({ ...b, tabs: tabsWhole(b.tabs), members: [...b.members], opensWith: b.opensWith ? [...b.opensWith] : null, phases: datesCopy(b.phases), budget: { ...b.budget }, aiSees: b.aiSees ? { ...b.aiSees, modules: Array.isArray(b.aiSees.modules) ? [...b.aiSees.modules] : b.aiSees.modules } : null });
+const copyOf = (b) => ({ ...b, tabs: tabsWhole(b.tabs), members: [...b.members], opensWith: b.opensWith ? [...b.opensWith] : null, phases: datesCopy(b.phases), budget: { ...b.budget }, call: { ...b.call }, aiSees: b.aiSees ? { ...b.aiSees, modules: Array.isArray(b.aiSees.modules) ? [...b.aiSees.modules] : b.aiSees.modules } : null });
 // After a step of the save went through: each field it sent is now what the server answered, in both `before` and the
 // draft, so a value the server normalized (a link stored as https://example.com/ for https://example.com) is no
 // change and leaves no dot. The fields it did not send stay as they were. Answers { before, draft }, new objects.
@@ -384,7 +413,7 @@ export function takeSaved(before = {}, draft = {}, fields = [], answer = {}) {
     if (!(k in fresh)) continue;
     const v = fresh[k];
     nextBefore[k] = v;
-    nextDraft[k] = Array.isArray(v) ? [...v] : k === 'tabs' ? tabsWhole(v) : k === 'phases' ? datesCopy(v) : k === 'budget' ? { ...v } : v;
+    nextDraft[k] = Array.isArray(v) ? [...v] : k === 'tabs' ? tabsWhole(v) : k === 'phases' ? datesCopy(v) : k === 'budget' || k === 'call' ? { ...v } : v;
   }
   return { before: nextBefore, draft: nextDraft };
 }
@@ -480,6 +509,47 @@ export function createSpaceSetup(deps) {
         </div>
         <p class="hint" id="setup-budget-hint"></p>`, { hidden: true });
   }
+
+  // The call (plan-templates-redesign.md, step 4): Join on entry, Position and Layout, each the template's until set. Drawn for
+  // every space but the Lobby and an aside, on the tab callTabOf names, and shown once the stored values are in (hidden
+  // until then, so nothing typed is lost). Saved with Save, as its own request. A person's own Position and Layout, picked in
+  // the call, win over these.
+  function callSectionHtml() {
+    const options = (list) => `<option value="">${esc(CALL_SAME)}</option>${list.map(([v, label]) => `<option value="${v}">${esc(label)}</option>`).join('')}`;
+    const field = (id, label, list, hint) => `<div class="setup-call-field"><label class="setup-call-label" for="${id}">${esc(label)}</label><select id="${id}" class="setup-call-select">${list}</select><p class="hint" id="${id}-now"></p></div>`;
+    return sectionHtml('call', '<span id="setup-call-heading">Call</span>', `
+        <div class="setup-call" role="group" aria-labelledby="setup-call-heading">
+          ${field('setup-call-join', 'Join on entry', `<option value="">${esc(CALL_SAME)}</option><option value="true">Join the call on entry</option><option value="false">Do not join on entry</option>`)}
+          ${field('setup-call-position', 'Position', options(CALL_POSITION_CHOICES))}
+          ${field('setup-call-layout', 'Layout', options(CALL_LAYOUT_CHOICES))}
+        </div>
+        <p class="hint">Joining on entry starts with the microphone and camera off. A person's own position and layout win once they pick them.</p>`, { hidden: true });
+  }
+  const callAsked = () => !state.space.isLobby && !state.space.isAside;
+  const callWord = (list, v) => (list.find(([x]) => x === v) || [, ''])[1];
+  function paintCall() {
+    const section = q('[data-section="call"]');
+    if (!section) return;
+    if (state.callIn) section.hidden = false;
+    const draft = state.draft.call;
+    q('#setup-call-join').value = draft.joinOnEntry === null ? '' : String(draft.joinOnEntry);
+    q('#setup-call-position').value = draft.position || '';
+    q('#setup-call-layout').value = draft.layout || '';
+    // What the call does now, from the server's own reading (the template's value where this space holds none).
+    const now = state.lookCall || {};
+    const say = (id, own, text) => { const n = q(`#${id}-now`); if (n) { n.textContent = own === null && text ? `Now: ${text}.` : ''; n.hidden = !n.textContent; } };
+    say('setup-call-join', draft.joinOnEntry, typeof now.joinOnEntry === 'boolean' ? (now.joinOnEntry ? 'joins on entry' : 'does not join on entry') : '');
+    say('setup-call-position', draft.position, callWord(CALL_POSITION_CHOICES, now.position));
+    say('setup-call-layout', draft.layout, callWord(CALL_LAYOUT_CHOICES, now.layout));
+  }
+  function wireCall() {
+    const set = (id, key, parse) => q(`#${id}`)?.addEventListener('change', (event) => { state.draft.call[key] = parse(event.target.value); refresh(); });
+    set('setup-call-join', 'joinOnEntry', (v) => (v === 'true' ? true : v === 'false' ? false : null));
+    set('setup-call-position', 'position', (v) => v || null);
+    set('setup-call-layout', 'layout', (v) => v || null);
+  }
+  // The call's own body now, or {} (nothing changed, or the section is not here for this space).
+  const callPatchNow = () => (state && callAsked() && state.callIn ? callPatch(state.before, state.draft) : {});
 
   function membersTabHtml() {
     const { space } = state;
@@ -739,7 +809,7 @@ export function createSpaceSetup(deps) {
     const { tabs, space } = state;
     const one = tabs.length === 1;
     const tabButtons = tabs.map((id) => `<button type="button" role="tab" class="setup-tab" id="setup-tab-${id}" data-tab="${id}" aria-controls="setup-content-${id}" aria-selected="false" tabindex="-1"><span class="setup-tab-label">${esc(tabLabel(id))}</span><span class="setup-tab-dot" aria-hidden="true" hidden></span><span class="visually-hidden setup-tab-unsaved"></span></button>`).join('');
-    const contents = tabs.map((id) => `<div role="tabpanel" class="setup-tab-content" id="setup-content-${id}" data-tab="${id}" aria-labelledby="setup-tab-${id}" tabindex="-1" hidden>${TAB_HTML[id]()}${id === budgetTabOf(tabs) && !space.isLobby ? budgetSectionHtml() : ''}${id === 'space' && !space.isLobby ? dangerSectionHtml() : ''}</div>`).join('');
+    const contents = tabs.map((id) => `<div role="tabpanel" class="setup-tab-content" id="setup-content-${id}" data-tab="${id}" aria-labelledby="setup-tab-${id}" tabindex="-1" hidden>${TAB_HTML[id]()}${id === budgetTabOf(tabs) && !space.isLobby ? budgetSectionHtml() : ''}${id === callTabOf(tabs) && callAsked() ? callSectionHtml() : ''}${id === 'space' && !space.isLobby ? dangerSectionHtml() : ''}</div>`).join('');
     el.innerHTML = `
       <div class="setup-head">
         <h2 id="space-setup-title">${esc(one ? tabLabel(tabs[0]) : configLabel())}</h2>
@@ -959,6 +1029,7 @@ export function createSpaceSetup(deps) {
     paintAiSees();
     paintBudgetSection();
     paintBudget();
+    paintCall();
     paintPhases();
     if (opts.nameInput && state.owner) opts.nameInput.value = draft.name;
   }
@@ -1560,6 +1631,7 @@ export function createSpaceSetup(deps) {
     const ai = q('#setup-ai-off');
     if (ai) ai.addEventListener('change', () => { state.draft.aiOff = ai.checked; });
     wireAiSees();
+    wireCall();
     const list = q('#setup-opens-with');
     if (list) list.addEventListener('change', (event) => {
       if (event.target.type !== 'checkbox') return;
@@ -1598,13 +1670,13 @@ export function createSpaceSetup(deps) {
   // The modules whose settings were changed here: [{ id, name, values }] (module-settings.js, its draft mode).
   const moduleChanges = () => (state.moduleSettings ? state.moduleSettings.changes() : []);
   function dirtyNow() {
-    return dirtyTabs(patchNow(), { image: imageChanged(), modules: moduleChanges().length > 0, tabs: state.tabs });
+    return dirtyTabs({ ...patchNow(), ...callPatchNow() }, { image: imageChanged(), modules: moduleChanges().length > 0, tabs: state.tabs });
   }
   // Whether something would be lost on Cancel: the PATCH has something in it, a picture was chosen or removed, or a
   // module's settings changed.
   function isDirty() {
     if (!state) return false;
-    return Object.keys(patchNow()).length > 0 || imageChanged() || moduleChanges().length > 0;
+    return Object.keys(patchNow()).length > 0 || Object.keys(callPatchNow()).length > 0 || imageChanged() || moduleChanges().length > 0;
   }
 
   // What the panel draws comes from the server: the space's whole record and the accounts (an owner's tabs), the
@@ -1615,19 +1687,30 @@ export function createSpaceSetup(deps) {
     for (const k of Object.keys(fresh)) {
       if (k === 'opensWith' || k === 'defaultLayout') continue; // loadOptions has these from the first visit's own answer
       if (sameValue(state.draft[k], state.before[k])) {
-        state.draft[k] = Array.isArray(fresh[k]) ? [...fresh[k]] : k === 'tabs' ? tabsWhole(fresh[k]) : k === 'phases' ? datesCopy(fresh[k]) : k === 'budget' ? { ...fresh[k] } : fresh[k];
+        state.draft[k] = Array.isArray(fresh[k]) ? [...fresh[k]] : k === 'tabs' ? tabsWhole(fresh[k]) : k === 'phases' ? datesCopy(fresh[k]) : k === 'budget' || k === 'call' ? { ...fresh[k] } : fresh[k];
         state.before[k] = fresh[k];
       }
     }
     state.space = { ...state.space, ...record };
     state.links = { guestToken: record.guestToken || null, allowGuests: record.allowGuests !== false };
   }
+  // The call's stored values and the one in force are known: the Call section shows (paintCall).
+  function takeCall(record, lookCall) {
+    state.lookCall = lookCall;
+    const fresh = callOf(record.call);
+    if (sameValue(state.draft.call, state.before.call)) state.draft.call = { ...fresh };
+    state.before.call = fresh;
+    state.callIn = true;
+    paintCall();
+  }
   // A moderator's own answer for the space ({ id, phases, opensWith, defaultLayout, budget }) holds the stored budget and
   // nothing else of the record, so only the budget is taken from it; the module list they may use is loadOptions'.
   async function loadModeratorParts(space) {
-    const record = await api('GET', `/api/spaces/${encodeURIComponent(space.id)}`).then((r) => r.space).catch(() => null);
+    let lookCall = null;
+    const record = await api('GET', `/api/spaces/${encodeURIComponent(space.id)}`).then((r) => { lookCall = r.look && r.look.call ? r.look.call : null; return r.space; }).catch(() => null);
     if (!state || state.space.id !== space.id) return;
-    if (!record) return; // the stored target is not known: the Budget section stays hidden rather than risk replacing it
+    if (!record) return;
+    takeCall(record, lookCall); // the stored target is not known: the Budget section stays hidden rather than risk replacing it
     paintTemplateSeen(record, !space.isLobby && await spaceTemplatesOn(api));
     if (!state || state.space.id !== space.id) return;
     const fresh = budgetText(record.budget);
@@ -1716,15 +1799,16 @@ export function createSpaceSetup(deps) {
   }
   async function loadOwnerParts(space) {
     const id = encodeURIComponent(space.id);
+    let lookCall = null; // the call as it is in force now (the template's, then this space's own): GET's `look.call`
     const [record, users, installed, ai, templates] = await Promise.all([
-      api('GET', `/api/spaces/${id}`).then((r) => r.space).catch(() => null),
+      api('GET', `/api/spaces/${id}`).then((r) => { lookCall = r.look && r.look.call ? r.look.call : null; return r.space; }).catch(() => null),
       space.isLobby ? Promise.resolve([]) : api('GET', '/api/users').then((r) => r.users || []).catch(() => []),
       api('GET', '/api/modules').then((r) => r.modules || []).catch(() => null),
       api('GET', '/api/ai').then((r) => r.ai || null).catch(() => null),
       space.isLobby ? Promise.resolve(null) : loadTemplateChoices(api), // the Lobby has no template of its own
     ]);
     if (!state || state.space.id !== space.id) return;
-    if (record) takeServerSpace(record);
+    if (record) { takeServerSpace(record); takeCall(record, lookCall); }
     // Visiting guests does something only while the host's guest sign-in is on; the environment's name is in the second switch.
     const branding = await api('GET', '/api/branding').catch(() => ({}));
     if (!state || state.space.id !== space.id) return;
@@ -1887,7 +1971,7 @@ export function createSpaceSetup(deps) {
     name: '#setup-name', description: '#setup-description', template: '#setup-template', profile: '#setup-profile', link: '#setup-link', linkIcon: '#setup-link-icon [aria-checked="true"]',
     publishCalendar: '#setup-publish-calendar', members: '#setup-members input', allowGuests: '#setup-allow-guests', entry: '#setup-entry-accounts', closed: '#setup-open', requestAccess: '#setup-request-access', budget: '#setup-budget-amount',
     opensWith: '#setup-opens-with input', defaultLayout: 'input[name="setup-first-visit"]:checked', tabs: '#setup-layout-rows [data-layout-show]:not(:disabled)', image: '.setup-picture-pick input', imageRemoved: '.setup-picture-pick input',
-    phases: '#setup-phase-list input:not(:disabled)', aiOff: '#setup-ai-off', aiSees: '#setup-ai-sees-follow',
+    phases: '#setup-phase-list input:not(:disabled)', aiOff: '#setup-ai-off', aiSees: '#setup-ai-sees-follow', call: '#setup-call-join',
   };
   // The fields in this environment's words: the members, the guest link switch, and each module's settings by its name.
   function fieldWords() {
@@ -1948,6 +2032,21 @@ export function createSpaceSetup(deps) {
           }
         } catch (err) {
           return refused(saved, problemField(patch, err.message), err.message);
+        }
+      }
+      // The call is its own request, on its own: a moderator's body may hold nothing else with it.
+      const callBody = callPatchNow();
+      if (callBody.call) {
+        try {
+          const back = (await api('PATCH', `/api/spaces/${encodeURIComponent(space.id)}`, callBody)).space;
+          saved.push('call');
+          if (back) {
+            answered = back;
+            ({ before: state.before, draft: state.draft } = takeSaved(state.before, state.draft, ['call'], back));
+          }
+        } catch (err) {
+          if (saved.length && typeof opts.onSaved === 'function') opts.onSaved(answered, saved);
+          return refused(saved, 'call', err.message);
         }
       }
       if (image.file) {
