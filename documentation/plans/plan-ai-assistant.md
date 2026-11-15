@@ -4,8 +4,8 @@
 side (the secret, the routes, the checks, the host path) and experience-design builds the Manage tab and the Assistant
 surface. A security QA read is needed on the jobs marked below. content-manager documents after.
 
-**Status:** Draft for Thomas, 2026-11-12, by product-planner. Nothing is built. Thomas answered the planning question and
-questions 1, 2, 3 and 5 on 2026-11-12 (recorded under Decisions); questions 4 and 6 are open and do not block the first
+**Status:** Built, jobs J1 to J6, as of 2026-11-15 (J1 #784; J2 #824; J3, J4 and J5 #825; J6 #826; also #827 and #839), as `architecture-ai` says. Not recorded as built here: J7 (the checks, partly changed by #839) and J8 (the documentation; `architecture-ai` is written). Drafted for Thomas, 2026-11-12, by product-planner. Thomas answered the planning question and
+questions 1, 2, 3 and 5 on 2026-11-12 (recorded under Decisions); questions 4 and 6 are still open as decisions (as built: Travel and Games list the module so a new environment has it on with AI off, #827, and the `/api/ai` paths stay; Thomas confirms or changes both) and did not block the first
 build step.
 
 ## The brief

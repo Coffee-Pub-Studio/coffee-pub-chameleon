@@ -10,7 +10,11 @@ walks the result; content-manager documents it after.
 
 **Status:** Approved for build as a production build (Thomas, 2026-11-15, decision 48); decisions complete, none open.
 Amended 2026-11-15 (decision 50): the pages come first. Step 11 is split into 11a and 11b, and the planners wait for 11a.
-Revised 2026-11-15 by product-planner. Nothing is built yet. The first draft (#831) suggested
+Built, as of 2026-11-15 (read from `git log origin/main` and the code): steps 1 to 10 (#838 to #847, #836, #837), 11a and
+11b (#838, #851), 12 (#850), 13 (#858), 14 (#859), 15 (#853) and 15b (#860) are merged. Step 16, QA, is in progress. The
+documentation of batch 9 landed (#861). Several things differ from this plan or are not built; each is under "Built
+differently than planned", marked **Divergence called out**.
+Revised 2026-11-15 by product-planner. The first draft (#831) suggested
 modes inside one Planner; Thomas decided the other way the same day: **dedicated planners, one module per genuinely
 different shape** (decision 28). His test, in his words as recorded: are the variations between the possible planners
 bigger than their shared core? He judged yes. He also answered three of the first draft's questions (the `aside` word and
@@ -752,9 +756,12 @@ environment's default template.
   environment, owner and aside words removed; its planner the Schedule outline (decision 42); Maps with picture maps; starter session notes
   and a handout); **Project**, **Learning** and **Mentoring** new, per "What each template turns on".
   `tools/template-versions.json` records each.
-- **What step 15 shipped:** Travel, Games, Project, Learning and Mentoring. Games carries the interim `travel` planner,
-  not the Schedule outline of decision 42, and no template has a `schedule` or `goals` planner line until steps 13 and
-  14 land (those planners do not exist before then). Each template's Vault is named Vault (decision 51).
+- **What steps 15 and 15b shipped:** Travel, Games, Project, Learning and Mentoring, each in the new shape (step 15, #853),
+  and then their planners (step 15b, #860). Project and Games list the Schedule outline (`schedule`); Games names it
+  "Campaign" (decision 42), with `milestone` reading "session", `work` "scene" and `tag` "story thread". Learning and
+  Mentoring list the Goal outline (`goals`). Travel keeps `travel`. Each template's Vault is named Vault (decision 51).
+  The interim `travel` planner step 15 gave Games is gone. Games' starter tags, and the words, names and seeded
+  categories of Project, Learning and Mentoring, were chosen by the builder; see "Built differently than planned".
 
 ## Behaviour by role and surface
 
@@ -946,6 +953,89 @@ What content-manager documents once each step lands:
 - For Thomas: the Names section of `CLAUDE.md` says the word a person reads changes per template; decisions 5 and 32
   lock eight names and two verbs. It also still lacks Customizable Workspace and Fixed Workspace.
 
+## Built differently than planned
+
+Recorded 2026-11-15 from the content manager's reading of the code on main (steps 1 to 15b merged), and matched to
+`documentation/known-issues.md` and `documentation/TODO.md`. Nothing here changes a decision. Each item is a
+**Divergence called out**: what the plan said, what is built, and, where the choice is Thomas's, **Thomas decides**.
+None was seen in a browser by product-planner.
+
+### Core and pages
+
+1. **Divergence called out: the Outline's keys.** The plan said (the SDK table, `host.ui.outline`) that the keyboard
+   moves an entry with Tab and Shift+Tab to indent and outdent. Built: Alt+Up, Alt+Down, Alt+Right and Alt+Left (Tab
+   and Shift+Tab are left to move focus). Thomas decides whether the keys stay.
+2. **Divergence called out: the Planner's catalog name.** Decision 45 and the module table say `modules/travel` is
+   named "Planner - Travel" (a words-only patch bump). Built: its manifest still says "Planner" at 0.16.7. Thomas
+   decides when it is renamed; the rename is not done.
+3. **Divergence called out: the change-of-template confirm.** "What happens to an existing space when its template
+   changes" wanted the confirm to name the modules that turn off and on and to say the old planner keeps its plan
+   (decision 31, risk 6). Built: "Its words, phases and <module> names change now. Nothing is removed." Nothing is
+   lost; the confirm is short. Thomas decides whether the longer confirm is built.
+4. **Divergence called out: settings the templates are meant to drive that do not exist.** Step 12 and the module table
+   listed Budget's `unit` (driven) and `split` (default), To-do's `owners` (with `host.ui.peoplePicker`), Documents'
+   `defaultEditor`, and Maps' real map and picture map switches. Built: none of them (Budget 0.1.26, To-do 1.15.31,
+   Documents 0.11.32, Maps 0.10.4). Project's "Effort", Learning's and Mentoring's "Time" and Games' maps are names and
+   categories only. Thomas decides whether they are built and when.
+5. **Divergence called out: labels declared and not read.** The plan said each module reads its labels through
+   `host.util.label`. Built: Maps (`place`), Research (`note`) and Whiteboard (`board`) declare theirs and their pages
+   do not read them, so a template renaming one changes nothing there. Thomas decides whether they are wired.
+6. **Divergence called out: the host console.** Decision 39 said the host edits templates on the same pages as Manage.
+   Built: the console edits one form with a jump list; it cannot edit a module's settings, labels or starter content
+   (they are kept as they are), and its starter space name box takes 60 characters where the server refuses over 40.
+   Thomas decides whether the console gets the Manage pages.
+7. **Divergence called out: no Manage page for a template's call settings or starter spaces.** The pages table listed
+   them. Built: an owner's copy keeps those of the template it was copied from, and the host console edits them.
+   Thomas decides whether Manage gets the pages.
+8. **Divergence called out: "Driven in N spaces" is not built.** The plan's "Pages" wanted a module's page to show how
+   many spaces a driven setting reaches. Built: nothing; the console's **Used by** counts environments and spaces
+   only. Thomas decides whether it is built.
+9. **Divergence called out: planners accept no drop of an object.** The plan's refs and actions said an add action per
+   kind so a drop, Chat and the AI Assistant can add to a planner, as the Itinerary's `addStop`. Built: the add actions
+   exist; neither new planner takes a drop of an object from another module (links are made in the entry's form).
+   Thomas decides whether drops are built.
+10. **Divergence called out: starter writes skip the data route's rate limit.** Decision 41 and the starter contract
+    said the server writes starter content through the data route's own checks. Built: every check except the
+    per-person rate limit (`putModuleValue` is below it); the 20 keys and 64 KB caps and the once-only rule are the
+    bound. Thomas decides whether the limit applies.
+11. **Divergence called out: `templateValue` and `templateName`.** The plan said `GET /api/module-settings/:scope` adds
+    `template`, `templateValue` and `locked` per setting. Built: `templateValue` (and `templateName`, which is not in
+    the plan) is present only while the template gives a value for that setting. Thomas decides whether the shape
+    stays.
+
+### Planner - Projects (`schedule`, the Schedule outline)
+
+12. **Divergence called out: a milestone's day is stored in `start`, with no `end`.** The plan's kinds said a milestone
+    has "a date". Built: one day in `start`; work has `start` and `end`.
+13. **Divergence called out: notes stay off the Timeline.** The plan's Timeline drew work, milestones and "waits on"
+    lines and put undated entries in "Not scheduled". Built: notes appear in the List only. Thomas decides.
+14. **Divergence called out: the add actions refuse with a sentence** when `datesRequired` is on and a day is missing,
+    where the plan only said dates are needed. Thomas decides whether that stays.
+15. **Divergence called out: day limits.** Not in the plan: a day is from 1900 to 2200, and at most 104 weeks are drawn on
+    the Timeline. Thomas decides whether the limits stay.
+16. **Divergence called out: no phase bands on the Timeline.** Not built, and no drag on the Timeline. Thomas decides.
+
+### Planner - Goals (`goals`, the Goal outline)
+
+17. **Divergence called out: object links added.** The plan had To-do tasks, Documents, Research and Calendar sessions
+    link to a goal or a step from their own side. Built: the goal's own form also has **Link something**. Thomas
+    decides whether it stays.
+18. **Divergence called out: `shownDate`.** Not in the plan: a stored field, so that no dates reach the Calendar
+    while the `dates` setting is off.
+19. **Divergence called out: `defaultView` is per person.** The plan marked it `default` (an owner's or a template's
+    value, the person's own choice winning). Built: it is each person's own setting. Thomas decides.
+20. **Divergence called out: the kind words are fixed.** The plan listed `goal`, `step`, `note` and `owner` as labels a
+    template may rename (Mentoring's `owner` reads "mentee"). The content manager found the kind words fixed in the
+    module; the manifest declares the four labels, and product-planner did not trace where the pages ignore them.
+    Thomas decides.
+21. **Divergence called out: two caps.** Not in the plan: 500 loose entries, and 200 writes per load. Thomas decides.
+
+### The shipped templates
+
+22. **Divergence called out: words chosen by the builder.** Games' starter tags, and the words, names and seeded
+    categories of Project, Learning and Mentoring, were chosen by the builder and wait for Thomas's review. Thomas
+    decides each.
+
 ## Left to build, in order
 
 Sizes: S under a day, M a day or two, L several days. **Core** steps are held for an independent read;
@@ -990,3 +1080,9 @@ planner modules, do not start until 11a is merged and Thomas has seen it, unless
 ## Open questions
 
 None open. Thomas answered all thirteen on 2026-11-15; they are decisions 35 to 47.
+
+**Where the steps stand (2026-11-15):** merged: 1 and 11a (#838), 2 and 3 (#840), 4 (#846), 5 (#845), 6 (#843), 7 (#844,
+#852), 8 (#847), 9 (#837), 10 (#836), 11b (#851), 12 (#850), 13 (#858), 14 (#859), 15 (#853) and 15b (#860). Also merged
+after the plan: Vault in every template (#855), the phase id fix (#856). Step 16, QA: in progress. Step 17, the
+documentation of batch 9: landed (#861), with the gaps under "Built differently than planned" recorded in
+`documentation/known-issues.md`.
