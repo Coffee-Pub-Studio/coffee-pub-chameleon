@@ -25,7 +25,7 @@ function problemOfValue(key, value, at = '') {
 // when the space holds none (the caller stores nothing then); `error` one plain sentence and nothing changes.
 function applyCallPatch(stored, patch) {
   if (patch === null) return { call: {} };
-  if (!isObject(patch)) return { error: `The call's settings are sent as an object with ${CALL_KEYS.join(', ')}, or null to follow the template.` };
+  if (!isObject(patch)) return { error: `The call's settings are sent as a set of ${CALL_KEYS.join(', ')}, or null to follow the template.` };
   const call = {};
   for (const k of CALL_KEYS) if (isObject(stored) && stored[k] !== undefined && problemOfValue(k, stored[k]) === null) call[k] = stored[k];
   for (const [k, v] of Object.entries(patch)) {

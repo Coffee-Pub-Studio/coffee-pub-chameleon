@@ -46,7 +46,7 @@ await test('the rules: the lists, the defaults, one sentence per refusal', () =>
   assert.deepEqual(rules.applyCallPatch({ position: 'left', layout: 'strip' }, { layout: null }), { call: { position: 'left' } }, 'null on a key follows the template again');
   assert.deepEqual(rules.applyCallPatch({ position: 'left' }, null), { call: {} }, 'null follows the template for all three');
   assert.deepEqual(rules.applyCallPatch({ position: 'left' }, {}), { call: { position: 'left' } }, 'an empty patch changes nothing');
-  for (const bad of [[], 'top', 7, true]) assert.match(rules.applyCallPatch({}, bad).error, /^The call's settings are sent as an object/, JSON.stringify(bad));
+  for (const bad of [[], 'top', 7, true]) assert.match(rules.applyCallPatch({}, bad).error, /^The call's settings are sent as a set/, JSON.stringify(bad));
   for (const [patch, re] of [
     [{ position: 'sideways' }, /^The call's position must be one of top, bottom, left, right, float, workspace, window\.$/],
     [{ position: 7 }, /^The call's position must be one of/],
@@ -244,8 +244,8 @@ try {
       [{ call: { layout: 'wall' } }, "The call's layout must be one of grid, strip, focus, spotlight."],
       [{ call: { joinOnEntry: 'yes' } }, "The call's joinOnEntry must be true or false."],
       [{ call: { volume: 3 } }, 'volume is not a call setting; the call takes only joinOnEntry, position, layout.'],
-      [{ call: 'top' }, "The call's settings are sent as an object with joinOnEntry, position, layout, or null to follow the template."],
-      [{ call: ['top'] }, "The call's settings are sent as an object with joinOnEntry, position, layout, or null to follow the template."],
+      [{ call: 'top' }, "The call's settings are sent as a set of joinOnEntry, position, layout, or null to follow the template."],
+      [{ call: ['top'] }, "The call's settings are sent as a set of joinOnEntry, position, layout, or null to follow the template."],
       [{ call: { position: { $gt: '' } } }, "The call's position must be one of top, bottom, left, right, float, workspace, window."],
       [{ call: { position: 'left', layout: 'wall' }, name: 'Renamed' }, "The call's layout must be one of grid, strip, focus, spotlight."],
     ];
