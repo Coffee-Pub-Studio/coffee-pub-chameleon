@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Planner - Projects plan file",
+  "description": "A project plan file, as Export writes it and Import reads it (format \"project-plan\", version 1). This schema says what a JSON Schema can say. Import also checks what it cannot: a day must be a real day from 1900 to 2200 (2026-02-30 and 2300-01-01 match the pattern but are refused); work's end is not before its start; every `parent` and `waitsOn` names an `id` in the file, no entry is part of itself, `parent` is a milestone, `waitsOn` is a milestone or work, and nothing waits on itself in a loop; each `id` is used once; when the plan's \"Dates are needed\" setting is on, a milestone needs a `start` and work a `start` and an `end`; text lengths count after trimming. Use the Check file entry in the Export and import menu for those.",
+  "$comment": "The format is written out in FORMAT.md beside this file. Fields that are not listed are ignored by Import, so additionalProperties is left open.",
+  "type": "object",
+  "required": ["format", "version", "entries"],
+  "properties": {
+    "format": { "const": "project-plan" },
+    "version": { "const": 1 },
+    "exportedAt": { "type": "string" },
+    "module": { "type": "string" },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "day": { "type": ["string", "null"], "pattern": "^(\\d{4}-\\d{2}-\\d{2})?$", "description": "YYYY-MM-DD, a real day from 1900 to 2200 (checked by Import, not by this pattern). Empty or null means no day." },
+    "idList": { "type": ["array", "null"], "maxItems": 50, "items": { "type": "string" } },
+    "entry": {
+      "type": "object",
+      "required": ["kind", "title"],
+      "properties": {
+        "id": { "type": ["string", "null"], "pattern": "^([A-Za-z0-9_-]{1,64})?$", "description": "1 to 64 letters, digits, dashes or underscores; used once in the file. Needed only when another entry names this one." },
+        "kind": { "enum": ["milestone", "work", "note"] },
+        "title": { "type": "string", "maxLength": 120, "pattern": "\\S", "description": "Up to 120 characters, not only spaces." },
+        "start": { "$ref": "#/$defs/day" },
+        "end": { "$ref": "#/$defs/day" },
+        "parent": { "type": ["string", "null"], "description": "The id of a milestone in the file." },
+        "waitsOn": { "$ref": "#/$defs/idList", "description": "Ids of milestones or work in the file; at most 50." },
+        "owners": { "$ref": "#/$defs/idList", "description": "People's keys; leave out unless the file came from this environment." },
+        "tags": { "$ref": "#/$defs/idList", "description": "Tag ids from the plan's Tags setting." },
+        "done": { "type": ["boolean", "null"] },
+        "ticked": { "type": ["boolean", "null"] },
+        "notes": { "type": ["string", "null"], "maxLength": 2000 },
+        "phase": { "type": ["string", "null"], "pattern": "^([a-z][a-z0-9-]{0,40})?$" },
+        "order": { "type": ["string", "null"], "pattern": "^([0-9A-Za-z]{1,200})?$" },
+        "by": { "type": ["string", "null"] },
+        "progress": { "type": ["integer", "null"], "minimum": 0, "maximum": 100 },
+        "ref": {
+          "type": ["object", "null"],
+          "required": ["module", "kind", "id"],
+          "properties": { "module": { "type": "string" }, "kind": { "type": "string" }, "id": { "type": "string" } }
+        }
+      },
+      "allOf": [
+        { "if": { "properties": { "kind": { "const": "note" } }, "required": ["kind"] }, "then": { "$comment": "A note has no days, no waitsOn and no done: Import ignores them." } },
+        { "if": { "properties": { "kind": { "const": "milestone" } }, "required": ["kind"] }, "then": { "$comment": "A milestone has one day, start; an end is ignored. Import needs start when the plan needs dates." } },
+        { "if": { "properties": { "kind": { "const": "work" } }, "required": ["kind"] }, "then": { "$comment": "Work has a start and an end, end not before start. Import needs both when the plan needs dates; with one, it takes it for both." } }
+      ]
+    }
+  }
+}
