@@ -111,7 +111,8 @@ test('the Set up panel: Save and Cancel are the panel\'s bar, not the top bar\'s
   const setup = read('public/space-setup.js');
   const space = read('public/space.js');
   assert.ok(!/id: 'setup-done'|id: 'setup-cancel'/.test(space), 'no Done or Cancel tool in the top bar');
-  assert.ok(!/setup-row-done|setup-row-cancel|>Done</.test(setup), 'no Done');
+  assert.ok(!/setup-row-done|setup-row-cancel|<button[^>]*>\s*(Done|Cancel)\s*<\/button>/.test(setup), 'no row-edit Done or Cancel button (the phases\' Done is a switch, not a button)');
+  assert.match(setup, /<input type="checkbox" class="sdk-switch" role="switch" data-phase-done=/, 'the phases\' Done is a switch');
   assert.match(setup, /ids: \{ save: 'setup-save', cancel: 'setup-cancel-button' \}/);
   // The phase dates are drawn in the panel and saved with its Save (plan-setup-panel.md, step 4); the chip's sheet keeps its own.
   assert.match(setup, /A phase with no dates is skipped\. Saved with Save\./);
@@ -133,15 +134,18 @@ test('the Set up panel: Save and Cancel are the panel\'s bar, not the top bar\'s
     'DELETE /api/spaces/${encodeURIComponent(space.id)}/image',
     'DELETE /api/spaces/${id}/guest-link',
     'PATCH /api/spaces/${encodeURIComponent(space.id)}',
+    'PATCH /api/spaces/${encodeURIComponent(space.id)}',
     'POST /api/spaces/${id}/guest-link',
     'POST /api/spaces/${encodeURIComponent(space.id)}/access-requests/${encodeURIComponent(r.id)}',
     'PUT /api/modules/${encodeURIComponent(change.id)}/settings/space',
+    'PUT /api/modules/${encodeURIComponent(r.module)}/settings/${r.scope}',
     'PUT /api/spaces/${encodeURIComponent(space.id)}/image',
-  ].sort(), 'the requests: Save\'s PATCH, picture and module settings, Delete, the guest link, an answer to a request to come in');
+    'PUT /api/spaces/${encodeURIComponent(state.space.id)}/phases/${encodeURIComponent(box.dataset.phaseDone)}/done',
+  ].sort(), 'the requests: Save\'s two PATCHes (the space, then the call), picture and module settings, a fixed-setting switch and a phase\'s Done switch (each at once, through its own route), Delete, the guest link, an answer to a request to come in');
   const save = between(setup, '  async function done() {', '  return { el, open');
   assert.ok(save.indexOf("api('PATCH'") < save.indexOf("api('PUT', `/api/spaces/") && save.indexOf("api('PUT', `/api/spaces/") < save.indexOf("api('PUT', `/api/modules/"), 'in order: the space, the picture, the module settings');
   assert.match(save, /\} catch \(err\) \{\n\s*if \(saved\.length && typeof opts\.onSaved === 'function'\) opts\.onSaved\(answered, saved\);\n\s*return refused\(saved, `module:\$\{change\.id\}`, err\.message\);/, 'a refused module stops the save and says what did save');
-  assert.equal((setup.match(/api\('PATCH', `/g) || []).length, 1, 'one PATCH of the space, from Save');
+  assert.equal((setup.match(/api\('PATCH', `/g) || []).length, 2, 'two PATCHes, both from Save: the space, then the call');
   // The one other thing that goes at once: a space's shared tags, renamed, recoloured and deleted by the people the Roles grid lets (the
   // Tags section says so in its own line; plan-tags.md, decisions 4 and 8). Through the server's tag routes only; none is made here.
   assert.deepEqual([...setup.matchAll(/api\('(PATCH|PUT|POST|DELETE)', tagsPath\(/g)].map((m) => m[1]).sort(), ['DELETE', 'PATCH'], 'the tag requests: rename or recolour, and delete');

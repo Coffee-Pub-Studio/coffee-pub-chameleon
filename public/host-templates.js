@@ -456,7 +456,7 @@ const MAX_STARTER = 5;
 function starterRow(sp = {}) {
   const row = document.createElement('div');
   row.className = 'phase-row';
-  row.innerHTML = `<input type="text" data-starter-name maxlength="60" value="${escapeHtml(sp.name || '')}" placeholder="Your first trip" aria-label="${escapeHtml(cap(word('space')))} name">`
+  row.innerHTML = `<input type="text" data-starter-name maxlength="40" value="${escapeHtml(sp.name || '')}" placeholder="Your first trip" aria-label="${escapeHtml(cap(word('space')))} name">`
     + `<input type="text" data-starter-description maxlength="300" value="${escapeHtml(sp.description || '')}" placeholder="What it is for" aria-label="${escapeHtml(cap(word('space')))} description">`
     + `<button type="button" class="btn btn-small danger" data-starter="remove">Remove</button>`;
   return row;
