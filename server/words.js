@@ -37,6 +37,8 @@ function homeDefault(space) {
 }
 
 // Today's words. `a` is left out here: every default takes the usual article, worked out from its first letter.
+const { deepFreeze } = require('./deep-freeze');
+
 const DEFAULTS = Object.freeze({
   host: { one: 'host', many: 'hosts' },
   environment: { one: 'environment', many: 'environments' },
@@ -135,6 +137,9 @@ function resolve(ownerWords, templateWords) {
 }
 
 const DEFAULT_RESOLVED = resolve(null, null);
+// Both are every environment's; neither may be changed by one of them.
+deepFreeze(DEFAULTS);
+deepFreeze(DEFAULT_RESOLVED);
 
 // One key's word from a resolved set: the singular, `many` the plural, `a` the singular with its article; `cap` gives
 // it a capital first letter. An unknown key is a mistake in the code, so it throws.

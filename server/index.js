@@ -15,6 +15,7 @@ const { buildModule, bundledModules, zipFiles } = require('./module-build');
 const { fillManifest } = require('./modules');
 const templates = require('./templates');
 const { CALL_DEFAULTS } = require('./call-settings');
+const { deepFreeze } = require('./deep-freeze');
 const demoLoader = require('./demo-loader');
 const starter = require('./starter');
 const http = require('http');
@@ -943,7 +944,8 @@ function readStoredTemplate(t, manifests) {
   if (storedTemplateCache.size > 500) storedTemplateCache.clear();
   const problems = templates.problemsOf(fields, { manifests });
   if (problems.length) { storedTemplateCache.set(key, new Error(problems[0])); throw new Error(problems[0]); }
-  const clean = templates.cleanTemplate(fields, { manifests });
+  // Frozen: the same text is the same object for every environment that reads it, so none may change it.
+  const clean = deepFreeze(templates.cleanTemplate(fields, { manifests }));
   storedTemplateCache.set(key, clean);
   return clean;
 }

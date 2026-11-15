@@ -17,6 +17,7 @@ const { shortProductName } = require('./product-name');
 const { Layouts, SYSTEM_IDS: LAYOUT_SYSTEM_IDS, cleanTabs } = require('./layouts');
 const { LEGACY_ENVIRONMENT_RECORD } = require('./migrate-names');
 const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('./default-lists');
+const { deepFreeze } = require('./deep-freeze');
 // The phase timeline rule, the one copy the pages use too (plan-one-bar.md, step 1).
 const phaseRule = require('../public/phases.js');
 const phaseMeasure = require('./phase-measure.js'); // the Done switches (plan-templates-redesign.md, step 6)
@@ -217,6 +218,7 @@ const ROLE_PERMISSIONS = [
   { key: 'image_characterAside', label: 'Character: {Aside}', group: 'Images' },
   { key: 'image_characterPrivate', label: 'Character: Private', group: 'Images' },
 ];
+deepFreeze(ROLE_PERMISSIONS);
 // Images: everyone but an owner starts with just the profile photo and the
 // call background; the OBS pictures are the owner's until a role is given them.
 const IMAGE_KEYS = ROLE_PERMISSIONS.filter((p) => p.group === 'Images').map((p) => p.key);
@@ -227,6 +229,7 @@ const ROLE_DEFAULTS = {
   member: { conference: true, chatRead: true, chat: true, sendPictures: true, react: true, shareScreen: true, privateCall: true, startAside: false, canMute: false, canKick: false, canInvite: false, manageTags: false, useAi: true, ...imageDefaults(true) },
   guest: { conference: true, chatRead: true, chat: true, sendPictures: true, react: true, shareScreen: true, privateCall: false, startAside: false, canMute: false, canKick: false, canInvite: false, manageTags: false, useAi: false, ...imageDefaults(false) },
 };
+deepFreeze(ROLE_DEFAULTS);
 function cleanSpacePermissions(p) {
   return Object.fromEntries(SPACE_PERMISSIONS.map((k) => [k, Boolean(p?.[k])]));
 }
@@ -296,6 +299,7 @@ const DEFAULT_CALL_PREFS = {
   quality: 720, mirror: true, background: 'none', masterVolume: 100,
   pttKey: 'Space', muteKey: 'Mod+KeyD', camKey: 'Mod+KeyE',
 };
+deepFreeze(DEFAULT_CALL_PREFS);
 
 // The languages the interface comes in (a setting; only English so far).
 const LANGUAGES = ['en'];
@@ -421,6 +425,7 @@ const DEFAULT_SETTINGS = {
   // label (button title/alt). Never the core ones; the call's tray is lookOf(): the core's 105, these, then the template's.
   reactions: [],
 };
+deepFreeze(DEFAULT_SETTINGS); // every store copies it (load); none may change it
 
 // A theme is a light and a dark set of colours, each keyed by the colour role it sets (public/sdk/system.css): the key IS the
 // CSS custom property without its dashes, so `surface-page` sets `--surface-page`. Seven are required in a set:
@@ -494,6 +499,7 @@ const DEFAULT_THEME = {
     'tone-gold': '#8c6d2c', 'tone-blue': '#2c6498', 'tone-green': '#2f7f77', 'tone-teal': '#0b7a84', 'tone-purple': '#7d6b4f', 'tone-red': '#b83a26', 'tone-orange': '#b8602a', 'tone-pink': '#b4614f',
   },
 };
+deepFreeze(DEFAULT_THEME);
 // Shipped pre-made (see the seeding in load()), fixed ids so seeding is idempotent -- colors read straight off each real site's
 // own computed styles (button/link accent, body text, page background), not eyeballed. Strong Coffee, the default before the
 // product's own theme, is the first of them, as it was (its dark set is what public/style.css held).
@@ -522,6 +528,7 @@ const BUILTIN_THEMES = [
     dark: { 'surface-page': '#1a1512', 'surface-panel': '#241d19', 'edge-hairline': '#3c302a', 'text-primary': '#eee8e3', 'text-muted': '#a69a91', 'accent-fill': '#e45628', 'text-on-accent': '#ffffff' },
   },
 ];
+deepFreeze(BUILTIN_THEMES);
 
 // One mode's colors: the seven required, the optional ones null on Auto.
 function cleanThemeColors(c) {
@@ -761,7 +768,8 @@ class Store {
         session: strongKey(raw.secrets?.session, SESSION_KEY_BYTES) ? raw.secrets.session : randomToken(SESSION_KEY_BYTES),
         stream: strongKey(raw.secrets?.stream, STREAM_KEY_BYTES) ? raw.secrets.stream : randomToken(STREAM_KEY_BYTES),
       },
-      settings: stripOpensWith({ ...DEFAULT_SETTINGS, ...migrateMfaSettings(raw.settings) }),
+      // A deep copy: DEFAULT_SETTINGS is every store's, and its roles, themes, icons and reactions must not be shared.
+      settings: stripOpensWith({ ...structuredClone(DEFAULT_SETTINGS), ...migrateMfaSettings(raw.settings) }),
       users: Array.isArray(raw.users) ? raw.users.map((u) => this.sanitizeUser(u)).filter(Boolean) : [],
       spaces: Array.isArray(raw.spaces) ? raw.spaces.map((r) => this.sanitizeSpace(r)).filter(Boolean) : [],
       // Asides (plan-names step 8): their own record, never among the spaces. Each lives only while someone is in it
@@ -776,8 +784,7 @@ class Store {
     // every load, so deleting one (an admin decides they don't want it) sticks instead of it reappearing on the next restart,
     // and a built-in added later reaches an environment that was seeded before it existed.
     let seededThemes = false;
-    // A copy, never DEFAULT_SETTINGS' own array, which every store shares.
-    data.settings.themes = Array.isArray(data.settings.themes) ? [...data.settings.themes] : [];
+    if (!Array.isArray(data.settings.themes)) data.settings.themes = [];
     // The published calendar's address (plan-space-calendars.md, section 2): only a hash with its dates, or nothing.
     if (data.settings.publishedCalendarFeed !== undefined && !cleanCalendarFeed(data.settings.publishedCalendarFeed)) delete data.settings.publishedCalendarFeed;
     // The one allowed data migration (Thomas, 2026-11-09): data saved with the old boolean `builtinThemesSeeded` was seeded before

@@ -6,6 +6,7 @@
 const { word } = require('./words');
 const { productName } = require('./product-name');
 const fileFormat = require('./file-format');
+const { deepFreeze } = require('./deep-freeze');
 
 const FORMAT_VERSION = fileFormat.FORMAT_VERSIONS.objects;
 const FENCE = 'objects'; // the label of the format's fenced block (plan-kind-names.md)
@@ -74,11 +75,6 @@ class FormatError extends Error {
     super(message);
     this.status = status;
   }
-}
-
-function deepFreeze(o) {
-  for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
-  return Object.freeze(o);
 }
 
 // The same as .replace(/<[^>]*>/g, ' ') in one pass (that pattern takes quadratic time on many "<" with no ">"): each "<" up
