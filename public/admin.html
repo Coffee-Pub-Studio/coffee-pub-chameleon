@@ -602,40 +602,12 @@
           <div class="tpl-head" data-tpl-head></div>
           <h2>Additional Reactions and Icons</h2>
           <p class="hint">The emoji tray in the call, and on stream. The first six are also reachable with keys 1 to 6.</p>
+          <p class="hint" data-fill>What this template adds, after the core set. The {environment}'s own reactions and icons, for every template, are on the {Environment} tab, under Reactions and Icons.</p>
           <div id="tpl-reactions-box"></div>
           <div class="row tpl-save" data-tpl-save hidden>
             <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
             <span class="status" role="status" data-tpl-status></span>
           </div>
-        </div>
-        <!-- The owner's own additions, on top of the core set and the template's: this environment's, so shown on its own template's page. -->
-        <div class="panel" id="tpl-own-additions" hidden>
-          <h2>Your own additions</h2>
-          <p class="hint">Added by you for this whole <span data-word="environment"></span>, after the template's. A template can't take them away.</p>
-      <div id="reactions-section">
-      <h3>Reactions</h3>
-      <p class="hint">The core set and the template's are always there; the list below is yours after them.</p>
-      <p class="hint" id="reactions-fixed"></p>
-      <div class="reactions-list" id="reactions-list"></div>
-      <div class="row">
-        <button class="btn btn-small" id="reaction-add" type="button">Add reaction</button>
-        <button class="btn btn-primary" id="save-reactions" type="button">Save</button>
-        <span class="status" id="reactions-status"></span>
-      </div>
-      </div>
-
-
-      <div id="icons-section">
-      <h3>Icons</h3>
-      <p class="hint">Icons you want available. On fontawesome.com, copy an icon's HTML (like <code>&lt;i class="fa-solid fa-dice"&gt;&lt;/i&gt;</code>) and paste it here; the preview shows what it draws. Only the Free icons that ship with this server will show. The core set is always there; the list below is your own additions.</p>
-      <p class="hint" id="icons-fixed"></p>
-      <div class="reactions-list" id="icons-list"></div>
-      <div class="row">
-        <button class="btn btn-small" id="icon-add" type="button">Add icon</button>
-        <button class="btn btn-primary" id="save-icons" type="button">Save</button>
-        <span class="status" id="icons-status"></span>
-      </div>
-      </div>
         </div>
       </div>
 
@@ -667,6 +639,7 @@
       <nav class="subtabs" id="env-subtabs">
         <button class="subtab active" type="button" data-env-part="general">General</button>
         <button class="subtab" type="button" data-env-part="localization">Localization</button>
+        <button class="subtab" type="button" data-env-part="reactions">Reactions and Icons</button>
         <button class="subtab" type="button" data-env-part="stream">Stream</button>
       </nav>
       <div class="tab-stack" id="env-part-general" data-env-part="general">
@@ -757,6 +730,37 @@
           <button class="btn btn-primary" id="save-locale" type="button">Save</button>
           <span class="status" id="locale-status"></span>
         </div>
+        </div>
+      </div>
+
+      <div class="tab-stack" id="env-part-reactions" data-env-part="reactions" hidden>
+        <div class="panel" id="env-reactions-card">
+          <h2>Reactions and Icons</h2>
+          <p class="hint" data-fill>Yours, for this whole {environment} and every template. They come after the built-in set and before what a template adds. A template can't take them away.</p>
+      <div id="reactions-section">
+      <h3>Reactions</h3>
+      <p class="hint">The built-in set is always there; the list below is yours after it.</p>
+      <p class="hint" id="reactions-fixed"></p>
+      <div class="reactions-list" id="reactions-list"></div>
+      <div class="row">
+        <button class="btn btn-small" id="reaction-add" type="button">Add reaction</button>
+        <button class="btn btn-primary" id="save-reactions" type="button">Save</button>
+        <span class="status" id="reactions-status"></span>
+      </div>
+      </div>
+
+
+      <div id="icons-section">
+      <h3>Icons</h3>
+      <p class="hint">Icons you want available. On fontawesome.com, copy an icon's HTML (like <code>&lt;i class="fa-solid fa-dice"&gt;&lt;/i&gt;</code>) and paste it here; the preview shows what it draws. Only the Free icons that ship with this server will show. The built-in set is always there; the list below is yours.</p>
+      <p class="hint" id="icons-fixed"></p>
+      <div class="reactions-list" id="icons-list"></div>
+      <div class="row">
+        <button class="btn btn-small" id="icon-add" type="button">Add icon</button>
+        <button class="btn btn-primary" id="save-icons" type="button">Save</button>
+        <span class="status" id="icons-status"></span>
+      </div>
+      </div>
         </div>
       </div>
 

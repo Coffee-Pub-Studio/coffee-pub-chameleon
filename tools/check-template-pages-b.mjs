@@ -243,15 +243,18 @@ async function live() {
           assert.equal(t.phases.find((p) => p.main).id, 'build');
           await open('template/default/phases', `${count('#tpl-phases-box input')} === 0 && /Dates/.test(document.querySelector('#tpl-phases-box').textContent)`, 'the Phases of the Default template');
         });
-        await test(at('Additional Reactions and Icons: core, the template\'s, your own'), async () => {
-          await open('template/mine/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20 && ${count('#tpl-reactions-box .tp-reaction')} === 1 && ${count('#tpl-reactions-box [data-ti-name]')} === 1 && !document.getElementById('tpl-own-additions').hidden && ${count('#tpl-own-additions #reactions-list')} === 1`, 'the Additional Reactions and Icons page');
+        await test(at('Additional Reactions and Icons: core and the template\'s; your own are on the Environment tab'), async () => {
+          await open('template/mine/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20 && ${count('#tpl-reactions-box .tp-reaction')} === 1 && ${count('#tpl-reactions-box [data-ti-name]')} === 1 && !document.getElementById('tpl-own-additions') && !document.querySelector('#tpl-part-reactions #reactions-list') && ${count('#env-part-reactions #reactions-list')} === 1 && ${count('#env-part-reactions #icons-list')} === 1`, 'the Additional Reactions and Icons page');
           await shot(tab, `${size}-reactions`);
+          await open('reactions', `${count('#env-part-reactions #reactions-list')} === 1 && document.getElementById('reactions-fixed').textContent.length > 0`, 'the Environment tab\'s Reactions and Icons');
+          await shot(tab, `${size}-env-reactions`);
+          await open('template/mine/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20`, 'back to the template page');
           await tab.eval(`(() => { document.querySelector('#tpl-reactions-box [data-tr-add]').click(); const rows = document.querySelectorAll('#tpl-reactions-box .tp-reaction'); const last = rows[rows.length - 1]; last.querySelector('.reaction-glyph').value = '\\u{1F389}'; last.querySelector('.reaction-label').value = 'Party'; document.querySelector('#tpl-reactions-card [data-tpl-save-button]').click(); return true; })()`);
           await sleep(1300);
           const t = (await api('GET', '/api/environment/templates/mine')).json.template;
           assert.deepEqual(t.reactions.map((r) => r.label), ['Ship it', 'Party']);
           assert.deepEqual(t.iconSet, ['rocket']);
-          await open('template/hours/reactions', `document.getElementById('tpl-own-additions').hidden`, 'another template\'s page leaves out your own additions');
+          await open('template/hours/reactions', `!document.getElementById('tpl-own-additions') && ${count('#tpl-reactions-box .tp-chip')} > 20`, 'another template\'s page has no own additions either');
           await open('template/default/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20 && ${count('#tpl-reactions-box input')} === 0`, 'the Default template\'s page');
         });
         await test(at('Modules: marks, words, the starter, Plans; an edit saves'), async () => {
