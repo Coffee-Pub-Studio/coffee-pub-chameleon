@@ -3,6 +3,8 @@
 // drawn into a box as markup, read back as template fields, and wired once; a template that is not editable draws plain
 // lines instead of fields. Nothing here talks to the server: the page decides where the fields go.
 import { escapeHtml } from '/brand.js';
+import { listControl, readList, listClick, listWords } from '/list-rows.js';
+import { upgradeColourInputs } from '/colour-pick.js';
 
 const e = escapeHtml;
 const cap = (s) => (s ? s[0].toLocaleUpperCase('en') + s.slice(1) : s);
@@ -130,7 +132,7 @@ export function readAdditions(root, { editing = true } = {}) {
 }
 
 // --- Modules ----------------------------------------------------------------------------------------------------------------
-// One row per catalog module: whether the template offers it, its name and icon, the words it may rename, the settings it
+// One row per catalog module: whether the template offers it, its name and icon, the settings it
 // marks (driven: set here and nobody changes them; default: seeded here, the owner may change them) and its starter content.
 // `catalog`: [{ id, name, icon, settings: [{ key, label, type, scope, template, options?, min?, max? }], labels: { key: { one, many } },
 // starter }]. `word(key, opts)` is the page's words.
@@ -143,7 +145,7 @@ function valueText(def, v) {
   if (v === undefined) return '<span class="hint">Its own</span>';
   if (def.type === 'boolean') return v ? 'On' : 'Off';
   if (def.type === 'choice') return e(optionLabel(def, v));
-  if (def.type === 'list') return `${Array.isArray(v) ? v.length : 0} in the list`;
+  if (def.type === 'list') return e(listWords(v));
   return e(String(v));
 }
 function settingControl(def, v, set) {
@@ -153,19 +155,17 @@ function settingControl(def, v, set) {
   if (def.type === 'choice') return `<select data-ts-value="${key}" aria-label="${e(def.label)}"${off}>${(def.options || []).map((o) => `<option value="${e(o.value)}"${(v === undefined ? def.default : v) === o.value ? ' selected' : ''}>${e(o.label)}</option>`).join('')}</select>`;
   if (def.type === 'number') return `<input type="number" data-ts-value="${key}" aria-label="${e(def.label)}" value="${e(v === undefined ? (def.default ?? '') : v)}"${def.min !== undefined ? ` min="${def.min}"` : ''}${def.max !== undefined ? ` max="${def.max}"` : ''} step="any"${off}>`;
   if (def.type === 'color') return `<input type="color" data-ts-value="${key}" aria-label="${e(def.label)}" value="${e(/^#[0-9a-f]{6}$/i.test(v === undefined ? def.default : v) ? (v === undefined ? def.default : v) : '#000000')}"${off}>`;
-  if (def.type === 'list') return `<span class="hint">${valueText(def, v)}; kept as it is.</span>`;
+  if (def.type === 'list') return `<div class="tp-list"${set ? '' : ' inert'}>${listControl({ ...def, value: Array.isArray(v) ? v : (Array.isArray(def.default) ? def.default : []) })}</div>`;
   return `<input type="text" data-ts-value="${key}" aria-label="${e(def.label)}" maxlength="${def.maxLength || 100}" value="${e(v === undefined ? (def.default ?? '') : v)}"${off}>`;
 }
 function moduleRow(t, m, { editable, word }) {
   const entry = entryOf(t, m.id);
   const on = offers(t, m.id);
   const settings = settingsOf(m);
-  const labels = isObject(m.labels) ? Object.entries(m.labels) : [];
   const starterCount = isObject(entry.starter) ? Object.keys(entry.starter).length : 0;
   const shown = entry.name || m.name;
   const pieces = [];
   if (settings.length) pieces.push(`${settings.length} setting${settings.length === 1 ? '' : 's'}`);
-  if (labels.length) pieces.push(`${labels.length} word${labels.length === 1 ? '' : 's'}`);
   if (starterCount) pieces.push('starter content');
   const head = editable
     ? `<label class="tp-offer sdk-choice-row"><input type="checkbox" data-tm-offer${on ? ' checked' : ''}${m.id === 'chat' ? ' disabled' : ''} aria-label="${e(`Offer ${m.name}`)}"><span class="sdk-choice-text"><strong>${iconTag(entry.icon || m.icon || 'puzzle-piece')} ${e(shown)}</strong></span></label>`
@@ -174,23 +174,18 @@ function moduleRow(t, m, { editable, word }) {
     ? `<div class="tf-form"><label class="tf-field"><span class="field-label">Shown as</span><input type="text" data-tm-name maxlength="40" autocomplete="off" value="${e(entry.name || '')}" placeholder="${e(m.name)}"></label>`
       + `<label class="tf-field"><span class="field-label">Icon</span><span class="icon-field"><i class="fa-solid fa-${e(entry.icon || m.icon || 'puzzle-piece')} fa-fw" data-tm-preview aria-hidden="true"></i><input type="text" data-tm-icon maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" value="${e(entry.icon || '')}" placeholder="${e(m.icon || 'puzzle-piece')}" aria-label="${e(`${m.name}: icon, a Font Awesome name`)}"></span></label></div>`
     : `<dl class="tf-read">${line('Shown as', e(shown))}${line('Icon', `${iconTag(entry.icon || m.icon || 'puzzle-piece')} ${entry.icon ? e(entry.icon) : '<span class="hint">Its own</span>'}`)}</dl>`;
-  const labelBlock = labels.length ? `<h4>Words</h4>${editable
-    ? labels.map(([key, own]) => { const w = (entry.labels && entry.labels[key]) || null; return `<div class="tf-word tp-label" data-tm-label="${e(key)}" role="group" aria-label="${e(cap(key))}"><strong class="tf-word-name">${e(cap(key))}</strong>`
-      + `<label><span class="field-label">Singular</span><input type="text" data-tm-part="one" maxlength="30" autocomplete="off" spellcheck="false" value="${e(w ? w.one : '')}" placeholder="${e(own.one)}" aria-label="${e(`${cap(key)}, singular`)}"></label>`
-      + `<label><span class="field-label">Plural</span><input type="text" data-tm-part="many" maxlength="30" autocomplete="off" spellcheck="false" value="${e(w ? w.many : '')}" placeholder="${e(own.many)}" aria-label="${e(`${cap(key)}, plural`)}"></label><span></span></div>`; }).join('')
-    : `<dl class="tf-read">${labels.map(([key, own]) => { const w = entry.labels && entry.labels[key]; return line(cap(key), w ? `${e(w.one)} / ${e(w.many)}` : `<span class="hint">${e(own.one)} / ${e(own.many)}, its own</span>`); }).join('')}</dl>`}` : '';
   const settingBlock = settings.length ? `<h4>Settings</h4><div class="tp-settings">${settings.map((def) => {
     const given = entry.settings && Object.hasOwn(entry.settings, def.key);
     const v = given ? entry.settings[def.key] : undefined;
     const tail = `<span class="sdk-status" data-tone="${def.template === 'driven' ? 'warn' : 'neutral'}">${markName(def.template)}</span>`;
     const about = `${markAbout(def.template, word)} ${scopeName(def.scope, word)}.`;
     if (!editable) return `<div class="tp-setting" data-mark="${def.template}"><span class="tp-setting-name">${e(def.label)} ${tail}</span><span class="tp-setting-value">${valueText(def, v)}</span><span class="hint tp-setting-about">${e(about)}</span></div>`;
-    return `<div class="tp-setting" data-mark="${def.template}" data-ts="${e(def.key)}"><label class="sdk-choice-row tp-setting-set"><input type="checkbox" data-ts-set aria-label="${e(`This template sets ${def.label}`)}"${given ? ' checked' : ''}><span class="sdk-choice-text">${e(def.label)} ${tail}</span></label><span class="tp-setting-value">${settingControl(def, v, given)}</span><span class="hint tp-setting-about">${e(about)}</span></div>`;
+    return `<div class="tp-setting${def.type === 'list' ? ' tp-setting-list' : ''}" data-mark="${def.template}" data-ts="${e(def.key)}"><label class="sdk-choice-row tp-setting-set"><input type="checkbox" data-ts-set aria-label="${e(`This template sets ${def.label}`)}"${given ? ' checked' : ''}><span class="sdk-choice-text">${e(def.label)} ${tail}</span></label><span class="tp-setting-value">${settingControl(def, v, given)}</span><span class="hint tp-setting-about">${e(about)}</span></div>`;
   }).join('')}</div>` : '';
   const starterBlock = starterCount ? `<h4>Starter content</h4>${editable
     ? `<label class="sdk-choice-row"><input type="checkbox" data-tm-starter checked><span class="sdk-choice-text">Keep the starter content (${starterCount} ${starterCount === 1 ? 'object' : 'objects'}, made once when a ${e(word('space'))} is made)</span></label>`
     : `<p class="hint">${starterCount} ${starterCount === 1 ? 'object' : 'objects'}, made once when a ${e(word('space'))} is made.</p>`}` : '';
-  const more = nameFields + labelBlock + settingBlock + starterBlock;
+  const more = nameFields + settingBlock + starterBlock;
   return `<details class="tp-module" data-tm="${e(m.id)}"><summary class="tp-module-head">${head}<span class="hint tp-module-sum">${e(pieces.join(', '))}</span></summary><div class="tp-module-body">${more}</div></details>`;
 }
 export function modulesHtml(t, { editable, catalog, word }) {
@@ -216,18 +211,14 @@ export function readModules(root, t, { editing = true } = {}) {
     const settings = {};
     for (const s of row.querySelectorAll('[data-ts]')) {
       if (!s.querySelector('[data-ts-set]').checked) continue;
+      const listBox = s.querySelector('[data-list-setting]');
+      if (listBox) { settings[s.dataset.ts] = readList(listBox); continue; }
       const input = s.querySelector('[data-ts-value]');
-      if (!input) { if (old.settings && Object.hasOwn(old.settings, s.dataset.ts)) settings[s.dataset.ts] = old.settings[s.dataset.ts]; continue; } // a list: kept
+      if (!input) continue;
       settings[s.dataset.ts] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
     }
     if (Object.keys(settings).length) out.settings = settings;
-    const labels = {};
-    for (const l of row.querySelectorAll('[data-tm-label]')) {
-      const one = l.querySelector('[data-tm-part="one"]').value.trim();
-      const many = l.querySelector('[data-tm-part="many"]').value.trim();
-      if (one || many) labels[l.dataset.tmLabel] = { one, many };
-    }
-    if (Object.keys(labels).length) out.labels = labels;
+    if (isObject(old.labels) && Object.keys(old.labels).length) out.labels = old.labels; // the words are on Experience Labels
     const keep = row.querySelector('[data-tm-starter]');
     if (keep && keep.checked && isObject(old.starter)) out.starter = old.starter;
     modules[id] = out;
@@ -236,10 +227,57 @@ export function readModules(root, t, { editing = true } = {}) {
   return { modules };
 }
 
+// --- Experience Labels: the words each module lets a template rename ---------------------------------------------------------
+// Under each offered module's name, one row per word the module declares (its manifest `labels`). A word left blank reads the
+// module's own. Saved with the template's `modules` (the module's other parts are kept as they are), by `readModuleLabels`.
+function labelRows(m, entry, editable) {
+  return Object.entries(m.labels).map(([key, own]) => {
+    const w = (entry.labels && entry.labels[key]) || null;
+    const name = cap(key);
+    if (!editable) return line(name, w ? `${e(w.one)} / ${e(w.many)}` : `<span class="hint">${e(own.one)} / ${e(own.many)}, the usual</span>`);
+    return `<div class="tf-word" data-tm-label="${e(key)}" role="group" aria-label="${e(`${m.name}: ${name}`)}"><strong class="tf-word-name">${e(name)}</strong>`
+      + `<label><span class="field-label">Singular</span><input type="text" data-tm-part="one" maxlength="30" autocomplete="off" spellcheck="false" value="${e(w ? w.one : '')}" placeholder="${e(own.one)}" aria-label="${e(`${m.name}: ${name}, singular`)}"></label>`
+      + `<label><span class="field-label">Plural</span><input type="text" data-tm-part="many" maxlength="30" autocomplete="off" spellcheck="false" value="${e(w ? w.many : '')}" placeholder="${e(own.many)}" aria-label="${e(`${m.name}: ${name}, plural`)}"></label><span></span></div>`;
+  }).join('');
+}
+export function moduleLabelsHtml(t, { editable, catalog, word }) {
+  const mods = catalog.filter((m) => isObject(m.labels) && Object.keys(m.labels).length && offers(t, m.id));
+  if (!mods.length) return '';
+  const groups = mods.map((m) => {
+    const entry = entryOf(t, m.id);
+    const rows = labelRows(m, entry, editable);
+    return `<section class="tp-label-group" data-tml="${e(m.id)}" aria-label="${e(entry.name || m.name)}"><h4>${iconTag(entry.icon || m.icon || 'puzzle-piece')} ${e(entry.name || m.name)}</h4>${editable ? `<div class="tf-words">${rows}</div>` : `<dl class="tf-read">${rows}</dl>`}</section>`;
+  }).join('');
+  return `<div class="tf-labels tp-module-labels"><h3>${e(word('module', { cap: true }))} words</h3><p class="hint">The words each ${e(word('module'))} uses for the things it holds, such as an event or a task. ${editable ? 'Leave a word blank for the usual one. Give both the singular and the plural.' : ''}</p>${groups}</div>`;
+}
+// The template's `modules` with each module's words as the fields say: `{ modules }`, or {} when the page drew none of them (the
+// template offers every module, or none has words). A module the page did not draw is kept as it is.
+export function readModuleLabels(root, t) {
+  const groups = [...root.querySelectorAll('[data-tml]')];
+  if (!groups.length || !isObject(t && t.modules)) return {};
+  const modules = {};
+  for (const [id, entry] of Object.entries(t.modules)) modules[id] = isObject(entry) ? { ...entry } : {};
+  for (const g of groups) {
+    const id = g.dataset.tml;
+    if (!Object.hasOwn(modules, id)) continue;
+    const labels = {};
+    for (const l of g.querySelectorAll('[data-tm-label]')) {
+      const one = l.querySelector('[data-tm-part="one"]').value.trim();
+      const many = l.querySelector('[data-tm-part="many"]').value.trim();
+      if (one || many) labels[l.dataset.tmLabel] = { one, many };
+    }
+    if (Object.keys(labels).length) modules[id].labels = labels; else delete modules[id].labels;
+  }
+  return { modules };
+}
+// After a page that holds list settings is drawn: the colour pickers over the rows' colour fields.
+export const upgradeLists = (root) => upgradeColourInputs(root);
+
 // Behaviour of the pages' fields in `root` (call once; the fields can be drawn again inside it).
 export function wirePages(root) {
   root.addEventListener('click', (ev) => {
     const t = ev.target;
+    if (t.closest('[data-list-setting]')) { listClick(ev); return; }
     const phase = t.closest('[data-tp-phase]');
     if (phase && t.closest('[data-tp-remove]')) phase.remove();
     else if (phase && t.closest('[data-tp-up]') && phase.previousElementSibling) phase.parentElement.insertBefore(phase, phase.previousElementSibling);
@@ -256,7 +294,10 @@ export function wirePages(root) {
   });
   root.addEventListener('change', (ev) => {
     const set = ev.target.closest('[data-ts-set]');
-    if (set) for (const input of set.closest('[data-ts]').querySelectorAll('[data-ts-value]')) input.disabled = !set.checked;
+    if (set) {
+      for (const input of set.closest('[data-ts]').querySelectorAll('[data-ts-value]')) input.disabled = !set.checked;
+      for (const list of set.closest('[data-ts]').querySelectorAll('.tp-list')) list.inert = !set.checked; // a list is not one field: all of it goes off
+    }
     if (ev.target.matches('[data-tp-main]') && ev.target.checked) for (const other of root.querySelectorAll('[data-tp-main]')) if (other !== ev.target) other.checked = false; // one main phase
     if (ev.target.matches('[data-tp-measure]')) {
       const about = root.querySelector('[data-tp-measure-about]');
