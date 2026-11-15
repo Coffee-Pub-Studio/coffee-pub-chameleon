@@ -527,11 +527,7 @@ try {
       const r = await lookOf(who, campaign.id);
       assert.equal(r.status, 200, `${label}: ${r.text}`);
       assert.equal(keys(r), 'look');
-<<<<<<< HEAD
-      assert.equal(keys({ json: r.json.look }), 'words,verbs,phases,phaseMeasure,call,reactions,icons');
-=======
-      assert.equal(keys({ json: r.json.look }), 'words,verbs,phases,phaseMeasure,reactions,icons,workspace');
->>>>>>> 42c679ac (Workspaces: the Default Workspace from the template, Opens with read-only, the pin rule (templates redesign step 8, server half))
+      assert.equal(keys({ json: r.json.look }), 'words,verbs,phases,phaseMeasure,call,reactions,icons,workspace');
       assert.equal(r.json.look.words.space.one, 'campaign', label);
       assert.equal(r.json.look.words.owner.one, 'owner', label);
       assert.deepEqual(r.json.look.phases, [], label);
