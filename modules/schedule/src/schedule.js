@@ -687,10 +687,17 @@
   const REFUSED = `You may not add to the ${label('plan')} here.`;
   async function addFrom(kind, input, ctx) {
     if (!canEdit) throw new Error(REFUSED);
-    const problem = scActionProblem(kind, input, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) });
+    const obj = input && input.object && typeof input.object === 'object' ? input.object : null;
+    const flat = obj ? scObjectInput(kind, input, obj) : input;
+    const problem = scActionProblem(kind, flat, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) });
     if (problem) throw new Error(problem);
-    const e = scFromAction(kind, input, (ctx && ctx.by) || info.user.key);
-    const saved = await saveEntry({ ...e, id: host.util.id(), order: orderAtEnd(null) });
+    const by = (ctx && ctx.by) || info.user.key;
+    let e;
+    if (obj) {
+      takePhases();
+      e = scFromObject(kind, input, obj, { entries: list(), phases: state.phases, by }).entry;
+    } else e = scFromAction(kind, input, by);
+    const saved = await saveEntry({ ...e, id: host.util.id(), order: orderAtEnd(e.parent) });
     return { ref: pointer(saved.id) };
   }
   if (host.actions && host.actions.provide) {

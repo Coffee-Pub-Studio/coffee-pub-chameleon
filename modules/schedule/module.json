@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "icon": "diagram-project",
   "color": "blue",
   "description": "Plan a project together: milestones, the work with who does it and when, and what waits on what.",
@@ -71,8 +71,12 @@
           "title": "string",
           "date": "date?",
           "notes": "text?",
-          "ref": "ref?"
-        }
+          "ref": "ref?",
+          "object": "object?"
+        },
+        "takes": [
+          { "kinds": ["milestone"], "as": "a milestone" }
+        ]
       },
       {
         "name": "addWork",
@@ -84,8 +88,12 @@
           "start": "date?",
           "end": "date?",
           "notes": "text?",
-          "ref": "ref?"
-        }
+          "ref": "ref?",
+          "object": "object?"
+        },
+        "takes": [
+          { "kinds": ["work"], "as": "a piece of work" }
+        ]
       },
       {
         "name": "addNote",
@@ -95,8 +103,12 @@
         "input": {
           "title": "string",
           "notes": "text?",
-          "ref": "ref?"
-        }
+          "ref": "ref?",
+          "object": "object?"
+        },
+        "takes": [
+          { "kinds": ["note"], "as": "a note" }
+        ]
       }
     ],
     "uses": []

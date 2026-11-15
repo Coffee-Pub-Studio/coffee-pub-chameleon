@@ -320,3 +320,56 @@ function scFromAction(kind, input, by) {
   if (kind === 'work') { raw.start = i.start || i.end; raw.end = i.end || i.start; }
   return scClean('new', raw);
 }
+
+// --- an object taken whole (the objects format's milestone, work and note) --------------------------------------------------------
+// A title as it is compared: plain text, one line, lower case.
+const scKey = (s) => scLine(s, SC_TITLE_MAX).toLowerCase();
+
+// The entry an `under` title names, as the id to put the new entry under, or null (the top). Only a milestone holds entries (the
+// editor's "Part of a milestone"). Of two milestones with the same title the later in `entries` wins; an `under` equal to the
+// entry's own title names nothing. The new entry has an id of its own, so this never makes a loop.
+function scParentFor(entries, under, ownTitle) {
+  const key = scKey(under);
+  if (!key || key === scKey(ownTitle)) return null;
+  let found = null;
+  for (const e of Array.isArray(entries) ? entries : []) if (e && e.kind === 'milestone' && scKey(e.title) === key) found = e.id;
+  return found;
+}
+
+// The id of the template's phase a name (or an id) names, ignoring case, or ''.
+function scPhaseFor(phases, name) {
+  const key = scKey(name);
+  if (!key) return '';
+  for (const p of Array.isArray(phases) ? phases : []) {
+    if (p && typeof p.id === 'string' && (p.id.toLowerCase() === key || scKey(p.label) === key || scKey(p.name) === key)) return p.id;
+  }
+  return '';
+}
+
+// The flat fields of an add action's input, from the object it was given (a title, its words as notes, its days), the flat
+// fields the sender gave winning over none. { title, date, start, end, notes }.
+function scObjectInput(kind, input, object) {
+  const i = input && typeof input === 'object' ? input : {};
+  const o = object && typeof object === 'object' ? object : {};
+  const d = o.details && typeof o.details === 'object' && !Array.isArray(o.details) ? o.details : {};
+  const day = (v) => (typeof v === 'string' && v ? v.slice(0, 10) : '');
+  const out = { title: typeof o.title === 'string' && o.title.trim() ? o.title : i.title, notes: typeof o.content === 'string' && o.content.trim() ? o.content : i.notes };
+  if (kind === 'milestone') out.date = i.date || day(d.start) || day(o.date);
+  if (kind === 'work') { out.start = i.start || day(d.start) || day(o.date); out.end = i.end || day(d.end); }
+  return out;
+}
+
+// A new entry from an object: the add action's rules (scFromAction), then its parent (`details.under`), its phase (a name),
+// and done (a milestone's becomes ticked). `o`: { entries, phases, by, ref }.
+function scFromObject(kind, input, object, o) {
+  const merged = scObjectInput(kind, input, object);
+  const d = object && object.details && typeof object.details === 'object' && !Array.isArray(object.details) ? object.details : {};
+  const base = scFromAction(kind, merged, (o && o.by) || '');
+  const raw = { ...base, ref: (input && input.ref) || base.ref };
+  if (kind !== 'note') {
+    raw.parent = scParentFor(o && o.entries, d.under, base.title);
+    raw.phase = scPhaseFor(o && o.phases, d.phase);
+    if (d.done === true) { if (kind === 'milestone') raw.ticked = true; else raw.done = true; }
+  }
+  return { entry: scClean('new', raw), input: merged };
+}
