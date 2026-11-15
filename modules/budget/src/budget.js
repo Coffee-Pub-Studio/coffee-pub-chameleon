@@ -282,7 +282,7 @@
     if (!rows.length) {
       const none = document.createElement('p');
       none.className = 'hint';
-      none.textContent = 'No costs yet.';
+      none.textContent = `No ${host.util.label('cost', { many: true })} yet.`;
       $('cat-rows').replaceChildren(none);
     } else {
       $('cat-rows').replaceChildren(...rows.map((r) => {
@@ -411,7 +411,7 @@
     const host_ = $('groups');
     if (!all.length) {
       const el = clone('tpl-state');
-      fill(el, { title: 'No costs yet', text: 'Add what you expect to spend and what you have paid. Each one can have a category, a date and who paid.' });
+      fill(el, { title: `No ${host.util.label('cost', { many: true })} yet`, text: 'Add what you expect to spend and what you have paid. Each one can have a category, a date and who paid.' });
       const add = el.querySelector('[data-action="add"]');
       hide(add, !canEdit);
       add.addEventListener('click', () => openEditor(null));

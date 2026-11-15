@@ -25,7 +25,7 @@ test('the page draws no title', () => {
 });
 test('the title bar carries the title as a select with the three actions', () => {
   assert.ok(/kind: 'select', id: 'doc-select', label: titleNow\(\)/.test(page), 'the select shows the live title');
-  for (const [id, label] of [['new', 'New document'], ['rename', 'Rename'], ['delete', 'Delete']]) assert.ok(page.includes(id === 'new' ? `{ id: '${id}', label: '${label}' }` : `{ id: '${id}', label: '${label}', ...off() }`), `${label} is in the menu`);
+  for (const [id, label] of [['new', 'New document'], ['rename', 'Rename'], ['delete', 'Delete']]) assert.ok(page.includes(id === 'new' ? "{ id: 'new', label: `New ${host.util.label('document')}` }" : `{ id: '${id}', label: '${label}', ...off() }`), `${label} is in the menu`);
   assert.ok(page.includes("items.push({ divider: true }, ...acts)"), 'the actions sit behind a divider');
   assert.ok(page.includes('if (canEdit && !joining())'), 'only who may edit, and not while joining');
   assert.ok(page.includes("if (v === 'delete') { if (!canEdit) return; if (ed && ed.co) coRemove(); else if (!ed && openId) startRemove();"), 'Delete takes the read view\'s and the shared editor\'s paths');
@@ -45,7 +45,7 @@ test('a locked shared document: Rename and Delete are off with the reason, the r
   assert.ok(fn.includes('coRemoveRules(coLockNow())'), 'the select asks the lock rules');
   assert.ok(/const off = \(\) => \(rules\.off \? \{ disabled: true, hint: rules\.reason \} : \{\}\)/.test(fn), 'off = disabled with the reason as hint');
   assert.ok(fn.includes("label: 'Rename', ...off()") && fn.includes("label: 'Delete', ...off()"), 'Rename and Delete carry it');
-  assert.ok(fn.includes("{ id: 'new', label: 'New document' }"), 'New document carries no off');
+  assert.ok(fn.includes("{ id: 'new', label: `New ${host.util.label('document')}` }"), 'New document carries no off');
   assert.ok(!/id: 'd\.\$\{r\.id\}'[^\n]*disabled/.test(fn), 'picking another document stays on');
   assert.ok(page.includes('paintHeader(); // Rename and Delete in the title bar'), 'the select is redrawn when the lock changes');
   assert.ok(/if \(v === 'rename'\)[^\n]*coRename\(\)/.test(page) && /function coRename\(\)[\s\S]{0,400}if \(rules\.off\) \{ note\(rules\.reason\)/.test(page), 'the click guard stays');

@@ -584,7 +584,7 @@
     resolveLinks();
     showError('');
     const from = x && x.scope === 'spaces' && spaceInfo.get(x.spaceId) ? ` (${spaceInfo.get(x.spaceId).name})` : '';
-    $('editor-title').textContent = x ? (readOnly ? t.title + from : 'Edit task') : 'New task';
+    $('editor-title').textContent = x ? (readOnly ? t.title + from : `Edit ${host.util.label('task')}`) : `New ${host.util.label('task')}`;
     $('f-title').value = t.title;
     $('f-notes').value = t.notes || '';
     $('f-due').value = t.due || '';
@@ -872,7 +872,7 @@
   // Typed text goes through Chat `/t` (addTask): parseWhen, then this same editor, nothing saved until Save.
   // Add task is the host's "+" (host.add.set, one action: it runs at once) wherever the To-do is drawn: a window's
   // titlebar, popped out, its own page, or the destination's page as its panel. Who may add is known once the spaces are in.
-  const ADD_TASK = { id: 'task', label: 'Add task', icon: 'square-plus' };
+  const ADD_TASK = { id: 'task', label: `Add ${host.util.label('task')}`, icon: 'square-plus' };
   function showAdd() {
     host.add.set(canAdd() ? [ADD_TASK] : []).catch(() => {});
   }

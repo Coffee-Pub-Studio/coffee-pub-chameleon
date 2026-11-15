@@ -1,7 +1,7 @@
 {
   "id": "todo",
   "name": "To-do",
-  "version": "1.15.30",
+  "version": "1.15.31",
   "icon": "list-check",
   "color": "green",
   "description": "A shared to-do list for the whole {environment} and for each {space}, with due dates and reminders.",
@@ -33,9 +33,11 @@
       "order": 20
     }
   },
+  "labels": { "task": { "one": "task", "many": "tasks" } },
   "settings": [
     {
       "key": "inCalendar",
+      "template": "default",
       "label": "Show in the Calendar",
       "type": "boolean",
       "scope": "environment",

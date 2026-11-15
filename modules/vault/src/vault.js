@@ -397,7 +397,7 @@
     if (state.files.length && (mayDownload || mayShare || state.files.some(mayRemove))) head.push({ id: 'select', icon: 'square-check', title: 'Select', on: state.selecting });
     if (mayShare) head.push({ id: 'share-links', icon: 'share-nodes', title: 'Share links', overflow: true });
     host.header.set(head).catch(() => {});
-    host.add.set(mayAdd ? [{ id: 'add', label: 'Add files', icon: 'plus' }] : []).catch(() => {});
+    host.add.set(mayAdd ? [{ id: 'add', label: `Add ${host.util.label('file', { many: true })}`, icon: 'plus' }] : []).catch(() => {});
     host.status.set(statusItems()).catch(() => {});
   }
 
@@ -673,7 +673,7 @@
     const e = el('div', 'sdk-empty vt-empty-in');
     if (!state.files.length) {
       e.append(ic('folder-open'), el('p', 'sdk-empty-title', `Nothing in ${MODULE} yet.`), el('p', 'sdk-empty-text', mayAdd ? `Add pictures, audio, video and documents for this ${SPACE}.` : `Nothing has been added to this ${SPACE}'s ${MODULE} yet.`));
-      if (mayAdd && !state.adding) { const b = button('btn btn-primary', { label: 'Add files', icon: 'plus' }); b.addEventListener('click', openAdd); e.append(b); }
+      if (mayAdd && !state.adding) { const b = button('btn btn-primary', { label: `Add ${host.util.label('file', { many: true })}`, icon: 'plus' }); b.addEventListener('click', openAdd); e.append(b); }
     } else {
       e.append(ic('magnifying-glass'), el('p', 'sdk-empty-title', 'No files match.'));
       const b = button('btn', { label: 'Clear filters', icon: 'xmark' });

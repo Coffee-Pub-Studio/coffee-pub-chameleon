@@ -1,7 +1,7 @@
 {
   "id": "polls",
   "name": "Polls",
-  "version": "1.15.29",
+  "version": "1.15.30",
   "icon": "square-poll-vertical",
   "color": "purple",
   "description": "Quick polls and votes for the whole {environment} and for each {space}, with live results.",
@@ -68,9 +68,11 @@
       }
     }
   ],
+  "labels": { "poll": { "one": "poll", "many": "polls" } },
   "settings": [
     {
       "key": "addableByDefault",
+      "template": "default",
       "label": "Let people suggest options by default",
       "type": "boolean",
       "scope": "space",
@@ -79,6 +81,7 @@
     },
     {
       "key": "closeAfterDays",
+      "template": "default",
       "label": "Close new polls after this many days",
       "type": "number",
       "scope": "environment",

@@ -213,10 +213,11 @@ try {
     assert.deepEqual(problems(minimal({ modules: { chat: { name: '<i>' } } })), ['modules.chat.name: A display name is plain text, without < or >.']);
     assert.deepEqual(problems(minimal({ modules: { chat: { icon: 'no-such-icon-xyz' } } })), ['modules.chat.icon: "no-such-icon-xyz" is not a Font Awesome Free solid icon.']);
     assert.deepEqual(problems(minimal({ modules: Object.fromEntries([['chat', {}], ...Array.from({ length: 61 }, (_, i) => [`m${i}`, {}])]) }))[0], '"modules" can list at most 60 modules.');
-    // The real manifests mark nothing yet (step 3), so every setting, label and starter is refused today.
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { settings: { inCalendar: true } } } })), ['modules.todo.settings: "inCalendar" is not a setting the todo module lets a template set.']);
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, calendar: { labels: { event: { one: 'session', many: 'sessions' } } } } })), ['modules.calendar.labels: "event" is not a word the calendar module lets a template rename.']);
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, documents: { starter: { 'doc:a': {} } } } })), ['modules.documents: the documents module takes no starter content.']);
+    // The real manifests (step 12): a marked setting, a declared label and a starter module are accepted; the rest is refused.
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { settings: { inCalendar: true } }, calendar: { labels: { event: { one: 'session', many: 'sessions' } } }, documents: { starter: {} } } })), []);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, documents: { settings: { coediting: true } } } })), ['modules.documents.settings: "coediting" is not a setting the documents module lets a template set.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, calendar: { labels: { widget: { one: 'session', many: 'sessions' } } } } })), ['modules.calendar.labels: "widget" is not a word the calendar module lets a template rename.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { starter: { 'poll:a': {} } } } })), ['modules.polls: the polls module takes no starter content.']);
     const clean = templates.cleanTemplate(minimal({ modules: { chat: { name: '  Talk   here ' }, polls: {} } }));
     assert.deepEqual(clean.modules, { chat: { name: 'Talk here' }, polls: {} });
   });

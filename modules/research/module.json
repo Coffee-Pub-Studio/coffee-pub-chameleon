@@ -1,7 +1,7 @@
 {
   "id": "research",
   "name": "Research",
-  "version": "0.4.35",
+  "version": "0.4.36",
   "icon": "book-open",
   "color": "blue",
   "description": "What a group finds out while it plans: notes, links with the part that mattered, photos with a caption. Tagged, searchable, linkable from anywhere, and questioned or summarised by the AI the {owner} chose.",
@@ -229,9 +229,11 @@
     { "name": "n", "word": "note", "label": "Add a research note", "action": "addNote", "hint": "the note's text" },
     { "name": "l", "word": "link", "label": "Add a research link", "action": "addLink", "hint": "the web address" }
   ],
+  "labels": { "note": { "one": "note", "many": "notes" } },
   "settings": [
     {
       "key": "tags",
+      "template": "default",
       "label": "Well-known tags",
       "type": "list",
       "scope": "environment",

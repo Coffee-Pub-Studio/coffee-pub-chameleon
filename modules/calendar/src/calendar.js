@@ -998,7 +998,7 @@
     $('f-summary').innerHTML = readOnly ? summaryHtml(x, ev, zone) : '';
     if (readOnly) $('f-where-wrap').hidden = true;
     const from = x && x.scope === 'spaces' && spaceInfo.get(x.spaceId) ? ` (${spaceInfo.get(x.spaceId).name})` : '';
-    $('editor-title').textContent = x ? (readOnly ? ev.title + from : 'Edit event') : 'New event';
+    $('editor-title').textContent = x ? (readOnly ? ev.title + from : `Edit ${host.util.label('event')}`) : `New ${host.util.label('event')}`;
     $('f-title').value = ev.title;
     $('f-allday').checked = Boolean(ev.allDay);
     const start = x ? startOf(ev) : null;
@@ -1241,7 +1241,7 @@
   // Add event is the "+" in the titlebar (host.add.set, one action: it runs at once), which the host draws wherever the
   // calendar is: a window's titlebar, popped out too, the page bar on its own page and on the Calendar destination, the
   // composite's "+" in a Workspace's Calendar. The Agenda adds nothing. Who may add is known once the spaces are in.
-  const ADD_EVENT = { id: 'event', label: 'Add event', icon: 'calendar-plus' };
+  const ADD_EVENT = { id: 'event', label: `Add ${host.util.label('event')}`, icon: 'calendar-plus' };
   function showAdd() {
     if (part !== 'panel') host.add.set(canAdd() ? [ADD_EVENT] : []).catch(() => {});
   }
@@ -1265,7 +1265,7 @@
         range = view === 'week' ? weekTitle() : view === 'day' ? anchor.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) : cursor.toLocaleDateString([], { month: 'short', year: 'numeric' });
         count = nothingPicked() ? 0 : inRange(p.from, p.to).filter((o) => !isMarker(o.x)).length;
       }
-      items.push({ text: range }, { text: count ? `${count} ${count === 1 ? 'event' : 'events'}` : 'No events' });
+      items.push({ text: range }, { text: count ? `${count} ${host.util.label('event', { many: count !== 1 })}` : `No ${host.util.label('event', { many: true })}` });
       const hiddenKinds = [...markerKinds.values()].filter((k) => hiddenMarkers.has(k.id)).length;
       if (hiddenKinds) items.push({ text: `${hiddenKinds} ${hiddenKinds === 1 ? 'kind' : 'kinds'} hidden`, title: 'Kinds of markers hidden in Filters' });
     }
