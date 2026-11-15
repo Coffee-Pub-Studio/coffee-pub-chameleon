@@ -899,6 +899,9 @@ class Store {
       ...(Object.keys(phaseMeasure.cleanDone(r.phaseDone)).length ? { phaseDone: phaseMeasure.cleanDone(r.phaseDone) } : {}),
       // The budget target (#216; budgetOf): { amount?, currency? }, absent while none is set.
       ...(budgetOf(r.budget) ? { budget: budgetOf(r.budget) } : {}),
+      // Its template's starter content was written, or passed over, when it was made (server/starter.js): never again.
+      // Absent on a space made before, or on the Lobby. Only claimStarter sets it.
+      ...(id !== LOBBY && r.starterDone === true ? { starterDone: true } : {}),
     };
   }
 
@@ -2165,6 +2168,17 @@ class Store {
     this.data.spaces.push(space);
     this.save();
     return this.spaceById(id);
+  }
+
+  // Claims a space's starter content (server/starter.js): records starterDone and answers true the first time, false for
+  // a space that has it already, the Lobby or an id this environment does not have. Recorded before any write, so a
+  // write that fails, or a stop halfway, never leads to a second run.
+  claimStarter(id) {
+    const space = this.data.spaces.find((r) => r.id === id);
+    if (!space || space.id === LOBBY || space.starterDone === true) return false;
+    space.starterDone = true;
+    this.save();
+    return true;
   }
 
   // A template named for a space, checked: the catalog's entry. 400 with one sentence for a value that is not an id, an id
