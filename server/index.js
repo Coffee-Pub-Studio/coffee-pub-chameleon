@@ -2646,8 +2646,13 @@ hostRouter.post('/api/host/environments/:slug/template/apply', requireHostAdmin,
     sendHostError(err, res);
   }
 });
-// Adds the demo space to an environment (documentation/plans/plan-demo-space.md): the generic loader (server/demo-loader.js)
-// run against the environment's template's demo file (travel's when the template has none), by loopback, as the host
+// The demos the console may add, one per shipped template that has a demo file: [{ id, label, name }] ("Travel demo").
+hostRouter.get('/api/host/demos', requireHostAdmin, (_req, res) => {
+  res.json({ demos: demoLoader.listDemos() });
+});
+// Adds a demo space to an environment (documentation/plans/plan-demo-space.md): the generic loader (server/demo-loader.js)
+// run against the demo the body names ({ demo: <template id> }), else the environment's template's own demo file (travel's when
+// the template has none), by loopback, as the host
 // admin's own stand-in user in that environment. The stand-in needs no password: the session is signed here with the
 // environment's own secret, as a sign-in would, and lives only for this one run. It changes no environment-wide setting.
 // Answers the loader's report, with the demo people's one-time passwords shown once (never logged, never kept).
@@ -2700,9 +2705,13 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     if (demoRuns.has(slug)) throw new HostError(`The demo ${word('space')} is being added. Wait for it to finish.`, 409);
     const env = environmentFor(slug);
     const envWord = (...a) => env.store.word(...a);
-    if (env.store.spaces.some((sp) => String(sp.description || '').startsWith(demoLoader.MARKER))) throw new HostError(`The demo ${envWord('space')} is already there. Delete it, then add it again.`, 409);
     const own = env.store.templateRecord?.id || null;
-    const usedTemplate = own && demoLoader.hasDemo(own) ? own : 'travel';
+    const asked = (req.body || {}).demo;
+    if (asked !== undefined && asked !== null && (typeof asked !== 'string' || !demoLoader.hasDemo(asked))) throw new HostError(`There is no demo called ${typeof asked === 'string' ? asked.slice(0, 40) : 'that'}.`, 400);
+    const usedTemplate = asked || (own && demoLoader.hasDemo(own) ? own : 'travel');
+    // One of each demo: a marked space with this demo's name is this demo, already there. Another demo may sit beside it.
+    const demoName = demoLoader.readDemoFile(usedTemplate).name;
+    if (env.store.spaces.some((sp) => sp.name === demoName && String(sp.description || '').startsWith(demoLoader.MARKER))) throw new HostError(`The demo ${envWord('space')} is already there. Delete it, then add it again.`, 409);
     // The demo run's own stand-in, never the host admin's login (an ordinary account may have that name): fixed login, no password.
     let user = env.store.userByLogin(DEMO_STANDIN_LOGIN);
     if (user && (!user.hostAdmin || user.passwordHash)) throw new HostError(`A person called "${DEMO_STANDIN_LOGIN}" already has an account in this ${envWord('environment')}, so the demo cannot be added. Rename or remove that account first.`, 409);
@@ -2723,7 +2732,7 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     } finally {
       demoRuns.delete(slug);
     }
-    res.set('Cache-Control', 'no-store').json({ ...report, template: own, usedTemplate, fellBack: usedTemplate !== own });
+    res.set('Cache-Control', 'no-store').json({ ...report, template: own, usedTemplate, fellBack: !asked && usedTemplate !== own });
   } catch (err) {
     if (err instanceof demoLoader.DemoError) return res.status(409).json({ error: err.message });
     sendHostError(err, res);
