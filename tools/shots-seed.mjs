@@ -50,9 +50,9 @@ export async function seedServer(call) {
     if (had.status >= 300 && !/already installed/.test(JSON.stringify(had.json))) throw new Error(`seed: installing ${id} answered ${had.status}: ${JSON.stringify(had.json)}`);
     await ok('PATCH', `/api/modules/${id}`, { enabled: true });
   }
-  const trip = (await ok('POST', '/api/spaces', { name: 'Lisbon in autumn', description: 'Ten days of trams, tiles and custard tarts.', members: [users.mia, users.sam] })).space;
-  const second = (await ok('POST', '/api/spaces', { name: 'Kyoto in spring', description: 'Blossom season, if we are lucky.', members: [users.mia] })).space;
-  await ok('POST', '/api/spaces', { name: 'Weekend in the Algarve', members: [users.sam] });
+  const trip = (await ok('POST', '/api/spaces', { name: 'Lisbon in autumn', starter: false, description: 'Ten days of trams, tiles and custard tarts.', members: [users.mia, users.sam] })).space;
+  const second = (await ok('POST', '/api/spaces', { name: 'Kyoto in spring', starter: false, description: 'Blossom season, if we are lucky.', members: [users.mia] })).space;
+  await ok('POST', '/api/spaces', { name: 'Weekend in the Algarve', starter: false, members: [users.sam] });
   await ok('PATCH', `/api/users/${users.mia}/spaces/${trip.id}`, { permissions: { moderator: true } });
   // The phases, on fixed days, whatever phases the template holds: the first starts a month before today, the ones before the main
   // phase follow at even steps, the main phase runs from day 10 to day 19 and the next phase starts the day after.
@@ -229,8 +229,8 @@ export async function seedGames(call) {
     const png = characterPicture(login);
     for (const slot of ['character', 'characterOffline']) await ok('PUT', `/api/users/${users[login]}/images/${slot}`, png);
   }
-  const campaign = (await ok('POST', '/api/spaces', { name: 'The Ashen Crown', description: 'A long campaign of ruined gates, quiet oaths and one stolen crown.', members: [users.mia, users.sam, users.lee] })).space;
-  const oneShot = (await ok('POST', '/api/spaces', { name: 'The Lantern Fair', description: 'A one-shot for a single evening.', members: [users.mia, users.sam] })).space;
+  const campaign = (await ok('POST', '/api/spaces', { name: 'The Ashen Crown', starter: false, description: 'A long campaign of ruined gates, quiet oaths and one stolen crown.', members: [users.mia, users.sam, users.lee] })).space;
+  const oneShot = (await ok('POST', '/api/spaces', { name: 'The Lantern Fair', starter: false, description: 'A one-shot for a single evening.', members: [users.mia, users.sam] })).space;
   await ok('PATCH', `/api/users/${users.mia}/spaces/${campaign.id}`, { permissions: { moderator: true } });
 
   const put = (module, key, value, space = campaign.id, as = 'admin') => ok('PUT', `/api/modules/${module}/data/${encodeURIComponent(key)}?scope=space&space=${space}`, { value }, as);

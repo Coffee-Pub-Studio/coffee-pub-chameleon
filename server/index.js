@@ -15,6 +15,7 @@ const { buildModule, bundledModules, zipFiles } = require('./module-build');
 const { fillManifest } = require('./modules');
 const templates = require('./templates');
 const demoLoader = require('./demo-loader');
+const starter = require('./starter');
 const http = require('http');
 const { ModuleLinks, objectKey } = require('./module-links');
 const { Backgrounds } = require('./backgrounds');
@@ -784,7 +785,7 @@ function environmentFor(slug) {
   // being installed (see plan-stream-module.md's phases: the old GET /view/:key keeps answering on its own
   // until phase 3 removes it); it will matter once that changes, at which point this may need to be awaited.
   // A template's once-only part is applied first, then the automatic installs, in that order (never at the same time).
-  env.templateReady = (pendingTemplate ? applyRecordedTemplate(env, slug, pendingTemplate) : Promise.resolve())
+  env.templateReady = (pendingTemplate ? applyRecordedTemplate(env, slug, pendingTemplate, fresh) : Promise.resolve())
     .then(() => autoInstallBundled(env))
     .catch((err) => console.error(`Auto-install failed for "${slug || DEFAULT_SLUG}": ${err.message}`))
     .then(() => envContext.run(env, () => announceModules(env, fresh)))
@@ -822,7 +823,7 @@ function useTemplate(env, slug, fresh) {
 
 // A template's once-only part (its settings, Lobby, space defaults, icons and modules), then the record's appliedAt,
 // so it never runs again. A module the environment's plan does not include is skipped, and recorded with why.
-async function applyRecordedTemplate(env, slug, template) {
+async function applyRecordedTemplate(env, slug, template, fresh) {
   const where = slug ? `[${slug}] ` : '';
   const names = new Map(bundledModules(BUNDLED_DIR).map((m) => [m.id, m.name]));
   const skipped = await templates.applyTemplate(env, template, {
@@ -835,6 +836,30 @@ async function applyRecordedTemplate(env, slug, template) {
   if (!now || now.id !== template.id || now.switchedAt) return;
   env.store.recordTemplate({ id: template.id, appliedAt: new Date().toISOString(), appliedVersion: template.version, applied: templates.partFingerprints(template), skipped });
   console.log(`${where}Applied the "${template.id}" template${skipped.length ? `; skipped ${skipped.map((x) => `${x.id} (${x.why})`).join(', ')}` : ''}.`);
+  // Its starter spaces, in the same step as appliedAt (nothing awaits between), so they are made once: only here, and
+  // only when the data directory was fresh (an environment made from the template), never on a switch, a restore (whose
+  // record may say it was never applied) or a later start.
+  if (fresh) envContext.run(env, () => makeStarterSpaces(env, template, where));
+}
+
+// A template's starter spaces (server/starter.js): each made as any new space is, with its starter content, by the
+// environment's first owner (else its admin). At most templates.MAX_STARTER_SPACES; a space that can't be made is
+// logged and the rest still are.
+function makeStarterSpaces(env, template, where = '') {
+  const list = starter.starterSpacesOf(template);
+  if (!list.length) return;
+  const creator = starter.starterSpaceCreator(env.store.users);
+  let made = 0;
+  for (const sp of list) {
+    try {
+      const space = env.store.addSpace({ name: sp.name, description: sp.description, creator: creator?.key || null });
+      fillStarter(space, creator, { where });
+      made += 1;
+    } catch (err) {
+      console.error(`${where}A starter ${word('space')} could not be made: ${err.message}`);
+    }
+  }
+  console.log(`${where}Made ${made} starter ${word('space', { many: made !== 1 })} from the "${template.id}" template.`);
 }
 
 // --- switching a template (plan-environment-templates.md, "Addendum: switching a template", GitHub #59) ------------
@@ -4933,8 +4958,15 @@ app.post('/api/spaces/:id/access-requests/:requestId', requireUser, (req, res) =
   res.json({ ok: true, changed: result.changed, request: { id: result.request.id, state: result.request.state } });
 });
 app.post('/api/spaces', requireOwner, (req, res) => {
-  const { name, description, members, profile, link, linkIcon, template } = req.body || {};
-  res.json({ space: store.addSpace({ name, description, members, profile, link, linkIcon, template, creator: currentUser(req).key }) });
+  const { name, description, members, profile, link, linkIcon, template, starter: wanted } = req.body || {};
+  // `starter: false` makes the space without its template's starter content (the demo loader's own space).
+  if (wanted !== undefined && typeof wanted !== 'boolean') return res.status(400).json({ error: 'starter must be true or false.' });
+  const user = currentUser(req);
+  const made = store.addSpace({ name, description, members, profile, link, linkIcon, template, creator: user.key });
+  // Its template's starter content, once, as the person who made it (fillStarter). Nothing awaits between the two, so
+  // two spaces made at once each get their own, and nothing else reaches a space before it has its starter content.
+  fillStarter(made, user, { skip: wanted === false });
+  res.json({ space: store.spaceById(made.id) });
 });
 app.post('/api/spaces/order', requireOwner, (req, res) => {
   res.json({ spaces: store.reorderSpaces((req.body || {}).order) });
@@ -5487,28 +5519,41 @@ function moduleAccess(req, res, need) {
   const scope = askedScope(req.query.scope, res, ['environment', 'space', 'person']);
   if (!scope) return;
   if (!manifest.scope.includes(scope)) return void res.status(400).json({ error: `this ${word('module')} has no ${scope} scope` });
-  let spaceId = null;
+  let space = null;
   if (scope === 'person') {
     // A person's own data (their profile's): only they can reach it, not even an administrator, because the place it is kept
     // is named by who is asking.
     if (!who.user) return void res.status(403).json({ error: `${word('guest', { many: true })} have no personal data` });
   } else if (scope === 'space') {
-    const space = store.spaceById(String(req.query.space || ''));
+    space = store.spaceById(String(req.query.space || ''));
     if (!space || closedTo(req, space)) return void res.status(entryStatus(req, space)).json(entryBody(req, space, `no such ${word('space')}`));
-    if (refusedInLobby(manifest, space.id)) return void res.status(404).json({ error: lobbyRefusal(manifest) });
-    if (!moduleSpaceAccess(entry, who, space)) return void res.status(403).json({ error: `this ${word('module')} is not available in that ${word('space')} for you` });
-    spaceId = space.id;
   } else if (!who.user) {
     return void res.status(403).json({ error: `${word('guest', { many: true })} can only use ${word('module', { a: true })} in ${word('space', { a: true })}` });
+  }
+  const at = moduleAccessAt(found, who, scope, space, need);
+  if (at.error) return void res.status(at.status).json({ error: at.error });
+  return at.ctx;
+}
+
+// The checks of a data call after the request's own (its scope named and the module's, its space found and open to the
+// asker): the module on in the space and the asker in it, the module's permission for `need`, and its guards' rule for
+// guests. Answers { ctx } or { status, error }. Starter content (fillStarter) is written through this too, as the
+// person who made the space.
+function moduleAccessAt({ manifest, entry }, who, scope, space, need) {
+  let spaceId = null;
+  if (scope === 'space') {
+    if (refusedInLobby(manifest, space.id)) return { status: 404, error: lobbyRefusal(manifest) };
+    if (!moduleSpaceAccess(entry, who, space)) return { status: 403, error: `this ${word('module')} is not available in that ${word('space')} for you` };
+    spaceId = space.id;
   }
   const perms = modulePerms(who, spaceId);
   // `own`: writing the module's data or uploads, which in a person's own data (scope person) takes the module's
   // access.personWrite where it names one, else access.write. Everything else that needs `write` (the AI, link previews,
   // notify, schedule) takes access.write in every scope.
   const guard = need === 'own' ? (scope === 'person' && manifest.access?.personWrite ? 'personWrite' : 'write') : need;
-  if (!moduleCan(manifest, perms, guard)) return void res.status(403).json({ error: `your role can't do that in this ${word('module')}` });
-  if (shutFromGuests(who, manifest, spaceId)) return void res.status(403).json({ error: guestsShutRefusal(manifest) });
-  return { manifest, entry, scope, spaceId, scopeKey: scopeKeyOf(scope, { spaceId, userKey: who.user?.key }), who, perms, by: who.user?.key || 'guest', hide: hiddenFor(who, manifest, spaceId) };
+  if (!moduleCan(manifest, perms, guard)) return { status: 403, error: `your role can't do that in this ${word('module')}` };
+  if (shutFromGuests(who, manifest, spaceId)) return { status: 403, error: guestsShutRefusal(manifest) };
+  return { ctx: { manifest, entry, scope, spaceId, scopeKey: scopeKeyOf(scope, { spaceId, userKey: who.user?.key }), who, perms, by: who.user?.key || 'guest', hide: hiddenFor(who, manifest, spaceId) } };
 }
 
 // The fields of a module's stored values this viewer may not receive here (the module's guards.hidden,
@@ -11227,30 +11272,86 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
   const slow = overLimit(ctx.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
   try {
-    const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, req.params.key);
-    // A writer who can't see the hidden fields leaves them as they were, and can't replace a value that holds any.
-    const hiddenRefused = moduleGuards.hiddenPutRefusal(req.body?.value, had ? had.value : null, ctx.hide);
-    if (hiddenRefused) return res.status(hiddenRefused.status).json({ error: hiddenRefused.error });
-    let value = moduleGuards.keepHidden(req.body?.value, had ? had.value : null, ctx.hide);
-    const guards = guardsAt(ctx);
-    if (guards) {
-      const keys = () => moduleData.list(ctx.manifest.id, ctx.scopeKey).map((item) => item.key);
-      const checked = moduleGuards.checkPut(guards, { key: req.params.key, before: had ? had.value : null, value, who: guardWho(ctx), read: storedValue(ctx), keys, personal: personalAt(ctx) });
-      if (checked.error) return res.status(checked.status).json({ error: checked.error });
-      value = checked.value;
-    }
-    const item = moduleData.put(ctx.manifest.id, ctx.scopeKey, req.params.key, value, { expected: Number.isInteger(req.body?.version) ? req.body.version : null, by: ctx.by });
-    objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: req.params.key, before: had ? had.value : null, after: item.value, by: ctx.by, tz: req.body?.tz });
-    // A file swapped for another (a photo's picture): the old one goes when nothing stored here names it any more.
-    if (had && guards) {
-      const was = moduleGuards.fileOf(guards, req.params.key, had.value);
-      if (was && was !== moduleGuards.fileOf(guards, req.params.key, item.value)) removeFilesOf(ctx, [{ key: req.params.key, value: had.value }]);
-    }
-    res.json({ item: hideItem(item, ctx.hide) });
+    const out = putModuleValue(ctx, req.params.key, req.body?.value, { expected: Number.isInteger(req.body?.version) ? req.body.version : null, tz: req.body?.tz });
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.json({ item: hideItem(out.item, ctx.hide) });
   } catch (err) {
     sendModuleConflict(err, res, ctx.hide);
   }
 });
+// One write of a module's data, as PUT /api/modules/:id/data/:key does it (ctx: moduleAccess's or moduleAccessAt's):
+// the hidden fields, the module's guards, the key rule and the size caps (moduleData.put), then what follows a write.
+// Answers { item } or a refusal { status, error }; throws what moduleData.put throws (a bad key 400, a conflict with
+// `expected` 409, too big 413). Starter content (fillStarter) is written through this too.
+function putModuleValue(ctx, key, given, { expected = null, tz } = {}) {
+  const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
+  // A writer who can't see the hidden fields leaves them as they were, and can't replace a value that holds any.
+  const hiddenRefused = moduleGuards.hiddenPutRefusal(given, had ? had.value : null, ctx.hide);
+  if (hiddenRefused) return { status: hiddenRefused.status, error: hiddenRefused.error };
+  let value = moduleGuards.keepHidden(given, had ? had.value : null, ctx.hide);
+  const guards = guardsAt(ctx);
+  if (guards) {
+    const keys = () => moduleData.list(ctx.manifest.id, ctx.scopeKey).map((item) => item.key);
+    const checked = moduleGuards.checkPut(guards, { key, before: had ? had.value : null, value, who: guardWho(ctx), read: storedValue(ctx), keys, personal: personalAt(ctx) });
+    if (checked.error) return { status: checked.status, error: checked.error };
+    value = checked.value;
+  }
+  const item = moduleData.put(ctx.manifest.id, ctx.scopeKey, key, value, { expected, by: ctx.by });
+  objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key, before: had ? had.value : null, after: item.value, by: ctx.by, tz });
+  // A file swapped for another (a photo's picture): the old one goes when nothing stored here names it any more.
+  if (had && guards) {
+    const was = moduleGuards.fileOf(guards, key, had.value);
+    if (was && was !== moduleGuards.fileOf(guards, key, item.value)) removeFilesOf(ctx, [{ key, value: had.value }]);
+  }
+  return { item };
+}
+
+// A new space's starter content (server/starter.js; plan-templates-redesign.md, "Starter spaces and starter content"):
+// claimed once (starterDone), then each block of the template the space reads written into that space only, as
+// `creator` (a user record), through moduleAccessAt and putModuleValue: the module on there and opted in as installed
+// now, the creator's write permission, the guards, the key rule and the caps, and never over a value already there
+// (expected 0). With `skip`, only claimed. A write that fails is skipped and logged; nothing is thrown. Answers
+// { done: false } for a space claimed before, else { done: true, written, skipped: [{ module, key?, why }] }.
+function fillStarter(space, creator, { skip = false, where = '' } = {}) {
+  if (!space || !store.claimStarter(space.id)) return { done: false };
+  const out = { done: true, written: 0, skipped: [] };
+  if (skip) return out;
+  const { template } = store.lensTemplateOf(space.id);
+  // Opted in as installed now (its active version's manifest), whether or not it is on: one that is off is said below.
+  const optedIn = (id) => modules.isInstalled(id) && Object.hasOwn(modules.registry.modules, id) && modules.manifestOf(id, modules.registry.modules[id].version)?.starter === true;
+  const { blocks, skipped } = starter.starterBlocks(template, { optedIn });
+  out.skipped.push(...skipped);
+  for (const block of blocks) {
+    const found = modules.enabled(block.module);
+    let ctx = null;
+    if (!creator) out.skipped.push({ module: block.module, why: `nobody made the ${word('space')}` });
+    else if (!found || !found.manifest.scope.includes('space')) out.skipped.push({ module: block.module, why: found ? `does not work in a ${word('space')}` : 'is not on' });
+    else {
+      const at = moduleAccessAt(found, { user: creator, guestSpace: null }, 'space', space, 'own');
+      if (at.error) out.skipped.push({ module: block.module, why: at.error });
+      else ctx = at.ctx;
+    }
+    if (!ctx) continue;
+    for (const [key, value] of block.entries) {
+      try {
+        const r = putModuleValue(ctx, key, value, { expected: 0 });
+        if (r.error) out.skipped.push({ module: block.module, key, why: r.error });
+        else out.written += 1;
+      } catch (err) {
+        // putModuleValue stores the value before it tells other modules (objectSync.afterWrite); one thrown after that
+        // is still a key written. Only a key that is not there is skipped.
+        const stored = !(err instanceof StoreError) && Boolean(moduleData.get(ctx.manifest.id, ctx.scopeKey, key));
+        if (stored) out.written += 1;
+        else out.skipped.push({ module: block.module, key, why: err instanceof StoreError ? err.message : 'could not be written' });
+        if (!(err instanceof StoreError)) console.error(`${where}Starter content for ${starter.shown(block.module)} ${starter.shown(key)} ${stored ? 'was written, then failed after' : 'could not be written'}: ${starter.shown(err.message)}`);
+      }
+    }
+  }
+  if (out.skipped.length) {
+    console.warn(`${where}Starter content for "${starter.shown(space.name)}": wrote ${out.written}, skipped ${out.skipped.map((s) => `${starter.shown(s.module)}${s.key ? ` ${starter.shown(s.key)}` : ''} (${starter.shown(s.why)})`).join('; ')}.`);
+  }
+  return out;
+}
 // Clear: everything the module holds in the scope, in one write, held for its Undo (server/module-holds.js) for 30 seconds
 // (CLEAR_UNDO_SECONDS): the values leave at once, the files they name wait, and so does what the clear does to other
 // modules. The answer's restoreToken undoes it (POST .../data/restore) until undoUntil; another Clear here is refused (409)

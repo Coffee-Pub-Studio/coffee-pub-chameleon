@@ -76,7 +76,7 @@ function seededApp(secrets = strong) {
         id: 'trip01', name: 'Trip', description: 'A trip', members: ['ownerkey'], createdAt: '2026-01-01T00:00:00.000Z', profile: 'characters',
         link: 'https://example.com/', linkIcon: 'link', guestToken: token(20), allowGuests: true, entry: 'accounts', requestAccess: true, closed: true, opensWith: ['todo'], defaultLayout: 'lay01', tabs: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['map'] },
         aiOff: true, template: 'games', aiSees: { chat: true }, publishCalendar: false, guestsSeeHidden: true, phases: { main: { start: '2026-02-01', end: '2026-02-05' } }, phaseDone: { main: true },
-        budget: { amount: 1200, currency: 'EUR' },
+        budget: { amount: 1200, currency: 'EUR' }, starterDone: true,
       },
     ],
     asides: [{ id: 'asid01', members: ['ownerkey'], origin: 'trip01', private: true, createdAt: '2026-01-01T00:00:00.000Z' }],

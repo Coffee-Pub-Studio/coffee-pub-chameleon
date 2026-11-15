@@ -253,7 +253,8 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
   // --- reset only the demo space, then make it ---
   for (const id of old) { await ok('caller', 'DELETE', `/api/spaces/${id}`); say(`Removed the old demo ${word('space')}.`); }
   const members = [...new Set([...logins.map((l) => keys[l]), callerKey].filter(Boolean))];
-  const space = (await ok('caller', 'POST', '/api/spaces', { name: file.name, description: `${MARKER} ${file.description}`.trim(), members })).space;
+  // starter: false: a demo load writes its own data, never the template's starter content.
+  const space = (await ok('caller', 'POST', '/api/spaces', { name: file.name, description: `${MARKER} ${file.description}`.trim(), members, starter: false })).space;
   for (const p of file.people.filter((x) => x.moderator)) await ok('caller', 'PATCH', `/api/users/${keys[p.login]}/spaces/${space.id}`, { permissions: { moderator: true } });
   const ctx = { today, start, keys, space: space.id, base, now };
 

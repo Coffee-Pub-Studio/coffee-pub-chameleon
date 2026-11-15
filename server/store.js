@@ -273,6 +273,8 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const SITE_IMAGES = ['icon', 'background'];
 // Every user belongs to the Lobby; it cannot be deleted.
 const LOBBY = 'lobby';
+// The longest a space's name is kept; a template's starter space names are held to the same (server/templates.js).
+const SPACE_NAME_MAX = 40;
 const MODULE_ID_SHAPE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const isPlainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 // Whether a template offers module `id`: "*" (the Default template's) for every module, else an entry by that id. No
@@ -846,7 +848,7 @@ class Store {
     if (!id) return null;
     return {
       id,
-      name: cleanText(r.name, 40) || (id === LOBBY ? 'Lobby' : this.word('space', { cap: true })),
+      name: cleanText(r.name, SPACE_NAME_MAX) || (id === LOBBY ? 'Lobby' : this.word('space', { cap: true })),
       description: String(r.description ?? '').trim().slice(0, 300),
       members: Array.isArray(r.members) ? [...new Set(r.members.filter((k) => typeof k === 'string'))] : [],
       createdAt: typeof r.createdAt === 'string' ? r.createdAt : new Date().toISOString(),
@@ -899,6 +901,9 @@ class Store {
       ...(Object.keys(phaseMeasure.cleanDone(r.phaseDone)).length ? { phaseDone: phaseMeasure.cleanDone(r.phaseDone) } : {}),
       // The budget target (#216; budgetOf): { amount?, currency? }, absent while none is set.
       ...(budgetOf(r.budget) ? { budget: budgetOf(r.budget) } : {}),
+      // Its template's starter content was written, or passed over, when it was made (server/starter.js): never again.
+      // Absent on a space made before, or on the Lobby. Only claimStarter sets it.
+      ...(id !== LOBBY && r.starterDone === true ? { starterDone: true } : {}),
     };
   }
 
@@ -2167,6 +2172,17 @@ class Store {
     return this.spaceById(id);
   }
 
+  // Claims a space's starter content (server/starter.js): records starterDone and answers true the first time, false for
+  // a space that has it already, the Lobby or an id this environment does not have. Recorded before any write, so a
+  // write that fails, or a stop halfway, never leads to a second run.
+  claimStarter(id) {
+    const space = this.data.spaces.find((r) => r.id === id);
+    if (!space || space.id === LOBBY || space.starterDone === true) return false;
+    space.starterDone = true;
+    this.save();
+    return true;
+  }
+
   // A template named for a space, checked: the catalog's entry. 400 with one sentence for a value that is not an id, an id
   // this environment cannot see, or one hidden now unless the space already has it (`current`); 409 while the switch is off.
   chosenTemplate(value, current) {
@@ -2233,7 +2249,7 @@ class Store {
     if (!space) throw new StoreError(`no such ${this.word('space')}`, 404);
     // Checked into a draft, applied at the end: a refused field changes nothing.
     const draft = { ...space };
-    if (patch.name !== undefined) draft.name = cleanText(patch.name, 40) || draft.name;
+    if (patch.name !== undefined) draft.name = cleanText(patch.name, SPACE_NAME_MAX) || draft.name;
     if (patch.description !== undefined) draft.description = String(patch.description ?? '').trim().slice(0, 300);
     // The space's own template (plan-space-templates.md): an id, or null to read the environment's again. Changes the live part
     // only: nothing else on the record is touched. Who may send it is the route's to decide (owners and the admin).
@@ -2999,6 +3015,7 @@ class StoreError extends Error {
 }
 
 module.exports = {
+  SPACE_NAME_MAX,
   Store, StoreError, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS,
   LEGACY_SLOTS, ROLES, ASSIGNABLE_ROLES, hasOwnerRights, ROLE_PERMISSIONS, IMAGE_TYPES, MAX_IMAGE_BYTES, DEFAULT_BORDER_COLOR, LOBBY, randomToken, cleanText, cleanLogin,
   sanitizeMfa, CURRENCIES, QUALITY_OPTIONS, LANGUAGES, BUILTIN_THEME_IDS: BUILTIN_THEMES.map((t) => t.id), displayNameProblem,

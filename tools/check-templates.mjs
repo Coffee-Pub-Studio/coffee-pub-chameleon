@@ -289,7 +289,7 @@ try {
     assert.deepEqual(problems(minimal({ starterSpaces: [{ name: 'First', description: 'Try things.' }] })), []);
     assert.deepEqual(problems(minimal({ starterSpaces: Array.from({ length: 6 }, () => ({ name: 'x' })) })), ['"starterSpaces" must be a list of at most 5 spaces.']);
     assert.deepEqual(problems(minimal({ starterSpaces: [{ name: 'x', members: [] }] })), ['starterSpaces[0] takes only name and description.']);
-    assert.deepEqual(problems(minimal({ starterSpaces: [{ name: '' }] })), ['starterSpaces[0]: a name is plain text of 1 to 60 characters.']);
+    assert.deepEqual(problems(minimal({ starterSpaces: [{ name: '' }] })), ['starterSpaces[0]: a name is plain text of 1 to 40 characters.']);
     assert.deepEqual(problems(minimal({ lobby: { name: 'x', size: 1 } })), ['"lobby" takes only "name" and "description".']);
     assert.deepEqual(problems(minimal({ icons: { home: 'plane', other: 'x' } })), ['"icons" takes only "home".']);
   });
