@@ -922,7 +922,13 @@ export async function clearWithUndo(moduleId, query) {
     const n = Number(back.restored) || 0;
     const restored = `Restored ${n} ${n === 1 ? word('object') : word('object', { many: true })}.`;
     const skipped = Array.isArray(back.taken) && back.taken.length ? back.taken.length : Number(back.skipped) || 0;
-    return skipped ? `${restored} ${skipped} could not come back: something new is in ${skipped === 1 ? 'its' : 'their'} place.` : restored;
+    // `gone`: copies of another module's objects that are no longer there (their originals went while the clear waited).
+    const gone = Number(back.gone) || 0;
+    return [
+      restored,
+      skipped ? `${skipped} could not come back: something new is in ${skipped === 1 ? 'its' : 'their'} place.` : '',
+      gone ? `${gone} came from another ${word('module')} and ${gone === 1 ? 'is' : 'are'} no longer there.` : '',
+    ].filter(Boolean).join(' ');
   };
   undo.until = Date.now() + seconds * 1000;
   return undo;

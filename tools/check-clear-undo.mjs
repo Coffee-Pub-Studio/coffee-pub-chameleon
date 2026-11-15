@@ -183,6 +183,11 @@ await test('pages: Clear asks the server to undo, the toast ends at the server\'
   assert.ok(clear.includes("api('POST', `${base}/restore?${query}`, { restoreToken: answer.restoreToken })"), 'Undo is the server\'s restore');
   assert.ok(!/'PUT'|'GET'/.test(clear), 'no copy taken by the page, nothing written back key by key');
   assert.ok(clear.includes('undo.until = Date.now() + seconds * 1000'), 'the undo time is the server\'s undoSeconds');
+  // Copies whose originals went while the clear waited (`gone`, GitHub #857) are said apart from keys taken by something new,
+  // and both are said when an Undo has both.
+  assert.ok(clear.includes('const gone = Number(back.gone) || 0;') && clear.includes("gone ? `${gone} came from another ${word('module')} and ${gone === 1 ? 'is' : 'are'} no longer there.` : ''"), 'gone copies have their own sentence');
+  assert.ok(clear.includes("skipped ? `${skipped} could not come back: something new is in") && clear.includes(".filter(Boolean).join(' ')"), 'taken keys keep theirs, and the two are joined');
+  assert.ok(!/skipped[^\n]*\+[^\n]*gone|gone[^\n]*\+[^\n]*skipped/.test(clear), 'gone is not counted as taken');
   assert.ok(host.includes('undoToast(`Cleared ${name}.`, undo, { until: undo.until })'), 'the toast lasts that long');
   assert.ok(host.includes('You can undo it for ${seconds} seconds, until you leave this page.') && !host.includes('Everything in it goes'), 'the dialog says what goes and for how long Undo lasts, from the server');
   assert.ok(host.includes("else if (type === 'changes') {") && host.includes("send('changes', { changes:"), 'a batch goes to the module as one event');

@@ -197,9 +197,17 @@ class ModuleHooks extends EventEmitter {
     const mine = this.schedules.filter((s) => s.module === ctx.manifest.id);
     if (!mine.some((s) => s.id === id) && mine.length >= LIMITS.schedulesPerModule) throw new StoreError(`this ${word('module')} has too many schedules`, 413);
     this.schedules = this.schedules.filter((s) => s.id !== id);
-    this.schedules.push({ id, module: ctx.manifest.id, scopeKey: ctx.scopeKey, spaceId: ctx.spaceId, key, at, payload, notify, repeat, by: ctx.by });
+    // `ctx.ref`: the module's own object the schedule is about (checked by the route), so what it tells goes only to those who
+    // may see that object (a copy's original; GitHub #857).
+    this.schedules.push({ id, module: ctx.manifest.id, scopeKey: ctx.scopeKey, spaceId: ctx.spaceId, key, at, payload, notify, repeat, by: ctx.by, ...(ctx.ref ? { ref: ctx.ref } : {}) });
     this.write(this.schedulesFile, this.schedules);
     return { key, at, repeat: Boolean(repeat) };
+  }
+
+  // The object a schedule here says it is about (its `ref`), or null.
+  refOf(ctx, key) {
+    const id = this.id(ctx.manifest.id, ctx.scopeKey, key);
+    return this.schedules.find((s) => s.id === id)?.ref || null;
   }
 
   cancel(ctx, key) {
@@ -226,11 +234,11 @@ class ModuleHooks extends EventEmitter {
       if (now - s.at > LIMITS.lateFireMs) continue; // missed while the server was off, and too late to matter
       // One schedule that cannot be carried out does not stop the others that are due.
       try {
-        if (s.notify) this.deliver({ module: s.module, scopeKey: s.scopeKey, spaceId: s.spaceId }, s.notify, { by: 'schedule' });
+        if (s.notify) this.deliver({ module: s.module, scopeKey: s.scopeKey, spaceId: s.spaceId, ref: s.ref || null }, s.notify, { by: 'schedule' });
       } catch (err) {
         console.error(`A scheduled notification from ${s.module} could not be delivered: ${err.stack || err.message}`);
       }
-      this.tell('fire', { module: s.module, scopeKey: s.scopeKey, key: s.key, payload: s.payload, at: s.at });
+      this.tell('fire', { module: s.module, scopeKey: s.scopeKey, key: s.key, payload: s.payload, at: s.at, ref: s.ref || null });
     }
     if (due.some((s) => s.repeat)) this.write(this.schedulesFile, this.schedules);
   }

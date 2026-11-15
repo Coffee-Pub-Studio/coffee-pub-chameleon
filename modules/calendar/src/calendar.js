@@ -56,7 +56,8 @@
   // host.spaces() says so with `write`, and a space that does not say is read only. The environment's events, seen
   // from a space, are read only there as before.
   const spaceWritable = (spaceId) => Boolean(spaceInfo.get(spaceId) && spaceInfo.get(spaceId).write === true);
-  const writable = (x) => (x.scope === 'here' ? canEdit : x.scope === 'spaces' ? spaceWritable(x.spaceId) : false);
+  // A copy whose original this person may not change (the host's `readOnly` on its summary) is read only too.
+  const writable = (x) => !(pairInfo.get(x.key) && pairInfo.get(x.key).readOnly) && (x.scope === 'here' ? canEdit : x.scope === 'spaces' ? spaceWritable(x.spaceId) : false);
   const writableSpaces = () => [...spaceInfo.values()].filter((r) => r.write === true);
   // Anyone who may add an event somewhere here: in this place, or (on the environment page) in one of their spaces.
   const canAdd = () => canEdit || (!inSpace && writableSpaces().length > 0);
@@ -163,7 +164,7 @@
       todo.forEach((x, i) => {
         const sum = sums[i];
         if (sum && !sum.error && sum.copy === true && sum.twinOf) {
-          pairInfo.set(x.key, { name: '', icon: '', ref: sum.twinOf });
+          pairInfo.set(x.key, { name: '', icon: '', ref: sum.twinOf, readOnly: sum.readOnly === true });
           originals.set(JSON.stringify(sum.twinOf), sum.twinOf);
         } else pairInfo.set(x.key, null);
       });
@@ -988,6 +989,7 @@
     $('f-copy').innerHTML = copy ? `${copyIcon(copy)}from ${esc(copyName(copy))}.${readOnly ? '' : ' Changing the title or the start changes it there too.'}` : '';
     // Read only in a place where the viewer may not add events: say why.
     const why = outside ? `From your ${externalName(x.calendar)} calendar. Only you see this.`
+      : readOnly && copy && copy.readOnly ? `Only people who can change ${copyName(copy)} can change this.`
       : readOnly && !inSpace && x ? `Only people who can add events in ${placeName(x.scope, x.spaceId)} can change this.`
       : readOnly ? 'You can look at this event, not change it.' : '';
     $('f-readonly').textContent = why;
@@ -1073,6 +1075,8 @@
         key,
         at,
         payload: { id },
+        // The event it is about: a copy's reminder then reaches only those who may see its original.
+        ref: host.objects.make('event', id, where),
         notify: { title: ev.title, body: label },
         repeat: ev.repeat ? { every: ev.repeat.every, until, tz: TZ } : undefined,
         ...(where || {}),
@@ -1571,7 +1575,9 @@
     const now = Date.now();
     let sent = 0;
     for (const x of [...events.values()]) {
-      if (x.scope !== 'here' || x.ev.repeat || x.ev.announced || announcing.has(x.id) || sent >= 5) continue;
+      // A copy this person may not change is left to someone who may (the write would be refused); an event not yet known to
+      // be a copy or not waits for the next round.
+      if (x.scope !== 'here' || (canHaveCopy(x) && !pairInfo.has(x.key)) || !writable(x) || x.ev.repeat || x.ev.announced || announcing.has(x.id) || sent >= 5) continue;
       const ends = instantOfStart(x.ev).getTime() + durationOf(x.ev);
       if (ends > now || now - ends > WEEK) continue;
       announcing.add(x.id);

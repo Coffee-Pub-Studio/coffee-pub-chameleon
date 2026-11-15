@@ -5642,7 +5642,8 @@ function mayClearHere(manifest, who, perms, spaceId) {
   if (!moduleGuards.mayClear(manifest.guards, guardWho({ who, perms, manifest }))) return false;
   try {
     const scopeKey = scopeKeyOf('space', { spaceId });
-    return !moduleHolds.peek(manifest.id, scopeKey) && moduleData.list(manifest.id, scopeKey).some((item) => !isBookkeeping(item.key));
+    const kept = keptCopies({ manifest, who, scopeKey }); // copies the clear would leave are not something it removes (GitHub #857)
+    return !moduleHolds.peek(manifest.id, scopeKey) && moduleData.list(manifest.id, scopeKey).some((item) => !isBookkeeping(item.key) && !(kept && kept(item.key)));
   } catch { return false; }
 }
 // The guards a data write here is held to. In a person's own data, which only they reach, only `exclusive` and the module's
@@ -7171,6 +7172,7 @@ function aiRoleWord(user, space) {
 function aiObjectsIn(who, where) {
   const pool = [];
   const pairs = moduleLinks.pairIndex();
+  const copies = copySight(who); // a copy whose original the asker may not see is left out (GitHub #857)
   for (const { manifest } of modules.enabledAll()) {
     for (const produce of manifest.refs.produces) {
       let at;
@@ -7178,7 +7180,8 @@ function aiObjectsIn(who, where) {
       const prefix = at.produce.key.replace('{id}', '');
       for (const item of objectRows(at, prefix)) {
         if (!item.value || !REF_ID_RE.test(item.key.slice(prefix.length))) continue;
-        pool.push(markPair(objectSummary(at, item.key.slice(prefix.length), item.value), pairs));
+        const summary = markPair(objectSummary(at, item.key.slice(prefix.length), item.value), pairs);
+        if (!(summary.copy && copies.hidesOriginal(summary.twinOf))) pool.push(summary);
       }
     }
   }
@@ -7590,7 +7593,10 @@ app.get('/api/modules/:id/spaces-data', (req, res) => {
   const spaces = found.spaces.map((r) => ({ ...spaceSummary(r), write: moduleCan(found.manifest, modulePerms(found.who, r.id), 'write') }));
   if (req.query.info) return res.json({ spaces });
   const prefix = typeof req.query.prefix === 'string' ? req.query.prefix : '';
-  const items = found.spaces.flatMap((r) => moduleData.list(found.manifest.id, scopeKeyOf('space', { spaceId: r.id }), prefix).map((item) => ({ ...item, spaceId: r.id })));
+  const items = found.spaces.flatMap((r) => {
+    const scopeKey = scopeKeyOf('space', { spaceId: r.id });
+    return withoutHiddenCopies(found.who, found.manifest, scopeKey, moduleData.list(found.manifest.id, scopeKey, prefix)).map((item) => ({ ...item, spaceId: r.id }));
+  });
   res.json({ spaces, items });
 });
 
@@ -7666,8 +7672,16 @@ function spaceAddressWhy(user, space) {
 // Reads `sources` ([{ manifest, kinds, places: [{ scopeKey, space }] }]) as server/ics.js writes them. Long past events
 // are left out; at most 2000, the latest kept. `destinationFor(module id)`: the Calendar destination's path when the link
 // should go there, else null for the module's own page. `nameSpaces`: whether each description starts with the space's
-// (or the environment's) name.
-function readFeed(req, sources, { destinationFor, nameSpaces, published = false }) {
+// (or the environment's) name. `who`: whose rights decide which copies of other modules' objects are read (GitHub #857):
+// the person's; with none (the published calendar), a guest's of each space, so it carries a copy only where that space's
+// guests may see the original.
+function readFeed(req, sources, { destinationFor, nameSpaces, published = false, who = null }) {
+  const sights = new Map(); // space id -> copySight, one per space for the published calendar's guest
+  const sightIn = (space) => {
+    const k = who ? '' : space.id;
+    if (!sights.has(k)) sights.set(k, copySight(who || { user: null, guestSpace: space }));
+    return sights.get(k);
+  };
   const tz = ics.serverZone();
   const base = baseUrl(req);
   const host = new URL(base).hostname;
@@ -7683,7 +7697,9 @@ function readFeed(req, sources, { destinationFor, nameSpaces, published = false 
     for (const kind of kinds) {
       const prefix = kind.key.replace('{id}', '');
       for (const { scopeKey, space } of places) {
+        const copies = space && takesCopies(manifest) ? sightIn(space) : null;
         for (const stored of moduleData.list(manifest.id, scopeKey, prefix)) {
+          if (copies && copies.hidesKey(manifest, scopeKey, stored.key)) continue;
           const row = hidden.length ? { ...stored, value: moduleGuards.hide(stored.value, hidden) } : stored;
           const id = row.key.slice(prefix.length);
           if (!REF_ID_RE.test(id)) continue;
@@ -7720,7 +7736,7 @@ function feedEvents(req, user) {
     ...found,
     places: [...(found.manifest.scope.includes('environment') ? [environmentPlace] : []), ...readableSpacesOf(found, who).map(spacePlace)],
   }));
-  return readFeed(req, sources, { destinationFor: (id) => destinationPathOf(id, ctx), nameSpaces: true });
+  return readFeed(req, sources, { destinationFor: (id) => destinationPathOf(id, ctx), nameSpaces: true, who });
 }
 // A space address: that one space's events, with the person's rights there; the description leaves the space's name
 // out, since the calendar is named after it.
@@ -7728,7 +7744,7 @@ function spaceFeedEvents(req, user, space) {
   const who = { user, guestSpace: null };
   const ctx = destinationContext(who);
   const sources = feedModulesFor(who, space).map((found) => ({ ...found, places: [spacePlace(space)] }));
-  return readFeed(req, sources, { destinationFor: (id) => destinationPathOf(id, ctx), nameSpaces: false });
+  return readFeed(req, sources, { destinationFor: (id) => destinationPathOf(id, ctx), nameSpaces: false, who });
 }
 // The published calendar: no person's rights. The environment's own events and every space's (never the Lobby, which
 // has no members of its own; asides hold no modules) where the module is on, except spaces left out
@@ -8339,6 +8355,8 @@ objectSync.configure({
   pairTo: (ref) => moduleLinks.pairTo(ref),
   addPair: (from, to, by) => moduleLinks.addPair(from, to, by),
   detachPair: (ref) => moduleLinks.detachPair(ref),
+  // Whether a Clear holds this key for its Undo (server/module-holds.js): a held copy is not gone.
+  isHeld: (moduleId, scopeKey, key) => Boolean(moduleHolds.peek(moduleId, scopeKey)?.items.some((item) => item.key === key)),
   removePairs: (ref, keepDetached) => moduleLinks.removePairs(ref, keepDetached),
   newId: () => crypto.randomBytes(8).toString('hex'),
   nameOf: (by) => store.userByKey(by)?.displayName || String(by || ''),
@@ -8406,12 +8424,80 @@ function markPair(summary, index) {
   return copies.length ? { ...summary, twins: copies } : summary;
 }
 
+// --- copies and their originals' rights (GitHub #857, Thomas 2026-11-15: "Check rights, hide copies") ---
+// A copy (a kind that takes copies, `mirror: "in"`: the Calendar's events) of a dated object another module keeps (the
+// Itinerary's) is seen only by whoever may read that module where the original is, and changed (written, deleted, cleared)
+// only by whoever may write it there: the module on in that space for its template, the person in the space, their role's
+// read or write permission for that module, and its guards' rule for guests -- the checks the original's own data route
+// makes (moduleAccessAt). An object that is not an active copy is the module's own, with its own rights only.
+const takesCopies = (manifest) => Boolean(manifest) && manifest.refs.produces.some((p) => p.mirror === 'in');
+// The reference a stored key is, when it is an object of a kind that takes copies in a space; else null.
+function copyRefAt(manifest, scopeKey, key) {
+  if (typeof scopeKey !== 'string' || !scopeKey.startsWith('space:') || typeof key !== 'string') return null;
+  for (const p of manifest.refs.produces) {
+    if (p.mirror !== 'in') continue;
+    const at = p.key.indexOf('{id}');
+    if (at < 0) continue;
+    const prefix = p.key.slice(0, at);
+    const suffix = p.key.slice(at + 4);
+    if (!key.startsWith(prefix) || !key.endsWith(suffix) || key.length <= prefix.length + suffix.length) continue;
+    return { module: manifest.id, kind: p.kind, id: key.slice(prefix.length, key.length - suffix.length), scope: 'space', space: scopeKey.slice(6) };
+  }
+  return null;
+}
+// Why `who` may not `need` ('read', or 'own' to write) the module that keeps an original, where it is: { status, error,
+// manifest? }, or null when they may. A module that is off, or a space that is gone, is refused for everyone.
+function originalRefusal(who, original, need) {
+  const found = original && original.scope === 'space' ? modules.enabled(original.module) : null;
+  const space = found && found.manifest.scope.includes('space') ? store.spaceById(String(original.space || '')) : null;
+  if (!found || !space) return { status: 404, error: 'not found' };
+  const at = moduleAccessAt(found, who, 'space', space, need);
+  return at.error ? { status: at.status, error: at.error, manifest: found.manifest } : null;
+}
+// One person's view of copies, for one request or one event: the pairs are indexed once (moduleLinks keeps the index until
+// the links change) and each original's module and space is asked once, however many copies a list holds.
+function copySight(who) {
+  const memo = new Map();
+  const refusal = (original, need) => {
+    const k = `${need}|${original.module}|${original.space || ''}`;
+    if (!memo.has(k)) memo.set(k, originalRefusal(who, original, need));
+    return memo.get(k);
+  };
+  const originalOf = (ref) => (ref ? moduleLinks.pairIndex().copyOf(ref) : null);
+  return {
+    originalOf,
+    // Whether the original of a copy (a summary's `twinOf`) is out of this person's sight, and so is the copy.
+    hidesOriginal: (original) => Boolean(original) && Boolean(refusal(original, 'read')),
+    // Whether `ref` is a copy this person may not see.
+    hides(ref) { const o = originalOf(ref); return Boolean(o) && Boolean(refusal(o, 'read')); },
+    // Whether the stored key `key` of `manifest` in `scopeKey` is a copy this person may not see.
+    hidesKey(manifest, scopeKey, key) { return this.hides(copyRefAt(manifest, scopeKey, key)); },
+    // Why this person may not change the copy `ref` ({ status, error, manifest? }), or null: not a copy, or they may.
+    changeRefusal(ref) { const o = originalOf(ref); return o ? refusal(o, 'own') : null; },
+  };
+}
+// A module's stored rows ([{ key, ... }]) less the copies this person may not see; the rows as they are for a module that
+// takes no copies, or a scope that holds none.
+function withoutHiddenCopies(who, manifest, scopeKey, rows) {
+  if (!takesCopies(manifest) || typeof scopeKey !== 'string' || !scopeKey.startsWith('space:')) return rows;
+  const sight = copySight(who);
+  return rows.filter((row) => !sight.hidesKey(manifest, scopeKey, row.key));
+}
+// The sentence for a copy whose original this person may not change.
+const copyChangeText = (manifest) => `This is a copy of ${word('object', { a: true })} in ${modules.shownName(manifest)}, and you can't change ${modules.shownName(manifest)} in this ${word('space')}, so you can't change the copy.`;
+const copyHiddenText = () => `that ${word('object')} is a copy of one you can't see`;
+
 function resolveRef(who, ref, from, opts = {}) {
   if (!refShape(ref)) throw refError(400, 'that is not a valid reference');
   const at = refScope(who, { provider: ref.module, kind: ref.kind, scope: ref.scope, space: ref.space, from, ...opts });
+  // A copy whose original this person may not see is hidden, as the original is.
+  const sight = at.produce.mirror === 'in' && ref.scope === 'space' ? copySight(who) : null;
+  if (sight && sight.hides(plainRef(ref))) throw Object.assign(refError(403, copyHiddenText()), { unseen: true });
   const value = objectValue(at, ref.id);
   if (!value) throw refError(404, isFileKind(at.manifest, at.produce) ? 'that file is no longer there' : `that ${word('object')} is no longer there`);
-  return markPair(objectSummary(at, String(ref.id), value, opts.withText === true), moduleLinks.pairIndex());
+  const summary = markPair(objectSummary(at, String(ref.id), value, opts.withText === true), moduleLinks.pairIndex());
+  // A copy this person may see but not change says so (`readOnly`), so the page that shows it offers no edit.
+  return sight && summary.copy && sight.changeRefusal(plainRef(ref)) ? { ...summary, readOnly: true } : summary;
 }
 
 // The kinds the consumer may point at: every kind of every other enabled module it was approved for.
@@ -8507,6 +8593,7 @@ app.get('/api/objects/search', (req, res) => {
   const summaries = [];
   const pool = [];
   const pairs = moduleLinks.pairIndex();
+  const copies = copySight(who); // a copy whose original this person may not see is not offered (GitHub #857)
   // has=amount only: how many priced objects the viewer was kept from because they may not view the module that holds
   // them (a number alone, never for a guest, and in a space only for its members), so Budget can say some are left out.
   let withheld = 0;
@@ -8541,6 +8628,7 @@ app.get('/api/objects/search', (req, res) => {
       for (const item of objectRows(at, prefix)) {
         if (!item.value || !REF_ID_RE.test(item.key.slice(prefix.length))) continue;
         const summary = markPair(objectSummary(at, item.key.slice(prefix.length), item.value), pairs);
+        if (summary.copy && copies.hidesOriginal(summary.twinOf)) continue;
         const fits = !(inSpace && !(summary.spaces || []).includes(inSpace.id))
           && !(onlyKind && summary.ref.kind !== onlyKind)
           && !(has === 'place' && !summary.place)
@@ -8738,6 +8826,13 @@ app.post('/api/objects/links', (req, res) => {
     perms = modulePerms(who, null);
   }
   if (!moduleCan(found.manifest, perms, 'write')) return res.status(403).json({ error: `your role can't do that in this ${word('module')}` });
+  // A copy of another module's object (GitHub #857): its links change only for whoever may change its original; one they
+  // may not see is answered as an object that is not there (below, nothing is kept).
+  const copies = from.scope === 'space' && takesCopies(found.manifest) ? copySight(who) : null;
+  const fromRef = plainRef(from);
+  const fromHidden = Boolean(copies && copies.hides(fromRef));
+  const fromRefused = copies && !fromHidden ? copies.changeRefusal(fromRef) : null;
+  if (fromRefused) return res.status(403).json({ error: fromRefused.manifest ? copyChangeText(fromRefused.manifest) : copyHiddenText() });
   // `kind`: replace only the links to objects of that kind (host.files.link keeps the object's other links as they are).
   const only = req.body?.kind === undefined || req.body?.kind === null || req.body?.kind === '' ? null : String(req.body.kind);
   if (only !== null && !/^[a-z][a-z0-9_-]{0,31}$/i.test(only)) return res.status(400).json({ error: `kind is a kind name` });
@@ -8745,7 +8840,7 @@ app.post('/api/objects/links', (req, res) => {
   const mode = req.body?.op === undefined || req.body?.op === null || req.body?.op === '' ? 'replace' : String(req.body.op);
   if (!['replace', 'add', 'remove'].includes(mode) || (mode !== 'replace' && only === null)) return res.status(400).json({ error: 'op is add or remove, with a kind' });
   const tos = [];
-  const held = moduleLinks.from(from);
+  const held = fromHidden ? [] : moduleLinks.from(from);
   for (const to of (Array.isArray(req.body?.to) ? req.body.to : []).slice(0, 20)) {
     if (to && to.scope === 'person') continue; // a shared link never points into someone's private data
     if (only !== null && !(to && to.kind === only)) return res.status(400).json({ error: `every link must be to a ${only}` });
@@ -8780,6 +8875,7 @@ app.post('/api/objects/links', (req, res) => {
       }
     }
   }
+  if (fromHidden) return res.json({ links: mode === 'remove' ? 0 : tos.length }); // as for an object that holds no links
   moduleLinks.set(from, tos, who.user?.key || 'guest', only, mode);
   // Only the links this person can see are counted.
   const counted = mode === 'replace' ? tos : moduleLinks.from(from).filter((l) => l.kind === only);
@@ -8964,6 +9060,7 @@ app.post('/api/bus/publish', busRoute((who, req) => {
       throw refError(400, `an event can only point at one of its ${word('module')}'s own ${word('object', { many: true })}, in the same place`);
     }
     pointer = plainRef(ref);
+    if (copySight(who).hides(pointer)) throw refError(404, 'not found'); // a copy whose original this person may not see (GitHub #857)
   }
   const event = moduleBus.publish({ module: id, name, ref: pointer, data, scopeKey: at.scopeKey, by: who.user?.key || 'guest' });
   if (!event) throw refError(400, 'the event\'s data is too large');
@@ -8977,8 +9074,10 @@ app.get('/api/bus/events', busRoute((who, req) => {
   if (req.query.after === 'now') return { events: [], latest: moduleBus.latestEvent(at.scopeKey) };
   const after = Number(req.query.after) || 0;
   const events = [];
+  const copies = copySight(who);
   for (const e of moduleBus.eventsAfter(at.scopeKey, after)) {
     if (!mayHear(at.found, e.module, e.name)) continue;
+    if (e.ref && copies.hides(e.ref)) continue; // about a copy whose original the person may not see (GitHub #857)
     try {
       busPlace(who, e.module, busScope(req.query.scope), req.query.space, 'read');
     } catch {
@@ -11264,13 +11363,15 @@ app.get('/m/:id/:version/*path', (req, res) => {
 app.get('/api/modules/:id/data', (req, res) => {
   const ctx = moduleAccess(req, res, 'read');
   if (!ctx) return;
-  res.json({ items: moduleData.list(ctx.manifest.id, ctx.scopeKey, typeof req.query.prefix === 'string' ? req.query.prefix : '').map((item) => hideItem(item, ctx.hide)) });
+  const items = moduleData.list(ctx.manifest.id, ctx.scopeKey, typeof req.query.prefix === 'string' ? req.query.prefix : '');
+  res.json({ items: withoutHiddenCopies(ctx.who, ctx.manifest, ctx.scopeKey, items).map((item) => hideItem(item, ctx.hide)) });
 });
 app.get('/api/modules/:id/data/:key', (req, res) => {
   const ctx = moduleAccess(req, res, 'read');
   if (!ctx) return;
   const item = moduleData.get(ctx.manifest.id, ctx.scopeKey, req.params.key);
-  if (!item) return res.status(404).json({ error: 'not found' });
+  // A copy whose original this person may not see is not there for them (GitHub #857).
+  if (!item || copyHiddenAt(ctx, req.params.key)) return res.status(404).json({ error: 'not found' });
   res.json({ item: hideItem(item, ctx.hide) });
 });
 function sendModuleConflict(err, res, hide = []) {
@@ -11284,7 +11385,7 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
   try {
     const out = putModuleValue(ctx, req.params.key, req.body?.value, { expected: Number.isInteger(req.body?.version) ? req.body.version : null, tz: req.body?.tz });
-    if (out.error) return res.status(out.status).json({ error: out.error });
+    if (out.error) return res.status(out.status).json({ error: out.error, ...('current' in out ? { current: out.current } : {}) });
     res.json({ item: hideItem(out.item, ctx.hide) });
   } catch (err) {
     sendModuleConflict(err, res, ctx.hide);
@@ -11295,6 +11396,13 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
 // Answers { item } or a refusal { status, error }; throws what moduleData.put throws (a bad key 400, a conflict with
 // `expected` 409, too big 413). Starter content (fillStarter) is written through this too.
 function putModuleValue(ctx, key, given, { expected = null, tz } = {}) {
+  // A copy of another module's object (GitHub #857): not there for whoever may not see its original, and changed only by
+  // whoever may change the original (copyWriteRefusal, below, once the value is known).
+  const copyRef = takesCopies(ctx.manifest) ? copyRefAt(ctx.manifest, ctx.scopeKey, key) : null;
+  const copies = copyRef ? copySight(ctx.who) : null;
+  // As for a key someone else has just taken: the conflict, with nothing current (a key that is not there answers the same to a
+  // write that names a version), so nothing says a hidden copy is there.
+  if (copies && copies.hides(copyRef)) return { status: 409, error: 'someone changed this since you read it', current: null };
   const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
   // A writer who can't see the hidden fields leaves them as they were, and can't replace a value that holds any.
   const hiddenRefused = moduleGuards.hiddenPutRefusal(given, had ? had.value : null, ctx.hide);
@@ -11307,6 +11415,10 @@ function putModuleValue(ctx, key, given, { expected = null, tz } = {}) {
     if (checked.error) return { status: checked.status, error: checked.error };
     value = checked.value;
   }
+  if (copies) {
+    const refused = copyWriteRefusal(ctx, copies, copyRef, key, had ? had.value : null, value, tz);
+    if (refused) return refused;
+  }
   const item = moduleData.put(ctx.manifest.id, ctx.scopeKey, key, value, { expected, by: ctx.by });
   objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key, before: had ? had.value : null, after: item.value, by: ctx.by, tz });
   // A file swapped for another (a photo's picture): the old one goes when nothing stored here names it any more.
@@ -11315,6 +11427,36 @@ function putModuleValue(ctx, key, given, { expected = null, tz } = {}) {
     if (was && was !== moduleGuards.fileOf(guards, key, item.value)) removeFilesOf(ctx, [{ key, value: had.value }]);
   }
   return { item };
+}
+
+// Whether the stored key `key` where ctx reads is a copy whose original ctx's person may not see (GitHub #857).
+const copyHiddenAt = (ctx, key) => takesCopies(ctx.manifest) && copySight(ctx.who).hidesKey(ctx.manifest, ctx.scopeKey, key);
+// Why ctx's person may not write `after` over the copy `ref` (stored at `key`, `before` as it is now), or null: they must
+// hold the original's write where it is (a 403 that says so), and what the edit writes back to the original must pass that
+// module's own guards, as its data route would hold that write. The copy is then written and its original follows
+// (objectSync.afterWrite); nothing is written when this refuses.
+function copyWriteRefusal(ctx, copies, ref, key, before, after, tz) {
+  const refused = copies.changeRefusal(ref);
+  if (refused) return { status: 403, error: refused.manifest ? copyChangeText(refused.manifest) : copyHiddenText() };
+  const back = objectSync.writeBack({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key, before, after, tz });
+  if (!back || !back.after) return null;
+  const found = modules.enabled(back.original.module);
+  const guards = found ? guardsAt({ manifest: found.manifest }) : null;
+  if (!guards) return null;
+  const at = moduleAccessAt(found, ctx.who, 'space', store.spaceById(String(back.original.space || '')), 'own');
+  if (at.error) return { status: 403, error: copyChangeText(found.manifest) };
+  const keys = () => moduleData.list(found.manifest.id, at.ctx.scopeKey).map((item) => item.key);
+  const checked = moduleGuards.checkPut(guards, { key: back.key, before: back.before, value: back.after, who: guardWho(at.ctx), read: storedValue(at.ctx), keys, personal: false });
+  return checked.error ? { status: checked.status, error: checked.error } : null;
+}
+// Why ctx's person may not remove the copy at `key` (deleting it, or clearing the module that holds it), or null. `hidden`:
+// they may not see it either, so the delete route answers as for a key that is not there.
+function copyRemoveRefusal(ctx, key, copies = copySight(ctx.who)) {
+  const ref = copyRefAt(ctx.manifest, ctx.scopeKey, key);
+  if (!ref) return null;
+  if (copies.hides(ref)) return { status: 200, hidden: true };
+  const refused = copies.changeRefusal(ref);
+  return refused ? { status: 403, error: refused.manifest ? copyChangeText(refused.manifest) : copyHiddenText(), manifest: refused.manifest } : null;
 }
 
 // A new space's starter content (server/starter.js; plan-templates-redesign.md, "Starter spaces and starter content"):
@@ -11375,6 +11517,13 @@ function clearRefusal(ctx) {
   // A person clears their own data; guards that don't read still refuse it.
   return guards && (!personalAt(ctx) || guards.invalid) ? moduleGuards.checkClear(guards, guardWho(ctx)) : null;
 }
+// The keys a clear by ctx's person leaves: the copies whose originals they may not change (or see), whatever the original's
+// module (off now, say). A function of a key, or null for a module that takes no copies or a scope that holds none.
+function keptCopies(ctx) {
+  if (!takesCopies(ctx.manifest) || !ctx.scopeKey.startsWith('space:')) return null;
+  const copies = copySight(ctx.who);
+  return (key) => Boolean(copyRemoveRefusal(ctx, key, copies));
+}
 // The clear budget (server/module-limits.js): five a minute for a module in an environment, but one person takes at most
 // three of them (clearPerson) and a member or guest, with the others like them, at most three (clearOrdinary), so the
 // last two are always there for an owner, admin or moderator of the space. A refusal gives back what it had counted.
@@ -11409,7 +11558,10 @@ app.delete('/api/modules/:id/data', (req, res) => {
   }
   const slow = overLimit(ctx.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
-  const items = moduleData.list(ctx.manifest.id, ctx.scopeKey);
+  // Copies of other modules' objects whose originals this person may not change stay where they are (GitHub #857): the clear
+  // takes the rest, and says nothing of them.
+  const kept = keptCopies(ctx);
+  const items = moduleData.list(ctx.manifest.id, ctx.scopeKey).filter((item) => !kept || !kept(item.key));
   // A writer who can't see the hidden fields can't remove what holds any.
   const hiddenRefused = moduleGuards.hiddenClearRefusal(items.map((item) => item.value), ctx.hide);
   if (hiddenRefused) return res.status(hiddenRefused.status).json({ error: hiddenRefused.error });
@@ -11417,19 +11569,22 @@ app.delete('/api/modules/:id/data', (req, res) => {
   const often = clearBudget(ctx);
   if (often) return void res.set('Retry-After', String(often.retrySeconds)).status(429).json({ error: `${modules.shownName(ctx.manifest)} was cleared too often just now. Try again in ${often.retrySeconds} ${often.retrySeconds === 1 ? 'second' : 'seconds'}.` });
   // Held first, then cleared: a stop between the two leaves the data where it was.
+  // A copy held says whose copy it is (`copyOf`), so an Undo puts it back only while that pair still is.
+  const pairs = takesCopies(ctx.manifest) ? moduleLinks.pairIndex() : null;
+  const copyOfKey = (key) => { const ref = pairs && copyRefAt(ctx.manifest, ctx.scopeKey, key); return ref ? pairs.copyOf(ref) : null; };
   const held = moduleHolds.hold(ctx.manifest.id, ctx.scopeKey, {
-    items: items.map(({ key, value, version, updatedAt, by }) => ({ key, value, version, updatedAt, by })),
+    items: items.map(({ key, value, version, updatedAt, by }) => { const copyOf = copyOfKey(key); return { key, value, version, updatedAt, by, ...(copyOf ? { copyOf } : {}) }; }),
     files: filesNamedBy(ctx.manifest, items),
     by: ctx.by,
     tz: typeof req.query.tz === 'string' ? req.query.tz : null,
   });
-  moduleData.removeAll(ctx.manifest.id, ctx.scopeKey, { by: ctx.by });
+  moduleData.removeAll(ctx.manifest.id, ctx.scopeKey, { by: ctx.by, keep: kept });
   res.json({ cleared: items.filter((item) => !isBookkeeping(item.key)).length, restoreToken: held.token, undoSeconds: held.seconds, undoUntil: held.undoUntil });
 });
 // Undo of a Clear: puts back exactly what that clear held (each value with its writer and time, its files kept), in one
 // write and one 'changes' event; it counts as one save against the write limit. The same permission as the clear. A key
 // that holds something now keeps it and is named in `taken` (a bookkeeping key keeps it unnamed); the rest come back.
-// Answers { restored, skipped, taken }, counting objects only. A token that undoes nothing is a 410 that says why.
+// Answers { restored, skipped, taken, gone?, outOfDate? }, counting objects only (gone and outOfDate: copies of other modules' objects, below). A token that undoes nothing is a 410 that says why.
 app.post('/api/modules/:id/data/restore', (req, res) => {
   const ctx = moduleAccess(req, res, 'own');
   if (!ctx) return;
@@ -11443,9 +11598,19 @@ app.post('/api/modules/:id/data/restore', (req, res) => {
   if (hiddenRefused) return res.status(hiddenRefused.status).json({ error: hiddenRefused.error });
   const slow = overLimit(ctx.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
+  // A held copy comes back only while it is still its original's copy (GitHub #857): one whose original was deleted, or lost its
+  // date, while the clear waited would come back as a plain event, so it stays cleared. Undo does not ask the copy rights
+  // again: it puts back what this person was allowed to clear, within the Undo time.
+  const stillCopy = (item) => {
+    if (!item.copyOf) return true;
+    const ref = copyRefAt(ctx.manifest, ctx.scopeKey, item.key);
+    const pair = ref ? moduleLinks.pairTo(ref) : null;
+    return Boolean(pair && pair.pair === 'active' && objectKey(pair.from) === objectKey(item.copyOf));
+  };
+  const stale = hold.items.filter((item) => !stillCopy(item));
   let result;
   try {
-    result = moduleData.restoreMany(ctx.manifest.id, ctx.scopeKey, hold.items, { by: ctx.by });
+    result = moduleData.restoreMany(ctx.manifest.id, ctx.scopeKey, hold.items.filter(stillCopy), { by: ctx.by });
   } catch (err) {
     moduleLimits.refund(ctx.manifest.id, ctx.by, 'write'); // nothing came back, so it was not a save
     if (err instanceof StoreError && err.status === 413) return res.status(413).json({ error: `${modules.shownName(ctx.manifest)}'s storage is full, so nothing came back. Remove something and press Undo again.` });
@@ -11454,11 +11619,27 @@ app.post('/api/modules/:id/data/restore', (req, res) => {
   moduleHolds.drop(ctx.manifest.id, ctx.scopeKey, 'undone');
   // What did not come back is cleared for good: other modules hear of it (unless its key now holds the object they
   // follow) and its files go, as when a hold runs out.
-  if (result.taken.length) {
-    const left = new Set(result.taken);
+  if (result.taken.length || stale.length) {
+    const left = new Set([...result.taken, ...stale.map((item) => item.key)]);
     finishHold({ ...hold, items: hold.items.filter((item) => left.has(item.key)) });
   }
-  res.json({ restored: result.restored.filter((key) => !isBookkeeping(key)).length, skipped: result.taken.length, taken: result.taken.slice(0, 50) });
+  // The copies that came back say what their originals say now (an original edited while the clear waited). One that can't be
+  // written (the module full, 413) stays as it was held, and the Undo still stands; the original's next edit updates it.
+  const tz = typeof req.query.tz === 'string' && req.query.tz ? req.query.tz : hold.tz;
+  let outOfDate = 0;
+  for (const item of hold.items) {
+    if (!item.copyOf || !result.restored.includes(item.key)) continue;
+    try {
+      objectSync.resyncCopy({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: item.key, by: ctx.by, tz });
+    } catch (err) {
+      if (!(err instanceof StoreError)) throw err;
+      outOfDate += 1;
+      console.error(`A copy put back by an Undo could not be brought up to date: ${err.message}`);
+    }
+  }
+  // `gone`: copies this person cleared whose originals were deleted or lost their date while the clear waited; they stay cleared.
+  // `outOfDate`: copies that came back as they were held. Each only when there are any.
+  res.json({ restored: result.restored.filter((key) => !isBookkeeping(key)).length, skipped: result.taken.length, taken: result.taken.slice(0, 50), ...(stale.length ? { gone: stale.length } : {}), ...(outOfDate ? { outOfDate } : {}) });
 });
 // Why a restoreToken undoes nothing (moduleHolds.why), as the 410 says it.
 const UNDO_GONE = {
@@ -11473,6 +11654,10 @@ app.delete('/api/modules/:id/data/:key', (req, res) => {
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
   try {
     const expected = req.query.version !== undefined ? Number(req.query.version) : null;
+    // A copy (GitHub #857): removed (hidden from its module for good) only by whoever may change its original.
+    const copyRefused = takesCopies(ctx.manifest) ? copyRemoveRefusal(ctx, req.params.key) : null;
+    if (copyRefused?.hidden) return res.json({ key: req.params.key, deleted: true, version: 0 }); // as a key that is not there
+    if (copyRefused) return res.status(copyRefused.status).json({ error: copyRefused.error });
     const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, req.params.key);
     const guards = guardsAt(ctx);
     // A person removes their own data; guards that don't read still refuse it.
@@ -11517,10 +11702,24 @@ app.post('/api/modules/:id/schedule', (req, res) => {
   const ctx = moduleAccess(req, res, 'write');
   if (!ctx || !requireHook(ctx, res, 'schedule')) return;
   if (req.body?.notify && typeof req.body.notify === 'object' && refuseNotifyTo(req.body.notify.to, res)) return;
+  // `ref`: the module's own object, in the same place, the schedule is about. Its notification and its firing then reach
+  // only those who may see that object: for a copy of another module's object, whoever may read the original (GitHub #857).
+  const ref = req.body?.ref;
+  let pointer = null;
+  if (ref !== undefined && ref !== null) {
+    if (!refShape(ref) || ref.module !== ctx.manifest.id || !ctx.manifest.refs.produces.some((p) => p.kind === ref.kind) || refScopeKey(ref) !== ctx.scopeKey) {
+      return res.status(400).json({ error: `a schedule can only be about one of its ${word('module')}'s own ${word('object', { many: true })}, in the same place` });
+    }
+    pointer = plainRef(ref);
+    if (copySight(ctx.who).hides(pointer)) return res.status(404).json({ error: 'not found' });
+  }
+  // Nor is a schedule about such a copy replaced by key alone.
+  const had = moduleHooks.refOf(ctx, String(req.body?.key ?? ''));
+  if (had && copySight(ctx.who).hides(had)) return res.status(404).json({ error: 'not found' });
   const slow = overLimit(ctx.manifest.id, ctx.by, 'schedule');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
   try {
-    res.json(moduleHooks.schedule(ctx, req.body || {}));
+    res.json(moduleHooks.schedule(pointer ? { ...ctx, ref: pointer } : ctx, req.body || {}));
   } catch (err) {
     sendHookError(err, res);
   }
@@ -11528,6 +11727,9 @@ app.post('/api/modules/:id/schedule', (req, res) => {
 app.delete('/api/modules/:id/schedule/:key', (req, res) => {
   const ctx = moduleAccess(req, res, 'write');
   if (!ctx || !requireHook(ctx, res, 'schedule')) return;
+  // A schedule about a copy whose original this person may not see is answered as one that is not there (GitHub #857).
+  const had = moduleHooks.refOf(ctx, req.params.key);
+  if (had && copySight(ctx.who).hides(had)) return res.json({ key: req.params.key, cancelled: false });
   res.json(moduleHooks.cancel(ctx, req.params.key));
 });
 app.post('/api/modules/:id/notify', (req, res) => {
@@ -11626,6 +11828,13 @@ function eventIdOf(happened) {
   }
   return id;
 }
+// A batch's changes less the copies whose originals `who` may not see (GitHub #857): the batch's own list when none is left
+// out, so a stream can still share its text.
+function visibleChanges(who, manifest, batch) {
+  if (!takesCopies(manifest)) return batch.changes;
+  const kept = withoutHiddenCopies(who, manifest, batch.scopeKey, batch.changes);
+  return kept.length === batch.changes.length ? batch.changes : kept;
+}
 // A batch's changes as the stream sends them to a viewer who has nothing hidden: written out once per batch.
 const batchTexts = new WeakMap();
 function changesText(batch) {
@@ -11717,37 +11926,43 @@ app.get('/api/modules/stream', (req, res) => {
     return Boolean(found && place(views[0], moduleId, `space:${space.id}`, found, viewer) && moduleLiveReadable(viewer, found.manifest, space.id));
   }) : null;
   const onChange = listenIn(env, (change) => {
+    let copyHidden; // whether the change is to a copy whose original this viewer may not see (GitHub #857), asked once
     for (const v of views) {
       const at = place(v, change.module, change.scopeKey);
       if (!at) continue;
       // What a guest may not receive goes from the value (hiddenFor); a guest only ever hears their own space.
       const changed = modules.enabled(change.module)?.manifest;
       if (changed && shutFromGuests(who, changed, at.spaceId)) continue;
+      copyHidden ??= Boolean(changed) && takesCopies(changed) && copySight(who).hidesKey(changed, change.scopeKey, change.key);
+      if (copyHidden) continue;
       const hide = at.spaceId && changed ? hiddenFor(who, changed, at.spaceId) : [];
       send(v, 'change', change, { ...hideItem(change, hide), ...at });
     }
   });
   // Many keys at once (a Clear, its Undo: moduleData.removeAll, restoreMany): one 'changes' event, so a page draws once.
   const onChanges = listenIn(env, (batch) => {
+    let shown; // the batch's changes less the copies whose originals this viewer may not see (GitHub #857), worked out once
     for (const v of views) {
       const at = place(v, batch.module, batch.scopeKey);
       if (!at) continue;
       const changed = modules.enabled(batch.module)?.manifest;
       if (changed && shutFromGuests(who, changed, at.spaceId)) continue;
+      shown ??= changed ? visibleChanges(who, changed, batch) : batch.changes;
       const hide = at.spaceId && changed ? hiddenFor(who, changed, at.spaceId) : [];
       // A big batch comes without values (`reload: true`, server/module-data.js emitBatch): the page reads the data again.
       const head = { module: batch.module, by: batch.by, ...(batch.cleared ? { cleared: true } : {}), ...(batch.restored ? { restored: true } : {}), ...(batch.reload ? { reload: true } : {}) };
-      if (!hide.length) {
+      if (!hide.length && shown === batch.changes) {
         // Nothing hidden from this viewer: the batch's changes are written out once and shared by every stream that hears it.
         const text = changesText(batch);
         const body = JSON.stringify(v.view ? { ...head, changes: 0, ...at, view: v.view } : { ...head, changes: 0, ...at }).replace('"changes":0', () => `"changes":${text}`);
         sseWrite(res, `id: ${eventIdOf(batch)}\nevent: changes\ndata: ${body}\n\n`);
         continue;
       }
-      send(v, 'changes', batch, { ...head, changes: batch.changes.map((c) => { const h = hideItem(c, hide); return { key: h.key, ...('value' in h ? { value: h.value } : {}), version: h.version, deleted: h.deleted, by: h.by }; }), ...at });
+      send(v, 'changes', batch, { ...head, changes: shown.map((c) => { const h = hideItem(c, hide); return { key: h.key, ...('value' in h ? { value: h.value } : {}), version: h.version, deleted: h.deleted, by: h.by }; }), ...at });
     }
   });
   const onFire = listenIn(env, (fire) => {
+    if (fire.ref && copySight(who).hides(fire.ref)) return; // about a copy whose original this viewer may not see (GitHub #857)
     for (const v of views) {
       const at = place(v, fire.module, fire.scopeKey);
       if (at && at.scope !== 'spaces') send(v, 'schedule', fire, { module: fire.module, key: fire.key, payload: fire.payload, ...at });
@@ -11759,10 +11974,12 @@ app.get('/api/modules/stream', (req, res) => {
     if (file && !fileVisible(who, file.spaceId, file.module, file.record)) return;
     // A pointer to a library file goes only to a viewer who can see that file as it is now (plan-vault-privacy.md); the
     // holder's own pointer goes as before.
+    const copies = copySight(who);
     for (const ref of refs) {
       // (A removed file's own pointer was checked against its last record above.)
       const removed = file && ref.module === file.module && ref.space === file.spaceId && ref.id === file.record.id;
       if (!removed && isLibraryFileRef(ref) && !refFileSeen(who, ref, false)) continue;
+      if (copies.hides(ref)) continue; // a copy whose original this viewer may not see (GitHub #857)
       for (const v of views) {
         const at = place(v, ref.module, refScopeKey(ref));
         if (at) send(v, 'links', ref, { module: ref.module, ref, ...at });
@@ -11771,6 +11988,7 @@ app.get('/api/modules/stream', (req, res) => {
   });
   // A module said something happened: sent to every module here that may hear it (the host delivers it to those frames).
   const onBus = listenIn(env, (ev) => {
+    if (ev.ref && copySight(who).hides(ev.ref)) return; // about a copy whose original this viewer may not see (GitHub #857)
     for (const v of views) {
       const at = place(v, ev.module, ev.scopeKey);
       if (!at) continue;
@@ -12155,14 +12373,16 @@ app.get('/api/modules/:id/events', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
   sseWrite(res, 'retry: 3000\n\n');
+  // A copy whose original the listener may not see is not told of (GitHub #857).
+  const copyHidden = (scopeKey, key) => takesCopies(ctx.manifest) && copySight(viewer).hidesKey(ctx.manifest, scopeKey, key);
   const onChange = listenIn(env, (change) => {
     if (change.module !== ctx.manifest.id) return;
     if (spaceIds) {
       const spaceId = change.scopeKey.startsWith('space:') ? change.scopeKey.slice(6) : null;
-      if (!spaceIds.has(spaceId)) return;
+      if (!spaceIds.has(spaceId) || copyHidden(change.scopeKey, change.key)) return;
       return void sseWrite(res, `event: change\ndata: ${JSON.stringify({ ...change, spaceId })}\n\n`);
     }
-    if (change.scopeKey !== ctx.scopeKey) return;
+    if (change.scopeKey !== ctx.scopeKey || copyHidden(change.scopeKey, change.key)) return;
     sseWrite(res, `event: change\ndata: ${JSON.stringify(hideItem(change, ctx.hide))}\n\n`);
   });
   const onChanges = listenIn(env, (batch) => {
@@ -12170,13 +12390,14 @@ app.get('/api/modules/:id/events', (req, res) => {
     if (spaceIds) {
       const spaceId = batch.scopeKey.startsWith('space:') ? batch.scopeKey.slice(6) : null;
       if (!spaceIds.has(spaceId)) return;
-      return void sseWrite(res, `event: changes\ndata: ${JSON.stringify({ ...batch, spaceId })}\n\n`);
+      return void sseWrite(res, `event: changes\ndata: ${JSON.stringify({ ...batch, changes: visibleChanges(viewer, ctx.manifest, batch), spaceId })}\n\n`);
     }
     if (batch.scopeKey !== ctx.scopeKey) return;
-    sseWrite(res, `event: changes\ndata: ${JSON.stringify({ ...batch, changes: batch.changes.map((c) => hideItem(c, ctx.hide)) })}\n\n`);
+    sseWrite(res, `event: changes\ndata: ${JSON.stringify({ ...batch, changes: visibleChanges(viewer, ctx.manifest, batch).map((c) => hideItem(c, ctx.hide)) })}\n\n`);
   });
   const onFire = listenIn(env, (fire) => {
     if (spaceIds || fire.module !== ctx.manifest.id || fire.scopeKey !== ctx.scopeKey) return;
+    if (fire.ref && copySight(viewer).hides(fire.ref)) return;
     sseWrite(res, `event: schedule\ndata: ${JSON.stringify({ key: fire.key, payload: fire.payload })}\n\n`);
   });
   // A library module's page hears its own space's files change (the same event the shared stream carries).

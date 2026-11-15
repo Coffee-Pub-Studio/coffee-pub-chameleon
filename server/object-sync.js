@@ -260,20 +260,34 @@ function removeTwin(produce, to, scopeKey, by) {
   deps.remove(to.module, scopeKey, twinKey(produce, to.id), by);
 }
 
+// The pair is kept before the copy is written, so the copy's first change already reads as a copy and reaches only those who may
+// see its original (plan-plan-calendar-sync.md, Permissions). No pair kept (the links are full), no copy; a copy that can't be
+// written (413) takes its pair with it.
 function createTwin(ref, wall, zone, by, taker, scopeKey) {
   const patch = fieldsForTwin(wall, zone, taker.produce.dated);
   if (!patch) return;
   const id = deps.newId();
   const value = { ...fillCreate(taker.produce.create, id, deps.nameOf(by)), ...patch };
-  deps.write(taker.moduleId, scopeKey, twinKey(taker.produce, id), value, by);
-  deps.addPair(ref, { module: taker.moduleId, kind: taker.produce.kind, id, scope: ref.scope, space: ref.space }, by);
+  const to = { module: taker.moduleId, kind: taker.produce.kind, id, scope: ref.scope, space: ref.space };
+  if (deps.addPair(ref, to, by) === false) return;
+  try {
+    deps.write(taker.moduleId, scopeKey, twinKey(taker.produce, id), value, by);
+  } catch (err) {
+    deps.dropLinks(to);
+    throw err;
+  }
 }
 
 function updateTwin(pair, wall, zone, by, taker, scopeKey) {
   const key = twinKey(taker.produce, pair.to.id);
   const current = deps.read(taker.moduleId, scopeKey, key);
-  // A copy that is gone was hidden on purpose (deleting it detaches the pair): it is not made again.
-  if (!current) return deps.detachPair(pair.to);
+  // A copy that is gone was hidden on purpose (deleting it detaches the pair): it is not made again. One a Clear holds for its
+  // Undo is not gone yet: the pair stays as it is (an Undo brings the copy back and brings it up to date, resyncCopy; the end
+  // of the hold detaches it), so a copy never comes back as a plain event.
+  if (!current) {
+    if (deps.isHeld && deps.isHeld(taker.moduleId, scopeKey, key)) return;
+    return deps.detachPair(pair.to);
+  }
   const patch = fieldsForTwin(wall, zone, taker.produce.dated);
   const next = patch && changed(current, patch);
   if (next) deps.write(taker.moduleId, scopeKey, key, next, by);
@@ -309,11 +323,32 @@ function mirrorOut(ref, produce, scopeKey, before, after, zone, by) {
   }
 }
 
-// A twin's edit writes the sender. A twin with no pair is left alone. Deleting the twin detaches the pair, which
-// stays as the record that it is hidden (it is never made again), and leaves the sender as it was. A repeating twin stays paired; the sender follows its first start.
+// What a copy's edit writes back to its original: null when `ref` is not an active copy, or its original can't be read; else
+// the original (`from`, its produce, scope key and stored key), the original as stored (`current`) and as it would be after
+// the edit (`next`, null when nothing mapped changes), and the zone the times are read in.
 // The zone the copy's times are read in: the trip's, else the one the copy keeps (`dated.tz`, as stored before this write,
 // else as written), and only then the writer's. A flight at 7:40 in Lisbon stays 7:40 when someone in another zone edits
 // its copy; the writer's browser zone is the last resort, for a copy that keeps none.
+function senderEdit(ref, produce, after, zone, before) {
+  if (produce.mirror !== 'in' || produce.dated?.form !== 'instant' || !deps.pairTo) return null;
+  const pair = deps.pairTo(ref);
+  if (!pair || pair.pair !== 'active') return null;
+  const sender = deps.produceOf(pair.from.module, pair.from.kind);
+  if (!sender || sender.mirror !== 'out' || sender.dated?.form !== 'wall') return null;
+  const senderScope = scopeKeyOfHolder(pair.from);
+  if (!senderScope) return null;
+  const senderKey = twinKey(sender, pair.from.id);
+  const current = deps.read(pair.from.module, senderScope, senderKey);
+  if (!current) return null;
+  const kept = (v) => (produce.dated.tz && v && typeof v === 'object' ? acceptZone(v[produce.dated.tz]) : null);
+  const wrote = tripZone(pair.from.module, sender, senderScope) || kept(before) || kept(after) || zone;
+  const next = changed(current, fieldsForSender(readInstant(after, produce.dated), wrote, sender.dated, current));
+  return { from: pair.from, sender, senderScope, senderKey, current, next, wrote };
+}
+
+// A twin's edit writes the sender. A twin with no pair is left alone. Deleting the twin detaches the pair, which
+// stays as the record that it is hidden (it is never made again), and leaves the sender as it was. A repeating twin stays paired; the sender follows its first start.
+// Who may make the edit is the route's to decide before the copy is written (writeBack below; GitHub #857).
 function mirrorIn(ref, produce, scopeKey, after, zone, by, before = null) {
   if (produce.mirror !== 'in' || produce.dated?.form !== 'instant' || !deps.pairTo) return;
   if (after == null) {
@@ -321,22 +356,52 @@ function mirrorIn(ref, produce, scopeKey, after, zone, by, before = null) {
     if (pair && pair.pair === 'active') deps.detachPair(ref);
     return;
   }
-  const pair = deps.pairTo(ref);
-  if (!pair || pair.pair !== 'active') return;
-  const sender = deps.produceOf(pair.from.module, pair.from.kind);
-  if (!sender || sender.mirror !== 'out' || sender.dated?.form !== 'wall') return;
-  const senderScope = scopeKeyOfHolder(pair.from);
-  if (!senderScope) return;
-  const current = deps.read(pair.from.module, senderScope, twinKey(sender, pair.from.id));
-  if (!current) return;
-  const kept = (v) => (produce.dated.tz && v && typeof v === 'object' ? acceptZone(v[produce.dated.tz]) : null);
-  const wrote = tripZone(pair.from.module, sender, senderScope) || kept(before) || kept(after) || zone;
-  const next = changed(current, fieldsForSender(readInstant(after, produce.dated), wrote, sender.dated, current));
+  const edit = senderEdit(ref, produce, after, zone, before);
+  if (!edit) return;
+  const { from, sender, senderScope, senderKey, current, next, wrote } = edit;
   const sent = next || current;
-  if (next) deps.write(pair.from.module, senderScope, twinKey(sender, pair.from.id), next, by);
+  if (next) deps.write(from.module, senderScope, senderKey, next, by);
   // The copy then says what the sender says (its span, its zone, a time "All day" would not erase).
   const copy = changed(after, fieldsForTwin(readWall(sent, sender.dated), wrote, produce.dated));
   if (copy) deps.write(ref.module, scopeKey, twinKey(produce, ref.id), copy, by);
+}
+
+// A copy put back (a Clear's Undo) says again what its original says now: its title and dates as the original would send
+// them, read in the zone an edit of the original would use (updateTwin: the trip's, else the writer's, here the one who undoes),
+// so a copy's time does not depend on a clear in between. Nothing for a key that is not an active copy, or whose original's
+// module is off (the copy stays as it was held; the original's next edit brings it up to date). A server write, as every write
+// here; it throws what the write throws (413 when the module is full).
+function resyncCopy({ module, scopeKey, key, by, tz }) {
+  if (!deps) return;
+  const found = deps.produceFor(module, key);
+  if (!found || found.produce.mirror !== 'in' || found.produce.dated?.form !== 'instant') return;
+  const ref = refOf(module, found.produce, found.id, scopeKey);
+  const pair = ref && deps.pairTo(ref);
+  if (!pair || pair.pair !== 'active') return;
+  const sender = deps.produceOf(pair.from.module, pair.from.kind);
+  const senderScope = scopeKeyOfHolder(pair.from);
+  if (!sender || sender.mirror !== 'out' || sender.dated?.form !== 'wall' || !senderScope) return;
+  const original = deps.read(pair.from.module, senderScope, twinKey(sender, pair.from.id));
+  const copy = deps.read(module, scopeKey, key);
+  if (!original || !copy) return;
+  const wrote = tripZone(pair.from.module, sender, senderScope) || writerZone(tz);
+  const patch = fieldsForTwin(readWall(original, sender.dated), wrote, found.produce.dated);
+  const next = patch && changed(copy, patch);
+  if (next) deps.write(module, scopeKey, key, next, by);
+}
+
+// What writing `after` at a copy's key would write back to its original, worked out and written nowhere, so a route can
+// check the writer's rights on the original first: null when the key is not an active copy; else { original (its
+// reference), key (the original's stored key), before (the original as stored), after (as it would be; null when the edit
+// changes nothing mapped) }.
+function writeBack({ module, scopeKey, key, before, after, tz }) {
+  if (!deps || after == null) return null;
+  const found = deps.produceFor(module, key);
+  if (!found || found.produce.mirror !== 'in') return null;
+  const ref = refOf(module, found.produce, found.id, scopeKey);
+  if (!ref) return null;
+  const edit = senderEdit(ref, found.produce, after, writerZone(tz), before);
+  return edit ? { original: edit.from, key: edit.senderKey, before: edit.current, after: edit.next } : null;
 }
 
 // { module, scopeKey, key, before, after, by, tz }. `before` and `after` are the stored values; `after` is null
@@ -408,6 +473,8 @@ module.exports = {
   dayInZone,
   configure,
   afterWrite,
+  writeBack,
+  resyncCopy,
   backfill,
   listen,
 };

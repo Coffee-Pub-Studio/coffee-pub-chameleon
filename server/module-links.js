@@ -21,6 +21,7 @@ class ModuleLinks extends EventEmitter {
     this.setMaxListeners(0);
     this.file = path.join(modulesDir, 'links.json');
     this.items = [];
+    this.index = null; // pairIndex(), kept until the links change
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       if (Array.isArray(raw)) this.items = raw.filter((l) => l && l.from && l.to);
@@ -30,6 +31,7 @@ class ModuleLinks extends EventEmitter {
   }
 
   save() {
+    this.index = null; // every change ends here: the pair index is made again when next asked (first, so a failed write can't keep it)
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(this.items));
@@ -97,8 +99,10 @@ class ModuleLinks extends EventEmitter {
   }
 
   // Who is whose copy, for flagging summaries: `copyOf(ref)` the original an object is the active copy of (or null),
-  // `copiesOf(ref)` the copies an original has. A detached pair is a hidden copy, so it is neither.
+  // `copiesOf(ref)` the copies an original has. A detached pair is a hidden copy, so it is neither. Kept until the links
+  // change (save), so a list of thousands of objects, or every open stream hearing one change, asks it at no cost.
   pairIndex() {
+    if (this.index) return this.index;
     const originals = new Map();
     const copies = new Map();
     for (const l of this.items) {
@@ -108,16 +112,19 @@ class ModuleLinks extends EventEmitter {
       if (!copies.has(k)) copies.set(k, []);
       copies.get(k).push(plain(l.to));
     }
-    return { copyOf: (ref) => originals.get(key(ref)) || null, copiesOf: (ref) => copies.get(key(ref)) || [] };
+    this.index = { copyOf: (ref) => originals.get(key(ref)) || null, copiesOf: (ref) => copies.get(key(ref)) || [] };
+    return this.index;
   }
 
+  // Whether the pair was kept (false: the links are full).
   addPair(from, to, by) {
     const fk = key(from);
     const rest = this.items.filter((l) => !(l.pair && key(l.from) === fk && l.to.module === to.module && l.to.kind === to.kind));
-    if (rest.length + 1 > LIMITS.total) return;
+    if (rest.length + 1 > LIMITS.total) return false;
     this.items = [...rest, { from: plain(from), to: plain(to), by, at: Date.now(), pair: 'active' }];
     this.save();
     this.emit('change', { refs: [plain(from), plain(to)] });
+    return true;
   }
 
   detachPair(ref) {
