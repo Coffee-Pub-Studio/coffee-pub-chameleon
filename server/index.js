@@ -1142,8 +1142,8 @@ async function applyTemplateOfferNow(env, slug, body, creator) {
   const missing = ticked.find((i) => !offered.some((sp) => sp.index === i));
   if (missing !== undefined) throw new StoreError(`This offer has no starter ${env.store.word('space')} ${missing}.`);
   const skipped = await templates.applyOffer(env, template, { modules: b.modules || [], lobby: b.lobby === true, spaceDefaults: b.spaceDefaults === true }, { ...templateOptions(env, slug), applied: record.applied || null });
-  // Nothing that changes the record runs while this one waits (templateTurn; deleting the owner's own template in use
-  // aside, and a restore): if it changed anyway, nothing more is recorded or made.
+  // Nothing that changes the record runs while this one waits (templateTurn, which a delete of the owner's own template in use
+  // also runs inside; a restore does not): if it changed anyway, nothing more is recorded or made.
   const now = env.store.templateRecord;
   if (!now || now.id !== record.id || now.switchedAt !== record.switchedAt || now.appliedAt !== record.appliedAt || templateFor(env, record.id)?.version !== template.version) throw new StoreError('This template changed since it was offered; look at the offer again.', 409);
   // Every part is recorded as seen, applied or passed over: it is offered again only when the template changes it.

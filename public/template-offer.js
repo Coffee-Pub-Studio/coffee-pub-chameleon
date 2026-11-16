@@ -99,14 +99,17 @@ export function renderOffer(box, { templateName, offer, lobbyName = '', apply, l
       <div class="row">
         <button class="btn btn-primary" type="button" data-offer-apply>${any ? 'Apply' : 'Done'}</button>
         <button class="btn" type="button" data-offer-later>Not now</button>
-        <span class="status" data-offer-status role="status"></span>
+        <span class="status" data-offer-status role="status" tabindex="-1"></span>
       </div>
     </div>`;
   box.hidden = false;
   const status = box.querySelector('[data-offer-status]');
   if (notice) { status.textContent = notice; status.classList.add('error'); }
   box.querySelector('[data-offer-later]').addEventListener('click', () => later && later());
+  let busy = false; // a second activation while a request is in flight does nothing
   box.querySelector('[data-offer-apply]').addEventListener('click', async () => {
+    if (busy) return;
+    busy = true;
     const body = {
       offerId: offer && offer.offerId,
       version: offer && offer.version,
@@ -128,6 +131,8 @@ export function renderOffer(box, { templateName, offer, lobbyName = '', apply, l
       for (const b of buttons) b.disabled = b.matches('[data-offer-module]') && b.closest('.offer-refused') ? true : false;
       status.textContent = err.message; // the server's own sentence
       status.classList.add('error');
+    } finally {
+      busy = false;
     }
   });
 }

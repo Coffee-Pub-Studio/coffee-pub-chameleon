@@ -2238,7 +2238,12 @@ function renderTemplateOffer() {
         offerNotice = applied ? '' : err.message;
         await loadTemplate();
         offerNotice = '';
-        if (applied || !(madeFrom && madeFrom.offerOpen)) say($('template-status'), err.message, true);
+        if (applied || !(madeFrom && madeFrom.offerOpen) || box.hidden) {
+          say($('template-status'), err.message, true);
+          $('template-select').focus(); // the panel is gone: as after a success
+        } else {
+          (box.querySelector('input:not(:disabled)') || box.querySelector('[data-offer-status]'))?.focus(); // the redrawn panel
+        }
         return;
       }
       const offered = templateOffer;

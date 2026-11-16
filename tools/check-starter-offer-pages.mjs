@@ -83,6 +83,9 @@ async function owner() {
     assert.equal((await api('POST', '/api/environment/templates', { from: 'default', id: 'startr', name: 'Startr' })).status, 201);
     const set = await api('PATCH', '/api/environment/templates/startr', { starterSpaces: STARTERS });
     assert.equal(set.status, 200, JSON.stringify(set.json));
+    const MARKUP = '&lt;img src=x onerror=1&gt;';
+    assert.equal((await api('POST', '/api/environment/templates', { from: 'default', id: 'markup', name: 'Markup' })).status, 201);
+    assert.equal((await api('PATCH', '/api/environment/templates/markup', { starterSpaces: [{ name: MARKUP, description: '&lt;b&gt;bold&lt;/b&gt;' }] })).status, 200);
     const spaceNames = async () => (await api('GET', '/api/spaces')).json.spaces.map((s) => s.name);
 
     browser = await launch(bin);
@@ -98,6 +101,8 @@ async function owner() {
       });
       const before = (await spaceNames()).length;
       const planningBefore = (await spaceNames()).filter((x) => x === 'Planning').length;
+      const posts = [];
+      tab.cdp.listeners.push((m) => { if (m.sessionId === tab.sid && m.method === 'Network.requestWillBeSent' && m.params.request.method === 'POST' && /template\/apply$/.test(m.params.request.url)) posts.push(m.params.request.url); });
       const at = (what) => `${size}: ${what}`;
       const ev = (expr) => tab.eval(expr);
       const waitFor = async (expr, what, ms = 15000) => {
@@ -167,10 +172,37 @@ async function owner() {
           assert.equal(await ev("document.querySelector('#template-offer [data-offer-status]').classList.contains('error')"), true);
           assert.equal((await spaceNames()).length, count, 'nothing was made');
           assert.equal((await rows()).filter((x) => x.checked).length, 0, 'the offer is drawn again, unticked');
+          assert.ok(await ev("document.getElementById('template-offer').contains(document.activeElement)"), 'focus is inside the redrawn panel');
           // and the redrawn offer confirms with the new id
           await ev("document.querySelector('#template-offer [data-offer-starter=\"0\"]').click()");
           await ev("document.querySelector('#template-offer [data-offer-apply]').click()");
           await waitFor("/Made 1 space: Kickoff\\./.test(document.getElementById('template-status').textContent)", 'the made line after the second try');
+        });
+        await test(at('a starter name of escaped markup is literal text; a double click on Apply sends one POST'), async () => {
+          await switchTo('default');
+          await switchTo('markup');
+          await waitFor("document.querySelectorAll('#template-offer [data-offer-starter]').length === 1", 'the markup row');
+          const row = await ev("(() => { const l = document.querySelector('#template-offer [data-offer-starter]').closest('label'); return { name: l.querySelector('strong').textContent, hint: l.querySelector('.hint').textContent, img: l.querySelectorAll('img, b').length }; })()");
+          assert.deepEqual(row, { name: MARKUP, hint: '&lt;b&gt;bold&lt;/b&gt;', img: 0 });
+          posts.length = 0;
+          await ev("document.querySelector('#template-offer [data-offer-starter]').click()");
+          await ev("(() => { const b = document.querySelector('#template-offer [data-offer-apply]'); b.click(); b.click(); return true; })()");
+          await waitFor("/^Applied/.test(document.getElementById('template-status').textContent)", 'applied');
+          assert.equal(posts.length, 1, `one POST, not ${posts.length}`);
+          const line = await ev("document.getElementById('template-status').textContent");
+          assert.ok(line.includes(`Made 1 space: ${MARKUP}.`), line);
+          assert.equal(await ev("document.getElementById('template-status').querySelectorAll('img, b').length"), 0);
+        });
+        await test(at('a confirm after the offer was already applied closes the panel and focuses the chooser'), async () => {
+          await switchTo('default');
+          await switchTo('startr');
+          await waitFor("document.querySelectorAll('#template-offer [data-offer-starter]').length === 3", 'the starter rows');
+          const o = (await api('GET', '/api/environment/template')).json.offer;
+          assert.equal((await api('POST', '/api/environment/template/apply', { offerId: o.offerId, version: o.version })).status, 200);
+          await ev("document.querySelector('#template-offer [data-offer-apply]').click()");
+          await waitFor("/already been applied/.test(document.getElementById('template-status').textContent)", 'the sentence');
+          await waitFor("document.getElementById('template-offer').hidden", 'the panel closed');
+          assert.equal(await ev('document.activeElement.id'), 'template-select');
         });
         await test(at('no page error'), () => assert.deepEqual(problems, []));
       } catch (err) {
@@ -240,8 +272,27 @@ async function host() {
       await ev("document.querySelector('#env-offer [data-offer-starter=\"2\"]').click()");
       await ev("document.querySelector('#env-offer [data-offer-apply]').click()");
       await waitFor("/Made 1 space: Retro\\./.test(document.getElementById('env-template-status').textContent)", 'the made line');
-      const spaces = await hostSeed.call(port, 'GET', env.slug, '/api/spaces', undefined, { cookie });
-      if (spaces.status === 200) assert.equal(spaces.json.spaces.filter((x) => x.name === 'Retro').length, 1);
+      const login = await hostSeed.call(port, 'POST', env.slug, '/api/login', { login: `own-${env.slug}`, password: 'owner-password-1' });
+      assert.equal(login.status, 200, login.text);
+      const spaces = await hostSeed.call(port, 'GET', env.slug, '/api/spaces', undefined, { cookie: login.cookies.join('; ') });
+      assert.equal(spaces.status, 200, spaces.text);
+      assert.equal(spaces.json.spaces.filter((x) => x.name === 'Retro').length, 1);
+    });
+    await test('1280: a stale confirm in the console shows the refusal in the redrawn panel, with focus inside it', async () => {
+      await ev("document.getElementById('env-template-status').textContent = ''");
+      for (const id of ['default', 'starts']) {
+        await ev(`(() => { const sel = document.getElementById('env-template-select'); sel.value = ${JSON.stringify(id)}; sel.dispatchEvent(new Event('change')); document.getElementById('env-template-switch-btn').click(); return true; })()`);
+        await waitFor("Boolean(document.querySelector('dialog.sdk-dialog-confirm'))", 'the switch question');
+        await ev("document.querySelector('dialog.sdk-dialog-confirm [data-ok]').click()");
+        await waitFor(`document.getElementById('env-template-status').textContent.startsWith('Switched to ') && (${JSON.stringify(id)} === 'default' || document.querySelectorAll('#env-offer [data-offer-starter]').length === 3)`, `switched to ${id}`);
+        if (id === 'default') await ev("document.getElementById('env-template-status').textContent = ''");
+      }
+      assert.equal((await console_('PATCH', '/api/host/templates/starts', { description: 'Edited under the open offer.' })).status, 200);
+      await ev("document.querySelector('#env-offer [data-offer-starter=\"0\"]').click()");
+      await ev("document.querySelector('#env-offer [data-offer-apply]').click()");
+      await waitFor("/changed since it was offered/.test(document.querySelector('#env-offer [data-offer-status]')?.textContent || '')", 'the refusal in the panel');
+      assert.ok(await ev("document.getElementById('env-offer').contains(document.activeElement)"), 'focus is inside the redrawn panel');
+      assert.equal(await ev("[...document.querySelectorAll('#env-offer [data-offer-starter]')].filter((i) => i.checked).length"), 0);
     });
   } finally {
     if (browser) { browser.cdp.ws.close(); await stopBrowser(browser.child, browser.dir).catch(() => {}); }

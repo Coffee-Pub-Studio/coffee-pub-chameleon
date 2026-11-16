@@ -712,7 +712,13 @@ function renderTemplateTab(t) {
         try { again = applied ? null : await api('GET', `/api/host/environments/${encodeURIComponent(t.slug)}/template`); } catch { again = null; }
         if (again && again.offer) openOffers.set(t.slug, { name: again.template.name || again.template.id, offer: again.offer, notice: err.message });
         await reloadEnvironments();
-        if (!openOffers.has(t.slug)) say($('env-template-status'), err.message, true);
+        if (!openOffers.has(t.slug)) {
+          say($('env-template-status'), err.message, true);
+          $('env-template-select').focus(); // the panel is gone: as after a success
+        } else {
+          const redrawn = $('env-offer');
+          (redrawn.querySelector('input:not(:disabled)') || redrawn.querySelector('[data-offer-status]'))?.focus(); // the redrawn panel
+        }
         return;
       }
       const offered = shown.offer;
