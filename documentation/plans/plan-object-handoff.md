@@ -169,6 +169,27 @@ questions, each approved as recommended on 2026-10-03.
     every dated plan object on the Calendar, so a travel space gets no duplicates, and a flight still reaches the
     Calendar through the Planner.
 
+Decisions made after the build (Thomas, 2026-11-15). Each is a **Divergence called out**: the plan above did not say it.
+
+20. **The planners' kinds join the format** (#878, #885): `milestone`, `work`, `goal` and `step`, so these four are added to
+    the kinds already in `KINDS` (and `image`, between pages only). They carry a new value type, `day`
+    (`YYYY-MM-DD`, years 1900 to 2200, leap days checked), and these details: `milestone`: `start`, `done`, `phase`,
+    `under`; `work`: `start`, `end`, `done`, `phase`, `under`; `goal`: `why`, `date`, `phase`; `step`: `date`, `done`,
+    `under`. `under` is the title of what the object sits under (a milestone or work for a project's entries, a goal
+    for a step), matched by the receiving module against the titles it holds, and not checked on import. A goal has no
+    `under`, and a note on this is shared. Each has `kindA` for how a person reads it (`work` is "a piece of work").
+    Planners declare these in `takes` (#885). The prompt's lines for them appear only when an enabled module's `takes`
+    names them (decision 8, unchanged).
+21. **Adding a kind is not a new prompt version** (accepted, 2026-11-15). The read-back changes; the text the AI is
+    told is unchanged for an environment that takes none of the new kinds.
+22. **Hidden characters are stripped from every text field of an import** (#883). The joiner exception, as Thomas
+    decided: U+200D between two emoji, and U+200C or U+200D inside a word of the scripts listed in the code comment in
+    `server/object-format.js` (Arabic, Syriac, an Indic script, Sinhala, Khmer, Myanmar).
+23. **`goals__addStep` is accepted as an AI tool** (#883, Thomas). The AI tool catalogue is five tools. Goals'
+    `addStep` takes its `goal` input as optional, so Chat can offer it.
+24. **The Calendar's `takes` list is not changed** for the new kinds. Whether it should take them is an open question
+    for Thomas (below).
+
 ## The contract
 
 ### 1. Kinds and their details
@@ -645,5 +666,6 @@ Nothing stored or linked breaks:
   `{ "kinds": ["*", "text"], "except": [the 13 travel kinds], "as": "an event" }`.
 - Time zones on the Calendar: a local time from an import is read in the zone of the browser that carries the request
   out. A real fix needs zones on events and is its own plan.
+- Whether the Calendar's `takes` should name the planner kinds (`milestone`, `work`, `goal`, `step`), now that they carry days. It is unchanged (decision 24). Thomas decides.
 - Dropping a chat message or an object onto a module (the reverse of Send to...).
 - Export of objects to a file.

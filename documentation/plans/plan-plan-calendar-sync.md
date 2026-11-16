@@ -2,7 +2,7 @@
 
 **Audience:** Thomas, who decides which objects keep a dated twin, and whoever builds it: server-development (the pairs, the mirror writes, the checks) and experience-design (the two manifests and anything a person sees).
 
-**Status:** approved by Thomas, September 26, 2026, with every recommendation below accepted (the open questions and the suggested rules). Built. Step 1, pairs and declarations: pull request #102. Step 2, the manifests (Planner 0.9.0, Calendar 1.18.0; the plan's 0.10.0 assumed the linking step was 0.9.0, and it was 0.8.0): #103. Step 3, the backfill: #104. The full `npm run check` passed on the stacked head (`tools/check-links.mjs` covers the pairs and a single-install restart); nothing was verified live in a browser, and the hosted backfill (once per environment) was read as code only. This closes #96. From GitHub #96: "A dated object on a plan should also be on the calendar, linked, and kept in step. Change the date, time or title on either side and the other side changes too. An event that was created on the calendar ... stays on the calendar only." Builds on [plan-linked-objects](plan-linked-objects.md), which must land first. Overlaps #13 (Planner changes shown in the Calendar).
+**Status:** approved by Thomas, September 26, 2026, with every recommendation below accepted (the open questions and the suggested rules). Built. Step 1, pairs and declarations: pull request #102. Step 2, the manifests (Planner 0.9.0, Calendar 1.18.0; the plan's 0.10.0 assumed the linking step was 0.9.0, and it was 0.8.0): #103. Step 3, the backfill: #104. The full `npm run check` passed on the stacked head (`tools/check-links.mjs` covers the pairs and a single-install restart); nothing was verified live in a browser, and the hosted backfill (once per environment) was read as code only. Rights on a copy were changed afterwards: Thomas decided on 2026-11-15 (#857) "check rights, hide copies" (built in #877; see Decisions 6 to 8 and **Divergence called out** below). This closes #96. From GitHub #96: "A dated object on a plan should also be on the calendar, linked, and kept in step. Change the date, time or title on either side and the other side changes too. An event that was created on the calendar ... stays on the calendar only." Builds on [plan-linked-objects](plan-linked-objects.md), which must land first. Overlaps #13 (Planner changes shown in the Calendar).
 
 ## What it is today
 
@@ -16,6 +16,9 @@
 3. Only those linked events are kept in step. A calendar-only event (when people are free, a holiday) is not put on the plan.
 4. Date, time and title are written through from either side.
 5. Deleting one side follows the linking plan: the link goes on both sides. Deleting a calendar-only event does not touch the plan.
+6. **Check rights, hide copies** (Thomas, 2026-11-15, #857). A Calendar copy follows the rights of its original. Writing back, editing, deleting or Clear of a copy needs the writer's write right on the original's module in that space, plus that module's guards. Someone who may not read the original sees no copy anywhere: reads, streams, the bus, links, reminders and feeds.
+7. A copy a person may see but not change says so in its summary (`readOnly`). Clear leaves the copies the person may not change. A schedule can carry `ref`, and notices about a copy reach only the members of the original's space who may read it.
+8. Undo restores a held copy only while it is still a copy, and refreshes it (zone: the trip's, else the person undoing). It reports `gone` and `outOfDate` counts and does not re-check rights. A held copy keeps its pair.
 
 ## The mechanism: server-kept pairs, declared per kind
 
@@ -50,7 +53,7 @@ Neither module names the other. A kind says what it is willing to do; the server
 - **Converting:** wall-clock to instant: no `time` gives `allDay: true`, `start` = `day`; a `time` gives `allDay: false`, `start` = the instant of `day` + `time` in the writer's `tz`. Instant to wall-clock: `allDay` gives `day` = `start`, `time` null; otherwise `day` and `time` of `start` in the writer's `tz`. `endDay` maps to `end` only for all-day twins; otherwise `end` is left alone. Notes, places and costs are not synced.
 - **A repeating event** (`repeat` set on the twin) keeps its pair: the sender follows the series' first occurrence (`start`).
 - **Loops and echoes:** twin and sender writes are server writes, which never call `afterWrite`; a write happens only when a mapped value differs; an undated sender makes no twin. Pages see an ordinary `change` and `refchange`; an editor open on the other side gets the normal 409. Last write wins.
-- **Permissions:** the pair write is the server's, allowed by the admin's approval above, not by the writer's role in the other module. Everyone in the space who may see the sender may see the twin, as both live in that space. Mirror writes do not count toward the per-person write limit; a full module store (413) skips the twin and it is tried again on the sender's next change.
+- **Permissions:** the pair write is the server's, allowed by the admin's approval above, not by the writer's role in the other module. **Divergence called out (2026-11-15, #857):** this plan said everyone in the space who may see the sender may see the twin, and that a twin edit wrote back to the sender whatever the editor's role. Now a person sees a copy only if they may read the original, and editing, deleting, Clear or write-back of a copy needs the writer's write right on the original's module in that space plus its guards (decisions 6 to 8). The pair write itself is still the server's. Mirror writes do not count toward the per-person write limit; a full module store (413) skips the twin and it is tried again on the sender's next change.
 - **A calendar-only event placed on a plan by hand** (proposed; Thomas may change it) stays a linked-objects link: it follows the event's date and title one way and does not become a pair, since a link holds a pointer and never sends a twin.
 - **Personal (Mine) objects:** a Mine event is a calendar-only event and never pairs. Placing one on a plan keeps today's rule: a space copy is made first.
 
@@ -58,6 +61,16 @@ Neither module names the other. A kind says what it is willing to do; the server
 
 - Planner: nothing new. A dated object appears on the Calendar within a second; a Calendar edit to it shows on the plan.
 - Calendar: a paired event shows its backlink to the plan object through the existing backlinks, and its delete confirmation says "Used by 1." (linked-objects step 4).
+- **Divergence called out (2026-11-15, #857):** a person who may not read the original sees no copy at all. One who may read it but not change it sees the copy marked `readOnly`, and the Calendar offers no edit.
+
+### Accepted differences (Thomas, 2026-11-15, #857)
+
+- A hidden copy answers like a missing key on `PUT` and `DELETE`; the resolve route answers 403 hidden.
+- `PUT` without a version, or with version 0, on a hidden copy answers 409 with `current: null`.
+- Links on a hidden copy answer as no links.
+- A schedule with no `ref` is not filtered.
+- A read-only copy still takes a bus publish with Calendar write.
+- With the original's module off, its copies are hidden from everyone, the admin included.
 
 ## Left to build, in order
 
@@ -74,12 +87,13 @@ Cases in `tools/check-links.mjs`, with a sending and a receiving test module dec
 - A write that changes nothing makes no write on the other side; a receiver's own new object makes no sender object.
 - Converting: 09:30 in `America/New_York` and in `Asia/Tokyo` give the right instants, and back; an all-day twin keeps `time` null.
 - A second call of `setLinks` from the sender leaves its pair in place.
+- `tools/check-copy-rights.mjs` (**Divergence called out, 2026-11-15, #857:** added after this plan): a person without the write right on the original cannot write back, edit, delete or Clear a copy; a person who may not read the original sees no copy in reads, streams, the bus, links, reminders or feeds; `readOnly` shows on a copy that can be seen and not changed; Clear leaves such copies; Undo restores a held copy only while it is still a copy and reports `gone` and `outOfDate`; the accepted differences above hold.
 - Live in the dev browser, Planner and Calendar side by side in one space: add a dated object, move it, retitle it on each side, delete each side. No real LiveKit call is needed.
 
 ## Acceptance
 
 - A dated object added to a plan is on the calendar, on that day and time, without anyone opening the Calendar.
-- Moving the event on the calendar moves the object on the plan, and the other way round.
+- Moving the event on the calendar moves the object on the plan, and the other way round, when the person moving it may change the original (decisions 6 to 8).
 - A holiday added on the calendar never shows on the plan.
 - Clearing an object's date takes it off the calendar and keeps it on the plan.
 - Neither module's code names the other.
