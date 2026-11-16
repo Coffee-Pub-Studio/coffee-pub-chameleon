@@ -178,6 +178,5 @@ These are in `npm run check`:
 - **The log** is a folder of day files, not the one `agent-log.jsonl` the plan named.
 - **`updateEntry` has no `progress` input.**
 - **`GET /api/agent/me`** carries `chatPost`, as the plan said it would once Chat was built.
-- **A read's count on the page.** The server keeps a Chat read's count as a number in the log's `message` field; `logLine` accepts only a text there, so by the code the line shows no "N messages" (the page check feeds it a text). Read as code, not seen.
 - **Display names** can't end in `(agent)` or contain `carried out by`; the plan did not name that rule.
 - **Agreements.** An agent is exempt from the agreement gate (`agreementExempt` in `server/index.js`): the gate asks a person to agree to `TERMS_FILE` and `NDA_FILE`, and an agent can't read or agree to a text. The owner who made it has agreed. Whether an agent should be held to the same texts is not decided; it is an open question in the plan.
