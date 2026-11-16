@@ -321,6 +321,70 @@ function scFromAction(kind, input, by) {
   return scClean('new', raw);
 }
 
+// Who an entry made by an action is recorded as added by: the asker's key (a person's key, which "Added by" looks up as a name), else
+// the key of the person whose page carries it out. `ctx` is what the bus gave the handler: { from, by, byKey }.
+function scAddedBy(ctx, userKey) {
+  const k = ctx && typeof ctx.byKey === 'string' ? ctx.byKey.trim() : '';
+  return (k && k.length <= 200 ? k : '') || (typeof userKey === 'string' ? userKey : '');
+}
+
+// --- the actions on an entry that is there (setDone, updateEntry) ------------------------------------------------------------------
+// Each answers { entry, problem }: the entry as it would be saved (from the one stored, `e`, as scClean made it), or the one plain
+// sentence it is refused with. Nothing is saved here. They check what the editor and the done tick check (scProblem and the
+// editor's own sentences), and a person's guards (who may edit) are the page's.
+
+// Ticks a milestone, or marks work done, as the page's tick does: a milestone's tick is `ticked` (and so `done`); work's is `done`.
+// A note has neither.
+function scSetDone(e, done, o) {
+  const label = (o && o.label) || ((k) => k);
+  if (typeof done !== 'boolean') return { entry: null, problem: 'Say whether it is done: true or false.' };
+  if (!e || e.kind === 'note') return { entry: null, problem: `A ${label('note')} has nothing to tick off.` };
+  const next = { ...e };
+  if (e.kind === 'milestone') next.ticked = done;
+  next.done = done;
+  return { entry: next, problem: '' };
+}
+
+// Changes only the fields given: { title, date (a milestone's day), start and end (work's days), notes }. A day written ''
+// clears it. The editor's sentences are used where it has them: a day outside 1900 to 2200, an end before its start, a title, and the
+// plan's "dates are needed". Text is cut to nothing, never silently shortened: past its length after trimming, it is refused.
+function scUpdate(e, input, o) {
+  const i = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const label = (o && o.label) || ((k) => k);
+  const no = (problem) => ({ entry: null, problem });
+  if (!e) return no('That is not there.');
+  const given = (k) => i[k] !== undefined && i[k] !== null;
+  const fields = ['title', 'date', 'start', 'end', 'notes'].filter(given);
+  if (!fields.length) return no('Say what to change: a title, a day, notes.');
+  for (const k of ['title', 'date', 'start', 'end', 'notes']) if (given(k) && typeof i[k] !== 'string') return no(`The ${k} must be text.`);
+  if (e.kind === 'note' && fields.some((k) => ['date', 'start', 'end'].includes(k))) return no(`A ${label('note')} has no day.`);
+  if (e.kind === 'milestone' && (given('start') || given('end'))) return no(`The ${label('milestone')} has a day, not a start and an end.`);
+  if (e.kind === 'work' && given('date')) return no(`The ${label('work')} has a start and an end, not a day.`);
+  const raw = scValue(e);
+  if (given('title')) {
+    const title = scLine(i.title, 100000);
+    if (!title) return no('Give it a title.');
+    if ([...title].length > SC_TITLE_MAX) return no(`The title is at most ${SC_TITLE_MAX} characters.`);
+    raw.title = title;
+  }
+  if (given('notes')) {
+    const notes = scText(i.notes, 1000000);
+    if ([...notes].length > SC_NOTES_MAX) return no(`The notes are at most ${SC_NOTES_MAX} characters.`);
+    if (notes) raw.notes = notes; else delete raw.notes;
+  }
+  const first = e.kind === 'milestone' ? 'date' : 'start';
+  const days = { start: e.start || '', end: e.end || '' };
+  if (given(first)) days.start = i[first].trim();
+  if (e.kind === 'work' && given('end')) days.end = i.end.trim();
+  if (days.start && !scIsDay(days.start)) return no('The start is a day from 1900 to 2200, such as 2026-10-14.');
+  if (e.kind === 'work' && days.end && !scIsDay(days.end)) return no('The end is a day from 1900 to 2200, such as 2026-10-14.');
+  if (e.kind === 'work' && days.start && days.end && days.end < days.start) return no('The end is before the start.');
+  if (e.kind !== 'note') { delete raw.start; delete raw.end; if (days.start) raw.start = days.start; if (e.kind === 'work' && days.end) raw.end = days.end; }
+  const next = scClean(e.id, raw);
+  const problem = scProblem(next, o);
+  return problem ? no(problem) : { entry: next, problem: '' };
+}
+
 // --- an object taken whole (the objects format's milestone, work and note) --------------------------------------------------------
 // A title as it is compared: plain text, one line, lower case.
 const scKey = (s) => scLine(s, SC_TITLE_MAX).toLowerCase();

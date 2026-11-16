@@ -35,6 +35,111 @@
     }
   },
   {
+    "name": "schedule__setDone",
+    "module": "schedule",
+    "action": "setDone",
+    "label": "Tick it off the plan",
+    "description": "Tick a milestone, or mark a piece of work done or not done.",
+    "effect": "write",
+    "input": {
+      "ref": "ref:schedule:plan",
+      "done": "boolean"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        },
+        "done": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ref",
+        "done"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "schedule__updateEntry",
+    "module": "schedule",
+    "action": "updateEntry",
+    "label": "Change it on the plan",
+    "description": "Change a plan entry's title, day, start, end or notes; only the fields given change.",
+    "effect": "write",
+    "input": {
+      "ref": "ref:schedule:plan",
+      "title": "string?",
+      "date": "date?",
+      "start": "date?",
+      "end": "date?",
+      "notes": "text?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "ref": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "A date, YYYY-MM-DD."
+        },
+        "start": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "A date, YYYY-MM-DD."
+        },
+        "end": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "A date, YYYY-MM-DD."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "ref",
+        "title",
+        "date",
+        "start",
+        "end",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "todo__linkTask",
     "module": "todo",
     "action": "linkTask",

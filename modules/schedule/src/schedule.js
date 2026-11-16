@@ -691,7 +691,8 @@
     const flat = obj ? scObjectInput(kind, input, obj) : input;
     const problem = scActionProblem(kind, flat, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) });
     if (problem) throw new Error(problem);
-    const by = (ctx && ctx.by) || info.user.key;
+    // Who added it is the asker's key (a person's key, so "Added by" finds the name), else the signed-in person's.
+    const by = scAddedBy(ctx, info.user.key);
     let e;
     if (obj) {
       takePhases();
@@ -700,8 +701,34 @@
     const saved = await saveEntry({ ...e, id: host.util.id(), order: orderAtEnd(e.parent) });
     return { ref: pointer(saved.id) };
   }
+  // setDone and updateEntry act on an entry that is there, named by `ref` (a pointer to a `plan`). They run under the rights of the
+  // page that carries them (canEdit), check what they are sent with the editor's own rules (scSetDone, scUpdate) and save as an
+  // edit does (saveEntry: the Calendar copy, links and the milestones' done follow). Nothing is opened for a person to finish.
+  const CHANGE_REFUSED = `You may not change the ${label('plan')} here.`;
+  function entryFor(input) {
+    const r = input && input.ref;
+    const id = r && typeof r === 'object' && r.module === info.module.id && r.kind === 'plan' && typeof r.id === 'string' ? r.id : '';
+    return (id && state.entries.get(id)) || null;
+  }
+  async function changeEntry(input, make) {
+    if (!canEdit) throw new Error(CHANGE_REFUSED);
+    const had = entryFor(input);
+    if (!had) throw new Error(`That is not on the ${label('plan')}.`);
+    const out = make(had.e);
+    if (out.problem) throw new Error(out.problem);
+    try {
+      await saveEntry(out.entry, had.version);
+    } catch (err) {
+      throw new Error(err && err.status === 409 ? 'Someone else changed it just now. Try again.' : (err && err.message) || 'It could not be saved.');
+    }
+    return { ref: pointer(out.entry.id) };
+  }
+  const setDone = (input) => changeEntry(input, (e) => scSetDone(e, input.done, { label: (k) => kindWord(k) }));
+  const updateEntry = (input) => changeEntry(input, (e) => scUpdate(e, input, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) }));
   if (host.actions && host.actions.provide) {
     host.actions.provide({
+      setDone,
+      updateEntry,
       addMilestone: (input, ctx) => addFrom('milestone', input, ctx),
       addWork: (input, ctx) => addFrom('work', input, ctx),
       addNote: (input, ctx) => addFrom('note', input, ctx),
