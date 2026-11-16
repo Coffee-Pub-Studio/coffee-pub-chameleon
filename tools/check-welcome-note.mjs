@@ -111,7 +111,11 @@ try {
     assert.ok(!/user:pw/.test(clean('see https://user:pw@evil.com/x now')), 'no credentials in a bare address');
     assert.equal(clean('see https://user:pw@evil.com/x now'), 'see https://evil.com/x now');
     assert.ok(!clean(`go https://example.com/${'b'.repeat(600)}`).includes('http'), 'a very long bare address is not left to be linked');
-    assert.equal(clean('[a](https://example.com/x(1))'), '[a](https://example.com/x(1))', 'one level of brackets in an address');
+    assert.equal(clean('[a](https://example.com/x(1))'), 'a', 'an address with a bracket is not a link (markdown() would cut it at the first ")")');
+    assert.equal(clean(`[${'L'.repeat(300)}](https://x.com/()`), 'L'.repeat(300), 'an unbalanced bracket: the label only');
+    assert.equal(clean('[a](mailto:hi@example.com?subject=x)'), 'a', 'mailto with a ? part is not kept');
+    assert.equal(clean('[a](mailto:hi@example.com)'), '[a](mailto:hi@example.com)');
+    assert.equal(clean('[a](mailto:)'), 'a');
     // ordinary text with < and > keeps them; real tags still go
     assert.equal(clean('x < y and z > w'), 'x < y and z > w');
     assert.equal(clean('I <3 you'), 'I <3 you');
@@ -135,6 +139,64 @@ try {
     clean('[a](' .repeat(900));
     clean('<'.repeat(MAX_NOTE));
     assert.ok(Date.now() - t < 1500, 'crafted text is cleaned quickly');
+  });
+
+  // Inputs for the next two tests.
+  const HIDDEN = ['​', '­', '⁠', '﻿'];
+  const cases = [
+    '<script>alert(1)</script>Hi <b>there</b>', '<​script>alert(1)</​script>', '<­img src=x onerror=alert(1)>',
+    ...HIDDEN.map((h) => `<${h}script>alert(1)`), ...HIDDEN.map((h) => `a <${h}img src=x onerror=alert(1)> b`),
+    ...HIDDEN.map((h) => `<${h}/b>`), ...HIDDEN.map((h) => `<${h}!--x`), ...HIDDEN.map((h) => `<${h}?x`),
+    '<​­⁠﻿a', '<<a', '<<​a', '< a', 'x < y and z > w', 'I <3 you', '<`a', '<[a](bad)', 'a <b',
+    '<'.repeat(50) + 'a', '[a](https://example.com/x(1))', `[${'L'.repeat(300)}](https://x.com/()`, '[a](https://example.com/)',
+    '[a](mailto:hi@example.com)', '[a](mailto:hi@example.com?subject=x)', '[a](mailto:hi@example.com?cc=b@c.d)', '[a](mailto:)', '[a](mailto:a b@c.d)',
+    '[x](javascript:alert(1))', '[x](https://user:pw@example.com/)', '[x](https://example.com/a b)', '[x](https://example.com/a))', '[x](https://example.com/a)) b',
+    '[x]((https://example.com/a))', '[x](https://example.com/a(b)c)', 'see https://example.com/x(1) now', '(https://example.com/a)', '[`a`](https://example.com/)',
+    '[a](https://example.com/​)', '[a](https://exa​mple.com/)', '[a](ht​tps://example.com/)', '[**b**](https://example.com/_x_)', '- [a](https://example.com/)\n- [b](mailto:x@y.z)',
+    'https://example.com/path?q=1&r="2"', 'a ```\nb\n```', '#​# x', '>​> q',
+  ];
+  // The same small alphabet, a fixed pseudo-random order.
+  const pieces = ['<', '>', 'a', 'b', '/', '!', '?', ...HIDDEN, '`', '[', ']', '(', ')', ' ', '\n', '#', 'h', 'ttp', ':', '//', '.', 'mailto:', 'https://', '@', '*', '-', '1.', '"', '&', 'x'];
+  let seed = 12345;
+  const rand = (m) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % m; };
+  for (let i = 0; i < 4000; i += 1) cases.push(Array.from({ length: 1 + rand(14) }, () => pieces[rand(pieces.length)]).join(''));
+
+  await test('the cleaner is idempotent and leaves no "<" that could open a tag', () => {
+    const { clean } = require(path.join(ROOT, 'server', 'welcome-note.js'));
+    assert.equal(clean('<​script>alert(1)</​script>').includes('<'), false);
+    assert.equal(clean('<­img src=x onerror=alert(1)>').includes('<'), false);
+    for (const x of cases) {
+      const once = clean(x);
+      assert.equal(clean(once), once, `not idempotent for ${JSON.stringify(x)}: ${JSON.stringify(once)} then ${JSON.stringify(clean(once))}`);
+      assert.ok(!/<[A-Za-z/!?]/.test(once), `a tag opener is left for ${JSON.stringify(x)}: ${JSON.stringify(once)}`);
+    }
+    for (const h of HIDDEN) assert.ok(!/<[A-Za-z/!?]/.test(clean(`<${h}a <${h}/b <${h}!c <${h}?d`)), `hidden U+${h.charCodeAt(0).toString(16)} after "<"`);
+  });
+
+  await test('every link markdown() draws from a cleaned note is one the cleaner kept', () => {
+    const { clean } = require(path.join(ROOT, 'server', 'welcome-note.js'));
+    const src = fs.readFileSync(path.join(ROOT, 'public', 'sdk', 'host.js'), 'utf8');
+    const win = { addEventListener() {}, location: { search: "" } };
+    win.parent = win;
+    new Function('window', 'document', src)(win, { createElement: (tag) => ({ tag }) });
+    const markdown = win.hostText.markdown;
+    const unesc = (s) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    let links = 0;
+    for (const x of cases) {
+      const text = clean(x);
+      const kept = [...text.matchAll(/\[([^\]\n]+)\]\(([^\s)]*)\)/g)].filter((m) => m[1].length <= 200 && m[2].length <= 500 && !/[()]/.test(m[2])).map((m) => [m[1], m[2]]);
+      for (const m of markdown(text).matchAll(/<a href="([^"]*)"[^>]*>(.*?)<\/a>/g)) {
+        const href = unesc(m[1]);
+        links += 1;
+        assert.ok(href.length <= 500, `a link of ${href.length} characters for ${JSON.stringify(x)}`);
+        assert.ok(!/^https?:\/\/[^\s/?#]*@/i.test(href), `credentials in ${href}`);
+        assert.ok(/^(?:https?:\/\/|mailto:[^\s?]+$)/.test(href), `an address that is not allowed: ${href}`);
+        // a link the cleaner kept as [label](address), or a bare address in the text (its own words, held to the same limits above)
+        const bare = unesc(m[2]) === href;
+        assert.ok(bare || kept.some(([label, address]) => address === href && label.length <= 200), `markdown() linked ${href} for ${JSON.stringify(x)}; the cleaner kept ${JSON.stringify(text)}`);
+      }
+    }
+    assert.ok(links > 10, 'the list draws some links');
   });
 
   await test('the defaults are untouched and carry no note', () => {
