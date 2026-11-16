@@ -91,6 +91,7 @@ const callNames = require('./call-names');
 const { mountOldLinks } = require('./old-links');
 const { currencyCodes } = require('./currencies');
 const agreementsLib = require('./agreements');
+const welcomeNote = require('./welcome-note');
 const guestDoorLib = require('./guest-door');
 
 const {
@@ -12578,6 +12579,43 @@ app.patch('/api/settings', requireOwner, async (req, res) => {
   const env = currentEnvironment();
   await switchTemplate(env, env.slug, template, currentUser(req).key);
   res.json({ settings: ownerSettings(), ...templateAnswer(env, env.slug) });
+});
+
+// The welcome note (GitHub #870, server/welcome-note.js): one text the owner writes, shown to a person at their first
+// sign-in here and then on request. Read by anyone signed in or a guest; written by an owner (or the host admin's stand-in);
+// marked read by the person themself. A guest has no record to keep the mark in, so theirs is not stored.
+const welcomeView = (req) => {
+  const user = currentUser(req);
+  const note = store.welcomeNote;
+  return {
+    note: note ? { text: note.text, updatedAt: note.updatedAt } : null,
+    seen: user ? store.welcomeSeen(user.key) : false,
+    guest: !user,
+    maxLength: welcomeNote.MAX_NOTE,
+  };
+};
+app.get('/api/environment/welcome', (req, res) => {
+  if (!currentUser(req) && !hasGuestAccess(req)) return res.status(401).json({ error: 'sign in first' });
+  res.set('Cache-Control', 'no-store');
+  res.json(welcomeView(req));
+});
+app.put('/api/environment/welcome', requireOwner, (req, res) => {
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+  if (!body || !Object.prototype.hasOwnProperty.call(body, 'text')) return res.status(400).json({ error: 'The welcome note is sent as { text }.' });
+  let text;
+  try { text = welcomeNote.clean(body.text); } catch (err) {
+    if (err instanceof welcomeNote.NoteError) return res.status(400).json({ error: err.message });
+    throw err;
+  }
+  store.setWelcomeNote(text, currentUser(req).key);
+  console.log(`[welcome] ${currentUser(req).key} ${text ? 'saved' : 'removed'} the welcome note`);
+  res.json(welcomeView(req));
+});
+app.post('/api/environment/welcome/seen', (req, res) => {
+  const user = currentUser(req);
+  if (!user && !hasGuestAccess(req)) return res.status(401).json({ error: 'sign in first' });
+  if (user) store.markWelcomeSeen(user.key);
+  res.json({ ...welcomeView(req), seen: true });
 });
 
 // The Template tab (addendum 2): what the environment was made from (name, source, version), the version applied, what

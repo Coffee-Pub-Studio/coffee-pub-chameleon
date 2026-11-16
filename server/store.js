@@ -339,6 +339,8 @@ const DEFAULT_SETTINGS = {
   // The top bar's Calendar destination (plan-calendar-destination.md, decision 12): off until an owner turns it on (or a
   // template does, as Travel's does when an environment is made from it).
   showCalendar: false,
+  // The welcome note (GitHub #870): null until the owner writes one, then { text, updatedAt, by } (server/welcome-note.js).
+  welcomeNote: null,
   // The top bar's Map destination (plan-map-destination.md, decision 17): off until an owner or a template turns it on;
   // shown only while a map file is set, too.
   showMap: false,
@@ -1030,6 +1032,8 @@ class Store {
       // What they have agreed to (plan-access-bundle.md, step 1; server/agreements.js): [{ doc, version, at }], one per
       // text and version; left off while they have agreed to nothing.
       ...(cleanAgreed(u.agreed).length ? { agreed: cleanAgreed(u.agreed) } : {}),
+      // When they marked the welcome note read (GitHub #870): an ISO time; left off until they have.
+      ...(typeof u.welcomeSeen === 'string' && !Number.isNaN(Date.parse(u.welcomeSeen)) ? { welcomeSeen: new Date(u.welcomeSeen).toISOString() } : {}),
       // A demo person (server/demo-loader.js): made by a demo load, the only kind of account a later load may give a new
       // password. Never on a host admin's stand-in; left off for everyone else.
       ...(u.demo === true && !u.hostAdmin ? { demo: true } : {}),
@@ -2017,6 +2021,32 @@ class Store {
     user.agreed = agreed;
     this.save();
     return user;
+  }
+
+  // --- the welcome note (GitHub #870) -------------------------------------------------------------------------------
+  // The note as stored ({ text, updatedAt, by }) or null.
+  get welcomeNote() {
+    const n = this.data.settings.welcomeNote;
+    return n && typeof n.text === 'string' && n.text ? n : null;
+  }
+
+  // Writes the note (text already cleaned; '' removes it). Marks nobody as seen or unseen.
+  setWelcomeNote(text, by) {
+    this.data.settings.welcomeNote = text ? { text, updatedAt: new Date().toISOString(), by: typeof by === 'string' ? by : null } : null;
+    this.save();
+    return this.welcomeNote;
+  }
+
+  // Whether this person has marked the note read.
+  welcomeSeen(key) {
+    return Boolean(this.userByKey(key)?.welcomeSeen);
+  }
+
+  markWelcomeSeen(key, at = new Date().toISOString()) {
+    const user = this.userByKey(key);
+    if (!user) throw new StoreError('no such user', 404);
+    if (!user.welcomeSeen) { user.welcomeSeen = at; this.save(); }
+    return user.welcomeSeen;
   }
 
   // --- the first password (plan-first-password.md) ----------------------------------------------------------------

@@ -635,4 +635,5 @@ module.exports = {
   schema,
   readObjects,
   decodeBytes,
+  plain,
 };
