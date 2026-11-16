@@ -6507,7 +6507,8 @@ body.chat-window {
 /* On a phone the key's buttons are full-size targets. */
 @media (max-width: 640px) { .ai-key-row .btn, .ai-model-row .btn { --btn-h: 44px; } .ai-key-row input { min-height: 44px; } }
 /* A saved key the server can't read: the server's sentence, in place of the key's usual hint. */
-.ai-key .hint.error { color: var(--danger-text); }
+.ai-key .hint.error, #welcome-count.error { color: var(--danger-text); }
+#set-welcome { min-height: 9rem; resize: vertical; }
 .ai-usage { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .ai-usage h3 { margin: 0 0 8px; font-size: var(--text-14); }
 
@@ -9548,3 +9549,7 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 .guest-docs h2 { font-size: var(--text-14); margin: 8px 0 4px; }
 #guest-unavailable { margin: 6px 0 0; padding-left: 18px; }
 #guest-leave { margin-top: 12px; }
+
+/* The built-in set on the Environment tab's Reactions and Icons: folded, the same chips the Template page draws. */
+.tp-builtin { margin: 4px 0 12px; }
+.tp-builtin > summary { cursor: pointer; min-height: 44px; display: list-item; list-style-position: inside; line-height: 44px; color: var(--text-muted); }

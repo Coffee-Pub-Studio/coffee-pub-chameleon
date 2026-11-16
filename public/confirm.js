@@ -12,6 +12,10 @@
 //   list     optional, a page's own: [[icon, text], ...] drawn under the message, one line each with its Font Awesome icon (the Vault's
 //            question before a change takes sight of a file from people). Never from a module: host.ui.confirm passes cleanConfirm's fields only.
 //   solid    optional, a page's own: the action is the solid Danger button even when the kind is 'destructive' (focus still on Cancel).
+//   html     optional, a page's own, never a module's: markup already made safe (hostText.markdown's output) drawn in the body
+//            (the welcome note). Set into one div; nothing else here uses innerHTML.
+//   single   optional, a page's own: no Cancel button, only the action (the welcome note's "Got it"). Escape, the close
+//            button and the backdrop still close it, and resolve false.
 //   run      optional function (a page's own, never a module's): the action runs it while the dialog stays open; if it throws,
 //            the dialog stays and shows the error's message under the question (so a refusal is read where it was asked), and
 //            the action can be pressed again; if it returns, the dialog closes and the promise resolves true.
@@ -84,7 +88,13 @@ export function confirmDialog(options, doc = document) {
       body.appendChild(ul);
       if (!paras.length) { body.id = `${id}-d`; dlg.setAttribute('aria-describedby', body.id); }
     }
-    if (!paras.length && !rows.length && !input) body.hidden = true;
+    if (typeof options.html === 'string' && options.html) {
+      const rich = make('div', 'sdk-welcome');
+      rich.innerHTML = options.html;
+      body.appendChild(rich);
+      if (!paras.length && !rows.length) { body.id = `${id}-d`; dlg.setAttribute('aria-describedby', body.id); }
+    }
+    if (!paras.length && !rows.length && !input && !(typeof options.html === 'string' && options.html)) body.hidden = true;
     const foot = make('div', 'sdk-dialog-foot');
     const cancel = make('button', 'btn', o.cancel);
     cancel.type = 'button';
@@ -93,7 +103,7 @@ export function confirmDialog(options, doc = document) {
     ok.type = 'button';
     ok.dataset.ok = '';
     if (input) ok.disabled = true;
-    foot.append(cancel, ok);
+    if (options.single === true) foot.append(ok); else foot.append(cancel, ok);
     dlg.append(head, body, foot);
 
     const root = doc.documentElement;
@@ -161,6 +171,6 @@ export function confirmDialog(options, doc = document) {
     root.style.overflow = 'hidden';
     try { dlg.showModal(); } catch (err) { root.style.overflow = was; dlg.remove(); reject(err); return; }
     // Focus: Cancel for anything that removes (so Enter does not delete), the action for a plain question, the name field for a typed one.
-    (input || (o.kind === 'plain' ? ok : cancel)).focus();
+    (input || (o.kind === 'plain' || options.single === true ? ok : cancel)).focus();
   });
 }

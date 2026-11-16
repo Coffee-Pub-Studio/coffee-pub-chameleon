@@ -602,7 +602,7 @@
           <div class="tpl-head" data-tpl-head></div>
           <h2>Additional Reactions and Icons</h2>
           <p class="hint">The emoji tray in the call, and on stream. The first six are also reachable with keys 1 to 6.</p>
-          <p class="hint" data-fill>What this template adds, after the core set. The {environment}'s own reactions and icons, for every template, are on the {Environment} tab, under Reactions and Icons.</p>
+          <p class="hint" data-fill>What this template adds, after the core set. The {environment}'s own reactions and icons, for every template, are on the {Environment} tab, under <a href="#reactions">Reactions and Icons</a>.</p>
           <div id="tpl-reactions-box"></div>
           <div class="row tpl-save" data-tpl-save hidden>
             <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
@@ -640,6 +640,7 @@
         <button class="subtab active" type="button" data-env-part="general">General</button>
         <button class="subtab" type="button" data-env-part="localization">Localization</button>
         <button class="subtab" type="button" data-env-part="reactions">Reactions and Icons</button>
+        <button class="subtab" type="button" data-env-part="welcome">Welcome note</button>
         <button class="subtab" type="button" data-env-part="stream">Stream</button>
       </nav>
       <div class="tab-stack" id="env-part-general" data-env-part="general">
@@ -740,7 +741,8 @@
       <div id="reactions-section">
       <h3>Reactions</h3>
       <p class="hint">The built-in set is always there; the list below is yours after it.</p>
-      <p class="hint" id="reactions-fixed"></p>
+      <div id="reactions-fixed"></div>
+      <p class="hint" id="reactions-none" hidden>You have added none yet.</p>
       <div class="reactions-list" id="reactions-list"></div>
       <div class="row">
         <button class="btn btn-small" id="reaction-add" type="button">Add reaction</button>
@@ -753,7 +755,8 @@
       <div id="icons-section">
       <h3>Icons</h3>
       <p class="hint">Icons you want available. On fontawesome.com, copy an icon's HTML (like <code>&lt;i class="fa-solid fa-dice"&gt;&lt;/i&gt;</code>) and paste it here; the preview shows what it draws. Only the Free icons that ship with this server will show. The built-in set is always there; the list below is yours.</p>
-      <p class="hint" id="icons-fixed"></p>
+      <div id="icons-fixed"></div>
+      <p class="hint" id="icons-none" hidden>You have added none yet.</p>
       <div class="reactions-list" id="icons-list"></div>
       <div class="row">
         <button class="btn btn-small" id="icon-add" type="button">Add icon</button>
@@ -761,6 +764,22 @@
         <span class="status" id="icons-status"></span>
       </div>
       </div>
+        </div>
+      </div>
+
+      <div class="tab-stack" id="env-part-welcome" data-env-part="welcome" hidden>
+        <div class="panel">
+          <h2>Welcome note</h2>
+          <p class="hint">Shown once at first sign-in, then from the Welcome entry in the account menu. Plain text, with <code>**bold**</code>, <code>*italic*</code>, lines that start with <code>- </code> for a list, and <code>[words](https://address)</code> for a link.</p>
+          <div class="fields">
+            <label class="wide"><textarea id="set-welcome" rows="8" aria-label="Welcome note" aria-describedby="welcome-count" placeholder="A few lines to greet people"></textarea></label>
+          </div>
+          <p class="hint" id="welcome-count" aria-live="polite"></p>
+          <div class="row">
+            <button class="btn btn-primary" id="save-welcome" type="button">Save</button>
+            <button class="btn btn-danger" id="remove-welcome" type="button" hidden>Remove</button>
+            <span class="status" id="welcome-status"></span>
+          </div>
         </div>
       </div>
 

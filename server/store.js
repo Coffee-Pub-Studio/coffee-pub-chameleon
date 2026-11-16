@@ -24,6 +24,7 @@ const phaseMeasure = require('./phase-measure.js'); // the Done switches (plan-t
 const aiPolicy = require('./ai-policy');
 const { applyCallPatch, resolveCall } = require('./call-settings');
 const { cleanAgreed, hasAgreed } = require('./agreements');
+const welcomeNoteLib = require('./welcome-note');
 const { endsWithGuestMark } = require('./guest-door');
 
 // Image slots. Participant: what the video box shows when the camera is
@@ -345,6 +346,8 @@ const DEFAULT_SETTINGS = {
   // The top bar's Calendar destination (plan-calendar-destination.md, decision 12): off until an owner turns it on (or a
   // template does, as Travel's does when an environment is made from it).
   showCalendar: false,
+  // The welcome note (GitHub #870): null until the owner writes one, then { text, updatedAt, by } (server/welcome-note.js).
+  welcomeNote: null,
   // The top bar's Map destination (plan-map-destination.md, decision 17): off until an owner or a template turns it on;
   // shown only while a map file is set, too.
   showMap: false,
@@ -805,6 +808,7 @@ class Store {
     // and a built-in added later reaches an environment that was seeded before it existed.
     let seededThemes = false;
     if (!Array.isArray(data.settings.themes)) data.settings.themes = [];
+    data.settings.welcomeNote = welcomeNoteLib.cleanStored(data.settings.welcomeNote); // a stored note is cleaned as a saved one is
     // The published calendar's address (plan-space-calendars.md, section 2): only a hash with its dates, or nothing.
     if (data.settings.publishedCalendarFeed !== undefined && !cleanCalendarFeed(data.settings.publishedCalendarFeed)) delete data.settings.publishedCalendarFeed;
     // The one allowed data migration (Thomas, 2026-11-09): data saved with the old boolean `builtinThemesSeeded` was seeded before
@@ -1041,6 +1045,8 @@ class Store {
       // What they have agreed to (plan-access-bundle.md, step 1; server/agreements.js): [{ doc, version, at }], one per
       // text and version; left off while they have agreed to nothing.
       ...(cleanAgreed(u.agreed).length ? { agreed: cleanAgreed(u.agreed) } : {}),
+      // When they marked the welcome note read (GitHub #870): an ISO time; left off until they have.
+      ...(typeof u.welcomeSeen === 'string' && !Number.isNaN(Date.parse(u.welcomeSeen)) ? { welcomeSeen: new Date(u.welcomeSeen).toISOString() } : {}),
       // A demo person (server/demo-loader.js): made by a demo load, the only kind of account a later load may give a new
       // password. Never on a host admin's stand-in; left off for everyone else.
       ...(u.demo === true && !u.hostAdmin && !agent ? { demo: true } : {}),
@@ -2062,6 +2068,32 @@ class Store {
     user.agreed = agreed;
     this.save();
     return user;
+  }
+
+  // --- the welcome note (GitHub #870) -------------------------------------------------------------------------------
+  // The note as stored ({ text, updatedAt, by }) or null.
+  get welcomeNote() {
+    const n = this.data.settings.welcomeNote;
+    return n && typeof n.text === 'string' && n.text ? n : null;
+  }
+
+  // Writes the note (text already cleaned; '' removes it). Marks nobody as seen or unseen.
+  setWelcomeNote(text, by) {
+    this.data.settings.welcomeNote = text ? { text, updatedAt: new Date().toISOString(), by: typeof by === 'string' ? by : null } : null;
+    this.save();
+    return this.welcomeNote;
+  }
+
+  // Whether this person has marked the note read.
+  welcomeSeen(key) {
+    return Boolean(this.userByKey(key)?.welcomeSeen);
+  }
+
+  markWelcomeSeen(key, at = new Date().toISOString()) {
+    const user = this.userByKey(key);
+    if (!user) throw new StoreError('no such user', 404);
+    if (!user.welcomeSeen) { user.welcomeSeen = at; this.save(); }
+    return user.welcomeSeen;
   }
 
   // --- the first password (plan-first-password.md) ----------------------------------------------------------------

@@ -30,6 +30,7 @@
 
 const path = require('path');
 const { DEFAULT_SETTINGS } = require('./store');
+const { cleanStored } = require('./welcome-note');
 const { ENVIRONMENT_COPY_DIR, LEGACY_ENVIRONMENT_RECORD } = require('./migrate-names');
 
 const APP_FILE = 'app.json';
@@ -45,7 +46,7 @@ const APP_LEFT_OUT = ['secrets', 'invites'];
 // give them new passwords.
 // `agent` and `off` mark an agent account and whether it is turned off (plan-agent-access.md): kept, its token is not (tokens.json).
 const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'agent', 'off', 'createdAt'];
-const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed'];
+const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed', 'welcomeSeen'];
 // A person's own record for one space (user.spaces[<space id>]).
 const USER_SPACE_FIELDS = ['images', 'useDefaultImages', 'permissions', 'joined'];
 const USER_SPACE_LEFT_OUT = ['calendarFeed'];
@@ -224,8 +225,11 @@ function restoreEntries(files, { backup = false } = {}) {
     if (!isObject(app)) return [name, data];
     const admins = Array.isArray(app.users) ? app.users.filter((u) => isObject(u) && u.role === 'admin' && !u.hostAdmin) : [];
     const agreed = !backup && Array.isArray(app.users) && app.users.some((u) => isObject(u) && 'agreed' in u);
-    if (!('secrets' in app) && !admins.length && !agreed) return [name, data];
+    // The welcome note is text a person reads, so a copy's is cleaned as a saved one is (a hand-made zip cannot plant markup).
+    const note = isObject(app.settings) && 'welcomeNote' in app.settings;
+    if (!('secrets' in app) && !admins.length && !agreed && !note) return [name, data];
     delete app.secrets;
+    if (note) app.settings.welcomeNote = cleanStored(app.settings.welcomeNote);
     for (const u of admins) u.role = 'owner';
     if (!backup && Array.isArray(app.users)) for (const u of app.users) if (isObject(u)) delete u.agreed;
     return [name, Buffer.from(`${JSON.stringify(app, null, 2)}\n`)];

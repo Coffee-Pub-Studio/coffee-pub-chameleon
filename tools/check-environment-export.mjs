@@ -54,6 +54,7 @@ function seededApp(secrets = strong) {
       environmentName: 'Seeded', mfaRequired: true, words: { space: { one: 'trip' } },
       spaceDefaults: { profile: 'characters', opensWith: ['todo'] }, otherCalendars: true, publishedCalendar: true,
       publishedCalendarFeed: feed(),
+      welcomeNote: { text: 'Welcome to **us**.', updatedAt: '2026-01-02T00:00:00.000Z', by: 'ownerkey' },
     },
     users: [
       {
@@ -63,6 +64,8 @@ function seededApp(secrets = strong) {
         externalCalendars: [{ id: 'cal1', name: 'Work', url: `aesgcm$${hex(24)}`, readAt: null, error: null }],
         // What they agreed to (server/agreements.js): left out of the copy, so everyone is asked again after a restore of it.
         agreed: [{ doc: 'terms', version: hex(8), at: '2026-01-04T00:00:00.000Z' }],
+        // When they marked the welcome note read: left out of the copy, so people in a restored copy see it again.
+        welcomeSeen: '2026-01-05T00:00:00.000Z',
         spaces: { trip01: { images: { player: 'p.png' }, useDefaultImages: false, permissions: {}, joined: { by: 'self', at: '2026-01-02T00:00:00.000Z' }, calendarFeed: feed() } },
       },
       // A host admin's stand-in, as a zip a person wrote by hand might give it: a password, a link and a factor of its own.
@@ -249,6 +252,18 @@ test("a restore's files carry no session or stream key; every other file is as i
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['tokens.json', other], ['agent-log/abcd1234/2026-11-16.jsonl', other]], { backup: true }).map(([n]) => n), ['app.json', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl']);
   assert.ok(JSON.parse(copy[0][1].toString('utf8')).users.every((u) => !('agreed' in u)));
   assert.equal(ex.restoreEntries([['app.json', Buffer.from('not json')]])[0][1].toString(), 'not json');
+});
+
+test('the welcome note travels in a copy, and a restore cleans it as a save does', () => {
+  const src = seededApp();
+  const data = ex.exportApp(src);
+  assert.deepEqual(data.settings.welcomeNote, src.settings.welcomeNote);
+  assert.ok(data.users.every((u) => !('welcomeSeen' in u)), 'the marks stay behind');
+  src.settings.welcomeNote = { text: `<img src=x onerror=alert(1)>\n# H\n[j](javascript:alert(1))${'z'.repeat(20)}`, updatedAt: { evil: 1 }, by: ['x'] };
+  const note = JSON.parse(ex.restoreEntries([['app.json', Buffer.from(JSON.stringify(src))]])[0][1].toString('utf8')).settings.welcomeNote;
+  assert.deepEqual(note, { text: 'H\nj' + 'z'.repeat(20), updatedAt: null, by: null });
+  src.settings.welcomeNote = { text: 'z'.repeat(20000) };
+  assert.equal(JSON.parse(ex.restoreEntries([['app.json', Buffer.from(JSON.stringify(src))]])[0][1].toString('utf8')).settings.welcomeNote, null, 'over the length: dropped');
 });
 
 test("a restore turns every admin that is not the host admin's stand-in into an owner; the stand-in stays the admin", () => {

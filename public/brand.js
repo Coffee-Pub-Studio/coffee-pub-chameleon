@@ -7,6 +7,7 @@ import { topBarTabs } from '/page-tabs.js';
 import { sameSiteNext } from '/next-address.js';
 import { word, envWord, setWords, setVerbs } from '/words.js';
 import { themeSwitch, setEnvironmentMode, setAccountMode, themeChanged, watchThemeWithoutStream, forgetThemeMode, toggleThemeMode, useDefaultMode, themeMode as modeNow } from '/theme-mode.js';
+import { loadWelcome, hasWelcome, showWelcome } from '/welcome-note.js';
 import { profileEntries, profileDestinationLabel, seesUpdates, hostConsoleUrl, switcherEntries, switchPick, bellState, destinationTools, pageAnchor } from '/primary-nav.js';
 
 // The words a person reads for each level and role (public/words.js), for every page that already imports from here.
@@ -365,6 +366,7 @@ async function loadAccount() {
   if (me === null) account = null;
   else if (me && me.user) account = { role: me.user.role, hostAdmin: Boolean(me.environment?.hostAdmin || me.user.hostAdmin), hosted: Boolean(me.environment?.hosted), slug: me.environment?.slug || '' };
   nav.draw(); // both bars: a page bar's Manage link waits on the role too
+  if (account) loadWelcome().then((v) => { if (v) nav.draw(); }); // the Welcome entry waits on there being a note
   if (account && seesUpdates(account.role)) loadUpdateBadge();
   paintBell();
 }
@@ -478,6 +480,7 @@ function registerSystemTools(header) {
   // entry below, as Set up is.
   nav.register({ id: 'manage-tool', bar: 'primary', zone: 'right', group: 'space', groupOrder: 85, order: 0, place: 'end', icon: 'gear', label: 'Manage', href: keepingQuery(bar.adminHref), visible: () => !onPhone() && signedInHere() && offers('manage'), onClick: (event) => { event.preventDefault(); openManage(); } });
   nav.register({ id: 'admin-link', bar: 'primary', zone: 'right', group: 'you', order: 999, icon: 'gear', label: 'Manage', href: keepingQuery(bar.adminHref), visible: () => inMenu() && offers('manage'), onClick: (event) => { event.preventDefault(); openManage(); } });
+  nav.register({ id: 'account-welcome', bar: 'primary', zone: 'right', group: 'you', order: 999, icon: 'hand', label: 'Welcome', visible: () => inMenu() && hasWelcome(), onClick: showWelcome });
   nav.register({ id: 'account-host-console', bar: 'primary', zone: 'right', group: 'you', order: 999, icon: 'server', label: 'Host console', visible: () => inMenu() && offers('host-console'), onClick: openHostConsole });
   nav.register({ id: 'account-install', bar: 'primary', zone: 'right', group: 'you', order: 999, icon: 'download', label: 'Install as an app', visible: () => inMenu() && Boolean(installPromptEvent) && !installBarred, onClick: installFromPrompt });
   nav.register({ id: 'account-sign-out', bar: 'primary', zone: 'right', group: 'you', order: 999, icon: 'right-from-bracket', label: 'Sign out', visible: inMenu, onClick: signOut });
@@ -732,6 +735,7 @@ function accountMenuItems() {
     { icon: 'user', label: 'View profile', onPick: viewProfile },
     ...(has.has('theme') ? [{ icon: 'moon', label: 'Dark mode', checked: modeNow() === 'dark', onPick: toggleThemeMode }] : []),
     ...destinationList.filter((d) => has.has(`dest-${d.id}`)).map((d) => ({ icon: d.icon, label: profileDestinationLabel(d.id, d.name), onPick: () => openDestination(d.href) })),
+    ...(hasWelcome() ? [{ icon: 'hand', label: 'Welcome', onPick: () => setTimeout(showWelcome, 0) }] : []),
     ...(has.has('host-console') ? [{ icon: 'server', label: 'Host console', onPick: openHostConsole }] : []),
     ...(installPromptEvent && !installBarred ? [{ icon: 'download', label: 'Install as an app', onPick: installFromPrompt }] : []),
     { icon: 'right-from-bracket', label: 'Sign out', onPick: signOut },
