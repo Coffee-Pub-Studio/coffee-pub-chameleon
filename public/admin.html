@@ -602,7 +602,7 @@
           <div class="tpl-head" data-tpl-head></div>
           <h2>Additional Reactions and Icons</h2>
           <p class="hint">The emoji tray in the call, and on stream. The first six are also reachable with keys 1 to 6.</p>
-          <p class="hint" data-fill>What this template adds, after the core set. The {environment}'s own reactions and icons, for every template, are on the {Environment} tab, under Reactions and Icons.</p>
+          <p class="hint" data-fill>What this template adds, after the core set. The {environment}'s own reactions and icons, for every template, are on the {Environment} tab, under <a href="#reactions">Reactions and Icons</a>.</p>
           <div id="tpl-reactions-box"></div>
           <div class="row tpl-save" data-tpl-save hidden>
             <button class="btn btn-primary" type="button" data-tpl-save-button>Save</button>
@@ -741,7 +741,8 @@
       <div id="reactions-section">
       <h3>Reactions</h3>
       <p class="hint">The built-in set is always there; the list below is yours after it.</p>
-      <p class="hint" id="reactions-fixed"></p>
+      <div id="reactions-fixed"></div>
+      <p class="hint" id="reactions-none" hidden>You have added none yet.</p>
       <div class="reactions-list" id="reactions-list"></div>
       <div class="row">
         <button class="btn btn-small" id="reaction-add" type="button">Add reaction</button>
@@ -754,7 +755,8 @@
       <div id="icons-section">
       <h3>Icons</h3>
       <p class="hint">Icons you want available. On fontawesome.com, copy an icon's HTML (like <code>&lt;i class="fa-solid fa-dice"&gt;&lt;/i&gt;</code>) and paste it here; the preview shows what it draws. Only the Free icons that ship with this server will show. The built-in set is always there; the list below is yours.</p>
-      <p class="hint" id="icons-fixed"></p>
+      <div id="icons-fixed"></div>
+      <p class="hint" id="icons-none" hidden>You have added none yet.</p>
       <div class="reactions-list" id="icons-list"></div>
       <div class="row">
         <button class="btn btn-small" id="icon-add" type="button">Add icon</button>
