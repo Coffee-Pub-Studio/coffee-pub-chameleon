@@ -77,8 +77,7 @@
       "date": "date?",
       "start": "date?",
       "end": "date?",
-      "notes": "text?",
-      "progress": "number?"
+      "notes": "text?"
     },
     "schema": {
       "type": "object",
@@ -127,12 +126,6 @@
           ],
           "minLength": 1,
           "maxLength": 8000
-        },
-        "progress": {
-          "type": [
-            "number",
-            "null"
-          ]
         }
       },
       "required": [
@@ -141,8 +134,7 @@
         "date",
         "start",
         "end",
-        "notes",
-        "progress"
+        "notes"
       ],
       "additionalProperties": false
     }

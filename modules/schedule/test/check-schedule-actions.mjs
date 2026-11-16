@@ -123,10 +123,10 @@ test('refuses the wrong field for the kind', () => {
   refused(nt(), { title: 'x', start: '2026-12-01' }, 'A note has no day.');
 });
 
-test('progress is not set by hand: it follows what is under a milestone', () => {
-  refused(ms(), { progress: 50 }, 'A milestone\'s progress comes from what is under it. Tick those off instead.');
-  refused(wk(), { progress: 50 }, 'Only a milestone has progress.');
-  refused(nt(), { progress: 50 }, 'A note has no day.');
+test('progress is not a field: it follows what is under a milestone', () => {
+  assert.ok(!/progress/.test(JSON.stringify(manifest.actions.provides.find((a) => a.name === 'updateEntry').input)));
+  refused(ms(), { progress: 50 }, 'Say what to change: a title, a day, notes.');
+  assert.equal(upd(ms(), { title: 'New', progress: 50 }).entry.progress, null);
 });
 
 test('nothing given is refused', () => {
@@ -195,7 +195,7 @@ test('the manifest declares both, as writes that name a plan entry', () => {
     assert.ok(!by[n].local && !by[n].askerOnly && by[n].ai !== false, n);
   }
   assert.deepEqual(by.setDone.input, { ref: 'ref:schedule:plan', done: 'boolean' });
-  assert.deepEqual(by.updateEntry.input, { ref: 'ref:schedule:plan', title: 'string?', date: 'date?', start: 'date?', end: 'date?', notes: 'text?', progress: 'number?' });
+  assert.deepEqual(by.updateEntry.input, { ref: 'ref:schedule:plan', title: 'string?', date: 'date?', start: 'date?', end: 'date?', notes: 'text?' });
   assert.ok(['addMilestone', 'addWork', 'addNote'].every((n) => by[n]), 'the adds are still there');
 });
 

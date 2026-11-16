@@ -345,7 +345,7 @@ function scSetDone(e, done, o) {
   return { entry: next, problem: '' };
 }
 
-// Changes only the fields given: { title, date (a milestone's day), start and end (work's days), notes, progress }. A day written ''
+// Changes only the fields given: { title, date (a milestone's day), start and end (work's days), notes }. A day written ''
 // clears it. The editor's sentences are used where it has them: a day outside 1900 to 2200, an end before its start, a title, and the
 // plan's "dates are needed". Text is cut to nothing, never silently shortened: past its length after trimming, it is refused.
 function scUpdate(e, input, o) {
@@ -354,16 +354,12 @@ function scUpdate(e, input, o) {
   const no = (problem) => ({ entry: null, problem });
   if (!e) return no('That is not there.');
   const given = (k) => i[k] !== undefined && i[k] !== null;
-  const fields = ['title', 'date', 'start', 'end', 'notes', 'progress'].filter(given);
+  const fields = ['title', 'date', 'start', 'end', 'notes'].filter(given);
   if (!fields.length) return no('Say what to change: a title, a day, notes.');
   for (const k of ['title', 'date', 'start', 'end', 'notes']) if (given(k) && typeof i[k] !== 'string') return no(`The ${k} must be text.`);
-  if (e.kind === 'note' && fields.some((k) => ['date', 'start', 'end', 'progress'].includes(k))) return no(`A ${label('note')} has no day.`);
+  if (e.kind === 'note' && fields.some((k) => ['date', 'start', 'end'].includes(k))) return no(`A ${label('note')} has no day.`);
   if (e.kind === 'milestone' && (given('start') || given('end'))) return no(`The ${label('milestone')} has a day, not a start and an end.`);
   if (e.kind === 'work' && given('date')) return no(`The ${label('work')} has a start and an end, not a day.`);
-  if (given('progress')) {
-    if (e.kind !== 'milestone') return no(`Only a ${label('milestone')} has progress.`);
-    return no(`A ${label('milestone')}'s progress comes from what is under it. Tick those off instead.`);
-  }
   const raw = scValue(e);
   if (given('title')) {
     const title = scLine(i.title, 100000);

@@ -132,8 +132,7 @@
           "date": "date?",
           "start": "date?",
           "end": "date?",
-          "notes": "text?",
-          "progress": "number?"
+          "notes": "text?"
         }
       }
     ],

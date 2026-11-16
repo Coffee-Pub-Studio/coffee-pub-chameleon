@@ -256,8 +256,8 @@ function twinKey(produce, id) {
   return produce.key.replace('{id}', id);
 }
 
-function removeTwin(produce, to, scopeKey, by) {
-  deps.remove(to.module, scopeKey, twinKey(produce, to.id), by);
+function removeTwin(produce, to, scopeKey, by, asker) {
+  deps.remove(to.module, scopeKey, twinKey(produce, to.id), by, asker);
 }
 
 // The pair is kept before the copy is written, so the copy's first change already reads as a copy and reaches only those who may
@@ -303,7 +303,7 @@ function mirrorOut(ref, produce, scopeKey, before, after, zone, by, asker) {
     for (const pair of pairs) {
       if (pair.pair !== 'active') continue;
       const twin = deps.produceOf(pair.to.module, pair.to.kind);
-      if (twin) removeTwin(twin, pair.to, scopeKey, by);
+      if (twin) removeTwin(twin, pair.to, scopeKey, by, asker);
     }
     // A hidden copy (a detached pair) is remembered while the object itself stays, so a day given back does not bring it back.
     if (pairs.length) deps.removePairs(ref, after != null);
