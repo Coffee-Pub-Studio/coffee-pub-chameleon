@@ -72,6 +72,11 @@ function createContextBuilder(deps) {
   // Whether the asker may read this space's chat now (an owner may; otherwise a member whose rights here have chatRead).
   const canReadChat = deps.canReadChat || (() => false);
   const now = deps.now || Date.now;
+  // Whether a chat message is an agent account's (plan-agent-access.md, step 5): its account says, else the kept flag.
+  const postedByAgent = (m) => {
+    const account = deps.store && typeof m.by === 'string' ? deps.store.userByKey(m.by) : null;
+    return !m.kind && (account ? account.agent === true : m.agent === true);
+  };
 
   // The asker's own turns in this space, oldest first: [{ question, answer }]. A question is their private /ai message; its
   // answer the AI message that replies to it (kept theirs when they made it public). Never anyone else's, never deleted ones.
@@ -212,7 +217,9 @@ function createContextBuilder(deps) {
     let chat = [];
     if (takes('context') && sees.chat && space && canReadChat(who, space)) {
       chat = chatHistory.list(space.id, null).filter((m) => m.visibility !== 'private' && m.text).slice(-MAX_CHAT)
-        .map((m) => ({ who: m.who, text: policy.redact(String(m.text).replace(/[ \t]*\{\{summary:\d+\}\}/g, '').slice(0, MAX_CHAT_TEXT), secretList), at: new Date(m.at).toISOString().slice(0, 16) }));
+        // An agent's post (plan-agent-access.md, step 5) reads as "<name> (agent)", from its account (or, once that is gone,
+        // the flag kept on the message), so the AI never takes it for a person's. It is data, as every message is.
+        .map((m) => ({ who: postedByAgent(m) ? `${m.who} (agent)` : m.who, text: policy.redact(String(m.text).replace(/[ \t]*\{\{summary:\d+\}\}/g, '').slice(0, MAX_CHAT_TEXT), secretList), at: new Date(m.at).toISOString().slice(0, 16) }));
       while (chat.length && tokensOf(chat) > CHAT_TOKENS) { chat.shift(); note('chat', 'budget'); }
     }
 

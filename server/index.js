@@ -24,7 +24,7 @@ const { ModuleLinks, objectKey } = require('./module-links');
 const { Backgrounds } = require('./backgrounds');
 const { ModuleBus, BUS_LIMITS } = require('./module-bus');
 const { liveLimits, effectiveLiveLimits, readSend, dataBytes } = require('./module-live');
-const { ChatHistory } = require('./chat-history');
+const { ChatHistory, cleanChatText, CHAT_LIMITS } = require('./chat-history');
 const { cleanReport: cleanAttention } = require('./attention');
 const { cleanFacts, iconKnown } = require('./facts');
 const { TagError } = require('./tags');
@@ -1817,7 +1817,8 @@ function publicUser(req, u, opts = {}) {
     hasPassword: !!u.passwordHash,
     ...(u.demo ? { demo: true } : {}), // a demo person, made by a demo load (server/demo-loader.js)
     // An agent account (plan-agent-access.md): the pages add "(agent)" after its name; `off` while its owner turned it off.
-    ...(u.agent ? { agent: true, off: u.off === true } : {}),
+    // `chatPost`: its owner's Post in Chat (step 5), false for a new agent.
+    ...(u.agent ? { agent: true, off: u.off === true, chatPost: u.chatPost === true } : {}),
     mfaEnrolled: Boolean(u.mfa), // the only mfa field a person other than the account itself ever sees
     // The personal link only for those maySeeLink allows; left out entirely for anyone else.
     ...(maySeeLink(req, u, opts) ? { link: u.linkToken ? `${baseUrl(req)}/j/${u.linkToken}` : null } : {}),
@@ -3557,9 +3558,11 @@ const agentLogSpace = {
   spaceScope: (req) => req.query.space,
   linkRef: (req) => { try { return JSON.parse(String(req.query.ref || '')).space; } catch { return null; } },
 };
-// The gate's list: method, route (as the app registers it), what it counts as, and its check. Chat posting (step 5) is
-// not on it yet.
-// Not on it: GET /api/spaces/:id, Set up's read, which answers a member "owners only" whatever it is asked.
+// The gate's list: method, route (as the app registers it), what it counts as, and its check.
+// Not on it: GET /api/spaces/:id, Set up's read, which answers a member "owners only" whatever it is asked; and every
+// other chat route (the live stream, deleting, hiding or changing a message, pictures, Keep, link previews, private
+// messages, commands and /ai). Chat (step 5): reading public messages, a bounded page (agentReadsChat), and posting
+// plain text while the owner's Post in Chat is on (agentChatText); a post is a write, a reply a read.
 const AGENT_ROUTES = [
   ['get', '/api/agent/me', 'read', 'none'],
   ['get', '/api/modules/:id/context', 'read', 'spaceScope'],
@@ -3572,6 +3575,8 @@ const AGENT_ROUTES = [
   ['get', '/api/spaces/:id/actions', 'read', 'spaceParam'],
   ['post', '/api/spaces/:id/action', 'write', 'spaceParam'],
   ['get', '/api/spaces/:id/action/:requestId', 'read', 'spaceParam'],
+  ['get', '/api/spaces/:id/chat', 'read', 'spaceParam'],
+  ['post', '/api/spaces/:id/chat', 'write', 'spaceParam'],
 ];
 // The list matched by Express's own router, so a path reads exactly as the app's routes read it (any case, a trailing
 // slash, the same parameters): each match notes its rule and leaves the router at once.
@@ -5408,6 +5413,16 @@ app.patch('/api/users/:key', requireOwner, (req, res) => {
     if (target && !target.agent) return res.status(400).json({ error: 'Only an agent can be turned off.' });
     if (typeof off !== 'boolean') return res.status(400).json({ error: 'off is true or false' });
   }
+  // `chatPost` is an agent's Post in Chat (plan-agent-access.md, decisions 13, 17, 18): a person never has it. Turning it
+  // on needs AGENT_TOKENS and the Agents switch, as making a token does; turning it off always goes through.
+  const { chatPost } = req.body || {};
+  if (chatPost !== undefined) {
+    const target = store.userByKey(req.params.key);
+    if (target && !target.agent) return res.status(400).json({ error: 'Only an agent can have that.' });
+    if (typeof chatPost !== 'boolean') return res.status(400).json({ error: 'chatPost is true or false' });
+    const refused = chatPost ? agentsRefusal() : null;
+    if (refused) return res.status(403).json({ error: refused });
+  }
   if (password !== undefined && store.userByKey(req.params.key)?.hostAdmin) {
     throw new StoreError('this account signs in through the host console; its password cannot be changed here');
   }
@@ -5423,6 +5438,7 @@ app.patch('/api/users/:key', requireOwner, (req, res) => {
   }
   let user = store.updateUser(req.params.key, patch);
   if (off !== undefined) user = store.setAgentOff(req.params.key, off);
+  if (chatPost !== undefined) user = store.setAgentChatPost(req.params.key, chatPost);
   liveAccessChanged(); // a role changed, or a new password signed them out everywhere: their streams ask again now
   res.json({ user: publicUser(req, user) });
 });
@@ -5515,6 +5531,7 @@ app.get('/api/agent/me', (req, res) => {
   const used = currentEnvironment().agentLog.usedToday(agent.key);
   res.json({
     agent: { key: agent.key, name: agent.displayName },
+    chatPost: agent.chatPost === true, // its owner's Post in Chat (plan-agent-access.md, decision 17: off for a new agent)
     expiresAt: req.agent.token.expiresAt,
     spaces: agentSpaces(agent).map((r) => ({ id: r.id, name: r.name })),
     limits: {
@@ -6659,16 +6676,59 @@ function readerCanOpen(who) {
   };
 }
 
+// The "(agent)" label of a chat message (plan-agent-access.md, step 5) comes from the account that posted it, never from
+// its name: an account that is here says (an agent, or a person), and only a message whose account is gone keeps the flag
+// stored when it was posted. So a person's message is never labelled, even in a hand-made restored chat.json, and an agent's
+// always is. `agent: true` on an agent's message, and no `agent` field on anyone else's.
+function chatLabelled(m) {
+  if (!m || typeof m !== 'object') return m;
+  const account = typeof m.by === 'string' ? store.userByKey(m.by) : null;
+  const agent = !m.kind && m.visibility !== 'private' && (account ? account.agent === true : m.agent === true);
+  if (agent === (m.agent === true) && (agent || !('agent' in m))) return m;
+  const out = { ...m };
+  if (agent) out.agent = true;
+  else delete out.agent;
+  return out;
+}
+// What an agent reads of a space's chat in one reply (plan-agent-access.md, "Reading Chat"): never the live stream.
+const AGENT_CHAT_PAGE = 100;
+
 app.get('/api/spaces/:id/chat', (req, res) => {
   const found = chatSpaceFor(req, res, 'chatRead');
   if (!found) return;
+  if (req.agent) return agentReadsChat(req, res, found);
   // Public messages, and the caller's own private ones (plan-chat-model.md); a guest reads public messages only.
   const me = found.who.user ? found.who.user.key : null;
   const canOpen = readerCanOpen(found.who);
   // A shared AI answer keeps the pointers of the objects it used; someone other than its asker gets those they can open.
-  const messages = chatHistory.list(found.space.id, me).map((m) => (m.kind === 'ai' && m.by !== me ? aiAnswerForReader(m, canOpen) : m));
+  const messages = chatHistory.list(found.space.id, me).map((m) => chatLabelled(m.kind === 'ai' && m.by !== me ? aiAnswerForReader(m, canOpen) : m));
   res.json({ messages, clearedAt: chatHistory.clearedAt(found.space.id) });
 });
+// An agent's read (GET /api/spaces/:id/chat with its token; the gate has already checked the space is one of its own):
+// public messages only, never a private one (an agent has none, and reads no one else's), newest first, at most
+// AGENT_CHAT_PAGE, the ones older than `before` (a message id) when given: { messages, more }. A shared AI answer keeps
+// only the pointers this agent may open, in its own spaces. Each reply is one read in its limits, and the log line keeps
+// how many messages it carried, never their text. Whatever people write in Chat, guests included, reaches the agent's
+// reader this way: the gate, not this route, bounds what the agent can do after reading it.
+function agentReadsChat(req, res, found) {
+  const before = req.query.before;
+  if (before !== undefined && (typeof before !== 'string' || !CHAT_MESSAGE_ID.test(before))) {
+    return res.status(400).json({ error: 'before is a message id.' });
+  }
+  const all = chatHistory.list(found.space.id, null).filter((m) => m.visibility !== 'private');
+  let end = all.length;
+  if (before !== undefined) {
+    end = all.findIndex((m) => m.id === before);
+    if (end < 0) return res.status(404).json({ error: 'no such message' });
+  }
+  const agent = req.agent.user;
+  const opens = readerCanOpen(found.who);
+  const canOpen = (ref) => agentSeesRef(agent, ref) && opens(ref);
+  const page = all.slice(Math.max(0, end - AGENT_CHAT_PAGE), end).reverse()
+    .map((m) => chatLabelled(m.kind === 'ai' ? aiAnswerForReader(m, canOpen) : m));
+  res.locals.agentLog = { message: page.length };
+  res.json({ messages: page, more: end > AGENT_CHAT_PAGE });
+}
 
 // A server-sent stream (the live one): the caps, the headers, the ping, the access asked again, and the counts given
 // back when it ends, in one place. `keys` are what it counts under (liveStreamKeys) and `what` names it in a 429's
@@ -7130,10 +7190,34 @@ function chatPostLimited(key) {
   return false;
 }
 
+// An agent's post (plan-agent-access.md, "Chat posting"): the gate has checked the space is one of its own and counted
+// the call as a write; `chat` is the member role's, as for anyone. Only while its owner's Post in Chat is on (off for a
+// new agent). { text } only, plain text, cleaned as a person's message is, and refused rather than cut when it is
+// longer than a person may send. Answers null after refusing, else the cleaned text.
+const AGENT_CANT_POST = "This agent can't post in Chat.";
+function agentChatText(req, res) {
+  const agent = store.userByKey(req.agent.user.key);
+  if (!agent || agent.chatPost !== true) return void res.status(403).json({ error: AGENT_CANT_POST });
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'text')) {
+    return void res.status(400).json({ error: 'An agent sends { text } and nothing else.' });
+  }
+  if (typeof body.text !== 'string') return void res.status(400).json({ error: 'text is the message, as text.' });
+  const text = cleanChatText(body.text);
+  if (!text) return void res.status(400).json({ error: 'The message is empty.' });
+  if (text.length > CHAT_LIMITS.MAX_TEXT) return void res.status(400).json({ error: `A message is at most ${CHAT_LIMITS.MAX_TEXT} characters.` });
+  return text;
+}
+
 app.post('/api/spaces/:id/chat', (req, res) => {
   const found = chatSpaceFor(req, res, 'chat');
   if (!found) return;
   const { who, space } = found;
+  let agentText;
+  if (req.agent) {
+    agentText = agentChatText(req, res);
+    if (agentText === undefined) return;
+  }
   const key = who.user ? who.user.key : `guest:${space.id}`;
   // A guest posts under the name on their pass (POST /api/guest-join), never one they send.
   const pass = who.user ? null : chatGuestPass(req);
@@ -7151,12 +7235,17 @@ app.post('/api/spaces/:id/chat', (req, res) => {
   if (chatPostLimited(key)) return res.status(429).json({ error: 'too many messages, slow down' });
   // Always an ordinary public message: private ones are made only by the command and AI routes. Its first link
   // (plan-chat-links.md) is stored as `preview: { url }` at once; nothing is fetched here.
+  // An agent's message carries `agent: true` from its account (never from its name or the request), so every page labels
+  // it; nothing else about it differs: no mention, no notification (Chat sends none), the live streams of the space only.
+  const text = req.agent ? agentText : req.body?.text;
   const message = chatHistory.add(space.id, {
     by: who.user ? who.user.key : 'guest',
     who: who.user ? who.user.displayName : pass.name,
-    text: req.body?.text,
-    link: findLink(typeof req.body?.text === 'string' ? req.body.text : ''),
+    text,
+    link: findLink(typeof text === 'string' ? text : ''),
+    agent: Boolean(req.agent) && who.user?.agent === true,
   });
+  if (req.agent && message) res.locals.agentLog = { message: message.id }; // the message's id, never its text
   // Told to the live streams at once; the sender's page draws it from this answer, and a page that already drew this id
   // ignores the repeat.
   if (message) tellChat(space.id, { type: 'chat', ...message });

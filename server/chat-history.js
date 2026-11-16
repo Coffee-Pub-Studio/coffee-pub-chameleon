@@ -40,7 +40,7 @@ const MAX_SUMMARIES = 20;
 const ID_RE = /^[a-f0-9]{12}$/;
 
 const newId = () => crypto.randomBytes(6).toString('hex');
-const cleanText = (text, max) => String(text ?? '').replace(/\p{Cc}/gu, (c) => (c === '\n' || c === '\t' ? c : '')).trim().slice(0, max);
+const cleanText = (text, max = Infinity) => String(text ?? '').replace(/\p{Cc}/gu, (c) => (c === '\n' || c === '\t' ? c : '')).trim().slice(0, max);
 const cleanWho = (who) => String(who || '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 40) || 'someone';
 const isPrivate = (m) => m.visibility === 'private';
 const isAi = (m) => m.kind === 'ai' || m.command === 'ai';
@@ -92,6 +92,7 @@ class ChatHistory {
       const theirs = [];
       for (const m of Array.isArray(pub[spaceId]) ? pub[spaceId] : []) {
         if (!m || typeof m !== 'object') continue;
+        if ('agent' in m && (m.agent !== true || m.kind || isPrivate(m))) delete m.agent; // only ever `true`, on an ordinary public message
         if (privateIds.has(m.id)) { split = true; continue; } // in both: a change cut short; private wins
         if (isPrivate(m)) { split = true; mine.push(m); privateIds.add(m.id); continue; }
         theirs.push(m);
@@ -216,7 +217,10 @@ class ChatHistory {
   // `command` (with `command` and, for a module's command, `module`) the echo of a command; `ai` an AI answer, with
   // `summaries` and `replyTo`. `link` (plan-chat-links.md): the ordinary message's link, found by the route with
   // findLink (server/chat-links.js), stored as `preview: { url }`.
-  add(spaceId, { by, who, text, visibility, kind, command, module, summaries, replyTo, at, link, prompt, sent, used, numbered, leftOut, cut, attached }) {
+  //
+  // `agent: true` (plan-agent-access.md, step 5) marks an ordinary public message an agent account posted, so every page
+  // labels it "(agent)" whatever its `who` says. Only the chat route sets it, from the account, never from the request.
+  add(spaceId, { by, who, text, visibility, kind, command, module, summaries, replyTo, at, link, prompt, sent, used, numbered, leftOut, cut, attached, agent }) {
     const ai = kind === 'ai' || command === 'ai';
     const clean = cleanText(text, ai ? MAX_AI_TEXT : MAX_TEXT);
     if (!clean) return null;
@@ -224,6 +228,7 @@ class ChatHistory {
     const message = { id: newId(), at: when, by: String(by || 'guest').slice(0, 40), who: cleanWho(who), text: clean };
     if (visibility === 'private') message.visibility = 'private';
     if (kind === 'command' || kind === 'ai') message.kind = kind;
+    if (agent === true && !kind && visibility !== 'private') message.agent = true;
     if (typeof command === 'string' && command) message.command = command.slice(0, 12);
     if (typeof module === 'string' && module) message.module = module.slice(0, 32);
     // The words a module attached to an /ai question, as sent (plan-ai-pictures.md decision 10): private with the question.
@@ -445,4 +450,4 @@ class ChatHistory {
   }
 }
 
-module.exports = { ChatHistory, CHAT_LIMITS: { MAX_PUBLIC, MAX_PRIVATE, MAX_AGE_MS, MAX_TEXT, MAX_AI_TEXT, MAX_SUMMARIES, MAX_PER_SPACE: MAX_PUBLIC } };
+module.exports = { ChatHistory, cleanChatText: cleanText, CHAT_LIMITS: { MAX_PUBLIC, MAX_PRIVATE, MAX_AGE_MS, MAX_TEXT, MAX_AI_TEXT, MAX_SUMMARIES, MAX_PER_SPACE: MAX_PUBLIC } };
