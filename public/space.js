@@ -3364,7 +3364,7 @@ function layoutMenuItems() {
     radio: true,
     checked: l.id === currentLayoutTab, // the layout shown now
     onPick: () => { pressLayoutTab(l.id); },
-    more: mayFavorite() || mayChangeLayout(isShared) || maySetDefault(isShared) ? () => layoutRowItems(l.id) : undefined,
+    more: mayFavorite() || mayChangeLayout(isShared) || maySetDefault(isShared) ? (anchor) => layoutRowItems(l.id, anchor) : undefined,
   });
   const items = [{ heading: 'Layouts' }];
   // The system layouts first (plan-layout-views.md, steps 2 and 4): a press shows it as its tab does; its ... (anyone
@@ -3434,11 +3434,12 @@ function systemRowItems(systemId) {
 // plan-layout-views.md decision 13); then, for an owner on a shared layout, Make default or
 // Stop using as default (decision 4); then, on a layout you may change, Replace with this layout, Rename, Delete (asked
 // once, in the menu's own confirm row under the Layout button). A divider between each run.
-function layoutRowItems(layoutId) {
+function layoutRowItems(layoutId, anchor = null) {
   const layout = findLayout(layoutId);
   if (!layout) return [];
   const shared = layoutList.shared.includes(layout);
-  const trigger = () => nav.elementOf('setup');
+  // The confirm opens by the row's "..." that was pressed; if that is gone (the list drew again), the Set up button.
+  const trigger = () => (anchor && anchor.isConnected ? anchor : nav.elementOf('setup'));
   const entries = [];
   if (mayFavorite()) {
     entries.push(isFavorite(layoutId)

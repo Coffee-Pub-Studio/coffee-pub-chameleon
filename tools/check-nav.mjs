@@ -586,7 +586,7 @@ test('the Layout menu (plan-layout-menu.md; Thomas, 2026-10-13): the page\'s sha
 test('the Layout menu\'s Layouts section (plan-saved-layouts.md, step 3; in the shared menu): entries that load and keep the menu open, a ... with Favorite, Make default, Replace, Rename and Delete, New layout and Save as new layout in a small sheet; read again as the menu opens; hidden on a narrow canvas', () => {
   const space = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
   const css = fs.readFileSync(path.join(ROOT, 'public/style.css'), 'utf8');
-  const items = space.slice(space.indexOf('function layoutMenuItems() {'), space.indexOf('function layoutRowItems(layoutId) {'));
+  const items = space.slice(space.indexOf('function layoutMenuItems() {'), space.indexOf('function layoutRowItems(layoutId, anchor = null) {'));
   // Nothing where there is nothing to load or save, or on a narrow canvas; shared first, then your own; Default marked;
   // a favorite's heart; a press loads it and keeps the menu open; the ... for those who may do something with it.
   assert.match(items, /const canSave = Boolean\(layoutList\.spaceId\) && !guestMode;/);
@@ -595,7 +595,7 @@ test('the Layout menu\'s Layouts section (plan-saved-layouts.md, step 3; in the 
   assert.match(items, /tag: l\.id === layoutList\.defaultLayout \? 'Default' : undefined,/);
   assert.match(items, /mark: isFavorite\(l\.id\) \? 'heart' : undefined,/);
   assert.match(items, /keepOpen: true,\n\s*radio: true,\n\s*checked: l\.id === currentLayoutTab,[^\n]*\n\s*onPick: \(\) => \{ pressLayoutTab\(l\.id\); \},/, 'a press shows it as current; the row is marked');
-  assert.match(items, /more: mayFavorite\(\) \|\| mayChangeLayout\(isShared\) \|\| maySetDefault\(isShared\) \? \(\) => layoutRowItems\(l\.id\) : undefined,/);
+  assert.match(items, /more: mayFavorite\(\) \|\| mayChangeLayout\(isShared\) \|\| maySetDefault\(isShared\) \? \(anchor\) => layoutRowItems\(l\.id, anchor\) : undefined,/);
   assert.match(items, /No saved layouts yet\./);
   // Both commands, together, only where canSave holds (a guest never saves): New layout, then Save as new layout.
   assert.match(items, /if \(canSave\) \{\n\s*items\.push\(\{ icon: 'plus', label: 'New layout', onPick: \(\) => openSaveLayout\(\{ blank: true \}\) \}\);\n\s*items\.push\(\{ icon: 'floppy-disk', label: 'Save as new layout', onPick: \(\) => openSaveLayout\(\) \}\);\n\s*\}/);
@@ -605,7 +605,7 @@ test('the Layout menu\'s Layouts section (plan-saved-layouts.md, step 3; in the 
   assert.match(items, /mayChangeLayout\(isShared\)\n\s*\? \{ icon: 'arrows-rotate', label: 'Update', tag: 'Modified', keepOpen: true, onPick: \(\) => updateLayout\(l\.id\) \}\n\s*: \{ label: 'Modified', disabled: true \}/);
   assert.match(space, /const mayChangeLayout = \(shared\) => !guestMode && \(!shared \|\| layoutList\.canShare\);/, 'a guest changes nothing; shared ones only with the right');
   // The ...: Replace with this layout, Rename, Delete (confirmed in the menu's own confirm row, under the Layout button).
-  const menuFn = space.slice(space.indexOf('function layoutRowItems(layoutId) {'), space.indexOf('async function setFavorite('));
+  const menuFn = space.slice(space.indexOf('function layoutRowItems(layoutId, anchor = null) {'), space.indexOf('async function setFavorite('));
   for (const label of ['Replace with this layout', 'Rename', 'Delete']) assert.ok(menuFn.includes(`label: '${label}'`), `the ... offers ${label}`);
   assert.match(menuFn, /openConfirmMenu\(trigger\(\), \{\n\s*label: 'Delete', confirm: `Delete \$\{layout\.name\}\?`, armed: true/);
   assert.ok(!/host\.menu\.show/.test(menuFn), 'the host\'s own menu, not a module\'s');
@@ -645,9 +645,9 @@ test('the default layout (plan-saved-layouts.md, step 4): Make default in a shar
   // Only on a shared row, only for those the server says may set it (canSetDefault), never a guest.
   assert.match(space, /const maySetDefault = \(shared\) => !guestMode && shared && layoutList\.canSetDefault;/);
   assert.match(space, /canSetDefault: Boolean\(got\.canSetDefault\)/, 'read from GET .../layouts');
-  assert.match(space, /more: mayFavorite\(\) \|\| mayChangeLayout\(isShared\) \|\| maySetDefault\(isShared\) \? \(\) => layoutRowItems\(l\.id\) : undefined,/, 'the ... shows for one who may only set the default (and for anyone signed in, to favorite)');
+  assert.match(space, /more: mayFavorite\(\) \|\| mayChangeLayout\(isShared\) \|\| maySetDefault\(isShared\) \? \(anchor\) => layoutRowItems\(l\.id, anchor\) : undefined,/, 'the ... shows for one who may only set the default (and for anyone signed in, to favorite)');
   assert.match(space, /tag: l\.id === layoutList\.defaultLayout \? 'Default' : undefined,/, 'the default entry is marked Default');
-  const menuFn = space.slice(space.indexOf('function layoutRowItems(layoutId) {'), space.indexOf('async function setDefaultLayout('));
+  const menuFn = space.slice(space.indexOf('function layoutRowItems(layoutId, anchor = null) {'), space.indexOf('async function setDefaultLayout('));
   assert.match(menuFn, /if \(maySetDefault\(shared\)\) \{/);
   assert.match(menuFn, /layoutList\.defaultLayout === layoutId\n\s*\? \{ icon: 'star', regular: true, label: 'Stop using as default', onPick: \(\) => setDefaultLayout\(null, layout\) \}\n\s*: \{ icon: 'star', label: 'Make default', onPick: \(\) => setDefaultLayout\(layoutId, layout\) \}\);/);
   const setFn = space.slice(space.indexOf('async function setDefaultLayout('), space.indexOf('async function replaceLayout('));
@@ -714,13 +714,13 @@ test('favorite layouts, step 2 (plan-favorite-layouts.md): a ... on every row fo
   assert.equal((space.match(/defaultLayout: null, favorites: \[\], last: null, canShare: false, canSetDefault: false \};/g) || []).length, 3, 'every empty list has no favorites');
   // The row: the ... for anyone who may favorite; a favorite's heart after the name, hidden from a screen reader, which
   // hears ", favorite" in the row's name instead.
-  const row = space.slice(space.indexOf('function layoutMenuItems() {'), space.indexOf('function layoutRowItems(layoutId) {'));
-  assert.match(row, /more: mayFavorite\(\) \|\| mayChangeLayout\(isShared\) \|\| maySetDefault\(isShared\) \? \(\) => layoutRowItems\(l\.id\) : undefined,/);
+  const row = space.slice(space.indexOf('function layoutMenuItems() {'), space.indexOf('function layoutRowItems(layoutId, anchor = null) {'));
+  assert.match(row, /more: mayFavorite\(\) \|\| mayChangeLayout\(isShared\) \|\| maySetDefault\(isShared\) \? \(anchor\) => layoutRowItems\(l\.id, anchor\) : undefined,/);
   assert.match(row, /mark: isFavorite\(l\.id\) \? 'heart' : undefined,/);
   assert.ok(row.indexOf("mark: isFavorite") > row.indexOf('label: l.name') && row.indexOf("mark: isFavorite") < row.indexOf('tag: l.id'), 'after the name, before Default');
   assert.match(fs.readFileSync(path.join(ROOT, 'public/sdk/system.css'), 'utf8'), /\.host-menu-mark \{[^}]*color: var\(--text-muted\);/);
   // The menu: Favorite (outline heart) or Unfavorite (filled heart) first, a divider before Make default.
-  const menuFn = space.slice(space.indexOf('function layoutRowItems(layoutId) {'), space.indexOf('async function setFavorite('));
+  const menuFn = space.slice(space.indexOf('function layoutRowItems(layoutId, anchor = null) {'), space.indexOf('async function setFavorite('));
   assert.match(menuFn, /if \(mayFavorite\(\)\) \{\n\s*entries\.push\(isFavorite\(layoutId\)\n\s*\? \{ icon: 'heart', label: 'Unfavorite', onPick: \(\) => setFavorite\(layout, false\) \}\n\s*: \{ icon: 'heart', regular: true, label: 'Favorite', onPick: \(\) => setFavorite\(layout, true\) \}\);/, 'Unfavorite or Favorite, always on');
   // No limit (plan-layout-views.md, decision 13: the limit of 3 was part of a legacy system).
   assert.ok(!/FAVORITE_LIMIT|favoriteLimitText|You can have \d+ favorite/.test(space), 'no favorites limit on the page');
@@ -805,7 +805,7 @@ test('the layout tabs (plan-layout-views.md, steps 2 and 3): after the switcher 
   assert.match(space, /favoritesNoteTimer = setTimeout\(\(\) => showFavoritesNote\(''\), 6000\);/);
   assert.match(css, /\.layout-favorites-note \{[^}]*position: fixed;[^}]*background: var\(--bg-section\);/);
   // The Layout menu: the system rows first, each with a ... for anyone signed in (systemRowItems, step 4).
-  const items = space.slice(space.indexOf('function layoutMenuItems() {'), space.indexOf('function layoutRowItems(layoutId) {'));
+  const items = space.slice(space.indexOf('function layoutMenuItems() {'), space.indexOf('function layoutRowItems(layoutId, anchor = null) {'));
   assert.match(items, /for \(const l of layoutList\.system\) \{/);
   assert.match(items, /more: mayFavorite\(\) \? \(\) => systemRowItems\(l\.id\) : undefined,/);
   assert.match(items, /onPick: \(\) => pressLayoutTab\(l\.id\),/);
@@ -821,7 +821,7 @@ test('Rename and Change icon (plan-layout-views.md, step 4): a system row\'s ...
   assert.match(sysFn, /\{ icon: 'pen', label: 'Rename', onPick: \(\) => startRename\(l\.id\) \},\n\s*\{ icon: 'icons', label: 'Change icon', onPick: \(\) => startChangeIcon\(l\.id\) \},/);
   assert.ok(!/Delete|Replace|Make default/.test(sysFn), 'a system layout is not deleted, replaced or made the default here');
   // A saved row: Change icon after Rename, where the layout may be changed (the server refuses a member's PUT on a shared one).
-  const rowFn = space.slice(space.indexOf('function layoutRowItems(layoutId) {'), space.indexOf('async function setFavorite('));
+  const rowFn = space.slice(space.indexOf('function layoutRowItems(layoutId, anchor = null) {'), space.indexOf('async function setFavorite('));
   assert.match(rowFn, /label: 'Rename', onPick: \(\) => startRename\(layoutId\) \},\n\s*\{ icon: 'icons', label: 'Change icon', onPick: \(\) => startChangeIcon\(layoutId\) \},\n\s*\{ icon: 'trash', label: 'Delete'/);
   assert.ok(rowFn.indexOf("label: 'Change icon'") > rowFn.indexOf('if (!mayChangeLayout(shared)) return entries;'), 'only where the layout may be changed');
   // The row wears its chosen icon; one never chosen keeps the shared or own look.

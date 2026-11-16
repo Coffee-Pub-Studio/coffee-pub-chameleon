@@ -76,9 +76,11 @@ function iconEl(doc, icon, regular, tint) {
 }
 
 // A category's entries: `items` or `submenu`, a list or a function giving one.
-const entriesOf = (item) => {
+// `anchor`: the button the entries open from (a row's "..."), handed to a function that builds them, so an entry that
+// asks again (a confirm) can open by the row that was pressed.
+const entriesOf = (item, anchor = null) => {
   const e = item && (item.items || item.submenu);
-  const list = typeof e === 'function' ? e() : e;
+  const list = typeof e === 'function' ? e(anchor) : e;
   return Array.isArray(list) ? list.filter(Boolean) : null;
 };
 const isCategory = (item) => Boolean(item && !item.disabled && (item.items || item.submenu));
@@ -166,7 +168,7 @@ function build(trigger, items, inline) {
     view.clearTimeout(hoverTimer);
     if (fly && fly.row === row) { if (focus && fly.rows[0]) fly.rows[0].focus(); return; }
     closeFly();
-    const entries = entriesOf(item);
+    const entries = entriesOf(item, row);
     if (!entries || !entries.length) return;
     const el = doc.createElement('div');
     el.className = 'host-menu host-menu-flyout';
@@ -338,7 +340,7 @@ function build(trigger, items, inline) {
         event.preventDefault();
         event.stopPropagation();
         if (drills()) {
-          const entries = entriesOf(moreItem);
+          const entries = entriesOf(moreItem, more);
           if (!entries || !entries.length) return;
           sub = { items: entries, back: rows.indexOf(b), label: item.label };
           draw({ focus: 1 });
