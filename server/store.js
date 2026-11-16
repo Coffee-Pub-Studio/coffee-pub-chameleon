@@ -184,6 +184,9 @@ const hasOwnerRights = (user) => Boolean(user) && OWNER_RIGHTS.includes(user.rol
 // in that space only -- anything else is a role-level permission, not a
 // per-space one.
 const SPACE_PERMISSIONS = ['moderator'];
+// An agent account (documentation/plans/plan-agent-access.md): a member that is not a person and can never sign in. What it
+// can't be (an owner, the admin, a moderator) or have (a password, a personal link, two-step sign-in) is refused with this.
+const AGENT_CANT_BE = "An agent can't be that.";
 // The four roles (Settings > Roles): no custom roles yet. Owner always has
 // every permission and can't be edited; the other three are a grid of
 // on/off per permission, defaults below. The last group are enforced by
@@ -326,6 +329,9 @@ const DEFAULT_SETTINGS = {
   // then asked; this only makes it mandatory). Whether the feature is offered at all is the server's own
   // ENABLE_MFA, not a per-environment setting. Bites at the next sign-in, never an already-open session.
   mfaRequired: false,
+  // Agents (plan-agent-access.md, decision 11): the owner's switch. Off by default; it does anything only while the server's
+  // AGENT_TOKENS is on. Off, every agent token here answers 401 and no agent or token can be made.
+  agents: false,
   // Call features, on by default -- an admin can turn any of these off
   // server-wide. maxQuality caps the "Quality" picker (see QUALITY_OPTIONS)
   // rather than adding a new tier of its own.
@@ -963,6 +969,9 @@ class Store {
     if (!u || typeof u !== 'object') return null;
     const key = typeof u.key === 'string' && /^[a-z0-9]{4,16}$/.test(u.key) ? u.key : null;
     if (!key) return null;
+    // An agent account (plan-agent-access.md): never the host admin's stand-in, always a member, and never anything a person
+    // signs in or is reached with, whatever the stored record says (a restored zip, a hand-edited file).
+    const agent = u.agent === true && !u.hostAdmin;
     const images = {};
     for (const [legacy, slot] of Object.entries(LEGACY_SLOTS)) {
       if (typeof u.images?.[legacy] === 'string') images[slot] = u.images[legacy];
@@ -987,12 +996,12 @@ class Store {
         spaces[spaceId] = {
           images: spaceImages,
           useDefaultImages: typeof r.useDefaultImages === 'boolean' ? r.useDefaultImages : Object.keys(spaceImages).length === 0,
-          permissions: cleanSpacePermissions(r.permissions),
+          permissions: cleanSpacePermissions(agent ? null : r.permissions), // an agent is never a moderator
           // How they came in, when they came in on their own through a space's "anyone" setting.
           ...(r.joined && (r.joined.by === 'self' || r.joined.by === 'request') && typeof r.joined.at === 'string' ? { joined: { by: r.joined.by, at: r.joined.at } } : {}),
           // Their address for this one space (plan-space-calendars.md, section 1): the SHA-256 of its token, never the
           // token; left off while they have none.
-          ...(cleanCalendarFeed(r.calendarFeed) ? { calendarFeed: cleanCalendarFeed(r.calendarFeed) } : {}),
+          ...(!agent && cleanCalendarFeed(r.calendarFeed) ? { calendarFeed: cleanCalendarFeed(r.calendarFeed) } : {}),
         };
       }
     }
@@ -1003,15 +1012,17 @@ class Store {
       displayName: ((n) => (n && !endsWithGuestMark(n, this.word('guest')) ? n : null))(cleanDisplayName(u.displayName)) || cleanLogin(u.login) || key,
       // The stand-in is always `admin`; anything else reads as it is stored, or as a member when it is no role at all
       // (the names-roles migration has already renamed the old values, so this only ever meets them in hand-made data).
-      role: u.hostAdmin ? 'admin' : ROLES.includes(u.role) ? u.role : 'member',
+      role: u.hostAdmin ? 'admin' : agent ? 'member' : ROLES.includes(u.role) ? u.role : 'member',
       // A user record that stands in for a host admin signed in here (see resolveLoginUser in index.js) never has a
       // password, a personal link or a second factor of its own, whatever the stored record says (one restored from a
       // zip, say): nothing inside the environment can ever authenticate as it directly -- the check always goes back
       // to the host registry.
-      passwordHash: !u.hostAdmin && typeof u.passwordHash === 'string' ? u.passwordHash : null,
+      passwordHash: !u.hostAdmin && !agent && typeof u.passwordHash === 'string' ? u.passwordHash : null,
       hostAdmin: Boolean(u.hostAdmin),
-      linkToken: !u.hostAdmin && typeof u.linkToken === 'string' && u.linkToken ? u.linkToken : null,
-      mfa: u.hostAdmin ? null : sanitizeMfa(u.mfa),
+      linkToken: !u.hostAdmin && !agent && typeof u.linkToken === 'string' && u.linkToken ? u.linkToken : null,
+      mfa: u.hostAdmin || agent ? null : sanitizeMfa(u.mfa),
+      // An agent account, and whether its owner turned it off (its token answers 401 while it is); left off for a person.
+      ...(agent ? { agent: true, ...(u.off === true ? { off: true } : {}) } : {}),
       images,
       spaces,
       player: {}, // borders and the plate are server-wide now; older per-user values are dropped
@@ -1023,14 +1034,14 @@ class Store {
       ...(typeof u.theme === 'string' && THEME_ID.test(u.theme) ? { theme: u.theme } : {}),
       // Their calendar feed's address (plan-google-calendar.md): only the SHA-256 of its token, never the token; left
       // off while they have none.
-      ...(cleanCalendarFeed(u.calendarFeed) ? { calendarFeed: cleanCalendarFeed(u.calendarFeed) } : {}),
+      ...(!agent && cleanCalendarFeed(u.calendarFeed) ? { calendarFeed: cleanCalendarFeed(u.calendarFeed) } : {}),
       // Their other calendars (plan-google-calendar.md, Part 2): each address sealed with the secrets key, never kept
       // plain; left off while they have none.
-      ...(cleanExternalCalendars(u.externalCalendars).length ? { externalCalendars: cleanExternalCalendars(u.externalCalendars) } : {}),
+      ...(!agent && cleanExternalCalendars(u.externalCalendars).length ? { externalCalendars: cleanExternalCalendars(u.externalCalendars) } : {}),
       // A new owner's first-password link (plan-first-password.md): { hash, expiresAt } until it is used, then
       // { claim, claimedAt, expiresAt } until the password is set (claim: a random id for that use); only the SHA-256 of the token, never the token. Never on a
       // host admin's stand-in or an account that has a password; left off otherwise.
-      ...(cleanFirstPassword(u) ? { firstPassword: cleanFirstPassword(u) } : {}),
+      ...(!agent && cleanFirstPassword(u) ? { firstPassword: cleanFirstPassword(u) } : {}),
       // What they have agreed to (plan-access-bundle.md, step 1; server/agreements.js): [{ doc, version, at }], one per
       // text and version; left off while they have agreed to nothing.
       ...(cleanAgreed(u.agreed).length ? { agreed: cleanAgreed(u.agreed) } : {}),
@@ -1038,7 +1049,7 @@ class Store {
       ...(typeof u.welcomeSeen === 'string' && !Number.isNaN(Date.parse(u.welcomeSeen)) ? { welcomeSeen: new Date(u.welcomeSeen).toISOString() } : {}),
       // A demo person (server/demo-loader.js): made by a demo load, the only kind of account a later load may give a new
       // password. Never on a host admin's stand-in; left off for everyone else.
-      ...(u.demo === true && !u.hostAdmin ? { demo: true } : {}),
+      ...(u.demo === true && !u.hostAdmin && !agent ? { demo: true } : {}),
       createdAt: typeof u.createdAt === 'string' ? u.createdAt : new Date().toISOString(),
     };
   }
@@ -1564,6 +1575,10 @@ class Store {
     if (patch.loginText !== undefined) s.loginText = String(patch.loginText ?? '').trim().slice(0, 1000);
     if (patch.allowRegistration !== undefined) s.allowRegistration = Boolean(patch.allowRegistration);
     if (patch.mfaRequired !== undefined) s.mfaRequired = Boolean(patch.mfaRequired);
+    if (patch.agents !== undefined) {
+      if (typeof patch.agents !== 'boolean') throw new StoreError('agents is true or false');
+      s.agents = patch.agents;
+    }
     if (patch.maxQuality !== undefined && QUALITY_OPTIONS.includes(Number(patch.maxQuality))) s.maxQuality = Number(patch.maxQuality);
     if (patch.allowScreenShare !== undefined) s.allowScreenShare = Boolean(patch.allowScreenShare);
     if (patch.allowAsides !== undefined) s.allowAsides = Boolean(patch.allowAsides);
@@ -1857,7 +1872,7 @@ class Store {
 
   userByLinkToken(token) {
     if (!token) return null;
-    return this.data.users.find((u) => u.linkToken && u.linkToken === token) || null;
+    return this.data.users.find((u) => u.linkToken && !u.agent && u.linkToken === token) || null;
   }
 
   // The person whose calendar feed token hashes to `hash` (hex SHA-256), or null.
@@ -1973,9 +1988,39 @@ class Store {
     return user;
   }
 
+  // A new agent account (plan-agent-access.md, decision 1): a member with no password, personal link or second factor, named
+  // `displayName` (default "Claude"). Its login is made here and is never one anybody can sign in with: no door accepts
+  // an agent. It is in no space until an owner adds it to one.
+  addAgent({ displayName } = {}) {
+    if (displayName !== undefined && displayName !== null && typeof displayName !== 'string') throw new StoreError("An agent's name is text.");
+    const name = cleanDisplayName(displayName || '') || 'Claude';
+    this.checkDisplayName(name);
+    const key = this.newKey();
+    const user = this.sanitizeUser({ key, login: `agent-${key}`, displayName: name, role: 'member', agent: true, images: {}, createdAt: new Date().toISOString() });
+    if (this.userByLogin(user.login)) throw new StoreError('that username is taken');
+    this.data.users.push(user);
+    this.save();
+    return user;
+  }
+
+  // Turns an agent off (its token answers 401) or on again. Only an agent.
+  setAgentOff(key, off) {
+    const user = this.userByKey(key);
+    if (!user) throw new StoreError('no such user', 404);
+    if (!user.agent) throw new StoreError('Only an agent can be turned off.');
+    if (typeof off !== 'boolean') throw new StoreError('off is true or false');
+    if (off) user.off = true;
+    else delete user.off;
+    this.save();
+    return user;
+  }
+
   updateUser(key, patch) {
     const user = this.userByKey(key);
     if (!user) throw new StoreError('no such user', 404);
+    // An agent is a member and nothing more, and has no sign-in of its own (plan-agent-access.md, "The agent account").
+    // Its login is the one it was made with (agent-<key>), so no ADMIN_LOGIN and no person's login is ever an agent's.
+    if (user.agent && ((patch.role !== undefined && patch.role !== 'member') || patch.passwordHash || patch.linkToken || (patch.login !== undefined && cleanLogin(patch.login) !== user.login))) throw new StoreError(AGENT_CANT_BE);
     // The admin's sign-in is the host's (the stand-in) or the server start's (ADMIN_LOGIN and ADMIN_PASSWORD), never
     // an owner's to change: its role, login, password and personal link are refused here.
     if (user.role === 'admin') {
@@ -2111,6 +2156,7 @@ class Store {
   mfaStart(key, secretCipher) {
     const user = this.userByKey(key);
     if (!user) throw new StoreError('no such user', 404);
+    if (user.agent) throw new StoreError(AGENT_CANT_BE);
     user.mfa = user.mfa || { secret: null, enrolledAt: null, recovery: [], version: 0, lastStep: null, pending: null };
     user.mfa.pending = { secret: secretCipher, startedAt: new Date().toISOString() };
     this.save();
@@ -2184,6 +2230,7 @@ class Store {
     const user = this.userByKey(key);
     if (!user) throw new StoreError('no such user', 404);
     if (user.hostAdmin) throw new StoreError("this account is the host admin's");
+    if (user.agent) throw new StoreError(AGENT_CANT_BE);
     user.role = 'admin';
     if (passwordHash !== undefined) user.passwordHash = passwordHash;
     this.save();
@@ -2812,6 +2859,7 @@ class Store {
     const user = this.userByKey(key);
     if (!user) return cleanSpacePermissions();
     if (hasOwnerRights(user)) return Object.fromEntries(SPACE_PERMISSIONS.map((k) => [k, true]));
+    if (user.agent) return cleanSpacePermissions(); // never a moderator, whatever is stored
     return cleanSpacePermissions(user.spaces?.[spaceId]?.permissions);
   }
 
@@ -2821,6 +2869,7 @@ class Store {
     const space = this.spaceById(spaceId);
     if (!space || space.isLobby) throw new StoreError(`no such ${this.word('space')}`, 404);
     if (!space.members.includes(key)) throw new StoreError(`not ${this.word('member', { a: true })} of that ${this.word('space')}`);
+    if (user.agent && patch.permissions && typeof patch.permissions === 'object' && patch.permissions.moderator) throw new StoreError(AGENT_CANT_BE);
     const entry = this.spaceEntry(user, spaceId);
     if (patch.useDefaultImages !== undefined) entry.useDefaultImages = Boolean(patch.useDefaultImages);
     if (patch.permissions && typeof patch.permissions === 'object') {
@@ -3122,7 +3171,7 @@ class StoreError extends Error {
 
 module.exports = {
   SPACE_NAME_MAX,
-  Store, StoreError, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS,
+  Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS,
   LEGACY_SLOTS, ROLES, ASSIGNABLE_ROLES, hasOwnerRights, ROLE_PERMISSIONS, IMAGE_TYPES, MAX_IMAGE_BYTES, DEFAULT_BORDER_COLOR, LOBBY, randomToken, cleanText, cleanLogin,
   sanitizeMfa, CURRENCIES, QUALITY_OPTIONS, LANGUAGES, BUILTIN_THEME_IDS: BUILTIN_THEMES.map((t) => t.id), displayNameProblem,
   THEME_BASE, THEME_OPTIONAL, DEFAULT_THEME, cleanColor, cleanAuthor, cleanReactions, cleanThemeName, MAX_THEMES,

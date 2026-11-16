@@ -19,7 +19,8 @@
 //   files      everything not on FILE_RULES: among them secrets.key (the key a single install sealed with), pre-names/
 //              (copies of the data from before the Names migration, which hold the same secrets), agreements.json
 //              (guests' agreements: the host's backup carries them, never an owner's copy), access.json (requests to enter
-//              a space, by people and guests, and a guest's approvals: the same), chat-private.json and
+//              a space, by people and guests, and a guest's approvals: the same), tokens.json (agents' tokens: a restore of
+//              the copy leaves every agent without one) and agent-log/ (what agents did), chat-private.json and
 //              ai-threads.moved.json (other people's private chat), each person's own module data, held clears and
 //              uploads (modules/<id>/data/person-<key>.json, modules/<id>/trash/person-<key>.json,
 //              modules/<id>/uploads/person-<key>/...: private to that person), a library module's share links
@@ -43,7 +44,8 @@ const APP_FIELDS = ['version', 'migrations', 'template', 'templateHistory', 'tem
 const APP_LEFT_OUT = ['secrets', 'invites'];
 // A person (Store#sanitizeUser). `demo` marks a demo person (server/demo-loader.js): kept, so a demo load in the copy may
 // give them new passwords.
-const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'createdAt'];
+// `agent` and `off` mark an agent account and whether it is turned off (plan-agent-access.md): kept, its token is not (tokens.json).
+const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'agent', 'off', 'createdAt'];
 const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed', 'welcomeSeen'];
 // A person's own record for one space (user.spaces[<space id>]).
 const USER_SPACE_FIELDS = ['images', 'useDefaultImages', 'permissions', 'joined'];
@@ -159,6 +161,8 @@ const FILE_LEFT_OUT = [
   /^agreements(\.unreadable-\d+)?\.json$/, // guests' agreements (server/agreements.js): the host's backup only
   /^access(\.unreadable-\d+)?\.json$/, // access requests and the grants a guest holds (server/access-requests.js): the host's backup only
   /^ai-threads(\.moved)?\.json$/,
+  /^tokens\.json$/, // agents' tokens (server/tokens.js, their hashes): never in an owner's copy, so a restore of one leaves agents without a token
+  /^agent-log\//, // what agents did (server/agent-log.js, a folder of day files): the host's backup only
   (name) => name === LEGACY_ENVIRONMENT_RECORD, // the older name of app.json: only app.json speaks for the environment
   /^tmp\//,
   new RegExp(`^modules/${MODULE_ID}/library/[^/]+\\.shares\\.json$`),
@@ -208,8 +212,11 @@ function exportEntries(files, appData, { declared } = {}) {
 // is let in on an agreement a zip says they made.
 function restoreEntries(files, { backup = false } = {}) {
   // An owner's copy never carries the sealed values of modules' `secret` settings (modules/secrets.json): a zip written by hand
-  // cannot plant one, and they were never made with this host's key anyway.
-  const kept = backup ? files : files.filter(([name]) => { const n = path.posix.normalize(name); return !/^(agreements|access)(\.unreadable-\d+)?\.json$/.test(n) && n !== 'modules/secrets.json'; });
+  // cannot plant one, and they were never made with this host's key anyway. Nor agents' tokens (tokens.json) or their log
+  // (agent-log/, which sets the day's counts): a hand-made copy could otherwise plant a token it chose, or spend a limit.
+  // Names are compared as a case-insensitive folder, or one that reads "\" as "/", would store them; a name with a NUL in it
+  // names no file anywhere and is dropped.
+  const kept = backup ? files : files.filter(([name]) => { const n = path.posix.normalize(String(name).replace(/\\/g, '/')).replace(/^\/+/, '').toLowerCase(); return !n.includes('\u0000') && !/^(agreements|access)(\.unreadable-\d+)?\.json$/.test(n) && n !== 'modules/secrets.json' && !/^(tokens\.json|agent-log)(\/|$)/.test(n); });
   return kept.map(([name, data]) => {
     const where = path.posix.normalize(name);
     if (where !== APP_FILE && where !== LEGACY_ENVIRONMENT_RECORD) return [name, data];

@@ -74,6 +74,8 @@ function seededApp(secrets = strong) {
       { key: 'newowner', login: 'newowner', displayName: 'New', role: 'owner', passwordHash: null, firstPassword: { hash: hex(32), expiresAt: '2099-01-01T00:00:00.000Z' }, createdAt: '2026-01-01T00:00:00.000Z' },
       // A demo person (server/demo-loader.js): the mark is kept in a copy, so a demo load there may give them new passwords.
       { key: 'demoper1', login: 'mia', displayName: 'Mia Alvarez', role: 'member', passwordHash: null, demo: true, createdAt: '2026-01-01T00:00:00.000Z' },
+      // An agent account, turned off (plan-agent-access.md): the marks are kept in a copy; its token (tokens.json) is not.
+      { key: 'agentkey', login: 'agent-agentkey', displayName: 'Claude', role: 'member', passwordHash: null, agent: true, off: true, createdAt: '2026-01-01T00:00:00.000Z' },
     ],
     spaces: [
       { id: 'lobby', name: 'Lobby', members: ['ownerkey'], createdAt: '2026-01-01T00:00:00.000Z' },
@@ -164,8 +166,9 @@ test('the copy carries only allowed fields, keeps each of them as it is, and non
   assert.ok(data.users[0].passwordHash && data.secrets.session && data.spaces[1].guestToken);
   // A restore of the copy reads back every person and space as they were, less what was left out.
   const back = loadStore(copy).store.data;
-  assert.deepEqual(back.users.map((u) => [u.key, u.login, u.role, u.themeMode, u.passwordHash, u.linkToken, u.mfa]), [['ownerkey', 'owner', 'owner', 'light', null, null, null], ['bosskey1', 'boss', 'admin', undefined, null, null, null], ['newowner', 'newowner', 'owner', undefined, null, null, null], ['demoper1', 'mia', 'member', undefined, null, null, null]]);
+  assert.deepEqual(back.users.map((u) => [u.key, u.login, u.role, u.themeMode, u.passwordHash, u.linkToken, u.mfa]), [['ownerkey', 'owner', 'owner', 'light', null, null, null], ['bosskey1', 'boss', 'admin', undefined, null, null, null], ['newowner', 'newowner', 'owner', undefined, null, null, null], ['demoper1', 'mia', 'member', undefined, null, null, null], ['agentkey', 'agent-agentkey', 'member', undefined, null, null, null]]);
   assert.equal(back.users.find((u) => u.key === 'demoper1').demo, true, 'a demo person stays marked in the copy');
+  assert.deepEqual([back.users.find((u) => u.key === 'agentkey').agent, back.users.find((u) => u.key === 'agentkey').off], [true, true], 'an agent stays an agent, and turned off, in the copy');
   assert.ok(back.users.every((u) => !('firstPassword' in u)), 'a restored copy carries no first-password link');
   assert.deepEqual(back.spaces.map((s) => ({ ...s, guestToken: undefined })), data.spaces.map((s) => ({ ...s, guestToken: undefined })));
 });
@@ -241,6 +244,12 @@ test("a restore's files carry no session or stream key; every other file is as i
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['access.json', other], ['./access.json', other]]).map(([n]) => n), ['app.json']);
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['access.json', other]], { backup: true }).map(([n]) => n), ['app.json', 'access.json']);
   assert.equal(ex.fileAllowed('access.json'), false, 'never in an owner\'s copy');
+  // Agents' tokens and their log (plan-agent-access.md): an owner's copy can't plant a token or spend a day's limit; the host's backup keeps them.
+  assert.deepEqual(ex.restoreEntries([['app.json', app], ['tokens.json', other], ['./tokens.json', other], ['/tokens.json', other], ['tokens.json/x', other], ['agent-log/abcd1234/2026-11-16.jsonl', other], ['./agent-log/x', other]]).map(([n]) => n), ['app.json']);
+  // Whatever case or slashes the names come in (a case-insensitive data folder would store Tokens.json as tokens.json), and
+  // a name with a NUL in it (yauzl hands it on as written; no file can have it): none of them comes in from an owner's copy.
+  assert.deepEqual(ex.restoreEntries([['app.json', app], ['Tokens.json', other], ['TOKENS.JSON', other], ['Agent-Log/abcd1234/2026-11-16.jsonl', other], ['agent-log\\abcd1234\\2026-11-16.jsonl', other], ['.\\tokens.json', other], ['tokens.json\u0000', other], ['chat.json\u0000', other]]).map(([n]) => n), ['app.json']);
+  assert.deepEqual(ex.restoreEntries([['app.json', app], ['tokens.json', other], ['agent-log/abcd1234/2026-11-16.jsonl', other]], { backup: true }).map(([n]) => n), ['app.json', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl']);
   assert.ok(JSON.parse(copy[0][1].toString('utf8')).users.every((u) => !('agreed' in u)));
   assert.equal(ex.restoreEntries([['app.json', Buffer.from('not json')]])[0][1].toString(), 'not json');
 });
@@ -264,7 +273,7 @@ test("a restore turns every admin that is not the host admin's stand-in into an 
     src.users.push({ key: 'madeadm1', login: 'madeadmin', displayName: 'Made', role: 'admin', createdAt: '2026-01-01T00:00:00.000Z' });
     const [[, out]] = ex.restoreEntries([[file, Buffer.from(JSON.stringify(src))]]);
     const back = loadStore(JSON.parse(out.toString('utf8'))).store;
-    assert.deepEqual(back.data.users.map((u) => [u.login, u.role, u.hostAdmin]), [['owner', 'owner', false], ['boss', 'admin', true], ['newowner', 'owner', false], ['mia', 'member', false], ['madeadmin', 'owner', false]], file);
+    assert.deepEqual(back.data.users.map((u) => [u.login, u.role, u.hostAdmin]), [['owner', 'owner', false], ['boss', 'admin', true], ['newowner', 'owner', false], ['mia', 'member', false], ['agent-agentkey', 'member', false], ['madeadmin', 'owner', false]], file);
     assert.deepEqual(back.serverAdmins(), [], `${file}: no admin but the stand-in`);
   }
 });
@@ -282,7 +291,7 @@ const FILES = {
     'modules/vault/library/space-trip01.json', 'modules/maps/geocode.json', 'modules/maps/image-map/castle.png',
   ],
   leftOut: [
-    'secrets.key', 'modules/secrets.json', 'pre-names/a-part/app.json', 'chat-private.json', 'ai-threads.moved.json', 'ai-threads.json', LEGACY_ENVIRONMENT_RECORD, 'tmp/region-cut/x.pmtiles',
+    'secrets.key', 'modules/secrets.json', 'pre-names/a-part/app.json', 'chat-private.json', 'ai-threads.moved.json', 'ai-threads.json', LEGACY_ENVIRONMENT_RECORD, 'tmp/region-cut/x.pmtiles', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl',
     'modules/todo/data/person-ownerkey.json', 'modules/todo/trash/person-ownerkey.json', 'modules/research/uploads/person-ownerkey/abc123.png', 'modules/research/uploads/person-ownerkey/abc123.json',
     'modules/vault/library/space-trip01.shares.json', 'app.json.tmp', 'modules/maps/image-map/.upload-1a2b.part', 'modules/.staging-1-2/todo/module.json', 'modules/maps/map-tiles/x.pmtiles.part',
   ],

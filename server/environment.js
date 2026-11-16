@@ -46,6 +46,8 @@ const { migrateEnvironment } = require('./migrate-names');
 const { GuestAgreements } = require('./agreements');
 const accessRequestsLib = require('./access-requests');
 const guestDoorLib = require('./guest-door');
+const { Tokens } = require('./tokens');
+const { AgentLog } = require('./agent-log');
 
 // The same read-access guard index.js's route handlers use (its own moduleCan), needed here only for
 // ModuleHooks' resolveRecipients. Duplicated rather than shared, since it is three lines and pure, and this file
@@ -124,7 +126,8 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
       // A space closed for set up sends its content only to the people who may enter it (spaceAccess.mayEnter).
       const closed = spaceId ? store.spaceById(spaceId) : null;
       const mayEnter = (k) => !spaceAccess.isClosed(closed) || spaceAccess.mayEnter({ key: k, owner: hasOwnerRights(store.userByKey(k)), moderates: store.spaceFlags(k, closed.id).moderator ? [closed.id] : [] }, closed);
-      return keys.filter((k) => store.userByKey(k) && mayEnter(k) && moduleCan(found.manifest, store.spacePermissions(k, spaceId), 'read') && seesOriginal(k));
+      // An agent account (plan-agent-access.md) is never sent a notification.
+      return keys.filter((k) => store.userByKey(k) && !store.userByKey(k).agent && mayEnter(k) && moduleCan(found.manifest, store.spacePermissions(k, spaceId), 'read') && seesOriginal(k));
     },
   });
   moduleHooks.start();
@@ -141,6 +144,10 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   const guestRegister = new guestDoorLib.GuestRegister();
   const guestLimits = guestDoorLib.readLimits();
   const newGuestSessions = new guestDoorLib.NewSessionLimiter(guestLimits.perAddress);
+  // Agents (plan-agent-access.md): this environment's own tokens (tokens.json) and its agents' log and limits
+  // (the agent-log/ folder), so a token made here is never found in another environment.
+  const tokens = new Tokens(dataDir);
+  const agentLog = new AgentLog(dataDir);
 
   if (admin) {
     const login = admin.login || 'admin';
@@ -157,6 +164,8 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
       } else if (store.serverAdmins().length === 0) {
         log('This install has no server admin. Set ADMIN_LOGIN and ADMIN_PASSWORD, then restart, to have one.');
       }
+    } else if (existing && existing.agent) {
+      log(`"${login}" is an agent's login here, so ADMIN_LOGIN cannot make it the server's admin. Choose another ADMIN_LOGIN.`);
     } else if (existing && existing.hostAdmin) {
       log(`"${login}" is the host admin's account here, so ADMIN_LOGIN cannot make it the server's admin. Choose another ADMIN_LOGIN.`);
     } else if (existing) {
@@ -317,6 +326,7 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
     store, modules, moduleData, moduleHolds, moduleHooks, chatHistory, attention, facts, tags, moduleLinks, moduleBus, moduleSettings, ai, moduleUploads, vault,
     geocodeCache, regionCutJobs, moduleLimits, limiter, live, liveEvents, moduleLive, invites, inviteEvents, themeEvents, moduleEvents, chatPictures, chatPosts, chatPreviewsAsked, iconSvgs,
     moduleActivity, noteActivity, saveActivity, externalCalendars, guestAgreements, accessRequests, accessAddresses, guestRegister, guestLimits, newGuestSessions,
+    tokens, agentLog,
   };
 }
 
@@ -328,12 +338,13 @@ function undoSeconds(raw) {
 
 // Every write this environment might still owe the disk, at shutdown or when it is set aside (suspended, or
 // moved to environments-deleted/): each singleton here already writes synchronously on every change except these
-// four, which only debounce and flush on the way out.
+// four, which only debounce and flush on the way out, and an agent token's last use (server/tokens.js).
 function flushEnvironment(env) {
   env.chatHistory.flush();
   env.ai.flush();
   env.geocodeCache.flush();
   env.saveActivity();
+  if (env.tokens.touchTimer) env.tokens.writeUses(); // a token's newest use, still waiting for its minute
 }
 
 // An environment set aside for good (deleted, or about to be replaced by a backup's files): what it owes the disk is

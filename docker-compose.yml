@@ -71,6 +71,8 @@ services:
       # Two-step sign-in. If an owner or admin is locked out: bypass "true", sign in, reset the factor, set it back.
       ENABLE_MFA: "true"
       ADMIN_MFA_LOCKOUT_BYPASS: "false"
+      # Agents (an AI with a token, as a member of the spaces it is added to): "true" lets owners turn them on in Manage.
+      # AGENT_TOKENS: "true"
       # The Vault's files live in their own folder, so the in-app backups stay small. Back up both folders together.
       VAULT_DIR: "/app/vault"
       # Modules' live messages (pointers, nudges; never stored). Optional limits, shown with their defaults.
