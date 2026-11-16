@@ -4,7 +4,7 @@ import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenI
 import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
 import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
-import { renderOffer, switchConfirm } from '/template-offer.js';
+import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
 import { addSpaceFlow, moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
 import { fileText } from '/file-text.js';
@@ -2207,6 +2207,7 @@ $('template-switch').addEventListener('click', async () => {
   }
 });
 // The offer: drawn while it is open and not put away; put away, a line says it waits, with Review to bring it back.
+let offerNotice = ''; // a refusal for the redrawn panel's status line
 function renderTemplateOffer() {
   const box = $('template-offer');
   const open = Boolean(madeFrom && madeFrom.offerOpen && templateOffer);
@@ -2219,13 +2220,28 @@ function renderTemplateOffer() {
     templateName: templateName(madeFrom),
     offer: templateOffer,
     lobbyName: spaces.find((sp) => sp.isLobby)?.name || '',
+    notice: offerNotice,
     later: () => {
       offerPutAway = true;
       renderTemplateOffer();
       $('template-offer-open').focus();
     },
     apply: async (body) => {
-      const answer = await api('POST', '/api/environment/template/apply', body);
+      let answer;
+      try {
+        answer = await api('POST', '/api/environment/template/apply', body);
+      } catch (err) {
+        if (err.status !== 409) throw err;
+        // The offer changed or is closed: read it again and say why, in the panel while it is still open, else on the tab.
+        const applied = /already been applied/.test(err.message);
+        box.dataset.drawnFor = '';
+        offerNotice = applied ? '' : err.message;
+        await loadTemplate();
+        offerNotice = '';
+        if (applied || !(madeFrom && madeFrom.offerOpen)) say($('template-status'), err.message, true);
+        return;
+      }
+      const offered = templateOffer;
       madeFrom = answer.template || null;
       templateOffer = answer.offer || null;
       box.dataset.drawnFor = '';
@@ -2233,7 +2249,8 @@ function renderTemplateOffer() {
       await loadUsers(); // the Lobby's name, if it was taken
       await loadRoles().catch(() => {});
       const skipped = (madeFrom && madeFrom.skipped) || [];
-      say($('template-status'), skipped.length ? `Applied. ${skipped.length} left out, listed below` : 'Applied');
+      const made = madeSentence(offered, body.starterSpaces, answer.made);
+      say($('template-status'), `${skipped.length ? `Applied. ${skipped.length} left out, listed below` : 'Applied'}${made ? `. ${made}` : ''}`);
       $('template-select').focus();
     },
   });

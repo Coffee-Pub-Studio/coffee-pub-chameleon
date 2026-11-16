@@ -6808,7 +6808,7 @@ body.chat-window {
   #env-reactions-card .reaction-row input[type="text"] { min-height: 44px; box-sizing: border-box; }
   .tp-switch { min-height: 44px; min-width: 44px; }
   .module-display .icon-pick summary, .module-display .icon-pick .icon-grid button, .module-display .btn, .module-display input[type="text"] { min-width: 44px; min-height: 44px; box-sizing: border-box; }
-  .tp-checks .sdk-choice-row, .tp-module-body .sdk-choice-row, .tp-module-body .tf-field input:not([type="checkbox"]), .tp-module-body .tf-field select, .tp-module-body .tp-setting-value input:not([type="checkbox"]), .tp-module-body .tp-setting-value select, .tp-module-body .tf-word input, .tp-phase input[type="text"], #tpl-part-workspace select, #tpl-part-phases select, .tp-offer.sdk-choice-row, .reaction-row input[type="text"] { min-height: 44px; box-sizing: border-box; }
+  .tp-checks .sdk-choice-row, .template-offer .sdk-choice-row, .tp-module-body .sdk-choice-row, .tp-module-body .tf-field input:not([type="checkbox"]), .tp-module-body .tf-field select, .tp-module-body .tp-setting-value input:not([type="checkbox"]), .tp-module-body .tp-setting-value select, .tp-module-body .tf-word input, .tp-phase input[type="text"], #tpl-part-workspace select, #tpl-part-phases select, .tp-offer.sdk-choice-row, .reaction-row input[type="text"] { min-height: 44px; box-sizing: border-box; }
 }
 
 /* --- who is here: the space bar's middle zone (space-people.js) ------------------------------------------------

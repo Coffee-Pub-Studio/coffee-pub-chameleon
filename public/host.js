@@ -4,7 +4,7 @@
 import { loadBranding, api, renderTopbar, productLockup } from '/brand.js';
 import { wireRegionCut } from '/region-cut.js';
 import { mountEnrolment, mountDisable } from '/mfa-enrol.js';
-import { renderOffer, switchConfirm } from '/template-offer.js';
+import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
 import { moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
@@ -697,13 +697,30 @@ function renderTemplateTab(t) {
   renderOffer(offerBox, {
     templateName: shown.name,
     offer: shown.offer,
+    notice: shown.notice || '',
     later: () => { openOffers.delete(t.slug); renderPage(); $('env-offer-review').focus(); },
     apply: async (body) => {
-      const answer = await api('POST', `/api/host/environments/${encodeURIComponent(t.slug)}/template/apply`, body);
+      let answer;
+      try {
+        answer = await api('POST', `/api/host/environments/${encodeURIComponent(t.slug)}/template/apply`, body);
+      } catch (err) {
+        if (err.status !== 409) throw err;
+        // The offer changed or is closed: read it again and say why.
+        const applied = /already been applied/.test(err.message);
+        openOffers.delete(t.slug);
+        let again = null;
+        try { again = applied ? null : await api('GET', `/api/host/environments/${encodeURIComponent(t.slug)}/template`); } catch { again = null; }
+        if (again && again.offer) openOffers.set(t.slug, { name: again.template.name || again.template.id, offer: again.offer, notice: err.message });
+        await reloadEnvironments();
+        if (!openOffers.has(t.slug)) say($('env-template-status'), err.message, true);
+        return;
+      }
+      const offered = shown.offer;
       openOffers.delete(t.slug);
       const skipped = (answer.environment.template && answer.environment.template.skipped) || [];
       await reloadEnvironments();
-      say($('env-template-status'), skipped.length ? `Applied. ${skipped.length} left out, listed above.` : 'Applied.');
+      const made = madeSentence(offered, body.starterSpaces, answer.environment.made);
+      say($('env-template-status'), `${skipped.length ? `Applied. ${skipped.length} left out, listed above.` : 'Applied.'}${made ? ` ${made}` : ''}`);
       $('env-template-select').focus();
     },
   });
