@@ -298,7 +298,7 @@ Where streams are opened:
 
 `tools/check-stream-lifecycle.mjs` holds the rule: unit cases for the module hub and the space's live stream (suspend, resume, timers cancelled, no second source after a probe); a lint that fails when any file in `public/` calls `new EventSource(` without a `pagehide` handler; and a headless Chromium test with the back-forward cache on that goes to another page and back, asserts that every stream is closed at the restored `pageshow` and open exactly once after it (never more than on the first load), and that after six page hops in one tab Manage > Users draws its list within 5 seconds (the stall as first reported). The browser part mounts no module, so the hub is judged by its unit cases only. It says SKIPPED, not a pass, when there is no Chromium.
 
-A call page restored from the cache may not say again that it is in a call; that needs LiveKit to try. Chrome usually does not cache a page that holds a WebRTC connection. See [known issues](../known-issues.md).
+A call page restored from the cache may not say again that it is in a call; that needs LiveKit to try. Chrome usually does not cache a page that holds a WebRTC connection.
 
 ## Hosting
 
