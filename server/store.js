@@ -584,46 +584,72 @@ function cleanTri(value) {
   return value === true || value === false ? value : null;
 }
 
-// A reaction tray: { id, glyph, label } entries, ids unique and
-// URL/topic-safe. An empty array is valid -- an admin can turn the tray off.
-// A caller need not supply an id (the admin page's own editor does not
-// track one either): one is made up from the label or glyph, falling back
-// to a random one, rather than silently dropping the entry.
+// Text an environment's reaction or icon list may hold, as a template's plain text is (server/templates.js plainText) and a
+// display name is (cleanDisplayName): control characters, text-direction marks and overrides, zero-width characters, and
+// < and > are taken out, then cleanText. A glyph keeps the zero-width joiner (U+200D) and the variation selectors, which
+// emoji are built from (the built-in Mushroom, Wizard, Mrs. Claus); a label keeps neither.
+const UNSAFE_LIST_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f؜​‌‎‏‪-‮⁠-⁤⁦-⁩﻿<>]/g;
+const cleanGlyph = (value) => cleanText(String(value ?? '').replace(UNSAFE_LIST_TEXT, ''), 8);
+const cleanListLabel = (value) => cleanText(String(value ?? '').replace(UNSAFE_LIST_TEXT, '').replace(/[‍︀-️]/g, ''), 40);
+const cleanListId = (value, max) => (typeof value === 'string' ? value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, max) : '');
+// A made-up id: `base` when free, else `base-<random>`, else a random one; never one already taken (`taken`).
+function freeId(base, taken, max, fallback) {
+  if (base && !taken.has(base)) return base;
+  for (let i = 0; i < 20; i += 1) {
+    const id = base ? `${base.slice(0, max - 5)}-${randomKey(4)}` : fallback();
+    if (!taken.has(id)) return id;
+  }
+  return fallback() + randomKey(6);
+}
+
+// A reaction tray: { id, glyph, label } entries, ids unique and URL/topic-safe. An empty array is valid -- an admin can
+// turn the tray off. A caller need not supply an id (the admin page's own editor does not track one either): one is made
+// up from the label or glyph, falling back to a random one, rather than silently dropping the entry. An id given is kept
+// (the first time it is given); a made-up one never takes an id given anywhere in the list, before or after it.
 function cleanReactions(value) {
   if (!Array.isArray(value)) return null;
   const slug = (text) => String(text || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
-  const seen = new Set();
+  const given = new Set(value.map((r) => (r && typeof r === 'object' ? cleanListId(r.id, 24) : '')).filter(Boolean));
+  const taken = new Set();
   const out = [];
   for (const r of value) {
     if (!r || typeof r !== 'object') continue;
-    const glyph = cleanText(r.glyph, 8);
+    const glyph = cleanGlyph(r.glyph);
     if (!glyph) continue;
-    const label = cleanText(r.label, 40) || glyph;
-    let id = typeof r.id === 'string' ? r.id.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24) : '';
-    if (!id) id = slug(label) || slug(glyph);
-    if (!id || seen.has(id)) id = `r${randomKey(6)}`;
-    seen.add(id);
+    const label = cleanListLabel(r.label) || glyph;
+    let id = cleanListId(r.id, 24);
+    if (!id || taken.has(id)) id = freeId(id ? '' : slug(label) || slug(glyph), new Set([...taken, ...given]), 24, () => `r${randomKey(6)}`);
+    taken.add(id);
     out.push({ id, glyph, label });
   }
   return out;
 }
 
-// The Font Awesome icons an admin has picked: { id, classes, label }. Only
-// fa-* class names survive, so whatever was pasted can't smuggle anything else.
+// The Font Awesome name an icon's classes draw (fa-dragon), or null when they name none (only a style or a size).
+const FA_MODIFIER = /^fa-(solid|regular|brands|light|thin|duotone|sharp|fw|lg|xs|sm|2x|3x)$/;
+function iconName(classes) {
+  const tokens = String(classes || '').split(/\s+/).filter((t) => /^fa-[a-z0-9-]+$/.test(t)).slice(0, 8);
+  return tokens.filter((t) => !FA_MODIFIER.test(t)).pop() || null;
+}
+
+// The Font Awesome icons an admin has picked: { id, classes, label }. Only fa-* class names survive, so whatever was
+// pasted can't smuggle anything else, and an entry whose classes name no icon (only a style or a size) is dropped: it
+// would draw nothing. Ids as cleanReactions keeps them: an id given wins, a made-up one never takes one given.
 function cleanIcons(value) {
   if (!Array.isArray(value)) return null;
-  const seen = new Set();
+  const given = new Set(value.map((i) => (i && typeof i === 'object' ? cleanListId(i.id, 40) : '')).filter(Boolean));
+  const taken = new Set();
   const out = [];
   for (const i of value) {
     if (!i || typeof i !== 'object') continue;
     const tokens = String(i.classes || '').split(/\s+/).filter((t) => /^fa-[a-z0-9-]+$/.test(t)).slice(0, 8);
-    if (!tokens.length) continue;
+    const name = iconName(tokens.join(' '));
+    if (!name) continue;
     const classes = tokens.join(' ');
-    const name = tokens.filter((t) => !/^fa-(solid|regular|brands|light|thin|duotone|sharp|fw|lg|xs|sm|2x|3x)$/.test(t)).pop() || 'icon';
-    const label = cleanText(i.label, 40) || name.replace(/^fa-/, '').replace(/-/g, ' ');
-    let id = typeof i.id === 'string' ? i.id.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40) : '';
-    if (!id || seen.has(id)) id = `${name.slice(3, 30)}${seen.has(name.slice(3, 30)) ? '-' + randomKey(4) : ''}`;
-    seen.add(id);
+    const label = cleanListLabel(i.label) || name.replace(/^fa-/, '').replace(/-/g, ' ');
+    let id = cleanListId(i.id, 40);
+    if (!id || taken.has(id)) id = freeId(id ? '' : name.slice(3, 30), new Set([...taken, ...given]), 40, () => `icon-${randomKey(6)}`);
+    taken.add(id);
     out.push({ id, classes, label });
   }
   return out;
@@ -635,15 +661,14 @@ function cleanIcons(value) {
 // MAX_ENV_REACTIONS and MAX_ENV_ICONS (a save over them is refused, updateSettings; a stored list is cut to them).
 const MAX_ENV_REACTIONS = 300;
 const MAX_ENV_ICONS = 400;
-const listId = (value, max) => (typeof value === 'string' ? value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, max) : '');
 function ownReactions(value) {
   if (!Array.isArray(value)) return [];
   const ids = new Set();
   const glyphs = new Set();
   const once = value.filter((r) => {
     if (!r || typeof r !== 'object') return false;
-    const glyph = cleanText(r.glyph, 8);
-    const id = listId(r.id, 24);
+    const glyph = cleanGlyph(r.glyph);
+    const id = cleanListId(r.id, 24);
     if (!glyph || glyphs.has(glyph) || (id && ids.has(id))) return false;
     glyphs.add(glyph);
     if (id) ids.add(id);
@@ -670,7 +695,7 @@ function ownIcons(value) {
   const ids = new Set();
   const once = value.filter((i) => {
     if (!i || typeof i !== 'object') return false;
-    const id = listId(i.id, 40);
+    const id = cleanListId(i.id, 40);
     if (id && ids.has(id)) return false;
     if (id) ids.add(id);
     return true;
@@ -1733,6 +1758,8 @@ class Store {
     if (patch.icons !== undefined) {
       if (!Array.isArray(patch.icons)) throw new StoreError('icons is a list of icons.');
       if (patch.icons.length > MAX_ENV_ICONS) throw new StoreError(`The icon list holds at most ${MAX_ENV_ICONS} icons.`);
+      const blank = patch.icons.findIndex((i) => !i || typeof i !== 'object' || !iconName(i.classes));
+      if (blank !== -1) throw new StoreError(`Icon ${blank + 1} names no Font Awesome icon; give its classes, such as fa-solid fa-star.`);
       s.icons = ownIcons(patch.icons);
     }
     Object.assign(this.data.settings, s);

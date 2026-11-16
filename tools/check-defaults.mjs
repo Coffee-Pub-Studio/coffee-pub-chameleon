@@ -118,6 +118,34 @@ test('a filled list is kept as stored: cleaned for shape, a repeat inside it dro
   assert.deepEqual([store.settings.reactions, store.settings.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST]);
 });
 
+test('a filled environment whose stored list is not a list loads it as empty, and the file is not written again', () => {
+  const dir = oldEnvironment({ builtinListsSeeded: true, reactions: 'heart', icons: { id: 'x' } });
+  const store = new Store(dir);
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [[], []]);
+  assert.deepEqual([stored(dir).reactions, stored(dir).icons, stored(dir).builtinListsSeeded], [[], [], true], 'saved as empty, once');
+  const file = path.join(dir, 'app.json');
+  const old = new Date('2020-01-01T00:00:00Z');
+  fs.utimesSync(file, old, old);
+  const again = new Store(dir);
+  assert.deepEqual([again.settings.reactions, again.settings.icons], [[], []]);
+  assert.equal(fs.statSync(file).mtimeMs, old.getTime(), 'a second load writes nothing');
+});
+
+test('a stored list is cleaned at load as a save is: plain text, an id given wins, an icon that draws nothing dropped', () => {
+  const dir = oldEnvironment({
+    builtinListsSeeded: true,
+    reactions: [{ glyph: 'A', label: 'fire' }, { id: 'fire', glyph: 'B', label: '<b>Fire</b>‮' }],
+    icons: [{ classes: 'fa-solid fa-star' }, { id: 'star', classes: 'fa-solid fa-moon', label: 'moon​' }, { id: 'proto', classes: 'fa-solid' }],
+  });
+  const store = new Store(dir);
+  assert.deepEqual(store.settings.reactions[1], { id: 'fire', glyph: 'B', label: 'bFire/b' });
+  assert.notEqual(store.settings.reactions[0].id, 'fire');
+  assert.deepEqual(store.settings.icons.map((i) => i.id).slice(1), ['star']);
+  assert.notEqual(store.settings.icons[0].id, 'star');
+  assert.equal(store.settings.icons[1].label, 'moon');
+  assert.equal(store.settings.icons.length, 2, 'the icon with no name is dropped');
+});
+
 test('a hosted install: each environment\'s store keeps its own lists', () => {
   const a = buildEnvironment(oldEnvironment({ builtinListsSeeded: true, reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }] }), { slug: 'one', log: quiet });
   const b = buildEnvironment(oldEnvironment({}), { slug: 'two', log: quiet });

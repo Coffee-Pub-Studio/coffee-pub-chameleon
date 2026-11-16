@@ -2093,7 +2093,11 @@ const LIBRARY_ROUTE = /^\/api\/modules\/[^/]+\/library(?:\/|$)/i; // routes matc
 // A template (plan-templates-redesign.md) may be up to 128 KB, its starter content included: its routes read their own
 // bodies (templateJson, templateFileText) with that limit, so this parser leaves them alone.
 const TEMPLATE_ROUTE = /^\/api\/(host\/templates|environment\/templates|templates\/import)(?:\/|$)/i;
-const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
+// The environment's settings (PATCH /api/settings) may carry its whole reaction and icon lists at their caps (300 and 400,
+// server/store.js), about 95 KB as JSON: that route reads its own body with settingsJson, after requireOwner, so only an
+// owner's request is ever read to that size.
+const SETTINGS_ROUTE = /^\/api\/settings\/?$/i;
+const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && !(req.method === 'PATCH' && SETTINGS_ROUTE.test(req.path)) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
 // A body that can't be read (not JSON, too big) sent with an agent's token is held (req.bodyError) and answered only once
 // the agent gate has counted and logged the call, so an agent can't call past its limits or its log with bad bodies
 // (plan-agent-access.md). Every other request is answered here, as before. Nothing reads a held body: the gate, the host
@@ -2127,6 +2131,8 @@ function publicStatic(options) {
 const templateFileText = express.text({ type: () => true, limit: templateFile.MAX_TEMPLATE_FILE_BYTES });
 // A template sent as JSON (the template routes' own parser, up to a template's own limit).
 const templateJson = express.json({ limit: templates.MAX_TEMPLATE_BYTES, verify: (req, _res, buf) => { req.rawBody = buf; } });
+// The environment's settings as JSON (PATCH /api/settings only; see SETTINGS_ROUTE): room for both lists at their caps.
+const settingsJson = express.json({ limit: '256kb', verify: (req, _res, buf) => { req.rawBody = buf; } });
 // A theme file's text (POST /api/themes/import). Its own 16 KB limit: a JSON body is parsed
 // by the app's own parser (64 KB) and measured by the route by the bytes received; any other type is read as text up
 // to the limit (a bigger one, and one the app's parser can't read, get the same sentence -- see the error handler).
@@ -3191,6 +3197,10 @@ hostRouter.get('/api/host/settings', requireHostAdmin, (_req, res) => {
     plans: hostRegistry.plansCatalog(), signup: signupEnabled, billingSecretSet: Boolean(BILLING_SECRET),
     // The modules this image ships, for the template editor: the built-in two, then the bundled ones by id.
     modules: [...BUILTIN_MODULES, ...bundledModules(BUNDLED_DIR)].map((m) => ({ id: m.id, name: m.name || m.id, icon: m.icon || null })),
+    // The built-in reaction and icon lists every environment's start as (server/default-lists.js), for the template
+    // editor's read-only "An environment's set starts as these" (decision 12 as corrected); the owner's GET /api/settings
+    // answers the same field.
+    builtIn: { reactions: DEFAULT_REACTION_LIST, icons: DEFAULT_ICON_LIST },
   });
 });
 // The flight schedule, shared by every environment (documentation/plans/plan-flight-lookup.md): its counts, forgetting one
@@ -13108,7 +13118,7 @@ const ownerSettings = () => ({ ...branding(), guestDoorHost: hostGuestDoorOn(), 
 app.get('/api/settings', requireOwner, (_req, res) => res.json({ settings: ownerSettings(), streamKey: store.streamKey }));
 // `template` (an id) switches the environment's template (the switching addendum): taken out of the body before the
 // settings; an unknown one refuses the whole change. With it, the answer also carries `template` and `offer`.
-app.patch('/api/settings', requireOwner, async (req, res) => {
+app.patch('/api/settings', requireOwner, settingsJson, async (req, res) => {
   const { template, ...rest } = req.body || {};
   // The Conference can't be switched on without a call service (its card says so); switching it off, or sending it
   // as it already is, goes through.
