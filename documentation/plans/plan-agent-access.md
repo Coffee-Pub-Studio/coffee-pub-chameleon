@@ -6,7 +6,7 @@ of Chat posting (`server/`, `tools/`); experience-design builds the pages (Manag
 label in Chat) and the Planner's new actions (a module-lane change); quality-assurance reads the token core as a
 security change and runs the pen-test list; content-manager documents.
 
-**Status:** approved by Thomas 2026-11-16; steps 1 to 4 built; step 5 (Chat) next. Steps 1 to 4 are merged on `main`: the
+**Status:** approved by Thomas 2026-11-16; steps 1 to 5 built (Chat, #910); step 6 (QA) next. Steps 1 to 4 are merged on `main`: the
 token core (#903), the asker through the bus (#904), the Planner's actions (#905) and the pages (#906); see "Left to
 build" and "Built differently than planned". He answered all 16 questions on 2026-11-16 (fifteen took the lean,
 question 13 on Chat did not) and the three Chat questions they raised (decisions 17 to 19); see Divergences. The

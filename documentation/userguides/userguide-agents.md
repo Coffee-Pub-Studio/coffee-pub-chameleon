@@ -9,6 +9,8 @@ An **agent** is an account for an assistant, not a person. It can't sign in, has
 It can:
 
 - Read the objects of the spaces it is a member of (the plan, the to-dos, the notes) as a member does.
+- Read the public messages in the Chat of those spaces, always. It never sees a private message.
+- Post a plain-text message in Chat, only while you have turned on **Post in Chat** for it (see below).
 - Ask a module to add or change something, when the module offers that as a change it can make. In Planner - Projects: add a milestone, a piece of work or a note, tick a milestone or work done, and change an entry's title, days or notes.
 
 It can't:
@@ -16,7 +18,7 @@ It can't:
 - Sign in, join the call, or use any page.
 - Delete anything, clear a module, restore a copy, upload a file, or change a setting, a role or a member.
 - See any space it hasn't been added to, the Lobby, or anyone's private data.
-- Read or post in Chat. (That is planned and not built yet.)
+- Delete or change a message in Chat, send a private message, use a command or ask the AI. It can only read the public messages and, if you allow it, post.
 - Make another token.
 
 An agent has a member's rights and no more. If you take a permission from members on the Roles tab, the agent loses it too. It also needs **Send chat messages** on the member role to ask for a change, as any member does.
@@ -60,6 +62,20 @@ Treat it like a password. Never paste it in a chat, a commit or an issue. It wor
 
 If you lose a token you can't see it again; make a new one.
 
+## Let it post in Chat
+
+An agent can always read the public messages in the Chat of its spaces. It can write there only when you allow it, and it is off for a new agent.
+
+1. Open **Manage**, then **Users**, and open the agent's page.
+2. Under **Chat**, switch on **Post in Chat**. It saves as you switch it.
+3. To stop it, switch it off. That stops posting only: it can still read Chat and ask modules for changes.
+
+You can turn it on only while agents are on for the server and for your environment; if they are not, the page shows the server's sentence and the switch goes back.
+
+Its messages show the agent's name and a small **agent** mark, so nobody takes them for a person's. A message is plain text, up to 1000 characters; a longer one is refused, not cut. It needs **Send chat messages** on the member role, and the same limit on messages a minute that a person has. The AI Assistant also reads an agent's message as "<name> (agent)".
+
+Anything people write in Chat, guests included, can reach the assistant that reads it. Someone could write words meant to steer it. Nothing on the server stops that. What stops the harm is that it can only write through a module's own rules, or in a labelled message, within its limits, and everything it does is in its log. Add an agent only to spaces whose Chat you are happy for it to read.
+
 ## Revoke a token
 
 On the agent's page, under **Token**, choose **Revoke** and confirm **Revoke**. The token stops working at once. The agent stays, and you can make a new token.
@@ -80,6 +96,7 @@ At the bottom of the agent's page, **What it did** lists what the agent has done
 
 - "Ask for add milestone in <space>": it asked a module for a change.
 - "Read data", "Searched objects", "Listed what it can ask for", "Checked on a request": it read.
+- "Read Chat in <space>": it read the Chat. "Posted in Chat in <space>": it wrote a message. "Refused post in <space>": it tried to post and the server said no (for example **Post in Chat** is off). The log never shows what was written or read.
 - "Over its limit": it did more than it may in a minute or a day.
 - "Token refused": it called with a token that no longer works (revoked, ended, or the agent is off).
 - A line that says "didn't work" with a number is a call the server refused.
@@ -90,7 +107,7 @@ In Manage's module activity list, a change an agent asked for reads, for example
 
 ## Limits
 
-An agent may make 60 reads and 20 changes a minute, and 3,000 reads and 300 changes a day. Past that, the server answers "The agent has done as much as it may for now." and the log says "Over its limit". The day's count starts again at midnight (UTC).
+An agent may make 60 reads and 20 changes a minute, and 3,000 reads and 300 changes a day. A Chat post counts as a change, even when it is refused; reading a page of Chat counts as one read. Past that, the server answers "The agent has done as much as it may for now." and the log says "Over its limit". The day's count starts again at midnight (UTC).
 
 ## Rename
 

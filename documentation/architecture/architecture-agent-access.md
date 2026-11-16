@@ -2,13 +2,13 @@
 
 **Audience:** developers changing agent accounts, their tokens, the route gate, the limits or the log (`server/tokens.js`, `server/agent-log.js`, `agentGate` and the agent routes in `server/index.js`, `public/agent-page.js`), and module authors who need to know who asked for an action (`ctx.byKey`).
 
-This is what is built of [plan-agent-access](../plans/plan-agent-access.md): its steps 1 to 4 (the token core, the pages, the Planner's two new actions and the asker carried through the bus). Step 5, Chat reading and posting, is not built; "What is not built" says what that leaves out. The plan is the contract; "Where the code differs from the plan" lists the places it does not follow it. The routes, with their bodies and errors, are in [Agents API](../api/api-agents.md). For the owner's side see [Agents](../userguides/userguide-agents.md).
+This is what is built of [plan-agent-access](../plans/plan-agent-access.md): its steps 1 to 5 (the token core, the pages, the Planner's two new actions, the asker carried through the bus, and Chat reading and posting). Steps 6 (the QA pass) and 7 (the Chat documentation) are what is left; "What is not built" says what that leaves out. The plan is the contract; "Where the code differs from the plan" lists the places it does not follow it. The routes, with their bodies and errors, are in [Agents API](../api/api-agents.md). For the owner's side see [Agents](../userguides/userguide-agents.md).
 
 ## What it is
 
 An **agent** is an account that is not a person: Claude, or another assistant, working in the spaces it is added to. It never signs in through a page. Its only way in is a **token**, sent as `Authorization: Bearer agt_...`. The server treats a request with that token as the agent's, and only the agent's: it lets through a short list of routes (the **gate**), counts every call against limits, and writes every call to a log with no content. An owner makes the agent, makes and revokes its token, turns it off and reads its log; nothing the agent holds can do any of that.
 
-An agent has at most a member's rights, in the spaces it is a member of, narrowed further by the gate. It can read what a member reads there and ask a module for a change, and nothing else. It cannot delete, clear, restore, change a setting, role or member, join a call, or make another token.
+An agent has at most a member's rights, in the spaces it is a member of, narrowed further by the gate. It can read what a member reads there, read the space's public Chat, ask a module for a change and, when its owner has allowed it, post in Chat, and nothing else. It cannot delete, clear, restore, change a setting, role or member, join a call, or make another token.
 
 ## The two switches
 
@@ -26,7 +26,7 @@ Both must be on to make an agent or a token, and for a token to work. Reading an
 - **Names.** `store.checkDisplayName` refuses, for every person and agent, a name that ends in `(agent)` (400 `A name can't end in (agent).`) or has `carried out by` in it (400 `A name can't have "carried out by" in it.`). Both are compared as a person reads them, with lookalike letters folded and any white space as one space (`endsWithAgentMark`, `hasCarriedWords` in `server/guest-door.js`). A name stored before the rule is shown plain in the activity list, and one that still reads so is shown as "someone". The "(agent)" mark on a page comes from the account's `agent` flag, never from the name.
 - **Spaces.** It is a member of a space only when an owner adds it in Set up, as any member, where it shows as `<name> (agent)` with no moderator tick. `agentWorksIn` is the one test of where an agent works: a member of the space who may enter it (so not while the space is closed for set up, which lets in no ordinary member) and a space that is not the Lobby. The Lobby holds every account and nobody is added to it, so the Lobby is never an agent's space.
 - **Deleting** the agent deletes its token. What it added keeps its `by` key.
-- `publicUser` carries `agent: true` and `off` for an agent. Its profile page redirects to its page in Manage (`public/profile.js`).
+- `publicUser` carries `agent: true`, `off` and `chatPost` for an agent. Its profile page redirects to its page in Manage (`public/profile.js`).
 
 ## The token
 
@@ -64,6 +64,8 @@ The list (`AGENT_ROUTES`):
 | GET | `/api/spaces/:id/actions` | read | the space is one of its own |
 | POST | `/api/spaces/:id/action` | write | the same |
 | GET | `/api/spaces/:id/action/:requestId` | read | the same |
+| GET | `/api/spaces/:id/chat` | read | the same |
+| POST | `/api/spaces/:id/chat` | write | the same |
 
 `GET /api/spaces/:id` (the Set up read) is not on the list: it answers a member "owners only" whatever it is asked, so it would give an agent nothing. An agent learns its spaces from `GET /api/agent/me`.
 
@@ -78,7 +80,7 @@ Per agent, in addition to the module limits every person has (`server/agent-log.
 | Reads | 60 | 3,000 |
 | Writes | 20 | 300 |
 
-A write is an action request (`POST /api/spaces/:id/action`); every other call on the list is a read, and so is a refused one. Over a limit the answer is 429 `{ "error": "The agent has done as much as it may for now." }` with `Retry-After` (seconds; to the next UTC midnight for a day's limit). The minute's counts are kept in memory (a restart clears them, which costs at most a minute's worth); the day's counts are read back from the agent's log file for the day the first time it calls that day, so a restart does not reset them. A call answered 429 counts against nothing.
+A write is an action request (`POST /api/spaces/:id/action`) or a Chat post (`POST /api/spaces/:id/chat`), counted when the gate lets the call in, so a post the route then refuses still costs one write; every other call on the list is a read, and so is a refused one. Over a limit the answer is 429 `{ "error": "The agent has done as much as it may for now." }` with `Retry-After` (seconds; to the next UTC midnight for a day's limit). The minute's counts are kept in memory (a restart clears them, which costs at most a minute's worth); the day's counts are read back from the agent's log file for the day the first time it calls that day, so a restart does not reset them. A call answered 429 counts against nothing.
 
 ## The log
 
@@ -87,7 +89,7 @@ A write is an action request (`POST /api/spaces/:id/action`); every other call o
 `{ at, agent, token, method, route, space, action, request, message, status, address, kind }`
 
 - `token` is the token's id, never the token. `route` is the gate's pattern (`/api/spaces/:id/action`), never the path asked for, so no key or token in an address lands in it; `(refused)` stands for a route the gate does not allow. `space` is set only when it is one of the agent's own. `action` is `<module>:<action>` for an action request and `request` its id. `address` is an IP address or null. `kind` is `read` or `write`, what the call counted against, or null for a line that counted against nothing.
-- **Never** a request body, a message's text, an object's content, the token or a session. `message` is reserved for step 5 and is always null.
+- **Never** a request body, a message's text, an object's content, the token or a session. `message` is the Chat field: a post's message id (12 hex characters) or the number of messages a read carried, else null (`agent-log.js` keeps nothing else there).
 - A 429, and a 401 for a token that is a real agent's, are not a line each: the first of each minute for each agent and status is written (`note`), so every file is bounded by the limits.
 - Files older than 30 days are deleted whole, on start and once a day. A read of a day's file takes at most its last 8 MB.
 - `GET /api/users/:key/agent-log` (owners and the admin) answers the last 100 lines, newest first, with `before` for older ones. Manage's **What it did** is that list in plain words.
@@ -95,8 +97,23 @@ A write is an action request (`POST /api/spaces/:id/action`); every other call o
 ## Isolation and copies
 
 - **Per environment.** `tokens.json` and `agent-log/` are in the environment's own data folder, and `Tokens` and `AgentLog` are made for each environment (`server/environment.js`). A token of one is 401 at another. The limits are per environment too, since they are counted from its files.
-- **An owner's copy** (`server/environment-export.js`) keeps the agent accounts (`agent` and `off` are on the allow-list of a person's fields) but never `tokens.json` or `agent-log/`, so a restore of it leaves every agent without a token and with no history. A restore **drops** those two names from a copy a person made by hand, compared in lower case with `\` read as `/` and with a name holding a NUL dropped, so a zip can't plant a token it chose or spend a limit. The host's own backup (`?backup=1` on the restore) is kept as written, tokens included.
+- **An owner's copy** (`server/environment-export.js`) keeps the agent accounts (`agent`, `off` and `chatPost` are on the allow-list of a person's fields) but never `tokens.json` or `agent-log/`, so a restore of it leaves every agent without a token and with no history. A restore **drops** those two names from a copy a person made by hand, compared in lower case with `\` read as `/` and with a name holding a NUL dropped, so a zip can't plant a token it chose or spend a limit. The host's own backup (`?backup=1` on the restore) is kept as written, tokens included.
 - **A restored person** is cleaned again as any stored record is (`sanitizeUser`), so a restored agent is still a member with no sign-in.
+
+## Chat
+
+Step 5 of the plan. Chat is the one place an agent reads what other people wrote and writes where they read it, so it has the most care. The gate decides what is reachable; the routes are the chat's own, with an agent's branch in each.
+
+- **What is on the list.** `GET /api/spaces/:id/chat` (a read) and `POST /api/spaces/:id/chat` (a write). Every other chat route stays 403 `An agent can't do that.`: the live stream, deleting, hiding or changing a message, pictures, **Keep**, link previews, private messages, commands and `/ai`. A `HEAD` is a read; `OPTIONS` is refused by the method rule.
+- **Reading** (`agentReadsChat`). The chat's own access check runs first (`chatRead` for the member role, the agent's own space). The reply holds public messages only, newest first, at most 100 (`AGENT_CHAT_PAGE`), and `before` (a 12-hex message id, `CHAT_MESSAGE_ID`) starts at the ones older than that message: 400 `before is a message id.` for another value, 404 `no such message` for an id not among the public ones. `more` is true when older ones remain. A shared AI answer keeps only the pointers the agent may open. A reply is one read, and its log line keeps the count (`res.locals.agentLog = { message: n }`). It needs no **Post in Chat**, and no live stream is opened.
+- **Posting** (`agentChatText`). Checked after the chat's own access check (`chat` for the member role) and before the person's post limit, in this order: the account's `chatPost` is on, else 403 `This agent can't post in Chat.`; a JSON body; the body is `{ text }` and nothing else; `text` is a string; it is not empty once cleaned (`cleanChatText`, the cleaning a person's message gets); it is at most 1000 characters (`CHAT_LIMITS.MAX_TEXT`), refused and never cut. The post then takes the same path as a person's: `chatPostLimited` (the same per-account limit and its 429), the first link found for the preview, `chatHistory.add`, the live streams told. Nothing is mentioned or notified. The reply is `{ message }`, and the log line keeps the new message's id, never its text.
+- **`chatPost`** is a field on the agent's account (`store.setAgentChatPost`), kept only while on, so it is off for a new agent and for a record that lacks it. `PATCH /api/users/:key { chatPost }` sets it (owners and the admin only; 400 for a person or a non-boolean; turning it on goes through `agentsRefusal`, as making a token does, turning it off never does). It stops posting only: reading, actions and the token are untouched. It is in `publicUser`, `GET /api/agent/me` and an owner's copy. A restore can therefore bring `chatPost: true` on an agent while **Agents** is off; it has no effect until Agents is on, since the token does nothing.
+- **The label.** A message by an agent carries `agent: true`, set by `chatHistory.add` only when the chat route passes it, and the route passes it only when the signed-in account is an agent (`Boolean(req.agent) && who.user?.agent === true`), never from the name or the request. Whether a message reads as an agent's is one rule, `postedByAgent` in `server/chat-history.js`, used by the chat routes (`chatLabelled`) and by the AI's context: an ordinary public message by an account (never a guest's, whose `by` is `guest`; never a command or an AI answer) is the agent's when the account is still here and is an agent, else, once the account is gone, when the flag kept on the message says so. So a person's message never carries the label, even in a restored `chat.json` that says it does; a guest's never does; and a deleted agent's messages keep theirs. `ChatHistory` drops a stray `agent` field on load.
+- **The AI's context** (`server/ai-context.js`) names an agent's message `<name> (agent)` in the chat it gives the model, by the same rule, so the model does not take it for a person's.
+- **The pages.** `public/space.js` draws an `agent` mark after the name on a message with `agent === true` (strict: only the server's flag), in the `sdk-status` style of the activity list. The agent's page has a **Chat** panel with the **Post in Chat** switch (`PATCH /api/users/:key { chatPost }`; a refusal shows the server's sentence and the switch goes back), and **What it did** reads the chat lines.
+- **What the log says** (`logLine` in `public/agent-page.js`): a `GET` of the chat route reads "Read Chat in <space>", a `POST` that answered 200 "Posted in Chat in <space>", a `POST` that answered 403 "Refused post in <space>"; any other post status reads "Called POST /api/spaces/:id/chat" with "didn't work (<status>)". A post's id is never shown. A read's count is meant to show as "N messages" (see "Where the code differs").
+
+**The prompt-injection path, plainly.** Whatever people write in Chat, guests included, becomes text in front of the assistant that reads it with its token. The server cannot tell an instruction from a message, and no check on the server closes this. What it holds is the other end: the agent's writes go only through the gate's list, an action runs under a person's page and the module's own rules, a post is labelled and bounded to 1000 characters, writes are limited (20 a minute, 300 a day) and every call is in the log without its text. An owner decides what the assistant may read by choosing which spaces it is a member of.
 
 ## The asker, through the bus
 
@@ -135,17 +152,22 @@ Both run under the rights of the page that carries them, check what they are sen
 
 ## Checks
 
-All three are in `npm run check`:
+These are in `npm run check`:
 
 - `tools/check-agent-tokens.mjs`: the plan's pen-test list for the token core, on throwaway servers, single and hosted: off by default, no sign-in, the token's life and storage, the gate walked from the app's own router stack (`tools/route-walk-preload.cjs`), the refusals for actions and pointers, the limits and their survival of a restart, the log, isolation between environments, copies and restores, and the shape of what is stored.
 - `tools/check-agent-asker.mjs`: the asker through the bus, with the bundled Planner and Calendar: the hint's every condition, the cap and the window across a restart, the activity list's fields, the Calendar copy's `{by}`, hosted isolation.
-- `tools/check-agent-pages.mjs`: the pages, live in headless Chromium: Agents with the server's variable off and on, Add an agent, the agent's page, the token shown once, Revoke, Turn off, Delete, What it did, text-only drawing, Set up's members and a phone width.
+- `tools/check-agent-pages.mjs`: the pages, live in headless Chromium: Agents with the server's variable off and on, Add an agent, the agent's page, the token shown once, Revoke, Turn off, Delete, What it did (the Chat lines included), the Post in Chat switch, text-only drawing, Set up's members and a phone width.
+- `tools/check-agent-chat.mjs`: Chat on throwaway servers: the gate's list for the chat routes, reading (the page of 100, `before`, no private message, no other space), posting (the refusals in order, the 1000-character limit, the person's limit), the label (from the account, never a guest's, a deleted agent's kept), the AI context's `(agent)`, the log's `message` field, and every other chat route, `OPTIONS` and a form body refused.
+- `tools/check-agent-chat-page.mjs`: in a browser, the agent mark on a message in Chat, live and loaded, at wide and phone widths, and that only the server's `agent: true` draws it.
 
 `tools/check-module-host.mjs` (the flush list) and `tools/check-catalog.mjs` were changed by the Planner's work. On `67998604` this documentation pass ran `check-agent-tokens` (33 passed), `check-agent-asker` (12 passed) and the Planner's `check-schedule-actions` (16) and `check-schedule-layout`, and `check-catalog` (6 tools) and `check-module-host` (72 groups); `check-agent-pages` did not run to the end in the cloud container used (its page never drew), so the pages are read as code.
 
 ## What is not built
 
-Step 5 of the plan: **reading and posting in Chat**. Today the gate has no Chat route, an agent has no `chatPost` setting and the agent's page has no **Post in Chat**; a Chat message carries no `agent` flag and `message` in the log is always null. The plan's decisions 13 and 17 to 19 (an agent may read Chat and may post, with posting off for a new agent until the owner turns it on) are decided and wait for that step.
+- **Step 6, the QA pass,** and the reading of the label in Chat on a wide screen and a phone by a person, as the plan says. Step 7, the Chat documentation, is this page, the API page and the user guides.
+- **Two gaps in the log**, for Thomas to decide (each needs a new field): it keeps no `module`, so a read says "Read data in <space>" and not which module's; and a refused call stores the literal `(refused)` as its route, so the page can only say "Refused: GET request".
+- **Whether an agent is held to the terms and the NDA** (below) is not decided.
+- **Not tried:** a real cloud session calling a real server. Step 5 was read as code on `4fb7b467`; the checks above did not run in the container used for this page.
 
 ## Where the code differs from the plan
 
@@ -155,6 +177,7 @@ Step 5 of the plan: **reading and posting in Chat**. Today the gate has no Chat 
 - **`GET /api/users/:key/token`** answers `{ token: { id, createdAt, expiresAt, lastUsedAt, lastAddress } }`, or `{ token: null }`, not the bare object.
 - **The log** is a folder of day files, not the one `agent-log.jsonl` the plan named.
 - **`updateEntry` has no `progress` input.**
-- **`GET /api/agent/me`** has no `chatPost` field, since Chat posting is not built.
+- **`GET /api/agent/me`** carries `chatPost`, as the plan said it would once Chat was built.
+- **A read's count on the page.** The server keeps a Chat read's count as a number in the log's `message` field; `logLine` accepts only a text there, so by the code the line shows no "N messages" (the page check feeds it a text). Read as code, not seen.
 - **Display names** can't end in `(agent)` or contain `carried out by`; the plan did not name that rule.
 - **Agreements.** An agent is exempt from the agreement gate (`agreementExempt` in `server/index.js`): the gate asks a person to agree to `TERMS_FILE` and `NDA_FILE`, and an agent can't read or agree to a text. The owner who made it has agreed. Whether an agent should be held to the same texts is not decided; it is an open question in the plan.

@@ -177,13 +177,19 @@ Warnings:
 ### Add a demo space (host admin)
 
 On a server with environments, the host console can add a demo space to an environment without touching its settings.
-Open the environment's page and choose **Add demo space**. It adds the environment's own template's demo (or the
-travel demo when that template has none), shows the demo people's one-time passwords once and gives the guest link.
-It turns on no module: a module that is off is skipped and the report says so. The same demo cannot be added twice
-("The <demo> is already there. Delete its <space word>, then add it again."), though another demo may sit beside it. There
-is no **Remove demo** yet: delete the demo's space. The console cannot yet pick one of the other demos; the
-route accepts a choice and the seeder's `SEED_DEMO` makes one (see
-[The demo seeder and the checks](../architecture/architecture-demo-site.md)).
+Open the environment's page, under **Demo space** pick a demo (it starts on the environment's own template's demo, or the
+travel demo when that template has none) and choose **Add demo space**. It shows the demo people's one-time passwords once
+and gives the guest link.
+
+1. If the demo uses modules the environment has off, **Turn these on too** lists them, unticked. Tick the ones you want
+   on. Nothing is turned on that you don't tick; a module left off is skipped and the report says so.
+2. Choose **Add demo space**. The report says which modules it turned on.
+
+The same demo cannot be added twice ("The <demo> is already there. Delete its <space word>, then add it again."), though
+another demo may sit beside it. The demo is refused, before anything changes, if one of its people is a moderator of a
+real space (the sentence names the person and the space; take away their moderator tick there, or remove the account),
+or if it would take the environment past its plan's limit of members. There is no **Remove demo** yet: delete the demo's
+space (see [The demo seeder and the checks](../architecture/architecture-demo-site.md)).
 
 ## Update it later
 
