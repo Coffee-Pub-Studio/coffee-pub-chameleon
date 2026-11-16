@@ -285,6 +285,21 @@ The space page reads a message without `private` as private, so it never names a
 an ordinary aside's message said (`startedAsides` in `public/space.js`) for the placeholders, since presence tells
 someone outside the aside only which space they stepped out of.
 
+### Live streams and the back-forward cache
+
+A browser holds about six connections to one site over HTTP/1.1. A page left by navigation and kept in the browser's back-forward cache used to keep its event streams, and the next page's own requests queued behind them. The rule: every script that opens a stream closes it on `pagehide` and opens it again on a `pageshow` with `persisted` true.
+
+Where streams are opened:
+
+- `public/brand.js`: the notifications stream (`/api/notifications/stream`), on every page. It closes at `pagehide`; on a restore it opens again, and its `open` catches up as after a dropped connection (modules, theme, mode), and the unread counts are asked for again.
+- `public/space-live.js` (`openLiveStream`, used by `public/space.js`): the space's live stream. `suspend()` closes the connection and any retry timer, and `resume()` opens it again, with a new `ready`, which the page treats as any reconnect. A probe already in flight at suspend does not go on.
+- `public/module-stream.js` (the hub, wired in `public/module-host.js`): the modules' stream. `suspend()` closes every connection, keeping the views joined, and `resume()` plans them again. The hub suspends only for a page that is kept (`persisted`), because a page that is destroyed must first let each module send its own leave. Each mount hears `lost`, so its module reads again at the next `ready`.
+- `public/region-cut.js`: the progress stream of a map cut. It closes at `pagehide`, and a cut still running is followed again on restore.
+
+`tools/check-stream-lifecycle.mjs` holds the rule: unit cases for the module hub and the space's live stream (suspend, resume, timers cancelled, no second source after a probe); a lint that fails when any file in `public/` calls `new EventSource(` without a `pagehide` handler; and a headless Chromium test with the back-forward cache on that goes to another page and back, asserts that every stream is closed at the restored `pageshow` and open exactly once after it (never more than on the first load), and that after six page hops in one tab Manage > Users draws its list within 5 seconds (the stall as first reported). The browser part mounts no module, so the hub is judged by its unit cases only. It says SKIPPED, not a pass, when there is no Chromium.
+
+A call page restored from the cache may not say again that it is in a call; that needs LiveKit to try. Chrome usually does not cache a page that holds a WebRTC connection. See [known issues](../known-issues.md).
+
 ## Hosting
 
 `docker-compose.yml` has two services, meant to be pasted into Container Station. `chameleon` is the app (container `chameleon-app`) and is all
