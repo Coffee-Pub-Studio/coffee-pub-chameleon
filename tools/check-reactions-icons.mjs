@@ -14,10 +14,15 @@
  *   - a switch of the environment's template (to an owner's copy of Project, its offer confirmed, back to Default, to
  *     Project and back) leaves ownReactions and ownIcons, and the stored lists, exactly as they were: the template's home
  *     icon, module icons and iconSet are offered (and pickable) only while it is read, never copied (decision 12);
- *   - an icon in use (the home icon, a space's link icon) stays in /api/branding's and a space's /look's icons after the
- *     template that offered it is gone, while a new pick of it is refused (400); once unused it leaves the list;
- *   - a space on its own template: its link icon, its saved layouts' icons and its system layouts' icons are checked
- *     against the icons its /look lists (its template's additions, not the environment's template's).
+ *   - an icon in use (the home icon, a space's link icon) whose template is gone is drawn from `inUseIcons` (branding and
+ *     /look), never in `icons` (what every picker reads), and a new pick of it is refused (400); once unused it goes;
+ *     only a real Font Awesome Free solid icon is ever published there (a stored "spin" is not), at most 200;
+ *   - a new space's link icon is checked as an edit's is (400 "unknown link icon");
+ *   - a space's link icon, saved layouts' icons and system layouts' icons take what the environment offers and what the
+ *     space's own template offers (its /look), nothing else;
+ *   - a picker never offers what the save refuses: every id in /api/branding's and a space's /look's icons is taken by
+ *     the home icon, a module's display icon (the solid ones), the link icon, a layout's and a system layout's icon,
+ *     with an icon in use no template offers, a space on its own template, and Learning with a space on Travel.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -174,7 +179,50 @@ try {
     }
   });
 
-  await test('icons in use stay drawable after the template that offered them is gone; new saves are checked against what is offered now', async () => {
+  // Every icon a picker shows is one the save takes (Thomas: a picker never offers what the save refuses). The pickers
+  // read /api/branding's `icons` (public/brand.js getIcons): Home's home icon, a module's display icon (its solid ones),
+  // a space's link icon and its layouts' icons; a space's /look lists its own. Each is tried against every save.
+  const pickerEqualsSave = async (sp, label) => {
+    const b = await branding();
+    const lk = (await call('GET', `/api/spaces/${sp}/look`)).json.look;
+    const env = ids(b.icons);
+    const both = [...new Set([...env, ...ids(lk.icons)])];
+    for (const got of [b, lk]) {
+      assert.ok(Array.isArray(got.inUseIcons), `${label}: inUseIcons is a list`);
+      for (const i of got.inUseIcons) assert.equal(ids(got.icons).includes(i.id), false, `${label}: an icon in use is listed apart from the offered ones (${i.id})`);
+    }
+    const homeBefore = (await call('GET', '/api/settings')).json.settings.homeIcon ?? null;
+    const linkBefore = (await call('GET', `/api/spaces/${sp}`)).json.space.linkIcon;
+    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Picker', modules: [] });
+    assert.equal(made.status, 201, made.text);
+    const refused = [];
+    for (const id of env) {
+      const r = await call('PATCH', '/api/settings', { homeIcon: id });
+      if (r.status !== 200) refused.push(`homeIcon ${id}: ${r.status} ${r.text}`);
+      const solid = b.icons.find((i) => i.id === id).classes === `fa-solid fa-${id}`;
+      if (solid) {
+        const d = await call('PATCH', '/api/modules/chat', { displayIcon: id });
+        if (d.status !== 200) refused.push(`displayIcon ${id}: ${d.status} ${d.text}`);
+      }
+    }
+    for (const id of both) {
+      const l = await call('PATCH', `/api/spaces/${sp}`, { linkIcon: id });
+      if (l.status !== 200) refused.push(`linkIcon ${id}: ${l.status} ${l.text}`);
+      const u = await call('PUT', `/api/spaces/${sp}/layouts/${made.json.layout.id}`, { icon: id });
+      if (u.status !== 200) refused.push(`layout icon ${id}: ${u.status} ${u.text}`);
+      const y = await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: id });
+      if (y.status !== 200) refused.push(`system layout icon ${id}: ${y.status} ${y.text}`);
+    }
+    assert.deepEqual(refused, [], `${label}: a picker offered what the save refused`);
+    // Back as it was; a home icon only in use (not offered now) can't be picked again, so it goes back to the template's.
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: homeBefore === null || env.includes(homeBefore) ? homeBefore : null })).status, 200);
+    assert.equal((await call('PATCH', `/api/spaces/${sp}`, { linkIcon: linkBefore })).status, 200);
+    assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: null })).status, 200);
+    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: null })).status, 200);
+    assert.ok([200, 204].includes((await call('DELETE', `/api/spaces/${sp}/layouts/${made.json.layout.id}`)).status));
+  };
+
+  await test('icons in use stay drawable after the template that offered them is gone, apart from the offered list; new saves are checked against what is offered now', async () => {
     const before = (await call('GET', '/api/settings')).json.settings;
     assert.equal((await call('PATCH', '/api/settings', { template: 'project' })).status, 200);
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'diagram-project' })).status, 200, 'Project offers its home icon');
@@ -183,9 +231,9 @@ try {
     assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
     const b = await branding();
     assert.equal(b.homeIcon, 'diagram-project', 'the owner\'s home icon is kept');
-    for (const [label, list] of [['branding', b.icons], ['a space\'s look', (await look()).icons]]) {
-      const found = list.find((i) => i.id === 'diagram-project');
-      assert.deepEqual(found && found.classes, 'fa-solid fa-diagram-project', `${label}: the icon in use is still in the list a page draws with`);
+    for (const [label, got] of [['branding', b], ['a space\'s look', await look()]]) {
+      assert.equal(ids(got.icons).includes('diagram-project'), false, `${label}: not offered (no picker shows it)`);
+      assert.deepEqual(got.inUseIcons, [{ id: 'diagram-project', classes: 'fa-solid fa-diagram-project' }], `${label}: drawn from the icons in use`);
     }
     const after = (await call('GET', '/api/settings')).json.settings;
     assert.deepEqual([after.ownIcons, after.ownReactions], [before.ownIcons, before.ownReactions], 'nothing copied into the owner\'s own lists');
@@ -193,34 +241,74 @@ try {
     assert.deepEqual(await call('PATCH', '/api/settings', { homeIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown home icon']);
     const other = (await call('POST', '/api/spaces', { name: 'Other' })).json.space.id;
     assert.deepEqual(await call('PATCH', `/api/spaces/${other}`, { linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
-    // Once nothing uses it, it leaves the list.
+    assert.deepEqual(await call('POST', '/api/spaces', { name: 'Third', linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'nor when a space is made');
+    await pickerEqualsSave(other, 'an icon in use no template offers');
+    // Once nothing uses it, it is drawn no more.
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
     assert.equal((await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'link' })).status, 200);
-    assert.equal(ids((await branding()).icons).includes('diagram-project'), false);
+    assert.deepEqual((await branding()).inUseIcons, []);
     assert.equal((await call('DELETE', `/api/spaces/${other}`)).status, 200);
   });
 
-  await test('a space on its own template: its link icon and layout icons are checked against the icons its look lists', async () => {
+  await test('a stored or imported link icon that is no Font Awesome icon is never published; a new space\'s link icon is checked', async () => {
+    for (const bad of ['spin', 'fw', 'not-an-icon-at-all']) {
+      assert.deepEqual(await call('POST', '/api/spaces', { name: 'Odd', linkIcon: bad }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], bad);
+    }
+    const ok = await call('POST', '/api/spaces', { name: 'Fine', linkIcon: 'dragon' });
+    assert.equal(ok.status, 200, ok.text);
+    assert.equal(ok.json.space?.linkIcon, 'dragon', ok.text);
+    // As an import or a hand edit would leave it: stored, but neither offered nor drawn from the icons in use.
+    const { Store: S } = require('../server/store.js');
+    const dir = fs.mkdtempSync(path.join(templatesDir, 'inuse-'));
+    const st = new S(dir);
+    st.data.settings.homeIcon = 'spin';
+    for (const linkIcon of ['spin', 'pulse', 'beat', 'diagram-project', 'diagram-project']) st.data.spaces.push({ ...st.sanitizeSpace({ id: 'abcd1234', name: 'X' }), id: `x${st.data.spaces.length}`, linkIcon });
+    const used = st.inUseIconIds();
+    assert.deepEqual(['spin', 'pulse', 'beat'].filter((id) => used.includes(id)), [], 'never a utility class or anything with no Font Awesome svg');
+    assert.deepEqual(used.filter((id) => id === 'diagram-project'), ['diagram-project'], 'a real Font Awesome Free solid icon, once');
+    assert.deepEqual(st.lookOf(null).inUseIcons, [{ id: 'diagram-project', classes: 'fa-solid fa-diagram-project' }]);
+    for (let i = 0; i < 300; i += 1) st.data.spaces.push({ ...st.sanitizeSpace({ id: 'abcd1234', name: 'Y' }), id: `y${i}`, linkIcon: DEFAULT_ICON_LIST[i % DEFAULT_ICON_LIST.length].id });
+    assert.equal(new Set(DEFAULT_ICON_LIST.map((i) => i.id)).size > 100, true);
+    for (let i = 0; i < 300; i += 1) st.data.spaces.push({ ...st.sanitizeSpace({ id: 'abcd1234', name: 'Z' }), id: `z${i}`, linkIcon: fs.readdirSync(path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free', 'svgs', 'solid'))[i].slice(0, -4) });
+    assert.equal(st.inUseIconIds().length, 200, 'bounded at 200');
+    assert.equal((await call('DELETE', `/api/spaces/${ok.json.space.id}`)).status, 200);
+  });
+
+  await test('a space on its own template: its link icon and layout icons take what its look lists and what the environment offers, nothing else', async () => {
     assert.equal((await call('PATCH', '/api/settings', { template: 'travel' })).status, 200); // offers suitcase-rolling (its home icon)
     const own = (await call('POST', '/api/spaces', { name: 'Own', template: 'myproject' })).json.space.id; // offers anchor (iconSet) and list-check
     const lookOwn = ids((await call('GET', `/api/spaces/${own}/look`)).json.look.icons);
     assert.ok(lookOwn.includes('anchor') && !lookOwn.includes('suitcase-rolling'), 'its look lists its own template\'s icons, not the environment\'s');
     assert.equal((await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'anchor' })).status, 200, 'an icon its look lists');
-    assert.deepEqual(await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'suitcase-rolling' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'one only the environment\'s template offers');
-    assert.equal((await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'suitcase-rolling' })).status, 200, 'a space on the environment\'s template takes it');
-    assert.deepEqual(await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
-    // In the same save, the template the space is moved to decides.
+    assert.equal((await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'suitcase-rolling' })).status, 200, 'one the environment offers (Home\'s and Set up\'s pickers show it)');
+    assert.equal(DEFAULT_ICON_LIST.some((i) => i.id === 'hippo'), false);
+    assert.deepEqual(await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'hippo' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'one neither offers');
+    assert.deepEqual(await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'a space on the environment\'s template: not another template\'s');
+    // In the same save, the template the space is moved to decides; a new space's too.
     assert.equal((await call('PATCH', `/api/spaces/${space}`, { template: 'myproject', linkIcon: 'anchor' })).status, 200);
     assert.equal((await call('PATCH', `/api/spaces/${space}`, { template: null, linkIcon: 'link' })).status, 200);
+    const madeWith = await call('POST', '/api/spaces', { name: 'Made', template: 'myproject', linkIcon: 'anchor' });
+    assert.equal(madeWith.status, 200, madeWith.text);
+    assert.deepEqual(await call('POST', '/api/spaces', { name: 'Not made', linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
+    assert.equal((await call('DELETE', `/api/spaces/${madeWith.json.space.id}`)).status, 200);
     const layout = (sp, icon) => call('POST', `/api/spaces/${sp}/layouts`, { name: `L ${icon}`, modules: [], icon });
-    const ok = await layout(own, 'anchor');
-    assert.equal(ok.status, 201, ok.text);
-    assert.deepEqual(await layout(own, 'suitcase-rolling').then((r) => [r.status, r.json?.error]), [400, 'Pick an icon from the list.']);
-    assert.equal((await layout(space, 'suitcase-rolling')).status, 201);
-    assert.deepEqual(await layout(space, 'anchor').then((r) => [r.status, r.json?.error]), [400, 'Pick an icon from the list.']);
-    const sys = await call('PATCH', `/api/spaces/${own}/layouts/system/workspace`, { icon: 'suitcase-rolling' });
+    for (const [sp, icon, status] of [[own, 'anchor', 201], [own, 'suitcase-rolling', 201], [own, 'hippo', 400], [space, 'suitcase-rolling', 201], [space, 'anchor', 400]]) {
+      const r = await layout(sp, icon);
+      assert.equal(r.status, status, `${icon}: ${r.text}`);
+      if (status === 400) assert.equal(r.json?.error, 'Pick an icon from the list.');
+      else assert.ok([200, 204].includes((await call('DELETE', `/api/spaces/${sp}/layouts/${r.json.layout.id}`)).status));
+    }
+    const sys = await call('PATCH', `/api/spaces/${own}/layouts/system/workspace`, { icon: 'hippo' });
     assert.deepEqual([sys.status, sys.json?.error], [400, 'Pick an icon from the list.'], 'a system layout\'s icon too');
     assert.equal((await call('PATCH', `/api/spaces/${own}/layouts/system/workspace`, { icon: 'anchor' })).status, 200);
+    await pickerEqualsSave(own, 'a space on its own template');
+    await pickerEqualsSave(space, 'a space on the environment\'s template');
+    // The environment on Learning, a space on Travel.
+    assert.equal((await call('PATCH', '/api/settings', { template: 'learning' })).status, 200);
+    const trip = (await call('POST', '/api/spaces', { name: 'Trip', template: 'travel', linkIcon: 'suitcase-rolling' }));
+    assert.equal(trip.status, 200, trip.text);
+    await pickerEqualsSave(trip.json.space.id, 'Learning with a space on Travel');
+    await pickerEqualsSave(space, 'Learning, a space on it');
     assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
   });
 } catch (err) {

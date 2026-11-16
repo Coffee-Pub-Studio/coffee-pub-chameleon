@@ -37,12 +37,15 @@ export function roleLabel(user) {
 
 // The admin's Font Awesome list (Theme tab), as last loaded by loadBranding().
 let ICONS = [];
+// Icons in use that the list no longer offers (a template switch took away the one that did): /api/branding's
+// inUseIcons, for drawing only. No picker reads them (getIcons is the offered list).
+let IN_USE_ICONS = [];
 export const getIcons = () => ICONS;
 // Full class list for an icon id -- space link icons and the home icon are
-// stored as ids into that list. Before the list has loaded, or for an id no
-// longer in it, fall back rather than draw nothing.
+// stored as ids into that list (then the icons in use). Before the list has
+// loaded, or for an id in neither, fall back rather than draw nothing.
 export function iconClasses(id) {
-  const found = ICONS.find((i) => i.id === id);
+  const found = ICONS.find((i) => i.id === id) || IN_USE_ICONS.find((i) => i.id === id);
   if (found) return found.classes;
   return ICONS.length ? 'fa-solid fa-link' : `fa-solid fa-${id || 'link'}`;
 }
@@ -149,6 +152,7 @@ export async function loadBranding() {
   }
   if (typeof b.productName === 'string' && b.productName.trim()) product = b.productName.trim();
   ICONS = Array.isArray(b.icons) ? b.icons : [];
+  IN_USE_ICONS = Array.isArray(b.inUseIcons) ? b.inUseIcons : [];
   templateHomeIcon = typeof b.templateHomeIcon === 'string' && b.templateHomeIcon ? b.templateHomeIcon : null;
   setEnvironmentMode(b.themeMode, b.themeVersion); // the default mode, and a stylesheet that changed since this page loaded
   setVerbs(b.verbs); // every data-verb and {enter} on the page, and verb() from here on (addendum 4)
