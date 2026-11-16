@@ -264,6 +264,12 @@ the server's admin and host admins are then signed in on the password alone (mem
 second factor** with the password, and Manage and the console show a banner until you set it back to
 `"false"`. Nothing is deleted by either switch.
 
+**Agents.** `AGENT_TOKENS` (a commented line in the compose file) is off unless you set it to `"true"`. It
+does nothing by itself: it lets each environment's owner turn on **Agents** in Manage, add an agent such as Claude and
+make it a token ([Agents](userguide-agents.md)). With it unset the server behaves exactly as before, and a token
+answers as an unknown value. Set it back to `"false"` and recreate the container to stop every agent in every
+environment at once.
+
 **Plans, sign-up and billing.** The host console's **Plans** section shows the catalog, read only (a plan is changed only through the API, `PUT /api/host/plans`): `free` (what sign-up
 makes, and what a lapsed environment goes back to) and any named plans, each with its caps (members,
 storage, assistant calls a month, calls at once, modules). An environment is put on a plan on its own page, under **Plan and modules**,

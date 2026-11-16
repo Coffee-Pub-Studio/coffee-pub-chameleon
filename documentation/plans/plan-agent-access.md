@@ -6,8 +6,12 @@ of Chat posting (`server/`, `tools/`); experience-design builds the pages (Manag
 label in Chat) and the Planner's new actions (a module-lane change); quality-assurance reads the token core as a
 security change and runs the pen-test list; content-manager documents.
 
-**Status:** approved by Thomas 2026-11-16; build step 1 next. He answered all 16 questions on 2026-11-16 (fifteen took
-the lean, question 13 on Chat did not) and the three Chat questions they raised (decisions 17 to 19); see Divergences.
+**Status:** approved by Thomas 2026-11-16; steps 1 to 4 built; step 5 (Chat) next. Steps 1 to 4 are merged on `main`: the
+token core (#903), the asker through the bus (#904), the Planner's actions (#905) and the pages (#906); see "Left to
+build" and "Built differently than planned". He answered all 16 questions on 2026-11-16 (fifteen took the lean,
+question 13 on Chat did not) and the three Chat questions they raised (decisions 17 to 19); see Divergences. The
+documentation of steps 1 to 4 is [architecture-agent-access](../architecture/architecture-agent-access.md),
+[api-agents](../api/api-agents.md) and [userguide-agents](../userguides/userguide-agents.md).
 Drafted 2026-11-15. Thomas wants Claude (an AI
 coding and project assistant running in a cloud session, not the app's own AI Assistant module) to work with a space:
 read its objects (the project plan in Planner - Projects, `schedule`, above all) and add, tick and update milestones,
@@ -87,9 +91,9 @@ File and line numbers are at `275f11a9` (origin/main, 2026-11-15).
 
 ### In flight
 
-- Branch `calendar-copy-rights` (`d3e8bd5f`, #857, not merged): a Calendar copy follows its original's rights, and a
-  copy whose original the viewer may not change is read only. An agent's Planner milestone with a date makes a
-  Calendar copy, so this applies to the agent's objects as to anyone's.
+- Merged since (#857, #877): a Calendar copy follows its original's rights, and a copy whose original the viewer may
+  not change is read only. An agent's Planner milestone with a date makes a Calendar copy, so this applies to the
+  agent's objects as to anyone's.
 
 ### Chat
 
@@ -142,7 +146,9 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
    module-lane change with a Planner version bump. They join the AI catalog, since they act on an object that exists.
 9. **Who the records name: the asker, carried with the request.** The activity list and the Calendar copies name the
    agent, not whoever's page carried it out. This also fixes #869, an action-added Planner entry reading "Added by
-   someone".
+   someone". The asker is carried as a server-checked hint, honoured only for a new object made by the person whose
+   page took the request, within one minute of the first claim, in the request's own place, for at most 10 new objects,
+   and otherwise ignored so the write is the carrier's own.
 10. **The token's life: 30 days, one live token per agent.** Making a new one ends the old. Shown once; lost means make
     a new one.
 11. **The switches: `AGENT_TOKENS` on the server, default off, plus the owner's Agents switch.** A server without the
@@ -189,8 +195,12 @@ and other modules' tick actions beyond the Planner.
 - Refused for an agent, by the routes that change these, with 400 "An agent can't be that.": role `owner` or `admin`
   (`PATCH /api/users/:key`), the moderator tick in any space, a personal link (`POST /api/users/:key/link`), a password,
   two-step sign-in.
-- It is a member of a space only when added there. Deleting the agent deletes its token; its objects and chat messages
-  keep their `by`.
+- It is a member of a space only when added there, and never of the Lobby (the Lobby is never an agent space). Deleting
+  the agent deletes its token; its objects and chat messages keep their `by`.
+- A display name can't end in `(agent)` or contain `carried out by`, for any account (400 `A name can't end in (agent).`
+  and `A name can't have "carried out by" in it.`), so no name reads as an agent's or as the activity list's own words.
+- An agent is exempt from the agreement gate (`TERMS_FILE` and `NDA_FILE`; `agreementExempt`): it is not a person and
+  can't read or agree to a text. See "What is not decided".
 - It is never online, never in the call, never sent notifications.
 - `chatPost: true | false` on the agent's record, the owner's **Post in Chat** switch, `false` for a new agent
   (decision 17).
@@ -204,7 +214,8 @@ and other modules' tick actions beyond the Planner.
 - Not in an owner's export; a restore leaves agents without a token.
 - `POST /api/users/:key/token` (owners and the admin; the agent must exist; `AGENT_TOKENS` and **Agents** on) answers
   `{ token, expiresAt }` once and ends any earlier token. `DELETE /api/users/:key/token` revokes it.
-  `GET /api/users/:key/token` answers `{ expiresAt, lastUsedAt, lastAddress }` or `null`, never the token or its hash.
+  `GET /api/users/:key/token` answers `{ token: { id, createdAt, expiresAt, lastUsedAt, lastAddress } }` or `{ token: null }`,
+  never the token or its hash.
 - On every request with `Authorization: Bearer agt_...`: hash it, look it up, check not expired, the agent not turned
   off, **Agents** and `AGENT_TOKENS` on. Any failure answers 401 `{ error: "That agent token is not valid." }`, the
   same sentence for every reason. A Bearer value without the prefix is read as a session, as today.
@@ -218,8 +229,7 @@ then lets through only these (method and route pattern), and answers everything 
 
 | Method | Route | Note |
 |---|---|---|
-| GET | `/api/agent/me` | New. `{ agent: { key, name }, expiresAt, spaces: [{ id, name }], chatPost, limits: { reads: { perMinute, perDay, usedToday }, writes: { perMinute, perDay, usedToday } } }` |
-| GET | `/api/spaces/:id` | As a member reads it |
+| GET | `/api/agent/me` | New. `{ agent: { key, name }, expiresAt, spaces: [{ id, name }], limits: { reads: { perMinute, perDay, usedToday }, writes: { perMinute, perDay, usedToday } } }`; `chatPost` joins it with step 5. Agents get their spaces here: `GET /api/spaces/:id` is **not** on the list (it answers a member "owners only") |
 | GET | `/api/modules/:id/context` | `scope=space` only |
 | GET | `/api/modules/:id/data`, `/api/modules/:id/data/:key` | `scope=space` only |
 | GET | `/api/objects/search`, `/api/objects/links`, `/api/objects/kinds` | `scope=space` where a scope is named |
@@ -285,9 +295,11 @@ A new door for an AI's text into everyone's view, so each of these holds:
 
 ### The log (server)
 
-- `DATA_DIR/agent-log.jsonl` per environment, one line a call: time, agent, token id (never the token), method, route
-  pattern, space, action name, chat message id or number of chat messages read, request id, status, address. Kept 30
-  days.
+- `DATA_DIR/agent-log/<agent key>/<YYYY-MM-DD>.jsonl` per environment, a folder of day files, one line a call: time,
+  agent, token id (never the token), method, route pattern, space, action name, chat message id or number of chat
+  messages read (step 5), request id, status, address, and `kind` (`read`, `write`, or null for a note). Kept 30 days,
+  each day's file deleted whole. A 429, and a 401 for a token that is a real agent's, leave one line a minute for each
+  agent and status.
 - `GET /api/users/:key/agent-log?before=` (owners and the admin) answers the last 100 lines.
 - The token, a session, a request body, a chat message's text and an object's content never go in a line or the
   server's own log.
@@ -295,9 +307,13 @@ A new door for an AI's text into everyone's view, so each of these holds:
 ### The bus carries the asker (server, decision 9)
 
 - A request records `by` (the key) as today; `publicAction` adds `byKey` beside `by` (the name).
-- `POST /api/bus/actions/complete` and the data write it leads to carry `for: <asker key>` when the asker is not the
-  writer; `noteActivity` names both ("Claude (agent), carried out by Thomas's page"); `object-sync` fills `{by}` from
-  `for` when set.
+- The page's data `PUT` carries `for: <asker key>` and `request: <id>`, as a **hint**: the server honours it only for a
+  new object, made by the person whose page claimed that request, within one minute of the first claim, in the
+  request's own place, for at most 10 new objects, naming the actual asker; otherwise it ignores it and the write is
+  the carrier's own. `POST /api/bus/actions/complete` and `DELETE` never name an asker. `noteActivity` names both
+  ("Claude (agent), carried out by Thomas's page"); `object-sync` fills `{by}` from `for` when set. `for` raises no
+  right.
+- A module's handler of `host.actions.provide` is called with `{ from, by, byKey }` (`ctx.byKey`).
 
 ### The pages (experience-design)
 
@@ -314,7 +330,7 @@ A new door for an AI's text into everyone's view, so each of these holds:
 ### The Planner (experience-design, module lane)
 
 - `setDone` `{ ref: "ref:schedule:plan", done: "boolean" }` (a milestone's tick, or work done) and `updateEntry`
-  `{ ref, title?, date?, start?, end?, notes?, progress? }` (only the fields given change), both `effect: "write"`,
+  `{ ref, title?, date?, start?, end?, notes? }` (only the fields given change; there is no `progress` input), both `effect: "write"`,
   carried out with the editor's own checks and refusing with the editor's sentences. `addFrom` stores the asker's key
   from `ctx.byKey`. A patch bump.
 
@@ -352,18 +368,20 @@ member, or make another token. The kill switches, smallest first: **Post in Chat
 
 ## Left to build, in order
 
-Sizes in builder-days. Each step is built, checked and reviewed before the next. Steps 1 to 4 are as drafted; step 5
-is new, added by decisions 13 and 17 to 19 (Chat reading and posting).
+Sizes in builder-days. Each step is built, checked and reviewed before the next. **Steps 1 to 4 are built and merged**
+(#903, #906, #905 and #904, 2026-11-16; where they differ from the draft, see "Built differently than planned");
+step 5 is new, added by decisions 13 and 17 to 19 (Chat reading and posting), and is next. Steps 6 and 7 wait for it,
+except that the documentation of steps 1 to 4 is written.
 
-1. **The token core (3 days, server-development, larger model; security).** The agent account and its refusals,
+1. **The token core (3 days, server-development, larger model; security). Built, #903.** The agent account and its refusals,
    `server/tokens.js`, the token routes, the gate (without the Chat lines), `GET /api/agent/me`, the limits, the log and
    its route, `AGENT_TOKENS` and the **Agents** setting. `tools/check-agent-tokens.mjs` with the pen-test list below,
    in `npm run check`. quality-assurance reads it as a security change before it is committed.
-2. **The pages (1.5 days, experience-design).** Manage > Users, the agent's page, Set up's members, "(agent)" after
+2. **The pages (1.5 days, experience-design). Built, #906.** Manage > Users, the agent's page, Set up's members, "(agent)" after
    names.
-3. **The Planner's actions (1 day, experience-design, module lane).** `setDone`, `updateEntry`, the stored `by` as a
+3. **The Planner's actions (1 day, experience-design, module lane). Built, #905 (Planner 0.1.7).** `setDone`, `updateEntry`, the stored `by` as a
    key; the module's own test; a patch bump.
-4. **The asker through the bus (1 day, server-development).** `byKey`, `for`, the activity list and the Calendar
+4. **The asker through the bus (1 day, server-development). Built, #904.** `byKey`, `for`, the activity list and the Calendar
    copies, after `calendar-copy-rights` is merged. Closes #869.
 5. **Chat reading and posting (1.5 days; server-development, then experience-design).** Decisions 13 and 17 to 19.
    The server: the gate's two Chat lines, the bounded read (`before`, at most 100) for an agent, `chatPost` (off by
@@ -400,8 +418,8 @@ Checked by a tool on a throwaway server (`tools/check-agent-tokens.mjs`), the pe
 - A token from environment A is 401 at environment B on a `BASE_DOMAIN` server with two environments.
 - The token appears in no response after the one that made it, no log line, no export and nowhere in the data folder
   in the clear (a search of `DATA_DIR` for it finds nothing).
-- `GET /api/spaces/:id` and the data routes give the agent no guest token, access key, personal link token or another
-  person's personal data.
+- The data routes give the agent no guest token, access key, personal link token or another person's personal data
+  (`GET /api/spaces/:id` is off the list, so it gives it nothing).
 - A cookie session sent with an agent token: the agent token wins and the gate applies.
 - Step 5, posting: a new agent's **Post in Chat** is off and a post is 403; turned on, a post lands with `by` the
   agent's key and `agent: true`; turned off again, posting is 403 and actions still work; without the member role's
@@ -416,6 +434,28 @@ Read by a person, not a tool: the label on an agent's message in Chat, on a wide
 Not checkable here: Claude's cloud session reaching a hosted server through its proxy and network settings, and how
 Claude itself treats text it reads in objects and Chat (prompt injection), which no server check can prove; the
 checks prove only that the gate holds whatever Claude asks for. No step needs a LiveKit call.
+
+## Built differently than planned
+
+Steps 1 to 4, read from the code on `67998604` (2026-11-16). Each is a **Divergence called out**; none changes a
+decision except where it says so. The documents named in Status say what was built.
+
+- **`GET /api/spaces/:id` is off the gate's list** (owners only), and agents get their spaces from `GET /api/agent/me`.
+- **The asker is a server-checked hint** (decision 9, reworded above), not a record the server believes: honoured only
+  for a new object, by the person whose page took the request, within one minute of the first claim, in the request's
+  own place, for at most 10 new objects; otherwise ignored. `/complete` and `DELETE` never name an asker; the data
+  `PUT` carries `for` and `request`.
+- **The Lobby is never an agent space.**
+- **The agent log is a folder of day files**, `agent-log/<agent key>/<YYYY-MM-DD>.jsonl`, not one file.
+- **`updateEntry` has no `progress` input.**
+- **`GET /api/users/:key/token`** answers `{ token: {...} }` or `{ token: null }`.
+- **Display names can't end in `(agent)` or contain `carried out by`**, for every account. Not in the plan.
+- **Agents are exempt from the agreement gate** (`TERMS_FILE`, `NDA_FILE`), which the plan did not mention. Open; see
+  "What is not decided".
+- **The agent log counts a refused call as a read**, and a 429 or a refused token leaves one line a minute rather than
+  one a call. Not in the plan.
+- **An agent needs the member role's `chat` permission** to ask for a change (the action route's own check), as the
+  plan noted under "Chat".
 
 ## Divergences
 
@@ -459,14 +499,21 @@ task):
   is covered by an agent with the action route.
 - [architecture-access](../architecture/architecture-access.md), "One rule for entering": the agent is a signed-in
   person (`{ key, owner: false }`), so no new viewer kind; the list should say an agent is one.
-- `CLAUDE.md`, Names: "agent" is a new word for a new thing. Whether it joins the Names list is Thomas's.
-- #869 (an action-added Planner entry reads "Added by someone"): step 4 closes it.
+- `CLAUDE.md`, Names: "agent" joined the roles list (Thomas, 2026-11-16, #899). Done.
+- #869 (an action-added Planner entry reads "Added by someone"): fixed by steps 3 and 4 (the Planner stores the asker's
+  key, and the bus carries it).
 - The server's records of an action's write name the person whose page carried it out (`noteActivity`,
-  `object-sync`), not the asker. Step 4 changes that.
+  `object-sync`), not the asker. Step 4 changed that.
 
 ## What is not decided
 
 All 16 questions and the three Chat questions decision 13 raised are answered (decisions 17 to 19). Nothing blocks a
 step.
 
-One question for Thomas, not blocking: whether "agent" joins the Names list in `CLAUDE.md`.
+One question for Thomas, not blocking steps 5 to 7: **should an agent be held to the agreement gate?** The code exempts
+agents from the terms and NDA gate (`agreementExempt` in `server/index.js`), since an agent can't read or agree to a
+text; the owner who made it has. Thomas has not ruled. A smaller fix than the exemption is to be recorded here by
+product-planner; this plan does not yet say what it is. Until he rules, an agent on a server with `TERMS_FILE` or
+`NDA_FILE` set works without agreeing.
+
+Answered: whether "agent" joins the Names list in `CLAUDE.md` (yes, 2026-11-16, #899).

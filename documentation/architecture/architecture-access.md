@@ -10,6 +10,7 @@ This is the shape of the access bundle ([plan-access-bundle](../plans/plan-acces
 
 - `{ all: true }`: the access key (OBS, Studio). Every space.
 - `{ key, owner }`: a signed-in person. `owner` is true for owners and the admin.
+  An agent account ([Agent access architecture](architecture-agent-access.md)) is one too, with `owner` false: it is not a new kind of viewer. It reaches a space only through its token and the gate's short list, only in spaces it is a member of and may enter (never the Lobby), and it never agrees to a text: `agreementExempt` in `server/index.js` lets it past the agreements gate, which has not been decided yet (an open question in [plan-agent-access](../plans/plan-agent-access.md)).
 - `{ guestSpace }`: a guest by guest link, for that one space only.
 - `{ doorGuest: true, doorOn, granted }`: a guest from the guest door. `doorOn` is true while the host's switch is on. A door guest never enters the Lobby.
 

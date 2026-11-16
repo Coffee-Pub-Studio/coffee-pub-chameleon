@@ -1066,6 +1066,13 @@ Each is a **Divergence called out**; none changes a decision unless it says so.
     [plan-environment-templates](plan-environment-templates.md). The hidden-character and icon rules of the objects
     format are not for this plan.
 
+31. **Progress note: the built-in set is shown on the Environment page (#901, 2026-11-16).** Manage > Environment >
+    Reactions and Icons now shows the built-in reactions and icons read only, folded as **Built in (<n>)**, with "You
+    have added none yet." while the owner's own list is empty; a save that repeats a built-in leaves it out and says
+    "<emoji> is already built in" (icons, by label or name: "<a>, <b> are already built in"); and the Template page's
+    Additional Reactions and Icons text links to it. This belongs with decision 12's divergence: the owner's own
+    reactions and icons live on the Environment page, and a template only adds.
+
 ## Left to build, in order
 
 Sizes: S under a day, M a day or two, L several days. **Core** steps are held for an independent read;

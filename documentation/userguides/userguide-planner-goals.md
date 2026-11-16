@@ -33,7 +33,7 @@ A goal with steps is done when its steps are. Each goal, step and note is an obj
 - A step needs a goal. With no goal in the plan with that title, the step is refused ("Add a goal first: no goal here is named \"<title>\".") and nothing is made; keep the goal first, then its steps. The action **Add a step to the goal** that other modules may ask for names the goal by a pointer, which is optional now; a step sent whole names its goal by **under**, and a pointer given wins over it.
 - A note may sit under a goal or at the top.
 
-**From a file.** The menu at the right of the title bar, **Export and import** (the **...** button), has:
+**From a file.** The menu at the right of the title bar, **Export and import** (the button with two arrows), has:
 
 - **Export as JSON** saves the whole plan as a file named for the day. It is dimmed ("Nothing yet") with an empty plan.
 - **Check file** reads a file the way Import does and writes nothing. It says "This file is good: it would add N entries" with what they are (for example "2 goals, 5 steps and 1 note"), or "This file has a problem" (or "N problems") and lists them, the first and up to five more, one for each entry.
