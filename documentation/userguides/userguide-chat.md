@@ -57,6 +57,10 @@ Who can: anyone signed in, except guests, whose role has **Use AI in modules** (
 
 A question is 3 to 1,000 characters. A longer one is refused, not cut, with "A question is at most 1,000 characters; this one is N." Only objects from this space go to the AI: an object from another space is left out and the **AI used:** line says so. The AI also sees what the owner allows (see [Modules](userguide-modules.md), "The AI service"), and never what you could not open yourself. Your question carries your time zone, so "today" and "this week" are yours. You can ask six times a minute; a question that fails before the AI service did any work is not counted.
 
+## Messages from an agent
+
+An assistant that an owner has added as an [agent](userguide-agents.md) can read the public messages here and, if its owner allows it, post. Its messages show its name and a small **agent** mark after it. It never sees or sends a private message, and it can't delete or change a message. The AI Assistant reads its messages as "<name> (agent)".
+
 ## Private, public and shared
 
 Every message has a small mark in its header that says who sees it: one person for a private message ("Only you"), three people for a public one ("Everyone"). Your own command or answer that you shared shows the three people too, with the tooltip "Shared with everyone". There are no words on the mark and no lock; hover over it, or let a screen reader read its label. A message is public when you type it plainly in Discussion, and private when it is a command or an AI answer. Only you see your private messages; not even an owner or the admin sees them. They are in your **Assistant** tab, and public ones are in **Discussion**.

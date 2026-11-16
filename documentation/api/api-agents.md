@@ -26,7 +26,7 @@ The token is `agt_` and 43 characters (`agt_` plus 32 random bytes in base64url)
 | Reads | 60 | 3,000 |
 | Writes | 20 | 300 |
 
-A write is `POST /api/spaces/:id/action`. Every other call on the list is a read, and so is a call the gate refuses, so hammering a closed route is bounded too. A 429 counts against nothing. The day's counts survive a restart. Each module's own per-person limits (`overLimit`) apply as well, and the action route's `too many requests in a minute, slow down` (429).
+A write is `POST /api/spaces/:id/action` or `POST /api/spaces/:id/chat`, and a post counts as one write even when it is refused (the gate counts first). Every other call on the list is a read, and so is a call the gate refuses, so hammering a closed route is bounded too. A 429 counts against nothing. The day's counts survive a restart. Each module's own per-person limits (`overLimit`) apply as well, and the action route's `too many requests in a minute, slow down` (429).
 
 ### `GET /api/agent/me`
 
@@ -35,6 +35,7 @@ For an agent's token only (a person's session answers 403 `This is for an agent'
 ```json
 {
   "agent": { "key": "k3m9x2", "name": "Claude" },
+  "chatPost": false,
   "expiresAt": "2026-12-16T10:00:00.000Z",
   "spaces": [{ "id": "a1b2c3d4", "name": "Moving house" }],
   "limits": {
@@ -44,7 +45,7 @@ For an agent's token only (a person's session answers 403 `This is for an agent'
 }
 ```
 
-`spaces` are the spaces the agent is a member of and may enter, never the Lobby. `GET /api/spaces/:id` is not on the list (it answers a member "owners only"); this is how an agent learns its spaces. `name` is the agent's display name as typed, without "(agent)".
+`spaces` are the spaces the agent is a member of and may enter, never the Lobby. `GET /api/spaces/:id` is not on the list (it answers a member "owners only"); this is how an agent learns its spaces. `name` is the agent's display name as typed, without "(agent)". `chatPost` is whether its owner's **Post in Chat** is on (false for a new agent); see "Chat" below.
 
 ### Reading
 
@@ -61,6 +62,35 @@ All of these are `GET` and `POST` routes that exist for modules, with the same a
 | `GET /api/spaces/:id/actions` | Lists only the actions an agent may ask for (below). Needs the member role's `chatRead` (403 `your role cannot do that` without it). |
 
 A scope of `environment`, `spaces` or `person`, or none, is 403 `An agent can't do that.`. Other modules' data, a person's own data, the environment's, and any space the agent is not in, are out of reach. There is no `PUT`, `DELETE`, Clear, restore or upload.
+
+### Chat
+
+Chat is the one place an agent may read what people wrote and write in the space's own voice. It reaches the public messages of the agent's own spaces and nothing else: not the live stream, not a private message, not deleting, hiding or changing a message, pictures, **Keep**, link previews, commands or `/ai`. Every other chat route answers 403 `An agent can't do that.`, `OPTIONS` included.
+
+**`GET /api/spaces/:id/chat`** (a `HEAD` is a read too). Needs the member role's `chatRead` in the space (403 `your role cannot do that` without it). A space the agent is not in is 404 as everywhere. It works whether **Post in Chat** is on or not.
+
+- `?before=<message id>` gives the messages older than that one. A message id is 12 hex characters; anything else is 400 `before is a message id.`; an id that is not in the space's public messages is 404 `no such message`.
+- The answer is `{ "messages": [...], "more": true | false }`: at most 100 messages, **newest first**, public ones only (an agent has no private message and never reads anyone's). `more` is true when older ones remain; ask again with `before` set to the id of the last message you were given.
+- A message is as a member reads it, with `agent: true` on an agent's message and no `agent` field on anyone else's. A shared AI answer keeps only the pointers the agent may open, in its own spaces.
+- Each reply is **one read** in the agent's limits, however many messages it carries. The log line keeps how many messages came back, never their text.
+
+**`POST /api/spaces/:id/chat`** with `{ "text": "..." }` as JSON. Needs the member role's `chat` permission (403 `your role cannot do that` without it) and the owner's **Post in Chat** on. It is a write. It checks, in this order, after the space and the role:
+
+| Status | Error | When |
+|---|---|---|
+| 403 | `This agent can't post in Chat.` | **Post in Chat** is off for this agent (the default). |
+| 400 | `An agent sends { text } as JSON.` | There is no JSON body, or it is another type (a form, say). |
+| 400 | `An agent sends { text } and nothing else.` | The body is not an object, or has a field other than `text`. |
+| 400 | `text is the message, as text.` | `text` is not a string. |
+| 400 | `The message is empty.` | `text` is empty once control characters are taken out and the ends trimmed. |
+| 400 | `A message is at most 1000 characters.` | The cleaned text is over 1000. It is refused, never cut. |
+| 429 | `too many messages, slow down` | The per-person post limit that every account has applies to an agent too. |
+
+It answers `{ "message": { "id", "at", "by", "who", "text", "agent": true, "preview"? } }`: `by` is the agent's key, `who` its display name as typed, and `preview` is the first link's `{ url }` when the text has one (nothing is fetched). The message is an ordinary public message: the space's live streams carry it at once, and nobody is mentioned or notified. `agent: true` is set by the server from the account, never from the name or the request; a person's message, and a guest's (`by: "guest"`), never carry it, whatever a stored file says. A message of an agent that was deleted afterwards keeps its label.
+
+**Turning posting on or off** is the owner's: `PATCH /api/users/:key` with `{ "chatPost": true | false }` (below). Turning it off stops posting and nothing else; reading Chat and asking for changes go on.
+
+**What this opens.** Everything people write in Chat, guests included, can reach whatever reads it for the agent, which is Claude's context. No check on the server closes that: text in a message can try to steer the assistant (a prompt injection). What the server holds is what the agent can then do: its writes go only through the gated routes above (an action a module's own rules allow, or a labelled post), within its limits, and every call is in the log. Make an agent a member only of spaces whose Chat you are happy for it to read.
 
 ### Asking a module to do something
 
@@ -122,6 +152,7 @@ These routes are for owners and the admin (a person's session; an agent's own to
 
 - **`GET /api/users`** and **`GET /api/users/:key`** list agents as people, with `agent: true` and `off`.
 - **`PATCH /api/users/:key`** renames an agent (`displayName`) and turns it off or on with `{ "off": true | false }`. `off` on a person: 400 `Only an agent can be turned off.`; not a boolean: 400 `off is true or false`. A role other than `member`, a password or a change of login: 400 `An agent can't be that.`
+- **`PATCH /api/users/:key`** with `{ "chatPost": true | false }` is the agent's **Post in Chat**. It is off for a new agent, and `chatPost` is in `user` (as `publicUser` shows an agent: `agent`, `off`, `chatPost`) and in the answer. On a person: 400 `Only an agent can have that.`; not a boolean: 400 `chatPost is true or false`. Turning it **on** needs agents on, as making a token does: 403 `Agents are off on this server.` or `Agents are off in this <environment word>. Turn on Agents in Manage first.`; turning it off always goes through. It changes posting only.
 - **`POST /api/users/:key/link`** for an agent: 400 `An agent can't be that.` An agent has no personal link, password or two-step sign-in, and can't be an owner, the admin or a space's moderator: each of those answers 400 `An agent can't be that.`
 - **`DELETE /api/users/:key`** deletes the agent and its token. What it added keeps its `by` key.
 - **`PATCH /api/settings`** with `{ "agents": true | false }` is the environment's **Agents** switch. On, while the server's variable is off: 403 `Agents are off on this server.`; off always works. `GET /api/settings` carries `agentTokens` (the server's variable) and `agents`.
@@ -146,12 +177,12 @@ All three answer 404 `no such user` for an unknown key and 400 `That account is 
 | `space` | The space's id, only when it is one of the agent's own. |
 | `action` | `<module>:<name>` for an action request. |
 | `request` | The request's id for an action request. |
-| `message` | Reserved for Chat (not built); always `null`. |
+| `message` | For Chat: a post's message id (12 hex characters), or how many messages a read carried (a whole number); else `null`. Never text. |
 | `status` | The HTTP status the call got. |
 | `address` | An IP address, or `null`. |
 | `kind` | `read` or `write`; `null` for a note (a 429, or a 401 for a token that is the agent's but no longer good: written at most once a minute for each). |
 
-A line never holds a request body, an object's content or a token. Lines are kept 30 days.
+A line never holds a request body, a message's text, an object's content or a token. A refused post (403) is a line with the post route and status 403, so the log says it was refused. Lines are kept 30 days.
 
 ## Part 3. Who asked, for module authors
 
@@ -172,4 +203,4 @@ When the page saves what the request asks for, the SDK sends the asker with the 
 
 ## Checked
 
-`tools/check-agent-tokens.mjs`, `tools/check-agent-asker.mjs` and `tools/check-agent-pages.mjs` (see [the architecture](../architecture/architecture-agent-access.md), "Checks"). This documentation pass read the routes in `server/index.js` and ran the first two checks (`check-agent-tokens`, 33 passed; `check-agent-asker`, 12 passed); `check-agent-pages` did not run to the end in the cloud container used. A real call from a cloud session through a proxy to a hosted server was not tried, and the plan says so too.
+`tools/check-agent-tokens.mjs`, `tools/check-agent-asker.mjs`, `tools/check-agent-pages.mjs`, `tools/check-agent-chat.mjs` and `tools/check-agent-chat-page.mjs` (see [the architecture](../architecture/architecture-agent-access.md), "Checks"). The Chat section was written from `server/index.js`, `server/chat-history.js` and `server/agent-log.js` on `4fb7b467`, read as code; the Chat checks did not run in the container used (the server would not start there: a template names Font Awesome icons that the installed set lacks), so none of it is seen to pass here. The earlier parts were checked on `67998604` (`check-agent-tokens`, 33 passed; `check-agent-asker`, 12 passed); `check-agent-pages` did not run to the end then either. A real call from a cloud session through a proxy to a hosted server was not tried, and the plan says so too.
