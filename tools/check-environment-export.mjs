@@ -54,6 +54,7 @@ function seededApp(secrets = strong) {
       environmentName: 'Seeded', mfaRequired: true, words: { space: { one: 'trip' } },
       spaceDefaults: { profile: 'characters', opensWith: ['todo'] }, otherCalendars: true, publishedCalendar: true,
       publishedCalendarFeed: feed(),
+      welcomeNote: { text: 'Welcome to **us**.', updatedAt: '2026-01-02T00:00:00.000Z', by: 'ownerkey' },
     },
     users: [
       {
@@ -242,6 +243,18 @@ test("a restore's files carry no session or stream key; every other file is as i
   assert.equal(ex.fileAllowed('access.json'), false, 'never in an owner\'s copy');
   assert.ok(JSON.parse(copy[0][1].toString('utf8')).users.every((u) => !('agreed' in u)));
   assert.equal(ex.restoreEntries([['app.json', Buffer.from('not json')]])[0][1].toString(), 'not json');
+});
+
+test('the welcome note travels in a copy, and a restore cleans it as a save does', () => {
+  const src = seededApp();
+  const data = ex.exportApp(src);
+  assert.deepEqual(data.settings.welcomeNote, src.settings.welcomeNote);
+  assert.ok(data.users.every((u) => !('welcomeSeen' in u)), 'the marks stay behind');
+  src.settings.welcomeNote = { text: `<img src=x onerror=alert(1)>\n# H\n[j](javascript:alert(1))${'z'.repeat(20)}`, updatedAt: { evil: 1 }, by: ['x'] };
+  const note = JSON.parse(ex.restoreEntries([['app.json', Buffer.from(JSON.stringify(src))]])[0][1].toString('utf8')).settings.welcomeNote;
+  assert.deepEqual(note, { text: 'H\nj' + 'z'.repeat(20), updatedAt: null, by: null });
+  src.settings.welcomeNote = { text: 'z'.repeat(20000) };
+  assert.equal(JSON.parse(ex.restoreEntries([['app.json', Buffer.from(JSON.stringify(src))]])[0][1].toString('utf8')).settings.welcomeNote, null, 'over the length: dropped');
 });
 
 test("a restore turns every admin that is not the host admin's stand-in into an owner; the stand-in stays the admin", () => {

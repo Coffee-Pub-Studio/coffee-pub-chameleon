@@ -93,8 +93,30 @@ try {
     const keep = 'Welcome to **our table**.\n\n- *bring* a headset\n- read [the guide](https://example.com/guide?a=1)\n\nMail [us](mailto:hi@example.com).';
     assert.equal(clean(keep), keep);
     assert.equal(clean('<script>alert(1)</script>Hi <b>there</b>').includes('<'), false);
-    assert.equal(clean('[x](javascript:alert(1))'), 'x)', 'the label stays; the address is gone');
-    assert.equal(clean('[x](JaVaScRiPt:alert(1))'), 'x)');
+    assert.equal(clean('[x](javascript:alert(1))'), 'x', 'the label stays; the address is gone, and no stray bracket');
+    assert.equal(clean('[x](JaVaScRiPt:alert(1))'), 'x');
+    // however many marks, no line starts a heading, a quote or a numbered list
+    assert.equal(clean('## # x'), 'x');
+    assert.equal(clean('> > q'), 'q');
+    assert.equal(clean('>#x'), '#x');
+    assert.equal(clean('[# h](javascript:x)'), 'h');
+    assert.equal(clean('`# h`'), 'h');
+    const nasty = ['## # x', '> > q', '>#x', '>  # > 1. a', '# 1) b', '[1. z](bad)', '`> q`', '   ## x', '# ', '>', '1.  a\n2) b\n10. c', '>>> # > 3. d'].join('\n');
+    for (const line of clean(nasty).split('\n')) assert.ok(!/^(#{1,3})\s+/.test(line) && !/^\s*>/.test(line) && !/^\s*\d+[.)]\s/.test(line), `a line starts a mark: ${JSON.stringify(line)}`);
+    // what markdown() would link but the note does not allow: it is reduced to its words
+    const longLabel = 'L'.repeat(201);
+    assert.equal(clean(`[${longLabel}](https://example.com/)`), longLabel);
+    assert.ok(!clean(`[ok](https://example.com/${'a'.repeat(600)})`).includes('http'), 'a 600-character address is dropped');
+    assert.equal(clean(`[ok](https://example.com/${'a'.repeat(600)})`), 'ok');
+    assert.ok(!/user:pw/.test(clean('see https://user:pw@evil.com/x now')), 'no credentials in a bare address');
+    assert.equal(clean('see https://user:pw@evil.com/x now'), 'see https://evil.com/x now');
+    assert.ok(!clean(`go https://example.com/${'b'.repeat(600)}`).includes('http'), 'a very long bare address is not left to be linked');
+    assert.equal(clean('[a](https://example.com/x(1))'), '[a](https://example.com/x(1))', 'one level of brackets in an address');
+    // ordinary text with < and > keeps them; real tags still go
+    assert.equal(clean('x < y and z > w'), 'x < y and z > w');
+    assert.equal(clean('I <3 you'), 'I <3 you');
+    assert.equal(clean('a <b>bold</b> <img src=x onerror=alert(1)> c').includes('<'), false);
+    assert.equal(clean('a\uE000b'), 'ab', 'the private stand-in character cannot be planted');
     assert.equal(clean('[x](data:text/html;base64,AAAA)'), 'x');
     assert.ok(!/\]\(javascript:/i.test(clean('[x](java\tscript:alert(1))')), 'a tab in the scheme does not make it javascript:');
     assert.equal(clean('[x](//evil.example/a)'), 'x');
@@ -241,7 +263,7 @@ try {
   });
 
   // A single install: no BASE_DOMAIN.
-  single = await startServer(path.join(base, 'single'), { ADMIN_PASSWORD: 'testpass1234' });
+  single = await startServer(path.join(base, 'single'), { ADMIN_PASSWORD: 'testpass1234', ENABLE_GUEST_DOOR: 'true' });
   await test('a single install: owner saves, member reads and marks, a door guest reads and is not stored', async () => {
     const owner = await signIn(single, null, 'admin', 'testpass1234');
     const mem = await addMember(single, null, owner, 'sam');
@@ -251,13 +273,42 @@ try {
     assert.equal((await call(single, null, 'POST', `${URL_}/seen`, { cookie: mem })).json.seen, true);
     assert.equal((await call(single, null, 'GET', URL_, { cookie: mem })).json.seen, true);
     const door = await call(single, null, 'POST', '/api/guest-door', { body: { name: 'Dora' } });
-    if (door.status === 200) {
-      const g = cookieOf(door);
-      const read = await call(single, null, 'GET', URL_, { cookie: g });
-      assert.equal(read.status, 200, read.text);
-      assert.deepEqual([read.json.note.text, read.json.seen, read.json.guest], ['Hi **all**', false, true]);
-      assert.equal((await call(single, null, 'PUT', URL_, { cookie: g, body: { text: 'x' } })).status, 403);
-    }
+    assert.equal(door.status, 201, `the guest door is on: ${door.text}`);
+    const g = cookieOf(door);
+    const read = await call(single, null, 'GET', URL_, { cookie: g });
+    assert.equal(read.status, 200, read.text);
+    assert.deepEqual([read.json.note.text, read.json.seen, read.json.guest], ['Hi **all**', false, true]);
+    assert.equal((await call(single, null, 'PUT', URL_, { cookie: g, body: { text: 'x' } })).status, 401, 'a guest may not write');
+    const gs = await call(single, null, 'POST', `${URL_}/seen`, { cookie: g });
+    assert.equal(gs.status, 200, gs.text);
+    assert.deepEqual([gs.json.seen, gs.json.guest], [true, true]);
+    assert.equal((await call(single, null, 'GET', URL_, { cookie: g })).json.seen, false, 'a guest\'s mark is not stored');
+    assert.equal((await call(single, null, 'GET', URL_)).status, 401, 'nobody is refused');
+  });
+
+  await test('a stored note is cleaned on load: markup, oversize and wrong types never reach a reader', async () => {
+    await single.stop();
+    const file = path.join(base, 'single', 'app.json');
+    const app = JSON.parse(fs.readFileSync(file, 'utf8'));
+    app.settings.welcomeNote = { text: `<img src=x onerror=alert(1)>\n# H\n[j](javascript:alert(1))${'z'.repeat(20000)}`, updatedAt: { evil: 1 }, by: ['x'] };
+    fs.writeFileSync(file, JSON.stringify(app));
+    single = await startServer(path.join(base, 'single'), { ADMIN_PASSWORD: 'testpass1234', ENABLE_GUEST_DOOR: 'true' });
+    let owner = await signIn(single, null, 'admin', 'testpass1234');
+    let r = await call(single, null, 'GET', URL_, { cookie: owner });
+    assert.deepEqual(r.json.note, null, 'an oversize stored note is dropped');
+    await single.stop();
+    app.settings.welcomeNote = { text: `<img src=x onerror=alert(1)>\n# H\n[j](javascript:alert(1)) ${'z'.repeat(20)}`, updatedAt: { evil: 1 }, by: ['x'] };
+    fs.writeFileSync(file, JSON.stringify(app));
+    single = await startServer(path.join(base, 'single'), { ADMIN_PASSWORD: 'testpass1234', ENABLE_GUEST_DOOR: 'true' });
+    owner = await signIn(single, null, 'admin', 'testpass1234');
+    r = await call(single, null, 'GET', URL_, { cookie: owner });
+    assert.deepEqual(r.json.note, { text: `H\nj ${'z'.repeat(20)}`, updatedAt: null });
+    app.settings.welcomeNote = 'not an object';
+    await single.stop();
+    fs.writeFileSync(file, JSON.stringify(app));
+    single = await startServer(path.join(base, 'single'), { ADMIN_PASSWORD: 'testpass1234', ENABLE_GUEST_DOOR: 'true' });
+    owner = await signIn(single, null, 'admin', 'testpass1234');
+    assert.equal((await call(single, null, 'GET', URL_, { cookie: owner })).json.note, null);
   });
 } catch (err) {
   failed += 1;

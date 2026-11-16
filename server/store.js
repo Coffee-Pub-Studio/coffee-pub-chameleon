@@ -24,6 +24,7 @@ const phaseMeasure = require('./phase-measure.js'); // the Done switches (plan-t
 const aiPolicy = require('./ai-policy');
 const { applyCallPatch, resolveCall } = require('./call-settings');
 const { cleanAgreed, hasAgreed } = require('./agreements');
+const welcomeNoteLib = require('./welcome-note');
 const { endsWithGuestMark } = require('./guest-door');
 
 // Image slots. Participant: what the video box shows when the camera is
@@ -801,6 +802,7 @@ class Store {
     // and a built-in added later reaches an environment that was seeded before it existed.
     let seededThemes = false;
     if (!Array.isArray(data.settings.themes)) data.settings.themes = [];
+    data.settings.welcomeNote = welcomeNoteLib.cleanStored(data.settings.welcomeNote); // a stored note is cleaned as a saved one is
     // The published calendar's address (plan-space-calendars.md, section 2): only a hash with its dates, or nothing.
     if (data.settings.publishedCalendarFeed !== undefined && !cleanCalendarFeed(data.settings.publishedCalendarFeed)) delete data.settings.publishedCalendarFeed;
     // The one allowed data migration (Thomas, 2026-11-09): data saved with the old boolean `builtinThemesSeeded` was seeded before
