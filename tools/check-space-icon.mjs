@@ -28,7 +28,7 @@ must(/spaceCrumbIcon\(null\)/.test(space) && !/'message'/.test(space.match(/cons
 // Icons in use that the offered list no longer holds (a template switch took away the one that offered them) are drawn,
 // never offered: branding carries them apart (inUseIcons), iconClasses looks in the offered list, then in them, then
 // draws the chain link; getIcons, which every picker reads, is the offered list alone, and no page reads inUseIcons.
-must(/inUseIcons: store\.lookOf\(null\)\.inUseIcons/.test(branding), 'branding() does not carry inUseIcons');
+must(/const look = store\.lookOf\(null\);/.test(branding) && /inUseIcons: look\.inUseIcons/.test(branding), 'branding() does not carry inUseIcons');
 must(/IN_USE_ICONS = Array\.isArray\(b\.inUseIcons\) \? b\.inUseIcons : \[\]/.test(brand), 'brand.js does not keep branding.inUseIcons');
 must(/export const getIcons = \(\) => ICONS;/.test(brand), 'getIcons is not the offered list alone');
 for (const f of fs.readdirSync(path.join(root, 'public'), { recursive: true }).filter((f) => String(f).endsWith('.js') && String(f) !== 'brand.js')) {

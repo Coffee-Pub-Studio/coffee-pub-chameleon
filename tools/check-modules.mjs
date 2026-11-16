@@ -456,10 +456,17 @@ test('a display name and icon are checked before anything is saved, each with on
     assert.throws(() => store.checkModuleDisplay('travel', { displayIcon: 'suitcase-rolling' }), /There is no icon called suitcase-rolling/);
     store.moduleIconIds = () => ['suitcase-rolling', 'video'];
     assert.deepEqual(store.checkModuleDisplay('travel', { displayIcon: 'suitcase-rolling' }), { icon: 'suitcase-rolling' });
-    // Another module's own icon, chosen, then that module gone: kept as the owner's, not drawn, and accepted back as it is.
+    // Another module's own icon, chosen, then that module gone: kept as the owner's and still drawn (an icon in use keeps
+    // drawing, plan-templates-redesign.md decision 12 as corrected 2026-11-16; it is a Font Awesome Free solid icon), drawn
+    // from inUseIcons, and accepted back as it is, but not picked anew.
     store.applyModuleDisplay('maps', { icon: 'suitcase-rolling' });
     store.moduleIconIds = () => ['video'];
-    assert.deepEqual([store.moduleDisplay('maps').icon, store.moduleDisplay('maps').ownIcon], ['map', 'suitcase-rolling'], 'the next one down (the template\'s) is shown');
+    assert.deepEqual([store.moduleDisplay('maps').icon, store.moduleDisplay('maps').ownIcon], ['suitcase-rolling', 'suitcase-rolling'], 'the owner\'s, still drawn');
+    assert.ok(store.lookOf(null).inUseIcons.some((i) => i.id === 'suitcase-rolling'), 'and drawn from the icons in use');
+    // One that is no Font Awesome Free solid icon (a hand edit) is not drawn: the next one down (the template's) is.
+    store.data.settings.moduleIcons.maps = 'not-an-icon-at-all';
+    assert.deepEqual([store.moduleDisplay('maps').icon, store.moduleDisplay('maps').ownIcon], ['map', 'not-an-icon-at-all'], 'the next one down (the template\'s) is shown');
+    store.data.settings.moduleIcons.maps = 'suitcase-rolling';
     assert.deepEqual(store.checkModuleDisplay('maps', { displayName: 'Stops', displayIcon: 'suitcase-rolling' }), { name: 'Stops', icon: 'suitcase-rolling' }, 'saving only the name keeps it');
     assert.throws(() => store.checkModuleDisplay('travel', { displayIcon: 'suitcase-rolling' }), /There is no icon called suitcase-rolling/, 'but not for another module');
     store.moduleIconIds = () => ['suitcase-rolling', 'video'];

@@ -1,34 +1,30 @@
 #!/usr/bin/env node
 /*
- * check-reactions-icons.mjs -- the fixed core reactions and icons, the owner's own additions and a template's additions
- * (plan-templates-redesign.md, decision 12), on a real server with a throwaway DATA_DIR:
- *   - /api/branding and a space's /look read the core first, whole and in order (105 reactions, 113 icons), then the
- *     owner's own additions, then the template's, each once;
- *   - nothing removes or changes a core entry: an owner's save that leaves them out, repeats them (by id or by glyph) or
- *     relabels them changes none of it, and what the settings keep is only the owner's own additions;
- *   - a space has none of its own: a space save that carries reactions or icons changes neither list;
- *   - a template's additions (a host template with `reactions` and `iconSet`) show at once in an environment that reads it,
- *     in a space on it and in /look, and never in one that reads another template; a switch offers none of them (they are
- *     not copied), and the owner's own additions stay when the template changes;
- *   - an icon the owner adds draws wherever icons are validated (the home icon), and a core one always does;
- *   - a switch of the environment's template (to an owner's copy of Project, its offer confirmed, back to Default, to
- *     Project and back) leaves ownReactions and ownIcons, and the stored lists, exactly as they were: the template's home
- *     icon, module icons and iconSet are offered (and pickable) only while it is read, never copied (decision 12);
- *   - an icon in use (the home icon, a space's link icon) whose template is gone is drawn from `inUseIcons` (branding and
- *     /look), never in `icons` (what every picker reads), and a new pick of it is refused (400); once unused it goes;
- *     only a real Font Awesome Free solid icon is ever published there (a stored "spin" is not), at most 200;
- *   - a new space's link icon is checked as an edit's is (400 "That icon is not one this environment offers.");
- *   - the cap on icons in use is taken after the offered ones are left out (over 200 offered in use, one not: drawn);
- *     a stored fw, 10x, rotate-180, flip-both, sr-only, stack, ../evil or spin is never in signed-out /api/branding;
- *   - an icon only one layout or one person's system layout keeps can't be taken by another (400);
- *   - hosted: an icon in use in one environment never shows in another's inUseIcons;
- *   - a save that sends back the icon it has already (home icon, link icon, a module's display icon, a saved layout's
- *     and a system layout's) is taken though it is only in use after a switch; a changed one is checked (400);
- *   - a space's link icon, saved layouts' icons and system layouts' icons take what the environment offers and what the
- *     space's own template offers (its /look), nothing else;
- *   - a picker never offers what the save refuses: every id in /api/branding's and a space's /look's icons is taken by
- *     the home icon, a module's display icon (the solid ones), the link icon, a layout's and a system layout's icon,
- *     with an icon in use no template offers, a space on its own template, and Learning with a space on Travel.
+ * check-reactions-icons.mjs -- the environment's own reactions and icons and a template's additions
+ * (plan-templates-redesign.md, decision 12 as corrected 2026-11-16, steps 18 and 19), on a real server with a throwaway
+ * DATA_DIR:
+ *   - a new environment's lists are the built-in 105 reactions and 113 icons, in order: /api/branding, a space's /look,
+ *     the owner's settings (ownReactions, ownIcons) and what is stored (with builtinListsSeeded); the owner's settings
+ *     also answer the built-in lists (`builtIn`), which /api/branding never carries;
+ *   - an owner's save that removes a built-in reaction and a built-in icon, reorders and adds is read back exactly, in
+ *     /api/branding, a space's /look, the owner's settings and the file; a repeat inside the list is dropped; the first
+ *     six of the new order are the call's keys 1 to 6; an empty reaction list is kept;
+ *   - refusals (400, one sentence each): a list that is not a list, a list over its cap (300 reactions, 400 icons),
+ *     resetLists that is not true, resetLists with the lists; a member and a signed-out caller cannot write the lists
+ *     (403, 401), and a space save that carries reactions or icons changes neither list;
+ *   - Start again from the built-in set (PATCH /api/settings { resetLists: true }) restores the 105 and 113;
+ *   - a template's additions come after the environment's list: an addition that repeats an entry in it (a reaction by id
+ *     or by glyph, an icon by id) is dropped there, and the template's save is not refused for it; they show only while
+ *     the template is read, and a switch never copies them into, or changes, the environment's lists;
+ *   - an icon the owner adds may be the home icon; a removed built-in one may not (400);
+ *   - a removed icon still in use (the home icon, a space's link icon, a module's display icon, a saved layout's icon, a
+ *     system layout's icon) is drawn from `inUseIcons`, never offered in `icons`, the module keeps its display icon, and a
+ *     new pick of it is refused (400) while sending back the one a record has already is taken;
+ *   - the lists survive a restart as saved (they are filled once, never again);
+ *   - icons in use after a template switch, the bound of 200 on them, stored ids that are no Font Awesome icon, a space on
+ *     its own template, and a picker never offering what the save refuses (as before the correction);
+ *   - hosted: a second environment's lists start from the built-in set and stay its own; an icon in use in one
+ *     environment never shows in another's inUseIcons.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -88,55 +84,113 @@ try {
   const branding = async () => (await call('GET', '/api/branding')).json;
   const look = async () => (await call('GET', `/api/spaces/${space}/look`)).json.look;
 
-  await test('the core first, whole and in order, in branding and in a space\'s look', async () => {
+  const settings = async () => (await call('GET', '/api/settings')).json.settings;
+  const storedSettings = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'app.json'), 'utf8')).settings;
+  const clone = (x) => JSON.parse(JSON.stringify(x));
+
+  await test('a new environment\'s lists are the built-in 105 reactions and 113 icons, in order, everywhere they are read', async () => {
     for (const read of [branding, look]) {
       const got = await read();
       assert.deepEqual(got.reactions, DEFAULT_REACTION_LIST);
       assert.deepEqual(got.icons, DEFAULT_ICON_LIST);
     }
+    const s = await settings();
+    assert.deepEqual([s.ownReactions, s.ownIcons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST], 'the owner\'s settings answer the whole lists');
+    assert.deepEqual(s.builtIn, { reactions: DEFAULT_REACTION_LIST, icons: DEFAULT_ICON_LIST }, 'and the built-in lists, for Start again');
+    const stored = storedSettings();
+    assert.deepEqual([stored.reactions, stored.icons, stored.builtinListsSeeded], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST, true], 'stored, and marked filled');
+    const signedOut = await fetch(`http://127.0.0.1:${port}/api/branding`).then((r) => r.json());
+    assert.equal('builtIn' in signedOut, false, '/api/branding never carries the built-in lists');
   });
 
-  await test('the owner\'s own additions come after the core; the core can\'t be left out, repeated or changed', async () => {
-    const mine = [{ id: 'yes', glyph: '✅', label: 'Yes' }];
-    const myIcons = [{ id: 'my-cat', classes: 'fa-solid fa-cat', label: 'cat' }];
-    const saved = await call('PATCH', '/api/settings', { reactions: [...mine, { id: 'heart', glyph: 'x', label: 'Changed' }, { id: 'again', glyph: DEFAULT_REACTION_LIST[0].glyph, label: 'Twice' }], icons: [...myIcons, { ...DEFAULT_ICON_LIST[0], label: 'Changed' }] });
+  // The environment's edited lists, as an owner's page would send them: Heart and dragon removed, Laugh moved first, an
+  // addition in the middle of each, and a repeat inside each list (dropped).
+  const yes = { id: 'yes', glyph: '✅', label: 'Yes' };
+  const myCat = { id: 'my-cat', classes: 'fa-solid fa-cat', label: 'cat' };
+  const editedReactions = (() => {
+    const list = clone(DEFAULT_REACTION_LIST).filter((r) => r.id !== 'heart');
+    const laugh = list.splice(list.findIndex((r) => r.id === 'laugh'), 1)[0];
+    list.unshift(laugh);
+    list.splice(3, 0, yes);
+    return list;
+  })();
+  const editedIcons = (() => {
+    const list = clone(DEFAULT_ICON_LIST).filter((i) => i.id !== 'dragon');
+    list.splice(2, 0, myCat);
+    return list;
+  })();
+  const saveEdited = () => call('PATCH', '/api/settings', { reactions: [...editedReactions, { id: 'yes-again', glyph: '✅', label: 'Twice' }, { id: 'laugh', glyph: '🙂', label: 'Laugh again' }], icons: [...editedIcons, { id: 'my-cat', classes: 'fa-solid fa-dog', label: 'dog' }] });
+
+  await test('an owner removes a built-in reaction and icon, reorders and adds: read back exactly; the first six are the keys', async () => {
+    const saved = await saveEdited();
     assert.equal(saved.status, 200, saved.text);
-    assert.deepEqual(saved.json.settings.ownReactions, mine, 'the settings keep only what the owner added');
-    assert.deepEqual(saved.json.settings.ownIcons, myIcons);
-    assert.equal(saved.json.settings.reactions.length, 106, 'and `reactions` is what the call reads: the core and the additions');
-    for (const read of [branding, look]) {
-      const got = await read();
-      assert.deepEqual(got.reactions.slice(0, 105), DEFAULT_REACTION_LIST, 'the core, as it was');
-      assert.deepEqual(ids(got.reactions).slice(105), ['yes']);
-      assert.deepEqual(got.icons.slice(0, 113), DEFAULT_ICON_LIST);
-      assert.deepEqual(ids(got.icons).slice(113), ['my-cat']);
+    assert.deepEqual([saved.json.settings.ownReactions, saved.json.settings.ownIcons], [editedReactions, editedIcons], 'a repeat inside a list is dropped');
+    for (const [label, got] of [['branding', await branding()], ['a space\'s look', await look()], ['the owner\'s settings', await settings()]]) {
+      assert.deepEqual(got.reactions, editedReactions, `${label}: reactions`);
+      assert.deepEqual(got.icons, editedIcons, `${label}: icons`);
+      assert.deepEqual(ids(got.reactions).slice(0, 6), ['laugh', 'black-heart', '100', 'yes', 'hi', 'up'], `${label}: the call's keys 1 to 6`);
+      assert.equal(ids(got.reactions).includes('heart') || ids(got.icons).includes('dragon'), false, `${label}: removed ones are gone`);
     }
-    // Leaving them all out (what a page that lists only the additions, or an empty list, sends) takes none of the core.
-    assert.equal((await call('PATCH', '/api/settings', { reactions: [], icons: [] })).status, 200);
-    assert.equal((await branding()).reactions.length, 105);
-    assert.equal((await branding()).icons.length, 113);
-    await call('PATCH', '/api/settings', { reactions: mine, icons: myIcons });
+    const stored = storedSettings();
+    assert.deepEqual([stored.reactions, stored.icons], [editedReactions, editedIcons], 'stored as saved');
   });
 
-  await test('Manage reads and posts the owner\'s OWN lists, so what a template adds never becomes the owner\'s', async () => {
+  await test('an empty reaction list is kept; allowReactions stays the switch', async () => {
+    const r = await call('PATCH', '/api/settings', { reactions: [] });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual([r.json.settings.ownReactions, (await branding()).reactions, (await look()).reactions, storedSettings().reactions], [[], [], [], []]);
+    assert.equal((await branding()).allowReactions, true, 'the switch is its own');
+    assert.equal((await saveEdited()).status, 200);
+  });
+
+  await test('refusals: a list that is not one, a list over its cap, a bad resetLists; only an owner writes the lists', async () => {
+    const tooMany = (n, make) => Array.from({ length: n }, (_, i) => make(i));
+    for (const [body, sentence] of [
+      [{ reactions: 'heart' }, 'reactions is a list of reactions.'],
+      [{ icons: { id: 'x' } }, 'icons is a list of icons.'],
+      [{ reactions: tooMany(301, (i) => ({ id: `r${i}`, glyph: `${i}`, label: `R ${i}` })) }, 'The reaction list holds at most 300 reactions.'],
+      [{ icons: tooMany(401, (i) => ({ id: `i${i}`, classes: 'fa-solid fa-cat', label: `I ${i}` })) }, 'The icon list holds at most 400 icons.'],
+      [{ resetLists: 'yes' }, 'resetLists is true, or left out.'],
+      [{ resetLists: true, reactions: [] }, 'Send resetLists or the lists, not both.'],
+    ]) {
+      const r = await call('PATCH', '/api/settings', body);
+      assert.deepEqual([r.status, r.json?.error], [400, sentence], JSON.stringify(body).slice(0, 60));
+    }
+    assert.deepEqual([(await settings()).ownReactions, (await settings()).ownIcons], [editedReactions, editedIcons], 'nothing refused was saved');
+    const made = await call('POST', '/api/users', { login: 'nell', displayName: 'Nell', role: 'member', password: 'nell-password-1' });
+    assert.equal(made.status, 201, made.text);
+    const admin = token;
+    try {
+      token = (await call('POST', '/api/login', { login: 'nell', password: 'nell-password-1' })).json.token;
+      assert.ok(token, 'the member signed in');
+      for (const body of [{ reactions: [] }, { icons: [] }, { resetLists: true }]) assert.equal((await call('PATCH', '/api/settings', body)).status, 403, `a member: ${Object.keys(body)[0]}`);
+      assert.equal((await call('GET', '/api/settings')).status, 403, 'nor reads the owner\'s settings');
+      token = '';
+      assert.equal((await call('PATCH', '/api/settings', { resetLists: true })).status, 401, 'signed out');
+    } finally {
+      token = admin;
+    }
+    assert.deepEqual([(await settings()).ownReactions, (await settings()).ownIcons], [editedReactions, editedIcons], 'unchanged');
+  });
+
+  await test('Manage reads and posts the environment\'s lists, so what a template adds never becomes the environment\'s', async () => {
     const src = fs.readFileSync(path.join(ROOT, 'public', 'admin.js'), 'utf8');
     assert.ok(/renderReactionRows\(settings\.ownReactions\)/.test(src) && /renderIconRows\(settings\.ownIcons\)/.test(src), 'the rows are filled from ownReactions and ownIcons');
     assert.equal(/render(Reaction|Icon)Rows\(settings\.(reactions|icons)\)/.test(src), false, 'never from the resolved lists');
     // What Manage does: read the settings, post the rows back as they are (the glyph, label and id of each, the icon's classes).
-    const got = (await call('GET', '/api/settings')).json.settings;
+    const got = await settings();
     const posted = await call('PATCH', '/api/settings', { reactions: got.ownReactions.map((r) => ({ id: r.id, glyph: r.glyph, label: r.label })), icons: got.ownIcons.map((i) => ({ id: i.id, classes: i.classes, label: i.label })) });
     assert.equal(posted.status, 200, posted.text);
     assert.deepEqual([posted.json.settings.ownReactions, posted.json.settings.ownIcons], [got.ownReactions, got.ownIcons], 'a round trip changes nothing');
-    // The stored lists hold none of the resolved lists' extra entries: with a template's additions the page would have saved them.
-    const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'app.json'), 'utf8')).settings;
-    assert.deepEqual([stored.reactions.length, stored.icons.length], [got.ownReactions.length, got.ownIcons.length]);
   });
 
-  await test('an icon the owner adds, and every core icon, may be the home icon; one nobody has may not', async () => {
+  await test('an icon the owner adds, and a built-in one still listed, may be the home icon; a removed one and one nobody has may not', async () => {
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'my-cat' })).status, 200);
-    assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'dragon' })).status, 200, 'a core one');
-    const bad = await call('PATCH', '/api/settings', { homeIcon: 'not-an-icon' });
-    assert.equal(bad.status, 400, bad.text);
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'ghost' })).status, 200, 'a built-in one');
+    for (const bad of ['dragon', 'not-an-icon']) {
+      const r = await call('PATCH', '/api/settings', { homeIcon: bad });
+      assert.equal(r.status, 400, `${bad}: ${r.text}`);
+    }
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
   });
 
@@ -150,19 +204,25 @@ try {
     assert.equal(JSON.stringify(stored.spaces).includes('boat'), false);
   });
 
-  await test('a template switch, to a copy of Project and back, leaves the owner\'s own reactions and icons as they were; the template\'s icons are read live', async () => {
-    const own = async () => { const s = (await call('GET', '/api/settings')).json.settings; return { ownReactions: s.ownReactions, ownIcons: s.ownIcons }; };
-    const stored = () => { const s = JSON.parse(fs.readFileSync(path.join(dataDir, 'app.json'), 'utf8')).settings; return { reactions: s.reactions, icons: s.icons }; };
+  await test('a template\'s additions come after the environment\'s list; one that repeats an entry in it is dropped, and the save is not refused; a switch copies nothing', async () => {
+    const own = async () => { const s = await settings(); return { ownReactions: s.ownReactions, ownIcons: s.ownIcons }; };
+    const stored = () => { const s = storedSettings(); return { reactions: s.reactions, icons: s.icons }; };
     const before = await own();
     const storedBefore = stored();
-    assert.deepEqual(before.ownIcons.map((i) => i.id), ['my-cat'], 'the owner has their own');
+    assert.deepEqual(before, { ownReactions: editedReactions, ownIcons: editedIcons });
     const copy = await call('POST', '/api/environment/templates', { from: 'project', id: 'myproject', name: 'My project' });
     assert.equal(copy.status, 201, copy.text);
     const tpl = (await call('GET', '/api/environment/templates/myproject')).json.template;
-    const edit = await call('PATCH', '/api/environment/templates/myproject', { modules: { ...tpl.modules, todo: { ...(tpl.modules.todo || {}), icon: 'list-check' } }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['anchor'] });
-    assert.equal(edit.status, 200, edit.text);
-    const added = ['diagram-project', 'list-check', 'anchor']; // its home icon, a module's icon, its iconSet: none of them core
-    for (const id of added) assert.equal(DEFAULT_ICON_LIST.some((i) => i.id === id), false, `${id} is not core`);
+    // Laugh (by id, another glyph), a glyph the environment has under another id, and an icon it has: each repeats.
+    const tplReactions = [{ id: 'laugh', glyph: '\u{1F639}', label: 'Cat laugh' }, { id: 'tick', glyph: '✅', label: 'Tick' }, { id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }];
+    const edit = await call('PATCH', '/api/environment/templates/myproject', { modules: { ...tpl.modules, todo: { ...(tpl.modules.todo || {}), icon: 'list-check' } }, reactions: tplReactions, iconSet: ['ghost', 'anchor'] });
+    assert.equal(edit.status, 200, `a repeat of the environment's list is not refused: ${edit.text}`);
+    // Removing Heart from the template's own view is no business of the template's: a built-in the environment removed
+    // may be a template's addition, and then it shows there.
+    const heartBack = await call('PATCH', '/api/environment/templates/myproject', { reactions: [...tplReactions, { id: 'heart', glyph: '❤️', label: 'Heart' }], iconSet: ['ghost', 'anchor', 'dragon'] });
+    assert.equal(heartBack.status, 200, heartBack.text);
+    const added = ['diagram-project', 'list-check', 'anchor', 'dragon']; // its home icon, a module's icon, its iconSet: none of them the environment's now
+    for (const id of added) assert.equal(editedIcons.some((i) => i.id === id), false, `${id} is not the environment's`);
     for (const [step, body] of [['switch to the copy', { template: 'myproject' }], ['confirm its offer', null], ['switch back to Default', { template: 'default' }], ['switch to Project', { template: 'project' }], ['and back again', { template: 'default' }]]) {
       const offer = body ? null : (await call('GET', '/api/environment/template')).json.offer;
       const r = body ? await call('PATCH', '/api/settings', body) : await call('POST', '/api/environment/template/apply', { modules: [], lobby: true, spaceDefaults: true, offerId: offer?.offerId, version: offer?.version });
@@ -170,10 +230,12 @@ try {
       assert.deepEqual(await own(), before, `${step}: ownReactions and ownIcons unchanged`);
       assert.deepEqual(stored(), storedBefore, `${step}: and so is what is stored`);
       const b = await branding();
-      const on = (await call('GET', '/api/settings')).json.settings.template?.id;
+      const on = (await settings()).template?.id;
       if (on === 'myproject') {
+        assert.deepEqual(b.reactions, [...editedReactions, tplReactions[2], { id: 'heart', glyph: '❤️', label: 'Heart' }], `${step}: the environment's list, then the additions; a repeat by id or glyph dropped`);
+        assert.deepEqual(ids(b.icons).slice(0, editedIcons.length), ids(editedIcons), `${step}: the environment's icons first, in order`);
+        assert.equal(ids(b.icons).filter((id) => id === 'ghost').length, 1, `${step}: an icon the environment has is not listed twice`);
         for (const id of added) assert.ok(ids(b.icons).includes(id), `${step}: ${id} is offered while the template is read`);
-        assert.ok(ids(b.reactions).includes('ship'), `${step}: its reaction too`);
         assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'list-check' })).status, 200, 'a template\'s icon may be picked while it is read');
         assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
         assert.deepEqual(await own(), before, 'picking one copies nothing');
@@ -183,9 +245,55 @@ try {
       } else {
         for (const id of added) assert.equal(ids(b.icons).includes(id), false, `${step}: ${id} goes with the template`);
         assert.equal(ids(b.reactions).includes('ship'), false);
-        assert.deepEqual(ids(b.icons).slice(113), ['my-cat'], `${step}: the core and the owner's own`);
+        assert.deepEqual([b.reactions, b.icons], [editedReactions, editedIcons], `${step}: the environment's own lists`);
       }
     }
+  });
+
+  await test('a removed icon still in use is drawn from inUseIcons, never offered, and a new pick of it is refused', async () => {
+    const removed = { home: 'ghost', link: 'dungeon', display: 'ring', layout: 'puzzle-piece', system: 'wand-sparkles' };
+    for (const id of Object.values(removed)) assert.ok(ids(editedIcons).includes(id), `${id} is offered before`);
+    const sp = (await call('POST', '/api/spaces', { name: 'In use', linkIcon: removed.link })).json.space.id;
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: removed.home })).status, 200);
+    assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: removed.display })).status, 200);
+    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Kept', modules: [], icon: removed.layout });
+    assert.equal(made.status, 201, made.text);
+    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: removed.system })).status, 200);
+    const fewer = editedIcons.filter((i) => !Object.values(removed).includes(i.id));
+    const saved = await call('PATCH', '/api/settings', { icons: fewer });
+    assert.equal(saved.status, 200, saved.text);
+    for (const [label, got] of [['branding', await branding()], ['a space\'s look', (await call('GET', `/api/spaces/${sp}/look`)).json.look]]) {
+      assert.deepEqual(got.icons, fewer, `${label}: not offered`);
+      for (const id of Object.values(removed)) assert.ok(got.inUseIcons.some((i) => i.id === id && i.classes === `fa-solid fa-${id}`), `${label}: ${id} drawn from inUseIcons`);
+    }
+    assert.equal((await branding()).homeIcon, removed.home, 'the home icon is kept');
+    const chat = (await call('GET', '/api/modules')).json.builtin.find((m) => m.id === 'chat');
+    assert.deepEqual([chat.displayIcon, chat.ownDisplayIcon], [removed.display, removed.display], 'the module keeps its display icon');
+    // Sent back unchanged: taken. A new pick: refused, each with its sentence.
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: removed.home })).status, 200);
+    assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: removed.display })).status, 200);
+    assert.equal((await call('PATCH', `/api/spaces/${sp}`, { linkIcon: removed.link })).status, 200);
+    for (const [label, r, sentence] of [
+      ['home icon', await call('PATCH', '/api/settings', { homeIcon: removed.link }), 'unknown home icon'],
+      ['link icon', await call('PATCH', `/api/spaces/${space}`, { linkIcon: removed.link }), LINK_REFUSED],
+      ['display icon', await call('PATCH', '/api/modules/chat', { displayIcon: removed.home }), `There is no icon called ${removed.home} in this environment's icons.`],
+      ['saved layout', await call('POST', `/api/spaces/${sp}/layouts`, { name: 'New', modules: [], icon: removed.layout }), 'Pick an icon from the list.'],
+      ['system layout', await call('PATCH', `/api/spaces/${space}/layouts/system/workspace`, { icon: removed.system }), 'Pick an icon from the list.'],
+    ]) assert.deepEqual([r.status, r.json?.error], [400, sentence], label);
+    // Tidy: the built-in set again (Start again), and nothing in use.
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
+    assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: null })).status, 200);
+    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: null })).status, 200);
+    assert.equal((await call('DELETE', `/api/spaces/${sp}`)).status, 200);
+    assert.deepEqual((await branding()).inUseIcons, [], 'once unused, drawn no more');
+  });
+
+  await test('Start again from the built-in set restores the 105 and 113, everywhere they are read', async () => {
+    const r = await call('PATCH', '/api/settings', { resetLists: true });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual([r.json.settings.ownReactions, r.json.settings.ownIcons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST]);
+    for (const got of [await branding(), await look()]) assert.deepEqual([got.reactions, got.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST]);
+    assert.deepEqual([storedSettings().reactions, storedSettings().icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST]);
   });
 
   // Every icon a picker shows is one the save takes (Thomas: a picker never offers what the save refuses). The pickers
@@ -352,7 +460,7 @@ try {
     // More than 200 offered icons in use, and one that is not offered: the offered ones are taken out before the cap.
     const st2 = new S(fs.mkdtempSync(path.join(templatesDir, 'cap-')));
     const solid = fs.readdirSync(path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free', 'svgs', 'solid')).map((f) => f.slice(0, -4)).filter((id) => !DEFAULT_ICON_LIST.some((c) => c.id === id) && id !== 'hippo');
-    st2.updateSettings({ icons: solid.slice(0, 150).map((id) => ({ id, classes: `fa-solid fa-${id}`, label: id })) });
+    st2.updateSettings({ icons: [...DEFAULT_ICON_LIST, ...solid.slice(0, 150).map((id) => ({ id, classes: `fa-solid fa-${id}`, label: id }))] });
     const offered = ids(st2.lookOf(null).icons);
     assert.ok(offered.length > 200, `more than 200 offered: ${offered.length}`);
     for (const [i, id] of offered.entries()) st2.data.spaces.push({ ...st2.sanitizeSpace({ id: 'abcd1234', name: 'O' }), id: `o${i}`, linkIcon: id });
@@ -446,6 +554,10 @@ const cookieOf = (res) => [].concat(res.headers?.['set-cookie'] || []).map((c) =
 await test('a stored home icon or link icon that is no Font Awesome icon (an import, a hand edit) is never published, signed out', async () => {
   const file = path.join(dataDir, 'app.json');
   const app = JSON.parse(fs.readFileSync(file, 'utf8'));
+  // The environment's lists, edited, as a restart must keep them: filled once, never again.
+  app.settings.reactions = app.settings.reactions.filter((r) => r.id !== 'heart').reverse();
+  app.settings.icons = app.settings.icons.filter((i) => i.id !== 'dragon').reverse();
+  const keptLists = { reactions: app.settings.reactions, icons: app.settings.icons };
   const odd = ['fw', '10x', 'rotate-180', 'flip-both', 'sr-only', 'stack', '../evil', 'spin'];
   app.settings.homeIcon = 'sr-only';
   const base = app.spaces.find((r) => r.id !== 'lobby');
@@ -461,6 +573,7 @@ await test('a stored home icon or link icon that is no Font Awesome icon (an imp
     for (const id of odd) assert.equal([...b.json.icons, ...b.json.inUseIcons].some((i) => String(i.classes).includes(`fa-${id}`)), false, `no class fa-${id}`);
     assert.ok(b.json.inUseIcons.some((i) => i.id === 'hippo' && i.classes === 'fa-solid fa-hippo'), 'a real icon in use is');
     for (const i of b.json.inUseIcons) assert.equal(i.classes, `fa-solid fa-${i.id}`);
+    assert.deepEqual([b.json.reactions, b.json.icons], [keptLists.reactions, keptLists.icons], 'the lists survive a restart as saved');
   } finally {
     await again.stop();
   }
@@ -485,35 +598,50 @@ await test('hosted: an icon in use in one environment is never in another\'s inU
     assert.deepEqual(a.inUseIcons, [{ id: 'diagram-project', classes: 'fa-solid fa-diagram-project' }], 'A draws its own');
     assert.deepEqual(b.inUseIcons, [], 'B never sees A\'s');
     assert.equal(ids(b.icons).includes('diagram-project'), false);
+    // Each environment's lists start from the built-in set and stay its own.
+    assert.deepEqual([b.reactions, b.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST], 'B starts from the built-in set');
+    const cut = await hcall(hs, 'aaa', 'PATCH', '/api/settings', { cookie: c, body: { reactions: DEFAULT_REACTION_LIST.slice(1, 4), icons: DEFAULT_ICON_LIST.slice(5, 7) } });
+    assert.equal(cut.status, 200, cut.text);
+    assert.deepEqual([cut.json.settings.ownReactions, cut.json.settings.ownIcons], [DEFAULT_REACTION_LIST.slice(1, 4), DEFAULT_ICON_LIST.slice(5, 7)]);
+    const b2 = (await hcall(hs, 'bbb', 'GET', '/api/branding')).json;
+    assert.deepEqual([b2.reactions, b2.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST], 'A\'s edit leaves B\'s lists as they were');
+    const reset = await hcall(hs, 'aaa', 'PATCH', '/api/settings', { cookie: c, body: { resetLists: true } });
+    assert.deepEqual([reset.status, reset.json?.settings?.ownReactions?.length, reset.json?.settings?.ownIcons?.length], [200, 105, 113], 'A starts again from the built-in set');
   } finally {
     await hs.stop();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-await test('a template\'s additions: after the core and the owner\'s own, once each, only where the template is read, never copied or offered', () => {
+await test('a template\'s additions: after the environment\'s list, a repeat of it dropped, once each, only where the template is read, never copied', () => {
   const dir = fs.mkdtempSync(path.join(templatesDir, 'store-'));
   const store = new Store(dir);
-  const project = templates.cleanTemplate({ id: 'project', name: 'Project', description: 'x', modules: { chat: {} }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }, { id: 'yes2', glyph: '✅', label: 'Twice' }], iconSet: ['diagram-project', 'cat'] });
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST], 'a new store\'s lists are the built-in set');
+  const project = templates.cleanTemplate({ id: 'project', name: 'Project', description: 'x', modules: { chat: {} }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }, { id: 'yes2', glyph: '✅', label: 'Twice' }, { id: 'up', glyph: '\u{1F44D}\u{1F3FD}', label: 'Up again' }], iconSet: ['diagram-project', 'cat', 'dragon'] });
   store.templateById = (id) => (id === 'project' ? project : templates.get(id) || null);
   store.catalogModuleIds = () => ['chat'];
-  store.updateSettings({ reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }], icons: [{ id: 'cat', classes: 'fa-solid fa-cat', label: 'cat' }] });
+  const envReactions = [{ id: 'yes', glyph: '✅', label: 'Yes' }, ...DEFAULT_REACTION_LIST];
+  const envIcons = [{ id: 'cat', classes: 'fa-solid fa-cat', label: 'cat' }, ...DEFAULT_ICON_LIST.filter((i) => i.id !== 'dragon')];
+  store.updateSettings({ reactions: envReactions, icons: envIcons });
   const space = store.addSpace({ name: 'Bridge', template: 'project' });
   const plain = store.addSpace({ name: 'Plain' });
   const mine = store.lookOf(space.id);
-  assert.deepEqual(mine.reactions.slice(0, 105), DEFAULT_REACTION_LIST);
-  assert.deepEqual(ids(mine.reactions).slice(105), ['yes', 'ship'], 'the owner\'s own, then the template\'s; a glyph the owner has already is not listed twice');
-  assert.deepEqual(ids(mine.icons).slice(113), ['cat', 'diagram-project'], 'the same for icons');
-  assert.deepEqual(ids(store.lookOf(plain.id).reactions).slice(105), ['yes'], 'a space on no template of its own reads the environment\'s, not project\'s');
-  assert.deepEqual(ids(store.lookOf(null).icons).slice(113), ['cat']);
-  assert.deepEqual([store.settings.reactions.map((r) => r.id), store.settings.icons.map((i) => i.id)], [['yes'], ['cat']], 'nothing of the template is copied into the settings');
+  assert.deepEqual(mine.reactions.slice(0, 106), envReactions, 'the environment\'s list first, whole and in order');
+  assert.deepEqual(ids(mine.reactions).slice(106), ['ship'], 'then the template\'s; a glyph or an id the environment has already is dropped');
+  assert.deepEqual(ids(mine.icons).slice(0, 113), ids(envIcons));
+  assert.deepEqual(ids(mine.icons).slice(113), ['diagram-project', 'dragon'], 'the same for icons: cat is the environment\'s already; dragon, removed there, is the template\'s addition');
+  assert.deepEqual(store.lookOf(plain.id).reactions, envReactions, 'a space on no template of its own reads the environment\'s, not project\'s');
+  assert.deepEqual(store.lookOf(null).icons, envIcons);
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [envReactions, envIcons], 'nothing of the template is copied into the settings');
   assert.equal(store.iconIds().includes('diagram-project'), false, 'a template only a space reads is not the environment\'s');
   templates.useLive(store, project);
   assert.equal(store.iconIds().includes('diagram-project'), true, 'the environment\'s own template\'s icons are the environment\'s: its pickers and checks know them');
-  assert.deepEqual(ids(store.lookOf(plain.id).reactions).slice(105), ['yes', 'ship'], 'and a space reading it');
-  // The core is the same object for no reader: a reader that changes its answer changes nothing.
-  mine.reactions[0].glyph = 'x';
-  assert.equal(store.lookOf(space.id).reactions[0].glyph, DEFAULT_REACTION_LIST[0].glyph);
+  assert.deepEqual(ids(store.lookOf(plain.id).reactions).slice(106), ['ship'], 'and a space reading it');
+  // A reader that changes its answer changes nothing stored, and nothing of the built-in lists.
+  mine.reactions[1].glyph = 'x';
+  mine.icons[1].classes = 'fa-solid fa-x';
+  assert.equal(store.lookOf(space.id).reactions[1].glyph, DEFAULT_REACTION_LIST[0].glyph);
+  assert.equal(store.settings.icons[1].classes, DEFAULT_ICON_LIST[0].classes);
   assert.equal(DEFAULT_REACTION_LIST[0].glyph, '❤️');
 });
 

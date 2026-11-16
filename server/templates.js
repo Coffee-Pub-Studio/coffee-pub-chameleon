@@ -3,7 +3,7 @@
 // Templates (documentation/plans/plan-templates-redesign.md, "The template, as stored"; and plan-environment-templates.md
 // for picking and switching): a template is a lens over the environment's catalog. It renames the words people may rename
 // (space and member; home and the Lobby only as the environment's default template), offers a set of the catalog's
-// modules and names them, adds reactions and icons to the fixed core set, and says what a new space and a new
+// modules and names them, adds reactions and icons to the environment's own lists, and says what a new space and a new
 // environment start with. One shape for every source: the bundled files (templates/<id>.json), the host's (host.json)
 // and the owner's own (app.json).
 //
@@ -23,7 +23,6 @@ const path = require('path');
 const crypto = require('crypto');
 const words = require('./words');
 const { SPACE_NAME_MAX, SPACE_PROFILES, QUALITY_OPTIONS, LANGUAGES, CURRENCIES, LOBBY, displayNameProblem } = require('./store');
-const { DEFAULT_REACTION_LIST, DEFAULT_ICON_NAMES } = require('./default-lists');
 const { deepFreeze } = require('./deep-freeze');
 const { SYSTEM_IDS } = require('./layouts');
 const { bundledModules, buildModule } = require('./module-build');
@@ -51,12 +50,12 @@ const MAX_PHASES = 12;
 const MAX_OPENS_WITH = 20;
 const PHASE_KEYS = ['id', 'label', 'main', 'icon'];
 const PHASE_MEASURES = ['dates', 'goals', 'progress'];
-// Additions only (decision 12): the core set is server/default-lists.js's.
+// Additions only (decision 12, corrected 2026-11-16): added on top of the environment's own lists, which a template
+// never sees. A repeat of an entry already in an environment's list is dropped where the lists are joined
+// (Store#lookOf, Store#allIcons), never refused here: a template does not know which environment will read it.
 const MAX_REACTIONS = 40;
 const MAX_ICON_SET = 60;
 const REACTION_ID_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
-const CORE_REACTIONS = DEFAULT_REACTION_LIST;
-const CORE_ICONS = DEFAULT_ICON_NAMES;
 // The core call settings a template may give (decision 16). The tile layouts are the call's own (public/space.js).
 // The Default Workspace (decision 8): the Fixed Workspaces are every system layout but the Workspace itself.
 const WORKSPACE_KEYS = ['opensWith', 'show', 'opensFirst'];
@@ -360,8 +359,7 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
         if (!plainText(r.glyph, 8)) { say(`reactions[${i}]: each reaction needs a glyph of 1 to 8 characters.`); return; }
         if (r.label !== undefined && !plainText(r.label, 40)) say(`reactions[${i}]: a label is plain text of 1 to 40 characters.`);
         const glyph = r.glyph.trim();
-        if (CORE_REACTIONS.some((c) => c.glyph === glyph || c.id === r.id)) say(`reactions[${i}]: ${glyph} is in the core set already; a template only adds.`);
-        else if (glyphs.has(glyph) || ids.has(r.id)) say(`reactions[${i}]: ${glyph} is listed twice.`);
+        if (glyphs.has(glyph) || ids.has(r.id)) say(`reactions[${i}]: ${glyph} is listed twice.`);
         glyphs.add(glyph);
         ids.add(r.id);
       });
@@ -373,7 +371,6 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
       const seen = new Set();
       for (const icon of raw.iconSet) {
         if (!drawable(icon, faDir)) say(`iconSet: "${shown(icon)}" is not a Font Awesome Free solid icon.`);
-        else if (CORE_ICONS.includes(icon)) say(`iconSet: "${icon}" is in the core set already; a template only adds.`);
         else if (seen.has(icon)) say(`iconSet: "${icon}" is listed twice.`);
         seen.add(icon);
       }
@@ -598,7 +595,7 @@ async function applyTemplate(env, template, { allowed = () => true, modulesDir =
   const defaults = spaceDefaultsOf(template);
   if (Object.keys(defaults).length) store.updateSettings({ spaceDefaults: defaults });
   // The home icon itself stays the template's (settings.homeIcon unset) until the owner picks one. Its icons are read
-  // live (store.allIcons), never copied into the owner's own list (decision 12).
+  // live (store.allIcons), never copied into the environment's own list (decision 12).
   if (template.icons.home) store.updateSettings({ homeIcon: null });
   store.updateSettings({ conferenceEnabled: offers(template, 'conference') });
   return turnOnModules(env, modulesToTurnOn(template), { allowed, modulesDir, name });

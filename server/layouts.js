@@ -609,6 +609,21 @@ class Layouts {
     return true;
   }
 
+  // Every icon id a stored layout choice names, in every space: saved layouts' icons (shared and each person's) and each
+  // person's icon for a system layout. Read by Store#inUseIconIds, so an icon the owner removes from the environment's
+  // list still draws where it is used. Ids only, each once; nothing is changed.
+  iconIds() {
+    const ids = new Set();
+    for (const entry of Object.values(this.spaces)) {
+      for (const l of entry.shared || []) if (typeof l.icon === 'string') ids.add(l.icon);
+      for (const list of Object.values(entry.people || {})) for (const l of list) if (typeof l.icon === 'string') ids.add(l.icon);
+      for (const record of Object.values(entry.system || {})) {
+        for (const choice of Object.values(record)) if (typeof choice.icon === 'string') ids.add(choice.icon);
+      }
+    }
+    return [...ids];
+  }
+
   // A removed space takes its layouts, shared and personal.
   forgetSpace(spaceId) {
     if (this.unreadable || !this.spaces[spaceId]) return;

@@ -2,9 +2,12 @@
 
 const { deepFreeze } = require('./deep-freeze');
 
-// The FIXED core reaction tray and Font Awesome icon list (GitHub #169: Thomas's curated sets; plan-templates-redesign.md,
-// decision 12). Every environment and every space has all of them and nothing removes one; an owner's own additions
-// (settings.reactions, settings.icons) and a template's (`reactions`, `iconSet`) come after them. server/store.js reads these.
+// The built-in reaction tray and Font Awesome icon list (GitHub #169: Thomas's curated sets; plan-templates-redesign.md,
+// decision 12 as corrected 2026-11-16). Starting content only: an environment's own lists (settings.reactions,
+// settings.icons) are filled from these once, when its store is first loaded (Store#load), and again only when its owner
+// asks to start again from the built-in set. From then on the lists are the environment's, and its owner may remove,
+// reorder and add to them. The owner's settings answer carries these too (`builtIn`), so the pages can show them. A
+// template's additions (`reactions`, `iconSet`) come after the environment's list.
 
 // The reaction tray: { id, glyph, label }, in order. The first six are the 1-6 shortcuts in the call.
 const DEFAULT_REACTION_LIST = [
