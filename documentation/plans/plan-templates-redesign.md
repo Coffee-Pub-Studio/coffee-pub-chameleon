@@ -1,7 +1,7 @@
 # Templates Redesign Plan
 
-**Audience:** Thomas has decided everything under "Decisions"; the questions the 2026-11-16 correction raises are under
-"Open questions". server-development builds the
+**Audience:** Thomas has decided everything under "Decisions", including questions A to E of the 2026-11-16 correction
+(decisions 53 to 57); one reading and one smaller question are under "Open questions". server-development builds the
 template format, the resolution per space, the module manifest fields, the shared outline pieces of the SDK and the
 checks; experience-design builds the Manage pages, Set up, the host console pages and the two
 new planner modules; each existing module's change is its own module-lane build with a version bump. Steps marked
@@ -19,7 +19,9 @@ differently than planned", marked **Divergence called out**.
 icons belong to the environment, as a whole list its owner edits, starting from today's built-in 105 reactions and 113
 icons; a template only adds to it. The built state (an owner adds on top of a fixed set held in code) is wrong and is
 rebuilt by steps 18 to 23. The host console's template editor becomes tabs, one part per screen (decision 52, step 22).
-Four questions the correction raises are open, each with a recommendation; none blocks step 18.
+Thomas answered the correction's questions A to D on 2026-11-16 (decisions 53 to 56), each as recommended, and gave his
+own answer to E (decision 57), which is decided on one stated reading; the cap question is still open. Nothing blocks
+step 18.
 Revised 2026-11-15 by product-planner. The first draft (#831) suggested
 modes inside one Planner; Thomas decided the other way the same day: **dedicated planners, one module per genuinely
 different shape** (decision 28). His test, in his words as recorded: are the variations between the possible planners
@@ -365,6 +367,25 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
     Reactions, Icons, Starter spaces) are real tabs, one part per screen, with one **Save template** for the whole
     template. It is the same pattern as Manage's tabs: two levels of navigation (the console's sections, then the
     template's parts), not three. The template list and the console's top list do not change.
+53. **An owner may remove any entry that came from the built-in set** (Thomas, 2026-11-16, by clickable answer; was
+    question A). Once copied, the list is the environment's, and decision 12 says the owner edits the whole list. The
+    cost, accepted: an owner can remove Heart or Thumbs up, and the keys 1 to 6 follow whatever is first.
+54. **One way back to the built-in lists** (Thomas, 2026-11-16, by clickable answer; was question B): a single **Start
+    again from the built-in set** button under both lists, with a confirm, replacing both lists. It is the only way
+    back after a removal.
+55. **A template's addition that repeats an entry in the environment's list is dropped where the lists are joined**
+    (Thomas, 2026-11-16, by clickable answer; was question C). A template's save is never refused for it, because a
+    template is written once and read by many environments whose lists differ.
+56. **What the template pages show of the environment's set** (Thomas, 2026-11-16, by clickable answer; was question
+    D): the environment's current lists, read only and folded, so the author sees what the template adds to. On the
+    host console, which belongs to no environment, the built-in lists, labelled as what an environment's set starts as.
+57. **The additions owners saved under the old rule** (Thomas, 2026-11-16; was question E). The box offered "refill
+    from the built-in set, drop old additions (no migration)" or "keep old additions after the built-ins (one-time
+    rewrite)". Thomas picked neither and wrote: "you need to get me a list of existing I can migrate." **Reading
+    (product-planner's, not confirmed by Thomas):** the code carries nothing over, as `CLAUDE.md` says (no data
+    migration); a list of each environment's stored additions is produced for him before the change reaches his server,
+    and he adds again by hand what he wants. If he meant a code migration, he will say so, and step 18 changes. See
+    "Open questions".
 
 ## How a module changes with its template (the mechanism)
 
@@ -478,7 +499,7 @@ Documents step writes the real one. The module id `schedule` is decision 43's.)
   removing from them. *Corrected 2026-11-16:* this said "a repeat of the core set is refused". The built-in set is now
   only the starting content of an environment's lists, so a template's save is checked for its own shape and its own
   repeats only; an addition that repeats an entry of the environment's list is dropped where the lists are joined
-  (open question C, recommended).
+  (decision 55).
 - **`theme`**: removed (decision 13); a file that has it is refused with the unknown-field sentence.
 - **`settings`** (the environment-wide allow-list) stays, applied once when an environment is made from the template,
   without the theme keys.
@@ -718,8 +739,7 @@ To-do's owners are a new To-do setting (`owners`, boolean, space, `default`, off
 
 ### The correction of 2026-11-16: the environment's reactions and icons (server-development, then experience-design; core)
 
-Decision 12 as corrected. Where an answer below depends on an open question, it says which one and follows the
-recommendation; the build follows Thomas's answer if it differs.
+Decision 12 as corrected. Where a rule below rests on one of Thomas's answers to the correction's questions, it names the decision (53 to 57).
 
 **Server** (server-development; core):
 
@@ -730,16 +750,17 @@ recommendation; the build follows Thomas's answer if it differs.
   (`cleanReactions()`, `cleanIcons()`), with repeats inside a list dropped.
 - **The built-in lists are starting content only.** `server/default-lists.js` keeps the 105 reactions and 113 icons as
   they are, read in two places only: when an environment's lists are first filled, and for **Start again from the
-  built-in set** (open question B). Its header comment says so instead of "nothing removes one".
+  built-in set** (decision 54). Its header comment says so instead of "nothing removes one".
 - **A new environment** (a single-environment install's first start, or a hosted environment made by the host) copies
   the built-in lists into its settings when its store is made.
 - **An existing environment whose lists were never filled from the built-in set** reads as not yet edited, and gets the
   built-in lists, once, when its store loads, as themes are seeded today. How "filled" is marked is the builder's (a
   flag such as `homeIconChoiceSeeded` is today). What the old rule stored there, the owner's additions only, is not
   carried over: the product is not released, there is no data migration, and test data may be reset (`CLAUDE.md`).
-  Thomas adds them again by hand if he wants them (open question E).
+  Thomas adds them again by hand if he wants them (decision 57, on its stated reading; a list of what was stored is
+  produced for him first).
 - **A save** (`PATCH` of the environment's settings with `reactions` or `icons`) stores the list as sent, in its order,
-  cleaned for shape. Removing an entry that came from the built-in set is allowed (open question A). An empty
+  cleaned for shape. Removing an entry that came from the built-in set is allowed (decision 53). An empty
   reaction list is stored as empty; `allowReactions` stays the switch that turns reactions off.
 - **Resolution** (`lookOf()`, `allIcons()`, `iconIdsFor()`, `spaceIconIds()`, `displayIconIds()`): the environment's
   list first, in its order, then the template's additions (`reactions`; for icons `iconSet`, its home icon and its
@@ -749,7 +770,7 @@ recommendation; the build follows Thomas's answer if it differs.
 - **A template's save** (`server/templates.js`): `reactions` and `iconSet` keep their caps (40 and 60), their shape
   rules and the refusal of a repeat inside the template's own list. The refusal of a repeat of the built-in set
   (`CORE_REACTIONS`, `CORE_ICONS`, "is in the core set already; a template only adds.") is removed: a template does
-  not know which environment will read it, so a repeat is dropped where the lists are joined instead (open question C).
+  not know which environment will read it, so a repeat is dropped where the lists are joined instead (decision 55).
 - **Branding and the look:** `/api/branding` and a space's `/look` answer `reactions` and `icons` from the resolution
   above, in the same shape as today, so the pages, the call's tray, the OBS views, chat and every icon picker read
   them unchanged.
@@ -769,13 +790,13 @@ recommendation; the build follows Thomas's answer if it differs.
   yet." and "is already built in" go. Reactions: every row editable (emoji and label), **Remove**, a way to reorder
   that reuses a list pattern Manage already has, **Add reaction**, **Save**; the hint keeps "The first six are keys 1 to
   6." Icons: the same rows, with the pasted HTML and its preview as today. Below both, **Start again from the built-in
-  set** with a confirm (open question B): "Replace your reactions and icons with the built-in set? Your changes to
+  set** with a confirm (decision 54): "Replace your reactions and icons with the built-in set? Your changes to
   them are lost." Words follow the Names section; colours come from the theme tokens.
 - **Manage > Template > Additional Reactions and Icons** and **the console's Reactions and Icons tabs** edit only the
   template's additions, and say for both lists: "Added on top of the {environment}'s set." (the console, which has no
   environment, says "Added on top of an environment's set."). The console's Icons text today lacks it. "The core set"
   heading, its "Always there, in every template. Nobody removes them." and "On top of the core set" go.
-- **What a template page shows of the environment's set** (open question D): the environment's current lists, read
+- **What a template page shows of the environment's set** (decision 56): the environment's current lists, read
   only, folded, headed "The {environment}'s set (<n>)". The console, which edits templates for every environment,
   shows the built-in lists instead, headed "An environment's set starts as these (<n>)".
 
@@ -1204,7 +1225,7 @@ Each is a **Divergence called out**; none changes a decision unless it says so.
 25. **Divergence called out: Additional Reactions and Icons keeps the read-only core grid** (Thomas, 2026-11-15).
     This departs from the note under decision 12, which said the page shows only the template's additions.
     *Superseded in part, 2026-11-16:* the grid it shows is the built-in set from code; after the correction it shows the
-    environment's current lists, read only (open question D), see item 32.
+    environment's current lists, read only (decision 56), see item 32.
 26. **Divergence called out: `inUseIcons`.** Not in the plan: the resolver's look also carries the icons in use (the
     home icon and each space's link icon) that the lists do not hold, for drawing only; no picker offers them.
     Template icons are never copied into the owner's own lists.
@@ -1297,37 +1318,27 @@ planner modules, do not start until 11a is merged and Thomas has seen it, unless
 rule). Steps 20 and 21 follow 18. Step 22 does not depend on 18 and can start at once, beside it; it touches the same
 console Reactions and Icons parts as 21, so 21's console text lands after 22 or in the same change. Step 23 last, then
 content-manager updates the guides (the environment settings guide's Reactions and Icons, the templates guide's
-Additional Reactions and Icons and the console's editor) and the architecture's templates section. Open questions A to
-E are answered by their recommendations unless Thomas says otherwise; none blocks step 18 or 22.
+Additional Reactions and Icons and the console's editor) and the architecture's templates section. Questions A to
+E are decided (decisions 53 to 57); none blocks step 18 or 22. Before step 18 reaches Thomas's server, the stored
+additions of each environment are listed for him (decision 57); the list is a task for server-development beside step
+18, read from each environment's `settings.reactions` and `settings.icons` as they are now, and it changes no data.
 
 ## Open questions
 
 Thomas answered the first draft's thirteen on 2026-11-15; they are decisions 35 to 47. The correction of 2026-11-16
-raises these. Each has a recommendation (a suggestion, not a decision); the contract follows it until Thomas answers.
-None blocks step 18 or step 22.
+raised questions A to E; Thomas answered them the same day (decisions 53 to 57). What is left:
 
-- **A. Can an owner remove an entry that came from the built-in set?** Recommended: yes. Once copied, the list is the
-  environment's, and decision 12 says the owner edits the whole list. The cost: an owner can remove Heart or Thumbs up,
-  and the keys 1 to 6 follow whatever is first. The other way (built-ins locked in the list) keeps the defect Thomas
-  corrected.
-- **B. Is there a way back to the built-in lists?** Recommended: yes, one **Start again from the built-in set** button
-  under both lists, with a confirm, replacing both lists. It costs one button and one confirm, and is the only way back
-  after a removal. Separate buttons per list are possible but add a control for little.
-- **C. A template's addition that repeats an entry already in the environment's list: shown twice, dropped, or
-  refused?** Recommended: dropped where the lists are joined, never refusing the template's save. A template is
-  written once and read by many environments whose lists differ; refusing it would make a template valid in one
-  environment and not another. Showing it twice puts the same emoji or icon in the tray twice.
-- **D. What do the template pages show of the environment's set?** Recommended: the environment's current lists, read
-  only and folded, so the author sees what the template adds to; on the console, which belongs to no environment, the
-  built-in lists, labelled as what an environment's set starts as. The other way, showing nothing, makes a repeat
-  (question C) hard to see.
-- **E. The additions owners saved under the old rule.** An existing environment's stored list holds only the owner's
-  additions; the correction fills it with the built-in lists and does not carry the old additions (no data migration,
-  `CLAUDE.md`). Recommended: accept that; the product is not released and the additions are few and test data. The
-  other way, the built-in lists followed by the old additions, is a one-time rewrite of stored data, which the
-  no-migration rule forbids unless Thomas allows it.
+- **E, the one open reading.** Thomas's answer to E is his own words, not either offered choice: "you need to get me a
+  list of existing I can migrate." This plan reads it as: the code migrates nothing; a list of each environment's stored
+  additions is produced for him before the change reaches his server, and he re-adds what he wants by hand. If he
+  meant that the code should carry the old additions over (the built-in lists followed by the old additions, a
+  one-time rewrite of stored data), the no-migration rule in `CLAUDE.md` needs his word to allow it, and step 18 grows.
+  Not decided; does not block step 18, which is written for the reading above.
 - **Not decided, smaller:** whether an environment's lists have a cap (today's owner lists have none; a template's are
   40 and 60). Not blocking.
+
+Where this plan differs from what Thomas said: nowhere for A to D, whose wording follows the recommendations he
+accepted. For E it records his words and adds the reading above, which is ours.
 
 **Where the steps stand (2026-11-15):** merged: 1 and 11a (#838), 2 and 3 (#840), 4 (#846), 5 (#845), 6 (#843), 7 (#844,
 #852), 8 (#847), 9 (#837), 10 (#836), 11b (#851), 12 (#850), 13 (#858), 14 (#859), 15 (#853) and 15b (#860). Also merged
@@ -1335,4 +1346,4 @@ after the plan: Vault in every template (#855), the phase id fix (#856). Step 16
 documentation of batches 9 and 10: landed (#861 and after), with the gaps under "Built differently than planned" recorded in
 `documentation/known-issues.md`.
 
-**The correction (2026-11-16):** steps 18 to 23 are not started. Open questions A to E are under "Open questions".
+**The correction (2026-11-16):** steps 18 to 23 are not started. Questions A to D are decided (decisions 53 to 56); E is decided on a stated reading that Thomas has not yet confirmed (decision 57, "Open questions").
