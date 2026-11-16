@@ -6806,6 +6806,7 @@ body.chat-window {
   .tp-list .list-row .icon-pick summary, .tp-list .list-row input[type="text"], .tp-list .list-row .sdk-colour-pick, .tp-list .list-row input[type="color"] { min-height: 44px; min-width: 44px; box-sizing: border-box; }
   #words-panel .tf-word input[type="text"] { min-height: 44px; box-sizing: border-box; }
   .tp-list .list-row .btn, .tp-list > .list-setting > .btn { --btn-h: 44px; min-width: 44px; }
+  .reaction-row .btn { min-width: 44px; }
   .tp-actions .btn, .reaction-row .btn, #tab-template .row .btn, .module-setting .setting-mark .btn { --btn-h: 44px; }
   .tp-phase .tp-main, .tp-module-head { min-height: 44px; }
   .tp-chip { min-width: 44px; height: 44px; }

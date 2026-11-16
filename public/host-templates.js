@@ -479,8 +479,8 @@ $('te-module-display').addEventListener('input', (e) => {
 });
 // The built-in lists, read only and folded under each list: what an environment's set starts as. The console has no environment.
 function drawSets() {
-  $('te-reactions-set').innerHTML = builtInLists ? setFoldHtml('', builtInLists.reactions.length, setReactionChips(builtInLists.reactions)) : '';
-  $('te-icons-set').innerHTML = builtInLists ? setFoldHtml('', builtInLists.icons.length, setIconChips(builtInLists.icons)) : '';
+  $('te-reactions-set').innerHTML = builtInLists ? setFoldHtml(word('environment', { a: true }), builtInLists.reactions.length, setReactionChips(builtInLists.reactions), { starts: true }) : '';
+  $('te-icons-set').innerHTML = builtInLists ? setFoldHtml(word('environment', { a: true }), builtInLists.icons.length, setIconChips(builtInLists.icons), { starts: true }) : '';
 }
 const iconSetNames = () => $('te-icon-set').value.split(/[\s,]+/).map((s) => s.trim().replace(/^fa-/, '')).filter(Boolean);
 function previewIconSet() { $('te-icon-preview').innerHTML = iconSetNames().slice(0, 60).map((n) => `<i class="fa-solid fa-${escapeHtml(n)} fa-fw" title="${escapeHtml(n)}"></i>`).join(''); }
