@@ -9,6 +9,7 @@ import { addSpaceFlow, moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
 import { fileText } from '/file-text.js';
 import { rowTabs } from '/page-tabs.js';
+import { mountAgentPage, agentName } from '/agent-page.js';
 import { moduleConfigMarkup, drawModuleConfig } from '/module-config.js';
 import { nav } from '/nav-bar.js';
 import { mountAiForm } from '/ai-form.js';
@@ -117,6 +118,14 @@ function scrollToChosen(strip) {
   }
 }
 let tabNow = 'environment';
+// An agent's page (agent-page.js) is open on the Users tab while the address is #agent/<key>. Declared here: selectTab runs before
+// the rest of the page has loaded.
+let agentKey = '';
+let agentShown = ''; // the agent the page was last opened for
+let agentPage = null;
+let agentsServer = false; // settings.agentTokens: the server's variable AGENT_TOKENS
+let agentsOn = false; // settings.agents: this environment's own switch
+let hour12 = true;
 // The Template tab's address (without the #): its part, and for a template's own pages the template.
 const tplHash = () => (tplPart === 'main' ? 'template' : tplPart === 'list' ? `template/${tplPart}` : `template/${tplId || (madeFrom && madeFrom.id) || 'default'}/${tplPart}`);
 function showTplPart(part, id = '') {
@@ -135,6 +144,10 @@ function selectTab(name) {
   let tpl = null;
   const tm = name && /^template\/(?:([a-z][a-z0-9-]{0,31})\/)?(basics|labels|workspace|phases|reactions|modules|list)$/.exec(name);
   if (tm) { tpl = { part: tm[2], id: tm[1] || '' }; name = 'template'; }
+  // An agent's page: #agent/<key>, on the Users tab.
+  let agentAt = '';
+  const am = name && /^agent\/([A-Za-z0-9_-]{1,40})$/.exec(name);
+  if (am) { agentAt = am[1]; name = 'users'; }
   let part = 'general';
   if (ENV_PARTS.includes(name)) {
     part = name;
@@ -157,6 +170,8 @@ function selectTab(name) {
   if (inTpl) tpl = { part: inTpl.dataset.tplPart, id: '' };
   const tab = TABS.includes(name) ? name : 'environment';
   tabNow = tab;
+  agentKey = tab === 'users' ? agentAt : '';
+  showAgent();
   for (const t of TABS) $(`tab-${t}`).hidden = tab !== t;
   for (const b of $('subtabs').querySelectorAll('.subtab')) b.classList.toggle('active', b.dataset.tab === tab);
   if (tab === 'environment') showEnvPart(part);
@@ -168,7 +183,7 @@ function selectTab(name) {
   if (tab === 'modules') requestAnimationFrame(() => scrollToChosen($('module-subtabs')));
   if (tab === 'template') requestAnimationFrame(() => scrollToChosen($('tpl-subtabs')));
   scrollToChosen($('subtabs'));
-  const hash = tab === 'environment' ? envPart : tab === 'template' ? tplHash() : tab === 'modules' && modulePart !== 'config' ? `modules/${encodeURIComponent(modulePart)}` : tab;
+  const hash = tab === 'environment' ? envPart : tab === 'template' ? tplHash() : tab === 'modules' && modulePart !== 'config' ? `modules/${encodeURIComponent(modulePart)}` : agentKey ? `agent/${encodeURIComponent(agentKey)}` : tab;
   if (location.hash !== `#${hash}`) history.replaceState(null, '', `#${hash}`);
   // Who has a calendar feed changes on their own Profile, so the Users tab asks again each time it opens.
   if (tab === 'users' && users.length) loadFeeds().then(renderUsers);
@@ -276,23 +291,65 @@ $('add-cancel').addEventListener('click', () => {
   $('new-link').checked = true;
 });
 
+// The agent's page, or the list. Called by selectTab, and again once the users are in (init) when the address named an agent.
+function showAgent() {
+  $('users-main').hidden = Boolean(agentKey);
+  if (!agentKey) {
+    $('agent-page').hidden = true;
+    agentShown = '';
+    if (agentPage) agentPage.close();
+    return;
+  }
+  if (!users.length) return; // drawn again once the users are in
+  const user = users.find((u) => u.key === agentKey && u.agent === true);
+  if (!user) { // gone, or not an agent: the list
+    agentKey = '';
+    history.replaceState(null, '', '#users');
+    showAgent();
+    return;
+  }
+  $('agent-page').hidden = false;
+  if (!agentPage) {
+    agentPage = mountAgentPage({
+      api,
+      say,
+      spaces: () => spaces,
+      hour12: () => hour12,
+      word,
+      onChanged: (changed) => { users = users.map((u) => (u.key === changed.key ? { ...u, ...changed } : u)); renderUsers(); },
+      onDeleted: (key) => { users = users.filter((u) => u.key !== key); renderUsers(); agentShown = ''; location.hash = '#users'; },
+    });
+  }
+  if (agentShown !== agentKey) {
+    agentShown = agentKey;
+    window.scrollTo(0, 0);
+    agentPage.open(user);
+  }
+}
+
 // A card is just a roster row now: status, a thumbnail, quick mute/kick for
 // whoever is live, and a link to their profile page, which is the one place
 // any of a user's own settings actually get edited (see profile.js).
 function fill(card, user) {
   card.dataset.key = user.key;
-  card.querySelector('[data-name]').textContent = user.displayName;
-  card.querySelector('[data-login]').textContent = user.login;
+  // An agent (plan-agent-access.md): "(agent)" after its name, no sign-in, personal link, two-step or feed to show, and its row
+  // opens its own page (agent-page.js) instead of a profile.
+  const agent = user.agent === true;
+  card.querySelector('[data-name]').textContent = agent ? agentName(user) : user.displayName;
+  card.querySelector('[data-login]').textContent = agent ? 'no sign-in' : user.login;
   card.querySelector('[data-role]').textContent = roleLabel(user);
   card.querySelector('[data-key]').textContent = user.key;
   card.querySelector('[data-thumb]').src = imgUrl(user.key, 'profile');
-  card.querySelector('[data-action="edit"]').href = `/profile/${encodeURIComponent(user.key)}`;
-  card.querySelector('[data-mfa]').hidden = !user.mfaEnrolled;
+  const edit = card.querySelector('[data-action="edit"]');
+  edit.href = agent ? `#agent/${encodeURIComponent(user.key)}` : `/profile/${encodeURIComponent(user.key)}`;
+  edit.textContent = agent ? 'Open' : 'Edit profile';
+  card.querySelector('[data-off]').hidden = !(agent && user.off === true);
+  card.querySelector('[data-mfa]').hidden = agent || !user.mfaEnrolled;
   // Whether they have a calendar feed (plan-google-calendar.md): never the address, only on or off, with Turn off.
-  const feedOn = Boolean(feeds.get(user.key)?.on);
+  const feedOn = !agent && Boolean(feeds.get(user.key)?.on);
   card.querySelector('[data-feed]').hidden = !feedOn;
   card.querySelector('[data-action="feed-off"]').hidden = !feedOn;
-  renderLive(card, user.online);
+  renderLive(card, agent ? null : user.online);
 }
 
 function renderLive(card, online) {
@@ -569,6 +626,51 @@ $('add-user').addEventListener('submit', async (event) => {
   } catch (err) {
     $('add-error').textContent = err.message;
     $('add-error').hidden = false;
+  }
+});
+
+// Agents (plan-agent-access.md): the server's variable makes them available; the switch is this environment's own. With the
+// variable off the section says so and offers nothing.
+function paintAgents(settings) {
+  agentsServer = settings.agentTokens === true;
+  agentsOn = agentsServer && settings.agents === true;
+  $('agents-off-server').hidden = agentsServer;
+  $('agents-on-server').hidden = !agentsServer;
+  $('set-agents').checked = agentsOn;
+  $('add-agent-toggle').hidden = !agentsOn;
+  if (!agentsOn) $('add-agent').hidden = true;
+}
+$('set-agents').addEventListener('change', async (e) => {
+  const box = e.target;
+  box.disabled = true;
+  if (await saveSettings({ agents: box.checked }, $('agents-status'))) paintAgents({ agentTokens: agentsServer, agents: box.checked });
+  else box.checked = !box.checked; // refused: as it was
+  box.disabled = false;
+  box.focus();
+});
+$('add-agent-toggle').addEventListener('click', () => {
+  $('add-agent').hidden = !$('add-agent').hidden;
+  if (!$('add-agent').hidden) { $('add-user').hidden = true; $('new-agent-name').focus(); $('new-agent-name').select(); }
+});
+$('add-toggle').addEventListener('click', () => { $('add-agent').hidden = true; });
+$('add-agent-cancel').addEventListener('click', () => {
+  $('add-agent').hidden = true;
+  $('add-agent').reset();
+  $('add-agent-error').hidden = true;
+});
+$('add-agent').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  $('add-agent-error').hidden = true;
+  try {
+    const { user } = await api('POST', '/api/users', { agent: true, displayName: $('new-agent-name').value.trim() || 'Claude' });
+    users.push({ ...user, online: null });
+    renderUsers();
+    $('add-agent').reset();
+    $('add-agent').hidden = true;
+    location.hash = `#agent/${encodeURIComponent(user.key)}`; // its page, to make the token
+  } catch (err) {
+    $('add-agent-error').textContent = err.message;
+    $('add-agent-error').hidden = false;
   }
 });
 
@@ -1545,6 +1647,28 @@ const activityWhen = (at) => {
 };
 // Something the server refused or slowed shows as a warning (no colour alone: a small icon too).
 const activityLevel = (what) => (/slowed|too many|over the limit|refused|denied|failed|error/i.test(what || '') ? 'warn' : 'info');
+// Who a line names, drawn from the fields as text: the asker (an agent's name without the server's " (agent)", then the agent mark,
+// only when askerAgent is true) and, when another page carried it out, ", carried out by <name>'s page". byName is only for a line
+// that has no askerName.
+function activityBy(a) {
+  const box = document.createElement('span');
+  box.className = 'hint activity-by';
+  const asker = typeof a.askerName === 'string' && a.askerName ? a.askerName : '';
+  if (!asker) {
+    if (a.byName) box.textContent = ` by ${a.byName}`;
+    return box;
+  }
+  const agent = a.askerAgent === true;
+  box.append(' by ', document.createTextNode(agent ? asker.replace(/ \(agent\)$/, '') : asker));
+  if (agent) {
+    const mark = document.createElement('span');
+    mark.className = 'sdk-status activity-agent';
+    mark.textContent = 'agent';
+    box.append(' ', mark);
+  }
+  if (a.carrierName) box.append(document.createTextNode(`, carried out by ${a.carrierName}'s page`));
+  return box;
+}
 let activityKey = '';
 async function loadActivity() {
   const list = $('module-activity');
@@ -1566,7 +1690,8 @@ async function loadActivity() {
     const li = document.createElement('li');
     li.className = 'activity-row';
     li.dataset.level = activityLevel(a.what);
-    li.innerHTML = `<span class="activity-time" title="${escapeHtml(new Date(a.at).toLocaleString())}">${escapeHtml(activityWhen(a.at))}</span><span class="activity-source">${escapeHtml(a.moduleName)}</span><span class="activity-event">${li.dataset.level === 'warn' ? '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ' : ''}${escapeHtml(a.what)}${a.byName ? ` <span class="hint">by ${escapeHtml(a.byName)}</span>` : ''}</span>`;
+    li.innerHTML = `<span class="activity-time" title="${escapeHtml(new Date(a.at).toLocaleString())}">${escapeHtml(activityWhen(a.at))}</span><span class="activity-source">${escapeHtml(a.moduleName)}</span><span class="activity-event">${li.dataset.level === 'warn' ? '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ' : ''}${escapeHtml(a.what)}</span>`;
+    li.querySelector('.activity-event').append(activityBy(a));
     return li;
   }));
   $('module-activity-empty').textContent = 'No activity yet.';
@@ -2781,6 +2906,8 @@ async function init() {
     $('set-mfa-required').checked = Boolean(settings.mfaRequired);
     $('set-allow-registration').checked = Boolean(settings.allowRegistration);
     paintGuestDoor(settings);
+    hour12 = settings.clock !== '24';
+    paintAgents(settings);
     renderReactionRows(settings.ownReactions);
     renderIconRows(settings.ownIcons);
     renderFixed(settings);
@@ -2789,6 +2916,7 @@ async function init() {
     renderDefaultImages(settings);
     showStreamKey();
     await loadUsers();
+    showAgent(); // an address that names an agent, now the users are in
     await loadEnvironment();
     tplReady = true;
     await loadTemplate();
