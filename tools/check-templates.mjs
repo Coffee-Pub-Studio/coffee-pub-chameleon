@@ -330,6 +330,7 @@ try {
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'love', glyph: '❤️' }] })), [], 'a built-in glyph: taken');
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'heart', glyph: '\u{1f680}' }] })), [], 'a built-in id: taken');
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'a1', glyph: '\u{1f680}' }, { id: 'a2', glyph: '\u{1f680}' }] })), ['reactions[1]: \u{1f680} is listed twice.']);
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'a1', glyph: '\u{1f680}' }, { id: 'a1', glyph: '\u{1f6a2}' }] })), ['reactions[1]: the id "a1" is listed twice.'], 'a repeated id is named by its id');
     assert.deepEqual(problems(minimal({ reactions: [{ glyph: '\u{1f680}' }] })), ['reactions[0]: an id is 1 to 24 lowercase letters, digits and dashes.']);
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'x', glyph: '<' }] })), ['reactions[0]: each reaction needs a glyph of 1 to 8 characters.']);
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'x', glyph: 'y', extra: 1 }] })), ['reactions[0]: a reaction takes only id, glyph and label.']);

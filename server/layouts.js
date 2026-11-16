@@ -395,10 +395,12 @@ class Layouts {
 
   // Before any change: refused whole while layouts.json cannot be read.
   mustWrite() {
+    this.iconCache = null; // a change may follow: iconIds() is read again
     if (this.unreadable) throw new LayoutError('The saved layouts file cannot be read, so nothing can be saved until it is fixed.', 500);
   }
 
   save() {
+    this.iconCache = null;
     fs.mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
     fs.writeFileSync(tmp, `${JSON.stringify({ spaces: this.spaces }, null, 2)}\n`);
@@ -611,8 +613,10 @@ class Layouts {
 
   // Every icon id a stored layout choice names, in every space: saved layouts' icons (shared and each person's) and each
   // person's icon for a system layout. Read by Store#inUseIconIds, so an icon the owner removes from the environment's
-  // list still draws where it is used. Ids only, each once; nothing is changed.
+  // list still draws where it is used. Ids only, each once; nothing is changed. Remembered until the next change
+  // (mustWrite, save): signed-out /api/branding reads it on every call, and a big file takes milliseconds to walk.
   iconIds() {
+    if (this.iconCache) return [...this.iconCache];
     const ids = new Set();
     for (const entry of Object.values(this.spaces)) {
       for (const l of entry.shared || []) if (typeof l.icon === 'string') ids.add(l.icon);
@@ -621,6 +625,7 @@ class Layouts {
         for (const choice of Object.values(record)) if (typeof choice.icon === 'string') ids.add(choice.icon);
       }
     }
+    this.iconCache = ids;
     return [...ids];
   }
 

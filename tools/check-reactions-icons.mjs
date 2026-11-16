@@ -12,6 +12,9 @@
  *   - refusals (400, one sentence each): a list that is not a list, a list over its cap (300 reactions, 400 icons),
  *     resetLists that is not true, resetLists with the lists; a member and a signed-out caller cannot write the lists
  *     (403, 401), and a space save that carries reactions or icons changes neither list;
+ *   - both lists at their caps go in one PATCH (that route reads up to 256 KB; every other keeps 64 KB); an id given is
+ *     kept next to an earlier entry without one; < >, controls, text-direction and zero-width characters are taken out
+ *     (an emoji's joiner stays); an icon whose classes name no icon is refused (400);
  *   - Start again from the built-in set (PATCH /api/settings { resetLists: true }) restores the 105 and 113;
  *   - a template's additions come after the environment's list: an addition that repeats an entry in it (a reaction by id
  *     or by glyph, an icon by id) is dropped there, and the template's save is not refused for it; they show only while
@@ -23,6 +26,7 @@
  *   - the lists survive a restart as saved (they are filled once, never again);
  *   - icons in use after a template switch, the bound of 200 on them, stored ids that are no Font Awesome icon, a space on
  *     its own template, and a picker never offering what the save refuses (as before the correction);
+ *   - hosted: GET /api/host/settings answers `builtIn` to the host admin only (not signed out, an owner or a member);
  *   - hosted: a second environment's lists start from the built-in set and stay its own; an icon in use in one
  *     environment never shows in another's inUseIcons.
  */
@@ -171,6 +175,62 @@ try {
       token = admin;
     }
     assert.deepEqual([(await settings()).ownReactions, (await settings()).ownIcons], [editedReactions, editedIcons], 'unchanged');
+  });
+
+  await test('both lists at their caps (300 reactions, 400 icons, full-length ids and labels) go in one PATCH', async () => {
+    const pad = (text, n) => text.padEnd(n, 'x').slice(0, n);
+    const solid = fs.readdirSync(path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free', 'svgs', 'solid')).map((f) => f.slice(0, -4));
+    const reactions = Array.from({ length: 300 }, (_, i) => ({ id: pad(`r${i}-`, 24), glyph: pad(`${i}`, 8), label: pad(`Reaction ${i} `, 40) }));
+    const icons = Array.from({ length: 400 }, (_, i) => ({ id: pad(`i${i}-`, 40), classes: `fa-solid fa-${solid[i]}`, label: pad(`Icon ${i} `, 40) }));
+    const body = JSON.stringify({ reactions, icons });
+    assert.ok(Buffer.byteLength(body) > 64 * 1024, `over the 64 KB every other JSON body is held to: ${Buffer.byteLength(body)}`);
+    const r = await call('PATCH', '/api/settings', { reactions, icons });
+    assert.equal(r.status, 200, r.text.slice(0, 200));
+    assert.deepEqual([r.json.settings.ownReactions, r.json.settings.ownIcons], [reactions, icons]);
+    const huge = await call('PATCH', '/api/settings', { reactions, icons, loginText: 'x'.repeat(300 * 1024) });
+    assert.deepEqual([huge.status, huge.json?.error], [413, 'that request is over 256 KB'], 'and no more than 256 KB');
+    const other = await call('PATCH', `/api/spaces/${space}`, { description: 'x'.repeat(70 * 1024) });
+    assert.equal(other.status, 413, 'every other route keeps its 64 KB');
+    assert.equal((await saveEdited()).status, 200);
+  });
+
+  await test('an id given is kept next to an earlier entry without one; a made-up id never takes it', async () => {
+    const r = await call('PATCH', '/api/settings', { reactions: [{ glyph: 'A', label: 'fire' }, { id: 'fire', glyph: 'B', label: 'Fire' }], icons: [{ classes: 'fa-solid fa-star' }, { id: 'star', classes: 'fa-solid fa-moon', label: 'moon' }] });
+    assert.equal(r.status, 200, r.text);
+    const [first, second] = r.json.settings.ownReactions;
+    assert.equal(second.id, 'fire', 'the id given wins');
+    assert.notEqual(first.id, 'fire');
+    assert.deepEqual([first.glyph, first.label], ['A', 'fire']);
+    const [star, moon] = r.json.settings.ownIcons;
+    assert.deepEqual(moon, { id: 'star', classes: 'fa-solid fa-moon', label: 'moon' }, 'the icon\'s id given wins');
+    assert.notEqual(star.id, 'star');
+    assert.equal(star.classes, 'fa-solid fa-star');
+    assert.equal((await saveEdited()).status, 200);
+  });
+
+  await test('the lists hold plain text: < and >, controls, text-direction and zero-width characters are taken out; an emoji\'s joiner stays', async () => {
+    const r = await call('PATCH', '/api/settings', {
+      reactions: [
+        { id: 'a', glyph: '<b>‮!', label: '<img src=x>⁦Hi⁩​\u0007' },
+        { id: 'b', glyph: '\u{1F9D9}‍♂️', label: 'Wiz‍ard‎' },
+        { id: 'c', glyph: '​‮', label: 'Nothing left' },
+      ],
+      icons: [{ id: 'd', classes: 'fa-solid fa-cat', label: '<cat>‮﻿' }],
+    });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json.settings.ownReactions, [{ id: 'a', glyph: 'b!', label: 'img src=xHi' }, { id: 'b', glyph: '\u{1F9D9}‍♂️', label: 'Wizard' }], 'a reaction with no glyph left is dropped');
+    assert.deepEqual(r.json.settings.ownIcons, [{ id: 'd', classes: 'fa-solid fa-cat', label: 'cat' }]);
+    const signedOut = await fetch(`http://127.0.0.1:${port}/api/branding`).then((x) => x.text());
+    assert.equal(/[<>‪-‮⁦-⁩​﻿]/.test(JSON.parse(signedOut).reactions.map((x) => x.glyph + x.label).join('')), false, 'nothing of it published');
+    assert.equal((await saveEdited()).status, 200);
+  });
+
+  await test('an icon that names no Font Awesome icon is refused', async () => {
+    for (const icon of [{ id: 'proto', classes: 'fa-solid' }, { id: 'odd', classes: 'spin evil' }, { id: 'none' }]) {
+      const r = await call('PATCH', '/api/settings', { icons: [...editedIcons, icon] });
+      assert.deepEqual([r.status, r.json?.error], [400, `Icon ${editedIcons.length + 1} names no Font Awesome icon; give its classes, such as fa-solid fa-star.`], JSON.stringify(icon));
+    }
+    assert.deepEqual((await settings()).ownIcons, editedIcons, 'nothing refused was saved');
   });
 
   await test('Manage reads and posts the environment\'s lists, so what a template adds never becomes the environment\'s', async () => {
@@ -574,6 +634,19 @@ await test('a stored home icon or link icon that is no Font Awesome icon (an imp
     assert.ok(b.json.inUseIcons.some((i) => i.id === 'hippo' && i.classes === 'fa-solid fa-hippo'), 'a real icon in use is');
     for (const i of b.json.inUseIcons) assert.equal(i.classes, `fa-solid fa-${i.id}`);
     assert.deepEqual([b.json.reactions, b.json.icons], [keptLists.reactions, keptLists.icons], 'the lists survive a restart as saved');
+    // Signed out, the icons in use are icons and nothing else: Font Awesome Free solid ids, at most 200, each { id, classes },
+    // never a layout's name, a person's key or a space's id.
+    const { isSolidIcon } = require('../server/fa-solid.js');
+    assert.ok(b.json.inUseIcons.length <= 200);
+    for (const i of b.json.inUseIcons) {
+      assert.deepEqual(Object.keys(i).sort(), ['classes', 'id']);
+      assert.ok(isSolidIcon(i.id), i.id);
+    }
+    const layoutsFile = path.join(dataDir, 'layouts.json');
+    const stored = fs.existsSync(layoutsFile) ? JSON.parse(fs.readFileSync(layoutsFile, 'utf8')).spaces : {};
+    const names = Object.values(stored).flatMap((e) => [...(e.shared || []), ...Object.values(e.people || {}).flat()].map((l) => l.name));
+    const private_ = new Set([...app.spaces.map((x) => x.id), ...app.users.map((u) => u.key), ...names].filter((x) => typeof x === 'string' && x.length > 3));
+    for (const i of b.json.inUseIcons) assert.equal(private_.has(i.id), false, `${i.id} is not a space, a person or a layout name`);
   } finally {
     await again.stop();
   }
@@ -605,6 +678,20 @@ await test('hosted: an icon in use in one environment is never in another\'s inU
     assert.deepEqual([cut.json.settings.ownReactions, cut.json.settings.ownIcons], [DEFAULT_REACTION_LIST.slice(1, 4), DEFAULT_ICON_LIST.slice(5, 7)]);
     const b2 = (await hcall(hs, 'bbb', 'GET', '/api/branding')).json;
     assert.deepEqual([b2.reactions, b2.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST], 'A\'s edit leaves B\'s lists as they were');
+    // The host console's template editor reads the built-in lists from GET /api/host/settings: the host admin only.
+    const hostSettings = await host('GET', '/api/host/settings');
+    assert.equal(hostSettings.status, 200, hostSettings.text);
+    assert.deepEqual(hostSettings.json.builtIn, { reactions: DEFAULT_REACTION_LIST, icons: DEFAULT_ICON_LIST }, 'the host admin gets the built-in lists');
+    const member = await hcall(hs, 'aaa', 'POST', '/api/users', { cookie: c, body: { login: 'mo', displayName: 'Mo', role: 'member', password: 'mo-password-1' } });
+    assert.equal(member.status, 201, member.text);
+    const mo = cookieOf(await hcall(hs, 'aaa', 'POST', '/api/login', { body: { login: 'mo', password: 'mo-password-1' } }));
+    assert.ok(mo, 'the member signed in');
+    for (const [who, place, cookie] of [['signed out', 'admin', undefined], ['an environment\'s owner', 'admin', c], ['a member', 'admin', mo], ['a member, at their environment', 'aaa', mo], ['the owner, at their environment', 'aaa', c]]) {
+      const r = await hcall(hs, place, 'GET', '/api/host/settings', { cookie });
+      assert.ok([401, 403, 404].includes(r.status), `${who}: ${r.status} ${r.text.slice(0, 120)}`);
+      assert.equal(r.text.includes('builtIn'), false, `${who}: no built-in lists`);
+    }
+    for (const place of ['admin', 'aaa']) assert.equal((await hcall(hs, place, 'GET', '/api/branding')).text.includes('builtIn'), false, `${place}: /api/branding never carries them`);
     const reset = await hcall(hs, 'aaa', 'PATCH', '/api/settings', { cookie: c, body: { resetLists: true } });
     assert.deepEqual([reset.status, reset.json?.settings?.ownReactions?.length, reset.json?.settings?.ownIcons?.length], [200, 105, 113], 'A starts again from the built-in set');
   } finally {

@@ -359,7 +359,8 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
         if (!plainText(r.glyph, 8)) { say(`reactions[${i}]: each reaction needs a glyph of 1 to 8 characters.`); return; }
         if (r.label !== undefined && !plainText(r.label, 40)) say(`reactions[${i}]: a label is plain text of 1 to 40 characters.`);
         const glyph = r.glyph.trim();
-        if (glyphs.has(glyph) || ids.has(r.id)) say(`reactions[${i}]: ${glyph} is listed twice.`);
+        if (ids.has(r.id)) say(`reactions[${i}]: the id "${shown(r.id)}" is listed twice.`);
+        else if (glyphs.has(glyph)) say(`reactions[${i}]: ${glyph} is listed twice.`);
         glyphs.add(glyph);
         ids.add(r.id);
       });
