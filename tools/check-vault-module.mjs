@@ -52,8 +52,9 @@ const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
   if (!/sandbox', 'allow-scripts'\)/.test(read('public/file-viewer-views.js')) || /allow-same-origin/.test(read('public/file-viewer-views.js').replace(/\/\/.*$/gm, ''))) fail('the PDF frame must be sandbox="allow-scripts" and never allow-same-origin');
   const travel = JSON.parse(read('templates/travel.json'));
   const games = JSON.parse(read('templates/games.json'));
-  if (travel.modules?.vault?.name !== 'Documents') fail('the travel template does not show the Vault as Documents');
-  if (games.modules?.vault?.name !== 'Handouts') fail('the games template does not show the Vault as Handouts');
+  // The Vault keeps its own name, Vault, in every template (#855): no template renames it.
+  if (travel.modules?.vault?.name !== undefined) fail('the travel template renames the Vault; it keeps its own name');
+  if (games.modules?.vault?.name !== undefined) fail('the games template renames the Vault; it keeps its own name');
   // What the page promises it keeps: the sentence "Your choice is remembered." needs a write to the person's own data and a read of it.
   const html = read('modules/vault/src/vault.html');
   if (/Your choice is remembered/.test(html) && !(/host\.storage\.set\([^)]*scope: 'person'/.test(js) && /host\.storage\.list\([^)]*scope: 'person'/.test(js))) fail('the page says "Your choice is remembered." but does not store and read it per person');
@@ -125,12 +126,12 @@ async function main() {
     const until = async (tab, expr, want, ms = 6000) => { const end = Date.now() + ms; let v; while (Date.now() < end) { v = await tab.eval(expr); if (want(v)) return v; await sleep(150); } return v; };
 
 
-    // An empty space says so in the template's word (Documents in the travel template).
+    // An empty space says so in the module's shown name (the Vault's own name, Vault: no template renames it, #855).
     {
       const t = await open(1000, 'mia', '#module-frame >>> .vt-empty-in');
       try {
         const words = await t.eval(TEXT('.vt-empty-in'));
-        if (!/Documents/.test(words)) fail(`the empty state says "${words.replace(/\n/g, ' ')}", without the module's shown name (Documents)`);
+        if (!/Nothing in Vault yet/.test(words)) fail(`the empty state says "${words.replace(/\n/g, ' ')}", without the module's shown name (Vault)`);
         say(`empty state: ${words.replace(/\n+/g, ' ')}`);
       } finally { await t.close(); }
     }

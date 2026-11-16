@@ -51,10 +51,12 @@ async function main() {
       await tab.open(size, 'dark', screen.call === true);
       const settle = tab.settle.bind(tab); tab.settle = () => Promise.race([settle(), sleep(3000)]);
       await driveScreen(tab, screen, S.base, S.cookies, S.ctx);
+      // On a phone a space opens on its template's first module (the Planner), and the Chat is a tab: a person taps it.
+      if (screen.call === true && size <= 640) { await tab.click('.sdk-tabbar-tab', 'Chat'); await sleep(500); }
       return tab;
     };
     const shot = async (t, name) => { if (process.env.AI_CALLERS_SHOTS) fs.writeFileSync(path.join(process.env.AI_CALLERS_SHOTS, `${name}.png`), Buffer.from((await t.cdp.send('Page.captureScreenshot', { format: 'png' }, t.sid)).data, 'base64')); };
-    const chat = (as) => ({ as, url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true });
+    const chat = (as) => ({ as, url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true });
     const pickerHas = async (t) => {
       await t.eval(`(() => { const i = document.getElementById('chat-input'); i.focus(); })()`);
       await t.click('#chat-command');

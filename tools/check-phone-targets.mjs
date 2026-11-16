@@ -44,14 +44,14 @@ const MEASURE = (specs) => `(() => {
 const BAR = [['#notifications-bell', 'h', 'w'], ['#nav-toggle', 'h', 'w']];
 const SCREENS = [
   { id: 'Home', as: 'mia', url: '/', wait: '.space-choice', specs: [...BAR, ['.mini-head button', 'h', 'w']] },
-  { id: 'a space page', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', space: true, specs: [...BAR, ['#phase-chip', 'h']] },
-  { id: 'Set up', as: 'admin', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', space: true,
+  { id: 'a space page', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', space: true, specs: [...BAR, ['#phase-chip', 'h']] },
+  { id: 'Set up', as: 'admin', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', space: true,
     steps: [{ click: '#nav-toggle' }, { click: '#setup' }, { wait: '.setup-tab' }, { sleep: 800 }],
     specs: [...BAR, ['.setup-tab', 'h'], ['#setup-save', 'h'], ['#setup-cancel-button', 'h'], ['#setup-bar-name', 'h']] },
-  { id: 'Set up, Settings', as: 'admin', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', space: true,
+  { id: 'Set up, Settings', as: 'admin', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', space: true,
     steps: [{ click: '#nav-toggle' }, { click: '#setup' }, { wait: '#setup-tab-modules' }, { click: '#setup-tab-modules' }, { sleep: 800 }],
     specs: [['input.sdk-switch', 'h', 'w']] },
-  { id: 'Set up, Members', as: 'admin', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', space: true,
+  { id: 'Set up, Members', as: 'admin', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', space: true,
     steps: [{ click: '#nav-toggle' }, { click: '#setup' }, { wait: '#setup-tab-members' }, { click: '#setup-tab-members' }, { sleep: 800 }],
     specs: [['#setup-content-members button.btn', 'h']] },
   { id: 'Planner', as: 'mia', url: '/modules/travel?space={trip}', wait: '#module-frame >>> .day-add', specs: [...BAR, ['.jointadd', 'h', 'w'], ['.day-add', 'h'], ['.mf-switch-btn', 'h', 'w']] },
