@@ -112,6 +112,8 @@ Roles:
 - Moderator, `moderator`: manages specific things within a specified space, as the owner or admin allows.
 - Member, `member`: the users of the environment.
 - Guest, `guest`: very limited rights.
+- Agent, `agent`: an account for software such as Claude, a member narrowed by a fixed gate; shows as "Claude (agent)"
+  (`documentation/plans/plan-agent-access.md`, decision 16). Never a moderator, owner or admin.
 
 ## Agents
 
