@@ -99,6 +99,9 @@ export function readPhases(root, { editing = true } = {}) {
 // `core`: { reactions: [{ glyph, label }], icons: [{ id, classes, label }] }, what is always there.
 const reactionRow = (r) => `<div class="reaction-row tp-reaction" data-tr-id="${e(r.id || '')}"><input class="reaction-glyph" type="text" maxlength="8" value="${e(r.glyph || '')}" placeholder="🙂" aria-label="Emoji"><input class="reaction-label" type="text" maxlength="40" value="${e(r.label && r.label !== r.glyph ? r.label : '')}" placeholder="Label" aria-label="Label"><button class="btn btn-small btn-danger" type="button" data-tr-remove>Remove</button></div>`;
 const iconRow = (name) => `<div class="reaction-row tp-icon" data-ti-row><span class="icon-preview" aria-hidden="true">${name ? iconTag(name) : ''}</span><input class="reaction-label" type="text" data-ti-name maxlength="40" value="${e(name || '')}" placeholder="Font Awesome name, such as dice" aria-label="Icon, a Font Awesome name" autocapitalize="off" spellcheck="false"><button class="btn btn-small btn-danger" type="button" data-ti-remove>Remove</button></div>`;
+// The built-in set as chips: the Template page and the Environment page draw the same grid.
+export const coreReactionChips = (list) => `<div class="tp-chips">${list.length ? list.map((r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`).join('') : '<span class="hint">None</span>'}</div>`;
+export const coreIconChips = (list) => `<div class="tp-chips">${list.length ? list.map((i) => `<span class="tp-chip" title="${e(i.label || i.id)}"><i class="${e(i.classes)} fa-fw" aria-hidden="true"></i></span>`).join('') : '<span class="hint">None</span>'}</div>`;
 export function additionsHtml(t, { editable, core }) {
   const reactions = Array.isArray(t && t.reactions) ? t.reactions : [];
   const icons = Array.isArray(t && t.iconSet) ? t.iconSet : [];
@@ -106,8 +109,7 @@ export function additionsHtml(t, { editable, core }) {
   const coreIcons = (core && core.icons) || [];
   const chips = (list, draw) => `<div class="tp-chips">${list.length ? list.map(draw).join('') : '<span class="hint">None</span>'}</div>`;
   const coreBlock = `<h3>The core set</h3><p class="hint">Always there, in every template. Nobody removes them.</p>`
-    + `<h4>Reactions</h4>${chips(coreReactions, (r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`)}`
-    + `<h4>Icons</h4>${chips(coreIcons, (i) => `<span class="tp-chip" title="${e(i.label || i.id)}"><i class="${e(i.classes)} fa-fw" aria-hidden="true"></i></span>`)}`;
+    + `<h4>Reactions</h4>${coreReactionChips(coreReactions)}<h4>Icons</h4>${coreIconChips(coreIcons)}`;
   if (!editable) {
     return `<div class="tf-labels">${coreBlock}<h3>This template adds</h3>`
       + `<h4>Reactions</h4>${chips(reactions, (r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`)}`

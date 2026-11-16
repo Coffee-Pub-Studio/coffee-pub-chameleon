@@ -3,7 +3,7 @@ import { pickBackground } from '/background-picker.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
-import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
+import { coreReactionChips, coreIconChips, workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
 import { addSpaceFlow, moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
@@ -1164,17 +1164,32 @@ function reactionRow(reaction) {
 
 // The Environment tab edits the owner's OWN additions (settings.ownReactions / ownIcons); the built-in set is shown
 // read-only above the rows, and never posted back.
+let builtIn = { reactions: [], icons: [] }; // the built-in set as last read, to say what a save leaves out
 async function renderFixed(settings) {
   const envT = madeFrom ? await templateRecord(madeFrom.id).catch(() => null) : null;
   const core = coreSet(settings, envT);
-  $('reactions-fixed').textContent = `Built in, always there: ${core.reactions.length} reactions. ${core.reactions.slice(0, 6).map((r) => r.glyph).join(' ')} ...`;
-  $('icons-fixed').textContent = `Built in, always there: ${core.icons.length} icons.`;
+  builtIn = core;
+  const fold = (n, grid) => `<details class="tp-builtin"><summary>Built in (${n})</summary><p class="hint">Always there. You can't remove them, and a repeat of one is left out when you save.</p>${grid}</details>`;
+  const open = (id) => $(id).querySelector('details')?.open;
+  const was = [open('reactions-fixed'), open('icons-fixed')];
+  $('reactions-fixed').innerHTML = fold(core.reactions.length, coreReactionChips(core.reactions));
+  $('icons-fixed').innerHTML = fold(core.icons.length, coreIconChips(core.icons));
+  if (was[0]) $('reactions-fixed').querySelector('details').open = true;
+  if (was[1]) $('icons-fixed').querySelector('details').open = true;
+  noneYet();
 }
+// The line above Add reaction and Add icon while the owner's own list is empty.
+function noneYet() {
+  $('reactions-none').hidden = $('reactions-list').children.length > 0;
+  $('icons-none').hidden = $('icons-list').children.length > 0;
+}
+const alreadyBuiltIn = (names) => `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} already built in`;
 
 function renderReactionRows(reactions) {
   const list = $('reactions-list');
   list.textContent = '';
   for (const r of reactions || []) list.appendChild(reactionRow(r));
+  noneYet();
 }
 
 function slugify(text) {
@@ -1185,11 +1200,11 @@ $('reactions-list').addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const row = button.closest('.reaction-row');
-  if (button.dataset.action === 'reaction-remove') row.remove();
+  if (button.dataset.action === 'reaction-remove') { row.remove(); noneYet(); }
   else if (button.dataset.action === 'reaction-up' && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
   else if (button.dataset.action === 'reaction-down' && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
 });
-$('reaction-add').addEventListener('click', () => $('reactions-list').appendChild(reactionRow()));
+$('reaction-add').addEventListener('click', () => { $('reactions-list').appendChild(reactionRow()); noneYet(); });
 
 $('save-reactions').addEventListener('click', async () => {
   const seen = new Set();
@@ -1204,10 +1219,11 @@ $('save-reactions').addEventListener('click', async () => {
     })
     .filter((r) => r.glyph);
   try {
+    const repeats = reactions.filter((r) => builtIn.reactions.some((c) => c.id === r.id || c.glyph === r.glyph)).map((r) => r.glyph);
     const { settings } = await api('PATCH', '/api/settings', { reactions });
     renderReactionRows(settings.ownReactions);
-    renderFixed(settings);
-    say($('reactions-status'), 'saved');
+    await renderFixed(settings);
+    say($('reactions-status'), repeats.length ? alreadyBuiltIn(repeats) : 'saved');
   } catch (err) {
     say($('reactions-status'), err.message, true);
   }
@@ -1921,30 +1937,33 @@ function renderIconRows(icons) {
   const list = $('icons-list');
   list.textContent = '';
   for (const icon of icons || []) list.appendChild(iconRow(icon));
+  noneYet();
 }
 
 $('icons-list').addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
   const row = button.closest('.icon-row');
-  if (button.dataset.action === 'icon-remove') row.remove();
+  if (button.dataset.action === 'icon-remove') { row.remove(); noneYet(); }
   else if (button.dataset.action === 'icon-up' && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
   else if (button.dataset.action === 'icon-down' && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
 });
-$('icon-add').addEventListener('click', () => $('icons-list').appendChild(iconRow()));
+$('icon-add').addEventListener('click', () => { $('icons-list').appendChild(iconRow()); noneYet(); });
 
 $('save-icons').addEventListener('click', async () => {
   const icons = [...$('icons-list').querySelectorAll('.icon-row')]
     .map((row) => ({ id: row.dataset.id, classes: parseIconClasses(row.querySelector('.icon-html').value), label: row.querySelector('.icon-label').value.trim() }))
     .filter((i) => i.classes);
   try {
+    const nameOf = (classes) => String(classes).split(/\s+/).filter((t) => !/^fa-(solid|regular|brands|fw)$/.test(t)).pop();
+    const repeats = icons.filter((i) => builtIn.icons.some((c) => nameOf(c.classes) === nameOf(i.classes))).map((i) => i.label || i.classes.split(' ').pop().replace(/^fa-/, ''));
     const { settings } = await api('PATCH', '/api/settings', { icons });
     renderIconRows(settings.ownIcons);
-    renderFixed(settings);
+    await renderFixed(settings);
     await loadBranding();
     tplFull.clear();
     renderTplPart(); // the home icon's choices are this list
-    say($('icons-status'), 'saved');
+    say($('icons-status'), repeats.length ? alreadyBuiltIn(repeats) : 'saved');
   } catch (err) {
     say($('icons-status'), err.message, true);
   }
