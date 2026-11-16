@@ -1,0 +1,613 @@
+#!/usr/bin/env node
+/*
+ * check-agent-tokens.mjs -- the agent token core (documentation/plans/plan-agent-access.md, step 1), the plan's pen-test
+ * list, against real servers on throwaway DATA_DIRs:
+ *   - off by default: without AGENT_TOKENS no agent can be made, the Agents switch can't be turned on, and a token made
+ *     while it was on is read as an unknown bearer value (401 on a route that needs a sign-in);
+ *   - with AGENT_TOKENS=true the owner's Agents switch is off until turned on; an agent is a member with no sign-in, never
+ *     an owner, the admin or a moderator, no personal link or password, and no door signs it in;
+ *   - its token is shown once, stored only as its SHA-256 (nowhere in DATA_DIR in the clear, in no later answer and in
+ *     no line of the server's own log), ends after 30 days (a past end read from tokens.json is refused), and a new one
+ *     ends the old; revoke, turn off and the Agents switch each make it 401 with the same sentence;
+ *   - the gate: its list answers, every other route the app registers answers 403 "An agent can't do that."; a space it
+ *     is not in is the unknown space's 404; scope environment, spaces and person, and no scope, are 403; raw data writes,
+ *     Clear and restore are 403; a local, asker-only, destructive or ai:false action is 403 "An agent can't ask for that."
+ *     and the actions list leaves them out; it reads only its own requests; the token wins over a cookie session;
+ *   - the limits: 60 reads and 20 writes a minute, counted apart, 429 with Retry-After; the day's counts are read back
+ *     from the log, so they survive a restart;
+ *   - the log: one line a call, its route pattern and never its token, a request body or the path's own values; owners
+ *     read it through GET /api/users/:key/agent-log;
+ *   - hosted (BASE_DOMAIN): a token of one environment is 401 at another; the console and the product host answer as before.
+ */
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
+const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
+
+const INVALID = 'That agent token is not valid.';
+const CANT = "An agent can't do that.";
+const CANT_ASK = "An agent can't ask for that.";
+const CANT_BE = "An agent can't be that.";
+const OVER = 'The agent has done as much as it may for now.';
+const TOKEN_RE = /^agt_[A-Za-z0-9_-]{43}$/;
+
+let n = 0;
+let failed = 0;
+const test = async (name, fn) => {
+  try {
+    await fn();
+    n += 1;
+  } catch (err) {
+    failed += 1;
+    console.error(`FAIL ${name}\n${err.stack || err}`);
+  }
+};
+
+const servers = [];
+async function startServer(dataDir, env = {}) {
+  const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+    cwd: ROOT,
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, ...env },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const server = { child, out: '', port: 0 };
+  child.stdout.on('data', (d) => { server.out += d; });
+  child.stderr.on('data', (d) => { server.out += d; });
+  server.port = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { child.kill(); reject(new Error(`the server did not start in time:\n${server.out}`)); }, 25000);
+    const onData = () => { const m = /listening on :(\d+)/.exec(server.out); if (m) { clearTimeout(timer); resolve(Number(m[1])); } };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`the server stopped (${code}):\n${server.out}`)); });
+  });
+  server.stop = () => new Promise((resolve) => { if (child.exitCode !== null) return resolve(); child.once('exit', resolve); child.kill('SIGTERM'); });
+  servers.push(server);
+  return server;
+}
+
+// Every answer an agent's token made after it was shown is kept, to look for the token in it at the end.
+const answers = [];
+function call(server, method, urlPath, { body, cookie, token, host, raw, headers: extra } = {}) {
+  const payload = raw !== undefined ? raw : body === undefined ? null : Buffer.from(JSON.stringify(body));
+  const headers = { host: host ? `${host}.localhost:${server.port}` : `127.0.0.1:${server.port}`, accept: 'application/json', ...(extra || {}) };
+  if (payload) { headers['content-type'] = headers['content-type'] || 'application/json'; headers['content-length'] = payload.length; }
+  if (cookie) headers.cookie = cookie;
+  if (token) headers.authorization = `Bearer ${token}`;
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: server.port, method, path: urlPath, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try { json = JSON.parse(text); } catch { /* not JSON */ }
+        answers.push(`${JSON.stringify(res.headers)}\n${text}`);
+        resolve({ status: res.statusCode, json, text, headers: res.headers });
+      });
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+const cookieOf = (res) => [].concat(res.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+async function signIn(server, login, password, host) {
+  const r = await call(server, 'POST', host === 'admin' ? '/api/host/login' : '/api/login', { body: { login, password }, host });
+  assert.equal(r.status, 200, `${login} signs in: ${r.text}`);
+  return cookieOf(r);
+}
+const ok = (r, what, status = 200) => assert.equal(r.status, status, `${what}: ${r.status} ${r.text.slice(0, 300)}`);
+const refused = (r, status, error, what) => {
+  assert.equal(r.status, status, `${what}: ${r.status} ${r.text.slice(0, 300)}`);
+  if (error) assert.equal(r.json?.error, error, `${what}: the sentence`);
+};
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+// Every file under `dir`, as text.
+function filesUnder(dir) {
+  const out = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else out.push([p, fs.readFileSync(p)]);
+    }
+  };
+  walk(dir);
+  return out;
+}
+
+// A copy of the To-do with three more actions an agent may never ask for: destructive, kept from AI, and asker-only.
+function testModuleZip(base) {
+  const src = path.join(base, 'todo-agent-check');
+  fs.cpSync(path.join(ROOT, 'modules', 'todo'), src, { recursive: true });
+  fs.rmSync(path.join(src, 'test'), { recursive: true, force: true });
+  const manifest = JSON.parse(fs.readFileSync(path.join(src, 'module.json'), 'utf8'));
+  manifest.version = '99.0.0';
+  manifest.actions.provides.push(
+    { name: 'wipeTasks', label: 'Wipe every task', description: 'Remove every task.', effect: 'destructive', input: {} },
+    { name: 'quietTask', label: 'Add a quiet task', description: 'Add a task the AI is never offered.', ai: false, input: { title: 'string' } },
+    { name: 'myTask', label: 'Add a task of mine', description: 'Add a task in the asker\'s name.', askerOnly: true, input: { title: 'string' } },
+  );
+  fs.writeFileSync(path.join(src, 'module.json'), JSON.stringify(manifest, null, 2));
+  return buildModule(src).zip;
+}
+
+// Every route the app registers by a fixed path ("app.get('/api/...')" in server/*.js), as [method, path].
+function registeredRoutes() {
+  const out = [];
+  const dir = path.join(ROOT, 'server');
+  for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.js'))) {
+    const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    for (const m of text.matchAll(/\bapp\.(get|post|put|patch|delete)\(\s*'([^']+)'/g)) out.push([m[1].toUpperCase(), m[2]]);
+  }
+  return out;
+}
+const GATE_LIST = new Set([
+  'GET /api/agent/me', 'GET /api/spaces/:id', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
+  'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'POST /api/objects/resolve',
+  'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
+]);
+
+// Registered ahead of the environments (before the door), so before any session or token is read: the same for everyone,
+// signed in or not, and nothing of any environment's.
+const PUBLIC_BEFORE_ENVIRONMENTS = new Set(['GET /design-system/module-sources.js']);
+
+const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-agent-tokens-'));
+const single = path.join(base, 'single');
+const onEnv = { ADMIN_PASSWORD: 'admin-password-1', AGENT_TOKENS: 'true' };
+const offEnv = { ADMIN_PASSWORD: 'admin-password-1' };
+let tokenA = null; // the first agent's token, looked for everywhere at the end
+const allTokens = [];
+
+try {
+  // --- off by default ------------------------------------------------------------------------------------------------
+  let server = await startServer(single, offEnv);
+  let admin = await signIn(server, 'admin', 'admin-password-1');
+
+  await test('without AGENT_TOKENS no agent can be made and the Agents switch stays off', async () => {
+    const s = await call(server, 'GET', '/api/settings', { cookie: admin });
+    ok(s, 'settings');
+    assert.equal(s.json.settings.agentTokens, false);
+    assert.equal(s.json.settings.agents, false);
+    refused(await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true } }), 403, 'Agents are off on this server.', 'an agent');
+    refused(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: true } }), 403, 'Agents are off on this server.', 'the switch');
+    assert.ok(!(await call(server, 'GET', '/api/users', { cookie: admin })).json.users.some((u) => u.agent), 'no agent');
+  });
+  await test('without AGENT_TOKENS a well-formed token is an unknown bearer value: 401 where a sign-in is needed, as before', async () => {
+    const fake = `agt_${crypto.randomBytes(32).toString('base64url')}`;
+    refused(await call(server, 'GET', '/api/me', { token: fake }), 401, 'sign in first', '/api/me');
+    refused(await call(server, 'GET', '/api/agent/me', { token: fake }), 401, 'sign in first', '/api/agent/me');
+    ok(await call(server, 'GET', '/api/branding', { token: fake }), 'branding answers as before');
+  });
+  await server.stop();
+
+  // --- on: the account, the switch and the token ---------------------------------------------------------------------
+  server = await startServer(single, onEnv);
+  admin = await signIn(server, 'admin', 'admin-password-1');
+  const zip = testModuleZip(base);
+  const installed = await call(server, 'POST', '/api/modules', { cookie: admin, raw: zip, headers: { 'content-type': 'application/zip' } });
+  ok(installed, 'the test To-do installs', 201);
+  ok(await call(server, 'PATCH', '/api/modules/todo', { cookie: admin, body: { enabled: true } }), 'the To-do is on');
+  // A member to show the agent is not one of "everyone".
+  const mia = (await call(server, 'POST', '/api/users', { cookie: admin, body: { login: 'mia', password: 'mia-password-1', role: 'member' } })).json.user;
+
+  let agent = null;
+  let S1 = null;
+  let S2 = null;
+  await test('with AGENT_TOKENS on, the owner\'s Agents switch is off until turned on', async () => {
+    const s = await call(server, 'GET', '/api/settings', { cookie: admin });
+    assert.equal(s.json.settings.agentTokens, true);
+    assert.equal(s.json.settings.agents, false);
+    refused(await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true } }), 403, null, 'an agent with the switch off');
+    assert.match((await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true } })).json.error, /^Agents are off in this .+\. Turn on Agents in Manage first\.$/);
+    refused(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: 'yes' } }), 400, 'agents is true or false', 'not a boolean');
+    const on = await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: true } });
+    ok(on, 'the switch');
+    assert.equal(on.json.settings.agents, true);
+  });
+
+  await test('an agent is a member with no sign-in, shown as an agent', async () => {
+    refused(await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true, password: 'x-password-1' } }), 400, CANT_BE, 'with a password');
+    refused(await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true, role: 'owner' } }), 400, CANT_BE, 'as an owner');
+    refused(await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: 'yes' } }), 400, 'agent must be true.', 'agent must be true');
+    const made = await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true } });
+    ok(made, 'an agent', 201);
+    agent = made.json.user;
+    assert.equal(agent.agent, true);
+    assert.equal(agent.off, false);
+    assert.equal(agent.role, 'member');
+    assert.equal(agent.displayName, 'Claude', 'named Claude by default');
+    assert.equal(agent.hasPassword, false);
+    assert.equal(agent.link, null, 'no personal link');
+    const named = await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true, displayName: 'Helper' } });
+    ok(named, 'a named agent', 201);
+    assert.equal(named.json.user.displayName, 'Helper');
+    ok(await call(server, 'DELETE', `/api/users/${named.json.user.key}`, { cookie: admin }), 'deleted');
+    S1 = (await call(server, 'POST', '/api/spaces', { cookie: admin, body: { name: 'Camp', members: [agent.key, mia.key] } })).json.space.id;
+    S2 = (await call(server, 'POST', '/api/spaces', { cookie: admin, body: { name: 'Elsewhere', members: [mia.key] } })).json.space.id;
+    assert.ok(S1 && S2);
+  });
+
+  await test('an agent can\'t be made an owner, the admin or a moderator, or given a password, a link or two-step sign-in', async () => {
+    refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { role: 'owner' } }), 400, CANT_BE, 'owner');
+    refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { role: 'admin' } }), 400, CANT_BE, 'admin');
+    refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { password: 'agent-password-1' } }), 400, CANT_BE, 'a password');
+    refused(await call(server, 'POST', `/api/users/${agent.key}/link`, { cookie: admin }), 400, CANT_BE, 'a personal link');
+    refused(await call(server, 'PATCH', `/api/users/${agent.key}/spaces/${S1}`, { cookie: admin, body: { permissions: { moderator: true } } }), 400, CANT_BE, 'a moderator');
+    const after = (await call(server, 'GET', `/api/users/${agent.key}`, { cookie: admin })).json.user;
+    assert.deepEqual([after.role, after.hasPassword, after.link, after.spaces[S1].permissions.moderator], ['member', false, null, false]);
+    ok(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { displayName: 'Claude' } }), 'its name can change');
+    refused(await call(server, 'PATCH', `/api/users/${mia.key}`, { cookie: admin, body: { off: true } }), 400, 'Only an agent can be turned off.', 'a person can\'t be turned off');
+  });
+
+  await test('no door signs an agent in', async () => {
+    const login = (await call(server, 'GET', `/api/users/${agent.key}`, { cookie: admin })).json.user.login;
+    refused(await call(server, 'POST', '/api/login', { body: { login, password: '' } }), 401, null, 'the sign-in, no password');
+    refused(await call(server, 'POST', '/api/login', { body: { login, password: 'anything-at-all' } }), 401, null, 'the sign-in, a guess');
+    const app = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8'));
+    const stored = app.users.find((u) => u.key === agent.key);
+    assert.deepEqual([stored.agent, stored.role, stored.passwordHash, stored.linkToken, stored.mfa], [true, 'member', null, null, null]);
+  });
+
+  let made = null;
+  await test('a token is shown once, ends in 30 days, and is kept only as its SHA-256', async () => {
+    made = await call(server, 'POST', `/api/users/${agent.key}/token`, { cookie: admin });
+    ok(made, 'a token', 201);
+    tokenA = made.json.token;
+    allTokens.push(tokenA);
+    assert.match(tokenA, TOKEN_RE);
+    assert.equal(made.headers['cache-control'], 'no-store');
+    const days = (Date.parse(made.json.expiresAt) - Date.now()) / 86400000;
+    assert.ok(days > 29.9 && days <= 30, `30 days (${days})`);
+    const view = await call(server, 'GET', `/api/users/${agent.key}/token`, { cookie: admin });
+    ok(view, 'its view');
+    assert.deepEqual(Object.keys(view.json.token).sort(), ['createdAt', 'expiresAt', 'id', 'lastAddress', 'lastUsedAt']);
+    const file = JSON.parse(fs.readFileSync(path.join(single, 'tokens.json'), 'utf8'));
+    assert.equal(file.tokens.length, 1);
+    assert.equal(file.tokens[0].hash, sha256(tokenA));
+    assert.equal(file.tokens[0].kind, 'agent');
+    assert.equal(file.tokens[0].user, agent.key);
+    assert.equal((fs.statSync(path.join(single, 'tokens.json')).mode & 0o777), 0o600, 'private');
+  });
+
+  // --- the gate --------------------------------------------------------------------------------------------------------
+  const A = () => ({ token: tokenA });
+  // Another agent in the first space, with its own token.
+  const agentOf = async (name) => {
+    const a = (await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true, displayName: name } })).json.user;
+    const space = (await call(server, 'GET', `/api/spaces/${S1}`, { cookie: admin })).json.space;
+    ok(await call(server, 'PATCH', `/api/spaces/${S1}`, { cookie: admin, body: { members: [...space.members, a.key] } }), `${name} joins`);
+    const t = (await call(server, 'POST', `/api/users/${a.key}/token`, { cookie: admin })).json.token;
+    allTokens.push(t);
+    return { key: a.key, token: t };
+  };
+  // For the long walks, a pool of such agents, each used 55 times at most, so none reaches its 60 reads a minute.
+  const pool = { token: null, used: 0, n: 0 };
+  const P = async () => {
+    if (!pool.token || pool.used >= 55) { pool.token = (await agentOf(`Pool ${pool.n += 1}`)).token; pool.used = 0; }
+    pool.used += 1;
+    return { token: pool.token };
+  };
+  let ownRequest = null;
+  await test('the gate\'s list answers in the agent\'s space', async () => {
+    const me = await call(server, 'GET', '/api/agent/me', A());
+    ok(me, '/api/agent/me');
+    assert.deepEqual(me.json.agent, { key: agent.key, name: 'Claude' });
+    assert.deepEqual(me.json.spaces, [{ id: S1, name: 'Camp' }], 'only its own spaces, never the Lobby');
+    assert.deepEqual([me.json.limits.reads.perMinute, me.json.limits.reads.perDay, me.json.limits.writes.perMinute, me.json.limits.writes.perDay], [60, 3000, 20, 300]);
+    assert.ok(me.json.limits.reads.usedToday >= 1);
+    assert.equal(me.json.expiresAt, made.json.expiresAt);
+    // As a member reads it: Set up's read is for owners and moderators.
+    refused(await call(server, 'GET', `/api/spaces/${S1}`, A()), 403, null, 'the space, as a member reads it');
+    const putTask = await call(server, 'PUT', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, { cookie: admin, body: { value: { id: 't1', title: 'Pack the tent', done: false } } });
+    ok(putTask, 'the owner adds a task');
+    ok(await call(server, 'GET', `/api/modules/todo/context?scope=space&space=${S1}`, A()), 'context');
+    const list = await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${S1}`, A());
+    ok(list, 'data');
+    assert.ok(list.json.items.some((i) => i.key === 'task:t1'));
+    ok(await call(server, 'GET', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, A()), 'one key');
+    ok(await call(server, 'GET', `/api/objects/search?from=todo&scope=space&space=${S1}`, A()), 'search');
+    ok(await call(server, 'GET', '/api/objects/kinds?from=todo', A()), 'kinds');
+    ok(await call(server, 'POST', '/api/objects/resolve', { ...A(), body: { from: 'todo', refs: [{ module: 'todo', kind: 'task', id: 't1', scope: 'space', space: S1 }] } }), 'resolve');
+    ok(await call(server, 'GET', `/api/objects/links?from=todo&ref=${encodeURIComponent(JSON.stringify({ module: 'todo', kind: 'task', id: 't1', scope: 'space', space: S1 }))}&dir=from`, A()), 'links');
+    const actions = await call(server, 'GET', `/api/spaces/${S1}/actions`, A());
+    ok(actions, 'actions');
+    const names = actions.json.actions.map((a) => a.action);
+    assert.ok(names.includes('todo:createTask'), 'a write is listed');
+    for (const no of ['todo:addTask', 'todo:wipeTasks', 'todo:quietTask', 'todo:myTask']) assert.ok(!names.includes(no), `${no} is not listed`);
+    const asked = await call(server, 'POST', `/api/spaces/${S1}/action`, { ...A(), body: { action: 'todo:createTask', input: { title: 'Secret title 4417' } } });
+    ok(asked, 'a write action');
+    ownRequest = asked.json.id;
+    ok(await call(server, 'GET', `/api/spaces/${S1}/action/${ownRequest}`, A()), 'its own request');
+    // A trailing slash and another case read as the app's routes read them.
+    ok(await call(server, 'GET', '/API/Agent/Me/', A()), 'the path as the router reads it');
+  });
+
+  await test('local, asker-only, destructive and ai:false actions are refused', async () => {
+    for (const action of ['todo:addTask', 'todo:wipeTasks', 'todo:quietTask', 'todo:myTask']) {
+      refused(await call(server, 'POST', `/api/spaces/${S1}/action`, { ...A(), body: { action, input: { title: 'x', text: 'x' } } }), 403, CANT_ASK, action);
+    }
+  });
+
+  await test('a space it is not in is the unknown space\'s 404; another scope is 403', async () => {
+    const notFound = (r, what) => { assert.equal(r.status, 404, `${what}: ${r.status} ${r.text}`); assert.match(r.json.error, /^no such /); };
+    for (const id of [S2, 'lobby', 'zzzz9999']) {
+      notFound(await call(server, 'GET', `/api/spaces/${id}`, await P()), `the space ${id}`);
+      notFound(await call(server, 'GET', `/api/spaces/${id}/actions`, await P()), `actions in ${id}`);
+      notFound(await call(server, 'POST', `/api/spaces/${id}/action`, { ...(await P()), body: { action: 'todo:createTask', input: { title: 'x' } } }), `an action in ${id}`);
+      notFound(await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${id}`, await P()), `data in ${id}`);
+    }
+    notFound(await call(server, 'POST', '/api/objects/resolve', { ...(await P()), body: { from: 'todo', refs: [{ module: 'todo', kind: 'task', id: 't1', scope: 'space', space: S2 }] } }), 'resolve in another space');
+    for (const q of ['scope=environment', 'scope=person', 'scope=spaces', '', `scope=environment&space=${S1}`, `scope=space&scope=environment&space=${S1}`]) {
+      refused(await call(server, 'GET', `/api/modules/todo/data?${q}`, await P()), 403, CANT, `data ${q || '(no scope)'}`);
+      refused(await call(server, 'GET', `/api/modules/todo/context?${q}`, await P()), 403, CANT, `context ${q || '(no scope)'}`);
+      refused(await call(server, 'GET', `/api/objects/search?from=todo&${q}`, await P()), 403, CANT, `search ${q || '(no scope)'}`);
+    }
+    refused(await call(server, 'POST', '/api/objects/resolve', { ...(await P()), body: { from: 'todo', refs: [{ module: 'todo', kind: 'task', id: 't1', scope: 'environment' }] } }), 403, CANT, 'resolve at environment scope');
+    refused(await call(server, 'GET', `/api/objects/links?from=todo&ref=${encodeURIComponent(JSON.stringify({ module: 'todo', kind: 'task', id: 't1', scope: 'environment' }))}`, await P()), 403, CANT, 'links at environment scope');
+  });
+
+  await test('raw data writes, Clear, restore and everything else off the list are 403', async () => {
+    const d = `/api/modules/todo/data/task:t1?scope=space&space=${S1}`;
+    refused(await call(server, 'PUT', d, { ...(await P()), body: { value: { id: 't1', title: 'Changed' } } }), 403, CANT, 'a raw write');
+    refused(await call(server, 'DELETE', d, await P()), 403, CANT, 'a raw delete');
+    refused(await call(server, 'DELETE', `/api/modules/todo/data?scope=space&space=${S1}`, await P()), 403, CANT, 'Clear');
+    refused(await call(server, 'POST', `/api/modules/todo/data/restore?scope=space&space=${S1}`, { ...(await P()), body: {} }), 403, CANT, 'restore');
+    for (const [method, url, body] of [
+      ['GET', '/api/me'], ['GET', '/api/spaces'], ['GET', `/api/spaces/${S1}/chat`], ['POST', `/api/spaces/${S1}/chat`, { text: 'hi' }],
+      ['GET', '/api/settings'], ['PATCH', `/api/users/${agent.key}`, { role: 'owner' }], ['POST', `/api/users/${agent.key}/token`],
+      ['DELETE', `/api/users/${agent.key}/token`], ['GET', `/api/users/${agent.key}/agent-log`], ['POST', '/api/logout'], ['GET', '/'], ['GET', '/style.css'],
+      ['POST', '/api/me/mfa/start'], ['PATCH', `/api/spaces/${S1}`, { name: 'x' }], ['POST', `/api/spaces/${S1}/join`], ['OPTIONS', '/api/agent/me'],
+      ['GET', `/api/modules/todo/data/task:t1/x?scope=space&space=${S1}`], ['POST', `/api/spaces/${S1}/command`, { name: 'todo', text: 'x' }],
+    ]) {
+      refused(await call(server, method, url, { ...(await P()), body }), 403, CANT, `${method} ${url}`);
+    }
+  });
+
+  await test('every route the app registers by a fixed path answers an agent 403, except the gate\'s list', async () => {
+    const routes = registeredRoutes();
+    assert.ok(routes.length > 200, `the walk found the routes (${routes.length})`);
+    let walked = 0;
+    for (const [method, pattern] of routes) {
+      if (GATE_LIST.has(`${method} ${pattern}`) || PUBLIC_BEFORE_ENVIRONMENTS.has(`${method} ${pattern}`)) continue;
+      const url = pattern.replace(/[{}]/g, '').replace(/\*[A-Za-z]+/g, 'a/b').replace(/:([A-Za-z]+)/g, 'x1234');
+      const r = await call(server, method, url, { ...(await P()), body: ['POST', 'PUT', 'PATCH'].includes(method) ? {} : undefined });
+      assert.equal(r.status, 403, `${method} ${pattern} answered ${r.status} ${r.text.slice(0, 200)}`);
+      assert.equal(r.json?.error, CANT, `${method} ${pattern}: the sentence`);
+      walked += 1;
+    }
+    assert.ok(walked > 200);
+  });
+
+  await test('it reads only its own requests', async () => {
+    const owners = await call(server, 'POST', `/api/spaces/${S1}/action`, { cookie: admin, body: { action: 'todo:createTask', input: { title: 'Owner task' } } });
+    ok(owners, 'the owner asks');
+    refused(await call(server, 'GET', `/api/spaces/${S1}/action/${owners.json.id}`, A()), 404, 'no such request', 'another\'s request');
+  });
+
+  await test('a cookie session sent with the token: the token wins and the gate applies', async () => {
+    refused(await call(server, 'GET', '/api/settings', { ...A(), cookie: admin }), 403, CANT, 'the owner\'s cookie does not help');
+    const me = await call(server, 'GET', '/api/agent/me', { ...A(), cookie: admin });
+    ok(me, 'still the agent');
+    assert.equal(me.json.agent.key, agent.key);
+  });
+
+  await test('a token is read only from the Authorization header', async () => {
+    refused(await call(server, 'GET', `/api/agent/me?token=${tokenA}`), 401, 'sign in first', 'a query string');
+    refused(await call(server, 'GET', '/api/agent/me', { cookie: `app_session=${tokenA}` }), 401, 'sign in first', 'a cookie');
+    refused(await call(server, 'GET', '/api/agent/me', { cookie: admin }), 403, "This is for an agent's token only.", 'a person');
+  });
+
+  await test('an unknown, revoked, replaced, turned-off or Agents-off token is 401 with the same sentence', async () => {
+    const fake = `agt_${crypto.randomBytes(32).toString('base64url')}`;
+    for (const t of [fake, 'agt_short', `${tokenA}x`, tokenA.slice(0, -1)]) refused(await call(server, 'GET', '/api/agent/me', { token: t }), 401, INVALID, 'unknown');
+    const fresh = await call(server, 'POST', `/api/users/${agent.key}/token`, { cookie: admin });
+    ok(fresh, 'a new token', 201);
+    allTokens.push(fresh.json.token);
+    refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'the old one ended');
+    tokenA = fresh.json.token;
+    ok(await call(server, 'GET', '/api/agent/me', A()), 'the new one');
+    ok(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { off: true } }), 'turned off');
+    refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'turned off');
+    refused(await call(server, 'POST', `/api/users/${agent.key}/token`, { cookie: admin }), 409, 'This agent is turned off. Turn it on first.', 'a token for one turned off');
+    ok(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { off: false } }), 'on again');
+    ok(await call(server, 'GET', '/api/agent/me', A()), 'on again');
+    ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: false } }), 'Agents off');
+    refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'Agents off');
+    refused(await call(server, 'POST', `/api/users/${agent.key}/token`, { cookie: admin }), 403, null, 'no token while Agents is off');
+    ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: true } }), 'Agents on');
+    ok(await call(server, 'GET', '/api/agent/me', A()), 'Agents on');
+    const revoked = await call(server, 'DELETE', `/api/users/${agent.key}/token`, { cookie: admin });
+    ok(revoked, 'revoke');
+    assert.equal(revoked.json.revoked, true);
+    refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'revoked');
+    assert.equal((await call(server, 'GET', `/api/users/${agent.key}/token`, { cookie: admin })).json.token, null);
+    const again = await call(server, 'POST', `/api/users/${agent.key}/token`, { cookie: admin });
+    ok(again, 'another', 201);
+    allTokens.push(again.json.token);
+    tokenA = again.json.token;
+    const seen = (await call(server, 'GET', `/api/users/${agent.key}/token`, { cookie: admin })).json.token;
+    assert.ok(seen.lastUsedAt === null, 'not used yet');
+    ok(await call(server, 'GET', '/api/agent/me', A()), 'used');
+    assert.ok((await call(server, 'GET', `/api/users/${agent.key}/token`, { cookie: admin })).json.token.lastUsedAt, 'its last use is shown');
+  });
+
+  await test('the log: one line a call, a route pattern, no token and no content', async () => {
+    const log = await call(server, 'GET', `/api/users/${agent.key}/agent-log`, { cookie: admin });
+    ok(log, 'the log');
+    const entries = log.json.entries;
+    assert.ok(entries.length > 20);
+    assert.ok(Date.parse(entries[0].at) >= Date.parse(entries[entries.length - 1].at), 'newest first');
+    // Every line, page by page, newest first.
+    const every = [...entries];
+    for (let more = log.json.more; more;) {
+      const page = await call(server, 'GET', `/api/users/${agent.key}/agent-log?before=${encodeURIComponent(every[every.length - 1].at)}`, { cookie: admin });
+      ok(page, 'an older page');
+      every.push(...page.json.entries);
+      more = page.json.more && page.json.entries.length > 0;
+    }
+    const action = every.find((e) => e.route === '/api/spaces/:id/action' && e.status === 200);
+    assert.ok(action, 'the action is there');
+    assert.deepEqual([action.method, action.space, action.action, action.kind, typeof action.request], ['POST', S1, 'todo:createTask', 'write', 'number']);
+    assert.ok(entries.some((e) => e.route === '(refused)' && e.status === 403), 'a refused call is there, without its path');
+    assert.ok(entries.every((e) => !('agent' in e)));
+    refused(await call(server, 'GET', `/api/users/${agent.key}/agent-log?before=soon`, { cookie: admin }), 400, 'before is a time, like 2026-11-16T10:00:00Z.', 'a bad before');
+    const older = await call(server, 'GET', `/api/users/${agent.key}/agent-log?before=${encodeURIComponent(entries[entries.length - 1].at)}`, { cookie: admin });
+    ok(older, 'older');
+    assert.ok(older.json.entries.every((e) => Date.parse(e.at) < Date.parse(entries[entries.length - 1].at)));
+    refused(await call(server, 'GET', `/api/users/${mia.key}/agent-log`, { cookie: admin }), 400, 'That account is not an agent.', 'a person has no log');
+    const text = fs.readFileSync(path.join(single, 'agent-log.jsonl'), 'utf8');
+    for (const t of allTokens) assert.ok(!text.includes(t), 'no token in the log');
+    assert.ok(!text.includes('Secret title 4417'), 'no request body in the log');
+    assert.ok(!text.includes('task:t1'), 'no path value in the log');
+    assert.ok(!text.includes(tokenA.slice(4, 20)), 'not even part of the token');
+  });
+
+  // --- the limits --------------------------------------------------------------------------------------------------------
+  const reader = await agentOf('Reader');
+  const writer = await agentOf('Writer');
+  const daily = await agentOf('Daily');
+  await test('60 reads a minute, then 429 with Retry-After', async () => {
+    for (let i = 0; i < 60; i += 1) ok(await call(server, 'GET', '/api/objects/kinds?from=todo', { token: reader.token }), `read ${i + 1}`);
+    const over = await call(server, 'GET', '/api/agent/me', { token: reader.token });
+    refused(over, 429, OVER, 'the 61st read');
+    const wait = Number(over.headers['retry-after']);
+    assert.ok(wait >= 1 && wait <= 60, `Retry-After ${over.headers['retry-after']}`);
+    refused(await call(server, 'GET', '/api/settings', { token: reader.token }), 429, OVER, 'a refused route counts as a read too');
+  });
+  await test('20 writes a minute, counted apart from reads', async () => {
+    for (let i = 0; i < 20; i += 1) ok(await call(server, 'POST', `/api/spaces/${S1}/action`, { token: writer.token, body: { action: 'todo:createTask', input: { title: `Write ${i}` } } }), `write ${i + 1}`);
+    const over = await call(server, 'POST', `/api/spaces/${S1}/action`, { token: writer.token, body: { action: 'todo:createTask', input: { title: 'One too many' } } });
+    refused(over, 429, OVER, 'the 21st write');
+    assert.ok(Number(over.headers['retry-after']) >= 1);
+    const me = await call(server, 'GET', '/api/agent/me', { token: writer.token });
+    ok(me, 'a read still goes');
+    assert.equal(me.json.limits.writes.usedToday, 20);
+  });
+
+  // --- a restart: the day's counts, an expired token ---------------------------------------------------------------------
+  const usedBefore = (await call(server, 'GET', '/api/agent/me', { token: daily.token })).json.limits;
+  await server.stop();
+  {
+    const today = new Date().toISOString();
+    const line = (kind) => `${JSON.stringify({ at: today, agent: daily.key, token: 'x', method: 'GET', route: '/api/agent/me', space: null, action: null, request: null, message: null, status: 200, address: '127.0.0.1', kind })}\n`;
+    fs.appendFileSync(path.join(single, 'agent-log.jsonl'), line('read').repeat(3000 - usedBefore.reads.usedToday) + line('write').repeat(300));
+  }
+  server = await startServer(single, onEnv);
+  admin = await signIn(server, 'admin', 'admin-password-1');
+  await test('the day\'s counts survive a restart: read back from the log', async () => {
+    const over = await call(server, 'GET', '/api/agent/me', { token: daily.token });
+    refused(over, 429, OVER, 'the day\'s reads are spent');
+    assert.ok(Number(over.headers['retry-after']) > 0 && Number(over.headers['retry-after']) <= 86400);
+    refused(await call(server, 'POST', `/api/spaces/${S1}/action`, { token: daily.token, body: { action: 'todo:createTask', input: { title: 'x' } } }), 429, OVER, 'the day\'s writes are spent');
+    const writerNow = await call(server, 'GET', '/api/agent/me', { token: writer.token });
+    ok(writerNow, 'the writer reads again after a restart (the minute is memory only)');
+    assert.equal(writerNow.json.limits.writes.usedToday, 20, 'its writes today were read back');
+  });
+  await server.stop();
+  {
+    const file = path.join(single, 'tokens.json');
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const mine = data.tokens.find((t) => t.user === agent.key);
+    mine.expiresAt = new Date(Date.now() - 1000).toISOString();
+    fs.writeFileSync(file, JSON.stringify(data));
+  }
+  server = await startServer(single, onEnv);
+  await test('a token past its end is 401', async () => {
+    refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'expired');
+    ok(await call(server, 'GET', '/api/agent/me', { token: writer.token }), 'another agent\'s live token');
+  });
+  await server.stop();
+
+  // --- off again: nothing reads a token ----------------------------------------------------------------------------------
+  server = await startServer(single, offEnv);
+  admin = await signIn(server, 'admin', 'admin-password-1');
+  await test('with AGENT_TOKENS off again, a live token is read as nobody', async () => {
+    refused(await call(server, 'GET', '/api/agent/me', { token: writer.token }), 401, 'sign in first', '/api/agent/me');
+    refused(await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${S1}`, { token: writer.token }), 401, 'sign in first', 'data');
+    refused(await call(server, 'POST', `/api/spaces/${S1}/action`, { token: writer.token, body: { action: 'todo:createTask', input: { title: 'x' } } }), 401, null, 'an action');
+    refused(await call(server, 'POST', `/api/users/${writer.key}/token`, { cookie: admin }), 403, 'Agents are off on this server.', 'a token');
+    ok(await call(server, 'DELETE', `/api/users/${writer.key}/token`, { cookie: admin }), 'revoking still works');
+    const users = (await call(server, 'GET', '/api/users', { cookie: admin })).json.users;
+    assert.ok(users.find((u) => u.key === writer.key).agent, 'the agents are still listed');
+    ok(await call(server, 'DELETE', `/api/users/${reader.key}`, { cookie: admin }), 'an agent can be deleted');
+    assert.ok(!JSON.parse(fs.readFileSync(path.join(single, 'tokens.json'), 'utf8')).tokens.some((t) => t.user === reader.key), 'its token went with it');
+  });
+  await server.stop();
+
+  // --- hosted: one environment's token is nobody at another -------------------------------------------------------------
+  const hosted = path.join(base, 'hosted');
+  const hostEnv = { BASE_DOMAIN: 'localhost', ADMIN_LOGIN: 'boss', ADMIN_PASSWORD: 'host-password-1', AGENT_TOKENS: 'true' };
+  server = await startServer(hosted, hostEnv);
+  const host = await signIn(server, 'boss', 'host-password-1', 'admin');
+  for (const slug of ['acme', 'beta']) {
+    ok(await call(server, 'POST', '/api/host/environments', { host: 'admin', cookie: host, body: { slug, name: slug, owner: { login: 'owner', password: 'owner-password-1' } } }), `${slug} made`, 201);
+  }
+  const acme = await signIn(server, 'owner', 'owner-password-1', 'acme');
+  const beta = await signIn(server, 'owner', 'owner-password-1', 'beta');
+  await test('hosted: a token of one environment is 401 at another; the console and the product host answer as before', async () => {
+    for (const [slug, cookie] of [['acme', acme], ['beta', beta]]) ok(await call(server, 'PATCH', '/api/settings', { host: slug, cookie, body: { agents: true } }), `${slug} turns Agents on`);
+    const a = (await call(server, 'POST', '/api/users', { host: 'acme', cookie: acme, body: { agent: true } })).json.user;
+    const t = (await call(server, 'POST', `/api/users/${a.key}/token`, { host: 'acme', cookie: acme })).json.token;
+    allTokens.push(t);
+    assert.match(t, TOKEN_RE);
+    ok(await call(server, 'GET', '/api/agent/me', { host: 'acme', token: t }), 'at acme');
+    refused(await call(server, 'GET', '/api/agent/me', { host: 'beta', token: t }), 401, INVALID, 'at beta');
+    // The same account key made at beta still does not take acme's token.
+    refused(await call(server, 'GET', '/api/users', { host: 'beta', token: t }), 401, INVALID, 'any route at beta');
+    refused(await call(server, 'GET', '/api/host/environments', { host: 'admin', token: t }), 401, 'sign in first', 'the console ignores it');
+    ok(await call(server, 'GET', '/api/product', { token: t, headers: { host: `localhost:${server.port}` } }), 'the product host ignores it');
+    const betaTokens = path.join(hosted, 'environments', 'beta', 'tokens.json');
+    assert.ok(!fs.existsSync(betaTokens) || !fs.readFileSync(betaTokens, 'utf8').includes(sha256(t)), 'beta keeps none of acme\'s');
+    assert.ok(fs.existsSync(path.join(hosted, 'environments', 'acme', 'agent-log.jsonl')), 'acme keeps its own log');
+    assert.ok(!fs.existsSync(path.join(hosted, 'environments', 'beta', 'agent-log.jsonl')), 'beta has none');
+  });
+  await test('an owner\'s copy of the environment carries no tokens.json and no agent-log.jsonl; the agent is in it', async () => {
+    const zipped = await new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: server.port, path: '/api/environment/export', headers: { host: `acme.localhost:${server.port}`, cookie: acme } }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
+      }).on('error', reject);
+    });
+    assert.equal(zipped.status, 200);
+    assert.ok(zipped.body.includes(Buffer.from('app.json')), 'a zip of the environment');
+    assert.ok(!zipped.body.includes(Buffer.from('tokens.json')), 'no tokens.json');
+    assert.ok(!zipped.body.includes(Buffer.from('agent-log.jsonl')), 'no agent-log.jsonl');
+  });
+  await server.stop();
+
+  // --- the token nowhere in the clear ------------------------------------------------------------------------------------
+  await test('no token in a later answer, the data folders or the server\'s own log', async () => {
+    const shown = new Set(allTokens);
+    // Each token was in exactly one answer, the one that made it.
+    for (const t of shown) assert.equal(answers.filter((a) => a.includes(t)).length, 1, 'a token is shown once');
+    for (const [file, bytes] of filesUnder(base)) {
+      if (file.endsWith('.zip') || file.includes('todo-agent-check')) continue;
+      const text = bytes.toString('utf8');
+      for (const t of shown) assert.ok(!text.includes(t), `${path.relative(base, file)} holds a token`);
+    }
+    for (const s of servers) for (const t of shown) assert.ok(!s.out.includes(t), 'the server log holds a token');
+  });
+} catch (err) {
+  failed += 1;
+  console.error(`FAIL setting up\n${err.stack || err}`);
+} finally {
+  for (const s of servers) await s.stop();
+  fs.rmSync(base, { recursive: true, force: true });
+}
+
+if (failed) {
+  console.error(`check-agent-tokens: ${failed} failed, ${n} passed`);
+  process.exit(1);
+}
+console.log(`check-agent-tokens: ${n} passed`);
