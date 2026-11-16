@@ -46,7 +46,9 @@ test('the manifest takes the plan kinds', () => {
   assert.deepEqual(by.addMilestone.takes.map((t) => [t.kinds, t.as]), [[['milestone'], 'a milestone']]);
   assert.deepEqual(by.addWork.takes.map((t) => [t.kinds, t.as]), [[['work'], 'a piece of work']]);
   assert.deepEqual(by.addNote.takes.map((t) => [t.kinds, t.as]), [[['note'], 'a note']]);
-  for (const a of Object.values(by)) assert.equal(a.input.object, 'object?');
+  // the adds take an object; setDone and updateEntry act on an entry that is there and take none
+  for (const n of ['addMilestone', 'addWork', 'addNote']) assert.equal(by[n].input.object, 'object?');
+  for (const n of ['setDone', 'updateEntry']) assert.equal(by[n].input.object, undefined);
 });
 
 test('a milestone: day, notes, phase by name, done becomes ticked', () => {

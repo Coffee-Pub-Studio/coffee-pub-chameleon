@@ -1505,6 +1505,13 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
   // What this module has attached lately (host.chat.attach's rate cap).
   let attachTimes = [];
   let lastAttach = { same: '', at: 0 };
+  // The request this page has taken for someone else and not finished ({ id, byKey }); its writes say whose it is, so the
+  // server's records name the asker (plan-agent-access.md, decision 9). The server believes it only for a request this
+  // person's page really holds, and it changes nothing about what they may write.
+  let carrying = null;
+  // Only for the claim's own minute (the server's window): a slower handler then writes as the person, not refused.
+  const CARRY_MS = 55 * 1000;
+  const carriedFor = () => (carrying && Date.now() - carrying.at < CARRY_MS ? { for: carrying.byKey, request: carrying.id } : {});
   const handlers = {
     async hello() {
       // Every new page in the frame says hello first, and its SDK makes no live call before the answer: a hello after the
@@ -1555,7 +1562,7 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       let tz = '';
       try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* the server falls back */ }
       if (typeof given === 'string' && /^[A-Za-z0-9_+\-/]{1,64}$/.test(given)) tz = given;
-      return (await api('PUT', url(`/data/${encodeURIComponent(key)}`, scopeOf(s, space)), { value, version, tz })).item;
+      return (await api('PUT', url(`/data/${encodeURIComponent(key)}`, scopeOf(s, space)), { value, version, tz, ...carriedFor() })).item;
     },
     async 'storage.delete'({ key, version, scope: s, space }) {
       let tz = '';
@@ -1709,9 +1716,13 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       return (await api('GET', `/api/bus/actions/pending?${busQuery({ module: module.id })}`)).actions.filter((a) => forThisPage(a.input, thisPage.id, Date.now()));
     },
     async 'actions.claim'({ id }) {
-      return api('POST', `/api/bus/actions/claim${busGuest()}`, { module: module.id, id, ...busPlaceBody() });
+      const out = await api('POST', `/api/bus/actions/claim${busGuest()}`, { module: module.id, id, ...busPlaceBody() });
+      // A request someone else asked for: this module's writes while it is carried out name the asker (the server checks it).
+      carrying = out && out.ok && out.action && out.action.byKey && !out.action.mine ? { id: out.action.id, byKey: out.action.byKey, at: Date.now() } : null;
+      return out;
     },
     async 'actions.complete'({ id, result }) {
+      if (carrying && carrying.id === id) carrying = null;
       return api('POST', `/api/bus/actions/complete${busGuest()}`, { module: module.id, id, result, ...busPlaceBody() });
     },
     async 'actions.status'({ id }) {

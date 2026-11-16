@@ -282,12 +282,15 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
       // the log is a convenience
     }
   }
-  function noteActivity(module, what, by, scopeKey) {
-    moduleActivity.push({ at: Date.now(), module, what, by: by || null, scope: scopeKey || null });
+  // `by` is who the line is about (the asker, for a request someone else's page carried out); `carriedBy` is that page's person.
+  function noteActivity(module, what, by, scopeKey, carriedBy) {
+    moduleActivity.push({ at: Date.now(), module, what, by: by || null, scope: scopeKey || null, ...(carriedBy && carriedBy !== by ? { carriedBy } : {}) });
     if (moduleActivity.length > 300) moduleActivity.shift();
     if (!activityTimer) { activityTimer = setTimeout(saveActivity, 5000); if (activityTimer.unref) activityTimer.unref(); }
   }
-  moduleData.on('change', (c) => noteActivity(c.module, `${c.deleted ? 'deleted' : 'saved'} ${c.key}`, c.by, c.scopeKey));
+  moduleData.on('change', (c) => noteActivity(c.module, `${c.deleted ? 'deleted' : 'saved'} ${c.key}`, c.asker || c.by, c.scopeKey, c.asker ? c.by : null));
+  // A request someone else's page carried out: one line naming the asker and that page, as the writes it made do.
+  moduleBus.on('actionDone', (a) => { if (a.doneBy && a.doneBy !== a.by && a.result && a.result.ok) noteActivity(a.provider, `carried out ${a.action}`, a.by, a.scopeKey, a.doneBy); });
   moduleData.on('changes', (c) => noteActivity(c.module, `${c.restored ? 'put back' : 'cleared'} ${c.changes.length} ${c.changes.length === 1 ? 'key' : 'keys'}`, c.by, c.scopeKey));
   moduleBus.on('event', (e) => noteActivity(e.module, `published the event ${e.name}`, e.by, e.scopeKey));
   moduleBus.on('action', (a) => noteActivity(a.from, `asked ${a.provider} to ${a.action}`, a.by, a.scopeKey));

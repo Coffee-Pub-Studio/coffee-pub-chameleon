@@ -271,6 +271,41 @@ async function main() {
       await t.close();
     }
 
+    // Modules > Configuration > Recent activity: a line names its asker from the fields, as text (the list is stubbed, so the
+    // lines are exact: the server's own are read by check-agent-asker).
+    {
+      const lines = [
+        { at: '2026-10-15T08:55:00.000Z', moduleName: 'Planner', what: 'saved a milestone', askerName: 'Claude (agent)', askerAgent: true, carrierName: 'Mia', byName: "Claude (agent), carried out by Mia's page" },
+        { at: '2026-10-15T08:50:00.000Z', moduleName: 'Planner', what: 'saved a note', askerName: HOSTILE, askerAgent: true, carrierName: HOSTILE, byName: 'x' },
+        { at: '2026-10-15T08:45:00.000Z', moduleName: 'Planner', what: 'saved work', askerName: '<b>Zed</b>', askerAgent: false, byName: '<b>Zed</b>' },
+        { at: '2026-10-15T08:40:00.000Z', moduleName: 'Planner', what: 'saved an old line', byName: 'Old Name' },
+        { at: '2026-10-15T08:35:00.000Z', moduleName: 'Planner', what: 'saved a person line named like an agent', askerName: 'Claude (agent)', askerAgent: false },
+      ];
+      for (const size of [1280, 390]) {
+        const t = await open(size, 'dark', 'admin');
+        await t.cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/modules/activity', requestStage: 'Request' }] }, t.sid);
+        t.cdp.listeners.push((m) => {
+          if (m.method !== 'Fetch.requestPaused' || m.sessionId !== t.sid) return;
+          t.cdp.send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify({ activity: lines })).toString('base64') }, t.sid).catch(() => {});
+        });
+        await go(t, '/admin#modules');
+        await t.waitFor('#module-activity li');
+        const rows = await t.eval(`[...document.querySelectorAll('#module-activity li .activity-event')].map((e) => ({ text: e.textContent, marks: e.querySelectorAll('.activity-agent').length, markup: e.querySelectorAll('img, b, script').length }))`);
+        expect(rows.length === 5, `${size}: the activity list has ${rows.length} rows, not 5`);
+        expect(rows[0] && /^saved a milestone by Claude agent, carried out by Mia's page$/.test(rows[0].text) && rows[0].marks === 1, `${size}: an agent line with a carrier reads "${rows[0] && rows[0].text}" with ${rows[0] && rows[0].marks} marks`);
+        expect(rows[1] && rows[1].text.includes(`by ${HOSTILE} agent, carried out by ${HOSTILE}'s page`) && rows[1].markup === 0, `${size}: a script-looking asker or carrier is not drawn as text`);
+        expect(rows[2] && rows[2].text === 'saved work by <b>Zed</b>' && rows[2].marks === 0 && rows[2].markup === 0, `${size}: a plain person line reads "${rows[2] && rows[2].text}"`);
+        expect(rows[3] && rows[3].text === 'saved an old line by Old Name' && rows[3].marks === 0, `${size}: a line with only byName reads "${rows[3] && rows[3].text}"`);
+        expect(rows[4] && rows[4].marks === 0, `${size}: the agent mark is drawn without askerAgent`);
+        expect(!(await pwn(t)) && await wide(t) <= 1, `${size}: the activity list ran a script or scrolls sideways`);
+        await t.eval(`(() => { const b = document.getElementById('activity-box'); b.scrollIntoView({ block: 'center' }); })()`);
+        await shot(t, `activity-${size}-dark`, false);
+        await t.switchMode('light'); await t.settle();
+        await shot(t, `activity-${size}-light`, false);
+        await t.close();
+      }
+    }
+
     // A member: no Manage page, no agent controls, the server refuses.
     {
       const t = await open(1280, 'dark', 'mia');

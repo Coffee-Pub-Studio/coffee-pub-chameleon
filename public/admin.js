@@ -1647,6 +1647,28 @@ const activityWhen = (at) => {
 };
 // Something the server refused or slowed shows as a warning (no colour alone: a small icon too).
 const activityLevel = (what) => (/slowed|too many|over the limit|refused|denied|failed|error/i.test(what || '') ? 'warn' : 'info');
+// Who a line names, drawn from the fields as text: the asker (an agent's name without the server's " (agent)", then the agent mark,
+// only when askerAgent is true) and, when another page carried it out, ", carried out by <name>'s page". byName is only for a line
+// that has no askerName.
+function activityBy(a) {
+  const box = document.createElement('span');
+  box.className = 'hint activity-by';
+  const asker = typeof a.askerName === 'string' && a.askerName ? a.askerName : '';
+  if (!asker) {
+    if (a.byName) box.textContent = ` by ${a.byName}`;
+    return box;
+  }
+  const agent = a.askerAgent === true;
+  box.append(' by ', document.createTextNode(agent ? asker.replace(/ \(agent\)$/, '') : asker));
+  if (agent) {
+    const mark = document.createElement('span');
+    mark.className = 'sdk-status activity-agent';
+    mark.textContent = 'agent';
+    box.append(' ', mark);
+  }
+  if (a.carrierName) box.append(document.createTextNode(`, carried out by ${a.carrierName}'s page`));
+  return box;
+}
 let activityKey = '';
 async function loadActivity() {
   const list = $('module-activity');
@@ -1668,7 +1690,8 @@ async function loadActivity() {
     const li = document.createElement('li');
     li.className = 'activity-row';
     li.dataset.level = activityLevel(a.what);
-    li.innerHTML = `<span class="activity-time" title="${escapeHtml(new Date(a.at).toLocaleString())}">${escapeHtml(activityWhen(a.at))}</span><span class="activity-source">${escapeHtml(a.moduleName)}</span><span class="activity-event">${li.dataset.level === 'warn' ? '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ' : ''}${escapeHtml(a.what)}${a.byName ? ` <span class="hint">by ${escapeHtml(a.byName)}</span>` : ''}</span>`;
+    li.innerHTML = `<span class="activity-time" title="${escapeHtml(new Date(a.at).toLocaleString())}">${escapeHtml(activityWhen(a.at))}</span><span class="activity-source">${escapeHtml(a.moduleName)}</span><span class="activity-event">${li.dataset.level === 'warn' ? '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> ' : ''}${escapeHtml(a.what)}</span>`;
+    li.querySelector('.activity-event').append(activityBy(a));
     return li;
   }));
   $('module-activity-empty').textContent = 'No activity yet.';
