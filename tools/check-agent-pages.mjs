@@ -171,7 +171,8 @@ async function main() {
     lines.push({ at: at(203), agent: agent.key, token: 'tok1', method: 'GET', route: '(refused)', space: null, action: null, request: null, message: null, status: 403, address: '203.0.113.9', kind: 'read' });
     lines.push({ at: at(204), agent: agent.key, token: 'tok1', method: 'GET', route: '(refused)', space: null, action: null, request: null, message: null, status: 401, address: '203.0.113.9', kind: null });
     const chatLine = (n, method, status, message) => ({ at: at(n), agent: agent.key, token: 'tok1', method, route: '/api/spaces/:id/chat', space: space.id, action: null, request: null, message, status, address: '203.0.113.9', kind: method === 'GET' ? 'read' : 'write' });
-    lines.push(chatLine(205, 'GET', 200, '12'), chatLine(206, 'GET', 200, '1'), chatLine(207, 'POST', 200, 'm-abc123'), chatLine(208, 'POST', 403, null));
+    lines.push(chatLine(205, 'GET', 200, 12), chatLine(206, 'GET', 200, 1), chatLine(207, 'POST', 200, 'a1b2c3d4e5f6'), chatLine(208, 'POST', 403, null), chatLine(209, 'GET', 200, 0));
+    // The shapes are the server's own (server/agent-log.js): a read's count is a NUMBER, a post's id a 12-hex string.
     fs.writeFileSync(path.join(logDir, '2026-10-14.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 
     // The token: made, shown once.
@@ -224,9 +225,9 @@ async function main() {
     {
       const chatRows = await tab.eval(`[...document.querySelectorAll('[data-agent-log] li')].filter((l) => /Chat|post/.test(l.querySelector('.agent-log-what').textContent)).map((l) => ({ what: l.querySelector('.agent-log-what').textContent, text: l.textContent }))`);
       const row = (what) => chatRows.find((r) => r.what === what);
-      expect(chatRows.filter((r) => r.what === 'Read Chat in ' + SPACE_NAME).length === 2, `the log has ${chatRows.filter((r) => r.what === 'Read Chat in ' + SPACE_NAME).length} "Read Chat in ${SPACE_NAME}" lines, not 2 (${chatRows.map((r) => r.what).join(' | ')})`);
-      expect(chatRows.some((r) => r.what === 'Read Chat in ' + SPACE_NAME && r.text.includes('12 messages')) && chatRows.some((r) => r.what === 'Read Chat in ' + SPACE_NAME && /1 message(?!s)/.test(r.text)), 'a Chat read does not say "12 messages" and "1 message"');
-      expect(row('Posted in Chat in ' + SPACE_NAME) && !row('Posted in Chat in ' + SPACE_NAME).text.includes('m-abc123'), 'a post is not "Posted in Chat in <space>", or it shows the message id');
+      expect(chatRows.filter((r) => r.what === 'Read Chat in ' + SPACE_NAME).length === 3, `the log has ${chatRows.filter((r) => r.what === 'Read Chat in ' + SPACE_NAME).length} "Read Chat in ${SPACE_NAME}" lines, not 3 (${chatRows.map((r) => r.what).join(' | ')})`);
+      expect(chatRows.some((r) => r.what === 'Read Chat in ' + SPACE_NAME && r.text.includes('12 messages')) && chatRows.some((r) => r.what === 'Read Chat in ' + SPACE_NAME && /1 message(?!s)/.test(r.text)) && chatRows.some((r) => r.what === 'Read Chat in ' + SPACE_NAME && r.text.includes('0 messages')), 'a Chat read (count as a number) does not say "12 messages", "1 message" and "0 messages"');
+      expect(row('Posted in Chat in ' + SPACE_NAME) && !row('Posted in Chat in ' + SPACE_NAME).text.includes('a1b2c3d4e5f6'), 'a post is not "Posted in Chat in <space>", or it shows the message id');
       expect(row('Refused post in ' + SPACE_NAME) && row('Refused post in ' + SPACE_NAME).text.includes('didn\'t work (403)'), 'a refused post is not "Refused post in <space>"');
     }
     await shot(tab, 'agent-page-1280-dark');

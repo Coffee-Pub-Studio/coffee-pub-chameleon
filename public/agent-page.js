@@ -69,8 +69,9 @@ export function logLine(entry, { spaceName = () => '', hour12 = true, word = (w)
   if (status !== null && status >= 400) parts.push(`didn't work (${status})`);
   else if (e.route === '(refused)' && status !== null) parts.push(String(status));
   const detail = parts.filter(Boolean).join(' · ');
+  // The server writes a read's count as a number and a post's id as a string; only the count is shown.
   let message = typeof e.message === 'string' && e.message ? e.message : '';
-  if (e.route === CHAT_ROUTE && e.method === 'GET') { const n = Number(message); message = /^\d+$/.test(message) ? `${n} ${n === 1 ? 'message' : 'messages'}` : ''; }
+  if (e.route === CHAT_ROUTE && e.method === 'GET') { const n = e.message; message = Number.isInteger(n) && n >= 0 ? `${n} ${n === 1 ? 'message' : 'messages'}` : ''; }
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 200) message = ''; // the message id means nothing to a person
   return { text, note: false, detail, message };
 }
