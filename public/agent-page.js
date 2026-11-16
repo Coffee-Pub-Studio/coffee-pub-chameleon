@@ -45,13 +45,18 @@ const actionWords = (action) => {
   return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().trim() || 'something';
 };
 
-// A module's id as a name ("my-notes" -> "My Notes"): the page has no module list, so the id stands for it. Only a safe id
-// (as the server writes it) counts; anything else is no module.
-const moduleName = (id) => (typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id) ? id.split('-').filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ') : '');
+// A module's name for a log line: the environment's own name for it (`lookup(id)`, from the Modules list the page already
+// has: its display name, else its own), and only when that is unknown the id title-cased ("my-notes" -> "My Notes"). Only a
+// safe id (as the server writes it) counts; anything else is no module (''), whatever was sent.
+const moduleName = (id, lookup) => {
+  if (typeof id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(id)) return '';
+  const named = lookup(id);
+  return typeof named === 'string' && named ? named : id.split('-').filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
+};
 
 // One log line (an entry of GET /api/users/:key/agent-log) as { text, note, detail }: what it did in plain words, whether it is
-// a note (a line that counted against nothing), and the rest of it (when, address, how it went). `spaceName(id)` gives a space's name.
-export function logLine(entry, { spaceName = () => '', hour12 = true, word = (w) => w } = {}) {
+// a note (a line that counted against nothing), and the rest of it (when, address, how it went). `spaceName(id)` gives a space's name and `moduleName(id)` a module's name here ('' when unknown).
+export function logLine(entry, { spaceName = () => '', moduleName: lookup = () => '', hour12 = true, word = (w) => w } = {}) {
   const e = entry && typeof entry === 'object' ? entry : {};
   const status = Number.isInteger(e.status) ? e.status : null;
   const parts = [whenText(e.at, hour12)];
@@ -68,7 +73,7 @@ export function logLine(entry, { spaceName = () => '', hour12 = true, word = (w)
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 200) text = `Posted in Chat${where}`;
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 403) text = `Refused post${where}`;
   else if (e.route === '/api/spaces/:id/action') text = `Ask for ${actionWords(e.action)}${where}`;
-  else if (known(e.route)) text = `${READS[e.route](word, moduleName(e.module))}${where}`;
+  else if (known(e.route)) text = `${READS[e.route](word, moduleName(e.module, lookup))}${where}`;
   else { refused = true; text = `Refused: ${`${String(e.method || '')} ${String(e.route || '')}`.trim()}`; } // a route off the gate's list: the server writes its fixed shape
   if (status !== null && status >= 400) parts.push(refused ? String(status) : `didn't work (${status})`);
   const detail = parts.filter(Boolean).join(' · ');
@@ -203,7 +208,7 @@ export function mountAgentPage(ctx) {
     $('[data-agent-log-status]').textContent = '';
     if (!more) { list.replaceChildren(); oldest = null; }
     for (const entry of answer.entries) {
-      const line = logLine(entry, { spaceName, hour12: ctx.hour12(), word: ctx.word });
+      const line = logLine(entry, { spaceName, moduleName: ctx.moduleName, hour12: ctx.hour12(), word: ctx.word });
       const li = make('li', `agent-log-line${line.note ? ' is-note' : ''}`);
       li.append(make('span', 'agent-log-what', line.text), make('span', 'agent-log-detail', line.detail));
       if (line.message) li.append(make('span', 'agent-log-detail', line.message));

@@ -526,7 +526,7 @@ try {
     const action = every.find((e) => e.route === '/api/spaces/:id/action' && e.status === 200);
     assert.ok(action, 'the action is there');
     assert.deepEqual([action.method, action.space, action.action, action.kind, typeof action.request], ['POST', S1, 'todo:createTask', 'write', 'number']);
-    assert.ok(entries.some((e) => e.status === 403 && e.kind !== null && !(e.route === '(refused)') && /^\/[a-z:/]*$/.test(e.route)), 'a refused call is there, as a route shape without its path\'s values');
+    assert.ok(entries.some((e) => e.status === 403 && e.kind !== null && !(e.route === '(refused)') && /^\/[a-z:/-]*$/.test(e.route)), 'a refused call is there, as a route shape without its path\'s values');
     assert.ok(every.every((e) => e.route !== '(refused)'), 'no line reads "(refused)"');
     assert.ok(entries.every((e) => !('agent' in e)));
     refused(await call(server, 'GET', `/api/users/${agent.key}/agent-log?before=soon`, { cookie: admin }), 400, 'before is a time, like 2026-11-16T10:00:00Z.', 'a bad before');
@@ -570,7 +570,10 @@ try {
     // A write to the raw data is not on the gate's list: refused, so no module.
     refused(await call(server, 'PUT', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, { ...T, body: { value: { id: 't1' } } }), 403, CANT, 'a raw data write');
     { const l = await last();
-      assert.deepEqual([l.route, l.module, l.kind], ['/api/modules/:x/data/:x', null, 'read']); }
+      assert.deepEqual([l.route, l.module, l.kind], ['/api/modules/:id/data/:key', 'todo', 'read']); }
+    refused(await call(server, 'DELETE', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, T), 403, CANT, 'the wrong method on a listed path');
+    { const l = await last();
+      assert.deepEqual([l.route, l.module, l.kind, l.status], ['/api/modules/:id/data/:key', 'todo', 'read', 403], 'the gate\'s pattern, not a shape'); }
     ok(await call(server, 'GET', '/api/agent/me', T), 'me');
     assert.equal((await last()).module, null);
     ok(await call(server, 'GET', `/api/spaces/${S1}/actions`, T), 'actions');
@@ -589,10 +592,15 @@ try {
     // A refused call to a route that is not on the list: its shape, no values, no query, no token.
     const secret = `${f.token}`;
     const pathy = [
-      [`/api/settings?x=${secret}`, '/api/:x'],
-      [`/api/users/${secret}/token`, '/api/:x/:x/:x'],
-      [`/api/spaces/${S1}/members/Secret-Name-4417?token=${secret}&q=hello`, '/api/spaces/:x/:x/:x'],
-      ['/API/Modules/Todo/Data/Extra/More', '/api/modules/:x/data/:x/:x'],
+      [`/api/settings?x=${secret}`, '/api/settings'],
+      [`/api/users/${f.key}/agent-log?before=${secret}`, '/api/users/:x/agent-log'],
+      [`/api/users/${secret}/token`, '/api/users/:x/token'],
+      [`/api/spaces/${S1}/Secret-Name-4417?token=${secret}&q=hello`, null],
+      ['/API/Modules/Todo/Data/Extra/More', null],
+      // Only words of registered routes, in an order no registered route has: not kept word for word.
+      ['/data/modules/api', '/:x/:x/:x'],
+      ['/api/data/context/settings', null],
+      ['/settings/api/modules', null],
       [`/${'seg/'.repeat(60)}`, null],
     ];
     for (const [url, want] of pathy) {
@@ -600,14 +608,42 @@ try {
       assert.equal(r.status, 403, `${url.slice(0, 40)} is refused`);
       const l = await last();
       assert.equal(l.status, 403, `${url.slice(0, 40)} logged ${l.status} ${l.route}`);
-      assert.ok(typeof l.route === 'string' && l.route.length <= 80 && /^\/[a-z:/]*$/.test(l.route), `route shape ${l.route}`);
+      assert.ok(typeof l.route === 'string' && l.route.length <= 80 && /^\/[a-z:/-]*$/.test(l.route), `route shape ${l.route}`);
       if (want !== null) assert.equal(l.route, want, `the route of ${url.slice(0, 40)}`);
       assert.equal(l.module, null);
     }
+    // The shape of a path of allowed words in the wrong places holds nothing in the wrong place.
+    for (const url of ['/data/modules/api', '/api/data/context/settings']) {
+      await call(server, 'GET', url, T);
+      const l = await last();
+      assert.ok(!/\/data\/modules\/api|\/api\/data\/context|context\/settings/.test(l.route), `the words of ${url} stayed in order: ${l.route}`);
+    }
     const text = fs.readFileSync(file, 'utf8');
-    for (const bad of [secret, secret.slice(4, 20), 'Secret-Name-4417', 'hello', 'members', 'settings', '..', 'proto', 'Field check']) assert.ok(!text.includes(bad), `the log holds "${bad.slice(0, 12)}"`);
+    for (const bad of [secret, secret.slice(4, 20), 'Secret-Name-4417', 'hello', '..', 'proto', 'Field check']) assert.ok(!text.includes(bad), `the log holds "${bad.slice(0, 12)}"`);
     assert.ok(!/aaaaaaaaaa/.test(text), 'a 300-character id is in the log');
     assert.ok(!text.includes('(refused)'));
+  });
+
+  await test('a 401 note, a 429 note and a refused line on a listed path all write the gate\'s pattern and the module', async () => {
+    const off = await agentOf('Turned off');
+    ok(await call(server, 'PATCH', `/api/users/${off.key}`, { cookie: admin, body: { off: true } }), 'turned off');
+    refused(await call(server, 'DELETE', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, { token: off.token }), 401, INVALID, 'turned off, a listed path');
+    const over = await agentOf('Over the limit');
+    for (let i = 0; i < 60; i += 1) ok(await call(server, 'GET', '/api/objects/kinds?from=todo', { token: over.token }), `read ${i + 1}`);
+    refused(await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${S1}`, { token: over.token }), 429, OVER, 'over the limit, a listed path');
+    const noteOf = async (key, status) => {
+      const file = path.join(single, 'agent-log', key, `${dayToday()}.jsonl`);
+      for (let i = 0; i < 100; i += 1) {
+        const found = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((l) => l.status === status) : null;
+        if (found) return found;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      assert.fail(`no ${status} note`);
+    };
+    const n401 = await noteOf(off.key, 401);
+    const n429 = await noteOf(over.key, 429);
+    assert.deepEqual([n401.route, n401.module, n401.kind], ['/api/modules/:id/data/:key', 'todo', null], 'the 401 note');
+    assert.deepEqual([n429.route, n429.module, n429.kind], ['/api/modules/:id/data', 'todo', null], 'the 429 note');
   });
 
   // --- the limits --------------------------------------------------------------------------------------------------------

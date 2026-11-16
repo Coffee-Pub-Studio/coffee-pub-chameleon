@@ -314,6 +314,7 @@ function showAgent() {
       api,
       say,
       spaces: () => spaces,
+      moduleName: (id) => shownName(installedModules.find((m) => m.id === id) || bundledModules.find((b) => b.id === id)), // this environment's name for it, '' when unknown
       hour12: () => hour12,
       word,
       onChanged: (changed) => { users = users.map((u) => (u.key === changed.key ? { ...u, ...changed } : u)); renderUsers(); },
