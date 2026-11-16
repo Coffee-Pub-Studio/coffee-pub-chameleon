@@ -45,7 +45,7 @@ async function run(browser, S, people) {
   const states = [];
   try {
     await tab.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `try { localStorage.setItem('shots.call.people', '${people - 1}'); } catch (e) {}` }, tab.sid);
-    await driveScreen(tab, { id: 'call', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, steps: [{ click: '#join-call' }] }, S.base, S.cookies, S.ctx);
+    await driveScreen(tab, { id: 'call', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, steps: [{ click: '#join-call' }] }, S.base, S.cookies, S.ctx);
     const end = Date.now() + 15000;
     while (Date.now() < end && (await tab.eval(`document.querySelectorAll('#grid .tile').length`)) < people) await sleep(200);
     // Pop the call out, as its title bar's button does (a click is a user gesture, so the window is not blocked).
@@ -104,7 +104,7 @@ async function runArea(browser, S) {
   const box = (id) => `(() => { const e = document.getElementById('${id}'); if (!e) return null; const r = e.getBoundingClientRect(); return { shown: !e.hidden && r.width > 0 && r.height > 0, w: Math.round(r.width), h: Math.round(r.height), label: e.getAttribute('aria-label'), parent: e.parentElement && e.parentElement.id } })()`;
   const items = `[...document.querySelectorAll('[role=menu] [role=menuitem], [role=menu] [role=menuitemradio]')].map((e) => e.textContent.trim())`;
   try {
-    await driveScreen(tab, { id: 'area', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, steps: [] }, S.base, S.cookies, S.ctx);
+    await driveScreen(tab, { id: 'area', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, steps: [] }, S.base, S.cookies, S.ctx);
     const head = await tab.eval(box('call-head')); const join = await tab.eval(box('join-call')); const big = await tab.eval(box('call-start')); const empty = await tab.eval(box('call-empty'));
     if (!head?.shown) failures.push('no call: the call\'s title bar is not drawn (decision 15)');
     if (!join?.shown || join.parent !== 'call-head-tools' || join.label !== 'Start call') failures.push(`no call: Start call is not on the call's title bar (${JSON.stringify(join)})`);
@@ -186,9 +186,11 @@ async function runConference(browser, S) {
   const waitCall = async (on) => { const end = Date.now() + 10000; while (Date.now() < end && (await tab.eval(`document.getElementById('side-column').classList.contains('in-call')`)) !== on) await sleep(200); await sleep(700); };
   const near = (a, b, by = 2) => Math.abs(a - b) <= by;
   try {
-    await driveScreen(tab, { id: 'conference', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, steps: [] }, S.base, S.cookies, S.ctx);
+    await driveScreen(tab, { id: 'conference', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, steps: [] }, S.base, S.cookies, S.ctx);
     const before = await tab.eval(M);
     const open = `JSON.stringify((window.hostModules.captureLayout().modules || []).map((m) => m.id + ':' + m.mode).sort())`;
+    // The Workspace opens with its template's list only, and the round trips below open Budget; so it has Budget docked from the start (as it once opened).
+    await tab.eval(`window.hostModules.open('budget', 'dock')`); await sleep(1600);
     const openBefore = await tab.eval(open);
     if (!(await tab.eval(`Boolean(document.querySelector('[data-layout-tab=conference]'))`))) { failures.push('Conference: there is no Conference tab in the top bar'); return; }
     if (before.view || before.page || before.empty?.shown) failures.push(`Conference: the Workspace already looks like the Conference layout (${JSON.stringify(before)})`);
@@ -352,7 +354,7 @@ async function runPopout(browser, S, conference) {
   const reopenColumn = async () => { if (await tab.eval(`document.getElementById('side-column').classList.contains('collapsed')`)) { await tab.eval(`document.getElementById('side-column-toggle').click()`); await sleep(800); } };
   const seen = [];
   try {
-    await driveScreen(tab, { id: 'popout', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, steps: [] }, S.base, S.cookies, S.ctx);
+    await driveScreen(tab, { id: 'popout', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, steps: [] }, S.base, S.cookies, S.ctx);
     if (conference) { await tab.eval(`document.querySelector('[data-layout-tab=conference]').click()`); await sleep(1200); }
     await tab.click(conference ? '#call-start' : '#join-call');
     const end = Date.now() + 15000;
@@ -431,7 +433,7 @@ async function runPositions(browser, S) {
   const theSame = (m, where, tiles) => { if (!m.inCall || m.tiles !== tiles) bad(`${where}: the call did not stay on (${m.tiles} tiles, in the call: ${m.inCall})`); };
   const LABELS = ['Top of the column', 'Bottom of the column', 'Left of the chat', 'Right of the chat', 'Floating window', 'In the workspace', 'Its own window'];
   try {
-    await driveScreen(tab, { id: 'positions', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, steps: [] }, S.base, S.cookies, S.ctx);
+    await driveScreen(tab, { id: 'positions', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, steps: [] }, S.base, S.cookies, S.ctx);
     // A visit opens on the layout this person last used (workspaces step 6), and the pop-out run before this one left mia on Conference: start on the Workspace.
     if ((await tab.eval(P)).tab !== 'workspace') await press('workspace');
     const before = await tab.eval(P);
@@ -587,7 +589,7 @@ async function runPositions(browser, S) {
     await pick('In the workspace');
     // Kept for the space across a reload, the Conference's choice apart from the one beside the work.
     await tab.eval(`location.reload()`); await sleep(1500);
-    await tab.waitFor('button.sdk-strip-fact[data-module=budget]'); await sleep(3500);
+    await tab.waitFor('[data-layout-tab="workspace"]'); await sleep(3500);
     const a1 = await tab.eval(P);
     if (!has(a1, 'call-work') || !a1.start?.shown) bad(`after a reload: In the workspace is not kept (${a1.cls})`);
     const a2 = await press('conference');

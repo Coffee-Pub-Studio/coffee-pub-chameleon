@@ -91,7 +91,7 @@ try {
   };
   const inSpace = async (as, width) => {
     const tab = await open(`/#join=${ctx.trip}`, as, width);
-    await tab.waitFor('button.sdk-strip-fact[data-module=budget], #setup, #module-chooser, .layout-tabs');
+    await tab.waitFor('#setup, #module-chooser, .layout-tabs');
     await sleep(1200);
     return tab;
   };
