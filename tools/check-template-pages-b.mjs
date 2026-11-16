@@ -41,12 +41,14 @@ const say = (...a) => console.log('check-template-pages-b:', ...a);
 // --- part 1: markup and files -----------------------------------------------------------------------------------------------
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'check-template-pages-b-'));
 const stand = path.join(tmp, 'template-pages.mjs');
-fs.writeFileSync(stand, read('public/template-pages.js').replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, "const escapeHtml = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));"));
+const escapeStand = "const escapeHtml = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));";
+fs.writeFileSync(path.join(tmp, 'list-rows.mjs'), read('public/list-rows.js').replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, escapeStand).replace(/^import \{ upgradeColourInputs \} from '\/colour-pick\.js';/m, 'const upgradeColourInputs = () => {};'));
+fs.writeFileSync(stand, read('public/template-pages.js').replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, escapeStand).replace(/^import \{ upgradeColourInputs \} from '\/colour-pick\.js';/m, 'const upgradeColourInputs = () => {};').replace("from '/list-rows.js'", "from './list-rows.mjs'"));
 const P = await import(pathToFileURL(stand).href);
 const word = (key, o = {}) => ({ space: 'space', module: o.many ? 'modules' : 'module', environment: 'environment' }[key] || key);
 const catalog = [
   { id: 'chat', name: 'Chat', icon: 'message', settings: [], labels: {} },
-  { id: 'marks', name: 'Marks', icon: 'star', settings: [{ key: 'unit', label: 'Counts', type: 'choice', scope: 'space', template: 'driven', default: 'money', options: [{ value: 'money', label: 'Money' }, { value: 'hours', label: 'Hours' }] }, { key: 'split', label: 'Who owes whom', type: 'boolean', scope: 'space', template: 'default', default: true }, { key: 'own', label: 'Own', type: 'boolean', scope: 'space', default: false }], labels: { event: { one: 'event', many: 'events' } }, starter: true },
+  { id: 'marks', name: 'Marks', icon: 'star', settings: [{ key: 'unit', label: 'Counts', type: 'choice', scope: 'space', template: 'driven', default: 'money', options: [{ value: 'money', label: 'Money' }, { value: 'hours', label: 'Hours' }] }, { key: 'split', label: 'Who owes whom', type: 'boolean', scope: 'space', template: 'default', default: true }, { key: 'own', label: 'Own', type: 'boolean', scope: 'space', default: false }, { key: 'tags', label: 'Tags', type: 'list', scope: 'environment', template: 'default', fixed: ['other'], maxLength: 30, default: [{ id: 'other', label: 'Other', icon: 'flag', color: '#888888' }, { id: 'a', label: 'Alpha', icon: 'star', color: '#4f8fdd' }] }], labels: { event: { one: 'event', many: 'events' } }, starter: true },
   { id: 'travel', name: 'Planner - Travel', icon: 'route', settings: [], labels: {} },
 ];
 const tpl = { id: 't', name: 'T', modules: { chat: {}, marks: { name: 'Timesheet', settings: { unit: 'hours' }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:a': { x: 1 } } } }, workspace: { opensWith: ['chat'], show: ['calendar'], opensFirst: 'calendar' }, phases: [{ id: 'a', label: 'Start', main: true }, { id: 'b', label: 'End' }], phaseMeasure: 'goals', reactions: [{ id: 'ship', glyph: '🚀', label: 'Ship' }], iconSet: ['rocket'] };
@@ -80,9 +82,43 @@ await test('Modules: editable rows with marks, words, the starter and the Plans 
   assert.match(html, /data-ts="unit"[^]*?Driven/);
   assert.match(html, /data-ts="split"[^]*?Default/);
   assert.doesNotMatch(html, /data-ts="own"/, 'an own setting is not the template\'s');
-  assert.match(html, /data-tm-label="event"/);
+  assert.doesNotMatch(html, /data-tm-label/, 'the words moved to Experience Labels');
   assert.match(html, /Keep the starter content \(1 object/);
   assert.match(html, /data-tm-offer checked disabled/, 'Chat can not be left out');
+});
+await test('Modules: a list setting is edited as rows (add, rename, reorder, remove), kept as the template has it, off until the template sets it', () => {
+  const html = P.modulesHtml(tpl, { editable: true, catalog, word });
+  assert.match(html, /data-ts="tags"[^]*?data-list-setting/, 'a list is rows, not a count');
+  assert.doesNotMatch(html, /kept as it is/);
+  assert.match(html, /<div class="tp-list" inert>/, 'not set by the template: the default rows are shown, off');
+  assert.equal((html.match(/class="sdk-row list-row"/g) || []).length, 2, 'the default rows are drawn');
+  const set = P.modulesHtml({ ...tpl, modules: { ...tpl.modules, marks: { ...tpl.modules.marks, settings: { tags: [{ id: 'z', label: 'Zed', icon: 'star', color: '#112233' }] } } } }, { editable: true, catalog, word });
+  assert.match(set, /<div class="tp-list">[^]*?value="Zed"/, 'the template\'s own rows are drawn, on');
+  assert.match(set, /data-def="[^"]*&quot;fixed&quot;:\[&quot;other&quot;\]/, 'the fixed rows travel with the list');
+  const ro = P.modulesHtml({ ...tpl, modules: { ...tpl.modules, marks: { ...tpl.modules.marks, settings: { tags: [{ id: 'z', label: 'Zed', icon: 'star', color: '#112233' }] } } } }, { editable: false, catalog, word });
+  assert.match(ro, /1 in the list: Zed/, 'read only says the labels');
+});
+await test('Experience Labels: each offered module\'s words under its name; read only draws lines; saving keeps the module\'s other parts', () => {
+  const html = P.moduleLabelsHtml(tpl, { editable: true, catalog, word });
+  assert.match(html, /data-tml="marks"[^]*?<h4>[^]*?Timesheet[^]*?data-tm-label="event"/, 'under the module\'s name (as the template shows it)');
+  assert.doesNotMatch(html, /data-tml="chat"|data-tml="travel"/, 'a module with no words has no group; one the template does not offer has none');
+  assert.match(html, /value="meeting"/);
+  assert.equal(P.moduleLabelsHtml({ id: 't', modules: { chat: {} } }, { editable: true, catalog, word }), '');
+  const all = P.moduleLabelsHtml({ id: 'default', modules: '*' }, { editable: false, catalog, word });
+  assert.doesNotMatch(all, /<input/);
+  assert.match(all, /event[^]*?events, the usual/);
+  // Reading it back: a stand-in for the page's fields.
+  const field = (value) => ({ value });
+  const group = { dataset: { tml: 'marks' }, querySelectorAll: () => [{ dataset: { tmLabel: 'event' }, querySelector: (q) => field(q.includes('one') ? 'session' : 'sessions') }] };
+  const out = P.readModuleLabels({ querySelectorAll: () => [group] }, tpl);
+  assert.deepEqual(out.modules.marks.labels.event, { one: 'session', many: 'sessions' });
+  assert.deepEqual(out.modules.marks.settings, { unit: 'hours' }, 'the settings stay');
+  assert.deepEqual(out.modules.marks.starter, tpl.modules.marks.starter, 'the starter stays');
+  assert.equal(out.modules.marks.name, 'Timesheet');
+  assert.deepEqual(out.modules.chat, {}, 'a module the page did not draw stays');
+  const blank = { dataset: { tml: 'marks' }, querySelectorAll: () => [{ dataset: { tmLabel: 'event' }, querySelector: () => field('') }] };
+  assert.equal(Object.hasOwn(P.readModuleLabels({ querySelectorAll: () => [blank] }, tpl).modules.marks, 'labels'), false, 'blank words are the usual ones');
+  assert.deepEqual(P.readModuleLabels({ querySelectorAll: () => [] }, tpl), {}, 'no group drawn, nothing sent');
 });
 await test('Modules: read only draws lines, no fields; the Default template offers every module', () => {
   const html = P.modulesHtml({ id: 'default', modules: '*' }, { editable: false, catalog, word });
@@ -162,6 +198,8 @@ async function live() {
         { key: 'split', label: 'Who owes whom', type: 'boolean', scope: 'space', template: 'default', default: true },
         { key: 'mode', label: 'Strict mode', type: 'boolean', scope: 'environment', template: 'driven', default: false },
         { key: 'title', label: 'Title', type: 'text', scope: 'environment', template: 'default', default: 'Plan' },
+        { key: 'tags', label: 'Tags', type: 'list', scope: 'environment', template: 'default', maxLength: 30, fixed: ['other'], default: [{ id: 'other', label: 'Other', icon: 'flag', color: '#888888' }, { id: 'alpha', label: 'Alpha', icon: 'star', color: '#4f8fdd' }] },
+        { key: 'palette', label: 'Palette', type: 'list', scope: 'environment', template: 'driven', maxLength: 30, default: [{ id: 'red', label: 'Red', icon: 'heart', color: '#d9534f' }] },
         { key: 'own', label: 'Own switch', type: 'boolean', scope: 'space', default: false },
       ],
       labels: { event: { one: 'event', many: 'events' } },
@@ -180,7 +218,7 @@ async function live() {
     // The same start for each size: both templates as first written, and no phase done.
     const reset = async () => {
       const mine = await api('PATCH', '/api/environment/templates/mine', {
-        modules: mods({ name: 'Timesheet', settings: { mode: true, title: 'Our plan' }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:one': { a: 1 } } }),
+        modules: mods({ name: 'Timesheet', settings: { mode: true, title: 'Our plan', palette: [{ id: 'red', label: 'Red', icon: 'heart', color: '#d9534f' }, { id: 'blue', label: 'Blue', icon: 'water', color: '#4f8fdd' }] }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:one': { a: 1 } } }),
         workspace: { opensWith: ['chat', 'marks'], show: ['calendar'] },
         phases: phases3, phaseMeasure: 'dates',
         reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['rocket'],
@@ -188,7 +226,7 @@ async function live() {
       assert.equal(mine.status, 200, JSON.stringify(mine.json));
       const hours = await api('PATCH', '/api/environment/templates/hours', { modules: mods({ settings: { unit: 'hours', split: false } }), phases: phases3, phaseMeasure: 'progress' });
       assert.equal(hours.status, 200, JSON.stringify(hours.json));
-      assert.equal((await api('PUT', '/api/modules/marks/settings/environment', { values: { title: null } })).status, 200);
+      assert.equal((await api('PUT', '/api/modules/marks/settings/environment', { values: { title: null, tags: null } })).status, 200);
       for (const p of phases3) await api('PUT', `/api/spaces/${spaceId}/phases/${p.id}/done`, { done: false });
     };
     const space = await api('POST', '/api/spaces', { name: 'Ledger', template: 'hours' });
@@ -281,18 +319,52 @@ async function live() {
         await test(at('Modules: marks, words, the starter, Plans; an edit saves'), async () => {
           await open('template/mine/modules', `${count('#tpl-modules-box .tp-module')} >= 4 && !!document.querySelector('#tpl-modules-box [data-tm="marks"]') && !document.getElementById('module-names-section').hidden`, 'the Modules page');
           await tab.eval(`document.querySelector('#tpl-modules-box [data-tm="marks"]').open = true`);
-          const row = await tab.eval(`(() => { const r = document.querySelector('#tpl-modules-box [data-tm="marks"]'); return { driven: r.querySelectorAll('[data-mark="driven"]').length, def: r.querySelectorAll('[data-mark="default"]').length, own: !!r.querySelector('[data-ts="own"]'), label: !!r.querySelector('[data-tm-label="event"]'), starter: !!r.querySelector('[data-tm-starter]:checked'), plans: [...document.querySelectorAll('#tpl-modules-box h3')].map((h) => h.textContent) }; })()`);
-          assert.deepEqual([row.driven, row.def, row.own, row.label, row.starter], [2, 2, false, true, true], JSON.stringify(row));
+          const row = await tab.eval(`(() => { const r = document.querySelector('#tpl-modules-box [data-tm="marks"]'); return { driven: r.querySelectorAll('[data-mark="driven"]').length, def: r.querySelectorAll('[data-mark="default"]').length, own: !!r.querySelector('[data-ts="own"]'), label: !!r.querySelector('[data-tm-label]'), lists: r.querySelectorAll('[data-list-setting]').length, starter: !!r.querySelector('[data-tm-starter]:checked'), plans: [...document.querySelectorAll('#tpl-modules-box h3')].map((h) => h.textContent) }; })()`);
+          assert.deepEqual([row.driven, row.def, row.own, row.label, row.lists, row.starter], [3, 3, false, false, 2, true], JSON.stringify(row));
           assert.ok(row.plans.includes('Plans'), `the planners sit under Plans (${row.plans})`);
           await shot(tab, `${size}-modules`);
-          await tab.eval(`(() => { const r = document.querySelector('#tpl-modules-box [data-tm="marks"]'); const l = r.querySelector('[data-tm-label="event"]'); l.querySelector('[data-tm-part="one"]').value = 'session'; l.querySelector('[data-tm-part="many"]').value = 'sessions'; const s = r.querySelector('[data-ts="split"] [data-ts-set]'); s.click(); document.querySelector('#tpl-modules-card [data-tpl-save-button]').click(); return true; })()`);
+          // A list setting: rows, off until the template sets it; add, rename, move, remove; a driven list is editable here; a fixed row stays.
+          const L = await tab.eval(`(() => { const r = document.querySelector('#tpl-modules-box [data-tm="marks"]'); const t = r.querySelector('[data-ts="tags"]'); const p = r.querySelector('[data-ts="palette"]'); return { tagsOff: t.querySelector('.tp-list').inert === true, tagsSet: t.querySelector('[data-ts-set]').checked, tagRows: t.querySelectorAll('.list-row').length, otherRemovable: !!t.querySelector('.list-row[data-id="other"] [data-list="remove"]'), paletteOn: p.querySelector('.tp-list').inert !== true && p.querySelector('[data-ts-set]').checked, paletteRows: [...p.querySelectorAll('[data-f="label"]')].map((i) => i.value), paletteDisabled: [...p.querySelectorAll('input, button')].filter((i) => i.disabled).length }; })()`);
+          assert.deepEqual(L, { tagsOff: true, tagsSet: false, tagRows: 2, otherRemovable: false, paletteOn: true, paletteRows: ['Red', 'Blue'], paletteDisabled: 0 }, JSON.stringify(L));
+          await tab.eval(`(() => { const t = document.querySelector('#tpl-modules-box [data-tm="marks"] [data-ts="tags"]'); t.querySelector('[data-ts-set]').click(); const add = () => t.querySelector('[data-list="add"]').click(); add(); let rows = t.querySelectorAll('.list-row'); rows[2].querySelector('[data-f="label"]').value = 'Gamma'; add(); rows = t.querySelectorAll('.list-row'); rows[3].querySelector('[data-f="label"]').value = 'Temp'; t.querySelector('.list-row[data-id="alpha"] [data-f="label"]').value = 'Alpha two'; return true; })()`);
+          assert.ok(await tab.eval(`document.querySelector('#tpl-modules-box [data-tm="marks"] [data-ts="tags"] .tp-list').inert !== true`), at('ticking "This template sets" turns the list on'));
+          if (phone) {
+            const small = await tab.eval(`(() => [...document.querySelectorAll('#tpl-modules-box [data-tm="marks"] [data-ts="tags"] .list-row .btn, #tpl-modules-box [data-tm="marks"] [data-ts="tags"] .list-row input[type="text"], #tpl-modules-box [data-tm="marks"] [data-ts="tags"] .list-row .icon-pick summary, #tpl-modules-box [data-tm="marks"] [data-ts="tags"] > .tp-setting-value .list-setting > .btn')].map((el) => { const b = el.getBoundingClientRect(); return b.width < 43.5 || b.height < 43.5 ? el.className + ' ' + Math.round(b.width) + 'x' + Math.round(b.height) : ''; }).filter(Boolean))()`);
+            assert.deepEqual(small, [], at('list targets are under 44 px: ' + small.join('; ')));
+          }
+          assert.ok(await sideways() <= 1, at('the open list scrolls sideways'));
+          await shot(tab, `${size}-modules-lists`);
+          await tab.eval(`(() => { const t = document.querySelector('#tpl-modules-box [data-tm="marks"] [data-ts="tags"]'); t.querySelector('.list-row:last-child [data-list="remove"]').click(); t.querySelector('.list-row:last-child [data-list="up"]').click(); return true; })()`);
+          await tab.eval(`(() => { const r = document.querySelector('#tpl-modules-box [data-tm="marks"]'); const s = r.querySelector('[data-ts="split"] [data-ts-set]'); s.click(); document.querySelector('#tpl-modules-card [data-tpl-save-button]').click(); return true; })()`);
           await sleep(1300);
           const t = (await api('GET', '/api/environment/templates/mine')).json.template;
-          assert.deepEqual(t.modules.marks.labels.event, { one: 'session', many: 'sessions' });
+          assert.deepEqual(t.modules.marks.labels.event, { one: 'meeting', many: 'meetings' }, 'the words are kept by a save on this page');
           assert.equal(t.modules.marks.settings.split, true);
+          assert.deepEqual(t.modules.marks.settings.tags.map((r) => r.label), ['Other', 'Gamma', 'Alpha two'], 'the list: renamed, added, moved up, one removed');
+          assert.equal(t.modules.marks.settings.palette.length, 2, 'a list that was not touched stays');
           assert.equal(t.modules.marks.settings.mode, true, 'a setting not touched stays');
           assert.ok(t.modules.marks.starter && t.modules.marks.starter['k:one'], 'the starter content is kept');
           await open('template/default/modules', `${count('#tpl-modules-box .tp-module')} >= 4 && ${count('#tpl-modules-box input')} === 0 && /offers every/.test(document.getElementById('tpl-modules-box').textContent)`, 'the Modules of the Default template');
+        });
+        await test(at('Experience Labels: the module words are here, under each module\'s name; the locked words stay read only; an edit saves'), async () => {
+          await open('template/mine/labels', `${count('#tpl-labels-box [data-tml="marks"] [data-tm-label="event"]')} === 1 && ${count('#tpl-labels-box .tf-locked-list .tf-line')} === 8`, 'the Experience Labels page');
+          const g = await tab.eval(`(() => { const g = document.querySelector('#tpl-labels-box [data-tml="marks"]'); return { head: g.querySelector('h4').textContent.trim(), one: g.querySelector('[data-tm-part="one"]').value, chat: !!document.querySelector('#tpl-labels-box [data-tml="chat"]'), lockedInputs: document.querySelectorAll('#tpl-labels-box .tf-locked input').length, after: !!(g.compareDocumentPosition(document.querySelector('#tpl-labels-box .tf-locked')) & Node.DOCUMENT_POSITION_FOLLOWING) }; })()`);
+          assert.deepEqual(g, { head: 'Timesheet', one: 'meeting', chat: false, lockedInputs: 0, after: true }, JSON.stringify(g));
+          if (phone) {
+            const small = await tab.eval(`(() => [...document.querySelectorAll('#tpl-labels-box input[type="text"], #words-panel .btn')].map((el) => { const b = el.getBoundingClientRect(); return b.height > 0 && b.height < 43.5 ? el.name + ' ' + Math.round(b.height) : ''; }).filter(Boolean))()`);
+            assert.deepEqual(small, [], at('label fields are under 44 px: ' + small.join('; ')));
+          }
+          await shot(tab, `${size}-labels`);
+          await tab.eval(`(() => { const l = document.querySelector('#tpl-labels-box [data-tml="marks"] [data-tm-label="event"]'); l.querySelector('[data-tm-part="one"]').value = 'session'; l.querySelector('[data-tm-part="many"]').value = 'sessions'; document.querySelector('#words-panel [data-tpl-save-button]').click(); return true; })()`);
+          await sleep(1300);
+          const t = (await api('GET', '/api/environment/templates/mine')).json.template;
+          assert.deepEqual(t.modules.marks.labels.event, { one: 'session', many: 'sessions' });
+          assert.equal(t.modules.marks.name, 'Timesheet', 'the module\'s name stays');
+          assert.equal(t.modules.marks.settings.mode, true, 'its settings stay');
+          assert.ok(t.modules.marks.starter && t.modules.marks.starter['k:one'], 'its starter content stays');
+          assert.deepEqual(t.modules.marks.settings.palette.map((r) => r.label), ['Red', 'Blue']);
+          await open('template/default/labels', `${count('#tpl-labels-box [data-tml="marks"]')} === 1 && ${count('#tpl-labels-box input')} === 0 && ${count('#tpl-labels-box .tf-locked-list .tf-line')} === 8`, 'the Experience Labels of the Default template');
+          await shot(tab, `${size}-labels-default`);
         });
         await test(at('every page opens from the strip and the strip scrolls to it'), async () => {
           for (const part of ['workspace', 'phases', 'reactions', 'modules']) {
@@ -322,6 +394,15 @@ async function live() {
           await tab.eval(`document.querySelector('.module-settings-card[data-module="marks"] [data-use-template="title"]').click()`); await sleep(1200);
           stored = (await api('GET', '/api/module-settings/environment')).json.modules.find((m) => m.id === 'marks').settings.find((d) => d.key === 'title');
           assert.deepEqual([stored.stored, stored.value], [false, 'Our plan']);
+          // The lists on the same card: the default one is rows to edit (seeded by the template's own value or the module's), the driven one is read only.
+          const lists = await tab.eval(`(() => { const card = document.querySelector('.module-settings-card[data-module="marks"]'); const by = (k) => card.querySelector('[data-list-setting][data-key="' + k + '"]'); const t = by('tags'); const p = by('palette'); return { tagRows: t.querySelectorAll('.list-row').length, tagsInert: t.inert === true, tagsEnabled: [...t.querySelectorAll('input, button')].every((i) => !i.disabled), paletteRows: [...p.querySelectorAll('[data-f="label"]')].map((i) => i.value), paletteInert: p.inert === true, paletteAllOff: [...p.querySelectorAll('input, button')].every((i) => i.disabled), driven: /Driven[^]*?Set by the Mine template: 2 in the list: Red, Blue/.test(p.closest('.module-setting').textContent) }; })()`);
+          assert.deepEqual(lists, { tagRows: 3, tagsInert: false, tagsEnabled: true, paletteRows: ['Red', 'Blue'], paletteInert: true, paletteAllOff: true, driven: true }, JSON.stringify(lists));
+          await shot(tab, `${size}-manage-module-lists`);
+          await tab.eval(`(() => { const card = document.querySelector('.module-settings-card[data-module="marks"]'); const t = card.querySelector('[data-list-setting][data-key="tags"]'); t.querySelector('[data-list="add"]').click(); t.querySelector('.list-row:last-child [data-f="label"]').value = 'Delta'; card.querySelector('[data-save]').click(); return true; })()`); await sleep(1100);
+          stored = (await api('GET', '/api/module-settings/environment')).json.modules.find((m) => m.id === 'marks').settings.find((d) => d.key === 'tags');
+          assert.deepEqual([stored.stored, stored.value.map((r) => r.label)], [true, ['Other', 'Gamma', 'Alpha two', 'Delta']]);
+          const sent = (await api('PUT', '/api/modules/marks/settings/environment', { values: { palette: [] } })).json;
+          assert.ok(sent && sent.error, 'a driven list is refused by the server too');
         });
         await test(at('no page error, no failed request on the way'), () => assert.deepEqual(problems, []));
       } catch (err) {
@@ -404,10 +485,10 @@ async function live() {
         await sleep(1200);
         await test('390: every button, switch and field on the new pages is at least 44 px tall', async () => {
           const small = [];
-          for (const part of ['workspace', 'phases', 'reactions', 'modules']) {
+          for (const part of ['workspace', 'phases', 'reactions', 'modules', 'labels']) {
             await tab.eval(`location.hash = 'template/mine/${part}'`); await sleep(1300);
             if (part === 'modules') await tab.eval(`document.querySelector('#tpl-modules-box [data-tm="marks"]').open = true`);
-            const found = await tab.eval(`[...document.querySelectorAll('#tpl-part-${part} button, #tpl-part-${part} select, #tpl-part-${part} input:not([type=hidden]), #tpl-part-${part} summary')].filter((e) => e.getClientRects().length && !e.closest('[hidden]')).map((e) => { const el = e.type === 'checkbox' || e.type === 'radio' ? (e.closest('label') || e) : e; const r = el.getBoundingClientRect(); return { part: '${part}', what: (e.getAttribute('aria-label') || e.textContent || e.name || e.dataset.tpl || e.tagName).trim().slice(0, 30), h: Math.round(r.height) }; }).filter((x) => x.h < 44)`);
+            const found = await tab.eval(`[...document.querySelectorAll('#tpl-part-${part} button, #tpl-part-${part} select, #tpl-part-${part} input:not([type=hidden]), #tpl-part-${part} summary')].filter((e) => e.getClientRects().length && !e.closest('[hidden]') && (e.tagName === 'SUMMARY' || !e.closest('details.icon-pick:not([open])'))).map((e) => { const el = e.type === 'checkbox' || e.type === 'radio' ? (e.closest('label') || e) : e; const r = el.getBoundingClientRect(); return { part: '${part}', what: (e.getAttribute('aria-label') || e.textContent || e.name || e.dataset.tpl || e.tagName).trim().slice(0, 30), h: Math.round(r.height) }; }).filter((x) => x.h < 44)`);
             small.push(...found);
           }
           assert.deepEqual(small, [], `smaller than 44 px: ${JSON.stringify(small)}`);

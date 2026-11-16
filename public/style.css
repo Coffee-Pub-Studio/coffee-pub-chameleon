@@ -6768,7 +6768,12 @@ body.chat-window {
 .tp-setting-value input[type="text"], .tp-setting-value input[type="number"], .tp-setting-value select { width: 100%; min-width: 0; box-sizing: border-box; }
 .tp-setting-about { grid-column: 1 / -1; margin: 0; }
 .tp-switch { display: inline-flex; align-items: center; min-height: 32px; }
-.tp-label { grid-template-columns: minmax(7em, 1fr) repeat(2, minmax(0, 1.4fr)) 0; }
+.tp-setting-list .tp-setting-value { grid-column: 1 / -1; }
+.tp-list { min-width: 0; }
+.tp-list[inert] { opacity: .6; }
+.tp-list .list-setting > .hint { display: none; } /* the setting's own name is on the row above */
+.tp-label-group h4 { display: flex; align-items: center; gap: 6px; }
+#tab-template .tp-module-labels .tp-label-group { margin-top: 8px; }
 /* A module setting a template drives or seeds, wherever the form is drawn (Manage > Modules, Set up, Profile). */
 .module-setting .setting-mark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 0 0; }
 .module-setting .setting-mark .btn { min-height: 32px; }
@@ -6780,7 +6785,8 @@ body.chat-window {
   .tp-module-head { grid-template-columns: auto minmax(0, 1fr); }
   .tp-module-sum { grid-column: 2; text-align: left; }
   .tp-module-sum:empty { display: none; }
-  .tp-label { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .tp-list .list-row .btn, .tp-list .list-row .icon-pick summary, .tp-list .list-row input[type="text"], .tp-list .list-row .sdk-colour-pick, .tp-list .list-row input[type="color"], .tp-list > .list-setting > .btn { min-height: 44px; min-width: 44px; box-sizing: border-box; }
+  #words-panel .tf-word input[type="text"] { min-height: 44px; box-sizing: border-box; }
   .tp-actions .btn, .tp-phase .tp-main, .tp-module-head, .reaction-row .btn, #tab-template .row .btn, .module-setting .setting-mark .btn { min-height: 44px; }
   .tp-chip { min-width: 44px; height: 44px; }
   /* The Environment tab's Reactions and Icons: a row wraps, so the fields keep a usable width. */
