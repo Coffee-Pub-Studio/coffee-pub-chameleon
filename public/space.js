@@ -19,6 +19,7 @@ import { nav } from '/nav-bar.js';
 import { attachChatInput, viewOf, discussionWord, placeAbove, stripSummaryMarkers, clearChoices, ofClearType, inClearScope, clearTakesPicture, clearNoticeTakes, cleanPreview, cleanKept, siteName, linkKeeper, previewNoticeTakes, keptNoticeTakes } from '/chat-input.js';
 import { openHostMenu, openConfirmMenu, closeHostMenu, setGuestPass } from '/module-host.js';
 import { confirmDialog } from '/confirm.js';
+import { welcomeOnArrival } from '/welcome-note.js';
 import { foldCallToolbar, callTitle, callTime, callDuration } from '/call-toolbar.js';
 
 // Elements by id, wherever the canvas currently lives (the page or the pop-out
@@ -841,6 +842,7 @@ $('guest-join').addEventListener('submit', async (event) => {
     setGuestPass(guestToken, guestPass); // the module host's stream and live messages know this guest by it
     await joinAsGuest(joinedId, joinedName);
     if (entered) showGuestBanner(() => location.reload()); // not after a failed entry: the form is still there
+    if (entered) welcomeOnArrival({ token: guestToken, pass: guestPass }); // a guest link's guest, once in; the link says who is asking
   } catch (err) {
     if (err.status === 409) await showGuestDocs(); // the text changed: shown again, to read
     $('guest-join-error').textContent = err.message;
@@ -8546,6 +8548,7 @@ async function init() {
       location.href = '/login';
     });
     await joinAsGuest(doorGuest.space.id, doorGuest.space.name);
+    if (entered) welcomeOnArrival(); // once the join has settled and worked (joinAsGuest catches its own error), so the note never opens over it (welcome-note.js; a guest's mark is the session's)
     return;
   }
   if (guestToken) {
@@ -8602,19 +8605,22 @@ async function init() {
   // does not open it again.
   const setupAsked = setupAddress(location.search, location.hash);
   const invited = /^#join=([a-z0-9]{4,16})$/.exec(location.hash);
+  let entering = null; // the join or setup just started: the welcome note waits for it, so it never opens over it
   if (setupAsked) {
     const rest = new URLSearchParams(location.search);
     rest.delete('setup');
     history.replaceState(null, '', `${location.pathname}${rest.toString() ? `?${rest}` : ''}`);
-    openSetupFor(setupAsked.id, setupAsked.tab);
+    entering = openSetupFor(setupAsked.id, setupAsked.tab);
   } else if (invited) {
     // Following an invitation from another page: "/#join=<space>" goes straight into that space.
     history.replaceState(null, '', location.pathname + location.search);
-    joinInvitedSpace(invited[1]);
+    entering = joinInvitedSpace(invited[1]);
   } else if (!guestMode && rememberedSpace()) {
     // A reload: back into the space this tab was in. Joining checks it is still there; presence
     // does not have to have answered first.
-    join(rememberedSpace());
+    entering = join(rememberedSpace());
   }
+  try { await entering; } catch { /* the join shows its own error */ }
+  welcomeOnArrival(); // the owner's welcome note, once at a first sign-in (welcome-note.js)
 }
 init();

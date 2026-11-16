@@ -176,7 +176,7 @@
   }
 
   // A small, safe subset of Markdown, to plain HTML: headings (# to ###), **bold**, *italic* or _italic_, `code`,
-  // fenced ``` code blocks, unordered (-, *) and ordered (1.) lists, [text](url) links (http/https only; anything
+  // fenced ``` code blocks, unordered (-, *) and ordered (1.) lists, [text](url) links (http, https and mailto only; anything
   // else is left as plain text), paragraphs on a blank line, a single line break within one. Everything is escaped
   // first (via `esc`), so no HTML in the text itself ever reaches the page. This is the one place a module (or the
   // call page, for chat) may set innerHTML from what a person or an AI wrote, because the safety happens in here;
@@ -192,7 +192,7 @@
       const keep = (html) => `\u0000${kept.push(html) - 1}\u0000`;
       const html = esc(String(s).replace(/\u0000/g, ''))
         .replace(/`([^`\n]+)`/g, (_, c) => keep(`<code>${c}</code>`))
-        .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t, u) => keep(`<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`))
+        .replace(/\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g, (_, t, u) => keep(`<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`))
         // A bare address the text didn't wrap in [text](...) itself: linked as it stands.
         .replace(/(^|[\s(])(https?:\/\/[^\s<\u0000]+[^\s<.,;:!?)"'\u0000])/g, (_, lead, u) => lead + keep(`<a href="${u}" target="_blank" rel="noopener noreferrer">${u}</a>`))
         .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
