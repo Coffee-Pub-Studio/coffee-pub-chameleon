@@ -21,6 +21,8 @@
  *     an owner's copy restored with a tokens.json or an agent-log/ of its own keeps neither, so a planted token is 401;
  *   - a tokens.json record that lives longer than 30 days, or is made in the future, is not read;
  *   - calls answered 429 (or 401 for a token the agent no longer may use) leave at most one line a minute in its log;
+ *   - tokens.json is written at most once a minute for uses, whatever address each call comes from, and never for a 429;
+ *     an address is kept (tokens.json, the log) only when it is an IP address;
  *   - an action's pointer input outside the agent's spaces (the environment's, another space's) is 403;
  *   - a body that is not JSON, with an agent's token, is counted and logged by the gate, then answered 400 as before;
  *   - a server whose ADMIN_LOGIN is an agent's login starts, and says why it made no admin of it;
@@ -33,6 +35,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -552,6 +555,34 @@ try {
     assert.ok(grew <= 2, `the log grew by ${grew} lines`);
     const notes = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.status === 429);
     assert.ok(notes.length >= 1 && notes.every((l) => l.kind === null), 'the first of the minute is noted, counting against nothing');
+  });
+  const tokensFile = path.join(single, 'tokens.json');
+  const stamp = () => { const st = fs.statSync(tokensFile); return `${st.ino}:${st.mtimeMs}`; };
+  await test('calls over the limit from many addresses write nothing to tokens.json', async () => {
+    const before = stamp();
+    const answered = await Promise.all(Array.from({ length: 200 }, (_, i) => call(server, 'GET', '/api/agent/me', { token: reader.token, headers: { 'x-forwarded-for': `198.51.100.${i % 250}` } })));
+    assert.ok(answered.every((r) => r.status === 429));
+    assert.equal(stamp(), before, 'tokens.json untouched');
+  });
+  await test('uses from many addresses rewrite tokens.json at most once a minute; an address is an IP address or nothing', async () => {
+    const one = await agentOf('Roamer');
+    let last = stamp();
+    let writes = 0;
+    for (let i = 0; i < 40; i += 1) {
+      ok(await call(server, 'GET', '/api/objects/kinds?from=todo', { token: one.token, headers: { 'x-forwarded-for': `203.0.113.${i + 1}` } }), `use ${i + 1}`);
+      const now = stamp();
+      if (now !== last) { writes += 1; last = now; }
+    }
+    assert.ok(writes <= 1, `tokens.json was written ${writes} times`);
+    const shown = (await call(server, 'GET', `/api/users/${one.key}/token`, { cookie: admin })).json.token;
+    assert.equal(shown.lastAddress, '203.0.113.40', 'the newest address is shown at once');
+    ok(await call(server, 'GET', '/api/agent/me', { token: one.token, headers: { 'x-forwarded-for': '<img src=x onerror=alert(1)> "q"' } }), 'a use from no address');
+    assert.equal((await call(server, 'GET', `/api/users/${one.key}/token`, { cookie: admin })).json.token.lastAddress, null, 'not an IP address: none kept');
+    const entries = (await call(server, 'GET', `/api/users/${one.key}/agent-log`, { cookie: admin })).json.entries;
+    assert.ok(entries.length >= 41 && entries.every((e) => e.address === null || net.isIP(e.address)), 'the log keeps only IP addresses');
+    assert.equal(entries[0].address, null, 'the free text is not kept');
+    assert.ok(!fs.readFileSync(tokensFile, 'utf8').includes('<img'), 'nor in tokens.json');
+    for (const [, b] of filesUnder(path.join(single, 'agent-log'))) assert.ok(!b.toString('utf8').includes('<img'), 'nor in the log');
   });
   await test('20 writes a minute, counted apart from reads', async () => {
     for (let i = 0; i < 20; i += 1) ok(await call(server, 'POST', `/api/spaces/${S1}/action`, { token: writer.token, body: { action: 'todo:createTask', input: { title: `Write ${i}` } } }), `write ${i + 1}`);

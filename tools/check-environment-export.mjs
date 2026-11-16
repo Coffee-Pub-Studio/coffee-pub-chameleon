@@ -243,6 +243,9 @@ test("a restore's files carry no session or stream key; every other file is as i
   assert.equal(ex.fileAllowed('access.json'), false, 'never in an owner\'s copy');
   // Agents' tokens and their log (plan-agent-access.md): an owner's copy can't plant a token or spend a day's limit; the host's backup keeps them.
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['tokens.json', other], ['./tokens.json', other], ['/tokens.json', other], ['tokens.json/x', other], ['agent-log/abcd1234/2026-11-16.jsonl', other], ['./agent-log/x', other]]).map(([n]) => n), ['app.json']);
+  // Whatever case or slashes the names come in (a case-insensitive data folder would store Tokens.json as tokens.json), and
+  // a name with a NUL in it (yauzl hands it on as written; no file can have it): none of them comes in from an owner's copy.
+  assert.deepEqual(ex.restoreEntries([['app.json', app], ['Tokens.json', other], ['TOKENS.JSON', other], ['Agent-Log/abcd1234/2026-11-16.jsonl', other], ['agent-log\\abcd1234\\2026-11-16.jsonl', other], ['.\\tokens.json', other], ['tokens.json\u0000', other], ['chat.json\u0000', other]]).map(([n]) => n), ['app.json']);
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['tokens.json', other], ['agent-log/abcd1234/2026-11-16.jsonl', other]], { backup: true }).map(([n]) => n), ['app.json', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl']);
   assert.ok(JSON.parse(copy[0][1].toString('utf8')).users.every((u) => !('agreed' in u)));
   assert.equal(ex.restoreEntries([['app.json', Buffer.from('not json')]])[0][1].toString(), 'not json');

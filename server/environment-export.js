@@ -213,7 +213,9 @@ function restoreEntries(files, { backup = false } = {}) {
   // An owner's copy never carries the sealed values of modules' `secret` settings (modules/secrets.json): a zip written by hand
   // cannot plant one, and they were never made with this host's key anyway. Nor agents' tokens (tokens.json) or their log
   // (agent-log/, which sets the day's counts): a hand-made copy could otherwise plant a token it chose, or spend a limit.
-  const kept = backup ? files : files.filter(([name]) => { const n = path.posix.normalize(name).replace(/^\/+/, ''); return !/^(agreements|access)(\.unreadable-\d+)?\.json$/.test(n) && n !== 'modules/secrets.json' && !/^(tokens\.json|agent-log)(\/|$)/.test(n); });
+  // Names are compared as a case-insensitive folder, or one that reads "\" as "/", would store them; a name with a NUL in it
+  // names no file anywhere and is dropped.
+  const kept = backup ? files : files.filter(([name]) => { const n = path.posix.normalize(String(name).replace(/\\/g, '/')).replace(/^\/+/, '').toLowerCase(); return !n.includes('\u0000') && !/^(agreements|access)(\.unreadable-\d+)?\.json$/.test(n) && n !== 'modules/secrets.json' && !/^(tokens\.json|agent-log)(\/|$)/.test(n); });
   return kept.map(([name, data]) => {
     const where = path.posix.normalize(name);
     if (where !== APP_FILE && where !== LEGACY_ENVIRONMENT_RECORD) return [name, data];

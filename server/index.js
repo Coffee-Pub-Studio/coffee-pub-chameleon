@@ -19,6 +19,7 @@ const { deepFreeze } = require('./deep-freeze');
 const demoLoader = require('./demo-loader');
 const starter = require('./starter');
 const http = require('http');
+const net = require('net');
 const { ModuleLinks, objectKey } = require('./module-links');
 const { Backgrounds } = require('./backgrounds');
 const { ModuleBus, BUS_LIMITS } = require('./module-bus');
@@ -3499,7 +3500,7 @@ if (BASE_DOMAIN) {
 // The gate then lets through only the routes below (a member's rights in the agent's spaces, narrowed): everything
 // else is 403. Each call is counted against the agent's limits (server/agent-log.js: reads and writes apart, a minute
 // and a day), then checked for its place: a space the agent is not in is the unknown space's 404; a scope other than
-// `space` is 403. Each call is written to the agent's log with no content (agent-log.jsonl).
+// `space` is 403. Each call is written to the agent's log with no content (the agent-log/ folder, server/agent-log.js).
 const AGENT_TOKEN_PREFIX = 'agt_';
 const AGENT_TOKEN_INVALID = 'That agent token is not valid.';
 const AGENT_CANT = "An agent can't do that.";
@@ -3593,6 +3594,7 @@ function agentGate(req, res, next) {
   if (!agentTokensOn || !env) return next(); // the switch is off, or no environment (the product host)
   const token = agentBearer(req);
   if (token === null) return next();
+  const address = net.isIP(req.ip || '') ? req.ip : null; // an IP address, never the free text a client sent
   req._user = null; // whatever else the request carries (a cookie session) is never read now
   res.set('Cache-Control', 'no-store');
   const record = env.tokens.find(token, 'agent', { evenExpired: true });
@@ -3600,12 +3602,11 @@ function agentGate(req, res, next) {
   if (!record || !agent || !agent.agent || agent.off || store.settings.agents !== true || !env.tokens.live(record)) {
     // A token that is an agent's but no longer good (past its end, the agent turned off, Agents off) is noted in that
     // agent's log, at most once a minute; an unknown one names nobody and is not.
-    if (record && agent && agent.agent) env.agentLog.note({ agent: agent.key, token: record.id, method: req.method, route: '(refused)', status: 401, address: req.ip || null });
+    if (record && agent && agent.agent) env.agentLog.note({ agent: agent.key, token: record.id, method: req.method, route: '(refused)', status: 401, address });
     return res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: AGENT_TOKEN_INVALID });
   }
   req._user = agent;
   req.agent = { user: agent, token: record, rule: null };
-  env.tokens.touch(record, req.ip || null);
   // Only GET, HEAD and POST are on the list; anything else is refused without asking the router (which would answer an
   // OPTIONS itself).
   const match = ['GET', 'HEAD', 'POST'].includes(req.method) ? agentRoutes : (_req, _res, done) => done();
@@ -3613,7 +3614,7 @@ function agentGate(req, res, next) {
     if (err) return next(err);
     const rule = req.agent.rule;
     const kind = rule ? rule.kind : 'read';
-    const line = () => ({ agent: agent.key, token: record.id, method: req.method, route: rule ? rule.pattern : '(refused)', space: rule ? rule.space : null, status: res.statusCode, address: req.ip || null });
+    const line = () => ({ agent: agent.key, token: record.id, method: req.method, route: rule ? rule.pattern : '(refused)', space: rule ? rule.space : null, status: res.statusCode, address });
     // Counted first, so a refused call costs as much as any other: hammering the gate is bounded by the same limits. A call
     // over a limit counts against nothing and leaves no line of its own: the first of each minute is noted (agentLog.note).
     const taken = env.agentLog.take(agent.key, kind);
@@ -3622,6 +3623,7 @@ function agentGate(req, res, next) {
       env.agentLog.note(line());
       return res.json({ error: AGENT_OVER });
     }
+    env.tokens.touch(record, address); // a call over a limit touches nothing
     let logged = false;
     const writeLine = () => {
       if (logged) return;

@@ -15,14 +15,18 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const net = require('net');
 
 const TOKEN_DAYS = 30;
 // Each kind's prefix. Anything after it is exactly 43 base64url characters (32 bytes), checked before it is hashed.
 const PREFIXES = Object.freeze({ agent: 'agt_' });
 const KINDS = Object.keys(PREFIXES);
 const TOKEN_SHAPES = Object.freeze({ agent: /^agt_[A-Za-z0-9_-]{43}$/ });
-// How often a token's last use is written down: at most once a minute per token, or at once when the address changes.
+// How often a token's last use is written down: at most once a minute, whatever the address. Between writes the newest
+// use and address are kept in memory (and shown), and written when the minute is up.
 const TOUCH_MS = 60 * 1000;
+// An address is kept only when it is one (net.isIP): never the free text a client may send in X-Forwarded-For.
+const addressOf = (v) => (typeof v === 'string' && net.isIP(v) ? v : null);
 const KEY_RE = /^[a-z0-9]{4,16}$/;
 const ID_RE = /^[A-Za-z0-9_-]{8,32}$/;
 const HASH_RE = /^[0-9a-f]{64}$/;
@@ -41,6 +45,8 @@ class Tokens {
     this.file = path.join(dataDir, 'tokens.json');
     this.now = now;
     this.list = this.load();
+    this.touchedAt = 0; // when a use was last written
+    this.touchTimer = null;
   }
 
   load() {
@@ -66,7 +72,7 @@ class Tokens {
       out.push({
         id: t.id, kind: t.kind, user: t.user, hash: t.hash, createdAt: t.createdAt, expiresAt: t.expiresAt,
         lastUsedAt: isTime(t.lastUsedAt) ? t.lastUsedAt : null,
-        lastAddress: typeof t.lastAddress === 'string' && t.lastAddress.length <= 64 ? t.lastAddress : null,
+        lastAddress: addressOf(t.lastAddress),
       });
     }
     return out;
@@ -137,13 +143,24 @@ class Tokens {
     return true;
   }
 
-  // Notes a use: when and from which address, written at most once a minute unless the address changed.
+  // Notes a use: when and from which address (an IP address, else none). Kept at once in memory; written to the file at
+  // most once a minute, the newest use going in when the minute is up.
   touch(record, address) {
     const at = this.now();
-    const where = typeof address === 'string' ? address.slice(0, 64) : null;
-    if (record.lastUsedAt && at - Date.parse(record.lastUsedAt) < TOUCH_MS && record.lastAddress === where) return;
     record.lastUsedAt = new Date(at).toISOString();
-    record.lastAddress = where;
+    record.lastAddress = addressOf(address);
+    if (at - this.touchedAt >= TOUCH_MS) return this.writeUses();
+    if (!this.touchTimer) {
+      this.touchTimer = setTimeout(() => this.writeUses(), Math.max(0, this.touchedAt + TOUCH_MS - at));
+      if (this.touchTimer.unref) this.touchTimer.unref();
+    }
+    return undefined;
+  }
+
+  writeUses() {
+    if (this.touchTimer) clearTimeout(this.touchTimer);
+    this.touchTimer = null;
+    this.touchedAt = this.now();
     try { this.save(); } catch (err) { console.error(`A token's last use could not be written: ${err.message}`); }
   }
 }

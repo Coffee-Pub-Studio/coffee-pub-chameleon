@@ -23,6 +23,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 const { deepFreeze } = require('./deep-freeze');
 
 const AGENT_LIMITS = deepFreeze({
@@ -184,7 +185,7 @@ class AgentLog {
       request: Number.isInteger(entry.request) ? entry.request : null,
       message: text(entry.message, 40),
       status: Number.isInteger(entry.status) ? entry.status : null,
-      address: text(entry.address, 64),
+      address: typeof entry.address === 'string' && net.isIP(entry.address) ? entry.address : null, // an IP address, never free text
       kind: KINDS.includes(entry.kind) ? entry.kind : null,
     };
     if (!line.agent || !KEY_RE.test(line.agent)) return;

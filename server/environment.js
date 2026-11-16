@@ -145,7 +145,7 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   const guestLimits = guestDoorLib.readLimits();
   const newGuestSessions = new guestDoorLib.NewSessionLimiter(guestLimits.perAddress);
   // Agents (plan-agent-access.md): this environment's own tokens (tokens.json) and its agents' log and limits
-  // (agent-log.jsonl), so a token made here is never found in another environment.
+  // (the agent-log/ folder), so a token made here is never found in another environment.
   const tokens = new Tokens(dataDir);
   const agentLog = new AgentLog(dataDir);
 
@@ -338,12 +338,13 @@ function undoSeconds(raw) {
 
 // Every write this environment might still owe the disk, at shutdown or when it is set aside (suspended, or
 // moved to environments-deleted/): each singleton here already writes synchronously on every change except these
-// four, which only debounce and flush on the way out.
+// four, which only debounce and flush on the way out, and an agent token's last use (server/tokens.js).
 function flushEnvironment(env) {
   env.chatHistory.flush();
   env.ai.flush();
   env.geocodeCache.flush();
   env.saveActivity();
+  if (env.tokens.touchTimer) env.tokens.writeUses(); // a token's newest use, still waiting for its minute
 }
 
 // An environment set aside for good (deleted, or about to be replaced by a backup's files): what it owes the disk is
