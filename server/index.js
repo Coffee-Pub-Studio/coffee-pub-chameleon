@@ -2718,6 +2718,9 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     // The demo run's own stand-in, never the host admin's login (an ordinary account may have that name): fixed login, no password.
     let user = env.store.userByLogin(DEMO_STANDIN_LOGIN);
     if (user && (!user.hostAdmin || user.passwordHash)) throw new HostError(`A person called "${DEMO_STANDIN_LOGIN}" already has an account in this ${envWord('environment')}, so the demo cannot be added. Rename or remove that account first.`, 409);
+    // Made here when there is none; a run that fails takes it away again (finally, below), so a refused load leaves no
+    // stand-in behind (as everyone is, it is in the Lobby while it exists).
+    const madeStandIn = !user;
     if (!user) user = env.store.addUser({ login: DEMO_STANDIN_LOGIN, displayName: 'Host (demo)', role: 'admin', passwordHash: null, hostAdmin: true });
     const mark = crypto.randomBytes(32).toString('base64url');
     demoRuns.set(slug, mark);
@@ -2737,6 +2740,7 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
       });
     } finally {
       demoRuns.delete(slug);
+      if (!report && madeStandIn) { try { env.store.removeUser(user.key); } catch (e) { console.warn(`[${slug}] could not take away the demo's stand-in:`, e.message); } }
     }
     res.set('Cache-Control', 'no-store').json({ ...report, template: own, usedTemplate, fellBack: !asked && usedTemplate !== own });
   } catch (err) {
@@ -5141,6 +5145,8 @@ app.post('/api/users', requireOwner, (req, res) => {
 
 app.patch('/api/users/:key', requireOwner, (req, res) => {
   const { login, displayName, role, password, player } = req.body || {};
+  // The demo mark is set only when a demo load makes the account (POST /api/users), never changed afterwards.
+  if ((req.body || {}).demo !== undefined) return res.status(400).json({ error: "demo can't be changed here" });
   if (password !== undefined && store.userByKey(req.params.key)?.hostAdmin) {
     throw new StoreError('this account signs in through the host console; its password cannot be changed here');
   }

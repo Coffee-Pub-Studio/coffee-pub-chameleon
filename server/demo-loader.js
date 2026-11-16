@@ -172,6 +172,11 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
     else stepsOf(b).forEach((s, i) => resolveValue(s.data, trial, `modules.${id}.steps[${i}]`));
   }
   resolveValue(file.phases || {}, trial, 'phases');
+  // Every writer the file names is one of its people: checked here, so a bad file stops before anything is made.
+  for (const [id, b] of Object.entries(file.modules)) {
+    const named = id === 'chat' ? b.messages.map((m) => m.as) : [b.as, ...stepsOf(b).map((x) => x.as)];
+    for (const as of named) if (as !== undefined && !logins.includes(as)) throw new DemoError(`The demo file names "${as}" as a writer, who is not one of its people.`);
+  }
 
   const jars = {};
   const call = async (as, method, url, body) => {
@@ -235,6 +240,9 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
     if (found.displayName !== p.displayName) throw new DemoError(`An account called "${p.login}" already exists and is not a demo person (its name is not ${p.displayName}), so it is left alone. Rename or remove it first.`);
     if (found.demo !== true || found.hostAdmin) throw new DemoError(`An account called "${p.login}" already exists and was not made by a demo, so it is left alone. Rename or remove it first.`);
     if (found.role !== (p.role || 'member')) throw new DemoError(`An account called "${p.login}" is ${word(found.role, { a: true })} here, not a demo ${word(p.role || 'member')}, so it is left alone. Rename or remove it first.`);
+    // The loader signs in as each demo person with a password only: with two-step sign-in on, it could not, and would stop
+    // after the passwords were changed. So it is refused here, before anything is.
+    if (found.mfaEnrolled) throw new DemoError(`The demo person "${p.login}" has two-step sign-in on, so the demo can't sign in as them. Turn it off or remove the account first.`);
   }
   const old = [];
   for (const sp of (await ok('caller', 'GET', '/api/spaces')).spaces || []) {

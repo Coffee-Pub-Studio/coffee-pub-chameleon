@@ -58,7 +58,7 @@ try {
   const login = await call('POST', 'admin', '/api/host/login', HOST);
   assert.equal(login.status, 200, login.text);
   const admin = { cookie: login.cookie };
-  for (const slug of ['alpha', 'beta', 'gamma', 'delta', 'eps']) {
+  for (const slug of ['alpha', 'beta', 'gamma', 'delta', 'eps', 'zeta']) {
     const made = await call('POST', 'admin', '/api/host/environments', { slug, name: slug, template: slug === 'delta' ? 'games' : 'travel', owner: { login: `own${slug}`, displayName: slug, password: OWNER_PASSWORD } }, admin);
     assert.equal(made.status, 201, made.text);
   }
@@ -134,7 +134,8 @@ try {
   assert.equal(games.json.space.name, 'Demo: The Salt Crown');
   assert.equal(games.json.space.template, 'games', 'the games demo reads the games template in a travel environment');
   // This travel environment's template offer was never applied, so it has no modules on: each is skipped in a sentence.
-  assert.deepEqual(games.json.created, { chat: 17 }, 'only the chat, which needs no module');
+  // (Which modules a new hosted environment has on is the environment's own; Planner - Projects is never among a travel one's.)
+  assert.ok(games.json.created.chat === 17 && games.json.created.schedule === undefined, `the chat, and no Campaign: ${JSON.stringify(games.json.created)}`);
   assert.ok(games.json.skipped.some((x) => x.module === 'schedule' && x.why === 'Planner - Projects is off in this environment, so the 26 demo campaign entries were not made.'), JSON.stringify(games.json.skipped));
   const alphaMods = (await call('GET', 'alpha', '/api/modules', undefined, owner)).json.modules;
   assert.ok(!alphaMods.some((m) => m.id === 'schedule' && m.enabled), 'Planner - Projects was not turned on');
@@ -179,9 +180,25 @@ try {
   assert.equal(takeover.json.error, 'An account called "noa" already exists and was not made by a demo, so it is left alone. Rename or remove it first.');
   assert.equal((await call('POST', 'eps', '/api/login', { login: 'noa', password: OWNER_PASSWORD })).status, 200, 'her password still works');
   assert.ok(!(await call('GET', 'eps', '/api/spaces', undefined, epsOwner)).json.spaces.some((x) => x.name === 'Demo: Linden Bakery website'), 'no demo space was made');
+  assert.ok(!(await call('GET', 'eps', '/api/users', undefined, epsOwner)).json.users.some((u) => u.login === 'host-demo'), 'a refused load leaves no stand-in behind (nor in the Lobby)');
+  // A forged forwarded host and a port that is not digits never reach the links: they stay on <slug>.<base domain>.
+  const evilHost = await call('POST', 'admin', url('zeta'), { demo: 'mentoring' }, { ...admin, 'x-forwarded-host': 'evil.example:9999' });
+  assert.notEqual(evilHost.status, 200, 'a forged forwarded host does not reach the console at all');
+  const forged = await call('POST', 'admin', url('zeta'), { demo: 'learning' }, { ...admin, 'x-forwarded-proto': 'https', 'x-forwarded-port': '9999' });
+  assert.equal(forged.status, 200, forged.text);
+  const zetaChat = (await call('GET', 'zeta', `/api/spaces/${forged.json.space.id}/chat`, undefined, await ownerOf('zeta'))).json.messages;
+  const links = zetaChat.map((m) => (/(https?:\/\/[^/\s]+)\/modules\//.exec(m.text) || [])[1]).filter(Boolean);
+  assert.ok(links.length && links.every((l) => new URL(l).host === `zeta.localhost:${port}`), `the links stay on zeta.localhost:${port} (${[...new Set(links)].join(', ')})`);
+  assert.ok(!JSON.stringify(zetaChat).includes('evil'), 'the forged host is nowhere');
+  assert.equal(new URL(forged.json.guestUrl).host, `zeta.localhost:${port}`, 'and the guest link too');
+  const badPort = await call('POST', 'admin', url('zeta'), { demo: 'games' }, { ...admin, host: 'admin.localhost:9x9' });
+  assert.equal(badPort.status, 200, badPort.text);
+  const badChat = (await call('GET', 'zeta', `/api/spaces/${badPort.json.space.id}/chat`, undefined, await ownerOf('zeta'))).json.messages;
+  assert.ok(badChat.some((m) => m.text.includes(`http://zeta.localhost/modules/schedule?space=${badPort.json.space.id}`)), 'a port that is not digits is dropped from the links');
+  assert.ok(!JSON.stringify(badChat).includes(':9x9') && new URL(badPort.json.guestUrl).host === 'zeta.localhost', 'and from the guest link');
 
   await stop();
-  const keep = [...added.json.people, ...games.json.people, ...own.json.people].map((p) => p.password);
+  const keep = [...added.json.people, ...games.json.people, ...own.json.people, ...forged.json.people, ...badPort.json.people].map((p) => p.password);
   const files = fs.readdirSync(dataDir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => path.join(e.parentPath, e.name));
   for (const f of files) { const text = fs.readFileSync(f, 'latin1'); for (const pw of keep) assert.ok(!text.includes(pw), `a demo password is stored in ${f}`); }
   for (const pw of keep) assert.ok(!log.includes(pw), 'a demo password is in the log');

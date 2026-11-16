@@ -408,8 +408,47 @@ try {
     assert.equal((await K.api('PATCH', `/api/users/${marta.key}`, { role: 'owner' })).status, 200);
     await rejects(K.run({ templateId: 'learning' }), /^An account called "marta" is an owner here, not a demo member, so it is left alone\. Rename or remove it first\.$/, 'a demo person made an owner');
     assert.equal(await signIn('marta', again.people[0].password), 200, 'her password was not changed');
+    // The mark is never changed afterwards: PATCH with `demo` answers 400 and leaves it.
+    for (const v of [false, true]) {
+      const r = await K.api('PATCH', `/api/users/${marta.key}`, { demo: v });
+      assert.equal(r.status, 400, `PATCH demo ${v}`);
+      assert.equal(r.json.error, "demo can't be changed here");
+    }
+    assert.equal((await K.api('GET', '/api/users')).json.users.find((u) => u.key === marta.key).demo, true, 'the mark is unchanged');
     // `demo` on POST /api/users is true or false only.
     assert.equal((await K.api('POST', '/api/users', { login: 'odd', displayName: 'Odd', password: 'odd-password-12', demo: 'yes' })).status, 400);
+  });
+  await step('(k) a demo person with two-step sign-in on is refused before any password changes', async () => {
+    const auth = require(path.join(ROOT, 'server', 'auth.js'));
+    const M = await travelServer();
+    const first = await M.run();
+    const pw = Object.fromEntries(first.people.map((p) => [p.login, p.password]));
+    const signIn = async (login, password) => {
+      const r = await fetch(`${M.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login, password }) });
+      return { status: r.status, cookie: r.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ') };
+    };
+    const lee = await signIn('lee', pw.lee);
+    assert.equal(lee.status, 200);
+    const started = await fetch(`${M.base}/api/me/mfa/start`, { method: 'POST', headers: { cookie: lee.cookie, 'content-type': 'application/json' }, body: '{}' }).then((r) => r.json());
+    const on = await fetch(`${M.base}/api/me/mfa/enable`, { method: 'POST', headers: { cookie: lee.cookie, 'content-type': 'application/json' }, body: JSON.stringify({ code: auth.totpCode(started.secret) }) });
+    assert.equal(on.status, 200, 'lee turned two-step sign-in on');
+    await M.api('DELETE', `/api/spaces/${first.space.id}`);
+    const state = async () => JSON.stringify([(await M.api('GET', '/api/spaces')).json.spaces.map((x) => x.id), (await M.api('GET', '/api/users')).json.users.map((u) => [u.login, u.role])]);
+    const before = await state();
+    await rejects(M.run(), /^The demo person "lee" has two-step sign-in on, so the demo can't sign in as them\. Turn it off or remove the account first\.$/, 'two-step sign-in on');
+    assert.equal(await state(), before, 'nothing was made or changed');
+    for (const l of ['mia', 'sam']) assert.equal((await signIn(l, pw[l])).status, 200, `${l}'s old password still works`);
+  });
+  await step('(k) a file naming a writer who is not one of its people is refused before anything is made', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-files-'));
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'demo', 'travel.json'), 'utf8'));
+      raw.modules.chat.messages[3].as = 'nobody';
+      fs.writeFileSync(path.join(dir, 'travel.json'), JSON.stringify(raw));
+      const before = JSON.stringify((await E.api('GET', '/api/users')).json.users.map((u) => u.login));
+      await rejects(E.run({ dir }), /^The demo file names "nobody" as a writer, who is not one of its people\.$/, 'an unknown writer');
+      assert.equal(JSON.stringify((await E.api('GET', '/api/users')).json.users.map((u) => u.login)), before, 'no person was made');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   await step('(k) publicBase: the chat links and the guest link use the address people use, never the loopback', async () => {
     const P = await travelServer();
