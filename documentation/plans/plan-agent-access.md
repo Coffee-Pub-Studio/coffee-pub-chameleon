@@ -6,9 +6,10 @@ of Chat posting (`server/`, `tools/`); experience-design builds the pages (Manag
 label in Chat) and the Planner's new actions (a module-lane change); quality-assurance reads the token core as a
 security change and runs the pen-test list; content-manager documents.
 
-**Status:** approved by Thomas 2026-11-16; steps 1 to 5 built (Chat, #910); step 6 (QA) next. Steps 1 to 4 are merged on `main`: the
-token core (#903), the asker through the bus (#904), the Planner's actions (#905) and the pages (#906); see "Left to
-build" and "Built differently than planned". He answered all 16 questions on 2026-11-16 (fifteen took the lean,
+**Status:** approved by Thomas 2026-11-16; steps 1 to 5 built (Chat reading and posting merged in #910); open: the
+agreement-gate question, the log gaps (module field, refused route path). Steps 1 to 5 are merged on `main`: the
+token core (#903), the asker through the bus (#904), the Planner's actions (#905), the pages (#906) and Chat (#910);
+see "Left to build" and "Built differently than planned". He answered all 16 questions on 2026-11-16 (fifteen took the lean,
 question 13 on Chat did not) and the three Chat questions they raised (decisions 17 to 19); see Divergences. The
 documentation of steps 1 to 4 is [architecture-agent-access](../architecture/architecture-agent-access.md),
 [api-agents](../api/api-agents.md) and [userguide-agents](../userguides/userguide-agents.md).
@@ -368,10 +369,10 @@ member, or make another token. The kill switches, smallest first: **Post in Chat
 
 ## Left to build, in order
 
-Sizes in builder-days. Each step is built, checked and reviewed before the next. **Steps 1 to 4 are built and merged**
-(#903, #906, #905 and #904, 2026-11-16; where they differ from the draft, see "Built differently than planned");
-step 5 is new, added by decisions 13 and 17 to 19 (Chat reading and posting), and is next. Steps 6 and 7 wait for it,
-except that the documentation of steps 1 to 4 is written.
+Sizes in builder-days. Each step is built, checked and reviewed before the next. **Steps 1 to 5 are built and merged**
+(#903, #906, #905, #904 and #910, 2026-11-16; where they differ from the draft, see "Built differently than planned");
+step 5 was added by decisions 13 and 17 to 19 (Chat reading and posting). Steps 6 and 7 are next, except that the
+documentation of steps 1 to 4 is written.
 
 1. **The token core (3 days, server-development, larger model; security). Built, #903.** The agent account and its refusals,
    `server/tokens.js`, the token routes, the gate (without the Chat lines), `GET /api/agent/me`, the limits, the log and
@@ -383,7 +384,7 @@ except that the documentation of steps 1 to 4 is written.
    key; the module's own test; a patch bump.
 4. **The asker through the bus (1 day, server-development). Built, #904.** `byKey`, `for`, the activity list and the Calendar
    copies, after `calendar-copy-rights` is merged. Closes #869.
-5. **Chat reading and posting (1.5 days; server-development, then experience-design).** Decisions 13 and 17 to 19.
+5. **Chat reading and posting (1.5 days; server-development, then experience-design). Built, #910.** Decisions 13 and 17 to 19.
    The server: the gate's two Chat lines, the bounded read (`before`, at most 100) for an agent, `chatPost` (off by
    default) and its route, the reads and writes budgets, the log lines, `agent: true` on the message, the check cases.
    The pages: the label on an agent's message, **Post in Chat** on the agent's page, "Read Chat" and "Posted in Chat"
@@ -457,6 +458,30 @@ decision except where it says so. The documents named in Status say what was bui
 - **An agent needs the member role's `chat` permission** to ask for a change (the action route's own check), as the
   plan noted under "Chat".
 
+Step 5 (Chat), read from the code on `4fb7b467` (#910: `server/index.js`, `server/chat-history.js`,
+`server/agent-log.js`, `public/agent-page.js`, `public/space.js`, `public/admin.html`). Each is a **Divergence called
+out**; none changes a decision.
+
+- **A post longer than a person may send is refused, not cut.** Over 1000 characters (`CHAT_LIMITS.MAX_TEXT`) answers
+  400 "A message is at most 1000 characters."; a person's message is cut to that length instead.
+- **The body is checked strictly.** No JSON body, or another content type, answers 400 "An agent sends { text } as
+  JSON."; any key but `text` answers 400 "An agent sends { text } and nothing else."; an empty message is 400.
+- **The log's `message` field** holds a post's message id or the number of messages a read carried, and nothing else
+  (any other value is stored as null). **What it did** shows a read as "Read Chat in <space>" with "N messages", a post
+  as "Posted in Chat in <space>" without the id, and a refused post as "Refused post in <space>".
+- **The read answers `{ messages, more }`**, newest first; a malformed `before` is 400, an unknown one 404.
+- **The label comes from the account, and guests are never labelled.** `agent: true` is set on an ordinary public
+  message only by the chat route, from the posting account. On reading, the account decides when it still exists (an
+  agent's message is always labelled, a person's never is, even in a hand-edited `chat.json`); the stored flag decides
+  only once the account is gone. A guest's message (`by: "guest"`) is never labelled.
+- **Post in Chat is per agent only.** `PATCH /api/users/:key` with `chatPost` answers 400 "Only an agent can have that."
+  for a person; turning it on needs `AGENT_TOKENS` and **Agents** on (403 with their sentence otherwise); turning it
+  off always goes through. It is stored only while on, and `publicUser` and `GET /api/agent/me` carry `chatPost`.
+- **The page half.** In Chat, an agent's message shows its name followed by a small chip reading "agent" (the
+  `.sdk-status` piece, `message-agent`), drawn only from the server's `agent: true`, rather than "(agent)" in the name.
+  The agent's page in Manage > Users has a **Chat** panel with the **Post in Chat** switch and one line under it; a
+  refusal shows the server's sentence and the switch goes back.
+
 ## Divergences
 
 - **Decision 13 differs from the plan's lean.** The lean was no posting; Thomas chose posting. It opens a door for an
@@ -511,7 +536,7 @@ task):
 All 16 questions and the three Chat questions decision 13 raised are answered (decisions 17 to 19). Nothing blocks a
 step.
 
-One question for Thomas, still open and not blocking steps 5 to 7: **should an agent be held to the agreement gate?**
+One question for Thomas, still open and not blocking steps 6 and 7: **should an agent be held to the agreement gate?**
 The code exempts agents from the terms and NDA gate (`agreementExempt` in `server/index.js`), since an agent can't read
 or agree to a text; the owner who made it has. Until he rules, an agent on a server with `TERMS_FILE` or `NDA_FILE` set
 works without agreeing.
