@@ -8,6 +8,8 @@
  *     opens it again and Escape closes it; with no note there is no Welcome entry;
  *   - at 390 wide: Got it is at least 44px tall, nothing scrolls sideways, and Welcome is in the header's menu;
  *   - a signed-out caller is refused (401). A guest's sessionStorage mark is NOT driven here (read as code only);
+ *   - a door guest (ENABLE_GUEST_DOOR) sees the note once per session: Got it is kept in sessionStorage (a reload in the tab shows
+ *     nothing, a fresh context shows it again), no note shows nothing, and there is no Welcome entry;
  *   - the Markdown reader links mailto: and still turns javascript: into plain words.
  * `--shots=<dir>`: also writes pictures (the Manage section, the dialog light and dark, the Welcome entry) at 1280 and 390.
  * With no Chromium it says SKIPPED (not a pass).
@@ -31,7 +33,7 @@ async function main() {
   if (!bin) { say('SKIPPED. No Chromium found (set CHROME_PATH). This is not a pass; nothing was measured.'); return 0; }
   if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'welcome-page-data-'));
-  let server = null; let browser = null;
+  let server = null; let browser = null; let guestServer = null; let base = null; // base: another server's address, while set
   try {
     server = await startServer(dataDir, await freePort(), 'first');
     const jars = {};
@@ -55,7 +57,7 @@ async function main() {
     const open = async (size, mode, as) => {
       const tab = new Tab(browser.cdp, {});
       await tab.open(size, mode, false);
-      for (const c of jars[as] || []) await tab.cdp.send('Network.setCookie', { name: c.name, value: c.value, url: server.base, httpOnly: true }, tab.sid);
+      for (const c of jars[as] || []) await tab.cdp.send('Network.setCookie', { name: c.name, value: c.value, url: base || server.base, httpOnly: true }, tab.sid);
       const problems = [];
       tab.cdp.listeners.push((m) => {
         if (m.sessionId !== tab.sid) return;
@@ -64,7 +66,7 @@ async function main() {
       tab.problems = problems;
       return tab;
     };
-    const go = async (tab, url) => { await tab.cdp.send('Page.navigate', { url: server.base + url }, tab.sid); await sleep(300); await tab.settle(); };
+    const go = async (tab, url) => { await tab.cdp.send('Page.navigate', { url: (base || server.base) + url }, tab.sid); await sleep(300); await tab.settle(); };
     const shot = async (tab, name) => { if (SHOTS) fs.writeFileSync(path.join(SHOTS, `${name}.png`), await tab.shoot(false)); };
     const dialogOpen = (tab) => tab.eval(`!!document.querySelector('dialog.sdk-dialog-confirm[open]')`);
     const waitDialog = async (tab, on, ms = 8000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await dialogOpen(tab) === on) return true; await sleep(100); } return false; };
@@ -181,9 +183,56 @@ async function main() {
       const guest = await call('__none', 'GET', '/api/environment/welcome');
       expect(guest.status === 401, `a signed-out caller was answered ${guest.status}`);
     }
+
+    // A door guest (the server needs ENABLE_GUEST_DOOR): the note once per browser session; the mark is sessionStorage, the
+    // server stores none. A reload in the same tab shows nothing, a fresh browser context shows it again, no note shows nothing.
+    {
+      guestServer = await startServer(fs.mkdtempSync(path.join(os.tmpdir(), 'welcome-page-guest-')), await freePort(), 'first', { ENABLE_GUEST_DOOR: 'true' });
+      base = guestServer.base;
+      const gcall = async (method, url, body, cookie) => {
+        const res = await fetch(base + url, { method, headers: { 'content-type': 'application/json', accept: 'application/json', origin: base, ...(cookie ? { cookie } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+        let json = null; try { json = await res.json(); } catch { /* none */ }
+        return { status: res.status, json, res };
+      };
+      const login = await gcall('POST', '/api/login', { login: 'admin', password: PASSWORD });
+      const adminCookie = login.res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
+      const made = await gcall('POST', '/api/spaces', { name: 'Open', members: [] }, adminCookie);
+      const spaceId = made.json && made.json.space && made.json.space.id;
+      expect((await gcall('PATCH', `/api/spaces/${spaceId}`, { entry: 'guests' }, adminCookie)).status === 200, 'could not open a space to guests');
+      expect((await gcall('PUT', '/api/environment/welcome', { text: NOTE }, adminCookie)).status === 200, 'could not save the note on the guest server');
+      const door = await gcall('POST', '/api/guest-door', { name: 'Gus' });
+      expect(door.status === 201, `the guest door answered ${door.status}`);
+      jars.gus = door.res.headers.getSetCookie().map((c) => { const [nv] = c.split(';'); const i = nv.indexOf('='); return { name: nv.slice(0, i), value: nv.slice(i + 1) }; }).filter((c) => c.value);
+      const url = `/guest/${spaceId}`;
+      const first = await open(1280, 'dark', 'gus');
+      await go(first, url);
+      expect(await waitDialog(first, true), 'a door guest was shown no note');
+      expect(await first.eval(`!!document.querySelector('dialog.sdk-dialog-confirm .sdk-welcome strong')`), "the guest's note is not drawn as Markdown");
+      await shot(first, 'guest-dialog-1280-dark');
+      await first.click('[data-ok]');
+      expect(await waitDialog(first, false), "Got it did not close the guest's note");
+      expect(await first.eval(`sessionStorage.getItem('welcome-seen')`) === '1', "the guest's mark is not in sessionStorage");
+      await go(first, url);
+      await sleep(2000);
+      expect(!(await dialogOpen(first)), 'the note came back to a guest after a reload in the same tab');
+      expect(await first.eval(`!document.getElementById('account-welcome')`), 'a guest has a Welcome entry');
+      const fresh = await open(1280, 'dark', 'gus');
+      await go(fresh, url);
+      expect(await waitDialog(fresh, true), 'a fresh browser session for the guest showed no note');
+      await fresh.close();
+      await first.close();
+      await gcall('PUT', '/api/environment/welcome', { text: '' }, adminCookie);
+      const none = await open(1280, 'dark', 'gus');
+      await go(none, url);
+      await sleep(2000);
+      expect(!(await dialogOpen(none)), 'a guest sees a dialog with no note');
+      await none.close();
+      base = null;
+    }
   } finally {
     if (browser) await stopBrowser(browser.child, browser.dir);
     await stopServer(server);
+    await stopServer(guestServer);
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
   if (failures.length) { for (const f of failures) console.error('check-welcome-note-page: ' + f); return 1; }
