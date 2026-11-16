@@ -1,5 +1,47 @@
 [
   {
+    "name": "goals__addStep",
+    "module": "goals",
+    "action": "addStep",
+    "label": "Add a step to the goal",
+    "description": "Add a new step under a goal of the plan.",
+    "effect": "write",
+    "input": {
+      "goal": "ref:goals:plan",
+      "title": "string",
+      "date": "date?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "goal": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "A date, YYYY-MM-DD."
+        }
+      },
+      "required": [
+        "goal",
+        "title",
+        "date"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "maps__setPlacePoint",
     "module": "maps",
     "action": "setPlacePoint",

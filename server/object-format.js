@@ -112,7 +112,43 @@ function stripTags(s) {
   return i ? out + s.slice(i) : s;
 }
 
-const plain = (s, n, lines) => stripTags(String(s == null ? '' : s)).replace(lines ? /(?!\n)\p{Cc}/gu : /\p{Cc}/gu, ' ').replace(lines ? /[ \t]+/g : /\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, n);
+// Invisible format characters (\p{Cf}: zero-width spaces, left-to-right and right-to-left marks and overrides, isolates, the byte
+// order mark, tag characters) are taken out, so a title and an "under" can't look equal and not match, or read backwards. Two
+// are kept where a script needs them: U+200D (the zero-width joiner) between two emoji (a family, a profession), and U+200C or
+// U+200D inside a word of Arabic, Syriac, an Indic script, Sinhala, Khmer or Myanmar (a letter, then any marks, then the joiner,
+// then a letter of the same script; after a virama, as in a Malayalam chillu, the next letter is not needed). A joiner anywhere
+// else goes: in Latin, Cyrillic or Greek, at the edge of a word, doubled. Also taken out: the blank fillers U+3164 and U+FFA0
+// (U+115F and U+1160 stay, real Hangul uses them), and U+2800, the blank braille cell, becomes a space. The trade-off: tag
+// characters also spell the flags of England, Scotland and Wales, which lose their tags and show as a black flag.
+const JOINER_SCRIPTS = ['Arabic', 'Syriac', 'Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Sinhala', 'Khmer', 'Myanmar'];
+const SCRIPT_OF = JOINER_SCRIPTS.map((sc) => new RegExp(`^\\p{Script=${sc}}$`, 'u'));
+const LAST_LETTER = /(\p{L})(\p{M}{0,8})$/u;
+const EMOJI_BEFORE = /(?![©®™])\p{Extended_Pictographic}\u{FE0F}?[\u{1F3FB}-\u{1F3FF}]?$/u; // not (c), (r) or tm: plain symbols
+const EMOJI_AT = /^(?![©®™])\p{Extended_Pictographic}/u;
+const QUICK = /[\p{L}\p{M}\p{Extended_Pictographic}\p{Emoji_Modifier}]$/u;
+const LETTER_SCRIPT = new Map(); // a letter (one code unit) to its joiner script's index, -1 for a letter of another script, -2 for what is no letter: the common case answered without slicing
+function scriptIndex(ch) {
+  let i = LETTER_SCRIPT.get(ch);
+  if (i === undefined) { i = /^\p{L}$/u.test(ch) ? SCRIPT_OF.findIndex((re) => re.test(ch)) : -2; if (LETTER_SCRIPT.size < 5000) LETTER_SCRIPT.set(ch, i); }
+  return i;
+}
+function keepJoiner(c, s, at) {
+  if (at > 0 && at + 1 < s.length) { const a = scriptIndex(s[at - 1]); if (a >= 0 && a === scriptIndex(s[at + 1])) return true; if (a === -1) return false; /* a letter of a script that needs no joiner, as Latin */ }
+  if (at === 0 || !QUICK.test(s.slice(Math.max(0, at - 2), at))) return false; // the character before is no letter, mark or emoji: nothing to join (and a long run stays fast)
+  const before = s.slice(Math.max(0, at - 12), at);
+  const after = s.slice(at + 1, at + 3);
+  if (c === '‍' && EMOJI_BEFORE.test(before) && EMOJI_AT.test(after)) return true;
+  const last = LAST_LETTER.exec(before);
+  if (!last) return false;
+  const i = SCRIPT_OF.findIndex((re) => re.test(last[1]));
+  if (i < 0) return false;
+  if (SCRIPT_OF[i].test(after.codePointAt(0) > 0xFFFF ? after.slice(0, 2) : after[0] || '') && /^\p{L}/u.test(after)) return true;
+  const mark = /^\p{Mn}/u.exec(after); // the joiner before the mark, as in a Bengali ra-ya-phalaa, Sinhala or Myanmar: a mark of the same script follows
+  if (mark && SCRIPT_OF[i].test(mark[0])) return true;
+  return last[2].length > 0 && /\p{Mn}$/u.test(last[2]); // after a virama (a Malayalam chillu) no letter need follow
+}
+const hidden = (s) => s.replace(/[⠀ㅤﾠ]|\p{Cf}/gu, (c, at, str) => c === '⠀' ? ' ' : (c === 'ㅤ' || c === 'ﾠ') ? '' : (c === '‌' || c === '‍') && keepJoiner(c, str, at) ? c : '');
+const plain = (s, n, lines) => hidden(stripTags(String(s == null ? '' : s))).replace(lines ? /(?!\n)\p{Cc}/gu : /\p{Cc}/gu, ' ').replace(lines ? /[ \t]+/g : /\s+/g, ' ').replace(/\n{3,}/g, '\n\n').trim().slice(0, n);
 
 // A file's bytes as text: UTF-16 when it starts with that byte order mark, else UTF-8. Same rule as public/file-text.js.
 function decodeBytes(buf) {
@@ -137,7 +173,7 @@ function unmark(s) {
 }
 
 // A details text value: cut to a few times its limit (room for a link's address and markup), unmarked, plain, cut.
-const detailText = (v, n) => plain(unmark(String(v).slice(0, Math.max(1000, n * 5))), n);
+const detailText = (v, n) => plain(unmark(hidden(String(v).slice(0, Math.max(1000, n * 5)))), n);
 
 const realDate = (y, m, d) => {
   const t = new Date(Date.UTC(+y, +m - 1, +d));

@@ -474,6 +474,63 @@ test('plan objects: a milestone, work, a goal and its steps read from an import,
   assert.deepEqual(out.dropped, [{ at: 5, why: 'it has no content' }, { at: 6, why: 'it has no content' }], 'a step whose only detail was a bad day, or with none, has nothing but a title, as for every kind');
   assert.equal(cleanDetails('step', { under: 'u'.repeat(200) }).under.length, 80, 'under is no longer than a title');
   assert.equal(cleanDetails('goal', { under: 'Run a 10K' }), null, 'a goal sits under nothing');
+  // Hidden characters are taken out of every text field, so a title and an "under" can't fail to match or be spoofed.
+  assert.equal(cleanDetails('step', { under: 'Run\u200B a\u200B 10K' }).under, 'Run a 10K', 'a zero-width space in under');
+  assert.equal(cleanDetails('step', { under: 'Run\u200Ba\uFEFF10K\u2060' }).under, 'Run a 10K'.replace(/ /g, ''), 'zero-width, byte order mark and word joiner go without leaving a space');
+  const rlo = cleanObject({ title: 'Pay \u202Efdp.exe\u202C now', content: 'c' });
+  assert.equal(rlo.title, 'Pay fdp.exe now', 'a right-to-left override in a title');
+  for (const c of ['\u200E', '\u200F', '\u202A', '\u202B', '\u202D', '\u2061', '\u2064', '\u2066', '\u2069', '\uFEFF', '\u061C']) assert.equal(cleanObject({ kind: 'step', title: `a${c}b`, details: { done: false } }).title, 'ab', `U+${c.codePointAt(0).toString(16)}`);
+  assert.equal(cleanObject({ kind: 'event', title: 'x', content: 'a\u200Bb\nc\u202Ed', details: {} }).content, 'ab\ncd', 'content too, with its lines');
+  // Joiners: kept where a script needs them, never made from other input, no hang on a long run.
+  const T = (x) => cleanObject({ kind: 'event', title: `x${x}`, content: 'c', details: {} }).title.slice(1);
+  assert.equal(T('ab'), 'ab', 'a private-use character is not turned into a joiner');
+  assert.equal(T('\u{1F44D}‍\u{1F44D}'), '\u{1F44D}‍\u{1F44D}', 'a joiner between emoji');
+  assert.equal(T('\u{1F44D}‍'), '\u{1F44D}', 'a trailing joiner after an emoji');
+  assert.equal(T('©‍'), '©', 'a trailing joiner after a symbol');
+  assert.equal(T('©‍\u{1F44D}'), '©\u{1F44D}', 'a joiner between a symbol and an emoji');
+  assert.equal(T('می‌خواهم'), 'می‌خواهم', 'Persian: a ZWNJ inside a word');
+  assert.equal(T('क्‍ष'), 'क्‍ष', 'Hindi: a ZWJ after a virama');
+  assert.equal(T('ന്‍'), 'ന്‍', 'Malayalam: a chillu');
+  assert.equal(T('ا‍'), 'ا', 'Arabic: a joiner with nothing after it goes');
+  assert.equal(T('слово‍x'), 'словоx', 'Cyrillic: stripped');
+  assert.equal(T('abc‌def‍'), 'abcdef', 'Latin: stripped');
+  assert.equal(T('Α‍Β'), 'ΑΒ', 'Greek: stripped');
+  assert.equal(T('\u0627\u200D\u200D\u200C\u0628'), '\u0627\u0628', 'doubled joiners: none touches a letter on both sides, so none stays');
+  assert.equal(T('a\u0301\u200D'), 'a\u0301', 'Latin: a letter, a combining acute and a joiner');
+  assert.equal(T('\u0627\u200Ca'), '\u0627a', 'Arabic then Latin: different scripts');
+  // Emoji with tones and keycaps, and the marks that follow a joiner in Bengali, Sinhala and Myanmar.
+  for (const keep of ['\u{1F469}\u{1F3FD}‍\u{1F4BB}', '\u{1F468}\u{1F3FF}‍⚕️', '\u{1F469}\u{1F3FD}‍❤️‍\u{1F468}\u{1F3FF}', '\u{1F3C3}\u{1F3FD}‍♀️', '\u{1F468}\u{1F3FD}‍\u{1F9B0}', '⛹\u{1F3FD}‍♂', '\u{1F9D1}\u{1F3FD}‍\u{1F91D}‍\u{1F9D1}\u{1F3FF}', '1️⃣', '\u{1F3F3}️‍\u{1F308}', '\u{1F1FA}\u{1F1F8}', '\u{1F3F4}‍☠️', '❤️‍\u{1F525}', 'র‍্যাব', 'ক‍্ষ', 'ර‍්', 'উ‍်'.replace('উ', 'ဉ')]) assert.equal(T(keep), keep, `kept: ${[...keep].map((c) => c.codePointAt(0).toString(16)).join(' ')}`);
+  assert.equal(T('ا‌‌ب'), 'اب', 'doubled ZWNJ between Arabic letters');
+  assert.equal(T('©‍\u{1F468}'), '©\u{1F468}', 'a joiner between a symbol and an emoji');
+  assert.equal(T('a‍b'), 'ab', 'a joiner between Latin letters');
+  // Cleaning twice changes nothing, over many strings made of these characters.
+  const pieces = ['a', 'b', 'ا', 'ب', 'क', '्', 'ന', '്', 'র', '্', 'َ', '́', '‌', '‍', '​', '‮', '﻿', '\u{1F469}', '\u{1F3FD}', '\u{1F4BB}', '️', '©', '❤', ' ', '*', 'ㅤ', '⠀', '\u{E0067}', '\u{1F3F4}'];
+  let seed = 7;
+  const rnd = (k) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % k; };
+  for (let i = 0; i < 20000; i++) {
+    let x = '';
+    for (let j = rnd(12) + 1; j > 0; j--) x += pieces[rnd(pieces.length)];
+    const once = cleanObject({ kind: 'event', title: `x${x}`, content: 'c', details: {} }).title;
+    const twice = cleanObject({ kind: 'event', title: once, content: 'c', details: {} }).title;
+    assert.equal(twice, once, `cleaning twice: ${JSON.stringify(x)}`);
+  }
+  {
+    const chillu = 'ക്‍';
+    const ms = [1e6, 2e6].map((size) => { const t0 = Date.now(); cleanObject({ kind: 'event', title: 'x', content: chillu.repeat(Math.ceil(size / chillu.length)), details: {} }); return Date.now() - t0; });
+    assert.ok(ms[1] < 3000, `2 MB of chillu took ${ms[1]} ms`);
+  }
+  assert.equal(T('ㅤaﾠb'), 'ab', 'blank fillers go');
+  assert.equal(T('a⠀b'), 'a b', 'a blank braille cell is a space');
+  assert.equal(T('ᄀᅠᅡ'), 'ᄀᅠᅡ', 'Hangul jamo with the filler stay');
+  assert.equal(cleanDetails('step', { under: '*\u200Bx\u200B*' }).under, 'x', 'hidden characters out before Markdown');
+  for (const run of ['‍', 'ا‍', '\u{1F44D}‍', 'क्‍', 'اً'.repeat(1) + '‍']) {
+    const t0 = Date.now();
+    cleanObject({ kind: 'event', title: 'x', content: run.repeat(Math.ceil(1e6 / run.length)), details: {} });
+    assert.ok(Date.now() - t0 < 3000, `a 1 MB run of ${JSON.stringify(run)} took ${Date.now() - t0} ms`);
+  }
+  const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}', heart = '\u2764\uFE0F', flagless = 'a\u200Db \u200D';
+  assert.equal(cleanObject({ kind: 'step', title: `Family ${family} ${heart} \u{1F44D}\u{1F3FD}`, details: { done: false } }).title, `Family ${family} ${heart} \u{1F44D}\u{1F3FD}`, 'an emoji sequence, its joiners and variation selector, stays whole');
+  assert.equal(cleanObject({ title: flagless, content: 'c' }).title, 'ab', 'a joiner between letters, or alone, goes');
   assert.equal(cleanDetails('milestone', { start: '2026-11-14', end: '2026-11-20' }).end, undefined, 'a milestone is one day');
   assert.deepEqual(['milestone', 'work', 'goal', 'step', 'event', 'flight', 'constructor'].map(kindA), ['a milestone', 'a piece of work', 'a goal', 'a step', 'an event', 'a flight', 'a constructor']);
   // A plan of 60 objects is cut at the import's cap, as any other.
