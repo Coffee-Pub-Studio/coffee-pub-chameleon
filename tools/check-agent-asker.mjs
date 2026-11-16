@@ -236,7 +236,11 @@ try {
     assert.equal(gone.carriedBy, undefined);
     assert.equal(gone.askerAgent, false);
     ok(await putPlan(w, admin, 'plan:ow', plan('Overwrite me'), {}), 'an entry');
+    const probes = async () => (await activity(w)).filter((l) => l.what.startsWith('sent a name for who asked')).length;
+    const seen0 = await probes();
     ok(await putPlan(w, admin, 'plan:ow', plan('Overwritten'), { for: w.agent.key, request: R1 }), 'overwritten');
+    ok(await call(server, 'PUT', `/api/modules/schedule/data/plan%3Aelsewhere?scope=space&space=${w.other}`, { cookie: admin, body: { value: plan('elsewhere'), for: w.agent.key, request: R1 } }), 'another place');
+    assert.equal(await probes(), seen0, 'an honest carrier\'s overwrite or other place leaves no "not believed" line');
     assert.equal((await lineOf('saved plan:ow')).carriedBy, undefined);
     assert.notEqual(await copyBy('Overwritten'), 'Claude', 'a copy of an overwrite does not name the agent');
     assert.equal(busFile(single).actions.find((a) => a.id === R1).carried || 0, 0, 'nothing counted');
@@ -295,19 +299,30 @@ try {
     assert.equal(await count(), before);
   });
 
-  await test('a name can\'t spoof the composed sentence, and "(agent)" comes only from the agent flag', async () => {
-    ok(await call(server, 'PATCH', `/api/users/${w.mia.key}`, { cookie: admin, body: { displayName: 'Mia, carried out by Boss' } }), 'a tricky name');
-    const R = await askByPerson(w, w.miaCookie, 'Spoof');
-    ok(await claim(w, admin, R), 'the owner claims');
-    ok(await putPlan(w, admin, 'plan:sp1', plan('Spoof'), { for: w.mia.key, request: R }), 'carried');
-    const l = await lineOf('saved plan:sp1');
-    assert.equal(l.askerName, 'Mia, carried out by Boss', 'the separate field is the plain name');
-    assert.equal(l.carrierName, adminName);
-    assert.equal(l.byName.split('carried out by').length, 2, 'the sentence has its own words once');
-    assert.equal(l.askerAgent, false);
-    assert.equal((await lineOf('saved plan:p1')).askerAgent, true);
-    ok(await complete(w, admin, R), 'complete');
+  await test('a name can\'t end in (agent) or carry "carried out by": every way a name is set refuses it', async () => {
+    const AGENT_END = "A name can't end in (agent).";
+    const WORDS = 'A name can\'t have "carried out by" in it.';
+    const bad = [
+      ['Claude (agent)', AGENT_END], ['Claude (Agent)  ', AGENT_END], ['Claude ( agent )', AGENT_END], ['Claude (agent)', AGENT_END],
+      ['Claude (аgent)', AGENT_END], ['Claude (agent), carried out by Al\'s page', WORDS], ['Al, carried  out\tby Bo', WORDS],
+    ];
+    ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { allowRegistration: true } }), 'sign-up on');
+    const invite = (await call(server, 'POST', '/api/invites', { cookie: admin, body: { spaces: [w.space] } })).json.invite.token;
+    let n2 = 0;
+    for (const [name, sentence] of bad) {
+      n2 += 1;
+      refused(await call(server, 'PATCH', `/api/users/${w.mia.key}`, { cookie: admin, body: { displayName: name } }), 400, sentence, `PATCH /api/users ${JSON.stringify(name)}`);
+      refused(await call(server, 'POST', `/api/invites/${invite}/accept`, { body: { login: `inv${n2}`, displayName: name, password: 'invite-password-1' } }), 400, sentence, `invite accept ${JSON.stringify(name)}`);
+      refused(await call(server, 'POST', '/api/register', { body: { login: `reg${n2}`, displayName: name, password: 'register-password-1' } }), 400, sentence, `register ${JSON.stringify(name)}`);
+      refused(await call(server, 'POST', '/api/users', { cookie: admin, body: { login: `own${n2}`, password: 'owner-made-password-1', displayName: name } }), 400, sentence, `POST /api/users ${JSON.stringify(name)}`);
+      refused(await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true, displayName: name } }), 400, sentence, `an agent named ${JSON.stringify(name)}`);
+    }
+    // A person can't change their own name there at all.
+    refused(await call(server, 'PATCH', '/api/me', { cookie: w.miaCookie, body: { displayName: 'Claude (agent)' } }), 400, null, 'PATCH /api/me');
+    assert.equal((await call(server, 'GET', `/api/users/${w.mia.key}`, { cookie: admin })).json.user.displayName, 'Mia', 'her name is unchanged');
+    ok(await call(server, 'PATCH', `/api/users/${w.mia.key}`, { cookie: admin, body: { displayName: 'Mia (agent smith)' } }), 'a name with agent not at its end is fine');
     ok(await call(server, 'PATCH', `/api/users/${w.mia.key}`, { cookie: admin, body: { displayName: 'Mia' } }), 'back');
+    ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { allowRegistration: false } }), 'sign-up off');
   });
 
   await test('the cap is 10 new objects a claim, it holds across a restart, and a re-claim gives no new window', async () => {
@@ -352,6 +367,48 @@ try {
     const saved = (await call(server, 'GET', '/api/modules/activity', { cookie: cookie3 })).json.activity.find((l) => l.what === 'saved plan:p1');
     assert.equal(saved?.byName, `Claude (agent), carried out by ${adminName}'s page`, 'the earlier lines survive the restarts');
   });
+  await test('stored names that break the rule are shown plain; a bus.json with wrong types still closes the window and keeps the cap', async () => {
+    const wn = { ...w, server };
+    const cookie0 = await signIn(server, 'admin', 'admin-password-1');
+    const miaNow = await signIn(server, 'mia', 'mia-password-1');
+    const R = await askByPerson(wn, miaNow, 'Legacy name');
+    const A = await askByAgent(wn, 'Odd file');
+    const B = await askByAgent(wn, 'Odd count');
+    ok(await claim(wn, cookie0, A), 'claim A');
+    ok(await claim(wn, cookie0, B), 'claim B');
+    await server.stop();
+    const file = path.join(single, 'modules', 'bus.json');
+    const bus = JSON.parse(fs.readFileSync(file, 'utf8'));
+    bus.actions.find((x) => x.id === A).claimedFirstAt = 'soon';
+    bus.actions.find((x) => x.id === B).carried = '0';
+    fs.writeFileSync(file, JSON.stringify(bus));
+    const appFile = path.join(single, 'app.json');
+    const app = JSON.parse(fs.readFileSync(appFile, 'utf8'));
+    app.users.find((u) => u.key === w.mia.key).displayName = 'Mia,  carried\tout by Boss (agent)';
+    fs.writeFileSync(appFile, JSON.stringify(app));
+    server = await startServer(single, { ADMIN_PASSWORD: 'admin-password-1', AGENT_TOKENS: 'true' });
+    const cookie = await signIn(server, 'admin', 'admin-password-1');
+    const w2 = { ...w, server };
+    ok(await putPlan(w2, cookie, 'plan:odd1', plan('odd1'), { for: w.agent.key, request: A }), 'a non-number claimedFirstAt');
+    assert.equal((await lineOf('saved plan:odd1', w2)).by, adminKey, 'closes the window: saved as the carrier');
+    ok(await putPlan(w2, cookie, 'plan:odd2', plan('odd2'), { for: w.agent.key, request: B }), 'a string count');
+    assert.equal((await lineOf('saved plan:odd2', w2)).by, adminKey, 'keeps the cap: saved as the carrier');
+    // Mia's stored name breaks the rule: it is shown plain, never as a sentence of the list's own.
+    const taken = await claim(w2, cookie, R);
+    ok(taken, 'the owner claims Mia\'s request');
+    ok(await putPlan(w2, cookie, 'plan:odd3', plan('odd3'), { for: w.mia.key, request: R }), 'carried for her');
+    const l = await lineOf('saved plan:odd3', w2);
+    assert.equal(l.askerAgent, false);
+    assert.equal(l.askerName, 'Mia Boss');
+    assert.ok(!/carried\s+out\s+by/i.test(l.askerName) && !/\(agent\)/i.test(l.askerName));
+    assert.equal(l.byName.split('carried out by').length, 2, 'the sentence has its own words once');
+    const own = await putPlan(w2, cookie, 'plan:odd4', plan('odd4'), {});
+    ok(own, 'a write with no carrier');
+    const lines = (await call(server, 'GET', '/api/modules/activity', { cookie })).json.activity;
+    assert.ok(lines.every((x) => !x.byName.includes(', carried out by') || x.carrierName), 'an uncomposed byName never holds the phrase');
+    assert.ok(lines.every((x) => !/\(agent\)$/.test(x.byName) || x.askerAgent), '(agent) only from the flag');
+  });
+
   await server.stop();
 
   // --- hosted: a request of one environment is no use at another ----------------------------------------------------------

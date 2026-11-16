@@ -25,7 +25,7 @@ const aiPolicy = require('./ai-policy');
 const { applyCallPatch, resolveCall } = require('./call-settings');
 const { cleanAgreed, hasAgreed } = require('./agreements');
 const welcomeNoteLib = require('./welcome-note');
-const { endsWithGuestMark } = require('./guest-door');
+const { endsWithGuestMark, endsWithAgentMark, hasCarriedWords } = require('./guest-door');
 
 // Image slots. Participant: what the video box shows when the camera is
 // off, plus optional overlays drawn on top while they talk, are muted, are
@@ -1963,6 +1963,9 @@ class Store {
   // Checked on the name as it will be kept (cleaned and cut to 40 first), so a long name or a hidden character can't hide the mark.
   checkDisplayName(displayName) {
     if (typeof displayName === 'string' && endsWithGuestMark(cleanDisplayName(displayName), this.word('guest'))) throw new StoreError(`A name can't end in (${this.word('guest')}).`);
+    // Nor in "(agent)", which only an agent's account is shown with, nor with the activity list's own words in it.
+    if (typeof displayName === 'string' && endsWithAgentMark(cleanDisplayName(displayName))) throw new StoreError("A name can't end in (agent).");
+    if (typeof displayName === 'string' && hasCarriedWords(cleanDisplayName(displayName))) throw new StoreError("A name can't have \"carried out by\" in it.");
   }
 
   addUser({ login, displayName, role, passwordHash, hostAdmin, firstPassword, demo }) {

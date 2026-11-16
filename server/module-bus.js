@@ -37,6 +37,18 @@ function expired(a, now) {
   return !(a.status === 'claimed' && now - a.claimedAt <= LIMITS.claimMs);
 }
 
+// A stored request read back with the types the rules rely on, whatever the file says: a time or a count that is not a
+// number closes the carrying window and its cap (never reads as "none yet"), a name that is not text is empty.
+const isTime = (v) => typeof v === 'number' && Number.isFinite(v);
+function typed(a) {
+  const out = { ...a };
+  out.claimedAt = isTime(a.claimedAt) ? a.claimedAt : 0;
+  if (a.claimedFirstAt !== undefined && !isTime(a.claimedFirstAt)) out.claimedFirstAt = 1;
+  if (a.carried !== undefined && !(Number.isInteger(a.carried) && a.carried >= 0)) out.carried = LIMITS.carriedWrites;
+  for (const field of ['claimedBy', 'doneBy']) if (a[field] !== undefined && typeof a[field] !== 'string') out[field] = '';
+  return out;
+}
+
 class ModuleBus extends EventEmitter {
   constructor(modulesDir) {
     super();
@@ -45,7 +57,7 @@ class ModuleBus extends EventEmitter {
     this.state = { seq: 0, events: [], actions: [] };
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (raw && Array.isArray(raw.events) && Array.isArray(raw.actions)) this.state = { seq: Number(raw.seq) || 0, events: raw.events, actions: raw.actions };
+      if (raw && Array.isArray(raw.events) && Array.isArray(raw.actions)) this.state = { seq: Number(raw.seq) || 0, events: raw.events, actions: raw.actions.filter((a) => a && typeof a === 'object').map(typed) };
     } catch {
       // nothing yet
     }

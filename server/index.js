@@ -96,6 +96,7 @@ const { currencyCodes } = require('./currencies');
 const agreementsLib = require('./agreements');
 const welcomeNote = require('./welcome-note');
 const guestDoorLib = require('./guest-door');
+const { endsWithAgentMark, hasCarriedWords } = guestDoorLib;
 
 const {
   PORT = 3000,
@@ -9461,10 +9462,15 @@ function carriedFor(who, moduleId, given, requestId, writeScope, exists) {
   const me = who.user ? who.user.key : '';
   if (!me || typeof given !== 'string' || given === me) return '';
   const id = typeof requestId === 'string' && /^[1-9][0-9]{0,15}$/.test(requestId) ? Number(requestId) : Number.isSafeInteger(requestId) ? requestId : 0;
-  const request = id > 0 && !exists ? moduleBus.carrying(id, moduleId, me, writeScope) : null;
-  if (request && !request.local && request.by === given && request.by !== me && store.userByKey(request.by) && moduleBus.useCarry(request)) return request.by;
-  // A hint that failed is left a line in the activity list, at most one a minute for each person: a carrier who keeps naming
-  // an asker the server will not believe is seen.
+  const held = id > 0 ? moduleBus.actionById(id) : null;
+  // An honest page whose hint does not apply (an overwrite, another place, over the cap, past the minute, a view): nothing is
+  // named and nothing is said.
+  if (held && held.provider === moduleId && held.status === 'claimed' && held.claimedBy === me && held.by === given && held.by !== me && store.userByKey(held.by)) {
+    const request = !exists && !held.local ? moduleBus.carrying(id, moduleId, me, writeScope) : null;
+    return request && moduleBus.useCarry(request) ? request.by : '';
+  }
+  // A hint that is not honest (an unknown request, not this carrier's claim, naming someone who did not ask) is left a line in
+  // the activity list, at most one a minute for each person in each environment: a carrier who keeps doing it is seen.
   const slug = currentEnvironment()?.slug || '';
   const mark = `${slug}|${me}`;
   const now = Date.now();
@@ -9763,16 +9769,30 @@ function limitMessage() {
 // its asker (plan-agent-access.md, decision 9), the asker and whose page carried it out: "Claude (agent), carried out by
 // Thomas's page".
 // A name inside the composed sentence can't carry the sentence's own words.
-const plainName = (name) => String(name).replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/,?\s*carried out by/gi, ' ').replace(/\s+/g, ' ').trim().slice(0, 60);
+// A person's name as the activity list shows it (names stored before the rule against them, with no migration): control
+// characters and any run of white space (tabs, no-break spaces) as one space, no "(agent)" on the end and no ", carried out
+// by" in it; a name that still reads so (with lookalike letters) is shown as "someone". An agent's mark comes only from its flag.
+function plainName(name) {
+  let out = String(name ?? '').replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/gu, ' ').trim();
+  out = out.replace(/,?\s*carried\s+out\s+by/giu, ' ').replace(/\s+/gu, ' ').trim();
+  for (let i = 0; i < 5 && endsWithAgentMark(out); i += 1) {
+    const open = Math.max(out.lastIndexOf('('), out.lastIndexOf('\uFF08'), out.lastIndexOf('\uFE59'));
+    if (open < 0) break;
+    out = out.slice(0, open).trim();
+  }
+  out = out.slice(0, 60);
+  return !out || endsWithAgentMark(out) || hasCarriedWords(out) ? 'someone' : out;
+}
 function activityNames(a) {
   const named = (key) => {
     const u = store.userByKey(key);
-    return u ? `${u.displayName}${u.agent ? ' (agent)' : ''}` : key === 'guest' ? word('guest', { a: true }) : key;
+    if (u) return `${plainName(u.displayName)}${u.agent ? ' (agent)' : ''}`;
+    return key === 'guest' ? word('guest', { a: true }) : 'someone';
   };
   const askerName = named(a.by);
-  const carrierName = a.carriedBy ? store.userByKey(a.carriedBy)?.displayName || named(a.carriedBy) : '';
+  const carrierName = a.carriedBy ? named(a.carriedBy).replace(/ \(agent\)$/, '') : '';
   // `askerAgent` comes from the account's agent flag, never from what a name says; the names are plain text for a page to escape.
-  return { askerName, askerAgent: Boolean(store.userByKey(a.by)?.agent), ...(carrierName ? { carrierName } : {}), byName: carrierName ? `${plainName(askerName)}, carried out by ${plainName(carrierName)}'s page` : askerName };
+  return { askerName, askerAgent: Boolean(store.userByKey(a.by)?.agent), ...(carrierName ? { carrierName } : {}), byName: carrierName ? `${askerName}, carried out by ${carrierName}'s page` : askerName };
 }
 app.get('/api/modules/activity', requireOwner, (_req, res) => {
   res.json({
