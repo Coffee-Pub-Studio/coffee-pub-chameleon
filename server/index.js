@@ -8737,8 +8737,8 @@ objectSync.configure({
     const stored = moduleData.get(moduleId, scopeKey, key);
     return stored ? stored.value : null;
   },
-  write(moduleId, scopeKey, key, value, by) {
-    moduleData.put(moduleId, scopeKey, key, value, { by });
+  write(moduleId, scopeKey, key, value, by, asker) {
+    moduleData.put(moduleId, scopeKey, key, value, { by, asker });
   },
   remove(moduleId, scopeKey, key, by) {
     moduleData.remove(moduleId, scopeKey, key, { by });
@@ -9443,7 +9443,36 @@ const busRoute = (fn) => (req, res) => {
   }
 };
 const publicEvent = (e) => ({ id: e.id, at: e.at, module: e.module, name: e.name, ref: e.ref, data: e.data });
-const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action, input: a.input, by: store.userByKey(a.by)?.displayName || 'someone' });
+// `by` is the asker's name; `byKey` is the asker's key (null for a guest or someone no longer here), which a module reads as
+// `ctx.byKey` and may store or look up as a person (plan-agent-access.md, decision 9).
+const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action, input: a.input, by: store.userByKey(a.by)?.displayName || 'someone', byKey: store.userByKey(a.by) ? a.by : null });
+// A request carried out for someone else (plan-agent-access.md, decision 9): the page that took it may say whose it is when
+// it writes or completes, so the records name the asker. The server holds the request, so a `for` is believed only when this
+// person's page has claimed that very request (still claimed, not done) of this module and it names that asker; never what
+// the page says on its own. It is only a name for the record: nothing here raises what the carrier may do.
+// Returns the asker's key, or '' when there is nothing to name (no `for`, or the carrier asked it themselves).
+const NOT_YOURS = 'That request is not yours to carry out.';
+const NOT_ASKER = 'That is not the person who asked.';
+function carriedFor(who, moduleId, given, requestId) {
+  if (given === undefined || given === null || given === '') return '';
+  if (typeof given !== 'string') throw refError(400, "Say who asked as a person's key.");
+  const me = who.user?.key || 'guest';
+  const id = typeof requestId === 'string' && /^[1-9][0-9]{0,15}$/.test(requestId) ? Number(requestId) : Number.isSafeInteger(requestId) ? requestId : 0;
+  const request = id > 0 ? moduleBus.actionById(id) : null;
+  if (!request || request.provider !== moduleId || request.status !== 'claimed' || request.claimedBy !== me) throw refError(403, NOT_YOURS);
+  if (request.by !== given) throw refError(403, NOT_ASKER);
+  return request.by !== me && store.userByKey(request.by) ? request.by : '';
+}
+// The same for a data route, which answers its own way: the asker's key ('' for none), or null once it has refused.
+function carriedForWrite(ctx, res, given, requestId) {
+  try {
+    return carriedFor(ctx.who, ctx.manifest.id, given, requestId);
+  } catch (err) {
+    if (!err.status) throw err;
+    res.status(err.status).json({ error: err.message });
+    return null;
+  }
+}
 
 // A module says something happened. It must have declared the event, and the person must be able to
 // change that module here (they are the reason it happened).
@@ -9656,11 +9685,12 @@ app.post('/api/bus/actions/claim', busRoute((who, req) => {
   const waiting = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, waiting)) return { ok: false };
   if (waiting && waiting.local) { if (waiting.by !== (who.user?.key || 'guest')) return { ok: false }; } else if (waiting && waiting.space && waiting.provider === id && waiting.scopeKey === at.scopeKey) busPlace(who, String(id || ''), 'space', waiting.space, 'write'); else busPlace(who, String(id || ''), busScope(scope), space, 'write');
-  const request = moduleBus.claim(Number(requestId), id, at.scopeKey);
+  const request = moduleBus.claim(Number(requestId), id, at.scopeKey, who.user?.key || 'guest');
   return request ? { ok: true, action: publicAction(request) } : { ok: false };
 }));
 app.post('/api/bus/actions/complete', busRoute((who, req) => {
   const { module: id, id: requestId, scope, space, result } = req.body || {};
+  const carrier = who.user?.key || 'guest';
   const at = busPlace(who, String(id || ''), busScope(scope), space, 'read');
   const done = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, done)) return { ok: false };
@@ -9675,7 +9705,9 @@ app.post('/api/bus/actions/complete', busRoute((who, req) => {
     } catch (err) { /* not plain data: left out */ }
   }
   if (refShape(result?.ref) && result.ref.module === id) clean.ref = plainRef(result.ref);
-  return { ok: Boolean(moduleBus.complete(Number(requestId), id, at.scopeKey, clean)) };
+  // A `for` is the asker, checked against the request the server holds (carriedFor); refused when it is not theirs.
+  carriedFor(who, String(id || ''), req.body?.for, requestId);
+  return { ok: Boolean(moduleBus.complete(Number(requestId), id, at.scopeKey, clean, carrier)) };
 }));
 // The asking module: how did it go?
 app.get('/api/bus/actions/status', busRoute((who, req) => {
@@ -9723,9 +9755,21 @@ function limitMessage() {
   const secs = l ? l.retrySeconds : 0;
   return secs ? `${name} is busy. Wait ${secs} ${secs === 1 ? 'second' : 'seconds'} and it will carry on.` : `${name} is busy. Wait a moment and it will carry on.`;
 }
+// Who a line of the activity list names: the person (an agent with "(agent)" after its name); for a request carried out for
+// its asker (plan-agent-access.md, decision 9), the asker and whose page carried it out: "Claude (agent), carried out by
+// Thomas's page".
+function activityByName(a) {
+  const named = (key) => {
+    const u = store.userByKey(key);
+    return u ? `${u.displayName}${u.agent ? ' (agent)' : ''}` : key === 'guest' ? word('guest', { a: true }) : key;
+  };
+  const who = named(a.by);
+  const carrier = a.carriedBy ? store.userByKey(a.carriedBy)?.displayName || named(a.carriedBy) : '';
+  return carrier ? `${who}, carried out by ${carrier}'s page` : who;
+}
 app.get('/api/modules/activity', requireOwner, (_req, res) => {
   res.json({
-    activity: moduleActivity.slice(-100).reverse().map((a) => ({ ...a, moduleName: store.moduleDisplay(a.module).name || modules.enabled(a.module)?.manifest.name || a.module, byName: store.userByKey(a.by)?.displayName || (a.by === 'guest' ? word('guest', { a: true }) : a.by) })),
+    activity: moduleActivity.slice(-100).reverse().map((a) => ({ ...a, moduleName: store.moduleDisplay(a.module).name || modules.enabled(a.module)?.manifest.name || a.module, byName: activityByName(a) })),
   });
 });
 
@@ -11785,8 +11829,10 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
   if (!ctx) return;
   const slow = overLimit(ctx.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
+  const asker = carriedForWrite(ctx, res, req.body?.for, req.body?.request);
+  if (asker === null) return;
   try {
-    const out = putModuleValue(ctx, req.params.key, req.body?.value, { expected: Number.isInteger(req.body?.version) ? req.body.version : null, tz: req.body?.tz });
+    const out = putModuleValue(ctx, req.params.key, req.body?.value, { expected: Number.isInteger(req.body?.version) ? req.body.version : null, tz: req.body?.tz, asker });
     if (out.error) return res.status(out.status).json({ error: out.error, ...('current' in out ? { current: out.current } : {}) });
     res.json({ item: hideItem(out.item, ctx.hide) });
   } catch (err) {
@@ -11797,7 +11843,7 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
 // the hidden fields, the module's guards, the key rule and the size caps (moduleData.put), then what follows a write.
 // Answers { item } or a refusal { status, error }; throws what moduleData.put throws (a bad key 400, a conflict with
 // `expected` 409, too big 413). Starter content (fillStarter) is written through this too.
-function putModuleValue(ctx, key, given, { expected = null, tz } = {}) {
+function putModuleValue(ctx, key, given, { expected = null, tz, asker = '' } = {}) {
   // A copy of another module's object (GitHub #857): not there for whoever may not see its original, and changed only by
   // whoever may change the original (copyWriteRefusal, below, once the value is known).
   const copyRef = takesCopies(ctx.manifest) ? copyRefAt(ctx.manifest, ctx.scopeKey, key) : null;
@@ -11821,8 +11867,8 @@ function putModuleValue(ctx, key, given, { expected = null, tz } = {}) {
     const refused = copyWriteRefusal(ctx, copies, copyRef, key, had ? had.value : null, value, tz);
     if (refused) return refused;
   }
-  const item = moduleData.put(ctx.manifest.id, ctx.scopeKey, key, value, { expected, by: ctx.by });
-  objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key, before: had ? had.value : null, after: item.value, by: ctx.by, tz });
+  const item = moduleData.put(ctx.manifest.id, ctx.scopeKey, key, value, { expected, by: ctx.by, asker });
+  objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key, before: had ? had.value : null, after: item.value, by: ctx.by, tz, asker });
   // A file swapped for another (a photo's picture): the old one goes when nothing stored here names it any more.
   if (had && guards) {
     const was = moduleGuards.fileOf(guards, key, had.value);
@@ -12056,6 +12102,8 @@ app.delete('/api/modules/:id/data/:key', (req, res) => {
   if (!ctx) return;
   const slow = overLimit(ctx.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
+  const asker = carriedForWrite(ctx, res, req.query.for, req.query.request);
+  if (asker === null) return;
   try {
     const expected = req.query.version !== undefined ? Number(req.query.version) : null;
     // A copy (GitHub #857): removed (hidden from its module for good) only by whoever may change its original.
@@ -12074,12 +12122,12 @@ app.delete('/api/modules/:id/data/:key', (req, res) => {
     // A writer who can't see the hidden fields can't remove what holds any, nor what goes with it.
     const hiddenRefused = had ? moduleGuards.hiddenDeleteRefusal(had.value, ctx.hide, childItems.map((item) => item.value)) : null;
     if (hiddenRefused) return res.status(hiddenRefused.status).json({ error: hiddenRefused.error });
-    const removed = moduleData.remove(ctx.manifest.id, ctx.scopeKey, req.params.key, { expected: Number.isInteger(expected) ? expected : null, by: ctx.by });
+    const removed = moduleData.remove(ctx.manifest.id, ctx.scopeKey, req.params.key, { expected: Number.isInteger(expected) ? expected : null, by: ctx.by, asker });
     if (had) {
-      objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: req.params.key, before: had.value, after: null, by: ctx.by, tz: req.query.tz });
+      objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: req.params.key, before: had.value, after: null, by: ctx.by, tz: req.query.tz, asker });
       for (const child of childItems) {
-        moduleData.remove(ctx.manifest.id, ctx.scopeKey, child.key, { by: ctx.by });
-        objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: child.key, before: child.value, after: null, by: ctx.by, tz: req.query.tz });
+        moduleData.remove(ctx.manifest.id, ctx.scopeKey, child.key, { by: ctx.by, asker });
+        objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: child.key, before: child.value, after: null, by: ctx.by, tz: req.query.tz, asker });
       }
       removeFilesOf(ctx, [{ key: req.params.key, value: had.value }, ...all.filter((item) => children.has(item.key))]);
     }

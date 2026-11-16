@@ -3969,7 +3969,8 @@
         }
         return { status: 'queued', id: queued.id };
       },
-      // Carry out the actions this module provides: provide({ createTask: async (input, { from, by }) => ({ ref }) }).
+      // Carry out the actions this module provides: provide({ createTask: async (input, { from, by, byKey }) => ({ ref }) }).
+      // `by` is the asker's name; `byKey` is the asker's key (a person's key you may store and look up), or null for a guest.
       // Called for each request, once (only one page takes it), under the rules of whoever has the module open.
       provide: (handlers) => {
         let chain = Promise.resolve();
@@ -3985,7 +3986,7 @@
           if (!claim || !claim.ok) return;
           let result;
           try {
-            const out = await fn(claim.action.input, { from: claim.action.from, by: claim.action.by });
+            const out = await fn(claim.action.input, { from: claim.action.from, by: claim.action.by, byKey: claim.action.byKey || null });
             result = { ok: true, ref: out && out.ref, ...(out && out.data !== undefined ? { data: out.data } : {}) };
           } catch (err) {
             result = { ok: false, error: String((err && err.message) || err) };

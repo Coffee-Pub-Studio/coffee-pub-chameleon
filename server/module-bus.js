@@ -145,23 +145,26 @@ class ModuleBus extends EventEmitter {
   }
 
   // One page takes a request; the others that saw it too are told no. Returns the request or null.
-  claim(id, provider, scopeKey) {
+  // `by` is the person whose page takes it (the carrier): the data writes it leads to may name the asker only for them.
+  claim(id, provider, scopeKey, by) {
     const a = this.actionById(id);
     const now = Date.now();
     if (!a || a.provider !== provider || a.scopeKey !== scopeKey || expired(a, now)) return null;
     if (!(a.status === 'pending' || (a.status === 'claimed' && now - a.claimedAt > LIMITS.claimMs))) return null;
     a.status = 'claimed';
     a.claimedAt = now;
+    a.claimedBy = by || '';
     this.save();
     return a;
   }
 
-  complete(id, provider, scopeKey, result) {
+  complete(id, provider, scopeKey, result, by) {
     const a = this.actionById(id);
     // Past its time limit, only a page that claimed it in time (and is within the claim's minute) may finish it.
     if (!a || a.provider !== provider || a.scopeKey !== scopeKey || a.status === 'done' || expired(a, Date.now())) return null;
     a.status = 'done';
     a.doneAt = Date.now();
+    a.doneBy = by || '';
     a.result = result;
     this.save();
     this.emit('actionDone', a);

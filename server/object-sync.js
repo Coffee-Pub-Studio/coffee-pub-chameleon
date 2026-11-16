@@ -263,22 +263,22 @@ function removeTwin(produce, to, scopeKey, by) {
 // The pair is kept before the copy is written, so the copy's first change already reads as a copy and reaches only those who may
 // see its original (plan-plan-calendar-sync.md, Permissions). No pair kept (the links are full), no copy; a copy that can't be
 // written (413) takes its pair with it.
-function createTwin(ref, wall, zone, by, taker, scopeKey) {
+function createTwin(ref, wall, zone, by, taker, scopeKey, asker) {
   const patch = fieldsForTwin(wall, zone, taker.produce.dated);
   if (!patch) return;
   const id = deps.newId();
-  const value = { ...fillCreate(taker.produce.create, id, deps.nameOf(by)), ...patch };
+  const value = { ...fillCreate(taker.produce.create, id, deps.nameOf(asker || by)), ...patch };
   const to = { module: taker.moduleId, kind: taker.produce.kind, id, scope: ref.scope, space: ref.space };
   if (deps.addPair(ref, to, by) === false) return;
   try {
-    deps.write(taker.moduleId, scopeKey, twinKey(taker.produce, id), value, by);
+    deps.write(taker.moduleId, scopeKey, twinKey(taker.produce, id), value, by, asker);
   } catch (err) {
     deps.dropLinks(to);
     throw err;
   }
 }
 
-function updateTwin(pair, wall, zone, by, taker, scopeKey) {
+function updateTwin(pair, wall, zone, by, taker, scopeKey, asker) {
   const key = twinKey(taker.produce, pair.to.id);
   const current = deps.read(taker.moduleId, scopeKey, key);
   // A copy that is gone was hidden on purpose (deleting it detaches the pair): it is not made again. One a Clear holds for its
@@ -290,12 +290,12 @@ function updateTwin(pair, wall, zone, by, taker, scopeKey) {
   }
   const patch = fieldsForTwin(wall, zone, taker.produce.dated);
   const next = patch && changed(current, patch);
-  if (next) deps.write(taker.moduleId, scopeKey, key, next, by);
+  if (next) deps.write(taker.moduleId, scopeKey, key, next, by, asker);
 }
 
 // A dated sender keeps one twin in each kind that receives them. A sender that holds a pointer sends none.
 // Server writes do not come back through afterWrite. A full store (413) skips that twin until the next change.
-function mirrorOut(ref, produce, scopeKey, before, after, zone, by) {
+function mirrorOut(ref, produce, scopeKey, before, after, zone, by, asker) {
   if (produce.mirror !== 'out' || produce.dated?.form !== 'wall' || ref.scope !== 'space' || !deps.takers) return;
   const now = after == null ? { title: '', day: null, time: null, endDay: null } : readWall(after, produce.dated);
   const pairs = deps.pairsFrom(ref) || [];
@@ -314,9 +314,9 @@ function mirrorOut(ref, produce, scopeKey, before, after, zone, by) {
   for (const taker of deps.takers(ref.module, produce.kind, ref.space)) {
     const pair = pairs.find((p) => p.to.module === taker.moduleId && p.to.kind === taker.produce.kind);
     try {
-      if (!pair) createTwin(ref, now, wrote, by, taker, scopeKey);
+      if (!pair) createTwin(ref, now, wrote, by, taker, scopeKey, asker);
       else if (pair.pair === 'detached') continue; // hidden from that module for good (plan-plan-calendar-sync.md)
-      else updateTwin(pair, now, wrote, by, taker, scopeKey);
+      else updateTwin(pair, now, wrote, by, taker, scopeKey, asker);
     } catch (err) {
       if (!err || err.status !== 413) throw err;
     }
@@ -404,10 +404,12 @@ function writeBack({ module, scopeKey, key, before, after, tz }) {
   return edit ? { original: edit.from, key: edit.senderKey, before: edit.current, after: edit.next } : null;
 }
 
-// { module, scopeKey, key, before, after, by, tz }. `before` and `after` are the stored values; `after` is null
+// { module, scopeKey, key, before, after, by, tz, asker }. `asker` (a person's key) is who asked for the change when a
+// page carried out their request (plan-agent-access.md, decision 9): it names the copy's `{by}` and its activity line, and
+// raises nothing. `before` and `after` are the stored values; `after` is null
 // when the object was deleted. A summary that did not change sends no refchange. A dated sender still updates
 // its twin when a mapped field changed and the summary did not.
-function afterWrite({ module, scopeKey, key, before, after, by, tz }) {
+function afterWrite({ module, scopeKey, key, before, after, by, tz, asker }) {
   const zone = writerZone(tz);
   if (!deps) return;
   const found = deps.produceFor(module, key);
@@ -416,7 +418,7 @@ function afterWrite({ module, scopeKey, key, before, after, by, tz }) {
   if (!ref) return;
   const holders = deps.linksTo(ref);
   if (after == null) {
-    try { mirrorOut(ref, found.produce, scopeKey, before, null, zone, by); } catch (err) { if (!err || err.status !== 413) throw err; }
+    try { mirrorOut(ref, found.produce, scopeKey, before, null, zone, by, asker); } catch (err) { if (!err || err.status !== 413) throw err; }
     try { mirrorIn(ref, found.produce, scopeKey, null, zone, by); } catch (err) { if (!err || err.status !== 413) throw err; }
     if (!holders.length) return;
     for (const holder of holders) {
@@ -433,7 +435,7 @@ function afterWrite({ module, scopeKey, key, before, after, by, tz }) {
     }
     bus.emit('refchange', { ref, change: 'updated', holders, env: deps.environment() });
   }
-  try { mirrorOut(ref, found.produce, scopeKey, before, after, zone, by); } catch (err) { if (!err || err.status !== 413) throw err; }
+  try { mirrorOut(ref, found.produce, scopeKey, before, after, zone, by, asker); } catch (err) { if (!err || err.status !== 413) throw err; }
   try { mirrorIn(ref, found.produce, scopeKey, after, zone, by, before); } catch (err) { if (!err || err.status !== 413) throw err; }
 }
 
