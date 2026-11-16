@@ -187,6 +187,13 @@ Decisions made after the build (Thomas, 2026-11-15). Each is a **Divergence call
     `server/object-format.js` (Arabic, Syriac, an Indic script, Sinhala, Khmer, Myanmar).
 23. **`goals__addStep` is accepted as an AI tool** (#883, Thomas). The AI tool catalogue is five tools. Goals'
     `addStep` takes its `goal` input as optional, so Chat can offer it.
+    Superseded (noted 2026-11-16). Thomas later chose "Four tools; update the check and golden file", with
+    `goals__addStep` not a tool (#896: `maps__setPlacePoint`, `todo__linkTask`, `todo__setTaskDue`,
+    `travel__addToDay`). On 2026-11-16 he confirmed "six is right": `schedule__setDone` and `schedule__updateEntry`
+    joined, since they act on an existing planner entry (`plan-agent-access.md`, decision 8; #905). `goals__addStep`
+    stays out. The AI tool catalogue is six tools: `maps__setPlacePoint`, `schedule__setDone`,
+    `schedule__updateEntry`, `todo__linkTask`, `todo__setTaskDue` and `travel__addToDay`. The source of truth is the
+    `WANT` list in `tools/check-catalog.mjs` and `tools/golden/catalog.json`.
 24. **The Calendar's `takes` list is not changed** for the new kinds. Whether it should take them is an open question
     for Thomas (below).
 
