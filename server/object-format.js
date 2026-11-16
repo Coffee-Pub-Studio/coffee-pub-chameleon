@@ -123,9 +123,9 @@ function stripTags(s) {
 const JOINER_SCRIPTS = ['Arabic', 'Syriac', 'Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya', 'Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Sinhala', 'Khmer', 'Myanmar'];
 const SCRIPT_OF = JOINER_SCRIPTS.map((sc) => new RegExp(`^\\p{Script=${sc}}$`, 'u'));
 const LAST_LETTER = /(\p{L})(\p{M}{0,8})$/u;
-const EMOJI_BEFORE = /(?![©®™])\p{Extended_Pictographic}[\u{FE0F}\u{1F3FB}-\u{1F3FF}]?$/u; // not (c), (r) or tm: plain symbols
+const EMOJI_BEFORE = /(?![©®™])\p{Extended_Pictographic}\u{FE0F}?[\u{1F3FB}-\u{1F3FF}]?$/u; // not (c), (r) or tm: plain symbols
 const EMOJI_AT = /^(?![©®™])\p{Extended_Pictographic}/u;
-const QUICK = /[\p{L}\p{M}\p{Extended_Pictographic}]$/u;
+const QUICK = /[\p{L}\p{M}\p{Extended_Pictographic}\p{Emoji_Modifier}]$/u;
 const LETTER_SCRIPT = new Map(); // a letter (one code unit) to its joiner script's index, -1 for a letter of another script, -2 for what is no letter: the common case answered without slicing
 function scriptIndex(ch) {
   let i = LETTER_SCRIPT.get(ch);
@@ -143,6 +143,8 @@ function keepJoiner(c, s, at) {
   const i = SCRIPT_OF.findIndex((re) => re.test(last[1]));
   if (i < 0) return false;
   if (SCRIPT_OF[i].test(after.codePointAt(0) > 0xFFFF ? after.slice(0, 2) : after[0] || '') && /^\p{L}/u.test(after)) return true;
+  const mark = /^\p{Mn}/u.exec(after); // the joiner before the mark, as in a Bengali ra-ya-phalaa, Sinhala or Myanmar: a mark of the same script follows
+  if (mark && SCRIPT_OF[i].test(mark[0])) return true;
   return last[2].length > 0 && /\p{Mn}$/u.test(last[2]); // after a virama (a Malayalam chillu) no letter need follow
 }
 const hidden = (s) => s.replace(/[⠀ㅤﾠ]|\p{Cf}/gu, (c, at, str) => c === '⠀' ? ' ' : (c === 'ㅤ' || c === 'ﾠ') ? '' : (c === '‌' || c === '‍') && keepJoiner(c, str, at) ? c : '');

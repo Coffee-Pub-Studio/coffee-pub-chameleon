@@ -498,6 +498,27 @@ test('plan objects: a milestone, work, a goal and its steps read from an import,
   assert.equal(T('\u0627\u200D\u200D\u200C\u0628'), '\u0627\u0628', 'doubled joiners: none touches a letter on both sides, so none stays');
   assert.equal(T('a\u0301\u200D'), 'a\u0301', 'Latin: a letter, a combining acute and a joiner');
   assert.equal(T('\u0627\u200Ca'), '\u0627a', 'Arabic then Latin: different scripts');
+  // Emoji with tones and keycaps, and the marks that follow a joiner in Bengali, Sinhala and Myanmar.
+  for (const keep of ['\u{1F469}\u{1F3FD}‍\u{1F4BB}', '\u{1F468}\u{1F3FF}‍⚕️', '\u{1F469}\u{1F3FD}‍❤️‍\u{1F468}\u{1F3FF}', '\u{1F3C3}\u{1F3FD}‍♀️', '\u{1F468}\u{1F3FD}‍\u{1F9B0}', '⛹\u{1F3FD}‍♂', '\u{1F9D1}\u{1F3FD}‍\u{1F91D}‍\u{1F9D1}\u{1F3FF}', '1️⃣', '\u{1F3F3}️‍\u{1F308}', '\u{1F1FA}\u{1F1F8}', '\u{1F3F4}‍☠️', '❤️‍\u{1F525}', 'র‍্যাব', 'ক‍্ষ', 'ර‍්', 'উ‍်'.replace('উ', 'ဉ')]) assert.equal(T(keep), keep, `kept: ${[...keep].map((c) => c.codePointAt(0).toString(16)).join(' ')}`);
+  assert.equal(T('ا‌‌ب'), 'اب', 'doubled ZWNJ between Arabic letters');
+  assert.equal(T('©‍\u{1F468}'), '©\u{1F468}', 'a joiner between a symbol and an emoji');
+  assert.equal(T('a‍b'), 'ab', 'a joiner between Latin letters');
+  // Cleaning twice changes nothing, over many strings made of these characters.
+  const pieces = ['a', 'b', 'ا', 'ب', 'क', '्', 'ന', '്', 'র', '্', 'َ', '́', '‌', '‍', '​', '‮', '﻿', '\u{1F469}', '\u{1F3FD}', '\u{1F4BB}', '️', '©', '❤', ' ', '*', 'ㅤ', '⠀', '\u{E0067}', '\u{1F3F4}'];
+  let seed = 7;
+  const rnd = (k) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % k; };
+  for (let i = 0; i < 20000; i++) {
+    let x = '';
+    for (let j = rnd(12) + 1; j > 0; j--) x += pieces[rnd(pieces.length)];
+    const once = cleanObject({ kind: 'event', title: `x${x}`, content: 'c', details: {} }).title;
+    const twice = cleanObject({ kind: 'event', title: once, content: 'c', details: {} }).title;
+    assert.equal(twice, once, `cleaning twice: ${JSON.stringify(x)}`);
+  }
+  {
+    const chillu = 'ക്‍';
+    const ms = [1e6, 2e6].map((size) => { const t0 = Date.now(); cleanObject({ kind: 'event', title: 'x', content: chillu.repeat(Math.ceil(size / chillu.length)), details: {} }); return Date.now() - t0; });
+    assert.ok(ms[1] < 3000, `2 MB of chillu took ${ms[1]} ms`);
+  }
   assert.equal(T('ㅤaﾠb'), 'ab', 'blank fillers go');
   assert.equal(T('a⠀b'), 'a b', 'a blank braille cell is a space');
   assert.equal(T('ᄀᅠᅡ'), 'ᄀᅠᅡ', 'Hangul jamo with the filler stay');
