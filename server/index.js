@@ -79,7 +79,7 @@ const moduleNotices = require('./module-notices');
 const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView } = require('./tokens');
-const { AGENT_LIMITS } = require('./agent-log');
+const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
 const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
 const phaseRule = require('../public/phases.js');
@@ -3646,6 +3646,42 @@ function agentBearer(req) {
   const value = header.slice(7).trim();
   return value.startsWith(AGENT_TOKEN_PREFIX) ? value : null;
 }
+// What a log line says of the route and the module, the same in every kind of line (a call let on, refused, a 401 or a 429):
+// the gate's own pattern whenever the path is one of its routes (any method), else the path's fixed shape (refusedRoute,
+// from the words of the app's registered routes, read once at the first call). The module is the route's :id when the
+// route is a module's, else the module of the action the call asked for (res.locals.agentLog, set from a manifest); only
+// an installed module's safe id is ever kept.
+let agentRouteTrie = null;
+const registeredPaths = (router, out = []) => {
+  for (const layer of router.stack || []) {
+    if (layer.route) for (const p of [].concat(layer.route.path)) out.push(p);
+    else if (layer.handle && Array.isArray(layer.handle.stack)) registeredPaths(layer.handle, out);
+  }
+  return out;
+};
+const AGENT_GATE_PATTERNS = AGENT_ROUTES.map((r) => r[1]);
+let agentLogRouteFailed = false;
+function agentLogRoute(req, res, env) {
+  // Runs inside a response's finish/close handler, where a throw would end the process: whatever goes wrong, the line is
+  // written with a route that says nothing (and the first time, one line says why).
+  try {
+    return agentLogRouteOf(req, res, env);
+  } catch (err) {
+    if (!agentLogRouteFailed) { agentLogRouteFailed = true; console.error(`The agents' log could not read a route: ${err.message}`); }
+    return { route: '/:x', module: null };
+  }
+}
+function agentLogRouteOf(req, res, env) {
+  const at = matchRoute(req.path, AGENT_GATE_PATTERNS);
+  if (!at) {
+    if (!agentRouteTrie) agentRouteTrie = routeTrie(registeredPaths(app.router));
+    return { route: refusedRoute(req.path, agentRouteTrie), module: null };
+  }
+  const named = at.pattern.startsWith('/api/modules/:id') ? at.params.id : String(res?.locals?.agentLog?.action || '').split(':')[0];
+  // Looked up straight in the registry (no view built). An entry whose view() would be null still counts as installed: harmless,
+  // it is a module id that was installed, and nothing but the safe, known id is ever written.
+  return { route: at.pattern, module: safeModule(named, (id) => Object.hasOwn(env.modules.registry.modules, id)) };
+}
 function agentGate(req, res, next) {
   const env = envContext.getStore();
   if (!agentTokensOn || !env) return next(); // the switch is off, or no environment (the product host)
@@ -3659,7 +3695,7 @@ function agentGate(req, res, next) {
   if (!record || !agent || !agent.agent || agent.off || store.settings.agents !== true || !env.tokens.live(record)) {
     // A token that is an agent's but no longer good (past its end, the agent turned off, Agents off) is noted in that
     // agent's log, at most once a minute; an unknown one names nobody and is not.
-    if (record && agent && agent.agent) env.agentLog.note({ agent: agent.key, token: record.id, method: req.method, route: '(refused)', status: 401, address });
+    if (record && agent && agent.agent) env.agentLog.note({ agent: agent.key, token: record.id, method: req.method, ...agentLogRoute(req, res, env), status: 401, address });
     return res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: AGENT_TOKEN_INVALID });
   }
   req._user = agent;
@@ -3671,7 +3707,7 @@ function agentGate(req, res, next) {
     if (err) return next(err);
     const rule = req.agent.rule;
     const kind = rule ? rule.kind : 'read';
-    const line = () => ({ agent: agent.key, token: record.id, method: req.method, route: rule ? rule.pattern : '(refused)', space: rule ? rule.space : null, status: res.statusCode, address });
+    const line = () => ({ agent: agent.key, token: record.id, method: req.method, ...agentLogRoute(req, res, env), space: rule ? rule.space : null, status: res.statusCode, address });
     // Counted first, so a refused call costs as much as any other: hammering the gate is bounded by the same limits. A call
     // over a limit counts against nothing and leaves no line of its own: the first of each minute is noted (agentLog.note).
     const taken = env.agentLog.take(agent.key, kind);

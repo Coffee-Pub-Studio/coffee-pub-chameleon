@@ -13,6 +13,10 @@
  *     is not in is the unknown space's 404; scope environment, spaces and person, and no scope, are 403; raw data writes,
  *     Clear and restore are 403; a local, asker-only, destructive or ai:false action is 403 "An agent can't ask for that."
  *     and the actions list leaves them out; it reads only its own requests; the token wins over a cookie session;
+ *   - the log's `module` (a data or context read's :id, an action's module; installed ids of a safe shape only, else null) and
+ *     the route of a refused call (the path as a fixed shape: only the API's own words kept, every other segment ":x", no
+ *     query, at most 80 characters), with a hostile path (../, a 300-character id, proto names, a token, a query) leaving
+ *     nothing of itself in the log;
  *   - the limits: 60 reads and 20 writes a minute, counted apart, 429 with Retry-After; the day's counts are read back
  *     from the log, so they survive a restart;
  *   - the log: one line a call, its route pattern and never its token, a request body or the path's own values; owners
@@ -44,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { buildModule, zipFiles } = require(path.join(ROOT, 'server', 'module-build.js'));
+const { routeTrie, refusedRoute } = require(path.join(ROOT, 'server', 'agent-log.js'));
 
 const INVALID = 'That agent token is not valid.';
 const CANT = "An agent can't do that.";
@@ -450,6 +455,15 @@ try {
       walked += 1;
     }
     assert.ok(walked > 300 && mounts.length > 5, `walked ${walked}, ${mounts.length} of them mounts`);
+    // The log's route words come from the registered routes' own paths: a router mounted with a prefix would hide its prefix
+    // from them, so none may be, and no word that is kept may be anything but plain.
+    assert.deepEqual(layers.filter((l) => l.kind === 'route' && !['', '/'].includes(l.mount)).map((l) => `${l.method} ${l.path}`), [], 'a router mounted with a path prefix (the log\'s route words cannot see it)');
+    const trie = routeTrie(layers.filter((l) => l.kind === 'route').map((l) => l.path));
+    const wordsOf = (node) => [...node.words].flatMap(([w, child]) => [w, ...wordsOf(child)]).concat(node.any ? wordsOf(node.any) : []);
+    const words = wordsOf(trie);
+    assert.ok(words.length > 100 && words.includes('api') && words.includes('agent-log'), 'the trie has the routes\' words');
+    assert.deepEqual(words.filter((w) => !/^[a-z0-9._-]+$/.test(w)), [], 'a word outside [a-z0-9._-]');
+    assert.equal(refusedRoute('/api/users/abc/agent-log?x=1', trie), '/api/users/:x/agent-log');
   });
 
   await test('it reads only its own requests', async () => {
@@ -522,7 +536,8 @@ try {
     const action = every.find((e) => e.route === '/api/spaces/:id/action' && e.status === 200);
     assert.ok(action, 'the action is there');
     assert.deepEqual([action.method, action.space, action.action, action.kind, typeof action.request], ['POST', S1, 'todo:createTask', 'write', 'number']);
-    assert.ok(entries.some((e) => e.route === '(refused)' && e.status === 403), 'a refused call is there, without its path');
+    assert.ok(entries.some((e) => e.status === 403 && e.kind !== null && !(e.route === '(refused)') && /^\/[a-z:/-]*$/.test(e.route)), 'a refused call is there, as a route shape without its path\'s values');
+    assert.ok(every.every((e) => e.route !== '(refused)'), 'no line reads "(refused)"');
     assert.ok(entries.every((e) => !('agent' in e)));
     refused(await call(server, 'GET', `/api/users/${agent.key}/agent-log?before=soon`, { cookie: admin }), 400, 'before is a time, like 2026-11-16T10:00:00Z.', 'a bad before');
     const older = await call(server, 'GET', `/api/users/${agent.key}/agent-log?before=${encodeURIComponent(entries[entries.length - 1].at)}`, { cookie: admin });
@@ -534,6 +549,113 @@ try {
     assert.ok(!text.includes('Secret title 4417'), 'no request body in the log');
     assert.ok(!text.includes('task:t1'), 'no path value in the log');
     assert.ok(!text.includes(tokenA.slice(4, 20)), 'not even part of the token');
+  });
+
+  await test('the log: a line names its module (an installed, safe id) and a refused call its route shape, never a value', async () => {
+    const f = await agentOf('Fielder');
+    const T = { token: f.token };
+    const file = path.join(single, 'agent-log', f.key, `${dayToday()}.jsonl`);
+    const lines = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+    // The line is written when the answer finishes: wait for each call's own line (one more than the last time).
+    let seen = 0;
+    const last = async () => {
+      for (let i = 0; i < 100 && lines().length <= seen; i += 1) await new Promise((r) => setTimeout(r, 20));
+      assert.ok(lines().length > seen, 'the call left a line');
+      seen = lines().length;
+      return lines()[seen - 1];
+    };
+    const fields = ['at', 'token', 'method', 'route', 'space', 'module', 'action', 'request', 'message', 'status', 'address', 'kind', 'agent'].sort();
+    ok(await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${S1}`, T), 'data read');
+    { const l = await last();
+      assert.deepEqual(Object.keys(l).sort(), fields, 'the line\'s fields');
+      assert.deepEqual([l.route, l.module, l.kind], ['/api/modules/:id/data', 'todo', 'read']); }
+    ok(await call(server, 'GET', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, T), 'data read of a key');
+    assert.equal((await last()).module, 'todo');
+    ok(await call(server, 'GET', `/api/modules/todo/context?scope=space&space=${S1}`, T), 'context');
+    { const l = await last();
+      assert.deepEqual([l.route, l.module], ['/api/modules/:id/context', 'todo']); }
+    ok(await call(server, 'POST', `/api/spaces/${S1}/action`, { ...T, body: { action: 'todo:createTask', input: { title: 'Field check' } } }), 'action');
+    { const l = await last();
+      assert.deepEqual([l.route, l.module, l.action, l.kind], ['/api/spaces/:id/action', 'todo', 'todo:createTask', 'write']); }
+    // A write to the raw data is not on the gate's list: refused, so no module.
+    refused(await call(server, 'PUT', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, { ...T, body: { value: { id: 't1' } } }), 403, CANT, 'a raw data write');
+    { const l = await last();
+      assert.deepEqual([l.route, l.module, l.kind], ['/api/modules/:id/data/:key', 'todo', 'read']); }
+    refused(await call(server, 'DELETE', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, T), 403, CANT, 'the wrong method on a listed path');
+    { const l = await last();
+      assert.deepEqual([l.route, l.module, l.kind, l.status], ['/api/modules/:id/data/:key', 'todo', 'read', 403], 'the gate\'s pattern, not a shape'); }
+    ok(await call(server, 'GET', '/api/agent/me', T), 'me');
+    assert.equal((await last()).module, null);
+    ok(await call(server, 'GET', `/api/spaces/${S1}/actions`, T), 'actions');
+    assert.equal((await last()).module, null);
+    // A module-looking id that is not an installed module's, or not a safe id at all: asked, answered, never logged.
+    const hostile = ['../x', 'a'.repeat(300), '__proto__', 'constructor', 'toString', 'Todo', 'no-such-module', '%2e%2e%2fx'];
+    for (const id of hostile) {
+      await call(server, 'GET', `/api/modules/${id}/data?scope=space&space=${S1}`, T);
+      assert.equal((await last()).module, null, `module for ${id.slice(0, 20)}`);
+    }
+    await call(server, 'POST', `/api/spaces/${S1}/action`, { ...T, body: { action: '__proto__:x', input: {} } });
+    assert.equal((await last()).module, null, 'module for a __proto__ action');
+    await call(server, 'POST', `/api/spaces/${S1}/action`, { ...T, body: { action: `${'a'.repeat(300)}:x`, input: {} } });
+    assert.equal((await last()).module, null, 'module for a 300-character action');
+    assert.ok(lines().every((l) => l.module === null || l.module === 'todo'), 'only todo, an installed module, is ever logged');
+    // A refused call to a route that is not on the list: its shape, no values, no query, no token.
+    const secret = `${f.token}`;
+    const pathy = [
+      [`/api/settings?x=${secret}`, '/api/settings'],
+      [`/api/users/${f.key}/agent-log?before=${secret}`, '/api/users/:x/agent-log'],
+      [`/api/users/${secret}/token`, '/api/users/:x/token'],
+      [`/api/spaces/${S1}/Secret-Name-4417?token=${secret}&q=hello`, null],
+      ['/API/Modules/Todo/Data/Extra/More', null],
+      // Only words of registered routes, in an order no registered route has: not kept word for word.
+      // The router does not match an empty segment, so this is not the gate's route: its shape, and no module.
+      [`/api//modules/todo/data?scope=space&space=${S1}`, '/api/modules/:x/data'],
+      ['/data/modules/api', '/:x/:x/:x'],
+      ['/api/data/context/settings', null],
+      ['/settings/api/modules', null],
+      [`/${'seg/'.repeat(60)}`, null],
+    ];
+    for (const [url, want] of pathy) {
+      const r = await call(server, 'GET', url, T);
+      assert.equal(r.status, 403, `${url.slice(0, 40)} is refused`);
+      const l = await last();
+      assert.equal(l.status, 403, `${url.slice(0, 40)} logged ${l.status} ${l.route}`);
+      assert.ok(typeof l.route === 'string' && l.route.length <= 80 && /^\/[a-z:/-]*$/.test(l.route), `route shape ${l.route}`);
+      if (want !== null) assert.equal(l.route, want, `the route of ${url.slice(0, 40)}`);
+      assert.equal(l.module, null);
+    }
+    // The shape of a path of allowed words in the wrong places holds nothing in the wrong place.
+    for (const url of ['/data/modules/api', '/api/data/context/settings']) {
+      await call(server, 'GET', url, T);
+      const l = await last();
+      assert.ok(!/\/data\/modules\/api|\/api\/data\/context|context\/settings/.test(l.route), `the words of ${url} stayed in order: ${l.route}`);
+    }
+    const text = fs.readFileSync(file, 'utf8');
+    for (const bad of [secret, secret.slice(4, 20), 'Secret-Name-4417', 'hello', '..', 'proto', 'Field check']) assert.ok(!text.includes(bad), `the log holds "${bad.slice(0, 12)}"`);
+    assert.ok(!/aaaaaaaaaa/.test(text), 'a 300-character id is in the log');
+    assert.ok(!text.includes('(refused)'));
+  });
+
+  await test('a 401 note, a 429 note and a refused line on a listed path all write the gate\'s pattern and the module', async () => {
+    const off = await agentOf('Turned off');
+    ok(await call(server, 'PATCH', `/api/users/${off.key}`, { cookie: admin, body: { off: true } }), 'turned off');
+    refused(await call(server, 'DELETE', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, { token: off.token }), 401, INVALID, 'turned off, a listed path');
+    const over = await agentOf('Over the limit');
+    for (let i = 0; i < 60; i += 1) ok(await call(server, 'GET', '/api/objects/kinds?from=todo', { token: over.token }), `read ${i + 1}`);
+    refused(await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${S1}`, { token: over.token }), 429, OVER, 'over the limit, a listed path');
+    const noteOf = async (key, status) => {
+      const file = path.join(single, 'agent-log', key, `${dayToday()}.jsonl`);
+      for (let i = 0; i < 100; i += 1) {
+        const found = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).find((l) => l.status === status) : null;
+        if (found) return found;
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      assert.fail(`no ${status} note`);
+    };
+    const n401 = await noteOf(off.key, 401);
+    const n429 = await noteOf(over.key, 429);
+    assert.deepEqual([n401.route, n401.module, n401.kind], ['/api/modules/:id/data/:key', 'todo', null], 'the 401 note');
+    assert.deepEqual([n429.route, n429.module, n429.kind], ['/api/modules/:id/data', 'todo', null], 'the 429 note');
   });
 
   // --- the limits --------------------------------------------------------------------------------------------------------
@@ -634,7 +756,7 @@ try {
     for (let i = 0; i < 30; i += 1) refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'expired');
     assert.equal(lineCount(file) - before, 1, 'one line for 30 refusals');
     const note = JSON.parse(fs.readFileSync(file, 'utf8').trim().split('\n').pop());
-    assert.deepEqual([note.status, note.kind, note.route], [401, null, '(refused)']);
+    assert.deepEqual([note.status, note.kind, note.route], [401, null, '/api/agent/me']);
   });
   await test('a tokens.json record that lives more than 30 days is not read', async () => {
     refused(await call(server, 'GET', '/api/agent/me', { token: daily.token }), 401, INVALID, 'a 31-day record');

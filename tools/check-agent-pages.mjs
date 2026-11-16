@@ -162,14 +162,27 @@ async function main() {
     expect((await call('admin', 'PATCH', `/api/spaces/${space.id}`, { members: ['mia', agent.key] })).status === 200, 'could not add the agent to the space');
     const logDir = path.join(dataDir, 'agent-log', agent.key);
     fs.mkdirSync(logDir, { recursive: true });
+    // The module's name as this environment shows it (the page reads it from GET /api/modules, installed first, then bundled).
+    const modulesAnswer = (await call('admin', 'GET', '/api/modules')).json;
+    const sched = (modulesAnswer.modules || []).find((m) => m.id === 'schedule') || (modulesAnswer.bundled || []).find((m) => m.id === 'schedule');
+    const SCHEDULE_NAME = sched && (sched.displayName || sched.name);
+    expect(SCHEDULE_NAME, 'the schedule module has no name in GET /api/modules');
     const lines = [];
     const at = (n) => new Date(Date.UTC(2026, 9, 14, 8, 0, 0) + n * 1000).toISOString();
-    for (let i = 0; i < 120; i++) lines.push({ at: at(i), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:id/data', space: space.id, action: null, request: null, message: null, status: 200, address: '203.0.113.9', kind: 'read' });
-    lines.push({ at: at(200), agent: agent.key, token: 'tok1', method: 'POST', route: '/api/spaces/:id/action', space: space.id, action: 'schedule:addMilestone', request: 7, message: null, status: 202, address: '203.0.113.9', kind: 'write' });
-    lines.push({ at: at(201), agent: agent.key, token: 'tok1', method: 'GET', route: HOSTILE, space: space.id, action: HOSTILE, request: null, message: '<b>hi</b>', status: 200, address: HOSTILE, kind: 'read' });
+    for (let i = 0; i < 120; i++) lines.push({ at: at(i), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:id/data', space: space.id, action: null, request: null, message: null, status: 200, address: '203.0.113.9', kind: 'read', module: 'schedule' });
+    lines.push({ at: at(200), agent: agent.key, token: 'tok1', method: 'POST', route: '/api/spaces/:id/action', space: space.id, module: 'schedule', action: 'schedule:addMilestone', request: 7, message: null, status: 202, address: '203.0.113.9', kind: 'write' });
+    lines.push({ at: at(201), agent: agent.key, token: 'tok1', method: 'GET', route: HOSTILE, space: null, module: HOSTILE, action: HOSTILE, request: null, message: '<b>hi</b>', status: 200, address: HOSTILE, kind: 'read' });
+    lines.push({ at: at(205), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:id/data', space: space.id, module: HOSTILE, action: null, request: null, message: null, status: 200, address: '203.0.113.9', kind: 'read' });
+    lines.push({ at: at(206), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:id/data/:key', space: space.id, module: 'to-do-list', action: null, request: null, message: null, status: 200, address: '203.0.113.9', kind: 'read' });
+    const wrongMethod = (n, method, route) => lines.push({ at: at(n), agent: agent.key, token: 'tok1', method, route, space: space.id, module: 'schedule', action: null, request: null, message: null, status: 403, address: '203.0.113.9', kind: 'read' });
+    wrongMethod(207, 'DELETE', '/api/modules/:id/data');
+    wrongMethod(208, 'POST', '/api/modules/:id/data/:key');
+    wrongMethod(209, 'POST', '/api/spaces/:id/actions');
+    wrongMethod(210, 'DELETE', '/api/spaces/:id/action/:requestId');
+    wrongMethod(211, 'GET', '/api/spaces/:id/action');
     lines.push({ at: at(202), agent: agent.key, token: 'tok1', method: 'POST', route: '/api/spaces/:id/action', space: space.id, action: `x:${HOSTILE}`, request: 8, message: null, status: 202, address: '<script>window.__pwn=1</script>', kind: 'write' });
-    lines.push({ at: at(203), agent: agent.key, token: 'tok1', method: 'GET', route: '(refused)', space: null, action: null, request: null, message: null, status: 403, address: '203.0.113.9', kind: 'read' });
-    lines.push({ at: at(204), agent: agent.key, token: 'tok1', method: 'GET', route: '(refused)', space: null, action: null, request: null, message: null, status: 401, address: '203.0.113.9', kind: null });
+    lines.push({ at: at(203), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:x/data/:x', space: null, module: null, action: null, request: null, message: null, status: 403, address: '203.0.113.9', kind: 'read' });
+    lines.push({ at: at(204), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/agent/me', space: null, module: null, action: null, request: null, message: null, status: 401, address: '203.0.113.9', kind: null });
     const chatLine = (n, method, status, message) => ({ at: at(n), agent: agent.key, token: 'tok1', method, route: '/api/spaces/:id/chat', space: space.id, action: null, request: null, message, status, address: '203.0.113.9', kind: method === 'GET' ? 'read' : 'write' });
     lines.push(chatLine(205, 'GET', 200, 12), chatLine(206, 'GET', 200, 1), chatLine(207, 'POST', 200, 'a1b2c3d4e5f6'), chatLine(208, 'POST', 403, null), chatLine(209, 'GET', 200, 0));
     // The shapes are the server's own (server/agent-log.js): a read's count is a NUMBER, a post's id a 12-hex string.
@@ -216,9 +229,13 @@ async function main() {
     expect(log.whats[0] === 'Over its limit' || log.whats.slice(0, 3).includes('Over its limit'), `the newest lines are not the newest first (${log.whats.slice(0, 3).join(' | ')})`);
     expect(log.count === 100 && log.older, `the first page is ${log.count} lines with Show older ${log.older ? 'shown' : 'hidden'}, not 100 with it shown`);
     expect(log.whats.includes('Ask for add milestone in ' + SPACE_NAME), `no "Ask for add milestone in ${SPACE_NAME}" line (${log.whats.filter((w) => /Ask/.test(w)).join(' | ')})`);
-    expect(log.whats.includes('Refused: GET request'), 'no "Refused: GET request" line');
+    expect(log.whats.includes('Refused: GET /api/modules/:x/data/:x'), `no "Refused: GET /api/modules/:x/data/:x" line (${log.whats.filter((w) => /Refused/.test(w)).join(' | ')})`);
+    for (const w of ['Refused: DELETE /api/modules/:id/data', 'Refused: POST /api/modules/:id/data/:key', 'Refused: POST /api/spaces/:id/actions', 'Refused: DELETE /api/spaces/:id/action/:requestId', 'Refused: GET /api/spaces/:id/action']) expect(log.whats.includes(w), `a wrong method on a read route is not "${w}" (${log.whats.filter((x) => /Refused/.test(x)).join(' | ')})`);
+    expect(log.whats.includes(`Read ${SCHEDULE_NAME} data in ${SPACE_NAME}`), `a data read with a module is not "Read ${SCHEDULE_NAME} data in <space>"`);
+    expect(log.whats.includes(`Read To Do List data in ${SPACE_NAME}`), 'an unknown module is not its id, title-cased, "Read To Do List data in <space>"');
+    expect(log.whats.includes(`Read data in ${SPACE_NAME}`), 'a script-looking module id is not dropped, leaving "Read data in <space>"');
     expect(log.whats.includes('Token refused'), 'no "Token refused" note for a kind-null 401 line');
-    expect(log.whats.includes(`Called GET ${HOSTILE} in ${SPACE_NAME}`), 'a script-looking route is not read out as text');
+    expect(log.whats.includes(`Refused: GET ${HOSTILE}`), 'a script-looking route is not read out as text');
     expect(log.whats.some((w) => w === `Ask for ${('x:' + HOSTILE).split(':').pop().replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()} in ${SPACE_NAME}`), 'a script-looking action is not read out as text');
     expect(log.details.some((d) => d.includes(HOSTILE)) && log.details.some((d) => d.includes('<script>window.__pwn=1</script>')) && log.details.some((d) => d.includes('<b>hi</b>')), 'a script-looking address or message is not shown as text');
     expect(log.markup === 0 && !(await pwn(tab)), 'a value in the log made an element or ran');
@@ -237,7 +254,7 @@ async function main() {
     await press(tab, '[data-agent="older"]');
     await sleep(800);
     expect(await tab.eval(`document.querySelectorAll('[data-agent-log] li').length`) > 100, 'Show older did not add older lines');
-    expect(await tab.eval(`(() => { const items = [...document.querySelectorAll('[data-agent-log] li .agent-log-what')].map((e) => e.textContent); return items.filter((w) => w === 'Read data in ${SPACE_NAME}').length; })()`) >= 20, 'the older page is not the older lines');
+    expect(await tab.eval(`(() => { const items = [...document.querySelectorAll('[data-agent-log] li .agent-log-what')].map((e) => e.textContent); return items.filter((w) => w === 'Read ${SCHEDULE_NAME} data in ${SPACE_NAME}').length; })()`) >= 20, 'the older page is not the older lines');
     expect(await hiddenOf(tab, '[data-agent="older"]'), 'Show older stays after the last page');
 
     // Post in Chat: off by default; the switch is saved on the server, and a refusal shows the server's sentence and puts it back.

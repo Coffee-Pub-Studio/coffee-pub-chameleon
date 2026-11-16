@@ -4,7 +4,7 @@
 // It notes the path every layer of Express's router was added with (the router keeps only a matcher, not the path), and
 // when the app starts listening writes every layer of the app's router stack, mounted routers walked into, in order, to
 // the file ROUTE_WALK_OUT names:
-//   { kind: 'route', method, path }    a route (one entry per method; `_all` for app.all)
+//   { kind: 'route', method, path, mount }  a route (`mount`: the prefix of the router it is in, '' or '/' for the app's own) (one entry per method; `_all` for app.all)
 //   { kind: 'use', name, path }        a middleware or a mounted app (express.static, say), with the path it was added at
 //   { kind: 'unknown', name }          a layer this file could not read the path of: the check fails on it
 const fs = require('fs');
@@ -29,7 +29,7 @@ function walk(router, prefix, out) {
     if (layer.route) {
       const p = layer.route.path;
       if (typeof p !== 'string') { out.push({ kind: 'unknown', name: `route ${String(p)}` }); continue; }
-      for (const m of Object.keys(layer.route.methods)) out.push({ kind: 'route', method: m === '_all' ? '_all' : m.toUpperCase(), path: join(prefix, p) });
+      for (const m of Object.keys(layer.route.methods)) out.push({ kind: 'route', method: m === '_all' ? '_all' : m.toUpperCase(), path: join(prefix, p), mount: prefix });
     } else if (typeof layer.walkPath !== 'string') {
       out.push({ kind: 'unknown', name: layer.name });
     } else if (layer.handle && Array.isArray(layer.handle.stack)) {
