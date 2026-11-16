@@ -16,6 +16,20 @@ const WINS = `document.querySelectorAll('.fv-win').length`;
 const FRONT = `(document.querySelector('.fv-win.is-front .mf-titlebar-title') || {}).textContent || ''`;
 const SENTENCE = 'Close a window to open another.';
 
+// A space no longer opens with a module (its template decides), so a check that needs the Vault on the canvas opens it as a person
+// does: Set up, the tab of modules (id show), the Vault's switch.
+async function openVault(tab) {
+  if (await tab.eval(`!!__q('[data-module-root=vault]')`)) return;
+  await tab.click('#setup');
+  await tab.waitFor('#setup-tab-show');
+  await tab.click('#setup-tab-show');
+  await tab.waitFor('#setup-content-show .host-menu-item', 'Vault', 15000);
+  await tab.click('#setup-content-show .host-menu-item', 'Vault');
+  await tab.waitFor('[data-module-root=vault] >>> .vt-row', '', 15000);
+  await tab.click('#setup'); // the panel away again
+  await sleep(500);
+}
+
 export async function viewerCases({ S, api, say, fail, browser, until, open, dataDir, trip }) {
   const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
   const fixtures = path.join(root, 'tools', 'fixtures', 'vault');
@@ -266,8 +280,9 @@ export async function viewerCases({ S, api, say, fail, browser, until, open, dat
   {
     const settle = tab.settle.bind(tab); tab.settle = () => Promise.race([settle(), sleep(3000)]);
     try {
-      await driveScreen(tab, { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, space: true }, S.base, S.cookies, S.ctx);
+      await driveScreen(tab, { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, space: true }, S.base, S.cookies, S.ctx);
       await sleep(1500);
+      await openVault(tab);
       await tab.eval(`__q('[data-module-root=vault] >>> .vt-row .sdk-open', 'plain.pdf').click()`);
       const winOn = await until(tab, WINS, (v) => v === 1, 8000);
       if (winOn !== 1) fail('a file did not open in a window over the space\'s canvas');
@@ -502,8 +517,9 @@ export async function viewerFixCases({ S, api, say, fail, browser, until, open, 
   {
     const settle = tab.settle.bind(tab); tab.settle = () => Promise.race([settle(), sleep(3000)]);
     try {
-      await driveScreen(tab, { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, space: true }, S.base, S.cookies, S.ctx);
+      await driveScreen(tab, { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, space: true }, S.base, S.cookies, S.ctx);
       await sleep(1500);
+      await openVault(tab);
       await tab.eval(`__q('[data-module-root=vault] >>> .vt-row .sdk-open', 'plain.pdf').click()`);
       await until(tab, WINS, (v) => v === 1, 8000);
       await sleep(400);

@@ -56,7 +56,7 @@ async function round(door) {
     const shot = async (tab, name) => { if (SHOTS) fs.writeFileSync(path.join(SHOTS, `${door ? 'door-on' : 'door-off'}-${name}.png`), Buffer.from((await tab.cdp.send('Page.captureScreenshot', { format: 'png' }, tab.sid)).data, 'base64')); };
     const openMembers = async () => {
       const tab = await open(`/#join=${ctx.trip}`, 'admin');
-      await tab.waitFor('button.sdk-strip-fact[data-module=budget]');
+      await tab.waitFor('[data-layout-tab="workspace"]');
       await sleep(600);
       await tab.click('#setup');
       await tab.waitFor('#space-setup .setup-tab');
@@ -151,7 +151,7 @@ async function round(door) {
       assert.equal((await api('GET', `/api/spaces/${ctx.trip}/chat`, undefined, 'mia')).status, 200, 'a moderator of the space still enters');
       assert.equal((await api('GET', `/api/spaces/${ctx.trip}/chat`, undefined, 'lee')).status, 403, 'so does not another account');
       const admin = await open(`/#join=${ctx.trip}`, 'admin');
-      await admin.waitFor('button.sdk-strip-fact[data-module=budget]');
+      await admin.waitFor('[data-layout-tab="workspace"]');
       await sleep(700);
       await shot(admin, '7-admin-enters');
       assert.equal(await admin.eval(`/closed for set up/i.test(document.body.innerText) && !document.querySelector('#setup')`), false);
@@ -164,7 +164,7 @@ async function round(door) {
     if (!door) {
       await test('a moderator closes and reopens from the Settings tab and sees no other entry switch', async () => {
         const tab = await open(`/#join=${ctx.trip}`, 'mia');
-        await tab.waitFor('button.sdk-strip-fact[data-module=budget]');
+        await tab.waitFor('[data-layout-tab="workspace"]');
         await sleep(700);
         await tab.click('#setup');
         await tab.waitFor('#space-setup .setup-tab');

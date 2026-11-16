@@ -477,7 +477,7 @@ async function main() {
       await driveScreen(tab, screen, S.base, S.cookies, S.ctx);
       return tab;
     };
-    const workspace = { as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true };
+    const workspace = { as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true };
 
     // /ai in the Discussion, the context chip, one question at a time.
     const t = await open(workspace);

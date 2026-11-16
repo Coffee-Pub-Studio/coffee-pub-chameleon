@@ -75,7 +75,7 @@ async function main() {
       // What the page's event streams hear of the library, for the diagnosis when a window or a chip does not follow.
       await tab.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => { const E = window.EventSource; window.__heard = []; window.EventSource = class extends E { constructor(u, o) { super(u, o); this.addEventListener('library', (e) => window.__heard.push(e.data)); } }; })()` }, tab.sid);
       const settle = tab.settle.bind(tab); tab.settle = () => Promise.race([settle(), sleep(3000)]);
-      await driveScreen(tab, { id: 'workspace', as, url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, space: true }, S.base, S.cookies, S.ctx);
+      await driveScreen(tab, { id: 'workspace', as, url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, space: true }, S.base, S.cookies, S.ctx);
       await sleep(1500);
       return tab;
     };
