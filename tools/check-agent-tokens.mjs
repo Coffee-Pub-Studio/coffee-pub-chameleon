@@ -48,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { buildModule, zipFiles } = require(path.join(ROOT, 'server', 'module-build.js'));
+const { routeTrie, refusedRoute } = require(path.join(ROOT, 'server', 'agent-log.js'));
 
 const INVALID = 'That agent token is not valid.';
 const CANT = "An agent can't do that.";
@@ -454,6 +455,15 @@ try {
       walked += 1;
     }
     assert.ok(walked > 300 && mounts.length > 5, `walked ${walked}, ${mounts.length} of them mounts`);
+    // The log's route words come from the registered routes' own paths: a router mounted with a prefix would hide its prefix
+    // from them, so none may be, and no word that is kept may be anything but plain.
+    assert.deepEqual(layers.filter((l) => l.kind === 'route' && !['', '/'].includes(l.mount)).map((l) => `${l.method} ${l.path}`), [], 'a router mounted with a path prefix (the log\'s route words cannot see it)');
+    const trie = routeTrie(layers.filter((l) => l.kind === 'route').map((l) => l.path));
+    const wordsOf = (node) => [...node.words].flatMap(([w, child]) => [w, ...wordsOf(child)]).concat(node.any ? wordsOf(node.any) : []);
+    const words = wordsOf(trie);
+    assert.ok(words.length > 100 && words.includes('api') && words.includes('agent-log'), 'the trie has the routes\' words');
+    assert.deepEqual(words.filter((w) => !/^[a-z0-9._-]+$/.test(w)), [], 'a word outside [a-z0-9._-]');
+    assert.equal(refusedRoute('/api/users/abc/agent-log?x=1', trie), '/api/users/:x/agent-log');
   });
 
   await test('it reads only its own requests', async () => {
@@ -598,6 +608,8 @@ try {
       [`/api/spaces/${S1}/Secret-Name-4417?token=${secret}&q=hello`, null],
       ['/API/Modules/Todo/Data/Extra/More', null],
       // Only words of registered routes, in an order no registered route has: not kept word for word.
+      // The router does not match an empty segment, so this is not the gate's route: its shape, and no module.
+      [`/api//modules/todo/data?scope=space&space=${S1}`, '/api/modules/:x/data'],
       ['/data/modules/api', '/:x/:x/:x'],
       ['/api/data/context/settings', null],
       ['/settings/api/modules', null],

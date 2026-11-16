@@ -174,6 +174,12 @@ async function main() {
     lines.push({ at: at(201), agent: agent.key, token: 'tok1', method: 'GET', route: HOSTILE, space: null, module: HOSTILE, action: HOSTILE, request: null, message: '<b>hi</b>', status: 200, address: HOSTILE, kind: 'read' });
     lines.push({ at: at(205), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:id/data', space: space.id, module: HOSTILE, action: null, request: null, message: null, status: 200, address: '203.0.113.9', kind: 'read' });
     lines.push({ at: at(206), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:id/data/:key', space: space.id, module: 'to-do-list', action: null, request: null, message: null, status: 200, address: '203.0.113.9', kind: 'read' });
+    const wrongMethod = (n, method, route) => lines.push({ at: at(n), agent: agent.key, token: 'tok1', method, route, space: space.id, module: 'schedule', action: null, request: null, message: null, status: 403, address: '203.0.113.9', kind: 'read' });
+    wrongMethod(207, 'DELETE', '/api/modules/:id/data');
+    wrongMethod(208, 'POST', '/api/modules/:id/data/:key');
+    wrongMethod(209, 'POST', '/api/spaces/:id/actions');
+    wrongMethod(210, 'DELETE', '/api/spaces/:id/action/:requestId');
+    wrongMethod(211, 'GET', '/api/spaces/:id/action');
     lines.push({ at: at(202), agent: agent.key, token: 'tok1', method: 'POST', route: '/api/spaces/:id/action', space: space.id, action: `x:${HOSTILE}`, request: 8, message: null, status: 202, address: '<script>window.__pwn=1</script>', kind: 'write' });
     lines.push({ at: at(203), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:x/data/:x', space: null, module: null, action: null, request: null, message: null, status: 403, address: '203.0.113.9', kind: 'read' });
     lines.push({ at: at(204), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/agent/me', space: null, module: null, action: null, request: null, message: null, status: 401, address: '203.0.113.9', kind: null });
@@ -224,6 +230,7 @@ async function main() {
     expect(log.count === 100 && log.older, `the first page is ${log.count} lines with Show older ${log.older ? 'shown' : 'hidden'}, not 100 with it shown`);
     expect(log.whats.includes('Ask for add milestone in ' + SPACE_NAME), `no "Ask for add milestone in ${SPACE_NAME}" line (${log.whats.filter((w) => /Ask/.test(w)).join(' | ')})`);
     expect(log.whats.includes('Refused: GET /api/modules/:x/data/:x'), `no "Refused: GET /api/modules/:x/data/:x" line (${log.whats.filter((w) => /Refused/.test(w)).join(' | ')})`);
+    for (const w of ['Refused: DELETE /api/modules/:id/data', 'Refused: POST /api/modules/:id/data/:key', 'Refused: POST /api/spaces/:id/actions', 'Refused: DELETE /api/spaces/:id/action/:requestId', 'Refused: GET /api/spaces/:id/action']) expect(log.whats.includes(w), `a wrong method on a read route is not "${w}" (${log.whats.filter((x) => /Refused/.test(x)).join(' | ')})`);
     expect(log.whats.includes(`Read ${SCHEDULE_NAME} data in ${SPACE_NAME}`), `a data read with a module is not "Read ${SCHEDULE_NAME} data in <space>"`);
     expect(log.whats.includes(`Read To Do List data in ${SPACE_NAME}`), 'an unknown module is not its id, title-cased, "Read To Do List data in <space>"');
     expect(log.whats.includes(`Read data in ${SPACE_NAME}`), 'a script-looking module id is not dropped, leaving "Read data in <space>"');

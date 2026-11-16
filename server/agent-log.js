@@ -81,7 +81,7 @@ function routeTrie(patterns) {
 // goes on in the parameter's branch; off every registered route, the rest is ":x" too). Joined behind a leading "/", cut to
 // 80 characters. "/API/users/k3y/agent-log?token=x" reads "/api/users/:x/agent-log"; "/users/api" reads "/:x/:x".
 function refusedRoute(rawPath, trie) {
-  const segments = String(rawPath || '').split('?')[0].split('/').filter(Boolean).slice(0, 8);
+  const segments = String(rawPath || '').split('?')[0].split('/', 10).filter(Boolean).slice(0, 8);
   let nodes = trie ? [trie] : [];
   const shape = segments.map((raw) => {
     const w = raw.toLowerCase();
@@ -94,9 +94,14 @@ function refusedRoute(rawPath, trie) {
 }
 
 // The first of `patterns` (the gate's routes, "/api/modules/:id/data") that `rawPath` matches whatever its method, as the
-// router reads a path (any case, a trailing slash): { pattern, params } with each parameter's value decoded, else null.
+// router reads a path: any case, one trailing slash allowed, and no empty segment ("/api//modules/todo/data" is none of
+// them, as the router does not match it). { pattern, params } with each parameter's value decoded, else null.
 function matchRoute(rawPath, patterns) {
-  const segments = String(rawPath || '').split('?')[0].split('/').filter(Boolean);
+  let path = String(rawPath || '').split('?')[0];
+  if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+  if (!path.startsWith('/')) return null;
+  const segments = path.split('/', 10).slice(1);
+  if (segments.some((seg) => seg === '')) return null;
   for (const pattern of patterns) {
     const want = pattern.split('/').filter(Boolean);
     if (want.length !== segments.length) continue;

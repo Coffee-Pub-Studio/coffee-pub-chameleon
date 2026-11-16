@@ -38,6 +38,10 @@ const READS = {
 };
 // Chat lines depend on the method (GET reads, POST posts), so they are told apart in logLine, not in READS.
 const CHAT_ROUTE = '/api/spaces/:id/chat';
+// The methods the gate lets through on each route; any other method on it was refused. A read route is GET (HEAD too); the
+// action and objects/resolve routes are POST; Chat is GET or POST.
+const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'] };
+const methodFits = (route, method) => (ROUTE_METHODS[route] || ['GET', 'HEAD']).includes(String(method || '').toUpperCase());
 const known = (route) => typeof route === 'string' && Object.hasOwn(READS, route);
 // "addMilestone" -> "add milestone"; the module's id before the colon is left out.
 const actionWords = (action) => {
@@ -69,7 +73,8 @@ export function logLine(entry, { spaceName = () => '', moduleName: lookup = () =
   const where = e.space ? ` in ${spaceName(e.space) || `${word('space', { a: true })} that is gone`}` : '';
   let text;
   let refused = false;
-  if (e.route === CHAT_ROUTE && e.method === 'GET') text = `Read Chat${where}`;
+  if (!methodFits(e.route, e.method)) { refused = true; text = `Refused: ${`${String(e.method || '')} ${String(e.route || '')}`.trim()}`; } // not the method the gate lets through here
+  else if (e.route === CHAT_ROUTE && e.method === 'GET') text = `Read Chat${where}`;
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 200) text = `Posted in Chat${where}`;
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 403) text = `Refused post${where}`;
   else if (e.route === '/api/spaces/:id/action') text = `Ask for ${actionWords(e.action)}${where}`;

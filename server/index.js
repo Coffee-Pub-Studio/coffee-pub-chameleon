@@ -3660,13 +3660,26 @@ const registeredPaths = (router, out = []) => {
   return out;
 };
 const AGENT_GATE_PATTERNS = AGENT_ROUTES.map((r) => r[1]);
+let agentLogRouteFailed = false;
 function agentLogRoute(req, res, env) {
+  // Runs inside a response's finish/close handler, where a throw would end the process: whatever goes wrong, the line is
+  // written with a route that says nothing (and the first time, one line says why).
+  try {
+    return agentLogRouteOf(req, res, env);
+  } catch (err) {
+    if (!agentLogRouteFailed) { agentLogRouteFailed = true; console.error(`The agents' log could not read a route: ${err.message}`); }
+    return { route: '/:x', module: null };
+  }
+}
+function agentLogRouteOf(req, res, env) {
   const at = matchRoute(req.path, AGENT_GATE_PATTERNS);
   if (!at) {
     if (!agentRouteTrie) agentRouteTrie = routeTrie(registeredPaths(app.router));
     return { route: refusedRoute(req.path, agentRouteTrie), module: null };
   }
   const named = at.pattern.startsWith('/api/modules/:id') ? at.params.id : String(res?.locals?.agentLog?.action || '').split(':')[0];
+  // Looked up straight in the registry (no view built). An entry whose view() would be null still counts as installed: harmless,
+  // it is a module id that was installed, and nothing but the safe, known id is ever written.
   return { route: at.pattern, module: safeModule(named, (id) => Object.hasOwn(env.modules.registry.modules, id)) };
 }
 function agentGate(req, res, next) {
