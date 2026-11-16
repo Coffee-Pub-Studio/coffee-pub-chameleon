@@ -194,7 +194,7 @@ try {
   // (UNDO_PAGE_WIDTH); the workspace is where the bars are.
   await test('Undo note: no overlap with the composer, the tab bar or an open menu on the workspace', async () => {
     const tab = await open('/#join=' + T);
-    await tab.waitFor('button.sdk-strip-fact[data-module=budget]');
+    await tab.waitFor('[data-layout-tab="workspace"]');
     await sleep(2500);
     await tab.eval(`(async () => { const b = await import('/brand.js'); b.undoToast('Cleared Polls.', async () => 'x', { until: Date.now() + 15000 }); return true; })()`);
     await tab.waitFor('.sdk-toast [data-undo]');

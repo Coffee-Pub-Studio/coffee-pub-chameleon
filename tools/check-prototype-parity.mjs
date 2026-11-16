@@ -257,7 +257,10 @@ async function main() {
       await tab.open(1280, 'light', true);
       const settle = tab.settle.bind(tab); tab.settle = () => Promise.race([settle(), sleep(3000)]);
       try {
-        await driveScreen(tab, { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, space: true }, S.base, S.cookies, S.ctx);
+        await driveScreen(tab, { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, space: true }, S.base, S.cookies, S.ctx);
+        // A space opens with its template's list now, so the Planner fills the column: open Budget beside it, docked, as the column
+        // used to be drawn (the Planner in its narrow column next to the call).
+        for (const id of ['budget', 'polls', 'research']) { await tab.eval(`window.hostModules.open('${id}', 'dock')`); await sleep(1200); }
         await tab.eval(`document.querySelectorAll('.module-floating').forEach((f) => { f.style.display = 'none'; })`);
         await sleep(800);
         const m = await tab.eval(MEASURE(HOST_DOCKED));

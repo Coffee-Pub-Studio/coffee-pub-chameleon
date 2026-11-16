@@ -64,7 +64,7 @@ async function main() {
     const S = { base: server.base, ctx: boot.ctx, cookies: boot.cookies };
     browser = await launch(bin);
     const mod = (id, wait, steps) => ({ id, as: 'mia', url: `/modules/${id}?space={trip}`, wait, steps });
-    const W = { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true };
+    const W = { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true };
     const HOME = { id: 'home chat', as: 'mia', url: '/', wait: '.space-choice' };
     const RESEARCH = mod('research', '#module-frame >>> button');
     const POLLS = mod('polls', '#module-frame >>> .poll');

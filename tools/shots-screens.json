@@ -1304,7 +1304,7 @@
    "family": "Space page",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "space": true,
    "tier": "core"
   },
@@ -1313,7 +1313,7 @@
    "family": "Space page",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#modules-menu button",
@@ -1332,7 +1332,7 @@
    "family": "Space page",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#layout-tab-calendar"
@@ -1346,7 +1346,7 @@
    "family": "Status strip and phases",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#phase-chip"
@@ -1360,7 +1360,7 @@
    "family": "Menus",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "button.space-switcher-button"
@@ -1374,7 +1374,7 @@
    "family": "Menus",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
@@ -1388,7 +1388,7 @@
    "family": "Menus",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#whoami-link"
@@ -1402,7 +1402,7 @@
    "family": "Menus",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#who-here-toggle"
@@ -1416,10 +1416,16 @@
    "family": "Menus",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
-     "click": ".module-floating[data-module=\"dest:calendar\"] button.mf-titlebar-menu",
+     "eval": "window.hostModules.open(\"dest:calendar\")"
+    },
+    {
+     "sleep": 2500
+    },
+    {
+     "click": "[data-module=\"dest:calendar\"] button.mf-titlebar-menu",
      "until": ".host-menu"
     }
    ],
@@ -1434,7 +1440,7 @@
    "family": "Menus",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "button.sdk-icon-btn",
@@ -1449,7 +1455,7 @@
    "family": "Messages and AI cards",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "button.btn.chat-object-place-btn"
@@ -1463,7 +1469,7 @@
    "family": "Call controls (not joined)",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#join-call"
@@ -1478,7 +1484,7 @@
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
@@ -1501,7 +1507,7 @@
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
@@ -1530,7 +1536,7 @@
    "family": "Menus",
    "as": "admin",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
@@ -1565,7 +1571,7 @@
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
@@ -1600,7 +1606,7 @@
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
@@ -1635,7 +1641,7 @@
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
@@ -1670,7 +1676,7 @@
    "family": "Profile and Set up tabs",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
@@ -1738,10 +1744,13 @@
    "family": "Dialogs and sheets",
    "as": "mia",
    "url": "/#join={trip}",
-   "wait": "button.sdk-strip-fact[data-module=budget]",
+   "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
      "click": "#setup"
+    },
+    {
+     "click": "#setup-tab-show"
     },
     {
      "click": "button.host-menu-item",

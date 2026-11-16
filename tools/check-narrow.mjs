@@ -172,7 +172,8 @@ async function main() {
     browser = await launch(bin);
 
     // 1. Maps' notice (with no map file, the list's "No map yet") below its search field.
-    const workspace = { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true };
+    // A space opens with its template's list now, not with Maps open: the screen opens it, as a person does.
+    const workspace = { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, steps: [{ eval: `window.hostModules.open('maps')` }, { sleep: 2500 }] };
     const page = { id: 'maps-page', as: 'mia', url: '/modules/maps?space={trip}', wait: '#module-frame >>> *' };
     for (const [name, size, screen] of [['Workspace 1280', 1280, workspace], ['Maps page 390', 390, page], ['Maps page 1280', 1280, page]]) {
       const got = await view(browser, S, size, 'light', screen, MAPS, 3000);
@@ -212,12 +213,13 @@ async function main() {
 
     // 5. Calendar: the editor window opens over the screen and the Calendar stays drawn in its window behind it.
     for (const [size, phone, win] of [[1280, false, 0], [390, true, 0], [1280, false, 758], [1280, false, 600]]) {
-      const cal = { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: true, space: true };
+      const cal = { id: 'workspace', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: true, space: true };
       const tab = new Tab(browser.cdp, S.ctx);
       await tab.open(size, 'light', true);
       const settle = tab.settle.bind(tab); tab.settle = () => Promise.race([settle(), sleep(3000)]);
       try {
         await driveScreen(tab, cal, S.base, S.cookies, S.ctx);
+        if (!phone) { await tab.eval(`window.hostModules.open('dest:calendar')`); await sleep(2500); } // the Calendar's window is not open on arrival now
         if (phone) { await tab.eval(`document.querySelector('#layout-tab-calendar').click()`); await sleep(1000); } // a phone shows one module at a time
         if (win) { await tab.eval(`(() => { for (const w of document.querySelectorAll('.module-floating')) if (w.querySelector('iframe.composite-frame')) { w.style.width = '${win}px'; w.style.left = '20px'; } window.dispatchEvent(new Event('resize')); })()`); await sleep(1000); }
         await sleep(2500);

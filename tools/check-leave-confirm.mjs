@@ -30,7 +30,7 @@ async function run(browser, S, size, mode, onCall) {
     else await tab.eval(`document.dispatchEvent(new CustomEvent('app:enter-space', { detail: { id: 'x', action: 'leave' }, cancelable: true })) && 0`);
   };
   try {
-    await driveScreen(tab, { id: 'leave', as: 'mia', url: '/#join={trip}', wait: 'button.sdk-strip-fact[data-module=budget]', call: onCall, steps: onCall ? [{ click: '#join-call' }] : [] }, S.base, S.cookies, S.ctx);
+    await driveScreen(tab, { id: 'leave', as: 'mia', url: '/#join={trip}', wait: '[data-layout-tab="workspace"]', call: onCall, steps: onCall ? [{ click: '#join-call' }] : [] }, S.base, S.cookies, S.ctx);
     if (onCall) await until(tab, `document.querySelectorAll('#grid .tile').length >= 1`, 15000);
     if (!await tab.eval(IN_SPACE)) { failures.push(`${name}: not in the space to start with`); return; }
     await leave();
