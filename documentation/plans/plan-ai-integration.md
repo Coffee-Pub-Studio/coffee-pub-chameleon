@@ -25,7 +25,9 @@ real-provider test of slices 1 and 2, is next; it waits on Thomas supplying a pr
 proposals on the answer with Keep and Drop, is not built and waits on step 11. The cheap must-fixes from the audit landed outside this plan, in `4eccbae`, `fe3dea9`, `3eef7b9`, `1f3cf33`
 and `bb5910f` (instructions and data in separate messages, the one permission rule, availability with a reason, the
 hosted address guard, fair refunds, the monthly calls cap; Chat's `/ai` takes only the current space's objects); what
-is built is described in [architecture-ai](../architecture/architecture-ai.md). From GitHub #382,
+is built is described in [architecture-ai](../architecture/architecture-ai.md). On 2026-11-16 Thomas approved
+[plan-agent-access](plan-agent-access.md) (agent accounts for an outside AI); the notes dated 2026-11-16 below say what it
+changes here. From GitHub #382,
 raised by Thomas on 2026-11-02: today "a person pastes our custom prompt into the client, copies the JSON it returns,
 and pastes that into the app. It works anywhere but is manual, error-prone and one-way", and inside the app "a prompt
 goes out and JSON comes back that we parse". Thomas wants "a better process for both. Ideally ChatGPT (or Claude) could
@@ -35,7 +37,9 @@ is built.
 Related: #64 (integration tokens), #232 (the Chrome extension), #373 (`hooks.ai` optional), #341 (the parsing
 heuristics), [plan-object-handoff](plan-object-handoff.md) (the objects format, `takes`, Send to...),
 [plan-research-import](plan-research-import.md) ("Later: a direct connection"), [plan-assistant-module](plan-assistant-module.md),
-[plan-chat-model](plan-chat-model.md) (`/ai` answers are private; its decision 12 is replaced by decision 1 here),
+[plan-chat-model](plan-chat-model.md) (`/ai` answers are private; its decision 12 is replaced by decision 1 here; an
+agent's posts and its reading of public Chat are separate ways in, not `/ai`, per
+[plan-agent-access](plan-agent-access.md), 2026-11-16),
 [plan-one-input](plan-one-input.md), [plan-linked-objects](plan-linked-objects.md) (links between objects),
 [plan-planner-phases](plan-planner-phases.md) (phases), [plan-attachments-vault](plan-attachments-vault.md) (files and
 who may see their names), [plan-realtime-optional-livekit](plan-realtime-optional-livekit.md) (the live stream),
@@ -160,6 +164,11 @@ One prompt layer that owns everything said to a model, and three ways in that us
 
 Anything an AI wants to change waits for the person to say yes in the app. An AI never does more than the person, and
 never reads outside the space it is asked in.
+
+*Note, 2026-11-16:* the paragraph above now covers the in-app AI and personal tokens only. Agent accounts
+([plan-agent-access](plan-agent-access.md), decided 2026-11-16) are the exception: an agent's actions and Chat posts go
+through without a yes (labelled and logged), and an agent is limited by its memberships, reading every space it is a
+member of rather than one space.
 
 ## Decisions
 
@@ -565,7 +574,8 @@ Only Chat's `/ai` and the Assistant view (purpose `chat`) get tools at first (de
 
 ### Step 1's contract: read tools in Chat's `/ai`
 
-**Who it acts as.** The person asking, at the moment of each tool call. There is no AI identity with rights of its own.
+**Who it acts as.** The person asking, at the moment of each tool call. There is no AI identity with rights of its own,
+except an agent account, a member narrowed by a gate ([plan-agent-access](plan-agent-access.md), 2026-11-16).
 `aiPolicy.check(who, space, 'chat')` runs once before the first round, as now. Every object a tool returns goes through
 `aiPolicy.admit` as the person, with a new part, `lookup`, so space pinning (decision 4), What AI may see (decision 8),
 the person's read rights, the modules' guards and redaction hold for tool results exactly as they do for the rollup.
@@ -869,7 +879,8 @@ every AI without a connector).
 - **Least privilege.** A token is limited to spaces, modules and a level; a guest gets none; a call is checked against
   the person's rights and the token's scopes, whichever is narrower, through slice 1's policy.
 - **No secrets in results:** slice 1's redaction list, applied to every tool result.
-- **The AI can never do more than the person.** There is no AI identity with rights of its own.
+- **The AI can never do more than the person.** There is no AI identity with rights of its own, except an agent
+  account, a member narrowed by a gate ([plan-agent-access](plan-agent-access.md), 2026-11-16).
 - **Limits:** per token, requests a minute and proposals waiting in an inbox (say 50); per environment, the existing AI
   allowances.
 - **An audit trail:** every tool call through a token recorded as slice 1's records are (never the content), seen by
@@ -987,7 +998,9 @@ in the list above; he may overrule any of them.
     policy.
 15. **Personal tokens (M).** server-development: the token store, scopes, expiry, revoke, last used, records and
     per-token limits; the server switch. experience-design: "Connected apps" on Profile, an owner's list on Manage.
-    Security review by quality-assurance.
+    Security review by quality-assurance. *Note, 2026-11-16:* for agents, [plan-agent-access](plan-agent-access.md)
+    built the token store (`server/tokens.js`, meant to be the one store, with `kind: "person"` for personal tokens
+    later), its expiry, revoke, last used, records and limits, and the switches. Personal tokens are still this step.
 16. **MCP endpoint, read only (M).** server-development: `/mcp`, streamable HTTP, the read tools, personal tokens.
 17. **Where outside apps' writes wait (M).** server-development and experience-design, following open question 1.
 18. **OAuth for connectors (L).** server-development: authorization code with PKCE, client registration, metadata.
@@ -1076,25 +1089,30 @@ Numbers 1 to 11 are from the first draft; 12 onward are new with slice 1.
 2. **"The person's own key."** (a) Keep the environment's (or host's) key only; (b) a key per person on Profile; (c)
    both, a person's own winning. Lean: (a) now. Blocks nothing now.
 3. **Auth for outside clients.** (a) Personal tokens first, OAuth after; (b) OAuth from the start; (c) tokens only.
-   Lean: (a). Blocks step 15.
+   Lean: (a). Blocks step 15. *For agents, answered by [plan-agent-access](plan-agent-access.md) (2026-11-16): an agent
+   token, no OAuth.* Personal tokens are still open here.
 4. **How far a token may go.** (a) Read only in the first build; (b) read and propose; (c) read, propose and act
    without a confirmation for some actions. Lean: (b), with (c) never for `destructive`. Blocks step 15.
 5. **Who may connect an outside AI.** (a) Anyone signed in, not a guest; (b) a new role permission ("Connect an AI
    app"), owners always; (c) reuse `useAi`. Lean: (b); `useAi` is about spending the environment's allowance, which an
-   outside client does not. Blocks step 15.
+   outside client does not. Blocks step 15. *For agents, answered by plan-agent-access (2026-11-16): owners and the
+   admin make agents on Manage > Users.* Personal tokens are still open here.
 6. **Destructive actions.** (a) Never in the catalog; (b) in it, always confirmed one by one. Lean: (a) for now. Step 12
    is built with destructive actions kept out, so this blocks nothing now.
 7. **The switches for outside access.** (a) A server environment variable, default off, plus an owner's switch; (b) the
-   owner's switch only. Lean: (a). Blocks step 15.
+   owner's switch only. Lean: (a). Blocks step 15. *For agents, answered by plan-agent-access (2026-11-16): (a),
+   `AGENT_TOKENS` default off plus the owner's **Agents** switch.*
 8. **What the internal AI may read.** Partly answered 2026-11-02: the current space only, never another (decision 4),
    and the rollup beyond what the person attached (decision 2). Left: whether, with tools, it may search the current
    space itself (lean: yes, with the answer showing what it read). Answered 2026-11-04 by decisions 17, 18 and 21 (S2, S3, S6).
 9. **Chat's `/ai` and `useAi`.** Answered 2026-11-02: one rule, `useAi` and the space's AI switch, never a guest
    (decision 1).
 10. **How long the outside clients' audit trail is kept.** (a) 30 days; (b) 90 days; (c) the owner chooses. Lean: (a),
-    as slice 1's call records (decision 15). Blocks step 15.
+    as slice 1's call records (decision 15). Blocks step 15. *For agents, answered by plan-agent-access (2026-11-16):
+    (a), 30 days, no content.*
 11. **The word on Profile** for tokens. (a) "Connected apps"; (b) "AI connections"; (c) "Outside AI". Lean: (a).
-    Blocks step 15.
+    Blocks step 15. *For agents, answered by plan-agent-access (2026-11-16): `agent`, shown as "Claude (agent)".* The
+    word for personal tokens on Profile is still open.
 12. **What a "turn" is, and the history budget.** Answered 2026-11-02: a question and its answer, up to 6 turns,
     capped at 3,000 tokens, the oldest dropped first (decision 6).
 13. **How the rollup chooses "the objects relevant to the question".** Answered 2026-11-02: word match on the
@@ -1127,4 +1145,5 @@ Numbers 1 to 11 are from the first draft; 12 onward are new with slice 1.
 
 Nothing blocks slice 1: every question for its steps is answered (12 to 21 and 23), and 22 and 24 have working
 leans that block no step. Slice 2's own questions, S1 to S8, were answered on 2026-11-04 (decisions 16 to 23) and
-block nothing; step 11 waits only on a provider key and a spending limit from Thomas. Questions 3, 4, 5, 7, 10 and 11 block step 15 onward; 1 blocks step 17; 2 blocks nothing now; 6 blocks nothing now, since step 12 is built without destructive actions.
+block nothing; step 11 waits only on a provider key and a spending limit from Thomas. Questions 3, 4, 5, 7, 10 and 11 block step 15 onward
+for personal tokens (3, 5, 7, 10 and 11 are answered for agents by plan-agent-access, 2026-11-16); 1 blocks step 17; 2 blocks nothing now; 6 blocks nothing now, since step 12 is built without destructive actions.

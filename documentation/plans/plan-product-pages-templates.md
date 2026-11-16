@@ -2,7 +2,7 @@
 
 **Audience:** Thomas, who decides where the product pages live, how they split and what they may claim; content-manager, who writes the words for each type; server-development, who builds the tool that rebuilds every screenshot from the demos; experience-design, who builds the in-repository parts and judges the pictures; quality-assurance, who checks the words against the not-claim list; and the website session, which owns the Chameleon page on `coffeepubstudio.com`, outside this repository.
 
-**Status:** draft, awaiting Thomas's decisions (marked 2026-11-16; the content is unchanged). Drafted 2026-11-15, nothing decided beyond the three requests below. Thomas, 2026-11-15, tonight's needs: "screenshots for the product pages. We will need to adapt our product pages to support our current types of templates." And, about the demos: "we will need [a demo] of each for the other types we are supporting." A builder is making one demo per type (Travel, Games, Project, Learning, Mentoring); those demo files are not on `main` yet (`templates/demo/` holds only `travel.json` at `275f11a9`). Everything below is a proposal for Thomas to decide.
+**Status:** questions 1 to 4 decided by Thomas, 2026-11-16 (decisions 4 to 7); questions 5 to 7 are still open and block nothing but the picture tool. Drafted 2026-11-15, nothing decided beyond the three requests below. Thomas, 2026-11-15, tonight's needs: "screenshots for the product pages. We will need to adapt our product pages to support our current types of templates." And, about the demos: "we will need [a demo] of each for the other types we are supporting." A builder is making one demo per type (Travel, Games, Project, Learning, Mentoring); those demo files are not on `main` yet (`templates/demo/` holds only `travel.json` at `275f11a9`). Everything below is a proposal for Thomas to decide.
 
 **Where the pages live (read this first).** There are no product pages in this repository any more. [plan-product-site](plan-product-site.md) moved them to the website's page, `https://coffeepubstudio.com/products/chameleon`, which the website session builds and Thomas approves; the pages here were deleted in slice 5 (PR #447) and [plan-product-pages](plan-product-pages.md) is superseded. What this repository still owes the website is facts and pictures: the product sheet and the screenshots (product-site decision 4). So "adapt the product pages" means two things: change what this repository hands over (a section per type, and a screenshot set per type), and tell the website session what the page must now say. Open question 1 asks Thomas whether that is what he wants.
 
@@ -34,6 +34,13 @@ Thomas's, 2026-11-15, in chat:
 3. **Each type gets a demo** (Travel, Games, Project, Learning, Mentoring), made by a builder; the screenshots come from them.
 
 Carried over from earlier plans and still binding: the website session owns and builds the page and Thomas approves its words, product facts reach the website through the product sheet and `GET /api/product`, and screenshots are handed over and never committed to `main` (product-site decision 4); "Try the demo" opens the demo environment's own sign-in with `?login=demo`, one demo per template, since one environment holds one template (product-site decision 5); the chat is the core and the call is optional (product-pages decision 1).
+
+Thomas's, 2026-11-16, answering open questions 1 to 4:
+
+4. **The pages are the website's page, built by the website session** (question 1, A). This repository supplies the type sheet, the pictures and the demo list; experience-design builds only the start page's demo entries and judges the pictures. Reason: it keeps product-site decisions 4 and 8, and the words live in one place.
+5. **A page per type, opened from the cards** (question 2, A). The Chameleon page's "What it is for" keeps its cards, and each card opens its own page. Reason: Learning and Mentoring need their "what it is not" wording close to their claims, and the type sheet makes five pages the same work as one.
+6. **Five type cards (Travel, Games, Projects, Learning, Mentoring) plus Anything imaginable** (question 3, A). Real estate is dropped until a template exists; the Mentoring card is fixed to what its template turns on; the page says plainly that Learning ships now. Reason: the page claims only what a template backs.
+7. **One Try the demo per type** (question 4, A), five demo environments listed under `#demo`, each opening its own environment's sign-in. Reason: Thomas asked for a demo of each, and one environment holds one template. It still waits on product-site slice 6.
 
 Nothing else is decided. Each section below that says "proposed" is a suggestion.
 
@@ -150,7 +157,7 @@ Sizes are builder-days, one builder, rough.
 | Step | What | Who | Size | Blocked by |
 | --- | --- | --- | --- | --- |
 | 1 | The demos for the five types (the builder's work in hand) | the demo builder | in hand | Not counted here |
-| 2 | The not-claim list, the type sheet (five blocks), captions and alt text | content-manager | 3 d | Step 1 for the demo descriptions; Thomas's answers to questions 1 to 3; the shot list for the caption ids |
+| 2 | The not-claim list, the type sheet (five blocks), captions and alt text | content-manager | 3 d | Step 1 for the demo descriptions (questions 1 to 3 answered 2026-11-16); the shot list for the caption ids |
 | 3 | `tools/shots-product.json`, `npm run shots:product`, the manifest, `--compare` and `--stale` | server-development | 3 d | Step 1 for the real views; can start on travel, which has a demo today |
 | 4 | The check for captions, demos and modules; the product sheet check's per-type rule | server-development | 1 d | Steps 2 and 3 |
 | 5 | `demos` in `GET /api/product`, and the start page's Try the demo per type | server-development, experience-design | 0.5 d and 1 d | Product-site slice 6's own blockers (the demo flag and nightly reset); not needed for the pictures |
@@ -185,31 +192,31 @@ Sizes are builder-days, one builder, rough.
 
 ### Open questions
 
-Each has a recommendation first.
+Each has a recommendation first. Questions 1 to 4 are answered (Thomas, 2026-11-16; decisions 4 to 7) and kept here for their reasons. Questions 5, 6 and 7 are still open; they block nothing but the picture tool (step 3, and step 4's text refusal).
 
-1. **Who builds the pages, and where do they live?**
+1. **Who builds the pages, and where do they live?** Answered, A (decision 4).
    - **A (recommended): the website's page, built by the website session, as the product-site plan decided.** This repository supplies the type sheet, the pictures and the demo list; experience-design builds only the start page's demo entries and judges the pictures. Cost: the pages' schedule is outside this repository's control. Rules out: per-type pages with the app's design system.
    - **B: bring product pages back into this repository,** one per type, for experience-design to build. Cost: reverses product-site decisions 4 and 8 and slice 5, brings back an own-palette exception or the app's design system on marketing pages, and doubles the places the words live (the drift this plan was meant to stop). Rules out: the website being the one product page.
    - **C: the website's page plus a plain "types" page on the wiki** built from the type sheet, so there is a published copy in the repository. Cost: a second copy to keep. Rules out nothing.
-2. **One page or one per type?** Blocks the website's work, not the pictures.
+2. **One page or one per type?** Answered, A (decision 5).
    - **A (recommended): the Chameleon page's "What it is for" keeps its cards, now five (Travel, Games, Projects, Learning, Mentoring) plus Anything imaginable, and each card opens its own page** (the type sheet's block, its hero, its gallery of the other views, its planner and modules, its demo). Reason: Learning and Mentoring need their "what it is not" wording close to their claims, a page per type can be linked and printed (as product-pages decision 7 wanted), and the type sheet makes five pages the same work as one. Cost: five pages to keep current.
    - **B: one page, a section per type** with its own anchor (`#travel` and so on). Cheapest and one place to read. Cost: a long page; the not-claim wording is far from its claims; the hero pictures compete.
    - **C: one page with a switch** between types, like the mode switch. Compact. Cost: the content is hidden from search and from a printed page, and it needs script on the website.
-3. **Which cards stay?** Learning is new; Real estate has no template; Anything imaginable is the Default template.
+3. **Which cards stay?** Answered, A, with Learning said plainly as shipping now (decision 6). Learning is new; Real estate has no template; Anything imaginable is the Default template.
    - **A (recommended): five type cards and Anything imaginable (Default); drop Real estate until a template exists,** and fix the Mentoring card to what its template turns on.
    - **B:** keep Real estate as a "coming soon" card. Cost: it advertises something with no template, which the not-claim list rules out.
    - **C:** also hold Learning back until Thomas has decided how to word it, given the scaffolding briefing. Cost: a shipped type is missing from the page. The briefing's own advice is to ship the Goals-based type now and say what it is; that is the recommendation's basis.
-4. **One Try the demo or one per type?**
+4. **One Try the demo or one per type?** Answered, A (decision 7).
    - **A (recommended): one per type, listed under `#demo`,** each opening its own environment's sign-in. One environment holds one template, so five demo environments exist (product-site decision 5). Cost: five environments to reset nightly (each a run of the reset script).
    - **B:** one demo (travel) and a picture-only tour of the rest. Cost: Thomas asked for a demo of each.
    - **Either way** this waits on product-site slice 6 (the demo flag, the shared login and the nightly reset), so the pictures do not.
-5. **Picture format and scale.**
+5. **Picture format and scale.** Open; recommended: A.
    - **A (recommended): PNG at one scale (1280 and 390 wide), converted by the website's build.** Deterministic; the compare tool needs no encoder.
    - **B:** webp from the tool. Smaller files; needs an encoder or Chromium's webp capture, and the output must be shown stable across runs.
    - **C:** also 2x for the phone shots, for sharp edges on a phone. Doubles those files.
-6. **A text refusal in the check for the not-claim words?**
+6. **A text refusal in the check for the not-claim words?** Open; recommended: A, yes.
    - **A (recommended): yes, a short list the check refuses in the sheet, captions and demo files.** It catches a slip, not a rewording.
    - **B:** no; reading by quality-assurance only. Cost: a slip is found late.
-7. **How much of the call to show?** The recommended answer is none beyond the controls with one person (the stand-in's limit). The alternative is no call picture at all. Thomas may want a real call picture later, taken by hand.
+7. **How much of the call to show?** Open. The recommended answer is none beyond the controls with one person (the stand-in's limit). The alternative is no call picture at all. Thomas may want a real call picture later, taken by hand.
 
-None of these blocks the demos or the first pictures except question 2's effect on the type sheet's shape: the block above holds for every answer.
+None of the open questions (5 to 7) blocks the demos, the type sheet or the website's work; they block only the picture tool's format, its check and which call views it takes.

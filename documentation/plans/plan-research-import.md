@@ -338,10 +338,16 @@ To-do and Calendar must be honoured as destinations soon, through a generic cond
 
 Once #64 gives Magpie long-lived, revocable integration tokens, an owner (or a person, if #64 allows) could make a token scoped to **adding objects to one space**, and nothing else, for a desktop AI app or an AI's custom action. That AI would read the schema and send objects to a route such as `POST /api/objects/import` with `Authorization: Bearer`; they would go through `readObjects` and `cleanObject` exactly as a paste does. The question to settle then: modules run no server code, so where the objects wait until someone keeps them. Two shapes: queue them as requests to the space's save actions (they land when the providing module is next open), or hold them in a small per-space inbox the Assistant shows as a preview to tick. That needs its own plan once #64 is planned.
 
+*Note, 2026-11-16:* this part is covered by an agent account with the action route, in
+[plan-agent-access](plan-agent-access.md) (approved by Thomas 2026-11-16). An owner or the admin makes the agent and its
+token on Manage > Users; the agent is limited to the spaces it is a member of and adds objects only through the
+modules' `write` actions, which land when the module is next open (the first of the two shapes above).
+
 ## What is not decided
 
 Nothing blocks phase 1. Left for later plans:
 
 - The generic destination conduit above: its shape, and how a person chooses among destinations.
-- The direct connection: where objects wait, and who may make a token.
+- The direct connection: where objects wait, and who may make a token. For agents, answered by
+  [plan-agent-access](plan-agent-access.md) (2026-11-16): as action requests, and owners and the admin make the token.
 - Whether phase 2 adds a separate `import` permission, or duplicate detection, if phase 1 shows a need.

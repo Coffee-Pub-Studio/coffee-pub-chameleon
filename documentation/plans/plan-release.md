@@ -6,8 +6,8 @@ experience-design build, bug-fixes fixes, quality-assurance reads and tests (rea
 documentation, the changelog and the first drafts of the legal texts. A lawyer, whom Thomas chooses, confirms the
 legal track.
 
-**Status:** decided, 2026-11-14, with two things still owed by Thomas (the two people for the real call and the
-co-editing test, and the browser on each device). Thomas answered the eighteen questions of the first draft and the four
+**Status:** decided, 2026-11-14, with two things still owed by Thomas (the lawyer, and the browser on each device).
+On 2026-11-16 Thomas named Spud as the second person for the real call and the co-editing test. Thomas answered the eighteen questions of the first draft and the four
 that came out of them (19 to 22) on 2026-11-14; his answers are under "Decisions". Nothing is built. The issue table
 under "What it is today" is a draft that the project manager and Thomas confirm; no issue is gating by this document
 alone. The per-module "done" lists, the checklists and the order below are still proposals that Thomas cuts or adds to,
@@ -111,8 +111,8 @@ own words, not an option.
     server left to the host. Reason: a plain starting point that Thomas can tighten later.
 22. **Which devices and which two people, and does the release wait for the co-editing test?** Answered, a, in part.
     Thomas named the device kinds for the real calls and the co-editing test (2026-11-14): iPhone 13 Pro Max, iPad
-    12.9, Mac mini M4 and Windows 11. **Still owed:** the two people, and the browser on each device (for example Safari
-    or Chrome; Thomas has not named them). The release does not wait for the co-editing test: if it has not passed by the
+    12.9, Mac mini M4 and Windows 11. The two people (2026-11-16): Thomas and Spud. **Still owed:** the browser on each
+    device (for example Safari or Chrome; Thomas has not named them). The release does not wait for the co-editing test: if it has not passed by the
     tag, the release ships with `coediting` off, and a customer is told co-editing is not yet on. Reason: the switch
     makes this safe.
 
@@ -134,8 +134,8 @@ Ranked, worst first. None is a reason to change a decision; each says what keeps
 3. **Co-editing on by default needs a test the cloud container cannot do (decision 6).** A real two-person test needs
    two people in two browsers. Tool checks and the container can show the restore tests but not that. Until the test
    passes the `coediting` switch stays off, so the release does not break if the test slips; it only ships without
-   co-editing on. Decision 22: the release does not wait for the test. What is still owed is the two people and the
-   browsers; until they are named the test cannot be scheduled.
+   co-editing on. Decision 22: the release does not wait for the test. The two people are Thomas and Spud (2026-11-16);
+   what is still owed is the browsers, and until they are named the test cannot be scheduled.
 
 Two smaller notes. Decisions 8, 11 and 12 say "before the first customer", not "before the tag", so the tag can come
 before the pen test and the lawyer's confirmation, and a customer waits for both. And decision 9 makes the baseline of
@@ -625,7 +625,7 @@ A proposal. Every step is a gate. The number and the rule change are decided; th
 3. **A real call has never been verified here** (#29, #30 and every "awaiting a real call" line). The central feature is
    checked only by tools, with no LiveKit server.
 4. **Co-editing on by default** (decision 6) with tool checks and "read as code only" paths. The real two-person test
-   cannot be done in the cloud container, so it waits on Thomas and a second person. If it slips, the switch stays off
+   cannot be done in the cloud container, so it waits on Thomas and Spud (the second person, named 2026-11-16). If it slips, the switch stays off
    and the release is not held by it (see "Tensions").
 5. **Backup and restore** are not proven end to end (no whole-server backup, an export that blocks a hosted server).
    Decision 9 makes this a release requirement.
@@ -673,8 +673,8 @@ what, the SDK or a stored format, so it waits for an independent read before mai
 
 1. **Re-read the issue list and mark it** (`release: gating`, `release: after`), every open issue including #742 and up,
    #780, #786 and #795 (decisions 3 and 18). project manager. S.
-2. **Thomas names what only he can name:** the lawyer (decision 12), the two people for the real call and the
-   co-editing test and the browser on each device (decision 22; the devices are named), and the date the freeze starts,
+2. **Thomas names what only he can name:** the lawyer (decision 12), the browser on each device (decision 22; the
+   devices are named, and the two people are Thomas and Spud, 2026-11-16), and the date the freeze starts,
    which fixes the first review date (decision 19). Thomas. S, but waiting on him holds steps 4 to 9.
 3. **Finish the name "Coffee Pub Chameleon"** (#426, [plan-rename-chameleon](plan-rename-chameleon.md)), before the
    freeze (decision 14). experience-design and content-manager; server-development for any stored key. M. Then the
@@ -729,7 +729,7 @@ what, the SDK or a stored format, so it waits for an independent read before mai
   and a hosted disk, cannot be checked from here.
 - Steps 10 and 17 and everything that touches a call: only a real LiveKit call with real people can show it, on the
   four devices of decision 22 (iPhone 13 Pro Max, iPad 12.9, Mac mini M4, Windows 11), each in a browser Thomas still
-  names, with the two people he still names. The
+  names, with Thomas and Spud as the two people (2026-11-16). The
   co-editing two-person test also needs two real people. No check here can stand in for either.
 - Step 11 is not verified by any tool. A lawyer's written confirmation is the check.
 - `npm run check:docs` and `node tools/check-names.mjs` (as root it must end `check-names: 2 problems`) for every plan and
@@ -737,8 +737,8 @@ what, the SDK or a stored format, so it waits for an independent read before mai
 
 ## What is not decided
 
-- The two people for the real call and the co-editing test, and the browser on each of the four devices (decision 22).
-  The real-call and co-editing steps cannot be scheduled without them.
+- The browser on each of the four devices (decision 22). The real-call and co-editing steps cannot be scheduled without
+  them. The two people are answered: Thomas and Spud (2026-11-16).
 - The date the freeze starts, which sets the first review date (decision 19).
 - The draft issue table: Thomas confirms or changes it, and the project manager reads the twelve issues whose body
   must be read.
@@ -747,10 +747,12 @@ what, the SDK or a stored format, so it waits for an independent read before mai
 
 ## Open questions for Thomas
 
-Questions 1 to 22 are answered (see "Decisions"). Two things are owed, and they block step 10 and the real call:
+Questions 1 to 22 are answered (see "Decisions"). The second person for the real call and the co-editing test is
+answered: Spud (Thomas, 2026-11-16). Two things are still owed by Thomas:
 
-- Who are the two people for the real call and the co-editing test?
-- Which browser on each of the iPhone 13 Pro Max, the iPad 12.9, the Mac mini M4 and Windows 11?
+- Who is the lawyer (decision 12)?
+- Which browser on each of the iPhone 13 Pro Max, the iPad 12.9, the Mac mini M4 and Windows 11? This blocks step 10
+  and the real call.
 
-Neither blocks the freeze or the tag, since the release does not wait for the co-editing test (decision 22); both
-block the real-call check before the first customer.
+Neither blocks the freeze or the tag, since the release does not wait for the co-editing test (decision 22); the
+browsers block the real-call check before the first customer, and the lawyer blocks step 11.
