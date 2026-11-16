@@ -495,8 +495,9 @@ task):
 - plan-ai-integration, step 15 and its open questions 3, 5, 7, 10 and 11: this plan answers the switches (an
   environment variable plus an owner's switch), the trail (no content, 30 days) and the word for agents, and leaves
   personal tokens to that plan; `server/tokens.js` is meant to be the one token store it asked for.
+  The plan-ai-integration notes above are made, as dated notes in that plan (2026-11-16).
 - [plan-research-import](plan-research-import.md), part 3: its "scoped token that can only add objects to one space"
-  is covered by an agent with the action route.
+  is covered by an agent with the action route. Noted in that plan, 2026-11-16.
 - [architecture-access](../architecture/architecture-access.md), "One rule for entering": the agent is a signed-in
   person (`{ key, owner: false }`), so no new viewer kind; the list should say an agent is one.
 - `CLAUDE.md`, Names: "agent" joined the roles list (Thomas, 2026-11-16, #899). Done.
@@ -510,10 +511,24 @@ task):
 All 16 questions and the three Chat questions decision 13 raised are answered (decisions 17 to 19). Nothing blocks a
 step.
 
-One question for Thomas, not blocking steps 5 to 7: **should an agent be held to the agreement gate?** The code exempts
-agents from the terms and NDA gate (`agreementExempt` in `server/index.js`), since an agent can't read or agree to a
-text; the owner who made it has. Thomas has not ruled. A smaller fix than the exemption is to be recorded here by
-product-planner; this plan does not yet say what it is. Until he rules, an agent on a server with `TERMS_FILE` or
-`NDA_FILE` set works without agreeing.
+One question for Thomas, still open and not blocking steps 5 to 7: **should an agent be held to the agreement gate?**
+The code exempts agents from the terms and NDA gate (`agreementExempt` in `server/index.js`), since an agent can't read
+or agree to a text; the owner who made it has. Until he rules, an agent on a server with `TERMS_FILE` or `NDA_FILE` set
+works without agreeing.
 
-Answered: whether "agent" joins the Names list in `CLAUDE.md` (yes, 2026-11-16, #899).
+- **The independent reader's view (2026-11-16):** the exemption is acceptable for a private, invited release.
+- **The smaller safe version (recorded 2026-11-16; not built, Thomas decides):** store `madeBy`, the maker's account
+  key, on each token record. In the gate, after the token is found valid, refuse when the maker no longer exists or
+  `mustAgree(maker)` is true (it already exempts the host admin's stand-in). The refusal is counted and logged like any
+  call, and answers 403 `{ error: "The person who made this agent's token hasn't agreed to the current terms. They
+  need to sign in and agree first." }`. Three check cases: a terms version bump gives 403; the maker agrees, and the
+  next call gives 200; the maker is deleted, and the call gives 403.
+
+Two gaps in the agent log, for Thomas (2026-11-16; each needs a new log field, neither is built):
+
+- **No `module` field.** A read says "Read data in <space>", not "Read Planner data in <space>", because the line does
+  not keep which module's data was read.
+- **A refused line stores the literal `(refused)` as its route.** The page can then only say "Refused: GET request",
+  not what was asked for.
+
+Answered: whether "agent" joins the Names list in `CLAUDE.md` (yes, Thomas, 2026-11-16, done in #899).
