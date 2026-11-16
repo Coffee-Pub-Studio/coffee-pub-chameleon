@@ -79,12 +79,12 @@ const viewsOf = (c) => (c.space ? (c.page ? [c.space, PAGE] : [c.space]) : [PAGE
 
 export function createStreamHub({ EventSourceImpl = globalThis.EventSource, schedule = (fn, ms) => setTimeout(fn, ms), cancel = (t) => clearTimeout(t), retireAfterMs = 15000, passFor = () => null } = {}) {
   const urlOf = (g, p) => moduleStreamUrl({ ...p, guest: g.guest, pass: g.guest ? passFor(g.guest) || null : null });
-  const groups = new Map(); // guest token ('' for none) -> { guest, views: Map(view -> Set(fn)), conns: Map(url -> conn), refused: Set(view), seen: Map(view -> { ids, order }), timer }
+  const groups = new Map(); // guest token ('' for none) -> { guest, views: Map(view -> Set(fn)), conns: Map(url -> conn), refused: Set(view), seen: Map(view -> { ids, order }), timer, lostOnResume: Set(space) }
   const groupFor = (guest) => {
     const key = guest || '';
     let g = groups.get(key);
     if (!g) {
-      g = { key, guest: guest || null, views: new Map(), conns: new Map(), refused: new Set(), seen: new Map(), timer: null };
+      g = { key, guest: guest || null, views: new Map(), conns: new Map(), refused: new Set(), seen: new Map(), timer: null, lostOnResume: new Set() };
       groups.set(key, g);
     }
     return g;
@@ -206,7 +206,9 @@ export function createStreamHub({ EventSourceImpl = globalThis.EventSource, sche
   }
   // Views are joined and left in bursts (a canvas going from one space to the next): the connections follow once the
   // burst is over, in the same turn.
+  let suspended = false;
   const later = (g) => {
+    if (suspended) return; // resume() plans again
     if (g.timer === null) g.timer = schedule(() => replan(g), 0);
   };
   return {
@@ -244,6 +246,31 @@ export function createStreamHub({ EventSourceImpl = globalThis.EventSource, sche
     // What passFor answers changed (a guest's pass arrived): the connections follow, the new opened before the old go.
     refresh() {
       for (const g of groups.values()) later(g);
+    },
+    // The page is leaving (pagehide): every connection closes now, and none opens until resume(). The views stay joined; a
+    // space's mounts hear `lost`, so each reads again at the next `ready` (as after any dropped connection).
+    suspend() {
+      if (suspended) return;
+      suspended = true;
+      for (const g of groups.values()) {
+        if (g.timer !== null) cancel(g.timer);
+        g.timer = null;
+        for (const c of [...g.conns.values()]) {
+          if (c.ready && c.space && !c.retiring) g.lostOnResume.add(c.space); // told at resume, not now: a module's own pagehide still needs its stream id to leave
+          c.ready = null;
+          close(g, c);
+        }
+      }
+    },
+    // Back from the browser's back-forward cache (pageshow, persisted): the views are planned and opened again.
+    resume() {
+      if (!suspended) return;
+      suspended = false;
+      for (const g of groups.values()) {
+        for (const space of g.lostOnResume) deliver(g, space, 'lost', '', {});
+        g.lostOnResume.clear();
+        later(g);
+      }
     },
     // For checks: the connections open now, as their addresses.
     connections: () => [...groups.values()].flatMap((g) => [...g.conns.values()].map((c) => c.url)),
@@ -401,7 +428,15 @@ export function createStreamRelayClient({ parent, self, origin, fallback = null,
   });
   self.addEventListener('pagehide', () => { if ([...subs.values()].some((s) => !s.own)) post({ type: 'app:streamleave', sub: '*' }); });
   // Back from the browser's back-forward cache: the page dropped this document's subscriptions as it went, so join again.
-  self.addEventListener('pageshow', (e) => { if (e.persisted) askAgain(); });
+  // What came while it was away was not heard: each sub hears `lost`, so its module reads again at the next `ready`.
+  self.addEventListener('pageshow', (e) => {
+    if (!e.persisted) return;
+    for (const s of subs.values()) {
+      if (s.own || !s.space) continue;
+      try { s.fn('lost', {}); } catch (err) { console.error(err); }
+    }
+    askAgain();
+  });
   return {
     join(space, guest, onEvent) {
       n += 1;

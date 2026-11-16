@@ -61,6 +61,12 @@ export function readTheme() {
 const guestPasses = new Map();
 const passFor = (guest) => (guest && guestPasses.get(guest)) || null;
 const streamHub = createStreamHub({ passFor });
+// A page the browser keeps in its back-forward cache closes its event streams as it goes (the browser allows few
+// connections to one site, and a kept page would hold them); one the browser brings back opens them again. A page that is
+// not kept is destroyed, and its streams end with it, after the modules' own pagehide (live.pageHide below) has sent its
+// leave: closing the stream first would make that leave late (the server would find the stream already gone).
+addEventListener('pagehide', (e) => { if (e.persisted) streamHub.suspend(); });
+addEventListener('pageshow', (e) => { if (e.persisted) streamHub.resume(); });
 export function setGuestPass(guest, pass) {
   if (typeof guest !== 'string' || !guest || typeof pass !== 'string' || !pass) return;
   if (guestPasses.get(guest) === pass) return;
