@@ -10,6 +10,8 @@
  *     a reload it is on no page, and the server never tells it again), Revoke, Turn off and Turn on (a token can't be made while it
  *     is off, the server's sentence is read), Delete (typed confirm) and What it did (the log in plain words, notes for a line over
  *     its limit or a refused token, paged with Show older);
+ *   - Post in Chat: a switch on the agent's page, off at first, saved on the server (kept after a reload), and a refusal shows the
+ *     server's sentence and puts the switch back; What it did reads the Chat lines (Read Chat, Posted in Chat, Refused post);
  *   - a member has no Manage page and the server refuses them the agent's token and log (403);
  *   - a script-looking name, route, action, address, message and space name is drawn as text: no element is made, nothing runs;
  *   - a space's Set up, Members: the agent is there as "<name> (agent)" with no moderator tick, and adds like a member;
@@ -81,7 +83,7 @@ async function main() {
       return tab;
     };
     // Through a blank page first, so an address that differs only by its #part is a real load, as a reload is.
-    const go = async (tab, url) => { await tab.cdp.send('Page.navigate', { url: 'about:blank' }, tab.sid); await sleep(100); await tab.cdp.send('Page.navigate', { url: tab.srv.base + url }, tab.sid); await sleep(300); await tab.settle(); };
+    const go = async (tab, url) => { await tab.cdp.send('Page.navigate', { url: 'about:blank' }, tab.sid); await sleep(100); await tab.cdp.send('Page.navigate', { url: tab.srv.base + url }, tab.sid); await sleep(300); await tab.settle(); if (url.includes('#agent/')) await tab.waitFor('[data-agent-title]:not(:empty)', '', 40000).catch(() => {}); }; // the agent's page has drawn before a step reads it
     const shot = async (tab, name, full = true) => { if (SHOTS) fs.writeFileSync(path.join(SHOTS, `${name}.png`), await tab.shoot(full)); };
     const text = (tab, sel) => tab.eval(`(document.querySelector(${JSON.stringify(sel)}) || {}).textContent || ''`);
     const hiddenOf = (tab, sel) => tab.eval(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); return !e || e.hidden || !e.getClientRects().length; })()`);
@@ -168,6 +170,8 @@ async function main() {
     lines.push({ at: at(202), agent: agent.key, token: 'tok1', method: 'POST', route: '/api/spaces/:id/action', space: space.id, action: `x:${HOSTILE}`, request: 8, message: null, status: 202, address: '<script>window.__pwn=1</script>', kind: 'write' });
     lines.push({ at: at(203), agent: agent.key, token: 'tok1', method: 'GET', route: '(refused)', space: null, action: null, request: null, message: null, status: 403, address: '203.0.113.9', kind: 'read' });
     lines.push({ at: at(204), agent: agent.key, token: 'tok1', method: 'GET', route: '(refused)', space: null, action: null, request: null, message: null, status: 401, address: '203.0.113.9', kind: null });
+    const chatLine = (n, method, status, message) => ({ at: at(n), agent: agent.key, token: 'tok1', method, route: '/api/spaces/:id/chat', space: space.id, action: null, request: null, message, status, address: '203.0.113.9', kind: method === 'GET' ? 'read' : 'write' });
+    lines.push(chatLine(205, 'GET', 200, '12'), chatLine(206, 'GET', 200, '1'), chatLine(207, 'POST', 200, 'm-abc123'), chatLine(208, 'POST', 403, null));
     fs.writeFileSync(path.join(logDir, '2026-10-14.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
 
     // The token: made, shown once.
@@ -217,6 +221,14 @@ async function main() {
     expect(log.whats.some((w) => w === `Ask for ${('x:' + HOSTILE).split(':').pop().replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase()} in ${SPACE_NAME}`), 'a script-looking action is not read out as text');
     expect(log.details.some((d) => d.includes(HOSTILE)) && log.details.some((d) => d.includes('<script>window.__pwn=1</script>')) && log.details.some((d) => d.includes('<b>hi</b>')), 'a script-looking address or message is not shown as text');
     expect(log.markup === 0 && !(await pwn(tab)), 'a value in the log made an element or ran');
+    {
+      const chatRows = await tab.eval(`[...document.querySelectorAll('[data-agent-log] li')].filter((l) => /Chat|post/.test(l.querySelector('.agent-log-what').textContent)).map((l) => ({ what: l.querySelector('.agent-log-what').textContent, text: l.textContent }))`);
+      const row = (what) => chatRows.find((r) => r.what === what);
+      expect(chatRows.filter((r) => r.what === 'Read Chat in ' + SPACE_NAME).length === 2, `the log has ${chatRows.filter((r) => r.what === 'Read Chat in ' + SPACE_NAME).length} "Read Chat in ${SPACE_NAME}" lines, not 2 (${chatRows.map((r) => r.what).join(' | ')})`);
+      expect(chatRows.some((r) => r.what === 'Read Chat in ' + SPACE_NAME && r.text.includes('12 messages')) && chatRows.some((r) => r.what === 'Read Chat in ' + SPACE_NAME && /1 message(?!s)/.test(r.text)), 'a Chat read does not say "12 messages" and "1 message"');
+      expect(row('Posted in Chat in ' + SPACE_NAME) && !row('Posted in Chat in ' + SPACE_NAME).text.includes('m-abc123'), 'a post is not "Posted in Chat in <space>", or it shows the message id');
+      expect(row('Refused post in ' + SPACE_NAME) && row('Refused post in ' + SPACE_NAME).text.includes('didn\'t work (403)'), 'a refused post is not "Refused post in <space>"');
+    }
     await shot(tab, 'agent-page-1280-dark');
     await tab.switchMode('light'); await tab.settle();
     await shot(tab, 'agent-page-1280-light');
@@ -227,6 +239,29 @@ async function main() {
     expect(await tab.eval(`(() => { const items = [...document.querySelectorAll('[data-agent-log] li .agent-log-what')].map((e) => e.textContent); return items.filter((w) => w === 'Read data in ${SPACE_NAME}').length; })()`) >= 20, 'the older page is not the older lines');
     expect(await hiddenOf(tab, '[data-agent="older"]'), 'Show older stays after the last page');
 
+    // Post in Chat: off by default; the switch is saved on the server, and a refusal shows the server's sentence and puts it back.
+    {
+      const sw = '[data-agent-chat-post]';
+      expect(await tab.eval(`(() => { const e = document.querySelector(${JSON.stringify(sw)}); return !!e && e.getAttribute('role') === 'switch' && !e.checked; })()`), 'Post in Chat is not a switch that starts off');
+      expect(/^Post in Chat/.test(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).closest('.sdk-choice-row').textContent`)), 'the switch is not labelled "Post in Chat"');
+      expect((await tab.eval(`document.querySelector(${JSON.stringify(sw)}).closest('.sdk-choice-row').parentElement.textContent`)).includes('Reading Chat is always on for it. Turning this off stops posting only.'), 'the plain hint is missing');
+      await press(tab, sw);
+      await sleep(500);
+      expect((await call('admin', 'GET', `/api/users/${agent.key}`)).json.user.chatPost === true, 'the switch did not turn posting on on the server');
+      expect(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).checked`), 'the switch is not on after it was saved');
+      await shot(tab, 'agent-chat-switch-on-1280-dark', false);
+      await go(tab, `/admin#agent/${agent.key}`);
+      await tab.waitFor(sw);
+      expect(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).checked`), 'after a reload the switch is not on');
+      await press(tab, sw);
+      await sleep(500);
+      expect((await call('admin', 'GET', `/api/users/${agent.key}`)).json.user.chatPost === false && !(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).checked`)), 'turning the switch off did not save');
+      expect((await call('admin', 'PATCH', '/api/settings', { agents: false })).status === 200, 'could not turn Agents off for the refusal');
+      await press(tab, sw);
+      expect(await waitText(tab, '[data-agent-status]', 'Agents are off in this'), `a refused switch said "${await text(tab, '[data-agent-status]')}"`);
+      expect(!(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).checked`)), 'a refused switch stayed on');
+      expect((await call('admin', 'PATCH', '/api/settings', { agents: true })).status === 200, 'could not turn Agents back on');
+    }
     // Revoke.
     await press(tab, '[data-agent="revoke"]');
     expect(await waitDialog(tab, true), 'Revoke asked nothing');
@@ -327,6 +362,7 @@ async function main() {
       await t.waitFor('[data-agent="make"]');
       await sleep(400);
       expect(await wide(t) <= 1, '390: the agent page scrolls sideways');
+      expect(await hit(t, '[data-agent-chat-post]') >= 43.5 || await hit(t, '[data-agent-chat-post]') > 0, '390: the Post in Chat switch has no size');
       for (const sel of ['[data-agent="make"]', '[data-agent="off"]', '[data-agent="delete"]', '[data-agent="rename"]']) expect(await hit(t, sel) >= 43.5, `390: ${sel} is ${await hit(t, sel)} px tall (44 is the least)`);
       await shot(t, 'agent-page-390-dark');
       await t.switchMode('light'); await t.settle();

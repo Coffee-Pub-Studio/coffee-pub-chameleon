@@ -36,6 +36,8 @@ const READS = {
   '/api/spaces/:id/actions': () => 'Listed what it can ask for',
   '/api/spaces/:id/action/:requestId': () => 'Checked on a request',
 };
+// Chat lines depend on the method (GET reads, POST posts), so they are told apart in logLine, not in READS.
+const CHAT_ROUTE = '/api/spaces/:id/chat';
 const known = (route) => typeof route === 'string' && Object.hasOwn(READS, route);
 // "addMilestone" -> "add milestone"; the module's id before the colon is left out.
 const actionWords = (action) => {
@@ -58,13 +60,19 @@ export function logLine(entry, { spaceName = () => '', hour12 = true, word = (w)
   const where = e.space ? ` in ${spaceName(e.space) || `${word('space', { a: true })} that is gone`}` : '';
   let text;
   if (e.route === '(refused)') text = `Refused: ${String(e.method || 'a')} request`;
+  else if (e.route === CHAT_ROUTE && e.method === 'GET') text = `Read Chat${where}`;
+  else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 200) text = `Posted in Chat${where}`;
+  else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 403) text = `Refused post${where}`;
   else if (e.route === '/api/spaces/:id/action') text = `Ask for ${actionWords(e.action)}${where}`;
   else if (known(e.route)) text = `${READS[e.route](word)}${where}`;
   else text = `Called ${`${String(e.method || '')} ${String(e.route || '')}`.trim()}${where}`;
   if (status !== null && status >= 400) parts.push(`didn't work (${status})`);
   else if (e.route === '(refused)' && status !== null) parts.push(String(status));
   const detail = parts.filter(Boolean).join(' · ');
-  return { text, note: false, detail, message: typeof e.message === 'string' && e.message ? e.message : '' };
+  let message = typeof e.message === 'string' && e.message ? e.message : '';
+  if (e.route === CHAT_ROUTE && e.method === 'GET') { const n = Number(message); message = /^\d+$/.test(message) ? `${n} ${n === 1 ? 'message' : 'messages'}` : ''; }
+  else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 200) message = ''; // the message id means nothing to a person
+  return { text, note: false, detail, message };
 }
 
 const make = (tag, cls, text) => {
@@ -161,6 +169,8 @@ export function mountAgentPage(ctx) {
       ? 'It is off. Its token does nothing until you turn it on.'
       : 'Turning it off stops its token working at once. You can turn it on again.';
     const live = token && Date.parse(token.expiresAt) > Date.now();
+    const post = $('[data-agent-chat-post]');
+    post.checked = agent.chatPost === true;
     $('[data-agent-token-state]').textContent = !token ? 'No token yet.' : live ? `The token works until ${dayText(token.expiresAt)}.` : `The token ended ${dayText(token.expiresAt)}.`;
     $('[data-agent-used]').textContent = !token ? '' : token.lastUsedAt
       ? `Last used ${whenText(token.lastUsedAt, ctx.hour12())}${token.lastAddress ? ` from ${token.lastAddress}` : ''}`
@@ -214,6 +224,24 @@ export function mountAgentPage(ctx) {
     }
   }
 
+  // Post in Chat: the switch says what the server will hold; a refusal shows the server's sentence and the switch goes back.
+  $('[data-agent-chat-post]').addEventListener('change', async (event) => {
+    const box = event.target;
+    if (!agent) return;
+    const want = box.checked;
+    box.disabled = true;
+    try {
+      const { user } = await ctx.api('PATCH', `/api/users/${encodeURIComponent(agent.key)}`, { chatPost: want });
+      agent = { ...agent, ...user };
+      ctx.onChanged(agent);
+      speak(agent.chatPost ? 'It can post in Chat' : 'It can no longer post in Chat');
+    } catch (err) {
+      speak(err.message, true);
+    } finally {
+      box.checked = agent ? agent.chatPost === true : false;
+      box.disabled = false;
+    }
+  });
   document.querySelector('#agent-page').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-agent]');
     if (!button || !agent) return;

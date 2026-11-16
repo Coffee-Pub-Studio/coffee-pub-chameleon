@@ -4571,6 +4571,7 @@ function storedEntry(m, { local = false } = {}) {
     kind,
     stored: !local && chatIdOk(m.id),
   };
+  if (m.agent === true) entry.agent = true; // strict: only the server's `agent: true` (an agent account's post) draws the mark
   if (kind && typeof m.command === 'string' && m.command) entry.command = m.command;
   if (kind && typeof m.module === 'string' && m.module) entry.module = m.module;
   // The words a module attached to an /ai question: the page keeps only their label (the words stay with the server).
@@ -4970,6 +4971,13 @@ function frameMessage({ name, at, visibility = 'public', kind, icon, by, body, e
   when.className = 'message-when';
   when.textContent = messageStamp(at);
   left.append(messagePortrait(name, kind, icon, by), nameEl);
+  if (entry && entry.agent === true) {
+    // An agent's post: the account's name, then the mark (the server says it; never read from the name).
+    const mark = document.createElement('span');
+    mark.className = 'sdk-status activity-agent message-agent';
+    mark.textContent = 'agent';
+    left.append(mark);
+  }
   if (command) {
     const cmd = document.createElement('span');
     cmd.className = 'message-command';
