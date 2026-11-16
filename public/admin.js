@@ -3,7 +3,7 @@ import { pickBackground } from '/background-picker.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
-import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, wirePages } from '/template-pages.js';
+import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm } from '/template-offer.js';
 import { addSpaceFlow, moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
@@ -2347,9 +2347,12 @@ async function drawTplPage(kind) {
     await loadCatalog();
     if (mine !== tplDrawing || tplPart !== kind) return;
     box.innerHTML = modulesHtml(t, { editable, catalog: templateCatalog(true), word });
+    upgradeLists(box);
     $('module-names-section').hidden = !forEnvironment;
   } else {
-    box.innerHTML = labelsHtml(t, { editable, environmentParts: forEnvironment })
+    await loadCatalog();
+    if (mine !== tplDrawing || tplPart !== kind) return;
+    box.innerHTML = labelsHtml(t, { editable, environmentParts: forEnvironment, extra: moduleLabelsHtml(t, { editable, catalog: templateCatalog(true), word }) })
       + (forEnvironment ? '' : `<p class="hint">The home page's name and the Lobby come from the ${escapeHtml(templateName(tplList.find((c) => c.id === madeFrom?.id) || madeFrom))} template, this ${escapeHtml(word('environment'))}'s own.</p>`);
     drawOwnWords(forEnvironment);
   }
@@ -2423,7 +2426,7 @@ for (const id of ['tpl-basics-card', 'words-panel', 'tpl-workspace-card', 'tpl-p
     if (!save) return;
     const box = panel.querySelector('[id$="-box"]');
     const id = currentTplId();
-    const fields = panel === $('words-panel') ? readLabels(box)
+    const fields = panel === $('words-panel') ? { ...readLabels(box), ...readModuleLabels(box, tplFull.get(id) || {}) }
       : panel === $('tpl-workspace-card') ? readWorkspace(box)
       : panel === $('tpl-phases-card') ? readPhases(box)
       : panel === $('tpl-reactions-card') ? readAdditions(box)

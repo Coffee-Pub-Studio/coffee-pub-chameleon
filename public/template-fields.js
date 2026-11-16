@@ -70,7 +70,8 @@ const wordRow = (key, name, w, base, { editable, article }) => {
 };
 // `environmentParts`: the Home plural and the Lobby's name and description, which belong to the environment's default
 // template only (decision 6). The console shows them for every template, since any may be an environment's default.
-export function labelsHtml(t, { editable, environmentParts = true }) {
+// `extra`: more words of the template, drawn after these and before the locked ones (Manage's module words).
+export function labelsHtml(t, { editable, environmentParts = true, extra = '' }) {
   const words = (t && t.words) || {};
   const spaceMany = (words.space && words.space.many) || DEFAULTS.space.many;
   const rows = WORD_ROWS.map(([key, name]) => wordRow(key, name, words[key], DEFAULTS[key], { editable, article: true })).join('');
@@ -83,7 +84,7 @@ export function labelsHtml(t, { editable, environmentParts = true }) {
   const locked = `<div class="tf-locked"><h3>Words that never change</h3><p class="hint">${e(LOCKED_REASON)}</p><dl class="tf-read tf-locked-list">`
     + `${LOCKED.map((k) => line(cap(DEFAULTS[k].one), `${e(DEFAULTS[k].one)} / ${e(DEFAULTS[k].many)}`)).join('')}</dl></div>`;
   const wordsBox = editable ? `<div class="tf-words">${rows}${home}</div>` : `<dl class="tf-read">${rows}${home}</dl>`;
-  return `<div class="tf-labels"><h3>Words you can change</h3>${editable ? '<p class="hint">Leave a word blank for the usual one. Give both the singular and the plural.</p>' : ''}${wordsBox}${lobbyPart}</div>${locked}`;
+  return `<div class="tf-labels"><h3>Words you can change</h3>${editable ? '<p class="hint">Leave a word blank for the usual one. Give both the singular and the plural.</p>' : ''}${wordsBox}${lobbyPart}</div>${extra}${locked}`;
 }
 export function readLabels(root, { editing = true } = {}) {
   const words = {};
