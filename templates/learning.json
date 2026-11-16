@@ -2,7 +2,7 @@
   "id": "learning",
   "name": "Learning",
   "description": "Learn something together: exercises, reading, a journal and sessions on a calendar.",
-  "version": 2,
+  "version": 3,
   "words": {
     "space": {
       "one": "course",
@@ -139,6 +139,7 @@
       }
     },
     "vault": {},
+    "assistant": {},
     "chat": {},
     "conference": {}
   },
