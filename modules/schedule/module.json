@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "icon": "diagram-project",
   "color": "blue",
   "description": "Plan a project together: milestones, the work with who does it and when, and what waits on what.",
