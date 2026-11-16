@@ -24,7 +24,7 @@ const { ModuleLinks, objectKey } = require('./module-links');
 const { Backgrounds } = require('./backgrounds');
 const { ModuleBus, BUS_LIMITS } = require('./module-bus');
 const { liveLimits, effectiveLiveLimits, readSend, dataBytes } = require('./module-live');
-const { ChatHistory, cleanChatText, CHAT_LIMITS } = require('./chat-history');
+const { ChatHistory, cleanChatText, postedByAgent, CHAT_LIMITS } = require('./chat-history');
 const { cleanReport: cleanAttention } = require('./attention');
 const { cleanFacts, iconKnown } = require('./facts');
 const { TagError } = require('./tags');
@@ -6679,11 +6679,10 @@ function readerCanOpen(who) {
 // The "(agent)" label of a chat message (plan-agent-access.md, step 5) comes from the account that posted it, never from
 // its name: an account that is here says (an agent, or a person), and only a message whose account is gone keeps the flag
 // stored when it was posted. So a person's message is never labelled, even in a hand-made restored chat.json, and an agent's
-// always is. `agent: true` on an agent's message, and no `agent` field on anyone else's.
+// always is; a guest's (`by: "guest"`, no account) never is. `agent: true` on an agent's message, and no `agent` field on anyone else's.
 function chatLabelled(m) {
   if (!m || typeof m !== 'object') return m;
-  const account = typeof m.by === 'string' ? store.userByKey(m.by) : null;
-  const agent = !m.kind && m.visibility !== 'private' && (account ? account.agent === true : m.agent === true);
+  const agent = postedByAgent(m, typeof m.by === 'string' ? store.userByKey(m.by) : null); // never a guest's
   if (agent === (m.agent === true) && (agent || !('agent' in m))) return m;
   const out = { ...m };
   if (agent) out.agent = true;
@@ -7199,6 +7198,8 @@ function agentChatText(req, res) {
   const agent = store.userByKey(req.agent.user.key);
   if (!agent || agent.chatPost !== true) return void res.status(403).json({ error: AGENT_CANT_POST });
   const body = req.body;
+  // No JSON body: none sent, or another type (a form, say), which nothing here parses.
+  if (body === undefined || !req.is('application/json')) return void res.status(400).json({ error: 'An agent sends { text } as JSON.' });
   if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => k !== 'text')) {
     return void res.status(400).json({ error: 'An agent sends { text } and nothing else.' });
   }
