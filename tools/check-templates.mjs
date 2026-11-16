@@ -332,7 +332,18 @@ try {
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'a1', glyph: '\u{1f680}' }, { id: 'a2', glyph: '\u{1f680}' }] })), ['reactions[1]: \u{1f680} is listed twice.']);
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'a1', glyph: '\u{1f680}' }, { id: 'a1', glyph: '\u{1f6a2}' }] })), ['reactions[1]: the id "a1" is listed twice.'], 'a repeated id is named by its id');
     assert.deepEqual(problems(minimal({ reactions: [{ glyph: '\u{1f680}' }] })), ['reactions[0]: an id is 1 to 24 lowercase letters, digits and dashes.']);
-    assert.deepEqual(problems(minimal({ reactions: [{ id: 'x', glyph: '<' }] })), ['reactions[0]: each reaction needs a glyph of 1 to 8 characters.']);
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'x', glyph: '<' }] })), ['reactions[0]: each reaction needs a glyph of 1 to 8 characters, with no hidden characters.']);
+    // Hidden characters (zero-width, the soft hyphen, the word joiner, the byte order mark) are refused, so a glyph can't
+    // pass for another one and show twice; an emoji's zero-width joiner is kept in a glyph, never in a label.
+    for (const hidden of ['​', '‌', '­', '⁠', '﻿']) {
+      assert.deepEqual(problems(minimal({ reactions: [{ id: 'up2', glyph: `\u{1F44D}${hidden}` }] })), ['reactions[0]: each reaction needs a glyph of 1 to 8 characters, with no hidden characters.'], `glyph U+${hidden.codePointAt(0).toString(16)}`);
+      assert.deepEqual(problems(minimal({ reactions: [{ id: 'up2', glyph: '\u{1F680}', label: `Ro${hidden}cket` }] })), ['reactions[0]: a label is plain text of 1 to 40 characters.'], `label U+${hidden.codePointAt(0).toString(16)}`);
+    }
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'mage', glyph: '\u{1F9D9}‍♂️', label: 'Mage' }] })), [], 'a joiner inside an emoji glyph');
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'mage', glyph: '\u{1F680}', label: 'Ma‍ge' }] })), ['reactions[0]: a label is plain text of 1 to 40 characters.'], 'never in a label');
+    assert.deepEqual(problems(minimal({ name: 'Trav​el' })), ['"name" must be plain text of 1 to 40 characters.'], 'nor in any other template text');
+    // Two reactions with no id: each is told its id is missing, and no "undefined" is listed twice.
+    assert.deepEqual(problems(minimal({ reactions: [{ glyph: '\u{1F680}' }, { glyph: '\u{1F6A2}' }] })), ['reactions[0]: an id is 1 to 24 lowercase letters, digits and dashes.', 'reactions[1]: an id is 1 to 24 lowercase letters, digits and dashes.']);
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'x', glyph: 'y', extra: 1 }] })), ['reactions[0]: a reaction takes only id, glyph and label.']);
     assert.deepEqual(problems(minimal({ reactions: Array.from({ length: 41 }, (_, i) => ({ id: `r${i}`, glyph: `${i}` })) })), ['"reactions" must be a list of at most 40 reactions to add.']);
     assert.deepEqual(problems(minimal({ iconSet: ['link'] })), [], 'a built-in icon: taken');

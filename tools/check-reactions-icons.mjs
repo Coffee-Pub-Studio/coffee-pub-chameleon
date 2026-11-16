@@ -211,17 +211,17 @@ try {
   await test('the lists hold plain text: < and >, controls, text-direction and zero-width characters are taken out; an emoji\'s joiner stays', async () => {
     const r = await call('PATCH', '/api/settings', {
       reactions: [
-        { id: 'a', glyph: '<b>‮!', label: '<img src=x>⁦Hi⁩​\u0007' },
-        { id: 'b', glyph: '\u{1F9D9}‍♂️', label: 'Wiz‍ard‎' },
-        { id: 'c', glyph: '​‮', label: 'Nothing left' },
+        { id: 'a', glyph: '<b>\u202e!', label: '<img src=x>\u2066Hi\u2069\u200b\u0007' },
+        { id: 'b', glyph: '\u{1F9D9}\u200d♂️', label: 'Wiz\u200dard\u200e' },
+        { id: 'c', glyph: '\u200b\u202e', label: 'Nothing left' },
       ],
-      icons: [{ id: 'd', classes: 'fa-solid fa-cat', label: '<cat>‮﻿' }],
+      icons: [{ id: 'd', classes: 'fa-solid fa-cat', label: '<cat>\u202e\ufeff' }],
     });
     assert.equal(r.status, 200, r.text);
-    assert.deepEqual(r.json.settings.ownReactions, [{ id: 'a', glyph: 'b!', label: 'img src=xHi' }, { id: 'b', glyph: '\u{1F9D9}‍♂️', label: 'Wizard' }], 'a reaction with no glyph left is dropped');
+    assert.deepEqual(r.json.settings.ownReactions, [{ id: 'a', glyph: 'b!', label: 'img src=xHi' }, { id: 'b', glyph: '\u{1F9D9}\u200d♂️', label: 'Wizard' }], 'a reaction with no glyph left is dropped');
     assert.deepEqual(r.json.settings.ownIcons, [{ id: 'd', classes: 'fa-solid fa-cat', label: 'cat' }]);
     const signedOut = await fetch(`http://127.0.0.1:${port}/api/branding`).then((x) => x.text());
-    assert.equal(/[<>‪-‮⁦-⁩​﻿]/.test(JSON.parse(signedOut).reactions.map((x) => x.glyph + x.label).join('')), false, 'nothing of it published');
+    assert.equal(/[<>\u202a-\u202e\u2066-\u2069\u200b\ufeff]/.test(JSON.parse(signedOut).reactions.map((x) => x.glyph + x.label).join('')), false, 'nothing of it published');
     assert.equal((await saveEdited()).status, 200);
   });
 
@@ -231,6 +231,45 @@ try {
       assert.deepEqual([r.status, r.json?.error], [400, `Icon ${editedIcons.length + 1} names no Font Awesome icon; give its classes, such as fa-solid fa-star.`], JSON.stringify(icon));
     }
     assert.deepEqual((await settings()).ownIcons, editedIcons, 'nothing refused was saved');
+  });
+
+  await test('an icon\'s name is its last class that is not a style, size or utility; with none left it is refused', async () => {
+    // The list of utility classes matches the Font Awesome Free this server ships: every class its css draws that names no svg.
+    const FA = path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free');
+    const svgs = new Set(['solid', 'regular', 'brands'].flatMap((style) => fs.readdirSync(path.join(FA, 'svgs', style)).map((f) => f.slice(0, -4))));
+    const cssClasses = new Set([...fs.readFileSync(path.join(FA, 'css', 'all.css'), 'utf8').matchAll(/\.fa-([a-z0-9-]+)/g)].map((m) => m[1]));
+    const { FA_UTILITY } = require('../server/fa-solid.js');
+    const missing = [...cssClasses].filter((c) => !svgs.has(c) && !FA_UTILITY.has(c));
+    assert.deepEqual(missing, [], 'every utility class of the css is known');
+    assert.deepEqual([...FA_UTILITY].filter((c) => svgs.has(c)), [], 'and none of them is an icon');
+    const r = await call('PATCH', '/api/settings', { icons: [
+      { classes: 'fa-solid fa-dragon fa-spin' }, { classes: 'fa-solid fa-dice fa-xl' }, { classes: 'fa-solid fa-star fa-rotate-90' },
+      { classes: 'fa-solid fa-rotate-left fa-flip-horizontal fa-2x fa-fw' }, { classes: 'fa-brands fa-xbox fa-beat-fade' },
+    ] });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json.settings.ownIcons.map((i) => [i.id, i.label]), [['dragon', 'dragon'], ['dice', 'dice'], ['star', 'star'], ['rotate-left', 'rotate left'], ['xbox', 'xbox']]);
+    for (const classes of ['fa-solid fa-spin', 'fa-solid fa-xl', 'fa-solid fa-rotate-90 fa-pulse', 'fa-brands fa-sr-only', 'fa-solid fa-stack-2x', 'fa-solid fa-layers-counter']) {
+      const bad = await call('PATCH', '/api/settings', { icons: [{ id: 'x', classes }] });
+      assert.deepEqual([bad.status, bad.json?.error], [400, 'Icon 1 names no Font Awesome icon; give its classes, such as fa-solid fa-star.'], classes);
+    }
+    assert.equal((await saveEdited()).status, 200);
+  });
+
+  await test('the soft hyphen goes too; a template reaction that repeats an environment\'s glyph shows once', async () => {
+    const r = await call('PATCH', '/api/settings', { reactions: [...editedReactions.filter((x) => x.id !== 'up'), { id: 'thumb', glyph: '\u{1F44D}­', label: 'Thu­mb' }] });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json.settings.ownReactions.at(-1), { id: 'thumb', glyph: '\u{1F44D}', label: 'Thumb' });
+    const hidden = await call('POST', '/api/environment/templates', { from: 'project', id: 'hidden', name: 'Hidden' });
+    assert.equal(hidden.status, 201, hidden.text);
+    const refused = await call('PATCH', '/api/environment/templates/hidden', { reactions: [{ id: 'up2', glyph: '\u{1F44D}​', label: 'Up' }] });
+    assert.equal(refused.status, 400, `a template glyph with a zero-width space is refused: ${refused.text}`);
+    assert.equal((await call('PATCH', '/api/environment/templates/hidden', { reactions: [{ id: 'up2', glyph: '\u{1F44D}', label: 'Up' }] })).status, 200);
+    assert.equal((await call('PATCH', '/api/settings', { template: 'hidden' })).status, 200);
+    const b = await branding();
+    assert.equal(b.reactions.filter((x) => x.glyph === '\u{1F44D}').length, 1, 'shown once');
+    assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
+    assert.equal((await call('DELETE', '/api/environment/templates/hidden')).status < 300, true);
+    assert.equal((await saveEdited()).status, 200);
   });
 
   await test('Manage reads and posts the environment\'s lists, so what a template adds never becomes the environment\'s', async () => {

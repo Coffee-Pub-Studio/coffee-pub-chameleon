@@ -585,12 +585,12 @@ function cleanTri(value) {
 }
 
 // Text an environment's reaction or icon list may hold, as a template's plain text is (server/templates.js plainText) and a
-// display name is (cleanDisplayName): control characters, text-direction marks and overrides, zero-width characters, and
+// display name is (cleanDisplayName): control characters, the soft hyphen, text-direction marks and overrides, zero-width characters, and
 // < and > are taken out, then cleanText. A glyph keeps the zero-width joiner (U+200D) and the variation selectors, which
 // emoji are built from (the built-in Mushroom, Wizard, Mrs. Claus); a label keeps neither.
-const UNSAFE_LIST_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f؜​‌‎‏‪-‮⁠-⁤⁦-⁩﻿<>]/g;
+const UNSAFE_LIST_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200c\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff<>]/g;
 const cleanGlyph = (value) => cleanText(String(value ?? '').replace(UNSAFE_LIST_TEXT, ''), 8);
-const cleanListLabel = (value) => cleanText(String(value ?? '').replace(UNSAFE_LIST_TEXT, '').replace(/[‍︀-️]/g, ''), 40);
+const cleanListLabel = (value) => cleanText(String(value ?? '').replace(UNSAFE_LIST_TEXT, '').replace(/[\u200d\ufe00-\ufe0f]/g, ''), 40);
 const cleanListId = (value, max) => (typeof value === 'string' ? value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, max) : '');
 // A made-up id: `base` when free, else `base-<random>`, else a random one; never one already taken (`taken`).
 function freeId(base, taken, max, fallback) {
@@ -625,11 +625,11 @@ function cleanReactions(value) {
   return out;
 }
 
-// The Font Awesome name an icon's classes draw (fa-dragon), or null when they name none (only a style or a size).
-const FA_MODIFIER = /^fa-(solid|regular|brands|light|thin|duotone|sharp|fw|lg|xs|sm|2x|3x)$/;
+// The Font Awesome name an icon's classes draw (fa-dragon), or null when they name none: only styles, sizes, animations
+// and the other utility classes (server/fa-solid.js FA_UTILITY), as "fa-solid fa-spin" does.
 function iconName(classes) {
   const tokens = String(classes || '').split(/\s+/).filter((t) => /^fa-[a-z0-9-]+$/.test(t)).slice(0, 8);
-  return tokens.filter((t) => !FA_MODIFIER.test(t)).pop() || null;
+  return tokens.filter((t) => !isIconUtility(t.slice(3))).pop() || null;
 }
 
 // The Font Awesome icons an admin has picked: { id, classes, label }. Only fa-* class names survive, so whatever was
@@ -680,7 +680,7 @@ function ownReactions(value) {
 // then its home icon and its modules' icons, so the owner's pickers offer what the template uses while it is read.
 // server/templates.js takes only Font Awesome Free solid ones; the shape is checked again here all the same.
 // Font Awesome Free's solid icons (server/fa-solid.js): what an icon in use must be to be published.
-const { isSolidIcon } = require('./fa-solid');
+const { isSolidIcon, isIconUtility } = require('./fa-solid');
 const MAX_IN_USE_ICONS = 200;
 
 function templateIconIds(template) {
