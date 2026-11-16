@@ -8740,8 +8740,8 @@ objectSync.configure({
   write(moduleId, scopeKey, key, value, by, asker) {
     moduleData.put(moduleId, scopeKey, key, value, { by, asker });
   },
-  remove(moduleId, scopeKey, key, by) {
-    moduleData.remove(moduleId, scopeKey, key, { by });
+  remove(moduleId, scopeKey, key, by, asker) {
+    moduleData.remove(moduleId, scopeKey, key, { by, asker });
   },
   dropLinks(ref) {
     moduleLinks.drop(ref);
@@ -9453,20 +9453,24 @@ const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action,
 // Returns the asker's key, or '' when there is nothing to name (no `for`, or the carrier asked it themselves).
 const NOT_YOURS = 'That request is not yours to carry out.';
 const NOT_ASKER = 'That is not the person who asked.';
-function carriedFor(who, moduleId, given, requestId) {
+// `writeScope` is where the write lands (a data route's scope key): the request must be for that very place, so a claim in one
+// space names its asker nowhere else. A complete passes null (the bus already matches its place). A guest never carries one.
+function carriedFor(who, moduleId, given, requestId, writeScope = null) {
   if (given === undefined || given === null || given === '') return '';
   if (typeof given !== 'string') throw refError(400, "Say who asked as a person's key.");
-  const me = who.user?.key || 'guest';
+  if (!who.user) throw refError(403, NOT_YOURS);
+  const me = who.user.key;
   const id = typeof requestId === 'string' && /^[1-9][0-9]{0,15}$/.test(requestId) ? Number(requestId) : Number.isSafeInteger(requestId) ? requestId : 0;
-  const request = id > 0 ? moduleBus.actionById(id) : null;
-  if (!request || request.provider !== moduleId || request.status !== 'claimed' || request.claimedBy !== me) throw refError(403, NOT_YOURS);
+  const request = id > 0 ? moduleBus.carrying(id, moduleId, me, writeScope) : null;
+  if (!request) throw refError(403, NOT_YOURS);
   if (request.by !== given) throw refError(403, NOT_ASKER);
+  if (writeScope !== null && !moduleBus.useCarry(request)) throw refError(403, NOT_YOURS);
   return request.by !== me && store.userByKey(request.by) ? request.by : '';
 }
 // The same for a data route, which answers its own way: the asker's key ('' for none), or null once it has refused.
 function carriedForWrite(ctx, res, given, requestId) {
   try {
-    return carriedFor(ctx.who, ctx.manifest.id, given, requestId);
+    return carriedFor(ctx.who, ctx.manifest.id, given, requestId, ctx.scopeKey);
   } catch (err) {
     if (!err.status) throw err;
     res.status(err.status).json({ error: err.message });
@@ -9690,7 +9694,7 @@ app.post('/api/bus/actions/claim', busRoute((who, req) => {
 }));
 app.post('/api/bus/actions/complete', busRoute((who, req) => {
   const { module: id, id: requestId, scope, space, result } = req.body || {};
-  const carrier = who.user?.key || 'guest';
+  const carrier = who.user ? who.user.key : '';
   const at = busPlace(who, String(id || ''), busScope(scope), space, 'read');
   const done = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, done)) return { ok: false };
@@ -9758,18 +9762,19 @@ function limitMessage() {
 // Who a line of the activity list names: the person (an agent with "(agent)" after its name); for a request carried out for
 // its asker (plan-agent-access.md, decision 9), the asker and whose page carried it out: "Claude (agent), carried out by
 // Thomas's page".
-function activityByName(a) {
+function activityNames(a) {
   const named = (key) => {
     const u = store.userByKey(key);
     return u ? `${u.displayName}${u.agent ? ' (agent)' : ''}` : key === 'guest' ? word('guest', { a: true }) : key;
   };
-  const who = named(a.by);
-  const carrier = a.carriedBy ? store.userByKey(a.carriedBy)?.displayName || named(a.carriedBy) : '';
-  return carrier ? `${who}, carried out by ${carrier}'s page` : who;
+  const askerName = named(a.by);
+  const carrierName = a.carriedBy ? store.userByKey(a.carriedBy)?.displayName || named(a.carriedBy) : '';
+  // `askerAgent` comes from the account's agent flag, never from what a name says; the names are plain text for a page to escape.
+  return { askerName, askerAgent: Boolean(store.userByKey(a.by)?.agent), ...(carrierName ? { carrierName } : {}), byName: carrierName ? `${askerName}, carried out by ${carrierName}'s page` : askerName };
 }
 app.get('/api/modules/activity', requireOwner, (_req, res) => {
   res.json({
-    activity: moduleActivity.slice(-100).reverse().map((a) => ({ ...a, moduleName: store.moduleDisplay(a.module).name || modules.enabled(a.module)?.manifest.name || a.module, byName: activityByName(a) })),
+    activity: moduleActivity.slice(-100).reverse().map((a) => ({ ...a, moduleName: store.moduleDisplay(a.module).name || modules.enabled(a.module)?.manifest.name || a.module, ...activityNames(a) })),
   });
 });
 

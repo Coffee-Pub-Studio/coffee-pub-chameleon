@@ -26,6 +26,8 @@ const LIMITS = {
   openOnlyMs: 60 * 1000,
   // How long after a request finished the person who asked can still read how it went (GET /api/spaces/:id/action/:id).
   resultMs: 10 * 60 * 1000,
+  // How many data writes one claim may name its asker on (plan-agent-access.md, decision 9): a request is a few writes.
+  carriedWrites: 20,
 };
 
 // Whether a request with a time limit (`expiresAt`) has passed it without being carried out: no page may take it now. A
@@ -158,13 +160,31 @@ class ModuleBus extends EventEmitter {
     return a;
   }
 
+  // The request `by` holds right now, for a write that names its asker: this module's, still claimed by `by`, within the
+  // claim's minute and not past its time limit, and (for a write at `writeScope`) only where the request itself is: its
+  // object's space when it names one, else the place it waits in. null otherwise. The rule lives here, with the claim.
+  carrying(id, provider, by, writeScope) {
+    const a = this.actionById(id);
+    const now = Date.now();
+    if (!a || a.provider !== provider || a.status !== 'claimed' || !by || a.claimedBy !== by || expired(a, now) || now - a.claimedAt > LIMITS.claimMs) return null;
+    if (writeScope !== null && writeScope !== undefined && writeScope !== (a.space ? `space:${a.space}` : a.scopeKey)) return null;
+    return a;
+  }
+
+  // One more carried write on a claim; false once it has had its share (LIMITS.carriedWrites).
+  useCarry(a) {
+    if ((a.carried || 0) >= LIMITS.carriedWrites) return false;
+    a.carried = (a.carried || 0) + 1;
+    return true;
+  }
+
   complete(id, provider, scopeKey, result, by) {
     const a = this.actionById(id);
     // Past its time limit, only a page that claimed it in time (and is within the claim's minute) may finish it.
     if (!a || a.provider !== provider || a.scopeKey !== scopeKey || a.status === 'done' || expired(a, Date.now())) return null;
     a.status = 'done';
     a.doneAt = Date.now();
-    a.doneBy = by || '';
+    a.doneBy = by && a.claimedBy === by ? by : '';
     a.result = result;
     this.save();
     this.emit('actionDone', a);

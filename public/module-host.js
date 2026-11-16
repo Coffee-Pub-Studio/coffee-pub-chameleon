@@ -1509,7 +1509,9 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
   // server's records name the asker (plan-agent-access.md, decision 9). The server believes it only for a request this
   // person's page really holds, and it changes nothing about what they may write.
   let carrying = null;
-  const carriedFor = () => (carrying ? { for: carrying.byKey, request: carrying.id } : {});
+  // Only for the claim's own minute (the server's window): a slower handler then writes as the person, not refused.
+  const CARRY_MS = 55 * 1000;
+  const carriedFor = () => (carrying && Date.now() - carrying.at < CARRY_MS ? { for: carrying.byKey, request: carrying.id } : {});
   const handlers = {
     async hello() {
       // Every new page in the frame says hello first, and its SDK makes no live call before the answer: a hello after the
@@ -1716,11 +1718,11 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     async 'actions.claim'({ id }) {
       const out = await api('POST', `/api/bus/actions/claim${busGuest()}`, { module: module.id, id, ...busPlaceBody() });
       // A request someone else asked for: this module's writes while it is carried out name the asker (the server checks it).
-      carrying = out && out.ok && out.action && out.action.byKey ? { id: out.action.id, byKey: out.action.byKey } : null;
+      carrying = out && out.ok && out.action && out.action.byKey ? { id: out.action.id, byKey: out.action.byKey, at: Date.now() } : null;
       return out;
     },
     async 'actions.complete'({ id, result }) {
-      const asker = carrying && carrying.id === id ? carrying.byKey : null;
+      const asker = carrying && carrying.id === id && Date.now() - carrying.at < CARRY_MS ? carrying.byKey : null;
       if (carrying && carrying.id === id) carrying = null;
       return api('POST', `/api/bus/actions/complete${busGuest()}`, { module: module.id, id, result, ...(asker ? { for: asker } : {}), ...busPlaceBody() });
     },

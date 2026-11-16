@@ -273,10 +273,85 @@ try {
     assert.equal(gone.carriedBy, adminKey);
   });
 
-  await test('the stored activity keeps the asker and carrier across a restart', async () => {
+  await test('a claim names its asker only where the request is: not in another space, not at the environment', async () => {
+    const R = await askByAgent(w, 'Place check');
+    ok(await claim(w, admin, R), 'claim');
+    const before = await planKeys(w);
+    // The agent is not in `other`; the owner can write there, but the claim is for Camp.
+    const elsewhere = await call(server, 'PUT', `/api/modules/schedule/data/plan%3Aq1?scope=space&space=${w.other}`, { cookie: admin, body: { value: plan('q1'), for: w.agent.key, request: R } });
+    refused(elsewhere, 403, NOT_YOURS, 'a write in another space');
+    const env = await call(server, 'PUT', '/api/modules/schedule/data/plan%3Aq2?scope=environment', { cookie: admin, body: { value: plan('q2'), for: w.agent.key, request: R } });
+    assert.equal(env.status, 403, `at the environment: ${env.text.slice(0, 200)}`);
+    refused(await call(server, 'DELETE', `/api/modules/schedule/data/plan%3Aq1?scope=space&space=${w.other}&for=${w.agent.key}&request=${R}`, { cookie: admin }), 403, NOT_YOURS, 'a delete in another space');
+    assert.deepEqual(await planKeys(w), before);
+    const copies = await call(server, 'GET', `/api/modules/calendar/data?scope=space&space=${w.other}`, { cookie: admin });
+    assert.ok(!copies.json.items.some((i) => i.value.by === 'Claude'), 'no copy there names the agent');
+    ok(await complete(w, admin, R, { for: w.agent.key }), 'finished where it was asked');
+  });
+
+  await test('a claim carries its asker for a few writes only (20), then refuses', async () => {
+    const R = await askByAgent(w, 'Cap check');
+    ok(await claim(w, admin, R), 'claim');
+    for (let i = 0; i < 20; i += 1) ok(await putPlan(w, admin, `plan:cap${i}`, plan(`cap ${i}`), { for: w.agent.key, request: R }), `write ${i + 1}`);
+    refused(await putPlan(w, admin, 'plan:cap20', plan('cap 20'), { for: w.agent.key, request: R }), 403, NOT_YOURS, 'the 21st');
+    assert.ok(!(await planKeys(w)).includes('plan:cap20'));
+    ok(await complete(w, admin, R, { for: w.agent.key }), 'complete still names the asker');
+  });
+
+  await test('a carried delete of a dated object names the asker on the copy\'s removal too', async () => {
+    const R = await askByAgent(w, 'Delete check');
+    ok(await claim(w, admin, R), 'claim');
+    ok(await putPlan(w, admin, 'plan:d1', plan('Delete me'), { for: w.agent.key, request: R }), 'write');
+    const list = await call(server, 'GET', `/api/modules/calendar/data?${q(w)}`, { cookie: admin });
+    const copyKey = list.json.items.find((i) => i.value.title === 'Delete me').key;
+    ok(await delPlan(w, admin, 'plan:d1', `&for=${w.agent.key}&request=${R}`), 'delete');
+    const line = (await activity(w)).find((l) => l.what === `deleted ${copyKey}`);
+    assert.ok(line, 'the copy\'s removal is in the list');
+    assert.equal(line.askerName, 'Claude (agent)');
+    assert.equal(line.carriedBy, adminKey);
+    ok(await complete(w, admin, R, { for: w.agent.key }), 'complete');
+  });
+
+  await test('a complete by someone who did not claim the request leaves no carrier and no "carried out" line', async () => {
+    const R = await askByAgent(w, 'Complete check');
+    ok(await claim(w, admin, R), 'the owner claims');
+    const done = await complete(w, w.miaCookie, R);
+    ok(done, 'Mia finishes it (as before)');
+    const stored = busFile(single).actions.find((a) => a.id === R);
+    assert.equal(stored.doneBy, '', 'no carrier is recorded');
+    assert.ok(!(await activity(w)).some((l) => l.what === 'carried out addMilestone' && l.carriedBy === w.mia.key), 'no line naming her page');
+  });
+
+  await test('the activity list gives the names apart, and "(agent)" only from the account\'s agent flag', async () => {
+    const lines = await activity(w);
+    const saved = lines.find((l) => l.what === 'saved plan:p1');
+    assert.equal(saved.askerName, 'Claude (agent)');
+    assert.equal(saved.askerAgent, true);
+    assert.equal(saved.carrierName, adminName);
+    const hers = lines.find((l) => l.what === 'saved plan:m1');
+    assert.equal(hers.askerAgent, false);
+    assert.equal(hers.carrierName, undefined);
+    // A person who names herself "Claude (agent)" is not an agent.
+    ok(await call(server, 'PATCH', `/api/users/${w.ben.key}`, { cookie: admin, body: { displayName: 'Claude (agent)' } }), 'a lookalike name');
+    const now = await activity(w);
+    assert.ok(now.every((l) => l.askerAgent === (l.by === w.agent.key)), 'the flag is the account\'s');
+  });
+
+  await test('a claim older than its minute names no asker (aged on disk, across a restart); a complete still works', async () => {
+    const R = await askByAgent(w, 'Aged claim');
+    ok(await claim(w, admin, R), 'claim');
     await server.stop();
+    const file = path.join(single, 'modules', 'bus.json');
+    const bus = JSON.parse(fs.readFileSync(file, 'utf8'));
+    bus.actions.find((a) => a.id === R).claimedAt -= 120000;
+    fs.writeFileSync(file, JSON.stringify(bus));
     server = await startServer(single, { ADMIN_PASSWORD: 'admin-password-1', AGENT_TOKENS: 'true' });
     const cookie = await signIn(server, 'admin', 'admin-password-1');
+    const w2 = { ...w, server };
+    refused(await putPlan(w2, cookie, 'plan:old1', plan('old'), { for: w.agent.key, request: R }), 403, NOT_YOURS, 'a write past the minute');
+    refused(await complete(w2, cookie, R, { for: w.agent.key }), 403, NOT_YOURS, 'a complete naming the asker past the minute');
+    ok(await putPlan(w2, cookie, 'plan:old2', plan('old2'), {}), 'a write with no `for` is the carrier\'s as before');
+    // The stored activity kept the asker and carrier across the restart.
     const lines = (await call(server, 'GET', '/api/modules/activity', { cookie })).json.activity;
     const saved = lines.find((l) => l.what === 'saved plan:p1');
     assert.equal(saved.byName, `Claude (agent), carried out by ${adminName}'s page`);
