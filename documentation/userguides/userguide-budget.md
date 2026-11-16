@@ -71,7 +71,7 @@ so it stays current only while someone opens Budget now and then. In a space wit
 ## Costs from other modules
 
 Budget also lists the costs that other modules hold in the same space. Today that is the Planner's bookings that have a
-**Cost**: a hotel, a flight, a dinner. They appear in **Costs** among your own, marked **From Planner** (the module's
+**Cost**: a hotel, a flight, a dinner. They appear in **Costs** among your own, marked **From Planner - Itinerary** (the module's
 name as your environment shows it), and you cannot change them here.
 
 - **Open in <module>.** Open the row, or its menu, and choose **Open in <module>** to go to the booking and change it

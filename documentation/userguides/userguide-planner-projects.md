@@ -2,7 +2,7 @@
 
 **Audience:** a member planning a project with the Planner - Projects module on a Coffee Pub Chameleon server, and an owner setting it up.
 
-Planner - Projects (module id `schedule`; the Schedule outline) plans one project for a space: **milestones**, the **work** that gets there with who does it and when, **notes**, and what **waits on** what. It is one of three planners; the others are the day-by-day [Planner](userguide-planner.md) and [Planner - Goals](userguide-planner-goals.md). A space has the planner its template lists: the Project template lists this one and shows it as **Project plan**, and the Games template shows it as **Campaign**, with its milestones read as sessions, its work as scenes and its tags as story threads. Under the Default template it is there too, with every other module. Which words you see below are the template's; the defaults are written here.
+Planner - Projects (module id `schedule`; the Schedule outline) plans one project for a space: **milestones**, the **work** that gets there with who does it and when, **notes**, and what **waits on** what. It is one of three planners; the others are the day-by-day [Planner - Itinerary](userguide-planner.md) and [Planner - Goals](userguide-planner-goals.md). A space has the planner its template lists: the Project template lists this one and shows it as **Project plan**, and the Games template shows it as **Campaign**, with its milestones read as sessions, its work as scenes and its tags as story threads. Under the Default template it is there too, with every other module. Which words you see below are the template's; the defaults are written here.
 
 Who can: anyone who may **See the plan** (members, guests and moderators by default) sees it; **Add and change the plan** (members and moderators by default) adds and changes; **Clear the whole plan** (moderators by default) clears it. Owners always may. An owner changes who on the Roles tab, under **Module: Planner - Projects**.
 
@@ -27,6 +27,24 @@ Who can: anyone who may **See the plan** (members, guests and moderators by defa
 
 A milestone is done when everything under it is done, or when you tick it. Work is done when you tick it. A note has no done. Each is an object like any other, so you can link a To-do task to one (it shows under the entry it links to), and see the dated ones in the Calendar. It does not take a drop of an object from another module the way the Itinerary does; link from the entry's form.
 
+## Add from Chat, or from a file
+
+**From Chat.** The kinds of a plan, **milestone**, **piece of work** and **note**, are objects like any other, so an AI answer or a pasted file can hold them and Chat can send them here. In an AI answer, **Keep** on one of these objects offers **Planner - Projects** (with the template's words, for example "Campaign"), and a message's **⋮** menu > **Send to...** lists it as "<module> as a milestone", "as a piece of work" or "as a note". The AI writes them when this planner is on in the space; each carries its own title, its words (kept as the entry's notes, cut at 2000 characters), and, if it has them:
+
+- its days: a milestone's day, a piece of work's first and last day (days from 1900 to 2200; a time after a day is dropped). With **Dates are needed** on, a milestone without a day or work without a start and end is refused with a sentence.
+- **under**, the title of the milestone it sits under: it is matched to a milestone already in the plan (or kept earlier from the same answer), ignoring case and spaces; if two have that title the later one is used, and a title that matches nothing, or its own, puts the entry at the top of the plan. Only a milestone holds entries: a title that names work or a note puts the entry at the top.
+- **phase**, the phase's name (or its id), matched to the template's phases ignoring case; one that matches none is left out.
+- **done**: a milestone becomes ticked, a piece of work becomes done.
+
+**From a file.** The menu at the right of the title bar, **Export and import** (the **...** button), has:
+
+- **Export as JSON** saves the whole plan as a file named for the day. It is dimmed ("Nothing yet") with an empty plan.
+- **Check file** reads a file the way Import does and writes nothing. It says "This file is good: it would add N entries" with what they are (for example "2 milestones, 5 pieces of work and 1 note"), or "This file has a problem" (or "N problems") and lists them, the first and up to five more, one for each entry, so a file can be fixed in one round.
+- **Import JSON: add to the plan** asks "Add <what> to the plan?" and adds the file's entries after what is there; the plan as it is stays, and every entry gets a new id.
+- **Import JSON: replace the plan** (in red) asks "Replace the plan?", says how many entries come off and what goes in, and takes everything out first. Choose **Replace the plan** to go on.
+
+Check file and the two imports need the right to **Add and change the plan**; replacing also needs **Clear the whole plan**. A file is read whole and checked before anything is written: if anything is wrong, nothing is imported and the first problem is said in one sentence. A file is at most 1 MB and 500 entries, and a plan holds at most 1000 (Add refuses a file that would go past that). After an import the page shows what was done with an **Undo** for 30 seconds, which takes away what the import added and brings back what it replaced; if someone else changed the plan meanwhile, nothing is imported and it says to try again. The file's fields, the rules and a complete example are in `FORMAT.md` in the module's source (`modules/schedule/src/`); `project-plan.schema.json` beside it is a JSON Schema (draft 2020-12) that any validator can check a file against before you bring it in, and a person or an AI can write a file by hand to it.
+
 ## The two views
 
 - **Timeline.** Weeks across, work as bars, milestones as marks, and a line from an entry to what it waits on while **Waits on** is on. Entries with no day are listed under it in **Not scheduled** (an entry outside the weeks drawn, which run for at most two years, is listed under **Not on the Timeline**). It scrolls sideways inside its own frame.
@@ -36,7 +54,7 @@ Under a template that measures its phases by goals, a phase is done when every e
 
 ## Where else it shows
 
-It has no widget on Home. A dated entry shows in the Calendar. A milestone or a piece of work that names a phase counts toward that phase when the template measures phases by goals. A person adding through Chat's `/ai`, or another module's **Add to** menu, adds a milestone, work or a note, by the action chosen; the AI Assistant can do the same.
+It has no widget on Home. A dated entry shows in the Calendar. A milestone or a piece of work that names a phase counts toward that phase when the template measures phases by goals. A person adding through Chat's `/ai`, or another module's **Add to** menu, adds a milestone, work or a note, by the action chosen (see "Add from Chat, or from a file"); the AI Assistant can do the same.
 
 ## Who sees what
 
