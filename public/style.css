@@ -6772,7 +6772,7 @@ body.chat-window {
 .tp-list { min-width: 0; }
 .tp-list[inert] { opacity: .6; }
 .tp-list .list-setting > .hint { display: none; } /* the setting's own name is on the row above */
-.tp-label-group h4 { display: flex; align-items: center; gap: 6px; }
+.tp-label-group h4 { display: flex; align-items: center; gap: var(--space-2); }
 #tab-template .tp-module-labels .tp-label-group { margin-top: 8px; }
 /* A module setting a template drives or seeds, wherever the form is drawn (Manage > Modules, Set up, Profile). */
 .module-setting .setting-mark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 0 0; }
