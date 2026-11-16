@@ -44,6 +44,16 @@ const cleanText = (text, max = Infinity) => String(text ?? '').replace(/\p{Cc}/g
 const cleanWho = (who) => String(who || '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 40) || 'someone';
 const isPrivate = (m) => m.visibility === 'private';
 const isAi = (m) => m.kind === 'ai' || m.command === 'ai';
+// An account's key, as a message's `by` holds it (a guest's is the shared `guest`, which no account ever has).
+const ACCOUNT_KEY_RE = /^[a-z0-9]{4,16}$/;
+const byAccount = (m) => typeof m.by === 'string' && m.by !== 'guest' && ACCOUNT_KEY_RE.test(m.by);
+// Whether a message reads as an agent's (plan-agent-access.md, step 5): an ordinary public message by an account, never a
+// guest's. `account` is its author's account when it is still here (store.userByKey), which says; once it is gone, the
+// flag kept when it was posted says. One rule for the chat routes and the AI's context.
+function postedByAgent(m, account) {
+  if (!m || typeof m !== 'object' || m.kind || isPrivate(m) || !byAccount(m)) return false;
+  return account ? account.agent === true : m.agent === true;
+}
 const copy = (m) => ({
   ...m,
   ...(Array.isArray(m.summaries) ? { summaries: m.summaries.map((s) => ({ ...s })) } : {}),
@@ -92,7 +102,7 @@ class ChatHistory {
       const theirs = [];
       for (const m of Array.isArray(pub[spaceId]) ? pub[spaceId] : []) {
         if (!m || typeof m !== 'object') continue;
-        if ('agent' in m && (m.agent !== true || m.kind || isPrivate(m))) delete m.agent; // only ever `true`, on an ordinary public message
+        if ('agent' in m && !postedByAgent(m, null)) delete m.agent; // only ever `true`, on an account's ordinary public message
         if (privateIds.has(m.id)) { split = true; continue; } // in both: a change cut short; private wins
         if (isPrivate(m)) { split = true; mine.push(m); privateIds.add(m.id); continue; }
         theirs.push(m);
@@ -450,4 +460,4 @@ class ChatHistory {
   }
 }
 
-module.exports = { ChatHistory, cleanChatText: cleanText, CHAT_LIMITS: { MAX_PUBLIC, MAX_PRIVATE, MAX_AGE_MS, MAX_TEXT, MAX_AI_TEXT, MAX_SUMMARIES, MAX_PER_SPACE: MAX_PUBLIC } };
+module.exports = { ChatHistory, cleanChatText: cleanText, postedByAgent, CHAT_LIMITS: { MAX_PUBLIC, MAX_PRIVATE, MAX_AGE_MS, MAX_TEXT, MAX_AI_TEXT, MAX_SUMMARIES, MAX_PER_SPACE: MAX_PUBLIC } };

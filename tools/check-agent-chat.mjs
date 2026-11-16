@@ -264,21 +264,22 @@ try {
   });
 
   await test('the log: a post keeps its message id, a read the number it carried, never any text', async () => {
-    const before = logLines(single, agent.key).length;
     const r = await call(server, 'POST', chat(), { ...A, body: { text: 'Secret words 7731' } });
     ok(r, 'a post');
     const read = await call(server, 'GET', chat(), A);
     ok(read, 'a read');
-    const lines = logLines(single, agent.key).slice(before);
-    const post = lines.find((l) => l.method === 'POST');
+    // The gate writes a call's line once its answer has gone out, so a line may land just after the client has it: wait for it.
+    const post = await waitFor(() => logLines(single, agent.key).find((l) => l.method === 'POST' && l.message === r.json.message.id));
+    assert.ok(post, 'the post\'s line');
     assert.deepEqual([post.route, post.space, post.kind, post.status, post.message], ['/api/spaces/:id/chat', S1, 'write', 200, r.json.message.id]);
-    const got = lines.find((l) => l.method === 'GET');
+    const got = await waitFor(() => { const all = logLines(single, agent.key); return all.slice(all.findIndex((l) => l.message === r.json.message.id) + 1).find((l) => l.method === 'GET' && l.route === '/api/spaces/:id/chat'); });
+    assert.ok(got, 'the read\'s line');
     assert.deepEqual([got.route, got.space, got.kind, got.status, got.message], ['/api/spaces/:id/chat', S1, 'read', 200, read.json.messages.length]);
-    const refusedLine = logLines(single, agent.key).find((l) => l.method === 'POST' && l.status === 403);
+    const refusedLine = await waitFor(() => logLines(single, agent.key).find((l) => l.method === 'POST' && l.status === 403));
     assert.ok(refusedLine && refusedLine.message === null && refusedLine.kind === 'write', 'the refused post is a write with no message');
     const text = allLogText(single);
     for (const words of ['Secret words 7731', 'Milestone added', 'Pack the tent', 'zzzzzzzz']) assert.ok(!text.includes(words), `no text in the log (${words})`);
-    const page = (await call(server, 'GET', `/api/users/${agent.key}/agent-log`, { cookie: admin })).json.entries;
+    const page = (await call(server, 'GET', `/api/users/${agent.key}/agent-log`, { cookie: admin })).json.entries; // both lines are on disk by now
     assert.ok(page.some((e) => e.message === r.json.message.id) && page.some((e) => e.message === read.json.messages.length), 'the owner reads them');
   });
 
@@ -334,6 +335,19 @@ try {
     assert.ok((await call(server, 'GET', chat(), { cookie: miaC })).json.messages.some((m) => m.id === id), 'its message is still there');
   });
 
+  await test('HEAD on the chat is a read; OPTIONS is 403; a form body is 400', async () => {
+    const m1 = (await call(server, 'GET', '/api/agent/me', A)).json.limits;
+    const head = await call(server, 'HEAD', chat(), A);
+    assert.equal(head.status, 200, 'HEAD answers as GET');
+    const m2 = (await call(server, 'GET', '/api/agent/me', A)).json.limits;
+    assert.equal(m2.reads.usedToday, m1.reads.usedToday + 2, 'HEAD and the me call are reads');
+    assert.equal(m2.writes.usedToday, m1.writes.usedToday, 'no write');
+    refused(await call(server, 'OPTIONS', chat(), A), 403, CANT, 'OPTIONS');
+    refused(await call(server, 'POST', chat(), { ...A, raw: Buffer.from('text=hello'), headers: { 'content-type': 'application/x-www-form-urlencoded' } }), 400, 'An agent sends { text } as JSON.', 'a form');
+    refused(await call(server, 'POST', chat(), A), 400, 'An agent sends { text } as JSON.', 'no body');
+    assert.ok(!(await call(server, 'GET', chat(), { cookie: miaC })).json.messages.some((m) => m.text === 'hello' || m.text === 'text=hello'), 'nothing posted');
+  });
+
   await test('without chatRead a read is 403; without chat a post is 403', async () => {
     ok(await call(server, 'PATCH', '/api/roles/member', { cookie: admin, body: { chat: false } }), 'members lose chat');
     refused(await call(server, 'POST', chat(), { ...A, body: { text: 'hi' } }), 403, 'your role cannot do that', 'a post');
@@ -351,13 +365,15 @@ try {
   const goneAgent = hex12();
   const unflagged = hex12();
   const privateId = hex12();
+  const guestForged = hex12();
   {
     const t0 = Date.now() - 3600000;
     const pub = ids.map((id, i) => ({ id, at: t0 + i * 1000, by: mia.key, who: 'Mia', text: `public ${i}` }));
     pub[10] = { ...pub[10], id: forged, agent: true }; // a person's message a hand-made file calls an agent's
     pub[11] = { ...pub[11], id: goneAgent, by: 'gone1234', who: 'Old helper', agent: true }; // an agent since deleted
     pub[12] = { ...pub[12], id: unflagged, by: agent.key, who: 'Claude' }; // an agent's, its flag lost
-    ids[10] = forged; ids[11] = goneAgent; ids[12] = unflagged;
+    pub[13] = { ...pub[13], id: guestForged, by: 'guest', who: 'Visitor', agent: true }; // a guest's, which no account ever posted
+    ids[10] = forged; ids[11] = goneAgent; ids[12] = unflagged; ids[13] = guestForged;
     fs.writeFileSync(path.join(single, 'chat.json'), JSON.stringify({ spaces: { [S1]: pub }, cleared: {} }));
     fs.writeFileSync(path.join(single, 'chat-private.json'), JSON.stringify({ spaces: { [S1]: [
       { id: privateId, at: t0 + 500, by: mia.key, who: 'Mia', text: 'mia private words', visibility: 'private' },
@@ -399,6 +415,9 @@ try {
     assert.equal(all.find((m) => m.id === forged).agent, undefined, 'a person\'s message, never');
     assert.equal(all.find((m) => m.id === goneAgent).agent, true, 'a deleted agent\'s keeps its flag');
     assert.equal(all.find((m) => m.id === unflagged).agent, true, 'an agent\'s, from the account');
+    assert.equal(all.find((m) => m.id === guestForged).agent, undefined, 'a guest\'s, never');
+    const theirs = (await call(server, 'GET', chat(), A)).json.messages;
+    assert.equal(theirs.find((m) => m.id === guestForged)?.agent, undefined, 'nor in the agent\'s read');
   });
 
   await test('chatPost survives a restart; a person given chatPost in app.json does not keep it', async () => {
@@ -461,6 +480,39 @@ try {
     assert.ok(!('chatPost' in users.find((u) => u.login === 'owner')), 'not on a person');
   });
   await server.stop();
+
+  // --- the in-app AI's context: an agent's post labelled, a person's and a guest's never ------------------------------------
+  await test('the AI context shows "<name> (agent)" for an agent\'s post, never for a person\'s or a guest\'s', async () => {
+    const { ChatHistory } = require(path.join(ROOT, 'server', 'chat-history.js'));
+    const { createContextBuilder } = require(path.join(ROOT, 'server', 'ai-context.js'));
+    const dir = path.join(base, 'ai-context');
+    fs.mkdirSync(dir, { recursive: true });
+    const t0 = Date.now() - 60000;
+    fs.writeFileSync(path.join(dir, 'chat.json'), JSON.stringify({ spaces: { sp1: [
+      { id: hex12(), at: t0, by: 'agnt1234', who: 'Claude', text: 'agent words', agent: true },
+      { id: hex12(), at: t0 + 1, by: 'prsn1234', who: 'Claude', text: 'person words', agent: true },
+      { id: hex12(), at: t0 + 2, by: 'guest', who: 'Visitor', text: 'guest words', agent: true },
+      { id: hex12(), at: t0 + 3, by: 'gone1234', who: 'Old helper', text: 'gone agent words', agent: true },
+      { id: hex12(), at: t0 + 4, by: 'agnt1234', who: 'Claude', text: 'unflagged agent words' },
+    ] }, cleared: {} }));
+    const history = new ChatHistory(dir);
+    assert.deepEqual(history.list('sp1').map((m) => m.agent), [true, true, undefined, true, undefined], 'the stored flag is dropped on load from a guest\'s message only');
+    const accounts = { agnt1234: { key: 'agnt1234', agent: true }, prsn1234: { key: 'prsn1234' } };
+    const builder = createContextBuilder({
+      store: { userByKey: (k) => accounts[k] || null }, chatHistory: history, moduleLinks: { from: () => [], to: () => [] },
+      policy: { sees: () => ({ chat: true }), secrets: () => [], redact: (t) => t, admit: () => ({ ok: false }) },
+      word: (w) => w, listObjects: () => [], roleWordOf: () => 'member', guestsIn: () => [], serverZone: () => 'UTC',
+      timelineOf: () => [], templatePhases: () => [], canReadChat: () => true,
+    });
+    const built = builder.build({ user: { key: 'askr1234', displayName: 'Asker' } }, { id: 'sp1', name: 'Camp', members: [], phases: [] }, {
+      template: { inputs: ['context'], budget: { total: 100000, instructions: 0, history: 1000, material: 1000 } },
+    });
+    const who = Object.fromEntries(built.context.chat.map((c) => [c.text, c.who]));
+    assert.deepEqual(who, {
+      'agent words': 'Claude (agent)', 'person words': 'Claude', 'guest words': 'Visitor',
+      'gone agent words': 'Old helper (agent)', 'unflagged agent words': 'Claude (agent)',
+    });
+  });
 } catch (err) {
   failed += 1;
   console.error(`FAIL setting up\n${err.stack || err}`);
