@@ -18,4 +18,21 @@ function isSolidIcon(id) {
   return solid.has(id);
 }
 
-module.exports = { FA_FREE_SOLID, isSolidIcon };
+// The Font Awesome classes that are not an icon: the styles (Free's and Pro's), the sizes, fixed width, lists, borders and
+// pulls, the animations, rotation and flipping, stacks and layers, and the screen-reader helpers. Free 7.3.1's own are
+// every class in its css/all.css that names no svg (tools/check-reactions-icons.mjs keeps this list matched to the
+// version installed). An icon's name is its last fa- class that is none of these (server/store.js iconName).
+const FA_UTILITY = new Set([
+  'solid', 'regular', 'brands', 'classic', 'light', 'thin', 'duotone', 'sharp', 'sharp-duotone',
+  '2xs', 'xs', 'sm', 'lg', 'xl', '2xl', '1x', '2x', '3x', '4x', '5x', '6x', '7x', '8x', '9x', '10x',
+  'fw', 'width-auto', 'width-fixed', 'ul', 'li', 'border', 'inverse', 'pull-left', 'pull-right', 'pull-start', 'pull-end',
+  'beat', 'beat-fade', 'bounce', 'fade', 'flip', 'flip-360', 'shake', 'spin', 'spin-pulse', 'spin-reverse', 'spin-snap',
+  'spin-snap-4', 'spin-snap-8', 'pulse', 'buzz', 'float', 'jello', 'swing', 'wag',
+  'rotate-90', 'rotate-180', 'rotate-270', 'rotate-by', 'flip-horizontal', 'flip-vertical', 'flip-both',
+  'stack', 'stack-1x', 'stack-2x', 'layers', 'layers-text', 'layers-counter', 'layers-top-left', 'layers-top-right',
+  'layers-bottom-left', 'layers-bottom-right', 'canvas-roomy', 'canvas-square', 'sr-only', 'sr-only-focusable', 'swap-opacity',
+]);
+// Whether the class `fa-<name>` (given as `name`) is one of those rather than an icon.
+const isIconUtility = (name) => FA_UTILITY.has(name);
+
+module.exports = { FA_FREE_SOLID, isSolidIcon, FA_UTILITY, isIconUtility };

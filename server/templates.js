@@ -132,7 +132,12 @@ const LOBBY_DESCRIPTION_MAX = 300;
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const drawable = (icon, faDir) => typeof icon === 'string' && /^[a-z0-9-]{1,40}$/.test(icon) && fs.existsSync(path.join(faDir, `${icon}.svg`));
 // Text a person reads, on one line: no control or text-direction characters and no < or >.
-const plainText = (v, max, { empty = false } = {}) => typeof v === 'string' && (empty || v.trim().length > 0) && v.length <= max && !/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069<>]/.test(v);
+// Plain text: no control characters, soft hyphen, text-direction marks or overrides, zero-width characters, < or >. A
+// reaction's glyph (`glyph`) may hold the zero-width joiner (U+200D), which emoji are built from, as an environment's
+// list keeps it (server/store.js cleanGlyph).
+const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff<>]/;
+const UNSAFE_GLYPH = /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200c\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff<>]/;
+const plainText = (v, max, { empty = false, glyph = false } = {}) => typeof v === 'string' && (empty || v.trim().length > 0) && v.length <= max && !(glyph ? UNSAFE_GLYPH : UNSAFE_TEXT).test(v);
 // What a sentence shows of a key someone typed: at most 40 characters, quoted by the caller.
 const shown = (key) => String(key).slice(0, 40);
 
@@ -356,13 +361,15 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
       raw.reactions.forEach((r, i) => {
         if (!isObject(r) || Object.keys(r).some((k) => !['id', 'glyph', 'label'].includes(k))) { say(`reactions[${i}]: a reaction takes only id, glyph and label.`); return; }
         if (typeof r.id !== 'string' || !REACTION_ID_RE.test(r.id)) say(`reactions[${i}]: an id is 1 to 24 lowercase letters, digits and dashes.`);
-        if (!plainText(r.glyph, 8)) { say(`reactions[${i}]: each reaction needs a glyph of 1 to 8 characters.`); return; }
+        if (!plainText(r.glyph, 8, { glyph: true })) { say(`reactions[${i}]: each reaction needs a glyph of 1 to 8 characters, with no hidden characters.`); return; }
         if (r.label !== undefined && !plainText(r.label, 40)) say(`reactions[${i}]: a label is plain text of 1 to 40 characters.`);
+        // Compared as the lists are joined (Store#lookOf): trimmed, nothing hidden left in it (refused above).
         const glyph = r.glyph.trim();
-        if (ids.has(r.id)) say(`reactions[${i}]: the id "${shown(r.id)}" is listed twice.`);
+        const goodId = typeof r.id === 'string' && REACTION_ID_RE.test(r.id);
+        if (goodId && ids.has(r.id)) say(`reactions[${i}]: the id "${shown(r.id)}" is listed twice.`);
         else if (glyphs.has(glyph)) say(`reactions[${i}]: ${glyph} is listed twice.`);
         glyphs.add(glyph);
-        ids.add(r.id);
+        if (goodId) ids.add(r.id);
       });
     }
   }
