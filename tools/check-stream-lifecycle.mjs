@@ -11,6 +11,10 @@
  *   - at that pageshow none of its streams is open (all closed at pagehide), and after it each is open again exactly once,
  *     the same count as the page's first load; at no time are more open than that count;
  *   - after six page hops in one tab, Manage > Users draws its list within 5 seconds.
+ * Before the browser part, the same pieces run in Node against a stand-in EventSource and clock: the modules' hub
+ * (createStreamHub) and the space's live stream (openLiveStream) suspend, resume, and cancel their timers. No page in the
+ * browser part mounts a module, so the hub is judged by these cases only. A lint: every `new EventSource(` in public/ sits
+ * in a file that also registers a `pagehide` handler.
  * Run it under the browser lock: flock /tmp/browser-checks.lock node tools/check-stream-lifecycle.mjs
  * With no Chromium it says SKIPPED (not a pass).
  */
@@ -20,6 +24,9 @@ import path from 'node:path';
 import { stopBrowser } from './browser-launch.mjs';
 import { findBrowser, launch, freePort, startServer, stopServer, Tab, sleep } from './shots.mjs';
 import { PASSWORD } from './shots-seed.mjs';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const say = (...a) => console.log('check-stream-lifecycle:', ...a);
 const failures = [];
@@ -44,7 +51,93 @@ const INIT = `(() => {
   addEventListener('pageshow', (e) => { if (e.persisted) { log.persisted = true; log.liveAtShow = log.live; log.events.push('pageshow-persisted'); } });
 })();`;
 
+// A stand-in EventSource and clock.
+function stand() {
+  const sources = [];
+  class FakeES {
+    constructor(url) { this.url = url; this.closed = false; this.l = {}; this.readyState = 1; sources.push(this); }
+    addEventListener(t, fn) { (this.l[t] ||= []).push(fn); }
+    close() { this.closed = true; this.readyState = 2; }
+    fire(t, data) { for (const fn of this.l[t] || []) fn({ data: data === undefined ? '' : JSON.stringify(data), lastEventId: '' }); }
+  }
+  const timers = new Map(); let n = 0;
+  const schedule = (fn, ms) => { n += 1; timers.set(n, fn); return n; };
+  const cancel = (t) => { timers.delete(t); };
+  const run = () => { for (const [id, fn] of [...timers]) { timers.delete(id); fn(); } };
+  return { sources, FakeES, schedule, cancel, run, timers, open: () => sources.filter((x) => !x.closed) };
+}
+
+async function units() {
+  const { createStreamHub } = await import(pathToFileURL(path.join(root, 'public', 'module-stream.js')).href);
+  const { openLiveStream } = await import(pathToFileURL(path.join(root, 'public', 'space-live.js')).href);
+  // The hub.
+  {
+    const t = stand();
+    const hub = createStreamHub({ EventSourceImpl: t.FakeES, schedule: t.schedule, cancel: t.cancel });
+    const heard = [];
+    hub.join('sp1', null, (type) => heard.push(type));
+    t.run();
+    expect(hub.connections().length === 1, `hub: a join opens one connection (${hub.connections().length})`);
+    const es = t.open()[0];
+    es.fire('open'); es.fire('ready', { stream: 'st1' });
+    hub.suspend();
+    expect(hub.connections().length === 0 && t.open().length === 0, 'hub: suspend closes every connection');
+    expect(!heard.includes('lost'), 'hub: no `lost` is sent at suspend (a module\'s own pagehide still needs its stream id)');
+    hub.join('sp2', null, () => {});
+    t.run();
+    expect(t.open().length === 0, 'hub: a join while suspended opens nothing');
+    hub.resume();
+    expect(heard.filter((x) => x === 'lost').length === 1, `hub: resume sends \`lost\` once to the space that had a ready (${heard.filter((x) => x === 'lost').length})`);
+    t.run();
+    expect(t.open().length === hub.connections().length && t.open().length >= 1, `hub: resume reopens (${t.open().length} open)`);
+    const after = t.sources.length;
+    hub.resume(); t.run();
+    expect(t.sources.length === after && heard.filter((x) => x === 'lost').length === 1, 'hub: a second resume does nothing');
+  }
+  // The live stream.
+  {
+    const t = stand();
+    const s = openLiveStream({ url: '/x', EventSourceImpl: t.FakeES, schedule: t.schedule, cancel: t.cancel, probe: async () => 0 });
+    expect(t.open().length === 1, 'live: opens one source');
+    s.suspend();
+    expect(t.open().length === 0, 'live: suspend closes it');
+    s.resume();
+    expect(t.open().length === 1, 'live: resume opens one');
+    s.resume();
+    expect(t.open().length === 1, 'live: a second resume does nothing');
+    // A pending retry is cancelled by suspend.
+    t.open()[0].fire('error');
+    await sleep(5);
+    expect(t.timers.size === 1, `live: a drop schedules one retry (${t.timers.size})`);
+    s.suspend();
+    expect(t.timers.size === 0, 'live: suspend cancels a pending retry');
+    s.close();
+    s.resume();
+    expect(t.open().length === 0, 'live: resume after close opens nothing');
+  }
+  // A probe in flight across suspend and resume must not open a second source.
+  {
+    const t = stand();
+    let answer;
+    const s = openLiveStream({ url: '/x', EventSourceImpl: t.FakeES, schedule: t.schedule, cancel: t.cancel, probe: () => new Promise((r) => { answer = r; }) });
+    t.open()[0].fire('error'); // never opened: the probe is asked
+    await sleep(5);
+    s.suspend(); s.resume();
+    answer(0); await sleep(5);
+    t.run();
+    expect(t.open().length === 1, `live: a probe answered after suspend and resume leaves ${t.open().length} source(s) open, expected 1 (${t.sources.length} made)`);
+    s.close();
+  }
+  // Lint: a file that opens an EventSource also closes it as the page goes.
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === 'lib' || e.name === 'node_modules' ? [] : walk(path.join(d, e.name))) : e.name.endsWith('.js') ? [path.join(d, e.name)] : []));
+  for (const f of walk(path.join(root, 'public'))) {
+    const src = fs.readFileSync(f, 'utf8');
+    if (/new EventSource\(/.test(src) && !/['"]pagehide['"]/.test(src)) failures.push(`lint: ${path.relative(root, f)} opens an EventSource and has no pagehide handler`);
+  }
+}
+
 async function main() {
+  await units();
   const real = findBrowser();
   if (!real) { say('SKIPPED. No Chromium found (set CHROME_PATH). This is not a pass; nothing was measured.'); return 0; }
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stream-life-data-'));

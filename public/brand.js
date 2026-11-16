@@ -1393,14 +1393,7 @@ async function startNotifications() {
   window.addEventListener('pageshow', async (e) => {
     if (!e.persisted || source) return;
     connect();
-    try {
-      const res = await fetch('/api/notifications');
-      if (!res.ok) return;
-      Object.assign(unreadByModule, (await res.json()).byModule);
-      paintUnread();
-    } catch {
-      // the next notice counts again
-    }
+    refreshNotices(); // counts read elsewhere meanwhile drop to zero
   });
 }
 

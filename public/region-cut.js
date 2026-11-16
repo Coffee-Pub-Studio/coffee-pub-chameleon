@@ -166,8 +166,10 @@ export function wireRegionCut({ base, onDone, sourceHint = 'the world map addres
     }
   });
 
+  let running = null; // { jobId, name } while a cut is being followed
   function follow(jobId, name) {
     if (source) source.close();
+    running = { jobId, name };
     source = new EventSource(`${base}/${encodeURIComponent(jobId)}/stream`);
     source.addEventListener('progress', (ev) => {
       let data = {};
@@ -178,6 +180,7 @@ export function wireRegionCut({ base, onDone, sourceHint = 'the world map addres
     source.addEventListener('done', async () => {
       source.close();
       source = null;
+      running = null;
       progressBar.value = 100;
       progressMessage.textContent = 'Done.';
       if (onDone) await onDone(name);
@@ -186,6 +189,7 @@ export function wireRegionCut({ base, onDone, sourceHint = 'the world map addres
     source.addEventListener('error', (ev) => {
       source.close();
       source = null;
+      running = null;
       let message = 'the cut failed';
       try { message = JSON.parse(ev.data).error || message; } catch (err) { /* a connection error, not a server one */ }
       progress.hidden = true;
@@ -195,4 +199,14 @@ export function wireRegionCut({ base, onDone, sourceHint = 'the world map addres
       estimateBtn.disabled = false;
     });
   }
+
+  // A page kept in the back-forward cache holds no connection: the progress stream closes as the page goes, and a cut still
+  // running is followed again when the browser brings the page back.
+  window.addEventListener('pagehide', () => {
+    source?.close();
+    source = null;
+  });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && running && !source) follow(running.jobId, running.name);
+  });
 }

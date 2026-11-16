@@ -75,6 +75,7 @@ export function openLiveStream({ url, onReady = () => {}, onPresence = () => {},
   let ready = null;
   let readies = 0;
   let suspended = false;
+  let generation = 0; // suspend() moves it on: an `again` that began before it does not go on
   const stop = () => {
     stopped = true;
     ready = null;
@@ -89,12 +90,13 @@ export function openLiveStream({ url, onReady = () => {}, onPresence = () => {},
     onEnd(why);
   };
   const again = async (wasLive) => {
+    const mine = generation;
     ready = null;
     if (suspended) return;
     onState('reconnecting');
     if (!wasLive) {
       const answer = await probe(url);
-      if (stopped || suspended) return;
+      if (stopped || suspended || mine !== generation) return;
       const { status = 0, error = '' } = typeof answer === 'number' ? { status: answer } : answer || {};
       if (status === 401 || status === 403 || status === 404) return end({ reason: 'refused', status, error });
     }
@@ -142,6 +144,7 @@ export function openLiveStream({ url, onReady = () => {}, onPresence = () => {},
   const suspend = () => {
     if (stopped || suspended) return;
     suspended = true;
+    generation += 1;
     ready = null;
     if (timer !== null) cancel(timer);
     timer = null;
