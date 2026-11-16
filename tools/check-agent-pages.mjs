@@ -283,7 +283,7 @@ async function main() {
       ];
       for (const size of [1280, 390]) {
         const t = await open(size, 'dark', 'admin');
-        await t.cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/modules/activity', requestStage: 'Request' }] }, t.sid);
+        await t.cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*/api/modules/activity' }] }, t.sid);
         t.cdp.listeners.push((m) => {
           if (m.method !== 'Fetch.requestPaused' || m.sessionId !== t.sid) return;
           t.cdp.send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 200, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from(JSON.stringify({ activity: lines })).toString('base64') }, t.sid).catch(() => {});
