@@ -26,6 +26,8 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
   each player.
 - [Chameleon in OBS](userguides/userguide-obs.md) -- adding a player to OBS by hand.
 - [Manage](userguides/userguide-environment-settings.md) -- every tab of the Manage page, where an environment is set up.
+- [The welcome note](userguides/userguide-welcome-note.md) -- a short text an owner writes for people to read at their first sign-in, and how to read it again.
+- [Agents](userguides/userguide-agents.md) -- letting Claude, or another assistant, work in some spaces through a token: adding one, the token, turning it off and what it did.
 - [Creating themes](userguides/userguide-themes.md) -- the colours, light and dark, and sharing a theme as a file.
 - [Your environment](userguides/userguide-environments.md) -- an owner's view on a hosted server: the plan, the caps, a copy, leaving.
 - [Templates](userguides/userguide-templates.md) -- the shipped templates (Default, Travel, Games, Project, Learning and Mentoring), the pages, switching a template and its starter spaces, a space's own template, and making your own.
@@ -51,6 +53,8 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
 - [OBS view links](api/api-obs-view.md) -- the URL contract for a player's OBS page.
 - [Module SDK](api/api-module-sdk.md) -- writing a module: the manifest, the SDK, and the sandbox.
 - [Modules API](api/api-modules.md) -- the routes for installing, managing and running modules.
+- [Agents API](api/api-agents.md) -- what an agent's token may call, its limits, and the routes an owner uses to make and manage agents.
+- [Welcome note API](api/api-welcome-note.md) -- the routes and the text cleaner behind the welcome note.
 - [Theme and design tokens](designsystem/design-theme.md) -- the colors every page, and every
   module, must draw from.
 - [Architecture overview](architecture/architecture-overview.md) -- the pieces, the technology,
@@ -61,6 +65,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
 - [Canvas architecture](architecture/architecture-canvas.md) -- the canvas: its grid of modules, docked
   and floating, and the layout rules.
 - [Access architecture](architecture/architecture-access.md) -- who may enter a space, the agreements gate, the guest door, request access, and their routes.
+- [Agent access architecture](architecture/architecture-agent-access.md) -- agent accounts, their tokens, the route gate, the limits and log, copies and restores, and the asker carried through the bus.
 - [Documents architecture](architecture/architecture-documents.md) -- the module's stored keys, the edit lock, saving, tags and the licence rules.
 - [Whiteboard architecture](architecture/architecture-whiteboard.md) -- the module's libraries, the block format, how it saves and hears changes, undo, pictures and its checks.
 - [Module window architecture](architecture/architecture-module-window.md) -- the titlebar, toolbar and

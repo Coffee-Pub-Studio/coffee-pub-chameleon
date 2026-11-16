@@ -104,12 +104,14 @@ The limits (how many guests at once, how many new sessions from one address) are
 
 ### Terms and the beta NDA
 
-If the host has set a terms file or an NDA file, everyone sees the text after signing in (or before coming in as a guest), on a page that asks them to type their first and last name and choose **Agree**. They must agree before going further. When the text changes, everyone is asked again. Until you agree, every page sends you back to it. Who agreed, and to which version, is kept with the account; an owner's copy of an environment does not carry it, so a copy restored on another server asks again.
+If the host has set a terms file or an NDA file, everyone sees the text after signing in (or before coming in as a guest), on a page that asks them to type their first and last name and choose **Agree**. They must agree before going further. When the text changes, everyone is asked again. Until you agree, every page sends you back to it. Who agreed, and to which version, is kept with the account; an owner's copy of an environment does not carry it, so a copy restored on another server asks again. An [agent](userguide-agents.md) is not a person and is not asked; whether it should be is not decided.
 
 ## Roles and what they can do
 
 Open **Roles** on the Manage page to see a grid of checkboxes: one row per permission, and the columns
 **Owner**, **Moderator**, **Member** and **Guest**. Changes save as you click.
+
+An account can also be an **agent**, for an assistant such as Claude: it has a member's rights, can't sign in, and is never a moderator or an owner. See [Agents](userguide-agents.md).
 
 - **Owner** can do everything, and its column is locked ("Owners can always do this"). The admin can too. Owners run the
   environment: they add people, set passwords and change settings. An owner also has every permission a

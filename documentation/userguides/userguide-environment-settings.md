@@ -2,7 +2,7 @@
 
 **Audience:** an owner or the admin running a Coffee Pub Chameleon environment, working through the Manage page.
 
-Manage has four parts under **Environment** (**General**, **Localization**, **Reactions and Icons** and **Stream**). Open the Manage page with the gear button in the top bar, beside **Set up** (owners and the admin; in the narrow layout it is in the menu under your picture). It has seven tabs, in this order: **Environment**,
+Manage has five parts under **Environment** (**General**, **Localization**, **Reactions and Icons**, **Welcome note** and **Stream**). Open the Manage page with the gear button in the top bar, beside **Set up** (owners and the admin; in the narrow layout it is in the menu under your picture). It has seven tabs, in this order: **Environment**,
 **Template**, **Theme**, **Spaces**, **Roles**, **Users** and **Modules**, plus **About**. In the narrow layout the row of tabs scrolls sideways within itself, and the row of parts under **Environment**, under **Template** and on a module's page wraps onto as many lines as it needs on a phone (640 pixels or less), so every part shows. (Old addresses still work: `/admin#server` and `#settings` open Environment, `#rooms` opens Spaces, and `#words` and `#home-icon` open the Template tab at that section.) Manage's tabs are in the bar under the top bar. The pages reached from here (a person's profile, a module's configuration, the AI configuration) have **Manage** at the start of that bar, to come back. Only owners and the admin (on a hosted server, the host admin) see it; anyone else asking for it is told "Owners only."
 
 ## Environment
@@ -12,6 +12,7 @@ Manage has four parts under **Environment** (**General**, **Localization**, **Re
   it is used in the top bar's logo box (in place of the home icon), as the favicon, and on the sign-in page. Click it to change it, or paste a
   picture (see "Set a picture" in [Participant and Character Images](userguide-images.md)), and the
   small **x** over its corner to clear it.
+- **Welcome note.** A short text people see once at their first sign-in. See [The welcome note](userguide-welcome-note.md).
 - The home icon, the words and the module names belong to a template, and are on the **Template** tab's pages (below). Your own reactions and icons are on this tab's **Reactions and Icons** part (below).
 - **Call features** (on the Conference module's tab, under **Modules**). Turns screen sharing, asides, private conversations and reactions on or off for
   everyone, and sets the highest video quality anyone can pick.
@@ -45,8 +46,8 @@ On the Environment tab. **Language** is the interface language (English, until t
 
 On the **Environment** tab, **Reactions and Icons** is yours: it applies to this whole environment and every template. They come after the built-in set and before what a template adds, and a template can't take them away.
 
-- **Reactions.** The emoji tray in the call and on stream, also offered in chat. The built-in set is always there and can't be changed: 105 reactions, the first six being Heart, Black Heart, 100%, Hi, Thumbs up and Thumbs down (keys **1** to **6**). Below it is your own list: **Add reaction**, edit the emoji and label, remove, then **Save**. Reactions are switched off for everyone with **Allow reactions** under **Call features** on the Conference module's tab (**Modules**, then **Conference**), not by emptying the list.
-- **Icons.** The built-in set (113 icons) is always there. Below it, add icons you want available: paste an icon's HTML from fontawesome.com, for example `<i class="fa-solid fa-dice"></i>`, and the preview shows it, then **Save**. These are the choices offered for a space's launch link, the home icon and a module's icon. Only the Free icons that ship with Chameleon will draw, unless you have added your own Pro package (see "Font Awesome Pro" under Theme).
+- **Reactions.** The emoji tray in the call and on stream, also offered in chat. The built-in set is always there and can't be changed: 105 reactions, the first six being Heart, Black Heart, 100%, Hi, Thumbs up and Thumbs down (keys **1** to **6**). It is shown folded as **Built in (105)**; open it to see every one, read only. Below it is your own list, with "You have added none yet." while it is empty: **Add reaction**, edit the emoji and label, remove, then **Save**. If you add one that is already built in, **Save** leaves it out and says "<emoji> is already built in". Reactions are switched off for everyone with **Allow reactions** under **Call features** on the Conference module's tab (**Modules**, then **Conference**), not by emptying the list.
+- **Icons.** The built-in set is always there, folded as **Built in (113)**; open it to see every icon, read only. Below it, add icons you want available: paste an icon's HTML from fontawesome.com, for example `<i class="fa-solid fa-dice"></i>`, and the preview shows it, then **Save**. These are the choices offered for a space's launch link, the home icon and a module's icon. An icon that is already built in is left out when you save, and **Save** says so ("<icon> is already built in"; more than one: "<a>, <b> are already built in"). Only the Free icons that ship with Chameleon will draw, unless you have added your own Pro package (see "Font Awesome Pro" under Theme).
 
 A template can add reactions and icons of its own; they show on the template's **Additional Reactions and Icons** page and appear in the spaces that read it. A repeat of a built-in one is refused. What a template adds is read from the template while a space reads it, and is never copied into your own list: switch to another template and its icons leave the pickers (a space or a home page that is already using one still draws it). Saving a layout, a space or the home page with the icon it already has always works; choosing a different icon needs one that is on the list. An old link to `#reactions` or `#icons` on the Manage page opens this part.
 
@@ -60,7 +61,7 @@ The **Template** tab holds what a template gives this environment. It is a short
 - **Experience Labels.** The words people read: **Words you can change** (a space and a member; see "Words" below), the home page's name and the Lobby's name and description for the template the environment uses, then the words each module lets a template rename, one group for each module the template offers (for example **Effort** in Project's Budget; a word left blank reads the module's own), and **Words that never change**, listed so you can see them.
 - **Default Workspace.** What a new space's Workspace opens with, which Fixed Workspaces a new space shows, and which opens first. A Fixed Workspace shown here is shown for everyone; nobody can hide it.
 - **Phases.** The phases, in order, and **Measured by**: **Dates**, **Goals** or **Progress**.
-- **Additional Reactions and Icons.** Under **This template adds**, only what this template adds. Above it, **The core set** is shown read-only (the built-in reactions and icons that every template has, which nobody removes). Yours are on the Environment tab.
+- **Additional Reactions and Icons.** Under **This template adds**, only what this template adds. Above it, **The core set** is shown read-only (the built-in reactions and icons that every template has, which nobody removes). Yours are on the Environment tab, under **Reactions and Icons**, and the page's text links there.
 - **Modules** (the environment's word). One row for each module there is: whether this template offers it, **Shown as** (its name and icon), its settings the template drives or seeds (a list setting is edited as rows of a label, an icon and a colour, as on a module's own settings) and its starter content. The words a module lets a template rename are on **Experience Labels**. The three planners sit together under **Plans**. This is the template's page; **Manage > Modules** is only what is installed.
 - **Templates.** Every template you may use: the Default template and the shipped ones, each with **Open**, **Copy**, and **Export**, and your own with **Edit** and **Delete**, then **Import a file**.
 
@@ -102,6 +103,8 @@ The tab has no reactions or icons of its own: yours are under **Environment**, *
 Both are rosters: a thumbnail, a name and a link to that one thing's own page. A space's button, **Edit** with your environment's word for space (such as **Edit trip**), enters the
 space and opens its **Set up** panel; the old settings page is gone (see "Set up" in [Spaces](userguide-spaces.md)). See also
 [Accounts, roles and permissions](userguide-accounts.md).
+
+The Users tab also has the **Agents** switch and **Add an agent**, for accounts that work through a token instead of signing in; an agent's row reads "<name> (agent)" and **Open** goes to its own page. See [Agents](userguide-agents.md).
 
 ## Roles
 

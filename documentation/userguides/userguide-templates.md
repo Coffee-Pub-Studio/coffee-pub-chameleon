@@ -59,7 +59,7 @@ Manage's **Template** tab is a short page and one page for each part, with butto
 - **Experience Labels**: the words you can change (a space, a member, the home page; the Lobby's name and description), then the words each module lets a template rename, under that module's name (for example Project's **Effort**), and the words that never change, listed. A word left blank reads the module's own.
 - **Default Workspace**: what a new space's Workspace opens with, which Fixed Workspaces it shows (shown for everyone: nobody can hide one), and which opens first.
 - **Phases**: the phases and **Measured by** (**Dates**, **Goals** or **Progress**).
-- **Additional Reactions and Icons**: what the template adds after the core set. Yours, for every template, are on the **Environment** tab, under **Reactions and Icons**.
+- **Additional Reactions and Icons**: what the template adds after the core set. Its text links to yours, for every template, on the **Environment** tab under **Reactions and Icons**, where the built-in set is shown too (read only, folded as **Built in (<n>)**).
 - **Modules**: one row for each module: offered or not, **Shown as**, its settings, its starter content. A setting that is a list (such as Maps' categories or the Planner's marker types) is edited as rows of a label, an icon and a colour, as on a module's own settings; the words a module lets a template rename are on **Experience Labels**. The three planners sit together under **Plans**.
 - **Templates**: the list.
 

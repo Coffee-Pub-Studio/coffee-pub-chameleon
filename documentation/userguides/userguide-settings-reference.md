@@ -104,6 +104,14 @@ These settings are the server's, not an environment's. A value that is not a who
 | `ACCESS_REQUESTS_PENDING_GUESTS_PER_SPACE` | `20` | Guests who may be waiting to enter one space, counted apart. |
 | `ACCESS_REQUEST_DAYS` | `7` | How long a request waits before it ends. |
 
+## Agents
+
+An agent is an account for an assistant such as Claude, with a token instead of a password ([Agents](userguide-agents.md)). It is off on every server until you turn it on here.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `AGENT_TOKENS` | unset (off); a commented line in the file | `true` lets each environment's owner turn on **Agents** in Manage, then make agents and tokens. Anything else is off: no agent can be made, and a token already made answers as an unknown value. A value that is neither `true` nor `false` is off and logs a warning. Changing it needs the container recreated. |
+
 ## Other
 
 `SHARE_UNLOCKS_PER_MINUTE` (default `60`) caps how many share-link password checks an environment does a minute. It is

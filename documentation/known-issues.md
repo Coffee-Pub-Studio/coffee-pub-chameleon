@@ -84,16 +84,30 @@ Documents 0.7 to 0.11.31 ([userguide-documents](userguides/userguide-documents.m
 
 ## Checks
 
-- **`check-module-guards` fails on main** (#686): 1 of 28 cases fails, "chat's citations resolve as the reader, with or without the Assistant module": for a person who is not in the space it gets `gone` where it expects `hidden`. The cause is open. Run on a19d7d34, 2026-11-16.
-- **`check-spacing` fails on main.** `public/style.css` has 59 values of `6px` where `tools/check-spacing-allow.json` allows 56 (lines 511, 534, 548 and others). Run on a19d7d34.
-- **`check-conformance` fails on main** (#798): 3 deviations in 3 of 40 windows. The first content in the list view sits 12 px from the frame edge in Research and Budget and 16 px in Documents; the Trip templates panel on Manage's Template page (1280 pixels, light) has 16px of padding above and 24px below, and so has the About tab's **Open-source software** panel (390 pixels, dark). Run on a19d7d34.
-- **`check-destinations` fails on main** (#849): 1 of 45 cases, "travel: with no destination page yet, /calendar goes home and module pages and tiles stay their own": the widgets route answers no tiles under the Travel template and the case expects at least one. Run on a19d7d34.
-- **`check-catalog` fails on main.** It still lists `goals__addStep` as the fifth AI tool (as does `tools/golden/catalog.json`); since #885 gave that action an optional `goal` and an `object` input, it is no longer a tool, and the catalog has four.
-- **`check-buttons` fails on main**: 20 rules set `min-height` on a button, among them the new `.undo .btn` of Planner - Projects and Planner - Goals (#880).
-- **Six browser checks stop at the Budget chip.** `check-ai-page`, `check-ai-callers`, `check-phone-targets`, `check-vault-link-live`, `check-vault-module` and `check-entry-switches` fail with `button.sdk-strip-fact[data-module=budget] did not appear`. The cause was not investigated.
+These fail on `main` (`67998604`) and none was caused by the work since; a change that touches them should name the failure and move on. Read again for this entry, 2026-11-16.
+
+- **`check-module-guards` fails on main** (#686): 1 of 28 cases fails, "chat's citations resolve as the reader, with or without the Assistant module": for a person who is not in the space it gets `gone` where it expects `hidden`. The cause is open. (Run on a19d7d34, 2026-11-16; not run again.)
+- **`check-spacing` fails on main.** `public/style.css` has 59 values of `6px` where `tools/check-spacing-allow.json` allows 56 (lines 511, 534, 548 and others), and 51 of `10px` where it allows 50 (lines 526, 801, 1717). Run on 67998604.
+- **`check-conformance` fails on main** (#798): 3 deviations in 3 of 40 windows. The first content in the list view sits 12 px from the frame edge in Research and Budget and 16 px in Documents; the Trip templates panel on Manage's Template page (1280 pixels, light) has 16px of padding above and 24px below, and so has the About tab's **Open-source software** panel (390 pixels, dark). Run on a19d7d34, not run again.
+- **`check-destinations` fails on main** (#849): 1 of 45 cases, "travel: with no destination page yet, /calendar goes home and module pages and tiles stay their own": the widgets route answers no tiles under the Travel template and the case expects at least one. Run on a19d7d34, not run again.
+- **`check-nav` fails on main**, as the project manager reported on 67998604. The cause was not looked into here. A run of it in a cloud container (with the packages installed) fails the same two cases, "Set up: a right-zone tool after your picture, before the window controls, ..." and "the address opens it once; a reload does not, ...", but the browser checks of the welcome note and the agent pages also failed to draw a page in that container, so that run says nothing about `main`.
 - **`check-template-pages-b` is not in `npm run check`**, so nothing runs it by default.
 
-Workaround for all of them: none needed to use the product; a change that touches them should name the failure and move on (`CLAUDE.md`, "Testing scope").
+Fixed since the last list: `check-catalog` (the catalog is back to four tools, then six with the Planner's two, #896 and #905), the six browser checks that stopped at the Budget chip (#894, #896), and `check-buttons` (buttons size through `--btn-h`, #893; it passed when run on 67998604).
+
+Workaround for all of them: none needed to use the product.
+
+## A restore with a file name that can't be written leaves the environment empty
+
+**#902.** The host console's restore (`POST /api/host/environments/:slug/restore`) takes the environment's folder away, then writes the zip's files one at a time. A zip with a file name the disk can't write (a name the file system refuses) stops the restore part-way with a 400, after the old data is gone, so the environment is left empty or half restored. Read as code (`server/index.js`, the restore route); not reproduced here. Workaround: take the host's backup of the environment first (`GET /api/host/environments/:slug/backup`), and restore only a zip the product made.
+
+## Agents: what is not there yet
+
+Agent access, steps 1 to 4 ([architecture-agent-access](architecture/architecture-agent-access.md)). Read from the code and the checks' headers; `check-agent-tokens` and `check-agent-asker` pass; `check-agent-pages` was not seen to pass by this entry's author (a browser check that did not run in the container used). A real cloud session calling a real server was not tried.
+
+- **Chat is not built.** An agent can't read or post in Chat yet (step 5 of [plan-agent-access](plans/plan-agent-access.md)).
+- **An agent is not held to the terms or the NDA.** On a server with `TERMS_FILE` or `NDA_FILE` set, a person must agree before anything else; an agent is let past (`agreementExempt`), since it can't agree. Whether it should be is not decided. Workaround: none needed; the owner who made the agent has agreed, and the agent reaches only what a member reaches.
+- **A request waits for an open page.** What an agent asks for is carried out only when a person who may change that module next has it open (up to seven days). Workaround: open the module.
 
 ## Templates and the planners: gaps
 
@@ -107,7 +121,6 @@ The templates redesign ([plan-templates-redesign](plans/plan-templates-redesign.
 - **Planner - Projects has no phase bands on its Timeline**, and neither new planner takes a drop of an object from another module (the Itinerary does). Workaround: link from the entry's form.
 - **A reminder with no `ref` is not held to a copy's original** (#857, #877). `POST /api/modules/:id/schedule` takes an optional `ref` naming the object a schedule is about; Calendar 1.24.43 sends it, so a reminder of a copy reaches only those who may read the original. A schedule made without one (an older page, another module) reaches everyone who may read its own module. Workaround: none needed for the bundled modules.
 - **An owner's edit of their template could race a confirm of its offer** (suspected, not reproduced). Confirms, switches and the delete of a template in use run one at a time, and a confirm checks the record again before it changes anything; a `PATCH /api/environment/templates/:id` of the template whose offer is being confirmed does not take its turn, and what happens then has not been checked. A confirm that finds the template changed is refused ("This template changed since it was offered; look at the offer again.").
-- **`goals__addStep` is not an AI tool any more**, though `tools/check-catalog.mjs` and `tools/golden/catalog.json` still list it (see "Checks").
 - **Starter content skips the module data route's rate limit.** The server writes it through the same checks as a data write except the per-person limit; the 20 keys and 64 KB caps and the once-only rule are the bound.
 - **The roadmap sync is checked against a stub only.** It has not run against the real project board, and it needs `PROJECT_TOKEN`, `PROJECT_OWNER` and `PROJECT_NUMBER` set in the repository.
 - **A note with a `done` field counts toward a phase.** A phase measured by goals counts any planner entry that names it and has a `done` of true or false; the notes the planners write have none, but one written another way with a `done` would be counted. Workaround: none needed.

@@ -36,7 +36,7 @@ A milestone is done when everything under it is done, or when you tick it. Work 
 - **phase**, the phase's name (or its id), matched to the template's phases ignoring case; one that matches none is left out.
 - **done**: a milestone becomes ticked, a piece of work becomes done.
 
-**From a file.** The menu at the right of the title bar, **Export and import** (the **...** button), has:
+**From a file.** The menu at the right of the title bar, **Export and import** (the button with two arrows), has:
 
 - **Export as JSON** saves the whole plan as a file named for the day. It is dimmed ("Nothing yet") with an empty plan.
 - **Check file** reads a file the way Import does and writes nothing. It says "This file is good: it would add N entries" with what they are (for example "2 milestones, 5 pieces of work and 1 note"), or "This file has a problem" (or "N problems") and lists them, the first and up to five more, one for each entry, so a file can be fixed in one round.
@@ -47,14 +47,14 @@ Check file and the two imports need the right to **Add and change the plan**; re
 
 ## The two views
 
-- **Timeline.** Weeks across, work as bars, milestones as marks, and a line from an entry to what it waits on while **Waits on** is on. Entries with no day are listed under it in **Not scheduled** (an entry outside the weeks drawn, which run for at most two years, is listed under **Not on the Timeline**). It scrolls sideways inside its own frame.
+- **Timeline.** Weeks across, work as bars, milestones as marks, and a line from an entry to what it waits on while **Waits on** is on. Entries with no day are listed under it in **Not scheduled** (an entry outside the weeks drawn, which run for at most two years, is listed under **Not on the Timeline**). The plan fills its window, and the Timeline is one scrolling area of its own: it scrolls sideways and down inside the window, so its scrollbar is always in reach, and the week header stays at the top and the names at the left as you scroll. **Not scheduled** stays under it.
 - **List.** The outline: entries in order, with a fold button where one has others under it. Move an entry by dragging its handle, or from the handle's menu (**Move up**, **Move down**, **Indent**, **Outdent**), or with the keyboard on the focused handle: **Alt** with the up and down arrows to move, **Alt+Right** to indent and **Alt+Left** to outdent. Up and down walk the handles; left and right fold and unfold. On a phone there is no dragging: the handle shows as **...** and opens the menu. On a phone the List is the first view, unless you have chosen one yourself.
 
 Under a template that measures its phases by goals, a phase is done when every entry that names it is done (see [Spaces](userguide-spaces.md), "Phases"). The title bar's count reads, for example, "2 of 4 milestones done".
 
 ## Where else it shows
 
-It has no widget on Home. A dated entry shows in the Calendar. A milestone or a piece of work that names a phase counts toward that phase when the template measures phases by goals. A person adding through Chat's `/ai`, or another module's **Add to** menu, adds a milestone, work or a note, by the action chosen (see "Add from Chat, or from a file"); the AI Assistant can do the same.
+It has no widget on Home. A dated entry shows in the Calendar. A milestone or a piece of work that names a phase counts toward that phase when the template measures phases by goals. A person adding through Chat's `/ai`, or another module's **Add to** menu, adds a milestone, work or a note, by the action chosen (see "Add from Chat, or from a file"); the AI Assistant can do the same. An [agent](userguide-agents.md) added to the space can also add entries, tick a milestone or work done and change an entry's title, days or notes; each waits until someone who may change the plan has it open, and an entry it adds records the agent, not the person whose page carried it out, as who added it.
 
 ## Who sees what
 
