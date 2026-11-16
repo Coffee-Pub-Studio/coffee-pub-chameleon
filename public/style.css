@@ -9553,3 +9553,20 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 /* The built-in set on the Environment tab's Reactions and Icons: folded, the same chips the Template page draws. */
 .tp-builtin { margin: 4px 0 12px; }
 .tp-builtin > summary { cursor: pointer; min-height: 44px; display: list-item; list-style-position: inside; line-height: 44px; color: var(--text-muted); }
+
+/* An agent's page in Manage > Users (agent-page.js): its name box, the token's dialog and What it did. */
+.section-head #add-agent-toggle:not([hidden]) + .btn { margin-left: 0; } /* both buttons sit at the right: only the first takes the free space */
+#tab-users .section-head { flex-wrap: wrap; }
+.agent-name-field { flex: 1 1 14em; max-width: 24em; min-width: 0; }
+.agent-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.agent-log-line { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+.agent-log-line:first-child { border-top: 0; }
+.agent-log-what { overflow-wrap: anywhere; }
+.agent-log-detail { color: var(--text-dim); font-size: var(--text-12); overflow-wrap: anywhere; }
+.agent-log-line.is-note .agent-log-what { color: var(--text-muted); font-style: italic; }
+.agent-token-dialog .agent-token-value { display: block; font-size: var(--text-13); padding: 10px 12px; user-select: all; }
+.agent-token-dialog .agent-token-warning { color: var(--text); }
+@media (max-width: 640px) {
+  .agent-name-field { max-width: none; flex-basis: 100%; }
+  .agent-token-dialog .row .btn { --btn-h: 44px; }
+}

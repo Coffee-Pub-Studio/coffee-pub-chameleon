@@ -34,13 +34,69 @@
     </nav>
 
     <section class="tab-stack" id="tab-users" hidden>
+      <!-- An agent's page (agent-page.js, #agent/<key>): shown in place of the list while one is open. -->
+      <div class="tab-stack" id="agent-page" hidden>
+        <div class="panel">
+          <p class="hint"><a href="#users" data-agent="back">&larr; Users</a></p>
+          <div class="section-head">
+            <h1 data-agent-title></h1>
+            <span class="sdk-status" data-agent-state></span>
+          </div>
+          <div class="row">
+            <label class="agent-name-field">Name<input type="text" data-agent-name maxlength="40" autocomplete="off"></label>
+            <button class="btn btn-small" type="button" data-agent="rename">Save name</button>
+          </div>
+          <p class="status" data-agent-status role="status"></p>
+        </div>
+        <div class="panel">
+          <h2>Token</h2>
+          <p data-agent-token-state></p>
+          <p class="hint" data-agent-used></p>
+          <div class="row">
+            <button class="btn btn-primary btn-small" type="button" data-agent="make">Make token</button>
+            <button class="btn btn-danger btn-small" type="button" data-agent="revoke" hidden>Revoke</button>
+          </div>
+          <p class="hint" data-agent-make-hint></p>
+        </div>
+        <div class="panel">
+          <h2>Turn off or delete</h2>
+          <div class="row">
+            <button class="btn btn-small" type="button" data-agent="off">Turn off</button>
+            <button class="btn btn-danger btn-small" type="button" data-agent="delete">Delete</button>
+          </div>
+          <p class="hint" data-agent-off-hint></p>
+        </div>
+        <div class="panel">
+          <h2>What it did</h2>
+          <p class="hint" data-agent-log-empty hidden>Nothing yet.</p>
+          <ul class="agent-log" data-agent-log aria-label="What it did, newest first"></ul>
+          <p class="status error" data-agent-log-status role="status"></p>
+          <div class="row"><button class="btn btn-small" type="button" data-agent="older" hidden>Show older</button></div>
+        </div>
+      </div>
+
+      <div class="tab-stack" id="users-main">
       <div class="panel">
         <div class="section-head">
           <h1>Users</h1>
           <span class="status" id="party-status"></span>
+          <button class="btn btn-small" id="add-agent-toggle" type="button" hidden>Add an agent</button>
           <button class="btn btn-primary btn-small" id="add-toggle" type="button">Add user</button>
         </div>
       </div>
+
+      <form class="panel add-user" id="add-agent" hidden>
+        <h2>New agent</h2>
+        <div class="fields">
+          <label>Name<input id="new-agent-name" type="text" maxlength="40" value="Claude" autocomplete="off"></label>
+        </div>
+        <p class="hint" data-fill>An agent is not a person. It can't sign in; it works through a token you make for it, in the {spaces} you add it to.</p>
+        <div class="row">
+          <button class="btn btn-primary" type="submit">Add</button>
+          <button class="btn btn-quiet" id="add-agent-cancel" type="button">Cancel</button>
+          <span class="status error" id="add-agent-error" hidden></span>
+        </div>
+      </form>
 
       <form class="panel add-user" id="add-user" hidden>
         <h2>New user</h2>
@@ -59,6 +115,17 @@
       </form>
 
       <div id="users" class="users"></div>
+
+      <!-- Agents (plan-agent-access.md): the server's variable AGENT_TOKENS makes them available; this switch is each environment's own. -->
+      <div class="panel" id="agents-section">
+        <h2>Agents</h2>
+        <p class="hint" id="agents-off-server" hidden>Agents are off on this server. The person who runs the server turns them on.</p>
+        <div id="agents-on-server" hidden>
+          <label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label" data-fill>Let this {environment} have agents</span></span><input type="checkbox" class="sdk-switch" role="switch" id="set-agents"></label>
+          <p class="hint" data-fill>An agent is Claude, or another assistant, working in your {spaces} through a token. Turn this off and every agent's token stops working. Saved as you switch.</p>
+          <span class="status" id="agents-status" role="status"></span>
+        </div>
+      </div>
 
       <!-- Sign-up and invites (moved from the Environment tab, #261). -->
       <div class="panel" id="signup-section">
@@ -104,6 +171,7 @@
             <span class="status" id="guest-door-status"></span>
           </div>
         </div>
+      </div>
       </div>
     </section>
 
@@ -840,7 +908,7 @@
       <img class="thumb" data-thumb alt="">
       <div class="user-title">
         <strong data-name></strong>
-        <span class="meta"><span data-login></span> · <span data-role></span> · key <code data-key></code> <span class="sdk-status" data-mfa hidden title="Signs in in two steps">two-step</span> <span class="sdk-status" data-feed hidden title="Has a private address for a calendar app">calendar feed</span></span>
+        <span class="meta"><span data-login></span> · <span data-role></span> · key <code data-key></code> <span class="sdk-status" data-mfa hidden title="Signs in in two steps">two-step</span> <span class="sdk-status" data-feed hidden title="Has a private address for a calendar app">calendar feed</span> <span class="sdk-status" data-tone="warn" data-off hidden title="Its token does nothing until it is turned on">off</span></span>
       </div>
       <span class="live" data-live></span>
       <button class="btn btn-small" data-action="mute" type="button">Mute mic</button>

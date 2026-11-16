@@ -1115,7 +1115,7 @@ export function createSpaceSetup(deps) {
     if (!list) return;
     const chosen = new Set(state.draft.members);
     if (!state.users) { list.innerHTML = '<p class="hint">Loading…</p>'; return; }
-    list.innerHTML = state.users.map((u) => `<label class="sdk-choice-row setup-member"><img class="setup-member-face" alt="" src="/img/${encodeURIComponent(u.key)}/profile"><span class="sdk-choice-text"><span class="sdk-choice-label">${esc(u.displayName || u.key)}</span></span><input type="checkbox" class="sdk-switch" role="switch" data-member="${esc(u.key)}"${chosen.has(u.key) ? ' checked' : ''}></label>`).join('');
+    list.innerHTML = state.users.map((u) => `<label class="sdk-choice-row setup-member"><img class="setup-member-face" alt="" src="/img/${encodeURIComponent(u.key)}/profile"><span class="sdk-choice-text"><span class="sdk-choice-label">${esc(u.displayName || u.key)}${u.agent === true ? ' (agent)' : ''}</span></span><input type="checkbox" class="sdk-switch" role="switch" data-member="${esc(u.key)}"${chosen.has(u.key) ? ' checked' : ''}></label>`).join('');
     wireSwitchList(list);
   }
 

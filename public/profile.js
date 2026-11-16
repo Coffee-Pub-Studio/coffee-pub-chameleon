@@ -68,6 +68,8 @@ function imgUrl(slot) {
 async function reload() {
   if (editingKey) {
     user = (await api('GET', `/api/users/${editingKey}`)).user;
+    // An agent has no profile of its own (no password, link, two-step or moderator tick): its page is in Manage.
+    if (user.agent === true) { location.replace(`/admin#agent/${encodeURIComponent(user.key)}`); await new Promise(() => {}); }
   } else {
     const res = await api('GET', '/api/me');
     user = res.user;
