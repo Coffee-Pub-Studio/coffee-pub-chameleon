@@ -107,13 +107,12 @@ Agent access, steps 1 to 4 ([architecture-agent-access](architecture/architectur
 
 - **Chat text can steer the assistant.** An agent reads the public Chat of its spaces, and anything people write there, guests included, reaches the assistant's context. No check on the server can close that. What bounds it: the agent's writes go only through gated actions and labelled posts (off until the owner turns on **Post in Chat**), within its limits, all logged. Workaround: add an agent only to spaces whose Chat you are happy for it to read.
 - **A restore can carry `chatPost` on an agent while Agents is off.** An owner's copy keeps `chatPost`. The agent then has it on, but its token does nothing until **Agents** is turned on, so it has no effect. Turn **Post in Chat** off on the agent's page if you do not want it on again with Agents.
-- **The log has two gaps** (each needs a new field, neither built): no `module`, and a refused call's route is `(refused)`.
 - **An agent is not held to the terms or the NDA.** On a server with `TERMS_FILE` or `NDA_FILE` set, a person must agree before anything else; an agent is let past (`agreementExempt`), since it can't agree. Whether it should be is not decided. Workaround: none needed; the owner who made the agent has agreed, and the agent reaches only what a member reaches.
 - **A request waits for an open page.** What an agent asks for is carried out only when a person who may change that module next has it open (up to seven days). Workaround: open the module.
 
-## Pages keep live streams after you leave
+## Pages and the back-forward cache
 
-**#911.** A page keeps its live streams open after you move on from it, so a browser that has been through several pages in one session can reach its limit of six connections to the server, and a new page then waits for one to close. Reported, not fixed here; a fix is proposed and not built. Workaround: close the tabs you no longer use, or reload the page that is stuck.
+- **A call page brought back from the browser's back-forward cache may not say it is in the call again.** Pages now close their live streams as they go and open them again when restored (fixed for #911, in #916). Whether a call page restored this way tells the server it is in a call again needs LiveKit and was not tried. Chrome usually does not keep a page with a live call in its cache, so it may never arise. Workaround: if the call shows wrong after Back, reload the page.
 
 ## Templates and the planners: gaps
 

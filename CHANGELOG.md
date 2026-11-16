@@ -4,6 +4,13 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### After batch 12: the agent log's module and route shape, and live streams in the back-forward cache (#915, #916, 2026-11-16, documented afterwards)
+
+Written from the code on `origin/main` at 5c608ceb, read as code; the checks the pull requests changed (`check-agent-tokens`, `check-agent-pages`, `check-stream-lifecycle`) were not run for this entry.
+
+- **The agent log keeps the module and a refused call's route** (#915). Each line has `module` (an installed module's id, else null), and `route` is the gate's pattern whenever the path is a gate route, else a fixed shape built from the words of the app's own routes, never `(refused)`. The agent's page reads "Read <module name> data in <space>" and "Refused: <METHOD> <route>". A new gate route with a method other than `GET` needs an entry in `ROUTE_METHODS` in `public/agent-page.js`. In [Agents API](documentation/api/api-agents.md) and [Agent access architecture](documentation/architecture/architecture-agent-access.md).
+- **Pages close their live streams when you leave and open them again when the browser restores the page** (#916, fixes #911). A page kept in the browser's back-forward cache no longer holds connections, so a new page no longer waits behind them. Added `tools/check-stream-lifecycle.mjs`. Not tried: a call page restored from the cache (needs LiveKit). In [the architecture overview](documentation/architecture/architecture-overview.md).
+
 ### After batch 11: the demo console's offer and agent Chat (#909, #910, 2026-11-16, documented afterwards)
 
 Documentation only in this entry; the code is the pull requests it names. Written from the code on `origin/main` at 4fb7b467 and the commit messages, read as code. The checks the pull requests added (`check-demo-offer`, `check-agent-chat`, `check-agent-chat-page`) did not run in the container used for this entry: the server would not start there (a template names Font Awesome icons the installed set lacks). Nothing here was seen working live.

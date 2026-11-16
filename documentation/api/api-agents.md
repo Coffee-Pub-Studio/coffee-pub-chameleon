@@ -173,8 +173,9 @@ All three answer 404 `no such user` for an unknown key and 400 `That account is 
 |---|---|
 | `at` | When, as an ISO time. |
 | `token` | The token's `id`, never the token. |
-| `method`, `route` | `GET`, `/api/spaces/:id/action`: the route pattern, never the path asked for. `(refused)` for a route the gate does not allow. |
+| `method`, `route` | `GET`, `/api/spaces/:id/action`: never the path asked for. When the path matches a route on the gate's list (any method, any case, one trailing slash allowed; an empty segment is not a match), `route` is that route's pattern, in every kind of line: let on, refused, a 401 note and a 429 note. Any other path is written as a fixed shape: each segment is kept only where one of the app's registered routes has that word at that place (compared in lower case), every other segment is `:x`, there is no query, and it holds at most 8 segments and 80 characters (`/api/users/:x/agent-log`). Nothing the caller chose lands in it. |
 | `space` | The space's id, only when it is one of the agent's own. |
+| `module` | `string` or `null`. The id of an installed module: a data or context route's `:id`, or the part of an action before the colon. `null` for any other route and for a path off the list. A 429 on an action route has `module` `null`, because the action is not read before the limit answers. Lines written before this field existed have no `module` key. |
 | `action` | `<module>:<name>` for an action request. |
 | `request` | The request's id for an action request. |
 | `message` | For Chat: a post's message id (12 hex characters), or how many messages a read carried (a whole number); else `null`. Never text. |
@@ -182,7 +183,7 @@ All three answer 404 `no such user` for an unknown key and 400 `That account is 
 | `address` | An IP address, or `null`. |
 | `kind` | `read` or `write`; `null` for a note (a 429, or a 401 for a token that is the agent's but no longer good: written at most once a minute for each). |
 
-A line never holds a request body, a message's text, an object's content or a token. A refused post (403) is a line with the post route and status 403, so the log says it was refused. Lines are kept 30 days.
+A line never holds a request body, a message's text, an object's content or a token. A call with a method the route does not allow (a `DELETE` on a read route) is a line with that route's pattern and status 403. A refused post (403) is a line with the post route and status 403, so the log says it was refused. Lines are kept 30 days.
 
 ## Part 3. Who asked, for module authors
 

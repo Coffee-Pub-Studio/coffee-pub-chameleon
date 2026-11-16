@@ -95,10 +95,11 @@ Under **Turn off or delete**, choose **Delete** and type the agent's name to con
 At the bottom of the agent's page, **What it did** lists what the agent has done, newest first, in plain words, each with the time and the address it came from:
 
 - "Ask for add milestone in <space>": it asked a module for a change.
-- "Read data", "Searched objects", "Listed what it can ask for", "Checked on a request": it read.
+- "Read <module name> data in <space>" (the module as your environment names it), "Searched objects", "Listed what it can ask for", "Checked on a request": it read.
 - "Read Chat in <space>": it read the Chat. "Posted in Chat in <space>": it wrote a message. "Refused post in <space>": it tried to post and the server said no (for example **Post in Chat** is off). The log never shows what was written or read.
 - "Over its limit": it did more than it may in a minute or a day.
 - "Token refused": it called with a token that no longer works (revoked, ended, or the agent is off).
+- "Refused: GET /api/users/:x" and the like: a call to something an agent may not use, or with a method that route does not allow, with the status the server gave. The address is shown as a shape, never as the path the agent asked for.
 - A line that says "didn't work" with a number is a call the server refused.
 
 The list shows 100 lines; choose **Show older** for more. Lines are kept for 30 days. The log never holds what the assistant read or wrote, only what it did and where.
