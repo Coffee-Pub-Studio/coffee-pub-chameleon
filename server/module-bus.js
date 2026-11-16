@@ -27,7 +27,7 @@ const LIMITS = {
   // How long after a request finished the person who asked can still read how it went (GET /api/spaces/:id/action/:id).
   resultMs: 10 * 60 * 1000,
   // How many data writes one claim may name its asker on (plan-agent-access.md, decision 9): a request is a few writes.
-  carriedWrites: 20,
+  carriedWrites: 10,
 };
 
 // Whether a request with a time limit (`expiresAt`) has passed it without being carried out: no page may take it now. A
@@ -155,6 +155,7 @@ class ModuleBus extends EventEmitter {
     if (!(a.status === 'pending' || (a.status === 'claimed' && now - a.claimedAt > LIMITS.claimMs))) return null;
     a.status = 'claimed';
     a.claimedAt = now;
+    if (!a.claimedFirstAt) a.claimedFirstAt = now; // the carrying window runs from here, whoever claims it again
     a.claimedBy = by || '';
     this.save();
     return a;
@@ -166,7 +167,7 @@ class ModuleBus extends EventEmitter {
   carrying(id, provider, by, writeScope) {
     const a = this.actionById(id);
     const now = Date.now();
-    if (!a || a.provider !== provider || a.status !== 'claimed' || !by || a.claimedBy !== by || expired(a, now) || now - a.claimedAt > LIMITS.claimMs) return null;
+    if (!a || a.provider !== provider || a.status !== 'claimed' || !by || a.claimedBy !== by || expired(a, now) || now - (a.claimedFirstAt || a.claimedAt) > LIMITS.claimMs) return null;
     if (writeScope !== null && writeScope !== undefined && writeScope !== (a.space ? `space:${a.space}` : a.scopeKey)) return null;
     return a;
   }
@@ -175,6 +176,7 @@ class ModuleBus extends EventEmitter {
   useCarry(a) {
     if ((a.carried || 0) >= LIMITS.carriedWrites) return false;
     a.carried = (a.carried || 0) + 1;
+    this.save(); // so a restart does not give the claim its share again
     return true;
   }
 

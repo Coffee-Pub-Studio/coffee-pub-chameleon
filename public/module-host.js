@@ -1567,7 +1567,7 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     async 'storage.delete'({ key, version, scope: s, space }) {
       let tz = '';
       try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* the server falls back */ }
-      return api('DELETE', url(`/data/${encodeURIComponent(key)}`, scopeOf(s, space), { version, tz, ...carriedFor() }));
+      return api('DELETE', url(`/data/${encodeURIComponent(key)}`, scopeOf(s, space), { version, tz }));
     },
     async 'storage.list'({ prefix, scope: s, space }) {
       const sc = scopeOf(s, space);
@@ -1718,13 +1718,12 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     async 'actions.claim'({ id }) {
       const out = await api('POST', `/api/bus/actions/claim${busGuest()}`, { module: module.id, id, ...busPlaceBody() });
       // A request someone else asked for: this module's writes while it is carried out name the asker (the server checks it).
-      carrying = out && out.ok && out.action && out.action.byKey ? { id: out.action.id, byKey: out.action.byKey, at: Date.now() } : null;
+      carrying = out && out.ok && out.action && out.action.byKey && !out.action.mine ? { id: out.action.id, byKey: out.action.byKey, at: Date.now() } : null;
       return out;
     },
     async 'actions.complete'({ id, result }) {
-      const asker = carrying && carrying.id === id && Date.now() - carrying.at < CARRY_MS ? carrying.byKey : null;
       if (carrying && carrying.id === id) carrying = null;
-      return api('POST', `/api/bus/actions/complete${busGuest()}`, { module: module.id, id, result, ...(asker ? { for: asker } : {}), ...busPlaceBody() });
+      return api('POST', `/api/bus/actions/complete${busGuest()}`, { module: module.id, id, result, ...busPlaceBody() });
     },
     async 'actions.status'({ id }) {
       return api('GET', `/api/bus/actions/status?${busQuery({ from: module.id, id: String(id) })}`);
