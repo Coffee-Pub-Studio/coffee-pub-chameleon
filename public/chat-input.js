@@ -5,6 +5,7 @@ const OBJECT_MIME = 'application/x-host-object';
 // A kind as a person counts it, one and many: a `hotel` is any stay (plan-object-handoff.md, "Kinds and their details").
 const KIND_WORDS = {
   bus: ['bus', 'buses'], ferry: ['ferry', 'ferries'], hotel: ['stay', 'stays'],
+  milestone: ['milestone', 'milestones'], work: ['piece of work', 'pieces of work'], goal: ['goal', 'goals'], step: ['step', 'steps'],
 };
 const kindWord = (kind, n) => (KIND_WORDS[kind] ? KIND_WORDS[kind][n === 1 ? 0 : 1] : n === 1 ? kind : `${kind}s`);
 
@@ -137,9 +138,9 @@ function findKeepers(actions) {
 
 // --- Where an object can be kept (plan-object-handoff.md, "The import preview in Chat") ----------------------------------
 
-// The kinds that happen on a day: journeys, stays, stops, events and tasks. One of these with no day asks for one.
-export const DAY_KINDS = [...TRAVEL_KINDS, 'event', 'task'];
-const DAY_FIELDS = ['departs', 'checkIn', 'starts', 'due'];
+// The kinds that happen on a day: journeys, stays, stops, events, tasks, milestones and work. One of these with no day asks for one.
+export const DAY_KINDS = [...TRAVEL_KINDS, 'event', 'task', 'milestone', 'work'];
+const DAY_FIELDS = ['departs', 'checkIn', 'starts', 'due', 'start', 'date'];
 const isDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 // Whether an object has a day: its `date`, or a date in its details (when it leaves, checks in, starts or is due).
@@ -339,6 +340,14 @@ export function keepCountWords(picks, { one = 'object', many = 'objects' } = {})
   return [...byPlace].map(([place, counts]) => `${and([...counts].map(([k, n]) => `${n} ${k ? kindWord(k, n) : n === 1 ? one : many}`))} in ${place}`).join(', ');
 }
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// A day as "20 Nov" (the year too when it is not this one's), or '' when it is not a day.
+function shortDay(v) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(typeof v === 'string' ? v : '');
+  if (!m || +m[2] < 1 || +m[2] > 12) return '';
+  return `${+m[3]} ${SHORT_MONTHS[+m[2] - 1]}${+m[1] === new Date().getFullYear() ? '' : ` ${m[1]}`}`;
+}
+
 // An object's details in one line under its title (plan-object-handoff.md, "The import preview in Chat"):
 // "Southwest 1234 · MDW 12:50 → SJC 15:25 · ABC123". A time on the object's own day shows as the time alone.
 export function detailsLine(summary) {
@@ -367,6 +376,15 @@ export function detailsLine(summary) {
     if (Number.isInteger(d.guests)) parts.push(`${d.guests} ${d.guests === 1 ? 'guest' : 'guests'}`);
   } else if (kind === 'task') {
     parts.push(when(d.due) && `Due ${when(d.due)}`);
+  } else if (kind === 'milestone' || kind === 'work' || kind === 'goal' || kind === 'step') {
+    // a plan's entry: its days, the phase it is in and what it sits under ("20 Nov to 28 Nov · under Beta ready")
+    const first = kind === 'goal' || kind === 'step' ? d.date : d.start;
+    const a = shortDay(first);
+    const b = kind === 'work' ? shortDay(d.end) : '';
+    parts.push(a && b && a !== b ? `${a} to ${b}` : a || (b && `to ${b}`));
+    parts.push(s(d.phase, 40) && `Phase ${s(d.phase, 40)}`);
+    parts.push(s(d.under, 80) && `under ${s(d.under, 80)}`);
+    if (d.done === true) parts.push('Done');
   } else if (kind === 'poll') {
     const options = Array.isArray(d.options) ? d.options.filter((o) => typeof o === 'string') : [];
     parts.push(options.slice(0, 4).map((o) => oneLine(o, 40)).join(' / ') + (options.length > 4 ? ' / …' : ''));

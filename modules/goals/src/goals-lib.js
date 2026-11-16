@@ -220,5 +220,53 @@ const GoalsLib = (() => {
     return v;
   }
 
-  return { KINDS, cleanLinks, readEntry, compare, treeOf, goalState, goalPatch, entryPatch, isOwnRef, childIndex, outlineEntries, moveProblem, valueOf, stored };
+
+  // --- an object taken whole (the objects format's goal, step and note) ------------------------------------------------------------
+  // A title as it is compared: plain text, one line, lower case.
+  const key = (s) => str(s, MAX_TITLE).replace(/\s+/g, ' ').toLowerCase();
+
+  // The goal an `under` title names, as an id, or null. Only a goal holds steps. Of two goals with the same title the most
+  // recently made wins (`createdAt`, else the later in `entries`); an `under` equal to the entry's own title names nothing.
+  function goalFor(entries, under, ownTitle) {
+    const k = key(under);
+    if (!k || k === key(ownTitle)) return null;
+    let found = null;
+    for (const e of Array.isArray(entries) ? entries : []) {
+      if (e && e.kind === 'goal' && key(e.title) === k && (!found || (e.createdAt || 0) >= (found.createdAt || 0))) found = e;
+    }
+    return found ? found.id : null;
+  }
+
+  // The id of the template's phase a name (or an id) names, ignoring case, or ''.
+  function phaseFor(phases, name) {
+    const k = key(name);
+    if (!k) return '';
+    for (const p of Array.isArray(phases) ? phases : []) {
+      if (p && typeof p.id === 'string' && (p.id.toLowerCase() === k || key(p.label) === k || key(p.name) === k)) return p.id;
+    }
+    return '';
+  }
+
+  // The fields addGoal, addStep or addNote would be given, from an object: { title, why | text, date, done, phase, parent, under }; a step with no parent is refused by the caller (a step goes under a goal).
+  // `o`: { entries, phases }; `parent` is the goal `details.under` names (the caller's own `goal` pointer wins over it).
+  function fromObject(kind, object, o) {
+    const obj = object && typeof object === 'object' ? object : {};
+    const d = obj.details && typeof obj.details === 'object' && !Array.isArray(obj.details) ? obj.details : {};
+    const day = (v) => (typeof v === 'string' && DAY.test(v.slice(0, 10)) && +v.slice(0, 4) >= 1900 && +v.slice(0, 4) <= 2200 ? v.slice(0, 10) : undefined); // the days 1900 to 2200
+    const out = { title: obj.title };
+    const words = typeof obj.content === 'string' ? obj.content : '';
+    if (kind === 'goal') {
+      out.why = typeof d.why === 'string' && d.why.trim() ? d.why : words;
+      out.date = day(d.date) || day(obj.date);
+      out.phase = phaseFor(o && o.phases, d.phase);
+    } else if (kind === 'step') {
+      out.date = day(d.date) || day(obj.date);
+      if (d.done === true) out.done = true;
+      out.parent = goalFor(o && o.entries, d.under, obj.title);
+      out.under = typeof d.under === 'string' ? d.under : '';
+    } else out.text = words;
+    return out;
+  }
+
+  return { KINDS, goalFor, phaseFor, fromObject, cleanLinks, readEntry, compare, treeOf, goalState, goalPatch, entryPatch, isOwnRef, childIndex, outlineEntries, moveProblem, valueOf, stored };
 })();

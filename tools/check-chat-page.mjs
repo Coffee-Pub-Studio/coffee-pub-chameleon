@@ -466,7 +466,7 @@ test('a tint colours a message\'s portrait (no edge: the Chat family, step 29) a
 // --- step 6 ---------------------------------------------------------------------------------------------------------
 
 test('every bundled module\'s colour (decision 20), a known tint; Stream and the Assistant have none', () => {
-  const want = { research: 'blue', todo: 'green', calendar: 'red', travel: 'teal', polls: 'purple', budget: 'gold', maps: 'pink', whiteboard: 'teal', documents: 'orange', vault: 'blue', stream: undefined, assistant: undefined };
+  const want = { research: 'blue', todo: 'green', calendar: 'red', travel: 'teal', polls: 'purple', budget: 'gold', maps: 'pink', whiteboard: 'teal', documents: 'orange', goals: 'green', schedule: 'blue', vault: 'blue', stream: undefined, assistant: undefined };
   const dirs = fs.readdirSync(path.join(ROOT, 'modules')).filter((d) => fs.existsSync(path.join(ROOT, 'modules', d, 'module.json')));
   for (const id of dirs) {
     const manifest = JSON.parse(read(`modules/${id}/module.json`));
@@ -759,6 +759,11 @@ test('the preview: a details line under the title, the title as plain text, and 
   assert.equal(detailsLine({ kind: 'task', details: { due: '2026-11-20' } }), 'Due 2026-11-20');
   assert.equal(detailsLine({ kind: 'poll', details: { options: ['A', 'B'], closes: '2026-11-01T18:00' } }), 'A / B · Closes 2026-11-01 18:00');
   assert.equal(detailsLine({ kind: 'note', title: 'x' }), '');
+  const thisYear = new Date().getFullYear();
+  assert.equal(detailsLine({ kind: 'work', title: 'W', details: { start: `${thisYear}-11-20`, end: `${thisYear}-11-28`, under: 'Beta ready' } }), '20 Nov to 28 Nov · under Beta ready');
+  assert.equal(detailsLine({ kind: 'milestone', title: 'M', details: { start: '2031-02-03', phase: 'Build', done: true } }), '3 Feb 2031 · Phase Build · Done');
+  assert.equal(detailsLine({ kind: 'step', title: 'S', details: { under: 'Run a marathon' } }), 'under Run a marathon');
+  assert.equal(keepCountWords([{ kind: 'work', moduleName: 'Planner' }, { kind: 'work', moduleName: 'Planner' }, { kind: 'milestone', moduleName: 'Planner' }, { kind: 'step', moduleName: 'Goals' }], { one: 'object', many: 'objects' }), '2 pieces of work and 1 milestone in Planner, 1 step in Goals');
   // The title read as plain text, with the SDK's own helper (host.util.plain), never shown as raw Markdown.
   const win = { addEventListener() {}, location: { search: '' } };
   win.parent = win;
@@ -768,7 +773,10 @@ test('the preview: a details line under the title, the title as plain text, and 
   assert.match(fnBody(chat.replace(/^  /gm, ''), 'function drawObject('), /title\.textContent = titleText;/);
   assert.match(chat, /const titleText = plainTitle\(summary\.title\) \|\| 'Untitled';/);
   // A day: journeys, stays, stops, events and tasks; not notes, links or polls.
-  assert.deepEqual(DAY_KINDS, [...TRAVEL_KINDS, 'event', 'task']);
+  assert.deepEqual(DAY_KINDS, [...TRAVEL_KINDS, 'event', 'task', 'milestone', 'work']);
+  assert.ok(needsDay({ kind: 'milestone', title: 'M' }) && needsDay({ kind: 'work', title: 'W' }), 'a milestone and work ask for a day');
+  assert.ok(!needsDay({ kind: 'work', title: 'W', details: { start: '2026-11-20' } }), 'a plan day in details');
+  assert.ok(!needsDay({ kind: 'goal', title: 'G' }) && !needsDay({ kind: 'step', title: 'S' }), 'a goal and a step ask for no day');
   assert.ok(needsDay({ kind: 'flight', title: 'F' }));
   assert.ok(needsDay({ kind: 'flight', title: 'F', details: { departs: '12:50' } }), 'a time alone is no day');
   assert.ok(!needsDay({ kind: 'flight', title: 'F', details: { departs: '2026-11-14T12:50' } }), 'a details day');

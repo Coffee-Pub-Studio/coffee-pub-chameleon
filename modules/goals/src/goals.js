@@ -822,22 +822,32 @@
     if (!x || x.e.kind !== 'goal') throw new Error(`That is not ${label('goal', { a: true })} of this plan.`);
     return x.e;
   };
+  const obj = (input) => (input && input.object && typeof input.object === 'object' ? input.object : null);
   if (host.actions && host.actions.provide) {
     host.actions.provide({
+      // With `object` (a goal, a step or a note in the objects format), its fields are mapped here (L.fromObject): the goal a step
+      // sits under is the one `details.under` names, else the pointer given; a phase is named, so it is matched to the template's.
       addGoal: async (input) => {
-        const id = await add('goal', { title: input.title, why: input.why, date: input.date });
+        const o = obj(input);
+        const raw = o ? L.fromObject('goal', o, { phases: phases() }) : { title: input.title, why: input.why, date: input.date };
+        const id = await add('goal', { ...raw, date: raw.date || input.date });
         render();
         return { ref: host.objects.make('plan', id) };
       },
       addStep: async (input) => {
-        const goal = ownGoal(input.goal);
-        const id = await add('step', { title: input.title, date: input.date, parent: goal.id });
+        const o = obj(input);
+        const raw = o ? L.fromObject('step', o, { entries: [...entries.values()].map((x) => x.e) }) : { title: input.title };
+        const parent = input.goal ? ownGoal(input.goal).id : raw.parent;
+        if (!parent) throw new Error(o ? `Add ${label('goal', { a: true })} first: no ${label('goal')} here is named "${String(raw.under || '').slice(0, 60)}".` : `Say which ${label('goal')} it goes under.`);
+        const id = await add('step', { ...raw, date: raw.date || input.date, parent });
         render();
         return { ref: host.objects.make('plan', id) };
       },
       addNote: async (input) => {
+        const o = obj(input);
         const parent = input.goal ? ownGoal(input.goal).id : null;
-        const id = await add('note', { title: input.title, text: input.text, parent });
+        const raw = o ? L.fromObject('note', o) : { title: input.title, text: input.text };
+        const id = await add('note', { ...raw, text: raw.text || input.text, parent });
         render();
         return { ref: host.objects.make('plan', id) };
       },
