@@ -6102,7 +6102,8 @@ app.put('/api/spaces/:id/layouts/:layoutId', (req, res) => {
   const there = store.layouts.find(found.space.id, req.params.layoutId, me);
   if (!there) return res.status(404).json({ error: 'There is no such layout here.' });
   if (there.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
-  const { layout: patch, error } = cleanLayout(req.body, { partial: true, icons: layoutIconIds(found.space.id) });
+  // The icon it has already is taken back unchanged (it may be one a template switched away offered); a new one is checked.
+  const { layout: patch, error } = cleanLayout(req.body, { partial: true, icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
   if (error) return res.status(400).json({ error });
   if (!Object.keys(patch).length) return res.status(400).json({ error: `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.` });
   try {
@@ -6149,7 +6150,9 @@ app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
   if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
   const id = req.params.systemId;
   if (!systemLayoutsFor(found).some((l) => l.id === id)) return res.status(404).json({ error: 'There is no such layout here.' });
-  const { patch, error } = cleanSystemPatch(req.body, { icons: layoutIconIds(found.space.id) });
+  // As a saved layout's: the icon this person has on it already is taken back unchanged; a new one is checked.
+  const had = store.layouts.systemOf(found.space.id, found.who.user.key)[id]?.icon;
+  const { patch, error } = cleanSystemPatch(req.body, { icons: [...layoutIconIds(found.space.id), ...(typeof had === 'string' ? [had] : [])] });
   if (error) return res.status(400).json({ error });
   if (patch.tab === false && id === 'workspace') return res.status(400).json({ error: 'The Workspace is always shown.' });
   if (patch.tab !== undefined && ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });

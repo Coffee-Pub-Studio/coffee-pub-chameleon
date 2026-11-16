@@ -18,6 +18,8 @@
  *     /look), never in `icons` (what every picker reads), and a new pick of it is refused (400); once unused it goes;
  *     only a real Font Awesome Free solid icon is ever published there (a stored "spin" is not), at most 200;
  *   - a new space's link icon is checked as an edit's is (400 "unknown link icon");
+ *   - a save that sends back the icon it has already (home icon, link icon, a module's display icon, a saved layout's
+ *     and a system layout's) is taken though it is only in use after a switch; a changed one is checked (400);
  *   - a space's link icon, saved layouts' icons and system layouts' icons take what the environment offers and what the
  *     space's own template offers (its /look), nothing else;
  *   - a picker never offers what the save refuses: every id in /api/branding's and a space's /look's icons is taken by
@@ -237,8 +239,8 @@ try {
     }
     const after = (await call('GET', '/api/settings')).json.settings;
     assert.deepEqual([after.ownIcons, after.ownReactions], [before.ownIcons, before.ownReactions], 'nothing copied into the owner\'s own lists');
-    // Picking it anew is checked against what is offered now: Default does not offer it.
-    assert.deepEqual(await call('PATCH', '/api/settings', { homeIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown home icon']);
+    // Sending it back unchanged is taken; anywhere else it is checked against what is offered now: Default does not offer it.
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'diagram-project' })).status, 200, 'the home icon it has already');
     const other = (await call('POST', '/api/spaces', { name: 'Other' })).json.space.id;
     assert.deepEqual(await call('PATCH', `/api/spaces/${other}`, { linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
     assert.deepEqual(await call('POST', '/api/spaces', { name: 'Third', linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'nor when a space is made');
@@ -248,6 +250,47 @@ try {
     assert.equal((await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'link' })).status, 200);
     assert.deepEqual((await branding()).inUseIcons, []);
     assert.equal((await call('DELETE', `/api/spaces/${other}`)).status, 200);
+  });
+
+  await test('a save that sends back the icon it has already is taken, though only in use now; a changed one is checked', async () => {
+    assert.equal((await call('PATCH', '/api/settings', { template: 'project' })).status, 200);
+    const sp = (await call('POST', '/api/spaces', { name: 'Kept' })).json.space.id;
+    const dp = 'diagram-project';
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: dp })).status, 200);
+    assert.equal((await call('PATCH', `/api/spaces/${sp}`, { linkIcon: dp })).status, 200);
+    assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: dp })).status, 200);
+    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Mine', modules: [], icon: dp });
+    assert.equal(made.status, 201, made.text);
+    const lid = made.json.layout.id;
+    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp })).status, 200);
+    assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
+    assert.equal(ids((await branding()).icons).includes(dp), false, 'no longer offered');
+    // Unchanged: each save is taken, as a page that sends the whole record does.
+    for (const [label, r] of [
+      ['home icon', await call('PATCH', '/api/settings', { homeIcon: dp })],
+      ['link icon', await call('PATCH', `/api/spaces/${sp}`, { linkIcon: dp, name: 'Kept again' })],
+      ['display icon', await call('PATCH', '/api/modules/chat', { displayIcon: dp })],
+      ['saved layout', await call('PUT', `/api/spaces/${sp}/layouts/${lid}`, { name: 'Mine again', icon: dp })],
+      ['system layout', await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp, name: 'Desk' })],
+    ]) assert.equal(r.status, 200, `${label}, unchanged: ${r.text}`);
+    // Changed to an icon nothing offers: refused, each with its sentence.
+    for (const [label, r, sentence] of [
+      ['home icon', await call('PATCH', '/api/settings', { homeIcon: 'hippo' }), 'unknown home icon'],
+      ['link icon', await call('PATCH', `/api/spaces/${sp}`, { linkIcon: 'hippo' }), 'unknown link icon'],
+      ['display icon', await call('PATCH', '/api/modules/chat', { displayIcon: 'hippo' }), "There is no icon called hippo in this environment's icons."],
+      ['saved layout', await call('PUT', `/api/spaces/${sp}/layouts/${lid}`, { icon: 'hippo' }), 'Pick an icon from the list.'],
+      ['system layout', await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: 'hippo' }), 'Pick an icon from the list.'],
+    ]) assert.deepEqual([r.status, r.json?.error], [400, sentence], label);
+    // Another layout or space can't borrow the icon only this one keeps.
+    const other = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Other', modules: [], icon: dp });
+    assert.deepEqual([other.status, other.json?.error], [400, 'Pick an icon from the list.']);
+    const otherSpace = (await call('POST', '/api/spaces', { name: 'Other space' })).json.space.id;
+    assert.deepEqual(await call('PATCH', `/api/spaces/${otherSpace}`, { linkIcon: dp }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
+    assert.deepEqual(await call('PATCH', `/api/spaces/${otherSpace}/layouts/system/workspace`, { icon: dp }).then((r) => [r.status, r.json?.error]), [400, 'Pick an icon from the list.'], 'another space\'s system layout');
+    // Tidy.
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
+    assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: null })).status, 200);
+    for (const id of [sp, otherSpace]) assert.equal((await call('DELETE', `/api/spaces/${id}`)).status, 200);
   });
 
   await test('a stored or imported link icon that is no Font Awesome icon is never published; a new space\'s link icon is checked', async () => {

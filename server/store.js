@@ -1541,7 +1541,7 @@ class Store {
     // null (or '') goes back to the template's home icon, else the default.
     if (patch.homeIcon !== undefined) {
       if (patch.homeIcon === null || patch.homeIcon === '') s.homeIcon = null;
-      else if (!this.iconIds().includes(patch.homeIcon)) throw new StoreError('unknown home icon');
+      else if (patch.homeIcon !== s.homeIcon && !this.iconIds().includes(patch.homeIcon)) throw new StoreError('unknown home icon'); // the one it has already is taken back unchanged
       else s.homeIcon = patch.homeIcon;
     }
     // What a new space starts with (a template sets it): its profile. null clears it (a new space then starts as
@@ -2407,7 +2407,8 @@ class Store {
     if (patch.linkIcon !== undefined) {
       // What the environment offers and what this space's own template offers (as this save leaves it): spaceIconIds.
       const own = this.spaceTemplatesOn() && id !== LOBBY && typeof draft.template === 'string' ? this.templateNamed(draft.template) : null;
-      if (!this.spaceIconIds(own).includes(patch.linkIcon)) throw new StoreError('unknown link icon');
+      // The icon it has already is taken back unchanged (it may be one a template switched away offered); a new one is checked.
+      if (patch.linkIcon !== space.linkIcon && !this.spaceIconIds(own).includes(patch.linkIcon)) throw new StoreError('unknown link icon');
       draft.linkIcon = patch.linkIcon;
     }
     if (patch.allowGuests !== undefined) {
