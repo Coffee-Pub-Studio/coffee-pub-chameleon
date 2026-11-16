@@ -2086,7 +2086,18 @@ const LIBRARY_ROUTE = /^\/api\/modules\/[^/]+\/library(?:\/|$)/i; // routes matc
 // A template (plan-templates-redesign.md) may be up to 128 KB, its starter content included: its routes read their own
 // bodies (templateJson, templateFileText) with that limit, so this parser leaves them alone.
 const TEMPLATE_ROUTE = /^\/api\/(host\/templates|environment\/templates|templates\/import)(?:\/|$)/i;
-app.use(express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } }));
+const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
+// A body that can't be read (not JSON, too big) sent with an agent's token is held (req.bodyError) and answered only once
+// the agent gate has counted and logged the call, so an agent can't call past its limits or its log with bad bodies
+// (plan-agent-access.md). Every other request is answered here, as before. Nothing reads a held body: the gate, the host
+// console's first step and the step right after the gate hand the error on.
+app.use((req, res, next) => jsonBody(req, res, (err) => {
+  if (err && agentTokensOn && agentBearer(req) !== null) {
+    req.bodyError = err;
+    return next();
+  }
+  return next(err);
+}));
 
 const publicDir = path.join(__dirname, '..', 'public');
 const clientDist = path.join(__dirname, '..', 'node_modules', 'livekit-client', 'dist');
@@ -2121,6 +2132,7 @@ const rawImage = express.raw({ type: Object.keys(IMAGE_TYPES), limit: MAX_IMAGE_
 // here can never fall through to an environment's own routes below (which need an environment resolved, and none is,
 // for the host admin -- see requireHostAdmin, its own session, auth.HOST_COOKIE, never an environment's).
 const hostRouter = express.Router();
+hostRouter.use((req, _res, next) => next(req.bodyError)); // an agent's unreadable body (see jsonBody): answered as before
 const hostLimiter = new auth.LoginLimiter();
 
 function currentHostAdmin(req) {
@@ -3544,9 +3556,9 @@ const agentLogSpace = {
 };
 // The gate's list: method, route (as the app registers it), what it counts as, and its check. Chat posting (step 5) is
 // not on it yet.
+// Not on it: GET /api/spaces/:id, Set up's read, which answers a member "owners only" whatever it is asked.
 const AGENT_ROUTES = [
   ['get', '/api/agent/me', 'read', 'none'],
-  ['get', '/api/spaces/:id', 'read', 'spaceParam'],
   ['get', '/api/modules/:id/context', 'read', 'spaceScope'],
   ['get', '/api/modules/:id/data', 'read', 'spaceScope'],
   ['get', '/api/modules/:id/data/:key', 'read', 'spaceScope'],
@@ -3583,9 +3595,12 @@ function agentGate(req, res, next) {
   if (token === null) return next();
   req._user = null; // whatever else the request carries (a cookie session) is never read now
   res.set('Cache-Control', 'no-store');
-  const record = env.tokens.find(token);
+  const record = env.tokens.find(token, 'agent', { evenExpired: true });
   const agent = record ? store.userByKey(record.user) : null;
-  if (!record || !agent || !agent.agent || agent.off || store.settings.agents !== true) {
+  if (!record || !agent || !agent.agent || agent.off || store.settings.agents !== true || !env.tokens.live(record)) {
+    // A token that is an agent's but no longer good (past its end, the agent turned off, Agents off) is noted in that
+    // agent's log, at most once a minute; an unknown one names nobody and is not.
+    if (record && agent && agent.agent) env.agentLog.note({ agent: agent.key, token: record.id, method: req.method, route: '(refused)', status: 401, address: req.ip || null });
     return res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: AGENT_TOKEN_INVALID });
   }
   req._user = agent;
@@ -3598,24 +3613,33 @@ function agentGate(req, res, next) {
     if (err) return next(err);
     const rule = req.agent.rule;
     const kind = rule ? rule.kind : 'read';
+    const line = () => ({ agent: agent.key, token: record.id, method: req.method, route: rule ? rule.pattern : '(refused)', space: rule ? rule.space : null, status: res.statusCode, address: req.ip || null });
+    // Counted first, so a refused call costs as much as any other: hammering the gate is bounded by the same limits. A call
+    // over a limit counts against nothing and leaves no line of its own: the first of each minute is noted (agentLog.note).
+    const taken = env.agentLog.take(agent.key, kind);
+    if (!taken.ok) {
+      res.status(429).set('Retry-After', String(taken.retrySeconds));
+      env.agentLog.note(line());
+      return res.json({ error: AGENT_OVER });
+    }
     let logged = false;
     const writeLine = () => {
       if (logged) return;
       logged = true;
       const extra = res.locals.agentLog || {};
-      env.agentLog.write({ agent: agent.key, token: record.id, method: req.method, route: rule ? rule.pattern : '(refused)', space: rule ? rule.space : null, action: extra.action, request: extra.request, message: extra.message, status: res.statusCode, address: req.ip || null, kind });
+      env.agentLog.write({ ...line(), action: extra.action, request: extra.request, message: extra.message, status: res.statusCode, kind });
     };
     res.once('finish', writeLine);
     res.once('close', writeLine);
-    // Counted first, so a refused call costs as much as any other: hammering the gate is bounded by the same limits.
-    const taken = env.agentLog.take(agent.key, kind);
-    if (!taken.ok) return res.status(429).set('Retry-After', String(taken.retrySeconds)).json({ error: AGENT_OVER });
+    if (req.bodyError) return next(req.bodyError); // a body that could not be read: counted and logged, then answered as before
     if (!rule) return res.status(403).json({ error: AGENT_CANT });
     if (rule.refusal) return res.status(rule.refusal.status).json({ error: rule.refusal.error });
     return next();
   });
 }
 app.use(agentGate);
+// An agent's unreadable body (see jsonBody) that the gate passed on unread (no environment here: the product host).
+app.use((req, _res, next) => next(req.bodyError));
 
 // --- the agreement gate (documentation/plans/plan-access-bundle.md, step 1) ------------------------------------------
 // One place, ahead of every route of an environment: a request that carries an account's session (the cookie, or the
@@ -7810,6 +7834,16 @@ app.post('/api/spaces/:id/action', (req, res) => {
   if (req.agent) {
     res.locals.agentLog = { action: `${provider.found.manifest.id}:${def.name}` };
     if (!agentMayAsk(def)) return res.status(403).json({ error: AGENT_CANT_ASK });
+    // Every pointer it sends is into one of its own spaces (decision 3): never the environment's, a person's or another
+    // space's, so an action can't be used to learn what is there.
+    const given = req.body?.input && typeof req.body.input === 'object' ? req.body.input : {};
+    for (const [field, type] of Object.entries(def.input || {})) {
+      const base = String(type).replace(/\?$/, '');
+      if (base !== 'ref' && !base.startsWith('ref:')) continue;
+      const v = Object.hasOwn(given, field) ? given[field] : undefined;
+      if (v === undefined || v === null || v === '') continue;
+      if (!agentSeesRef(req.agent.user, v)) return res.status(403).json({ error: AGENT_CANT });
+    }
   }
   if (!def.local) {
     try { busPlace(who, providerId, 'space', space.id, 'write'); } catch (err) {

@@ -2013,7 +2013,8 @@ class Store {
     const user = this.userByKey(key);
     if (!user) throw new StoreError('no such user', 404);
     // An agent is a member and nothing more, and has no sign-in of its own (plan-agent-access.md, "The agent account").
-    if (user.agent && ((patch.role !== undefined && patch.role !== 'member') || patch.passwordHash || patch.linkToken)) throw new StoreError(AGENT_CANT_BE);
+    // Its login is the one it was made with (agent-<key>), so no ADMIN_LOGIN and no person's login is ever an agent's.
+    if (user.agent && ((patch.role !== undefined && patch.role !== 'member') || patch.passwordHash || patch.linkToken || (patch.login !== undefined && cleanLogin(patch.login) !== user.login))) throw new StoreError(AGENT_CANT_BE);
     // The admin's sign-in is the host's (the stand-in) or the server start's (ADMIN_LOGIN and ADMIN_PASSWORD), never
     // an owner's to change: its role, login, password and personal link are refused here.
     if (user.role === 'admin') {

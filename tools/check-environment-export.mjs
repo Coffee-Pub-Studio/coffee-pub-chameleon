@@ -241,6 +241,9 @@ test("a restore's files carry no session or stream key; every other file is as i
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['access.json', other], ['./access.json', other]]).map(([n]) => n), ['app.json']);
   assert.deepEqual(ex.restoreEntries([['app.json', app], ['access.json', other]], { backup: true }).map(([n]) => n), ['app.json', 'access.json']);
   assert.equal(ex.fileAllowed('access.json'), false, 'never in an owner\'s copy');
+  // Agents' tokens and their log (plan-agent-access.md): an owner's copy can't plant a token or spend a day's limit; the host's backup keeps them.
+  assert.deepEqual(ex.restoreEntries([['app.json', app], ['tokens.json', other], ['./tokens.json', other], ['/tokens.json', other], ['tokens.json/x', other], ['agent-log/abcd1234/2026-11-16.jsonl', other], ['./agent-log/x', other]]).map(([n]) => n), ['app.json']);
+  assert.deepEqual(ex.restoreEntries([['app.json', app], ['tokens.json', other], ['agent-log/abcd1234/2026-11-16.jsonl', other]], { backup: true }).map(([n]) => n), ['app.json', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl']);
   assert.ok(JSON.parse(copy[0][1].toString('utf8')).users.every((u) => !('agreed' in u)));
   assert.equal(ex.restoreEntries([['app.json', Buffer.from('not json')]])[0][1].toString(), 'not json');
 });
@@ -270,7 +273,7 @@ const FILES = {
     'modules/vault/library/space-trip01.json', 'modules/maps/geocode.json', 'modules/maps/image-map/castle.png',
   ],
   leftOut: [
-    'secrets.key', 'modules/secrets.json', 'pre-names/a-part/app.json', 'chat-private.json', 'ai-threads.moved.json', 'ai-threads.json', LEGACY_ENVIRONMENT_RECORD, 'tmp/region-cut/x.pmtiles', 'tokens.json', 'agent-log.jsonl',
+    'secrets.key', 'modules/secrets.json', 'pre-names/a-part/app.json', 'chat-private.json', 'ai-threads.moved.json', 'ai-threads.json', LEGACY_ENVIRONMENT_RECORD, 'tmp/region-cut/x.pmtiles', 'tokens.json', 'agent-log/abcd1234/2026-11-16.jsonl',
     'modules/todo/data/person-ownerkey.json', 'modules/todo/trash/person-ownerkey.json', 'modules/research/uploads/person-ownerkey/abc123.png', 'modules/research/uploads/person-ownerkey/abc123.json',
     'modules/vault/library/space-trip01.shares.json', 'app.json.tmp', 'modules/maps/image-map/.upload-1a2b.part', 'modules/.staging-1-2/todo/module.json', 'modules/maps/map-tiles/x.pmtiles.part',
   ],

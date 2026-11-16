@@ -17,7 +17,16 @@
  *     from the log, so they survive a restart;
  *   - the log: one line a call, its route pattern and never its token, a request body or the path's own values; owners
  *     read it through GET /api/users/:key/agent-log;
- *   - hosted (BASE_DOMAIN): a token of one environment is 401 at another; the console and the product host answer as before.
+ *   - hosted (BASE_DOMAIN): a token of one environment is 401 at another; the console and the product host answer as before;
+ *     an owner's copy restored with a tokens.json or an agent-log/ of its own keeps neither, so a planted token is 401;
+ *   - a tokens.json record that lives longer than 30 days, or is made in the future, is not read;
+ *   - calls answered 429 (or 401 for a token the agent no longer may use) leave at most one line a minute in its log;
+ *   - an action's pointer input outside the agent's spaces (the environment's, another space's) is 403;
+ *   - a body that is not JSON, with an agent's token, is counted and logged by the gate, then answered 400 as before;
+ *   - a server whose ADMIN_LOGIN is an agent's login starts, and says why it made no admin of it;
+ *   - the route walk is the app's own router stack (every layer, mounted routers walked into), written at start by
+ *     tools/route-walk-preload.cjs: a layer it can't read, a route ahead of the gate it does not know, or a route written in
+ *     server/*.js that the walk does not have, fails the check.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -31,7 +40,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
-const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
+const { buildModule, zipFiles } = require(path.join(ROOT, 'server', 'module-build.js'));
 
 const INVALID = 'That agent token is not valid.';
 const CANT = "An agent can't do that.";
@@ -53,8 +62,8 @@ const test = async (name, fn) => {
 };
 
 const servers = [];
-async function startServer(dataDir, env = {}) {
-  const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+async function startServer(dataDir, env = {}, nodeArgs = []) {
+  const child = spawn(process.execPath, [...nodeArgs, path.join(ROOT, 'server', 'index.js')], {
     cwd: ROOT,
     env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -141,8 +150,9 @@ function testModuleZip(base) {
   return buildModule(src).zip;
 }
 
-// Every route the app registers by a fixed path ("app.get('/api/...')" in server/*.js), as [method, path].
-function registeredRoutes() {
+// Every route written in server/*.js with a fixed path ("app.get('/api/...')"), as [method, path]: only to make sure the
+// router-stack walk has each of them.
+function writtenRoutes() {
   const out = [];
   const dir = path.join(ROOT, 'server');
   for (const f of fs.readdirSync(dir).filter((x) => x.endsWith('.js'))) {
@@ -152,14 +162,18 @@ function registeredRoutes() {
   return out;
 }
 const GATE_LIST = new Set([
-  'GET /api/agent/me', 'GET /api/spaces/:id', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
+  'GET /api/agent/me', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
   'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'POST /api/objects/resolve',
   'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
 ]);
 
-// Registered ahead of the environments (before the door), so before any session or token is read: the same for everyone,
-// signed in or not, and nothing of any environment's.
+// The only route registered ahead of the agent gate (before the door), so before any session or token is read: the same
+// for everyone, signed in or not, and nothing of any environment's. A new one there fails the walk until it is named here.
 const PUBLIC_BEFORE_ENVIRONMENTS = new Set(['GET /design-system/module-sources.js']);
+const WALK_OUT = path.join(os.tmpdir(), `check-agent-tokens-walk-${process.pid}.json`);
+const PRELOAD = ['-r', path.join(ROOT, 'tools', 'route-walk-preload.cjs')];
+const lineCount = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0);
+const dayToday = () => new Date().toISOString().slice(0, 10);
 
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-agent-tokens-'));
 const single = path.join(base, 'single');
@@ -191,7 +205,7 @@ try {
   await server.stop();
 
   // --- on: the account, the switch and the token ---------------------------------------------------------------------
-  server = await startServer(single, onEnv);
+  server = await startServer(single, { ...onEnv, ROUTE_WALK_OUT: WALK_OUT }, PRELOAD);
   admin = await signIn(server, 'admin', 'admin-password-1');
   const zip = testModuleZip(base);
   const installed = await call(server, 'POST', '/api/modules', { cookie: admin, raw: zip, headers: { 'content-type': 'application/zip' } });
@@ -242,6 +256,7 @@ try {
     refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { role: 'admin' } }), 400, CANT_BE, 'admin');
     refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { password: 'agent-password-1' } }), 400, CANT_BE, 'a password');
     refused(await call(server, 'POST', `/api/users/${agent.key}/link`, { cookie: admin }), 400, CANT_BE, 'a personal link');
+    refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { login: 'admin2' } }), 400, CANT_BE, 'another login');
     refused(await call(server, 'PATCH', `/api/users/${agent.key}/spaces/${S1}`, { cookie: admin, body: { permissions: { moderator: true } } }), 400, CANT_BE, 'a moderator');
     const after = (await call(server, 'GET', `/api/users/${agent.key}`, { cookie: admin })).json.user;
     assert.deepEqual([after.role, after.hasPassword, after.link, after.spaces[S1].permissions.moderator], ['member', false, null, false]);
@@ -306,8 +321,8 @@ try {
     assert.deepEqual([me.json.limits.reads.perMinute, me.json.limits.reads.perDay, me.json.limits.writes.perMinute, me.json.limits.writes.perDay], [60, 3000, 20, 300]);
     assert.ok(me.json.limits.reads.usedToday >= 1);
     assert.equal(me.json.expiresAt, made.json.expiresAt);
-    // As a member reads it: Set up's read is for owners and moderators.
-    refused(await call(server, 'GET', `/api/spaces/${S1}`, A()), 403, null, 'the space, as a member reads it');
+    // Set up's read is off the list: it answers a member "owners only" whatever it is asked.
+    refused(await call(server, 'GET', `/api/spaces/${S1}`, A()), 403, CANT, 'Set up\'s read');
     const putTask = await call(server, 'PUT', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, { cookie: admin, body: { value: { id: 't1', title: 'Pack the tent', done: false } } });
     ok(putTask, 'the owner adds a task');
     ok(await call(server, 'GET', `/api/modules/todo/context?scope=space&space=${S1}`, A()), 'context');
@@ -338,10 +353,38 @@ try {
     }
   });
 
+  await test('an action\'s pointer input outside the agent\'s spaces is 403', async () => {
+    const t1 = { module: 'todo', kind: 'task', id: 't1', scope: 'space', space: S1 };
+    for (const target of [
+      { module: 'todo', kind: 'task', id: 'envsecret1', scope: 'environment' },
+      { module: 'todo', kind: 'task', id: 't1', scope: 'space', space: S2 },
+      { module: 'todo', kind: 'task', id: 't1', scope: 'person' },
+      { module: 'todo', kind: 'task', id: 't1', scope: 'space', space: 'lobby' },
+    ]) {
+      refused(await call(server, 'POST', `/api/spaces/${S1}/action`, { ...(await P()), body: { action: 'todo:linkTask', input: { task: t1, target } } }), 403, CANT, `a target at ${target.scope} ${target.space || ''}`);
+      refused(await call(server, 'POST', `/api/spaces/${S1}/action`, { ...(await P()), body: { action: 'todo:createTask', input: { title: 'x', ref: target } } }), 403, CANT, `a ref at ${target.scope} ${target.space || ''}`);
+    }
+    ok(await call(server, 'POST', `/api/spaces/${S1}/action`, { ...(await P()), body: { action: 'todo:createTask', input: { title: 'About t1', ref: t1 } } }), 'a pointer into its own space');
+  });
+
+  await test('a body that is not JSON is counted and logged by the gate, then answered 400', async () => {
+    const one = await agentOf('Bad body');
+    const before = (await call(server, 'GET', '/api/agent/me', { token: one.token })).json.limits;
+    const bad = await call(server, 'POST', `/api/spaces/${S1}/action`, { token: one.token, raw: Buffer.from('{bad') });
+    refused(bad, 400, 'bad JSON', 'a body that is not JSON');
+    const elsewhere = await call(server, 'POST', '/api/users', { token: one.token, raw: Buffer.from('{bad') });
+    refused(elsewhere, 400, 'bad JSON', 'off the list too');
+    const after = (await call(server, 'GET', '/api/agent/me', { token: one.token })).json.limits;
+    assert.equal(after.writes.usedToday, before.writes.usedToday + 1, 'counted as a write');
+    assert.equal(after.reads.usedToday, before.reads.usedToday + 2, 'and the other as a read');
+    const lines = fs.readFileSync(path.join(single, 'agent-log', one.key, `${dayToday()}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    assert.ok(lines.some((l) => l.status === 400 && l.route === '/api/spaces/:id/action'), 'logged');
+    refused(await call(server, 'POST', '/api/users', { cookie: admin, raw: Buffer.from('{bad') }), 400, 'bad JSON', 'a person, as before');
+  });
+
   await test('a space it is not in is the unknown space\'s 404; another scope is 403', async () => {
     const notFound = (r, what) => { assert.equal(r.status, 404, `${what}: ${r.status} ${r.text}`); assert.match(r.json.error, /^no such /); };
     for (const id of [S2, 'lobby', 'zzzz9999']) {
-      notFound(await call(server, 'GET', `/api/spaces/${id}`, await P()), `the space ${id}`);
       notFound(await call(server, 'GET', `/api/spaces/${id}/actions`, await P()), `actions in ${id}`);
       notFound(await call(server, 'POST', `/api/spaces/${id}/action`, { ...(await P()), body: { action: 'todo:createTask', input: { title: 'x' } } }), `an action in ${id}`);
       notFound(await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${id}`, await P()), `data in ${id}`);
@@ -373,19 +416,35 @@ try {
     }
   });
 
-  await test('every route the app registers by a fixed path answers an agent 403, except the gate\'s list', async () => {
-    const routes = registeredRoutes();
-    assert.ok(routes.length > 200, `the walk found the routes (${routes.length})`);
+  await test('every route and mount in the app\'s router stack answers an agent 403, except the gate\'s list', async () => {
+    const layers = JSON.parse(fs.readFileSync(WALK_OUT, 'utf8'));
+    assert.deepEqual(layers.filter((l) => l.kind === 'unknown'), [], 'every layer of the stack can be read');
+    const gate = layers.findIndex((l) => l.kind === 'use' && l.name === 'agentGate');
+    assert.ok(gate > 0, 'the gate is in the stack');
+    const ahead = layers.slice(0, gate).filter((l) => l.kind === 'route').map((l) => `${l.method} ${l.path}`);
+    assert.deepEqual(ahead.filter((r) => !PUBLIC_BEFORE_ENVIRONMENTS.has(r)), [], 'no route ahead of the gate but the known one');
+    const routes = layers.slice(gate).filter((l) => l.kind === 'route');
+    const mounts = layers.slice(gate).filter((l) => l.kind === 'use' && l.path !== '/');
+    assert.ok(routes.length > 300, `the walk found the routes (${routes.length})`);
+    const seen = new Set(layers.filter((l) => l.kind === 'route').map((l) => `${l.method} ${l.path}`));
+    assert.deepEqual(writtenRoutes().map(([m, p]) => `${m} ${p}`).filter((r) => !seen.has(r)), [], 'the walk has every route written in server/*.js');
+    for (const r of GATE_LIST) assert.ok(seen.has(r), `${r} is a route of the app`);
+    const urlOf = (pattern) => pattern.replace(/[{}]/g, '').replace(/\*[A-Za-z]+/g, 'a/b').replace(/:([A-Za-z]+)/g, 'x1234');
     let walked = 0;
-    for (const [method, pattern] of routes) {
-      if (GATE_LIST.has(`${method} ${pattern}`) || PUBLIC_BEFORE_ENVIRONMENTS.has(`${method} ${pattern}`)) continue;
-      const url = pattern.replace(/[{}]/g, '').replace(/\*[A-Za-z]+/g, 'a/b').replace(/:([A-Za-z]+)/g, 'x1234');
-      const r = await call(server, method, url, { ...(await P()), body: ['POST', 'PUT', 'PATCH'].includes(method) ? {} : undefined });
+    for (const { method, path: pattern } of routes) {
+      if (GATE_LIST.has(`${method} ${pattern}`)) continue;
+      const verb = method === '_all' ? 'GET' : method;
+      const r = await call(server, verb, urlOf(pattern), { ...(await P()), body: ['POST', 'PUT', 'PATCH'].includes(verb) ? {} : undefined });
       assert.equal(r.status, 403, `${method} ${pattern} answered ${r.status} ${r.text.slice(0, 200)}`);
       assert.equal(r.json?.error, CANT, `${method} ${pattern}: the sentence`);
       walked += 1;
     }
-    assert.ok(walked > 200);
+    for (const { name, path: at } of mounts) {
+      const r = await call(server, 'GET', `${urlOf(at)}/x.js`, await P());
+      assert.equal(r.status, 403, `${name} at ${at} answered ${r.status} ${r.text.slice(0, 200)}`);
+      walked += 1;
+    }
+    assert.ok(walked > 300 && mounts.length > 5, `walked ${walked}, ${mounts.length} of them mounts`);
   });
 
   await test('it reads only its own requests', async () => {
@@ -465,7 +524,7 @@ try {
     ok(older, 'older');
     assert.ok(older.json.entries.every((e) => Date.parse(e.at) < Date.parse(entries[entries.length - 1].at)));
     refused(await call(server, 'GET', `/api/users/${mia.key}/agent-log`, { cookie: admin }), 400, 'That account is not an agent.', 'a person has no log');
-    const text = fs.readFileSync(path.join(single, 'agent-log.jsonl'), 'utf8');
+    const text = filesUnder(path.join(single, 'agent-log')).map(([, b]) => b.toString('utf8')).join('');
     for (const t of allTokens) assert.ok(!text.includes(t), 'no token in the log');
     assert.ok(!text.includes('Secret title 4417'), 'no request body in the log');
     assert.ok(!text.includes('task:t1'), 'no path value in the log');
@@ -484,6 +543,16 @@ try {
     assert.ok(wait >= 1 && wait <= 60, `Retry-After ${over.headers['retry-after']}`);
     refused(await call(server, 'GET', '/api/settings', { token: reader.token }), 429, OVER, 'a refused route counts as a read too');
   });
+  await test('200 calls answered 429 add at most two lines to the log', async () => {
+    const file = path.join(single, 'agent-log', reader.key, `${dayToday()}.jsonl`);
+    const before = lineCount(file);
+    const answered = await Promise.all(Array.from({ length: 200 }, () => call(server, 'GET', '/api/agent/me', { token: reader.token })));
+    assert.ok(answered.every((r) => r.status === 429));
+    const grew = lineCount(file) - before;
+    assert.ok(grew <= 2, `the log grew by ${grew} lines`);
+    const notes = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).filter((l) => l.status === 429);
+    assert.ok(notes.length >= 1 && notes.every((l) => l.kind === null), 'the first of the minute is noted, counting against nothing');
+  });
   await test('20 writes a minute, counted apart from reads', async () => {
     for (let i = 0; i < 20; i += 1) ok(await call(server, 'POST', `/api/spaces/${S1}/action`, { token: writer.token, body: { action: 'todo:createTask', input: { title: `Write ${i}` } } }), `write ${i + 1}`);
     const over = await call(server, 'POST', `/api/spaces/${S1}/action`, { token: writer.token, body: { action: 'todo:createTask', input: { title: 'One too many' } } });
@@ -500,7 +569,7 @@ try {
   {
     const today = new Date().toISOString();
     const line = (kind) => `${JSON.stringify({ at: today, agent: daily.key, token: 'x', method: 'GET', route: '/api/agent/me', space: null, action: null, request: null, message: null, status: 200, address: '127.0.0.1', kind })}\n`;
-    fs.appendFileSync(path.join(single, 'agent-log.jsonl'), line('read').repeat(3000 - usedBefore.reads.usedToday) + line('write').repeat(300));
+    fs.appendFileSync(path.join(single, 'agent-log', daily.key, `${dayToday()}.jsonl`), line('read').repeat(3000 - usedBefore.reads.usedToday) + line('write').repeat(300));
   }
   server = await startServer(single, onEnv);
   admin = await signIn(server, 'admin', 'admin-password-1');
@@ -518,15 +587,36 @@ try {
     const file = path.join(single, 'tokens.json');
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     const mine = data.tokens.find((t) => t.user === agent.key);
-    mine.expiresAt = new Date(Date.now() - 1000).toISOString();
+    mine.expiresAt = new Date(Date.parse(mine.createdAt) + 1).toISOString(); // made, and ended a millisecond later
+    // A record that says it lives longer than 30 days was not written here.
+    const long = data.tokens.find((t) => t.user === daily.key);
+    long.createdAt = new Date().toISOString();
+    long.expiresAt = new Date(Date.now() + 31 * 86400000).toISOString();
     fs.writeFileSync(file, JSON.stringify(data));
   }
   server = await startServer(single, onEnv);
-  await test('a token past its end is 401', async () => {
-    refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'expired');
+  await test('a token past its end is 401, and noted at most once a minute in its agent\'s log', async () => {
+    const file = path.join(single, 'agent-log', agent.key, `${dayToday()}.jsonl`);
+    const before = lineCount(file);
+    for (let i = 0; i < 30; i += 1) refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'expired');
+    assert.equal(lineCount(file) - before, 1, 'one line for 30 refusals');
+    const note = JSON.parse(fs.readFileSync(file, 'utf8').trim().split('\n').pop());
+    assert.deepEqual([note.status, note.kind, note.route], [401, null, '(refused)']);
+  });
+  await test('a tokens.json record that lives more than 30 days is not read', async () => {
+    refused(await call(server, 'GET', '/api/agent/me', { token: daily.token }), 401, INVALID, 'a 31-day record');
     ok(await call(server, 'GET', '/api/agent/me', { token: writer.token }), 'another agent\'s live token');
   });
   await server.stop();
+
+  await test('a server whose ADMIN_LOGIN is an agent\'s login starts, and makes no admin of it', async () => {
+    const login = `agent-${writer.key}`;
+    const odd = await startServer(single, { ...onEnv, ADMIN_LOGIN: login, ADMIN_PASSWORD: 'other-password-1' });
+    assert.match(odd.out, new RegExp(`"${login}" is an agent's login here, so ADMIN_LOGIN cannot make it the server's admin\\.`));
+    refused(await call(odd, 'POST', '/api/login', { body: { login, password: 'other-password-1' } }), 401, null, 'no sign-in as it');
+    ok(await call(odd, 'GET', '/api/agent/me', { token: writer.token }), 'still an agent');
+    await odd.stop();
+  });
 
   // --- off again: nothing reads a token ----------------------------------------------------------------------------------
   server = await startServer(single, offEnv);
@@ -568,12 +658,35 @@ try {
     ok(await call(server, 'GET', '/api/product', { token: t, headers: { host: `localhost:${server.port}` } }), 'the product host ignores it');
     const betaTokens = path.join(hosted, 'environments', 'beta', 'tokens.json');
     assert.ok(!fs.existsSync(betaTokens) || !fs.readFileSync(betaTokens, 'utf8').includes(sha256(t)), 'beta keeps none of acme\'s');
-    assert.ok(fs.existsSync(path.join(hosted, 'environments', 'acme', 'agent-log.jsonl')), 'acme keeps its own log');
-    assert.ok(!fs.existsSync(path.join(hosted, 'environments', 'beta', 'agent-log.jsonl')), 'beta has none');
+    assert.ok(fs.existsSync(path.join(hosted, 'environments', 'acme', 'agent-log', a.key)), 'acme keeps its own log');
+    assert.ok(!fs.existsSync(path.join(hosted, 'environments', 'beta', 'agent-log')), 'beta has none');
   });
-  await test('an owner\'s copy of the environment carries no tokens.json and no agent-log.jsonl; the agent is in it', async () => {
+  await test('an owner\'s copy restored with a tokens.json and an agent-log/ of its own keeps neither: a planted token is 401', async () => {
+    const dir = path.join(hosted, 'environments', 'acme');
+    const a = (await call(server, 'GET', '/api/users', { host: 'acme', cookie: acme })).json.users.find((u) => u.agent);
+    const planted = `agt_${crypto.randomBytes(32).toString('base64url')}`;
+    const now = Date.now();
+    const record = { id: 'plantedtoken1', kind: 'agent', user: a.key, hash: sha256(planted), createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 29 * 86400000).toISOString(), lastUsedAt: null, lastAddress: null };
+    const spent = `${JSON.stringify({ at: new Date(now).toISOString(), agent: a.key, token: 'x', method: 'GET', route: '/api/agent/me', status: 200, kind: 'read' })}\n`.repeat(3000);
+    const files = filesUnder(dir).map(([f, b]) => [path.relative(dir, f).split(path.sep).join('/'), b])
+      .filter(([n]) => n !== 'tokens.json' && !n.startsWith('agent-log/'));
+    files.push(['tokens.json', Buffer.from(JSON.stringify({ tokens: [record] }))], [`agent-log/${a.key}/${dayToday()}.jsonl`, Buffer.from(spent)]);
+    const restored = await call(server, 'POST', '/api/host/environments/acme/restore', { host: 'admin', cookie: host, raw: zipFiles(files), headers: { 'content-type': 'application/zip' } });
+    ok(restored, 'the restore');
+    assert.ok(!fs.existsSync(path.join(dir, 'tokens.json')), 'no tokens.json');
+    assert.ok(!fs.existsSync(path.join(dir, 'agent-log')), 'no agent-log/');
+    refused(await call(server, 'GET', '/api/agent/me', { host: 'acme', token: planted }), 401, INVALID, 'the planted token');
+    const owner = await signIn(server, 'owner', 'owner-password-1', 'acme');
+    const fresh = (await call(server, 'POST', `/api/users/${a.key}/token`, { host: 'acme', cookie: owner })).json.token;
+    allTokens.push(fresh);
+    const me = await call(server, 'GET', '/api/agent/me', { host: 'acme', token: fresh });
+    ok(me, 'a token made after the restore');
+    assert.equal(me.json.limits.reads.usedToday, 1, 'the planted log set no count');
+  });
+  await test('an owner\'s copy of the environment carries no tokens.json and no agent-log/; the agent is in it', async () => {
+    const again = await signIn(server, 'owner', 'owner-password-1', 'acme'); // the restore made new session keys
     const zipped = await new Promise((resolve, reject) => {
-      http.get({ host: '127.0.0.1', port: server.port, path: '/api/environment/export', headers: { host: `acme.localhost:${server.port}`, cookie: acme } }, (res) => {
+      http.get({ host: '127.0.0.1', port: server.port, path: '/api/environment/export', headers: { host: `acme.localhost:${server.port}`, cookie: again } }, (res) => {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
         res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks) }));
@@ -582,7 +695,7 @@ try {
     assert.equal(zipped.status, 200);
     assert.ok(zipped.body.includes(Buffer.from('app.json')), 'a zip of the environment');
     assert.ok(!zipped.body.includes(Buffer.from('tokens.json')), 'no tokens.json');
-    assert.ok(!zipped.body.includes(Buffer.from('agent-log.jsonl')), 'no agent-log.jsonl');
+    assert.ok(!zipped.body.includes(Buffer.from('agent-log/')), 'no agent-log/');
   });
   await server.stop();
 
@@ -604,6 +717,7 @@ try {
 } finally {
   for (const s of servers) await s.stop();
   fs.rmSync(base, { recursive: true, force: true });
+  fs.rmSync(WALK_OUT, { force: true });
 }
 
 if (failed) {

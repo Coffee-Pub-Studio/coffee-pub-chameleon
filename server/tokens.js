@@ -56,6 +56,10 @@ class Tokens {
     for (const t of list) {
       if (!t || typeof t !== 'object' || !KINDS.includes(t.kind) || !ID_RE.test(String(t.id)) || !KEY_RE.test(String(t.user)) || !HASH_RE.test(String(t.hash))) continue;
       if (!isTime(t.createdAt) || !isTime(t.expiresAt)) continue;
+      // A token lives TOKEN_DAYS at most from when it was made, and is not made in the future: a record that says otherwise
+      // was not written here (a hand-made file) and is not read.
+      const life = Date.parse(t.expiresAt) - Date.parse(t.createdAt);
+      if (!(life > 0 && life <= TOKEN_DAYS * 86400000) || Date.parse(t.createdAt) > this.now() + 5 * 60000) continue;
       const one = `${t.kind}|${t.user}`;
       if (seen.has(one)) continue; // one live token per person and kind, whatever the file says
       seen.add(one);
@@ -98,9 +102,10 @@ class Tokens {
     return { token, record };
   }
 
-  // The live record a token stands for, or null: the wrong shape, unknown, or past its end. Every record's hash is
-  // compared in constant time and all of them are compared, so how long this takes says nothing about which matched.
-  find(token, kind = 'agent') {
+  // The live record a token stands for, or null: the wrong shape, unknown, or past its end (with `evenExpired`, a record
+  // past its end too, for the caller to tell apart). Every record's hash is compared in constant time and all of them are
+  // compared, so how long this takes says nothing about which matched.
+  find(token, kind = 'agent', { evenExpired = false } = {}) {
     const shape = TOKEN_SHAPES[kind];
     if (typeof token !== 'string' || !shape || !shape.test(token)) return null;
     const wanted = Buffer.from(hashOf(token), 'hex');
@@ -109,8 +114,13 @@ class Tokens {
       const same = crypto.timingSafeEqual(Buffer.from(t.hash, 'hex'), wanted);
       if (same && t.kind === kind && !found) found = t;
     }
-    if (!found || !(Date.parse(found.expiresAt) > this.now())) return null;
+    if (!found || (!evenExpired && !this.live(found))) return null;
     return found;
+  }
+
+  // Whether a record has not reached its end.
+  live(record) {
+    return Date.parse(record.expiresAt) > this.now();
   }
 
   // The token `user` holds of `kind` (live or past its end), or null.

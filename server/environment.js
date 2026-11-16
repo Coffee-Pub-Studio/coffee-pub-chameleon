@@ -164,6 +164,8 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
       } else if (store.serverAdmins().length === 0) {
         log('This install has no server admin. Set ADMIN_LOGIN and ADMIN_PASSWORD, then restart, to have one.');
       }
+    } else if (existing && existing.agent) {
+      log(`"${login}" is an agent's login here, so ADMIN_LOGIN cannot make it the server's admin. Choose another ADMIN_LOGIN.`);
     } else if (existing && existing.hostAdmin) {
       log(`"${login}" is the host admin's account here, so ADMIN_LOGIN cannot make it the server's admin. Choose another ADMIN_LOGIN.`);
     } else if (existing) {
