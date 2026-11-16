@@ -6,8 +6,8 @@ of Chat posting (`server/`, `tools/`); experience-design builds the pages (Manag
 label in Chat) and the Planner's new actions (a module-lane change); quality-assurance reads the token core as a
 security change and runs the pen-test list; content-manager documents.
 
-**Status:** approved by Thomas 2026-11-16; steps 1 to 5 built (Chat reading and posting merged in #910); open: the
-agreement-gate question, the log gaps (module field, refused route path). Steps 1 to 5 are merged on `main`: the
+**Status:** approved by Thomas 2026-11-16; steps 1 to 5 built; log fields built (#915); open: nothing blocking; step 6
+(QA pass) and step 7 (documentation) remain. Steps 1 to 5 are merged on `main`: the
 token core (#903), the asker through the bus (#904), the Planner's actions (#905), the pages (#906) and Chat (#910);
 see "Left to build" and "Built differently than planned". He answered all 16 questions on 2026-11-16 (fifteen took the lean,
 question 13 on Chat did not) and the three Chat questions they raised (decisions 17 to 19); see Divergences. The
@@ -145,6 +145,8 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
    chat message, its own included. A person deletes.
 8. **Ticking and changing a plan entry: new Planner actions.** `setDone` and `updateEntry`, both `effect: "write"`; a
    module-lane change with a Planner version bump. They join the AI catalog, since they act on an object that exists.
+   The AI catalog is six tools (Thomas, 2026-11-16): `schedule__setDone` and `schedule__updateEntry` joined;
+   `goals__addStep` stays out.
 9. **Who the records name: the asker, carried with the request.** The activity list and the Calendar copies name the
    agent, not whoever's page carried it out. This also fixes #869, an action-added Planner entry reading "Added by
    someone". The asker is carried as a server-checked hint, honoured only for a new object made by the person whose
@@ -201,7 +203,8 @@ and other modules' tick actions beyond the Planner.
 - A display name can't end in `(agent)` or contain `carried out by`, for any account (400 `A name can't end in (agent).`
   and `A name can't have "carried out by" in it.`), so no name reads as an agent's or as the activity list's own words.
 - An agent is exempt from the agreement gate (`TERMS_FILE` and `NDA_FILE`; `agreementExempt`): it is not a person and
-  can't read or agree to a text. See "What is not decided".
+  can't read or agree to a text. Decided for the private invited release (Thomas, 2026-11-16); see "What is not
+  decided".
 - It is never online, never in the call, never sent notifications.
 - `chatPost: true | false` on the agent's record, the owner's **Post in Chat** switch, `false` for a new agent
   (decision 17).
@@ -296,12 +299,20 @@ A new door for an AI's text into everyone's view, so each of these holds:
 
 ### The log (server)
 
-- `DATA_DIR/agent-log/<agent key>/<YYYY-MM-DD>.jsonl` per environment, a folder of day files, one line a call: time,
-  agent, token id (never the token), method, route pattern, space, action name, chat message id or number of chat
-  messages read (step 5), request id, status, address, and `kind` (`read`, `write`, or null for a note). Kept 30 days,
+- `DATA_DIR/agent-log/<agent key>/<YYYY-MM-DD>.jsonl` per environment, a folder of day files, one line a call:
+  `{ at, agent, token, method, route, space, module, action, request, message, status, address, kind }`: time, agent,
+  token id (never the token), method, route pattern, space, module, action name, request id, chat message id or number
+  of chat messages read (step 5), status, address, and `kind` (`read`, `write`, or null for a note). Kept 30 days,
   each day's file deleted whole. A 429, and a 401 for a token that is a real agent's, leave one line a minute for each
   agent and status.
-- `GET /api/users/:key/agent-log?before=` (owners and the admin) answers the last 100 lines.
+- `route` (built, #915, 2026-11-16): the gate's pattern when the path matches a listed gate route, whatever the method
+  (an empty segment is not a gate route), in refused lines, 401 notes and 429 notes alike. Any other path is a shape
+  built from the literal words of the app's registered routes, each kept only at a place a route has it, else `:x`; no
+  query, at most 8 segments and 80 characters.
+- `module` (built, #915, 2026-11-16): the `:id` of a module route, or the module part of an action; null otherwise (a
+  429 on an action route has `module` null).
+- `GET /api/users/:key/agent-log?before=` (owners and the admin) answers the last 100 lines. The page shows a read as
+  "Read <Module name> data in <space>" and a wrong-method call as "Refused: <METHOD> <route>".
 - The token, a session, a request body, a chat message's text and an object's content never go in a line or the
   server's own log.
 
@@ -451,8 +462,8 @@ decision except where it says so. The documents named in Status say what was bui
 - **`updateEntry` has no `progress` input.**
 - **`GET /api/users/:key/token`** answers `{ token: {...} }` or `{ token: null }`.
 - **Display names can't end in `(agent)` or contain `carried out by`**, for every account. Not in the plan.
-- **Agents are exempt from the agreement gate** (`TERMS_FILE`, `NDA_FILE`), which the plan did not mention. Open; see
-  "What is not decided".
+- **Agents are exempt from the agreement gate** (`TERMS_FILE`, `NDA_FILE`), which the plan did not mention. Decided
+  for now (Thomas, 2026-11-16); see "What is not decided".
 - **The agent log counts a refused call as a read**, and a 429 or a refused token leaves one line a minute rather than
   one a call. Not in the plan.
 - **An agent needs the member role's `chat` permission** to ask for a change (the action route's own check), as the
@@ -536,24 +547,21 @@ task):
 All 16 questions and the three Chat questions decision 13 raised are answered (decisions 17 to 19). Nothing blocks a
 step.
 
-One question for Thomas, still open and not blocking steps 6 and 7: **should an agent be held to the agreement gate?**
-The code exempts agents from the terms and NDA gate (`agreementExempt` in `server/index.js`), since an agent can't read
-or agree to a text; the owner who made it has. Until he rules, an agent on a server with `TERMS_FILE` or `NDA_FILE` set
-works without agreeing.
+**Should an agent be held to the agreement gate? Decided for now (Thomas, 2026-11-16):** agents stay exempt from
+`TERMS_FILE` and `NDA_FILE` for the private invited release (`agreementExempt` in `server/index.js`), since an agent
+can't read or agree to a text, and every token's maker had agreed when the token was made. To be revisited before any
+public release.
 
 - **The independent reader's view (2026-11-16):** the exemption is acceptable for a private, invited release.
-- **The smaller safe version (recorded 2026-11-16; not built, Thomas decides):** store `madeBy`, the maker's account
+- **The smaller fix (recorded 2026-11-16; kept on record, not built):** store `madeBy`, the maker's account
   key, on each token record. In the gate, after the token is found valid, refuse when the maker no longer exists or
   `mustAgree(maker)` is true (it already exempts the host admin's stand-in). The refusal is counted and logged like any
   call, and answers 403 `{ error: "The person who made this agent's token hasn't agreed to the current terms. They
   need to sign in and agree first." }`. Three check cases: a terms version bump gives 403; the maker agrees, and the
   next call gives 200; the maker is deleted, and the call gives 403.
 
-Two gaps in the agent log, for Thomas (2026-11-16; each needs a new log field, neither is built):
-
-- **No `module` field.** A read says "Read data in <space>", not "Read Planner data in <space>", because the line does
-  not keep which module's data was read.
-- **A refused line stores the literal `(refused)` as its route.** The page can then only say "Refused: GET request",
-  not what was asked for.
+The two gaps in the agent log are decided and built (Thomas, 2026-11-16; #915): a `module` field on each line, and
+the route pattern on refused lines (see "The log"). The page now says "Read <Module name> data in <space>" and
+"Refused: <METHOD> <route>".
 
 Answered: whether "agent" joins the Names list in `CLAUDE.md` (yes, Thomas, 2026-11-16, done in #899).

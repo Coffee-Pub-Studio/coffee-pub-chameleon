@@ -2,7 +2,7 @@
 
 **Audience:** Thomas, who decides where the product pages live, how they split and what they may claim; content-manager, who writes the words for each type; server-development, who builds the tool that rebuilds every screenshot from the demos; experience-design, who builds the in-repository parts and judges the pictures; quality-assurance, who checks the words against the not-claim list; and the website session, which owns the Chameleon page on `coffeepubstudio.com`, outside this repository.
 
-**Status:** questions 1 to 4 decided by Thomas, 2026-11-16 (decisions 4 to 7); questions 5 to 7 are still open and block nothing but the picture tool. Drafted 2026-11-15, nothing decided beyond the three requests below. Thomas, 2026-11-15, tonight's needs: "screenshots for the product pages. We will need to adapt our product pages to support our current types of templates." And, about the demos: "we will need [a demo] of each for the other types we are supporting." A builder is making one demo per type (Travel, Games, Project, Learning, Mentoring); those demo files are not on `main` yet (`templates/demo/` holds only `travel.json` at `275f11a9`). Everything below is a proposal for Thomas to decide.
+**Status:** all seven questions answered by Thomas, 2026-11-16 (decisions 4 to 10); step 2 and the picture tool can proceed when Thomas says build. Drafted 2026-11-15, nothing decided beyond the three requests below. Thomas, 2026-11-15, tonight's needs: "screenshots for the product pages. We will need to adapt our product pages to support our current types of templates." And, about the demos: "we will need [a demo] of each for the other types we are supporting." A builder is making one demo per type (Travel, Games, Project, Learning, Mentoring); those demo files are not on `main` yet (`templates/demo/` holds only `travel.json` at `275f11a9`). Everything below is a proposal for Thomas to decide.
 
 **Where the pages live (read this first).** There are no product pages in this repository any more. [plan-product-site](plan-product-site.md) moved them to the website's page, `https://coffeepubstudio.com/products/chameleon`, which the website session builds and Thomas approves; the pages here were deleted in slice 5 (PR #447) and [plan-product-pages](plan-product-pages.md) is superseded. What this repository still owes the website is facts and pictures: the product sheet and the screenshots (product-site decision 4). So "adapt the product pages" means two things: change what this repository hands over (a section per type, and a screenshot set per type), and tell the website session what the page must now say. Open question 1 asks Thomas whether that is what he wants.
 
@@ -42,6 +42,12 @@ Thomas's, 2026-11-16, answering open questions 1 to 4:
 6. **Five type cards (Travel, Games, Projects, Learning, Mentoring) plus Anything imaginable** (question 3, A). Real estate is dropped until a template exists; the Mentoring card is fixed to what its template turns on; the page says plainly that Learning ships now. Reason: the page claims only what a template backs.
 7. **One Try the demo per type** (question 4, A), five demo environments listed under `#demo`, each opening its own environment's sign-in. Reason: Thomas asked for a demo of each, and one environment holds one template. It still waits on product-site slice 6.
 
+Thomas's, 2026-11-16, answering open questions 5 to 7:
+
+8. **PNG at one scale** (question 5, A): 1280 wide for desktop views, 390 wide for phone views; the website's build converts them. Reason: deterministic, and the compare needs no encoder.
+9. **The check refuses a short list of not-claim words** (question 6, A) in the type sheet, the captions and the demo files. It catches a slip, not a rewording; a reader still reviews.
+10. **The call is shown as just the controls with one person** (question 7), the stand-in's limit. A real call picture may be taken by hand later.
+
 Nothing else is decided. Each section below that says "proposed" is a suggestion.
 
 ## The type sheet (proposed)
@@ -73,7 +79,7 @@ Applies to the website, the product sheet, captions, alt text, the demo content 
 
 ## The shot list (proposed)
 
-Eight views per type, in light and dark, so 16 pictures per type and 80 in all. The website has its own mode switch, so both modes are handed over for every view; the cost is the tool's render time, not new work. Sizes: **1280** (a 1280 by 800 window) for six views, **390** (390 by 844) for two phone views; one device scale (question 5). Every shot is taken as a demo person in the type's own demo space, on the shots clock's fixed day, with `PRODUCT_NAME`'s value in the page's title and bar.
+Eight views per type, in light and dark, so 16 pictures per type and 80 in all. The website has its own mode switch, so both modes are handed over for every view; the cost is the tool's render time, not new work. Sizes: **1280** (a 1280 by 800 window) for six views, **390** (390 by 844) for two phone views; one device scale (decision 8). Every shot is taken as a demo person in the type's own demo space, on the shots clock's fixed day, with `PRODUCT_NAME`'s value in the page's title and bar.
 
 Names: `<type>/<view>-<size>-<mode>.png`, for example `games/campaign-1280-dark.png`. Types in the folder are the template ids: `travel`, `games`, `project`, `learning`, `mentoring`. Views are short lower-case words. The id used by the shot list, the caption and the manifest is `<type>-<view>`.
 
@@ -112,7 +118,7 @@ The views follow what the builder's demos hold; if a demo has no content for a v
 
 **The check that is in `npm run check`** (node only, no browser): every shot id in `tools/shots-product.json` has a caption and alt text in the type sheet and the reverse; every type has a demo file at `templates/demo/<template id>.json` and a bundled template; every module a shot names is turned on by its type's template; the screen rows use only names that exist in the shots tool. It cannot say the pictures look right.
 
-**Output format.** PNG, lossless, at one scale. The website's build turns them into the formats it wants (the earlier pictures on this host were webp). This keeps the run deterministic and the compare simple (the tool decodes PNG itself). Question 5 asks about it.
+**Output format.** PNG, lossless, at one scale. The website's build turns them into the formats it wants (the earlier pictures on this host were webp). This keeps the run deterministic and the compare simple (the tool decodes PNG itself). Decided, 2026-11-16 (decision 8).
 
 ## Where the pictures live (proposed)
 
@@ -192,7 +198,7 @@ Sizes are builder-days, one builder, rough.
 
 ### Open questions
 
-Each has a recommendation first. Questions 1 to 4 are answered (Thomas, 2026-11-16; decisions 4 to 7) and kept here for their reasons. Questions 5, 6 and 7 are still open; they block nothing but the picture tool (step 3, and step 4's text refusal).
+Each has a recommendation first. All seven are answered (Thomas, 2026-11-16; decisions 4 to 10) and kept here for their reasons.
 
 1. **Who builds the pages, and where do they live?** Answered, A (decision 4).
    - **A (recommended): the website's page, built by the website session, as the product-site plan decided.** This repository supplies the type sheet, the pictures and the demo list; experience-design builds only the start page's demo entries and judges the pictures. Cost: the pages' schedule is outside this repository's control. Rules out: per-type pages with the app's design system.
@@ -210,13 +216,13 @@ Each has a recommendation first. Questions 1 to 4 are answered (Thomas, 2026-11-
    - **A (recommended): one per type, listed under `#demo`,** each opening its own environment's sign-in. One environment holds one template, so five demo environments exist (product-site decision 5). Cost: five environments to reset nightly (each a run of the reset script).
    - **B:** one demo (travel) and a picture-only tour of the rest. Cost: Thomas asked for a demo of each.
    - **Either way** this waits on product-site slice 6 (the demo flag, the shared login and the nightly reset), so the pictures do not.
-5. **Picture format and scale.** Open; recommended: A.
+5. **Picture format and scale.** Answered, A (decision 8), 2026-11-16.
    - **A (recommended): PNG at one scale (1280 and 390 wide), converted by the website's build.** Deterministic; the compare tool needs no encoder.
    - **B:** webp from the tool. Smaller files; needs an encoder or Chromium's webp capture, and the output must be shown stable across runs.
    - **C:** also 2x for the phone shots, for sharp edges on a phone. Doubles those files.
-6. **A text refusal in the check for the not-claim words?** Open; recommended: A, yes.
+6. **A text refusal in the check for the not-claim words?** Answered, A, yes (decision 9), 2026-11-16.
    - **A (recommended): yes, a short list the check refuses in the sheet, captions and demo files.** It catches a slip, not a rewording.
    - **B:** no; reading by quality-assurance only. Cost: a slip is found late.
-7. **How much of the call to show?** Open. The recommended answer is none beyond the controls with one person (the stand-in's limit). The alternative is no call picture at all. Thomas may want a real call picture later, taken by hand.
+7. **How much of the call to show?** Answered (decision 10), 2026-11-16: just the controls with one person (the stand-in's limit). The alternative was no call picture at all. A real call picture may be taken by hand later.
 
-None of the open questions (5 to 7) blocks the demos, the type sheet or the website's work; they block only the picture tool's format, its check and which call views it takes.
+No question is open; nothing here blocks a step.
