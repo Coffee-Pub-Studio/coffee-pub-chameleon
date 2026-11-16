@@ -69,6 +69,8 @@ function seededApp(secrets = strong) {
       { key: 'bosskey1', login: 'boss', displayName: 'boss', role: 'admin', hostAdmin: true, passwordHash: `scrypt$${hex(16)}`, linkToken: token(24), mfa, firstPassword: { hash: hex(32), expiresAt: '2099-01-01T00:00:00.000Z' }, createdAt: '2026-01-01T00:00:00.000Z' },
       // A new owner who has not set a first password yet (plan-first-password.md): the hash of a one-time link.
       { key: 'newowner', login: 'newowner', displayName: 'New', role: 'owner', passwordHash: null, firstPassword: { hash: hex(32), expiresAt: '2099-01-01T00:00:00.000Z' }, createdAt: '2026-01-01T00:00:00.000Z' },
+      // A demo person (server/demo-loader.js): the mark is kept in a copy, so a demo load there may give them new passwords.
+      { key: 'demoper1', login: 'mia', displayName: 'Mia Alvarez', role: 'member', passwordHash: null, demo: true, createdAt: '2026-01-01T00:00:00.000Z' },
     ],
     spaces: [
       { id: 'lobby', name: 'Lobby', members: ['ownerkey'], createdAt: '2026-01-01T00:00:00.000Z' },
@@ -159,7 +161,8 @@ test('the copy carries only allowed fields, keeps each of them as it is, and non
   assert.ok(data.users[0].passwordHash && data.secrets.session && data.spaces[1].guestToken);
   // A restore of the copy reads back every person and space as they were, less what was left out.
   const back = loadStore(copy).store.data;
-  assert.deepEqual(back.users.map((u) => [u.key, u.login, u.role, u.themeMode, u.passwordHash, u.linkToken, u.mfa]), [['ownerkey', 'owner', 'owner', 'light', null, null, null], ['bosskey1', 'boss', 'admin', undefined, null, null, null], ['newowner', 'newowner', 'owner', undefined, null, null, null]]);
+  assert.deepEqual(back.users.map((u) => [u.key, u.login, u.role, u.themeMode, u.passwordHash, u.linkToken, u.mfa]), [['ownerkey', 'owner', 'owner', 'light', null, null, null], ['bosskey1', 'boss', 'admin', undefined, null, null, null], ['newowner', 'newowner', 'owner', undefined, null, null, null], ['demoper1', 'mia', 'member', undefined, null, null, null]]);
+  assert.equal(back.users.find((u) => u.key === 'demoper1').demo, true, 'a demo person stays marked in the copy');
   assert.ok(back.users.every((u) => !('firstPassword' in u)), 'a restored copy carries no first-password link');
   assert.deepEqual(back.spaces.map((s) => ({ ...s, guestToken: undefined })), data.spaces.map((s) => ({ ...s, guestToken: undefined })));
 });
@@ -246,7 +249,7 @@ test("a restore turns every admin that is not the host admin's stand-in into an 
     src.users.push({ key: 'madeadm1', login: 'madeadmin', displayName: 'Made', role: 'admin', createdAt: '2026-01-01T00:00:00.000Z' });
     const [[, out]] = ex.restoreEntries([[file, Buffer.from(JSON.stringify(src))]]);
     const back = loadStore(JSON.parse(out.toString('utf8'))).store;
-    assert.deepEqual(back.data.users.map((u) => [u.login, u.role, u.hostAdmin]), [['owner', 'owner', false], ['boss', 'admin', true], ['newowner', 'owner', false], ['madeadmin', 'owner', false]], file);
+    assert.deepEqual(back.data.users.map((u) => [u.login, u.role, u.hostAdmin]), [['owner', 'owner', false], ['boss', 'admin', true], ['newowner', 'owner', false], ['mia', 'member', false], ['madeadmin', 'owner', false]], file);
     assert.deepEqual(back.serverAdmins(), [], `${file}: no admin but the stand-in`);
   }
 });
