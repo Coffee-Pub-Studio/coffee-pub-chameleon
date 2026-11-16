@@ -6029,8 +6029,9 @@ function firstVisitFor(found) {
   }
   return { layout, opensWith: store.opensWithOf(space.id) };
 }
-// The icon ids a layout may use: this environment's icon list, the modules' own icons, and the defaults.
-const layoutIconIds = () => [...new Set([...store.iconIds(), ...store.displayIconIds(), ...Object.values(SYSTEM_ICONS), 'object-group'])];
+// The icon ids a layout in space `spaceId` may use: the icons that space offers (its own template's additions when it has
+// one, as its /look lists them, else the environment's), the modules' own icons, and the defaults.
+const layoutIconIds = (spaceId) => [...new Set([...store.iconIdsAt(spaceId), ...store.moduleIconIds(), ...Object.values(SYSTEM_ICONS), 'object-group'])];
 
 app.get('/api/spaces/:id/layouts', (req, res) => {
   const found = layoutSpaceFor(req, res);
@@ -6078,7 +6079,7 @@ app.post('/api/spaces/:id/layouts', (req, res) => {
   const found = layoutSpaceFor(req, res);
   if (!found) return;
   if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
-  const { layout, error } = cleanLayout(req.body, { icons: layoutIconIds() });
+  const { layout, error } = cleanLayout(req.body, { icons: layoutIconIds(found.space.id) });
   if (error) return res.status(400).json({ error });
   if (layout.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   try {
@@ -6101,7 +6102,7 @@ app.put('/api/spaces/:id/layouts/:layoutId', (req, res) => {
   const there = store.layouts.find(found.space.id, req.params.layoutId, me);
   if (!there) return res.status(404).json({ error: 'There is no such layout here.' });
   if (there.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
-  const { layout: patch, error } = cleanLayout(req.body, { partial: true, icons: layoutIconIds() });
+  const { layout: patch, error } = cleanLayout(req.body, { partial: true, icons: layoutIconIds(found.space.id) });
   if (error) return res.status(400).json({ error });
   if (!Object.keys(patch).length) return res.status(400).json({ error: `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.` });
   try {
@@ -6148,7 +6149,7 @@ app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
   if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
   const id = req.params.systemId;
   if (!systemLayoutsFor(found).some((l) => l.id === id)) return res.status(404).json({ error: 'There is no such layout here.' });
-  const { patch, error } = cleanSystemPatch(req.body, { icons: layoutIconIds() });
+  const { patch, error } = cleanSystemPatch(req.body, { icons: layoutIconIds(found.space.id) });
   if (error) return res.status(400).json({ error });
   if (patch.tab === false && id === 'workspace') return res.status(400).json({ error: 'The Workspace is always shown.' });
   if (patch.tab !== undefined && ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });
@@ -11193,9 +11194,11 @@ app.put('/api/modules/:id/settings/:scope', (req, res) => {
   // A module that is not on in the space (its template leaves it out, or the Lobby is not for it) takes no settings there,
   // as it answers every other route there (moduleAccess): the space's settings, and a person's own when asked through a space.
   const named = place.space || (req.params.scope === 'person' && (req.query.space || req.body?.space) ? store.spaceById(String(req.query.space || req.body?.space)) : null);
+  // Someone not in the space is told so first, whether the module is on there or not, as the data route does (moduleSpaceRefusal).
   if (named && !closedTo(req, named)) {
     if (refusedInLobby(found.manifest, named.id)) return res.status(404).json({ error: lobbyRefusal(found.manifest) });
-    if (!modules.isOnIn(found.entry.id, named.id)) return res.status(403).json({ error: `this ${word('module')} is not on in that ${word('space')}` });
+    const refused = moduleSpaceRefusal(found.entry, { user: place.user, guestSpace: null }, named);
+    if (refused) return res.status(403).json({ error: refused });
   }
   try {
     // A shared setting (its files, or the world address that cuts into them) is the host's while there is

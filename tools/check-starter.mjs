@@ -102,7 +102,7 @@ await test('starterBlocks: at most 20 keys a module, 64 KB a template', () => {
   assert.deepEqual(skipped.map((s) => [s.module, s.why]), [['m1', `its starter content has more than ${templates.MAX_STARTER_KEYS} keys`], ['m3', "the template's starter content is over 64 KB"]]);
 });
 
-await test('asCreator: an authored record\'s author and time fields become the creator\'s and now; nothing else', () => {
+await test('asCreator: an authored record (any of by, editedBy, editedByName) has its author and time fields made the creator\'s and now; nothing else', () => {
   const real = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'games.json'), 'utf8')).modules.documents.starter;
   const olive = { key: 'k-olive', displayName: 'Olive', login: 'olive' };
   const now = '2026-11-15T10:00:00.000Z';
@@ -115,6 +115,20 @@ await test('asCreator: an authored record\'s author and time fields become the c
   assert.deepEqual(starter.asCreator({ kind: 'work', title: 'Plan', by: '' }, olive, now), { kind: 'work', title: 'Plan', by: 'k-olive' }, 'a Schedule entry: `by` only, nothing added');
   assert.deepEqual(starter.asCreator({ by: 'x', editedByName: 'T' }, { key: 'k', login: 'kim' }, now), { by: 'k', editedByName: 'kim' }, 'no display name: the login');
   for (const v of [null, 'text', 5, ['by'], { by: 'x' }]) assert.deepEqual(starter.asCreator(v, null, now), v, 'nobody: unchanged');
+  // Any author field makes a record authored: no `by`, but a forged editor, is the creator's too (nothing added).
+  assert.deepEqual(starter.asCreator({ title: 'T', editedBy: 'k-mia', editedByName: 'Mia', editedAt: '2026-01-01T00:00:00.000Z' }, olive, now), { title: 'T', editedBy: 'k-olive', editedByName: 'Olive', editedAt: now });
+  assert.deepEqual(starter.asCreator({ title: 'T', editedByName: 'Mia' }, olive, now), { title: 'T', editedByName: 'Olive' });
+  // A `by` that is not text is replaced all the same.
+  for (const by of [null, 5, { key: 'k-mia' }, ['k-mia'], true]) assert.deepEqual(starter.asCreator({ by, title: 'T' }, olive, now), { by: 'k-olive', title: 'T' }, JSON.stringify(by));
+  // Prototype keys (as raw JSON makes them) stay the record's own data keys; nothing is polluted.
+  const raw = JSON.parse('{"by":"k-mia","__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}},"title":"T"}');
+  const out = starter.asCreator(raw, olive, now);
+  assert.equal(Object.getPrototypeOf(out), Object.prototype);
+  assert.deepEqual(Object.keys(out), ['by', '__proto__', 'constructor', 'title']);
+  assert.deepEqual([out.by, Object.getOwnPropertyDescriptor(out, '__proto__').value, out.constructor], ['k-olive', { polluted: true }, { prototype: { polluted: true } }]);
+  assert.equal(JSON.stringify(out), '{"by":"k-olive","__proto__":{"polluted":true},"constructor":{"prototype":{"polluted":true}},"title":"T"}');
+  assert.equal(({}).polluted, undefined);
+  assert.equal(Object.prototype.polluted, undefined);
 });
 
 await test('starterSpacesOf and starterSpaceCreator', () => {

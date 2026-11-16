@@ -62,20 +62,25 @@ function starterBlocks(template, { optedIn = () => false } = {}) {
 
 // A starter value as the person who made the space wrote it, now (decision 41: "as the person who made it"). A template
 // file can't know who that is or when, so an authored record's own author and time fields are filled in here, on a
-// copy: in a top-level record that has a `by`, `by` and `editedBy` become the creator's key, `editedByName` their name
-// (display name, else login), and `at` and `editedAt` the time given (Documents' doc record: { by, at, editedBy,
-// editedByName, editedAt }; the Schedule outline's entries carry `by`). Only fields the record already has; nothing else
-// in it, no other value and no record without a `by` is changed, so such a record never names anyone else as its author. The
-// module's guards still run on the result (an owner field set to the writer).
+// copy. A record is authored when it has any of `by`, `editedBy` or `editedByName` (whatever their values); then `by`
+// and `editedBy` become the creator's key, `editedByName` their name (display name, else login), and `at` and
+// `editedAt` the time given (Documents' doc record: { by, at, editedBy, editedByName, editedAt }; the Schedule
+// outline's entries carry `by`). Only fields the record already has are set, none is added; nothing else in it, and no
+// record with none of the three, is changed, so an authored record never names anyone else as its author. The copy is
+// made by own keys (CreateDataProperty), so a key such as "__proto__" stays the record's own data key. The module's
+// guards still run on the result (an owner field set to the writer).
 const AUTHOR_KEYS = ['by', 'editedBy'];
 const AUTHOR_NAMES = ['editedByName'];
 const AUTHOR_TIMES = ['at', 'editedAt'];
+const AUTHOR_FIELDS = [...AUTHOR_KEYS, ...AUTHOR_NAMES];
 function asCreator(value, creator, at) {
-  if (!isObject(value) || !Object.hasOwn(value, 'by') || !creator || typeof creator.key !== 'string') return value;
-  const out = { ...value };
-  for (const k of AUTHOR_KEYS) if (Object.hasOwn(out, k)) out[k] = creator.key;
-  for (const k of AUTHOR_NAMES) if (Object.hasOwn(out, k)) out[k] = [creator.displayName, creator.login].find((v) => typeof v === 'string' && v) || out[k];
-  for (const k of AUTHOR_TIMES) if (Object.hasOwn(out, k)) out[k] = at;
+  if (!isObject(value) || !AUTHOR_FIELDS.some((k) => Object.hasOwn(value, k)) || !creator || typeof creator.key !== 'string') return value;
+  const out = {};
+  for (const k of Object.keys(value)) Object.defineProperty(out, k, { value: value[k], enumerable: true, writable: true, configurable: true });
+  const set = (k, v) => Object.defineProperty(out, k, { value: v, enumerable: true, writable: true, configurable: true });
+  for (const k of AUTHOR_KEYS) if (Object.hasOwn(out, k)) set(k, creator.key);
+  for (const k of AUTHOR_NAMES) if (Object.hasOwn(out, k)) set(k, [creator.displayName, creator.login].find((v) => typeof v === 'string' && v) || out[k]);
+  for (const k of AUTHOR_TIMES) if (Object.hasOwn(out, k)) set(k, at);
   return out;
 }
 

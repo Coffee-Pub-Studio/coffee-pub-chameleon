@@ -13,7 +13,11 @@
  *   - an icon the owner adds draws wherever icons are validated (the home icon), and a core one always does;
  *   - a switch of the environment's template (to an owner's copy of Project, its offer confirmed, back to Default, to
  *     Project and back) leaves ownReactions and ownIcons, and the stored lists, exactly as they were: the template's home
- *     icon, module icons and iconSet are offered (and pickable) only while it is read, never copied (decision 12).
+ *     icon, module icons and iconSet are offered (and pickable) only while it is read, never copied (decision 12);
+ *   - an icon in use (the home icon, a space's link icon) stays in /api/branding's and a space's /look's icons after the
+ *     template that offered it is gone, while a new pick of it is refused (400); once unused it leaves the list;
+ *   - a space on its own template: its link icon, its saved layouts' icons and its system layouts' icons are checked
+ *     against the icons its /look lists (its template's additions, not the environment's template's).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -168,6 +172,56 @@ try {
         assert.deepEqual(ids(b.icons).slice(113), ['my-cat'], `${step}: the core and the owner's own`);
       }
     }
+  });
+
+  await test('icons in use stay drawable after the template that offered them is gone; new saves are checked against what is offered now', async () => {
+    const before = (await call('GET', '/api/settings')).json.settings;
+    assert.equal((await call('PATCH', '/api/settings', { template: 'project' })).status, 200);
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'diagram-project' })).status, 200, 'Project offers its home icon');
+    const linked = await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'diagram-project' });
+    assert.equal(linked.status, 200, linked.text);
+    assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
+    const b = await branding();
+    assert.equal(b.homeIcon, 'diagram-project', 'the owner\'s home icon is kept');
+    for (const [label, list] of [['branding', b.icons], ['a space\'s look', (await look()).icons]]) {
+      const found = list.find((i) => i.id === 'diagram-project');
+      assert.deepEqual(found && found.classes, 'fa-solid fa-diagram-project', `${label}: the icon in use is still in the list a page draws with`);
+    }
+    const after = (await call('GET', '/api/settings')).json.settings;
+    assert.deepEqual([after.ownIcons, after.ownReactions], [before.ownIcons, before.ownReactions], 'nothing copied into the owner\'s own lists');
+    // Picking it anew is checked against what is offered now: Default does not offer it.
+    assert.deepEqual(await call('PATCH', '/api/settings', { homeIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown home icon']);
+    const other = (await call('POST', '/api/spaces', { name: 'Other' })).json.space.id;
+    assert.deepEqual(await call('PATCH', `/api/spaces/${other}`, { linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
+    // Once nothing uses it, it leaves the list.
+    assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
+    assert.equal((await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'link' })).status, 200);
+    assert.equal(ids((await branding()).icons).includes('diagram-project'), false);
+    assert.equal((await call('DELETE', `/api/spaces/${other}`)).status, 200);
+  });
+
+  await test('a space on its own template: its link icon and layout icons are checked against the icons its look lists', async () => {
+    assert.equal((await call('PATCH', '/api/settings', { template: 'travel' })).status, 200); // offers suitcase-rolling (its home icon)
+    const own = (await call('POST', '/api/spaces', { name: 'Own', template: 'myproject' })).json.space.id; // offers anchor (iconSet) and list-check
+    const lookOwn = ids((await call('GET', `/api/spaces/${own}/look`)).json.look.icons);
+    assert.ok(lookOwn.includes('anchor') && !lookOwn.includes('suitcase-rolling'), 'its look lists its own template\'s icons, not the environment\'s');
+    assert.equal((await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'anchor' })).status, 200, 'an icon its look lists');
+    assert.deepEqual(await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'suitcase-rolling' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'one only the environment\'s template offers');
+    assert.equal((await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'suitcase-rolling' })).status, 200, 'a space on the environment\'s template takes it');
+    assert.deepEqual(await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
+    // In the same save, the template the space is moved to decides.
+    assert.equal((await call('PATCH', `/api/spaces/${space}`, { template: 'myproject', linkIcon: 'anchor' })).status, 200);
+    assert.equal((await call('PATCH', `/api/spaces/${space}`, { template: null, linkIcon: 'link' })).status, 200);
+    const layout = (sp, icon) => call('POST', `/api/spaces/${sp}/layouts`, { name: `L ${icon}`, modules: [], icon });
+    const ok = await layout(own, 'anchor');
+    assert.equal(ok.status, 201, ok.text);
+    assert.deepEqual(await layout(own, 'suitcase-rolling').then((r) => [r.status, r.json?.error]), [400, 'Pick an icon from the list.']);
+    assert.equal((await layout(space, 'suitcase-rolling')).status, 201);
+    assert.deepEqual(await layout(space, 'anchor').then((r) => [r.status, r.json?.error]), [400, 'Pick an icon from the list.']);
+    const sys = await call('PATCH', `/api/spaces/${own}/layouts/system/workspace`, { icon: 'suitcase-rolling' });
+    assert.deepEqual([sys.status, sys.json?.error], [400, 'Pick an icon from the list.'], 'a system layout\'s icon too');
+    assert.equal((await call('PATCH', `/api/spaces/${own}/layouts/system/workspace`, { icon: 'anchor' })).status, 200);
+    assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
   });
 } catch (err) {
   failed += 1;

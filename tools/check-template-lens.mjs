@@ -547,6 +547,17 @@ try {
     assert.deepEqual([viaSpace.status, viaSpace.json?.error], [403, off], viaSpace.text);
     assert.equal((await mia.as('PUT', '/api/modules/calendar/settings/person', { values: { defaultView: 'week' } })).status, 200);
     assert.equal((await mia.as('PUT', `/api/modules/calendar/settings/person?space=${plain.id}`, { values: { defaultView: 'day' } })).status, 200);
+    // Someone who may enter a space (open to every account) but is not in it is told so first, whether the module is on
+    // there (Plain, the Default template) or left out (Bridge), as the data route answers them; nothing is saved.
+    for (const sp of [bridge, plain]) assert.equal((await admin('PATCH', `/api/spaces/${sp.id}`, { entry: 'accounts' })).status, 200);
+    const personal = 'this module is not available in that space for you';
+    for (const sp of [bridge, plain]) {
+      const r = await out.as('PUT', `/api/modules/calendar/settings/person?space=${sp.id}`, { values: { defaultView: 'week' } });
+      assert.deepEqual([r.status, r.json?.error], [403, personal], `an outsider through ${sp.name}: ${r.text}`);
+      const data = await out.as('GET', `/api/modules/calendar/data?scope=space&space=${sp.id}`);
+      assert.deepEqual([data.status, data.json?.error], [403, personal], `and the data route agrees in ${sp.name}`);
+    }
+    for (const sp of [bridge, plain]) assert.equal((await admin('PATCH', `/api/spaces/${sp.id}`, { entry: 'invited' })).status, 200);
     // A module that is not installed or not on is still no module at all.
     for (const id of ['nosuch', '__proto__']) {
       const r = await admin('PUT', `/api/modules/${id}/settings/space?space=${bridge.id}`, { values: {} });

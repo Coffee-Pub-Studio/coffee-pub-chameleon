@@ -1110,16 +1110,41 @@ class Store {
   // Every icon the environment has: the fixed core set, the owner's own additions, then the additions of the template the
   // environment reads (templateIconIds). { id, classes, label } each, ids once.
   // `template`: read another template's additions instead (lookOf, for a space on a template of its own).
-  allIcons(template = this.environmentTemplate()) {
+  // `inUse`: then the icons the environment already shows (inUseIconIds), so a page that draws an id through this list
+  // still draws one a template offered before a switch. Only for what pages draw with (lookOf, so /api/branding and a
+  // space's /look); what a save may pick (iconIds, iconIdsFor) is the offered list alone.
+  allIcons(template = this.environmentTemplate(), { inUse = false } = {}) {
     const out = DEFAULT_ICON_LIST.map((i) => ({ ...i }));
     const add = (i) => { if (i && typeof i.id === 'string' && !out.some((o) => o.id === i.id)) out.push({ id: i.id, classes: i.classes, label: i.label }); };
     for (const i of this.data.settings.icons || []) add(i);
     for (const id of templateIconIds(template)) add({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') });
+    if (inUse) for (const id of this.inUseIconIds()) add({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') });
     return out;
   }
 
+  // The icon ids a save may pick where `template` is read (the environment's by default): the core set, the owner's own
+  // and that template's additions. A space's link icon and its layouts' icons are checked against its own template's.
+  iconIdsFor(template = this.environmentTemplate()) {
+    return this.allIcons(template).map((i) => i.id);
+  }
+
   iconIds() {
-    return this.allIcons().map((i) => i.id);
+    return this.iconIdsFor();
+  }
+
+  // The icon ids the place `spaceId` offers (lookOf's list without the ones only in use): its template's, else the environment's.
+  iconIdsAt(spaceId) {
+    return this.iconIdsFor(this.lensTemplateOf(typeof spaceId === 'string' ? spaceId : null).template);
+  }
+
+  // The icons the environment shows now and draws through the icon list (public/brand.js iconClasses): the home icon and
+  // each space's link icon. Kept drawable after a template switch takes away the template that offered them, without
+  // copying them into the owner's own list (decision 12). Ids of the shape only; templates offer only Font Awesome
+  // Free solid ones, so each is `fa-solid fa-<id>` (one in the owner's own list keeps its own classes).
+  inUseIconIds() {
+    const shape = (id) => typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id);
+    const ids = [this.data.settings.homeIcon, ...this.data.spaces.map((r) => r.linkIcon)].filter(shape);
+    return [...new Set(ids)];
   }
 
   // --- a space's own template (plan-space-templates.md) ---------------------------------------------------------------
@@ -1262,7 +1287,7 @@ class Store {
     for (const r of Array.isArray(t?.reactions) ? t.reactions : []) addReaction(r);
     // The same for icons, with the template this place reads (one template per place: a space on its own reads its own
     // template's additions, not the environment's); at Home that is the environment's, so this is allIcons there.
-    const icons = this.allIcons(t);
+    const icons = this.allIcons(t, { inUse: true });
     return {
       template: own ? t.id : null,
       words: this.wordsOf(place),
@@ -2355,7 +2380,9 @@ class Store {
       }
     }
     if (patch.linkIcon !== undefined) {
-      if (!this.iconIds().includes(patch.linkIcon)) throw new StoreError('unknown link icon');
+      // Against the icons this space offers (lookOf's list): its own template's when it has one (as this save leaves it).
+      const own = this.spaceTemplatesOn() && id !== LOBBY && typeof draft.template === 'string' ? this.templateNamed(draft.template) : null;
+      if (!this.iconIdsFor(own || this.environmentTemplate()).includes(patch.linkIcon)) throw new StoreError('unknown link icon');
       draft.linkIcon = patch.linkIcon;
     }
     if (patch.allowGuests !== undefined) {
