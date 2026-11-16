@@ -8,13 +8,16 @@ import { upgradeColourInputs } from '/colour-pick.js';
 // module says are fixed (def.fixed: ids) are always there; their label, icon and colour can change but they cannot be removed.
 // Icons are picked from a small set of Font Awesome names that suit a plan; the colour is a hex value.
 const ICONS = ['flag', 'flag-checkered', 'plane-departure', 'plane-arrival', 'plane', 'train', 'car', 'ship', 'bus', 'bed', 'utensils', 'mug-hot', 'martini-glass', 'camera', 'mountain', 'umbrella-beach', 'person-walking', 'person-hiking', 'ticket', 'bell', 'clock', 'hourglass-half', 'moon', 'sun', 'face-smile', 'heart', 'star', 'users', 'shopping-bag', 'landmark', 'music', 'circle-exclamation', 'triangle-exclamation', 'location-dot', 'suitcase', 'gift', 'wine-glass', 'spa', 'bolt', 'note-sticky', 'city', 'dungeon', 'chess-rook', 'beer-mug-empty', 'skull', 'dragon', 'hat-wizard', 'compass', 'map', 'campground', 'church', 'house', 'store', 'tree', 'water', 'book', 'gem', 'shield-halved', 'fire', 'horse', 'anchor', 'monument', 'building', 'coins', 'scroll', 'khanda', 'tents'];
-// The colours a new row starts with, one after another, so rows added in a run do not all look alike.
-const NEW_COLORS = ['#4f8fdd', '#e0883a', '#4caf7a', '#b268d8', '#d9534f', '#2fb5b5', '#c9a227', '#7f8fa6'];
+// The colours a list row stores, as data (the `color` field of an item, a value a person picks, not styling). The first is the
+// grey that means "no colour chosen": the manifests store it, and it is what a row without a valid colour shows. The rest are what
+// a new row starts with, one after another, so rows added in a run do not all look alike.
+const ROW_COLORS = ['#888888', '#4f8fdd', '#e0883a', '#4caf7a', '#b268d8', '#d9534f', '#2fb5b5', '#c9a227', '#7f8fa6'];
+const [NO_COLOR, ...NEW_COLORS] = ROW_COLORS;
 const ICON_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const HEX = /^#[0-9a-f]{6}$/i;
 export function listRow(def, r) {
   const fixed = (def.fixed || []).includes(r.id);
-  const color = HEX.test(r.color || '') ? r.color : '#888888';
+  const color = HEX.test(r.color || '') ? r.color : NO_COLOR;
   const icon = ICONS.includes(r.icon) || ICON_RE.test(r.icon || '') ? r.icon : ICONS[0]; // a saved icon outside the picker stays as it is
   return `<li class="sdk-row list-row" data-id="${escapeHtml(r.id || '')}" data-icon="${escapeHtml(icon)}">
     <input type="color" data-f="color" value="${escapeHtml(color)}" aria-label="Colour">
