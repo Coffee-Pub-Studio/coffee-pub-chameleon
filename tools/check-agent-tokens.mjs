@@ -13,6 +13,10 @@
  *     is not in is the unknown space's 404; scope environment, spaces and person, and no scope, are 403; raw data writes,
  *     Clear and restore are 403; a local, asker-only, destructive or ai:false action is 403 "An agent can't ask for that."
  *     and the actions list leaves them out; it reads only its own requests; the token wins over a cookie session;
+ *   - the log's `module` (a data or context read's :id, an action's module; installed ids of a safe shape only, else null) and
+ *     the route of a refused call (the path as a fixed shape: only the API's own words kept, every other segment ":x", no
+ *     query, at most 80 characters), with a hostile path (../, a 300-character id, proto names, a token, a query) leaving
+ *     nothing of itself in the log;
  *   - the limits: 60 reads and 20 writes a minute, counted apart, 429 with Retry-After; the day's counts are read back
  *     from the log, so they survive a restart;
  *   - the log: one line a call, its route pattern and never its token, a request body or the path's own values; owners
@@ -522,7 +526,8 @@ try {
     const action = every.find((e) => e.route === '/api/spaces/:id/action' && e.status === 200);
     assert.ok(action, 'the action is there');
     assert.deepEqual([action.method, action.space, action.action, action.kind, typeof action.request], ['POST', S1, 'todo:createTask', 'write', 'number']);
-    assert.ok(entries.some((e) => e.route === '(refused)' && e.status === 403), 'a refused call is there, without its path');
+    assert.ok(entries.some((e) => e.status === 403 && e.kind !== null && !(e.route === '(refused)') && /^\/[a-z:/]*$/.test(e.route)), 'a refused call is there, as a route shape without its path\'s values');
+    assert.ok(every.every((e) => e.route !== '(refused)'), 'no line reads "(refused)"');
     assert.ok(entries.every((e) => !('agent' in e)));
     refused(await call(server, 'GET', `/api/users/${agent.key}/agent-log?before=soon`, { cookie: admin }), 400, 'before is a time, like 2026-11-16T10:00:00Z.', 'a bad before');
     const older = await call(server, 'GET', `/api/users/${agent.key}/agent-log?before=${encodeURIComponent(entries[entries.length - 1].at)}`, { cookie: admin });
@@ -534,6 +539,75 @@ try {
     assert.ok(!text.includes('Secret title 4417'), 'no request body in the log');
     assert.ok(!text.includes('task:t1'), 'no path value in the log');
     assert.ok(!text.includes(tokenA.slice(4, 20)), 'not even part of the token');
+  });
+
+  await test('the log: a line names its module (an installed, safe id) and a refused call its route shape, never a value', async () => {
+    const f = await agentOf('Fielder');
+    const T = { token: f.token };
+    const file = path.join(single, 'agent-log', f.key, `${dayToday()}.jsonl`);
+    const lines = () => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+    // The line is written when the answer finishes: wait for each call's own line (one more than the last time).
+    let seen = 0;
+    const last = async () => {
+      for (let i = 0; i < 100 && lines().length <= seen; i += 1) await new Promise((r) => setTimeout(r, 20));
+      assert.ok(lines().length > seen, 'the call left a line');
+      seen = lines().length;
+      return lines()[seen - 1];
+    };
+    const fields = ['at', 'token', 'method', 'route', 'space', 'module', 'action', 'request', 'message', 'status', 'address', 'kind', 'agent'].sort();
+    ok(await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${S1}`, T), 'data read');
+    { const l = await last();
+      assert.deepEqual(Object.keys(l).sort(), fields, 'the line\'s fields');
+      assert.deepEqual([l.route, l.module, l.kind], ['/api/modules/:id/data', 'todo', 'read']); }
+    ok(await call(server, 'GET', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, T), 'data read of a key');
+    assert.equal((await last()).module, 'todo');
+    ok(await call(server, 'GET', `/api/modules/todo/context?scope=space&space=${S1}`, T), 'context');
+    { const l = await last();
+      assert.deepEqual([l.route, l.module], ['/api/modules/:id/context', 'todo']); }
+    ok(await call(server, 'POST', `/api/spaces/${S1}/action`, { ...T, body: { action: 'todo:createTask', input: { title: 'Field check' } } }), 'action');
+    { const l = await last();
+      assert.deepEqual([l.route, l.module, l.action, l.kind], ['/api/spaces/:id/action', 'todo', 'todo:createTask', 'write']); }
+    // A write to the raw data is not on the gate's list: refused, so no module.
+    refused(await call(server, 'PUT', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, { ...T, body: { value: { id: 't1' } } }), 403, CANT, 'a raw data write');
+    { const l = await last();
+      assert.deepEqual([l.route, l.module, l.kind], ['/api/modules/:x/data/:x', null, 'read']); }
+    ok(await call(server, 'GET', '/api/agent/me', T), 'me');
+    assert.equal((await last()).module, null);
+    ok(await call(server, 'GET', `/api/spaces/${S1}/actions`, T), 'actions');
+    assert.equal((await last()).module, null);
+    // A module-looking id that is not an installed module's, or not a safe id at all: asked, answered, never logged.
+    const hostile = ['../x', 'a'.repeat(300), '__proto__', 'constructor', 'toString', 'Todo', 'no-such-module', '%2e%2e%2fx'];
+    for (const id of hostile) {
+      await call(server, 'GET', `/api/modules/${id}/data?scope=space&space=${S1}`, T);
+      assert.equal((await last()).module, null, `module for ${id.slice(0, 20)}`);
+    }
+    await call(server, 'POST', `/api/spaces/${S1}/action`, { ...T, body: { action: '__proto__:x', input: {} } });
+    assert.equal((await last()).module, null, 'module for a __proto__ action');
+    await call(server, 'POST', `/api/spaces/${S1}/action`, { ...T, body: { action: `${'a'.repeat(300)}:x`, input: {} } });
+    assert.equal((await last()).module, null, 'module for a 300-character action');
+    assert.ok(lines().every((l) => l.module === null || l.module === 'todo'), 'only todo, an installed module, is ever logged');
+    // A refused call to a route that is not on the list: its shape, no values, no query, no token.
+    const secret = `${f.token}`;
+    const pathy = [
+      [`/api/settings?x=${secret}`, '/api/:x'],
+      [`/api/users/${secret}/token`, '/api/:x/:x/:x'],
+      [`/api/spaces/${S1}/members/Secret-Name-4417?token=${secret}&q=hello`, '/api/spaces/:x/:x/:x'],
+      ['/API/Modules/Todo/Data/Extra/More', '/api/modules/:x/data/:x/:x'],
+      [`/${'seg/'.repeat(60)}`, null],
+    ];
+    for (const [url, want] of pathy) {
+      const r = await call(server, 'GET', url, T);
+      assert.equal(r.status, 403, `${url.slice(0, 40)} is refused`);
+      const l = await last();
+      assert.equal(l.status, 403, `${url.slice(0, 40)} logged ${l.status} ${l.route}`);
+      assert.ok(typeof l.route === 'string' && l.route.length <= 80 && /^\/[a-z:/]*$/.test(l.route), `route shape ${l.route}`);
+      if (want !== null) assert.equal(l.route, want, `the route of ${url.slice(0, 40)}`);
+      assert.equal(l.module, null);
+    }
+    const text = fs.readFileSync(file, 'utf8');
+    for (const bad of [secret, secret.slice(4, 20), 'Secret-Name-4417', 'hello', 'members', 'settings', '..', 'proto', 'Field check']) assert.ok(!text.includes(bad), `the log holds "${bad.slice(0, 12)}"`);
+    assert.ok(!/aaaaaaaaaa/.test(text), 'a 300-character id is in the log');
+    assert.ok(!text.includes('(refused)'));
   });
 
   // --- the limits --------------------------------------------------------------------------------------------------------
@@ -634,7 +708,7 @@ try {
     for (let i = 0; i < 30; i += 1) refused(await call(server, 'GET', '/api/agent/me', A()), 401, INVALID, 'expired');
     assert.equal(lineCount(file) - before, 1, 'one line for 30 refusals');
     const note = JSON.parse(fs.readFileSync(file, 'utf8').trim().split('\n').pop());
-    assert.deepEqual([note.status, note.kind, note.route], [401, null, '(refused)']);
+    assert.deepEqual([note.status, note.kind, note.route], [401, null, '/api/agent/me']);
   });
   await test('a tokens.json record that lives more than 30 days is not read', async () => {
     refused(await call(server, 'GET', '/api/agent/me', { token: daily.token }), 401, INVALID, 'a 31-day record');

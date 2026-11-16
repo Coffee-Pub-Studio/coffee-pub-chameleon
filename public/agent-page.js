@@ -27,8 +27,8 @@ const dayText = (iso) => {
 const READS = {
   '/api/agent/me': () => 'Looked at its own limits',
   '/api/modules/:id/context': (w) => `Read what ${w('module', { a: true })} is for`,
-  '/api/modules/:id/data': () => 'Read data',
-  '/api/modules/:id/data/:key': () => 'Read data',
+  '/api/modules/:id/data': (_w, name) => (name ? `Read ${name} data` : 'Read data'),
+  '/api/modules/:id/data/:key': (_w, name) => (name ? `Read ${name} data` : 'Read data'),
   '/api/objects/search': (w) => `Searched ${w('object', { many: true })}`,
   '/api/objects/links': (w) => `Read what ${w('object', { a: true })} links to`,
   '/api/objects/kinds': (w) => `Read the kinds of ${w('object')}`,
@@ -45,6 +45,10 @@ const actionWords = (action) => {
   return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().trim() || 'something';
 };
 
+// A module's id as a name ("my-notes" -> "My Notes"): the page has no module list, so the id stands for it. Only a safe id
+// (as the server writes it) counts; anything else is no module.
+const moduleName = (id) => (typeof id === 'string' && /^[a-z0-9-]{1,40}$/.test(id) ? id.split('-').filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ') : '');
+
 // One log line (an entry of GET /api/users/:key/agent-log) as { text, note, detail }: what it did in plain words, whether it is
 // a note (a line that counted against nothing), and the rest of it (when, address, how it went). `spaceName(id)` gives a space's name.
 export function logLine(entry, { spaceName = () => '', hour12 = true, word = (w) => w } = {}) {
@@ -59,15 +63,14 @@ export function logLine(entry, { spaceName = () => '', hour12 = true, word = (w)
   }
   const where = e.space ? ` in ${spaceName(e.space) || `${word('space', { a: true })} that is gone`}` : '';
   let text;
-  if (e.route === '(refused)') text = `Refused: ${String(e.method || 'a')} request`;
-  else if (e.route === CHAT_ROUTE && e.method === 'GET') text = `Read Chat${where}`;
+  let refused = false;
+  if (e.route === CHAT_ROUTE && e.method === 'GET') text = `Read Chat${where}`;
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 200) text = `Posted in Chat${where}`;
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 403) text = `Refused post${where}`;
   else if (e.route === '/api/spaces/:id/action') text = `Ask for ${actionWords(e.action)}${where}`;
-  else if (known(e.route)) text = `${READS[e.route](word)}${where}`;
-  else text = `Called ${`${String(e.method || '')} ${String(e.route || '')}`.trim()}${where}`;
-  if (status !== null && status >= 400) parts.push(`didn't work (${status})`);
-  else if (e.route === '(refused)' && status !== null) parts.push(String(status));
+  else if (known(e.route)) text = `${READS[e.route](word, moduleName(e.module))}${where}`;
+  else { refused = true; text = `Refused: ${`${String(e.method || '')} ${String(e.route || '')}`.trim()}`; } // a route off the gate's list: the server writes its fixed shape
+  if (status !== null && status >= 400) parts.push(refused ? String(status) : `didn't work (${status})`);
   const detail = parts.filter(Boolean).join(' · ');
   // The server writes a read's count as a number and a post's id as a string; only the count is shown.
   let message = typeof e.message === 'string' && e.message ? e.message : '';
