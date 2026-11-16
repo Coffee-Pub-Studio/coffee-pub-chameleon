@@ -21,6 +21,7 @@ let settings = { baseDomain: '', version: '', hostAdmins: [], plans: {} };
 const PLAN_ORDER = (plans) => Object.keys(plans || {}).sort((a, b) => (a === 'free' ? -1 : b === 'free' ? 1 : a.localeCompare(b)));
 let environments = [];
 let loaded = false; // the list has come at least once
+let demos = []; // GET /api/host/demos: [{ id, label, name }]
 let templates = []; // every template (GET /api/host/templates): [{ id, name, description, source, version, hidden, usedBy }]
 
 const environmentUrl = (slug) => `${location.protocol}//${slug}.${settings.baseDomain}${location.port ? `:${location.port}` : ''}`; // the port only in development
@@ -44,6 +45,7 @@ async function load() {
     settings = await api('GET', '/api/host/settings');
     environments = (await api('GET', '/api/host/environments')).environments;
     templates = (await api('GET', '/api/host/templates').catch(() => ({ templates: [] }))).templates || [];
+    demos = (await api('GET', '/api/host/demos').catch(() => ({ demos: [] }))).demos || [];
     loaded = true;
   } catch (err) {
     say($('environments-status'), err.message, true);
@@ -516,6 +518,7 @@ function renderPage() {
   renderOverview(t);
   renderPlanForm(t);
   renderTemplateTab(t);
+  renderDemoPicker(t);
   renderOwners(t);
   renderDanger(t);
 }
@@ -875,6 +878,16 @@ PAGE.addEventListener('click', async (e) => {
   b.disabled = false;
 });
 
+// The demo to add: each demo by its label; this environment's own template's demo is chosen first, else travel.
+function renderDemoPicker(t) {
+  const select = $('env-demo-select');
+  if (select.dataset.slug === t.slug && select.options.length) return;
+  select.replaceChildren(...demos.map((d) => new Option(d.label, d.id)));
+  const own = t.template ? t.template.id : '';
+  select.value = demos.some((d) => d.id === own) ? own : demos.some((d) => d.id === 'travel') ? 'travel' : (demos[0] ? demos[0].id : '');
+  select.dataset.slug = demos.length ? t.slug : '';
+  select.disabled = !demos.length;
+}
 // Demo space: one request that can take a while; the report is written with textContent, the passwords shown once.
 $('env-demo-add').addEventListener('click', async () => {
   const b = $('env-demo-add');
@@ -885,14 +898,15 @@ $('env-demo-add').addEventListener('click', async () => {
   b.setAttribute('aria-busy', 'true');
   say($('env-demo-status'), 'Adding the demo space. This can take a minute.');
   try {
-    const r = await api('POST', `/api/host/environments/${encodeURIComponent(page.slug)}/demo`);
+    const r = await api('POST', `/api/host/environments/${encodeURIComponent(page.slug)}/demo`, { demo: $('env-demo-select').value });
     const line = (text) => { const p = document.createElement('p'); p.textContent = text; box.append(p); };
     if (r.demo === false) { say($('env-demo-status'), r.message || 'There is no demo for this template.', true); return; }
-    say($('env-demo-status'), r.fellBack ? `Added the demo space. This template has no demo of its own, so the travel demo was used.` : 'Added the demo space.');
+    const picked = demos.find((d) => d.id === $('env-demo-select').value);
+    say($('env-demo-status'), r.fellBack ? 'Added the demo space. This template has no demo of its own, so the travel demo was used.' : `Added the ${picked ? picked.label : 'demo'}.`);
     line(`Space: ${r.space ? r.space.name : ''}`);
     const made = Object.entries(r.created || {}).map(([id, n]) => `${id} ${n}`).join(', ');
     line(`Made: ${made || 'nothing'}.`);
-    for (const s of r.skipped || []) line(`Skipped ${s.module}: ${s.why}`);
+    for (const s of r.skipped || []) line(s.why);
     for (const s of r.refused || []) line(`Refused ${s.module}${s.key ? ` (${s.key})` : ''}: ${s.why}`);
     if ((r.people || []).length) {
       line('People made. These passwords are shown once; copy them now.');
@@ -907,6 +921,7 @@ $('env-demo-add').addEventListener('click', async () => {
   } finally {
     b.disabled = false;
     b.removeAttribute('aria-busy');
+    b.focus();
   }
 });
 
