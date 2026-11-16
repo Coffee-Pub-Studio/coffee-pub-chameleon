@@ -330,6 +330,8 @@ async function live() {
           assert.equal(hearts.length, 2, 'both Hearts are kept');
           assert.equal(mine.find((r) => r.glyph === '\u2764\uFE0F').id, 'heart', 'the built-in Heart keeps its id');
           assert.ok(hearts.every((r) => r.id) && new Set(hearts.map((r) => r.id)).size === 2, 'the new one has an id of its own');
+          const iconsFoldStart = await tab.eval(`document.getElementById('icons-fold').open`);
+          await tab.eval(`document.getElementById('icons-fold').open = true`);
           // Focus stays on the button that was pressed, for a move and a remove, and each button names its row.
           const f = await tab.eval(`(() => { const rows = () => [...document.querySelectorAll('#reactions-list .reaction-row')]; const out = {}; let b = rows()[3].querySelector('[data-action="reaction-up"]'); out.name = b.getAttribute('aria-label'); b.focus(); b.click(); out.up = document.activeElement === b; b.click(); out.upAgain = document.activeElement === b; b = rows()[0].querySelector('[data-action="reaction-down"]'); b.focus(); b.click(); out.down = document.activeElement === b; const ib = document.querySelector('#icons-list .icon-row [data-action="icon-down"]'); ib.focus(); ib.click(); out.iconDown = document.activeElement === ib; out.iconName = ib.getAttribute('aria-label'); return out; })()`);
           assert.ok(f.up && f.upAgain && f.down && f.iconDown, JSON.stringify(f));
@@ -339,7 +341,39 @@ async function live() {
             const small = await tab.eval(`[...document.querySelectorAll('#reactions-list .reaction-row, #icons-list .icon-row')].slice(0, 6).flatMap((r) => [...r.querySelectorAll('button, input')].map((c) => c.getBoundingClientRect())).filter((b) => b.width < 43.5 || b.height < 43.5).length`);
             assert.equal(small, 0, `${small} row controls are under 44 by 44`);
           }
+          // The lists are folded (Reactions open, Icons shut, each heading with its count) and Save stays on screen.
+          const fold = await tab.eval(`(() => { const r = document.getElementById('reactions-fold'); const i = document.getElementById('icons-fold'); const bar = document.getElementById('lists-save-bar').getBoundingClientRect(); return { rOpen: r.open, iOpen: i.open, rText: document.getElementById('reactions-count').textContent, iText: document.getElementById('icons-count').textContent, rRows: document.querySelectorAll('#reactions-list .reaction-row').length, iRows: document.querySelectorAll('#icons-list .icon-row').length, barVisible: bar.top >= 0 && bar.bottom <= innerHeight + 1, resetVisible: document.getElementById('lists-reset').getBoundingClientRect().top < innerHeight }; })()`);
+          assert.ok(fold.rOpen && iconsFoldStart === false, JSON.stringify(fold));
+          assert.equal(fold.rText, `Reactions (${fold.rRows})`);
+          assert.equal(fold.iText, `Icons (${fold.iRows})`);
+          assert.ok(fold.barVisible && fold.resetVisible, `the Save bar and Start again are on screen: ${JSON.stringify(fold)}`);
+          // At 390 a reaction is one line (under 60 px) and an icon two (under 110 px), every control 44 by 44.
+          await tab.eval(`document.getElementById('icons-fold').open = true`);
+          if (size === 390) {
+            const h = await tab.eval(`(() => { const hh = (sel) => Math.max(...[...document.querySelectorAll(sel)].slice(0, 6).map((r) => r.getBoundingClientRect().height)); return { reaction: hh('#reactions-list .reaction-row'), icon: hh('#icons-list .icon-row') }; })()`);
+            assert.ok(h.reaction < 60 && h.icon < 110, `rows are compact: ${JSON.stringify(h)}`);
+          }
+          // Save, then the lists are the same lists (ids, order, glyphs).
+          const idsBefore = await tab.eval(`[...document.querySelectorAll('#reactions-list .reaction-row')].map((r) => r.dataset.id)`);
+          const iconIdsBefore = await tab.eval(`[...document.querySelectorAll('#icons-list .icon-row')].map((r) => r.dataset.id)`);
+          await tab.eval(`(() => { document.getElementById('save-reactions').click(); document.getElementById('save-icons').click(); return true; })()`);
+          await sleep(1500);
+          const after = (await api('GET', '/api/settings')).json.settings;
+          assert.deepEqual(after.ownReactions.map((r) => r.id), idsBefore, 'Save leaves the reactions as they were on the page');
+          assert.deepEqual(after.ownIcons.map((i) => i.id), iconIdsBefore, 'Save leaves the icons as they were on the page');
           await shot(tab, `${size}-env-rows`);
+        });
+        await test(at('A template addition the environment\'s set already has says so'), async () => {
+          const r = await api('PATCH', '/api/environment/templates/hours', { reactions: [{ id: 'heart', glyph: '\u2764\uFE0F', label: 'Heart' }, { id: 'mine-only', glyph: '\u{1F9FF}', label: 'Charm' }], iconSet: ['star'] });
+          assert.equal(r.status, 200, JSON.stringify(r.json));
+          await tab.eval('location.reload()'); // the page keeps the templates it read
+          await sleep(3000);
+          await tab.eval(`location.hash = 'template/hours/reactions'`);
+          await sleep(2000);
+          const seen = await tab.eval(`({ n: document.querySelectorAll('#tpl-reactions-box .tp-dropped').length, t: document.querySelector('#tpl-reactions-box').textContent.slice(0, 400), first: (document.querySelector('#tpl-reactions-box .tp-dropped') || {}).textContent })`);
+          assert.equal(seen.n, 2, JSON.stringify(seen));
+          assert.match(seen.first, /Already in the environment.s set, not added again\./);
+          await api('PATCH', '/api/environment/templates/hours', { reactions: [], iconSet: [] });
         });
         await test(at('Modules: marks, words, the starter, Plans; an edit saves'), async () => {
           await open('template/mine/modules', `${count('#tpl-modules-box .tp-module')} >= 4 && !!document.querySelector('#tpl-modules-box [data-tm="marks"]') && !document.getElementById('module-names-section').hidden`, 'the Modules page');

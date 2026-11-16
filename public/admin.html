@@ -811,38 +811,39 @@
         <div class="panel" id="env-reactions-card">
           <h2>Reactions and Icons</h2>
           <p class="hint" data-fill>Yours, for this whole {environment} and every template. A template can add to them, never take one away. The first six reactions are keys 1 to 6 in a call.</p>
-      <div id="reactions-section">
-      <h3>Reactions</h3>
-      <p class="hint">Remove any, change them, or move them with the arrows. Keys 1 to 6 in a call follow the first six.</p>
-      <p class="hint" id="reactions-none" hidden>None. Add one, or start again from the built-in set.</p>
-      <div class="reactions-list" id="reactions-list"></div>
-      <div class="row">
-        <button class="btn btn-small" id="reaction-add" type="button">Add reaction</button>
-        <button class="btn btn-primary" id="save-reactions" type="button">Save</button>
-        <span class="status" id="reactions-status"></span>
-      </div>
-      </div>
-
-
-      <div id="icons-section">
-      <h3>Icons</h3>
-      <p class="hint">Icons you want available. On fontawesome.com, copy an icon's HTML (like <code>&lt;i class="fa-solid fa-dice"&gt;&lt;/i&gt;</code>) and paste it here; the preview shows what it draws. Only the Free icons that ship with this server will show. Remove any, or move them with the arrows.</p>
-      <p class="hint" id="icons-none" hidden>None. Add one, or start again from the built-in set.</p>
-      <div class="reactions-list" id="icons-list"></div>
-      <div class="row">
-        <button class="btn btn-small" id="icon-add" type="button">Add icon</button>
-        <button class="btn btn-primary" id="save-icons" type="button">Save</button>
-        <span class="status" id="icons-status"></span>
-      </div>
-      </div>
-
       <div id="lists-reset-section">
-      <h3>Start again</h3>
-      <p class="hint">Puts both lists back to the built-in set. Your changes to them are lost.</p>
       <div class="row">
         <button class="btn btn-small btn-danger" id="lists-reset" type="button">Start again from the built-in set</button>
         <span class="status" id="lists-status" role="status"></span>
       </div>
+      <p class="hint">Puts both lists back to the built-in set. Your changes to them are lost.</p>
+      </div>
+
+      <div id="reactions-section">
+      <details class="tp-builtin tp-fold" id="reactions-fold" open>
+        <summary><span id="reactions-count">Reactions</span></summary>
+        <p class="hint">Remove any, change them, or move them with the arrows. Keys 1 to 6 in a call follow the first six.</p>
+        <p class="hint" id="reactions-none" hidden>None. Add one, or start again from the built-in set.</p>
+        <div class="reactions-list fold-list" id="reactions-list"></div>
+        <div class="row"><button class="btn btn-small" id="reaction-add" type="button">Add reaction</button></div>
+      </details>
+      </div>
+
+      <div id="icons-section">
+      <details class="tp-builtin tp-fold" id="icons-fold">
+        <summary><span id="icons-count">Icons</span></summary>
+        <p class="hint">Icons you want available. On fontawesome.com, copy an icon's HTML (like <code>&lt;i class="fa-solid fa-dice"&gt;&lt;/i&gt;</code>) and paste it here; the preview shows what it draws. Only the Free icons that ship with this server will show. Remove any, or move them with the arrows.</p>
+        <p class="hint" id="icons-none" hidden>None. Add one, or start again from the built-in set.</p>
+        <div class="reactions-list fold-list" id="icons-list"></div>
+        <div class="row"><button class="btn btn-small" id="icon-add" type="button">Add icon</button></div>
+      </details>
+      </div>
+
+      <div class="save-bar" id="lists-save-bar">
+        <button class="btn btn-primary" id="save-reactions" type="button">Save reactions</button>
+        <button class="btn btn-primary" id="save-icons" type="button">Save icons</button>
+        <span class="status" id="reactions-status" role="status"></span>
+        <span class="status" id="icons-status" role="status"></span>
       </div>
         </div>
       </div>
@@ -887,7 +888,7 @@
       <input class="reaction-label icon-label" type="text" maxlength="40" placeholder="Label" aria-label="Label">
       <button class="btn btn-small" data-action="icon-up" type="button" data-tip="Move earlier" aria-label="Move earlier">&uarr;</button>
       <button class="btn btn-small" data-action="icon-down" type="button" data-tip="Move later" aria-label="Move later">&darr;</button>
-      <button class="btn btn-small btn-danger" data-action="icon-remove" type="button">Remove</button>
+      <button class="btn btn-small btn-danger" data-action="icon-remove" type="button" data-tip="Remove" aria-label="Remove"><i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i></button>
     </div>
   </template>
 
@@ -897,7 +898,7 @@
       <input class="reaction-label" type="text" maxlength="40" placeholder="Label" aria-label="Label">
       <button class="btn btn-small" data-action="reaction-up" type="button" data-tip="Move earlier" aria-label="Move earlier">&uarr;</button>
       <button class="btn btn-small" data-action="reaction-down" type="button" data-tip="Move later" aria-label="Move later">&darr;</button>
-      <button class="btn btn-small btn-danger" data-action="reaction-remove" type="button">Remove</button>
+      <button class="btn btn-small btn-danger" data-action="reaction-remove" type="button" data-tip="Remove" aria-label="Remove"><i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i></button>
     </div>
   </template>
 

@@ -114,17 +114,22 @@ export function additionsHtml(t, { editable, set, whose }) {
   const setReactions = (set && set.reactions) || [];
   const setIcons = (set && set.icons) || [];
   const fold = (list, chips) => (set ? setFoldHtml(whose, list.length, chips) : '');
+  // An addition the environment's set already has is dropped when the lists are joined; say so beside it (nothing saved changes).
+  const dupNote = `Already in ${whose}'s set, not added again.`;
+  const hasR = (r) => Boolean(set) && setReactions.some((x) => x.id === r.id || x.glyph === r.glyph);
+  const hasI = (name) => Boolean(set) && setIcons.some((x) => x.id === name);
+  const noteLine = (text) => `<p class="hint tp-dropped">${text ? `${e(text)} ` : ''}${e(dupNote)}</p>`;
   const said = `<p class="hint">${e(addedOnTop(whose))}${editable ? ' Up to 40 reactions and 60 icons.' : ''}</p>`;
   const reactionSet = fold(setReactions, setReactionChips(setReactions));
   const iconSet = fold(setIcons, setIconChips(setIcons));
   if (!editable) {
     return `<div class="tf-labels"><h3>This template adds</h3>`
-      + `<h4>Reactions</h4>${said}${chipsOf(reactions, (r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`)}${reactionSet}`
-      + `<h4>Icons</h4><p class="hint">${e(addedOnTop(whose))}</p>${chipsOf(icons, (n) => `<span class="tp-chip" title="${e(n)}">${iconTag(n)}</span>`)}${iconSet}</div>`;
+      + `<h4>Reactions</h4>${said}${chipsOf(reactions, (r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`)}${reactions.filter(hasR).map((r) => noteLine(r.glyph)).join('')}${reactionSet}`
+      + `<h4>Icons</h4><p class="hint">${e(addedOnTop(whose))}</p>${chipsOf(icons, (n) => `<span class="tp-chip" title="${e(n)}">${iconTag(n)}</span>`)}${icons.filter(hasI).map((n) => noteLine(n)).join('')}${iconSet}</div>`;
   }
   return `<div class="tf-labels"><h3>This template adds</h3>`
-    + `<h4>Reactions</h4>${said}<div class="reactions-list" data-tr-list>${reactions.map(reactionRow).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-tr-add>Add a reaction</button></div>${reactionSet}`
-    + `<h4>Icons</h4><p class="hint">${e(addedOnTop(whose))}</p><div class="reactions-list" data-ti-list>${icons.map(iconRow).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-ti-add>Add an icon</button></div>${iconSet}</div>`;
+    + `<h4>Reactions</h4>${said}<div class="reactions-list" data-tr-list>${reactions.map((r) => reactionRow(r) + (hasR(r) ? noteLine('') : '')).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-tr-add>Add a reaction</button></div>${reactionSet}`
+    + `<h4>Icons</h4><p class="hint">${e(addedOnTop(whose))}</p><div class="reactions-list" data-ti-list>${icons.map((n) => iconRow(n) + (hasI(n) ? noteLine('') : '')).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-ti-add>Add an icon</button></div>${iconSet}</div>`;
 }
 export function readAdditions(root, { editing = true } = {}) {
   const used = new Set();

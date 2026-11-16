@@ -1297,8 +1297,12 @@ function reactionRow(reaction) {
 // built-in set. Start again from the built-in set replaces both.
 // The line above Add reaction and Add icon while a list is empty.
 function noneYet() {
-  $('reactions-none').hidden = $('reactions-list').children.length > 0;
-  $('icons-none').hidden = $('icons-list').children.length > 0;
+  const r = $('reactions-list').children.length;
+  const i = $('icons-list').children.length;
+  $('reactions-none').hidden = r > 0;
+  $('icons-none').hidden = i > 0;
+  $('reactions-count').textContent = `Reactions (${r})`;
+  $('icons-count').textContent = `Icons (${i})`;
 }
 
 function renderReactionRows(reactions) {
