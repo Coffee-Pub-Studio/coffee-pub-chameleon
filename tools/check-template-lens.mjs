@@ -448,14 +448,16 @@ try {
     assert.deepEqual(b.reactions.slice(0, DEFAULT_REACTION_LIST.length), DEFAULT_REACTION_LIST);
     assert.deepEqual(b.reactions.slice(DEFAULT_REACTION_LIST.length), [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }]);
     assert.deepEqual(c.reactions, DEFAULT_REACTION_LIST);
-    assert.deepEqual(b.icons.map((i) => i.id), [...CORE_ICONS, 'diagram-project']);
+    // The template's additions: its iconSet, then its home icon and its modules' icons (Harbor is a copy of Travel, whose
+    // home icon is suitcase-rolling; diagram-project is both in its iconSet and Project plan's icon), read live.
+    assert.deepEqual(b.icons.map((i) => i.id), [...CORE_ICONS, 'diagram-project', 'suitcase-rolling']);
     assert.deepEqual(c.icons.map((i) => i.id), CORE_ICONS);
     assert.deepEqual([b.phaseMeasure, c.phaseMeasure], ['dates', 'dates']);
     assert.equal(/"(project|Project|games|Games)"|"template"/.test(JSON.stringify({ ...b, words: null })), false, 'no template id or name in the look');
   });
 
   await test('a module the template leaves out answers there as a module that is not on; its data stays', async () => {
-    const off = `this module is not available in that space for you`;
+    const off = 'this module is not on in that space';
     for (const [method, url, body] of [
       ['GET', `/api/modules/whiteboard/context?scope=space&space=${camp.id}`],
       ['GET', `/api/modules/whiteboard/data?scope=space&space=${camp.id}`],
@@ -465,6 +467,12 @@ try {
       const r = await mia.as(method, url, body);
       assert.deepEqual([r.status, r.json?.error], [403, off], `${method} ${url}: ${r.text}`);
     }
+    // Someone not in the space learns nothing of what is on there: a module its template leaves out and one it offers
+    // answer them alike (the personal sentence, or the space's own refusal), never "not on".
+    const offOutside = await out.as('GET', `/api/modules/whiteboard/data?scope=space&space=${camp.id}`);
+    const onOutside = await out.as('GET', `/api/modules/documents/data?scope=space&space=${camp.id}`);
+    assert.deepEqual([offOutside.status, offOutside.json], [onOutside.status, onOutside.json], `an outsider: ${offOutside.text} / ${onOutside.text}`);
+    assert.equal(/not on in/.test(offOutside.text), false);
     // The same module answers in a space whose template offers it, and its data written there survives a change of template.
     const put = await mia.as('PUT', `/api/modules/maps/data/place:kept?scope=space&space=${bridge.id}`, { value: { name: 'Kept' } });
     assert.ok([200, 201].includes(put.status), put.text);
@@ -499,7 +507,7 @@ try {
     assert.ok(gusSet.length > 0, 'a link guest sees some modules');
     assert.equal(gusSet.includes('whiteboard'), false);
     const gusMaps = await gus('GET', `/api/modules/whiteboard/data?scope=space&space=${camp.id}`);
-    assert.deepEqual([gusMaps.status, gusMaps.json?.error], [403, 'this module is not available in that space for you'], 'Maps is off there for a guest too');
+    assert.deepEqual([gusMaps.status, gusMaps.json?.error], [403, 'this module is not on in that space'], 'Maps is off there for a guest too');
     const gusOther = await forSpace(gus, bridge.id);
     const gusUnknown = await gus('GET', '/api/modules/for-space?space=zzzzzzzz');
     assert.deepEqual([gusOther.status, gusOther.json], [gusUnknown.status, gusUnknown.json], 'a link guest on another space reads what an unknown id reads');
@@ -522,7 +530,7 @@ try {
 
   await test('settings: a module the space\'s template leaves out takes no settings there (space, and person through a space); a disabled one is 404', async () => {
     assert.ok(installed.includes('polls') && installed.includes('calendar'), `polls and calendar are on: ${installed}`);
-    const off = 'this module is not available in that space for you';
+    const off = 'this module is not on in that space';
     const stored = () => JSON.stringify(fs.existsSync(path.join(single, 'modules', 'polls')) ? fs.readdirSync(path.join(single, 'modules', 'polls'), { recursive: true }) : []);
     const before = stored();
     for (const [who, label] of [[admin, 'the admin'], [owner.as, 'an owner'], [mo.as, 'its moderator']]) {
@@ -539,6 +547,17 @@ try {
     assert.deepEqual([viaSpace.status, viaSpace.json?.error], [403, off], viaSpace.text);
     assert.equal((await mia.as('PUT', '/api/modules/calendar/settings/person', { values: { defaultView: 'week' } })).status, 200);
     assert.equal((await mia.as('PUT', `/api/modules/calendar/settings/person?space=${plain.id}`, { values: { defaultView: 'day' } })).status, 200);
+    // Someone who may enter a space (open to every account) but is not in it is told so first, whether the module is on
+    // there (Plain, the Default template) or left out (Bridge), as the data route answers them; nothing is saved.
+    for (const sp of [bridge, plain]) assert.equal((await admin('PATCH', `/api/spaces/${sp.id}`, { entry: 'accounts' })).status, 200);
+    const personal = 'this module is not available in that space for you';
+    for (const sp of [bridge, plain]) {
+      const r = await out.as('PUT', `/api/modules/calendar/settings/person?space=${sp.id}`, { values: { defaultView: 'week' } });
+      assert.deepEqual([r.status, r.json?.error], [403, personal], `an outsider through ${sp.name}: ${r.text}`);
+      const data = await out.as('GET', `/api/modules/calendar/data?scope=space&space=${sp.id}`);
+      assert.deepEqual([data.status, data.json?.error], [403, personal], `and the data route agrees in ${sp.name}`);
+    }
+    for (const sp of [bridge, plain]) assert.equal((await admin('PATCH', `/api/spaces/${sp.id}`, { entry: 'invited' })).status, 200);
     // A module that is not installed or not on is still no module at all.
     for (const id of ['nosuch', '__proto__']) {
       const r = await admin('PUT', `/api/modules/${id}/settings/space?space=${bridge.id}`, { values: {} });

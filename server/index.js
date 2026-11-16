@@ -846,15 +846,24 @@ async function applyRecordedTemplate(env, slug, template, fresh) {
 
 // A template's starter spaces (server/starter.js): each made as any new space is, with its starter content, by the
 // environment's first owner (else its admin). At most templates.MAX_STARTER_SPACES; a space that can't be made is
-// logged and the rest still are.
+// logged and the rest still are. Each uses this template ("starterSpaces", plan-templates-redesign.md): it is recorded
+// as the space's own, as POST /api/spaces records a chosen one, so a later switch of the environment's template leaves
+// them on it. Only where a space may have its own (store.chosenTemplate: the switch on and the template one a space may
+// choose); otherwise they read the environment's, which is this template now, and that is said in the log.
 function makeStarterSpaces(env, template, where = '') {
   const list = starter.starterSpacesOf(template);
   if (!list.length) return;
   const creator = starter.starterSpaceCreator(env.store.users);
+  let own;
+  try {
+    own = env.store.chosenTemplate(template.id, null).id;
+  } catch (err) {
+    console.warn(`${where}The starter ${word('space', { many: true })} read the ${word('environment')}'s template: ${err.message}`);
+  }
   let made = 0;
   for (const sp of list) {
     try {
-      const space = env.store.addSpace({ name: sp.name, description: sp.description, creator: creator?.key || null });
+      const space = env.store.addSpace({ name: sp.name, description: sp.description, creator: creator?.key || null, template: own });
       fillStarter(space, creator, { where });
       made += 1;
     } catch (err) {
@@ -1047,8 +1056,9 @@ function templateSwitchProblem(env, value) {
 
 // Switches an environment to template `value` ("none" or null for none), changing only its live part at once: the
 // record (appliedAt and skipped cleared; switchedAt set, so its once-only part waits as an offer), the words, the home
-// icon and the module names and icons, and the template's icons into the icon list. The owner's own words, home icon
-// and module names are untouched and still win; nothing is turned off. The same template as now changes nothing.
+// icon and the module names and icons (the template's icons are read live, never copied into the owner's own list,
+// decision 12). The owner's own words, home icon, reactions, icons and module names are untouched and still win;
+// nothing is turned off. The same template as now changes nothing.
 // `by`: the owner's key, or 'host'. Answers whether anything changed.
 async function switchTemplate(env, slug, value, by) {
   await env.templateReady; // a template picked at creation finishes applying before it can be switched away
@@ -1063,7 +1073,6 @@ async function switchTemplate(env, slug, value, by) {
     : { id: to, appliedAt: null, switchedAt: now, skipped: [] };
   env.store.switchTemplateRecord(record, { from, to, by });
   templates.useLive(env.store, template);
-  templates.addIcons(env.store, template);
   if (slug && hostRegistry) hostRegistry.setEnvironmentTemplate(slug, to);
   console.log(`${slug ? `[${slug}] ` : ''}Switched from the "${from}" template to the "${to}" template (by ${by === 'host' ? 'the host' : by}).`);
   return true;
@@ -1837,7 +1846,7 @@ function branding() {
   const s = store.settings;
   // The template's ordered phases, for the phase chip (plan-one-bar.md, step 3); [] with no template or none in it.
   const phases = (Array.isArray(store.templatePhases) ? store.templatePhases : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
-  return { environmentName: s.environmentName, productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, studio: studioView(STUDIO), hosted: Boolean(BASE_DOMAIN), words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases, spaceTemplates: store.spaceTemplatesOn(), homeIcon: store.homeIcon, templateHomeIcon: store.templateHomeIcon || null, loginText: s.loginText, language: s.language || 'en', clock: s.clock === '24' ? '24' : '12', currency: s.currency || 'USD', allowRegistration: Boolean(s.allowRegistration), guestDoor: guestDoorOn(), mfaOffered, mfaRequired: Boolean(s.mfaRequired), maxQuality: s.maxQuality || 720, allowScreenShare: s.allowScreenShare !== false, allowAsides: s.allowAsides !== false, allowPrivate: s.allowPrivate !== false, allowReactions: s.allowReactions !== false, conferenceEnabled: s.conferenceEnabled !== false, callService: HAS_CALL_SERVICE, activeThemeId: s.activeThemeId || null, themeMode: environmentThemeMode(), themeVersion: environmentThemeVersion(), hasIcon: !!store.iconPath(), hasBackground: !!store.siteImagePath('background'), version: VERSION, border: s.border, borderColor: s.borderColor, borderWidth: s.borderWidth || 6, mutedBorder: s.mutedBorder !== false, mutedColor: s.mutedColor || '#b8503f', plate: Boolean(s.plate), plateLayout: s.plateLayout || 'lower-left', plateColor: s.plateColor || '#000000', plateTextColor: s.plateTextColor || '#f1e6d8', plateFontSize: s.plateFontSize || 16, plateOpacity: s.plateOpacity ?? 60, plateTextCase: s.plateTextCase || 'default', charBorder: Boolean(s.charBorder), charBorderColor: s.charBorderColor || '#6fae6b', charMutedBorder: Boolean(s.charMutedBorder), charMutedColor: s.charMutedColor || '#b8503f', charBorderWidth: s.charBorderWidth || 6, pictureBackground: Boolean(s.pictureBackground), pictureColor: s.pictureColor || '#1a1410', pictureScale: s.pictureScale || 100, offlineDim: s.offlineDim ?? 0, offlineTint: s.offlineTint || '#000000', offlineTintOpacity: s.offlineTintOpacity ?? 0, asideDim: s.asideDim ?? 0, asideTint: s.asideTint || '#000000', asideTintOpacity: s.asideTintOpacity ?? 0, privateDim: s.privateDim ?? 0, privateTint: s.privateTint || '#000000', privateTintOpacity: s.privateTintOpacity ?? 0, reactions: store.lookOf(null).reactions, icons: store.lookOf(null).icons, guestImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.guestImagePath(slot)])), defaultImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.defaultImagePath(slot)])) };
+  return { environmentName: s.environmentName, productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, studio: studioView(STUDIO), hosted: Boolean(BASE_DOMAIN), words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases, spaceTemplates: store.spaceTemplatesOn(), homeIcon: store.homeIcon, templateHomeIcon: store.templateHomeIcon || null, loginText: s.loginText, language: s.language || 'en', clock: s.clock === '24' ? '24' : '12', currency: s.currency || 'USD', allowRegistration: Boolean(s.allowRegistration), guestDoor: guestDoorOn(), mfaOffered, mfaRequired: Boolean(s.mfaRequired), maxQuality: s.maxQuality || 720, allowScreenShare: s.allowScreenShare !== false, allowAsides: s.allowAsides !== false, allowPrivate: s.allowPrivate !== false, allowReactions: s.allowReactions !== false, conferenceEnabled: s.conferenceEnabled !== false, callService: HAS_CALL_SERVICE, activeThemeId: s.activeThemeId || null, themeMode: environmentThemeMode(), themeVersion: environmentThemeVersion(), hasIcon: !!store.iconPath(), hasBackground: !!store.siteImagePath('background'), version: VERSION, border: s.border, borderColor: s.borderColor, borderWidth: s.borderWidth || 6, mutedBorder: s.mutedBorder !== false, mutedColor: s.mutedColor || '#b8503f', plate: Boolean(s.plate), plateLayout: s.plateLayout || 'lower-left', plateColor: s.plateColor || '#000000', plateTextColor: s.plateTextColor || '#f1e6d8', plateFontSize: s.plateFontSize || 16, plateOpacity: s.plateOpacity ?? 60, plateTextCase: s.plateTextCase || 'default', charBorder: Boolean(s.charBorder), charBorderColor: s.charBorderColor || '#6fae6b', charMutedBorder: Boolean(s.charMutedBorder), charMutedColor: s.charMutedColor || '#b8503f', charBorderWidth: s.charBorderWidth || 6, pictureBackground: Boolean(s.pictureBackground), pictureColor: s.pictureColor || '#1a1410', pictureScale: s.pictureScale || 100, offlineDim: s.offlineDim ?? 0, offlineTint: s.offlineTint || '#000000', offlineTintOpacity: s.offlineTintOpacity ?? 0, asideDim: s.asideDim ?? 0, asideTint: s.asideTint || '#000000', asideTintOpacity: s.asideTintOpacity ?? 0, privateDim: s.privateDim ?? 0, privateTint: s.privateTint || '#000000', privateTintOpacity: s.privateTintOpacity ?? 0, reactions: store.lookOf(null).reactions, icons: store.lookOf(null).icons, inUseIcons: store.lookOf(null).inUseIcons, guestImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.guestImagePath(slot)])), defaultImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.defaultImagePath(slot)])) };
 }
 
 // What a space reads, as the pages and a guest's link paint it (lookOf): { words, verbs, phases, phaseMeasure, reactions,
@@ -1847,7 +1856,7 @@ function branding() {
 const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
 function lookView(spaceId) {
   const look = store.lookOf(spaceId);
-  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, workspace: look.workspace };
+  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, inUseIcons: look.inUseIcons, workspace: look.workspace };
 }
 // The phases a space reads, for the rules that walk them (the AI's rollup, covering the main phase).
 const phasesOfSpace = (spaceId) => { const p = store.lookOf(spaceId).phases; return Array.isArray(p) ? p : []; };
@@ -5491,9 +5500,16 @@ const refusedInLobby = (manifest, spaceId) => spaceId === LOBBY && manifest && !
 // Whether someone may see a module in a space at all: on for that space (modules.isOnIn, the one check, which keeps
 // the Lobby for the modules that declare it), and in it.
 function moduleSpaceAccess(entry, who, space) {
-  if (!modules.isOnIn(entry.id, space.id)) return false;
-  if (who.user) return hasOwnerRights(who.user) || userIsIn(who.user, space);
-  return Boolean(who.guestSpace) && who.guestSpace.id === space.id; // a keyed viewer (the access key) is in no space
+  return !moduleSpaceRefusal(entry, who, space);
+}
+// Why moduleSpaceAccess says no, as the sentence a 403 gives, or null when it says yes. `subject` names the module ("this
+// module"). Someone not in the space is told so first, whatever is on there, so they learn nothing of its modules; for
+// someone in it, the module is not on there (its template leaves it out), which is nothing personal.
+function moduleSpaceRefusal(entry, who, space, subject = `this ${word('module')}`) {
+  const inSpace = who.user ? hasOwnerRights(who.user) || userIsIn(who.user, space) : Boolean(who.guestSpace) && who.guestSpace.id === space.id; // a keyed viewer (the access key) is in no space
+  if (!inSpace) return `${subject} is not available in that ${word('space')} for you`;
+  if (!modules.isOnIn(entry.id, space.id)) return `${subject} is not on in that ${word('space')}`;
+  return null;
 }
 
 // A module's scope as a request names it (?scope=): 'environment' (also when none is named), 'space', 'spaces' (a
@@ -5571,7 +5587,8 @@ function moduleAccessAt({ manifest, entry }, who, scope, space, need) {
   let spaceId = null;
   if (scope === 'space') {
     if (refusedInLobby(manifest, space.id)) return { status: 404, error: lobbyRefusal(manifest) };
-    if (!moduleSpaceAccess(entry, who, space)) return { status: 403, error: `this ${word('module')} is not available in that ${word('space')} for you` };
+    const refused = moduleSpaceRefusal(entry, who, space);
+    if (refused) return { status: 403, error: refused };
     spaceId = space.id;
   }
   const perms = modulePerms(who, spaceId);
@@ -5805,7 +5822,8 @@ function tagsModule(ctx, from, res, need) {
   if (!found) return void res.status(404).json({ error: `There is no such ${word('module')}.` });
   const { manifest, entry } = found;
   if (manifest.tags !== true) return void res.status(403).json({ error: `That ${word('module')} does not use tags.` });
-  if (!moduleSpaceAccess(entry, ctx.who, ctx.space)) return void res.status(403).json({ error: `That ${word('module')} is not available in this ${word('space')} for you.` });
+  const refused = moduleSpaceRefusal(entry, ctx.who, ctx.space, `That ${word('module')}`);
+  if (refused) return void res.status(403).json({ error: `${refused}.` });
   if (!moduleCan(manifest, ctx.perms, 'read') || (need === 'write' && !moduleCan(manifest, ctx.perms, 'write'))) return void res.status(403).json({ error: `Your role can't do that in this ${word('module')}.` });
   if (shutFromGuests(ctx.who, manifest, ctx.space.id)) return void res.status(403).json({ error: guestsShutRefusal(manifest) });
   return found;
@@ -6011,8 +6029,9 @@ function firstVisitFor(found) {
   }
   return { layout, opensWith: store.opensWithOf(space.id) };
 }
-// The icon ids a layout may use: this environment's icon list, the modules' own icons, and the defaults.
-const layoutIconIds = () => [...new Set([...store.iconIds(), ...store.displayIconIds(), ...Object.values(SYSTEM_ICONS), 'object-group'])];
+// The icon ids a layout in space `spaceId` may use: the icons that space offers (its own template's additions when it has
+// one, as its /look lists them, else the environment's), the modules' own icons, and the defaults.
+const layoutIconIds = (spaceId) => [...new Set([...store.iconIdsAt(spaceId), ...store.moduleIconIds(), ...Object.values(SYSTEM_ICONS), 'object-group'])];
 
 app.get('/api/spaces/:id/layouts', (req, res) => {
   const found = layoutSpaceFor(req, res);
@@ -6060,7 +6079,7 @@ app.post('/api/spaces/:id/layouts', (req, res) => {
   const found = layoutSpaceFor(req, res);
   if (!found) return;
   if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
-  const { layout, error } = cleanLayout(req.body, { icons: layoutIconIds() });
+  const { layout, error } = cleanLayout(req.body, { icons: layoutIconIds(found.space.id) });
   if (error) return res.status(400).json({ error });
   if (layout.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   try {
@@ -6083,7 +6102,8 @@ app.put('/api/spaces/:id/layouts/:layoutId', (req, res) => {
   const there = store.layouts.find(found.space.id, req.params.layoutId, me);
   if (!there) return res.status(404).json({ error: 'There is no such layout here.' });
   if (there.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
-  const { layout: patch, error } = cleanLayout(req.body, { partial: true, icons: layoutIconIds() });
+  // The icon it has already is taken back unchanged (it may be one a template switched away offered); a new one is checked.
+  const { layout: patch, error } = cleanLayout(req.body, { partial: true, icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
   if (error) return res.status(400).json({ error });
   if (!Object.keys(patch).length) return res.status(400).json({ error: `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.` });
   try {
@@ -6130,7 +6150,9 @@ app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
   if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
   const id = req.params.systemId;
   if (!systemLayoutsFor(found).some((l) => l.id === id)) return res.status(404).json({ error: 'There is no such layout here.' });
-  const { patch, error } = cleanSystemPatch(req.body, { icons: layoutIconIds() });
+  // As a saved layout's: the icon this person has on it already is taken back unchanged; a new one is checked.
+  const had = store.layouts.systemOf(found.space.id, found.who.user.key)[id]?.icon;
+  const { patch, error } = cleanSystemPatch(req.body, { icons: [...layoutIconIds(found.space.id), ...(typeof had === 'string' ? [had] : [])] });
   if (error) return res.status(400).json({ error });
   if (patch.tab === false && id === 'workspace') return res.status(400).json({ error: 'The Workspace is always shown.' });
   if (patch.tab !== undefined && ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });
@@ -8178,9 +8200,12 @@ function refScope(who, { provider, kind, scope, space, from, skipConsumer = fals
     const r = store.spaceById(String(space || ''));
     if (!r || closedToWho(who, r)) { const a = entryRefusalWho(who, r, `no such ${word('space')}`); throw refError(a.status, a.body.error); }
     if (!manifest.scope.includes('space')) throw refError(400, `that ${word('module')} has no space scope`);
-    if (!moduleSpaceAccess(entry, who, r)) throw Object.assign(refError(403, `that ${word('module')} is not available in that ${word('space')} for you`), { unseen: true });
+    const refused = moduleSpaceRefusal(entry, who, r, `that ${word('module')}`);
+    if (refused) throw Object.assign(refError(403, refused), { unseen: true });
     // The asking module must itself be on in that space, and readable by the viewer.
-    if (consumer && (!moduleSpaceAccess(consumer.entry, who, r) || !moduleCan(consumer.manifest, modulePerms(who, r.id), 'read'))) throw refError(403, `the linking ${word('module')} is not available in that ${word('space')} for you`);
+    const linking = consumer ? moduleSpaceRefusal(consumer.entry, who, r, `the linking ${word('module')}`) : null;
+    if (linking) throw refError(403, linking);
+    if (consumer && !moduleCan(consumer.manifest, modulePerms(who, r.id), 'read')) throw refError(403, `the linking ${word('module')} is not available in that ${word('space')} for you`);
     perms = modulePerms(who, r.id);
     scopeKey = scopeKeyOf('space', { spaceId: r.id });
   } else if (scope === 'person') {
@@ -8842,7 +8867,8 @@ app.post('/api/objects/links', (req, res) => {
   let perms;
   if (from.scope === 'space') {
     const r = store.spaceById(String(from.space || ''));
-    if (!r || !moduleSpaceAccess(found.entry, who, r)) return res.status(403).json({ error: `that ${word('module')} is not available in that ${word('space')} for you` });
+    const refused = r ? moduleSpaceRefusal(found.entry, who, r, `that ${word('module')}`) : `that ${word('module')} is not available in that ${word('space')} for you`;
+    if (refused) return res.status(403).json({ error: refused });
     perms = modulePerms(who, r.id);
   } else {
     if (!who.user) return res.status(403).json({ error: `${word('guest', { many: true })} can only use ${word('module', { a: true })} in ${word('space', { a: true })}` });
@@ -9003,7 +9029,8 @@ function busPlace(who, moduleId, scope, space, need) {
     const r = store.spaceById(String(space || ''));
     if (!r || closedToWho(who, r)) { const a = entryRefusalWho(who, r, `no such ${word('space')}`); throw refError(a.status, a.body.error); }
     if (!manifest.scope.includes('space')) throw refError(400, `that ${word('module')} has no space scope`);
-    if (!moduleSpaceAccess(entry, who, r)) throw refError(403, `that ${word('module')} is not available in that ${word('space')} for you`);
+    const refused = moduleSpaceRefusal(entry, who, r, `that ${word('module')}`);
+    if (refused) throw refError(403, refused);
     perms = modulePerms(who, r.id);
     scopeKey = scopeKeyOf('space', { spaceId: r.id });
     spaceId = r.id;
@@ -11170,9 +11197,13 @@ app.put('/api/modules/:id/settings/:scope', (req, res) => {
   // A module that is not on in the space (its template leaves it out, or the Lobby is not for it) takes no settings there,
   // as it answers every other route there (moduleAccess): the space's settings, and a person's own when asked through a space.
   const named = place.space || (req.params.scope === 'person' && (req.query.space || req.body?.space) ? store.spaceById(String(req.query.space || req.body?.space)) : null);
+  // A space the asker may enter (closedTo false): someone not in it is told so first, whether the module is on there or
+  // not, as the data route does (moduleSpaceRefusal). A space they can't enter, or an id that is no space, is not checked
+  // here (a person's own setting is saved as ever), so the answer says nothing about what is on there.
   if (named && !closedTo(req, named)) {
     if (refusedInLobby(found.manifest, named.id)) return res.status(404).json({ error: lobbyRefusal(found.manifest) });
-    if (!modules.isOnIn(found.entry.id, named.id)) return res.status(403).json({ error: `this ${word('module')} is not available in that ${word('space')} for you` });
+    const refused = moduleSpaceRefusal(found.entry, { user: place.user, guestSpace: null }, named);
+    if (refused) return res.status(403).json({ error: refused });
   }
   try {
     // A shared setting (its files, or the world address that cuts into them) is the host's while there is
@@ -11508,9 +11539,11 @@ function fillStarter(space, creator, { skip = false, where = '' } = {}) {
       else ctx = at.ctx;
     }
     if (!ctx) continue;
+    const now = new Date().toISOString();
     for (const [key, value] of block.entries) {
       try {
-        const r = putModuleValue(ctx, key, value, { expected: 0 });
+        // Its author and time fields as the creator's, now (starter.asCreator), then the data route's own checks.
+        const r = putModuleValue(ctx, key, starter.asCreator(value, creator, now), { expected: 0 });
         if (r.error) out.skipped.push({ module: block.module, key, why: r.error });
         else out.written += 1;
       } catch (err) {
@@ -12299,7 +12332,8 @@ function moduleLiveFor(req, res) {
   const space = store.spaceById(req.query.space);
   if (!space || closedTo(req, space)) return void res.status(entryStatus(req, space)).json(entryBody(req, space, `no such ${word('space')}`));
   if (refusedInLobby(manifest, space.id)) return void res.status(404).json({ error: lobbyRefusal(manifest) });
-  if (!moduleSpaceAccess(entry, who, space)) return void res.status(403).json({ error: `this ${word('module')} is not available in that ${word('space')} for you` });
+  const refused = moduleSpaceRefusal(entry, who, space);
+  if (refused) return void res.status(403).json({ error: refused });
   const perms = modulePerms(who, space.id);
   if (!moduleCan(manifest, perms, 'read')) return void res.status(403).json({ error: `your role can't do that in this ${word('module')}` });
   if (shutFromGuests(who, manifest, space.id)) return void res.status(403).json({ error: guestsShutRefusal(manifest) });

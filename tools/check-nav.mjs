@@ -2685,7 +2685,7 @@ test('Set up: the new fields go in the one PATCH only when changed; the dots nam
   assert.deepEqual([...dirtyTabs({}, { image: true })], ['space'], 'a picture chosen is the space tab\'s');
   assert.deepEqual([...dirtyTabs({})], []);
   assert.equal(problemField({ name: 'P', link: 'ftp://x' }, 'link must be a valid http(s) URL'), 'link');
-  assert.equal(problemField({ linkIcon: 'x', link: 'https://x' }, 'unknown link icon'), 'linkIcon', 'the icon before the link');
+  assert.equal(problemField({ linkIcon: 'x', link: 'https://x' }, 'That icon is not one this environment offers.'), 'linkIcon', 'the icon before the link');
   assert.equal(problemField({ name: 'P', defaultLayout: 'map' }, 'Map is not on in this space, so it can\'t be the first visit.'), 'defaultLayout');
   assert.equal(problemField({ name: 'P', members: [] }, 'owners only'), 'name', 'no field named: the first');
   // Step 4: the phase dates, whole, only when a start or end changed; step 5: Turn AI off and the module settings.
