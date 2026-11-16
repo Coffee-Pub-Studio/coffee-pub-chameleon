@@ -13,7 +13,7 @@
 .app { background: var(--surface-page); }
 .undo { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-in); padding: var(--space-2) var(--space-3); border: 1px solid var(--edge-hairline); border-radius: var(--radius-small); background: var(--surface-card); color: var(--text-primary); font-size: var(--text-14); }
 .undo-text { min-width: 0; overflow-wrap: anywhere; }
-.app.narrow .undo .btn { min-height: 44px; min-width: 44px; }
+.app.narrow .undo .btn { --btn-h: 44px; min-width: 44px; }
 .body { flex: 1; min-height: 0; overflow: auto; }
 .app:has(> .body[hidden]) { flex: 0 0 auto; } /* the empty notice is at the top: the slot takes no room of its own */
 .view { display: grid; gap: var(--gap-in); align-content: start; }

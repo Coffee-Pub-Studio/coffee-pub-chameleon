@@ -153,7 +153,8 @@ await test('the pages, the strip, the 44 px rules and the marks are in the files
   assert.match(read('public/admin.js'), /TPL_PARTS = \['main', 'basics', 'labels', 'workspace', 'phases', 'reactions', 'modules', 'list'\]/);
   const css = read('public/style.css');
   const phone = css.slice(css.indexOf('.tp-phase { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }') - 60);
-  assert.match(phone, /\.tp-actions \.btn[^{]*\.tp-module-head[^{]*\{ min-height: 44px; \}/);
+  assert.match(phone, /\.tp-actions \.btn[^{]*\{ --btn-h: 44px; \}/);
+  assert.match(phone, /\.tp-phase \.tp-main, \.tp-module-head \{ min-height: 44px; \}/);
   const form = read('public/module-settings.js');
   assert.match(form, /function markLine/);
   assert.match(form, /if \(def\.locked\) continue/, 'a driven setting is never sent');

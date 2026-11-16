@@ -840,6 +840,12 @@ body.host-console .topbar .brand-home .product-lockup {
   color: var(--text-dim);
 }
 
+/* Manage > Space templates: the hint ends the panel (no margin under it) and the saved line, empty until a save, takes its own gap. */
+#space-templates-section > .hint { margin-bottom: 0; }
+#space-templates-status { display: block; }
+#space-templates-status:empty { display: none; }
+#space-templates-status:not(:empty) { margin-top: var(--space-2); }
+
 .status.error {
   color: var(--danger-text);
 }
@@ -6499,7 +6505,7 @@ body.chat-window {
 .ai-key-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ai-key-row input { flex: 1; min-width: 200px; }
 /* On a phone the key's buttons are full-size targets. */
-@media (max-width: 640px) { .ai-key-row .btn, .ai-model-row .btn { min-height: 44px; } .ai-key-row input { min-height: 44px; } }
+@media (max-width: 640px) { .ai-key-row .btn, .ai-model-row .btn { --btn-h: 44px; } .ai-key-row input { min-height: 44px; } }
 /* A saved key the server can't read: the server's sentence, in place of the key's usual hint. */
 .ai-key .hint.error { color: var(--danger-text); }
 .ai-usage { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
@@ -6743,7 +6749,7 @@ body.chat-window {
   .tf-word { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .tf-word > label:last-of-type, .tf-word > span:last-child { grid-column: 1 / -1; }
   .tf-line { grid-template-columns: minmax(0, 1fr); }
-  .tpl-head .btn, .tpl-row-actions .btn, .tpl-own-words .btn, .tpl-copy .btn, .template-files .btn { min-height: 44px; }
+  .tpl-head .btn, .tpl-row-actions .btn, .tpl-own-words .btn, .tpl-copy .btn, .template-files .btn { --btn-h: 44px; }
   .tpl-pick { max-width: none; flex-basis: 100%; }
   .tf-icons .icon-grid button { width: 44px; height: 44px; }
 }
@@ -6787,7 +6793,7 @@ body.chat-window {
 #tab-template .tp-module-labels .tp-label-group { margin-top: 8px; }
 /* A module setting a template drives or seeds, wherever the form is drawn (Manage > Modules, Set up, Profile). */
 .module-setting .setting-mark { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 0 0; }
-.module-setting .setting-mark .btn { min-height: 32px; }
+.module-setting .setting-mark .btn { --btn-h: 32px; }
 .module-setting[data-locked] input:disabled, .module-setting[data-locked] select:disabled { opacity: 1; cursor: default; }
 @media (max-width: 640px) {
   .tp-phase { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
@@ -6796,18 +6802,21 @@ body.chat-window {
   .tp-module-head { grid-template-columns: auto minmax(0, 1fr); }
   .tp-module-sum { grid-column: 2; text-align: left; }
   .tp-module-sum:empty { display: none; }
-  .tp-list .list-row .btn, .tp-list .list-row .icon-pick summary, .tp-list .list-row input[type="text"], .tp-list .list-row .sdk-colour-pick, .tp-list .list-row input[type="color"], .tp-list > .list-setting > .btn { min-height: 44px; min-width: 44px; box-sizing: border-box; }
+  .tp-list .list-row .icon-pick summary, .tp-list .list-row input[type="text"], .tp-list .list-row .sdk-colour-pick, .tp-list .list-row input[type="color"] { min-height: 44px; min-width: 44px; box-sizing: border-box; }
   #words-panel .tf-word input[type="text"] { min-height: 44px; box-sizing: border-box; }
-  .tp-actions .btn, .tp-phase .tp-main, .tp-module-head, .reaction-row .btn, #tab-template .row .btn, .module-setting .setting-mark .btn { min-height: 44px; }
+  .tp-list .list-row .btn, .tp-list > .list-setting > .btn { --btn-h: 44px; min-width: 44px; }
+  .tp-actions .btn, .reaction-row .btn, #tab-template .row .btn, .module-setting .setting-mark .btn { --btn-h: 44px; }
+  .tp-phase .tp-main, .tp-module-head { min-height: 44px; }
   .tp-chip { min-width: 44px; height: 44px; }
   /* The Environment tab's Reactions and Icons: a row wraps, so the fields keep a usable width. */
   #env-reactions-card .reaction-row { flex-wrap: wrap; }
   #env-reactions-card .reaction-row .reaction-label, #env-reactions-card .icon-row .icon-html { flex: 1 1 100%; }
   #env-reactions-card .reaction-row .reaction-glyph { flex: none; }
-  #env-reactions-card .row .btn, #env-reactions-card .reaction-row .btn { min-height: 44px; }
+  #env-reactions-card .row .btn, #env-reactions-card .reaction-row .btn { --btn-h: 44px; }
   #env-reactions-card .reaction-row input[type="text"] { min-height: 44px; box-sizing: border-box; }
   .tp-switch { min-height: 44px; min-width: 44px; }
-  .module-display .icon-pick summary, .module-display .icon-pick .icon-grid button, .module-display .btn, .module-display input[type="text"] { min-width: 44px; min-height: 44px; box-sizing: border-box; }
+  .module-display .btn { --btn-h: 44px; min-width: 44px; }
+  .module-display .icon-pick summary, .module-display .icon-pick .icon-grid button, .module-display input[type="text"] { min-width: 44px; min-height: 44px; box-sizing: border-box; }
   .tp-checks .sdk-choice-row, .template-offer .sdk-choice-row, .tp-module-body .sdk-choice-row, .tp-module-body .tf-field input:not([type="checkbox"]), .tp-module-body .tf-field select, .tp-module-body .tp-setting-value input:not([type="checkbox"]), .tp-module-body .tp-setting-value select, .tp-module-body .tf-word input, .tp-phase input[type="text"], #tpl-part-workspace select, #tpl-part-phases select, .tp-offer.sdk-choice-row, .reaction-row input[type="text"] { min-height: 44px; box-sizing: border-box; }
 }
 
@@ -8330,9 +8339,12 @@ h4.setup-subheading {
   .setup-picture-pick,
   #setup-picture-remove,
   #setup-opens-with-layout-stop,
-  .setup-layout-move .btn,
   .setup-choice {
     min-height: 44px;
+  }
+
+  .setup-layout-move .btn {
+    --btn-h: 44px;
   }
 
   .setup-workspace-content {

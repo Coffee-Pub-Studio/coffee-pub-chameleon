@@ -16,8 +16,8 @@
     "hash": "7e797b04543e5bf8"
   },
   "goals": {
-    "version": "0.1.3",
-    "hash": "c6f69dc6496e5880"
+    "version": "0.1.4",
+    "hash": "d6147f7d08d858e3"
   },
   "maps": {
     "version": "0.10.4",
@@ -32,8 +32,8 @@
     "hash": "57253d11bf9f4dda"
   },
   "schedule": {
-    "version": "0.1.3",
-    "hash": "dd13fdbce38fa89a"
+    "version": "0.1.4",
+    "hash": "64d046b1d406c95e"
   },
   "stream": {
     "version": "0.1.15",
