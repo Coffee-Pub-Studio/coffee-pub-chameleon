@@ -96,8 +96,11 @@ export async function runSeed({ base, login = 'admin', adminPassword, today, say
   const current = ((await ok('admin', 'GET', '/api/settings')).settings.template || {}).id || null;
   const templateId = demo || (current && DEMOS.some((d) => d.id === current) ? current : 'travel');
   if (!current || current === 'default') {
+    // Switching the whole environment is only for a fresh one: refused when it already has spaces of its own (the Lobby aside).
+    const own = ((await ok('admin', 'GET', '/api/spaces')).spaces || []).filter((sp) => !sp.isLobby && sp.id !== 'lobby');
+    if (own.length) throw new SeedError(`This environment is on the Default template and already has ${own.length === 1 ? 'a space' : `${own.length} spaces`} of its own, so the seeder will not switch it to the ${templateId} template. Switch its template yourself first, or use a fresh data folder.`);
     await ok('admin', 'PATCH', '/api/settings', { template: templateId });
-    say(`Switched the template to ${templateId} (it had none).`);
+    say(`Switched the template from ${current || 'none'} to ${templateId}.`);
   }
   const listed = await ok('admin', 'GET', '/api/modules');
   const have = new Map((listed.modules || []).map((m) => [m.id, m]));

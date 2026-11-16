@@ -1732,6 +1732,7 @@ function publicUser(req, u, opts = {}) {
     role: u.role,
     hostAdmin: u.hostAdmin, // signs in through the host console, not a password of its own -- see resolveLoginUser
     hasPassword: !!u.passwordHash,
+    ...(u.demo ? { demo: true } : {}), // a demo person, made by a demo load (server/demo-loader.js)
     mfaEnrolled: Boolean(u.mfa), // the only mfa field a person other than the account itself ever sees
     // The personal link only for those maySeeLink allows; left out entirely for anyone else.
     ...(maySeeLink(req, u, opts) ? { link: u.linkToken ? `${baseUrl(req)}/j/${u.linkToken}` : null } : {}),
@@ -2706,12 +2707,14 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     const env = environmentFor(slug);
     const envWord = (...a) => env.store.word(...a);
     const own = env.store.templateRecord?.id || null;
+    if (req.body !== undefined && req.body !== null && (typeof req.body !== 'object' || Array.isArray(req.body))) throw new HostError('Send the demo to add as { "demo": "<name>" }, or nothing for this template\'s own.', 400);
     const asked = (req.body || {}).demo;
+    if (asked === '') throw new HostError('Name a demo.', 400);
     if (asked !== undefined && asked !== null && (typeof asked !== 'string' || !demoLoader.hasDemo(asked))) throw new HostError(`There is no demo called ${typeof asked === 'string' ? asked.slice(0, 40) : 'that'}.`, 400);
     const usedTemplate = asked || (own && demoLoader.hasDemo(own) ? own : 'travel');
     // One of each demo: a marked space with this demo's name is this demo, already there. Another demo may sit beside it.
-    const demoName = demoLoader.readDemoFile(usedTemplate).name;
-    if (env.store.spaces.some((sp) => sp.name === demoName && String(sp.description || '').startsWith(demoLoader.MARKER))) throw new HostError(`The demo ${envWord('space')} is already there. Delete it, then add it again.`, 409);
+    const demoFile = demoLoader.listDemos().find((d) => d.id === usedTemplate) || { label: 'demo', name: demoLoader.readDemoFile(usedTemplate).name };
+    if (env.store.spaces.some((sp) => sp.name === demoFile.name && String(sp.description || '').startsWith(demoLoader.MARKER))) throw new HostError(`The ${demoFile.label} is already there. Delete its ${envWord('space')}, then add it again.`, 409);
     // The demo run's own stand-in, never the host admin's login (an ordinary account may have that name): fixed login, no password.
     let user = env.store.userByLogin(DEMO_STANDIN_LOGIN);
     if (user && (!user.hostAdmin || user.passwordHash)) throw new HostError(`A person called "${DEMO_STANDIN_LOGIN}" already has an account in this ${envWord('environment')}, so the demo cannot be added. Rename or remove that account first.`, 409);
@@ -2722,6 +2725,9 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     try {
       report = await demoLoader.loadDemo({
         base: `http://127.0.0.1:${listener.address().port}`,
+        // The environment's own address, as people reach it (the scheme and port of the console's own request): the links the
+        // demo writes in chat and its guest link use it, never the loopback the loader's requests go to.
+        publicBase: `${auth.isSecure(req) ? 'https' : 'http'}://${slug}.${BASE_DOMAIN}${requestPort(req)}`,
         headers: { host: `${slug}.${BASE_DOMAIN}`, [DEMO_RUN_HEADER]: mark },
         templateId: usedTemplate,
         today: new Date().toISOString().slice(0, 10),
@@ -5125,8 +5131,10 @@ app.get('/api/users/:key', requireOwner, (req, res) => {
 
 app.post('/api/users', requireOwner, (req, res) => {
   if (refuseOverMembers(res)) return;
-  const { login, displayName, role, password, passwordless } = req.body || {};
-  const user = store.addUser({ login, displayName, role, passwordHash: password ? auth.hashPassword(password) : null });
+  const { login, displayName, role, password, passwordless, demo } = req.body || {};
+  // `demo: true` marks a demo person (the demo loader's own accounts): only such an account is given a new password by a later demo load.
+  if (demo !== undefined && typeof demo !== 'boolean') return res.status(400).json({ error: 'demo must be true or false.' });
+  const user = store.addUser({ login, displayName, role, passwordHash: password ? auth.hashPassword(password) : null, demo: demo === true });
   if (passwordless) store.updateUser(user.key, { linkToken: randomToken() });
   res.status(201).json({ user: publicUser(req, store.userByKey(user.key)) });
 });

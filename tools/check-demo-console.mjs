@@ -7,7 +7,9 @@
  * but no marker is left alone; an unknown and a suspended environment are refused. GET /api/host/demos lists the five demos by
  * their plain names, host admin only; a body's `demo` picks one (an unknown one is a 400 with a sentence): the games demo sits
  * beside the travel demo in a travel environment, reads the games template, says in a sentence what this environment does not
- * have, and is refused a second time; a games environment gets the games demo with no body. No LiveKit and no browser.
+ * have, and is refused a second time; a games environment gets the games demo with no body. The chat links and the guest
+ * link use the environment's own address, never the loopback; an empty name and a list body are refused; a real account with a
+ * demo person's login and name is never taken over. No LiveKit and no browser.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -56,7 +58,7 @@ try {
   const login = await call('POST', 'admin', '/api/host/login', HOST);
   assert.equal(login.status, 200, login.text);
   const admin = { cookie: login.cookie };
-  for (const slug of ['alpha', 'beta', 'gamma', 'delta']) {
+  for (const slug of ['alpha', 'beta', 'gamma', 'delta', 'eps']) {
     const made = await call('POST', 'admin', '/api/host/environments', { slug, name: slug, template: slug === 'delta' ? 'games' : 'travel', owner: { login: `own${slug}`, displayName: slug, password: OWNER_PASSWORD } }, admin);
     assert.equal(made.status, 201, made.text);
   }
@@ -96,7 +98,22 @@ try {
 
   const again = await call('POST', 'admin', url('alpha'), undefined, admin);
   assert.equal(again.status, 409);
-  assert.match(again.json.error, /^The demo (space|trip) is already there\. Delete it, then add it again\.$/);
+  assert.equal(again.json.error, 'The Travel demo is already there. Delete its trip, then add it again.');
+  // The links the demo wrote use the environment's own address, never the loopback the loader's requests went to.
+  const travelChat = (await call('GET', 'alpha', `/api/spaces/${added.json.space.id}/chat`, undefined, owner)).json.messages;
+  assert.ok(travelChat.some((m) => m.text.includes(`http://alpha.localhost:${port}/modules/travel?space=${added.json.space.id}`)), 'a chat link on the environment\'s own address');
+  assert.ok(!travelChat.some((m) => /127\.0\.0\.1/.test(m.text)), 'no loopback address in the chat');
+  assert.ok(added.json.guestUrl.startsWith(`http://alpha.localhost:${port}/guest/`), 'the guest link is on the environment\'s own address');
+  // The body: an empty name, a list, and null (this template's own demo, here already there).
+  const empty = await call('POST', 'admin', url('alpha'), { demo: '' }, admin);
+  assert.equal(empty.status, 400);
+  assert.equal(empty.json.error, 'Name a demo.');
+  const list = await call('POST', 'admin', url('alpha'), ['games'], admin);
+  assert.equal(list.status, 400, 'a list is not a body');
+  assert.match(list.json.error, /^Send the demo to add as/);
+  const none = await call('POST', 'admin', url('alpha'), { demo: null }, admin);
+  assert.equal(none.status, 409, 'null is this template\'s own demo');
+  assert.equal(none.json.error, 'The Travel demo is already there. Delete its trip, then add it again.');
 
   // The list of demos, and choosing one.
   assert.equal((await call('GET', 'admin', '/api/host/demos')).status, 401, 'anonymous may not list the demos');
@@ -123,6 +140,7 @@ try {
   assert.ok(!alphaMods.some((m) => m.id === 'schedule' && m.enabled), 'Planner - Projects was not turned on');
   const gamesAgain = await call('POST', 'admin', url('alpha'), { demo: 'games' }, admin);
   assert.equal(gamesAgain.status, 409, 'the games demo is there once');
+  assert.equal(gamesAgain.json.error, 'The Games demo is already there. Delete its trip, then add it again.');
   const both = (await call('GET', 'alpha', '/api/spaces', undefined, owner)).json.spaces;
   assert.equal(both.filter((x) => x.name === demoName).length, 1, 'the travel demo is still there, once');
   assert.equal(both.filter((x) => x.name === 'Demo: The Salt Crown').length, 1, 'beside one games demo');
@@ -152,6 +170,15 @@ try {
   const sus = await call('POST', 'admin', url('beta'), undefined, admin);
   assert.equal(sus.status, 409);
   assert.match(sus.json.error, /suspended/);
+
+  // A real account with a demo person's login and name (here an owner) is never taken over.
+  const epsOwner = await ownerOf('eps');
+  assert.ok((await call('POST', 'eps', '/api/users', { login: 'noa', displayName: 'Noa Brandt', role: 'owner', password: OWNER_PASSWORD }, epsOwner)).status < 300);
+  const takeover = await call('POST', 'admin', url('eps'), { demo: 'project' }, admin);
+  assert.equal(takeover.status, 409, takeover.text);
+  assert.equal(takeover.json.error, 'An account called "noa" already exists and was not made by a demo, so it is left alone. Rename or remove it first.');
+  assert.equal((await call('POST', 'eps', '/api/login', { login: 'noa', password: OWNER_PASSWORD })).status, 200, 'her password still works');
+  assert.ok(!(await call('GET', 'eps', '/api/spaces', undefined, epsOwner)).json.spaces.some((x) => x.name === 'Demo: Linden Bakery website'), 'no demo space was made');
 
   await stop();
   const keep = [...added.json.people, ...games.json.people, ...own.json.people].map((p) => p.password);

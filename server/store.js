@@ -1016,6 +1016,9 @@ class Store {
       // What they have agreed to (plan-access-bundle.md, step 1; server/agreements.js): [{ doc, version, at }], one per
       // text and version; left off while they have agreed to nothing.
       ...(cleanAgreed(u.agreed).length ? { agreed: cleanAgreed(u.agreed) } : {}),
+      // A demo person (server/demo-loader.js): made by a demo load, the only kind of account a later load may give a new
+      // password. Never on a host admin's stand-in; left off for everyone else.
+      ...(u.demo === true && !u.hostAdmin ? { demo: true } : {}),
       createdAt: typeof u.createdAt === 'string' ? u.createdAt : new Date().toISOString(),
     };
   }
@@ -1890,7 +1893,7 @@ class Store {
     if (typeof displayName === 'string' && endsWithGuestMark(cleanDisplayName(displayName), this.word('guest'))) throw new StoreError(`A name can't end in (${this.word('guest')}).`);
   }
 
-  addUser({ login, displayName, role, passwordHash, hostAdmin, firstPassword }) {
+  addUser({ login, displayName, role, passwordHash, hostAdmin, firstPassword, demo }) {
     const cleaned = cleanLogin(login);
     if (!cleaned) throw new StoreError('username is required');
     if (role !== undefined && !hostAdmin && !ASSIGNABLE_ROLES.includes(role)) throw new StoreError('role must be owner or member');
@@ -1904,6 +1907,7 @@ class Store {
       passwordHash: passwordHash || null,
       hostAdmin,
       firstPassword,
+      demo: demo === true,
       images: {},
       createdAt: new Date().toISOString(),
     });

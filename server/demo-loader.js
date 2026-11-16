@@ -35,7 +35,8 @@
 // Other markers, anywhere in a string: "@login" (the whole string, or one part of a key) is that person's key; "{space}"
 // and "{base}" are the space's id and the server address. Phases are named by their id in the template, never by position.
 //
-// THE API: loadDemo({ base, templateId, today, session, headers?, say?, fetchImpl? }) -> report (below). `session` is an
+// THE API: loadDemo({ base, publicBase?, templateId, today, session, headers?, say?, fetchImpl? }) -> report (below). `publicBase`
+// is the address people use, for {base} in the file and the guest link (default: `base`). `session` is an
 // owner's or admin's { cookie } (the request's own, when called from inside the server) or { login, password }.
 // `headers` are added to every request (a hosted environment's Host header). The passwords of the demo people are random
 // on every run and are only returned (report.people), never stored or printed here.
@@ -151,8 +152,11 @@ const stepsOf = (block) => block.steps || [block];
 //     refused: [{ module, key, why }], people: [{ login, displayName, password }], guestUrl }
 // or, for a template with no demo file, { demo: false, message, created: {}, skipped: [], refused: [], people: [] } and
 // nothing is made. Throws a DemoError (one plain sentence) when it cannot start or must not touch what it found.
-async function loadDemo({ base, templateId, today, session = {}, headers = {}, say = () => {}, fetchImpl = fetch, dir = DEMO_DIR, now = Date.now(), words = null }) {
+async function loadDemo({ base, publicBase = '', templateId, today, session = {}, headers = {}, say = () => {}, fetchImpl = fetch, dir = DEMO_DIR, now = Date.now(), words = null }) {
   base = String(base || '').replace(/\/+$/, '');
+  // The address people use (the environment's own), for the links the demo writes ({base}) and the guest link; `base` is
+  // only where the loader's own requests go (the loopback, when the server calls itself). The same when none is given.
+  const shown = String(publicBase || base).replace(/\/+$/, '');
   // The words every sentence below uses: the caller's (inside the server, its word()), else the environment's own as its
   // /api/branding answers them, else the product's defaults (before that answer is read).
   let word = words || defaultWord;
@@ -162,7 +166,7 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
   const start = dayPlus(today, file.anchor);
   const logins = file.people.map((p) => p.login);
   // The whole file is read once, with stand-in keys, so a bad date stops the run before anything is made.
-  const trial = { today, start, keys: Object.fromEntries(logins.map((l) => [l, l])), space: 'space', base, now };
+  const trial = { today, start, keys: Object.fromEntries(logins.map((l) => [l, l])), space: 'space', base: shown, now };
   for (const [id, b] of Object.entries(file.modules)) {
     if (id === 'chat') b.messages.forEach((m, i) => resolveValue(m, trial, `modules.chat.messages[${i}]`));
     else stepsOf(b).forEach((s, i) => resolveValue(s.data, trial, `modules.${id}.steps[${i}]`));
@@ -223,9 +227,14 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
 
   // --- what is already there, and what must be left alone: all checked before anything is changed ---
   const existing = (await ok('caller', 'GET', '/api/users')).users || [];
+  // Only an account a demo load made (`demo: true`, set when it was made), with the file's name and role, is a demo person and
+  // may be given a new password. A real person who happens to have the same login and name is never taken over.
   for (const p of file.people) {
     const found = existing.find((u) => u.login === p.login);
-    if (found && found.displayName !== p.displayName) throw new DemoError(`An account called "${p.login}" already exists and is not a demo person (its name is not ${p.displayName}), so it is left alone. Rename or remove it first.`);
+    if (!found) continue;
+    if (found.displayName !== p.displayName) throw new DemoError(`An account called "${p.login}" already exists and is not a demo person (its name is not ${p.displayName}), so it is left alone. Rename or remove it first.`);
+    if (found.demo !== true || found.hostAdmin) throw new DemoError(`An account called "${p.login}" already exists and was not made by a demo, so it is left alone. Rename or remove it first.`);
+    if (found.role !== (p.role || 'member')) throw new DemoError(`An account called "${p.login}" is ${word(found.role, { a: true })} here, not a demo ${word(p.role || 'member')}, so it is left alone. Rename or remove it first.`);
   }
   const old = [];
   for (const sp of (await ok('caller', 'GET', '/api/spaces')).spaces || []) {
@@ -267,7 +276,7 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
     pass[p.login] = password();
     const found = existing.find((u) => u.login === p.login);
     if (found) { await ok('caller', 'PATCH', `/api/users/${found.key}`, { password: pass[p.login] }); keys[p.login] = found.key; }
-    else keys[p.login] = (await ok('caller', 'POST', '/api/users', { login: p.login, displayName: p.displayName, role: p.role || 'member', password: pass[p.login] })).user.key;
+    else keys[p.login] = (await ok('caller', 'POST', '/api/users', { login: p.login, displayName: p.displayName, role: p.role || 'member', password: pass[p.login], demo: true })).user.key;
     people.push({ login: p.login, displayName: p.displayName, key: keys[p.login], password: pass[p.login] });
   }
   for (const p of file.people) await signIn(p.login, p.login, pass[p.login]);
@@ -288,7 +297,7 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
   // starter: false: a demo load writes its own data, never the template's starter content.
   if (!space) space = (await ok('caller', 'POST', '/api/spaces', { name: file.name, description, members, starter: false })).space;
   for (const p of file.people.filter((x) => x.moderator)) await ok('caller', 'PATCH', `/api/users/${keys[p.login]}/spaces/${space.id}`, { permissions: { moderator: true } });
-  const ctx = { today, start, keys, space: space.id, base, now };
+  const ctx = { today, start, keys, space: space.id, base: shown, now };
 
   // What this space reads: its phases (its template's) and the modules on in it (enabled here AND offered by its template).
   const look = (await ok('caller', 'GET', `/api/spaces/${space.id}/look`)).look || {};
@@ -356,6 +365,8 @@ async function loadDemo({ base, templateId, today, session = {}, headers = {}, s
     const g = await call('caller', 'POST', `/api/spaces/${space.id}/guest-link`, {});
     if (g.status < 300 && g.json) guestUrl = g.json.guestUrl || '';
     else refused.push({ module: 'guest-link', key: '', why: (g.json && g.json.error) || `answered ${g.status}` });
+    // The server names the guest link from the address it was asked on: put the environment's own in front of it.
+    if (guestUrl && shown !== base) { try { const u = new URL(guestUrl); guestUrl = `${shown}${u.pathname}${u.search}${u.hash}`; } catch { /* left as it is */ } }
   }
   for (const [id, block] of Object.entries(file.modules)) {
     if (id === 'chat' || off.has(id)) continue;

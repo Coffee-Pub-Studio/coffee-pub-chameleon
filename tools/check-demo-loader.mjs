@@ -26,7 +26,11 @@
  *      space reads the demo's own template: its words, its planner and modules by the template's names, and the phases'
  *      answer from GET /api/spaces/:id/phases (games none; project by dates; learning and mentoring by goals, with the first
  *      phase done and the main one current); with the planner not installed it is skipped in a sentence and not turned on;
- *      with a space's own template turned off the space reads the environment's and the report says so.
+ *      with a space's own template turned off the space reads the environment's and the report says so;
+ *  (k) a real account is never taken over: one with a demo person's login and name that a demo load did not make (an owner,
+ *      or a member) is refused in one sentence before anything is made, its password and role untouched; a demo person
+ *      (marked `demo: true` when the load made it, kept in the stored record) that was later made an owner is refused too; a
+ *      second load still resets the marked people; `publicBase` is the address the chat links and the guest link use.
  * No LiveKit and no browser are needed.
  */
 import assert from 'node:assert/strict';
@@ -371,6 +375,51 @@ try {
     const off = await K.run({ templateId: 'mentoring' });
     assert.ok(off.skipped.some((x) => x.module === 'template' && /does not let a trip use its own template, so the demo trip reads the environment's own and not the mentoring template\./.test(x.why)), JSON.stringify(off.skipped));
     assert.equal((await K.api('GET', `/api/spaces/${off.space.id}`)).json.space.template, null, 'no template of its own');
+  });
+
+  // ---- (k) a real account is never taken over; the address people use ----
+  await step('(k) a real person with a demo login and name is refused; a marked demo person who became an owner too', async () => {
+    const K = await travelServer();
+    await modulesOn(K, (await K.api('GET', '/api/modules')).json.bundled.map((b) => b.id));
+    const noa = (await K.api('POST', '/api/users', { login: 'noa', displayName: 'Noa Brandt', role: 'owner', password: 'noa-password-12' })).json.user;
+    const state = async () => JSON.stringify([(await K.api('GET', '/api/spaces')).json.spaces.map((x) => x.id), (await K.api('GET', '/api/users')).json.users.map((u) => [u.login, u.role])]);
+    const before = await state();
+    await rejects(K.run({ templateId: 'project' }), /^An account called "noa" already exists and was not made by a demo, so it is left alone\. Rename or remove it first\.$/, 'a real owner named like a demo person');
+    assert.equal(await state(), before, 'nothing was made or changed');
+    const signIn = async (login, password) => (await fetch(`${K.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login, password }) })).status;
+    assert.equal(await signIn('noa', 'noa-password-12'), 200, 'her password still works');
+    assert.equal((await K.api('GET', '/api/users')).json.users.find((u) => u.key === noa.key).role, 'owner', 'and she is still an owner');
+    assert.equal((await K.api('POST', '/api/users', { login: 'ren', displayName: 'Ren Calloway', role: 'member', password: 'ren-password-12' })).status, 201);
+    await rejects(K.run({ templateId: 'games' }), /^An account called "ren" already exists and was not made by a demo/, 'a real member named like a demo person');
+    assert.equal(await signIn('ren', 'ren-password-12'), 200, 'his password still works');
+    // A demo load marks the people it makes, the mark is kept, and a second load resets only them.
+    const first = await K.run({ templateId: 'learning' });
+    const users = (await K.api('GET', '/api/users')).json.users;
+    for (const p of first.people) assert.equal(users.find((u) => u.login === p.login).demo, true, `${p.login} is marked as a demo person`);
+    assert.ok(!users.find((u) => u.login === 'noa').demo && !users.find((u) => u.login === 'admin').demo, 'nobody else is');
+    const records = fs.readdirSync(K.dataDir, { recursive: true }).filter((f) => f.endsWith('.json')).flatMap((f) => { try { const j = JSON.parse(fs.readFileSync(path.join(K.dataDir, f), 'utf8')); return Array.isArray(j.users) ? j.users : []; } catch { return []; } });
+    assert.equal(records.find((u) => u.login === 'marta')?.demo, true, 'the mark is in the stored record');
+    assert.equal(records.find((u) => u.login === 'noa')?.demo, undefined, 'and not on the real account');
+    const again = await K.run({ templateId: 'learning' });
+    assert.notEqual(again.people[0].password, first.people[0].password, 'a marked demo person is given a new password');
+    assert.equal(await signIn('marta', first.people[0].password) === 200, false, 'the old one stops working');
+    // A marked demo person later made an owner is no longer the demo's to reset.
+    const marta = (await K.api('GET', '/api/users')).json.users.find((u) => u.login === 'marta');
+    assert.equal((await K.api('PATCH', `/api/users/${marta.key}`, { role: 'owner' })).status, 200);
+    await rejects(K.run({ templateId: 'learning' }), /^An account called "marta" is an owner here, not a demo member, so it is left alone\. Rename or remove it first\.$/, 'a demo person made an owner');
+    assert.equal(await signIn('marta', again.people[0].password), 200, 'her password was not changed');
+    // `demo` on POST /api/users is true or false only.
+    assert.equal((await K.api('POST', '/api/users', { login: 'odd', displayName: 'Odd', password: 'odd-password-12', demo: 'yes' })).status, 400);
+  });
+  await step('(k) publicBase: the chat links and the guest link use the address people use, never the loopback', async () => {
+    const P = await travelServer();
+    await modulesOn(P, (await P.api('GET', '/api/modules')).json.bundled.map((b) => b.id));
+    const r = await P.run({ templateId: 'mentoring', publicBase: 'https://team.example.test/' });
+    const chat = (await P.api('GET', `/api/spaces/${r.space.id}/chat`)).json.messages;
+    assert.ok(chat.some((m) => m.text.includes(`https://team.example.test/modules/goals?space=${r.space.id}`)), 'the link uses the public address');
+    assert.ok(!chat.some((m) => /127\.0\.0\.1|localhost/.test(m.text)), 'no loopback address in the chat');
+    const g = await P.run({ templateId: 'games', publicBase: 'https://team.example.test' });
+    assert.ok(g.guestUrl.startsWith('https://team.example.test/guest/'), `the guest link uses it too (${g.guestUrl.replace(/\/guest\/.*/, '/guest/...')})`);
   });
 
   // ---- (d) names without the marker ----

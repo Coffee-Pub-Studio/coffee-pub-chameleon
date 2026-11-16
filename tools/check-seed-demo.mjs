@@ -10,7 +10,8 @@
  * events (and Planning, a dated Research object); a hosted install is refused without DEMO_ALLOW_HOSTED, DEMO_ENVIRONMENT and the
  * environment's own address (a fake hosted answer stands in for the server). SEED_DEMO picks another demo: an unknown one is
  * refused in one sentence; the games demo seeded twice into the same (travel) environment gives the same counts, one space that
- * reads the games template, and leaves the travel demo beside it. No LiveKit and no browser are needed.
+ * reads the games template, and leaves the travel demo beside it. A Default environment with a space of its own is refused (it is
+ * never switched to the demo's template). No LiveKit and no browser are needed.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -71,6 +72,12 @@ try {
 
   // Something else that must survive: a space with a task in it, and another account.
   await api('POST', '/api/login', { login: 'admin', password: PASSWORD });
+  // A Default environment that already has a space of its own is never switched to the demo's template.
+  const mine = (await api('POST', '/api/spaces', { name: 'Already here', description: 'Real.' })).json.space;
+  await assert.rejects(runSeed({ base, adminPassword: PASSWORD, today: TODAY, say: quiet, noAi: true }), /^Error: This environment is on the Default template and already has a space of its own, so the seeder will not switch it to the travel template\. Switch its template yourself first, or use a fresh data folder\.$/);
+  assert.equal(((await api('GET', '/api/settings')).json.settings.template || {}).id, 'default', 'the template was not switched');
+  assert.ok((await api('GET', '/api/spaces')).json.spaces.some((x) => x.id === mine.id), 'the space is untouched');
+  await api('DELETE', `/api/spaces/${mine.id}`);
   await api('PATCH', '/api/settings', { template: 'travel' });
   await api('PATCH', '/api/settings', { showCalendar: true });
   for (const id of ['todo']) { await api('POST', `/api/modules/bundled/${id}/install`); await api('PATCH', `/api/modules/${id}`, { enabled: true }); }
