@@ -56,6 +56,8 @@ const MODULE_ID_RE = /^[a-z0-9-]+$/;
 const TOP_KEYS = ['template', 'label', 'name', 'description', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules'];
 
 class DemoError extends Error {}
+// The first `n` characters of a text, never cutting a character in two (an emoji is one).
+const clip = (t, n) => Array.from(String(t)).slice(0, n).join('');
 
 const isDay = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '') && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
 const dayPlus = (day, n) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -157,7 +159,18 @@ const stepsOf = (block) => block.steps || [block];
 //     modules this run turned on: the ticked ones and what they need) }
 // or, for a template with no demo file, { demo: false, message, created: {}, skipped: [], refused: [], people: [] } and
 // nothing is made. Throws a DemoError (one plain sentence) when it cannot start or must not touch what it found.
-async function loadDemo({ base, publicBase = '', templateId, today, session = {}, headers = {}, say = () => {}, fetchImpl = fetch, dir = DEMO_DIR, now = Date.now(), words = null, turnOn = [], turnOnModules = null }) {
+async function loadDemo(args) {
+  // What a run changed before it stopped, so a refusal after the modules came on can say so.
+  const state = { turnedOn: [] };
+  try { return await runDemo(args, state); } catch (err) {
+    if (err instanceof DemoError && state.turnedOn.length) {
+      err.turnedOn = state.turnedOn;
+      err.message = `${err.message} Turned on before it stopped: ${state.turnedOn.map((m) => m.name).join(', ')}.`;
+    }
+    throw err;
+  }
+}
+async function runDemo({ base, publicBase = '', templateId, today, session = {}, headers = {}, say = () => {}, fetchImpl = fetch, dir = DEMO_DIR, now = Date.now(), words = null, turnOn = [], turnOnModules = null, moderatesOf = null, beforeChanges = null }, state) {
   base = String(base || '').replace(/\/+$/, '');
   // The address people use (the environment's own), for the links the demo writes ({base}) and the guest link; `base` is
   // only where the loader's own requests go (the loopback, when the server calls itself). The same when none is given.
@@ -173,7 +186,10 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
   const needed = new Set(neededModules(file));
   if (!Array.isArray(turnOn) || turnOn.some((id) => typeof id !== 'string')) throw new DemoError(`Name the ${defaultWord('module', { many: true })} to turn on as a list of their ids.`);
   const ticked = [...new Set(turnOn)];
-  for (const id of ticked) if (!needed.has(id)) throw new DemoError(`This demo does not use "${id.slice(0, 40)}", so it was not turned on.`);
+  for (const id of ticked) {
+    if (id === 'chat') throw new DemoError('Chat is always on, so it is not turned on here.');
+    if (!needed.has(id)) throw new DemoError(`This demo does not use "${clip(id, 40)}", so it was not turned on.`);
+  }
   if (ticked.length && typeof turnOnModules !== 'function') throw new DemoError(`There is no way to turn ${defaultWord('module', { many: true })} on here.`);
   const logins = file.people.map((p) => p.login);
   // The whole file is read once, with stand-in keys, so a bad date stops the run before anything is made.
@@ -210,7 +226,8 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
   };
   const ok = async (as, method, url, body) => {
     const r = await call(as, method, url, body);
-    if (r.status >= 300) throw new DemoError(`${method} ${url} answered ${r.status}: ${r.json && r.json.error ? r.json.error : JSON.stringify(r.json)}`);
+    // The server's own sentence, in a plain frame; the request is named only when it gave none.
+    if (r.status >= 300) throw new DemoError(r.json && r.json.error ? `The demo stopped: ${r.json.error}` : `${method} ${url} answered ${r.status}.`);
     return r.json;
   };
   const cookieOf = (res) => res.headers.getSetCookie().map((c) => c.split(';')[0]).join('; ');
@@ -275,6 +292,17 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
       if (!(await isDemoSpace(sp.id))) throw new DemoError(`The demo person "${p.login}" is ${word('moderator', { a: true })} of "${String(sp.name).slice(0, 60)}", a real ${word('space')}, so the demo is not loaded. Take away their ${word('moderator')} tick there, or remove the account first.`);
     }
   }
+  // The stored ticks, by the caller's own dependency (inside the server: the store's space prefs). GET /api/users above lists
+  // only spaces a person belongs to NOW, but a tick stays when a person is taken out of a space and counts again if they join
+  // it, so a demo person with a tick on any space that is not a demo space is refused, member or not.
+  if (typeof moderatesOf === 'function') {
+    for (const p of file.people) {
+      for (const m of (await moderatesOf(p.login)) || []) {
+        if (String(m.description || '').startsWith(MARKER)) continue;
+        throw new DemoError(`The demo person "${p.login}" ${m.member ? 'is' : 'was'} ${word('moderator', { a: true })} of "${clip(m.name, 60)}", a real ${word('space')}, so the demo is not loaded. Take away their ${word('moderator')} tick there, or remove the account first.`);
+      }
+    }
+  }
   for (const sp of allSpaces) {
     if (sp.name !== file.name) continue;
     const full = (await ok('caller', 'GET', `/api/spaces/${sp.id}`)).space;
@@ -282,16 +310,25 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
     old.push(sp.id);
   }
 
+  // The caller's last checks (a plan's member limit), still before anything is changed.
+  if (typeof beforeChanges === 'function') await beforeChanges({ newLogins: file.people.filter((p) => !existing.some((u) => u.login === p.login)).map((p) => p.login) });
+
   // --- the modules the host ticked, turned on through the caller's own path; then which modules are on ---
   const skipped = []; const refused = []; const created = {};
   let listed = await ok('caller', 'GET', '/api/modules');
   const wasOn = new Set((listed.modules || []).filter((m) => m.enabled).map((m) => m.id));
   let turnedOn = [];
+  const missedIds = new Set();
   if (ticked.length) {
     const missed = await turnOnModules(ticked);
     listed = await ok('caller', 'GET', '/api/modules');
-    for (const miss of missed || []) skipped.push({ module: miss.id, why: `${(listed.modules || []).find((m) => m.id === miss.id)?.displayName || miss.id} could not be turned on (${miss.why}).` });
+    for (const miss of missed || []) {
+      if (skipped.some((x) => x.module === miss.id)) continue;
+      missedIds.add(miss.id);
+      skipped.push({ module: miss.id, why: `${miss.name || (listed.modules || []).find((m) => m.id === miss.id)?.displayName || miss.id} could not be turned on (${miss.why}).` });
+    }
     turnedOn = (listed.modules || []).filter((m) => m.enabled && !wasOn.has(m.id)).map((m) => ({ id: m.id, name: m.displayName || m.name || m.id }));
+    state.turnedOn = turnedOn;
   }
   const installed = new Map((listed.modules || []).map((m) => [m.id, m]));
   const bundled = new Map((listed.bundled || []).map((m) => [m.id, m]));
@@ -307,13 +344,13 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
     const m = installed.get(id);
     if (!m || !m.enabled) {
       off.add(id);
-      skipped.push({ module: id, why: `${nameOf(id)} is off in this ${word('environment')}, so the ${countOf(id, b)} demo ${b.what || word('object', { many: true })} were not made.` });
+      if (!missedIds.has(id)) skipped.push({ module: id, why: `${nameOf(id)} is off in this ${word('environment')}, so the ${countOf(id, b)} demo ${b.what || word('object', { many: true })} were not made.` });
     }
   }
   for (const [id, b] of Object.entries(file.modules)) {
     if (id === 'chat' || off.has(id)) continue;
     const needs = ((installed.get(id) || {}).requires || []).filter((r) => !(installed.get(r) || {}).enabled);
-    if (needs.length) { off.add(id); skipped.push({ module: id, why: `${nameOf(id)} needs ${needs.map(nameOf).join(' and ')}, which ${needs.length === 1 ? 'is' : 'are'} off in this ${word('environment')}, so the ${countOf(id, b)} demo ${b.what || word('object', { many: true })} were not made.` }); }
+    if (needs.length) { off.add(id); if (!missedIds.has(id)) skipped.push({ module: id, why: `${nameOf(id)} needs ${needs.map(nameOf).join(' and ')}, which ${needs.length === 1 ? 'is' : 'are'} off in this ${word('environment')}, so the ${countOf(id, b)} demo ${b.what || word('object', { many: true })} were not made.` }); }
   }
 
   // --- the demo people ---

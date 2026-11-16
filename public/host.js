@@ -955,12 +955,12 @@ $('env-demo-add').addEventListener('click', async () => {
     if (r.guestUrl) line(`Guest link: ${r.guestUrl}`);
     if ((r.turnedOn || []).length) line(`Turned on: ${r.turnedOn.map((m) => m.name).join(', ')}.`);
     box.hidden = false;
-    refreshDemoOffer(page.slug);
   } catch (err) {
     say($('env-demo-status'), err.message, true);
   } finally {
     b.disabled = false;
     b.removeAttribute('aria-busy');
+    refreshDemoOffer(page.slug);
     b.focus();
   }
 });

@@ -61,8 +61,11 @@ try {
   const login = await call('POST', 'admin', '/api/host/login', HOST);
   assert.equal(login.status, 200, login.text);
   const admin = { cookie: login.cookie };
-  for (const slug of ['alpha', 'beta', 'gamma', 'delta', 'eps']) {
-    const made = await call('POST', 'admin', '/api/host/environments', { slug, name: slug, template: 'travel', owner: { login: `own${slug}`, displayName: slug, password: OWNER_PASSWORD } }, admin);
+  const PLAN_NO_POLLS = { name: 'nopolls', modules: ['travel', 'todo', 'calendar', 'maps', 'budget', 'research', 'documents'], members: null, storageBytes: null, aiCallsPerMonth: null, calls: null };
+  const PLAN_TINY = { name: 'tiny', modules: 'all', members: 4, storageBytes: null, aiCallsPerMonth: null, calls: null };
+  const SLUGS = ['alpha', 'beta', 'gamma', 'delta', 'eps', 'zeta', 'theta', 'iota'];
+  for (const slug of SLUGS) {
+    const made = await call('POST', 'admin', '/api/host/environments', { slug, name: slug, template: 'travel', ...(slug === 'theta' ? { plan: PLAN_TINY } : slug === 'iota' ? { plan: PLAN_NO_POLLS } : {}), owner: { login: `own${slug}`, displayName: slug, password: OWNER_PASSWORD } }, admin);
     assert.equal(made.status, 201, made.text);
   }
   const ownerOf = async (slug) => {
@@ -72,7 +75,7 @@ try {
   };
   // A template picked at creation turns its modules on in the background: wait until each environment's set stops changing.
   const onIdsOf = async (slug) => (await call('GET', slug, '/api/modules', undefined, await ownerOf(slug))).json.modules.filter((m) => m.enabled).map((m) => m.id).sort();
-  for (const slug of ['alpha', 'beta', 'gamma', 'delta', 'eps']) {
+  for (const slug of SLUGS) {
     let last = '';
     for (let i = 0; i < 40; i += 1) {
       const now = JSON.stringify(await onIdsOf(slug));
@@ -82,9 +85,9 @@ try {
     }
   }
   // A travel environment has them all on: turn off the ones the checks below tick (the owner's own switch).
-  for (const slug of ['alpha', 'beta', 'gamma', 'delta', 'eps']) {
+  for (const slug of SLUGS) {
     const o = await ownerOf(slug);
-    for (const id of ['todo', 'polls', 'maps', 'budget']) assert.equal((await call('PATCH', slug, `/api/modules/${id}`, { enabled: false, force: true }, o)).status, 200, `${id} turns off in ${slug}`);
+    for (const id of ['todo', 'polls', 'maps', 'budget']) { const r = await call('PATCH', slug, `/api/modules/${id}`, { enabled: false, force: true }, o); assert.ok(r.status === 200 || (slug === 'iota' && id === 'polls' && r.status === 404), `${id} turns off in ${slug}`); }
   }
   const url = (slug) => `/api/host/environments/${slug}/demo`;
   const ask = (slug, body) => call('POST', 'admin', url(slug), body, admin);
@@ -129,7 +132,7 @@ try {
     assert.equal(r.status, 400, JSON.stringify(bad).slice(0, 60));
     assert.equal(r.json.error, 'Name the modules to turn on as a list of their ids.');
   }
-  for (const id of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'chat', '../todo', 'x'.repeat(300)]) {
+  for (const id of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', '../todo', 'x'.repeat(300)]) {
     const r = await ask('alpha', { demo: 'travel', modules: ['todo', id] });
     assert.equal(r.status, 400, `${id.slice(0, 20)} is refused`);
     assert.ok(r.json.error.length < 120 && r.json.error.includes('does not use'), r.json.error);
@@ -188,6 +191,64 @@ try {
   const fine = await ask('eps', { demo: 'travel', modules: ['maps'] });
   assert.equal(fine.status, 200, fine.text);
   assert.ok(fine.json.turnedOn.some((m) => m.id === 'maps'), 'a demo space moderator may be loaded, and the ticked module came on');
+
+  // A tick left on a space the person was taken out of still counts: refused before any change.
+  const zOwner = await ownerOf('zeta');
+  const zKey = (await call('GET', 'zeta', '/api/me', undefined, zOwner)).json.user.key;
+  const zBefore = await onIds('zeta');
+  const zmia = await call('POST', 'zeta', '/api/users', { login: 'mia', displayName: 'Mia Alvarez', role: 'member', password: OWNER_PASSWORD, demo: true }, zOwner);
+  assert.ok(zmia.status < 300, zmia.text);
+  const open = await call('POST', 'zeta', '/api/spaces', { name: 'Open Trip', description: 'Mine.', members: [zmia.json.user.key, zKey], starter: false }, zOwner);
+  assert.ok(open.status < 300, open.text);
+  const openId = open.json.space.id;
+  assert.equal((await call('PATCH', 'zeta', `/api/spaces/${openId}`, { entry: 'accounts' }, zOwner)).status, 200, 'the space is open to accounts');
+  assert.equal((await call('PATCH', 'zeta', `/api/users/${zmia.json.user.key}/spaces/${openId}`, { permissions: { moderator: true } }, zOwner)).status, 200);
+  assert.equal((await call('DELETE', 'zeta', `/api/spaces/${openId}/members/${zmia.json.user.key}`, undefined, zOwner)).status, 200, 'she is taken out of the space');
+  const left = await ask('zeta', { demo: 'travel', modules: ['todo'] });
+  assert.equal(left.status, 409, left.text);
+  assert.equal(left.json.error, 'The demo person "mia" was a moderator of "Open Trip", a real trip, so the demo is not loaded. Take away their moderator tick there, or remove the account first.');
+  await unchanged('zeta', zBefore, 'a tick on a space she left');
+  assert.equal((await call('POST', 'zeta', '/api/login', { login: 'mia', password: OWNER_PASSWORD })).status, 200, 'her password was not changed');
+
+  // A member limit smaller than the demo needs: refused before a module comes on or an account is made.
+  const tBefore = await onIds('theta');
+  const tOwner = await ownerOf('theta');
+  const usersBefore = (await call('GET', 'theta', '/api/users', undefined, tOwner)).json.users.map((u) => u.login).sort();
+  const tiny = await ask('theta', { demo: 'travel', modules: ['todo'] });
+  assert.equal(tiny.status, 409, tiny.text);
+  assert.match(tiny.json.error, /^This environment is at its limit of 4 members, and the demo adds 3\.$/);
+  assert.ok(!('turnedOn' in tiny.json));
+  await unchanged('theta', tBefore, 'over the member limit');
+  assert.deepEqual((await call('GET', 'theta', '/api/users', undefined, tOwner)).json.users.map((u) => u.login).sort(), usersBefore, 'no account was made');
+
+  // A module the plan leaves out is not offered, and is refused when asked for; one skipped line per module.
+  const offered = await call('GET', 'admin', '/api/host/demos?environment=iota', undefined, admin);
+  assert.equal(offered.status, 200, offered.text);
+  assert.ok(offered.json.demos.every((d) => d.modules.every((m) => m.id !== 'polls')), 'Polls is not offered where the plan has no Polls');
+  assert.ok(offered.json.demos.find((d) => d.id === 'travel').modules.some((m) => m.id === 'todo'), 'what the plan has is offered');
+  assert.ok(plain.json.demos.find((d) => d.id === 'travel').modules.some((m) => m.id === 'polls'), 'without an environment the whole list stays');
+  const iBefore = await onIds('iota');
+  const noPlan = await ask('iota', { demo: 'travel', modules: ['polls'] });
+  assert.equal(noPlan.status, 400, noPlan.text);
+  assert.equal(noPlan.json.error, "Polls is not in this environment's plan, so it can't be turned on.");
+  await unchanged('iota', iBefore, 'a module outside the plan');
+  const inPlan = await ask('iota', { demo: 'travel', modules: ['todo'] });
+  assert.equal(inPlan.status, 200, inPlan.text);
+  for (const id of ['polls', 'budget']) assert.ok(inPlan.json.skipped.filter((x) => x.module === id).length <= 1, `one skipped line for ${id}`);
+  assert.equal(inPlan.json.skipped.filter((x) => x.module === 'polls').length, 1, 'Polls is said off once');
+  assert.ok(inPlan.json.skipped.every((x) => !/^(todo|polls|budget|maps)\b/.test(x.why)), 'no raw id in a skipped line');
+
+  // Plainer words and clean cuts.
+  const chat = await ask('alpha', { demo: 'travel', modules: ['chat'] });
+  assert.equal(chat.status, 400);
+  assert.equal(chat.json.error, 'Chat is always on, so it is not turned on here.');
+  const emoji = await ask('alpha', { demo: 'travel', modules: ['\u{1F600}'.repeat(50)] });
+  assert.equal(emoji.status, 400);
+  assert.equal(Array.from(emoji.json.error).filter((c) => c === '\u{1F600}').length, 40, 'cut at 40 characters');
+  assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(emoji.json.error), 'no lone surrogate');
+  assert.ok(!/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(JSON.stringify(emoji.json)));
+  const nullMods = await ask('alpha', { demo: 'travel', modules: null });
+  assert.equal(nullMods.status, 400, 'modules: null is refused (a list or nothing); demo: null is this template\'s own demo, as check-demo-console pins');
 
   console.log('check-demo-offer: ok');
 } catch (err) {

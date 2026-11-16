@@ -2751,15 +2751,20 @@ hostRouter.get('/api/host/demos', requireHostAdmin, (req, res) => {
   try {
     const slug = req.query.environment;
     let on = null;
+    let env = null;
     if (slug !== undefined) {
       if (typeof slug !== 'string' || !hostRegistry.findEnvironment(slug)) throw new HostError('no such environment', 404);
-      on = new Set(environmentFor(slug).modules.list().filter((m) => m.enabled).map((m) => m.id));
+      env = environmentFor(slug);
+      on = new Set(env.modules.list().filter((m) => m.enabled).map((m) => m.id));
     }
     const shipped = new Map(bundledModules(BUNDLED_DIR).map((m) => [m.id, m.name]));
+    // With an environment: the names it shows (its own display names, the same as the answer's `turnedOn`), and no module its
+    // plan leaves out.
+    const shownName = (id) => (env && env.store.moduleDisplay(id).name) || shipped.get(id);
     res.json({
       demos: demoLoader.listDemos().map((d) => ({
         ...d,
-        modules: d.modules.filter((id) => shipped.has(id)).map((id) => ({ id, name: shipped.get(id), ...(on ? { on: on.has(id) } : {}) })),
+        modules: d.modules.filter((id) => shipped.has(id) && (!env || moduleAllowedFor(slug, id))).map((id) => ({ id, name: shownName(id), ...(on ? { on: on.has(id) } : {}) })),
       })),
     });
   } catch (err) { sendHostError(err, res); }
@@ -2829,11 +2834,14 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     const ticked = (req.body || {}).modules;
     if (ticked !== undefined && (!Array.isArray(ticked) || ticked.length > 50 || ticked.some((id) => typeof id !== 'string'))) throw new HostError(`Name the ${envWord('module', { many: true })} to turn on as a list of their ids.`, 400);
     const turnOn = [...new Set(ticked || [])];
+    const envShown = (id) => env.store.moduleDisplay(id).name || bundledModules(BUNDLED_DIR).find((m) => m.id === id)?.name || id;
     const needed = new Set(demoLoader.neededModules(demoLoader.readDemoFile(usedTemplate)));
     const shipped = new Set(bundledModules(BUNDLED_DIR).map((m) => m.id));
     for (const id of turnOn) {
-      if (!needed.has(id)) throw new HostError(`The demo does not use "${id.slice(0, 40)}", so it can't be turned on with it.`, 400);
-      if (!shipped.has(id)) throw new HostError(`"${id.slice(0, 40)}" does not ship with this server, so it can't be turned on.`, 400);
+      if (id === 'chat') throw new HostError('Chat is always on, so it is not turned on here.', 400);
+      if (!needed.has(id)) throw new HostError(`The demo does not use "${Array.from(id).slice(0, 40).join('')}", so it can't be turned on with it.`, 400);
+      if (!shipped.has(id)) throw new HostError(`"${Array.from(id).slice(0, 40).join('')}" does not ship with this server, so it can't be turned on.`, 400);
+      if (!moduleAllowedFor(slug, id)) throw new HostError(`${envShown(id)} is not in this ${envWord('environment')}'s plan, so it can't be turned on.`, 400);
     }
     // One of each demo: a marked space with this demo's name is this demo, already there. Another demo may sit beside it.
     const demoFile = demoLoader.listDemos().find((d) => d.id === usedTemplate) || { label: 'demo', name: demoLoader.readDemoFile(usedTemplate).name };
@@ -2862,7 +2870,20 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
         words: envWord,
         turnOn,
         // The console's own path to turning modules on (a template's confirm: templates.turnOnModules, one at a time per environment).
-        turnOnModules: (ids) => templateTurn(env, () => templates.turnOnModules(env, ids, templateOptions(env, slug))),
+        turnOnModules: async (ids) => (await templateTurn(env, () => templates.turnOnModules(env, ids, templateOptions(env, slug)))).map((m) => ({ ...m, name: templateOptions(env, slug).name(m.id) })),
+        // The stored moderator ticks of a login on every space there is, member or not (the API lists only a person's present spaces).
+        moderatesOf: (login) => {
+          const u = env.store.userByLogin(login);
+          if (!u || !u.spaces) return [];
+          return Object.entries(u.spaces).filter(([, e]) => e && e.permissions && e.permissions.moderator === true)
+            .map(([id]) => env.store.spaceById(id)).filter((sp) => sp && !sp.isLobby)
+            .map((sp) => ({ name: sp.name, description: sp.description, member: sp.members.includes(u.key) }));
+        },
+        // A plan's member limit, checked before any module is turned on or account made (the stand-in is already counted).
+        beforeChanges: ({ newLogins }) => {
+          const cap = hostRegistry.findEnvironment(slug)?.plan.members ?? null;
+          if (cap !== null && newLogins.length && env.store.users.length + newLogins.length > cap) throw new demoLoader.DemoError(`This ${envWord('environment')} is at its limit of ${cap} ${envWord('member', { many: true })}, and the demo adds ${newLogins.length}.`);
+        },
       });
     } finally {
       demoRuns.delete(slug);
@@ -2870,7 +2891,7 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     }
     res.set('Cache-Control', 'no-store').json({ ...report, template: own, usedTemplate, fellBack: !asked && usedTemplate !== own });
   } catch (err) {
-    if (err instanceof demoLoader.DemoError) return res.status(409).json({ error: err.message });
+    if (err instanceof demoLoader.DemoError) return res.status(409).json({ error: err.message, ...(err.turnedOn ? { turnedOn: err.turnedOn } : {}) });
     sendHostError(err, res);
   }
 });
