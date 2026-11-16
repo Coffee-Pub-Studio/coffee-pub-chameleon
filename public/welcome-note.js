@@ -12,6 +12,7 @@ import { confirmDialog } from '/confirm.js';
 const KEY = 'welcome-seen';
 let view = null;
 let asked = false; // the arrival showing is once per page load
+let query = ''; // a guest link's guest has no cookie: ?guest=<token>&pass=<pass> says who is asking, as space.js does
 
 const markedHere = () => { try { return sessionStorage.getItem(KEY) === '1'; } catch { return false; } };
 const markHere = () => { try { sessionStorage.setItem(KEY, '1'); } catch { /* no storage: the page works without it */ } };
@@ -25,7 +26,7 @@ function take(v) {
 
 export async function loadWelcome() {
   try {
-    const res = await fetch('/api/environment/welcome', { headers: { accept: 'application/json' }, cache: 'no-store' });
+    const res = await fetch(`/api/environment/welcome${query}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
     if (!res.ok) return null;
     return take(await res.json());
   } catch {
@@ -39,7 +40,7 @@ async function markSeen() {
   if (!view || view.seen) return;
   view.seen = true;
   if (view.guest) { markHere(); return; }
-  try { await fetch('/api/environment/welcome/seen', { method: 'POST' }); } catch { /* it is asked again at the next sign-in */ }
+  try { await fetch(`/api/environment/welcome/seen${query}`, { method: 'POST' }); } catch { /* it is asked again at the next sign-in */ }
 }
 
 export async function showWelcome() {
@@ -52,9 +53,11 @@ export async function showWelcome() {
   markSeen();
 }
 
-export async function welcomeOnArrival() {
+// `link`: { token, pass } for a guest who came in by a guest link; nothing for everyone else (a cookie says who they are).
+export async function welcomeOnArrival(link = null) {
   if (asked) return;
   asked = true;
+  if (link && link.token) query = `?${new URLSearchParams({ guest: link.token, pass: link.pass || '' })}`;
   await loadWelcome();
   if (hasWelcome() && !view.seen) await showWelcome();
 }

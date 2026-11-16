@@ -221,6 +221,44 @@ async function main() {
       expect(await waitDialog(fresh, true), 'a fresh browser session for the guest showed no note');
       await fresh.close();
       await first.close();
+      // A door guest whose join fails: no note. The stream cannot open (EventSource throws), so joinAsGuest fails and says so.
+      {
+        const failing = await open(1280, 'dark', 'gus');
+        await failing.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: `window.EventSource = function () { throw new Error('no stream'); };` }, failing.sid);
+        await go(failing, url);
+        await sleep(2500);
+        const said = await failing.eval(`(document.getElementById('guest-join-error')?.textContent || '') + ' | ' + (document.getElementById('status')?.textContent || '') + ' | ' + location.pathname + ' | ' + document.body.innerText.slice(0, 300)`);
+        // A failed entry sends a door guest back to the landing (/guest); a good one stays on /guest/<space> (the case above).
+        expect(/ \| \/guest \| /.test(said), `the failed join was not made to fail (the check is not testing what it says): ${said}`);
+        expect(!(await dialogOpen(failing)), 'a door guest whose join failed was shown the note');
+        await failing.close();
+      }
+      // A guest by a guest link (no cookie: the link says who asks): the note once, after the name is sent; not again on a reload.
+      {
+        const link = await gcall('POST', `/api/spaces/${spaceId}/guest-link`, {}, adminCookie);
+        const token = link.json && link.json.guestUrl && link.json.guestUrl.split('/guest/')[1];
+        expect(Boolean(token), 'could not make a guest link');
+        jars.link = [];
+        const lt = await open(1280, 'dark', 'link');
+        await go(lt, `/guest/${token}`);
+        await lt.waitFor('#guest-name');
+        await sleep(600);
+        expect(!(await dialogOpen(lt)), 'a link guest was shown the note before entering');
+        await lt.typeInto('#guest-name', 'Lin');
+        await lt.click('#guest-join button[type="submit"]');
+        expect(await waitDialog(lt, true), 'a guest by link was shown no note');
+        await lt.click('[data-ok]');
+        expect(await waitDialog(lt, false), "Got it did not close the link guest's note");
+        expect(await lt.eval(`sessionStorage.getItem('welcome-seen')`) === '1', "the link guest's mark is not in sessionStorage");
+        await go(lt, `/guest/${token}`);
+        await lt.waitFor('#guest-name');
+        await lt.typeInto('#guest-name', 'Lin');
+        await lt.click('#guest-join button[type="submit"]');
+        await sleep(2500);
+        expect(await lt.eval(`!document.getElementById('guest-join') || document.getElementById('guest-join').hidden`), 'the link guest did not enter the second time');
+        expect(!(await dialogOpen(lt)), 'the note came back to a link guest after a reload in the same tab');
+        await lt.close();
+      }
       await gcall('PUT', '/api/environment/welcome', { text: '' }, adminCookie);
       const none = await open(1280, 'dark', 'gus');
       await go(none, url);

@@ -842,7 +842,7 @@ $('guest-join').addEventListener('submit', async (event) => {
     setGuestPass(guestToken, guestPass); // the module host's stream and live messages know this guest by it
     await joinAsGuest(joinedId, joinedName);
     if (entered) showGuestBanner(() => location.reload()); // not after a failed entry: the form is still there
-    if (entered) welcomeOnArrival(); // a guest link's guest, once in
+    if (entered) welcomeOnArrival({ token: guestToken, pass: guestPass }); // a guest link's guest, once in; the link says who is asking
   } catch (err) {
     if (err.status === 409) await showGuestDocs(); // the text changed: shown again, to read
     $('guest-join-error').textContent = err.message;
@@ -8548,7 +8548,7 @@ async function init() {
       location.href = '/login';
     });
     await joinAsGuest(doorGuest.space.id, doorGuest.space.name);
-    welcomeOnArrival(); // once the join has settled, so the note never opens over it (welcome-note.js; a guest's mark is the session's)
+    if (entered) welcomeOnArrival(); // once the join has settled and worked (joinAsGuest catches its own error), so the note never opens over it (welcome-note.js; a guest's mark is the session's)
     return;
   }
   if (guestToken) {
