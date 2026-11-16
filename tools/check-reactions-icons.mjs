@@ -17,7 +17,11 @@
  *   - an icon in use (the home icon, a space's link icon) whose template is gone is drawn from `inUseIcons` (branding and
  *     /look), never in `icons` (what every picker reads), and a new pick of it is refused (400); once unused it goes;
  *     only a real Font Awesome Free solid icon is ever published there (a stored "spin" is not), at most 200;
- *   - a new space's link icon is checked as an edit's is (400 "unknown link icon");
+ *   - a new space's link icon is checked as an edit's is (400 "That icon is not one this environment offers.");
+ *   - the cap on icons in use is taken after the offered ones are left out (over 200 offered in use, one not: drawn);
+ *     a stored fw, 10x, rotate-180, flip-both, sr-only, stack, ../evil or spin is never in signed-out /api/branding;
+ *   - an icon only one layout or one person's system layout keeps can't be taken by another (400);
+ *   - hosted: an icon in use in one environment never shows in another's inUseIcons;
  *   - a save that sends back the icon it has already (home icon, link icon, a module's display icon, a saved layout's
  *     and a system layout's) is taken though it is only in use after a switch; a changed one is checked (400);
  *   - a space's link icon, saved layouts' icons and system layouts' icons take what the environment offers and what the
@@ -30,6 +34,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -73,6 +78,7 @@ async function call(method, urlPath, body) {
   return { status: res.status, json, text };
 }
 const ids = (list) => list.map((x) => x.id);
+const LINK_REFUSED = 'That icon is not one this environment offers.';
 const { Store } = require('../server/store.js');
 const templates = require('../server/templates.js');
 
@@ -242,8 +248,8 @@ try {
     // Sending it back unchanged is taken; anywhere else it is checked against what is offered now: Default does not offer it.
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: 'diagram-project' })).status, 200, 'the home icon it has already');
     const other = (await call('POST', '/api/spaces', { name: 'Other' })).json.space.id;
-    assert.deepEqual(await call('PATCH', `/api/spaces/${other}`, { linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
-    assert.deepEqual(await call('POST', '/api/spaces', { name: 'Third', linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'nor when a space is made');
+    assert.deepEqual(await call('PATCH', `/api/spaces/${other}`, { linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED]);
+    assert.deepEqual(await call('POST', '/api/spaces', { name: 'Third', linkIcon: 'diagram-project' }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED], 'nor when a space is made');
     await pickerEqualsSave(other, 'an icon in use no template offers');
     // Once nothing uses it, it is drawn no more.
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
@@ -276,7 +282,7 @@ try {
     // Changed to an icon nothing offers: refused, each with its sentence.
     for (const [label, r, sentence] of [
       ['home icon', await call('PATCH', '/api/settings', { homeIcon: 'hippo' }), 'unknown home icon'],
-      ['link icon', await call('PATCH', `/api/spaces/${sp}`, { linkIcon: 'hippo' }), 'unknown link icon'],
+      ['link icon', await call('PATCH', `/api/spaces/${sp}`, { linkIcon: 'hippo' }), LINK_REFUSED],
       ['display icon', await call('PATCH', '/api/modules/chat', { displayIcon: 'hippo' }), "There is no icon called hippo in this environment's icons."],
       ['saved layout', await call('PUT', `/api/spaces/${sp}/layouts/${lid}`, { icon: 'hippo' }), 'Pick an icon from the list.'],
       ['system layout', await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: 'hippo' }), 'Pick an icon from the list.'],
@@ -285,7 +291,7 @@ try {
     const other = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Other', modules: [], icon: dp });
     assert.deepEqual([other.status, other.json?.error], [400, 'Pick an icon from the list.']);
     const otherSpace = (await call('POST', '/api/spaces', { name: 'Other space' })).json.space.id;
-    assert.deepEqual(await call('PATCH', `/api/spaces/${otherSpace}`, { linkIcon: dp }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
+    assert.deepEqual(await call('PATCH', `/api/spaces/${otherSpace}`, { linkIcon: dp }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED]);
     assert.deepEqual(await call('PATCH', `/api/spaces/${otherSpace}/layouts/system/workspace`, { icon: dp }).then((r) => [r.status, r.json?.error]), [400, 'Pick an icon from the list.'], 'another space\'s system layout');
     // Tidy.
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
@@ -293,9 +299,37 @@ try {
     for (const id of [sp, otherSpace]) assert.equal((await call('DELETE', `/api/spaces/${id}`)).status, 200);
   });
 
+  await test('the icon only one entry keeps is that entry\'s: another layout, or another person\'s system layout, can\'t take it', async () => {
+    assert.equal((await call('PATCH', '/api/settings', { template: 'project' })).status, 200);
+    const sp = (await call('POST', '/api/spaces', { name: 'Shared' })).json.space.id;
+    const dp = 'diagram-project';
+    const a = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'A', modules: [], icon: dp });
+    const b = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'B', modules: [] });
+    assert.deepEqual([a.status, b.status], [201, 201], `${a.text} ${b.text}`);
+    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp })).status, 200, 'the admin\'s own system layout entry');
+    const made = await call('POST', '/api/users', { login: 'mel', displayName: 'Mel', role: 'member', password: 'mel-password-1' });
+    assert.equal(made.status, 201, made.text);
+    assert.equal((await call('PATCH', `/api/spaces/${sp}`, { members: [made.json.user.key] })).status, 200);
+    assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
+    const pb = await call('PUT', `/api/spaces/${sp}/layouts/${b.json.layout.id}`, { name: 'B', icon: dp });
+    assert.deepEqual([pb.status, pb.json?.error], [400, 'Pick an icon from the list.'], 'a layout PUT with an icon only another layout in the space holds');
+    assert.equal((await call('PUT', `/api/spaces/${sp}/layouts/${a.json.layout.id}`, { name: 'A', icon: dp })).status, 200, 'the layout that holds it, unchanged');
+    const admin = token;
+    try {
+      token = (await call('POST', '/api/login', { login: 'mel', password: 'mel-password-1' })).json.token;
+      assert.ok(token, 'the member signed in');
+      const sys = await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp });
+      assert.deepEqual([sys.status, sys.json?.error], [400, 'Pick an icon from the list.'], 'a member\'s system layout: the admin\'s entry holds it, not theirs');
+      assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: 'dragon' })).status, 200, 'an offered one');
+    } finally {
+      token = admin;
+    }
+    assert.equal((await call('DELETE', `/api/spaces/${sp}`)).status, 200);
+  });
+
   await test('a stored or imported link icon that is no Font Awesome icon is never published; a new space\'s link icon is checked', async () => {
     for (const bad of ['spin', 'fw', 'not-an-icon-at-all']) {
-      assert.deepEqual(await call('POST', '/api/spaces', { name: 'Odd', linkIcon: bad }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], bad);
+      assert.deepEqual(await call('POST', '/api/spaces', { name: 'Odd', linkIcon: bad }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED], bad);
     }
     const ok = await call('POST', '/api/spaces', { name: 'Fine', linkIcon: 'dragon' });
     assert.equal(ok.status, 200, ok.text);
@@ -314,6 +348,15 @@ try {
     assert.equal(new Set(DEFAULT_ICON_LIST.map((i) => i.id)).size > 100, true);
     for (let i = 0; i < 300; i += 1) st.data.spaces.push({ ...st.sanitizeSpace({ id: 'abcd1234', name: 'Z' }), id: `z${i}`, linkIcon: fs.readdirSync(path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free', 'svgs', 'solid'))[i].slice(0, -4) });
     assert.equal(st.inUseIconIds().length, 200, 'bounded at 200');
+    // More than 200 offered icons in use, and one that is not offered: the offered ones are taken out before the cap.
+    const st2 = new S(fs.mkdtempSync(path.join(templatesDir, 'cap-')));
+    const solid = fs.readdirSync(path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free', 'svgs', 'solid')).map((f) => f.slice(0, -4)).filter((id) => !DEFAULT_ICON_LIST.some((c) => c.id === id) && id !== 'hippo');
+    st2.updateSettings({ icons: solid.slice(0, 150).map((id) => ({ id, classes: `fa-solid fa-${id}`, label: id })) });
+    const offered = ids(st2.lookOf(null).icons);
+    assert.ok(offered.length > 200, `more than 200 offered: ${offered.length}`);
+    for (const [i, id] of offered.entries()) st2.data.spaces.push({ ...st2.sanitizeSpace({ id: 'abcd1234', name: 'O' }), id: `o${i}`, linkIcon: id });
+    st2.data.spaces.push({ ...st2.sanitizeSpace({ id: 'abcd1234', name: 'H' }), id: 'hippo1', linkIcon: 'hippo' });
+    assert.deepEqual(st2.lookOf(null).inUseIcons, [{ id: 'hippo', classes: 'fa-solid fa-hippo' }], 'the one not offered is still drawn');
     assert.equal((await call('DELETE', `/api/spaces/${ok.json.space.id}`)).status, 200);
   });
 
@@ -325,14 +368,14 @@ try {
     assert.equal((await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'anchor' })).status, 200, 'an icon its look lists');
     assert.equal((await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'suitcase-rolling' })).status, 200, 'one the environment offers (Home\'s and Set up\'s pickers show it)');
     assert.equal(DEFAULT_ICON_LIST.some((i) => i.id === 'hippo'), false);
-    assert.deepEqual(await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'hippo' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'one neither offers');
-    assert.deepEqual(await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon'], 'a space on the environment\'s template: not another template\'s');
+    assert.deepEqual(await call('PATCH', `/api/spaces/${own}`, { linkIcon: 'hippo' }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED], 'one neither offers');
+    assert.deepEqual(await call('PATCH', `/api/spaces/${space}`, { linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED], 'a space on the environment\'s template: not another template\'s');
     // In the same save, the template the space is moved to decides; a new space's too.
     assert.equal((await call('PATCH', `/api/spaces/${space}`, { template: 'myproject', linkIcon: 'anchor' })).status, 200);
     assert.equal((await call('PATCH', `/api/spaces/${space}`, { template: null, linkIcon: 'link' })).status, 200);
     const madeWith = await call('POST', '/api/spaces', { name: 'Made', template: 'myproject', linkIcon: 'anchor' });
     assert.equal(madeWith.status, 200, madeWith.text);
-    assert.deepEqual(await call('POST', '/api/spaces', { name: 'Not made', linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, 'unknown link icon']);
+    assert.deepEqual(await call('POST', '/api/spaces', { name: 'Not made', linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED]);
     assert.equal((await call('DELETE', `/api/spaces/${madeWith.json.space.id}`)).status, 200);
     const layout = (sp, icon) => call('POST', `/api/spaces/${sp}/layouts`, { name: `L ${icon}`, modules: [], icon });
     for (const [sp, icon, status] of [[own, 'anchor', 201], [own, 'suitcase-rolling', 201], [own, 'hippo', 400], [space, 'suitcase-rolling', 201], [space, 'anchor', 400]]) {
@@ -360,6 +403,92 @@ try {
 } finally {
   child.kill();
 }
+await new Promise((r) => (child.exitCode !== null ? r() : child.once('exit', r)));
+
+// A server on `dir` (with `env`), and a request to it as `host` (an environment's slug on a hosted server, else none).
+function startServer(dir, env = {}) {
+  const c = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+    cwd: ROOT,
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dir, PRODUCT_NAME: 'Testname', ...env },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let text = '';
+  c.stdout.on('data', (d) => { text += d; });
+  c.stderr.on('data', (d) => { text += d; });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { c.kill(); reject(new Error(`the server did not start in time:\n${text}`)); }, 20000);
+    const onData = () => { const m = /listening on :(\d+)/.exec(text); if (m) { clearTimeout(timer); resolve({ port: Number(m[1]), stop: () => new Promise((r) => { if (c.exitCode !== null) return r(); c.once('exit', r); c.kill(); }) }); } };
+    c.stdout.on('data', onData);
+    c.stderr.on('data', onData);
+    c.once('exit', (code) => { clearTimeout(timer); reject(new Error(`the server stopped (${code}):\n${text}`)); });
+  });
+}
+function hcall(server, host, method, urlPath, { body, cookie } = {}) {
+  const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+  const name = host ? `${host}.localhost:${server.port}` : `127.0.0.1:${server.port}`;
+  const headers = { host: name, accept: 'application/json', origin: `http://${name}` };
+  if (payload) { headers['content-type'] = 'application/json'; headers['content-length'] = payload.length; }
+  if (cookie) headers.cookie = cookie;
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port: server.port, method, path: urlPath, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (d) => chunks.push(d));
+      res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8'); let json = null; try { json = JSON.parse(text); } catch { /* not JSON */ } resolve({ status: res.statusCode, json, text, headers: res.headers }); });
+    });
+    req.on('error', reject);
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+const cookieOf = (res) => [].concat(res.headers?.['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+
+await test('a stored home icon or link icon that is no Font Awesome icon (an import, a hand edit) is never published, signed out', async () => {
+  const file = path.join(dataDir, 'app.json');
+  const app = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const odd = ['fw', '10x', 'rotate-180', 'flip-both', 'sr-only', 'stack', '../evil', 'spin'];
+  app.settings.homeIcon = 'sr-only';
+  const base = app.spaces.find((r) => r.id !== 'lobby');
+  odd.forEach((linkIcon, i) => app.spaces.push({ ...base, id: `odd${String(i).padStart(5, '0')}`, name: `Odd ${i}`, linkIcon, members: [] }));
+  app.spaces.push({ ...base, id: 'oddhippo', name: 'Hippo', linkIcon: 'hippo', members: [] });
+  fs.writeFileSync(file, JSON.stringify(app));
+  const again = await startServer(dataDir, { ADMIN_PASSWORD: 'testpass1234' });
+  try {
+    const b = await hcall(again, null, 'GET', '/api/branding');
+    assert.equal(b.status, 200, b.text);
+    const shown = [...ids(b.json.icons), ...ids(b.json.inUseIcons)];
+    for (const id of odd) assert.equal(shown.includes(id), false, `${id} is not published`);
+    for (const id of odd) assert.equal([...b.json.icons, ...b.json.inUseIcons].some((i) => String(i.classes).includes(`fa-${id}`)), false, `no class fa-${id}`);
+    assert.ok(b.json.inUseIcons.some((i) => i.id === 'hippo' && i.classes === 'fa-solid fa-hippo'), 'a real icon in use is');
+    for (const i of b.json.inUseIcons) assert.equal(i.classes, `fa-solid fa-${i.id}`);
+  } finally {
+    await again.stop();
+  }
+});
+
+await test('hosted: an icon in use in one environment is never in another\'s inUseIcons', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-reactions-icons-hosted-'));
+  const hs = await startServer(dir, { BASE_DOMAIN: 'localhost', ADMIN_LOGIN: 'boss', ADMIN_PASSWORD: 'host-password-1' });
+  try {
+    const hostCookie = cookieOf(await hcall(hs, 'admin', 'POST', '/api/host/login', { body: { login: 'boss', password: 'host-password-1' } }));
+    const host = (method, url, body) => hcall(hs, 'admin', method, url, { cookie: hostCookie, body });
+    for (const [slug, template] of [['aaa', 'project'], ['bbb', 'default']]) {
+      const r = await host('POST', '/api/host/environments', { slug, name: slug.toUpperCase(), template, owner: { login: `owner-${slug}`, password: `owner-${slug}-password-1` } });
+      assert.equal(r.status, 201, r.text);
+    }
+    const c = cookieOf(await hcall(hs, 'aaa', 'POST', '/api/login', { body: { login: 'owner-aaa', password: 'owner-aaa-password-1' } }));
+    const set = await hcall(hs, 'aaa', 'PATCH', '/api/settings', { cookie: c, body: { homeIcon: 'diagram-project' } });
+    assert.equal(set.status, 200, set.text);
+    assert.equal((await host('PATCH', '/api/host/environments/aaa', { template: 'default' })).status, 200);
+    const a = (await hcall(hs, 'aaa', 'GET', '/api/branding')).json;
+    const b = (await hcall(hs, 'bbb', 'GET', '/api/branding')).json;
+    assert.deepEqual(a.inUseIcons, [{ id: 'diagram-project', classes: 'fa-solid fa-diagram-project' }], 'A draws its own');
+    assert.deepEqual(b.inUseIcons, [], 'B never sees A\'s');
+    assert.equal(ids(b.icons).includes('diagram-project'), false);
+  } finally {
+    await hs.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 await test('a template\'s additions: after the core and the owner\'s own, once each, only where the template is read, never copied or offered', () => {
   const dir = fs.mkdtempSync(path.join(templatesDir, 'store-'));

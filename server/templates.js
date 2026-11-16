@@ -33,8 +33,8 @@ const { CALL_KEYS, CALL_POSITIONS, CALL_LAYOUTS } = require('./call-settings');
 const ROOT = path.join(__dirname, '..');
 const TEMPLATES_DIR = path.join(ROOT, 'templates');
 const MODULES_DIR = path.join(ROOT, 'modules');
-// Font Awesome Free's own solid icons: what a template's icons must be, so every page can draw them (fa-solid fa-<id>).
-const FA_FREE_SOLID = path.join(ROOT, 'node_modules', '@fortawesome', 'fontawesome-free', 'svgs', 'solid');
+// Font Awesome Free's own solid icons (server/fa-solid.js): what a template's icons must be, so every page can draw them (fa-solid fa-<id>).
+const { FA_FREE_SOLID } = require('./fa-solid');
 // The modules built into every environment: named like a bundled one, never installed.
 const BUILTIN_MODULE_IDS = ['conference', 'chat'];
 // The fixed template every environment falls back to (decision 3): nobody edits, hides or deletes it.

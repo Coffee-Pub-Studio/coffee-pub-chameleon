@@ -628,17 +628,8 @@ function ownReactions(value) {
 // The icons a template adds, by id, read live and never copied into the owner's own list (decision 12): its `iconSet`,
 // then its home icon and its modules' icons, so the owner's pickers offer what the template uses while it is read.
 // server/templates.js takes only Font Awesome Free solid ones; the shape is checked again here all the same.
-// Font Awesome Free's solid icons, by id, read once from the package this server ships (as server/templates.js checks a
-// template's icons). An id is one when its svg is there.
-const FA_SOLID_DIR = path.join(__dirname, '..', 'node_modules', '@fortawesome', 'fontawesome-free', 'svgs', 'solid');
-let solidIcons = null;
-function isSolidIcon(id) {
-  if (typeof id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(id)) return false;
-  if (!solidIcons) {
-    try { solidIcons = new Set(fs.readdirSync(FA_SOLID_DIR).filter((f) => f.endsWith('.svg')).map((f) => f.slice(0, -4))); } catch { solidIcons = new Set(); }
-  }
-  return solidIcons.has(id);
-}
+// Font Awesome Free's solid icons (server/fa-solid.js): what an icon in use must be to be published.
+const { isSolidIcon } = require('./fa-solid');
 const MAX_IN_USE_ICONS = 200;
 
 function templateIconIds(template) {
@@ -1160,8 +1151,11 @@ class Store {
   // public/brand.js iconClasses); never offered in a picker, never accepted by a save, never copied into the owner's own
   // list (decision 12). Only a real Font Awesome Free solid icon (one with its svg on this server), so a stored or
   // imported id can't publish a utility class (fa-spin) or anything else; at most MAX_IN_USE_ICONS.
-  inUseIconIds() {
-    const ids = [this.data.settings.homeIcon, ...this.data.spaces.map((r) => r.linkIcon)].filter(isSolidIcon);
+  // `offered`: ids to leave out (the list the place offers, lookOf), taken out before the cap, so icons already offered
+  // never crowd out one that is not.
+  inUseIconIds(offered = []) {
+    const skip = new Set(offered);
+    const ids = [this.data.settings.homeIcon, ...this.data.spaces.map((r) => r.linkIcon)].filter((id) => isSolidIcon(id) && !skip.has(id));
     return [...new Set(ids)].slice(0, MAX_IN_USE_ICONS);
   }
 
@@ -1309,7 +1303,7 @@ class Store {
     // template's additions, not the environment's); at Home that is the environment's, so this is allIcons there.
     const icons = this.allIcons(t);
     // Icons in use that the list above no longer holds, for drawing them only (inUseIconIds).
-    const inUseIcons = this.inUseIconIds().filter((id) => !icons.some((i) => i.id === id)).map((id) => ({ id, classes: `fa-solid fa-${id}` }));
+    const inUseIcons = this.inUseIconIds(icons.map((i) => i.id)).map((id) => ({ id, classes: `fa-solid fa-${id}` }));
     return {
       template: own ? t.id : null,
       words: this.wordsOf(place),
@@ -2216,7 +2210,7 @@ class Store {
     // A template of its own (checked as updateSpace checks it): its starting profile and opens-with, else the environment's.
     const own = template === undefined || template === null ? null : this.chosenTemplate(template, null);
     // Its link icon, checked as updateSpace checks one: from what the environment or the space's own template offers.
-    if (linkIcon !== undefined && linkIcon !== null && !this.spaceIconIds(own).includes(linkIcon)) throw new StoreError('unknown link icon');
+    if (linkIcon !== undefined && linkIcon !== null && !this.spaceIconIds(own).includes(linkIcon)) throw new StoreError(`That icon is not one this ${this.word('environment')} offers.`);
     const startsWith = profile ?? own?.spaceDefaults?.profile ?? this.data.settings.spaceDefaults?.profile; // the environment's default (a template's)
     const space = this.sanitizeSpace({ id, name: name || `New ${this.word('space')}`, description, members, profile: startsWith, link, linkIcon, createdAt: new Date().toISOString(), ...(own ? { template: own.id } : {}) });
     // The template seeds which Fixed Workspaces the space shows and which opens first (decisions 36 and 8): the owner
@@ -2408,7 +2402,7 @@ class Store {
       // What the environment offers and what this space's own template offers (as this save leaves it): spaceIconIds.
       const own = this.spaceTemplatesOn() && id !== LOBBY && typeof draft.template === 'string' ? this.templateNamed(draft.template) : null;
       // The icon it has already is taken back unchanged (it may be one a template switched away offered); a new one is checked.
-      if (patch.linkIcon !== space.linkIcon && !this.spaceIconIds(own).includes(patch.linkIcon)) throw new StoreError('unknown link icon');
+      if (patch.linkIcon !== space.linkIcon && !this.spaceIconIds(own).includes(patch.linkIcon)) throw new StoreError(`That icon is not one this ${this.word('environment')} offers.`);
       draft.linkIcon = patch.linkIcon;
     }
     if (patch.allowGuests !== undefined) {

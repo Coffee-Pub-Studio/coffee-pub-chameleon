@@ -237,7 +237,7 @@ test('a refused settings, person or space save changes nothing, in memory or on 
     const guests = Boolean(space.allowGuests);
     assert.throws(() => store.updateSpace(space.id, { name: 'Lost', description: 'lost', profile: 'bad' }), /profile must be roleplaying/);
     assert.throws(() => store.updateSpace(space.id, { name: 'Lost', allowGuests: !guests, link: 'ftp://x' }), /link must be a valid http\(s\) URL/);
-    assert.throws(() => store.updateSpace(space.id, { name: 'Lost', linkIcon: 'not-an-icon' }), /unknown link icon/);
+    assert.throws(() => store.updateSpace(space.id, { name: 'Lost', linkIcon: 'not-an-icon' }), /That icon is not one this environment offers\./);
     assert.equal(store.spaceById(space.id).name, 'Keep');
     assert.equal(store.spaceById(space.id).description, '');
     assert.equal(Boolean(store.spaceById(space.id).allowGuests), guests);
