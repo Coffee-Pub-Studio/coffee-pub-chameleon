@@ -6,9 +6,11 @@
 // It reaches the product the way a browser does: requests to the server's own address (`base`), each as a signed-in
 // person, so every module's real rules, permissions and validation run. It calls no function of a route directly.
 //
-// It NEVER changes an environment-wide setting: it installs or turns on no module, sets no calendar or map option, no
-// place search, no template. A module in the file that the environment does not already have on is skipped, and the
-// report names it. It touches only the space whose description starts with MARKER and the people whose login AND display
+// It NEVER changes an environment-wide setting on its own: it installs or turns on no module by itself, sets no calendar or map
+// option, no place search, no template. A module in the file that the environment does not already have on is skipped, and the
+// report names it. The one exception is a module the caller NAMES (`turnOn`: the host ticked it in the console, plan decision 1:
+// the offer is the console's, the host ticks); the loader asks the caller's own `turnOnModules` to turn exactly those on (the
+// console's own path, templates.turnOnModules), only after every refusal below has passed, and the report says which came on. It touches only the space whose description starts with MARKER and the people whose login AND display
 // name are the file's; a space or an account that merely has the same name is refused and left alone.
 // The demo's space reads the demo's own template (the space's `template`, its own record) when the environment's is another,
 // so any demo may be added to an environment of any template; a module that template offers but the environment does not
@@ -100,7 +102,9 @@ function readDemoFile(templateId, { dir = DEMO_DIR, words = defaultWord } = {}) 
   return raw;
 }
 const hasDemo = (templateId, opts) => Boolean(readDemoFile(templateId, opts));
-// Every demo there is, by its template's id: [{ id, label, name }], in the order of their ids. A file that is not valid is
+// The modules a demo file needs, by id, in the file's order: every module block but the built-in chat.
+const neededModules = (file) => Object.keys(file.modules).filter((id) => id !== 'chat');
+// Every demo there is, by its template's id: [{ id, label, name, modules: [ids it needs] }], in the order of their ids. A file that is not valid is
 // left out (readDemoFile throws for it; the checks name it).
 function listDemos({ dir = DEMO_DIR } = {}) {
   let names = [];
@@ -110,7 +114,7 @@ function listDemos({ dir = DEMO_DIR } = {}) {
     const id = f.slice(0, -5);
     let file = null;
     try { file = readDemoFile(id, { dir }); } catch { file = null; }
-    if (file) out.push({ id, label: file.label || `${id[0].toUpperCase()}${id.slice(1)} demo`, name: file.name });
+    if (file) out.push({ id, label: file.label || `${id[0].toUpperCase()}${id.slice(1)} demo`, name: file.name, modules: neededModules(file) });
   }
   return out;
 }
@@ -149,10 +153,11 @@ const stepsOf = (block) => block.steps || [block];
 // --- the run ---------------------------------------------------------------------------------------------------------
 // Answers the report:
 //   { demo: true, space: { id, name, members }, start, created: { <module>: n }, skipped: [{ module, why }],
-//     refused: [{ module, key, why }], people: [{ login, displayName, password }], guestUrl }
+//     refused: [{ module, key, why }], people: [{ login, displayName, password }], guestUrl, turnedOn: [{ id, name }] (the
+//     modules this run turned on: the ticked ones and what they need) }
 // or, for a template with no demo file, { demo: false, message, created: {}, skipped: [], refused: [], people: [] } and
 // nothing is made. Throws a DemoError (one plain sentence) when it cannot start or must not touch what it found.
-async function loadDemo({ base, publicBase = '', templateId, today, session = {}, headers = {}, say = () => {}, fetchImpl = fetch, dir = DEMO_DIR, now = Date.now(), words = null }) {
+async function loadDemo({ base, publicBase = '', templateId, today, session = {}, headers = {}, say = () => {}, fetchImpl = fetch, dir = DEMO_DIR, now = Date.now(), words = null, turnOn = [], turnOnModules = null }) {
   base = String(base || '').replace(/\/+$/, '');
   // The address people use (the environment's own), for the links the demo writes ({base}) and the guest link; `base` is
   // only where the loader's own requests go (the loopback, when the server calls itself). The same when none is given.
@@ -164,6 +169,12 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
   if (!file) return { demo: false, message: 'There is no demo for this template.', created: {}, skipped: [], refused: [], people: [] };
   if (!isDay(today)) throw new DemoError('The day must be given as YYYY-MM-DD.');
   const start = dayPlus(today, file.anchor);
+  // The modules the caller asks to turn on: each must be one this demo names (never the built-in chat, never another), once.
+  const needed = new Set(neededModules(file));
+  if (!Array.isArray(turnOn) || turnOn.some((id) => typeof id !== 'string')) throw new DemoError(`Name the ${defaultWord('module', { many: true })} to turn on as a list of their ids.`);
+  const ticked = [...new Set(turnOn)];
+  for (const id of ticked) if (!needed.has(id)) throw new DemoError(`This demo does not use "${id.slice(0, 40)}", so it was not turned on.`);
+  if (ticked.length && typeof turnOnModules !== 'function') throw new DemoError(`There is no way to turn ${defaultWord('module', { many: true })} on here.`);
   const logins = file.people.map((p) => p.login);
   // The whole file is read once, with stand-in keys, so a bad date stops the run before anything is made.
   const trial = { today, start, keys: Object.fromEntries(logins.map((l) => [l, l])), space: 'space', base: shown, now };
@@ -245,19 +256,46 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
     if (found.mfaEnrolled) throw new DemoError(`The demo person "${p.login}" has two-step sign-in on, so the demo can't sign in as them. Turn it off or remove the account first.`);
   }
   const old = [];
-  for (const sp of (await ok('caller', 'GET', '/api/spaces')).spaces || []) {
+  const allSpaces = (await ok('caller', 'GET', '/api/spaces')).spaces || [];
+  // Reads the moderator tick per space (GET /api/users: users[].spaces[<space id>].permissions.moderator, the stored tick of a
+  // space the person belongs to) of each demo login that already exists. A space made by a demo load is one whose description
+  // starts with MARKER; any other space is a real one. A demo person who moderates a real space would be given a new password
+  // and a place in the demo, so it is refused here, before anything is changed.
+  const descriptionOf = new Map();
+  const isDemoSpace = async (id) => {
+    if (!descriptionOf.has(id)) descriptionOf.set(id, String(((await ok('caller', 'GET', `/api/spaces/${encodeURIComponent(id)}`)).space || {}).description || ''));
+    return descriptionOf.get(id).startsWith(MARKER);
+  };
+  for (const p of file.people) {
+    const found = existing.find((u) => u.login === p.login);
+    if (!found || !isObject(found.spaces)) continue;
+    for (const sp of allSpaces) {
+      const entry = Object.prototype.hasOwnProperty.call(found.spaces, sp.id) ? found.spaces[sp.id] : null;
+      if (!entry || !isObject(entry.permissions) || entry.permissions.moderator !== true) continue;
+      if (!(await isDemoSpace(sp.id))) throw new DemoError(`The demo person "${p.login}" is ${word('moderator', { a: true })} of "${String(sp.name).slice(0, 60)}", a real ${word('space')}, so the demo is not loaded. Take away their ${word('moderator')} tick there, or remove the account first.`);
+    }
+  }
+  for (const sp of allSpaces) {
     if (sp.name !== file.name) continue;
     const full = (await ok('caller', 'GET', `/api/spaces/${sp.id}`)).space;
     if (!String(full.description || '').startsWith(MARKER)) throw new DemoError(`A ${word('space')} called "${file.name}" exists but is not the demo (its description lacks the marker), so it is left alone.`);
     old.push(sp.id);
   }
 
-  // --- which modules are on (never changed here) ---
-  const listed = await ok('caller', 'GET', '/api/modules');
+  // --- the modules the host ticked, turned on through the caller's own path; then which modules are on ---
+  const skipped = []; const refused = []; const created = {};
+  let listed = await ok('caller', 'GET', '/api/modules');
+  const wasOn = new Set((listed.modules || []).filter((m) => m.enabled).map((m) => m.id));
+  let turnedOn = [];
+  if (ticked.length) {
+    const missed = await turnOnModules(ticked);
+    listed = await ok('caller', 'GET', '/api/modules');
+    for (const miss of missed || []) skipped.push({ module: miss.id, why: `${(listed.modules || []).find((m) => m.id === miss.id)?.displayName || miss.id} could not be turned on (${miss.why}).` });
+    turnedOn = (listed.modules || []).filter((m) => m.enabled && !wasOn.has(m.id)).map((m) => ({ id: m.id, name: m.displayName || m.name || m.id }));
+  }
   const installed = new Map((listed.modules || []).map((m) => [m.id, m]));
   const bundled = new Map((listed.bundled || []).map((m) => [m.id, m]));
   const nameOf = (id) => { const m = installed.get(id) || bundled.get(id); return (m && (m.displayName || m.name)) || id; };
-  const skipped = []; const refused = []; const created = {};
   const countOf = (id, b) => {
     const prefixes = b.count || null;
     const keys = id === 'chat' ? b.messages : stepsOf(b).flatMap((s) => Object.keys(s.data));
@@ -383,7 +421,7 @@ async function loadDemo({ base, publicBase = '', templateId, today, session = {}
     for (const pre of prefixes) total += (((await ok('caller', 'GET', `/api/modules/${encodeURIComponent(id)}/data?scope=space&space=${space.id}&prefix=${encodeURIComponent(pre)}`)).items) || []).length;
     created[id] = total;
   }
-  return { demo: true, space, start, created, skipped, refused, people, guestUrl };
+  return { demo: true, space, start, created, skipped, refused, people, guestUrl, turnedOn };
 }
 
-module.exports = { loadDemo, readDemoFile, hasDemo, listDemos, problemsOf, resolveString, resolveValue, DemoError, MARKER, DEMO_DIR, dayPlus };
+module.exports = { loadDemo, neededModules, readDemoFile, hasDemo, listDemos, problemsOf, resolveString, resolveValue, DemoError, MARKER, DEMO_DIR, dayPlus };

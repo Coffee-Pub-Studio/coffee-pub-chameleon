@@ -21,7 +21,7 @@ let settings = { baseDomain: '', version: '', hostAdmins: [], plans: {} };
 const PLAN_ORDER = (plans) => Object.keys(plans || {}).sort((a, b) => (a === 'free' ? -1 : b === 'free' ? 1 : a.localeCompare(b)));
 let environments = [];
 let loaded = false; // the list has come at least once
-let demos = []; // GET /api/host/demos: [{ id, label, name }]
+let demos = []; // GET /api/host/demos: [{ id, label, name, modules: [{ id, name, on? }] }]
 let templates = []; // every template (GET /api/host/templates): [{ id, name, description, source, version, hidden, usedBy }]
 
 const environmentUrl = (slug) => `${location.protocol}//${slug}.${settings.baseDomain}${location.port ? `:${location.port}` : ''}`; // the port only in development
@@ -887,7 +887,45 @@ function renderDemoPicker(t) {
   select.value = demos.some((d) => d.id === own) ? own : demos.some((d) => d.id === 'travel') ? 'travel' : (demos[0] ? demos[0].id : '');
   select.dataset.slug = demos.length ? t.slug : '';
   select.disabled = !demos.length;
+  renderDemoModules();
+  refreshDemoOffer(t.slug);
 }
+// The modules the picked demo needs that the environment has not turned on, as unticked boxes: 'Turn these on too'. Ticking is the
+// host's; nothing is on by itself. Every name goes in with textContent.
+function renderDemoModules() {
+  const box = $('env-demo-modules');
+  const picked = demos.find((d) => d.id === $('env-demo-select').value);
+  const off = ((picked && picked.modules) || []).filter((m) => m.on === false);
+  box.replaceChildren();
+  box.hidden = !off.length;
+  if (!off.length) return;
+  const legend = document.createElement('legend');
+  legend.className = 'sdk-hint';
+  legend.textContent = 'Turn these on too';
+  box.append(legend);
+  for (const m of off) {
+    const label = document.createElement('label');
+    label.className = 'sdk-choice-row';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = m.id;
+    const text = document.createElement('span');
+    text.className = 'sdk-choice-text';
+    text.textContent = m.name || m.id;
+    label.append(input, text);
+    box.append(label);
+  }
+}
+// Which of a demo's modules this environment already has on (the list is asked for this environment); the boxes follow.
+async function refreshDemoOffer(slug) {
+  try {
+    const list = (await api('GET', `/api/host/demos?environment=${encodeURIComponent(slug)}`)).demos || [];
+    if (page.slug !== slug) return;
+    demos = list;
+    renderDemoModules();
+  } catch { /* the picker still works without the offer */ }
+}
+$('env-demo-select').addEventListener('change', renderDemoModules);
 // Demo space: one request that can take a while; the report is written with textContent, the passwords shown once.
 $('env-demo-add').addEventListener('click', async () => {
   const b = $('env-demo-add');
@@ -898,7 +936,7 @@ $('env-demo-add').addEventListener('click', async () => {
   b.setAttribute('aria-busy', 'true');
   say($('env-demo-status'), 'Adding the demo space. This can take a minute.');
   try {
-    const r = await api('POST', `/api/host/environments/${encodeURIComponent(page.slug)}/demo`, { demo: $('env-demo-select').value });
+    const r = await api('POST', `/api/host/environments/${encodeURIComponent(page.slug)}/demo`, { demo: $('env-demo-select').value, modules: [...$('env-demo-modules').querySelectorAll('input:checked')].map((i) => i.value) });
     const line = (text) => { const p = document.createElement('p'); p.textContent = text; box.append(p); };
     if (r.demo === false) { say($('env-demo-status'), r.message || 'There is no demo for this template.', true); return; }
     const picked = demos.find((d) => d.id === $('env-demo-select').value);
@@ -915,7 +953,9 @@ $('env-demo-add').addEventListener('click', async () => {
       box.append(ul);
     }
     if (r.guestUrl) line(`Guest link: ${r.guestUrl}`);
+    if ((r.turnedOn || []).length) line(`Turned on: ${r.turnedOn.map((m) => m.name).join(', ')}.`);
     box.hidden = false;
+    refreshDemoOffer(page.slug);
   } catch (err) {
     say($('env-demo-status'), err.message, true);
   } finally {
