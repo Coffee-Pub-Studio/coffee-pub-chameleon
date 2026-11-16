@@ -83,7 +83,7 @@ async function main() {
       return tab;
     };
     // Through a blank page first, so an address that differs only by its #part is a real load, as a reload is.
-    const go = async (tab, url) => { await tab.cdp.send('Page.navigate', { url: 'about:blank' }, tab.sid); await sleep(100); await tab.cdp.send('Page.navigate', { url: tab.srv.base + url }, tab.sid); await sleep(300); await tab.settle(); if (url.includes('#agent/')) await tab.waitFor('[data-agent-title]:not(:empty)', '', 40000).catch(() => {}); }; // the agent's page has drawn before a step reads it
+    const go = async (tab, url) => { await tab.cdp.send('Page.navigate', { url: 'about:blank' }, tab.sid); await sleep(100); await tab.cdp.send('Page.navigate', { url: tab.srv.base + url }, tab.sid); await sleep(300); await tab.settle(); if (url.includes('#agent/') && !url.endsWith('/nobody')) await tab.waitFor('[data-agent-title]:not(:empty)', '', 40000).catch(() => {}); }; // the agent's page has drawn before a step reads it
     const shot = async (tab, name, full = true) => { if (SHOTS) fs.writeFileSync(path.join(SHOTS, `${name}.png`), await tab.shoot(full)); };
     const text = (tab, sel) => tab.eval(`(document.querySelector(${JSON.stringify(sel)}) || {}).textContent || ''`);
     const hiddenOf = (tab, sel) => tab.eval(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); return !e || e.hidden || !e.getClientRects().length; })()`);
