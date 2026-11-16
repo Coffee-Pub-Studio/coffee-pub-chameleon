@@ -1,14 +1,14 @@
-# Planner
+# Planner - Itinerary
 
-**Audience:** a player or game master planning a trip with the Planner module on a Coffee Pub Chameleon server, and an owner setting it up.
+**Audience:** a player or game master planning a trip with the Planner - Itinerary module on a Coffee Pub Chameleon server, and an owner setting it up.
 
-The Planner module plans one trip for a space, day by day. It is one of three planners: this one, a day-by-day plan, [Planner - Projects](userguide-planner-projects.md) (milestones and work) and [Planner - Goals](userguide-planner-goals.md) (goals and steps). A space's template says which one it has. In an environment set up from the Travel template it is shown as the **Itinerary**, and its window is named for that, not for the trip. The space's Calendar events, to-dos and polls that fall on the trip's days join the plan, and the module adds what a trip needs on top: stops, stays, journeys and notes. Install and enable it first; see [Modules](userguide-modules.md).
+Planner - Itinerary (module id `travel`; the Planner below for short, and the Itinerary under the Travel template) plans one trip for a space, day by day. It is one of three planners: this one, a day-by-day plan, [Planner - Projects](userguide-planner-projects.md) (milestones and work) and [Planner - Goals](userguide-planner-goals.md) (goals and steps). A space's template says which one it has. In an environment set up from the Travel template it is shown as the **Itinerary**, and its window is named for that, not for the trip. The space's Calendar events, to-dos and polls that fall on the trip's days join the plan, and the module adds what a trip needs on top: stops, stays, journeys and notes. Install and enable it first; see [Modules](userguide-modules.md).
 
 ## Set it up (owner)
 
-1. On the Modules tab, choose **Install** beside Planner under **Available with this server**, then **Approve and enable**. It asks to add two permissions to the Roles tab, to link to other modules' objects and to ask other modules to do things.
+1. On the Modules tab, choose **Install** beside **Planner - Itinerary** under **Available with this server**, then **Approve and enable**. It asks to add two permissions to the Roles tab, to link to other modules' objects and to ask other modules to do things.
 2. Once enabled it is in every space whose template offers it (the Travel and Default templates do); there is no switch per space.
-3. On the Roles tab, under **Module: Planner**, choose who can **See the trip** and who can **Plan the trip**. By default everyone can see it, members and moderators can plan, and guests can see but not plan. **Clear the whole trip** decides who may use **Clear** on the Planner's menu (see "Clear the whole plan" below); it is on for moderators and off for members, and an owner always may.
+3. On the Roles tab, under **Module: Planner - Itinerary**, choose who can **See the trip** and who can **Plan the trip**. By default everyone can see it, members and moderators can plan, and guests can see but not plan. **Clear the whole trip** decides who may use **Clear** on the Planner's menu (see "Clear the whole plan" below); it is on for moderators and off for members, and an owner always may.
 4. Optionally, under the Planner's settings (**Module Configuration** on its card), turn off **Suggest flights from earlier trips**. It is on by default: "Fill a flight from the same flight number saved before on this server. Flights saved here also help others; turn this off to keep them out." Off, the flight form has no **Look up a flight** row, and nothing saved here is kept for others. See "Look up a flight" below.
 
 ## The plan

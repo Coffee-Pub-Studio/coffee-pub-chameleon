@@ -109,6 +109,8 @@ When the space also has the Planner, every object on the plan with a date is an 
 
 Such a copy is marked with the plan object's icon, and its tooltip and form say it is from the plan ("from the Itinerary"). A few things belong to the original, so the form shows them without letting you change them: how long it lasts and **All day**. Ticking **All day** never erases the original's time. A copy with a time is shown in the clock of the trip, as the plan wrote it, not in yours; when that is not your own clock, the event's tooltip says so ("Lisbon time").
 
+A copy follows the rights of the plan object it comes from. If you may not see the plan in that space, its copies are not on your Calendar either, and nor are their reminders. If you may see the plan but not change it, its copies show on the Calendar read only ("Only people who can change the Itinerary can change this.") and **Hide** is refused. A **Clear** of the Calendar takes the events that belong to it and leaves the copies you may not change. A Clear's **Undo** puts a copy back only while its plan object is still there, brought up to date; the notice says how many came from another module and are no longer there.
+
 To take a copy off the Calendar, open it and choose **Hide**. The form first says "This hides it from the Calendar. The Itinerary keeps it. Hide it?" A hidden copy is gone for good: the object stays on the plan, and the Calendar does not make the copy again, even if the object's day changes. See [Planner](userguide-planner.md), "On the Calendar".
 
 ## Dropping something on the calendar

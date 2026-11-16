@@ -10,8 +10,8 @@ There are three levels. The **environment** is the catalog: the modules installe
 
 | Template | A space is a | Its planner (shown as) | Also on | Phases (measured by) |
 |---|---|---|---|---|
-| **Default** | space | all three planners | every module there is | none |
-| **Travel** | trip | the day-by-day Planner (**Itinerary**) | Maps, Research, Vault, AI Assistant, Calendar, Budget, Polls, To-do, Documents, Whiteboard | Planning, Booking, Buffer, Pre-trip, Trip, Post-trip (dates) |
+| **Default** | space | all three planners (Planner - Itinerary, Planner - Projects and Planner - Goals) | every module there is | none |
+| **Travel** | trip | Planner - Itinerary, the day-by-day planner (**Itinerary**) | Maps, Research, Vault, AI Assistant, Calendar, Budget, Polls, To-do, Documents, Whiteboard | Planning, Booking, Buffer, Pre-trip, Trip, Post-trip (dates) |
 | **Games** | campaign (a member is a player) | Planner - Projects (**Campaign**: sessions, scenes, story threads) | Maps, Research (**Lore**), Documents, Budget (**Costs**), To-do (**Quests**), Calendar (**Sessions**), Polls, Vault, AI Assistant | none |
 | **Project** | project | Planner - Projects (**Project plan**) | To-do, Calendar (meetings), Budget (**Effort**), Documents, Maps, Research, Polls, Whiteboard, Vault | Start, Build, Wrap up (dates) |
 | **Learning** | course (a member is a learner) | Planner - Goals (**Learning plan**) | To-do (**Exercises**), Documents, Research (**Reading**), Calendar (**Sessions**), Budget (**Time**), Maps (visits), Vault | Explore, Practice, Review (goals) |
@@ -19,7 +19,7 @@ There are three levels. The **environment** is the catalog: the modules installe
 
 Every template has the chat and the call. The Lobby keeps only the chat, the call and the modules made for it. The Vault is called **Vault** in every template, never "Files". The Lobby's name differs: Travel's is **Home base** ("Everyone on every trip."), Games', Learning's and Mentoring's **Common room**, Project's **Front desk**. Travel, Project, Learning and Mentoring start a new space with the **Participants** picture profile. Each says what the Workspace opens with and which workspaces (Calendar, Map, Documents) a new space shows. When an environment is made from Travel or Games it turns the top bar's Calendar and Map on; Project, Learning and Mentoring turn the Calendar on.
 
-**Starter content** is made once, when a space is made, never again on a change of template or a restore: Project gives a **Project brief**, Games a new campaign's session notes and a handout, Learning a learning journal and Mentoring a meeting log. Project also makes a **starter space**, "Your first project", when an environment is made from it.
+**Starter content** is made once, when a space is made, never again on a change of template or a restore: Project gives a **Project brief**, Games a new campaign's session notes and a handout, Learning a learning journal and Mentoring a meeting log. Project also makes a **starter space**, "Your first project", when an environment is made from it. When an environment is switched to a template that has starter spaces, they are offered, not made: see "Switch a template". A starter space is made on its template, so a later switch of the environment's template leaves it as it was, and its starter content names the person who made the space as its author.
 
 Some settings these templates are meant to set are not built yet: Budget's unit (money, hours or effort) and its split, To-do's owners, Documents' default editor, and Maps' real and picture map switches. So Project's **Effort**, Learning's and Mentoring's **Time** and Games' maps are names and categories only. Planner - Projects has no phase bands on its Timeline. See [Known issues](../known-issues.md).
 
@@ -39,7 +39,7 @@ When the host has templates, the server's sign-up route accepts the same choice,
 
 ## What a template does, and what stays yours
 
-Some of it is applied once, when the environment is made: its settings (language, clock, the Calendar and Map in the top bar and the rest), its modules (turned on), the Lobby's name and description, how new spaces start, and its home and module icons (added to the icon list). After that they are the owner's. A template can also make **starter spaces** once, when the environment is made.
+Some of it is applied once, when the environment is made: its settings (language, clock, the Calendar and Map in the top bar and the rest), its modules (turned on), the Lobby's name and description, how new spaces start. After that they are the owner's. Its icons are not copied into your list: they are read from the template while it is used, so they offer themselves in the pickers while a space reads it. A template can also make **starter spaces** once, when the environment is made.
 
 The rest follows the template live, in every space that reads it: its words, the home page's word, its phases and how they are measured, the modules a space has and their names and icons, the words and settings the modules let a template set, what the Workspace opens with, how the call starts, and the reactions and icons it adds. Anything an owner changes wins where it is the owner's to change, and **Reset** goes back to the template's, not the default. Manage shows which is which:
 
@@ -56,11 +56,11 @@ Manage's **Template** tab is a short page and one page for each part, with butto
 
 - **Template**: which template the environment uses, with **Switch**; **Let a space use its own template**.
 - **Environment Basics**: **Template Name**, **Template Description**, **Home Icon**, **Default Profile Image**.
-- **Experience Labels**: the words you can change (a space, a member, the home page; the Lobby's name and description), and the words that never change, listed.
+- **Experience Labels**: the words you can change (a space, a member, the home page; the Lobby's name and description), then the words each module lets a template rename, under that module's name (for example Project's **Effort**), and the words that never change, listed. A word left blank reads the module's own.
 - **Default Workspace**: what a new space's Workspace opens with, which Fixed Workspaces it shows (shown for everyone: nobody can hide one), and which opens first.
 - **Phases**: the phases and **Measured by** (**Dates**, **Goals** or **Progress**).
 - **Additional Reactions and Icons**: what the template adds after the core set. Yours, for every template, are on the **Environment** tab, under **Reactions and Icons**.
-- **Modules**: one row for each module: offered or not, **Shown as**, the words it lets a template rename, its settings, its starter content. The three planners sit together under **Plans**.
+- **Modules**: one row for each module: offered or not, **Shown as**, its settings, its starter content. A setting that is a list (such as Maps' categories or the Planner's marker types) is edited as rows of a label, an icon and a colour, as on a module's own settings; the words a module lets a template rename are on **Experience Labels**. The three planners sit together under **Plans**.
 - **Templates**: the list.
 
 ## Switch a template
@@ -68,11 +68,12 @@ Manage's **Template** tab is a short page and one page for each part, with butto
 An owner can switch the environment to another template on Manage's **Template** tab:
 
 1. Under **Default template**, choose one. Its description shows below.
-2. Click **Switch**, and confirm. Words, names, phases, the modules a space has and how they work change at once in every space that reads the environment's template; anything you set yourself still wins. Nothing is deleted.
+2. Click **Switch**, and confirm. The question names the modules that turn off and on in every space that reads the environment's template, and says that the data of one that turns off is kept (where it cannot be worked out it says the rule in general words). Words, names, phases, the modules a space has and how they work change at once; anything you set yourself still wins. Nothing is deleted.
 3. The tab then shows **What the <name> template can add**:
    - **Turn on**: the template's modules that aren't on yet, ticked. One your plan doesn't include is shown unticked, with why.
    - **Also**, unticked: the template's name and description for the Lobby, and the picture profile new spaces start with.
-4. Untick anything you don't want, then click **Apply** (**Done** when there is nothing to add). Only what is ticked is applied, and the offer closes even with nothing ticked.
+   - **<Spaces> to start with**, unticked, when the template has starter spaces: each with its name and description. Tick the ones you want made now.
+4. Untick anything you don't want, then click **Apply** (**Done** when there is nothing to add). Only what is ticked is applied, and the offer closes even with nothing ticked. A starter space is made once, by you (by the environment's first owner when the host applies the offer), with its starter content; the tab then says, for example, "Made 2 spaces: Kickoff, Planning." It is offered only on a switch, never a second time for the same switch. If the offer changed meanwhile (the template was edited, or it was switched away and back, or another person applied it), Apply is refused with the reason, the offer is read again and the tab shows it; the first of two applies of one offer is the one that counts. Only one switch or apply of an environment runs at a time.
 
 **Not now** puts the offer away; a line saying "The <name> template can turn on more." and a **Review** button bring it back, and the tab keeps a badge until you apply it. A template's settings (language, clock, currency and the rest) are not offered: they are yours by now. There is no "no template": **Default** is the plain one.
 
@@ -84,7 +85,7 @@ An environment has one template, and its spaces read it. An owner can let a spac
 
 A space's template changes that space's words (a space and a member), its phases and their measure, the modules it has and what they are called, their words and settings, what its Workspace opens with, how its call starts, and the reactions and icons it adds. The environment's own words, Home and every list across spaces stay as the environment's template sets them.
 
-**When a space changes template** its modules follow the new template at once. A module the new template leaves out is turned off in that space and keeps its data; it comes back as it was if a template brings it back. A planner is a module like the rest: the old planner turns off there and keeps its plan, and the new one starts with its own (empty at first); nothing is copied, converted or deleted, and changing back shows the old plan as it was. A link to something in a module that is off reads as any link to an object whose module is off. Driven settings follow at once; a seeded setting someone changed is kept; phase dates are kept; a call setting someone stored is kept. Starter content is never made again. The confirm before a change does not yet name the modules that turn off and on (it says "Its words, phases and <module> names change now. Nothing is removed."), so read the new template's **Modules** page first.
+**When a space changes template** its modules follow the new template at once. A module the new template leaves out is turned off in that space and keeps its data; it comes back as it was if a template brings it back. A planner is a module like the rest: the old planner turns off there and keeps its plan, and the new one starts with its own (empty at first); nothing is copied, converted or deleted, and changing back shows the old plan as it was. A link to something in a module that is off reads as any link to an object whose module is off. Driven settings follow at once; a seeded setting someone changed is kept; phase dates are kept; a call setting someone stored is kept. Starter content is never made again. The confirm before a change names the modules that turn off and on in that space, and says that nothing is deleted.
 
 Turning the switch off makes every space read the environment's template at once. Nothing is lost: what each space chose is kept and comes back when the switch is turned on. The host admin can't delete a host template that a space uses; hide it instead. The console's list of templates shows **Used by**, with the environments that use a template and a count such as "3 spaces" for the spaces that chose it themselves. A count of the spaces a module's driven setting reaches ("driven in N spaces") is not built yet.
 
@@ -118,7 +119,7 @@ On a server with environments, the host admin makes templates in the host consol
 4. Add the **Reactions** and **Icons** it adds (up to 40 reactions and 60 icons, solid icons only; a repeat of the built-in set is refused), and **Starter spaces** (up to 5, each a name of at most 40 characters and a description).
 5. Click **Save**. It is version 1, and offered on the create form straight away. A problem, such as a phase id listed twice, shows beside the part it is about, and nothing is saved.
 
-The console's editor does not edit a module's settings, renamed words or starter content: it keeps what the template has, so **Duplicate** a shipped template to carry them. (Its starter space name box takes more characters than the server does; the server refuses a name over 40.) The theme is not part of a template any more: the environment sets one and each person may pick their own (see [Creating themes](userguide-themes.md)).
+The console's editor does not edit a module's settings, renamed words or starter content: it keeps what the template has, so **Duplicate** a shipped template to carry them. The theme is not part of a template any more: the environment sets one and each person may pick their own (see [Creating themes](userguide-themes.md)).
 
 **Edit one:** open the row's **More** menu, choose **Edit**, change what you need, and click **Save**. Each save is a new version. Every environment using it gets the live parts at once, and is offered the rest (see "When a template is updated").
 

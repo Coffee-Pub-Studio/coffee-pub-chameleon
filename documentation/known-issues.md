@@ -84,27 +84,30 @@ Documents 0.7 to 0.11.31 ([userguide-documents](userguides/userguide-documents.m
 
 ## Checks
 
-- **`check-module-guards` fails on main** (#686): 1 of 28 cases fails. The cause is open. Run on 255fd8e3, 2026-11-15.
-- **`check-spacing` fails on main.** `public/style.css` has 59 values of `6px` where `tools/check-spacing-allow.json` allows 56 (lines 511, 534, 548 and others). Run on 255fd8e3.
-- **`check-action-bar` fails on main.** Its line 114 forbids `>Done<` in Set up, and Set up now has the phases' **Done** switch (`public/space-setup.js`). The check has not been changed for it. 1 of 12 cases fails. Run on 255fd8e3.
-- **`check-conformance` fails on main** (#798): the Manage About tab's **Open-source software** panel has 16px of padding at the top and 24px at the bottom at 390 pixels in dark mode ("padding symmetry", 2 deviations in 2 of 40 windows). A second failing check, #849, was not identified from the code.
+- **`check-module-guards` fails on main** (#686): 1 of 28 cases fails, "chat's citations resolve as the reader, with or without the Assistant module": for a person who is not in the space it gets `gone` where it expects `hidden`. The cause is open. Run on a19d7d34, 2026-11-16.
+- **`check-spacing` fails on main.** `public/style.css` has 59 values of `6px` where `tools/check-spacing-allow.json` allows 56 (lines 511, 534, 548 and others). Run on a19d7d34.
+- **`check-conformance` fails on main** (#798): 3 deviations in 3 of 40 windows. The first content in the list view sits 12 px from the frame edge in Research and Budget and 16 px in Documents; the Trip templates panel on Manage's Template page (1280 pixels, light) has 16px of padding above and 24px below, and so has the About tab's **Open-source software** panel (390 pixels, dark). Run on a19d7d34.
+- **`check-destinations` fails on main** (#849): 1 of 45 cases, "travel: with no destination page yet, /calendar goes home and module pages and tiles stay their own": the widgets route answers no tiles under the Travel template and the case expects at least one. Run on a19d7d34.
+- **`check-catalog` fails on main.** It still lists `goals__addStep` as the fifth AI tool (as does `tools/golden/catalog.json`); since #885 gave that action an optional `goal` and an `object` input, it is no longer a tool, and the catalog has four.
+- **`check-buttons` fails on main**: 20 rules set `min-height` on a button, among them the new `.undo .btn` of Planner - Projects and Planner - Goals (#880).
+- **Six browser checks stop at the Budget chip.** `check-ai-page`, `check-ai-callers`, `check-phone-targets`, `check-vault-link-live`, `check-vault-module` and `check-entry-switches` fail with `button.sdk-strip-fact[data-module=budget] did not appear`. The cause was not investigated.
 - **`check-template-pages-b` is not in `npm run check`**, so nothing runs it by default.
 
 Workaround for all of them: none needed to use the product; a change that touches them should name the failure and move on (`CLAUDE.md`, "Testing scope").
 
 ## Templates and the planners: gaps
 
-The templates redesign ([plan-templates-redesign](plans/plan-templates-redesign.md)) is merged through step 15b. These differ from the plan or are not built. Read from the code on 255fd8e3, 2026-11-15; none was seen in a browser.
+The templates redesign ([plan-templates-redesign](plans/plan-templates-redesign.md)) is merged through step 15b. These differ from the plan or are not built. Read from the code on 255fd8e3 and again on a19d7d34, 2026-11-16; none was seen in a browser.
 
 - **Some driven settings do not exist.** Budget's unit and split, To-do's owners, Documents' default editor and Maps' real and picture map switches were to be set by templates and are not built. Project's **Effort**, Learning's and Mentoring's **Time** and Games' maps are names and categories only. Workaround: none; the names and categories work.
 - **Some module words are declared and not wired.** Maps (`place`), Research (`note`) and Whiteboard (`board`) declare their labels, and their pages do not read them, so a template renaming one changes nothing there. Workaround: none.
-- **The Planner is still named "Planner".** Decision 45 wants "Planner - Travel" in the catalog. The Itinerary name in the Travel template is unaffected.
-- **The host console does not have the Manage pages.** Its template editor is one form; it does not edit a module's settings, renamed words or starter content (they are kept as they are), and its starter space name box takes 60 characters where the server refuses a name over 40, with the server's sentence. Workaround: edit those in Manage on an owner's copy, or write the template file.
+- **The host console does not have the Manage pages.** Its template editor is one form; it does not edit a module's settings, renamed words or starter content (they are kept as they are). Workaround: edit those in Manage on an owner's copy, or write the template file.
 - **Manage has no page for a template's call settings or starter spaces.** An owner's copy keeps those of the template it was copied from. Workaround: the host console edits them.
 - **"Driven in N spaces" is not shown** on a module's page, so an owner can't see how many spaces a driven setting reaches.
-- **The confirm on changing a space's template is short.** It reads "Its words, phases and <module> names change now. Nothing is removed." and does not list the modules that turn off and on or say that the old planner keeps its plan. Nothing is lost. Workaround: read the new template's **Modules** page first.
 - **Planner - Projects has no phase bands on its Timeline**, and neither new planner takes a drop of an object from another module (the Itinerary does). Workaround: link from the entry's form.
-- **A Calendar copy of a planner entry can be edited by someone who may not edit the planner entry** (#857). This is by design in [plan-plan-calendar-sync](plans/plan-plan-calendar-sync.md), recorded here as a known gap.
+- **A reminder with no `ref` is not held to a copy's original** (#857, #877). `POST /api/modules/:id/schedule` takes an optional `ref` naming the object a schedule is about; Calendar 1.24.43 sends it, so a reminder of a copy reaches only those who may read the original. A schedule made without one (an older page, another module) reaches everyone who may read its own module. Workaround: none needed for the bundled modules.
+- **An owner's edit of their template could race a confirm of its offer** (suspected, not reproduced). Confirms, switches and the delete of a template in use run one at a time, and a confirm checks the record again before it changes anything; a `PATCH /api/environment/templates/:id` of the template whose offer is being confirmed does not take its turn, and what happens then has not been checked. A confirm that finds the template changed is refused ("This template changed since it was offered; look at the offer again.").
+- **`goals__addStep` is not an AI tool any more**, though `tools/check-catalog.mjs` and `tools/golden/catalog.json` still list it (see "Checks").
 - **Starter content skips the module data route's rate limit.** The server writes it through the same checks as a data write except the per-person limit; the 20 keys and 64 KB caps and the once-only rule are the bound.
 - **The roadmap sync is checked against a stub only.** It has not run against the real project board, and it needs `PROJECT_TOKEN`, `PROJECT_OWNER` and `PROJECT_NUMBER` set in the repository.
 - **A note with a `done` field counts toward a phase.** A phase measured by goals counts any planner entry that names it and has a `done` of true or false; the notes the planners write have none, but one written another way with a `done` would be counted. Workaround: none needed.
@@ -185,22 +188,24 @@ Workaround: before creating an environment, make sure no folder is left for that
 
 ## The demo seeder changes environment-wide settings
 
-The demo loader (`server/demo-loader.js`) never changes an environment-wide setting. The seeder around it does:
+The demo loader (`server/demo-loader.js`) never changes an environment-wide setting, and the host console's **Add demo space** calls only it. The seeder around it does:
 `npm run seed:demo` installs and turns on every bundled module, turns on the calendar and map options, sets the
-place search to the public Photon service and may switch the template to travel. Use it only on test and demo
-environments. An "Add a demo space" feature that calls only the loader is planned (GitHub #416,
-[plan-demo-space](plans/plan-demo-space.md)).
+place search to the public Photon service and, on a new environment on the Default template with no space of its own, switches the template to the demo's. Use it only on test and demo
+environments ([plan-demo-space](plans/plan-demo-space.md)).
 
 Workaround: run the seeder only on a throwaway environment. See [Getting Started](userguide-getting-started.md), "Try it with demo data".
 
-## The demo loader adopts a real account that looks like a demo person
+## The demo loader still resets a demo person who is in a real space
 
-The loader marks a demo person by login and display name. If a real account has the login `mia` and the display
-name "Mia Alvarez" (or the same for `lee` or `sam`), the loader takes it as the demo's and resets its password. No
-account is deleted. Thomas decided on 2026-11-06 that the server will store a marker on demo people, set by the
-server, in slice 4 of [plan-demo-space](plans/plan-demo-space.md) (GitHub #416).
+A demo person is an account an earlier load made and marked (`demo: true`; #884), and only such an account is ever given a new password. A load refuses an account with a demo person's login that was not made by a demo, one with another name or role, one with two-step sign-in on, and a host admin. But a demo person whom someone has since made a moderator of a real space, or put in one, is still a demo person: the next load resets their password with the rest.
 
-Workaround: do not give a real account a demo person's login.
+Workaround: do not put a demo person into a real space; make a real account instead.
+
+## There is no Remove demo, and the console cannot pick a demo
+
+The host console's **Add demo space** (#884) adds the environment's own template's demo, else the travel one; the route and the seeder's `SEED_DEMO` can add any of the five, but the console has no picker. There is no **Remove demo** (#882): to take a demo away, delete its space (and its people, if wanted). The loader turns no module on: a module that is off is skipped and said in the report, and only the seeder turns modules on.
+
+Workaround: delete the demo's space by hand; to add another demo, call the route or run the seeder with `SEED_DEMO`.
 
 ## The demo space's marker is a public string
 
@@ -211,8 +216,7 @@ Workaround: leave the first line of the demo space's description alone, and do n
 
 ## Two demo loader runs at once are not safe
 
-Running the loader twice at the same time against one environment can leave the demo half built. There is no lock yet;
-a per-environment lock is planned for slice 4 (GitHub #416).
+Running the loader twice at the same time against one environment can leave the demo half built. The host console's route answers 409 while a run for that environment is going; the seeder and a direct call of the loader have no lock (GitHub #416).
 
 Workaround: run one at a time. A nightly schedule is fine.
 
@@ -232,7 +236,7 @@ Workaround: none is needed for the seeder, which is run by hand. Do not call the
 
 ## The demo seeder prints the demo people's one-time passwords
 
-At the end of a run the seeder prints the one-time passwords of the three demo people to the terminal. They are
+At the end of a run the seeder prints the one-time passwords of the demo people to the terminal. They are
 random and new each run. Anyone who can see the terminal or the container logs can read them.
 
 Workaround: run it where only you can see the output, and rerun it to replace them.

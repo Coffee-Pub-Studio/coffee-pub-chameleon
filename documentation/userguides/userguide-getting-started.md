@@ -140,33 +140,50 @@ the warnings below).
    The public address must be reachable from inside the container. A hosted run makes no map file.
 3. Optional settings, added with `-e` before the container name: `SEED_NO_AI=1` skips the two `/ai`
    exchanges otherwise made when an AI service is set up; `SEED_MAP=0` skips the map file;
-   `SEED_SEARCH_URL` swaps the place search service.
+   `SEED_SEARCH_URL` swaps the place search service. `SEED_DEMO` picks the demo: `travel`, `games`,
+   `project`, `learning` or `mentoring` (with none, the environment's own template's demo, else travel). A host
+   admin can also add a demo space to an environment from the host console; see "Add a demo space" below.
 
 What it creates:
 
-- One space, **Demo: Portugal**, a trip that starts about 45 days from the day you run it. Every date is
-  worked out from today.
-- Data in every module: Planner 76 objects, Places 37, Calendar 77 events, To-do 16, Polls 3, Budget 18,
+- One space, **Demo: Portugal** for the travel demo, a trip that starts about 45 days from the day you run it. Every date is
+  worked out from today. The other four are **Demo: The Salt Crown** (games), **Demo: Linden Bakery website**
+  (project), **Demo: Conversational Spanish** (learning) and **Demo: Zoe and Omar** (mentoring), each read
+  through its own template.
+- The travel demo's data in every module: Planner - Itinerary 76 objects, Places 37, Calendar 77 events, To-do 16, Polls 3, Budget 18,
   Research 4 and Chat 25 messages. It is invented; links go to `example.com`.
-- Three invented demo people, `mia` (a moderator), `lee` and `sam`, and a guest link.
+- Invented demo people (the travel demo has three: `mia`, a moderator, `lee` and `sam`; each of the others has two to
+  four) and a guest link.
 
 What it changes in the environment itself: it installs and turns on every bundled module, turns on the
 calendar and map options, sets the place search to the public Photon service, and switches an environment
-that has no template to travel.
+that has no template to the demo's template (travel when none is asked for). It does this only for a new
+environment on the Default template with no space of its own; any other environment keeps its template.
 
 To reset, run the same command again. It resets only the demo space (found by its name and a marker in its
-description) and the three demo people. It refuses to touch a space or an account that only has the same
-name.
+description) and its demo people. A demo person is an account an earlier load made and marked; it refuses to touch a space or an
+account that only has the same name, an account with two-step sign-in on, and a real person who has a demo
+person's login.
 
 Warnings:
 
-- It is not for an environment with real data, because of the settings it changes. An "Add a demo space"
-  feature that leaves environment settings alone is planned (GitHub #416).
-- It prints the three demo people's one-time passwords at the end, new on each run. Anyone who can see the
+- The seeder is not for an environment with real data, because of the settings it changes.
+- It prints the demo people's one-time passwords at the end, new on each run. Anyone who can see the
   terminal or the container logs can read them. It never prints the admin password.
 - It needs the network. The map is a file of about 5 MB made with range requests to `build.protomaps.com`,
   saved as `demo-portugal.pmtiles` in the data folder's `modules/maps/map-tiles/`. It is skipped when
   hosted or offline. Place search uses Photon.
+
+### Add a demo space (host admin)
+
+On a server with environments, the host console can add a demo space to an environment without touching its settings.
+Open the environment's page and choose **Add demo space**. It adds the environment's own template's demo (or the
+travel demo when that template has none), shows the demo people's one-time passwords once and gives the guest link.
+It turns on no module: a module that is off is skipped and the report says so. The same demo cannot be added twice
+("The <demo> is already there. Delete its <space word>, then add it again."), though another demo may sit beside it. There
+is no **Remove demo** yet: delete the demo's space. The console cannot yet pick one of the other demos; the
+route accepts a choice and the seeder's `SEED_DEMO` makes one (see
+[The demo seeder and the checks](../architecture/architecture-demo-site.md)).
 
 ## Update it later
 

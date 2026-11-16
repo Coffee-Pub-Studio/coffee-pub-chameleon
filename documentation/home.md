@@ -28,15 +28,15 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
 - [Manage](userguides/userguide-environment-settings.md) -- every tab of the Manage page, where an environment is set up.
 - [Creating themes](userguides/userguide-themes.md) -- the colours, light and dark, and sharing a theme as a file.
 - [Your environment](userguides/userguide-environments.md) -- an owner's view on a hosted server: the plan, the caps, a copy, leaving.
-- [Templates](userguides/userguide-templates.md) -- the shipped templates (Default, Travel, Games, Project, Learning and Mentoring), the pages, a space's own template, and making your own.
+- [Templates](userguides/userguide-templates.md) -- the shipped templates (Default, Travel, Games, Project, Learning and Mentoring), the pages, switching a template and its starter spaces, a space's own template, and making your own.
 - [Chat](userguides/userguide-chat.md) -- one box with Discussion and Assistant tabs: messages, `/ai`, module commands and bringing in research.
 - [Modules](userguides/userguide-modules.md) -- adding features with a module zip.
 - [Calendar](userguides/userguide-calendar.md) -- events and reminders, for the environment and for each space.
 - [To-do](userguides/userguide-todo.md) -- a shared task list, for the environment and for each space.
 - [Polls](userguides/userguide-polls.md) -- asking a group to choose.
-- [Planner](userguides/userguide-planner.md) -- planning a trip day by day, with phases (the Itinerary in the Travel template).
-- [Planner - Projects](userguides/userguide-planner-projects.md) -- milestones, work with owners and dates, and what waits on what (the Project plan in the Project template).
-- [Planner - Goals](userguides/userguide-planner-goals.md) -- goals, steps and progress, with dates optional (the Learning plan and the Development plan).
+- [Planner - Itinerary](userguides/userguide-planner.md) -- planning a trip day by day, with phases (the Itinerary in the Travel template).
+- [Planner - Projects](userguides/userguide-planner-projects.md) -- milestones, work with owners and dates, and what waits on what, with Export and import as a JSON file (the Project plan in the Project template).
+- [Planner - Goals](userguides/userguide-planner-goals.md) -- goals, steps and progress, with dates optional, with Export and import as a JSON file (the Learning plan and the Development plan).
 - [Budget](userguides/userguide-budget.md) -- costs planned and paid, the space's target, the burndown and settling up.
 - [Research](userguides/userguide-research.md) -- notes, links and photos a group finds while it plans.
 - [Vault](userguides/userguide-vault.md) -- a space's files: adding, finding, opening, linking from other tools and sharing photos, audio, video, PDFs and notes.
@@ -70,7 +70,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
 - [Environments architecture](architecture/architecture-environments.md) -- one host, many environments:
   the seam, the host console, the roles, the Names migration and templates (the format, the resolver, starter content, the phases' measure and the call settings).
 - [AI architecture](architecture/architecture-ai.md) -- how the AI is asked: the prompt registry, what is sent and what it may see, who may ask, refunds, records, the key and the address guard.
-- [The demo seeder and the checks](architecture/architecture-demo-site.md) -- filling a server with demo data, a demo site that resets itself, the checks added since 0.4, the page-load checks, the roadmap sync and the testing rule.
+- [The demo seeder and the checks](architecture/architecture-demo-site.md) -- filling a server with demo data (five demos, one for each template), adding one from the host console, a demo site that resets itself, the checks added since 0.4, the page-load checks, the roadmap sync and the testing rule.
 
 See the [repository README](https://github.com/Drowbe/coffee-pub-chameleon) for requirements and the
 short install summary.
