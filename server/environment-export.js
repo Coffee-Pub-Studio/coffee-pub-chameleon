@@ -40,8 +40,9 @@ const LAYOUTS_FILE = 'layouts.json';
 // The top level of app.json that goes in the copy, and what is left out.
 const APP_FIELDS = ['version', 'migrations', 'template', 'templateHistory', 'templates', 'settings', 'users', 'spaces', 'asides'];
 const APP_LEFT_OUT = ['secrets', 'invites'];
-// A person (Store#sanitizeUser).
-const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'createdAt'];
+// A person (Store#sanitizeUser). `demo` marks a demo person (server/demo-loader.js): kept, so a demo load in the copy may
+// give them new passwords.
+const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'createdAt'];
 const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed'];
 // A person's own record for one space (user.spaces[<space id>]).
 const USER_SPACE_FIELDS = ['images', 'useDefaultImages', 'permissions', 'joined'];

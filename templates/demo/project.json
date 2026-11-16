@@ -1,0 +1,190 @@
+{
+  "_about": "The demo of the project template: a small website project for an invented bakery, four people. Read by server/demo-loader.js, which writes it through the real module routes; the format is described in templates/demo/travel.json and the loader. Dates are offsets: \"start\" is the launch day (today plus \"anchor\" days).",
+  "template": "project",
+  "label": "Project demo",
+  "name": "Demo: Linden Bakery website",
+  "description": "A new website for a small bakery: a brief, a plan with milestones, the work and who does it. Reset by running it again.",
+  "anchor": 24,
+  "guestLink": true,
+  "budget": {"amount":8000,"currency":"USD"},
+  "phases": {
+    "start": {"start":"today-35"},
+    "build": {"start":"today-11","end":"start+0"},
+    "wrap": {"start":"start+1","end":"start+12"}
+  },
+  "people": [
+    {"login":"noa","displayName":"Noa Brandt","role":"member","moderator":true},
+    {"login":"rosa","displayName":"Rosa Linden","role":"member","moderator":false},
+    {"login":"june","displayName":"June Park","role":"member","moderator":false},
+    {"login":"kai","displayName":"Kai Mensah","role":"member","moderator":false}
+  ],
+  "modules": {
+    "schedule": {
+      "what": "plan entries",
+      "count": ["plan:"],
+      "steps": [
+        {
+          "as": "noa",
+          "data": {
+            "plan:m1": {"kind":"milestone","title":"Kick-off: goals agreed","start":"today-33","done":true,"progress":100,"phase":"start","order":"a1","by":"@noa"},
+            "plan:w01": {"kind":"work","title":"Interview staff and regular customers","start":"today-35","end":"today-31","owners":["@noa","@rosa"],"done":true,"phase":"start","parent":"m1","order":"a2","by":"@noa"},
+            "plan:w02": {"kind":"work","title":"Sitemap and list of pages","start":"today-32","end":"today-28","owners":["@june"],"done":true,"phase":"start","parent":"m1","waitsOn":["w01"],"order":"a3","by":"@noa"},
+            "plan:m2": {"kind":"milestone","title":"Design and words signed off","start":"today-12","done":true,"progress":100,"phase":"start","order":"a4","by":"@noa"},
+            "plan:w03": {"kind":"work","title":"Visual design: home, menu, order pages","start":"today-27","end":"today-14","owners":["@june"],"done":true,"phase":"start","parent":"m2","waitsOn":["w02"],"order":"a5","by":"@noa"},
+            "plan:w04": {"kind":"work","title":"Write the page copy","start":"today-24","end":"today-13","owners":["@noa","@rosa"],"done":true,"phase":"start","parent":"m2","waitsOn":["w02"],"order":"a6","by":"@noa"},
+            "plan:w05": {"kind":"work","title":"Photograph the bakes","start":"today-16","end":"today-12","owners":["@june"],"done":true,"phase":"start","parent":"m2","notes":"Shot list in the brief. Morning light, before the shop opens.","order":"a7","by":"@noa"},
+            "plan:m3": {"kind":"milestone","title":"Beta site for staff","start":"start-12","done":false,"progress":0,"phase":"build","order":"a8","by":"@noa"},
+            "plan:w06": {"kind":"work","title":"Build the page templates","start":"today-11","end":"today+2","owners":["@kai"],"done":false,"phase":"build","parent":"m3","waitsOn":["w03"],"notes":"Home and menu done; order page next.","order":"a9","by":"@noa"},
+            "plan:w07": {"kind":"work","title":"Move the menu and prices","start":"today-4","end":"today+4","owners":["@rosa","@kai"],"done":false,"phase":"build","parent":"m3","waitsOn":["w04"],"order":"b1","by":"@noa"},
+            "plan:w08": {"kind":"work","title":"Online order form and card payments","start":"today+1","end":"start-13","owners":["@kai"],"done":false,"phase":"build","parent":"m3","waitsOn":["w06"],"order":"b2","by":"@noa"},
+            "plan:m4": {"kind":"milestone","title":"Launch","start":"start+0","done":false,"progress":0,"phase":"build","notes":"The new site goes live in the morning; posters go up the same day.","order":"b3","by":"@noa","waitsOn":["w10"]},
+            "plan:w09": {"kind":"work","title":"Test on phones with staff","start":"start-12","end":"start-9","owners":["@june","@rosa"],"done":false,"phase":"build","parent":"m4","waitsOn":["w08"],"order":"b4","by":"@noa"},
+            "plan:w10": {"kind":"work","title":"Fix what testing finds","start":"start-8","end":"start-3","owners":["@kai"],"done":false,"phase":"build","parent":"m4","waitsOn":["w09"],"order":"b5","by":"@noa"},
+            "plan:w11": {"kind":"work","title":"Switch the domain to the new site","start":"start-1","end":"start+0","owners":["@kai"],"done":false,"phase":"build","parent":"m4","waitsOn":["w10"],"order":"b6","by":"@noa"},
+            "plan:m5": {"kind":"milestone","title":"Look back and hand over","start":"start+12","done":false,"progress":0,"phase":"wrap","order":"b7","by":"@noa"},
+            "plan:w12": {"kind":"work","title":"Tell customers: newsletter and shop posters","start":"start+0","end":"start+5","owners":["@rosa","@noa"],"done":false,"phase":"wrap","parent":"m5","order":"b8","by":"@noa"},
+            "plan:w13": {"kind":"work","title":"Train staff to update the menu","start":"start+3","end":"start+7","owners":["@kai","@rosa"],"done":false,"phase":"wrap","parent":"m5","order":"b9","by":"@noa"},
+            "plan:w14": {"kind":"work","title":"Look back and write the hand-over notes","start":"start+9","end":"start+12","owners":["@noa"],"done":false,"phase":"wrap","parent":"m5","order":"c1","by":"@noa"},
+            "plan:n1": {"kind":"note","title":"Open question: keep the old blog?","notes":"Rosa wants the recipes kept. Kai suggests moving the five most read ones and letting the rest go.","order":"c2","by":"@noa"},
+            "plan:n2": {"kind":"note","title":"Out of scope for now","notes":"Gift cards, a loyalty scheme and a second language. Revisit after launch.","order":"c3","by":"@noa"}
+          }
+        }
+      ]
+    },
+    "todo": {
+      "what": "tasks",
+      "count": ["task:"],
+      "steps": [
+        {
+          "as": "noa",
+          "data": {
+            "task:t01": {"id":"t01","title":"Send the photographer the shot list","notes":"June.","due":"today-18","remind":false,"done":true,"doneAt":"ms:today-19T16:00","createdAt":"ms:now","by":"June Park","links":[{"module":"schedule","kind":"plan","id":"w05","scope":"space","space":"{space}"}]},
+            "task:t02": {"id":"t02","title":"Get the logo files as SVG","notes":"Rosa. Ask the old designer.","due":"today-20","remind":false,"done":true,"doneAt":"ms:today-21T16:00","createdAt":"ms:now","by":"Rosa Linden","links":[{"module":"schedule","kind":"plan","id":"w03","scope":"space","space":"{space}"}]},
+            "task:t03": {"id":"t03","title":"Proofread the menu page","notes":"Noa and Rosa. Prices are from the spring menu.","due":"today+1","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Noa Brandt","links":[{"module":"schedule","kind":"plan","id":"w07","scope":"space","space":"{space}"}]},
+            "task:t04": {"id":"t04","title":"Ask the bank about online card payments","notes":"Rosa. Which provider, and how long it takes to set up.","due":"today+2","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Rosa Linden","links":[{"module":"schedule","kind":"plan","id":"w08","scope":"space","space":"{space}"}]},
+            "task:t05": {"id":"t05","title":"Order page: allergens on every product","notes":"Kai. Needs the list from the kitchen.","due":"today+6","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Kai Mensah","links":[{"module":"schedule","kind":"plan","id":"w08","scope":"space","space":"{space}"}]},
+            "task:t06": {"id":"t06","title":"Book two staff for phone testing","notes":"June. Half an hour each, before opening.","due":"start-14","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"June Park","links":[{"module":"schedule","kind":"plan","id":"w09","scope":"space","space":"{space}"}]},
+            "task:t07": {"id":"t07","title":"Write the launch newsletter","notes":"Noa.","due":"start-4","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Noa Brandt","links":[{"module":"schedule","kind":"plan","id":"w12","scope":"space","space":"{space}"}]},
+            "task:t08": {"id":"t08","title":"Print the shop posters","notes":"Rosa. A3, ten copies.","due":"start-2","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Rosa Linden","links":[{"module":"schedule","kind":"plan","id":"w12","scope":"space","space":"{space}"}]},
+            "task:t09": {"id":"t09","title":"Check the opening hours on every page","notes":"Kai.","due":"start-5","remind":false,"done":false,"doneAt":null,"createdAt":"ms:now","by":"Kai Mensah","links":[{"module":"schedule","kind":"plan","id":"w10","scope":"space","space":"{space}"}]},
+            "task:t10": {"id":"t10","title":"Set up the domain email forwarding","notes":"Kai.","due":"today-6","remind":false,"done":true,"doneAt":"ms:today-7T16:00","createdAt":"ms:now","by":"Kai Mensah","links":[]},
+            "task:t11": {"id":"t11","title":"Share the design with the whole shop","notes":"Noa. Pinned up by the ovens.","due":"today-12","remind":false,"done":true,"doneAt":"ms:today-12T16:00","createdAt":"ms:now","by":"Noa Brandt","links":[{"module":"schedule","kind":"plan","id":"w03","scope":"space","space":"{space}"}]}
+          }
+        }
+      ]
+    },
+    "calendar": {
+      "what": "meetings",
+      "count": ["event:"],
+      "steps": [
+        {
+          "as": "noa",
+          "data": {
+            "event:p-standup": {"id":"p-standup","by":"Noa Brandt","desc":"What is done, what is next, what is stuck.","remind":10,"repeat":{"every":"week","until":"start+14"},"title":"Weekly check-in","allDay":false,"start":"today-35T09:30Z","end":"today-35T10:00Z"},
+            "event:p-kickoff": {"id":"p-kickoff","by":"Noa Brandt","desc":"Before opening. Coffee and the first croissants.","remind":null,"repeat":null,"title":"Kick-off at the bakery","allDay":false,"start":"today-33T08:00Z","end":"today-33T09:30Z"},
+            "event:p-design": {"id":"p-design","by":"Noa Brandt","desc":"June walks us through the three pages.","remind":null,"repeat":null,"title":"Design review","allDay":false,"start":"today-13T14:00Z","end":"today-13T15:00Z"},
+            "event:p-beta": {"id":"p-beta","by":"Noa Brandt","desc":"Everyone tries an order on their own phone.","remind":60,"repeat":null,"title":"Beta walk-through with staff","allDay":false,"start":"start-11T15:00Z","end":"start-11T16:00Z"},
+            "event:p-golive": {"id":"p-golive","by":"Noa Brandt","desc":"Kai switches the domain; everyone checks a page.","remind":30,"repeat":null,"title":"Go live check","allDay":false,"start":"start+0T07:00Z","end":"start+0T07:30Z"},
+            "event:p-retro": {"id":"p-retro","by":"Noa Brandt","desc":"What went well, what we would change.","remind":null,"repeat":null,"title":"Look back","allDay":false,"start":"start+11T16:00Z","end":"start+11T17:00Z"}
+          }
+        }
+      ]
+    },
+    "budget": {
+      "what": "costs",
+      "count": ["cost:"],
+      "steps": [
+        {
+          "as": "noa",
+          "data": {
+            "cost:e1": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"today-33","title":"Customer interviews: coffee vouchers","category":"planning","categoryName":"Planning","planned":60,"actual":48,"amount":48,"done":true,"paidBy":"@rosa"},
+            "cost:e2": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"today-13","title":"Visual design (June, 6 days)","category":"build","categoryName":"Build","planned":2400,"actual":2400,"amount":2400,"done":true,"paidBy":"@rosa"},
+            "cost:e3": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"today-12","title":"Photographer, half a day","category":"build","categoryName":"Build","planned":450,"actual":450,"amount":450,"done":true,"paidBy":"@rosa"},
+            "cost:e4": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"","title":"Development (Kai, 10 days)","category":"build","categoryName":"Build","planned":4000,"amount":4000,"done":false},
+            "cost:e5": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"","title":"Phone testing: staff hours","category":"review","categoryName":"Review","planned":120,"amount":120,"done":false},
+            "cost:e6": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"today-6","title":"Hosting, first year","category":"tools","categoryName":"Tools and services","planned":180,"actual":168,"amount":168,"done":true,"paidBy":"@kai"},
+            "cost:e7": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"today-6","title":"Domain renewal","category":"tools","categoryName":"Tools and services","planned":20,"actual":18,"amount":18,"done":true,"paidBy":"@kai"},
+            "cost:e8": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"","title":"Card payments set-up fee","category":"tools","categoryName":"Tools and services","planned":50,"amount":50,"done":false},
+            "cost:e9": {"notes":"","by":"Noa Brandt","sharedBy":[],"date":"","title":"Shop posters","category":"other","categoryName":"Other","planned":90,"amount":90,"done":false}
+          }
+        }
+      ]
+    },
+    "research": {
+      "what": "research objects",
+      "count": ["note:","link:","answer:"],
+      "steps": [
+        {
+          "as": "noa",
+          "data": {
+            "note:r1": {"text":"No stock photos. Every picture is of a real bake from this kitchen.","sub":"","kind":"note","title":"Decision: our own photos only","body":"No stock photos. Every picture is of a real bake from this kitchen.","tags":["decision"],"date":"","by":"Noa Brandt","at":"today-30T10:00Z"},
+            "note:r2": {"text":"No delivery in this project. Orders are collected from 7 the next morning.","sub":"","kind":"note","title":"Decision: order ahead, collect in the shop","body":"No delivery in this project. Orders are collected from 7 the next morning.","tags":["decision"],"date":"","by":"Rosa Linden","at":"today-25T10:00Z"},
+            "note:r3": {"text":"The bank needs about two weeks. If it slips, the order form launches as \"pay when you collect\".","sub":"","kind":"note","title":"Risk: card payments not ready in time","body":"The bank needs about two weeks. If it slips, the order form launches as \"pay when you collect\".","tags":["risk"],"date":"","by":"Kai Mensah","at":"today-5T10:00Z"},
+            "note:r4": {"text":"Rosa sends the new prices before the menu is moved, not after.","sub":"","kind":"note","title":"Risk: menu prices change in spring","body":"Rosa sends the new prices before the menu is moved, not after.","tags":["risk"],"date":"","by":"Noa Brandt","at":"today-4T10:00Z"},
+            "link:r5": {"text":"Contrast, alt text on every photo, forms that work with a keyboard.","sub":"","kind":"link","title":"Accessibility checklist for small sites","tags":["reference"],"date":"","by":"June Park","at":"today-20T10:00Z","url":"https://example.com/accessibility-checklist","excerpt":"Contrast, alt text on every photo, forms that work with a keyboard."},
+            "link:r6": {"text":"Short names, the price on the right, allergens as icons with words.","sub":"","kind":"link","title":"Writing a menu people can scan","tags":["reference"],"date":"","by":"Noa Brandt","at":"today-22T10:00Z","url":"https://example.com/menu-writing","excerpt":"Short names, the price on the right, allergens as icons with words."}
+          }
+        }
+      ]
+    },
+    "documents": {
+      "what": "documents",
+      "count": ["doc:"],
+      "steps": [
+        {
+          "as": "noa",
+          "data": {
+            "doc:lindenbr": {"id":"lindenbr","type":"doc","title":"Project brief","rev":1,"chunks":["lindenc1"],"size":784,"excerpt":"Project brief: a new website for Linden Bakery Goal Customers can see today's bakes, check the opening hours and order ahead for collection, from their phone, in under a minute. Who Noa Brandt: project lead Rosa Linden: owner of the bakery; decides on words, prices and photos June Park: design and p","preview":"# Project brief: a new website for Linden Bakery\n\n## Goal\n\nCustomers can see today's bakes, check the opening hours and order ahead for collection, from their phone, in under a minute.\n\n## Who\n\n- **Noa Brandt**: project lead\n- **Rosa Linden**: owner of the bakery; decides on words, prices and photos\n- **June Park**: design and photos\n- **Kai Mensah**: build, hosting and the domain\n\n## When","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@noa","at":"today-34T09:00Z","editedBy":"@rosa","editedByName":"Rosa Linden","editedAt":"today-12T17:00Z"},
+            "text:lindenbr:lindenc1": {"id":"lindenc1","doc":"lindenbr","text":"# Project brief: a new website for Linden Bakery\n\n## Goal\n\nCustomers can see today's bakes, check the opening hours and order ahead for collection, from their phone, in under a minute.\n\n## Who\n\n- **Noa Brandt**: project lead\n- **Rosa Linden**: owner of the bakery; decides on words, prices and photos\n- **June Park**: design and photos\n- **Kai Mensah**: build, hosting and the domain\n\n## When\n\n- Start: kick-off and interviews\n- Build: design signed off, beta for staff, then launch\n- Wrap up: tell customers, train staff, look back\n\n## What success looks like\n\n1. Ten orders a day through the site within a month of launch.\n2. Fewer phone calls asking \"are you open?\".\n3. Staff can change the menu without asking Kai.\n\n## Not in this project\n\nDelivery, gift cards, a loyalty scheme.\n"},
+            "doc:launchck": {"id":"launchck","type":"doc","title":"Launch checklist","rev":1,"chunks":["launchc1"],"size":333,"excerpt":"Launch checklist Domain email forwarding works Hosting paid for a year Every page checked on a phone Opening hours right on every page Allergens on every product Order form tested with a real card Old site's links point to the new pages Posters up in the shop Newsletter sent","preview":"# Launch checklist\n\n- [x] Domain email forwarding works\n- [x] Hosting paid for a year\n- [ ] Every page checked on a phone\n- [ ] Opening hours right on every page\n- [ ] Allergens on every product\n- [ ] Order form tested with a real card\n- [ ] Old site's links point to the new pages\n- [ ] Posters up in the shop\n- [ ] Newsletter sent","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@kai","at":"today-7T15:00Z","editedBy":"@kai","editedByName":"Kai Mensah","editedAt":"today-1T11:00Z"},
+            "text:launchck:launchc1": {"id":"launchc1","doc":"launchck","text":"# Launch checklist\n\n- [x] Domain email forwarding works\n- [x] Hosting paid for a year\n- [ ] Every page checked on a phone\n- [ ] Opening hours right on every page\n- [ ] Allergens on every product\n- [ ] Order form tested with a real card\n- [ ] Old site's links point to the new pages\n- [ ] Posters up in the shop\n- [ ] Newsletter sent\n"}
+          }
+        }
+      ]
+    },
+    "polls": {
+      "what": "polls",
+      "count": ["poll:"],
+      "steps": [
+        {
+          "as": "noa",
+          "data": {
+            "poll:p1": {"id":"p1","question":"Launch on which morning?","options":[{"id":"o1","text":"Early in the week, it is quieter"},{"id":"o2","text":"Before the weekend rush"}],"multi":false,"addable":false,"closed":false,"closesAt":"ms:today+5T17:00","createdAt":"ms:today-2T10:00","by":"Noa Brandt","byKey":"@noa"},
+            "vote:p1:@noa": {"options":["o1"],"name":"Noa Brandt","at":"ms:today-2T10:00"}
+          }
+        },
+        {
+          "as": "kai",
+          "data": {
+            "vote:p1:@kai": {"options":["o1"],"name":"Kai Mensah","at":"ms:today-2T11:00"}
+          }
+        },
+        {
+          "as": "rosa",
+          "data": {
+            "vote:p1:@rosa": {"options":["o2"],"name":"Rosa Linden","at":"ms:today-1T08:00"}
+          }
+        }
+      ]
+    },
+    "chat": {
+      "messages": [
+        {"as":"noa","text":"Morning all. Design is signed off, so we are in Build now. The plan: {base}/modules/schedule?space={space}"},
+        {"as":"rosa","text":"The photos look wonderful. The cinnamon buns have never looked so good."},
+        {"as":"june","text":"They were warm, that helps."},
+        {"as":"kai","text":"Home and menu templates are up on the test site. The order page is next."},
+        {"as":"noa","text":"The order form waits on the templates, and the phone testing waits on the form. Shout if anything slips."},
+        {"as":"rosa","text":"I spoke to the bank. Card payments need about two weeks."},
+        {"as":"kai","text":"> about two weeks\nThat is tight. I put it in Research as a risk, with a plan B."},
+        {"as":"noa","text":"Good. Plan B is \"pay when you collect\" for the first week."},
+        {"as":"june","text":"I can book two staff for testing. Mornings before opening work best."},
+        {"as":"rosa","text":"Prices change in spring. I will send the new list before Kai moves the menu."},
+        {"as":"kai","text":"Thank you. That saves me doing it twice."},
+        {"as":"noa","text":"Poll is up for the launch morning. Vote when you can."},
+        {"as":"rosa","text":"Voted. The weekend is busy, but that is when people look us up."},
+        {"as":"noa","text":"The brief and the launch checklist are in Documents. Tick what you finish."},
+        {"as":"june","text":"Ticked the hosting and the email."}
+      ]
+    }
+  }
+}

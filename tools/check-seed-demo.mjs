@@ -8,7 +8,10 @@
  * untouched; a wrong password and a missing server are refused in one plain sentence; the target URL follows SEED_URL, then PORT.
  * Also: every bundled module is on; the place search is chosen; each earlier phase holds dated Planner objects, to-dos, Calendar
  * events (and Planning, a dated Research object); a hosted install is refused without DEMO_ALLOW_HOSTED, DEMO_ENVIRONMENT and the
- * environment's own address (a fake hosted answer stands in for the server). No LiveKit and no browser are needed.
+ * environment's own address (a fake hosted answer stands in for the server). SEED_DEMO picks another demo: an unknown one is
+ * refused in one sentence; the games demo seeded twice into the same (travel) environment gives the same counts, one space that
+ * reads the games template, and leaves the travel demo beside it. A Default environment with a space of its own is refused (it is
+ * never switched to the demo's template). No LiveKit and no browser are needed.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -69,6 +72,12 @@ try {
 
   // Something else that must survive: a space with a task in it, and another account.
   await api('POST', '/api/login', { login: 'admin', password: PASSWORD });
+  // A Default environment that already has a space of its own is never switched to the demo's template.
+  const mine = (await api('POST', '/api/spaces', { name: 'Already here', description: 'Real.' })).json.space;
+  await assert.rejects(runSeed({ base, adminPassword: PASSWORD, today: TODAY, say: quiet, noAi: true }), /^Error: This environment is on the Default template and already has a space of its own, so the seeder will not switch it to the travel template\. Switch its template yourself first, or use a fresh data folder\.$/);
+  assert.equal(((await api('GET', '/api/settings')).json.settings.template || {}).id, 'default', 'the template was not switched');
+  assert.ok((await api('GET', '/api/spaces')).json.spaces.some((x) => x.id === mine.id), 'the space is untouched');
+  await api('DELETE', `/api/spaces/${mine.id}`);
   await api('PATCH', '/api/settings', { template: 'travel' });
   await api('PATCH', '/api/settings', { showCalendar: true });
   for (const id of ['todo']) { await api('POST', `/api/modules/bundled/${id}/install`); await api('PATCH', `/api/modules/${id}`, { enabled: true }); }
@@ -164,6 +173,7 @@ try {
   assert.equal(c.polls, 3, 'three polls');
   assert.ok(c.budget >= 15, 'fifteen or more costs');
   assert.equal(c.research, 4, 'four research objects');
+  assert.equal(c.documents, 2, 'two documents');
   assert.ok(c.chat >= 20, 'chat messages');
   const events = (await api('GET', `/api/modules/calendar/data?scope=space&space=${second.space.id}&prefix=event:`)).json.items.map((i) => i.value);
   assert.ok(events.some((e) => e.repeat), 'a repeating event');
@@ -179,6 +189,19 @@ try {
   assert.ok(costs.some((x) => x.actual && x.paidBy) && costs.some((x) => !x.actual), 'costs paid and costs still owed');
   const chat = (await api('GET', `/api/spaces/${second.space.id}/chat`)).json;
   assert.ok((chat.messages || []).some((m) => /\/modules\/travel\?space=/.test(m.text || '')), 'a shared object link in the chat');
+
+  // Another demo: SEED_DEMO=games, twice, beside the travel demo.
+  await assert.rejects(runSeed({ base, adminPassword: PASSWORD, today: TODAY, say: quiet, demo: 'nope' }), /There is no demo called nope\. SEED_DEMO is one of: games, learning, mentoring, project, travel\./);
+  const g1 = await runSeed({ base, adminPassword: PASSWORD, today: TODAY, say: quiet, noAi: true, demo: 'games' });
+  const g2 = await runSeed({ base, adminPassword: PASSWORD, today: TODAY, say: quiet, noAi: true, demo: 'games' });
+  assert.deepEqual(g2.counts, g1.counts, 'the same counts after a second games run');
+  assert.deepEqual(g2.counts, { schedule: 26, research: 8, documents: 3, todo: 9, calendar: 13, budget: 8, polls: 2, chat: 17 }, 'the games counts');
+  assert.deepEqual(g2.skipped, [], 'nothing skipped: the seeder turned every module on');
+  const after = (await api('GET', '/api/spaces')).json.spaces;
+  assert.equal(after.filter((s) => s.name === 'Demo: The Salt Crown').length, 1, 'one games demo space');
+  assert.ok(after.some((s) => s.id === second.space.id), 'the travel demo is still there beside it');
+  assert.equal((await api('GET', `/api/spaces/${g2.space.id}`)).json.space.template, 'games', 'the games demo reads the games template');
+  assert.equal(((await api('GET', '/api/settings')).json.settings.template || {}).id, 'travel', 'the environment kept its own template');
 
   console.log('check-seed-demo: ok');
 } catch (e) {

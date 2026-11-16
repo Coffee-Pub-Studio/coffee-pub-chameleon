@@ -4,7 +4,12 @@
  * Boots a throwaway hosted server (BASE_DOMAIN=localhost) and asserts: anonymous, an environment's owner and a cross-site
  * request are refused; a host admin adds the demo (the report has the space, counts and one-time passwords; nothing is
  * stored in the data folder or the log); a second add is refused with the plain sentence; a space with the demo's name
- * but no marker is left alone; an unknown and a suspended environment are refused. No LiveKit and no browser.
+ * but no marker is left alone; an unknown and a suspended environment are refused. GET /api/host/demos lists the five demos by
+ * their plain names, host admin only; a body's `demo` picks one (an unknown one is a 400 with a sentence): the games demo sits
+ * beside the travel demo in a travel environment, reads the games template, says in a sentence what this environment does not
+ * have, and is refused a second time; a games environment gets the games demo with no body. The chat links and the guest
+ * link use the environment's own address, never the loopback; an empty name and a list body are refused; a real account with a
+ * demo person's login and name is never taken over. No LiveKit and no browser.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -53,8 +58,8 @@ try {
   const login = await call('POST', 'admin', '/api/host/login', HOST);
   assert.equal(login.status, 200, login.text);
   const admin = { cookie: login.cookie };
-  for (const slug of ['alpha', 'beta', 'gamma']) {
-    const made = await call('POST', 'admin', '/api/host/environments', { slug, name: slug, template: 'travel', owner: { login: `own${slug}`, displayName: slug, password: OWNER_PASSWORD } }, admin);
+  for (const slug of ['alpha', 'beta', 'gamma', 'delta', 'eps', 'zeta']) {
+    const made = await call('POST', 'admin', '/api/host/environments', { slug, name: slug, template: slug === 'delta' ? 'games' : 'travel', owner: { login: `own${slug}`, displayName: slug, password: OWNER_PASSWORD } }, admin);
     assert.equal(made.status, 201, made.text);
   }
   const ownerOf = async (slug) => {
@@ -93,7 +98,66 @@ try {
 
   const again = await call('POST', 'admin', url('alpha'), undefined, admin);
   assert.equal(again.status, 409);
-  assert.match(again.json.error, /^The demo (space|trip) is already there\. Delete it, then add it again\.$/);
+  assert.equal(again.json.error, 'The Travel demo is already there. Delete its trip, then add it again.');
+  // The links the demo wrote use the environment's own address, never the loopback the loader's requests went to.
+  const travelChat = (await call('GET', 'alpha', `/api/spaces/${added.json.space.id}/chat`, undefined, owner)).json.messages;
+  assert.ok(travelChat.some((m) => m.text.includes(`http://alpha.localhost:${port}/modules/travel?space=${added.json.space.id}`)), 'a chat link on the environment\'s own address');
+  assert.ok(!travelChat.some((m) => /127\.0\.0\.1/.test(m.text)), 'no loopback address in the chat');
+  assert.ok(added.json.guestUrl.startsWith(`http://alpha.localhost:${port}/guest/`), 'the guest link is on the environment\'s own address');
+  // The body: an empty name, a list, and null (this template's own demo, here already there).
+  const empty = await call('POST', 'admin', url('alpha'), { demo: '' }, admin);
+  assert.equal(empty.status, 400);
+  assert.equal(empty.json.error, 'Name a demo.');
+  const list = await call('POST', 'admin', url('alpha'), ['games'], admin);
+  assert.equal(list.status, 400, 'a list is not a body');
+  assert.match(list.json.error, /^Send the demo to add as/);
+  const none = await call('POST', 'admin', url('alpha'), { demo: null }, admin);
+  assert.equal(none.status, 409, 'null is this template\'s own demo');
+  assert.equal(none.json.error, 'The Travel demo is already there. Delete its trip, then add it again.');
+
+  // The list of demos, and choosing one.
+  assert.equal((await call('GET', 'admin', '/api/host/demos')).status, 401, 'anonymous may not list the demos');
+  const listed = await call('GET', 'admin', '/api/host/demos', undefined, admin);
+  assert.equal(listed.status, 200, listed.text);
+  assert.deepEqual(listed.json.demos.map((d) => d.label), ['Games demo', 'Learning demo', 'Mentoring demo', 'Project demo', 'Travel demo']);
+  assert.ok(listed.json.demos.every((d) => d.id && d.name), 'each has its id and its space name');
+  const nope = await call('POST', 'admin', url('alpha'), { demo: 'nope' }, admin);
+  assert.equal(nope.status, 400);
+  assert.equal(nope.json.error, 'There is no demo called nope.');
+  const odd = await call('POST', 'admin', url('alpha'), { demo: 7 }, admin);
+  assert.equal(odd.status, 400);
+  assert.equal(odd.json.error, 'There is no demo called that.');
+  const games = await call('POST', 'admin', url('alpha'), { demo: 'games' }, admin);
+  assert.equal(games.status, 200, games.text);
+  assert.equal(games.json.usedTemplate, 'games');
+  assert.equal(games.json.fellBack, false);
+  assert.equal(games.json.space.name, 'Demo: The Salt Crown');
+  assert.equal(games.json.space.template, 'games', 'the games demo reads the games template in a travel environment');
+  // This travel environment's template offer was never applied, so it has no modules on: each is skipped in a sentence.
+  // (Which modules a new hosted environment has on is the environment's own; Planner - Projects is never among a travel one's.)
+  assert.ok(games.json.created.chat === 17 && games.json.created.schedule === undefined, `the chat, and no Campaign: ${JSON.stringify(games.json.created)}`);
+  assert.ok(games.json.skipped.some((x) => x.module === 'schedule' && x.why === 'Planner - Projects is off in this environment, so the 26 demo campaign entries were not made.'), JSON.stringify(games.json.skipped));
+  const alphaMods = (await call('GET', 'alpha', '/api/modules', undefined, owner)).json.modules;
+  assert.ok(!alphaMods.some((m) => m.id === 'schedule' && m.enabled), 'Planner - Projects was not turned on');
+  const gamesAgain = await call('POST', 'admin', url('alpha'), { demo: 'games' }, admin);
+  assert.equal(gamesAgain.status, 409, 'the games demo is there once');
+  assert.equal(gamesAgain.json.error, 'The Games demo is already there. Delete its trip, then add it again.');
+  const both = (await call('GET', 'alpha', '/api/spaces', undefined, owner)).json.spaces;
+  assert.equal(both.filter((x) => x.name === demoName).length, 1, 'the travel demo is still there, once');
+  assert.equal(both.filter((x) => x.name === 'Demo: The Salt Crown').length, 1, 'beside one games demo');
+  // A games environment whose owner turned on the modules it has gets its own demo with no body, its planner filled.
+  const deltaOwner = await ownerOf('delta');
+  const deltaMods = (await call('GET', 'delta', '/api/modules', undefined, deltaOwner)).json.modules.map((m) => m.id);
+  assert.ok(deltaMods.includes('schedule'), 'a games environment has Planner - Projects');
+  for (const id of deltaMods) assert.equal((await call('PATCH', 'delta', `/api/modules/${id}`, { enabled: true }, deltaOwner)).status, 200, `${id} turns on`);
+  const own = await call('POST', 'admin', url('delta'), undefined, admin);
+  assert.equal(own.status, 200, own.text);
+  assert.equal(own.json.usedTemplate, 'games');
+  assert.equal(own.json.fellBack, false);
+  assert.equal(own.json.created.schedule, 26, 'the Campaign is filled');
+  assert.equal(own.json.created.chat, 17);
+  for (const id of ['research', 'documents', 'todo', 'calendar', 'budget', 'polls']) assert.ok(own.json.created[id] > 0 || own.json.skipped.some((x) => x.module === id && / is off in this environment, so the \d+ demo /.test(x.why)), `${id} is made or skipped in a sentence`);
+  assert.equal(own.json.space.template, undefined, 'a games environment\'s demo needs no template of its own');
 
   const plain = await call('POST', 'beta', '/api/spaces', { name: demoName, description: 'Mine.' }, await ownerOf('beta'));
   assert.ok(plain.status < 300, plain.text);
@@ -108,8 +172,33 @@ try {
   assert.equal(sus.status, 409);
   assert.match(sus.json.error, /suspended/);
 
+  // A real account with a demo person's login and name (here an owner) is never taken over.
+  const epsOwner = await ownerOf('eps');
+  assert.ok((await call('POST', 'eps', '/api/users', { login: 'noa', displayName: 'Noa Brandt', role: 'owner', password: OWNER_PASSWORD }, epsOwner)).status < 300);
+  const takeover = await call('POST', 'admin', url('eps'), { demo: 'project' }, admin);
+  assert.equal(takeover.status, 409, takeover.text);
+  assert.equal(takeover.json.error, 'An account called "noa" already exists and was not made by a demo, so it is left alone. Rename or remove it first.');
+  assert.equal((await call('POST', 'eps', '/api/login', { login: 'noa', password: OWNER_PASSWORD })).status, 200, 'her password still works');
+  assert.ok(!(await call('GET', 'eps', '/api/spaces', undefined, epsOwner)).json.spaces.some((x) => x.name === 'Demo: Linden Bakery website'), 'no demo space was made');
+  assert.ok(!(await call('GET', 'eps', '/api/users', undefined, epsOwner)).json.users.some((u) => u.login === 'host-demo'), 'a refused load leaves no stand-in behind (nor in the Lobby)');
+  // A forged forwarded host and a port that is not digits never reach the links: they stay on <slug>.<base domain>.
+  const evilHost = await call('POST', 'admin', url('zeta'), { demo: 'mentoring' }, { ...admin, 'x-forwarded-host': 'evil.example:9999' });
+  assert.notEqual(evilHost.status, 200, 'a forged forwarded host does not reach the console at all');
+  const forged = await call('POST', 'admin', url('zeta'), { demo: 'learning' }, { ...admin, 'x-forwarded-proto': 'https', 'x-forwarded-port': '9999' });
+  assert.equal(forged.status, 200, forged.text);
+  const zetaChat = (await call('GET', 'zeta', `/api/spaces/${forged.json.space.id}/chat`, undefined, await ownerOf('zeta'))).json.messages;
+  const links = zetaChat.map((m) => (/(https?:\/\/[^/\s]+)\/modules\//.exec(m.text) || [])[1]).filter(Boolean);
+  assert.ok(links.length && links.every((l) => new URL(l).host === `zeta.localhost:${port}`), `the links stay on zeta.localhost:${port} (${[...new Set(links)].join(', ')})`);
+  assert.ok(!JSON.stringify(zetaChat).includes('evil'), 'the forged host is nowhere');
+  assert.equal(new URL(forged.json.guestUrl).host, `zeta.localhost:${port}`, 'and the guest link too');
+  const badPort = await call('POST', 'admin', url('zeta'), { demo: 'games' }, { ...admin, host: 'admin.localhost:9x9' });
+  assert.equal(badPort.status, 200, badPort.text);
+  const badChat = (await call('GET', 'zeta', `/api/spaces/${badPort.json.space.id}/chat`, undefined, await ownerOf('zeta'))).json.messages;
+  assert.ok(badChat.some((m) => m.text.includes(`http://zeta.localhost/modules/schedule?space=${badPort.json.space.id}`)), 'a port that is not digits is dropped from the links');
+  assert.ok(!JSON.stringify(badChat).includes(':9x9') && new URL(badPort.json.guestUrl).host === 'zeta.localhost', 'and from the guest link');
+
   await stop();
-  const keep = (added.json.people.map((p) => p.password));
+  const keep = [...added.json.people, ...games.json.people, ...own.json.people, ...forged.json.people, ...badPort.json.people].map((p) => p.password);
   const files = fs.readdirSync(dataDir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => path.join(e.parentPath, e.name));
   for (const f of files) { const text = fs.readFileSync(f, 'latin1'); for (const pw of keep) assert.ok(!text.includes(pw), `a demo password is stored in ${f}`); }
   for (const pw of keep) assert.ok(!log.includes(pw), 'a demo password is in the log');

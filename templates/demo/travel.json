@@ -1,6 +1,7 @@
 {
   "_about": "The demo of the travel template: one space, three people, every module filled. Read by server/demo-loader.js, which writes it through the real module routes. Dates are offsets, never absolute: \"today+N\" is N days after the day the loader runs, \"start+N\" is N days after the trip start (today plus \"anchor\" days); a time follows as \"T09:30\", a trailing \"Z\" gives a full timestamp (\"start+1T19:00Z\"), and \"ms:\" in front gives a number of milliseconds (\"ms:today+2T10:00\", \"ms:now\"). \"@login\" is that person's key (in a value or a key), \"{space}\" the space id, \"{base}\" the server address. \"as\" is the person whose session writes a step (default: the first moderator); \"count\" lists the key prefixes the report counts and \"what\" names them in the sentence that says a module was skipped. A phase is named by its id in the template. Nothing here is an absolute date, so the demo stays ahead of the day on every run.",
   "template": "travel",
+  "label": "Travel demo",
   "name": "Demo: Portugal",
   "description": "Portugal in ten days: Lisbon, Sintra, Porto. Reset by running it again.",
   "anchor": 45,
@@ -91,13 +92,13 @@
             "event:dm-visa": {"id":"dm-visa","by":"Mia Alvarez","title":"Check passports, visa and insurance papers","allDay":false,"start":"today+23T12:00Z","end":null,"desc":"Passports valid past March; insurance policy printed.","remind":1440,"repeat":null},
             "event:dm-print": {"id":"dm-print","by":"Mia Alvarez","title":"Print the tickets and bookings","allDay":false,"start":"today+36T18:00Z","end":null,"desc":"One folder, plus a copy on each phone.","remind":60,"repeat":null},
             "event:dm-weigh": {"id":"dm-weigh","by":"Mia Alvarez","title":"Weigh the suitcases","allDay":false,"start":"today+40T18:00Z","end":null,"desc":"23 kg each on Lusa Air.","remind":60,"repeat":null},
-            "event:dm-return": {"id":"dm-return","by":"Mia Alvarez","title":"Back home: laundry and photos","allDay":true,"start":"start+11","end":null,"desc":"Share the best ones in Research.","remind":null,"repeat":null}
+            "event:dm-return": {"id":"dm-return","by":"Mia Alvarez","title":"Back home: laundry and photos","allDay":true,"start":"start+11","end":null,"desc":"Share the best ones in the Vault.","remind":null,"repeat":null}
           }
         }
       ]
     },
     "travel": {
-      "what": "plan objects",
+      "what": "itinerary entries",
       "count": ["plan:"],
       "steps": [
         {
@@ -323,6 +324,21 @@
         }
       ]
     },
+    "documents": {
+      "what": "documents",
+      "count": ["doc:"],
+      "steps": [
+        {
+          "as": "mia",
+          "data": {
+            "doc:packlist": {"id":"packlist","type":"doc","title":"Packing list","rev":1,"chunks":["packlic1"],"size":429,"excerpt":"Packing list Each of us Passport (valid past March) and a copy on the phone Phone, charger, a plug adapter Comfortable shoes: Lisbon is all hills and cobbles A light rain jacket for Porto Swimsuit, in case of a warm day at Cascais Shared Two plug adapters (Mia) Power bank and two cables (Sam) Luggag","preview":"# Packing list\n\n## Each of us\n\n- Passport (valid past March) and a copy on the phone\n- Phone, charger, a plug adapter\n- Comfortable shoes: Lisbon is all hills and cobbles\n- A light rain jacket for Porto\n- Swimsuit, in case of a warm day at Cascais\n\n## Shared\n\n- [x] Two plug adapters (Mia)\n- [x] Power bank and two cables (Sam)\n- [ ] Luggage scale (Lee)\n- [ ] The folder of printed bookings (Sam)","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@mia","at":"today-2T19:00Z","editedBy":"@sam","editedByName":"Sam Okafor","editedAt":"today-0T09:00Z"},
+            "text:packlist:packlic1": {"id":"packlic1","doc":"packlist","text":"# Packing list\n\n## Each of us\n\n- Passport (valid past March) and a copy on the phone\n- Phone, charger, a plug adapter\n- Comfortable shoes: Lisbon is all hills and cobbles\n- A light rain jacket for Porto\n- Swimsuit, in case of a warm day at Cascais\n\n## Shared\n\n- [x] Two plug adapters (Mia)\n- [x] Power bank and two cables (Sam)\n- [ ] Luggage scale (Lee)\n- [ ] The folder of printed bookings (Sam)\n- [ ] Small first aid kit (Mia)\n"},
+            "doc:tripnote": {"id":"tripnote","type":"doc","title":"Trip notes","rev":1,"chunks":["tripnoc1"],"size":507,"excerpt":"Trip notes Getting around Lisbon: the Lisboa Card covers the metro, the trams and the Santa Justa lift. Sintra: train from Rossio, then the 434 bus up to Pena. Porto: walk; take the funicular down to the river if your legs give up. Money About 100 euros a day each for food and tickets. Most places t","preview":"# Trip notes\n\n## Getting around\n\n- **Lisbon:** the Lisboa Card covers the metro, the trams and the Santa Justa lift.\n- **Sintra:** train from Rossio, then the 434 bus up to Pena.\n- **Porto:** walk; take the funicular down to the river if your legs give up.\n\n## Money\n\nAbout 100 euros a day each for food and tickets. Most places take cards; keep coins for the trams and tips.","paper":"light-white","layout":"fluid","pageSize":"letter","pageNumbers":false,"by":"@mia","at":"today-1T18:00Z","editedBy":"@mia","editedByName":"Mia Alvarez","editedAt":"today-1T18:00Z"},
+            "text:tripnote:tripnoc1": {"id":"tripnoc1","doc":"tripnote","text":"# Trip notes\n\n## Getting around\n\n- **Lisbon:** the Lisboa Card covers the metro, the trams and the Santa Justa lift.\n- **Sintra:** train from Rossio, then the 434 bus up to Pena.\n- **Porto:** walk; take the funicular down to the river if your legs give up.\n\n## Money\n\nAbout 100 euros a day each for food and tickets. Most places take cards; keep coins for the trams and tips.\n\n## If something goes wrong\n\nThe hotels' numbers are in the Itinerary on each stay. The insurance policy is printed in the folder.\n"}
+          }
+        }
+      ]
+    },
     "chat": {
       "messages": [
         {"as":"mia","text":"Okay, the Demo: Portugal space is open. Ten days, three cities."},
@@ -343,11 +359,11 @@
         {"as":"sam","text":"Thanks Lee. I will buy the Sintra train tickets this week."},
         {"as":"mia","text":"Reminder: exchange some euros before the trip."},
         {"as":"lee","text":"Is anyone bringing a power bank?"},
-        {"as":"sam","text":"I have one. Bringing two cables."},
+        {"as":"sam","text":"I have one. Bringing two cables. Ticked it on the packing list in Documents."},
         {"as":"mia","text":"Weekly call Thursday at 7, fifteen minutes."},
         {"as":"lee","text":"I will be there. Also, the Douro day needs the rental car; pick-up is the evening before."},
         {"as":"sam","text":"> pick-up is the evening before\nGot it, and drop-off at the airport on the last morning."},
-        {"as":"mia","text":"Everything for the trip is in the Itinerary, Places and To-do. Add what you find."},
+        {"as":"mia","text":"Everything for the trip is in the Itinerary, Maps and To-do. Add what you find."},
         {"as":"lee","text":"Added three places near the hotel to Maps."},
         {"as":"sam","text":"Great. Two months and we are in Lisbon."}
       ]
