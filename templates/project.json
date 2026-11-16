@@ -2,7 +2,7 @@
   "id": "project",
   "name": "Project",
   "description": "Run a project together: tasks, meetings, effort, a brief and a calendar.",
-  "version": 2,
+  "version": 3,
   "words": {
     "space": {
       "one": "project",
@@ -133,6 +133,7 @@
     "polls": {},
     "whiteboard": {},
     "vault": {},
+    "assistant": {},
     "chat": {},
     "conference": {}
   },
