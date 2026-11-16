@@ -169,6 +169,10 @@ let guestSpaceName = ''; // a guest link's space, named in the top bar's anchor 
 let unloading = false;
 addEventListener('pagehide', () => { unloading = true; });
 addEventListener('pageshow', () => { unloading = false; });
+// The live stream closes as the page goes (a page kept in the back-forward cache must not hold a connection) and opens
+// again when the browser brings the page back; its next `ready` catches the chat up (openLive's onReady).
+addEventListener('pagehide', () => liveStream?.suspend());
+addEventListener('pageshow', (e) => { if (e.persisted) liveStream?.resume(); });
 const REMEMBERED_SPACE = 'app.space';
 const rememberSpace = (id) => { try { sessionStorage.setItem(REMEMBERED_SPACE, id); } catch { /* not remembered */ } };
 const forgetSpace = () => { if (unloading) return; try { sessionStorage.removeItem(REMEMBERED_SPACE); } catch { /* nothing */ } };

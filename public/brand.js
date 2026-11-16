@@ -1323,60 +1323,77 @@ async function startNotifications() {
   }
   // An overlay over a call (?from=space) leaves the live stream to the call page, which passes a theme change down to it.
   if (new URLSearchParams(window.location.search).get('from') === 'space') return;
-  const source = new EventSource('/api/notifications/stream');
-  // The owner changed the theme or its default mode: the stylesheet is fetched again (GitHub #62).
-  source.addEventListener('theme', (ev) => {
-    try {
-      themeChanged(JSON.parse(ev.data));
-    } catch {
-      // ignore a malformed event
-    }
-  });
   let seenPersonTheme; // undefined until the first 'mode' event says which theme this person has
-  // This person picked light or dark on another page or device.
-  source.addEventListener('mode', (ev) => {
-    try {
-      const said = JSON.parse(ev.data);
-      setAccountMode({ themeMode: said.themeMode });
-      // The theme this person chose on another page or device (Profile; null: the environment's): the stylesheet is fetched again.
-      if (Object.hasOwn(said, 'theme') && said.theme !== seenPersonTheme) {
-        seenPersonTheme = said.theme;
-        window.appTheme?.reload?.();
-      }
-    } catch {
-      // ignore a malformed event
-    }
-  });
-  // Back after a dropped connection: anything told while it was down is asked for again.
   let connected = false;
-  source.addEventListener('open', () => {
-    if (connected) {
-      document.dispatchEvent(new CustomEvent('app:modules-changed')); // one may have been turned on or off while it was down
-      fetch('/api/branding').then((r) => (r.ok ? r.json() : null)).then((b) => b && setEnvironmentMode(b.themeMode, b.themeVersion)).catch(() => {});
-      loadAccountMode(true);
-    }
-    connected = true;
+  let source = null;
+  const connect = () => {
+    source = new EventSource('/api/notifications/stream');
+    const src = source;
+    // The owner changed the theme or its default mode: the stylesheet is fetched again (GitHub #62).
+    src.addEventListener('theme', (ev) => {
+      try {
+        themeChanged(JSON.parse(ev.data));
+      } catch {
+        // ignore a malformed event
+      }
+    });
+    // This person picked light or dark on another page or device.
+    src.addEventListener('mode', (ev) => {
+      try {
+        const said = JSON.parse(ev.data);
+        setAccountMode({ themeMode: said.themeMode });
+        // The theme this person chose on another page or device (Profile; null: the environment's): the stylesheet is fetched again.
+        if (Object.hasOwn(said, 'theme') && said.theme !== seenPersonTheme) {
+          seenPersonTheme = said.theme;
+          window.appTheme?.reload?.();
+        }
+      } catch {
+        // ignore a malformed event
+      }
+    });
+    // Back after a dropped connection: anything told while it was down is asked for again.
+    src.addEventListener('open', () => {
+      if (connected) {
+        document.dispatchEvent(new CustomEvent('app:modules-changed')); // one may have been turned on or off while it was down
+        fetch('/api/branding').then((r) => (r.ok ? r.json() : null)).then((b) => b && setEnvironmentMode(b.themeMode, b.themeVersion)).catch(() => {});
+        loadAccountMode(true);
+      }
+      connected = true;
+    });
+    // A module was installed, turned on or off, rolled back or removed: the space's bar asks again (canvas.js).
+    src.addEventListener('modules', () => document.dispatchEvent(new CustomEvent('app:modules-changed')));
+    // Someone asked you into a private conversation: join, or decline.
+    src.addEventListener('invite', (ev) => {
+      try {
+        showInvite(JSON.parse(ev.data));
+      } catch {
+        // ignore a malformed event
+      }
+    });
+    src.addEventListener('notification', (ev) => {
+      try {
+        const n = JSON.parse(ev.data);
+        if (addToOpenNotices(n)) return; // the open list shows it, read
+        unreadByModule[n.module] = (unreadByModule[n.module] || 0) + 1;
+        paintUnread();
+        showToast(n);
+      } catch {
+        // ignore a malformed event
+      }
+    });
+  };
+  connect();
+  // The page is leaving: close the stream, so a page kept in the browser's back-forward cache holds no connection (the
+  // browser allows few to one site). Brought back (pageshow, persisted): it opens again, and its `open` catches up as after
+  // any dropped connection; the unread counts are asked for again too.
+  window.addEventListener('pagehide', () => {
+    source?.close();
+    source = null;
   });
-  // A module was installed, turned on or off, rolled back or removed: the space's bar asks again (canvas.js).
-  source.addEventListener('modules', () => document.dispatchEvent(new CustomEvent('app:modules-changed')));
-  // Someone asked you into a private conversation: join, or decline.
-  source.addEventListener('invite', (ev) => {
-    try {
-      showInvite(JSON.parse(ev.data));
-    } catch {
-      // ignore a malformed event
-    }
-  });
-  source.addEventListener('notification', (ev) => {
-    try {
-      const n = JSON.parse(ev.data);
-      if (addToOpenNotices(n)) return; // the open list shows it, read
-      unreadByModule[n.module] = (unreadByModule[n.module] || 0) + 1;
-      paintUnread();
-      showToast(n);
-    } catch {
-      // ignore a malformed event
-    }
+  window.addEventListener('pageshow', async (e) => {
+    if (!e.persisted || source) return;
+    connect();
+    refreshNotices(); // counts read elsewhere meanwhile drop to zero
   });
 }
 

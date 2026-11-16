@@ -74,6 +74,8 @@ export function openLiveStream({ url, onReady = () => {}, onPresence = () => {},
   let stopped = false;
   let ready = null;
   let readies = 0;
+  let suspended = false;
+  let generation = 0; // suspend() moves it on: an `again` that began before it does not go on
   const stop = () => {
     stopped = true;
     ready = null;
@@ -88,11 +90,13 @@ export function openLiveStream({ url, onReady = () => {}, onPresence = () => {},
     onEnd(why);
   };
   const again = async (wasLive) => {
+    const mine = generation;
     ready = null;
+    if (suspended) return;
     onState('reconnecting');
     if (!wasLive) {
       const answer = await probe(url);
-      if (stopped) return;
+      if (stopped || suspended || mine !== generation) return;
       const { status = 0, error = '' } = typeof answer === 'number' ? { status: answer } : answer || {};
       if (status === 401 || status === 403 || status === 404) return end({ reason: 'refused', status, error });
     }
@@ -101,7 +105,7 @@ export function openLiveStream({ url, onReady = () => {}, onPresence = () => {},
   };
   function open() {
     timer = null;
-    if (stopped) return;
+    if (stopped || suspended) return;
     const es = new EventSourceImpl(url);
     let live = false;
     es.addEventListener('message', (event) => {
@@ -134,6 +138,26 @@ export function openLiveStream({ url, onReady = () => {}, onPresence = () => {},
     });
     source = es;
   }
+  // The page is leaving (pagehide): close the connection and any pending retry, so a page kept in the browser's
+  // back-forward cache holds none of the browser's few connections. resume() opens it again (pageshow, persisted): a new
+  // stream with a new `ready`, which the page treats as any reconnect (it catches up, and says its state again).
+  const suspend = () => {
+    if (stopped || suspended) return;
+    suspended = true;
+    generation += 1;
+    ready = null;
+    if (timer !== null) cancel(timer);
+    timer = null;
+    source?.close();
+    source = null;
+  };
+  const resume = () => {
+    if (stopped || !suspended) return;
+    suspended = false;
+    tries = 0;
+    onState('reconnecting');
+    open();
+  };
   open();
-  return { close: stop, get ready() { return ready; } };
+  return { close: stop, suspend, resume, get ready() { return ready; } };
 }
