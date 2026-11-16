@@ -26,6 +26,8 @@ const LIMITS = {
   openOnlyMs: 60 * 1000,
   // How long after a request finished the person who asked can still read how it went (GET /api/spaces/:id/action/:id).
   resultMs: 10 * 60 * 1000,
+  // How many data writes one claim may name its asker on (plan-agent-access.md, decision 9): a request is a few writes.
+  carriedWrites: 10,
 };
 
 // Whether a request with a time limit (`expiresAt`) has passed it without being carried out: no page may take it now. A
@@ -33,6 +35,18 @@ const LIMITS = {
 function expired(a, now) {
   if (!a.expiresAt || a.status === 'done' || now <= a.expiresAt) return false;
   return !(a.status === 'claimed' && now - a.claimedAt <= LIMITS.claimMs);
+}
+
+// A stored request read back with the types the rules rely on, whatever the file says: a time or a count that is not a
+// number closes the carrying window and its cap (never reads as "none yet"), a name that is not text is empty.
+const isTime = (v) => typeof v === 'number' && Number.isFinite(v);
+function typed(a) {
+  const out = { ...a };
+  out.claimedAt = isTime(a.claimedAt) ? a.claimedAt : 0;
+  if (a.claimedFirstAt !== undefined && !isTime(a.claimedFirstAt)) out.claimedFirstAt = 1;
+  if (a.carried !== undefined && !(Number.isInteger(a.carried) && a.carried >= 0)) out.carried = LIMITS.carriedWrites;
+  for (const field of ['claimedBy', 'doneBy']) if (a[field] !== undefined && typeof a[field] !== 'string') out[field] = '';
+  return out;
 }
 
 class ModuleBus extends EventEmitter {
@@ -43,7 +57,7 @@ class ModuleBus extends EventEmitter {
     this.state = { seq: 0, events: [], actions: [] };
     try {
       const raw = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      if (raw && Array.isArray(raw.events) && Array.isArray(raw.actions)) this.state = { seq: Number(raw.seq) || 0, events: raw.events, actions: raw.actions };
+      if (raw && Array.isArray(raw.events) && Array.isArray(raw.actions)) this.state = { seq: Number(raw.seq) || 0, events: raw.events, actions: raw.actions.filter((a) => a && typeof a === 'object').map(typed) };
     } catch {
       // nothing yet
     }
@@ -145,23 +159,46 @@ class ModuleBus extends EventEmitter {
   }
 
   // One page takes a request; the others that saw it too are told no. Returns the request or null.
-  claim(id, provider, scopeKey) {
+  // `by` is the person whose page takes it (the carrier): the data writes it leads to may name the asker only for them.
+  claim(id, provider, scopeKey, by) {
     const a = this.actionById(id);
     const now = Date.now();
     if (!a || a.provider !== provider || a.scopeKey !== scopeKey || expired(a, now)) return null;
     if (!(a.status === 'pending' || (a.status === 'claimed' && now - a.claimedAt > LIMITS.claimMs))) return null;
     a.status = 'claimed';
     a.claimedAt = now;
+    if (!a.claimedFirstAt) a.claimedFirstAt = now; // the carrying window runs from here, whoever claims it again
+    a.claimedBy = by || '';
     this.save();
     return a;
   }
 
-  complete(id, provider, scopeKey, result) {
+  // The request `by` holds right now, for a write that names its asker: this module's, still claimed by `by`, within the
+  // claim's minute and not past its time limit, and (for a write at `writeScope`) only where the request itself is: its
+  // object's space when it names one, else the place it waits in. null otherwise. The rule lives here, with the claim.
+  carrying(id, provider, by, writeScope) {
+    const a = this.actionById(id);
+    const now = Date.now();
+    if (!a || a.provider !== provider || a.status !== 'claimed' || !by || a.claimedBy !== by || expired(a, now) || now - (a.claimedFirstAt || a.claimedAt) > LIMITS.claimMs) return null;
+    if (writeScope !== null && writeScope !== undefined && writeScope !== (a.space ? `space:${a.space}` : a.scopeKey)) return null;
+    return a;
+  }
+
+  // One more carried write on a claim; false once it has had its share (LIMITS.carriedWrites).
+  useCarry(a) {
+    if ((a.carried || 0) >= LIMITS.carriedWrites) return false;
+    a.carried = (a.carried || 0) + 1;
+    this.save(); // so a restart does not give the claim its share again
+    return true;
+  }
+
+  complete(id, provider, scopeKey, result, by) {
     const a = this.actionById(id);
     // Past its time limit, only a page that claimed it in time (and is within the claim's minute) may finish it.
     if (!a || a.provider !== provider || a.scopeKey !== scopeKey || a.status === 'done' || expired(a, Date.now())) return null;
     a.status = 'done';
     a.doneAt = Date.now();
+    a.doneBy = by && a.claimedBy === by ? by : '';
     a.result = result;
     this.save();
     this.emit('actionDone', a);

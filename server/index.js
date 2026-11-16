@@ -96,6 +96,7 @@ const { currencyCodes } = require('./currencies');
 const agreementsLib = require('./agreements');
 const welcomeNote = require('./welcome-note');
 const guestDoorLib = require('./guest-door');
+const { endsWithAgentMark, hasCarriedWords } = guestDoorLib;
 
 const {
   PORT = 3000,
@@ -8737,11 +8738,11 @@ objectSync.configure({
     const stored = moduleData.get(moduleId, scopeKey, key);
     return stored ? stored.value : null;
   },
-  write(moduleId, scopeKey, key, value, by) {
-    moduleData.put(moduleId, scopeKey, key, value, { by });
+  write(moduleId, scopeKey, key, value, by, asker) {
+    moduleData.put(moduleId, scopeKey, key, value, { by, asker });
   },
-  remove(moduleId, scopeKey, key, by) {
-    moduleData.remove(moduleId, scopeKey, key, { by });
+  remove(moduleId, scopeKey, key, by, asker) {
+    moduleData.remove(moduleId, scopeKey, key, { by, asker });
   },
   dropLinks(ref) {
     moduleLinks.drop(ref);
@@ -9443,7 +9444,46 @@ const busRoute = (fn) => (req, res) => {
   }
 };
 const publicEvent = (e) => ({ id: e.id, at: e.at, module: e.module, name: e.name, ref: e.ref, data: e.data });
-const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action, input: a.input, by: store.userByKey(a.by)?.displayName || 'someone' });
+// `by` is the asker's name; `byKey` is the asker's key (null for a guest or someone no longer here), which a module reads as
+// `ctx.byKey` and may store or look up as a person (plan-agent-access.md, decision 9).
+const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action, input: a.input, by: store.userByKey(a.by)?.displayName || 'someone', byKey: store.userByKey(a.by) ? a.by : null });
+// A request carried out for someone else (plan-agent-access.md, decision 9). The page that took it may send `for` (the asker's
+// key) and `request` (its id) with a data write, as a HINT. The server holds the request and uses the hint only when every
+// condition holds, and otherwise ignores it: the write is saved as the carrier's own and nobody else is named, and nothing is
+// refused. The conditions: a signed-in carrier (never a guest); the request is this module's, claimed by the carrier, not their
+// own, not a view (`local`), within one minute of its FIRST claim, and for the very place the write lands; `for` is its asker;
+// the write CREATES a key that is not there yet (never an overwrite, and a delete never carries one); and the claim has
+// named fewer than LIMITS.carriedWrites (10) new objects. It is only a name for the record: nothing here changes what the
+// carrier may do, so a hint that holds raises no right and one that fails costs nothing.
+// Returns the asker's key, or '' to name nobody.
+const ignoredHints = new Map();
+function carriedFor(who, moduleId, given, requestId, writeScope, exists) {
+  if (given === undefined || given === null || given === '') return '';
+  const me = who.user ? who.user.key : '';
+  if (!me || typeof given !== 'string' || given === me) return '';
+  const id = typeof requestId === 'string' && /^[1-9][0-9]{0,15}$/.test(requestId) ? Number(requestId) : Number.isSafeInteger(requestId) ? requestId : 0;
+  const held = id > 0 ? moduleBus.actionById(id) : null;
+  // An honest page whose hint does not apply (an overwrite, another place, over the cap, past the minute, a view): nothing is
+  // named and nothing is said.
+  if (held && held.provider === moduleId && held.status === 'claimed' && held.claimedBy === me && held.by === given && held.by !== me && store.userByKey(held.by)) {
+    const request = !exists && !held.local ? moduleBus.carrying(id, moduleId, me, writeScope) : null;
+    return request && moduleBus.useCarry(request) ? request.by : '';
+  }
+  // A hint that is not honest (an unknown request, not this carrier's claim, naming someone who did not ask) is left a line in
+  // the activity list, at most one a minute for each person in each environment: a carrier who keeps doing it is seen.
+  const slug = currentEnvironment()?.slug || '';
+  const mark = `${slug}|${me}`;
+  const now = Date.now();
+  if (now - (ignoredHints.get(mark) || 0) > 60000) {
+    ignoredHints.set(mark, now);
+    if (ignoredHints.size > 5000) ignoredHints.clear();
+    noteActivity(moduleId, 'sent a name for who asked that was not believed and was saved as their own', me, writeScope);
+  }
+  return '';
+}
+function carriedForWrite(ctx, given, requestId, key) {
+  return carriedFor(ctx.who, ctx.manifest.id, given, requestId, ctx.scopeKey, Boolean(moduleData.get(ctx.manifest.id, ctx.scopeKey, key)));
+}
 
 // A module says something happened. It must have declared the event, and the person must be able to
 // change that module here (they are the reason it happened).
@@ -9656,11 +9696,13 @@ app.post('/api/bus/actions/claim', busRoute((who, req) => {
   const waiting = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, waiting)) return { ok: false };
   if (waiting && waiting.local) { if (waiting.by !== (who.user?.key || 'guest')) return { ok: false }; } else if (waiting && waiting.space && waiting.provider === id && waiting.scopeKey === at.scopeKey) busPlace(who, String(id || ''), 'space', waiting.space, 'write'); else busPlace(who, String(id || ''), busScope(scope), space, 'write');
-  const request = moduleBus.claim(Number(requestId), id, at.scopeKey);
-  return request ? { ok: true, action: publicAction(request) } : { ok: false };
+  const request = moduleBus.claim(Number(requestId), id, at.scopeKey, who.user?.key || 'guest');
+  // `mine`: the person took their own request, so nothing is written on anyone else's behalf.
+  return request ? { ok: true, action: { ...publicAction(request), ...(request.by === (who.user?.key || 'guest') ? { mine: true } : {}) } } : { ok: false };
 }));
 app.post('/api/bus/actions/complete', busRoute((who, req) => {
   const { module: id, id: requestId, scope, space, result } = req.body || {};
+  const carrier = who.user ? who.user.key : '';
   const at = busPlace(who, String(id || ''), busScope(scope), space, 'read');
   const done = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, done)) return { ok: false };
@@ -9675,7 +9717,7 @@ app.post('/api/bus/actions/complete', busRoute((who, req) => {
     } catch (err) { /* not plain data: left out */ }
   }
   if (refShape(result?.ref) && result.ref.module === id) clean.ref = plainRef(result.ref);
-  return { ok: Boolean(moduleBus.complete(Number(requestId), id, at.scopeKey, clean)) };
+  return { ok: Boolean(moduleBus.complete(Number(requestId), id, at.scopeKey, clean, carrier)) };
 }));
 // The asking module: how did it go?
 app.get('/api/bus/actions/status', busRoute((who, req) => {
@@ -9723,9 +9765,38 @@ function limitMessage() {
   const secs = l ? l.retrySeconds : 0;
   return secs ? `${name} is busy. Wait ${secs} ${secs === 1 ? 'second' : 'seconds'} and it will carry on.` : `${name} is busy. Wait a moment and it will carry on.`;
 }
+// Who a line of the activity list names: the person (an agent with "(agent)" after its name); for a request carried out for
+// its asker (plan-agent-access.md, decision 9), the asker and whose page carried it out: "Claude (agent), carried out by
+// Thomas's page".
+// A name inside the composed sentence can't carry the sentence's own words.
+// A person's name as the activity list shows it (names stored before the rule against them, with no migration): control
+// characters and any run of white space (tabs, no-break spaces) as one space, no "(agent)" on the end and no ", carried out
+// by" in it; a name that still reads so (with lookalike letters) is shown as "someone". An agent's mark comes only from its flag.
+function plainName(name) {
+  let out = String(name ?? '').replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/gu, ' ').trim();
+  out = out.replace(/,?\s*carried\s+out\s+by/giu, ' ').replace(/\s+/gu, ' ').trim();
+  for (let i = 0; i < 5 && endsWithAgentMark(out); i += 1) {
+    const open = Math.max(out.lastIndexOf('('), out.lastIndexOf('\uFF08'), out.lastIndexOf('\uFE59'));
+    if (open < 0) break;
+    out = out.slice(0, open).trim();
+  }
+  out = out.slice(0, 60);
+  return !out || endsWithAgentMark(out) || hasCarriedWords(out) ? 'someone' : out;
+}
+function activityNames(a) {
+  const named = (key) => {
+    const u = store.userByKey(key);
+    if (u) return `${plainName(u.displayName)}${u.agent ? ' (agent)' : ''}`;
+    return key === 'guest' ? word('guest', { a: true }) : 'someone';
+  };
+  const askerName = named(a.by);
+  const carrierName = a.carriedBy ? named(a.carriedBy).replace(/ \(agent\)$/, '') : '';
+  // `askerAgent` comes from the account's agent flag, never from what a name says; the names are plain text for a page to escape.
+  return { askerName, askerAgent: Boolean(store.userByKey(a.by)?.agent), ...(carrierName ? { carrierName } : {}), byName: carrierName ? `${askerName}, carried out by ${carrierName}'s page` : askerName };
+}
 app.get('/api/modules/activity', requireOwner, (_req, res) => {
   res.json({
-    activity: moduleActivity.slice(-100).reverse().map((a) => ({ ...a, moduleName: store.moduleDisplay(a.module).name || modules.enabled(a.module)?.manifest.name || a.module, byName: store.userByKey(a.by)?.displayName || (a.by === 'guest' ? word('guest', { a: true }) : a.by) })),
+    activity: moduleActivity.slice(-100).reverse().map((a) => ({ ...a, moduleName: store.moduleDisplay(a.module).name || modules.enabled(a.module)?.manifest.name || a.module, ...activityNames(a) })),
   });
 });
 
@@ -11785,8 +11856,9 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
   if (!ctx) return;
   const slow = overLimit(ctx.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
+  const asker = carriedForWrite(ctx, req.body?.for, req.body?.request, req.params.key);
   try {
-    const out = putModuleValue(ctx, req.params.key, req.body?.value, { expected: Number.isInteger(req.body?.version) ? req.body.version : null, tz: req.body?.tz });
+    const out = putModuleValue(ctx, req.params.key, req.body?.value, { expected: Number.isInteger(req.body?.version) ? req.body.version : null, tz: req.body?.tz, asker });
     if (out.error) return res.status(out.status).json({ error: out.error, ...('current' in out ? { current: out.current } : {}) });
     res.json({ item: hideItem(out.item, ctx.hide) });
   } catch (err) {
@@ -11797,7 +11869,7 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
 // the hidden fields, the module's guards, the key rule and the size caps (moduleData.put), then what follows a write.
 // Answers { item } or a refusal { status, error }; throws what moduleData.put throws (a bad key 400, a conflict with
 // `expected` 409, too big 413). Starter content (fillStarter) is written through this too.
-function putModuleValue(ctx, key, given, { expected = null, tz } = {}) {
+function putModuleValue(ctx, key, given, { expected = null, tz, asker = '' } = {}) {
   // A copy of another module's object (GitHub #857): not there for whoever may not see its original, and changed only by
   // whoever may change the original (copyWriteRefusal, below, once the value is known).
   const copyRef = takesCopies(ctx.manifest) ? copyRefAt(ctx.manifest, ctx.scopeKey, key) : null;
@@ -11821,8 +11893,8 @@ function putModuleValue(ctx, key, given, { expected = null, tz } = {}) {
     const refused = copyWriteRefusal(ctx, copies, copyRef, key, had ? had.value : null, value, tz);
     if (refused) return refused;
   }
-  const item = moduleData.put(ctx.manifest.id, ctx.scopeKey, key, value, { expected, by: ctx.by });
-  objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key, before: had ? had.value : null, after: item.value, by: ctx.by, tz });
+  const item = moduleData.put(ctx.manifest.id, ctx.scopeKey, key, value, { expected, by: ctx.by, asker });
+  objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key, before: had ? had.value : null, after: item.value, by: ctx.by, tz, asker });
   // A file swapped for another (a photo's picture): the old one goes when nothing stored here names it any more.
   if (had && guards) {
     const was = moduleGuards.fileOf(guards, key, had.value);

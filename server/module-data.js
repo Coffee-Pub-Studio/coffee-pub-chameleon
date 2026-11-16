@@ -196,7 +196,7 @@ class ModuleData extends EventEmitter {
 
   // Last write wins per key. If the caller says which version it read
   // (`expected`) and someone wrote since, that is a conflict, not an overwrite.
-  put(id, scopeKey, key, value, { expected = null, by = '' } = {}) {
+  put(id, scopeKey, key, value, { expected = null, by = '', asker = '' } = {}) {
     this.cleanKey(key);
     if (value === undefined) throw new StoreError('a value is required');
     const map = this.load(id, scopeKey);
@@ -220,12 +220,12 @@ class ModuleData extends EventEmitter {
     }
     this.persist(id, scopeKey, next);
     this.cache.set(`${id}|${scopeKey}`, next);
-    const change = { module: id, scopeKey, key, ...entry, deleted: false };
+    const change = { module: id, scopeKey, key, ...entry, deleted: false, ...(asker ? { asker } : {}) };
     this.emit('change', change);
     return { key, ...entry };
   }
 
-  remove(id, scopeKey, key, { expected = null, by = '' } = {}) {
+  remove(id, scopeKey, key, { expected = null, by = '', asker = '' } = {}) {
     this.cleanKey(key);
     const map = this.load(id, scopeKey);
     const existing = map.get(key);
@@ -239,7 +239,7 @@ class ModuleData extends EventEmitter {
     next.delete(key);
     this.persist(id, scopeKey, next);
     this.cache.set(`${id}|${scopeKey}`, next);
-    const change = { module: id, scopeKey, key, value: null, version: existing.version + 1, updatedAt: new Date().toISOString(), by: String(by).slice(0, 40), deleted: true };
+    const change = { module: id, scopeKey, key, value: null, version: existing.version + 1, updatedAt: new Date().toISOString(), by: String(by).slice(0, 40), deleted: true, ...(asker ? { asker } : {}) };
     this.emit('change', change);
     return { key, deleted: true, version: change.version };
   }
