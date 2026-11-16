@@ -6,7 +6,7 @@ experience-design builds the pages (Manage > Users, a space's Set up) and the Pl
 change); quality-assurance reads the token core as a security change and runs the pen-test list; content-manager
 documents.
 
-**Status:** draft for Thomas, 2026-11-15. Nothing here is decided except the direction. Thomas wants Claude (an AI
+**Status:** draft, awaiting Thomas's decisions (marked 2026-11-16; the content is unchanged). Drafted 2026-11-15. Nothing here is decided except the direction. Thomas wants Claude (an AI
 coding and project assistant running in a cloud session, not the app's own AI Assistant module) to work with a space:
 read its objects (the project plan in Planner - Projects, `schedule`, above all) and add, tick and update milestones,
 work, notes and to-dos, so the real project is run in the app. On 2026-11-15 he chose **"Scoped token plus the actions

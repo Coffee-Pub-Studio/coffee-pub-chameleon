@@ -11,8 +11,8 @@ walks the result; content-manager documents it after.
 **Status:** Approved for build as a production build (Thomas, 2026-11-15, decision 48); decisions complete, none open.
 Amended 2026-11-15 (decision 50): the pages come first. Step 11 is split into 11a and 11b, and the planners wait for 11a.
 Built, as of 2026-11-15 (read from `git log origin/main` and the code): steps 1 to 10 (#838 to #847, #836, #837), 11a and
-11b (#838, #851), 12 (#850), 13 (#858), 14 (#859), 15 (#853) and 15b (#860) are merged. Step 16, QA, is in progress. The
-documentation of batch 9 landed (#861). Several things differ from this plan or are not built; each is under "Built
+11b (#838, #851), 12 (#850), 13 (#858), 14 (#859), 15 (#853) and 15b (#860) are merged. Step 16, QA, is closed (updated 2026-11-16). The
+documentation of batches 9 and 10 landed (#861 and after). Several things differ from this plan or are not built; each is under "Built
 differently than planned", marked **Divergence called out**.
 Revised 2026-11-15 by product-planner. The first draft (#831) suggested
 modes inside one Planner; Thomas decided the other way the same day: **dedicated planners, one module per genuinely
@@ -311,6 +311,7 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
     under them.
 45. **The Planner's catalog name becomes "Planner - Travel"** (answers question 11): words only, a patch version bump and
     no change of behaviour. The Travel template can still show it as it does today.
+    **Divergence called out (2026-11-16):** Thomas named it "Planner - Itinerary" instead (2026-11-15; his "Travel" was a typo, corrected). The name "Planner - Travel" is not used; the manifest says "Planner - Itinerary".
 46. **The Default template keeps the whole catalog**, and the Modules page groups the planners under "Plans".
 47. **Third-party planners are allowed by convention.** The shared outline pieces and the `plan` kind are public in the
     SDK guide; a template lists an outside planner as it lists ours. No registry and no core rule for "a planner".
@@ -967,7 +968,7 @@ None was seen in a browser by product-planner.
    and Shift+Tab are left to move focus). Thomas decides whether the keys stay.
 2. **Divergence called out: the Planner's catalog name.** Decision 45 and the module table say `modules/travel` is
    named "Planner - Travel" (a words-only patch bump). Built: its manifest still says "Planner" at 0.16.7. Thomas
-   decides when it is renamed; the rename is not done.
+   decides when it is renamed; the rename is not done. *Updated 2026-11-16: done, as "Planner - Itinerary" (item 28).*
 3. **Divergence called out: the change-of-template confirm.** "What happens to an existing space when its template
    changes" wanted the confirm to name the modules that turn off and on and to say the old planner keeps its plan
    (decision 31, risk 6). Built: "Its words, phases and <module> names change now. Nothing is removed." Nothing is
@@ -1036,6 +1037,35 @@ None was seen in a browser by product-planner.
     categories of Project, Learning and Mentoring, were chosen by the builder and wait for Thomas's review. Thomas
     decides each.
 
+### Added 2026-11-16 (read from `git log origin/main` at `a19d7d34`)
+
+Each is a **Divergence called out**; none changes a decision unless it says so.
+
+23. **Divergence called out: module labels moved, list settings as rows (#881).** Module words and labels moved to
+    Manage > Experience Labels, and a module's list settings are edited as rows on the Modules page. This is what the
+    plan's Pages section said. A verbs row is absent because locked rows hold no verbs.
+24. **Divergence called out: the host console still cannot edit module words or labels.** The server's
+    shipped-module list for the console carries no labels, so the console cannot show them. It has no **Remove demo**
+    and no demo picker yet (see [plan-demo-space](plan-demo-space.md)). This adds to item 6.
+25. **Divergence called out: Additional Reactions and Icons keeps the read-only core grid** (Thomas, 2026-11-15).
+    This departs from the note under decision 12, which said the page shows only the template's additions.
+26. **Divergence called out: `inUseIcons`.** Not in the plan: the resolver's look also carries the icons in use (the
+    home icon and each space's link icon) that the lists do not hold, for drawing only; no picker offers them.
+    Template icons are never copied into the owner's own lists.
+27. **Divergence called out: five demos, and demo marks.** Not in the plan: one demo for each template (Travel,
+    Games, Project, Learning, Mentoring), each space made from one carrying a stored demo mark. See
+    [plan-demo-space](plan-demo-space.md).
+28. **Divergence called out: the Planner's name is "Planner - Itinerary".** It replaces decision 45's "Planner -
+    Travel" (Thomas, 2026-11-15, who corrected his own typo). This supersedes item 2, which said the rename was not
+    done and used the old name.
+29. **Divergence called out: the Vault is Vault everywhere** (decision 51, built in #855). Decision 40's "Files" for
+    Travel's Vault is not used, as the notes under decisions 40 and 51 record.
+30. **Divergence called out: the starter-space offer on a switch** (Thomas chose "build the offer", 2026-11-15, #889).
+    The confirm now requires `offerId` and `version`; starter spaces are picked by index, once per offer; a single
+    space's own template offers nothing; and starter writes skip the per-person rate limit, as in item 10. See
+    [plan-environment-templates](plan-environment-templates.md). The hidden-character and icon rules of the objects
+    format are not for this plan.
+
 ## Left to build, in order
 
 Sizes: S under a day, M a day or two, L several days. **Core** steps are held for an independent read;
@@ -1083,6 +1113,6 @@ None open. Thomas answered all thirteen on 2026-11-15; they are decisions 35 to 
 
 **Where the steps stand (2026-11-15):** merged: 1 and 11a (#838), 2 and 3 (#840), 4 (#846), 5 (#845), 6 (#843), 7 (#844,
 #852), 8 (#847), 9 (#837), 10 (#836), 11b (#851), 12 (#850), 13 (#858), 14 (#859), 15 (#853) and 15b (#860). Also merged
-after the plan: Vault in every template (#855), the phase id fix (#856). Step 16, QA: in progress. Step 17, the
-documentation of batch 9: landed (#861), with the gaps under "Built differently than planned" recorded in
+after the plan: Vault in every template (#855), the phase id fix (#856). Step 16, QA: closed (2026-11-16). Step 17, the
+documentation of batches 9 and 10: landed (#861 and after), with the gaps under "Built differently than planned" recorded in
 `documentation/known-issues.md`.
