@@ -470,9 +470,66 @@ try {
       assert.equal(await tab.evaluate(`document.getElementById('te-save').hidden && document.querySelectorAll('#template-editor .hc-part input:not(:disabled)').length === 0`), true, 'the Default template shows no way to save');
       await tab.go('#templates/travel');
       await tab.waitFor(`${tab.visible('#template-editor-view')} && document.getElementById('template-editor-title').textContent.startsWith('Edit ')`, 'the editor again');
+      // The parts are tabs (decision 52): one part on the screen, its own address, the typed values kept between them.
+      const tabState = () => tab.evaluate(`({ selected: [...document.querySelectorAll('#te-jump [role=tab]')].filter((b) => b.getAttribute('aria-selected') === 'true').map((b) => b.dataset.part), shown: [...document.querySelectorAll('#template-editor .hc-part')].filter((p) => !p.hidden).map((p) => p.id), tabbable: [...document.querySelectorAll('#te-jump [role=tab]')].filter((b) => b.tabIndex === 0).length, hash: location.hash, active: document.activeElement.id })`);
+      let st = await tabState();
+      assert.deepEqual([st.selected, st.shown, st.tabbable], [['te-part-basics'], ['te-part-basics'], 1], 'a template with no part opens Environment Basics');
+      assert.equal(await tab.evaluate("document.getElementById('te-jump').getAttribute('role')"), 'tablist');
       await tab.evaluate("document.querySelector('#te-jump [data-part=te-part-icons]').click()");
-      await tab.waitFor("document.activeElement.id === 'te-part-icons'", 'the jump to Icons');
+      await tab.waitFor("location.hash === '#templates/travel/icons'", 'the Icons address');
+      st = await tabState();
+      assert.deepEqual([st.selected, st.shown, st.active], [['te-part-icons'], ['te-part-icons'], 'te-tab-icons'], 'Icons alone is shown and its tab has the focus');
+      assert.equal(await tab.evaluate("document.querySelectorAll('#te-icons-set details, #te-icons-set .set-fold, #te-icons-set > *').length > 0"), true, 'the built-in Icons list is in the Icons tab');
+      await tab.evaluate("{ const t = document.getElementById('te-icon-set'); t.value = 'dice compass'; t.dispatchEvent(new Event('input')); }");
+      await tab.key('ArrowRight', 'ArrowRight', 39);
+      await tab.waitFor("location.hash === '#templates/travel/starter'", 'ArrowRight to Starter spaces');
+      await tab.key('ArrowRight', 'ArrowRight', 39);
+      await tab.waitFor("location.hash === '#templates/travel'", 'ArrowRight wraps to Environment Basics');
+      await tab.key('End', 'End', 35);
+      await tab.waitFor("location.hash === '#templates/travel/starter'", 'End');
+      await tab.key('Home', 'Home', 36);
+      await tab.waitFor("location.hash === '#templates/travel'", 'Home');
+      await tab.evaluate('history.back()');
+      await tab.waitFor("location.hash === '#templates/travel/starter' && !document.getElementById('te-part-starter').hidden && document.getElementById('te-part-basics').hidden", 'back moves to the last tab');
+      assert.equal(await tab.evaluate("document.getElementById('te-icon-set').value"), 'dice compass', 'switching tabs keeps what was typed');
+      await tab.go('#templates/travel/reactions');
+      await tab.waitFor(`${tab.visible('#te-part-reactions')} && document.querySelectorAll('#template-editor .hc-part:not([hidden])').length === 1`, 'the address opens its part');
+      assert.equal(await tab.evaluate("document.getElementById('te-reactions-set').textContent.includes('An environment') || document.getElementById('te-reactions-set').children.length > 0"), true, 'the built-in Reactions list is in the Reactions tab');
+      // A problem on a tab not shown: marked on its tab, counted in the status line, with Save from another tab.
+      { const mk = await call(port, 'POST', 'admin', '/api/host/templates/travel/duplicate', { id: 'tabs-copy', name: 'Tabs copy' }, { cookie }); assert.ok(mk.status < 300, mk.text); }
+      await tab.go('#templates/tabs-copy');
+      await tab.waitFor(`${tab.visible('#te-part-basics')} && document.querySelectorAll('#te-phases .phase-row').length > 0`, 'the editor on Basics');
+      await tab.evaluate("{ document.querySelector('#te-phases [data-phase-id]').value = 'Bad Id!'; const t = document.getElementById('te-icon-set'); t.value = Array.from({ length: 70 }, (_, i) => 'icon' + i).join(' '); }");
+      await tab.evaluate("document.getElementById('te-save').click()");
+      await tab.waitFor("document.getElementById('te-status').classList.contains('error') && /problems/.test(document.getElementById('te-status').textContent)", 'the problems');
+      assert.match(await tab.evaluate("document.getElementById('te-status').textContent"), /^2 parts have problems/);
+      assert.deepEqual(await tab.evaluate("[...document.querySelectorAll('#te-jump [data-part]')].filter((b) => !b.querySelector('[data-problems]').hidden).map((b) => b.dataset.part)"), ['te-part-phases', 'te-part-icons'], 'only the tabs with problems are marked');
+      assert.equal(await tab.evaluate("document.querySelector('#te-jump [data-part=te-part-basics]').querySelector('[data-problems]').hidden"), true);
+      assert.equal(await tab.evaluate("location.hash"), '#templates/tabs-copy', 'a refused save leaves the shown tab');
+      assert.equal(await tab.evaluate("document.getElementById('te-part-phases').querySelectorAll('.problems li').length > 0"), true, 'the problem is in its part list');
+      await tab.evaluate("document.querySelector('#te-jump [data-part=te-part-phases]').click()");
+      await tab.waitFor(tab.visible('#te-part-phases .problems li'), 'the problem on its tab');
+      await tab.evaluate("{ document.querySelector('#te-phases [data-phase-id]').value = 'planning'; document.getElementById('te-icon-set').value = 'dice compass'; }");
+      await tab.evaluate("document.getElementById('te-save').click()");
+      await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent)", 'a save from the Phases tab saves every part');
+      await tab.go('#templates/tabs-copy/icons');
+      await tab.waitFor(`${tab.visible('#te-part-icons')} && document.getElementById('te-icon-set').value === 'dice compass'`, 'the Icons part was saved from another tab');
+      { const rm = await call(port, 'DELETE', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.ok(rm.status < 300, rm.text); }
+      await tab.go('#templates/travel');
+      await tab.waitFor(tab.visible('#te-part-basics'), 'the editor again');
       assert.deepEqual(await tab.layoutProblems(), []);
+      await tab.shot('template-editor');
+    } finally { await tab.close(); }
+  });
+  await test('Template editor tabs at 390: a strip that scrolls inside itself, every part reachable, no sideways page scroll', async () => {
+    const tab = await openTab(port, { cookie, width: 390 });
+    try {
+      for (const part of ['basics', 'words', 'modules', 'workspace', 'call', 'phases', 'reactions', 'icons', 'starter']) {
+        await tab.go(`#templates/travel${part === 'basics' ? '' : `/${part}`}`);
+        await tab.waitFor(`${tab.visible(`#te-part-${part}`)} && document.querySelectorAll('#template-editor .hc-part:not([hidden])').length === 1`, `${part} at 390`);
+        assert.deepEqual(await tab.layoutProblems(), [], `${part} at 390`);
+      }
+      assert.equal(await tab.evaluate("(() => { const s = document.getElementById('te-jump'); return s.scrollWidth > s.clientWidth && getComputedStyle(s).overflowX === 'auto'; })()"), true, 'the strip scrolls inside itself');
       await tab.shot('template-editor');
     } finally { await tab.close(); }
   });

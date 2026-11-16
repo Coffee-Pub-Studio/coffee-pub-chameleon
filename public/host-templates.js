@@ -3,7 +3,7 @@
 // Hidden switch and a More menu (Edit, Export, Duplicate, Reset to shipped, Delete). A bundled template can be edited in
 // place (an Edited badge, Reset to shipped, and a notice when a newer image changed the file). Duplicate makes a host
 // template. Import file from a file (a clashing id asks for another). The editor is its own view (#templates/<id>, or
-// /new), its parts with a jump list beside them.
+// /new), its parts as tabs, one at a time, each with its own address (#templates/<id>/<part>; decision 52).
 import { api, escapeHtml, word } from '/brand.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields } from '/template-fields.js';
 import { setFoldHtml, setReactionChips, setIconChips } from '/template-pages.js';
@@ -25,7 +25,7 @@ let list = []; // GET /api/host/templates: [{ id, name, description, source, ver
 let onChange = () => {};
 let nameOf = (slug) => slug; // an environment's name, from host.js's list
 let ready = false; // the list has come from host.js
-let pendingView = null; // an editor asked for (#templates/<id>) before the list came
+let pendingView = null; // an editor asked for (#templates/<id>/<part>) before the list came: [id, part]
 let editing = null; // the template being edited in full, or null for a new one
 let comparing = null; // the bundled id whose update is open in the compare panel
 let moduleIds = [...BUILT_IN]; // the modules a template can list: the ones the image ships, then any other a template names
@@ -44,20 +44,20 @@ export function initTemplates(templates, changed, name, environmentName) {
   list = templates || [];
   renderList();
   ready = true;
-  if (pendingView !== null) { const id = pendingView; pendingView = null; showTemplatesView(id); }
+  if (pendingView !== null) { const [id, part] = pendingView; pendingView = null; showTemplatesView(id, part); }
 }
 
 // Which view: the table (''), or the editor of one template ('new' for a new one). host.js calls it from the address.
 const TEMPLATE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 let shownId = '';
-export async function showTemplatesView(id) {
-  if (!ready) { pendingView = id; return; }
+export async function showTemplatesView(id, part = '') {
+  if (!ready) { pendingView = [id, part]; return; }
   $('templates-list-view').hidden = Boolean(id);
   $('template-editor-view').hidden = !id;
   if (!id) { editing = null; shownId = ''; return; }
-  if (id === shownId) return;
+  if (id === shownId) { selectPart(part); return; } // the same template: only its tab changes, what was typed stays
   shownId = id;
-  if (id === 'new') { await openEditor(null); return; }
+  if (id === 'new') { await openEditor(null); selectPart(part); return; }
   // Only a template id reaches the route (the server's pattern, server/templates.js): "." or ".." in the address would
   // otherwise walk the request to another route.
   if (!TEMPLATE_ID.test(id)) {
@@ -68,6 +68,7 @@ export async function showTemplatesView(id) {
   }
   try {
     await openEditor((await api('GET', `/api/host/templates/${encodeURIComponent(id)}`)).template);
+    selectPart(part);
   } catch (err) {
     location.hash = 'templates';
     say($('templates-status'), err.message, true);
@@ -278,13 +279,45 @@ $('template-import-file').addEventListener('change', async () => {
 // --- the editor -----------------------------------------------------------------------------------------------------
 $('template-new').addEventListener('click', () => { location.hash = 'templates/new'; });
 $('te-cancel').addEventListener('click', () => { location.hash = 'templates'; $('templates-title').focus({ preventScroll: true }); });
-// The jump list: the part comes into view and takes the keyboard focus.
+// The parts are tabs (decision 52): one part on the screen, its address #templates/<id>/<part> (no part: Environment Basics).
+const PARTS = ['basics', 'words', 'modules', 'workspace', 'call', 'phases', 'reactions', 'icons', 'starter'];
+const partTabs = () => [...$('te-jump').querySelectorAll('[data-part]')];
+const partSlug = (b) => b.dataset.part.replace(/^te-part-/, '');
+let shownPart = 'basics';
+function selectPart(part) {
+  shownPart = PARTS.includes(part) ? part : 'basics';
+  for (const b of partTabs()) {
+    const on = partSlug(b) === shownPart;
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
+    $(b.dataset.part).hidden = !on;
+  }
+  // On a phone the strip is wider than the page: bring the shown tab into it, the page left as it is.
+  const strip = $('te-jump');
+  const cur = strip.querySelector('[aria-selected="true"]');
+  if (cur && strip.scrollWidth > strip.clientWidth) {
+    const t = cur.getBoundingClientRect();
+    const sb = strip.getBoundingClientRect();
+    if (t.left < sb.left) strip.scrollLeft += t.left - sb.left;
+    else if (t.right > sb.right) strip.scrollLeft += t.right - sb.right;
+  }
+}
+// A tab is an address (so back and forward move between tabs); the typed values are one form and stay.
+function goPart(slug, focus = true) {
+  const hash = `templates/${encodeURIComponent(shownId)}${slug === 'basics' ? '' : `/${slug}`}`;
+  if (location.hash !== `#${hash}`) location.hash = hash;
+  selectPart(slug);
+  if (focus) $(`te-tab-${slug}`).focus();
+}
 $('te-jump').addEventListener('click', (e) => {
   const b = e.target.closest('[data-part]');
-  if (!b) return;
-  const part = $(b.dataset.part);
-  part.scrollIntoView({ block: 'start' });
-  part.focus({ preventScroll: true });
+  if (b) goPart(partSlug(b));
+});
+$('te-jump').addEventListener('keydown', (e) => {
+  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+  e.preventDefault();
+  const i = PARTS.indexOf(shownPart);
+  goPart(e.key === 'Home' ? PARTS[0] : e.key === 'End' ? PARTS[PARTS.length - 1] : PARTS[(i + (e.key === 'ArrowRight' ? 1 : PARTS.length - 1)) % PARTS.length]);
 });
 
 // The modules a template can name: the ones this image ships (by name), then any other module a template lists.
@@ -527,18 +560,38 @@ function fields() {
 }
 
 // The server's problems beside the part they name ("words: ...", "modules.travel: ...", '"id" must ...'); any other at the top.
+// A part with a problem has a count on its tab, so one on a tab not shown is still seen.
+function markTabs() {
+  let parts = 0;
+  for (const b of partTabs()) {
+    const n = $(b.dataset.part).querySelectorAll('.problems li').length;
+    const badge = b.querySelector('[data-problems]');
+    badge.hidden = !n;
+    badge.replaceChildren();
+    if (n) {
+      const hidden = document.createElement('span');
+      hidden.className = 'visually-hidden';
+      hidden.textContent = n === 1 ? 'Problem: ' : 'Problems: ';
+      badge.append(hidden, String(n));
+      parts += 1;
+    }
+  }
+  return parts;
+}
 function clearProblems(only) {
   for (const ul of document.querySelectorAll('#template-editor .problems')) if (!only || (ul.dataset.problems || '').split(' ').includes(only)) ul.replaceChildren();
+  markTabs();
 }
 function showProblems(problems) {
   for (const p of problems) {
     const key = (p.match(/^"?([A-Za-z]+)/) || [])[1] || '';
-    const ul = [...document.querySelectorAll('#template-editor [data-problems]')].find((x) => x.dataset.problems.split(' ').includes(key)) || $('tp-problems');
+    const ul = [...document.querySelectorAll('#template-editor [data-problems]')].find((x) => x.tagName === 'UL' && x.dataset.problems.split(' ').includes(key)) || $('tp-problems');
     const li = document.createElement('li');
     li.textContent = p;
     ul.append(li);
     ul.closest('details')?.setAttribute('open', '');
   }
+  return markTabs();
 }
 
 $('template-editor').addEventListener('submit', async (e) => {
@@ -547,6 +600,7 @@ $('template-editor').addEventListener('submit', async (e) => {
   clearProblems();
   const body = fields();
   const save = $('te-save');
+  const was = document.activeElement; // a disabled button drops the focus: it goes back where it was
   save.disabled = true;
   say($('te-status'), 'Saving…');
   try {
@@ -559,10 +613,10 @@ $('template-editor').addEventListener('submit', async (e) => {
     say($('templates-status'), `Saved ${template.name}, version ${template.version}.`);
     $('template-list').querySelector(`[data-id="${CSS.escape(template.id)}"] a`)?.focus();
   } catch (err) {
-    say($('te-status'), err.problems && err.problems.length > 1 ? `${err.problems.length} things to fix, shown above.` : err.message, true);
-    showProblems(err.problems || [err.message]);
-    $('template-editor').querySelector('.problems li')?.closest('fieldset, form')?.scrollIntoView({ block: 'nearest' });
+    const parts = showProblems(err.problems || [err.message]);
+    say($('te-status'), parts ? `${parts} ${parts === 1 ? 'part has' : 'parts have'} problems, marked on ${parts === 1 ? 'its tab' : 'their tabs'}.` : err.message, true);
   } finally {
     save.disabled = false;
+    if (document.activeElement === document.body && was && was.isConnected && !$('template-editor-view').hidden) was.focus({ preventScroll: true });
   }
 });
