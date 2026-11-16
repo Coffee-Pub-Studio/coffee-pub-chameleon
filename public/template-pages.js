@@ -96,28 +96,34 @@ export function readPhases(root, { editing = true } = {}) {
 }
 
 // --- Additional Reactions and Icons -----------------------------------------------------------------------------------------
-// `core`: { reactions: [{ glyph, label }], icons: [{ id, classes, label }] }, what is always there.
+// `set`: { reactions: [{ glyph, label }], icons: [{ id, classes, label }] }, the environment's set, shown read only and folded
+// (on the host console, the built-in lists an environment's set starts as). `environment`: the environment's name, or '' on the
+// console, which has none.
 const reactionRow = (r) => `<div class="reaction-row tp-reaction" data-tr-id="${e(r.id || '')}"><input class="reaction-glyph" type="text" maxlength="8" value="${e(r.glyph || '')}" placeholder="🙂" aria-label="Emoji"><input class="reaction-label" type="text" maxlength="40" value="${e(r.label && r.label !== r.glyph ? r.label : '')}" placeholder="Label" aria-label="Label"><button class="btn btn-small btn-danger" type="button" data-tr-remove>Remove</button></div>`;
 const iconRow = (name) => `<div class="reaction-row tp-icon" data-ti-row><span class="icon-preview" aria-hidden="true">${name ? iconTag(name) : ''}</span><input class="reaction-label" type="text" data-ti-name maxlength="40" value="${e(name || '')}" placeholder="Font Awesome name, such as dice" aria-label="Icon, a Font Awesome name" autocapitalize="off" spellcheck="false"><button class="btn btn-small btn-danger" type="button" data-ti-remove>Remove</button></div>`;
-// The built-in set as chips: the Template page and the Environment page draw the same grid.
-export const coreReactionChips = (list) => `<div class="tp-chips">${list.length ? list.map((r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`).join('') : '<span class="hint">None</span>'}</div>`;
-export const coreIconChips = (list) => `<div class="tp-chips">${list.length ? list.map((i) => `<span class="tp-chip" title="${e(i.label || i.id)}"><i class="${e(i.classes)} fa-fw" aria-hidden="true"></i></span>`).join('') : '<span class="hint">None</span>'}</div>`;
-export function additionsHtml(t, { editable, core }) {
+const chipsOf = (list, draw) => `<div class="tp-chips">${list.length ? list.map(draw).join('') : '<span class="hint">None</span>'}</div>`;
+export const setReactionChips = (list) => chipsOf(list, (r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`);
+export const setIconChips = (list) => chipsOf(list, (i) => `<span class="tp-chip" title="${e(i.label || i.id)}"><i class="${e(i.classes)} fa-fw" aria-hidden="true"></i></span>`);
+// What the sentence under each list says, and the fold's heading.
+export const addedOnTop = (environment) => (environment ? `Added on top of the ${environment}'s set.` : "Added on top of an environment's set.");
+export const setFoldHtml = (environment, n, chips) => `<details class="tp-builtin"><summary>${e(environment ? `The ${environment}'s set (${n})` : `An environment's set starts as these (${n})`)}</summary>${chips}</details>`;
+export function additionsHtml(t, { editable, set, environment = '' }) {
   const reactions = Array.isArray(t && t.reactions) ? t.reactions : [];
   const icons = Array.isArray(t && t.iconSet) ? t.iconSet : [];
-  const coreReactions = (core && core.reactions) || [];
-  const coreIcons = (core && core.icons) || [];
-  const chips = (list, draw) => `<div class="tp-chips">${list.length ? list.map(draw).join('') : '<span class="hint">None</span>'}</div>`;
-  const coreBlock = `<h3>The core set</h3><p class="hint">Always there, in every template. Nobody removes them.</p>`
-    + `<h4>Reactions</h4>${coreReactionChips(coreReactions)}<h4>Icons</h4>${coreIconChips(coreIcons)}`;
+  const setReactions = (set && set.reactions) || [];
+  const setIcons = (set && set.icons) || [];
+  const fold = (list, chips) => (set ? setFoldHtml(environment, list.length, chips) : '');
+  const said = `<p class="hint">${e(addedOnTop(environment))}${editable ? ' Up to 40 reactions and 60 icons.' : ''}</p>`;
+  const reactionSet = fold(setReactions, setReactionChips(setReactions));
+  const iconSet = fold(setIcons, setIconChips(setIcons));
   if (!editable) {
-    return `<div class="tf-labels">${coreBlock}<h3>This template adds</h3>`
-      + `<h4>Reactions</h4>${chips(reactions, (r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`)}`
-      + `<h4>Icons</h4>${chips(icons, (n) => `<span class="tp-chip" title="${e(n)}">${iconTag(n)}</span>`)}</div>`;
+    return `<div class="tf-labels"><h3>This template adds</h3>`
+      + `<h4>Reactions</h4>${said}${chipsOf(reactions, (r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`)}${reactionSet}`
+      + `<h4>Icons</h4><p class="hint">${e(addedOnTop(environment))}</p>${chipsOf(icons, (n) => `<span class="tp-chip" title="${e(n)}">${iconTag(n)}</span>`)}${iconSet}</div>`;
   }
-  return `<div class="tf-labels">${coreBlock}<h3>This template adds</h3><p class="hint">On top of the core set; a template only adds. Up to 40 reactions and 60 icons.</p>`
-    + `<h4>Reactions</h4><div class="reactions-list" data-tr-list>${reactions.map(reactionRow).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-tr-add>Add a reaction</button></div>`
-    + `<h4>Icons</h4><div class="reactions-list" data-ti-list>${icons.map(iconRow).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-ti-add>Add an icon</button></div></div>`;
+  return `<div class="tf-labels"><h3>This template adds</h3>`
+    + `<h4>Reactions</h4>${said}<div class="reactions-list" data-tr-list>${reactions.map(reactionRow).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-tr-add>Add a reaction</button></div>${reactionSet}`
+    + `<h4>Icons</h4><p class="hint">${e(addedOnTop(environment))}</p><div class="reactions-list" data-ti-list>${icons.map(iconRow).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-ti-add>Add an icon</button></div>${iconSet}</div>`;
 }
 export function readAdditions(root, { editing = true } = {}) {
   const used = new Set();

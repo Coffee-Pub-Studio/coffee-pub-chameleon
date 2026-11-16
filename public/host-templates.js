@@ -6,6 +6,7 @@
 // /new), its parts with a jump list beside them.
 import { api, escapeHtml, word } from '/brand.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields } from '/template-fields.js';
+import { setFoldHtml, setReactionChips, setIconChips } from '/template-pages.js';
 import { fileText } from '/file-text.js';
 import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
@@ -28,6 +29,7 @@ let pendingView = null; // an editor asked for (#templates/<id>) before the list
 let editing = null; // the template being edited in full, or null for a new one
 let comparing = null; // the bundled id whose update is open in the compare panel
 let moduleIds = [...BUILT_IN]; // the modules a template can list: the ones the image ships, then any other a template names
+let builtInLists = null; // GET /api/host/settings `builtIn`: { reactions, icons }, what an environment's set starts as
 let shipped = null; // GET /api/host/settings `modules`: [{ id, name, icon }], loaded once
 const moduleName = (id) => (shipped || []).find((m) => m.id === id)?.name || id;
 const moduleIcon = (id) => (shipped || []).find((m) => m.id === id)?.icon || 'puzzle-piece';
@@ -288,7 +290,11 @@ $('te-jump').addEventListener('click', (e) => {
 // The modules a template can name: the ones this image ships (by name), then any other module a template lists.
 const moduleKeys = (t) => (t && t.modules && typeof t.modules === 'object' ? Object.keys(t.modules) : []);
 async function loadModuleIds() {
-  if (!shipped) shipped = (await api('GET', '/api/host/settings').catch(() => ({}))).modules || null;
+  if (!shipped) {
+    const got = await api('GET', '/api/host/settings').catch(() => ({}));
+    shipped = got.modules || null;
+    builtInLists = got.builtIn || null;
+  }
   const own = (shipped || []).map((m) => m.id);
   const ids = new Set([...BUILT_IN, ...own]);
   const full = await Promise.all(list.map((t) => api('GET', `/api/host/templates/${encodeURIComponent(t.id)}`).then((a) => a.template).catch(() => null)));
@@ -342,6 +348,7 @@ async function openEditor(t) {
   $('te-reactions').replaceChildren(...((t && t.reactions) || []).map(reactionRow));
   $('te-icon-set').value = ((t && t.iconSet) || []).join(' ');
   previewIconSet();
+  drawSets();
   $('te-starter').replaceChildren(...((t && t.starterSpaces) || []).map(starterRow));
   $('te-starter-add').disabled = $('te-starter').childElementCount >= MAX_STARTER;
   window.scrollTo(0, 0);
@@ -437,6 +444,11 @@ $('te-module-display').addEventListener('input', (e) => {
   if (!e.target.matches('[data-icon]')) return;
   e.target.previousElementSibling.className = `fa-solid fa-${e.target.value.trim() || e.target.placeholder} fa-fw`;
 });
+// The built-in lists, read only and folded under each list: what an environment's set starts as. The console has no environment.
+function drawSets() {
+  $('te-reactions-set').innerHTML = builtInLists ? setFoldHtml('', builtInLists.reactions.length, setReactionChips(builtInLists.reactions)) : '';
+  $('te-icons-set').innerHTML = builtInLists ? setFoldHtml('', builtInLists.icons.length, setIconChips(builtInLists.icons)) : '';
+}
 const iconSetNames = () => $('te-icon-set').value.split(/[\s,]+/).map((s) => s.trim().replace(/^fa-/, '')).filter(Boolean);
 function previewIconSet() { $('te-icon-preview').innerHTML = iconSetNames().slice(0, 60).map((n) => `<i class="fa-solid fa-${escapeHtml(n)} fa-fw" title="${escapeHtml(n)}"></i>`).join(''); }
 $('te-icon-set').addEventListener('input', previewIconSet);

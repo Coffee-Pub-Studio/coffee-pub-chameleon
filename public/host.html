@@ -424,18 +424,20 @@
 
                   <fieldset class="sdk-panel hc-part" id="te-part-reactions" tabindex="-1">
                     <legend class="hc-part-name">Reactions</legend>
-                    <p class="sdk-hint">Added to the core set. At most 40.</p>
+                    <p class="sdk-hint">Added on top of an environment's set. At most 40.</p>
                     <div class="reactions-list" id="te-reactions"></div>
                     <button class="btn btn-small" id="te-reaction-add" type="button"><i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i><span>Add a reaction</span></button>
                     <ul class="problems" data-problems="reactions"></ul>
+                    <div id="te-reactions-set"></div>
                   </fieldset>
 
                   <fieldset class="sdk-panel hc-part" id="te-part-icons" tabindex="-1">
                     <legend class="hc-part-name">Icons</legend>
-                    <p class="sdk-hint">Font Awesome names, separated by spaces, added to an environment's icon list. At most 60.</p>
+                    <p class="sdk-hint">Font Awesome names, separated by spaces. Added on top of an environment's set. At most 60.</p>
                     <textarea id="te-icon-set" rows="2" autocapitalize="off" spellcheck="false" aria-label="Icons, Font Awesome names separated by spaces" placeholder="dice compass map"></textarea>
                     <div class="offer-icons" id="te-icon-preview" aria-hidden="true"></div>
                     <ul class="problems" data-problems="iconSet"></ul>
+                    <div id="te-icons-set"></div>
                   </fieldset>
 
                   <fieldset class="sdk-panel hc-part" id="te-part-starter" tabindex="-1">

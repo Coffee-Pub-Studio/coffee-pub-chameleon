@@ -9550,7 +9550,7 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 #guest-unavailable { margin: 6px 0 0; padding-left: 18px; }
 #guest-leave { margin-top: 12px; }
 
-/* The built-in set on the Environment tab's Reactions and Icons: folded, the same chips the Template page draws. */
+/* The environment's set on a template's Additional Reactions and Icons (the built-in lists on the console): folded, read only. */
 .tp-builtin { margin: 4px 0 12px; }
 .tp-builtin > summary { cursor: pointer; min-height: 44px; display: list-item; list-style-position: inside; line-height: 44px; color: var(--text-muted); }
 

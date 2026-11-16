@@ -136,12 +136,15 @@ await test('Workspace, Phases, Additions: fields when editable, lines when not, 
   assert.equal((ph.match(/data-tp-phase=/g) || []).length, 2);
   assert.match(ph, /<option value="goals" selected>/);
   assert.match(P.phasesHtml(tpl, { editable: false, word }), /Measured by[^]*Goals/);
-  const core = { reactions: [{ glyph: '❤️', label: 'Heart' }], icons: [{ id: 'star', classes: 'fa-solid fa-star', label: 'star' }] };
-  const ad = P.additionsHtml(tpl, { editable: true, core });
-  assert.match(ad, /The core set/);
+  const set = { reactions: [{ glyph: '❤️', label: 'Heart' }], icons: [{ id: 'star', classes: 'fa-solid fa-star', label: 'star' }] };
+  const ad = P.additionsHtml(tpl, { editable: true, set, environment: 'Trip group' });
+  assert.equal((ad.match(/Added on top of the Trip group(?:'|&#39;)s set\./g) || []).length, 2); // both lists say it
+  assert.match(ad, /The Trip group(?:'|&#39;)s set \(1\)/);
+  assert.doesNotMatch(ad, /core set|Nobody removes/i);
+  assert.match(P.additionsHtml(tpl, { editable: true, set, environment: '' }), /An environment(?:'|&#39;)s set starts as these \(1\)/);
   assert.match(ad, /data-tr-id="ship"/);
   assert.match(ad, /value="rocket"/);
-  assert.doesNotMatch(P.additionsHtml(tpl, { editable: false, core }), /<input/);
+  assert.doesNotMatch(P.additionsHtml(tpl, { editable: false, set }), /<input/);
 });
 await test('the pages, the strip, the 44 px rules and the marks are in the files', () => {
   const html = read('public/admin.html');
@@ -303,10 +306,10 @@ async function live() {
           assert.equal(t.phases.find((p) => p.main).id, 'build');
           await open('template/default/phases', `${count('#tpl-phases-box input')} === 0 && /Dates/.test(document.querySelector('#tpl-phases-box').textContent)`, 'the Phases of the Default template');
         });
-        await test(at('Additional Reactions and Icons: core and the template\'s; your own are on the Environment tab'), async () => {
+        await test(at('Additional Reactions and Icons: the environment\'s set and the template\'s additions'), async () => {
           await open('template/mine/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20 && ${count('#tpl-reactions-box .tp-reaction')} === 1 && ${count('#tpl-reactions-box [data-ti-name]')} === 1 && !document.getElementById('tpl-own-additions') && !document.querySelector('#tpl-part-reactions #reactions-list') && ${count('#env-part-reactions #reactions-list')} === 1 && ${count('#env-part-reactions #icons-list')} === 1`, 'the Additional Reactions and Icons page');
           await shot(tab, `${size}-reactions`);
-          await open('reactions', `${count('#env-part-reactions #reactions-list')} === 1 && document.getElementById('reactions-fixed').textContent.length > 0`, 'the Environment tab\'s Reactions and Icons');
+          await open('reactions', `${count('#env-part-reactions #reactions-list')} === 1 && ${count('#reactions-list .reaction-row')} > 100 && ${count('#icons-list .icon-row')} > 100 && !!document.getElementById('lists-reset')`, 'the Environment tab\'s Reactions and Icons');
           await shot(tab, `${size}-env-reactions`);
           await open('template/mine/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20`, 'back to the template page');
           await tab.eval(`(() => { document.querySelector('#tpl-reactions-box [data-tr-add]').click(); const rows = document.querySelectorAll('#tpl-reactions-box .tp-reaction'); const last = rows[rows.length - 1]; last.querySelector('.reaction-glyph').value = '\\u{1F389}'; last.querySelector('.reaction-label').value = 'Party'; document.querySelector('#tpl-reactions-card [data-tpl-save-button]').click(); return true; })()`);
