@@ -40,10 +40,20 @@ const MAX_SUMMARIES = 20;
 const ID_RE = /^[a-f0-9]{12}$/;
 
 const newId = () => crypto.randomBytes(6).toString('hex');
-const cleanText = (text, max) => String(text ?? '').replace(/\p{Cc}/gu, (c) => (c === '\n' || c === '\t' ? c : '')).trim().slice(0, max);
+const cleanText = (text, max = Infinity) => String(text ?? '').replace(/\p{Cc}/gu, (c) => (c === '\n' || c === '\t' ? c : '')).trim().slice(0, max);
 const cleanWho = (who) => String(who || '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 40) || 'someone';
 const isPrivate = (m) => m.visibility === 'private';
 const isAi = (m) => m.kind === 'ai' || m.command === 'ai';
+// An account's key, as a message's `by` holds it (a guest's is the shared `guest`, which no account ever has).
+const ACCOUNT_KEY_RE = /^[a-z0-9]{4,16}$/;
+const byAccount = (m) => typeof m.by === 'string' && m.by !== 'guest' && ACCOUNT_KEY_RE.test(m.by);
+// Whether a message reads as an agent's (plan-agent-access.md, step 5): an ordinary public message by an account, never a
+// guest's. `account` is its author's account when it is still here (store.userByKey), which says; once it is gone, the
+// flag kept when it was posted says. One rule for the chat routes and the AI's context.
+function postedByAgent(m, account) {
+  if (!m || typeof m !== 'object' || m.kind || isPrivate(m) || !byAccount(m)) return false;
+  return account ? account.agent === true : m.agent === true;
+}
 const copy = (m) => ({
   ...m,
   ...(Array.isArray(m.summaries) ? { summaries: m.summaries.map((s) => ({ ...s })) } : {}),
@@ -92,6 +102,7 @@ class ChatHistory {
       const theirs = [];
       for (const m of Array.isArray(pub[spaceId]) ? pub[spaceId] : []) {
         if (!m || typeof m !== 'object') continue;
+        if ('agent' in m && !postedByAgent(m, null)) delete m.agent; // only ever `true`, on an account's ordinary public message
         if (privateIds.has(m.id)) { split = true; continue; } // in both: a change cut short; private wins
         if (isPrivate(m)) { split = true; mine.push(m); privateIds.add(m.id); continue; }
         theirs.push(m);
@@ -216,7 +227,10 @@ class ChatHistory {
   // `command` (with `command` and, for a module's command, `module`) the echo of a command; `ai` an AI answer, with
   // `summaries` and `replyTo`. `link` (plan-chat-links.md): the ordinary message's link, found by the route with
   // findLink (server/chat-links.js), stored as `preview: { url }`.
-  add(spaceId, { by, who, text, visibility, kind, command, module, summaries, replyTo, at, link, prompt, sent, used, numbered, leftOut, cut, attached }) {
+  //
+  // `agent: true` (plan-agent-access.md, step 5) marks an ordinary public message an agent account posted, so every page
+  // labels it "(agent)" whatever its `who` says. Only the chat route sets it, from the account, never from the request.
+  add(spaceId, { by, who, text, visibility, kind, command, module, summaries, replyTo, at, link, prompt, sent, used, numbered, leftOut, cut, attached, agent }) {
     const ai = kind === 'ai' || command === 'ai';
     const clean = cleanText(text, ai ? MAX_AI_TEXT : MAX_TEXT);
     if (!clean) return null;
@@ -224,6 +238,7 @@ class ChatHistory {
     const message = { id: newId(), at: when, by: String(by || 'guest').slice(0, 40), who: cleanWho(who), text: clean };
     if (visibility === 'private') message.visibility = 'private';
     if (kind === 'command' || kind === 'ai') message.kind = kind;
+    if (agent === true && !kind && visibility !== 'private') message.agent = true;
     if (typeof command === 'string' && command) message.command = command.slice(0, 12);
     if (typeof module === 'string' && module) message.module = module.slice(0, 32);
     // The words a module attached to an /ai question, as sent (plan-ai-pictures.md decision 10): private with the question.
@@ -445,4 +460,4 @@ class ChatHistory {
   }
 }
 
-module.exports = { ChatHistory, CHAT_LIMITS: { MAX_PUBLIC, MAX_PRIVATE, MAX_AGE_MS, MAX_TEXT, MAX_AI_TEXT, MAX_SUMMARIES, MAX_PER_SPACE: MAX_PUBLIC } };
+module.exports = { ChatHistory, cleanChatText: cleanText, postedByAgent, CHAT_LIMITS: { MAX_PUBLIC, MAX_PRIVATE, MAX_AGE_MS, MAX_TEXT, MAX_AI_TEXT, MAX_SUMMARIES, MAX_PER_SPACE: MAX_PUBLIC } };

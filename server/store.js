@@ -1022,7 +1022,8 @@ class Store {
       linkToken: !u.hostAdmin && !agent && typeof u.linkToken === 'string' && u.linkToken ? u.linkToken : null,
       mfa: u.hostAdmin || agent ? null : sanitizeMfa(u.mfa),
       // An agent account, and whether its owner turned it off (its token answers 401 while it is); left off for a person.
-      ...(agent ? { agent: true, ...(u.off === true ? { off: true } : {}) } : {}),
+      // `chatPost` is its owner's Post in Chat, kept only while on (off for a new agent); never on a person.
+      ...(agent ? { agent: true, ...(u.off === true ? { off: true } : {}), ...(u.chatPost === true ? { chatPost: true } : {}) } : {}),
       images,
       spaces,
       player: {}, // borders and the plate are server-wide now; older per-user values are dropped
@@ -2014,6 +2015,19 @@ class Store {
     if (typeof off !== 'boolean') throw new StoreError('off is true or false');
     if (off) user.off = true;
     else delete user.off;
+    this.save();
+    return user;
+  }
+
+  // An agent's Post in Chat (plan-agent-access.md, decision 17): on lets it post in the Chat of its spaces, off (as for a
+  // new agent) stops that and nothing else. Only an agent.
+  setAgentChatPost(key, on) {
+    const user = this.userByKey(key);
+    if (!user) throw new StoreError('no such user', 404);
+    if (!user.agent) throw new StoreError('Only an agent can have that.');
+    if (typeof on !== 'boolean') throw new StoreError('chatPost is true or false');
+    if (on) user.chatPost = true;
+    else delete user.chatPost;
     this.save();
     return user;
   }

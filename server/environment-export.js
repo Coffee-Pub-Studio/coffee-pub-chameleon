@@ -44,8 +44,9 @@ const APP_FIELDS = ['version', 'migrations', 'template', 'templateHistory', 'tem
 const APP_LEFT_OUT = ['secrets', 'invites'];
 // A person (Store#sanitizeUser). `demo` marks a demo person (server/demo-loader.js): kept, so a demo load in the copy may
 // give them new passwords.
-// `agent` and `off` mark an agent account and whether it is turned off (plan-agent-access.md): kept, its token is not (tokens.json).
-const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'agent', 'off', 'createdAt'];
+// `agent`, `off` and `chatPost` mark an agent account, whether it is turned off and whether it may post in Chat
+// (plan-agent-access.md): kept, its token is not (tokens.json).
+const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'agent', 'off', 'chatPost', 'createdAt'];
 const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed', 'welcomeSeen'];
 // A person's own record for one space (user.spaces[<space id>]).
 const USER_SPACE_FIELDS = ['images', 'useDefaultImages', 'permissions', 'joined'];

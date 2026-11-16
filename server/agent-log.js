@@ -7,7 +7,8 @@
 //   token   the token's id (server/tokens.js), never the token;
 //   route   the gate's route pattern ("/api/spaces/:id/action"), never the path asked for, so no key or token in an
 //           address lands here; "(refused)" for a route the gate does not let an agent use;
-//   kind    "read" or "write", what the call counted against; null for a line that counted against nothing.
+//   kind    "read" or "write", what the call counted against; null for a line that counted against nothing;
+//   message a Chat post's message id, or how many messages a Chat read carried (a number); else null. Never text.
 // Never a request's body, a chat message's text or an object's content. A day's file older than 30 days is deleted on
 // start and once a day after; nothing is ever rewritten.
 //
@@ -39,6 +40,7 @@ const NOTE_MS = 60 * 1000;
 const MAX_READ = 8 * 1024 * 1024;
 const KEY_RE = /^[a-z0-9]{4,16}$/;
 const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
+const MESSAGE_ID_RE = /^[a-f0-9]{12}$/;
 const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 class AgentLog {
@@ -183,7 +185,9 @@ class AgentLog {
       space: text(entry.space, 16),
       action: text(entry.action, 140),
       request: Number.isInteger(entry.request) ? entry.request : null,
-      message: text(entry.message, 40),
+      // Chat (step 5): a post's message id (12 hex characters), or how many messages a read carried; never any text.
+      message: typeof entry.message === 'string' && MESSAGE_ID_RE.test(entry.message) ? entry.message
+        : Number.isInteger(entry.message) && entry.message >= 0 && entry.message <= 1000 ? entry.message : null,
       status: Number.isInteger(entry.status) ? entry.status : null,
       address: typeof entry.address === 'string' && net.isIP(entry.address) ? entry.address : null, // an IP address, never free text
       kind: KINDS.includes(entry.kind) ? entry.kind : null,

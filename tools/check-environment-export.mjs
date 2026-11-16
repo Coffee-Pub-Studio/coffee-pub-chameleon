@@ -74,8 +74,8 @@ function seededApp(secrets = strong) {
       { key: 'newowner', login: 'newowner', displayName: 'New', role: 'owner', passwordHash: null, firstPassword: { hash: hex(32), expiresAt: '2099-01-01T00:00:00.000Z' }, createdAt: '2026-01-01T00:00:00.000Z' },
       // A demo person (server/demo-loader.js): the mark is kept in a copy, so a demo load there may give them new passwords.
       { key: 'demoper1', login: 'mia', displayName: 'Mia Alvarez', role: 'member', passwordHash: null, demo: true, createdAt: '2026-01-01T00:00:00.000Z' },
-      // An agent account, turned off (plan-agent-access.md): the marks are kept in a copy; its token (tokens.json) is not.
-      { key: 'agentkey', login: 'agent-agentkey', displayName: 'Claude', role: 'member', passwordHash: null, agent: true, off: true, createdAt: '2026-01-01T00:00:00.000Z' },
+      // An agent account, turned off, with Post in Chat on (plan-agent-access.md): the marks are kept in a copy; its token (tokens.json) is not.
+      { key: 'agentkey', login: 'agent-agentkey', displayName: 'Claude', role: 'member', passwordHash: null, agent: true, off: true, chatPost: true, createdAt: '2026-01-01T00:00:00.000Z' },
     ],
     spaces: [
       { id: 'lobby', name: 'Lobby', members: ['ownerkey'], createdAt: '2026-01-01T00:00:00.000Z' },
@@ -168,7 +168,7 @@ test('the copy carries only allowed fields, keeps each of them as it is, and non
   const back = loadStore(copy).store.data;
   assert.deepEqual(back.users.map((u) => [u.key, u.login, u.role, u.themeMode, u.passwordHash, u.linkToken, u.mfa]), [['ownerkey', 'owner', 'owner', 'light', null, null, null], ['bosskey1', 'boss', 'admin', undefined, null, null, null], ['newowner', 'newowner', 'owner', undefined, null, null, null], ['demoper1', 'mia', 'member', undefined, null, null, null], ['agentkey', 'agent-agentkey', 'member', undefined, null, null, null]]);
   assert.equal(back.users.find((u) => u.key === 'demoper1').demo, true, 'a demo person stays marked in the copy');
-  assert.deepEqual([back.users.find((u) => u.key === 'agentkey').agent, back.users.find((u) => u.key === 'agentkey').off], [true, true], 'an agent stays an agent, and turned off, in the copy');
+  assert.deepEqual(['agent', 'off', 'chatPost'].map((f) => back.users.find((u) => u.key === 'agentkey')[f]), [true, true, true], 'an agent stays an agent, turned off and with Post in Chat on, in the copy');
   assert.ok(back.users.every((u) => !('firstPassword' in u)), 'a restored copy carries no first-password link');
   assert.deepEqual(back.spaces.map((s) => ({ ...s, guestToken: undefined })), data.spaces.map((s) => ({ ...s, guestToken: undefined })));
 });

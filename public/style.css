@@ -9564,6 +9564,9 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 .agent-log-what { overflow-wrap: anywhere; }
 .agent-log-detail { color: var(--text-dim); font-size: var(--text-12); overflow-wrap: anywhere; }
 .agent-log-line.is-note .agent-log-what { color: var(--text-muted); font-style: italic; }
+/* An agent's message in Chat: the word "agent" beside the name (the chip itself is .sdk-status). */
+.message-head-side > .message-agent { flex: none; min-height: 0; height: 18px; padding: 0 var(--space-2); font-size: var(--text-11); line-height: 18px; }
+.message-head-side:has(> .message-agent) > .message-name { flex: 0 0 auto; max-width: 60%; } /* the time gives way, not the name */
 .agent-token-dialog .agent-token-value { display: block; font-size: var(--text-13); padding: 10px 12px; user-select: all; }
 .agent-token-dialog .agent-token-warning { color: var(--text); }
 @media (max-width: 640px) {

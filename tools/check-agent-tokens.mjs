@@ -168,6 +168,8 @@ const GATE_LIST = new Set([
   'GET /api/agent/me', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
   'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'POST /api/objects/resolve',
   'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
+  // Chat (step 5): reading and posting; tools/check-agent-chat.mjs checks them.
+  'GET /api/spaces/:id/chat', 'POST /api/spaces/:id/chat',
 ]);
 
 // The only route registered ahead of the agent gate (before the door), so before any session or token is read: the same
@@ -409,7 +411,7 @@ try {
     refused(await call(server, 'DELETE', `/api/modules/todo/data?scope=space&space=${S1}`, await P()), 403, CANT, 'Clear');
     refused(await call(server, 'POST', `/api/modules/todo/data/restore?scope=space&space=${S1}`, { ...(await P()), body: {} }), 403, CANT, 'restore');
     for (const [method, url, body] of [
-      ['GET', '/api/me'], ['GET', '/api/spaces'], ['GET', `/api/spaces/${S1}/chat`], ['POST', `/api/spaces/${S1}/chat`, { text: 'hi' }],
+      ['GET', '/api/me'], ['GET', '/api/spaces'], ['GET', '/api/live'], ['DELETE', `/api/spaces/${S1}/chat`], ['GET', `/api/spaces/${S1}/chat/x`],
       ['GET', '/api/settings'], ['PATCH', `/api/users/${agent.key}`, { role: 'owner' }], ['POST', `/api/users/${agent.key}/token`],
       ['DELETE', `/api/users/${agent.key}/token`], ['GET', `/api/users/${agent.key}/agent-log`], ['POST', '/api/logout'], ['GET', '/'], ['GET', '/style.css'],
       ['POST', '/api/me/mfa/start'], ['PATCH', `/api/spaces/${S1}`, { name: 'x' }], ['POST', `/api/spaces/${S1}/join`], ['OPTIONS', '/api/agent/me'],
