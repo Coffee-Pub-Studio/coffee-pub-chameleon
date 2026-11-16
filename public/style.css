@@ -6507,7 +6507,8 @@ body.chat-window {
 /* On a phone the key's buttons are full-size targets. */
 @media (max-width: 640px) { .ai-key-row .btn, .ai-model-row .btn { --btn-h: 44px; } .ai-key-row input { min-height: 44px; } }
 /* A saved key the server can't read: the server's sentence, in place of the key's usual hint. */
-.ai-key .hint.error { color: var(--danger-text); }
+.ai-key .hint.error, #welcome-count.error { color: var(--danger-text); }
+#set-welcome { min-height: 9rem; resize: vertical; }
 .ai-usage { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .ai-usage h3 { margin: 0 0 8px; font-size: var(--text-14); }
 

@@ -76,7 +76,7 @@ const TABS = ['environment', 'template', 'theme', 'spaces', 'roles', 'users', 'm
 // The Environment tab's parts (#261): General (the plan, the name and icon, the sign-in page), Localization and Stream,
 // each a stack of its own, chosen in the page bar's row (#env-subtabs). The address names the part shown: #general,
 // #localization, #stream (#environment, the tab's own name, opens General).
-const ENV_PARTS = ['general', 'localization', 'reactions', 'stream'];
+const ENV_PARTS = ['general', 'localization', 'reactions', 'welcome', 'stream'];
 let envPart = 'general';
 function showEnvPart(part) {
   envPart = ENV_PARTS.includes(part) ? part : 'general';
@@ -639,6 +639,34 @@ $('save-features').addEventListener('click', () => saveSettings({
   allowPrivate: $('set-allow-private').checked,
   allowReactions: $('set-allow-reactions').checked,
 }, $('features-status')));
+// The welcome note (#870): GET/PUT /api/environment/welcome. The box shows what the server kept (its cleaned text).
+let welcomeMax = 4000;
+function paintWelcome(view) {
+  welcomeMax = view.maxLength || welcomeMax;
+  $('set-welcome').value = view.note ? view.note.text : '';
+  $('remove-welcome').hidden = !view.note;
+  countWelcome();
+}
+function countWelcome() {
+  const n = $('set-welcome').value.length;
+  const p = $('welcome-count');
+  p.textContent = `${n} of ${welcomeMax} characters`;
+  p.classList.toggle('error', n > welcomeMax);
+  $('save-welcome').disabled = n > welcomeMax;
+}
+async function saveWelcome(text, statusText) {
+  const status = $('welcome-status');
+  say(status, 'saving...');
+  try {
+    paintWelcome(await api('PUT', '/api/environment/welcome', { text }));
+    say(status, statusText);
+  } catch (err) { say(status, err.message, true); }
+}
+$('set-welcome').addEventListener('input', countWelcome);
+$('save-welcome').addEventListener('click', () => saveWelcome($('set-welcome').value, 'saved'));
+$('remove-welcome').addEventListener('click', () => saveWelcome('', 'removed'));
+api('GET', '/api/environment/welcome').then(paintWelcome).catch(() => {});
+
 $('save-login').addEventListener('click', () => saveSettings({ loginText: $('set-login-text').value, mfaRequired: $('set-mfa-required').checked }, $('login-status')));
 
 // --- theme -------------------------------------------------------------------

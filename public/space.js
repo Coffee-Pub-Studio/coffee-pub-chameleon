@@ -19,6 +19,7 @@ import { nav } from '/nav-bar.js';
 import { attachChatInput, viewOf, discussionWord, placeAbove, stripSummaryMarkers, clearChoices, ofClearType, inClearScope, clearTakesPicture, clearNoticeTakes, cleanPreview, cleanKept, siteName, linkKeeper, previewNoticeTakes, keptNoticeTakes } from '/chat-input.js';
 import { openHostMenu, openConfirmMenu, closeHostMenu, setGuestPass } from '/module-host.js';
 import { confirmDialog } from '/confirm.js';
+import { welcomeOnArrival } from '/welcome-note.js';
 import { foldCallToolbar, callTitle, callTime, callDuration } from '/call-toolbar.js';
 
 // Elements by id, wherever the canvas currently lives (the page or the pop-out
@@ -8616,5 +8617,6 @@ async function init() {
     // does not have to have answered first.
     join(rememberedSpace());
   }
+  welcomeOnArrival(); // the owner's welcome note, once at a first sign-in (welcome-note.js)
 }
 init();

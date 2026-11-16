@@ -3157,6 +3157,12 @@ dialog.sdk-dialog-confirm:not([open]) { display: none; }
   overscroll-behavior: contain;
 }
 .sdk-dialog-confirm .sdk-dialog-body[hidden] { display: none; }
+/* The welcome note's text (hostText.markdown's output, set by confirm.js's html option): paragraphs, a list, links. */
+.sdk-welcome { display: flex; flex-direction: column; gap: var(--space-3); color: var(--text-muted); overflow-wrap: anywhere; }
+.sdk-welcome > :is(p, ul) { margin: 0; }
+.sdk-welcome ul { padding-left: 1.25em; }
+.sdk-welcome strong { color: var(--text-primary); }
+.sdk-welcome a { color: var(--text-link); }
 .sdk-dialog-confirm .sdk-dialog-body > p { margin: 0; color: var(--text-muted); overflow-wrap: anywhere; }
 .sdk-dialog-confirm .sdk-dialog-foot {
   margin: 0;
