@@ -53,7 +53,7 @@ services:
       ADMIN_PASSWORD: "CHANGE_ME_ADMIN_PASSWORD"
       PRODUCT_NAME: "Coffee Pub Chameleon"
       # CONTACT_EMAIL: "you@example.com" # optional: where the start page's "ask" writes to
-      # PRODUCT_SITE_URL: "https://www.example.com/collaborator" # optional: the start page's "About" link to the product's page on your website (an http or https address)
+      # PRODUCT_SITE_URL: "https://www.example.com/chameleon" # optional: the start page's "About" link to the product's page on your website (an http or https address)
       # Agreements: with either set, every account agrees to the text (plain or Markdown, at most 256 KB) before entering.
       # TERMS_FILE: "/app/data/terms.md" # the terms of service
       # NDA_FILE: "/app/data/nda.md" # the beta NDA

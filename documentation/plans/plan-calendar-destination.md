@@ -21,7 +21,7 @@ The sketch, as Thomas confirmed it (decision 8): the second row is a bar for thi
 - **Home.** The Calendar's tile ("Coming up") and the To-do's tile ("Due soon") link their headings to `/modules/calendar` and `/modules/todo`; a day in the Calendar's tile opens `/modules/calendar#day=<date>` (`host.page.open`).
 - **The top bar.** After step 2b of plan-primary-nav the middle zone is empty; module pages have no entry in the bar. A module page opened while present in a space opens as a view over it (`openOverlay()`), which marks you Away on the call.
 - **Environment settings.** `store.settings` holds the environment's options (`clock`, `allowAsides`, ...); a template may give the ones listed in `SETTINGS` in `server/templates.js`. The Travel template turns on Calendar but not To-do.
-- **The principle.** architecture-modules, "Objects": "If a change to Collaborator names a module, or a module lists other modules by name in its code, the design has slipped." Decision 32 names two modules; the contract below keeps the principle by having the modules declare their part.
+- **The principle.** architecture-modules, "Objects": "If a change to Chameleon names a module, or a module lists other modules by name in its code, the design has slipped." Decision 32 names two modules; the contract below keeps the principle by having the modules declare their part.
 
 ## Decisions
 
@@ -38,7 +38,7 @@ Thomas, 2026-10-01 and 2026-10-02 (plan-primary-nav decisions 2, 7, 21 and 32, a
 Thomas, 2026-10-02, answering the draft's questions.
 
 8. **The sketch is read right**, and the environment's own calendar shows too, listed first in the filter.
-9. **The modules supply parts** (`surfaces.destination`), on a host page that hosts them. It keeps the rule that Collaborator names no module, and lets a later module offer a part.
+9. **The modules supply parts** (`surfaces.destination`), on a host page that hosts them. It keeps the rule that Chameleon names no module, and lets a later module offer a part.
 10. **The entry sits in the middle of the top bar**, with Map beside it. The middle zone has been empty since step 2b, so the entry stays put whatever the breadcrumb holds.
 11. **The entry uses the Calendar module's display name and icon**, so a template's or an owner's name for the Calendar carries.
 12. **Show Calendar is off by default and on for Travel**, set in a new **Top bar** section on Manage's environment tab.
@@ -65,7 +65,7 @@ Thomas, 2026-10-02, on what the build left open.
 
 ## How it is put together
 
-Decision 9. Two other ways were set aside: the Calendar's page showing tasks itself through pointers (a module cannot write another's data, so adding or ticking a task would wait on actions until the To-do is open somewhere), and a host page that names `calendar` and `todo` and frames their environment pages side by side (it breaks the rule that Collaborator names no module, and each page would bring its own header and filter row).
+Decision 9. Two other ways were set aside: the Calendar's page showing tasks itself through pointers (a module cannot write another's data, so adding or ticking a task would wait on actions until the To-do is open somewhere), and a host page that names `calendar` and `todo` and frames their environment pages side by side (it breaks the rule that Chameleon names no module, and each page would bring its own header and filter row).
 
 ## The contract
 

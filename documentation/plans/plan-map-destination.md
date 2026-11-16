@@ -66,7 +66,7 @@ Thomas, 2026-10-02, on what the build left open.
 
 Decision 10, the same frame as the Calendar's: **declared parts on a host page**. Maps declares the `main` part of the `map` destination (the map) and Places the `panel` part (the list). The host page draws the page bar, the filter and the search field, and mounts each part as it mounts a module page today. The host names the destination, not the modules. Whichever destination is built first builds the frame (`surfaces.destination`, `GET /api/destinations`, `public/destination.html`, `host.destination`); the second adds only what is its own.
 
-Two other ways were set aside: Maps' page drawing the list itself would put Places' editing inside Maps, which the Places, Maps and Views plan moved out of it on purpose; and a host page naming `maps` and `places` breaks "Collaborator names no module" (architecture-modules, "Objects").
+Two other ways were set aside: Maps' page drawing the list itself would put Places' editing inside Maps, which the Places, Maps and Views plan moved out of it on purpose; and a host page naming `maps` and `places` breaks "Chameleon names no module" (architecture-modules, "Objects").
 
 What Map needs that the Calendar does not, and why:
 

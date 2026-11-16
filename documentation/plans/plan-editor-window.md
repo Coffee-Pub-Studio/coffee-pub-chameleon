@@ -8,7 +8,7 @@
 
 **How a module runs.** `runModeOf` in `server/modules.js` decides it ([architecture-modules](../architecture/architecture-modules.md), "Run modes"):
 
-- **In the page.** Every module that ships with Collaborator runs this way unless the admin chose otherwise: To-do, the Planner (`travel`), Calendar, Polls, Research, Places, Maps, Stream and the Assistant. `startInPage` in `public/module-host.js` gives it a container (`.module-root`) with a shadow root, puts its style, markup and script there, and hands it its SDK directly.
+- **In the page.** Every module that ships with Chameleon runs this way unless the admin chose otherwise: To-do, the Planner (`travel`), Calendar, Polls, Research, Places, Maps, Stream and the Assistant. `startInPage` in `public/module-host.js` gives it a container (`.module-root`) with a shadow root, puts its style, markup and script there, and hands it its SDK directly.
 - **In a sandboxed frame.** A module someone uploads runs in an `<iframe sandbox="allow-scripts allow-forms">` with an opaque origin, talking to the page only by `postMessage`, unless the admin switches it to the page after a warning.
 
 **Why there are frames at all.** The frame exists only to contain code nobody here wrote. A module in a frame cannot read the page, its cookies or its storage, cannot call the network, and can do only what the SDK lets it, which the server checks against the permissions the admin approved. A module in the page could bypass all of that, which is why the bundled modules (trusted, shipped with the server) run in the page and an uploaded one does not. Nothing about the forms needs a frame.

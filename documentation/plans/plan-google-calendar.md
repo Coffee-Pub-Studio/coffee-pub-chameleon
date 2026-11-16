@@ -20,7 +20,7 @@
 
 ### Which way events travel
 
-| | Collaborator to Google: an address per person | Google to Collaborator: a pasted address | Google to Collaborator: OAuth and the Calendar API |
+| | Chameleon to Google: an address per person | Google to Chameleon: a pasted address | Google to Chameleon: OAuth and the Calendar API |
 | --- | --- | --- | --- |
 | How | Each person makes a private address on Profile and adds it in Google ("From URL"). Google fetches it. | Each person pastes their Google calendar's "Secret address in iCal format". The server fetches it. | Each person connects their Google account; the server keeps a refresh token and calls the API. |
 | What a person gets | Sessions and Planner twins on their phone, beside their own events. | Their own Google events shown in the Calendar, to them only, read only. | The same, plus a list of calendars to tick. |
@@ -57,7 +57,7 @@ From Thomas, 2026-10-03:
 
 Written for the decisions above.
 
-### Part 1: the address out (Collaborator to Google)
+### Part 1: the address out (Chameleon to Google)
 
 #### What a person sees
 
@@ -100,7 +100,7 @@ Written for the decisions above.
 - The Profile section and the owner's row above, in `public/profile.html` and `profile.js`, with the existing row styles of the personal link (`#link-row`).
 - Manage's switch in `public/admin.html` and its script, beside the environment's other options.
 
-### Part 2: other calendars in (Google to Collaborator), after Part 1
+### Part 2: other calendars in (Google to Chameleon), after Part 1
 
 What #42 decided, by a pasted address rather than OAuth.
 

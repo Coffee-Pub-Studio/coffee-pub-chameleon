@@ -30,7 +30,7 @@ Thomas chose that approach the same day, with one schedule for the whole host.
   ("2026-11-14T15:25"), beside the flight time, so a flight across time zones shows both right
   ([plan-object-handoff](plan-object-handoff.md), decision 11; `ticketWhen`, `arrivalFits` and `datedArrives` in
   `modules/travel/src/travel-lib.js`). It may be at most 7 days after the departure and at most a day before (across
-  the date line). Nothing in Collaborator knows an airport's time zone, so the form cannot work out the arrival from the
+  the date line). Nothing in Chameleon knows an airport's time zone, so the form cannot work out the arrival from the
   departure and the flight time across zones.
 - **The objects format** already describes a flight: `DETAILS.flight` in `server/object-format.js` is `airline`,
   `number`, `from` and `to` (points, `{ code, name }`), `departs` and `arrives` (a `when`, local, no zone), `minutes`,
@@ -51,7 +51,7 @@ Thomas chose that approach the same day, with one schedule for the whole host.
 ## The free sources
 
 Read on 2026-10-04 unless marked. The question each must answer: "WN 2483 on 2026-11-14: which airports, and what local
-times?", for a date weeks or months ahead, under terms that allow a commercial, hosted Collaborator.
+times?", for a date weeks or months ahead, under terms that allow a commercial, hosted Chameleon.
 
 | Source | Future flight by number and date? | Commercial use on the free terms? |
 |---|---|---|
@@ -124,7 +124,7 @@ page-scrape, robot, crawl, index, spider ... or other automatic device ... to us
 or monitor any portion of the Service", and "You may not violate the restrictions in any robot exclusion header". Its
 robots.txt disallows `/v2/` for every agent. Its flight-status page (southwest.com/air/flight-status) is an empty shell
 filled by script, so reading it means calling its private interfaces, which change without notice. Each airline is a
-separate scraper to keep working, most airlines' terms read like Southwest's, and a hosted Collaborator would be breaking
+separate scraper to keep working, most airlines' terms read like Southwest's, and a hosted Chameleon would be breaking
 them on its customers' behalf. Read: southwest.com/robots.txt, southwest.com/about-southwest/terms-and-conditions. Not
 recommended.
 

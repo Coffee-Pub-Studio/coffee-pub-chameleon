@@ -116,7 +116,7 @@ Two cautions. The run prints the demo people's new passwords and the guest link,
 
 The seeder uses only Node's own modules, so it needs `node` (22) and a copy of the repository, but no `npm install`.
 
-**cron (Linux, Mac).** Keep the secrets in a file only the job's user can read, `/etc/collaborator-demo.env`:
+**cron (Linux, Mac).** Keep the secrets in a file only the job's user can read, `/etc/chameleon-demo.env`:
 
 ```
 SEED_URL=https://demo.example.com
@@ -130,12 +130,12 @@ SEED_NO_AI=1
 and in `crontab -e`:
 
 ```
-0 3 * * * cd /srv/collaborator && set -a && . /etc/collaborator-demo.env && set +a && node tools/seed-demo.mjs > /dev/null 2>> /var/log/collaborator-demo.log
+0 3 * * * cd /srv/chameleon && set -a && . /etc/chameleon-demo.env && set +a && node tools/seed-demo.mjs > /dev/null 2>> /var/log/chameleon-demo.log
 ```
 
 The output is discarded; a failure prints one sentence to the error stream, which goes to the log, and the exit status is not zero.
 
-**Task Scheduler (Windows).** Make `C:\collaborator-demo\reset.cmd`, readable only by the account that runs it:
+**Task Scheduler (Windows).** Make `C:\chameleon-demo\reset.cmd`, readable only by the account that runs it:
 
 ```
 @echo off
@@ -145,11 +145,11 @@ set DEMO_ENVIRONMENT=demo
 set ADMIN_LOGIN=demo-owner
 set ADMIN_PASSWORD=<the owner's password>
 set SEED_NO_AI=1
-cd /d C:\collaborator
-node tools\seed-demo.mjs > nul 2>> C:\collaborator-demo\reset.log
+cd /d C:\chameleon
+node tools\seed-demo.mjs > nul 2>> C:\chameleon-demo\reset.log
 ```
 
-then, from a command prompt: `schtasks /Create /SC DAILY /ST 03:00 /TN "Collaborator demo reset" /TR "C:\collaborator-demo\reset.cmd"`.
+then, from a command prompt: `schtasks /Create /SC DAILY /ST 03:00 /TN "Chameleon demo reset" /TR "C:\chameleon-demo\reset.cmd"`.
 
 **GitHub Actions.** Store `DEMO_URL`, `DEMO_OWNER_LOGIN` and `DEMO_OWNER_PASSWORD` as repository secrets (**Settings**, **Secrets and variables**, **Actions**), then add `.github/workflows/demo-reset.yml` to a **private** repository that holds the code:
 
