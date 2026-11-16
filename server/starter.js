@@ -12,14 +12,16 @@
 // the space is still made. Never on a change of template, a restore or a demo load: the only callers are the making
 // of a space (POST /api/spaces) and of an environment's starter spaces.
 //
-// Starter spaces are a template's `starterSpaces`, made once when an environment is made from that template (never on
-// a switch), each recorded as using that template and then given its starter content as any new space is.
+// Starter spaces are a template's `starterSpaces`, made once when an environment is made from that template, each
+// recorded as using that template and then given its starter content as any new space is. A switch of the environment's
+// template makes none: it offers them, unticked, and only the ones the owner ticks are made, once, when the offer is
+// confirmed (server/index.js, applyTemplateOffer).
 //
 // This file holds what can be said without the server: which blocks a template's starter content gives, checked again
 // (a template may have been stored before a module changed, or edited by hand), and who makes the starter spaces. The
 // writes themselves are the server's (server/index.js, fillStarter), on the data route's own path.
 
-const { MAX_STARTER_KEYS, MAX_STARTER_BYTES, MAX_STARTER_SPACES } = require('./templates');
+const { MAX_STARTER_KEYS, MAX_STARTER_BYTES, MAX_STARTER_SPACES, STARTER_SPACE_NAME_MAX } = require('./templates');
 
 // Keys that reach an object's prototype in code that reads them: never a module id or a data key here.
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -84,12 +86,14 @@ function asCreator(value, creator, at) {
   return out;
 }
 
-// The starter spaces `template` makes (at most MAX_STARTER_SPACES, each { name, description }), or [].
+// The starter spaces `template` makes (at most MAX_STARTER_SPACES, each { name, description }), or []. An entry without
+// a name, or with one over STARTER_SPACE_NAME_MAX characters (a stored template edited by hand), is left out rather
+// than cut. A switch's offer numbers them by their place in this list, so the offer and its confirm read the same one.
 function starterSpacesOf(template) {
   const list = template && Array.isArray(template.starterSpaces) ? template.starterSpaces : [];
   return list
     .slice(0, MAX_STARTER_SPACES)
-    .filter((sp) => isObject(sp) && typeof sp.name === 'string' && sp.name.trim())
+    .filter((sp) => isObject(sp) && typeof sp.name === 'string' && sp.name.trim() && sp.name.trim().length <= STARTER_SPACE_NAME_MAX)
     .map((sp) => ({ name: sp.name.trim(), description: typeof sp.description === 'string' ? sp.description.trim() : '' }));
 }
 

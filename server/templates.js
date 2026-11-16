@@ -665,5 +665,5 @@ module.exports = {
   PARTS, partFingerprints, appliedPartsChanged, appliedOnceFingerprint, wholeFingerprint, loadTemplates, problemsOf, cleanTemplate, storedFields,
   get, list, all, defaultTemplate, useLive, applyTemplate, withRequirements, turnOnModules, offerFor, applyOffer, moduleIdsOf, offers,
   bundledManifests, FIELDS, MODULE_KEYS, BUILTIN_MODULE_IDS, SETTINGS, TEMPLATES_DIR, DEFAULT_ID, CALL_POSITIONS, CALL_LAYOUTS, PHASE_MEASURES,
-  FIXED_WORKSPACES, MAX_VERSION, MAX_TEMPLATE_BYTES, MAX_STARTER_BYTES, MAX_STARTER_KEYS, MAX_REACTIONS, MAX_ICON_SET, MAX_STARTER_SPACES, MAX_MODULES,
+  FIXED_WORKSPACES, MAX_VERSION, MAX_TEMPLATE_BYTES, MAX_STARTER_BYTES, MAX_STARTER_KEYS, MAX_REACTIONS, MAX_ICON_SET, MAX_STARTER_SPACES, STARTER_SPACE_NAME_MAX, MAX_MODULES,
 };

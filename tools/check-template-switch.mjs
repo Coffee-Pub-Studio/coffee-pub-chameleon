@@ -212,6 +212,8 @@ try {
     assert.deepEqual(r.json.offer.modules.map((m) => [m.id, m.allowed]), [['travel', true], ['maps', true], ['research', true], ['vault', true], ['assistant', true], ['budget', true], ['documents', true], ['whiteboard', true]], 'the Calendar is on in every space already; the conference is on');
     assert.deepEqual(r.json.offer.lobby, { name: 'Home base', description: 'Everyone on every trip.' });
     assert.deepEqual(r.json.offer.spaceDefaults, { profile: 'participants' });
+    // The template's version, sent back with a confirm; Travel has no starter spaces to offer (check-starter: those that do).
+    assert.deepEqual([r.json.offer.version, r.json.offer.starterSpaces], [JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'travel.json'), 'utf8')).version, []]);
     const b = await words();
     assert.deepEqual([b.words.space.one, b.words.member.one, b.homeIcon], ['trip', 'player', icon], 'the template\'s words at once; the owner\'s own still win');
     assert.deepEqual(b.verbs, { enter: 'Enter', layout: 'Layout' }, 'the verbs stay the defaults');
@@ -233,11 +235,17 @@ try {
     assert.equal(envScope.json.phases.find((p) => p.main).id, 'trip');
   });
 
+  let travelOffer = null;
   await test('confirming part of the offer turns on only that, in every space but the Lobby; then 409', async () => {
     assert.deepEqual(await as('POST', '/api/environment/template/apply', { modules: 'travel' }).then((r) => [r.status, r.json]), [400, { error: 'Name the modules to turn on as a list of their ids.' }]);
-    const r = await as('POST', '/api/environment/template/apply', { modules: ['travel', 'maps'], lobby: false, spaceDefaults: true });
+    // Every confirm names its offer (offerId and version, as the offer gave them).
+    assert.deepEqual(await as('POST', '/api/environment/template/apply', { modules: ['travel'] }).then((r) => [r.status, r.json]), [400, { error: "Send the offer's offerId and version." }]);
+    assert.equal((await as('GET', '/api/environment/template')).json.template.offerOpen, true, 'and the offer stays open');
+    const { offerId, version } = (await as('GET', '/api/environment/template')).json.offer;
+    travelOffer = { offerId, version };
+    const r = await as('POST', '/api/environment/template/apply', { modules: ['travel', 'maps'], lobby: false, spaceDefaults: true, offerId, version });
     assert.equal(r.status, 200, r.text);
-    assert.deepEqual([r.json.template.offerOpen, typeof r.json.template.appliedAt, r.json.offer, r.json.template.skipped], [false, 'string', null, []]);
+    assert.deepEqual([r.json.template.offerOpen, typeof r.json.template.appliedAt, r.json.offer, r.json.template.skipped, r.json.made], [false, 'string', null, [], []]);
     const mods = Object.fromEntries((await as('GET', '/api/modules')).json.modules.map((m) => [m.id, m]));
     for (const id of ['travel', 'maps']) assert.deepEqual([id, mods[id].enabled, mods[id].allSpaces], [id, true, true]);
     assert.equal(mods.research, undefined, 'Research, not ticked, not installed');
@@ -246,7 +254,7 @@ try {
     assert.ok((await as('GET', `/api/modules/for-space?space=${side}`)).json.modules.some((m) => m.id === 'travel'));
     assert.equal((await as('GET', '/api/spaces')).json.spaces.find((s) => s.id === 'lobby').name, 'Lobby', 'the Lobby\'s name, not ticked, kept');
     assert.equal((await as('POST', '/api/spaces', { name: 'Lisbon' })).json.space.profile, 'participants', 'the new-space profile, ticked, taken');
-    assert.deepEqual(await as('POST', '/api/environment/template/apply', {}).then((r2) => [r2.status, r2.json]), [409, { error: 'This template has already been applied.' }]);
+    assert.deepEqual(await as('POST', '/api/environment/template/apply', travelOffer).then((r2) => [r2.status, r2.json]), [409, { error: 'This template has already been applied.' }]);
   });
 
   await test('switching to the Default template: the words go back, the modules stay on, the owner\'s own kept; no offer; the history', async () => {
@@ -256,7 +264,7 @@ try {
     const b = await words();
     assert.deepEqual([b.words.space.one, b.words.member.one], ['space', 'player']);
     assert.equal((await as('GET', '/api/modules')).json.modules.find((m) => m.id === 'travel').enabled, true, 'still on');
-    assert.deepEqual(await as('POST', '/api/environment/template/apply', {}).then((r2) => [r2.status, r2.json]), [409, { error: 'This template has already been applied.' }]);
+    assert.deepEqual(await as('POST', '/api/environment/template/apply', travelOffer).then((r2) => [r2.status, r2.json]), [409, { error: 'This template has already been applied.' }]);
     const app = readJson(path.join(single, 'app.json'));
     assert.deepEqual(app.templateHistory.map((h) => [h.from, h.to]), [['default', 'travel'], ['travel', 'default']]);
     assert.ok(app.templateHistory.every((h) => typeof h.by === 'string' && h.by !== 'host' && h.at));
@@ -333,7 +341,7 @@ try {
     const listed = (await console_('GET', '/api/host/environments')).json.environments.find((e) => e.slug === 'beta');
     assert.deepEqual([listed.template.id, listed.template.offerOpen], ['travel', true]);
     const ids = r.json.environment.offer.modules.map((m) => m.id);
-    const applied = await console_('POST', '/api/host/environments/beta/template/apply', { modules: ids, lobby: true, spaceDefaults: true });
+    const applied = await console_('POST', '/api/host/environments/beta/template/apply', { modules: ids, lobby: true, spaceDefaults: true, offerId: r.json.environment.offer.offerId, version: r.json.environment.offer.version });
     assert.equal(applied.status, 200, applied.text);
     assert.deepEqual(applied.json.environment.template.skipped.map((x) => [x.id, x.why]), [['maps', 'not in the plan'], ['assistant', 'not in the plan'], ['documents', 'not in the plan'], ['whiteboard', 'not in the plan']], 'the plan\'s refusal; Research needs no AI service, so it is not skipped');
     assert.equal(applied.json.environment.template.offerOpen, false);
@@ -422,7 +430,7 @@ try {
     const tab = (await asOwner('GET', '/api/environment/template')).json;
     assert.deepEqual([tab.template.version, tab.template.appliedVersion, tab.template.offerOpen, tab.offer.modules.map((m) => m.id)], [2, 1, true, ['calendar']]);
     assert.equal((await asOwner('GET', '/api/modules')).json.modules.some((m) => m.id === 'calendar'), false, 'nothing forced');
-    const applied = await asOwner('POST', '/api/environment/template/apply', { modules: ['calendar'] });
+    const applied = await asOwner('POST', '/api/environment/template/apply', { modules: ['calendar'], offerId: tab.offer.offerId, version: tab.offer.version });
     assert.deepEqual([applied.status, applied.json.template.appliedVersion, applied.json.template.offerOpen], [200, 2, false]);
     const touch = await console_('PATCH', '/api/host/templates/travel', { name: 'Trips' });
     assert.equal(touch.status, 200, touch.text);

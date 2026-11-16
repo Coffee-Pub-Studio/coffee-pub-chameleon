@@ -164,7 +164,8 @@ try {
     const added = ['diagram-project', 'list-check', 'anchor']; // its home icon, a module's icon, its iconSet: none of them core
     for (const id of added) assert.equal(DEFAULT_ICON_LIST.some((i) => i.id === id), false, `${id} is not core`);
     for (const [step, body] of [['switch to the copy', { template: 'myproject' }], ['confirm its offer', null], ['switch back to Default', { template: 'default' }], ['switch to Project', { template: 'project' }], ['and back again', { template: 'default' }]]) {
-      const r = body ? await call('PATCH', '/api/settings', body) : await call('POST', '/api/environment/template/apply', { modules: [], lobby: true, spaceDefaults: true });
+      const offer = body ? null : (await call('GET', '/api/environment/template')).json.offer;
+      const r = body ? await call('PATCH', '/api/settings', body) : await call('POST', '/api/environment/template/apply', { modules: [], lobby: true, spaceDefaults: true, offerId: offer?.offerId, version: offer?.version });
       assert.equal(r.status, 200, `${step}: ${r.text}`);
       assert.deepEqual(await own(), before, `${step}: ownReactions and ownIcons unchanged`);
       assert.deepEqual(stored(), storedBefore, `${step}: and so is what is stored`);
