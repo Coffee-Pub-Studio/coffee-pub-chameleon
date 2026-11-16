@@ -126,14 +126,14 @@ const LAST_LETTER = /(\p{L})(\p{M}{0,8})$/u;
 const EMOJI_BEFORE = /(?![©®™])\p{Extended_Pictographic}[\u{FE0F}\u{1F3FB}-\u{1F3FF}]?$/u; // not (c), (r) or tm: plain symbols
 const EMOJI_AT = /^(?![©®™])\p{Extended_Pictographic}/u;
 const QUICK = /[\p{L}\p{M}\p{Extended_Pictographic}]$/u;
-const LETTER_SCRIPT = new Map(); // a letter (one code unit) to its joiner script's index, or -1: the common case answered without slicing
+const LETTER_SCRIPT = new Map(); // a letter (one code unit) to its joiner script's index, -1 for a letter of another script, -2 for what is no letter: the common case answered without slicing
 function scriptIndex(ch) {
   let i = LETTER_SCRIPT.get(ch);
-  if (i === undefined) { i = /^\p{L}$/u.test(ch) ? SCRIPT_OF.findIndex((re) => re.test(ch)) : -1; if (LETTER_SCRIPT.size < 5000) LETTER_SCRIPT.set(ch, i); }
+  if (i === undefined) { i = /^\p{L}$/u.test(ch) ? SCRIPT_OF.findIndex((re) => re.test(ch)) : -2; if (LETTER_SCRIPT.size < 5000) LETTER_SCRIPT.set(ch, i); }
   return i;
 }
 function keepJoiner(c, s, at) {
-  if (at > 0 && at + 1 < s.length) { const a = scriptIndex(s[at - 1]); if (a >= 0 && a === scriptIndex(s[at + 1])) return true; }
+  if (at > 0 && at + 1 < s.length) { const a = scriptIndex(s[at - 1]); if (a >= 0 && a === scriptIndex(s[at + 1])) return true; if (a === -1) return false; /* a letter of a script that needs no joiner, as Latin */ }
   if (at === 0 || !QUICK.test(s.slice(Math.max(0, at - 2), at))) return false; // the character before is no letter, mark or emoji: nothing to join (and a long run stays fast)
   const before = s.slice(Math.max(0, at - 12), at);
   const after = s.slice(at + 1, at + 3);
