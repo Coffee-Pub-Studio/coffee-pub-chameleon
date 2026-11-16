@@ -388,6 +388,59 @@ try {
     });
   }
 
+  // The Demo space part of the Template tab: the select of demos, the sentences the server gives, focus back on Add.
+  for (const width of [1280, 390]) {
+    await test(`${width}: Demo space picks a demo, shows the server's sentences, and returns focus to Add`, async () => {
+      const slug = width === 1280 ? 'lisbon-in-may' : 'northside-writers';
+      const tab = await openTab(port, { width, cookie });
+      try {
+        const ownTemplate = (((await call(port, 'GET', 'admin', '/api/host/environments', undefined, { cookie })).json.environments.find((e) => e.slug === slug) || {}).template || {}).id || '';
+        await tab.go(`#environments/${slug}/template`);
+        await tab.waitFor(tab.visible('#env-demo-select') && "document.getElementById('env-demo-select').options.length === 5", 'the demo select');
+        assert.deepEqual(await tab.evaluate("[...document.getElementById('env-demo-select').options].map((o) => o.textContent)"), ['Games demo', 'Learning demo', 'Mentoring demo', 'Project demo', 'Travel demo']);
+        const ids = await tab.evaluate("[...document.getElementById('env-demo-select').options].map((o) => o.value)");
+        assert.equal(await tab.evaluate("document.getElementById('env-demo-select').value"), ids.includes(ownTemplate) ? ownTemplate : 'travel', 'the environment\'s own template first, else travel');
+        assert.deepEqual(await tab.layoutProblems(), [], 'demo section');
+        await tab.shot(`demo-section-${width}`);
+        const pickDemo = (id) => tab.evaluate(`{ const s = document.getElementById('env-demo-select'); s.value = ${JSON.stringify(id)}; s.dispatchEvent(new Event('change')); }`);
+        const add = async () => {
+          await tab.evaluate("document.getElementById('env-demo-select').focus()");
+          await tab.evaluate("document.getElementById('env-demo-add').click()");
+          await tab.waitFor("!document.getElementById('env-demo-add').disabled && document.getElementById('env-demo-status').textContent.length > 0 && !document.getElementById('env-demo-status').textContent.startsWith('Adding')", 'an answer');
+          assert.equal(await tab.evaluate('document.activeElement.id'), 'env-demo-add', 'focus returns to Add');
+          return tab.evaluate("document.getElementById('env-demo-status').textContent");
+        };
+        await pickDemo('games');
+        assert.equal(await add(), 'Added the Games demo.');
+        const lines = await tab.evaluate("[...document.querySelectorAll('#env-demo-report > p')].map((p) => p.textContent)");
+        assert.ok(lines.some((l) => l.startsWith('Space: Demo: The Salt Crown')), lines.join(' | '));
+        assert.ok(!lines.some((l) => l.startsWith('Skipped ')), 'a skipped sentence stands alone, with no prefix');
+        assert.ok(await tab.evaluate(`document.getElementById('env-demo-report').textContent.includes('shown once')`), 'the one-time passwords report is shown');
+        await tab.shot(`demo-added-${width}`);
+        // The second time: the server's sentence as given.
+        assert.match(await add(), /^The Games demo is already there\. Delete its \w+, then add it again\.$/);
+        assert.deepEqual(await tab.layoutProblems(), [], 'demo section after');
+        await tab.shot(`demo-repeat-${width}`);
+      } finally { await tab.close(); }
+    });
+  }
+  await test('Demo space: a refused load shows the account sentence', async () => {
+    const slug = 'lisbon-in-may';
+    const ownerLogin = await call(port, 'POST', slug, '/api/login', { login: 'own-lisbon-in-may', password: 'owner-password-1' });
+    { const mk = await call(port, 'POST', slug, '/api/users', { login: 'noa', displayName: 'Noa Brandt', role: 'owner', password: 'owner-password-1234' }, { cookie: ownerLogin.cookies.join('; ') }); assert.ok(mk.status < 300, mk.text); }
+    const tab = await openTab(port, { cookie });
+    try {
+      await tab.go(`#environments/${slug}/template`);
+      await tab.waitFor("document.getElementById('env-demo-select') && document.getElementById('env-demo-select').options.length === 5", 'the demo select');
+      await tab.evaluate("{ const s = document.getElementById('env-demo-select'); s.value = 'project'; s.dispatchEvent(new Event('change')); }");
+      await tab.evaluate("document.getElementById('env-demo-add').click()");
+      await tab.waitFor("!document.getElementById('env-demo-add').disabled && /already exists/.test(document.getElementById('env-demo-status').textContent)", 'the refusal');
+      assert.equal(await tab.evaluate("document.getElementById('env-demo-status').textContent"), 'An account called "noa" already exists and was not made by a demo, so it is left alone. Rename or remove it first.');
+      assert.equal(await tab.evaluate('document.activeElement.id'), 'env-demo-add', 'focus returns to Add');
+      await tab.shot('demo-refused');
+    } finally { await tab.close(); }
+  });
+
   await test('Plans and Modules are read only; Templates link to the environments; the jump list', async () => {
     const tab = await openTab(port, { cookie });
     try {

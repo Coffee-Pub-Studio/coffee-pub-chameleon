@@ -136,6 +136,7 @@ try {
   // This travel environment's template offer was never applied, so it has no modules on: each is skipped in a sentence.
   // (Which modules a new hosted environment has on is the environment's own; Planner - Projects is never among a travel one's.)
   assert.ok(games.json.created.chat === 17 && games.json.created.schedule === undefined, `the chat, and no Campaign: ${JSON.stringify(games.json.created)}`);
+  assert.ok(games.json.skipped.every((x) => typeof x.why === 'string' && x.why.length > 8), 'each skipped entry carries a sentence the console shows as its own line');
   assert.ok(games.json.skipped.some((x) => x.module === 'schedule' && x.why === 'Planner - Projects is off in this environment, so the 26 demo campaign entries were not made.'), JSON.stringify(games.json.skipped));
   const alphaMods = (await call('GET', 'alpha', '/api/modules', undefined, owner)).json.modules;
   assert.ok(!alphaMods.some((m) => m.id === 'schedule' && m.enabled), 'Planner - Projects was not turned on');
