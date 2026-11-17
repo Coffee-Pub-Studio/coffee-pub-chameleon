@@ -113,7 +113,7 @@ session; their titles come from `.github/roadmap-board.csv` and their substance 
 | Budget (`budget`, 0.1.25) | `categories` (list, environment) | A unit (money, hours or effort); splitting only with money; seeded categories |
 | Maps (`maps`, 0.10.3) | `categories` (list, environment); the picture map through `imageMap` | Seeded categories; real and picture maps on or off; the Place label |
 | Calendar (`calendar`, 1.24.40) | `defaultView` (choice, person, default month) | Labels (Session, Meeting, Deadline, Check-in) and the default view |
-| Documents (`documents`, 0.11.31) | `coediting` (boolean, environment). The Markdown box or the rich editor is each person's own choice, kept in the browser (`documents-rich`, `modules/documents/src/documents.js:849`) | Starter documents, labels, the default editor |
+| Documents (`documents`, 0.11.33) | `coediting` (boolean, environment; on by default since 0.11.33, Thomas 2026-11-17). The Markdown box or the rich editor is each person's own choice, kept in the browser (`documents-rich`, `modules/documents/src/documents.js:849`) | Starter documents, labels, the default editor |
 | Research (`research`, 0.4.35) | `tags` (list, environment), `linkPreviews` | Seeded tags and labels |
 | Polls (`polls`, 1.15.29) | `addableByDefault` (space), `closeAfterDays` (environment) | Labels and defaults |
 | Vault (`vault`, 0.4.7) | `spaceMaxGb`, `personMaxGb` (environment) | Labels and limits |
