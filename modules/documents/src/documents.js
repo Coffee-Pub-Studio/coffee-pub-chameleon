@@ -43,7 +43,7 @@
   const me = info.user && info.user.key;
   const myName = (info.user && info.user.name) || 'Someone';
   const canEdit = host.can('edit') && Boolean(me);
-  // THE SWITCH (module setting `coediting`, set by the owner; default off). Off: everything below that says `co` never runs and host.live is never touched.
+  // THE SWITCH (module setting `coediting`, set by the owner; default on). Off: everything below that says `co` never runs and host.live is never touched.
   let coediting = false;
   try { coediting = dlSyncEnabled(await host.settings.get()); } catch (err) { coediting = false; }
   host.settings.onChange((v) => { coediting = dlSyncEnabled(v); }); // a document already open keeps the mode it opened in

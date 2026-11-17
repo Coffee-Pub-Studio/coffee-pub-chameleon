@@ -319,6 +319,34 @@ async function manageChecks(open, S, admin) {
       expect(rows.block && rows.switches === 7 && rows.select, `What AI may see is not drawn on the AI Assistant tab (${JSON.stringify(rows)})`);
       const wide = await m.eval(`document.documentElement.scrollWidth <= ${size} + 1`);
       expect(wide, `the AI Assistant tab scrolls sideways at ${size}`);
+      if (size === 1280) {
+        // The host no longer offers the company this environment chose: the tab still shows it chosen, and a Save of only the
+        // allowance sends neither the source nor the company, so the managed choice is kept.
+        const kept = await m.eval(`(async () => {
+          const body = { ai: { source: 'managed', managedProvider: 'openai', managed: { available: false, services: [] }, provider: 'none', address: '', model: '', workspace: '', monthlyTokens: 0, keySet: false, keyUnreadable: false, keyProblem: null, moduleOn: true, sees: {}, active: { provider: 'none', model: '' } }, usage: { monthlyTokens: 0, tokens: 0, calls: 0, byTask: {} }, problem: 'This environment chose an AI service the host does not offer now. Choose another below.', status: '' };
+          window.__puts = [];
+          const real = window.fetch;
+          window.fetch = async (u, o) => {
+            if (String(u).split('?')[0].endsWith('/api/ai')) {
+              if (o && o.method === 'PUT') window.__puts.push(JSON.parse(o.body));
+              return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+            }
+            return real(u, o);
+          };
+          const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+          location.hash = '#modules'; await wait(600); location.hash = '#modules/assistant'; await wait(1800);
+          const shown = document.getElementById('ai-source').value;
+          const line = document.getElementById('ai-problem').textContent;
+          document.getElementById('ai-cap').value = '5000';
+          document.getElementById('ai-save').click();
+          await wait(900);
+          window.fetch = real;
+          return { shown, line, puts: window.__puts };
+        })()`);
+        expect(kept.shown === 'managed:openai', `a managed company the host no longer offers is not kept chosen on the tab (${JSON.stringify(kept)})`);
+        expect(/below\./.test(kept.line) && !/Open Manage/.test(kept.line), `the tab's own line sends the owner to Manage, where they already are (${JSON.stringify(kept.line)})`);
+        expect(kept.puts.length === 1 && !('source' in kept.puts[0]) && !('managedProvider' in kept.puts[0]) && kept.puts[0].monthlyTokens === 5000, `saving only the allowance changed the managed choice (${JSON.stringify(kept.puts)})`);
+      }
       await m.eval(`document.getElementById('ai-sees-block').scrollIntoView()`);
       await snap(m, `manage-sees-${size}`);
       await m.eval(`document.getElementById('ai-use-block').scrollIntoView()`);
@@ -592,8 +620,8 @@ async function main() {
     unitChecks();
 
     // The AI not set up: the Assistant says so first.
-    const off = await put({ enabled: false, force: true });
-    expect(off.status === 200, `could not turn the AI off (${off.status})`);
+    const off = await put({ provider: 'none' });
+    expect(off.status === 200, `could not take the AI service away (${off.status})`);
     const avail = await (await fetch(`${S.base}/api/spaces/${S.ctx.trip}/ai`, { headers: { cookie: admin } })).json();
     expect(avail.available === false && avail.reason === 'not-set-up', `availability with no AI should say reason "not-set-up" (${JSON.stringify(avail)})`);
     const t2 = await open(workspace);
@@ -603,17 +631,17 @@ async function main() {
       await sleep(800);
       const line = await t2.eval(stateLine);
       const hint = await t2.eval(`document.getElementById('chat-input').placeholder`);
-      expect(/not set up|not turned on/i.test(line), `the Assistant did not say the AI is not set up before typing ("${line}")`);
+      expect(/No AI service is chosen/i.test(line), `the Assistant did not say the AI is not set up before typing ("${line}")`);
       expect(!/Instruct/.test(hint), `the box still invites a question when there is no AI ("${hint}")`);
       const count = seen.length;
       await t2.typeInto('#chat-input', 'anyone there?');
       await t2.key('Enter');
       await sleep(900);
       expect(seen.length === count, 'a question was sent with no AI set up');
-      expect(/not set up|not turned on/i.test(await t2.eval(NOTE)), 'no plain note after asking with no AI');
+      expect((await t2.eval(NOTE)) === '', 'the notice is said once: the line above the box, and no second note beside it after asking with no AI');
       say(`not set up: line "${line}", hint "${hint}"`);
     } finally { await t2.close(); }
-    await put({ enabled: true });
+    await put({ source: 'custom', provider: 'compatible', address: `http://127.0.0.1:${stubPort}/v1`, model: 'stub-model', key: 'sk-test' });
 
     // A guest: not invited, nothing sent.
     const link = await (await fetch(`${S.base}/api/spaces/${S.ctx.trip}/guest-link`, { method: 'POST', headers: { cookie: admin, 'content-type': 'application/json', origin: S.base }, body: '{}' })).json();

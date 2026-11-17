@@ -360,9 +360,10 @@ the bar is part of the header and slides away with it when you are idle.
 
 ## Reactions
 
-The heart button in the bar opens a tray, set up by an owner on the Template tab of the Manage page
-(105 to start with; the first six are Heart, Black Heart, 100%, Hi, Thumbs up and Thumbs down).
-The first six are also keys **1** to **6**. A reaction floats up from your tile for a couple of
+The heart button in the bar opens a tray. An owner sets the list on **Manage**, **Environment**, **Reactions and Icons**
+(it starts as 105; the first six are Heart, Black Heart, 100%, Hi, Thumbs up and Thumbs down), and the template a space
+reads may add more, so a space's tray is its environment's list followed by its template's additions.
+The first six of the tray are also keys **1** to **6**. If the list is empty there is no heart button and **R** opens nothing. A reaction floats up from your tile for a couple of
 seconds on everyone's screen, and up your Participant and Character boxes in OBS. Nothing is stored.
 
 ## Deafen

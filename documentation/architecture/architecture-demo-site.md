@@ -116,7 +116,7 @@ Two cautions. The run prints the demo people's new passwords and the guest link,
 
 The seeder uses only Node's own modules, so it needs `node` (22) and a copy of the repository, but no `npm install`.
 
-**cron (Linux, Mac).** Keep the secrets in a file only the job's user can read, `/etc/collaborator-demo.env`:
+**cron (Linux, Mac).** Keep the secrets in a file only the job's user can read, `/etc/chameleon-demo.env`:
 
 ```
 SEED_URL=https://demo.example.com
@@ -130,12 +130,12 @@ SEED_NO_AI=1
 and in `crontab -e`:
 
 ```
-0 3 * * * cd /srv/collaborator && set -a && . /etc/collaborator-demo.env && set +a && node tools/seed-demo.mjs > /dev/null 2>> /var/log/collaborator-demo.log
+0 3 * * * cd /srv/chameleon && set -a && . /etc/chameleon-demo.env && set +a && node tools/seed-demo.mjs > /dev/null 2>> /var/log/chameleon-demo.log
 ```
 
 The output is discarded; a failure prints one sentence to the error stream, which goes to the log, and the exit status is not zero.
 
-**Task Scheduler (Windows).** Make `C:\collaborator-demo\reset.cmd`, readable only by the account that runs it:
+**Task Scheduler (Windows).** Make `C:\chameleon-demo\reset.cmd`, readable only by the account that runs it:
 
 ```
 @echo off
@@ -145,11 +145,11 @@ set DEMO_ENVIRONMENT=demo
 set ADMIN_LOGIN=demo-owner
 set ADMIN_PASSWORD=<the owner's password>
 set SEED_NO_AI=1
-cd /d C:\collaborator
-node tools\seed-demo.mjs > nul 2>> C:\collaborator-demo\reset.log
+cd /d C:\chameleon
+node tools\seed-demo.mjs > nul 2>> C:\chameleon-demo\reset.log
 ```
 
-then, from a command prompt: `schtasks /Create /SC DAILY /ST 03:00 /TN "Collaborator demo reset" /TR "C:\collaborator-demo\reset.cmd"`.
+then, from a command prompt: `schtasks /Create /SC DAILY /ST 03:00 /TN "Chameleon demo reset" /TR "C:\chameleon-demo\reset.cmd"`.
 
 **GitHub Actions.** Store `DEMO_URL`, `DEMO_OWNER_LOGIN` and `DEMO_OWNER_PASSWORD` as repository secrets (**Settings**, **Secrets and variables**, **Actions**), then add `.github/workflows/demo-reset.yml` to a **private** repository that holds the code:
 
@@ -207,12 +207,14 @@ The checks that open a headless Chrome (`check-confirm`, `check-prompt`, `check-
 | `check-startup` | The server starts with or without LiveKit, and a taken port prints one plain sentence (below) and exits. |
 | `check-prototype-page`, `check-prototype-words`, `check-prototype-parity` | The Prototype page of the design system pages: that it scrolls, that its words follow the names, and that its copies match the real modules. |
 | `check-templates`, `check-template-switch` | The template shape and every refusal (the Default template and its `"*"`, module entries limited to five keys, settings only where the manifest marks them, labels only where declared, starter only where a module opts in, the locked words, additions only, `phaseMeasure`, the call, the workspace, starter spaces, a refused `theme`, the sizes and prototype keys), every shipped template against the real manifests, the bundled versions in `tools/template-versions.json`; switching, the offer, host templates, an owner's own (copy, edit, delete with the fallback, import, export). |
-| `check-template-lens` | The resolver per space on a store and a module manager in node: which template a place reads, the words, the module set through `onInSpace`, names, labels, settings, reactions and icons, phases and the measure, the call and the workspace, the off switch, prototype keys and the memo of templates never outliving an edit; then a throwaway server (20 checks). |
+| `check-template-lens` | The resolver per space on a store and a module manager in node: which template a place reads, the words, the module set through `onInSpace`, names, labels, settings, reactions and icons (the environment's list, then the template's additions), phases and the measure, the call and the workspace, the off switch, prototype keys and the memo of templates never outliving an edit; then a throwaway server (20 checks). |
 | `check-module-marks` | The manifest marks, labels and starter at install, each refusal with its sentence; the settings layer (driven, default and own, at the environment's and a space's scope, the 409, `null` forgetting a stored default); the context's labels. |
 | `check-starter` | Starter content and starter spaces: only a module that opts in, once only, never on a switch, a restore or a demo load, as the creator through the data route's own checks, the limits, a failed write skipped, `claimStarter`. |
 | `check-call-settings`, `check-call-setup` | The core call settings: the rules and the resolver in node, who may change `space.call` and every refusal on a throwaway server (check-call-settings); in a browser, Set up's Call section at 1280 and 390, what Save sends, a template's start never written to the browser's record, no Manage switch, and joining on entry with and without the tap rule (check-call-setup). |
 | `check-phase-measure` | The phases' measure: the pure rule, the template's `phaseMeasure` on `/look` and the context, the Done switch's routes and every refusal, a goal-measured phase following its entries, and hostile ids. |
-| `check-reactions-icons` | The fixed core set (105 reactions, 113 icons), the owner's additions and a template's, in that order, each once; nothing removes a core entry; a space has none of its own. |
+| `check-reactions-icons` | The environment's whole lists (seeded once from the built-in 105 reactions and 113 icons), the template's additions after them, a repeat dropped (a reaction by id or glyph, an icon by id); the caps, every refusal sentence of `PATCH /api/settings`, `resetLists`, the 256 KB body on that route only, the icons in use, and `builtIn` on the owner's and the host admin's settings and never on the branding. |
+| `check-reaction-tray` | The call page's tray, chat emoji list and keys 1 to 6 read the space's own list; no button and no tray when the list is empty; an id such as `toString` does nothing. In a browser; no call is made. |
+| `check-obs-reactions` | `GET /api/presence?space=<id>` answers the space's list for the access key and for a space a viewer may enter, the environment's list otherwise; the stream view and `host.presence.get({ space })` by source. Not a real OBS source. |
 | `check-person-theme` | A person's own theme: `PATCH /api/me { theme }`, `GET /api/me/themes`, `/theme.css` for that person only, hostile bodies, guests, and deleting a theme. |
 | `check-pinned-workspaces`, `check-pinned-pages` | The Default Workspace from the template, the pin rule and a new space's tabs (server, 155 checks); Set up's read-only line, the pinned marks and a member's tab bar in a browser, at 1280 and 390. |
 | `check-outline` | The shared outline pieces of the SDK: `host.util.order`, `host.util.rollup`, the tree and its moves in node, and `host.ui.outline`, `progress` and `peoplePicker` drawn in a browser. |

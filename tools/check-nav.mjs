@@ -1303,20 +1303,33 @@ test('the host console\'s address, from an environment\'s own; none on a single 
 
 test('the space switcher: your spaces in the list\'s order, never an aside, a mark where you are present, the count; a pick enters or goes back', () => {
   const spaces = [
-    { id: 'lobby', name: 'Lobby', mine: true },
+    { id: 'lobby', name: 'Lobby', mine: true, icon: 'house' },
     { id: 'paris', name: 'Paris', mine: false },
-    { id: 'disney', name: 'Disneyland', mine: true },
+    { id: 'disney', name: 'Disneyland', mine: true, icon: 'suitcase' },
     { id: 'aside1', name: 'Aside', mine: true, isAside: true },
   ];
   const users = [{ key: 'a', online: true, space: 'disney' }, { key: 'b', online: true, space: 'disney' }, { key: 'c', online: false, space: 'disney' }, { key: 'd', online: true, space: 'lobby' }];
   assert.deepEqual(switcherEntries({ spaces, users, present: 'disney' }), [
-    { id: 'lobby', name: 'Lobby', here: false, count: 1 },
-    { id: 'disney', name: 'Disneyland', here: true, count: 2 },
+    { id: 'lobby', name: 'Lobby', icon: 'house', here: false, count: 1 },
+    { id: 'disney', name: 'Disneyland', icon: 'suitcase', here: true, count: 2 },
     { id: 'disney', leave: true },
   ], 'present in Disneyland: Leave for it last (plan-one-bar.md, step 5)');
   assert.deepEqual(switcherEntries({ spaces, users, present: null }).map((e) => e.id), ['lobby', 'disney'], 'present nowhere: no Leave');
   assert.deepEqual(switcherEntries({ spaces, users, present: 'paris' }).map((e) => e.id), ['lobby', 'disney'], 'present in a space not in the list: no Leave');
   assert.deepEqual(switcherEntries({}), []);
+  // Each entry carries its own space's icon (the server's one rule, in the presence row); the current one too; none sent: the neutral one.
+  const iconOf = (list) => Object.fromEntries(switcherEntries({ spaces: list, users, present: 'a' }).filter((e) => !e.leave).map((e) => [e.id, e.icon]));
+  assert.deepEqual(iconOf([{ id: 'a', name: 'A', mine: true, icon: 'dragon' }, { id: 'b', name: 'B', mine: true, icon: 'tree' }, { id: 'c', name: 'C', mine: true }, { id: 'd', name: 'D', mine: false, entry: 'open', icon: 'gem' }]), { a: 'dragon', b: 'tree', c: 'folder', d: 'gem' }, 'two spaces, two icons; the current one its own; a join row its own');
+  {
+    const brandSrc = fs.readFileSync(path.join(ROOT, 'public/brand.js'), 'utf8');
+    const sw = brandSrc.slice(brandSrc.indexOf('export async function openSwitcher('), brandSrc.indexOf('let menuSpaceIds'));
+    assert.ok(!/door-open|location-dot|user-plus/.test(sw + brandSrc.slice(brandSrc.indexOf('async function refreshMenuSpaces'), brandSrc.indexOf('function pickSpace('))), 'no fixed icon in the switcher or the phone menu');
+    assert.equal((sw.match(/icon: entryIcon\(e\.icon\)/g) || []).length, 2, 'join and space rows draw the space\'s icon through entryIcon, which is iconClasses (an icon the list dropped still draws)');
+    assert.match(brandSrc, /id: `menu-space-\$\{e\.id\}`[^\n]*icon: entryIcon\(e\.icon\)/, 'the phone menu too');
+    const server = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
+    assert.match(server, /const spaceIcon = \(r\) =>/, 'one server rule for a space\'s icon');
+    assert.match(server, /describeSpace: \(r\) => \(\{[^\n]*icon: spaceIcon\(r\) \}\)/, 'every presence space row carries it');
+  }
   // The Lobby is Home itself (plan-home-lobby.md, step 2): its record stays, marked isLobby, and is never offered.
   const homeBacked = spaces.map((s) => (s.id === 'lobby' ? { ...s, isLobby: true } : s));
   assert.deepEqual(switcherEntries({ spaces: homeBacked, users, present: 'disney' }).map((e) => e.id), ['disney', 'disney'], 'never the Lobby: Disneyland and its Leave');

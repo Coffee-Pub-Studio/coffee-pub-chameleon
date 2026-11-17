@@ -210,9 +210,11 @@ await test('the roster: the cap and the order of a crowd', () => {
 });
 
 // ---- 2. the switch and the manifest ---------------------------------------------------------------------------------------------------
-await test('the switch: on only for a real true', () => {
-  assert.equal(L.dlSyncEnabled({ coediting: true }), true);
-  for (const v of [undefined, null, {}, { coediting: false }, { coediting: 'true' }, { coediting: 1 }, { coediting: 'on' }, [], 'coediting', { Coediting: true }]) assert.equal(L.dlSyncEnabled(v), false, JSON.stringify(v));
+await test('the switch: on by default, off for an explicit false', () => {
+  assert.equal(L.dlSyncEnabled({ coediting: true }), true, 'explicit true is on');
+  assert.equal(L.dlSyncEnabled({}), true, 'unset is on');
+  assert.equal(L.dlSyncEnabled({ coediting: false }), false, 'explicit false is off');
+  for (const v of [undefined, null, { coediting: 'true' }, { coediting: 1 }, { coediting: 'on' }, [], 'coediting']) assert.equal(L.dlSyncEnabled(v), false, JSON.stringify(v));
 });
 await test('module.json: the live limits agree with the code and the setting is declared', () => {
   const m = JSON.parse(fs.readFileSync(path.join(src, '../module.json'), 'utf8'));
@@ -222,7 +224,7 @@ await test('module.json: the live limits agree with the code and the setting is 
   const out = cleanLive(m.live, m.scope, m.permissions);
   assert.equal(out.bytes, 2048); assert.equal(out.perSecond, 30);
   const s = (m.settings || []).find((x) => x.key === 'coediting');
-  assert.ok(s && s.type === 'boolean' && s.default === false && s.scope === 'environment', 'the switch is an owner setting, off by default');
+  assert.ok(s && s.type === 'boolean' && s.default === true && s.scope === 'environment', 'the switch is an owner setting, on by default');
   // the page reads the setting and touches nothing live without it: every use of the channel in documents.js sits behind coediting
   const page = fs.readFileSync(path.join(src, 'documents.js'), 'utf8');
   const uses = [...page.matchAll(/host\.live|dlSyncSession\(|dlSyncSeed\(|DlPM\.Doc\(\)/g)].map((x) => page.slice(0, x.index).split('\n').length);

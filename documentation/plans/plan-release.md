@@ -7,7 +7,7 @@ documentation, the changelog and the first drafts of the legal texts. A lawyer, 
 legal track.
 
 **Status:** decided, 2026-11-14, with two things still owed by Thomas (the lawyer, and the browser on each device).
-On 2026-11-16 Thomas named Spud as the second person for the real call and the co-editing test. Thomas answered the eighteen questions of the first draft and the four
+On 2026-11-16 Thomas named Spud as the second person for the real call and the co-editing test. Update, 2026-11-17 (Thomas): he verified Documents co-editing live and decided it is on by default ("i verified coediting docs works. it should be on by default."), built in `f9b11555` (Documents 0.11.33). That replaces the earlier rule that it stays off until a two-person test. Thomas answered the eighteen questions of the first draft and the four
 that came out of them (19 to 22) on 2026-11-14; his answers are under "Decisions". Nothing is built. The issue table
 under "What it is today" is a draft that the project manager and Thomas confirm; no issue is gating by this document
 alone. The per-module "done" lists, the checklists and the order below are still proposals that Thomas cuts or adds to,
@@ -72,7 +72,11 @@ own words, not an option.
    Who may allow an exception is decision 20; the review date that keeps the freeze visible is decision 19. The first
    draft had suggested four weeks.
 6. **Is co-editing on by default at release?** Answered, b: yes, after a real two-person test. The `coediting` switch
-   stays off until that test passes.
+   was to stay off until that test passes. **Changed (Thomas, 2026-11-17):** he verified co-editing live himself and
+   decided it is on by default now, without waiting for the two-person test. Built in `f9b11555` (Documents 0.11.33):
+   an unset value means on, a saved off stays off, and an owner can still switch it off. Still to verify before the
+   tag: a real two-person test on the hosted server, Safari, an iPad and a phone (none is recorded as tried), and the
+   independent safety read of co-editing if it is still open.
 7. **Is the call as a module (#377) in the first release?** Answered, a: no. It ships as it is, and the SDK promise says
    the call is not yet a module.
 8. **How is security assessed?** Answered, a: finish `plan-security-assessment`, run an independent larger-model read of
@@ -112,9 +116,10 @@ own words, not an option.
 22. **Which devices and which two people, and does the release wait for the co-editing test?** Answered, a, in part.
     Thomas named the device kinds for the real calls and the co-editing test (2026-11-14): iPhone 13 Pro Max, iPad
     12.9, Mac mini M4 and Windows 11. The two people (2026-11-16): Thomas and Spud. **Still owed:** the browser on each
-    device (for example Safari or Chrome; Thomas has not named them). The release does not wait for the co-editing test: if it has not passed by the
-    tag, the release ships with `coediting` off, and a customer is told co-editing is not yet on. Reason: the switch
-    makes this safe.
+    device (for example Safari or Chrome; Thomas has not named them). The release does not wait for the co-editing test. It was planned that, if the test had
+    not passed by the tag, the release would ship with `coediting` off. **Changed (Thomas, 2026-11-17):** the default
+    is on (decision 6), so the release ships with it on; the test is still wanted, and a failure would be a bug to fix
+    or a reason for an owner to switch it off. Reason: the switch is still there.
 
 ### Tensions between the decisions
 
@@ -132,9 +137,9 @@ Ranked, worst first. None is a reason to change a decision; each says what keeps
    two-step work of Track 1 matters most for that one account. It is a documentation and legal task more than a code
    task, but it cannot be dropped, because the promise is otherwise false.
 3. **Co-editing on by default needs a test the cloud container cannot do (decision 6).** A real two-person test needs
-   two people in two browsers. Tool checks and the container can show the restore tests but not that. Until the test
-   passes the `coediting` switch stays off, so the release does not break if the test slips; it only ships without
-   co-editing on. Decision 22: the release does not wait for the test. The two people are Thomas and Spud (2026-11-16);
+   two people in two browsers. Tool checks and the container can show the restore tests but not that. It was planned that until the test
+   passed the `coediting` switch stayed off; since 2026-11-17 (Thomas) it is on by default, so a slipped or failed
+   test now means a fix or an owner switching it off, not a release without it. Decision 22: the release does not wait for the test. The two people are Thomas and Spud (2026-11-16);
    what is still owed is the browsers, and until they are named the test cannot be scheduled.
 
 Two smaller notes. Decisions 8, 11 and 12 say "before the first customer", not "before the tag", so the tag can come
@@ -161,7 +166,7 @@ Versions are from `tools/module-versions.json`. "Plan" is the status line of the
 | Assistant | 0.1.26 | [plan-ai-assistant](plan-ai-assistant.md) draft, nothing built; [plan-assistant-module](plan-assistant-module.md) decided; [plan-ai-pictures](plan-ai-pictures.md) approved, picture steps not built | #393, #731, #209, #382 | the real-provider test of look-ups and proposals (#393); the picture steps; merging with the AI service (#731) |
 | Budget | 0.1.25 | [plan-budget-module](plan-budget-module.md): steps 1 to 4 and 6 built; 5 and 7 pending | #41 | the travel template turning Budget on (step 5); documentation (step 7); known issue: up to 30 seconds behind the Planner |
 | Calendar | 1.24.40 | [plan-calendar-destination](plan-calendar-destination.md) and [plan-calendar-markers](plan-calendar-markers.md) built; [plan-calendar-todo](plan-calendar-todo.md) partly built; [plan-space-calendars](plan-space-calendars.md) approved, steps built | #336, #338, #179 | the phone Day view scrolls by itself (#336); space calendars' last settings (#179) |
-| Documents | 0.11.30 | [plan-documents](plan-documents.md) and [plan-documents-rich-editor](plan-documents-rich-editor.md) draft; [plan-documents-paper-layout](plan-documents-paper-layout.md) decided; [plan-documents-coediting](plan-documents-coediting.md) decisions recorded (its status line says nothing is built, but commits `db7865eb` to `26928f24` build steps 4a to 4c behind a `coediting` switch, off by default) | #611, #632, #634, #665, #666, #687, #688, #690 | whether co-editing and rich text are the default (#665, #687); "paths checked as code only" in known issues; round-trip bugs (#611, #632) |
+| Documents | 0.11.30 | [plan-documents](plan-documents.md) and [plan-documents-rich-editor](plan-documents-rich-editor.md) draft; [plan-documents-paper-layout](plan-documents-paper-layout.md) decided; [plan-documents-coediting](plan-documents-coediting.md) decisions recorded (its status line says nothing is built, but commits `db7865eb` to `26928f24` build steps 4a to 4c behind a `coediting` switch, off by default then; on by default since 0.11.33, Thomas 2026-11-17) | #611, #632, #634, #665, #666, #687, #688, #690 | whether co-editing and rich text are the default (#665, #687); "paths checked as code only" in known issues; round-trip bugs (#611, #632) |
 | Maps | 0.10.3 | [plan-maps](plan-maps.md), [plan-map-destination](plan-map-destination.md) and [plan-map-image](plan-map-image.md) built; [plan-places-and-maps](plan-places-and-maps.md) draft, and commit `b8714558` folds Places into Maps (#794); [plan-map-options](plan-map-options.md) approved for step 0 only | #293, #294, #388, #374, #729 | map themes and options (#388); picture map without Python (#294); #729 likely done, confirm |
 | Polls | 1.15.29 | no plan of its own | none | reporting to the status strip is built ([plan-space-status-strip](plan-space-status-strip.md)); nothing else seen |
 | Research | 0.4.33 | [plan-research](plan-research.md) direction agreed (its status line says nothing built, which is out of date); [plan-research-import](plan-research-import.md) phase 1 built | #73 | known issue RS-01: notes, links and answers have no owner on the server |
@@ -228,7 +233,7 @@ High confidence, 22:
 | #764 | 5 | `check-setup-tabs` fails when the machine is busy. | Release step 4. |
 | #29 | 3, 5 | The canvas and layout were never tried in a real call. | The real call (decisions 16 and 22), step 10. |
 | #30 | 3, 5 | Modules were never tried with two people on a real server. | The real call (decisions 16 and 22), step 10. |
-| #665 | 4, 7 | Co-editing; its stored state and the default switch. | Release work: the real two-person test; ships with `coediting` off if it has not passed by the tag (decisions 6 and 22). |
+| #665 | 4, 7 | Co-editing; its stored state and the default switch. | Release work: the real two-person test. The default is on since 2026-11-17 (Thomas; decisions 6 and 22); the test, Safari, iPad and phone are still to verify. |
 | #471 | 3, 4 | The module event stream has no reconnect signal, so a page goes stale; the signal is an SDK promise. | The Stream done list assumes it. |
 | #464 | 3 | At 760 px the first docked column is 0 px wide and its modules vanish. | None. |
 | #682 | 3 | The second phone pass. | None. |
@@ -345,7 +350,7 @@ point for each list; Thomas cuts or adds to them. "Out" means after the first re
 | Assistant | ask and answer in Chat with a real provider tried (#393); a person's own key sealed; the What AI may see switch | pictures; merging with the AI service unless #731 is decided in |
 | Budget | what is built; step 5 and the documentation | currency conversion (#41) |
 | Calendar | what is built; the phone Day view fix (#336) | space calendar extras not built (#179) unless decided in |
-| Documents | Markdown and rich text, Paper layout, print and Markdown files, tags; co-editing on by default (decision 6) once a real two-person test has passed, and not before | maths (#690), custom margins (#688), Google Drive (#566) |
+| Documents | Markdown and rich text, Paper layout, print and Markdown files, tags; co-editing on by default (decision 6; on since Documents 0.11.33, Thomas 2026-11-17), still to verify with a real two-person test on the hosted server, Safari, iPad and phone, and the independent safety read if still open | maths (#690), custom margins (#688), Google Drive (#566) |
 | Maps | the map and the places in one module; the picture map; the credit line | themes and options (#388); a picture map without Python (#294) |
 | Polls | what is built | any new feature |
 | Research | what is built; an owner rule on notes, links and answers (RS-01) | research from any AI (#73) |
@@ -504,9 +509,9 @@ Checklist (proposal).
 - **Concurrency.** Known issues say "last write wins" for the Whiteboard's blocks and grids. Decide which objects need
   a version check and which accept last-write-wins on purpose.
 - **Co-editing snapshots.** Documents keeps a stored copy of the state, compaction by re-seed and an editors list
-  (`6441ab5e`, `960d545e`, `1fa81af1`). Decision 6 turns it on by default at release, so it needs a restore
-  test (damaged state, a lost writer, an outage) as well as the real two-person test. The `coediting` switch stays off
-  until both pass.
+  (`6441ab5e`, `960d545e`, `1fa81af1`). Decision 6 turns it on by default (done 2026-11-17, Thomas), so it needs a restore
+  test (damaged state, a lost writer, an outage) as well as the real two-person test. It was planned that the switch stay
+  off until both pass; it is on, so both are now checks on a default that is already on.
 - **Backup and restore.** One tested path, with a restore test on a clean machine and a check that a restored
   environment starts. (The architecture says services see data "in its current shape, including an environment
   restored from an old backup".)
@@ -625,8 +630,8 @@ A proposal. Every step is a gate. The number and the rule change are decided; th
 3. **A real call has never been verified here** (#29, #30 and every "awaiting a real call" line). The central feature is
    checked only by tools, with no LiveKit server.
 4. **Co-editing on by default** (decision 6) with tool checks and "read as code only" paths. The real two-person test
-   cannot be done in the cloud container, so it waits on Thomas and Spud (the second person, named 2026-11-16). If it slips, the switch stays off
-   and the release is not held by it (see "Tensions").
+   cannot be done in the cloud container, so it waits on Thomas and Spud (the second person, named 2026-11-16). The default is already on
+   (Thomas, 2026-11-17); the test is still owed, and the release is not held by it (see "Tensions").
 5. **Backup and restore** are not proven end to end (no whole-server backup, an export that blocks a hosted server).
    Decision 9 makes this a release requirement.
 6. **Legal gaps:** no licence file, no terms or privacy text, no trademark search, and the host admin exception
@@ -697,7 +702,7 @@ what, the SDK or a stored format, so it waits for an independent read before mai
 10. **The real calls and the co-editing test** (decisions 6, 16 and 22, #29, #30): a real call with two people on each
     device kind Thomas named (iPhone 13 Pro Max, iPad 12.9, Mac mini M4 and Windows 11, each with a browser still to be
     named), including a hosted server, and a real two-person co-editing test, run by Thomas or the people he
-    names. Only after both pass does the `coediting` switch default flip (S, HELD, server-development). M. Cannot be
+    names. The default flip was planned to follow both; Thomas made it on 2026-11-17 (`f9b11555`), so the step is now the verification only: the two-person test on the hosted server, Safari, iPad, phone and the independent safety read if still open. M. Cannot be
     checked in the cloud container or without a real LiveKit call.
 11. **The legal track** (decisions 11 to 14 and 15): the licence inventory, the `LICENSE` file, terms, privacy, cookies,
     module author terms, the host admin statement, trademark, AI terms; content-manager drafts for the lawyer, the lawyer

@@ -26,7 +26,7 @@ pulled from `ghcr.io/drowbe/coffee-pub-chameleon`.
    openssl rand -hex 8    # the server admin's password
    ```
 2. **DNS.** Add a record at your DNS provider pointing at your public IP, the same address your
-   Foundry hostname uses: `collaborator.<domain>`, and for video `livekit.<domain>` too. If the provider offers proxying
+   Foundry hostname uses: `chameleon.<domain>`, and for video `livekit.<domain>` too. If the provider offers proxying
    (Cloudflare's orange cloud), turn it off for these: media has to reach the NAS directly.
 3. **Router.** For video, forward to the NAS's LAN address: `7881` TCP, `7882` UDP, `3478` UDP. Ports 80 and 443
    already reach Nginx Proxy Manager.
@@ -40,7 +40,7 @@ pulled from `ghcr.io/drowbe/coffee-pub-chameleon`.
 5. **Nginx Proxy Manager.** A proxy host for each address, each with a Let's Encrypt certificate and Force SSL:
    - For video, `livekit.<domain>` to scheme http, forward host = NAS LAN address, port `7880`, **Websockets
      Support on**.
-   - `collaborator.<domain>` to scheme http, NAS LAN address, port `3000`.
+   - `chameleon.<domain>` to scheme http, NAS LAN address, port `3000`.
 
 **The image tag.** The file names the image as `ghcr.io/drowbe/coffee-pub-chameleon:sha-CHANGE_ME`. Replace
 `CHANGE_ME` with the first 7 characters of the commit you want: on GitHub, open the repository's **Actions** tab, pick the
@@ -60,7 +60,7 @@ Camera access requires HTTPS, which the proxy provides. Players need nothing but
 The compose file holds one account, the server's **admin**: `ADMIN_LOGIN` and `ADMIN_PASSWORD`. On one environment this
 admin runs it (owners are made in **Manage**); with several environments it is the host admin, who signs in to the host
 console at `admin.<base domain>`. Open
-`https://collaborator.<domain>/`, sign in with them, and choose **Manage** in the menu under your picture, at the right of the top bar. Add your
+`https://chameleon.<domain>/`, sign in with them, and choose **Manage** in the menu under your picture, at the right of the top bar. Add your
 players under **Users** and send each of them a login and password, or a personal link; see
 [Accounts, roles and permissions](userguide-accounts.md). If someone else will run the server day to day, make
 them an **Owner** there; owners are made in Manage, never in the compose file, and a server doesn't need one.
@@ -230,7 +230,7 @@ To switch environments on, with the server already running as above:
 3. **The container, for one start.** Take a copy of the data folder first. Keep `ADMIN_LOGIN` and
    `ADMIN_PASSWORD`: with a base domain they are the **host admin**, who signs in to the host console. Add:
    ```yaml
-   BASE_DOMAIN: "collaborator.example.com"
+   BASE_DOMAIN: "chameleon.example.com"
    MIGRATE_ENVIRONMENT_SLUG: "main" # what your existing server becomes; used once
    ```
    Recreate the container. On that start the existing data moves into `environments/<slug>/` on the same
@@ -368,7 +368,7 @@ plan, back it up and restore it, suspend it and **Resume** it, or delete it asid
 or, when `SIGNUP` is on, makes one. Three optional variables feed that page: `PRODUCT_NAME` (the full name it shows;
 the default is "Coffee Pub Chameleon", and Chameleon is used where the short form fits; a name such as "Travel Pub" shows
 that name everywhere. Environments that already have a name keep it. If your compose file still says
-`PRODUCT_NAME: "Collaborator"`, change it to the new name, because it overrides the default) `CONTACT_EMAIL` (where "ask for an environment" writes to) and `PRODUCT_SITE_URL` (the address of the product's page on your website, for example `https://www.example.com/collaborator`; the start page shows an **About** link to it, and shows none when it is unset. A value that is not a web address stops the start). If the base
+`PRODUCT_NAME: "Collaborator"`, change it to the new name, because it overrides the default) `CONTACT_EMAIL` (where "ask for an environment" writes to) and `PRODUCT_SITE_URL` (the address of the product's page on your website, for example `https://www.example.com/chameleon`; the start page shows an **About** link to it, and shows none when it is unset. A value that is not a web address stops the start). If the base
 domain ever changes, set the new one as `BASE_DOMAIN` and list the old one in `PREVIOUS_BASE_DOMAINS`;
 every old address redirects to the new.
 

@@ -4914,6 +4914,20 @@ a.crumb-here:hover {
   border-color: var(--status-danger-fill);
 }
 
+/* The Environment tab's Reactions and Icons: each list in a fold, its rows compact, the Save bar on screen while editing. */
+.tp-reaction, .tp-icon { flex-wrap: wrap; }
+.tp-dropped { flex: 1 1 100%; margin: 0; }
+.tp-dropped[hidden] { display: none; }
+.tp-fold > summary { font-weight: 600; color: var(--text); }
+.tp-fold .fold-list { max-height: 70vh; overflow-y: auto; margin: 8px 0; padding-right: 4px; }
+.tp-fold .fold-list .reaction-row { padding: 2px 0; }
+.tp-fold .fold-list .reaction-row .btn { min-width: 44px; padding-left: 0; padding-right: 0; justify-content: center; }
+/* A focused row scrolls clear of the sticky Save bar (WCAG 2.4.11): the page and each list keep room for it. */
+html:has(#lists-save-bar) { scroll-padding-bottom: 96px; }
+.tp-fold .fold-list { scroll-padding-bottom: 8px; }
+.save-bar { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; padding: 10px 0; background: var(--surface-panel); border-top: 1px solid var(--border); }
+.save-bar .status:empty { display: none; }
+
 /* Member tiles on a space: click to toggle, lit while in the space (.sdk-member-toggle, system.css) */
 .sdk-member-toggle {
   text-transform: none;
@@ -6806,15 +6820,18 @@ body.chat-window {
   .tp-list .list-row .icon-pick summary, .tp-list .list-row input[type="text"], .tp-list .list-row .sdk-colour-pick, .tp-list .list-row input[type="color"] { min-height: 44px; min-width: 44px; box-sizing: border-box; }
   #words-panel .tf-word input[type="text"] { min-height: 44px; box-sizing: border-box; }
   .tp-list .list-row .btn, .tp-list > .list-setting > .btn { --btn-h: 44px; min-width: 44px; }
+  .reaction-row .btn { min-width: 44px; }
   .tp-actions .btn, .reaction-row .btn, #tab-template .row .btn, .module-setting .setting-mark .btn { --btn-h: 44px; }
   .tp-phase .tp-main, .tp-module-head { min-height: 44px; }
   .tp-chip { min-width: 44px; height: 44px; }
-  /* The Environment tab's Reactions and Icons: a row wraps, so the fields keep a usable width. */
-  #env-reactions-card .reaction-row { flex-wrap: wrap; }
-  #env-reactions-card .reaction-row .reaction-label, #env-reactions-card .icon-row .icon-html { flex: 1 1 100%; }
-  #env-reactions-card .reaction-row .reaction-glyph { flex: none; }
-  #env-reactions-card .row .btn, #env-reactions-card .reaction-row .btn { --btn-h: 44px; }
+  /* The Environment tab's Reactions and Icons: a reaction is one line (emoji, label, three buttons); an icon is two (its HTML, then label and buttons). */
+  #env-reactions-card .reaction-row .btn { --btn-h: 44px; min-width: 44px; }
+  #env-reactions-card .icon-row { flex-wrap: wrap; }
+  #env-reactions-card .icon-row .icon-html { flex: 1 1 calc(100% - 52px); }
+  #env-reactions-card .icon-row .reaction-label { flex: 1 1 0; min-width: 6em; }
+  #env-reactions-card .row .btn, #env-reactions-card .save-bar .btn { --btn-h: 44px; }
   #env-reactions-card .reaction-row input[type="text"] { min-height: 44px; box-sizing: border-box; }
+  #env-reactions-card .tp-fold > summary { min-height: 44px; }
   .tp-switch { min-height: 44px; min-width: 44px; }
   .module-display .btn { --btn-h: 44px; min-width: 44px; }
   .module-display .icon-pick summary, .module-display .icon-pick .icon-grid button, .module-display input[type="text"] { min-width: 44px; min-height: 44px; box-sizing: border-box; }
@@ -9550,7 +9567,7 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 #guest-unavailable { margin: 6px 0 0; padding-left: 18px; }
 #guest-leave { margin-top: 12px; }
 
-/* The built-in set on the Environment tab's Reactions and Icons: folded, the same chips the Template page draws. */
+/* The environment's set on a template's Additional Reactions and Icons (the built-in lists on the console): folded, read only. */
 .tp-builtin { margin: 4px 0 12px; }
 .tp-builtin > summary { cursor: pointer; min-height: 44px; display: list-item; list-style-position: inside; line-height: 44px; color: var(--text-muted); }
 

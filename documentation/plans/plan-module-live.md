@@ -34,7 +34,7 @@ From `architecture-socketmanager.md` and `api-sockets.md` in the Blacksmith wiki
 This plan keeps the shape (publish, subscribe, everyone else by default, targeted sends) and moves every decision about
 who receives a message to the server.
 
-### What Collaborator already has
+### What Chameleon already has
 
 - **The live stream**, `GET /api/live`, one per space page: `presence`, chat, the asides' nudges, `removed`
   (`server/index.js:5216-5280`). It is built on `eventStream()` (`server/index.js:5066-5135`), which counts open streams

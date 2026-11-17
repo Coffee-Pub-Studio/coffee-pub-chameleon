@@ -4,7 +4,7 @@
 side (the secret, the routes, the checks, the host path) and experience-design builds the Manage tab and the Assistant
 surface. A security QA read is needed on the jobs marked below. content-manager documents after.
 
-**Status:** Built, jobs J1 to J6, as of 2026-11-15 (J1 #784; J2 #824; J3, J4 and J5 #825; J6 #826; also #827 and #839), as `architecture-ai` says. Not recorded as built here: J7 (the checks, partly changed by #839) and J8 (the documentation; `architecture-ai` is written). Drafted for Thomas, 2026-11-12, by product-planner. Thomas answered the planning question and
+**Status:** Built, jobs J1 to J6, as of 2026-11-15 (J1 #784; J2 #824; J3, J4 and J5 #825; J6 #826; also #827 and #839), as `architecture-ai` says. On 2026-11-17 Thomas changed how AI is switched on and off (decision 6 and "Built differently than planned"). Not recorded as built here: J7 (the checks, partly changed by #839) and J8 (the documentation; `architecture-ai` is written). Drafted for Thomas, 2026-11-12, by product-planner. Thomas answered the planning question and
 questions 1, 2, 3 and 5 on 2026-11-12 (recorded under Decisions); questions 4 and 6 are still open as decisions (as built: Travel and Games list the module so a new environment has it on with AI off, #827, and the `/api/ai` paths stay; Thomas confirms or changes both) and did not block the first
 build step.
 
@@ -44,6 +44,34 @@ What the decisions change in the build:
   code is written.
 - Decision 1 leaves the id alone in J3 and J5; only the shown name changes.
 
+6. **The module's Enabled switch is the one on/off switch for AI** (Thomas, 2026-11-17, by clickable answer; chosen over
+   keeping two switches with a visible second one, and over starting new environments with the module off). The AI's own
+   `enabled` flag is removed from `ready()`, the view, `set()` and the load default. A stored `enabled` is ignored and dropped
+   on load, and `PUT /api/ai` ignores it. AI is on when the Assistant module is on and the environment has a usable service:
+   a managed offer the host still makes, or its own service with its key. The owner turns AI off with the module's Enabled
+   switch, a space's own AI-off switch, or by taking Use AI off a role. Reason: after the AI module and the AI Assistant
+   module were combined, no page kept a switch for the flag, and a save made while the host's offer was missing forced it
+   false for good, so an environment could answer "AI is not set up here." with no way back (reproduced on a throwaway hosted
+   server, 2026-11-17; Thomas's own sandbox failed the same way for a while, and the cause on his server is not proven).
+7. **Defaults left as they are for now** (Thomas, 2026-11-17, by clickable answer). Consequence he accepted: on a hosted
+   server a new environment starts on the first managed company the host offers; the shipped templates turn the Assistant
+   module on when a space is made; members have Use AI by default; the monthly allowance defaults to 0 (no limit). So members
+   can use the host's paid service with no further step from the owner. To be revisited before the first customer (open
+   question 7).
+
+## Built differently than planned
+
+- **One switch, not two (2026-11-17).** The plan said the environment's AI setting has its own `enabled` flag that starts
+  false, and that `ready()` includes it ("AI is on while the module is on and the setting is enabled"). It was built that
+  way. Thomas decided on 2026-11-17 to remove the flag (decision 6); the module's Enabled switch replaces it. This also
+  changes "off by default": AI is off only where the module is off or no usable service exists.
+- **The "not set up" reason says why.** The reason code stays `not-set-up`, and the 503 stays. The sentence now differs per
+  state: no service chosen; the chosen managed service is no longer offered by the host; the environment's own service has
+  no key; the saved key can't be read. An owner's sentence says where to fix it. A member's says to ask the owner and never
+  names the host. The server writes one console line per environment and condition, at most once a minute, when it answers
+  not-set-up. `GET /api/ai` and `PUT /api/ai` (owner only) also return `problem` and `status`, and the owner's AI tab shows a
+  status line.
+
 ## Why
 
 The service (Manage > Modules > AI service) is a special tab with a reserved id `ai`, apart from the module list. The
@@ -67,8 +95,10 @@ at line 136; `server/templates.js` 372 to 373 skips `assistant` on new installs 
 
 - **The service is not a module.** Class `Ai` (`server/ai.js`, 682 lines) per environment, constructed at `environment.js`
   197 with `(dataDir, process.env, undefined, managed, secretsKey)`. Config `{ source: managed|custom, managedProvider,
-  provider: none|openai|anthropic|compatible (default none), address, model, key, workspace, monthlyTokens, enabled, sees }`.
-  `modules.aiReady = () => ai.ready()` where `ready()` is enabled and has an active service and the key is readable.
+  provider: none|openai|anthropic|compatible (default none), address, model, key, workspace, monthlyTokens, sees }`
+  (as planned it also had `enabled`; removed on 2026-11-17, see decision 6).
+  `modules.aiReady = () => ai.ready()` where `ready()` has an active service and the key is readable. As planned and first
+  built, it also required the setting's own `enabled` flag.
 - **Files:** `DATA_DIR/ai.json` (setting and key), `ai-usage.json`, `ai-log.jsonl` (30 days, no content). Support code:
   `ai-providers.js` 388, `ai-http.js` 143, `ai-tools.js` 290, `ai-policy.js` 287, `ai-context.js` 276,
   `action-catalog.js`, `prompts/` (index 139, ask 92, object-rule 181, parse 238, inputs 96, others).
@@ -137,8 +167,9 @@ its AI tab. The module's Manage tab shows "Provided by your host" and hides the 
 
 ## Optional, off by default, no outside service
 
-The default provider stays `none`; `enabled` starts false; `ai.ready()` keeps its meaning (enabled, an active service, the
-key readable); asking when not ready is still `AiError('AI is not set up here.', 503)`. Nothing contacts an outside
+The default provider stays `none`. The plan said `enabled` starts false and `ai.ready()` includes it. That was built, then
+changed on 2026-11-17 (decision 6): there is no `enabled` flag, and `ai.ready()` means an active service with a readable
+key. The module's Enabled switch is the on/off switch. Asking when not ready is still `AiError('AI is not set up here.', 503)`. Nothing contacts an outside
 service until an owner turns the module on, picks a provider and saves a key (or the host provides one). `hooks.ai: true`
 modules still show as "missing" while not ready. The module is on or off like any module; off means `host.ai.available()`
 answers false.
@@ -265,10 +296,14 @@ Words a person reads: "AI Assistant", "Provided by your host", "Replace key", "A
 
 ## Open questions for Thomas
 
-Questions 1, 2, 3 and 5 are decided (see Decisions). Two remain. Neither blocks J1, J2 or J4; question 4 must be answered
+Questions 1, 2, 3 and 5 are decided (see Decisions). Three remain (6 below is the older question about routes; the new one is 7). Neither blocks J1, J2 or J4; question 4 must be answered
 before J3 changes `templates.js`.
 
 4. **New installs.** (a) Offered, off (suggested, not yet confirmed; AI stays off by default). (b) On but not configured.
    (c) Not offered until an owner adds it.
 6. **The routes.** (a) Keep `/api/ai` and the other two paths (suggested, not yet confirmed; no renaming unasked).
    (b) Rename them under the module. Blocks nothing; the paths stay as they are until Thomas answers.
+7. **Defaults for hosted installs.** Before the first customer, revisit the defaults Thomas left on 2026-11-17 (decision 7):
+   a new environment starts on the first managed company the host offers; templates turn the Assistant module on; members
+   have Use AI; the monthly allowance is 0 (no limit). Options to weigh then: a limit by default, Use AI off for members
+   until the owner grants it, or the module off until the owner turns it on. Blocks nothing now.

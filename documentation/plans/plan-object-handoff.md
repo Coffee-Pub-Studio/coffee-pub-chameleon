@@ -293,7 +293,7 @@ its catalogue fields; a field no module uses is still listed, since the catalogu
 environment's words shown as "object" and an environment where every bundled module is on:
 
 ````text
-I keep my plans and research in Collaborator. When I ask you to find or plan something, answer as you normally would, then put every thing worth keeping in one JSON array inside one single fenced block (exactly one, never one per object), at most 50:
+I keep my plans and research in Chameleon. When I ask you to find or plan something, answer as you normally would, then put every thing worth keeping in one JSON array inside one single fenced block (exactly one, never one per object), at most 50:
 ```objects
 [{"icon":"plane","kind":"flight","title":"Southwest 1234, Chicago to San Jose","content":"optional notes; plain prose, or simple Markdown","date":"2026-11-14","details":{"airline":"Southwest","number":"1234","from":{"code":"MDW","name":"Chicago Midway"},"to":{"code":"SJC","name":"San Jose"},"departs":"2026-11-14T12:50","arrives":"2026-11-14T15:25","reference":"ABC123"},"tags":["one","word"],"place":{"name":"optional"},"links":[{"title":"optional","url":"https://..."}]}]
 ```

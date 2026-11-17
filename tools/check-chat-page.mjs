@@ -338,7 +338,9 @@ test('the views: where a typed line goes; a command switches to the Assistant an
   assert.deepEqual(routeLine('/ai where to eat?', 'assistant'), { run: 'ai', view: 'assistant', line: 'where to eat?' });
   assert.deepEqual(routeLine('/ai', 'discussion'), { run: 'ai', view: 'assistant', line: '' }, 'a bare /ai asks for the question');
   assert.deepEqual(routeLine('/aim high', 'discussion'), { run: 'command', view: 'assistant', line: '/aim high' }, '/aim is not /ai');
-  assert.equal(aiNotice('not-set-up'), 'AI is not set up yet.');
+  assert.equal(aiNotice('not-set-up', 'AI is not set up here.', { owner: 'owner' }), 'AI is not set up yet. Ask the owner.');
+  assert.equal(aiNotice('not-set-up', '', { owner: 'owner', asOwner: true }), 'AI is not set up yet. Open Manage, then the AI settings.');
+  assert.equal(aiNotice('not-set-up', "The saved AI key can't be read on this server; an owner needs to enter it again.", { owner: 'owner' }), "The saved AI key can't be read on this server; an owner needs to enter it again.");
   assert.equal(aiNotice('role', '', { owner: 'owner' }), "Your role can't use AI here: ask the owner.");
   assert.equal(aiNotice('allowance'), "This month's AI allowance is used up.");
   assert.equal(aiNotice('guest', '', { guests: 'Guests' }), 'Guests cannot use AI.');

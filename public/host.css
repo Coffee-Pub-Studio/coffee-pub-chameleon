@@ -151,8 +151,10 @@ fieldset.hc-part > legend.hc-part-name + * { clear: both; }
 .hc-used { min-width: 180px; }
 .hc-more-names, .hc-spaces { color: var(--text-muted); }
 .hc-tpls tbody tr { height: 52px; }
-/* the editor: its parts in a column, the jump list beside them */
-.hc-editor { display: grid; grid-template-columns: 180px minmax(0, 1fr); align-items: start; gap: var(--space-4); min-width: 0; }
+/* the template editor: its parts as tabs (.hc-tabs), one shown at a time; a part with a problem has a count on its tab */
+.hc-editor-body { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; margin-top: var(--space-3); }
+.hc-tabs.subtabs > .subtab > .sdk-tab-badge[data-problems] { margin-left: var(--space-1); background: var(--status-danger-fill); color: var(--status-danger-on-fill); }
+.hc-tabs.subtabs > .subtab > .sdk-tab-badge[data-problems][hidden] { display: none; }
 .hc-jump.subtabs { position: sticky; top: var(--space-4); flex-direction: column; align-items: stretch; gap: var(--space-1); overflow: visible; }
 .hc-jump.subtabs > .subtab { justify-content: flex-start; width: 100%; }
 .hc-jump-row.subtabs { position: static; flex-direction: row; align-items: center; }
@@ -180,7 +182,6 @@ fieldset.hc-part > legend.hc-part-name + * { clear: both; }
   .hc-title { font-size: var(--text-18); }
   .hc-tabs.subtabs { overflow-x: auto; }
   .hc-checks { margin-left: var(--space-3); }
-  .hc-editor { grid-template-columns: minmax(0, 1fr); }
   .hc-jump.subtabs { position: static; flex-direction: row; align-items: center; overflow-x: auto; overflow-y: hidden; }
   .hc-jump.subtabs > .subtab { width: auto; }
   /* a link inside a cell is a 44 pixel tap: one under another */

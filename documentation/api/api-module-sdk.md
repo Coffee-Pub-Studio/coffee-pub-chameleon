@@ -1004,7 +1004,7 @@ A keyed page can read its settings and what the SDK offers a page that follows p
 **Presence.** Who is online and in which call right now, from any page (a keyed page, a dashboard). It is `GET /api/presence` as the viewer may read it ([architecture-overview](../architecture/architecture-overview.md), "Spaces and calls"): a signed-in person sees where people are only in the spaces and asides they belong to (owners and the admin belong to all of them), a guest only their own space, and a keyed page, carrying the access key, everyone.
 
 ```js
-const p = await host.presence.get();
+const p = await host.presence.get();             // or host.presence.get({ space }) for that space's reactions
 // p.people       [{ key, name, online, space, aside, asidePrivate, elsewhere, inCall, isOwner }]   isOwner: an owner or the admin
 //                  space: the space or aside they are in, if you belong to it; the space they stepped out of, with
 //                    aside: true and inCall: false, if they are in an aside of one of your spaces that you are not in;
@@ -1014,10 +1014,12 @@ const p = await host.presence.get();
 // p.spaces       [{ id, name }]
 // p.asides       [{ id, origin, private }]   only the asides you belong to; origin: the space it was pulled from; private: a private conversation
 // p.activeSpace  the space the stream follows (an owner's or the admin's), or null when it is somewhere you can't see; p.ownerOnline whether one is online
-// p.reactions    [{ id, glyph }]
+// p.reactions    [{ id, glyph }]   the environment's list; get({ space }) answers the list that space reads (the environment's, then its template's additions) for a space the viewer may enter, else the environment's. onChange still carries the environment's list
 // p.pictureScale the conference's portrait size, a percentage of the tile height; the participant box uses it
 const stop = host.presence.onChange((p) => { ... }, { every: 5000 }); // polls; called once at the start and whenever anything differs
 ```
+
+The Stream module's keyed page asks `host.presence.get({ space })` for the space the box shows, so a template's added reactions float in OBS too. If that request fails it is asked again only when presence changes.
 
 **Pictures.** One person's picture in a slot, as a blob URL to show, or null when they have none there; release it when you replace it. `{ space }` asks for that space's own picture set first, the way the call page does.
 
@@ -1042,7 +1044,7 @@ w.stop();
 
 With `video: false` and `audio: false` only the state is followed (the host subscribes to the microphone alone, so it still knows who is talking, and plays nothing). The host reconnects by itself when the connection drops.
 
-**With no voice and video on the server.** When the server has no call service there is no media to watch. `host.media.watch` then answers at once, once, and never loads the client library or asks for a token: `state` gets `{ online: false, cameraOn: false, micOn: false, speaking: false, name: null, unavailable: true, reason }` and `connection` gets `{ connected: false, space: null, unavailable: true, error: reason }`, where `reason` is "Voice and video are not set up on this server." The watcher it hands back is real, but `follow` and `stop` do nothing. A module that shows a person should draw from `host.presence` and `host.images` alone, and treat `unavailable` as "no video here", not as an error. The Stream module (0.1.15) does this: it draws pictures from presence.
+**With no voice and video on the server.** When the server has no call service there is no media to watch. `host.media.watch` then answers at once, once, and never loads the client library or asks for a token: `state` gets `{ online: false, cameraOn: false, micOn: false, speaking: false, name: null, unavailable: true, reason }` and `connection` gets `{ connected: false, space: null, unavailable: true, error: reason }`, where `reason` is "Voice and video are not set up on this server." The watcher it hands back is real, but `follow` and `stop` do nothing. A module that shows a person should draw from `host.presence` and `host.images` alone, and treat `unavailable` as "no video here", not as an error. The Stream module (0.1.16) does this: it draws pictures from presence.
 
 **The access key.** On the module's own page (an owner's or the host admin's), `await host.access.key()` is the key a keyed page's link carries (null for anyone else) and `await host.access.regenerate()` makes a new one, after which every link made with the old one stops working.
 

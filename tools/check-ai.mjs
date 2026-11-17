@@ -79,11 +79,11 @@ await test('the setting: the key is kept and never shown', () => {
   const { source, managed, managedProvider, active, ...custom } = v;
   assert.deepEqual(active, { provider: 'compatible', model: 'local' }); // custom: the service in use is the custom slot
   const { sees, ...rest } = custom;
-  assert.deepEqual(rest, { provider: 'compatible', address, model: 'local', workspace: '', monthlyTokens: 0, keySet: true, keyUnreadable: false, keyProblem: null, enabled: true, moduleOn: true });
+  assert.deepEqual(rest, { provider: 'compatible', address, model: 'local', workspace: '', monthlyTokens: 0, keySet: true, keyUnreadable: false, keyProblem: null, moduleOn: true });
   assert.deepEqual(sees, { attached: true, relevant: true, linked: true, history: true, chat: false, members: false, lookup: true, environment: 'attached', modules: 'all' }, 'What AI may see: the safe defaults');
   assert.equal(managedProvider, '');
   ai.moduleOn = () => false; // the AI Assistant module is off or not installed: AI is not turned on, the saved setting stays
-  assert.deepEqual([ai.ready(), ai.view().moduleOn, ai.view().enabled], [false, false, true]);
+  assert.deepEqual([ai.ready(), ai.view().moduleOn, ai.view().enabled], [false, false, undefined]);
   ai.moduleOn = () => true;
   assert.equal(ai.ready(), true);
   assert.equal(source, 'custom'); // no host offer: an environment can only be custom
@@ -110,24 +110,49 @@ await test('the source: the host\'s managed service, or the environment\'s own',
   assert.deepEqual(fresh.view().managed, { available: true, services: [{ provider: 'openai', model: 'gpt-4o-mini' }, { provider: 'anthropic', model: 'claude' }] });
   assert.equal(fresh.key(), 'host-key'); // the call goes out with the host's key for that company
   assert.ok(!JSON.stringify(fresh.view()).includes('host-key'));
-  assert.equal(fresh.view().enabled, false); // enabling stays the environment's own step
-  assert.equal(fresh.set({ enabled: true }).enabled, true);
-  assert.equal(fresh.ready(), true);
+  assert.equal(fresh.view().enabled, undefined, 'there is no second switch: the module on is AI on');
+  assert.equal(fresh.ready(), true); // a service chosen and the module on
   // Switching to another company that is also offered and ready stays enabled -- the author's own report:
   // Managed Anthropic to Managed OpenAI, say, should not need re-enabling, only a company that ends up
   // unready (nothing offered, no key) turns it off.
-  assert.equal(fresh.set({ managedProvider: 'anthropic' }).enabled, true);
+  fresh.set({ managedProvider: 'anthropic' });
   assert.equal(fresh.key(), 'host-key-2');
-  assert.equal(fresh.set({ source: 'custom' }).enabled, false); // custom has nothing saved yet -- not ready
+  fresh.set({ source: 'custom' }); // custom has nothing saved yet -- not ready
   assert.equal(fresh.view().source, 'custom');
   assert.equal(fresh.ready(), false); // custom with nothing set up
   assert.equal(fresh.view().active.provider, 'none');
-  assert.equal(fresh.set({ source: 'managed', managedProvider: 'openai' }).enabled, false); // was off going in, ready or not it stays off -- "setting up does not turn AI on"
-  assert.equal(fresh.set({ enabled: true }).enabled, true);
-  assert.equal(fresh.set({ managedProvider: 'anthropic' }).enabled, true); // now on and switching between two ready companies again: stays on
+  fresh.set({ source: 'managed', managedProvider: 'openai' });
+  assert.equal(fresh.ready(), true);
+  fresh.set({ managedProvider: 'anthropic' });
   assert.throws(() => fresh.set({ managedProvider: 'compatible' }), /offer|host/i); // not offered
+  // Why AI is not ready, one code each (the sentences are server/ai-policy.js's, asserted in check-ai-prompts).
+  assert.equal(fresh.notReady(), '');
+  fresh.moduleOn = () => false;
+  assert.equal(fresh.notReady(), 'module-off');
+  fresh.moduleOn = () => true;
+  // An `enabled: false` an older file holds is not read: the service chosen and the module on is AI on.
+  const old = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-'));
+  fs.mkdirSync(path.join(old, 'modules', 'assistant'), { recursive: true });
+  fs.writeFileSync(path.join(old, 'modules', 'assistant', 'ai.json'), JSON.stringify({ source: 'managed', managedProvider: 'openai', provider: 'none', enabled: false }));
+  const was = new Ai(old, {}, undefined, () => offers);
+  assert.deepEqual([was.ready(), was.notReady()], [true, ''], 'an old enabled: false does not switch AI off');
+  assert.ok(!('enabled' in JSON.parse(fs.readFileSync(path.join(old, 'modules', 'assistant', 'ai.json'), 'utf8'))), 'and it is dropped from the file');
+  // The host stops offering the chosen company (its key removed), then offers it again: live, not cached.
+  const live = [{ provider: 'openai', address: '', model: 'gpt-4o-mini', key: 'host-key' }];
+  const moving = new Ai(fs.mkdtempSync(path.join(os.tmpdir(), 'ai-')), {}, undefined, () => live);
+  assert.equal(moving.ready(), true);
+  live.length = 0;
+  assert.deepEqual([moving.ready(), moving.notReady()], [false, 'not-offered']);
+  live.push({ provider: 'openai', address: '', model: 'gpt-4o-mini', key: 'host-key' });
+  assert.equal(moving.ready(), true, 'the offer coming back needs nothing from the environment');
+  // Saving something else while the offer is missing changes nothing about it: the offer coming back brings AI back.
+  live.length = 0;
+  moving.set({ monthlyTokens: 100 });
+  live.push({ provider: 'openai', address: '', model: 'gpt-4o-mini', key: 'host-key' });
+  assert.deepEqual([moving.ready(), moving.notReady()], [true, '']);
   const none = new Ai(fs.mkdtempSync(path.join(os.tmpdir(), 'ai-')), {}, undefined, () => null);
   assert.equal(none.view().source, 'custom');
+  assert.equal(none.notReady(), 'no-service');
   assert.throws(() => none.set({ source: 'managed', managedProvider: 'openai' }), /offer|host/i); // nothing to choose
 });
 
@@ -216,35 +241,16 @@ await test('companies, migration and the model lists', async () => {
   assert.deepEqual([m.provider, m.address], ['openai', '']);
 });
 
-await test('previewing whether a patch leaves AI enabled (used before turning it off while a module depends on it)', () => {
-  const ai = new Ai(fs.mkdtempSync(path.join(os.tmpdir(), 'ai-')), {});
-  ai.set({ provider: 'compatible', address, model: 'm', enabled: true });
-  assert.equal(ai.previewEnabled({}), true); // an unrelated change leaves it as it was
-  assert.equal(ai.previewEnabled({ model: 'm2' }), true);
-  assert.equal(ai.previewEnabled({ enabled: false }), false);
-  assert.equal(ai.previewEnabled({ provider: 'openai' }), false); // a different service starts switched off
-  assert.equal(ai.previewEnabled({ provider: 'compatible' }), true); // the same service again is not a change
-  assert.equal(ai.previewEnabled({ provider: 'none' }), false);
-  assert.equal(ai.view().enabled, true); // previewing never applies anything
-});
-
-await test('the enable step', () => {
+await test('no enable step: a service chosen and the module on is AI on', () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-'));
   const a = new Ai(d, {});
-  assert.throws(() => a.set({ enabled: true }), /choose a service/);
-  const v = a.set({ provider: 'compatible', address, model: 'm' });
-  assert.equal(v.enabled, false); // a service chosen is not yet switched on
-  assert.equal(a.ready(), false);
-  assert.equal(a.set({ enabled: true }).enabled, true);
+  assert.equal(a.notReady(), 'no-service');
+  a.set({ provider: 'compatible', address, model: 'm' });
   assert.equal(a.ready(), true);
-  assert.equal(a.set({ model: 'm2' }).enabled, true); // changing the model keeps it on
-  assert.equal(a.set({ provider: 'openai', key: 'k', model: 'gpt-4o' }).enabled, true); // another company, ready at once (key and model given together): stays on
-  assert.equal(a.set({ enabled: false }).enabled, false);
-  // A setting from before the step, with a service chosen, counts as enabled.
-  fs.mkdirSync(path.join(d, 'modules', 'assistant'), { recursive: true }); fs.writeFileSync(path.join(d, 'modules', 'assistant', 'ai.json'), JSON.stringify({ provider: 'compatible', address, model: 'm', key: '' }));
-  assert.equal(new Ai(d, {}).view().enabled, true);
-  fs.mkdirSync(path.join(d, 'modules', 'assistant'), { recursive: true }); fs.writeFileSync(path.join(d, 'modules', 'assistant', 'ai.json'), JSON.stringify({ provider: 'none' }));
-  assert.equal(new Ai(d, {}).view().enabled, false);
+  assert.equal(a.set({ model: 'm2' }).enabled, undefined);
+  assert.equal(a.ready(), true);
+  assert.equal(a.set({ provider: 'none' }).provider, 'none');
+  assert.equal(a.notReady(), 'no-service');
 });
 
 await test('summaries are checked field by field', () => {
@@ -431,6 +437,13 @@ await test('a non-ok answer: a plain sentence reaches the caller; the service\'s
     failNext = { status: 429, body: { error: { message: 'rate limited' } } };
     await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI Assistant is busy. Try again in a moment.');
 
+    // A provider that echoes part of the key back in its refusal: none of it reaches the log.
+    logs.length = 0;
+    failNext = { status: 401, body: { error: { message: 'Incorrect API key provided: sk-HOSTS************7890. You can find your API key at the dashboard, sk-secret.' } } };
+    await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError);
+    assert.ok(logs.some((l) => /401/.test(l) && /Incorrect API key/.test(l)), 'the refusal is still logged');
+    assert.ok(!logs.some((l) => /sk-|\*\*\*|7890|HOSTS/.test(l)), `no part of a key in the log (${logs.join(' | ')})`);
+
     // A body with nothing useful in it: no crash, just the status.
     failNext = { status: 500, body: {} };
     await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI Assistant had a problem. Try again in a moment.');
@@ -485,8 +498,7 @@ await test('the key is the module\'s sealed secret: never in ai.json, sealed in 
   assert.equal(v.keyProblem, "the saved AI key can't be read on this server; enter the key again");
   assert.equal(b.ready(), false);
   // Still a chosen service: saving another field keeps AI on (no "turn its modules off too?"), the key sentence the one complaint.
-  assert.equal(b.previewEnabled({ model: 'other' }), true);
-  assert.equal(b.set({ model: 'other' }).enabled, true);
+  b.set({ model: 'other' });
   assert.equal(b.view().keyProblem, "the saved AI key can't be read on this server; enter the key again");
   assert.equal(JSON.parse(fs.readFileSync(secretsFile, 'utf8')).assistant.key, stored(), 'saving another field leaves the unreadable key as it is');
   b.set({ model: 'local' });

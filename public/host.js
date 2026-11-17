@@ -1116,7 +1116,7 @@ function showView(section, rest) {
   // environment's page drops a first-password link shown there.
   if (view !== 'new') forgetCreateForm();
   if (view !== 'one') { closeFirstPasswordLink(PAGE, false); page.slug = ''; }
-  if (section === 'templates') { showTemplatesView(rest[0] || ''); return; }
+  if (section === 'templates') { showTemplatesView(rest[0] || '', rest[1] || ''); return; }
   if (section !== 'environments') return;
   $('environments-list').hidden = view !== 'list';
   $('environment-new').hidden = view !== 'new';

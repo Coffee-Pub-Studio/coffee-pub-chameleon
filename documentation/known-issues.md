@@ -70,11 +70,11 @@ The access bundle, steps 1 to 7 ([architecture-access](architecture/architecture
 
 ## Documents: Paper, the rich editor and writing together
 
-Documents 0.7 to 0.11.31 ([userguide-documents](userguides/userguide-documents.md), [architecture-documents](architecture/architecture-documents.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.
+Documents 0.7 to 0.11.33 ([userguide-documents](userguides/userguide-documents.md), [architecture-documents](architecture/architecture-documents.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.
 
 - **The Markdown box is not paged.** In Paper it shows one sheet; the pages appear in reading and in the rich editor.
 - **The editor and the reading view can count pages differently** for a very large grid: the editor does not split a grid between pages, reading does.
-- **Writing together is early and off** (#665, Documents 0.11.21 to 0.11.27, setting `coediting`). It was read from the code and has module tests; it was not tried by two people at once, nor on Safari, an iPad or a phone. Other people's cursors are not drawn. The document lock is kept by the editing pages only: a hostile editor can bypass it.
+- **Writing together is on by default, and not yet tried on Safari, an iPad or a phone** (#665, setting `coediting`, on by default since Documents 0.11.33). Thomas tried it live with several people typing and it worked; the module tests pass. An owner can switch it off in Module Configuration, and an environment that saved it off stays off. Other people's cursors are not drawn. The document lock is kept by the editing pages only: a hostile editor can bypass it.
 - **A paste over the size limit is lost without a word** (#752, from its title; not checked against the code here). Paste it in pieces.
 - **A teal rectangle** can show in the reading sheet where a focus outline is drawn (#778, from its title).
 - **Text that does not make the round trip in Rich text.** A run of four or more `$` signs is not kept exactly (#611). A link made at a caret, with no words selected, to a `mailto:` address with square brackets is not kept exactly: the "cannot keep exactly" note shows (#632).
@@ -91,9 +91,24 @@ These fail on `main` (`67998604`) and none was caused by the work since; a chang
 - **`check-conformance` fails on main** (#798): 3 deviations in 3 of 40 windows. The first content in the list view sits 12 px from the frame edge in Research and Budget and 16 px in Documents; the Trip templates panel on Manage's Template page (1280 pixels, light) has 16px of padding above and 24px below, and so has the About tab's **Open-source software** panel (390 pixels, dark). Run on a19d7d34, not run again.
 - **`check-destinations` fails on main** (#849): 1 of 45 cases, "travel: with no destination page yet, /calendar goes home and module pages and tiles stay their own": the widgets route answers no tiles under the Travel template and the case expects at least one. Run on a19d7d34, not run again.
 - **`check-nav` fails on main**, as the project manager reported on 67998604. The cause was not looked into here. A run of it in a cloud container (with the packages installed) fails the same two cases, "Set up: a right-zone tool after your picture, before the window controls, ..." and "the address opens it once; a reload does not, ...", but the browser checks of the welcome note and the agent pages also failed to draw a page in that container, so that run says nothing about `main`.
+- **`check-sources-modules` fails on main** ("public/design-system/sources.js is not what the generator writes"), seen on `origin/main` and on the reactions and icons branch alike, 2026-11-17. The cause was not looked into here.
+- **`check-streams` fails on main** (reported by the build of the reactions and icons work, 2026-11-17; the cause was not looked into here). `check-spacing`, `check-module-guards`, `check-conformance`, `check-destinations` and `check-nav` above failed there too, so none of them is from that work.
 - **`check-template-pages-b` is not in `npm run check`**, so nothing runs it by default.
 
 Fixed since the last list: `check-catalog` (the catalog is back to four tools, then six with the Planner's two, #896 and #905), the six browser checks that stopped at the Budget chip (#894, #896), and `check-buttons` (buttons size through `--btn-h`, #893; it passed when run on 67998604).
+
+Workaround for all of them: none needed to use the product.
+
+## AI: gaps left after the notice fix
+
+The AI has no switch of its own now (the AI Assistant module's switch is the one), and it says which state it is in when it can't answer. What is left:
+
+- **The hint under the setup still says "Setting a service up does not turn the AI on: use the switch above"** (`public/admin.html`, the line under **Setup**). It is true of the module's switch and reads oddly now that the module and a usable service are all the AI needs.
+- **Research says "AI Assistant is not turned on" for every not-set-up case.** `checkAi` in `modules/research/src/research.js` (near line 864) treats `not-set-up` and `module-off` alike, and the line in `research.html` (near line 44) says the module is off. With the module on and no service set up, Research still says so. To see it: turn the AI Assistant on with no service chosen and open Research. This is a module-lane change, left for Thomas to decide.
+- **The Refused count in "AI use this month" counts only questions that reach the server.** A page that already knows AI is unavailable stops the send, so nothing is logged for it. This is by design.
+- **The cause on one server is not proven.** An assistant said "AI is not set up yet." in an environment with a valid managed OpenAI offer; the AI answers again, and `GET /api/ai` was not read while it failed. The orphaned flag that this fix removes was reproduced on a throwaway hosted server (a new managed environment answered not set up until `enabled: true` was sent; clearing the host key and saving any AI field turned it off for good), but that it was the cause is not shown. If it fails again, read three things first: `GET /api/ai` while it fails (`problem`, `status`), the `[ai] <slug>: ...` line in the server's log, and whether the host's AI page was being saved around then.
+
+A real AI provider was not available for this change, so no real answer was tried; it was checked against the stand-in service.
 
 Workaround for all of them: none needed to use the product.
 
@@ -274,6 +289,20 @@ the first time. Clicking it a second time opens the module but not the object.
 GitHub #20.
 
 Workaround: find the object in the module itself.
+
+## Reactions and icons: gaps
+
+Found by quality-assurance on the environment-owned lists (Chameleon on branch `step22b`, 2026-11-17), read from the code and run on a throwaway server and in a browser. A real call, reactions over the data channel, keys 1 to 6 in a live call and a real OBS source have not been tried: there is no LiveKit server in the build container.
+
+- **A new reaction with an emoji and no label cannot be saved on the host console.** The template editor refuses it with "a label is plain text of 1 to 40 characters"; Manage leaves an empty label out and saves, but the console sends an empty one. To see it: **Templates**, **New template**, **Reactions** tab, add a row with only an emoji, **Save template**. Workaround: give the reaction a label.
+- **A new reaction whose label matches a built-in id is silently dropped.** A heart labelled "Heart" gets the id `heart` and is left out as a repeat where the lists are joined. Manage's "Already in the environment's set, not added again." note does not catch it, because it compares a new row by its emoji only. Workaround: use a different label or emoji.
+- **The stream view does not retry a failed list.** If its request for a space's reaction list fails, it asks again only when presence changes; until then reactions from that space may not show in OBS.
+- **Start again from the built-in set sits above the lists.** The plan puts it below both. It works the same; only its place differs.
+- **On a short phone the lists show about five rows.** At 390 pixels wide the Manage sub-tabs and the sticky header take about 190 px, so a list box of 70vh shows about five rows.
+- **The Stream module and the SDK's change poll carry only the environment's list.** `presenceForModule` and the presence change poll (`host.presence.onChange`) answer the environment's reactions, not a space's; only `host.presence.get({ space })` does.
+- **A template's drop of an icon is by id only.** An icon that draws the same as an environment icon under another id is not dropped. Thomas chose this on 2026-11-17: icons repeat only by id.
+
+Workaround for the last three: none needed.
 
 ## Saving a bundled template reorders its module list
 

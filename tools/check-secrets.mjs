@@ -354,15 +354,15 @@ try {
     const owner2 = await signIn('admin', 'testpass1234');
     const sentence = "the saved AI key can't be read on this server; enter the key again";
     const view = (await call('GET', '/api/ai', { cookie: owner2 })).json.ai;
-    assert.deepEqual([view.keySet, view.keyUnreadable, view.keyProblem, view.enabled], [false, true, sentence, true]);
+    assert.deepEqual([view.keySet, view.keyUnreadable, view.keyProblem, 'enabled' in view], [false, true, sentence, false]);
     // Saving another field: no "turn it off too?", AI stays on, the Assistant stays on; the key sentence is the one complaint.
     const saved = await call('PUT', '/api/ai', { cookie: owner2, body: { model: 'other-model' } });
     assert.equal(saved.status, 200, saved.text);
-    assert.deepEqual([saved.json.ai.model, saved.json.ai.enabled, saved.json.ai.keyProblem], ['other-model', true, sentence]);
+    assert.deepEqual([saved.json.ai.model, saved.json.ai.keyProblem], ['other-model', sentence]);
     const mods = (await call('GET', '/api/modules', { cookie: owner2 })).json.modules;
     assert.equal(mods.find((m) => m.id === 'assistant').enabled, true, 'the Assistant is still on');
     const asked = await call('POST', `/api/modules/assistant/ai?scope=space&space=${one2}`, { cookie: owner2, body: { task: 'ask', question: 'hello there', objects: [] } });
-    assert.deepEqual([asked.status, asked.json], [503, { error: "The saved AI key can't be read on this server; an owner needs to enter it again." }]);
+    assert.deepEqual([asked.status, asked.json], [503, { error: "The saved AI key can't be read on this server. Open Manage, then the AI settings, and enter it again." }]);
     assert.deepEqual(await call('POST', '/api/ai/models', { cookie: owner2, body: { provider: 'compatible', address: aiAddress } }).then((r) => [r.status, r.json]), [400, { error: sentence }]);
     // Entering the key again: it answers.
     const again = await call('PUT', '/api/ai', { cookie: owner2, body: { key: 'sk-entered-again', model: 'stand-in-model' } });
@@ -396,7 +396,7 @@ try {
     assert.ok(!fs.existsSync(setting) && !sealedKey(), 'its data removed: the setting and the key are gone from the disk');
     for (const f of ['ai-usage.json', 'ai-log.jsonl']) assert.ok(!fs.existsSync(path.join(dataDir, 'modules', 'assistant', f)), `${f} is gone`);
     const view = await call('GET', '/api/ai', { cookie: owner3 });
-    assert.deepEqual([view.json.ai.keySet, view.json.ai.provider, view.json.ai.enabled], [false, 'none', false], 'and from memory: nothing to use');
+    assert.deepEqual([view.json.ai.keySet, view.json.ai.provider], [false, 'none'], 'and from memory: nothing to use');
     assert.ok(!view.text.includes('sk-entered-again'));
     await stopServer();
     assert.ok(!fs.readFileSync(sealedFile, 'utf8').includes('aesgcm$') || !sealedKey(), 'a stop writes nothing back');

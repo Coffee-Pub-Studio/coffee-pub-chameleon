@@ -105,8 +105,8 @@ function dlSyncTopic(id) {
   return `ydoc.x.${a.toString(36)}${b.toString(36)}`.slice(0, 40);
 }
 
-// The module setting `coediting`: on only for a real `true` (anything else, or no answer, is off).
-function dlSyncEnabled(values) { return Boolean(values) && typeof values === 'object' && values.coediting === true; }
+// The module setting `coediting`: on by default. On for a real `true` or a value nobody has set; off for a stored `false`, anything else, or no answer at all.
+function dlSyncEnabled(values) { return Boolean(values) && typeof values === 'object' && !Array.isArray(values) && (values.coediting === true || values.coediting === undefined); }
 
 // The first content of a shared document, made the same on every page that reads the same saved text: the writer id of the seed is a hash of the
 // document's id and text, so two pages that seed at once make the same structs and Yjs merges them as one (no doubled text). The id is put back after.

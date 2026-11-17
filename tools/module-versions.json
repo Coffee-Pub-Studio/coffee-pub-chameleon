@@ -12,8 +12,8 @@
     "hash": "e3ff48559a4051ed"
   },
   "documents": {
-    "version": "0.11.32",
-    "hash": "7e797b04543e5bf8"
+    "version": "0.11.33",
+    "hash": "ded599966d9d7dcb"
   },
   "goals": {
     "version": "0.1.5",
@@ -36,8 +36,8 @@
     "hash": "52fa4252f098ddce"
   },
   "stream": {
-    "version": "0.1.15",
-    "hash": "79a00d61cc45ecfe"
+    "version": "0.1.16",
+    "hash": "0f03de5a254fe51d"
   },
   "todo": {
     "version": "1.15.31",
@@ -52,7 +52,7 @@
     "hash": "53aa845407e4f3ae"
   },
   "whiteboard": {
-    "version": "0.1.65",
-    "hash": "7ecbc26a4b6898d6"
+    "version": "0.1.66",
+    "hash": "7e302f7680aa934a"
   }
 }

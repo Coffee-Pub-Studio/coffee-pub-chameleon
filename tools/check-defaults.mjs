@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 /*
- * check-defaults.mjs -- the fixed core reactions and icons (GitHub #169, server/default-lists.js; plan-templates-redesign.md,
- * decision 12): the curated sets themselves; a fresh store's own lists are empty (the core is never stored: lookOf reads it);
- * a stored list that repeats the core is trimmed to the owner's own additions, single and hosted alike; a template only adds;
- * and every default icon draws from the Font Awesome Free this server ships. check-reactions-icons.mjs covers the routes.
+ * check-defaults.mjs -- the built-in reactions and icons (GitHub #169, server/default-lists.js; plan-templates-redesign.md,
+ * decision 12 as corrected 2026-11-16): the curated sets themselves, as starting content only. A fresh store's lists are
+ * filled from them once (builtinListsSeeded) and are its own from then on; an environment stored before the correction
+ * (its lists never filled) gets the built-in lists once, its old additions not carried over; a filled list is kept as
+ * stored (a built-in removed stays removed, a repeat inside it is dropped) and survives a reload; an owner's save may
+ * remove any entry, and resetLists puts the built-in set back; single and hosted alike; a template's repeat of the
+ * built-in set is no longer refused; and every built-in icon draws from the Font Awesome Free this server ships.
+ * check-reactions-icons.mjs covers the routes.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -68,56 +72,99 @@ test('every default icon draws from the bundled Font Awesome Free', () => {
   }
 });
 
-test('a fresh store keeps none of the core in its settings; lookOf reads all of it', () => {
+test('a fresh store\'s lists are the built-in set, filled once and marked; lookOf reads them', () => {
   const dir = path.join(base, 'fresh');
   const store = new Store(dir);
-  assert.deepEqual([store.settings.reactions, store.settings.icons], [[], []], 'the owner\'s own additions: none yet');
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST], 'the environment\'s whole lists');
   const look = store.lookOf(null);
   assert.deepEqual(look.reactions, DEFAULT_REACTION_LIST);
   assert.deepEqual(look.icons, DEFAULT_ICON_LIST);
   const s = stored(dir);
-  assert.deepEqual([s.reactions, s.icons], [[], []], 'and saved so');
-  assert.equal(s.reactionsCuratedSeeded, undefined, 'no once-only flags: nothing is moved from an older list');
+  assert.deepEqual([s.reactions, s.icons, s.builtinListsSeeded], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST, true], 'and saved so');
+  // Copies: changing the store's lists changes nothing of the built-in ones (they are frozen as well).
+  store.settings.reactions[0].glyph = 'x';
+  assert.equal(DEFAULT_REACTION_LIST[0].glyph, '❤️');
 });
 
-test('a stored list that repeats the core is trimmed to the owner\'s own additions', () => {
+test('an environment stored before the correction gets the built-in lists once; its old additions are not carried over', () => {
   const dir = oldEnvironment({
-    reactions: [...clone(DEFAULT_REACTION_LIST), { id: 'yes', glyph: '✅', label: 'Yes' }, { id: 'again', glyph: DEFAULT_REACTION_LIST[0].glyph, label: 'Heart twice' }],
-    icons: [...clone(DEFAULT_ICON_LIST), { id: 'dragon-x', classes: 'fa-solid fa-dragon', label: 'dragon x' }],
+    reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }],
+    icons: [{ id: 'dragon-x', classes: 'fa-solid fa-dragon', label: 'dragon x' }],
   });
   const store = new Store(dir);
-  assert.deepEqual(store.settings.reactions, [{ id: 'yes', glyph: '✅', label: 'Yes' }]);
-  assert.deepEqual(store.settings.icons, [{ id: 'dragon-x', classes: 'fa-solid fa-dragon', label: 'dragon x' }]);
-  assert.deepEqual(stored(dir).reactions, [{ id: 'yes', glyph: '✅', label: 'Yes' }], 'saved trimmed');
-  const look = store.lookOf(null);
-  assert.deepEqual(look.reactions.slice(0, 105), DEFAULT_REACTION_LIST, 'the core first, whole');
-  assert.deepEqual(look.reactions.slice(105).map((r) => r.id), ['yes']);
-  // An owner's save that leaves the core out, or repeats it, changes none of it.
-  store.updateSettings({ reactions: [], icons: clone(DEFAULT_ICON_LIST.slice(0, 3)) });
-  assert.deepEqual([store.settings.reactions, store.settings.icons], [[], []]);
-  assert.equal(store.lookOf(null).reactions.length, 105);
-  assert.equal(store.lookOf(null).icons.length, 113);
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST]);
+  assert.deepEqual([stored(dir).reactions, stored(dir).icons, stored(dir).builtinListsSeeded], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST, true], 'saved filled and marked');
+  // From then on the lists are the environment's: an owner's save that removes built-in ones stays as saved, after a reload too.
+  store.updateSettings({ reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }, ...clone(DEFAULT_REACTION_LIST.slice(4))], icons: [] });
+  const again = new Store(dir);
+  assert.deepEqual(again.settings.reactions.map((r) => r.id).slice(0, 3), ['yes', 'up', 'down'], 'not filled again');
+  assert.deepEqual(again.settings.icons, [], 'an empty list is kept');
+  assert.equal(again.lookOf(null).reactions.length, 102);
 });
 
-test('a hosted install: each environment\'s store keeps its own additions', () => {
-  const a = buildEnvironment(oldEnvironment({ reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }] }), { slug: 'one', log: quiet });
+test('a filled list is kept as stored: cleaned for shape, a repeat inside it dropped, a built-in removed stays removed', () => {
+  const dir = oldEnvironment({
+    builtinListsSeeded: true,
+    reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }, { id: 'again', glyph: '✅', label: 'Tick twice' }, { id: 'yes', glyph: '\u{1F197}', label: 'Yes twice' }, clone(DEFAULT_REACTION_LIST[3]), { glyph: '' }],
+    icons: [{ id: 'dragon-x', classes: 'fa-solid fa-dragon', label: 'dragon x' }, { id: 'dragon-x', classes: 'fa-solid fa-cat', label: 'cat' }, { id: 'bad', classes: 'spin evil' }],
+  });
+  const store = new Store(dir);
+  assert.deepEqual(store.settings.reactions, [{ id: 'yes', glyph: '✅', label: 'Yes' }, DEFAULT_REACTION_LIST[3]]);
+  assert.deepEqual(store.settings.icons, [{ id: 'dragon-x', classes: 'fa-solid fa-dragon', label: 'dragon x' }]);
+  assert.deepEqual(stored(dir).reactions, store.settings.reactions, 'saved cleaned');
+  assert.deepEqual(store.lookOf(null).reactions.map((r) => r.id), ['yes', 'hi'], 'nothing of the built-in set comes back');
+  // resetLists: the built-in set again.
+  store.updateSettings({ resetLists: true });
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST]);
+});
+
+test('a filled environment whose stored list is not a list loads it as empty, and the file is not written again', () => {
+  const dir = oldEnvironment({ builtinListsSeeded: true, reactions: 'heart', icons: { id: 'x' } });
+  const store = new Store(dir);
+  assert.deepEqual([store.settings.reactions, store.settings.icons], [[], []]);
+  assert.deepEqual([stored(dir).reactions, stored(dir).icons, stored(dir).builtinListsSeeded], [[], [], true], 'saved as empty, once');
+  const file = path.join(dir, 'app.json');
+  const old = new Date('2020-01-01T00:00:00Z');
+  fs.utimesSync(file, old, old);
+  const again = new Store(dir);
+  assert.deepEqual([again.settings.reactions, again.settings.icons], [[], []]);
+  assert.equal(fs.statSync(file).mtimeMs, old.getTime(), 'a second load writes nothing');
+});
+
+test('a stored list is cleaned at load as a save is: plain text, an id given wins, an icon that draws nothing dropped', () => {
+  const dir = oldEnvironment({
+    builtinListsSeeded: true,
+    reactions: [{ glyph: 'A', label: 'fire' }, { id: 'fire', glyph: 'B', label: '<b>Fire</b>‮' }],
+    icons: [{ classes: 'fa-solid fa-star' }, { id: 'star', classes: 'fa-solid fa-moon', label: 'moon​' }, { id: 'proto', classes: 'fa-solid' }],
+  });
+  const store = new Store(dir);
+  assert.deepEqual(store.settings.reactions[1], { id: 'fire', glyph: 'B', label: 'bFire/b' });
+  assert.notEqual(store.settings.reactions[0].id, 'fire');
+  assert.deepEqual(store.settings.icons.map((i) => i.id).slice(1), ['star']);
+  assert.notEqual(store.settings.icons[0].id, 'star');
+  assert.equal(store.settings.icons[1].label, 'moon');
+  assert.equal(store.settings.icons.length, 2, 'the icon with no name is dropped');
+});
+
+test('a hosted install: each environment\'s store keeps its own lists', () => {
+  const a = buildEnvironment(oldEnvironment({ builtinListsSeeded: true, reactions: [{ id: 'yes', glyph: '✅', label: 'Yes' }] }), { slug: 'one', log: quiet });
   const b = buildEnvironment(oldEnvironment({}), { slug: 'two', log: quiet });
   try {
-    assert.deepEqual(a.store.lookOf(null).reactions.map((r) => r.id).slice(-1), ['yes']);
-    assert.equal(b.store.lookOf(null).reactions.length, 105, 'the other environment never reads them');
+    assert.deepEqual(a.store.lookOf(null).reactions.map((r) => r.id), ['yes']);
+    assert.deepEqual(b.store.lookOf(null).reactions, DEFAULT_REACTION_LIST, 'the other environment starts from the built-in set');
   } finally {
     for (const env of [a, b]) env.close?.();
   }
 });
 
-// plan-templates-redesign.md, decision 12: the core reactions and icons are fixed; a template only adds to them.
-test('a template only adds reactions and icons: a repeat of the core set is refused', () => {
+// plan-templates-redesign.md, decision 12 as corrected: a template only adds, and a repeat of an environment's entry is
+// dropped where the lists are joined, never refused (a template does not know which environment reads it).
+test('a template\'s additions that repeat the built-in set are not refused', () => {
   const travel = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'travel.json'), 'utf8'));
   const problems = (patch) => templates.problemsOf({ ...travel, ...patch }, { file: 'travel.json' });
-  const core = clone(DEFAULT_REACTION_LIST).slice(0, 2);
-  assert.deepEqual(problems({ reactions: core }), core.map((r, i) => `reactions[${i}]: ${r.glyph} is in the core set already; a template only adds.`));
+  assert.deepEqual(problems({ reactions: clone(DEFAULT_REACTION_LIST).slice(0, 2) }), []);
   const solid = DEFAULT_ICON_LIST.filter((i) => i.classes.startsWith('fa-solid ')).map((i) => i.id).slice(0, 1);
-  assert.deepEqual(problems({ iconSet: solid }), [`iconSet: "${solid[0]}" is in the core set already; a template only adds.`]);
+  assert.deepEqual(problems({ iconSet: solid }), []);
   assert.deepEqual(problems({ reactions: [{ id: 'die', glyph: '\u{1f3b2}', label: 'Die' }] }), [], 'an addition is accepted');
 });
 

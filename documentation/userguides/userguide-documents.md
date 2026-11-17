@@ -2,7 +2,7 @@
 
 **Audience:** members, moderators and owners who write shared notes in a space (session notes, handouts, lesson plans), and anyone who only reads them.
 
-Documents holds written notes for a space. Each space has its own list. One person writes a document at a time, and everyone else reads it as it changes (an owner can turn on writing together; see "Writing together"). It works only in a space. This guide was written from the code and the plans, not by using the module; the Documents module's versions 0.1.0 to 0.11.31 are covered.
+Documents holds written notes for a space. Each space has its own list. Several people can type in a document at once; this is on by default (see "Writing together"). Where an owner has turned that off, one person writes a document at a time with **Edit** and **Done**, and everyone else reads it as it changes. The sections below on **Edit**, **Done** and the edit lock describe that one-at-a-time mode. It works only in a space. This guide was written from the code and the plans, not by using the module; the Documents module's versions 0.1.0 to 0.11.33 are covered.
 
 **Who can:** set on the **Roles** tab under Documents ([Accounts, roles and permissions](userguide-accounts.md)):
 
@@ -81,9 +81,11 @@ Choose **Tags** (the tag icon) on an open document to tick the tags it has, or t
 
 When the connection to the server drops and comes back, Documents reads the list again and catches up on what it missed. Read from code; not tried with a real dropped connection.
 
-## Writing together (off by default)
+## Writing together (on by default)
 
-An owner can turn on **Let several people type in a document at once**: choose **Module Configuration** on Documents' card on the **Modules** tab. It is off until then, and everything above describes the module with it off. This is an early version, built in slices (Documents 0.11.21 to 0.11.27): it was read from the code and has its own module tests, but it was not tried by two people at once, on Safari, an iPad or a phone ([plan-documents-coediting](../plans/plan-documents-coediting.md), [known-issues](../known-issues.md)). A document already open keeps the mode it was opened in.
+Since Documents 0.11.33, writing together is on. There is nothing to turn on. An owner can turn it off: choose **Module Configuration** on Documents' card on the **Modules** tab and switch off **Let several people type in a document at once**. An environment that had already saved it as off stays off until an owner switches it on. With it off, the module works one person at a time, as the sections above describe. A document already open keeps the mode it was opened in.
+
+Thomas tried writing together live and it worked. It has not been tried on Safari, an iPad or a phone ([plan-documents-coediting](../plans/plan-documents-coediting.md), [known-issues](../known-issues.md)).
 
 With it on, a document has no **Edit** and no **Done**: it is simply editable by everyone who may write documents, in the rich editor, up to eight people at once.
 

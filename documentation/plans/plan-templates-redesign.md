@@ -1,7 +1,7 @@
 # Templates Redesign Plan
 
-**Audience:** Thomas has decided everything under "Decisions"; the questions the 2026-11-16 correction raises are under
-"Open questions". server-development builds the
+**Audience:** Thomas has decided everything under "Decisions", including questions A to E of the 2026-11-16 correction
+(decisions 53 to 66); one reading and the known issues are under "Open questions". server-development builds the
 template format, the resolution per space, the module manifest fields, the shared outline pieces of the SDK and the
 checks; experience-design builds the Manage pages, Set up, the host console pages and the two
 new planner modules; each existing module's change is its own module-lane build with a version bump. Steps marked
@@ -19,7 +19,12 @@ differently than planned", marked **Divergence called out**.
 icons belong to the environment, as a whole list its owner edits, starting from today's built-in 105 reactions and 113
 icons; a template only adds to it. The built state (an owner adds on top of a fixed set held in code) is wrong and is
 rebuilt by steps 18 to 23. The host console's template editor becomes tabs, one part per screen (decision 52, step 22).
-Four questions the correction raises are open, each with a recommendation; none blocks step 18.
+Thomas answered the correction's questions A to D on 2026-11-16 (decisions 53 to 56), each as recommended, and gave his
+own answer to E (decision 57), which is decided on one stated reading. Decisions 58 to 66 record what the build and QA of
+steps 18 to 23 added. **As of 2026-11-17:** steps 18 to 22 are built and independently read (the server read once plus one
+fix round, the pages and the call page twice, and a short read of the presence route, the Save bar and the list refusals);
+step 23's QA is done as described under decision 66; the documentation is being written. Nothing is merged to `main` or
+pushed: the work is on branch `step22b` of the build container.
 Revised 2026-11-15 by product-planner. The first draft (#831) suggested
 modes inside one Planner; Thomas decided the other way the same day: **dedicated planners, one module per genuinely
 different shape** (decision 28). His test, in his words as recorded: are the variations between the possible planners
@@ -108,7 +113,7 @@ session; their titles come from `.github/roadmap-board.csv` and their substance 
 | Budget (`budget`, 0.1.25) | `categories` (list, environment) | A unit (money, hours or effort); splitting only with money; seeded categories |
 | Maps (`maps`, 0.10.3) | `categories` (list, environment); the picture map through `imageMap` | Seeded categories; real and picture maps on or off; the Place label |
 | Calendar (`calendar`, 1.24.40) | `defaultView` (choice, person, default month) | Labels (Session, Meeting, Deadline, Check-in) and the default view |
-| Documents (`documents`, 0.11.31) | `coediting` (boolean, environment). The Markdown box or the rich editor is each person's own choice, kept in the browser (`documents-rich`, `modules/documents/src/documents.js:849`) | Starter documents, labels, the default editor |
+| Documents (`documents`, 0.11.33) | `coediting` (boolean, environment; on by default since 0.11.33, Thomas 2026-11-17). The Markdown box or the rich editor is each person's own choice, kept in the browser (`documents-rich`, `modules/documents/src/documents.js:849`) | Starter documents, labels, the default editor |
 | Research (`research`, 0.4.35) | `tags` (list, environment), `linkPreviews` | Seeded tags and labels |
 | Polls (`polls`, 1.15.29) | `addableByDefault` (space), `closeAfterDays` (environment) | Labels and defaults |
 | Vault (`vault`, 0.4.7) | `spaceMaxGb`, `personMaxGb` (environment) | Labels and limits |
@@ -365,6 +370,47 @@ Thomas, 2026-11-15. Numbered here; the plan cites them as "decision N".
     Reactions, Icons, Starter spaces) are real tabs, one part per screen, with one **Save template** for the whole
     template. It is the same pattern as Manage's tabs: two levels of navigation (the console's sections, then the
     template's parts), not three. The template list and the console's top list do not change.
+53. **An owner may remove any entry that came from the built-in set** (Thomas, 2026-11-16, by clickable answer; was
+    question A). Once copied, the list is the environment's, and decision 12 says the owner edits the whole list. The
+    cost, accepted: an owner can remove Heart or Thumbs up, and the keys 1 to 6 follow whatever is first.
+54. **One way back to the built-in lists** (Thomas, 2026-11-16, by clickable answer; was question B): a single **Start
+    again from the built-in set** button under both lists, with a confirm, replacing both lists. It is the only way
+    back after a removal.
+55. **A template's addition that repeats an entry in the environment's list is dropped where the lists are joined**
+    (Thomas, 2026-11-16, by clickable answer; was question C). A template's save is never refused for it, because a
+    template is written once and read by many environments whose lists differ.
+56. **What the template pages show of the environment's set** (Thomas, 2026-11-16, by clickable answer; was question
+    D): the environment's current lists, read only and folded, so the author sees what the template adds to. On the
+    host console, which belongs to no environment, the built-in lists, labelled as what an environment's set starts as.
+57. **The additions owners saved under the old rule** (Thomas, 2026-11-16, typed in the answer box; was question E). The box offered "refill
+    from the built-in set, drop old additions (no migration)" or "keep old additions after the built-ins (one-time
+    rewrite)". Thomas picked neither and wrote: "you need to get me a list of existing I can migrate." **Reading
+    (product-planner's, not confirmed by Thomas):** the code carries nothing over, as `CLAUDE.md` says (no data
+    migration); a list of each environment's stored additions is produced for him before the change reaches his server,
+    and he adds again by hand what he wants. If he meant a code migration, he will say so, and step 18 changes. See
+    "Open questions".
+58. **The caps of 300 reactions and 400 icons on an environment's lists stay** (Thomas, 2026-11-16, by clickable
+    answer; this answers the cap question). The build added them (`MAX_ENV_REACTIONS` and `MAX_ENV_ICONS`,
+    `server/store.js`): a save over a cap is refused, and a stored list is cut to it. A template's caps are 40 and 60, as
+    before.
+59. **The signed-out `/api/branding` may list the bare ids of the icons in use** (Thomas, 2026-11-16, by clickable
+    answer). An icon someone chose privately for a layout or a module becomes visible by its id, with no name, person or
+    space. Solid Font Awesome Free icons only, at most 200 (`MAX_IN_USE_ICONS`).
+60. **The Environment page's long lists are folded** (Thomas, 2026-11-16 and 2026-11-17, by clickable answer): Reactions
+    open, Icons shut; rows compact; each list in a scroll box; the Save bar stays on screen.
+61. **A template addition the environment's set already has is marked on the template page** (Thomas, 2026-11-16, by
+    clickable answer): "Already in the environment's set, not added again." Manage only; the console has no
+    environment.
+62. **The call's reaction button hides when the list is empty** (Thomas, 2026-11-16, by clickable answer).
+63. **The call's tray, the chat emoji list and the keys 1 to 6 read the space's own resolved list** (Thomas, 2026-11-17,
+    by clickable answer). This was a defect on `main`, found by QA: they read only the environment's list.
+64. **The OBS and stream views read the space's resolved list** (Thomas, 2026-11-17, by clickable answer): presence takes
+    `?space=`, `host.presence.get` takes an optional `{ space }`, Stream 0.1.16.
+65. **Icons repeat only by id** (Thomas, 2026-11-16, by clickable answer; the plan as written). A repeat that draws under
+    another id is not dropped.
+66. **The plan's two QA rounds were extended by one fix round** (Thomas, yes, 2026-11-17). It fixed: F1 the console
+    could not add a reaction, F2 the Save bar hid keyboard focus, F3 focus after a console save, F6 the dropped-addition
+    note, F8 a list of which nothing can be read, F4 and F5 the OBS views.
 
 ## How a module changes with its template (the mechanism)
 
@@ -478,7 +524,7 @@ Documents step writes the real one. The module id `schedule` is decision 43's.)
   removing from them. *Corrected 2026-11-16:* this said "a repeat of the core set is refused". The built-in set is now
   only the starting content of an environment's lists, so a template's save is checked for its own shape and its own
   repeats only; an addition that repeats an entry of the environment's list is dropped where the lists are joined
-  (open question C, recommended).
+  (decision 55).
 - **`theme`**: removed (decision 13); a file that has it is refused with the unknown-field sentence.
 - **`settings`** (the environment-wide allow-list) stays, applied once when an environment is made from the template,
   without the theme keys.
@@ -718,8 +764,7 @@ To-do's owners are a new To-do setting (`owners`, boolean, space, `default`, off
 
 ### The correction of 2026-11-16: the environment's reactions and icons (server-development, then experience-design; core)
 
-Decision 12 as corrected. Where an answer below depends on an open question, it says which one and follows the
-recommendation; the build follows Thomas's answer if it differs.
+Decision 12 as corrected. Where a rule below rests on one of Thomas's answers to the correction's questions, it names the decision (53 to 57).
 
 **Server** (server-development; core):
 
@@ -730,16 +775,17 @@ recommendation; the build follows Thomas's answer if it differs.
   (`cleanReactions()`, `cleanIcons()`), with repeats inside a list dropped.
 - **The built-in lists are starting content only.** `server/default-lists.js` keeps the 105 reactions and 113 icons as
   they are, read in two places only: when an environment's lists are first filled, and for **Start again from the
-  built-in set** (open question B). Its header comment says so instead of "nothing removes one".
+  built-in set** (decision 54). Its header comment says so instead of "nothing removes one".
 - **A new environment** (a single-environment install's first start, or a hosted environment made by the host) copies
   the built-in lists into its settings when its store is made.
 - **An existing environment whose lists were never filled from the built-in set** reads as not yet edited, and gets the
   built-in lists, once, when its store loads, as themes are seeded today. How "filled" is marked is the builder's (a
   flag such as `homeIconChoiceSeeded` is today). What the old rule stored there, the owner's additions only, is not
   carried over: the product is not released, there is no data migration, and test data may be reset (`CLAUDE.md`).
-  Thomas adds them again by hand if he wants them (open question E).
+  Thomas adds them again by hand if he wants them (decision 57, on its stated reading; a list of what was stored is
+  produced for him first).
 - **A save** (`PATCH` of the environment's settings with `reactions` or `icons`) stores the list as sent, in its order,
-  cleaned for shape. Removing an entry that came from the built-in set is allowed (open question A). An empty
+  cleaned for shape. Removing an entry that came from the built-in set is allowed (decision 53). An empty
   reaction list is stored as empty; `allowReactions` stays the switch that turns reactions off.
 - **Resolution** (`lookOf()`, `allIcons()`, `iconIdsFor()`, `spaceIconIds()`, `displayIconIds()`): the environment's
   list first, in its order, then the template's additions (`reactions`; for icons `iconSet`, its home icon and its
@@ -749,7 +795,7 @@ recommendation; the build follows Thomas's answer if it differs.
 - **A template's save** (`server/templates.js`): `reactions` and `iconSet` keep their caps (40 and 60), their shape
   rules and the refusal of a repeat inside the template's own list. The refusal of a repeat of the built-in set
   (`CORE_REACTIONS`, `CORE_ICONS`, "is in the core set already; a template only adds.") is removed: a template does
-  not know which environment will read it, so a repeat is dropped where the lists are joined instead (open question C).
+  not know which environment will read it, so a repeat is dropped where the lists are joined instead (decision 55).
 - **Branding and the look:** `/api/branding` and a space's `/look` answer `reactions` and `icons` from the resolution
   above, in the same shape as today, so the pages, the call's tray, the OBS views, chat and every icon picker read
   them unchanged.
@@ -769,13 +815,13 @@ recommendation; the build follows Thomas's answer if it differs.
   yet." and "is already built in" go. Reactions: every row editable (emoji and label), **Remove**, a way to reorder
   that reuses a list pattern Manage already has, **Add reaction**, **Save**; the hint keeps "The first six are keys 1 to
   6." Icons: the same rows, with the pasted HTML and its preview as today. Below both, **Start again from the built-in
-  set** with a confirm (open question B): "Replace your reactions and icons with the built-in set? Your changes to
+  set** with a confirm (decision 54): "Replace your reactions and icons with the built-in set? Your changes to
   them are lost." Words follow the Names section; colours come from the theme tokens.
 - **Manage > Template > Additional Reactions and Icons** and **the console's Reactions and Icons tabs** edit only the
   template's additions, and say for both lists: "Added on top of the {environment}'s set." (the console, which has no
   environment, says "Added on top of an environment's set."). The console's Icons text today lacks it. "The core set"
   heading, its "Always there, in every template. Nobody removes them." and "On top of the core set" go.
-- **What a template page shows of the environment's set** (open question D): the environment's current lists, read
+- **What a template page shows of the environment's set** (decision 56): the environment's current lists, read
   only, folded, headed "The {environment}'s set (<n>)". The console, which edits templates for every environment,
   shows the built-in lists instead, headed "An environment's set starts as these (<n>)".
 
@@ -1204,7 +1250,7 @@ Each is a **Divergence called out**; none changes a decision unless it says so.
 25. **Divergence called out: Additional Reactions and Icons keeps the read-only core grid** (Thomas, 2026-11-15).
     This departs from the note under decision 12, which said the page shows only the template's additions.
     *Superseded in part, 2026-11-16:* the grid it shows is the built-in set from code; after the correction it shows the
-    environment's current lists, read only (open question D), see item 32.
+    environment's current lists, read only (decision 56), see item 32.
 26. **Divergence called out: `inUseIcons`.** Not in the plan: the resolver's look also carries the icons in use (the
     home icon and each space's link icon) that the lists do not hold, for drawing only; no picker offers them.
     Template icons are never copied into the owner's own lists.
@@ -1245,6 +1291,71 @@ Each is a **Divergence called out**; none changes a decision unless it says so.
     the template pages say "added on top of the environment's set" for both reactions and icons (the console's Icons
     text, "added to an environment's icon list", and the Manage page's lack it today). Steps 18 to 23 rebuild it. This
     one is not Thomas's to decide again: it is a defect against his decision.
+
+### Added 2026-11-17: steps 18 to 23 as built (read from `git diff origin/main..step22b`, head `d4d6875`)
+
+Each is a **Divergence called out**; none changes a decision. Read from the code, not from a browser or a call.
+
+33. **Divergence called out: caps** (decision 58). The plan gave none. `server/store.js` has `MAX_ENV_REACTIONS = 300` and
+    `MAX_ENV_ICONS = 400`; `updateSettings` refuses a longer list, and `ownReactions` and `ownIcons` cut a stored one.
+34. **Divergence called out: the 256 KB limit is for `PATCH /api/settings` only.** `server/index.js` gives that route its
+    own `settingsJson` (`limit: '256kb'`), placed after `requireOwner`, and the general `jsonBody` (64 KB) skips it, so
+    only an owner's request is read to that size. The reason in the code: both lists at their caps are about 95 KB.
+35. **Divergence called out: `resetLists: true`** is a settings action beside `builtIn`. `updateSettings` replaces both
+    lists with `server/default-lists.js` and refuses it sent together with `reactions` or `icons`. The owner's `GET
+    /api/settings` and the console's `GET /api/host/settings` carry `builtIn: { reactions, icons }`.
+36. **Divergence called out: refusals answer 400.** In `updateSettings`: a `reactions` or `icons` that is not a list; a
+    non-empty reactions list of which nothing can be read ("None of those reactions could be read."); a non-empty icons
+    list with no entry that is an object; and an icon whose classes name no Font Awesome icon (only a style or size),
+    refused by its place ("Icon 3 names no Font Awesome icon..."). An empty list is kept: the owner may have none. The
+    same save also clears the module frame's inline-icon cache (`iconSvgs`).
+37. **Divergence called out: an icon in use stays drawn.** The owner's module display icon, when the owner has since
+    removed it from the environment's list, is still drawn if it is a Font Awesome Free solid icon (`lookOf`, the `ownIcon`
+    test). `inUseIconIds` also reads every module display icon (`settings.moduleIcons`) and every saved and system
+    layout's icon, besides the home icon and each space's link icon.
+38. **Divergence called out: a cache for the layouts' icon ids.** `Layouts#iconIds` (`server/layouts.js`) is remembered
+    until the next change, because the signed-out `/api/branding` reads it on every call.
+39. **Divergence called out: unsafe characters.** The environment's lists strip them on save and at load (`cleanGlyph`,
+    `cleanListLabel`; a glyph keeps the zero-width joiner and the variation selectors that emoji are built from, a label
+    keeps neither). A template's text refuses them instead (`plainText` in `server/templates.js`, a glyph again allowed
+    the joiner). The two differ on purpose: a list that was stored earlier must still load, so load cleans as save does.
+40. **Divergence called out: the lists are filled once.** `Store#load` fills `settings.reactions` and `settings.icons`
+    from the built-in lists when `builtinListsSeeded` is not true, then sets it (it is in the environment export's
+    settings fields). What an older environment stored there is not carried over (decision 57). After that, nothing
+    reads `server/default-lists.js` except **Start again**.
+41. **Divergence called out: the Environment page has two Saves.** `public/admin.html`: **Save reactions** and **Save
+    icons** in one sticky bar (`.save-bar`, `public/style.css`), because the page saves the two lists in two requests,
+    each with its own status line. **Start again from the built-in set** sits above both lists, not below them, with its
+    confirm. Each list is a fold with a count (`Reactions (n)`, `Icons (n)`), Reactions open and Icons shut, in a scroll
+    box of at most 70% of the screen height. A row's buttons are icon buttons that name the row for a screen reader ("Move
+    Heart earlier"), and a moved or removed row leaves the focus on a button.
+42. **Divergence called out: the template pages have one fold under each list**, not one for both. On Manage it is "the
+    <environment>'s set (n)" (`setFoldHtml`, `public/template-pages.js`); on the console it is "An environment's set starts
+    as these (n)" from `builtIn`. The sentence under each list is "Added on top of <whose>'s set." A row whose addition
+    the set already has shows the note (`markDup`), by id or emoji for a reaction and by name for an icon.
+43. **Divergence called out: the host console's editor tabs reuse the console's own tab strip** (`.subtabs`, now
+    `role="tablist"`, with arrow, Home and End keys). Each tab has its address, `#templates/<id>/<part>`; a count badge
+    (`.sdk-tab-badge[data-problems]`) marks a tab whose part has problems, and **Save template** reports "n parts have
+    problems, marked on their tabs". An unknown part opens Environment Basics and leaves the address as typed
+    (`selectPart`). The same template with another part changes only the tab, so what was typed stays. The console's new
+    reaction rows get an id from their label, else their emoji, else a random one (F1).
+44. **Divergence called out: the console has no dropped-addition note** (decision 61 is Manage only): `markDup` runs only in
+    `additionsHtml`, which the console does not use.
+45. **Divergence called out: the presence route and the SDK.** `GET /api/presence?space=<id>` answers the reactions that
+    space reads, only for a space the viewer may enter (all spaces for the access key); the Lobby, an unknown space and no
+    space keep the environment's list. `host.presence.get({ space })` passes it on (`public/sdk/host.js`,
+    `public/module-host.js`, which keeps the guest token).
+46. **Divergence called out: how the Stream module reads it.** `modules/stream/src/stream-keyed.js` (0.1.16) asks for the
+    list of the space its box shows (`imageSpace`; the Lobby reads the environment's), keeps ids in a `Map` so an id such
+    as "toString" is none, and when the request fails asks again at the next presence change.
+47. **Divergence called out: the call page.** `public/space.js` draws the environment's list first and the space's own
+    resolved list once its look is known; the reaction button, the tray and the keys 1 to 6 follow the same list, and an
+    empty list hides the button and closes the tray (decisions 62 and 63). `public/brand.js` tells "the list is not read
+    yet" from "the list is empty" (`ICONS_LOADED`), so an empty icon list draws the link icon.
+48. **Divergence called out: new check files** beyond the ones step 19 named: `tools/check-reaction-tray.mjs` and
+    `tools/check-obs-reactions.mjs`; `check-reactions-icons`, `check-defaults`, `check-templates`, `check-template-lens`,
+    `check-template-pages-b`, `check-host-console` and others were rewritten or grown.
+49. **Divergence called out: a third fix round** (decision 66), beyond the two QA rounds.
 
 ## Left to build, in order
 
@@ -1297,37 +1408,33 @@ planner modules, do not start until 11a is merged and Thomas has seen it, unless
 rule). Steps 20 and 21 follow 18. Step 22 does not depend on 18 and can start at once, beside it; it touches the same
 console Reactions and Icons parts as 21, so 21's console text lands after 22 or in the same change. Step 23 last, then
 content-manager updates the guides (the environment settings guide's Reactions and Icons, the templates guide's
-Additional Reactions and Icons and the console's editor) and the architecture's templates section. Open questions A to
-E are answered by their recommendations unless Thomas says otherwise; none blocks step 18 or 22.
+Additional Reactions and Icons and the console's editor) and the architecture's templates section. Questions A to
+E are decided (decisions 53 to 57). **State (2026-11-17):** steps 18 to 22 are built and independently read, and step 23's
+QA is done; the documentation (the environment settings guide, the templates guide, the console's editor, the
+architecture's templates section) is being written; nothing is merged or pushed. Before step 18 reaches Thomas's server, the stored
+additions of each environment are listed for him (decision 57); the list is a task for server-development beside step
+18, read from each environment's `settings.reactions` and `settings.icons` as they are now, and it changes no data.
 
 ## Open questions
 
-Thomas answered the first draft's thirteen on 2026-11-15; they are decisions 35 to 47. The correction of 2026-11-16
-raises these. Each has a recommendation (a suggestion, not a decision); the contract follows it until Thomas answers.
-None blocks step 18 or step 22.
+Thomas answered the first draft's thirteen on 2026-11-15 (decisions 35 to 47). The correction of 2026-11-16 raised
+questions A to E; he answered them the same day (decisions 53 to 57), and the cap question by decision 58. What is left:
 
-- **A. Can an owner remove an entry that came from the built-in set?** Recommended: yes. Once copied, the list is the
-  environment's, and decision 12 says the owner edits the whole list. The cost: an owner can remove Heart or Thumbs up,
-  and the keys 1 to 6 follow whatever is first. The other way (built-ins locked in the list) keeps the defect Thomas
-  corrected.
-- **B. Is there a way back to the built-in lists?** Recommended: yes, one **Start again from the built-in set** button
-  under both lists, with a confirm, replacing both lists. It costs one button and one confirm, and is the only way back
-  after a removal. Separate buttons per list are possible but add a control for little.
-- **C. A template's addition that repeats an entry already in the environment's list: shown twice, dropped, or
-  refused?** Recommended: dropped where the lists are joined, never refusing the template's save. A template is
-  written once and read by many environments whose lists differ; refusing it would make a template valid in one
-  environment and not another. Showing it twice puts the same emoji or icon in the tray twice.
-- **D. What do the template pages show of the environment's set?** Recommended: the environment's current lists, read
-  only and folded, so the author sees what the template adds to; on the console, which belongs to no environment, the
-  built-in lists, labelled as what an environment's set starts as. The other way, showing nothing, makes a repeat
-  (question C) hard to see.
-- **E. The additions owners saved under the old rule.** An existing environment's stored list holds only the owner's
-  additions; the correction fills it with the built-in lists and does not carry the old additions (no data migration,
-  `CLAUDE.md`). Recommended: accept that; the product is not released and the additions are few and test data. The
-  other way, the built-in lists followed by the old additions, is a one-time rewrite of stored data, which the
-  no-migration rule forbids unless Thomas allows it.
-- **Not decided, smaller:** whether an environment's lists have a cap (today's owner lists have none; a template's are
-  40 and 60). Not blocking.
+- **E, the one open reading.** Thomas's answer to E is his own words, not either offered choice: "you need to get me a
+  list of existing I can migrate." This plan reads it as: the code migrates nothing; a list of each environment's stored
+  additions is produced for him before the change reaches his server, and he re-adds what he wants by hand. If he
+  meant that the code should carry the old additions over (the built-in lists followed by the old additions, a
+  one-time rewrite of stored data), the no-migration rule in `CLAUDE.md` needs his word to allow it, and the code, which
+  now drops them, changes. Not confirmed. The built code follows the reading above.
+- **Known issues the documents list** (not built; none blocks the merge): a console reaction row with an emoji and no
+  label cannot be saved; a new reaction whose label matches a built-in id is silently dropped as a repeat; the stream
+  view does not retry a failed list request until presence changes; an icon that draws the same under another id is not
+  dropped (decision 65).
+- **Not verified:** a real call, reactions over the data channel, the keys 1 to 6 in a live call and a real OBS source.
+  The build container has no LiveKit server.
+
+Where this plan differs from what Thomas said: nowhere for A to D and 58 to 65. For E it records his words and adds the
+reading above, which is ours. The third fix round (decision 66) is recorded as his yes.
 
 **Where the steps stand (2026-11-15):** merged: 1 and 11a (#838), 2 and 3 (#840), 4 (#846), 5 (#845), 6 (#843), 7 (#844,
 #852), 8 (#847), 9 (#837), 10 (#836), 11b (#851), 12 (#850), 13 (#858), 14 (#859), 15 (#853) and 15b (#860). Also merged
@@ -1335,4 +1442,4 @@ after the plan: Vault in every template (#855), the phase id fix (#856). Step 16
 documentation of batches 9 and 10: landed (#861 and after), with the gaps under "Built differently than planned" recorded in
 `documentation/known-issues.md`.
 
-**The correction (2026-11-16):** steps 18 to 23 are not started. Open questions A to E are under "Open questions".
+**The correction (2026-11-16):** as of 2026-11-17, steps 18 to 22 are built and independently read, and step 23's QA is done (the server read once plus one fix round, the pages and call page twice, a short read of the presence route, the Save bar and the list refusals). The documentation is being written. Nothing is merged to `main` or pushed; the work is on branch `step22b` of the build container. Questions A to D are decided (decisions 53 to 56); E is decided on a stated reading that Thomas has not yet confirmed (decision 57, "Open questions").

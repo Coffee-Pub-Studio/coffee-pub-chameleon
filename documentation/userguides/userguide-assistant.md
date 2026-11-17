@@ -6,10 +6,12 @@ The AI is asked from Chat now, in its **Assistant** tab or with `/ai`; see [Chat
 
 ## Set it up (owner)
 
-1. On Manage, **Modules**, choose **Install** beside **AI Assistant**, then **Approve and enable**. Its own tab (**Modules**, then **AI Assistant**) holds the setup: a company (none, OpenAI, Anthropic, or another OpenAI-compatible service), a model and a key, then the switch at the top of the tab. See [Modules](userguide-modules.md), "The AI Assistant".
+1. On Manage, **Modules**, choose **Install** beside **AI Assistant**, then **Approve and enable**. Its own tab (**Modules**, then **AI Assistant**) holds the setup: a company (none, OpenAI, Anthropic, or another OpenAI-compatible service), a model and a key, then the switch at the top of the tab. The module on, with a service that can answer, is all the AI needs: there is no second switch. A line at the top of the setup says what is wrong if it can't answer, or which service is in use. See [Modules](userguide-modules.md), "The AI Assistant".
 2. On the Roles tab, under Module: AI Assistant, **Use the assistant** is the permission the module holds; **Use AI in modules**, under AI, is what decides who may use `/ai` and AI inside other modules (Research's **Suggest tags**) alike. It starts on for moderators and members. Guests never can, and nobody can in a space where **Turn AI off in this space** is ticked.
 
 3. Optional: on the same tab, choose what goes to the AI with a question (**What AI may see**) and read **AI use this month**. Both are described in [Modules](userguide-modules.md), "The AI Assistant". By default the AI is sent the objects a person attaches, related and linked objects, and the person's own earlier questions, and may look this space's objects up while it answers (only those the person could open), never the chat or the list of people, and never another space's objects.
+
+If the AI can't answer, Chat says why in one sentence. An owner is told where to fix it (**Manage**, then the AI settings); a member is told to ask the owner. The sentence says which of these it is: no service is chosen, the service the environment chose is no longer offered by the host, the environment's own service has no key, or the saved key can't be read.
 
 Who may use it: anyone signed in whose role may use AI, wherever AI is not turned off, while the AI Assistant is installed and on.
 

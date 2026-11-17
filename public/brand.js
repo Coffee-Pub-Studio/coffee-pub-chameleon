@@ -38,7 +38,8 @@ export function roleLabel(user) {
 
 // The admin's Font Awesome list (Theme tab), as last loaded by loadBranding().
 let ICONS = [];
-// Icons in use that the list no longer offers (a template switch took away the one that did): /api/branding's
+let ICONS_LOADED = false; // an empty list is a real saved state; before the first load it only means "not read yet"
+// Icons in use that the list no longer offers (the owner removed it, or a template switch took it away): /api/branding's
 // inUseIcons, for drawing only. No picker reads them (getIcons is the offered list).
 let IN_USE_ICONS = [];
 export const getIcons = () => ICONS;
@@ -48,7 +49,7 @@ export const getIcons = () => ICONS;
 export function iconClasses(id) {
   const found = ICONS.find((i) => i.id === id) || IN_USE_ICONS.find((i) => i.id === id);
   if (found) return found.classes;
-  return ICONS.length ? 'fa-solid fa-link' : `fa-solid fa-${id || 'link'}`;
+  return ICONS_LOADED ? 'fa-solid fa-link' : `fa-solid fa-${id || 'link'}`;
 }
 
 // What a page keeps in the browser was keyed by the product's old name once; it is keyed by
@@ -153,6 +154,7 @@ export async function loadBranding() {
   }
   if (typeof b.productName === 'string' && b.productName.trim()) product = b.productName.trim();
   ICONS = Array.isArray(b.icons) ? b.icons : [];
+  ICONS_LOADED = true;
   IN_USE_ICONS = Array.isArray(b.inUseIcons) ? b.inUseIcons : [];
   templateHomeIcon = typeof b.templateHomeIcon === 'string' && b.templateHomeIcon ? b.templateHomeIcon : null;
   setEnvironmentMode(b.themeMode, b.themeVersion); // the default mode, and a stylesheet that changed since this page loaded
@@ -616,13 +618,16 @@ const askItem = (r) => (r.request === 'pending'
   : r.answer === 'denied'
     ? { icon: 'hand', label: r.name, hint: 'Declined', tip: r.description || undefined, disabled: true }
     : { icon: 'hand', label: r.name, hint: 'Request access', tip: r.description || undefined, onPick: () => askFromMenu(r.id, 'POST') });
+// The classes for a switcher entry's space icon (the server's `icon`): iconClasses, which draws an icon the list dropped too;
+// only the neutral folder, which no space stores and so is never "in use", is drawn as itself when the list lacks it.
+const entryIcon = (id) => (id === 'folder' && !getIcons().some((i) => i.id === id) ? 'fa-solid fa-folder' : iconClasses(id));
 export async function openSwitcher(trigger) {
   const data = await presenceNow();
   const entries = switcherEntries({ spaces: data?.spaces, users: data?.users, present: presentSpaceNow() });
   const leave = entries.find((e) => e.leave);
   const items = entries.filter((e) => !e.leave).map((e) => (e.join
-    ? { icon: 'user-plus', label: e.name, hint: 'Join', onPick: () => joinFromMenu(e.id) }
-    : { icon: e.here ? 'location-dot' : 'door-open', label: e.name, hint: hereHint(e), onPick: () => pickSpace(e.id) }));
+    ? { icon: entryIcon(e.icon), label: e.name, hint: 'Join', onPick: () => joinFromMenu(e.id) }
+    : { icon: entryIcon(e.icon), label: e.name, hint: hereHint(e), onPick: () => pickSpace(e.id) }));
   items.push(...askRows(data).map(askItem));
   if (!data) items.push({ label: "Couldn't load the list. Try again.", disabled: true });
   if (seesUpdates(account?.role)) items.push(...(items.length ? [{ divider: true }] : []), { icon: 'plus', label: `New ${envWord('space')}`, onPick: newSpace });
@@ -646,7 +651,7 @@ async function refreshMenuSpaces() {
   });
   entries.filter((e) => !e.join).forEach((e, i) => {
     const hint = hereHint(e);
-    nav.register({ id: `menu-space-${e.id}`, bar: 'primary', zone: 'right', group: 'menu-where', order: 3 + Math.min(i, 900), icon: e.here ? 'location-dot' : 'door-open', label: hint ? `${e.name} (${hint})` : e.name, visible: () => onPhone() && account !== null && !pageTabsInBar, onClick: () => pickSpace(e.id) });
+    nav.register({ id: `menu-space-${e.id}`, bar: 'primary', zone: 'right', group: 'menu-where', order: 3 + Math.min(i, 900), icon: entryIcon(e.icon), label: hint ? `${e.name} (${hint})` : e.name, visible: () => onPhone() && account !== null && !pageTabsInBar, onClick: () => pickSpace(e.id) });
   });
 }
 // A pick: the space page enters it or goes back to it (app:enter-space, the space page underneath when this page is

@@ -846,7 +846,13 @@ export function aiNotice(reason, why = '', { guests = '', owner = '', space = ''
     // The module is off or missing (the server says 'module-off'): the
     // module's own name. An owner is also given the link (chat-input.js, paintAiState).
     case 'module-off': return noModuleLine(asOwner, owner);
-    case 'not-set-up': return 'AI is not set up yet.';
+    // The server's own sentence when it has a specific one (a saved key it cannot read); its plain 'AI is not set up here.'
+    // says too little, so a person is told what to do: an owner opens Manage, a member asks the owner.
+    case 'not-set-up': {
+      const w = String(why || '').replace(/\s+/g, ' ').trim();
+      if (w && !/^AI is not set up here\.?$/i.test(w)) return w[0].toUpperCase() + w.slice(1) + (/[.!?]$/.test(w) ? '' : '.');
+      return asOwner ? 'AI is not set up yet. Open Manage, then the AI settings.' : `AI is not set up yet. Ask the ${owner}.`;
+    }
     case 'allowance': return "This month's AI allowance is used up.";
     // The server's own sentence for these (what it is about depends on the setting behind it).
     case 'member': case 'chat': case 'module': {
@@ -2150,7 +2156,8 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     if (tooLong) { setNote(tooLong, true); return false; }
     // Known to be unavailable: look again once (it may have been set up since), then say why instead of sending.
     if (aiState.known && !aiState.available && !isGuest()) await checkAi(true);
-    if (aiState.known && !aiState.available) { setNote(aiLine(), true); return false; }
+    // Said once: the line above the box already says it when the Assistant is showing.
+    if (aiState.known && !aiState.available) { setNote(view === 'assistant' ? '' : aiLine(), true); return false; }
     // Sent at once, as in any chat: the question is on the page with a waiting line, the box is the caller's to empty, and
     // nothing here holds it. Several may be on their way; each answer comes under its own question.
     // A chip the person took off during the wait is not sent; one that was replaced or added by a module meanwhile does not change

@@ -59,7 +59,7 @@ const ASIDE_FIELDS = ['id', 'members', 'origin', 'private', 'createdAt'];
 // The settings: every default one, the once-only flags load() sets, and those stored only while set.
 const SETTINGS_FIELDS = [
   ...Object.keys(DEFAULT_SETTINGS),
-  'builtinThemesSeeded', 'homeIconChoiceSeeded',
+  'builtinThemesSeeded', 'homeIconChoiceSeeded', 'builtinListsSeeded',
   'words', 'spaceDefaults', 'otherCalendars', 'spaceTemplates',
 ];
 const SETTINGS_LEFT_OUT = ['publishedCalendarFeed'];

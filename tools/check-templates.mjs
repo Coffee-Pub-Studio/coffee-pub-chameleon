@@ -29,6 +29,7 @@ const templateFile = require('../server/template-file.js');
 const { buildEnvironment } = require('../server/environment.js');
 const { bundledModules } = require('../server/module-build.js');
 const { LOBBY } = require('../server/store.js');
+const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('../server/default-lists.js');
 
 let n = 0;
 let failed = 0;
@@ -324,16 +325,29 @@ try {
     assert.deepEqual(problems(minimal({ icons: { home: 'plane', other: 'x' } })), ['"icons" takes only "home".']);
   });
 
-  await test('reactions and icons (decision 12): additions only; a repeat of the core set refused', () => {
+  await test('reactions and icons (decision 12 as corrected 2026-11-16): additions only; a repeat of the built-in set is taken (dropped where the lists are joined)', () => {
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'ship', glyph: '\u{1f680}', label: 'Ship it' }], iconSet: ['diagram-project'] })), []);
-    assert.deepEqual(problems(minimal({ reactions: [{ id: 'love', glyph: '❤️' }] })), ['reactions[0]: ❤️ is in the core set already; a template only adds.']);
-    assert.deepEqual(problems(minimal({ reactions: [{ id: 'heart', glyph: '\u{1f680}' }] })), ['reactions[0]: \u{1f680} is in the core set already; a template only adds.'], 'a core id too');
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'love', glyph: '❤️' }] })), [], 'a built-in glyph: taken');
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'heart', glyph: '\u{1f680}' }] })), [], 'a built-in id: taken');
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'a1', glyph: '\u{1f680}' }, { id: 'a2', glyph: '\u{1f680}' }] })), ['reactions[1]: \u{1f680} is listed twice.']);
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'a1', glyph: '\u{1f680}' }, { id: 'a1', glyph: '\u{1f6a2}' }] })), ['reactions[1]: the id "a1" is listed twice.'], 'a repeated id is named by its id');
     assert.deepEqual(problems(minimal({ reactions: [{ glyph: '\u{1f680}' }] })), ['reactions[0]: an id is 1 to 24 lowercase letters, digits and dashes.']);
-    assert.deepEqual(problems(minimal({ reactions: [{ id: 'x', glyph: '<' }] })), ['reactions[0]: each reaction needs a glyph of 1 to 8 characters.']);
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'x', glyph: '<' }] })), ['reactions[0]: each reaction needs a glyph of 1 to 8 characters, with no hidden characters.']);
+    // Hidden characters (zero-width, the soft hyphen, the word joiner, the byte order mark) are refused, so a glyph can't
+    // pass for another one and show twice; an emoji's zero-width joiner is kept in a glyph, never in a label.
+    for (const hidden of ['​', '‌', '­', '⁠', '﻿']) {
+      assert.deepEqual(problems(minimal({ reactions: [{ id: 'up2', glyph: `\u{1F44D}${hidden}` }] })), ['reactions[0]: each reaction needs a glyph of 1 to 8 characters, with no hidden characters.'], `glyph U+${hidden.codePointAt(0).toString(16)}`);
+      assert.deepEqual(problems(minimal({ reactions: [{ id: 'up2', glyph: '\u{1F680}', label: `Ro${hidden}cket` }] })), ['reactions[0]: a label is plain text of 1 to 40 characters.'], `label U+${hidden.codePointAt(0).toString(16)}`);
+    }
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'mage', glyph: '\u{1F9D9}‍♂️', label: 'Mage' }] })), [], 'a joiner inside an emoji glyph');
+    assert.deepEqual(problems(minimal({ reactions: [{ id: 'mage', glyph: '\u{1F680}', label: 'Ma‍ge' }] })), ['reactions[0]: a label is plain text of 1 to 40 characters.'], 'never in a label');
+    assert.deepEqual(problems(minimal({ name: 'Trav​el' })), ['"name" must be plain text of 1 to 40 characters.'], 'nor in any other template text');
+    // Two reactions with no id: each is told its id is missing, and no "undefined" is listed twice.
+    assert.deepEqual(problems(minimal({ reactions: [{ glyph: '\u{1F680}' }, { glyph: '\u{1F6A2}' }] })), ['reactions[0]: an id is 1 to 24 lowercase letters, digits and dashes.', 'reactions[1]: an id is 1 to 24 lowercase letters, digits and dashes.']);
     assert.deepEqual(problems(minimal({ reactions: [{ id: 'x', glyph: 'y', extra: 1 }] })), ['reactions[0]: a reaction takes only id, glyph and label.']);
     assert.deepEqual(problems(minimal({ reactions: Array.from({ length: 41 }, (_, i) => ({ id: `r${i}`, glyph: `${i}` })) })), ['"reactions" must be a list of at most 40 reactions to add.']);
-    assert.deepEqual(problems(minimal({ iconSet: ['link'] })), ['iconSet: "link" is in the core set already; a template only adds.']);
+    assert.deepEqual(problems(minimal({ iconSet: ['link'] })), [], 'a built-in icon: taken');
+    assert.equal(templates.cleanTemplate(minimal({ iconSet: ['link'] })).iconSet.includes('link'), true, 'and kept as the template\'s');
     assert.deepEqual(problems(minimal({ iconSet: ['diagram-project', 'diagram-project'] })), ['iconSet: "diagram-project" is listed twice.']);
     assert.deepEqual(problems(minimal({ iconSet: ['no-such-icon-xyz'] })), ['iconSet: "no-such-icon-xyz" is not a Font Awesome Free solid icon.']);
     assert.deepEqual(templates.cleanTemplate(minimal({ reactions: [{ id: 'ship', glyph: ' \u{1f680} ' }] })).reactions, [{ id: 'ship', glyph: '\u{1f680}', label: '\u{1f680}' }], 'tidied; the label is the glyph when none is given');
@@ -363,7 +377,7 @@ try {
     assert.deepEqual(first, []);
     assert.deepEqual(once.lobby, ['Home base', 'Everyone on every trip.']);
     assert.deepEqual([once.settings.conferenceEnabled, once.settings.homeIcon, once.settings.spaceDefaults], [true, null, { profile: 'participants' }]);
-    assert.deepEqual([once.settings.icons, once.settings.reactions], [[], []], 'nothing of the template (its home icon, module icons, added icons or reactions) is copied into the owner\'s own lists (decision 12): they are read live');
+    assert.deepEqual([once.settings.icons, once.settings.reactions], [DEFAULT_ICON_LIST.map((i) => i.id), DEFAULT_REACTION_LIST.map((r) => r.id)], 'nothing of the template (its home icon, module icons, added icons or reactions) is copied into the environment\'s lists (decision 12): they are read live');
     const look = env.store.lookOf(null);
     assert.deepEqual([look.reactions.some((r) => r.id === 'ship'), look.icons.some((i) => i.id === 'diagram-project')], [false, false], 'and an environment on another template does not read them');
     for (const id of ['travel', 'maps', 'research', 'calendar', 'vault']) assert.deepEqual(once.modules[id].slice(1), [true], id);
@@ -399,7 +413,7 @@ try {
     assert.deepEqual(offer.modules.map((m) => m.id), ['polls']);
     assert.deepEqual([offer.reactions, offer.iconSet, offer.lobby.name, offer.spaceDefaults], [undefined, undefined, 'Front desk', { profile: 'participants' }], 'reactions and icons are never offered: a template\'s additions are live');
     await templates.applyOffer(env, t, { reactions: true, modules: ['polls'] });
-    assert.deepEqual(env.store.settings.reactions, [], 'a reactions tick applies nothing');
+    assert.deepEqual(env.store.settings.reactions, DEFAULT_REACTION_LIST, 'a reactions tick applies nothing: the environment\'s list is as it was');
     assert.equal(env.modules.enabled('polls') !== null, true);
     assert.equal(env.store.spaceById(LOBBY).name !== 'Front desk', true, 'the Lobby was not ticked');
     const again = templates.offerFor(env, t);

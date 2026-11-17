@@ -2400,8 +2400,12 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     // Who is online right now, everyone: the same roster the call page reads. For a page that follows
     // people (a keyed page about one of them, a dashboard) rather than the members of the space a module is in (`people`).
     // The asides are their own record (plan-names step 8), never among the spaces.
-    async 'presence.get'() {
-      return presenceForModule(await api('GET', `/api/presence${busGuest()}`));
+    async 'presence.get'(o) {
+      const p = new URLSearchParams();
+      if (o && o.space) p.set('space', String(o.space));
+      if (guestToken) p.set('guest', guestToken);
+      const q = p.toString();
+      return presenceForModule(await api('GET', `/api/presence${q ? `?${q}` : ''}`));
     },
     // One person's picture in a slot (profile, player, character, talking ...), as a blob URL the module shows and
     // releases; null when they have none there. `space` asks for that space's own picture set, the way the call page does.

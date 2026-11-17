@@ -337,7 +337,7 @@
             </div>
           </div>
 
-          <!-- The editor (#templates/<id>, or #templates/new): its parts with a jump list at the side (a strip on a phone). -->
+          <!-- The editor (#templates/<id>, or #templates/new): its parts as tabs, one at a time (a strip that scrolls on a phone). -->
           <div class="hc-view" id="template-editor-view" hidden>
             <button class="btn btn-quiet btn-small hc-back" type="button" data-go="templates"><i class="fa-solid fa-arrow-left fa-fw" aria-hidden="true"></i><span>Templates</span></button>
             <form class="hc-column template-editor" id="template-editor" novalidate>
@@ -352,20 +352,20 @@
               <p class="sdk-hint" id="te-bundled-hint" hidden>Your edits are kept over the shipped template.</p>
               <p class="sdk-hint">Words, phases, the home icon and module names and icons reach every environment using the template at once. The rest is applied once: owners are offered it, never forced. The Default template can't be changed; copy it to make your own.</p>
               <ul class="problems" id="tp-problems"></ul>
-              <div class="hc-editor">
-                <nav class="subtabs hc-jump" id="te-jump" aria-label="Parts of the template">
-                  <button class="subtab" type="button" data-part="te-part-basics">Environment Basics</button>
-                  <button class="subtab" type="button" data-part="te-part-words">Experience Labels</button>
-                  <button class="subtab" type="button" data-part="te-part-modules">Modules</button>
-                  <button class="subtab" type="button" data-part="te-part-workspace">Default Workspace</button>
-                  <button class="subtab" type="button" data-part="te-part-call">Call</button>
-                  <button class="subtab" type="button" data-part="te-part-phases">Phases</button>
-                  <button class="subtab" type="button" data-part="te-part-reactions">Reactions</button>
-                  <button class="subtab" type="button" data-part="te-part-icons">Icons</button>
-                  <button class="subtab" type="button" data-part="te-part-starter">Starter spaces</button>
-                </nav>
+              <div class="hc-editor-body">
+                <div class="subtabs hc-tabs" id="te-jump" role="tablist" aria-label="Parts of the template">
+                  <button class="subtab" type="button" role="tab" id="te-tab-basics" data-part="te-part-basics" aria-controls="te-part-basics" aria-selected="false" tabindex="-1">Environment Basics<span class="sdk-tab-badge" data-problems hidden></span></button>
+                  <button class="subtab" type="button" role="tab" id="te-tab-words" data-part="te-part-words" aria-controls="te-part-words" aria-selected="false" tabindex="-1">Experience Labels<span class="sdk-tab-badge" data-problems hidden></span></button>
+                  <button class="subtab" type="button" role="tab" id="te-tab-modules" data-part="te-part-modules" aria-controls="te-part-modules" aria-selected="false" tabindex="-1">Modules<span class="sdk-tab-badge" data-problems hidden></span></button>
+                  <button class="subtab" type="button" role="tab" id="te-tab-workspace" data-part="te-part-workspace" aria-controls="te-part-workspace" aria-selected="false" tabindex="-1">Default Workspace<span class="sdk-tab-badge" data-problems hidden></span></button>
+                  <button class="subtab" type="button" role="tab" id="te-tab-call" data-part="te-part-call" aria-controls="te-part-call" aria-selected="false" tabindex="-1">Call<span class="sdk-tab-badge" data-problems hidden></span></button>
+                  <button class="subtab" type="button" role="tab" id="te-tab-phases" data-part="te-part-phases" aria-controls="te-part-phases" aria-selected="false" tabindex="-1">Phases<span class="sdk-tab-badge" data-problems hidden></span></button>
+                  <button class="subtab" type="button" role="tab" id="te-tab-reactions" data-part="te-part-reactions" aria-controls="te-part-reactions" aria-selected="false" tabindex="-1">Reactions<span class="sdk-tab-badge" data-problems hidden></span></button>
+                  <button class="subtab" type="button" role="tab" id="te-tab-icons" data-part="te-part-icons" aria-controls="te-part-icons" aria-selected="false" tabindex="-1">Icons<span class="sdk-tab-badge" data-problems hidden></span></button>
+                  <button class="subtab" type="button" role="tab" id="te-tab-starter" data-part="te-part-starter" aria-controls="te-part-starter" aria-selected="false" tabindex="-1">Starter spaces<span class="sdk-tab-badge" data-problems hidden></span></button>
+                </div>
                 <div class="hc-parts">
-                  <fieldset class="sdk-panel hc-part" id="te-part-basics" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-basics" role="tabpanel" aria-labelledby="te-tab-basics" tabindex="-1" hidden>
                     <legend class="hc-part-name">Environment Basics</legend>
                     <div class="fields">
                       <label id="te-id-label">Id<input id="te-id" type="text" maxlength="32" pattern="[a-z][a-z0-9\-]*" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="travel"></label>
@@ -374,13 +374,13 @@
                     <ul class="problems" data-problems="id name description icons spaceDefaults"></ul>
                   </fieldset>
 
-                  <fieldset class="sdk-panel hc-part" id="te-part-words" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-words" role="tabpanel" aria-labelledby="te-tab-words" tabindex="-1" hidden>
                     <legend class="hc-part-name">Experience Labels</legend>
                     <div id="te-labels"></div>
                     <ul class="problems" data-problems="words home lobby"></ul>
                   </fieldset>
 
-                  <fieldset class="sdk-panel hc-part" id="te-part-modules" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-modules" role="tabpanel" aria-labelledby="te-tab-modules" tabindex="-1" hidden>
                     <legend class="hc-part-name">Modules</legend>
                     <p class="sdk-hint">What a space of this template has, in this order. The Lobby keeps only chat, the call and modules made for it. A module's settings, labels and starter content are kept as they are.</p>
                     <div class="template-modules" id="te-modules"></div>
@@ -392,7 +392,7 @@
                     </details>
                   </fieldset>
 
-                  <fieldset class="sdk-panel hc-part" id="te-part-workspace" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-workspace" role="tabpanel" aria-labelledby="te-tab-workspace" tabindex="-1" hidden>
                     <legend class="hc-part-name">Default Workspace</legend>
                     <p class="sdk-hint">What a new space opens, in this order. The ticks are the template's modules, including chat and the conference.</p>
                     <div id="te-opens"></div>
@@ -402,7 +402,7 @@
                     <ul class="problems" data-problems="workspace"></ul>
                   </fieldset>
 
-                  <fieldset class="sdk-panel hc-part" id="te-part-call" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-call" role="tabpanel" aria-labelledby="te-tab-call" tabindex="-1" hidden>
                     <legend class="hc-part-name">Call</legend>
                     <p class="sdk-hint">What a space starts with. The owner, a moderator and each person can change it.</p>
                     <label class="sdk-choice-row"><input id="te-join" type="checkbox"><span class="sdk-choice-text">Join the call on entering</span></label>
@@ -413,7 +413,7 @@
                     <ul class="problems" data-problems="call"></ul>
                   </fieldset>
 
-                  <fieldset class="sdk-panel hc-part" id="te-part-phases" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-phases" role="tabpanel" aria-labelledby="te-tab-phases" tabindex="-1" hidden>
                     <legend class="hc-part-name">Phases</legend>
                     <p class="sdk-hint">Up to 12. An id is lowercase letters, digits and dashes. One may be the main phase.</p>
                     <div id="te-phases"></div>
@@ -422,23 +422,25 @@
                     <ul class="problems" data-problems="phases phaseMeasure"></ul>
                   </fieldset>
 
-                  <fieldset class="sdk-panel hc-part" id="te-part-reactions" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-reactions" role="tabpanel" aria-labelledby="te-tab-reactions" tabindex="-1" hidden>
                     <legend class="hc-part-name">Reactions</legend>
-                    <p class="sdk-hint">Added to the core set. At most 40.</p>
+                    <p class="sdk-hint">Added on top of an environment's set. At most 40.</p>
                     <div class="reactions-list" id="te-reactions"></div>
                     <button class="btn btn-small" id="te-reaction-add" type="button"><i class="fa-solid fa-plus fa-fw" aria-hidden="true"></i><span>Add a reaction</span></button>
                     <ul class="problems" data-problems="reactions"></ul>
+                    <div id="te-reactions-set"></div>
                   </fieldset>
 
-                  <fieldset class="sdk-panel hc-part" id="te-part-icons" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-icons" role="tabpanel" aria-labelledby="te-tab-icons" tabindex="-1" hidden>
                     <legend class="hc-part-name">Icons</legend>
-                    <p class="sdk-hint">Font Awesome names, separated by spaces, added to an environment's icon list. At most 60.</p>
+                    <p class="sdk-hint">Font Awesome names, separated by spaces. Added on top of an environment's set. At most 60.</p>
                     <textarea id="te-icon-set" rows="2" autocapitalize="off" spellcheck="false" aria-label="Icons, Font Awesome names separated by spaces" placeholder="dice compass map"></textarea>
                     <div class="offer-icons" id="te-icon-preview" aria-hidden="true"></div>
                     <ul class="problems" data-problems="iconSet"></ul>
+                    <div id="te-icons-set"></div>
                   </fieldset>
 
-                  <fieldset class="sdk-panel hc-part" id="te-part-starter" tabindex="-1">
+                  <fieldset class="sdk-panel hc-part" id="te-part-starter" role="tabpanel" aria-labelledby="te-tab-starter" tabindex="-1" hidden>
                     <legend class="hc-part-name">Starter spaces</legend>
                     <p class="sdk-hint">Made once when an environment is made from this template. At most 5.</p>
                     <div id="te-starter"></div>

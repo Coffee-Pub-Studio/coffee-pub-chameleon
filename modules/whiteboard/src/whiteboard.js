@@ -2524,7 +2524,7 @@
   // a drag and the zoom buttons are ignored rather than ending it, so a slip of the hand does not lose the place. The view
   // glides to each frame (or jumps, for someone who asks for less motion). Exit puts back the view there was. Frames added,
   // moved or deleted meanwhile by others: the frame shown stays while it is there, else the one now in its place; with
-  // none left it stops. ("Everyone follows me" waits for the live channel.)
+  // none left it stops. ("Present to everyone" is built on storage: see the presenting to everyone part below.)
   const reduceMotion = () => Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   let glide = 0;
   // Move the view to `to` ({ x, y, s }): the middle of the screen and the zoom glide together (the zoom evenly).

@@ -28,7 +28,7 @@ must(/spaceCrumbIcon\(null\)/.test(space) && !/'message'/.test(space.match(/cons
 // Icons in use that the offered list no longer holds (a template switch took away the one that offered them) are drawn,
 // never offered: branding carries them apart (inUseIcons), iconClasses looks in the offered list, then in them, then
 // draws the chain link; getIcons, which every picker reads, is the offered list alone, and no page reads inUseIcons.
-must(/inUseIcons: store\.lookOf\(null\)\.inUseIcons/.test(branding), 'branding() does not carry inUseIcons');
+must(/const look = store\.lookOf\(null\);/.test(branding) && /inUseIcons: look\.inUseIcons/.test(branding), 'branding() does not carry inUseIcons');
 must(/IN_USE_ICONS = Array\.isArray\(b\.inUseIcons\) \? b\.inUseIcons : \[\]/.test(brand), 'brand.js does not keep branding.inUseIcons');
 must(/export const getIcons = \(\) => ICONS;/.test(brand), 'getIcons is not the offered list alone');
 for (const f of fs.readdirSync(path.join(root, 'public'), { recursive: true }).filter((f) => String(f).endsWith('.js') && String(f) !== 'brand.js')) {
@@ -37,7 +37,10 @@ for (const f of fs.readdirSync(path.join(root, 'public'), { recursive: true }).f
 const fnSource = brand.match(/export function iconClasses\(id\) \{[\s\S]*?\n\}/);
 must(Boolean(fnSource), 'brand.js has no iconClasses');
 if (fnSource) {
-  const make = (ICONS, IN_USE_ICONS) => new Function('ICONS', 'IN_USE_ICONS', `${fnSource[0].replace('export ', '')}; return iconClasses;`)(ICONS, IN_USE_ICONS);
+  // ICONS_LOADED (public/brand.js, once the pages read it): whether the list has been read. Passed in when the source has it;
+  // without it, an empty list reads as not loaded yet. `loaded` defaults to whether the list holds any.
+  const hasFlag = /\bICONS_LOADED\b/.test(fnSource[0]);
+  const make = (ICONS, IN_USE_ICONS, loaded = ICONS.length > 0) => new Function('ICONS', 'IN_USE_ICONS', 'ICONS_LOADED', `${fnSource[0].replace('export ', '')}; return iconClasses;`)(ICONS, IN_USE_ICONS, loaded);
   const offered = [{ id: 'dragon', classes: 'fa-solid fa-dragon' }, { id: 'discord', classes: 'fa-brands fa-discord' }];
   const inUse = [{ id: 'diagram-project', classes: 'fa-solid fa-diagram-project' }, { id: 'discord', classes: 'fa-solid fa-discord' }];
   const draw = make(offered, inUse);
@@ -45,7 +48,8 @@ if (fnSource) {
   must(draw('diagram-project') === 'fa-solid fa-diagram-project', 'iconClasses: an icon in use the list no longer offers is drawn, not the chain link');
   must(draw('discord') === 'fa-brands fa-discord', 'iconClasses: the offered list first');
   must(draw('nothing-here') === 'fa-solid fa-link', 'iconClasses: an id in neither draws the chain link');
-  must(make([], [])('dragon') === 'fa-solid fa-dragon', 'iconClasses: before the list loads, the id itself');
+  must(make([], [], false)('dragon') === 'fa-solid fa-dragon', 'iconClasses: before the list loads, the id itself');
+  if (hasFlag) must(make([], [], true)('dragon') === 'fa-solid fa-link', 'iconClasses: a loaded empty list (an owner emptied it) draws the chain link');
 }
 assert.deepEqual(problems, [], problems.join('\n'));
 console.log('check-space-icon: OK');
