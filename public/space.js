@@ -2470,6 +2470,7 @@ function useEnvironmentLook() {
   templatePhases = envPhases;
   phaseIcons = envPhaseIcons;
   clearSpaceLook();
+  if (envReactions) renderReactionTray(envReactions);
   if (had) paintLook();
 }
 // The words and phases of `look` for space `id`: the page takes them and draws again what names a level.
@@ -2483,6 +2484,7 @@ function adoptLook(id, look) {
   phaseStates = null;
   if (phaseMeasure !== 'dates') loadPhaseStates();
   setSpaceLook(look);
+  if (Array.isArray(look.reactions)) renderReactionTray(look.reactions); // the space's own resolved list: the environment's, then its template's additions
   paintLook();
 }
 // What is drawn with a word at draw time and not by a data-word: the bar's tools, the crumb, the cards, the chip.
@@ -5526,18 +5528,23 @@ function imageFiles(list) {
 
 // The reaction tray, as the admin has set it up (Manage > Theme); keys 1
 // to 6 reach only the first six, however many are configured.
-let REACTIONS = {}; // id -> glyph
+// The list is the one the space I am in reads (its look: the environment's list, then its template's additions); Home and a
+// space with no look read the environment's (envReactions, from the branding).
+let envReactions = null;
+let REACTIONS = new Map(); // id -> glyph (a Map: an id such as "toString" is none)
 let REACTION_KEYS = []; // id, in tray order
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 function renderReactionTray(list) {
   const reactions = Array.isArray(list) ? list : [];
-  REACTIONS = Object.fromEntries(reactions.map((r) => [r.id, r.glyph]));
+  REACTIONS = new Map(reactions.map((r) => [r.id, r.glyph]));
   REACTION_KEYS = reactions.map((r) => r.id);
   renderChatEmoji(reactions);
   const tray = $('react-tray');
   tray.textContent = '';
+  if (!reactions.length) toggleTray(false); // nothing to open
+  applyFeatureFlags();
   reactions.forEach((r, i) => {
     const button = document.createElement('button');
     button.className = 'react';
@@ -5551,7 +5558,7 @@ function renderReactionTray(list) {
 }
 
 function showReaction(identity, id) {
-  const glyph = REACTIONS[id];
+  const glyph = REACTIONS.get(id);
   const tile = tiles.get(identity);
   if (!glyph || !tile) return;
   const el = tile.ownerDocument.createElement('span');
@@ -5564,7 +5571,7 @@ function showReaction(identity, id) {
 }
 
 async function sendReaction(id) {
-  if (!features.allowReactions || !canDo('react') || !REACTIONS[id] || call.state !== 'connected') return;
+  if (!features.allowReactions || !canDo('react') || !REACTIONS.has(id) || call.state !== 'connected') return;
   showReaction(call.localParticipant.identity, id); // data is not echoed back
   try {
     await call.localParticipant.publishData(encoder.encode(JSON.stringify({ type: 'reaction', id })), { reliable: true, topic: 'reaction' });
@@ -5574,7 +5581,7 @@ async function sendReaction(id) {
 }
 
 function toggleTray(open = $('react-tray').hidden) {
-  if (open && !(features.allowReactions && canDo('react'))) return;
+  if (open && !(features.allowReactions && canDo('react') && REACTION_KEYS.length)) return;
   $('react-tray').hidden = !open;
   $('react-toggle').classList.toggle('on', open);
   if (open) { closeSettings(); fitTray(); }
@@ -8509,7 +8516,7 @@ function populateCallSettingsUI() {
 // once branding is in hand (init()), since these come from the server.
 function applyFeatureFlags() {
   $('screen-share').hidden = !(features.allowScreenShare && canDo('shareScreen') && navigator.mediaDevices?.getDisplayMedia);
-  $('react-toggle').hidden = !(features.allowReactions && canDo('react'));
+  $('react-toggle').hidden = !(features.allowReactions && canDo('react') && REACTION_KEYS.length > 0); // an empty list: no button
   const select = $('quality');
   for (const opt of select.options) opt.hidden = Number(opt.value) > features.maxQuality;
   if (prefs.quality > features.maxQuality) {
@@ -8543,7 +8550,8 @@ async function init() {
   // everything else there. It's in the title bar instead, which reads as
   // the space's real native window title once installed as an app.
   if (branding.version) document.title += ` — ${branding.version}`;
-  renderReactionTray(branding.reactions);
+  envReactions = Array.isArray(branding.reactions) ? branding.reactions : [];
+  renderReactionTray(envReactions);
   updateCrumb();
   syncLayoutPick();
   populateCallSettingsUI();

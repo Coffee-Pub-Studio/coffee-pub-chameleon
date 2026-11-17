@@ -38,7 +38,8 @@ export function roleLabel(user) {
 
 // The admin's Font Awesome list (Theme tab), as last loaded by loadBranding().
 let ICONS = [];
-// Icons in use that the list no longer offers (a template switch took away the one that did): /api/branding's
+let ICONS_LOADED = false; // an empty list is a real saved state; before the first load it only means "not read yet"
+// Icons in use that the list no longer offers (the owner removed it, or a template switch took it away): /api/branding's
 // inUseIcons, for drawing only. No picker reads them (getIcons is the offered list).
 let IN_USE_ICONS = [];
 export const getIcons = () => ICONS;
@@ -48,7 +49,7 @@ export const getIcons = () => ICONS;
 export function iconClasses(id) {
   const found = ICONS.find((i) => i.id === id) || IN_USE_ICONS.find((i) => i.id === id);
   if (found) return found.classes;
-  return ICONS.length ? 'fa-solid fa-link' : `fa-solid fa-${id || 'link'}`;
+  return ICONS_LOADED ? 'fa-solid fa-link' : `fa-solid fa-${id || 'link'}`;
 }
 
 // What a page keeps in the browser was keyed by the product's old name once; it is keyed by
@@ -153,6 +154,7 @@ export async function loadBranding() {
   }
   if (typeof b.productName === 'string' && b.productName.trim()) product = b.productName.trim();
   ICONS = Array.isArray(b.icons) ? b.icons : [];
+  ICONS_LOADED = true;
   IN_USE_ICONS = Array.isArray(b.inUseIcons) ? b.inUseIcons : [];
   templateHomeIcon = typeof b.templateHomeIcon === 'string' && b.templateHomeIcon ? b.templateHomeIcon : null;
   setEnvironmentMode(b.themeMode, b.themeVersion); // the default mode, and a stylesheet that changed since this page loaded

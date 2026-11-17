@@ -14,6 +14,7 @@ const { ModuleManager, LIMITS: MODULE_LIMITS, compareVersions, oldNameIn, pendin
 const { buildModule, bundledModules, zipFiles } = require('./module-build');
 const { fillManifest } = require('./modules');
 const templates = require('./templates');
+const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('./default-lists');
 const { CALL_DEFAULTS } = require('./call-settings');
 const { deepFreeze } = require('./deep-freeze');
 const demoLoader = require('./demo-loader');
@@ -1070,7 +1071,7 @@ function templateSwitchProblem(env, value) {
 
 // Switches an environment to template `value` ("none" or null for none), changing only its live part at once: the
 // record (appliedAt and skipped cleared; switchedAt set, so its once-only part waits as an offer), the words, the home
-// icon and the module names and icons (the template's icons are read live, never copied into the owner's own list,
+// icon and the module names and icons (the template's icons are read live, never copied into the environment's own list,
 // decision 12). The owner's own words, home icon, reactions, icons and module names are untouched and still win;
 // nothing is turned off. The same template as now changes nothing.
 // `by`: the owner's key, or 'host'. Answers whether anything changed.
@@ -1921,13 +1922,15 @@ function watchTheme(change) {
 
 function branding() {
   const s = store.settings;
+  // The environment's whole reaction and icon lists, then its template's additions (store.lookOf); read once here.
+  const look = store.lookOf(null);
   // The template's ordered phases, for the phase chip (plan-one-bar.md, step 3); [] with no template or none in it.
   const phases = (Array.isArray(store.templatePhases) ? store.templatePhases : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
-  return { environmentName: s.environmentName, productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, studio: studioView(STUDIO), hosted: Boolean(BASE_DOMAIN), words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases, spaceTemplates: store.spaceTemplatesOn(), homeIcon: store.homeIcon, templateHomeIcon: store.templateHomeIcon || null, loginText: s.loginText, language: s.language || 'en', clock: s.clock === '24' ? '24' : '12', currency: s.currency || 'USD', allowRegistration: Boolean(s.allowRegistration), guestDoor: guestDoorOn(), mfaOffered, mfaRequired: Boolean(s.mfaRequired), maxQuality: s.maxQuality || 720, allowScreenShare: s.allowScreenShare !== false, allowAsides: s.allowAsides !== false, allowPrivate: s.allowPrivate !== false, allowReactions: s.allowReactions !== false, conferenceEnabled: s.conferenceEnabled !== false, callService: HAS_CALL_SERVICE, activeThemeId: s.activeThemeId || null, themeMode: environmentThemeMode(), themeVersion: environmentThemeVersion(), hasIcon: !!store.iconPath(), hasBackground: !!store.siteImagePath('background'), version: VERSION, border: s.border, borderColor: s.borderColor, borderWidth: s.borderWidth || 6, mutedBorder: s.mutedBorder !== false, mutedColor: s.mutedColor || '#b8503f', plate: Boolean(s.plate), plateLayout: s.plateLayout || 'lower-left', plateColor: s.plateColor || '#000000', plateTextColor: s.plateTextColor || '#f1e6d8', plateFontSize: s.plateFontSize || 16, plateOpacity: s.plateOpacity ?? 60, plateTextCase: s.plateTextCase || 'default', charBorder: Boolean(s.charBorder), charBorderColor: s.charBorderColor || '#6fae6b', charMutedBorder: Boolean(s.charMutedBorder), charMutedColor: s.charMutedColor || '#b8503f', charBorderWidth: s.charBorderWidth || 6, pictureBackground: Boolean(s.pictureBackground), pictureColor: s.pictureColor || '#1a1410', pictureScale: s.pictureScale || 100, offlineDim: s.offlineDim ?? 0, offlineTint: s.offlineTint || '#000000', offlineTintOpacity: s.offlineTintOpacity ?? 0, asideDim: s.asideDim ?? 0, asideTint: s.asideTint || '#000000', asideTintOpacity: s.asideTintOpacity ?? 0, privateDim: s.privateDim ?? 0, privateTint: s.privateTint || '#000000', privateTintOpacity: s.privateTintOpacity ?? 0, reactions: store.lookOf(null).reactions, icons: store.lookOf(null).icons, inUseIcons: store.lookOf(null).inUseIcons, guestImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.guestImagePath(slot)])), defaultImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.defaultImagePath(slot)])) };
+  return { environmentName: s.environmentName, productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, studio: studioView(STUDIO), hosted: Boolean(BASE_DOMAIN), words: store.resolvedWords(), verbs: store.resolvedVerbs(), phases, spaceTemplates: store.spaceTemplatesOn(), homeIcon: store.homeIcon, templateHomeIcon: store.templateHomeIcon || null, loginText: s.loginText, language: s.language || 'en', clock: s.clock === '24' ? '24' : '12', currency: s.currency || 'USD', allowRegistration: Boolean(s.allowRegistration), guestDoor: guestDoorOn(), mfaOffered, mfaRequired: Boolean(s.mfaRequired), maxQuality: s.maxQuality || 720, allowScreenShare: s.allowScreenShare !== false, allowAsides: s.allowAsides !== false, allowPrivate: s.allowPrivate !== false, allowReactions: s.allowReactions !== false, conferenceEnabled: s.conferenceEnabled !== false, callService: HAS_CALL_SERVICE, activeThemeId: s.activeThemeId || null, themeMode: environmentThemeMode(), themeVersion: environmentThemeVersion(), hasIcon: !!store.iconPath(), hasBackground: !!store.siteImagePath('background'), version: VERSION, border: s.border, borderColor: s.borderColor, borderWidth: s.borderWidth || 6, mutedBorder: s.mutedBorder !== false, mutedColor: s.mutedColor || '#b8503f', plate: Boolean(s.plate), plateLayout: s.plateLayout || 'lower-left', plateColor: s.plateColor || '#000000', plateTextColor: s.plateTextColor || '#f1e6d8', plateFontSize: s.plateFontSize || 16, plateOpacity: s.plateOpacity ?? 60, plateTextCase: s.plateTextCase || 'default', charBorder: Boolean(s.charBorder), charBorderColor: s.charBorderColor || '#6fae6b', charMutedBorder: Boolean(s.charMutedBorder), charMutedColor: s.charMutedColor || '#b8503f', charBorderWidth: s.charBorderWidth || 6, pictureBackground: Boolean(s.pictureBackground), pictureColor: s.pictureColor || '#1a1410', pictureScale: s.pictureScale || 100, offlineDim: s.offlineDim ?? 0, offlineTint: s.offlineTint || '#000000', offlineTintOpacity: s.offlineTintOpacity ?? 0, asideDim: s.asideDim ?? 0, asideTint: s.asideTint || '#000000', asideTintOpacity: s.asideTintOpacity ?? 0, privateDim: s.privateDim ?? 0, privateTint: s.privateTint || '#000000', privateTintOpacity: s.privateTintOpacity ?? 0, reactions: look.reactions, icons: look.icons, inUseIcons: look.inUseIcons, guestImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.guestImagePath(slot)])), defaultImages: Object.fromEntries(PARTICIPANT_SLOTS.map((slot) => [slot, !!store.defaultImagePath(slot)])) };
 }
 
 // What a space reads, as the pages and a guest's link paint it (lookOf): { words, verbs, phases, phaseMeasure, reactions,
-// icons }, the phases as branding() shows them; the reactions and icons are the fixed core set and then the additions of
+// icons }, the phases as branding() shows them; the reactions and icons are the environment's own lists and then the additions of
 // the template the space reads (plan-templates-redesign.md, decision 12). Never the template's id or name, and never its
 // modules: which modules a person sees there is /api/modules/for-space's, by their permissions.
 const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
@@ -2090,7 +2093,11 @@ const LIBRARY_ROUTE = /^\/api\/modules\/[^/]+\/library(?:\/|$)/i; // routes matc
 // A template (plan-templates-redesign.md) may be up to 128 KB, its starter content included: its routes read their own
 // bodies (templateJson, templateFileText) with that limit, so this parser leaves them alone.
 const TEMPLATE_ROUTE = /^\/api\/(host\/templates|environment\/templates|templates\/import)(?:\/|$)/i;
-const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
+// The environment's settings (PATCH /api/settings) may carry its whole reaction and icon lists at their caps (300 and 400,
+// server/store.js), about 95 KB as JSON: that route reads its own body with settingsJson, after requireOwner, so only an
+// owner's request is ever read to that size.
+const SETTINGS_ROUTE = /^\/api\/settings\/?$/i;
+const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && !(req.method === 'PATCH' && SETTINGS_ROUTE.test(req.path)) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
 // A body that can't be read (not JSON, too big) sent with an agent's token is held (req.bodyError) and answered only once
 // the agent gate has counted and logged the call, so an agent can't call past its limits or its log with bad bodies
 // (plan-agent-access.md). Every other request is answered here, as before. Nothing reads a held body: the gate, the host
@@ -2124,6 +2131,8 @@ function publicStatic(options) {
 const templateFileText = express.text({ type: () => true, limit: templateFile.MAX_TEMPLATE_FILE_BYTES });
 // A template sent as JSON (the template routes' own parser, up to a template's own limit).
 const templateJson = express.json({ limit: templates.MAX_TEMPLATE_BYTES, verify: (req, _res, buf) => { req.rawBody = buf; } });
+// The environment's settings as JSON (PATCH /api/settings only; see SETTINGS_ROUTE): room for both lists at their caps.
+const settingsJson = express.json({ limit: '256kb', verify: (req, _res, buf) => { req.rawBody = buf; } });
 // A theme file's text (POST /api/themes/import). Its own 16 KB limit: a JSON body is parsed
 // by the app's own parser (64 KB) and measured by the route by the bytes received; any other type is read as text up
 // to the limit (a bigger one, and one the app's parser can't read, get the same sentence -- see the error handler).
@@ -3188,6 +3197,10 @@ hostRouter.get('/api/host/settings', requireHostAdmin, (_req, res) => {
     plans: hostRegistry.plansCatalog(), signup: signupEnabled, billingSecretSet: Boolean(BILLING_SECRET),
     // The modules this image ships, for the template editor: the built-in two, then the bundled ones by id.
     modules: [...BUILTIN_MODULES, ...bundledModules(BUNDLED_DIR)].map((m) => ({ id: m.id, name: m.name || m.id, icon: m.icon || null })),
+    // The built-in reaction and icon lists every environment's start as (server/default-lists.js), for the template
+    // editor's read-only "An environment's set starts as these" (decision 12 as corrected); the owner's GET /api/settings
+    // answers the same field.
+    builtIn: { reactions: DEFAULT_REACTION_LIST, icons: DEFAULT_ICON_LIST },
   });
 });
 // The flight schedule, shared by every environment (documentation/plans/plan-flight-lookup.md): its counts, forgetting one
@@ -5089,7 +5102,12 @@ app.get('/api/presence', async (req, res) => {
     activeSpace: activeSpaceId(byKey),
   });
   if (viewer.key && !viewer.owner) view.spaces = [...view.spaces, ...requestSpacesFor(viewer, store.spaces)];
-  res.json({ ...branding(), ...view, ownerOnline: hasOnlineOwner(byKey) });
+  // `?space=<id>`: the reactions that space reads (the environment's list, then its template's additions), for a reader that
+  // follows one person into their space (the OBS views). Only for a space the viewer may enter (the access key, all);
+  // anything else, and no space, keeps the environment's own list.
+  const asked = typeof req.query.space === 'string' ? store.spaceById(req.query.space) : null;
+  const own = asked && !asked.isLobby && asked.id !== LOBBY && (viewer.all || spaceAccess.mayEnter(viewer, asked)) ? { reactions: store.lookOf(asked.id).reactions } : {};
+  res.json({ ...branding(), ...own, ...view, ownerOnline: hasOnlineOwner(byKey) });
 });
 
 // An admin pulls one or more people who are on the call with them into a new aside. Nobody is moved by the server: the
@@ -13087,6 +13105,10 @@ app.patch('/api/roles/:role', requireOwner, (req, res) => {
 app.get('/api/currencies', requireUser, (_req, res) => res.json({ currencies: currencyCodes(store.settings.currency) }));
 // For the owner, beside branding()'s resolved `words`: `ownWords`, the owner's own words as stored, so Manage can tell
 // an owner's word from the template's or the default.
+// `ownReactions` and `ownIcons`: the environment's whole reaction and icon lists as stored, in order (decision 12 as
+// corrected 2026-11-16); branding()'s `reactions` and `icons` are these with the template's additions after them.
+// `builtIn`: { reactions, icons }, the built-in lists (server/default-lists.js) an environment starts from, for the
+// pages to show and for Start again from the built-in set (PATCH /api/settings { resetLists: true }).
 // `template`: the template the environment was made from and what was skipped (templateView), or null; `ownHomeIcon` the
 // owner's own home icon (null: the template's or the default).
 // `templateWords` and `templateHomeIcon`: the template's own (null for none), whatever the owner has set over them;
@@ -13097,11 +13119,11 @@ app.get('/api/currencies', requireUser, (_req, res) => res.json({ currencies: cu
 // calendarFeeds until an owner sets it); `publishedCalendarFeed`: { on, made, readAt }, the published calendar's one
 // address as it stands (plan-space-calendars.md, section 2), never its hash. `topBarReasons`: { calendar, map }, why
 // each cannot show whatever its switch (one sentence), or null.
-const ownerSettings = () => ({ ...branding(), guestDoorHost: hostGuestDoorOn(), guestDoorOpen: guestDoorHasOpenSpace(), guestHours: currentEnvironment().guestLimits.hours, ownWords: store.ownWords(), ownHomeIcon: store.settings.homeIcon || null, ownReactions: store.settings.reactions, ownIcons: store.settings.icons, template: templateView(store, currentEnvironment()), templateWords: store.templateWordsView(), templateHomeIcon: store.templateHomeIcon || null, spaceDefaults: store.settings.spaceDefaults || null, showCalendar: store.settings.showCalendar === true, showMap: store.settings.showMap === true, calendarFeeds: store.settings.calendarFeeds === true, otherCalendars: store.otherCalendarsOn(), publishedCalendar: store.settings.publishedCalendar === true, publishedCalendarFeed: feedView(store.publishedCalendarFeed), topBarReasons: destinationReasons(), agentTokens: agentTokensOn, agents: store.settings.agents === true });
+const ownerSettings = () => ({ ...branding(), guestDoorHost: hostGuestDoorOn(), guestDoorOpen: guestDoorHasOpenSpace(), guestHours: currentEnvironment().guestLimits.hours, ownWords: store.ownWords(), ownHomeIcon: store.settings.homeIcon || null, ownReactions: store.settings.reactions, ownIcons: store.settings.icons, builtIn: { reactions: DEFAULT_REACTION_LIST, icons: DEFAULT_ICON_LIST }, template: templateView(store, currentEnvironment()), templateWords: store.templateWordsView(), templateHomeIcon: store.templateHomeIcon || null, spaceDefaults: store.settings.spaceDefaults || null, showCalendar: store.settings.showCalendar === true, showMap: store.settings.showMap === true, calendarFeeds: store.settings.calendarFeeds === true, otherCalendars: store.otherCalendarsOn(), publishedCalendar: store.settings.publishedCalendar === true, publishedCalendarFeed: feedView(store.publishedCalendarFeed), topBarReasons: destinationReasons(), agentTokens: agentTokensOn, agents: store.settings.agents === true });
 app.get('/api/settings', requireOwner, (_req, res) => res.json({ settings: ownerSettings(), streamKey: store.streamKey }));
 // `template` (an id) switches the environment's template (the switching addendum): taken out of the body before the
 // settings; an unknown one refuses the whole change. With it, the answer also carries `template` and `offer`.
-app.patch('/api/settings', requireOwner, async (req, res) => {
+app.patch('/api/settings', requireOwner, settingsJson, async (req, res) => {
   const { template, ...rest } = req.body || {};
   // The Conference can't be switched on without a call service (its card says so); switching it off, or sending it
   // as it already is, goes through.
@@ -13113,6 +13135,8 @@ app.patch('/api/settings', requireOwner, async (req, res) => {
     if (problem) return res.status(400).json({ error: problem });
   }
   if (template === undefined || Object.keys(rest).length) watchTheme(() => store.updateSettings(rest));
+  // A module frame's inline icons are cached by id (iconSvg); a new icon list may give an id other classes.
+  if (rest.icons !== undefined || rest.resetLists !== undefined) iconSvgs.clear();
   if (template === undefined) return res.json({ settings: ownerSettings() });
   const env = currentEnvironment();
   await switchTemplate(env, env.slug, template, currentUser(req).key);

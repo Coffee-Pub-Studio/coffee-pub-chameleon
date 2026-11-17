@@ -136,12 +136,15 @@ await test('Workspace, Phases, Additions: fields when editable, lines when not, 
   assert.equal((ph.match(/data-tp-phase=/g) || []).length, 2);
   assert.match(ph, /<option value="goals" selected>/);
   assert.match(P.phasesHtml(tpl, { editable: false, word }), /Measured by[^]*Goals/);
-  const core = { reactions: [{ glyph: '❤️', label: 'Heart' }], icons: [{ id: 'star', classes: 'fa-solid fa-star', label: 'star' }] };
-  const ad = P.additionsHtml(tpl, { editable: true, core });
-  assert.match(ad, /The core set/);
+  const set = { reactions: [{ glyph: '❤️', label: 'Heart' }], icons: [{ id: 'star', classes: 'fa-solid fa-star', label: 'star' }] };
+  const ad = P.additionsHtml(tpl, { editable: true, set, whose: 'the Trip group' });
+  assert.equal((ad.match(/Added on top of the Trip group(?:'|&#39;)s set\./g) || []).length, 2); // both lists say it
+  assert.match(ad, /The Trip group(?:'|&#39;)s set \(1\)/);
+  assert.doesNotMatch(ad, /core set|Nobody removes/i);
+  assert.match(P.additionsHtml(tpl, { editable: true, set, whose: 'an environment' }), /An environment(?:'|&#39;)s set\b/);
   assert.match(ad, /data-tr-id="ship"/);
   assert.match(ad, /value="rocket"/);
-  assert.doesNotMatch(P.additionsHtml(tpl, { editable: false, core }), /<input/);
+  assert.doesNotMatch(P.additionsHtml(tpl, { editable: false, set, whose: 'the Trip group' }), /<input/);
 });
 await test('the pages, the strip, the 44 px rules and the marks are in the files', () => {
   const html = read('public/admin.html');
@@ -303,10 +306,10 @@ async function live() {
           assert.equal(t.phases.find((p) => p.main).id, 'build');
           await open('template/default/phases', `${count('#tpl-phases-box input')} === 0 && /Dates/.test(document.querySelector('#tpl-phases-box').textContent)`, 'the Phases of the Default template');
         });
-        await test(at('Additional Reactions and Icons: core and the template\'s; your own are on the Environment tab'), async () => {
+        await test(at('Additional Reactions and Icons: the environment\'s set and the template\'s additions'), async () => {
           await open('template/mine/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20 && ${count('#tpl-reactions-box .tp-reaction')} === 1 && ${count('#tpl-reactions-box [data-ti-name]')} === 1 && !document.getElementById('tpl-own-additions') && !document.querySelector('#tpl-part-reactions #reactions-list') && ${count('#env-part-reactions #reactions-list')} === 1 && ${count('#env-part-reactions #icons-list')} === 1`, 'the Additional Reactions and Icons page');
           await shot(tab, `${size}-reactions`);
-          await open('reactions', `${count('#env-part-reactions #reactions-list')} === 1 && document.getElementById('reactions-fixed').textContent.length > 0`, 'the Environment tab\'s Reactions and Icons');
+          await open('reactions', `${count('#env-part-reactions #reactions-list')} === 1 && ${count('#reactions-list .reaction-row')} > 100 && ${count('#icons-list .icon-row')} > 100 && !!document.getElementById('lists-reset')`, 'the Environment tab\'s Reactions and Icons');
           await shot(tab, `${size}-env-reactions`);
           await open('template/mine/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20`, 'back to the template page');
           await tab.eval(`(() => { document.querySelector('#tpl-reactions-box [data-tr-add]').click(); const rows = document.querySelectorAll('#tpl-reactions-box .tp-reaction'); const last = rows[rows.length - 1]; last.querySelector('.reaction-glyph').value = '\\u{1F389}'; last.querySelector('.reaction-label').value = 'Party'; document.querySelector('#tpl-reactions-card [data-tpl-save-button]').click(); return true; })()`);
@@ -316,6 +319,85 @@ async function live() {
           assert.deepEqual(t.iconSet, ['rocket']);
           await open('template/hours/reactions', `!document.getElementById('tpl-own-additions') && ${count('#tpl-reactions-box .tp-chip')} > 20`, 'another template\'s page has no own additions either');
           await open('template/default/reactions', `${count('#tpl-reactions-box .tp-chip')} > 20 && ${count('#tpl-reactions-box input')} === 0`, 'the Default template\'s page');
+        });
+        await test(at('Environment Reactions and Icons: a new row keeps the others\' ids; the buttons keep focus and are 44 by 44'), async () => {
+          await open('reactions', `${count('#reactions-list .reaction-row')} > 100 && ${count('#icons-list .icon-row')} > 100`, 'the Environment tab\'s Reactions and Icons');
+          // A new row whose label slugs to an id that is taken (heart) is sent with no id; the built-in Heart keeps `heart`.
+          await tab.eval(`(() => { document.getElementById('reaction-add').click(); const rows = document.querySelectorAll('#reactions-list .reaction-row'); const row = rows[rows.length - 1]; row.querySelector('.reaction-glyph').value = '\\u{1FAC0}'; row.querySelector('.reaction-label').value = 'Heart'; row.querySelector('.reaction-label').dispatchEvent(new Event('input', { bubbles: true })); row.parentElement.insertBefore(row, row.parentElement.firstElementChild); document.getElementById('save-reactions').click(); return true; })()`);
+          await sleep(1300);
+          const mine = (await api('GET', '/api/settings')).json.settings.ownReactions;
+          const hearts = mine.filter((r) => r.label === 'Heart');
+          assert.equal(hearts.length, 2, 'both Hearts are kept');
+          assert.equal(mine.find((r) => r.glyph === '\u2764\uFE0F').id, 'heart', 'the built-in Heart keeps its id');
+          assert.ok(hearts.every((r) => r.id) && new Set(hearts.map((r) => r.id)).size === 2, 'the new one has an id of its own');
+          const iconsFoldStart = await tab.eval(`document.getElementById('icons-fold').open`);
+          await tab.eval(`document.getElementById('icons-fold').open = true`);
+          // Focus stays on the button that was pressed, for a move and a remove, and each button names its row.
+          const f = await tab.eval(`(() => { const rows = () => [...document.querySelectorAll('#reactions-list .reaction-row')]; const out = {}; let b = rows()[3].querySelector('[data-action="reaction-up"]'); out.name = b.getAttribute('aria-label'); b.focus(); b.click(); out.up = document.activeElement === b; b.click(); out.upAgain = document.activeElement === b; b = rows()[0].querySelector('[data-action="reaction-down"]'); b.focus(); b.click(); out.down = document.activeElement === b; const ib = document.querySelector('#icons-list .icon-row [data-action="icon-down"]'); ib.focus(); ib.click(); out.iconDown = document.activeElement === ib; out.iconName = ib.getAttribute('aria-label'); return out; })()`);
+          assert.ok(f.up && f.upAgain && f.down && f.iconDown, JSON.stringify(f));
+          assert.match(f.name, /^Move .+ earlier$/);
+          assert.match(f.iconName, /^Move .+ later$/);
+          if (size === 390) {
+            const small = await tab.eval(`[...document.querySelectorAll('#reactions-list .reaction-row, #icons-list .icon-row')].slice(0, 6).flatMap((r) => [...r.querySelectorAll('button, input')].map((c) => c.getBoundingClientRect())).filter((b) => b.width < 43.5 || b.height < 43.5).length`);
+            assert.equal(small, 0, `${small} row controls are under 44 by 44`);
+          }
+          // The lists are folded (Reactions open, Icons shut, each heading with its count) and Save stays on screen.
+          const fold = await tab.eval(`(() => { const r = document.getElementById('reactions-fold'); const i = document.getElementById('icons-fold'); const bar = document.getElementById('lists-save-bar').getBoundingClientRect(); return { rOpen: r.open, iOpen: i.open, rText: document.getElementById('reactions-count').textContent, iText: document.getElementById('icons-count').textContent, rRows: document.querySelectorAll('#reactions-list .reaction-row').length, iRows: document.querySelectorAll('#icons-list .icon-row').length, barVisible: bar.top >= 0 && bar.bottom <= innerHeight + 1, resetVisible: document.getElementById('lists-reset').getBoundingClientRect().top < innerHeight }; })()`);
+          assert.ok(fold.rOpen && iconsFoldStart === false, JSON.stringify(fold));
+          assert.equal(fold.rText, `Reactions (${fold.rRows})`);
+          assert.equal(fold.iText, `Icons (${fold.iRows})`);
+          assert.ok(fold.barVisible && fold.resetVisible, `the Save bar and Start again are on screen: ${JSON.stringify(fold)}`);
+          // At 390 a reaction is one line (under 60 px) and an icon two (under 110 px), every control 44 by 44.
+          await tab.eval(`document.getElementById('icons-fold').open = true`);
+          if (size === 390) {
+            const h = await tab.eval(`(() => { const hh = (sel) => Math.max(...[...document.querySelectorAll(sel)].slice(0, 6).map((r) => r.getBoundingClientRect().height)); return { reaction: hh('#reactions-list .reaction-row'), icon: hh('#icons-list .icon-row') }; })()`);
+            assert.ok(h.reaction < 60 && h.icon < 110, `rows are compact: ${JSON.stringify(h)}`);
+          }
+          // Save, then the lists are the same lists (ids, order, glyphs).
+          const idsBefore = await tab.eval(`[...document.querySelectorAll('#reactions-list .reaction-row')].map((r) => r.dataset.id)`);
+          const iconIdsBefore = await tab.eval(`[...document.querySelectorAll('#icons-list .icon-row')].map((r) => r.dataset.id)`);
+          await tab.eval(`(() => { document.getElementById('save-reactions').click(); document.getElementById('save-icons').click(); return true; })()`);
+          await sleep(1500);
+          const after = (await api('GET', '/api/settings')).json.settings;
+          assert.deepEqual(after.ownReactions.map((r) => r.id), idsBefore, 'Save leaves the reactions as they were on the page');
+          assert.deepEqual(after.ownIcons.map((i) => i.id), iconIdsBefore, 'Save leaves the icons as they were on the page');
+          // Tabbing through both lists never leaves the focused control under the sticky Save bar.
+          const hidden = await tab.eval(`(async () => {
+            const bar = document.getElementById('lists-save-bar');
+            const bad = [];
+            for (const sel of ['#reactions-list', '#icons-list']) {
+              const els = [...document.querySelectorAll(sel + ' input, ' + sel + ' button')];
+              for (const el of els.filter((_, i) => i % 7 === 0 || i >= els.length - 12)) {
+                el.focus();
+                await new Promise((r) => setTimeout(r, 30));
+                const a = el.getBoundingClientRect(); const b = bar.getBoundingClientRect();
+                if (a.bottom > b.top + 0.5 && a.top < b.bottom) bad.push(sel + ' ' + (el.getAttribute('aria-label') || el.className));
+              }
+            }
+            return bad;
+          })()`);
+          assert.deepEqual(hidden, [], 'a focused control is under the Save bar');
+          await shot(tab, `${size}-env-rows`);
+        });
+        await test(at('A template addition the environment\'s set already has says so'), async () => {
+          const r = await api('PATCH', '/api/environment/templates/hours', { reactions: [{ id: 'heart', glyph: '\u2764\uFE0F', label: 'Heart' }, { id: 'mine-only', glyph: '\u{1F9FF}', label: 'Charm' }], iconSet: ['star'] });
+          assert.equal(r.status, 200, JSON.stringify(r.json));
+          await tab.eval('location.reload()'); // the page keeps the templates it read
+          await sleep(3000);
+          await tab.eval(`location.hash = 'template/hours/reactions'`);
+          await sleep(2000);
+          const seen = await tab.eval(`({ n: document.querySelectorAll('#tpl-reactions-box .tp-dropped:not([hidden])').length, t: document.querySelector('#tpl-reactions-box').textContent.slice(0, 400), first: (document.querySelector('#tpl-reactions-box .tp-dropped:not([hidden])') || {}).textContent })`);
+          assert.equal(seen.n, 2, JSON.stringify(seen));
+          assert.match(seen.first, /Already in the environment.s set, not added again\./);
+          // The note is inside its row: it names the row, and Remove takes both away (no orphan note).
+          const inRow = await tab.eval(`(() => { const n = document.querySelector('#tpl-reactions-box .tp-reaction .tp-dropped:not([hidden])'); return { inside: Boolean(n), named: n ? /^.+: Already in/.test(n.textContent) : false, siblings: document.querySelectorAll('#tpl-reactions-box [data-tr-list] > .tp-dropped').length }; })()`);
+          assert.deepEqual(inRow, { inside: true, named: true, siblings: 0 }, JSON.stringify(inRow));
+          const left = await tab.eval(`(() => { document.querySelector('#tpl-reactions-box .tp-reaction .tp-dropped:not([hidden])').closest('.tp-reaction').querySelector('[data-tr-remove]').click(); return document.querySelectorAll('#tpl-reactions-box [data-tr-list] .tp-dropped:not([hidden])').length; })()`);
+          assert.equal(left, 0, 'removing a row with a note leaves no note');
+          // A duplicate typed into a new row says so before saving, and stops saying so when it is changed.
+          const typed = await tab.eval(`(() => { document.querySelector('#tpl-reactions-box [data-tr-add]').click(); const rows = document.querySelectorAll('#tpl-reactions-box .tp-reaction'); const row = rows[rows.length - 1]; const g = row.querySelector('.reaction-glyph'); g.value = '\\u2764\\uFE0F'; g.dispatchEvent(new Event('input', { bubbles: true })); const on = !row.querySelector('.tp-dropped').hidden; g.value = '\\u{1F9FF}'; g.dispatchEvent(new Event('input', { bubbles: true })); return [on, row.querySelector('.tp-dropped').hidden]; })()`);
+          assert.deepEqual(typed, [true, true], 'the note follows what is typed');
+          await api('PATCH', '/api/environment/templates/hours', { reactions: [], iconSet: [] });
         });
         await test(at('Modules: marks, words, the starter, Plans; an edit saves'), async () => {
           await open('template/mine/modules', `${count('#tpl-modules-box .tp-module')} >= 4 && !!document.querySelector('#tpl-modules-box [data-tm="marks"]') && !document.getElementById('module-names-section').hidden`, 'the Modules page');

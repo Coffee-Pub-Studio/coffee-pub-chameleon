@@ -427,11 +427,12 @@ const DEFAULT_SETTINGS = {
   privateDim: 0,
   privateTint: '#000000',
   privateTintOpacity: 0,
-  // The owner's own additions to the fixed core icons (server/default-lists.js): { id, classes, label }. Never the core
-  // ones themselves; store.allIcons() is the core, these, and the environment's template's.
+  // The environment's whole icon list, { id, classes, label } in order (plan-templates-redesign.md, decision 12 as
+  // corrected 2026-11-16): filled from server/default-lists.js once, when the store first loads (load(),
+  // builtinListsSeeded), then its owner's to edit. store.allIcons() is these, then the template's additions.
   icons: [],
-  // The owner's own additions to the fixed core reaction tray: id (also the data-channel payload), glyph (what's drawn),
-  // label (button title/alt). Never the core ones; the call's tray is lookOf(): the core's 105, these, then the template's.
+  // The environment's whole reaction tray, in order: id (also the data-channel payload), glyph (what's drawn), label (button
+  // title/alt). Filled and owned as the icons are; the call's tray is lookOf(): these, then the template's additions.
   reactions: [],
 };
 deepFreeze(DEFAULT_SETTINGS); // every store copies it (load); none may change it
@@ -583,62 +584,103 @@ function cleanTri(value) {
   return value === true || value === false ? value : null;
 }
 
-// A reaction tray: { id, glyph, label } entries, ids unique and
-// URL/topic-safe. An empty array is valid -- an admin can turn the tray off.
-// A caller need not supply an id (the admin page's own editor does not
-// track one either): one is made up from the label or glyph, falling back
-// to a random one, rather than silently dropping the entry.
+// Text an environment's reaction or icon list may hold, as a template's plain text is (server/templates.js plainText) and a
+// display name is (cleanDisplayName): control characters, the soft hyphen, text-direction marks and overrides, zero-width characters, and
+// < and > are taken out, then cleanText. A glyph keeps the zero-width joiner (U+200D) and the variation selectors, which
+// emoji are built from (the built-in Mushroom, Wizard, Mrs. Claus); a label keeps neither.
+const UNSAFE_LIST_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u00ad\u061c\u200b\u200c\u200e\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff<>]/g;
+const cleanGlyph = (value) => cleanText(String(value ?? '').replace(UNSAFE_LIST_TEXT, ''), 8);
+const cleanListLabel = (value) => cleanText(String(value ?? '').replace(UNSAFE_LIST_TEXT, '').replace(/[\u200d\ufe00-\ufe0f]/g, ''), 40);
+const cleanListId = (value, max) => (typeof value === 'string' ? value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, max) : '');
+// A made-up id: `base` when free, else `base-<random>`, else a random one; never one already taken (`taken`).
+function freeId(base, taken, max, fallback) {
+  if (base && !taken.has(base)) return base;
+  for (let i = 0; i < 20; i += 1) {
+    const id = base ? `${base.slice(0, max - 5)}-${randomKey(4)}` : fallback();
+    if (!taken.has(id)) return id;
+  }
+  return fallback() + randomKey(6);
+}
+
+// A reaction tray: { id, glyph, label } entries, ids unique and URL/topic-safe. An empty array is valid -- an admin can
+// turn the tray off. A caller need not supply an id (the admin page's own editor does not track one either): one is made
+// up from the label or glyph, falling back to a random one, rather than silently dropping the entry. An id given is kept
+// (the first time it is given); a made-up one never takes an id given anywhere in the list, before or after it.
 function cleanReactions(value) {
   if (!Array.isArray(value)) return null;
   const slug = (text) => String(text || '').trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
-  const seen = new Set();
+  const given = new Set(value.map((r) => (r && typeof r === 'object' ? cleanListId(r.id, 24) : '')).filter(Boolean));
+  const taken = new Set();
   const out = [];
   for (const r of value) {
     if (!r || typeof r !== 'object') continue;
-    const glyph = cleanText(r.glyph, 8);
+    const glyph = cleanGlyph(r.glyph);
     if (!glyph) continue;
-    const label = cleanText(r.label, 40) || glyph;
-    let id = typeof r.id === 'string' ? r.id.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 24) : '';
-    if (!id) id = slug(label) || slug(glyph);
-    if (!id || seen.has(id)) id = `r${randomKey(6)}`;
-    seen.add(id);
+    const label = cleanListLabel(r.label) || glyph;
+    let id = cleanListId(r.id, 24);
+    if (!id || taken.has(id)) id = freeId(id ? '' : slug(label) || slug(glyph), new Set([...taken, ...given]), 24, () => `r${randomKey(6)}`);
+    taken.add(id);
     out.push({ id, glyph, label });
   }
   return out;
 }
 
-// The Font Awesome icons an admin has picked: { id, classes, label }. Only
-// fa-* class names survive, so whatever was pasted can't smuggle anything else.
+// The Font Awesome name an icon's classes draw (fa-dragon), or null when they name none: only styles, sizes, animations
+// and the other utility classes (server/fa-solid.js FA_UTILITY), as "fa-solid fa-spin" does.
+function iconName(classes) {
+  const tokens = String(classes || '').split(/\s+/).filter((t) => /^fa-[a-z0-9-]+$/.test(t)).slice(0, 8);
+  return tokens.filter((t) => !isIconUtility(t.slice(3))).pop() || null;
+}
+
+// The Font Awesome icons an admin has picked: { id, classes, label }. Only fa-* class names survive, so whatever was
+// pasted can't smuggle anything else, and an entry whose classes name no icon (only a style or a size) is dropped: it
+// would draw nothing. Ids as cleanReactions keeps them: an id given wins, a made-up one never takes one given.
 function cleanIcons(value) {
   if (!Array.isArray(value)) return null;
-  const seen = new Set();
+  const given = new Set(value.map((i) => (i && typeof i === 'object' ? cleanListId(i.id, 40) : '')).filter(Boolean));
+  const taken = new Set();
   const out = [];
   for (const i of value) {
     if (!i || typeof i !== 'object') continue;
     const tokens = String(i.classes || '').split(/\s+/).filter((t) => /^fa-[a-z0-9-]+$/.test(t)).slice(0, 8);
-    if (!tokens.length) continue;
+    const name = iconName(tokens.join(' '));
+    if (!name) continue;
     const classes = tokens.join(' ');
-    const name = tokens.filter((t) => !/^fa-(solid|regular|brands|light|thin|duotone|sharp|fw|lg|xs|sm|2x|3x)$/.test(t)).pop() || 'icon';
-    const label = cleanText(i.label, 40) || name.replace(/^fa-/, '').replace(/-/g, ' ');
-    let id = typeof i.id === 'string' ? i.id.trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40) : '';
-    if (!id || seen.has(id)) id = `${name.slice(3, 30)}${seen.has(name.slice(3, 30)) ? '-' + randomKey(4) : ''}`;
-    seen.add(id);
+    const label = cleanListLabel(i.label) || name.replace(/^fa-/, '').replace(/-/g, ' ');
+    let id = cleanListId(i.id, 40);
+    if (!id || taken.has(id)) id = freeId(id ? '' : name.slice(3, 30), new Set([...taken, ...given]), 40, () => `icon-${randomKey(6)}`);
+    taken.add(id);
     out.push({ id, classes, label });
   }
   return out;
 }
 
-// The owner's own additions: what is left of a list once the fixed core set (server/default-lists.js) is taken out of it,
-// by id or, for a reaction, by glyph. Nothing here can hide or replace a core entry.
+// The environment's whole lists (decision 12 as corrected 2026-11-16): what a list keeps of what was stored or sent, in its
+// order, cleaned for shape (cleanReactions, cleanIcons). An entry that repeats one before it is dropped: a reaction by
+// its id or its glyph, an icon by its id. Nothing is taken out for repeating server/default-lists.js. At most
+// MAX_ENV_REACTIONS and MAX_ENV_ICONS (a save over them is refused, updateSettings; a stored list is cut to them).
+const MAX_ENV_REACTIONS = 300;
+const MAX_ENV_ICONS = 400;
 function ownReactions(value) {
-  const list = cleanReactions(value) || [];
-  return list.filter((r) => !DEFAULT_REACTION_LIST.some((c) => c.id === r.id || c.glyph === r.glyph));
+  if (!Array.isArray(value)) return [];
+  const ids = new Set();
+  const glyphs = new Set();
+  const once = value.filter((r) => {
+    if (!r || typeof r !== 'object') return false;
+    const glyph = cleanGlyph(r.glyph);
+    const id = cleanListId(r.id, 24);
+    if (!glyph || glyphs.has(glyph) || (id && ids.has(id))) return false;
+    glyphs.add(glyph);
+    if (id) ids.add(id);
+    return true;
+  });
+  return (cleanReactions(once) || []).slice(0, MAX_ENV_REACTIONS);
 }
-// The icons a template adds, by id, read live and never copied into the owner's own list (decision 12): its `iconSet`,
+// The icons a template adds, by id, read live and never copied into the environment's own list (decision 12): its `iconSet`,
 // then its home icon and its modules' icons, so the owner's pickers offer what the template uses while it is read.
 // server/templates.js takes only Font Awesome Free solid ones; the shape is checked again here all the same.
 // Font Awesome Free's solid icons (server/fa-solid.js): what an icon in use must be to be published.
-const { isSolidIcon } = require('./fa-solid');
+const { isSolidIcon, isIconUtility } = require('./fa-solid');
 const MAX_IN_USE_ICONS = 200;
 
 function templateIconIds(template) {
@@ -649,8 +691,16 @@ function templateIconIds(template) {
 }
 
 function ownIcons(value) {
-  const list = cleanIcons(value) || [];
-  return list.filter((i) => !DEFAULT_ICON_LIST.some((c) => c.id === i.id));
+  if (!Array.isArray(value)) return [];
+  const ids = new Set();
+  const once = value.filter((i) => {
+    if (!i || typeof i !== 'object') return false;
+    const id = cleanListId(i.id, 40);
+    if (id && ids.has(id)) return false;
+    if (id) ids.add(id);
+    return true;
+  });
+  return (cleanIcons(once) || []).slice(0, MAX_ENV_ICONS);
 }
 
 // Short, URL-safe, unambiguous: 8 lowercase letters and digits, no 0/o/1/l/i.
@@ -842,14 +892,24 @@ class Store {
       data.settings.activeThemeId = null;
       seededThemes = true;
     }
-    // The owner's own reactions and icons are only additions to the fixed core set (plan-templates-redesign.md, decision 12):
-    // whatever a stored list repeats of the core, or that is not a reaction or icon, is dropped, so the core never lives in
-    // the settings and nothing in them hides one of it.
-    const ownReactionsBefore = JSON.stringify(raw.settings?.reactions ?? []);
-    const ownIconsBefore = JSON.stringify(raw.settings?.icons ?? []);
-    data.settings.reactions = ownReactions(raw.settings?.reactions);
-    data.settings.icons = ownIcons(raw.settings?.icons);
-    const trimmedLists = ownReactionsBefore !== JSON.stringify(data.settings.reactions) || ownIconsBefore !== JSON.stringify(data.settings.icons);
+    // The environment's reactions and icons are its whole lists (plan-templates-redesign.md, decision 12 as corrected
+    // 2026-11-16). Lists never filled from the built-in set (a new environment, or one stored before the correction) are
+    // filled with it, once, and marked so (builtinListsSeeded); what an older environment stored there (its owner's
+    // additions under the old rule) is not carried over. Filled lists are only cleaned for shape, so whatever the owner
+    // removed stays removed.
+    let trimmedLists = false;
+    if (data.settings.builtinListsSeeded !== true) {
+      data.settings.reactions = structuredClone(DEFAULT_REACTION_LIST);
+      data.settings.icons = structuredClone(DEFAULT_ICON_LIST);
+      data.settings.builtinListsSeeded = true;
+      trimmedLists = true;
+    } else {
+      const reactionsBefore = JSON.stringify(raw.settings?.reactions ?? []);
+      const iconsBefore = JSON.stringify(raw.settings?.icons ?? []);
+      data.settings.reactions = ownReactions(raw.settings?.reactions);
+      data.settings.icons = ownIcons(raw.settings?.icons);
+      trimmedLists = reactionsBefore !== JSON.stringify(data.settings.reactions) || iconsBefore !== JSON.stringify(data.settings.icons);
+    }
     // Once: environments made before the home icon was stored only as the owner's choice kept the default ("couch") as
     // if chosen, which hid a template's home icon after a switch. A stored default from then is not a choice; one
     // picked from now on is (the flag stays set, so an owner who picks the default later keeps it). An owner who
@@ -1129,20 +1189,22 @@ class Store {
     return typeof s.otherCalendars === 'boolean' ? s.otherCalendars : s.calendarFeeds === true;
   }
 
-  // Every icon the environment has: the fixed core set, the owner's own additions, then the additions of the template the
-  // environment reads (templateIconIds). { id, classes, label } each, ids once. This is the offered list: what a page's
-  // pickers show and what a save may pick (iconIds), so the two always agree.
+  // Every icon the environment has: its own whole list (settings.icons, in its order), then the additions of the template
+  // the environment reads (templateIconIds), an addition that repeats an id before it dropped. { id, classes, label }
+  // each, ids once. This is the offered list: what a page's pickers show and what a save may pick (iconIds), so the two
+  // always agree. Nothing here reads server/default-lists.js.
   // `template`: read another template's additions instead (lookOf, for a space on a template of its own).
   allIcons(template = this.environmentTemplate()) {
-    const out = DEFAULT_ICON_LIST.map((i) => ({ ...i }));
-    const add = (i) => { if (i && typeof i.id === 'string' && !out.some((o) => o.id === i.id)) out.push({ id: i.id, classes: i.classes, label: i.label }); };
-    for (const i of this.data.settings.icons || []) add(i);
+    const out = [];
+    const seen = new Set();
+    const add = (i) => { if (i && typeof i.id === 'string' && !seen.has(i.id)) { seen.add(i.id); out.push({ id: i.id, classes: i.classes, label: i.label }); } };
+    for (const i of Array.isArray(this.data.settings.icons) ? this.data.settings.icons : []) add(i);
     for (const id of templateIconIds(template)) add({ id, classes: `fa-solid fa-${id}`, label: id.replace(/-/g, ' ') });
     return out;
   }
 
-  // The icon ids a save may pick where `template` is read (the environment's by default): the core set, the owner's own
-  // and that template's additions.
+  // The icon ids a save may pick where `template` is read (the environment's by default): the environment's list and that
+  // template's additions.
   iconIdsFor(template = this.environmentTemplate()) {
     return this.allIcons(template).map((i) => i.id);
   }
@@ -1164,16 +1226,21 @@ class Store {
     return this.spaceIconIds(typeof spaceId === 'string' ? this.spaceTemplateFor(spaceId) : null);
   }
 
-  // The icons the environment shows now that the offered list may no longer hold (a template switch took away the
-  // template that offered them): the home icon and each space's link icon, for drawing only (lookOf's `inUseIcons`,
-  // public/brand.js iconClasses); never offered in a picker, never accepted by a save, never copied into the owner's own
-  // list (decision 12). Only a real Font Awesome Free solid icon (one with its svg on this server), so a stored or
-  // imported id can't publish a utility class (fa-spin) or anything else; at most MAX_IN_USE_ICONS.
+  // The icons the environment shows now that the offered list may no longer hold (the owner removed them from the
+  // environment's list, or a template switch took away the template that offered them), for drawing only (lookOf's
+  // `inUseIcons`, public/brand.js iconClasses); never offered in a picker, never accepted by a new save, never copied into
+  // the environment's list (decision 12). Every stored choice that can name an icon: the home icon as shown (the owner's,
+  // else the template's, else the default), each space's link icon, each module's display icon (settings.moduleIcons),
+  // and every saved layout's and system layout's icon (Layouts#iconIds). Only a real Font Awesome Free solid icon (one
+  // with its svg on this server), so a stored or imported id can't publish a utility class (fa-spin) or anything else;
+  // at most MAX_IN_USE_ICONS.
   // `offered`: ids to leave out (the list the place offers, lookOf), taken out before the cap, so icons already offered
   // never crowd out one that is not.
   inUseIconIds(offered = []) {
     const skip = new Set(offered);
-    const ids = [this.data.settings.homeIcon, ...this.data.spaces.map((r) => r.linkIcon)].filter((id) => isSolidIcon(id) && !skip.has(id));
+    const moduleIcons = isPlainObject(this.data.settings.moduleIcons) ? Object.values(this.data.settings.moduleIcons) : [];
+    const layoutIcons = this.layouts && typeof this.layouts.iconIds === 'function' ? this.layouts.iconIds() : [];
+    const ids = [this.homeIcon, ...this.data.spaces.map((r) => r.linkIcon), ...moduleIcons, ...layoutIcons].filter((id) => isSolidIcon(id) && !skip.has(id));
     return [...new Set(ids)].slice(0, MAX_IN_USE_ICONS);
   }
 
@@ -1273,8 +1340,9 @@ class Store {
   //   labels, settings: { <module id>: {...} }, only for modules the template gives some to (step 3 supplies what a
   //          manifest lets a template set; templates.cleanTemplate keeps only those)
   //   call, workspace: the template's, as stored ({} when it gives none)
-  //   reactions, icons: the fixed core set (server/default-lists.js), the owner's own additions (settings), then the template's
-  //          additions; nothing removes one, and a space has none of its own (the environment's and its template's are read)
+  //   reactions, icons: the environment's whole lists (settings, in their order), then the template's additions, an addition
+  //          that repeats an entry before it dropped; a space has none of its own (the environment's and its template's
+  //          are read). The first six reactions are the call's keys 1 to 6.
   //   inUseIcons: [{ id, classes }], icons in use (inUseIconIds) that `icons` does not hold, for drawing only; no picker
   //          offers them
   lookOf(id = null) {
@@ -1307,9 +1375,9 @@ class Store {
     // A copy: the template's own list is the catalog's, which no reader may change.
     const phases = structuredClone(own && isSpace ? (Array.isArray(t.phases) ? t.phases : []) : this.templatePhases);
     const measureFrom = own && isSpace ? t : this.environmentTemplate();
-    // The fixed core set first, then the owner's own additions, then the template's: a repeat of anything before it is
-    // left out, so no list has one twice and nothing changes or removes a core one.
-    const reactions = DEFAULT_REACTION_LIST.map((r) => ({ ...r }));
+    // The environment's whole list first, in its order, then the template's additions: a repeat of anything before it (by
+    // id or by glyph) is left out, so no list has one twice and a template never changes or removes one of the environment's.
+    const reactions = [];
     const addReaction = (r) => {
       if (!isPlainObject(r) || typeof r.id !== 'string' || typeof r.glyph !== 'string') return;
       if (reactions.some((c) => c.id === r.id || c.glyph === r.glyph)) return;
@@ -1411,12 +1479,13 @@ class Store {
     const templateIcon = st ? text(entry(st)?.icon) : from(this.templateModuleIcons);
     const ownName = own('moduleNames');
     const ownIcon = own('moduleIcons');
-    // An icon applies only while it can be drawn (displayIconIds); one that cannot now (its module uninstalled, its
-    // entry taken off the icon list) is kept as the owner's, and reported as such, but reads the next one down.
+    // An icon applies only while it can be drawn (displayIconIds); one that cannot now is kept as the owner's, and reported
+    // as such, but reads the next one down. The owner's own stays drawn when it is a Font Awesome Free solid icon the owner
+    // has since removed from the environment's list (decision 12 as corrected: an icon in use keeps drawing; inUseIconIds).
     // The list of drawable icons is built only when there is an icon to check: a name is asked for far more often.
     const wanted = [ownIcon, templateIcon];
     const icons = wanted.some(Boolean) ? this.displayIconIds(st) : [];
-    const icon = wanted.find((i) => i && icons.includes(i)) || null;
+    const icon = wanted.find((i) => i && (icons.includes(i) || (i === ownIcon && isSolidIcon(i)))) || null;
     // templateName/templateIcon: what the template gives, whether or not the owner's own is set over it.
     return { name: ownName || templateName, icon, ownName, ownIcon, templateName, templateIcon };
   }
@@ -1672,9 +1741,32 @@ class Store {
     applyDimTint('offline');
     applyDimTint('aside');
     applyDimTint('private');
-    // The owner's own additions to the fixed core set: a save that repeats or leaves out a core one changes nothing of it.
-    if (patch.reactions !== undefined && Array.isArray(patch.reactions)) s.reactions = ownReactions(patch.reactions);
-    if (patch.icons !== undefined && Array.isArray(patch.icons)) s.icons = ownIcons(patch.icons);
+    // The environment's whole lists, stored as sent, in their order, cleaned for shape (ownReactions, ownIcons); removing a
+    // built-in entry is allowed and an empty list is kept. `resetLists: true` replaces both with the built-in set
+    // (server/default-lists.js): Start again from the built-in set.
+    if (patch.resetLists !== undefined) {
+      if (patch.resetLists !== true) throw new StoreError('resetLists is true, or left out.');
+      if (patch.reactions !== undefined || patch.icons !== undefined) throw new StoreError('Send resetLists or the lists, not both.');
+      s.reactions = structuredClone(DEFAULT_REACTION_LIST);
+      s.icons = structuredClone(DEFAULT_ICON_LIST);
+    }
+    if (patch.reactions !== undefined) {
+      if (!Array.isArray(patch.reactions)) throw new StoreError('reactions is a list of reactions.');
+      if (patch.reactions.length > MAX_ENV_REACTIONS) throw new StoreError(`The reaction list holds at most ${MAX_ENV_REACTIONS} reactions.`);
+      // An empty list is the owner's to send (no reactions); a list of which nothing can be read is a mistake, not that.
+      const reactions = ownReactions(patch.reactions);
+      if (patch.reactions.length && !reactions.length) throw new StoreError('None of those reactions could be read.');
+      s.reactions = reactions;
+    }
+    if (patch.icons !== undefined) {
+      if (!Array.isArray(patch.icons)) throw new StoreError('icons is a list of icons.');
+      if (patch.icons.length > MAX_ENV_ICONS) throw new StoreError(`The icon list holds at most ${MAX_ENV_ICONS} icons.`);
+      // A list with nothing that is an icon at all is refused as one; an entry that is one but names no icon is refused by place.
+      if (patch.icons.length && !patch.icons.some((i) => i && typeof i === 'object' && !Array.isArray(i))) throw new StoreError('None of those icons could be read.');
+      const blank = patch.icons.findIndex((i) => !i || typeof i !== 'object' || !iconName(i.classes));
+      if (blank !== -1) throw new StoreError(`Icon ${blank + 1} names no Font Awesome icon; give its classes, such as fa-solid fa-star.`);
+      s.icons = ownIcons(patch.icons);
+    }
     Object.assign(this.data.settings, s);
     if (clearWords) delete this.data.settings.words;
     if (clearSpaceDefaults) delete this.data.settings.spaceDefaults;

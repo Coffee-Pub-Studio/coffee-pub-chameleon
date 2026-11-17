@@ -411,7 +411,9 @@ try {
     const asOwner = (method, url, body) => call(server, 'sail', method, url, { cookie: owner, body });
     for (let i = 0; i < 100 && !server.output().includes('[sail] Applied the "harbour" template'); i += 1) await new Promise((r) => setTimeout(r, 50));
     const settings = (await asOwner('GET', '/api/settings')).json.settings;
-    assert.deepEqual([settings.words.space.one, settings.reactions.at(-1).id, settings.reactions[0].id, settings.template.source, settings.template.appliedVersion], ['voyage', 'sail', 'heart', 'host', 1], 'its reaction added after the core set');
+    assert.deepEqual([settings.words.space.one, settings.reactions.at(-1).id, settings.reactions[0].id, settings.template.source, settings.template.appliedVersion], ['voyage', 'sail', 'heart', 'host', 1], 'its reaction added after the environment\'s list');
+    assert.deepEqual(settings.reactions, [...settings.ownReactions, { id: 'sail', glyph: '\u26f5', label: 'Sail' }], 'the order read: the environment\'s whole list (the built-in set, for a new environment), then the template\'s addition');
+    assert.equal(settings.ownReactions.length, 105, 'a new hosted environment starts from the built-in reactions');
     assert.deepEqual(settings.verbs, { enter: 'Enter', layout: 'Layout' });
     assert.deepEqual((await asOwner('GET', '/api/modules/travel/context?scope=environment')).json.phases, [], 'no phases until the template lists them');
     const list = (await console_('GET', '/api/host/templates')).json.templates;

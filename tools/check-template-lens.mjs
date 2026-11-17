@@ -8,7 +8,8 @@
  * templates mixed; the words (only space and member move, every locked word reads the default); the module set ("*" the
  * whole catalog; a list only its own) and ModuleManager#onInSpace following it (enabled, offered, the Lobby's rule); module
  * names and icons; labels and settings carried as stored, ready for the manifest marks of step 3; reactions and icons
- * (the fixed core set, then the template's additions, nothing removed); phases, the measure, the call and the workspace
+ * (the environment's own lists in their order, then the template's additions, a repeat of the environment's dropped;
+ * decision 12 as corrected 2026-11-16); phases, the measure, the call and the workspace
  * as stored; a template id that no longer exists reading the environment's; the off switch; prototype keys; and the memo
  * of templates by id never outliving an edit (a save, the host's templates, the installed modules, a new lookup).
  *
@@ -38,7 +39,7 @@ const { Store } = require('../server/store.js');
 const { ModuleManager } = require('../server/modules.js');
 const templates = require('../server/templates.js');
 const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('../server/default-lists.js');
-const CORE_ICONS = DEFAULT_ICON_LIST.map((i) => i.id);
+const CORE_ICONS = DEFAULT_ICON_LIST.map((i) => i.id); // a new environment's icon list: the built-in one
 
 let n = 0;
 let failed = 0;
@@ -83,7 +84,7 @@ const fresh = (name, { env = 'default', extra = {} } = {}) => {
 
 // --- part 1: the store ---------------------------------------------------------------------------------------------------
 
-await test('the Default template: every module in the catalog, the core reactions and icons, nothing added, as before', () => {
+await test('the Default template: every module in the catalog, the environment\'s reactions and icons (the built-in set while unedited), nothing added', () => {
   const store = fresh('default');
   const a = store.addSpace({ name: 'A' });
   const look = store.lookOf(a.id);
@@ -122,7 +123,7 @@ await test('two spaces on two templates: different module sets, names, icons, re
   assert.equal(lp.words.space.one, 'project');
   assert.equal(lp.words.member.one, 'member', "the project template has no member word: the default, not games' player");
   assert.equal(lg.words.member.one, 'player');
-  assert.deepEqual(lp.reactions.slice(0, DEFAULT_REACTION_LIST.length), DEFAULT_REACTION_LIST, 'the core set first, whole');
+  assert.deepEqual(lp.reactions.slice(0, DEFAULT_REACTION_LIST.length), DEFAULT_REACTION_LIST, 'the environment\'s list first, whole');
   assert.deepEqual(lp.reactions.slice(DEFAULT_REACTION_LIST.length), [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }]);
   assert.deepEqual(lg.reactions, DEFAULT_REACTION_LIST, 'games adds none');
   assert.deepEqual(lp.icons.at(-1), { id: 'diagram-project', classes: 'fa-solid fa-diagram-project', label: 'diagram project' });
@@ -141,6 +142,27 @@ await test('two spaces on two templates: different module sets, names, icons, re
   assert.equal(store.lookOf(p.id).names.travel.name, 'Project plan');
   assert.equal(store.lookOf(p.id).reactions.length, DEFAULT_REACTION_LIST.length + 1);
   assert.equal(PROJECT.reactions.length, 1);
+});
+
+await test('resolution reads the environment\'s own lists, in their order, then the template\'s additions; a repeat of the environment\'s is dropped', () => {
+  const store = fresh('own-lists', { env: 'games' });
+  const reactions = [{ id: 'yes', glyph: '✅', label: 'Yes' }, ...DEFAULT_REACTION_LIST.filter((r) => r.id !== 'heart').reverse()];
+  const icons = [{ id: 'cat', classes: 'fa-solid fa-cat', label: 'cat' }, ...DEFAULT_ICON_LIST.filter((i) => i.id !== 'dragon').slice(0, 20)];
+  store.updateSettings({ reactions, icons });
+  const repeats = made({ ...PROJECT_RAW, id: 'repeats', reactions: [{ id: 'yes', glyph: '\u{1F197}', label: 'Yes again' }, { id: 'tick', glyph: '✅', label: 'Tick' }, { id: 'heart', glyph: '❤️', label: 'Heart' }, { id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['cat', 'dragon', DEFAULT_ICON_LIST[1].id, 'diagram-project'] });
+  store.templateById = (id) => (id === 'repeats' ? repeats : templates.get(id) || null);
+  const r = store.addSpace({ name: 'Repeats', template: 'repeats' });
+  const plain = store.addSpace({ name: 'Plain' });
+  const lr = store.lookOf(r.id);
+  assert.deepEqual(lr.reactions, [...reactions, { id: 'heart', glyph: '❤️', label: 'Heart' }, { id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], 'by id or by glyph: dropped; Heart, removed by the environment, is this template\'s addition');
+  assert.deepEqual(lr.icons.map((i) => i.id), [...icons.map((i) => i.id), 'dragon', 'diagram-project'], 'by id: dropped');
+  assert.deepEqual(lr.reactions.slice(0, 6).map((x) => x.id), reactions.slice(0, 6).map((x) => x.id), 'the first six, the call\'s keys, are the environment\'s first six');
+  assert.deepEqual([store.lookOf(plain.id).reactions, store.lookOf(plain.id).icons], [reactions, icons], 'a space on the environment\'s template (games adds none): the environment\'s lists exactly');
+  assert.deepEqual([store.lookOf(null).reactions, store.lookOf(null).icons], [reactions, icons], 'Home too');
+  // An empty reaction list: only the template's additions.
+  store.updateSettings({ reactions: [] });
+  assert.deepEqual(store.lookOf(plain.id).reactions, []);
+  assert.deepEqual(store.lookOf(r.id).reactions.map((x) => x.id), ['yes', 'tick', 'heart', 'ship']);
 });
 
 await test('labels and settings are carried as the template stores them, ready for the manifest marks (step 3)', () => {
@@ -441,7 +463,7 @@ try {
     assert.equal(/"template"/.test((await ctx(mia.as, 'travel', bridge.id)).text), false, 'no template id reaches a module');
   });
 
-  await test('reactions and icons per space: the core set, then the template\'s additions', async () => {
+  await test('reactions and icons per space: the environment\'s lists (the built-in set while unedited), then the template\'s additions', async () => {
     const look = async (who, id) => (await who('GET', `/api/spaces/${id}/look`)).json.look;
     const b = await look(mia.as, bridge.id);
     const c = await look(mia.as, camp.id);

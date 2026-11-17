@@ -5,6 +5,9 @@
  *   - every store starts from its own copy of the default settings: a role change (member, guest, moderator), an icon,
  *     a reaction and a theme added in acme leave beta's GET /api/roles, /api/settings and /api/themes as they were,
  *     before and after a restart, and beta's own next save does not write acme's change into beta's file;
+ *   - each environment's reaction and icon lists start from the built-in set (server/default-lists.js) and stay its own:
+ *     acme removing built-in entries, adding and starting again leaves beta's lists the built-in set
+ *     (plan-templates-redesign.md, decision 12 as corrected 2026-11-16);
  *   - the shared defaults are frozen, so a write to one throws rather than reaching every environment.
  */
 import fs from 'node:fs';
@@ -18,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
+const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('../server/default-lists.js');
 let n = 0;
 let failed = 0;
 const test = async (name, fn) => {
@@ -123,12 +127,14 @@ try {
   let beta = await signIn(server, 'beta', 'owner', 'owner-password-1');
   const betaBefore = await lookOf(server, 'beta', beta);
   assert.equal(betaBefore.roles.member.chat, true, 'a member may chat by default');
+  assert.deepEqual([betaBefore.ownReactions, betaBefore.ownIcons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST], 'a new environment\'s lists are the built-in set');
 
   await test('a role change, an icon, a reaction and a theme in acme leave beta as it was', async () => {
     assert.equal((await call(server, 'acme', 'PATCH', '/api/roles/member', { cookie: acme, body: { chat: false } })).status, 200);
     assert.equal((await call(server, 'acme', 'PATCH', '/api/roles/guest', { cookie: acme, body: { react: false } })).status, 200);
     assert.equal((await call(server, 'acme', 'PATCH', '/api/roles/moderator', { cookie: acme, body: { canKick: false } })).status, 200);
-    const s = await call(server, 'acme', 'PATCH', '/api/settings', { cookie: acme, body: { icons: [{ id: 'anchor', classes: 'fa-solid fa-anchor', label: 'anchor' }], reactions: [{ id: 'owl', glyph: '🦉', label: 'Owl' }] } });
+    // acme's whole lists: built-in entries removed (Heart, the first icon), one added to each.
+    const s = await call(server, 'acme', 'PATCH', '/api/settings', { cookie: acme, body: { icons: [...DEFAULT_ICON_LIST.slice(1), { id: 'anchor', classes: 'fa-solid fa-anchor', label: 'anchor' }], reactions: [{ id: 'owl', glyph: '🦉', label: 'Owl' }, ...DEFAULT_REACTION_LIST.slice(1)] } });
     assert.equal(s.status, 200, s.text);
     const theme = await call(server, 'acme', 'POST', '/api/themes', { cookie: acme, body: { name: 'Acme', mode: 'dark', 'surface-page': '#101010', 'surface-panel': '#202020', 'edge-hairline': '#303030', 'text-primary': '#f0f0f0', 'text-muted': '#a0a0a0', 'accent-fill': '#c08030', 'text-on-accent': '#101010' } });
     assert.equal(theme.status, 200, theme.text);
@@ -138,6 +144,7 @@ try {
     assert.equal(acmeNow.roles.moderator.canKick, false);
     assert.ok(acmeNow.ownIcons.some((i) => i.id === 'anchor'));
     assert.ok(acmeNow.ownReactions.some((r) => r.id === 'owl'));
+    assert.equal(acmeNow.ownReactions.some((r) => r.id === 'heart') || acmeNow.ownIcons.some((i) => i.id === DEFAULT_ICON_LIST[0].id), false, 'acme removed built-in ones');
     assert.ok(acmeNow.themes.includes(theme.json.theme.id));
     assert.deepEqual(await lookOf(server, 'beta', beta), betaBefore);
   });
@@ -168,6 +175,17 @@ try {
     assert.deepEqual(b.ownReactions, betaBefore.ownReactions);
     assert.deepEqual(b.themes, betaBefore.themes);
     assert.ok(a.ownIcons.some((i) => i.id === 'anchor'));
+    assert.deepEqual(a.ownReactions.map((r) => r.id).slice(0, 2), ['owl', DEFAULT_REACTION_LIST[1].id], 'acme\'s lists as saved, not filled again');
+    assert.deepEqual([b.ownReactions, b.ownIcons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST], 'beta\'s still the built-in set');
+  });
+
+  await test('acme starting again from the built-in set changes only acme', async () => {
+    assert.equal((await call(server, 'beta', 'PATCH', '/api/settings', { cookie: beta, body: { reactions: DEFAULT_REACTION_LIST.slice(0, 6) } })).status, 200);
+    const reset = await call(server, 'acme', 'PATCH', '/api/settings', { cookie: acme, body: { resetLists: true } });
+    assert.equal(reset.status, 200, reset.text);
+    assert.deepEqual([reset.json.settings.ownReactions, reset.json.settings.ownIcons], [DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST]);
+    assert.deepEqual((await lookOf(server, 'beta', beta)).ownReactions, DEFAULT_REACTION_LIST.slice(0, 6), 'beta keeps its own six');
+    assert.equal((await call(server, 'beta', 'PATCH', '/api/settings', { cookie: beta, body: { resetLists: true } })).status, 200);
   });
 
   await test('a third environment made after all that starts from the plain defaults', async () => {

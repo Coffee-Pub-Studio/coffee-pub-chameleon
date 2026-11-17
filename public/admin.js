@@ -3,7 +3,7 @@ import { pickBackground } from '/background-picker.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
-import { coreReactionChips, coreIconChips, workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
+import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, markAllDups, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
 import { addSpaceFlow, moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
@@ -1257,36 +1257,53 @@ $('invite-copy').addEventListener('click', () => copy($('invite-link').textConte
 
 // --- reactions --------------------------------------------------------------
 
+// Each row's buttons name the row ("Move Heart earlier"), kept current as its label is typed.
+function nameRow(row, name) {
+  const who = name || 'this row';
+  const set = (action, text) => { const b = row.querySelector(`[data-action$="-${action}"]`); if (b) b.setAttribute('aria-label', text); };
+  set('up', `Move ${who} earlier`);
+  set('down', `Move ${who} later`);
+  set('remove', `Remove ${who}`);
+}
+// Move or remove a row from its button; the pressed button keeps focus (a moved row loses it), so a key press can repeat.
+function rowAction(button, row, kind, next) {
+  const action = button.dataset.action.slice(kind.length + 1);
+  if (action === 'remove') {
+    const after = row.nextElementSibling || row.previousElementSibling;
+    row.remove();
+    noneYet();
+    (after ? after.querySelector('[data-action$="-remove"]') : $(kind === 'reaction' ? 'reaction-add' : 'icon-add')).focus();
+    return;
+  }
+  if (action === 'up' && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
+  else if (action === 'down' && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
+  button.focus();
+}
+// A network failure reads as a plain sentence; anything the server said is shown as it is.
+const plainError = (err) => (err instanceof TypeError ? "Can't reach the server. Check your connection and try again." : err.message);
+
 function reactionRow(reaction) {
   const row = $('reaction-row').content.firstElementChild.cloneNode(true);
   row.dataset.id = reaction?.id || '';
   row.querySelector('.reaction-glyph').value = reaction?.glyph || '';
   row.querySelector('.reaction-label').value = reaction?.label || '';
+  const rename = () => nameRow(row, row.querySelector('.reaction-label').value.trim() || row.querySelector('.reaction-glyph').value.trim());
+  row.addEventListener('input', rename);
+  rename();
   return row;
 }
 
-// The Environment tab edits the owner's OWN additions (settings.ownReactions / ownIcons); the built-in set is shown
-// read-only above the rows, and never posted back.
-let builtIn = { reactions: [], icons: [] }; // the built-in set as last read, to say what a save leaves out
-async function renderFixed(settings) {
-  const envT = madeFrom ? await templateRecord(madeFrom.id).catch(() => null) : null;
-  const core = coreSet(settings, envT);
-  builtIn = core;
-  const fold = (n, grid) => `<details class="tp-builtin"><summary>Built in (${n})</summary><p class="hint">Always there. You can't remove them, and a repeat of one is left out when you save.</p>${grid}</details>`;
-  const open = (id) => $(id).querySelector('details')?.open;
-  const was = [open('reactions-fixed'), open('icons-fixed')];
-  $('reactions-fixed').innerHTML = fold(core.reactions.length, coreReactionChips(core.reactions));
-  $('icons-fixed').innerHTML = fold(core.icons.length, coreIconChips(core.icons));
-  if (was[0]) $('reactions-fixed').querySelector('details').open = true;
-  if (was[1]) $('icons-fixed').querySelector('details').open = true;
-  noneYet();
-}
-// The line above Add reaction and Add icon while the owner's own list is empty.
+// The Environment tab edits the environment's WHOLE lists (settings.ownReactions / ownIcons, in order), which start as the
+// built-in set. Start again from the built-in set replaces both.
+// The line above Add reaction and Add icon while a list is empty.
 function noneYet() {
-  $('reactions-none').hidden = $('reactions-list').children.length > 0;
-  $('icons-none').hidden = $('icons-list').children.length > 0;
+  const r = $('reactions-list').children.length;
+  const i = $('icons-list').children.length;
+  $('reactions-none').hidden = r > 0;
+  $('icons-none').hidden = i > 0;
+  $('reactions-count').textContent = `Reactions (${r})`;
+  $('icons-count').textContent = `Icons (${i})`;
 }
-const alreadyBuiltIn = (names) => `${names.join(', ')} ${names.length === 1 ? 'is' : 'are'} already built in`;
 
 function renderReactionRows(reactions) {
   const list = $('reactions-list');
@@ -1302,33 +1319,36 @@ function slugify(text) {
 $('reactions-list').addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
-  const row = button.closest('.reaction-row');
-  if (button.dataset.action === 'reaction-remove') { row.remove(); noneYet(); }
-  else if (button.dataset.action === 'reaction-up' && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
-  else if (button.dataset.action === 'reaction-down' && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
+  rowAction(button, button.closest('.reaction-row'), 'reaction');
 });
-$('reaction-add').addEventListener('click', () => { $('reactions-list').appendChild(reactionRow()); noneYet(); });
+$('reaction-add').addEventListener('click', () => { const row = reactionRow(); $('reactions-list').appendChild(row); noneYet(); row.querySelector('.reaction-glyph').focus(); });
 
 $('save-reactions').addEventListener('click', async () => {
-  const seen = new Set();
+  // A row that is already in the list keeps its id; a new one is sent with none and the server makes it.
   const reactions = [...$('reactions-list').querySelectorAll('.reaction-row')]
-    .map((row) => {
-      const glyph = row.querySelector('.reaction-glyph').value.trim();
-      const label = row.querySelector('.reaction-label').value.trim();
-      let id = row.dataset.id || slugify(label) || slugify(glyph);
-      if (!id || seen.has(id)) id = `r${Math.random().toString(36).slice(2, 8)}`;
-      seen.add(id);
-      return { id, glyph, label };
-    })
+    .map((row) => ({ ...(row.dataset.id ? { id: row.dataset.id } : {}), glyph: row.querySelector('.reaction-glyph').value.trim(), label: row.querySelector('.reaction-label').value.trim() }))
     .filter((r) => r.glyph);
   try {
-    const repeats = reactions.filter((r) => builtIn.reactions.some((c) => c.id === r.id || c.glyph === r.glyph)).map((r) => r.glyph);
     const { settings } = await api('PATCH', '/api/settings', { reactions });
     renderReactionRows(settings.ownReactions);
-    await renderFixed(settings);
-    say($('reactions-status'), repeats.length ? alreadyBuiltIn(repeats) : 'saved');
+    say($('reactions-status'), 'saved');
   } catch (err) {
-    say($('reactions-status'), err.message, true);
+    say($('reactions-status'), plainError(err), true);
+  }
+});
+
+$('lists-reset').addEventListener('click', async () => {
+  if (!await confirmDialog({ title: 'Replace your reactions and icons with the built-in set?', message: 'Your changes to them are lost.', action: 'Replace', kind: 'destructive' })) return;
+  try {
+    const { settings } = await api('PATCH', '/api/settings', { resetLists: true });
+    renderReactionRows(settings.ownReactions);
+    renderIconRows(settings.ownIcons);
+    await loadBranding();
+    tplFull.clear();
+    renderTplPart();
+    say($('lists-status'), 'Back to the built-in set');
+  } catch (err) {
+    say($('lists-status'), plainError(err), true);
   }
 });
 
@@ -2056,6 +2076,9 @@ function iconRow(icon) {
   };
   html.addEventListener('input', show);
   show();
+  const rename = () => nameRow(row, row.querySelector('.icon-label').value.trim() || (parseIconClasses(html.value).split(' ').pop() || '').replace(/^fa-/, ''));
+  row.addEventListener('input', rename);
+  rename();
   return row;
 }
 
@@ -2069,29 +2092,23 @@ function renderIconRows(icons) {
 $('icons-list').addEventListener('click', (event) => {
   const button = event.target.closest('[data-action]');
   if (!button) return;
-  const row = button.closest('.icon-row');
-  if (button.dataset.action === 'icon-remove') { row.remove(); noneYet(); }
-  else if (button.dataset.action === 'icon-up' && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
-  else if (button.dataset.action === 'icon-down' && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
+  rowAction(button, button.closest('.icon-row'), 'icon');
 });
-$('icon-add').addEventListener('click', () => { $('icons-list').appendChild(iconRow()); noneYet(); });
+$('icon-add').addEventListener('click', () => { const row = iconRow(); $('icons-list').appendChild(row); noneYet(); row.querySelector('.icon-html').focus(); });
 
 $('save-icons').addEventListener('click', async () => {
   const icons = [...$('icons-list').querySelectorAll('.icon-row')]
-    .map((row) => ({ id: row.dataset.id, classes: parseIconClasses(row.querySelector('.icon-html').value), label: row.querySelector('.icon-label').value.trim() }))
+    .map((row) => ({ ...(row.dataset.id ? { id: row.dataset.id } : {}), classes: parseIconClasses(row.querySelector('.icon-html').value), label: row.querySelector('.icon-label').value.trim() }))
     .filter((i) => i.classes);
   try {
-    const nameOf = (classes) => String(classes).split(/\s+/).filter((t) => !/^fa-(solid|regular|brands|fw)$/.test(t)).pop();
-    const repeats = icons.filter((i) => builtIn.icons.some((c) => nameOf(c.classes) === nameOf(i.classes))).map((i) => i.label || i.classes.split(' ').pop().replace(/^fa-/, ''));
     const { settings } = await api('PATCH', '/api/settings', { icons });
     renderIconRows(settings.ownIcons);
-    await renderFixed(settings);
     await loadBranding();
     tplFull.clear();
     renderTplPart(); // the home icon's choices are this list
-    say($('icons-status'), repeats.length ? alreadyBuiltIn(repeats) : 'saved');
+    say($('icons-status'), 'saved');
   } catch (err) {
-    say($('icons-status'), err.message, true);
+    say($('icons-status'), plainError(err), true);
   }
 });
 
@@ -2534,10 +2551,10 @@ async function drawTplPage(kind) {
     box.innerHTML = phasesHtml(t, { editable, word });
   } else if (kind === 'reactions') {
     let settings = null;
-    try { settings = (await api('GET', '/api/settings')).settings; } catch { /* the page reads without the core set */ }
-    const envT = forEnvironment ? t : (madeFrom ? await templateRecord(madeFrom.id).catch(() => null) : null);
+    try { settings = (await api('GET', '/api/settings')).settings; } catch { /* the page reads without the environment's set */ }
     if (mine !== tplDrawing || tplPart !== kind) return;
-    box.innerHTML = additionsHtml(t, { editable, core: coreSet(settings, envT) });
+    box.innerHTML = additionsHtml(t, { editable, set: settings ? { reactions: settings.ownReactions || [], icons: settings.ownIcons || [] } : null, whose: `the ${word('environment')}` });
+    markAllDups(box);
   } else if (kind === 'modules') {
     await loadCatalog();
     if (mine !== tplDrawing || tplPart !== kind) return;
@@ -2570,19 +2587,6 @@ function templateCatalog(full = false) {
     out.push(own(m));
   }
   return out;
-}
-// The core set of reactions and icons: what the environment reads, without its owner's own additions and its template's.
-function coreSet(settings, envTemplate) {
-  if (!settings) return { reactions: [], icons: [] };
-  const mine = (list) => new Set((list || []).map((x) => x.id));
-  const ownR = mine(settings.ownReactions);
-  const ownI = mine(settings.ownIcons);
-  const tplR = mine(envTemplate && envTemplate.reactions);
-  const tplI = new Set((envTemplate && envTemplate.iconSet) || []);
-  return {
-    reactions: (settings.reactions || []).filter((r) => !ownR.has(r.id) && !tplR.has(r.id)),
-    icons: (settings.icons || []).filter((i) => !ownI.has(i.id) && !tplI.has(i.id)),
-  };
 }
 // What an owner set over the template before templates had pages of their own: said, with a way back to the template's.
 function drawOwnWords(forEnvironment) {
@@ -2911,7 +2915,6 @@ async function init() {
     paintAgents(settings);
     renderReactionRows(settings.ownReactions);
     renderIconRows(settings.ownIcons);
-    renderFixed(settings);
     renderSiteImages(settings);
     renderGuestImages(settings);
     renderDefaultImages(settings);
