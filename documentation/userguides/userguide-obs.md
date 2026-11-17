@@ -38,6 +38,8 @@ by default (a role that had the old **See the stream links and the access key** 
 the page but is not an owner or the admin sees "Only an owner or the admin sees the links, since each one
 carries the access key."
 
+The reactions that float up a box are the ones in the list of the space the player is in, so a reaction a template adds shows in OBS too; in the Lobby it is the environment's list. This has not been tried with a real OBS source: it is checked against the server's answers only.
+
 The exact options a link accepts (name plate, silent audio, hiding reactions) are in
 [OBS view links](../api/api-obs-view.md).
 

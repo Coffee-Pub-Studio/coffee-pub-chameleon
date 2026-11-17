@@ -31,7 +31,7 @@ display name does. The page needs no sign-in; the stream key stands in for it.
 | `kind` | `player` (default): the camera, the Participant picture when it is off, the talking and muted borders and the overlays. `character`: the Character pictures and their overlays, never the video. |
 | `plate` | `1` forces the name plate on. Normally the plate follows the player's own **Name plate** option, whose default for everyone is in the Stream module's settings. |
 | `audio` | The player view always plays the player's audio; `0` makes it silent. Whether it reaches the OBS mixer is OBS's own "Control audio via OBS" option on the source. |
-| `reactions` | Both kinds float the player's reactions up the box; `0` keeps a source clean. |
+| `reactions` | Both kinds float the player's reactions up the box; `0` keeps a source clean. The glyphs come from the list of the space the player is in (the environment's list, then its template's additions); in the Lobby they come from the environment's list. |
 | `debug` | `1` shows connection messages on the page. |
 
 The parameter is still spelled `kind=player` for the Participant box because existing OBS scenes

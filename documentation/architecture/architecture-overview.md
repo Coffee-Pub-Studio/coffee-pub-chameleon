@@ -217,7 +217,11 @@ call alone: no chat, no chat pictures, no modules (`inAside()` in `public/space.
   and the environment's branding), from the live register and each page's own presence ping. LiveKit is asked only for
   the microphone and camera marks (`micOn`, `cameraOn`), and only while the register has someone on a call. A signed-in
   person, the access key (`?s=` or `x-stream-key`) or a guest's token (`?guest=`) may ask; anyone else gets 401
-  "sign in first". The answer is filtered by membership ([plan-primary-nav](../plans/plan-primary-nav.md),
+  "sign in first". `?space=<id>` answers `reactions` from that space's resolved list (the environment's, then its
+  template's additions) instead of the environment's, for a reader that follows one person into their space (the OBS
+  views). The access key may ask for any space; a signed-in person or a guest only for a space they may enter. The
+  Lobby, an unknown id and no `space` give the environment's list, and a space the viewer may not enter, an erased one
+  and an unknown id get the same answer, so the answer tells nothing about a space the viewer cannot see. The answer is filtered by membership ([plan-primary-nav](../plans/plan-primary-nav.md),
   decision 6, step 3): a viewer reads where a person is only for the spaces and asides the viewer belongs to. Every
   space member belongs to the Lobby; owners and the admin belong to every space and every aside. The rules are
   `presenceView()` in `server/presence-view.js` (the viewer is `presenceViewer()` in `server/index.js`), held by

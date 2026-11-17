@@ -91,6 +91,8 @@ These fail on `main` (`67998604`) and none was caused by the work since; a chang
 - **`check-conformance` fails on main** (#798): 3 deviations in 3 of 40 windows. The first content in the list view sits 12 px from the frame edge in Research and Budget and 16 px in Documents; the Trip templates panel on Manage's Template page (1280 pixels, light) has 16px of padding above and 24px below, and so has the About tab's **Open-source software** panel (390 pixels, dark). Run on a19d7d34, not run again.
 - **`check-destinations` fails on main** (#849): 1 of 45 cases, "travel: with no destination page yet, /calendar goes home and module pages and tiles stay their own": the widgets route answers no tiles under the Travel template and the case expects at least one. Run on a19d7d34, not run again.
 - **`check-nav` fails on main**, as the project manager reported on 67998604. The cause was not looked into here. A run of it in a cloud container (with the packages installed) fails the same two cases, "Set up: a right-zone tool after your picture, before the window controls, ..." and "the address opens it once; a reload does not, ...", but the browser checks of the welcome note and the agent pages also failed to draw a page in that container, so that run says nothing about `main`.
+- **`check-sources-modules` fails on main** ("public/design-system/sources.js is not what the generator writes"), seen on `origin/main` and on the reactions and icons branch alike, 2026-11-17. The cause was not looked into here.
+- **`check-streams` fails on main** (reported by the build of the reactions and icons work, 2026-11-17; the cause was not looked into here). `check-spacing`, `check-module-guards`, `check-conformance`, `check-destinations` and `check-nav` above failed there too, so none of them is from that work.
 - **`check-template-pages-b` is not in `npm run check`**, so nothing runs it by default.
 
 Fixed since the last list: `check-catalog` (the catalog is back to four tools, then six with the Planner's two, #896 and #905), the six browser checks that stopped at the Budget chip (#894, #896), and `check-buttons` (buttons size through `--btn-h`, #893; it passed when run on 67998604).
@@ -274,6 +276,20 @@ the first time. Clicking it a second time opens the module but not the object.
 GitHub #20.
 
 Workaround: find the object in the module itself.
+
+## Reactions and icons: gaps
+
+Found by quality-assurance on the environment-owned lists (Chameleon on branch `step22b`, 2026-11-17), read from the code and run on a throwaway server and in a browser. A real call, reactions over the data channel, keys 1 to 6 in a live call and a real OBS source have not been tried: there is no LiveKit server in the build container.
+
+- **A new reaction with an emoji and no label cannot be saved on the host console.** The template editor refuses it with "a label is plain text of 1 to 40 characters"; Manage leaves an empty label out and saves, but the console sends an empty one. To see it: **Templates**, **New template**, **Reactions** tab, add a row with only an emoji, **Save template**. Workaround: give the reaction a label.
+- **A new reaction whose label matches a built-in id is silently dropped.** A heart labelled "Heart" gets the id `heart` and is left out as a repeat where the lists are joined. Manage's "Already in the environment's set, not added again." note does not catch it, because it compares a new row by its emoji only. Workaround: use a different label or emoji.
+- **The stream view does not retry a failed list.** If its request for a space's reaction list fails, it asks again only when presence changes; until then reactions from that space may not show in OBS.
+- **Start again from the built-in set sits above the lists.** The plan puts it below both. It works the same; only its place differs.
+- **On a short phone the lists show about five rows.** At 390 pixels wide the Manage sub-tabs and the sticky header take about 190 px, so a list box of 70vh shows about five rows.
+- **The Stream module and the SDK's change poll carry only the environment's list.** `presenceForModule` and the presence change poll (`host.presence.onChange`) answer the environment's reactions, not a space's; only `host.presence.get({ space })` does.
+- **A template's drop of an icon is by id only.** An icon that draws the same as an environment icon under another id is not dropped. Thomas chose this on 2026-11-17: icons repeat only by id.
+
+Workaround for the last three: none needed.
 
 ## Saving a bundled template reorders its module list
 

@@ -4,7 +4,7 @@
 
 A **template** is a lens over an environment. It changes what a space is, how it behaves and what it is called, so a space feels like a trip, a project, a course or a mentoring relationship. It sets the words people may rename (a space and a member), which modules a space has and what they are called, how those modules work, the phases, what the Workspace opens with, how the call starts, extra reactions and icons, and, if it has them, starter spaces and starter content.
 
-There are three levels. The **environment** is the catalog: the modules installed, the built-in reactions and icons, its default theme and its default template. A **template** is a lens over that catalog. A **space** reads a template (its own, or the environment's) and holds its own dates and data. Every environment has a template: one that was never given another uses **Default**, which has the usual words and every module.
+There are three levels. The **environment** is the catalog: the modules installed, its own reaction and icon lists (they start as the built-in set), its default theme and its default template. A **template** is a lens over that catalog. A **space** reads a template (its own, or the environment's) and holds its own dates and data. Every environment has a template: one that was never given another uses **Default**, which has the usual words and every module.
 
 ## The shipped templates
 
@@ -59,7 +59,7 @@ Manage's **Template** tab is a short page and one page for each part, with butto
 - **Experience Labels**: the words you can change (a space, a member, the home page; the Lobby's name and description), then the words each module lets a template rename, under that module's name (for example Project's **Effort**), and the words that never change, listed. A word left blank reads the module's own.
 - **Default Workspace**: what a new space's Workspace opens with, which Fixed Workspaces it shows (shown for everyone: nobody can hide one), and which opens first.
 - **Phases**: the phases and **Measured by** (**Dates**, **Goals** or **Progress**).
-- **Additional Reactions and Icons**: what the template adds after the core set. Its text links to yours, for every template, on the **Environment** tab under **Reactions and Icons**, where the built-in set is shown too (read only, folded as **Built in (<n>)**).
+- **Additional Reactions and Icons**: what the template adds on top of the environment's set ("Added on top of the environment's set."). The environment's set is shown above it, read only and folded, and the page links to where you change it, on the **Environment** tab under **Reactions and Icons**. An addition the environment's set already has is marked "Already in the environment's set, not added again." and is left out where the two are joined.
 - **Modules**: one row for each module: offered or not, **Shown as**, its settings, its starter content. A setting that is a list (such as Maps' categories or the Planner's marker types) is edited as rows of a label, an icon and a colour, as on a module's own settings; the words a module lets a template rename are on **Experience Labels**. The three planners sit together under **Plans**.
 - **Templates**: the list.
 
@@ -109,19 +109,21 @@ Manage has no page for a template's call settings or starter spaces: a copy keep
 
 ## Make your own templates (host)
 
-On a server with environments, the host admin makes templates in the host console's **Templates** section. It lists every template with where it comes from (**Bundled** or **Own**), its version, **Used by** (the environments that use it, by name, each a link to that environment's page; past four it reads "and N more"), and whether it is **Hidden**. A **More** menu on each row has **Edit**, **Export**, **Duplicate**, **Reset to shipped** (a bundled template you edited) and **Delete** (an Own template nothing uses). A bundled template can be edited (see "Edit a bundled template"), but never deleted; **Default** can be duplicated but not edited, hidden or deleted. **Import file** and **New template** are above the list. The editor opens as a page of its own with a list of its parts beside it (a strip on a phone) and one **Save**: **Environment Basics**, **Experience Labels**, **Modules**, **Default Workspace**, **Call**, **Phases**, **Reactions**, **Icons** and **Starter spaces**.
+On a server with environments, the host admin makes templates in the host console's **Templates** section. It lists every template with where it comes from (**Bundled** or **Own**), its version, **Used by** (the environments that use it, by name, each a link to that environment's page; past four it reads "and N more"), and whether it is **Hidden**. A **More** menu on each row has **Edit**, **Export**, **Duplicate**, **Reset to shipped** (a bundled template you edited) and **Delete** (an Own template nothing uses). A bundled template can be edited (see "Edit a bundled template"), but never deleted; **Default** can be duplicated but not edited, hidden or deleted. **Import file** and **New template** are above the list. The editor opens as a page of its own with its parts as tabs, one part on the screen at a time (a scrolling row of tabs on a phone), and one **Save template** that saves every part: **Environment Basics**, **Experience Labels**, **Modules**, **Default Workspace**, **Call**, **Phases**, **Reactions**, **Icons** and **Starter spaces**.
 
 **Make one:**
 
 1. Click **New template**.
 2. Give it an **Id**, a **Name** and a **Description**.
 3. Fill in what it should set: the words (blank keeps the default; give the singular and the plural), the **Home Icon**, the Lobby's name and description, what **Default Profile Image** new spaces use, the **Modules** (tick them and order them with the arrows; the chat is always there), what the Workspace opens with and shows (**Default Workspace**), **Call** (join on entering, where the call sits, its layout), and under **Phases**, **Add phase** for each one up to 12: an id and a label, **Main** on at most one, and **A phase is done by** (dates, goals or progress).
-4. Add the **Reactions** and **Icons** it adds (up to 40 reactions and 60 icons, solid icons only; a repeat of the built-in set is refused), and **Starter spaces** (up to 5, each a name of at most 40 characters and a description).
-5. Click **Save**. It is version 1, and offered on the create form straight away. A problem, such as a phase id listed twice, shows beside the part it is about, and nothing is saved.
+4. Add the **Reactions** and **Icons** it adds (up to 40 reactions and 60 icons, solid icons only; a repeat inside the template's own list is refused, and one the environment already has is left out later, not refused). The tab shows an environment's set as "An environment's set starts as these (n)", read only and folded; a new reaction gets its id from its label when you save, and give each reaction an emoji and a label, and **Starter spaces** (up to 5, each a name of at most 40 characters and a description).
+5. Click **Save template**. It is version 1, and offered on the create form straight away. A problem, such as a phase id listed twice, shows beside the part it is about, a count sits on the tab of each part with a problem, and the status line says "N parts have problems, marked on their tabs." Nothing is saved. After a save, focus goes to the saved template's row in the list.
+
+Each tab has its own address, so back and forward move between them, and what you typed on the other tabs stays.
 
 The console's editor does not edit a module's settings, renamed words or starter content: it keeps what the template has, so **Duplicate** a shipped template to carry them. The theme is not part of a template any more: the environment sets one and each person may pick their own (see [Creating themes](userguide-themes.md)).
 
-**Edit one:** open the row's **More** menu, choose **Edit**, change what you need, and click **Save**. Each save is a new version. Every environment using it gets the live parts at once, and is offered the rest (see "When a template is updated").
+**Edit one:** open the row's **More** menu, choose **Edit**, change what you need, and click **Save template**. Each save is a new version. Every environment using it gets the live parts at once, and is offered the rest (see "When a template is updated").
 
 **Duplicate one:** open a row's **More** menu and choose **Duplicate**. Give the new template an id, then a name. It is a template of your own at version 1, with everything the one you duplicated has now, and opens in the editor.
 
