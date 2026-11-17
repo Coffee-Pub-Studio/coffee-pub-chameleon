@@ -2,7 +2,7 @@
 
 **Audience:** Thomas, deciding whether each bundled module gets its own agent and how far it may go; and, once he decides, the sessions that build the agent definition, the fence check and the charters (server-development for the check, the project manager for the rest).
 
-**Status:** draft 2026-11-17, not decided. Nothing in this plan is decided or created. It comes from Thomas's idea of 2026-11-17: "I feel like a module should get its own agent and be able to do focused work on that module, talk to me, and then push an update for the module when ready. Our current process seems incredibly slow and nested. Of course they would not be allowed to change core UI and code." The shape below is the project manager's proposal, turned into options. Where this plan says "suggestion", it is a lean, not a decision.
+**Status:** draft 2026-11-17, approved in direction by Thomas the same day (see "Thomas's answers so far"); nothing built, nothing created. It comes from Thomas's idea of 2026-11-17: "I feel like a module should get its own agent and be able to do focused work on that module, talk to me, and then push an update for the module when ready. Our current process seems incredibly slow and nested. Of course they would not be allowed to change core UI and code." The shape below is the project manager's proposal, turned into options. Where this plan says "suggestion", it is a lean, not a decision; the four answers below are the only decisions.
 
 ## Why
 
@@ -40,7 +40,26 @@ No new agents. A builder editing `modules/<id>/` may also edit that module's use
 
 Keep the flow. Costs nothing to build. The five-run cost stays for every module change that needs a written record. A try build already avoids it, by skipping the record.
 
-**Suggestion (a lean, not a decision):** option 1 for the module lane, piloted on one module first, with option 2's ownership change applying only inside the fence. If the pilot disappoints, option 2 alone is what remains.
+Thomas chose option 1 after a pilot (see above). If the pilot disappoints, option 2 alone is what remains.
+
+## Thomas's answers so far (2026-11-17)
+
+Answered by clickable box. These are decisions; everything else in this plan is still a proposal.
+
+1. **Approach: option 1, after a pilot.** Per-module agents run as the main session. Keep or change it from what the pilot teaches.
+2. **Pilot: Documents.**
+3. **Beyond the module folder, a module agent may edit** that module's user guide, that module's known-issues entries, that module's plan status lines and one CHANGELOG line. The architecture and API pages for the module lag until the content writer does a pass.
+4. **Merging: auto-merge patch-level module pull requests once the fence and the module checks pass.** Thomas's option also said it needs the new pull request check workflow first and "not before the pilot has run". This is recorded as the target.
+
+### What must exist before auto-merge can work
+
+Nothing below changes Thomas's answer. It is the order of building. Until all of it exists, the pilot's pull request is a draft that Thomas merges himself.
+
+- **A pull request check workflow.** Today only the design check runs on pull requests; [image.yml](../../.github/workflows/image.yml) runs only on `main` and tags. A new workflow runs the fence check and `npm run check:module -- <id>` for the changed module.
+- **The fence check as a required check.** It exists only as a plan until it is built.
+- **Branch protection on `main`** requiring those checks, and **auto-merge switched on** in the repository's settings. Both are GitHub settings only Thomas can change; no agent can.
+- **A rule for the two shared files.** `tools/module-versions.json` is rewritten whole by `--update`, and the single `[Unreleased]` in `CHANGELOG.md` takes every branch's line at the same spot. Without a rule, two merged module pull requests conflict and auto-merge stalls. The suggestion: the check compares only that module's entry, and the agent rebases and re-runs the update before the pull request leaves draft. How the CHANGELOG line avoids the same conflict is open question 1.
+- **"Patch-level" in a way a check can decide.** Suggestion: the module's version differs from `main` by a patch bump only (same major and minor); the manifest changes only in `version`, `description`, `labels` and a setting's `label`, `help` or `default`; any manifest key the fence does not know counts as forbidden; and no path outside the fence's allowed list changed. Anything else is not patch-level and waits for Thomas.
 
 ## The fence
 
@@ -56,7 +75,7 @@ What a module agent may change, as paths. A check compares the branch to `main` 
 | `documentation/known-issues.md`, that module's section | allowed |
 | `documentation/plans/` status lines of that module's plans | allowed; never a decision or an option |
 | `CHANGELOG.md` | one line under `[Unreleased]` |
-| `documentation/architecture/`, `documentation/api/` | forbidden (see open question 5) |
+| `documentation/architecture/`, `documentation/api/` | forbidden until the content writer does a pass (Thomas, answer 3) |
 | `public/`, `server/`, `public/sdk/`, `public/module-host.js`, `public/module-frame.js`, `templates/`, the rest of `tools/`, `.claude/`, `CLAUDE.md`, `.github/` | forbidden: core |
 | another module's folder | forbidden |
 
@@ -88,7 +107,7 @@ Where modules overlap today (from `modules/`):
 - **Places and maps:** maps, with travel.
 - **Assistant and stream:** assistant (the AI) touches every module through `hooks.ai`; stream is its own corner.
 
-The charters would be written by product-planner with Thomas, one at a time, starting with the pilot's module and its neighbours. Where they live is open question 4.
+The charters would be written by product-planner with Thomas, one at a time, starting with the pilot's module and its neighbours. Where they live is open question 2.
 
 ## Definition of done
 
@@ -109,7 +128,7 @@ Checks can enforce 1, 2, 3 and 6; 4, 5 and 7 are on the agent's honesty, and a s
 - **Thomas types** `/module <id> <task>` in a session opened in this repository (a skill, like `/manage`). A terminal form, `claude --agent module-agent`, would take the module from the first message.
 - **The agent can ask** him anything, in the conversation: what he meant, which of two behaviours, whether a change belongs in this module or a neighbour. It must ask rather than guess when the charter says "Thomas's".
 - **A session ends** when the draft pull request is open and the agent has reported in a few lines: what changed, what was verified and how, what was not, and any question left. It leaves a branch `module/<id>/<short-name>`, a draft pull request, the issue comment and nothing else; no commit to `main`.
-- **Merging** stays with Thomas. Whether patch-level module pull requests may merge by themselves once every check is green is open question 2.
+- **Merging:** Thomas merges the pilot's pull request. The target is auto-merge of patch-level pull requests once the checks pass (Thomas, answer 4), after the steps listed above exist.
 
 ## How it fits the three kinds of build and the project manager
 
@@ -118,25 +137,29 @@ Checks can enforce 1, 2, 3 and 6; 4, 5 and 7 are on the agent's honesty, and a s
 - **Production build:** the full flow, with the project manager. The module agent is one of its builders.
 - **The project manager keeps:** everything in core, every cross-module question, the plans that cover more than one module, release prep, `npm run check`, and the merge routine.
 
-## What the build would take
+## What the build would take, in order
 
-Each is a small job.
+Each is a small job. Nothing is built; `.claude/agents/` and `CLAUDE.md` are Thomas's to approve.
 
-| Piece | Who builds | Size |
-|---|---|---|
-| The module agent definition (one file, takes the module id) | Thomas approves; project manager drafts | small |
-| The `/module` skill | project manager | small |
-| The fence check (`tools/check-module-fence.mjs`: diff against `main`, manifest key by key) and its own test | server-development | medium |
-| A pull request workflow that runs the fence check and `check:module` for the changed module | server-development | small |
-| `CLAUDE.md` rule changes (the ownership exception inside the fence) | Thomas | small |
-| Charters, one per module, the pilot's first | product-planner with Thomas | small each |
+| Step | Piece | Who builds | Size |
+|---|---|---|---|
+| 1 | The Documents charter (what it is for and not for, its neighbours) | product-planner with Thomas | small |
+| 2 | The module agent definition (one file, takes the module id) in `.claude/agents/` | project manager drafts; Thomas approves | small |
+| 3 | The `/module` skill in `.claude/skills/` | project manager drafts; Thomas approves | small |
+| 4 | A line in the project manager's instructions saying module agents bypass it for module-lane changes; and the `CLAUDE.md` exception for the ownership rules inside the fence | project manager drafts; Thomas approves | small |
+| 5 | The fence check (`tools/check-module-fence.mjs`: diff against `main`, manifest key by key, allow-list) and its own test | server-development | medium |
+| 6 | The pull request workflow running the fence check and `check:module` for the changed module | server-development | small |
+| 7 | Pilot run on Documents: a draft pull request that Thomas merges | the module agent | one task |
+| 8 | After the pilot: branch protection, auto-merge on, the shared-file rule, the patch-level rule in the check | Thomas (settings); server-development (check) | small |
 
-**Pilot (suggestion):** Documents. It is the case that started this, it declares no `refs`, `actions`, `hooks` or `uploads`, so the fence has the least to guard, and it has the most module tests (about 19 under `modules/documents/test/`). Whiteboard is the second choice: also no `refs` or `actions`, a guide, an architecture document and a known-issues section of its own, but it declares `uploads` and has 3 tests. Documents' `live` key and its dependence on core sync are the one thing to watch.
+Steps 1 to 4 let the pilot start with the fence as a reading rule only. Steps 5 and 6 should land before the pilot's pull request is merged, so the pilot also tests them.
+
+**Pilot: Documents** (Thomas's answer). It is the case that started this, it declares no `refs`, `actions`, `hooks` or `uploads`, so the fence has the least to guard, and it has the most module tests (about 19 under `modules/documents/test/`). Its `live` key and its dependence on core sync are the one thing to watch. Whiteboard stays the second choice for later.
 
 ## Risks
 
 - **Drift between modules.** Each agent sees one module. The charter and the project manager's cross-module role are the defence; they do not remove it.
-- **Documentation ownership relaxed.** The rule that only content-manager edits documents exists so one writer keeps the documents consistent. The fence limits the exception to one module's guide and issue lines, but architecture and API documents then lag. Open question 5.
+- **Documentation ownership relaxed.** The rule that only content-manager edits documents exists so one writer keeps the documents consistent. The fence limits the exception to one module's guide and issue lines, but architecture and API documents then lag until a content writer pass (Thomas, answer 3).
 - **A manifest change slipping through.** The fence reads the manifest key by key. A new manifest key the fence does not know must count as forbidden by default (an allow-list, not a block-list).
 - **One conversation per module.** Fourteen modules means fourteen possible sessions, each with its own context cost; a module not touched for weeks costs nothing.
 - **Merge conflicts.** `tools/module-versions.json` is one file for all modules, and `--update` rewrites every entry, so two module branches conflict, as do two CHANGELOG lines at the same spot. The agent should rebase and re-run the update, and the check should compare that module's entry only. Two agents on one module at once is not allowed.
@@ -152,13 +175,10 @@ Each is a small job.
 
 ## Open questions
 
-1. **Option.** Option 1, 2 or 3? And is a pilot first acceptable?
-2. **Merging.** Thomas merges every module pull request, or may a patch-level one merge by itself once every check is green (never a feature, never a manifest change)?
-3. **Pilot module.** Documents or Whiteboard?
-4. **Charters.** Where do they live (`modules/<id>/CHARTER.md`, which a module agent can read but the fence would forbid it to edit, or in `documentation/`)? And does Thomas write them or approve a planner's draft?
-5. **Architecture and API documents.** Stay forbidden to a module agent (they may lag), or allowed for that module's own architecture document?
-6. **Which manifest keys** may a module agent change: only the list in the fence table, or also `settings` beyond defaults and `labels`?
-7. **Plans.** May a module agent write a plan for a module-only feature, or only update status lines? Decisions stay Thomas's either way.
-8. **Issues.** Must every module change reference a GitHub issue?
-9. **QA.** For a feedback build, who runs the short QA pass, with no project manager in the loop?
-10. **Sessions.** One long-lived session per module, or a fresh one per task?
+1. **CHANGELOG conflicts.** One line per pull request at the top of `[Unreleased]` will conflict. Does the module agent rebase before leaving draft (suggestion), or does the CHANGELOG line move out of the fence?
+2. **Charters.** Where do they live (`modules/<id>/CHARTER.md`, which a module agent can read but the fence would forbid it to edit, or in `documentation/`)? Does Thomas write them or approve a planner's draft?
+3. **Which manifest keys** may a module agent change: only the list in the fence table, or also `settings` beyond defaults and `labels`?
+4. **Plans.** May a module agent write a plan for a module-only feature, or only update status lines? Decisions stay Thomas's either way.
+5. **Issues.** Must every module change reference a GitHub issue?
+6. **QA.** For a feedback build, who runs the short QA pass, with no project manager in the loop?
+7. **Sessions.** One long-lived session per module, or a fresh one per task?
