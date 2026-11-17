@@ -6,7 +6,7 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ### AI: one switch, and it says why it can't answer (2026-11-17)
 
-Written from the code on branch `ai-notice` (head `a3ce9e4e`), read against the diff from `claude/hopeful-cray-4bf2y3`. Checked by tools: `check-ai`, `check-ai-prompts`, `check-ai-page`, `check-chat-page`, all against the stand-in service. Not tried: a real AI provider (none was available), so no real answer was seen.
+Written from the code on branch `ai-notice` (head `a3ce9e4e`), read against the diff from `claude/hopeful-cray-4bf2y3`. The change updates these checks, which run against the stand-in service: `check-ai`, `check-ai-prompts`, `check-ai-page`, `check-chat-page` (their results are in the builder's and QA's reports, not rerun here). Not tried: a real AI provider (none was available), so no real answer was seen.
 
 #### Fixed
 
