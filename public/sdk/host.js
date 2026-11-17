@@ -3425,8 +3425,9 @@
     // An aside's `origin` is the space it came out of.
     // `onChange(fn)` asks every 5 seconds (`{ every }` in ms to change that) and calls fn(presence) when anything
     // differs, once at the start; it returns a function that stops asking.
+    // `get({ space })` answers `reactions` as that space reads them (its template's additions too), for a space the viewer may enter.
     presence: {
-      get: () => call('presence.get'),
+      get: (o) => call('presence.get', { space: o && o.space }),
       onChange: (fn, o) => {
         let last = '';
         let on = true;
