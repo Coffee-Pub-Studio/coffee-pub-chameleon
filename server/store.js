@@ -1753,11 +1753,16 @@ class Store {
     if (patch.reactions !== undefined) {
       if (!Array.isArray(patch.reactions)) throw new StoreError('reactions is a list of reactions.');
       if (patch.reactions.length > MAX_ENV_REACTIONS) throw new StoreError(`The reaction list holds at most ${MAX_ENV_REACTIONS} reactions.`);
-      s.reactions = ownReactions(patch.reactions);
+      // An empty list is the owner's to send (no reactions); a list of which nothing can be read is a mistake, not that.
+      const reactions = ownReactions(patch.reactions);
+      if (patch.reactions.length && !reactions.length) throw new StoreError('None of those reactions could be read.');
+      s.reactions = reactions;
     }
     if (patch.icons !== undefined) {
       if (!Array.isArray(patch.icons)) throw new StoreError('icons is a list of icons.');
       if (patch.icons.length > MAX_ENV_ICONS) throw new StoreError(`The icon list holds at most ${MAX_ENV_ICONS} icons.`);
+      // A list with nothing that is an icon at all is refused as one; an entry that is one but names no icon is refused by place.
+      if (patch.icons.length && !patch.icons.some((i) => i && typeof i === 'object' && !Array.isArray(i))) throw new StoreError('None of those icons could be read.');
       const blank = patch.icons.findIndex((i) => !i || typeof i !== 'object' || !iconName(i.classes));
       if (blank !== -1) throw new StoreError(`Icon ${blank + 1} names no Font Awesome icon; give its classes, such as fa-solid fa-star.`);
       s.icons = ownIcons(patch.icons);

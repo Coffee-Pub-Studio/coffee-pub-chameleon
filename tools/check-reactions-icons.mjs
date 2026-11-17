@@ -225,6 +225,21 @@ try {
     assert.equal((await saveEdited()).status, 200);
   });
 
+  await test('a list of which nothing can be read is refused, never stored as empty; [] is the owner\'s to send; a mixed reaction list keeps its good entries', async () => {
+    for (const [body, sentence] of [[{ reactions: [null, 1, 'a'] }, 'None of those reactions could be read.'], [{ icons: [null, 1, 'a'] }, 'None of those icons could be read.'], [{ reactions: [{ glyph: '​' }, {}] }, 'None of those reactions could be read.']]) {
+      const r = await call('PATCH', '/api/settings', body);
+      assert.deepEqual([r.status, r.json?.error], [400, sentence], JSON.stringify(body));
+    }
+    assert.deepEqual([(await settings()).ownReactions, (await settings()).ownIcons], [editedReactions, editedIcons], 'nothing refused was saved');
+    const empty = await call('PATCH', '/api/settings', { reactions: [], icons: [] });
+    assert.equal(empty.status, 200, empty.text);
+    assert.deepEqual([empty.json.settings.ownReactions, empty.json.settings.ownIcons], [[], []], 'an empty list is kept');
+    const mixed = await call('PATCH', '/api/settings', { reactions: [null, { id: 'yes', glyph: '✅', label: 'Yes' }, 1, 'a', { id: 'up', glyph: '\u{1F44D}', label: 'Up' }] });
+    assert.equal(mixed.status, 200, mixed.text);
+    assert.deepEqual(mixed.json.settings.ownReactions, [{ id: 'yes', glyph: '✅', label: 'Yes' }, { id: 'up', glyph: '\u{1F44D}', label: 'Up' }], 'the good entries kept, in order');
+    assert.equal((await saveEdited()).status, 200);
+  });
+
   await test('an icon that names no Font Awesome icon is refused', async () => {
     for (const icon of [{ id: 'proto', classes: 'fa-solid' }, { id: 'odd', classes: 'spin evil' }, { id: 'none' }]) {
       const r = await call('PATCH', '/api/settings', { icons: [...editedIcons, icon] });
