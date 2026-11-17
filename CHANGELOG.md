@@ -4,6 +4,24 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### AI: one switch, and it says why it can't answer (2026-11-17)
+
+Written from the code on branch `ai-notice` (head `a3ce9e4e`), read against the diff from `claude/hopeful-cray-4bf2y3`. The change updates these checks, which run against the stand-in service: `check-ai`, `check-ai-prompts`, `check-ai-page`, `check-chat-page` (their results are in the builder's and QA's reports, not rerun here). Not tried: a real AI provider (none was available), so no real answer was seen.
+
+#### Fixed
+
+- **The AI Assistant module's switch is the one AI switch.** Before, the server also needed a stored `enabled` flag that no page could set, and a save made while the host's offer for the chosen managed company was missing set it false for good. AI then answered "AI is not set up here." and nothing in the product could turn it back on. Now `ready()` in `server/ai.js` no longer reads `enabled`: the module on and a usable service is AI on. A stored `enabled` is ignored and dropped when the setting loads, `PUT /api/ai` ignores `enabled` in the body, and `set()` turns nothing off when the host's offer is missing.
+- **AI says which state it is in.** The reason code stays `not-set-up` (routes are the same), but `why` is now one plain sentence: no service chosen; the chosen managed service is no longer offered by the host; the environment's own service has no key; the saved key can't be read. An owner is told where to fix it (**Manage**, then the AI settings); a member is told to ask the owner and is never told about the host.
+- **Chat shows the notice once.** It was shown twice, above the box and at the bottom right, and said "AI is not set up yet." whatever the cause. It now shows the server's sentence, once.
+- **The owner's AI tab has a status line at the top.** `GET /api/ai` and `PUT /api/ai` also return `problem` (the owner's sentence, or `null`) and `status` ("AI is on: Managed OpenAI gpt-4o-mini."); the tab shows the problem in red, or else the status.
+- **The server logs why.** It writes one console line when it answers not set up, at most once a minute for the same condition, with the environment's slug and the state and never a key: `[ai] <slug>: AI is not set up: <state> (...)`.
+
+The cause on one server is not proven. An environment with a valid managed OpenAI offer said "AI is not set up yet."; it answers again, and `GET /api/ai` was not read while it failed. The orphaned flag was reproduced on a throwaway hosted server (a new managed environment answered not set up until `PUT /api/ai {enabled:true}`; clearing the host's key and saving any AI field turned it off for good), and it is removed, but that it caused the failure is not shown. If it fails again, read `GET /api/ai`, the `[ai] <slug>: ...` line and whether the host's AI page was being saved around then.
+
+Known and left: the AI tab draws "Custom" when the chosen managed company is missing from the host's offer, so a Save there replaces the managed choice; one hint in the tab still says setting a service up does not turn the AI on; the log line's once-a-minute limit is shared by the environments of one server; and the Refused count in "AI use this month" counts only questions that reach the server. All four are in [known-issues](documentation/known-issues.md).
+
+Documents: [architecture-ai](documentation/architecture/architecture-ai.md), [api-modules](documentation/api/api-modules.md), [userguide-assistant](documentation/userguides/userguide-assistant.md), [userguide-modules](documentation/userguides/userguide-modules.md), [userguide-chat](documentation/userguides/userguide-chat.md).
+
 ### The environment owns its reactions and icons, and the host console's template editor is tabs (steps 18 to 23 of the templates correction, 2026-11-17)
 
 Written from the code on branch `step22b` (head `d4d6875`), read against the diff from `origin/main`. Checked by tools: `check-reactions-icons`, `check-defaults`, `check-template-lens`, `check-templates`, `check-template-switch`, `check-environment-isolation`, `check-modules`, `check-space-icon`, `check-host-console`, `check-template-pages-b`, `check-admin-load`, and the new `check-reaction-tray` and `check-obs-reactions` (both in the `check` line of `package.json`), as rewritten or added by that work; this entry's author did not run them. Not verified: a real call, reactions over the data channel, keys 1 to 6 in a live call and a real OBS source, because the build container has no LiveKit server. Decisions are Thomas's of 2026-11-16 and 2026-11-17 ([plan-templates-redesign](documentation/plans/plan-templates-redesign.md), decisions 12 and 52).
