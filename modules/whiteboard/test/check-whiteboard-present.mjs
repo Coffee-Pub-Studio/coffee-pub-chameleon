@@ -60,15 +60,23 @@ await test('stale: seen within 35 s is fresh, 35 s or more is stale, never seen 
   assert.equal(L.wbPresentStale(1000, 1000 + 35000), true);
   assert.equal(L.wbPresentStale(NaN, 5), true);
 });
-await test('first read: a record younger than 35 s counts from its age; an old or unknown one gets 12 s to change', () => {
+await test('first read: the age by the server stamp decides; only an unknown age gets 12 s to change', () => {
   assert.equal(L.wbPresentSeenAt(100000, 5000), 95000);
   assert.equal(L.wbPresentSeenAt(100000, -3000), 100000);
-  for (const age of [60000, NaN, undefined]) {
+  const fresh = (age) => !L.wbPresentStale(L.wbPresentSeenAt(100000, age), 100000);
+  assert.equal(fresh(3000), true, 'a few seconds old: followed');
+  assert.equal(fresh(30000), true, '30 s old: followed');
+  assert.equal(fresh(34999), true);
+  assert.equal(fresh(40000), false, '40 s old: not followed');
+  assert.equal(fresh(120000), false, 'minutes old: not followed, no "is presenting"');
+  for (const age of [NaN, undefined]) {
     const seen = L.wbPresentSeenAt(100000, age);
     assert.equal(L.wbPresentStale(seen, 100000 + 11999), false);
     assert.equal(L.wbPresentStale(seen, 100000 + 12000), true);
   }
   assert.equal(L.wbPresentStale(L.wbPresentSeenAt(100000, 30000), 100000 + 5000), true, '30 s old and 5 s later: stale');
+  // a heartbeat every 10 s keeps a live presenter fresh for a person who joins at any moment
+  for (let t = 0; t < 10000; t += 999) assert.equal(fresh(t), true);
 });
 await test('start decision', () => {
   const rec = L.wbCleanPresent(good);

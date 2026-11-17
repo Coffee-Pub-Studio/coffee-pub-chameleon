@@ -47,10 +47,11 @@
     };
   }
 
-  // Seen-time of a record read at load: its age by the server's stamp when that is known and within the limit (then it was
-  // seen that long ago), else it is given one heartbeat period (WB_PRESENT.wait) to change before it is stale.
+  // Seen-time of a record read at load: its age by the server's stamp (the page passes the age by the server's clock, so
+  // another computer's clock does not matter). Known: it was seen that long ago, so an age past the limit is stale at
+  // once and is never followed. Unknown (no stamp): it is given one heartbeat period (WB_PRESENT.wait) to change.
   function wbPresentSeenAt(now, ageMs) {
-    if (Number.isFinite(ageMs) && ageMs <= WB_PRESENT.stale) return now - Math.max(0, ageMs);
+    if (Number.isFinite(ageMs)) return now - Math.max(0, ageMs);
     return now - WB_PRESENT.stale + WB_PRESENT.wait;
   }
   // Stale: no change seen for the limit. (No record seen: stale.)
