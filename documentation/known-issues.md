@@ -99,13 +99,12 @@ Fixed since the last list: `check-catalog` (the catalog is back to four tools, t
 
 Workaround for all of them: none needed to use the product.
 
-## AI: gaps after the notice fix
+## AI: gaps left after the notice fix
 
 The AI has no switch of its own now (the AI Assistant module's switch is the one), and it says which state it is in when it can't answer. What is left:
 
-- **The AI tab draws "Custom" when the chosen managed company is missing from the host's offer.** `showAi` in `public/ai-form.js` shows the source as Custom then, so a **Save** from that view sends `source: 'custom'` and replaces the managed choice. To see it: choose a managed company, remove its key on the host console's **AI** tab, then open the environment's AI tab and save any field. Workaround: do not save from that view; ask the host to offer the company again.
-- **The hint under the setup still says "Setting a service up does not turn the AI on: use the switch above"** (`public/admin.html`). It is true of the module's switch and reads oddly now that the module and a usable service are all the AI needs.
-- **The console line is limited to once a minute per policy object, not per environment.** `createAiPolicy` keeps one memory of the last line, so two environments with different states can hide each other's line inside the minute.
+- **The hint under the setup still says "Setting a service up does not turn the AI on: use the switch above"** (`public/admin.html`, the line under **Setup**). It is true of the module's switch and reads oddly now that the module and a usable service are all the AI needs.
+- **Research says "AI Assistant is not turned on" for every not-set-up case.** `checkAi` in `modules/research/src/research.js` (near line 864) treats `not-set-up` and `module-off` alike, and the line in `research.html` (near line 44) says the module is off. With the module on and no service set up, Research still says so. To see it: turn the AI Assistant on with no service chosen and open Research. This is a module-lane change, left for Thomas to decide.
 - **The Refused count in "AI use this month" counts only questions that reach the server.** A page that already knows AI is unavailable stops the send, so nothing is logged for it. This is by design.
 - **The cause on one server is not proven.** An assistant said "AI is not set up yet." in an environment with a valid managed OpenAI offer; the AI answers again, and `GET /api/ai` was not read while it failed. The orphaned flag that this fix removes was reproduced on a throwaway hosted server (a new managed environment answered not set up until `enabled: true` was sent; clearing the host key and saving any AI field turned it off for good), but that it was the cause is not shown. If it fails again, read three things first: `GET /api/ai` while it fails (`problem`, `status`), the `[ai] <slug>: ...` line in the server's log, and whether the host's AI page was being saved around then.
 
