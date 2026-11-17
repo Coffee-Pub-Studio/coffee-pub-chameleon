@@ -2,11 +2,13 @@
 
 **Audience:** Thomas, deciding whether each bundled module gets its own agent and how far it may go; and, once he decides, the sessions that build the agent definition, the fence check and the charters (server-development for the check, the project manager for the rest).
 
-**Status:** draft 2026-11-17, approved in direction by Thomas the same day (see "Thomas's answers so far"); nothing built, nothing created. It comes from Thomas's idea of 2026-11-17: "I feel like a module should get its own agent and be able to do focused work on that module, talk to me, and then push an update for the module when ready. Our current process seems incredibly slow and nested. Of course they would not be allowed to change core UI and code." The shape below is the project manager's proposal, turned into options. Where this plan says "suggestion", it is a lean, not a decision; the four answers below are the only decisions.
+**Status:** draft 2026-11-17, approved in direction by Thomas the same day (see "Thomas's answers so far"); nothing built, nothing created (the agent and skill drafts are on a branch, not agreed). It comes from Thomas's idea of 2026-11-17: "I feel like a module should get its own agent and be able to do focused work on that module, talk to me, and then push an update for the module when ready. Our current process seems incredibly slow and nested. Of course they would not be allowed to change core UI and code." Thomas then said how he wants to use it: "Hey agent, I was using whiteboard and I think we need to toy with a floating toolbar", and named two worries: "this will be such a formal process I will be back to slow, methodic changes" and "I will not be able to communicate with the agent directly". The agent is shaped by those two. The shape below is the project manager's proposal, turned into options. Where this plan says "suggestion", it is a lean, not a decision; the four answers below are the only decisions.
 
 ## Why
 
 The example of today's cost: flipping Documents' `coediting` default to on (2026-11-17, [plan-documents-coediting](plan-documents-coediting.md) decision 9) took five agent runs: a builder (the manifest and one script), a content writer (guide, architecture, known issues, CHANGELOG), the planner twice (the plan's decision and then its status), and the project manager. The change was one line of data and one line of code, inside `modules/documents/`.
+
+Two concerns of Thomas's give the shape (2026-11-17). **Speed:** "this will be such a formal process I will be back to slow, methodic changes". So the agent has no checklist, no plan and no issue while he is trying things; nothing is formal until he says to ship. **Direct conversation:** "I will not be able to communicate with the agent directly". So it runs as the main session and he talks to it in his own words, like a colleague, and the module agent is not another hop behind the project manager.
 
 ## How it works today, and where the time goes
 
@@ -20,9 +22,9 @@ The example of today's cost: flipping Documents' `coediting` default to on (2026
 
 ### 1. A per-module agent, run as the main session
 
-One agent definition used for every module, started as `/module <id> <task>`, run as the main session so it can ask Thomas directly.
+One agent definition used for every module, started as `/module <what you want, in your own words>` (the module id is optional; the agent takes it from his sentence), run as the main session so it can talk to Thomas directly.
 
-- **Who does what:** the module agent builds, tests, writes the module's own words and opens a draft pull request from its own branch. Thomas answers questions in the same conversation and merges. The project manager is not in the loop for a module-lane change.
+- **Who does what:** the module agent reads the module, answers briefly, tries things on a branch he can see, and changes them as he reacts. Only when he says to ship does it run the checks, bump the patch version and open a draft pull request. Thomas merges. The project manager is not in the loop for a module-lane change.
 - **Allowed to change:** only the paths in the fence below.
 - **Cost:** one new agent file, one skill, one fence check, one charter per module, a pull request workflow. The agent files are Thomas's, so he writes or approves them.
 - **Risks:** it relaxes the rule that only content-manager edits documents, for module paths only; module drift, because each agent knows only its module; one conversation per module; merge conflicts (see Risks).
@@ -111,31 +113,30 @@ The charters would be written by product-planner with Thomas, one at a time, sta
 
 ## Definition of done
 
-A module agent may open a draft pull request only when each of these is true, and a check or a field in the pull request says so:
+There is no checklist while he is trying things. Shipping, which only happens when he says so ("keep it", "ship it", "make it a PR"), means:
 
-1. The code change, with the module version bumped and `node tools/check-module-versions.mjs` printing OK.
-2. `npm run check:module -- <id>` passes, and the module's tests cover the change or the report says why not.
-3. The module's user guide matches (checked by `npm run check:docs` and a read).
-4. A known issue is added or removed if the change touches one.
-5. One CHANGELOG line, with what was verified and how ("verified live", "checked by a tool", "read as code only").
-6. The fence check passes.
-7. A comment on the GitHub issue, if there is one.
+1. The module's checks pass (`npm run check:module -- <id>`), with tests added or changed where they cover the change.
+2. A patch bump, recorded with `node tools/check-module-versions.mjs --update`, which then prints OK. Only this module's entry stays in the diff.
+3. A draft pull request, rebased on `main`, with a three-line description: what changed, how it was checked, what was not.
+4. The guide, a known-issues entry and one CHANGELOG line, only when a user would notice the change or he asks. When the agent skips them it says why in one line.
+5. A comment on the GitHub issue, if there is one.
 
-Checks can enforce 1, 2, 3 and 6; 4, 5 and 7 are on the agent's honesty, and a short pull request checklist makes them visible. Nothing here can verify a real LiveKit call; the pull request says so.
+What protects something holds before the draft opens: the checks pass, the version is bumped, nothing outside the fence changed, and what the agent says about verification is true ("seen live", "checked by a tool", "read as code only" are different claims). Nothing here can verify a real LiveKit call; the pull request says so. There is no pull request checklist. He can also walk away: the branch stays, the agent says where it is in one line, and no pull request is opened.
 
 ## Talking to a module agent
 
-- **Thomas types** `/module <id> <task>` in a session opened in this repository (a skill, like `/manage`). A terminal form, `claude --agent module-agent`, would take the module from the first message.
-- **The agent can ask** him anything, in the conversation: what he meant, which of two behaviours, whether a change belongs in this module or a neighbour. It must ask rather than guess when the charter says "Thomas's".
-- **A session ends** when the draft pull request is open and the agent has reported in a few lines: what changed, what was verified and how, what was not, and any question left. It leaves a branch `module/<id>/<short-name>`, a draft pull request, the issue comment and nothing else; no commit to `main`.
+- **Thomas types** `/module <what you want, in your own words>` in a session opened in this repository, for example "Hey agent, I was using whiteboard and I think we need to toy with a floating toolbar". The module id is optional. The agent works out the module from the sentence and asks in one line only when it cannot.
+- **The first reply** is a few lines: what it understood, what it could try, and at once whether the idea stays inside the module or needs core (naming the core piece: an SDK call, a host contract, a manifest key, a template) and what a module-only version could be. It asks at most two questions, and tries something without waiting for the answer where it can. The fence is told to him early, not met at the end.
+- **The loop:** the agent works on a branch `module/<id>/<short-name>` in small commits, runs the module on a throwaway server, shows him, takes his reaction in conversation and changes it. It shows two or three variants when the choice is taste.
+- **Seeing a change** is limited in a cloud session (see Risks): screenshots, the exact steps to run the branch on his own copy, and a link to the commit.
+- **A session ends** in one of two ways. He says ship, and the agent leaves a draft pull request and a short report (the checks and their result, the new version, the link, what it wrote and what it skipped). Or he drops the idea, and it leaves the branch, one line saying where, and no pull request. Never a commit to `main`.
 - **Merging:** Thomas merges the pilot's pull request. The target is auto-merge of patch-level pull requests once the checks pass (Thomas, answer 4), after the steps listed above exist.
 
 ## How it fits the three kinds of build and the project manager
 
-- **Try build:** the module agent does the same one pass, a patch bump and its own checks, but pushes a branch and a draft pull request instead of working through the manager. The no-QA, no-docs rule would be a choice for each task.
-- **Feedback build:** the module agent, then one short QA pass by the quality-assurance agent called by the project manager, or by Thomas reading the pull request.
-- **Production build:** the full flow, with the project manager. The module agent is one of its builders.
-- **The project manager keeps:** everything in core, every cross-module question, the plans that cover more than one module, release prep, `npm run check`, and the merge routine.
+- **The module agent no longer names a build kind.** It is a conversation that ends in either nothing or a shipped pull request, not a try, feedback or production build. A try build's rules (one pass, a patch bump, no QA) are close to what shipping does; a feedback or production build still goes through the project manager.
+- **Review:** in the module lane there is no independent review (`CLAUDE.md`). Thomas reading the draft pull request and seeing the change himself is the review; if he wants a regression pass he asks the project manager for one.
+- **The project manager keeps:** everything in core, every cross-module question, the plans that cover more than one module, release prep, `npm run check`, and the merge routine. Its instructions get one line saying module agents bypass it.
 
 ## What the build would take, in order
 
@@ -144,15 +145,15 @@ Each is a small job. Nothing is built; `.claude/agents/` and `CLAUDE.md` are Tho
 | Step | Piece | Who builds | Size |
 |---|---|---|---|
 | 1 | The Documents charter (what it is for and not for, its neighbours) | product-planner with Thomas | small |
-| 2 | The module agent definition (one file, takes the module id) in `.claude/agents/` | project manager drafts; Thomas approves | small |
-| 3 | The `/module` skill in `.claude/skills/` | project manager drafts; Thomas approves | small |
+| 2 | The module agent definition (one file; the module comes from his sentence) in `.claude/agents/` | project manager drafts; Thomas approves | small |
+| 3 | The `/module` skill in `.claude/skills/` (takes his words, module id optional) | project manager drafts; Thomas approves | small |
 | 4 | A line in the project manager's instructions saying module agents bypass it for module-lane changes; and the `CLAUDE.md` exception for the ownership rules inside the fence | project manager drafts; Thomas approves | small |
 | 5 | The fence check (`tools/check-module-fence.mjs`: diff against `main`, manifest key by key, allow-list) and its own test | server-development | medium |
 | 6 | The pull request workflow running the fence check and `check:module` for the changed module | server-development | small |
 | 7 | Pilot run on Documents: a draft pull request that Thomas merges | the module agent | one task |
 | 8 | After the pilot: branch protection, auto-merge on, the shared-file rule, the patch-level rule in the check | Thomas (settings); server-development (check) | small |
 
-Steps 1 to 4 let the pilot start with the fence as a reading rule only. Steps 5 and 6 should land before the pilot's pull request is merged, so the pilot also tests them.
+Steps 1 to 4 let the pilot start with the fence as a reading rule only: the agent is told the fence and tells him early, and nothing checks it. The fence check does not exist yet. Steps 5 and 6 should land before the pilot's pull request is merged, so the pilot also tests them.
 
 **Pilot: Documents** (Thomas's answer). It is the case that started this, it declares no `refs`, `actions`, `hooks` or `uploads`, so the fence has the least to guard, and it has the most module tests (about 19 under `modules/documents/test/`). Its `live` key and its dependence on core sync are the one thing to watch. Whiteboard stays the second choice for later.
 
@@ -163,6 +164,8 @@ Steps 1 to 4 let the pilot start with the fence as a reading rule only. Steps 5 
 - **A manifest change slipping through.** The fence reads the manifest key by key. A new manifest key the fence does not know must count as forbidden by default (an allow-list, not a block-list).
 - **One conversation per module.** Fourteen modules means fourteen possible sessions, each with its own context cost; a module not touched for weeks costs nothing.
 - **Merge conflicts.** `tools/module-versions.json` is one file for all modules, and `--update` rewrites every entry, so two module branches conflict, as do two CHANGELOG lines at the same spot. The agent should rebase and re-run the update, and the check should compare that module's entry only. Two agents on one module at once is not allowed.
+- **A push may be refused.** A cloud session is usually given one branch to push to (a name like `claude/...`), and the permission system may refuse a push to `module/<id>/<short-name>`. The agent does not work around it: it pushes to the given branch or leaves the work local, and says so in one line.
+- **He cannot open the agent's server.** A throwaway server in the build container is not reachable from Thomas's browser. Seeing a change means screenshots, the exact steps to run the branch on his own copy (`git fetch`, check out the branch, `npm run dev`, which page to open) and a link to the commit. For a visual experiment that is slower than looking at it. See open question 8.
 - **No independent review in the module lane** (`CLAUDE.md`). With the pull request, Thomas is the review; he reads a diff in one module.
 
 ## Contradictions found in the repository
@@ -180,5 +183,6 @@ Steps 1 to 4 let the pilot start with the fence as a reading rule only. Steps 5 
 3. **Which manifest keys** may a module agent change: only the list in the fence table, or also `settings` beyond defaults and `labels`?
 4. **Plans.** May a module agent write a plan for a module-only feature, or only update status lines? Decisions stay Thomas's either way.
 5. **Issues.** Must every module change reference a GitHub issue?
-6. **QA.** For a feedback build, who runs the short QA pass, with no project manager in the loop?
+6. **QA.** Is Thomas reading the draft pull request and seeing the change enough, or may he ask the project manager for a regression pass when a change is risky?
 7. **Sessions.** One long-lived session per module, or a fresh one per task?
+8. **Seeing a visual experiment.** How does Thomas want to see one in practice: screenshots and steps to run it on his own copy, a preview link if the session offers one, or something else?

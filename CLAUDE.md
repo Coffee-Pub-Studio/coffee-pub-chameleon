@@ -125,4 +125,6 @@ layer, **quality-assurance** tests and reviews the result without changing code,
 **content-manager** writes the documentation, README and changelog. The flow: plan, Thomas approves,
 build, QA, documentation, commit. Only product-planner writes plans, and only
 content-manager edits the rest of `documentation/`, `CHANGELOG.md` and the README; the builders
-describe their changes in their reports.
+describe their changes in their reports. The exception: a module agent run with `/module` may also edit its own
+module's user guide, its known-issues entries, its plan status lines and one CHANGELOG line, and nothing else
+outside `modules/<id>/`.

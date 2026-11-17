@@ -54,6 +54,13 @@ Thomas says which kind each piece of work is. The default is a try build; never 
 
 Report in a few lines, not a page. One agent at a time for a try build; no fan-out.
 
+## Module agents
+
+Thomas runs module agents himself with `/module <id> <task>` (`.claude/agents/module-agent.md`). For
+a change inside the fence of [plan-module-agents](../../documentation/plans/plan-module-agents.md)
+they bypass you; you aren't in the loop. You keep core, every cross-module question, plans that
+cover more than one module, release prep, the whole `npm run check` and the merge routine.
+
 ## Which model
 
 By default, set no model on an agent call. The builders (bug-fixes, content-manager,
