@@ -54,7 +54,7 @@
   let bgImage = null;
   let settings = {};
   let portraitSize = 100; // the conference's portrait size; the participant box uses it too
-  let REACTIONS = {}; // id -> glyph, from the server's reaction list
+  let REACTIONS = new Map(); // id -> glyph, from the reaction list of the space the player is in (a Map: an id such as "toString" is none)
   let displayName = '';
 
   // Whichever space the person is in right now (the Lobby while they are away); the box follows them from space
@@ -125,7 +125,6 @@
     const n = Math.round(Number(p?.pictureScale));
     if (Number.isFinite(n)) portraitSize = Math.max(20, Math.min(100, n));
     applyPortraitSize(portraitSize);
-    REACTIONS = Object.fromEntries((p.reactions || []).map((r) => [r.id, r.glyph]));
     const me = (p.people || []).find((u) => u.key === wanted);
     if (me) {
       displayName = me.name || '';
@@ -149,7 +148,20 @@
       loadImages();
     }
     if (watcher) watcher.follow(playerSpace);
+    loadReactions();
     render();
+  }
+
+  // The reactions of the space the box shows (its template adds some); the Lobby and an aside's origin read as the environment's.
+  let reactionsFor = null;
+  async function loadReactions() {
+    const space = imageSpace === 'lobby' ? '' : imageSpace;
+    if (reactionsFor === space) return;
+    reactionsFor = space;
+    const p = await host.presence.get(space ? { space } : undefined).catch(() => null);
+    if (reactionsFor !== space) return;
+    if (p) REACTIONS = new Map((p.reactions || []).map((r) => [r.id, r.glyph]));
+    else reactionsFor = null; // asked again at the next change
   }
 
   function setImage(el, src) {
@@ -214,7 +226,7 @@
   }
 
   function showReaction(id) {
-    const glyph = REACTIONS[id];
+    const glyph = REACTIONS.get(id);
     if (!glyph || !withReactions) return;
     const el = document.createElement('span');
     el.className = 'reaction';

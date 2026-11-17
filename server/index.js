@@ -5102,7 +5102,12 @@ app.get('/api/presence', async (req, res) => {
     activeSpace: activeSpaceId(byKey),
   });
   if (viewer.key && !viewer.owner) view.spaces = [...view.spaces, ...requestSpacesFor(viewer, store.spaces)];
-  res.json({ ...branding(), ...view, ownerOnline: hasOnlineOwner(byKey) });
+  // `?space=<id>`: the reactions that space reads (the environment's list, then its template's additions), for a reader that
+  // follows one person into their space (the OBS views). Only for a space the viewer may enter (the access key, all);
+  // anything else, and no space, keeps the environment's own list.
+  const asked = typeof req.query.space === 'string' ? store.spaceById(req.query.space) : null;
+  const own = asked && !asked.isLobby && asked.id !== LOBBY && (viewer.all || spaceAccess.mayEnter(viewer, asked)) ? { reactions: store.lookOf(asked.id).reactions } : {};
+  res.json({ ...branding(), ...own, ...view, ownerOnline: hasOnlineOwner(byKey) });
 });
 
 // An admin pulls one or more people who are on the call with them into a new aside. Nobody is moved by the server: the
