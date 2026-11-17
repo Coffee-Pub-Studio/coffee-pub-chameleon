@@ -2,7 +2,7 @@
 
 **Audience:** Thomas decides. If he approves, server-development builds the space record, the routes, the stored last-layout record and the checks, and experience-design builds the Conference view, the owner controls and the menu entry. The stored last-layout record (decision 20) is a core change (`server/`, the stored data format): it is held for an independent read and covered by the full `npm run check`. content-manager documents after.
 
-**Status:** Draft for Thomas, 2026-11-12, by product-planner; updated 2026-11-12 with Thomas's answers to questions 2, 4 and 5 (decisions 12 to 14), to question 1 (decisions 15 to 18, the last about the collapsed call area) on 2026-11-12, to questions 3 and 6 to 12 (decisions 19 to 26) and, on 2026-11-12, to the four open points on the guest fallback, Start call, phones and In the workspace (decisions 27 to 30) and, on 2026-11-13, to the open points on the collapsed rail (decision 31) and, on 2026-11-13, to a correction of decision 28 after trying the call title bar build (decision 32) and, on 2026-11-13, to the two kinds of workspace, the Modules tab of a Fixed Workspace and its schema (decisions 33 to 35, step 12) and, on 2026-11-15, to Thomas's request in #829, Bring Everyone Here (decision 36, step 13, a proposal only beyond the request). Nothing here is decided except the lines marked "Thomas" and the decisions below. As of 2026-11-15, steps 1 to 12 are built and merged (#785, #796, #791, #806, #809, #767, #775, #799, #805; read from `git log origin/main`); step 13, Bring Everyone Here (decision 36), is a proposal and not built. **Decision 13 is replaced in part** by [plan-templates-redesign](plan-templates-redesign.md), built (step 8, #847): a person can no longer hide a Fixed Workspace the owner turned on; renaming and re-icon for oneself stay. From the feedback and from Thomas, in his words:
+**Status:** Draft for Thomas, 2026-11-12, by product-planner; updated 2026-11-12 with Thomas's answers to questions 2, 4 and 5 (decisions 12 to 14), to question 1 (decisions 15 to 18, the last about the collapsed call area) on 2026-11-12, to questions 3 and 6 to 12 (decisions 19 to 26) and, on 2026-11-12, to the four open points on the guest fallback, Start call, phones and In the workspace (decisions 27 to 30) and, on 2026-11-13, to the open points on the collapsed rail (decision 31) and, on 2026-11-13, to a correction of decision 28 after trying the call title bar build (decision 32) and, on 2026-11-13, to the two kinds of workspace, the Modules tab of a Fixed Workspace and its schema (decisions 33 to 35, step 12) and, on 2026-11-15, to Thomas's request in #829, Bring Everyone Here (decision 36, step 13, a proposal only beyond the request). Nothing here is decided except the lines marked "Thomas" and the decisions below. As of 2026-11-15, steps 1 to 12 are built and merged (#785, #796, #791, #806, #809, #767, #775, #799, #805; read from `git log origin/main`); step 13, Bring Everyone Here (decision 36), is a proposal and not built. On 2026-11-17 a draft section, "Draft: shared and personal workspaces", was added from Thomas's words; it is under discussion and nothing in it is decided. **Decision 13 is replaced in part** by [plan-templates-redesign](plan-templates-redesign.md), built (step 8, #847): a person can no longer hide a Fixed Workspace the owner turned on; renaming and re-icon for oneself stay. From the feedback and from Thomas, in his words:
 
 > "we've made conference (video) so secondary, there is no way to have a dedicated call without popping it out."
 
@@ -15,6 +15,72 @@ Thomas also asked for "Map and Places as one" (a separate decision; the Map entr
 The popped-out window bug (module windows never return to where they came from) is a separate bug. It is mentioned only under "Pop-outs".
 
 **What was read.** Read in full or in the parts that matter: `CLAUDE.md`; [plan-layout-views](plan-layout-views.md) (decisions, model, Phase 2), [plan-favorite-layouts](plan-favorite-layouts.md), [plan-one-bar](plan-one-bar.md) (decisions), [plan-optional-conference](plan-optional-conference.md), the head of [plan-call-as-module](plan-call-as-module.md) and of [plan-phone-experience](plan-phone-experience.md) (decision 16); [architecture-navigation](../architecture/architecture-navigation.md) (the layout tabs), [architecture-canvas](../architecture/architecture-canvas.md) (the always-on column, narrow windows, remembered layouts, saved layouts); `documentation/TODO.md` and `known-issues.md` (searched for the call, layouts and pop-outs, not read end to end); in code, `public/opens-with.js` (all), `public/primary-nav.js` (`layoutTabs()`, `tabOverflow()`), `public/canvas.js` (`restore()`), `public/space.js` (`DEFAULT_PREFS`, `popOutCall()`, `setCallPosition()`, `callPlaceItems()`, `layoutMenuItems()`, `systemRowItems()`, `pressLayoutTab()`), `public/composites.js` (head), `server/layouts.js` (system layout parts), `server/index.js` (`systemLayoutsFor()`, the layouts routes), `server/store.js` (`defaultLayout`), `server/destinations.js` (head), `modules/*/module.json` (destination parts). **Not read:** `public/destination.js`, `public/nav-bar.js` beyond a search, `public/module-stream.js` (it is the page's event stream hub, not the call), the call's tile code, `userguide-call.md` beyond a search. Nothing here was run: no server was started and there is no LiveKit.
+
+## Draft: shared and personal workspaces (Thomas, 2026-11-17)
+
+**DRAFT, under discussion. Nothing in this section is decided.** It records a problem Thomas raised on 2026-11-17, the points he wants nailed down, and what the product does today. It does not edit any decision or step below.
+
+### The problem
+
+Thomas's own words, 2026-11-17:
+
+> "there's no way to ensure that everyone is seeing the same thing. One person could be on whiteboard and another person could be in the default workspace, and another person could be in their own personal workspace."
+
+> "if someone changes what's in a workspace, it only changes for them. We have no idea of shared versus personal workspace as far as I know. So we have given the user a ridiculous amount of autonomy and authority to bend the application to what they want it to be, but what will be lost was the cohesion in everyone seeing the same thing"
+
+In plain words: Chameleon is a tool for working together, but each person chooses their own tab and arranges their own Workspace, and nothing tells the others where they are. Thomas says he is in "a change-vortex" and wants to move to outcome-focused design: if you were planning a trip or brainstorming a product, which tools would you expect to see, and how often is a mixed workspace worth more than a single-purpose one (for example a whiteboard alone against a whiteboard next to a document). He has asked colleagues for a call. Who is being asked is not recorded here.
+
+### Thomas's five points (none decided)
+
+1. A workspace tab needs to show who is on it. Not decided.
+2. A moderator can pull everyone to the same tab. Not decided.
+3. There are fixed workspaces provided by the template, defined by the admin for that template. They are locked: all a user can do is resize or reorder the modules in them, not turn anything off or on. Not decided.
+4. There are fixed workspaces created by the moderator. The moderator can configure a workspace and make it available to others. Like the template ones, users cannot change it. Not decided.
+5. Personal workspaces are completely configurable. They are not shown on the main nav today and rely on a "favorite" system. In his words: "Perhaps this does not make sense. Maybe a workspace ALWAYS shows up top? Maybe we add a 'Personal Workspace' tab with a chooser (like we do for spaces)? Also, we need to show these users are in a personal space to others." Not decided.
+
+(Thomas wrote "panes" in point 3; this plan uses "modules", per the Names in `CLAUDE.md`.)
+
+### What exists today
+
+Each line says how it was checked: "read in code" or "read in the guide only".
+
+- **Content in modules is shared by everyone in the space.** Read in the guide only (userguide-spaces.md, the module sections); not traced in code here.
+- **The five Fixed Workspaces** (Calendar, Map, Conference, Whiteboards, Documents) are the same product-wide, and nobody arranges them. Read in the guide (`documentation/userguides/userguide-spaces.md`, line 54, "Fixed Workspaces") and in code (`server/fixed-workspaces.js`, `systemLayoutsFor()` at `server/index.js:6393`; not read line by line).
+- **The Workspace arrangement is each person's own**, remembered per space. Read in the guide (`userguide-spaces.md:321`, `userguide-call.md`, "What opens when you enter"); the server keeps it as the last layout (this plan, decision 20, built in steps 6 and 11).
+- **Shared saved layouts exist.** An owner, the admin or a moderator saves one with "For everyone in this space", up to 10 per space (`server/layouts.js:40`, `shared: 10`). Read in code: `layoutSpaceFor()` at `server/index.js:6360` and `canShare` at line 6367 (owner rights or the space's moderator flag); a guest reads shared layouts only (comment at `server/index.js:6355-6359`). A member or guest can load one. After a member moves things, the guide says a row "Modified" appears and, where the person may not change that layout, "it is only the word, and the layout is left as it was" (`documentation/userguides/userguide-call.md:287`); the page decides this in `mayChangeLayout` at `public/space.js:3317`. So a shared layout is not locked: the member keeps working in a changed copy and can save only their own copy. Read in code and the guide.
+- **Which layouts show in the bar, and which opens first,** is set by an owner, the admin or a moderator for everyone (`userguide-spaces.md:384-385`; decision 22 in this plan). Read in the guide; the `PATCH /api/spaces/:id` rule is quoted in "Bring Everyone Here" below and was read in code for that section.
+- **A guest always gets the owner's "Opens first"**, falling back to the Workspace when that layout is one a guest cannot use (`userguide-spaces.md:319`; decision 27). Read in the guide only. The call guide also says tabs are not shown to a guest (`userguide-call.md:324`).
+- **A template can set only `workspace.opensWith`, `show` and `opensFirst`.** Read in code: `WORKSPACE_KEYS` at `server/templates.js:61`, and the check at line 313 rejects any other key. A template cannot define a workspace. Read in `templates/games.json:199-209` (all three keys), `templates/travel.json:36-41` (`opensWith` only). Not as you might expect: no template has a `layouts` key at all, null or otherwise (searched `templates/*.json`).
+- **"Bring Everyone Here" is a proposal.** Decision 36 (this plan, line 203) records only Thomas's request in #829. The section "Bring Everyone Here" (line 450) says "Nothing here is built", and step 13 (line 557) is not built.
+- **Cursors, a "follow me" view and shared layouts changing for everyone in real time** are listed under "Not in version 1" (this plan, line 596).
+- **Who is here lists the people in a space, not the workspace each is in.** Read in the guide (`userguide-call.md:131-139`: pictures, names, a camera mark for the call, and the list "In this space"). Read in code: `public/space-people.js` has no mention of a layout or workspace.
+- **The Whiteboard has "Present to everyone".** The guide (`documentation/userguides/userguide-whiteboard.md:263`) says people on the board follow the presenter, see the same frame, can only Exit and can Rejoin. Read in code: `modules/whiteboard/src/whiteboard.js:2782-2790` and the Rejoin menu entry at line 2481. How far it goes: it works inside the Whiteboards module, with one presenter record in the module's stored data. It moves what people see on the board. It does not move anyone to the Whiteboards tab, and it does not reach people who are in another workspace.
+- **Documents has co-editing built but off.** Read in code: the module setting `coediting`, default `false` (`modules/documents/module.json:58`), read in `modules/documents/src/documents.js:46-48`. The guide (`userguide-documents.md:86`) and `documentation/known-issues.md:77` say it was read from the code and has module tests, but was not tried by two people at once, nor on Safari, an iPad or a phone. That is the whole of what is known; it has not been tried live here.
+- **The call's position.** Read in code: `"position": "top"` in all five of `templates/games.json`, `learning.json`, `mentoring.json`, `project.json` and `travel.json` (and `default.json`). This plan's "Call position" section says it sits above the chat by default, shows full-size only while a call is on, and can be popped out.
+
+### Thomas's points against today
+
+| His point | Today | What would be new |
+|---|---|---|
+| A tab shows who is on it | Who is here lists people in the space with a call mark; no tab or entry says which workspace a person is in | Knowing each person's current tab, and showing it |
+| A moderator can pull everyone to the same tab | Not built. Decision 36 and step 13 record the request; "Bring Everyone Here" is a proposal. The Whiteboard's "Present to everyone" moves people only inside the board | The pull itself, if Thomas decides it |
+| Template Fixed Workspaces, locked, defined by the admin | Five product-wide Fixed Workspaces; a template can only turn them on, show them and pick the first; a template cannot define one | A template that defines workspaces, and a rule for what "locked" allows |
+| Moderator-made Fixed Workspaces | A moderator can save a shared layout; people who load it can change it and save their own copy | A moderator-made workspace that others cannot change |
+| Personal workspaces, always shown or a "Personal" tab with a chooser | Saved layouts, shown in the bar only if favorited; tabs hold the Workspace, Fixed Workspaces and favorites | A place for personal workspaces on the bar, and a mark for others that someone is in one |
+
+### Open questions (no recommendation yet)
+
+1. What does "locked" mean: resize and reorder only, or also open a module in its own window, float it, or pop it out for a second screen?
+2. Do the five Fixed Workspaces stay product-wide, or become a starting set that a template can use, change or add to? Is Conference one of them, or only a template workspace that includes the call?
+3. Personal workspaces: one per person per space, or several? Does one "Personal" tab with a chooser (like the one for spaces) replace favorites, and give others something to show, such as "Ada is in her own workspace"?
+4. After a pull to a shared tab, can a person step off, and how is that shown?
+5. Guests: today they follow the owner's default and can load shared layouts. What should they see and be pulled to?
+6. Where does a presence mark live: on each tab, beside people in Who is here, or both?
+7. Who may pull everyone? Thomas wrote "a moderator". Do the owner and the admin count?
+8. How does this relate to the call's position and the Conference workspace (the call sits above the chat by template default in all five templates, shows full-size only while a call is on, and can be popped out)?
+9. How often is a mixed workspace wanted against a single-purpose one? Thomas has asked colleagues; the question is open.
+
+This section changes nothing in the Decisions or the steps. Nothing in it is built. Issues are not to be filed until Thomas says.
 
 ## Why
 
