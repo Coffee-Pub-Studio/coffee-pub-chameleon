@@ -144,7 +144,7 @@ async function send(c, url, headers, body, guard, timeoutMs = FETCH_MS) {
   } catch (err) {
     if (!(err instanceof AiNetError)) throw err;
     // Never the key or the prompt. The detail goes to the log; the person gets a sentence.
-    console.warn(`[ai] ${c.provider}/${c.model}: request failed (${err.code}: ${oneLine(err.message, 200)})`);
+    console.warn(`[ai] ${c.provider}/${c.model}: request failed (${err.code}: ${oneLine(withoutKey(err.message, c.key), 200)})`);
     // Given back only when nothing reached the service or the connection failed before it began answering; a timeout or an
     // over-long answer may have been worked on, and billed, so it counts.
     const refund = err.code === 'blocked' || (err.code === 'network' && !err.answered);
@@ -152,10 +152,18 @@ async function send(c, url, headers, body, guard, timeoutMs = FETCH_MS) {
   }
 }
 
+// Provider error text with any part of a key taken out before it is logged: the exact key, an `sk-...` token, and the masked
+// form a provider echoes back ("sk-abc************7890").
+function withoutKey(text, key) {
+  let out = String(text == null ? '' : text);
+  if (key && key.length >= 8) out = out.split(key).join('[key]');
+  return out.replace(/\bsk-[A-Za-z0-9_\-*.]*/g, '[key]').replace(/[A-Za-z0-9_-]{2,}\*{3,}[A-Za-z0-9_-]{2,}/g, '[key]');
+}
+
 function statusError(c, res) {
   let providerMessage = '';
   try { const errJson = JSON.parse(res.text); providerMessage = String(errJson?.error?.message || errJson?.message || ''); } catch { /* not JSON */ }
-  console.warn(`[ai] ${c.provider}/${c.model}: ${res.status}${providerMessage ? ` ${oneLine(providerMessage, 300)}` : ''}`);
+  console.warn(`[ai] ${c.provider}/${c.model}: ${res.status}${providerMessage ? ` ${oneLine(withoutKey(providerMessage, c.key), 300)}` : ''}`);
   return new AiError(
     res.status === 401 || res.status === 403 ? 'The AI Assistant refused the key.'
       : res.status === 429 ? 'The AI Assistant is busy. Try again in a moment.'
@@ -372,7 +380,7 @@ async function listModelsFor({ provider, address, key, workspace }, hosts = HOST
     res = await request(url, { headers, timeoutMs: 15000, maxBytes: MAX_BODY, guard: guarded });
   } catch (err) {
     if (!(err instanceof AiNetError)) throw err;
-    console.warn(`[ai] ${provider}: listing models failed (${err.code}: ${oneLine(err.message, 120)})`);
+    console.warn(`[ai] ${provider}: listing models failed (${err.code}: ${oneLine(withoutKey(err.message, key), 120)})`);
     throw couldNot(err.code === 'toolarge' ? 'The service answered too much.' : provider === 'compatible' ? 'That address could not be reached.' : 'The service could not be reached.');
   }
   if (res.status < 200 || res.status >= 300) throw couldNot(res.status === 401 || res.status === 403 ? 'The service refused the key.' : provider === 'compatible' && res.status === 404 ? 'That address did not list its models (check the address, or type the model name).' : 'The service could not list its models.');

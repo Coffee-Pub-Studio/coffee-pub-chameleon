@@ -169,7 +169,6 @@ function sentences(word, assistant = 'AI Assistant') {
     'not-here': `${assistant} is not one of this ${word('space')}'s ${word('module', { many: true })}.`,
     'not-set-up': 'AI is not set up here.',
     // Why AI is not ready, said to an owner (where to fix it) or to anyone else (whom to ask): see notReadyWhy.
-    'key-unreadable': `The saved AI key can't be read on this server; ${word('owner', { a: true })} needs to enter it again.`,
     allowance: `This ${word('environment')} has used its AI allowance for the month.`,
     limit: 'You have asked the AI too many times in a minute. Try again in a moment.',
     'import-guest': `${word('guest', { many: true, cap: true })} can't bring in ${word('object', { many: true })}.`,
@@ -181,22 +180,33 @@ function sentences(word, assistant = 'AI Assistant') {
 // server's per-environment proxies).
 // The plain sentence for one 'notReady' code (Ai#notReady): an owner is told where to fix it, anyone else whom to ask. A
 // non-owner is told nothing of the host (not which companies it offers).
-function notReadyWhy(code, word, asOwner) {
+function notReadyWhy(code, word, asOwner, here = false) {
   const env = word('environment');
   const ask = `Ask the ${word('owner')}.`;
-  const fix = 'Open Manage, then the AI settings';
+  // An owner is told where to fix it; on the AI settings page itself, which fields below.
+  const fix = (what) => (here ? `${what[0].toUpperCase()}${what.slice(1)} below.` : `Open Manage, then the AI settings, and ${what}.`);
   const line = {
-    'no-service': [`No AI service is chosen for this ${env}. ${fix}, and choose one.`, `No AI service is chosen for this ${env} yet. ${ask}`],
-    'not-offered': [`This ${env} chose an AI service the host does not offer now. ${fix}, and choose another.`, `The AI service this ${env} chose is not available now. ${ask}`],
-    'no-key': [`This ${env}'s own AI service has no key. ${fix}, and enter one.`, `This ${env}'s AI service has no key yet. ${ask}`],
-    'key-unreadable': [`The saved AI key can't be read on this server. ${fix}, and enter it again.`, `The saved AI key can't be read on this server. ${ask}`],
+    'no-service': [`No AI service is chosen for this ${env}. ${fix('choose one')}`, `No AI service is chosen for this ${env} yet. ${ask}`],
+    'not-offered': [`This ${env} chose an AI service the host does not offer now. ${fix('choose another')}`, `The AI service this ${env} chose is not available now. ${ask}`],
+    'no-key': [`This ${env}'s own AI service has no key. ${fix('enter one')}`, `This ${env}'s AI service has no key yet. ${ask}`],
+    'key-unreadable': [`The saved AI key can't be read on this server. ${fix('enter it again')}`, `The saved AI key can't be read on this server. ${ask}`],
   }[code];
   return line ? line[asOwner ? 0 : 1] : '';
 }
 
 function createAiPolicy(deps) {
-  const { store, ai, modules, word, resolveRef, limits, aiCallsRefusal, hasOwnerRights, logLine = () => {} } = deps;
-  let lastLogged = { line: '', at: 0 };
+  const { store, ai, modules, word, resolveRef, limits, aiCallsRefusal, hasOwnerRights, logLine = () => {}, slugOf = () => '' } = deps;
+  // The console line for a not-ready state, once a minute per environment and condition: a short, bounded map.
+  const logged = new Map();
+  const logOnce = (slug, line) => {
+    const now = Date.now();
+    for (const [k, at] of logged) if (now - at > 60000) logged.delete(k);
+    const k = `${slug}|${line}`;
+    if (logged.has(k)) return;
+    if (logged.size >= 500) logged.delete(logged.keys().next().value);
+    logged.set(k, now);
+    logLine(line);
+  };
   const LIMIT_KEY = '#ai'; // one count for all AI together, under a key no module id can take
   // The AI Assistant module as this environment calls it (a module can be renamed).
   const assistantName = () => { try { return modules.displayOf('assistant').name || 'AI Assistant'; } catch { return 'AI Assistant'; } };
@@ -208,9 +218,10 @@ function createAiPolicy(deps) {
     if (!ai.moduleOn()) return refuse(503, 'module-off');
     if (!ai.ready()) {
       const code = ai.notReady();
-      // One console line naming the exact failing condition (never a key), at most once a minute for the same one.
-      const line = `AI is not set up: ${code || 'unknown'}${code === 'not-offered' ? ` (the host offers no ${ai.config.managedProvider || 'service'} now)` : ''}`;
-      if (line !== lastLogged.line || Date.now() - lastLogged.at > 60000) { lastLogged = { line, at: Date.now() }; logLine(line); }
+      // One console line naming the exact failing condition (never a key; only a company from the fixed list), once a minute per
+      // environment and condition.
+      const company = ['openai', 'anthropic', 'compatible'].find((c) => c === ai.config.managedProvider) || 'service';
+      logOnce(slugOf(), `AI is not set up: ${code || 'unknown'}${code === 'not-offered' ? ` (the host offers no ${company} now)` : ''}`);
       return refuse(503, 'not-set-up', notReadyWhy(code, word, asOwner) || undefined);
     }
     if (ai.overCap()) return refuse(429, 'allowance');
@@ -309,9 +320,9 @@ function createAiPolicy(deps) {
     return '';
   }
 
-  return { check, availability, takeTurn, giveBack, sees, admit, secrets, redact: redactText, importRefusal, notReadySentence: (asOwner) => notReadyWhy(ai.notReady(), word, asOwner),
+  return { check, availability, takeTurn, giveBack, sees, admit, secrets, redact: redactText, importRefusal, notReadySentence: (asOwner, here = false) => notReadyWhy(ai.notReady(), word, asOwner, here),
     // What the owner's AI page says at its top when nothing is wrong: the service in use.
-    inUseSentence: () => { const a = ai.view().active; const c = { openai: 'OpenAI', anthropic: 'Anthropic', compatible: 'another service' }[a.provider] || a.provider; return ai.moduleOn() && a.provider !== 'none' ? `AI is on: ${ai.config.source === 'managed' ? 'Managed ' : ''}${c}${a.model ? ' ' + a.model : ''}.` : ''; }, sentences: () => sentences(word, assistantName()), service };
+    inUseSentence: () => { if (ai.notReady()) return ''; const a = ai.view().active; const c = { openai: 'OpenAI', anthropic: 'Anthropic', compatible: 'another service' }[a.provider] || a.provider; return ai.moduleOn() && a.provider !== 'none' ? `AI is on: ${ai.config.source === 'managed' ? 'Managed ' : ''}${c}${a.model ? ' ' + a.model : ''}.` : ''; }, sentences: () => sentences(word, assistantName()), service };
 }
 
 module.exports = {

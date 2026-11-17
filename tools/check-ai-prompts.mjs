@@ -427,7 +427,8 @@ try {
   assert.deepEqual([r.json.reason, r.json.why], ['not-set-up', 'No AI service is chosen for this environment yet. Ask the owner.'], 'no service chosen: a member is told to ask');
   r = await call('GET', A, { cookie: owner });
   assert.equal(r.json.why, 'No AI service is chosen for this environment. Open Manage, then the AI settings, and choose one.');
-  assert.equal((await call('GET', '/api/ai', { cookie: owner })).json.problem, r.json.why, 'the AI settings page says the same, at its top');
+  const top = (await call('GET', '/api/ai', { cookie: owner })).json;
+  assert.deepEqual([top.problem, top.status], ['No AI service is chosen for this environment. Choose one below.', ''], 'the AI settings page says the same state at its top, in words for that page, and no "AI is on" beside it');
 } finally {
   child.kill('SIGTERM');
   await fake.close();
@@ -451,6 +452,38 @@ try {
     assert.ok(owner.why.includes(part) && owner.why.includes('Open Manage, then the AI settings'), `${code}: the owner's sentence says where (${owner.why})`);
     assert.ok(member.why.includes(part) && !/host/.test(member.why) && member.why.endsWith('Ask the owner.') && !member.why.includes('Manage'), `${code}: the member's sentence says whom to ask (${member.why})`);
   }
+  n += 1;
+}
+
+// The not-ready console line: each environment logs its own, once a minute per condition, and alternating two never fills the log.
+{
+  const { createAiPolicy } = require('../server/ai-policy.js');
+  const lines = [];
+  let slug = 'beta';
+  const ai = { moduleOn: () => true, ready: () => false, notReady: () => 'no-service', config: {} };
+  const policy = createAiPolicy({ store: {}, ai, modules: {}, word: (k) => k, limits: {}, aiCallsRefusal: () => null, hasOwnerRights: () => true, logLine: (l) => lines.push(`${slug}: ${l}`), slugOf: () => slug });
+  for (let i = 0; i < 20; i += 1) { slug = i % 2 ? 'gamma' : 'beta'; policy.service(false); }
+  assert.deepEqual(lines, ['beta: AI is not set up: no-service', 'gamma: AI is not set up: no-service'], 'two environments, one line each');
+  // The status line never says "AI is on" beside a problem.
+  const view = (code) => ({ moduleOn: () => true, ready: () => !code, notReady: () => code, config: { source: 'managed' }, view: () => ({ active: { provider: 'openai', model: 'gpt-4o-mini' } }) });
+  for (const code of ['', 'no-service', 'key-unreadable', 'not-offered', 'no-key']) {
+    const p = createAiPolicy({ store: {}, ai: view(code), modules: {}, word: (k) => k, limits: {}, aiCallsRefusal: () => null, hasOwnerRights: () => true });
+    const [problem, status] = [p.notReadySentence(true, true), p.inUseSentence()];
+    assert.ok(!(problem && status), `${code || 'ready'}: a problem and a status together (${problem} / ${status})`);
+    assert.ok(code ? problem && !/Manage/.test(problem) : /^AI is on: Managed OpenAI gpt-4o-mini\.$/.test(status), `${code || 'ready'}: ${problem || status}`);
+  }
+  n += 1;
+}
+// No check asserts an AI setting of its own that is not there any more: the module's switch is the one switch.
+{
+  const dir = path.join(ROOT, 'tools');
+  const bad = [];
+  for (const f of fs.readdirSync(dir).filter((x) => /^check-.*\.mjs$/.test(x))) {
+    fs.readFileSync(path.join(dir, f), 'utf8').split('\n').forEach((line, i) => {
+      if (/(\.ai\.enabled|\bai\.view\(\)\.enabled)/.test(line) && !/undefined|'enabled' in/.test(line)) bad.push(`${f}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(bad, [], 'a check asserts the AI setting\'s own enabled flag');
   n += 1;
 }
 

@@ -216,6 +216,8 @@ class Ai {
     if (this.config.provider === 'anthropic') this.config.address = '';
     // The managed/custom choice, decided once and saved: a brand-new environment (no file at all) starts managed on
     // the first offered company (managed() returns them in offer order), else custom; a file without one is custom.
+    // The chosen company is one of the fixed list or nothing (a restored file may carry anything).
+    if (!MANAGED_PROVIDERS.includes(this.config.managedProvider)) this.config.managedProvider = '';
     if (!SOURCES.includes(this.config.source)) {
       const offers = loaded ? null : this.managed();
       if (offers && offers.length) { this.config.source = 'managed'; this.config.managedProvider = offers[0].provider; }
@@ -406,8 +408,8 @@ class Ai {
   }
 
   // Why AI is not ready, as one code for the sentence that says it (server/ai-policy.js), or '' when it is ready. The first
-  // that is true: 'module-off', 'key-unreadable', 'not-offered' (managed chosen, the host does not offer it now), 'no-service'
-  // (nothing chosen), 'no-key' (a custom company with no key).
+  // that is true: 'module-off', 'not-offered' (managed chosen, the host does not offer it now), 'no-service' (nothing chosen),
+  // 'key-unreadable', 'no-key' (a custom company with no key).
   notReady() {
     if (!this.moduleOn()) return 'module-off';
     const c = this.config;
@@ -416,8 +418,9 @@ class Ai {
       if (!this.managedOffer(c.managedProvider)) return 'not-offered';
     } else {
       const e = this.effective();
-      if (e.keyUnreadable) return 'key-unreadable';
+      // No service chosen is told first: with none chosen, an unreadable old key is not what stops AI.
       if (e.provider === 'none') return 'no-service';
+      if (e.keyUnreadable) return 'key-unreadable';
       if ((e.provider === 'anthropic' || e.provider === 'openai') && !e.key) return 'no-key';
     }
     return '';

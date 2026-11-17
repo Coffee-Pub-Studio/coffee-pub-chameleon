@@ -437,6 +437,13 @@ await test('a non-ok answer: a plain sentence reaches the caller; the service\'s
     failNext = { status: 429, body: { error: { message: 'rate limited' } } };
     await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI Assistant is busy. Try again in a moment.');
 
+    // A provider that echoes part of the key back in its refusal: none of it reaches the log.
+    logs.length = 0;
+    failNext = { status: 401, body: { error: { message: 'Incorrect API key provided: sk-HOSTS************7890. You can find your API key at the dashboard, sk-secret.' } } };
+    await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError);
+    assert.ok(logs.some((l) => /401/.test(l) && /Incorrect API key/.test(l)), 'the refusal is still logged');
+    assert.ok(!logs.some((l) => /sk-|\*\*\*|7890|HOSTS/.test(l)), `no part of a key in the log (${logs.join(' | ')})`);
+
     // A body with nothing useful in it: no crash, just the status.
     failNext = { status: 500, body: {} };
     await assert.rejects(ask(ai, 'ask', items, 'why?'), (e) => e instanceof AiError && e.message === 'The AI Assistant had a problem. Try again in a moment.');

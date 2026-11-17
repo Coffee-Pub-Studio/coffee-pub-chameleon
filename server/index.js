@@ -7728,6 +7728,7 @@ const aiPolicy = createAiPolicy({
   store, ai, modules, word, limits: moduleLimits, hasOwnerRights,
   resolveRef: (...args) => resolveRef(...args),
   aiCallsRefusal: (pending) => aiCallsRefusal(pending),
+  slugOf: () => currentEnvironment().slug || 'default',
   logLine: (line) => console.log(`[ai] ${currentEnvironment().slug || 'default'}: ${line}`),
 });
 // A person's role word in a space, as the AI is told it: owner, moderator (ticked for the space), else their role's.
@@ -10195,7 +10196,7 @@ app.get('/api/destinations/:id', (req, res) => {
 // returns text with any summaries the model wrote (each checked). A module's ask keeps nothing: no question, no answer, no object's text
 // (Chat's own /ai keeps the person's question and answer as private messages). The activity list gets who, which module and task, and
 // how many tokens.
-app.get('/api/ai', requireOwner, (_req, res) => res.json({ ai: ai.view(), usage: ai.usageView(), problem: aiPolicy.notReadySentence(true), status: aiPolicy.inUseSentence() }));
+app.get('/api/ai', requireOwner, (_req, res) => res.json({ ai: ai.view(), usage: ai.usageView(), problem: aiPolicy.notReadySentence(true, true), status: aiPolicy.inUseSentence() }));
 // The AI usage view (plan-ai-integration.md, "Observability"), for owners: this month's tokens and calls by template, person
 // and space, refusals by reason, errors and cut-short answers, and the last 50 call records (never any content).
 app.get('/api/ai/usage', requireOwner, (_req, res) => res.json(ai.usageReport()));
@@ -10243,7 +10244,7 @@ app.put('/api/ai', requireOwner, async (req, res) => {
     await ai.checkAddress(req.body || {});
     const after = ai.set(req.body || {});
     noteActivity('host', `changed the AI setting (${after.provider}${after.keySet && !before.keySet ? ', key set' : ''})`, currentUser(req)?.key, null);
-    res.json({ ai: after, usage: ai.usageView(), problem: aiPolicy.notReadySentence(true), status: aiPolicy.inUseSentence() });
+    res.json({ ai: after, usage: ai.usageView(), problem: aiPolicy.notReadySentence(true, true), status: aiPolicy.inUseSentence() });
   } catch (err) {
     sendAiError(err, res);
   }
