@@ -117,7 +117,12 @@ export function mountAiForm({ get, put, models, source = false, cap = false, usa
     }
   }
 
-  function showAi({ ai, usage: used }) {
+  function showAi({ ai, usage: used, problem = '', status = '' }) {
+    // The state in the server's words, at the top: why AI is not working (an error), or what it is using now.
+    const line = $('ai-problem');
+    line.textContent = problem || status;
+    line.hidden = !line.textContent;
+    line.classList.toggle('error', Boolean(problem));
     aiState = { source: 'custom', managed: { available: false, services: [] }, ...ai };
     aiKeyMode = 'keep';
     aiManual = false;

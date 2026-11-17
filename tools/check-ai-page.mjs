@@ -592,8 +592,8 @@ async function main() {
     unitChecks();
 
     // The AI not set up: the Assistant says so first.
-    const off = await put({ enabled: false, force: true });
-    expect(off.status === 200, `could not turn the AI off (${off.status})`);
+    const off = await put({ provider: 'none' });
+    expect(off.status === 200, `could not take the AI service away (${off.status})`);
     const avail = await (await fetch(`${S.base}/api/spaces/${S.ctx.trip}/ai`, { headers: { cookie: admin } })).json();
     expect(avail.available === false && avail.reason === 'not-set-up', `availability with no AI should say reason "not-set-up" (${JSON.stringify(avail)})`);
     const t2 = await open(workspace);
@@ -603,17 +603,17 @@ async function main() {
       await sleep(800);
       const line = await t2.eval(stateLine);
       const hint = await t2.eval(`document.getElementById('chat-input').placeholder`);
-      expect(/not set up|not turned on/i.test(line), `the Assistant did not say the AI is not set up before typing ("${line}")`);
+      expect(/No AI service is chosen/i.test(line), `the Assistant did not say the AI is not set up before typing ("${line}")`);
       expect(!/Instruct/.test(hint), `the box still invites a question when there is no AI ("${hint}")`);
       const count = seen.length;
       await t2.typeInto('#chat-input', 'anyone there?');
       await t2.key('Enter');
       await sleep(900);
       expect(seen.length === count, 'a question was sent with no AI set up');
-      expect(/not set up|not turned on/i.test(await t2.eval(NOTE)), 'no plain note after asking with no AI');
+      expect((await t2.eval(NOTE)) === '', 'the notice is said once: the line above the box, and no second note beside it after asking with no AI');
       say(`not set up: line "${line}", hint "${hint}"`);
     } finally { await t2.close(); }
-    await put({ enabled: true });
+    await put({ source: 'custom', provider: 'compatible', address: `http://127.0.0.1:${stubPort}/v1`, model: 'stub-model', key: 'sk-test' });
 
     // A guest: not invited, nothing sent.
     const link = await (await fetch(`${S.base}/api/spaces/${S.ctx.trip}/guest-link`, { method: 'POST', headers: { cookie: admin, 'content-type': 'application/json', origin: S.base }, body: '{}' })).json();

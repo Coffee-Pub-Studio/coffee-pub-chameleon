@@ -397,7 +397,7 @@ try {
   assert.deepEqual([r.json.available, r.json.reason, r.json.why], [false, 'module-off', 'AI Assistant is not turned on.'], 'module off: its own reason, for a member');
   r = await ask('sam', 'with the assistant off');
   assert.equal(r.status, 503, 'asking with the assistant off is still a 503');
-  assert.deepEqual([(await call('GET', '/api/ai', { cookie: owner })).json.ai.moduleOn, (await call('GET', '/api/ai', { cookie: owner })).json.ai.enabled], [false, true], 'the saved setting stays');
+  assert.deepEqual([(await call('GET', '/api/ai', { cookie: owner })).json.ai.moduleOn, (await call('GET', '/api/ai', { cookie: owner })).json.ai.provider], [false, 'compatible'], 'the saved setting stays');
   assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: true } })).status, 200);
   assert.equal((await call('GET', A, { cookie: tok.sam })).json.available, true, 'module on again: AI is back, setting as it was');
   assert.equal((await call('PATCH', '/api/modules/assistant', { cookie: owner, body: { enabled: false, force: true } })).status, 200);
@@ -416,12 +416,42 @@ try {
   assert.match(r.json.why, /allowance/);
   r = await ask('sam', 'and again');
   assert.equal(r.status, 429);
-  assert.equal((await call('PUT', '/api/ai', { cookie: owner, body: { monthlyTokens: 0, enabled: false, force: true } })).status, 200);
+  assert.equal((await call('PUT', '/api/ai', { cookie: owner, body: { monthlyTokens: 0 } })).status, 200);
+  // A service chosen and the module on is AI on: the module's own switch is the one switch (there is no second one to lose).
   r = await call('GET', A, { cookie: tok.sam });
-  assert.deepEqual([r.json.reason, r.json.why], ['not-set-up', 'AI is not set up here.'], 'module on, no provider or key: not-set-up, a member reads it');
+  assert.equal(r.json.available, true, 'a service chosen and the module on: AI is there');
+  assert.match((await call('GET', '/api/ai', { cookie: owner })).json.status, /^AI is on: another service /, 'the AI settings page says what is in use');
+  // No service chosen: a plain sentence, a member told whom to ask, an owner where to fix it.
+  assert.equal((await call('PUT', '/api/ai', { cookie: owner, body: { provider: 'none' } })).status, 200);
+  r = await call('GET', A, { cookie: tok.sam });
+  assert.deepEqual([r.json.reason, r.json.why], ['not-set-up', 'No AI service is chosen for this environment yet. Ask the owner.'], 'no service chosen: a member is told to ask');
+  r = await call('GET', A, { cookie: owner });
+  assert.equal(r.json.why, 'No AI service is chosen for this environment. Open Manage, then the AI settings, and choose one.');
+  assert.equal((await call('GET', '/api/ai', { cookie: owner })).json.problem, r.json.why, 'the AI settings page says the same, at its top');
 } finally {
   child.kill('SIGTERM');
   await fake.close();
+}
+
+// Each state AI is not ready in says its own sentence (server/ai-policy.js): an owner is told where to fix it, anyone else whom
+// to ask, and a member is told nothing of the host.
+{
+  const { createAiPolicy } = require('../server/ai-policy.js');
+  const states = { 'no-service': 'No AI service is chosen', 'not-offered': 'AI service', 'no-key': "AI service has no key", 'key-unreadable': "saved AI key can't be read" };
+  const w = (k) => ({ environment: 'environment', owner: 'owner' }[k] || k);
+  for (const [code, part] of Object.entries(states)) {
+    const lines = [];
+    const ai = { moduleOn: () => true, ready: () => false, notReady: () => code, config: {} };
+    const policy = createAiPolicy({ store: {}, ai, modules: {}, word: w, limits: {}, aiCallsRefusal: () => null, hasOwnerRights: () => true, logLine: (l) => lines.push(l) });
+    const owner = policy.service(true);
+    policy.service(false);
+    assert.deepEqual(lines, [`AI is not set up: ${code}${code === 'not-offered' ? ' (the host offers no service now)' : ''}`], `${code}: one console line names it, once`);
+    const member = policy.service(false);
+    assert.equal(owner.reason, 'not-set-up');
+    assert.ok(owner.why.includes(part) && owner.why.includes('Open Manage, then the AI settings'), `${code}: the owner's sentence says where (${owner.why})`);
+    assert.ok(member.why.includes(part) && !/host/.test(member.why) && member.why.endsWith('Ask the owner.') && !member.why.includes('Manage'), `${code}: the member's sentence says whom to ask (${member.why})`);
+  }
+  n += 1;
 }
 
 // ai-27: the host console reads the real counter.

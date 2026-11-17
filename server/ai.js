@@ -214,8 +214,6 @@ class Ai {
       else this.config.address = '';
     }
     if (this.config.provider === 'anthropic') this.config.address = '';
-    // A setting saved before there was an enable step, with a service chosen, counts as enabled; nothing else does.
-    if (typeof this.config.enabled !== 'boolean') this.config.enabled = this.config.provider !== 'none';
     // The managed/custom choice, decided once and saved: a brand-new environment (no file at all) starts managed on
     // the first offered company (managed() returns them in offer order), else custom; a file without one is custom.
     if (!SOURCES.includes(this.config.source)) {
@@ -224,10 +222,11 @@ class Ai {
       else this.config.source = 'custom';
       this.saveConfig();
     }
-    if (this.config.source === 'custom' && this.config.provider === 'none') this.config.enabled = false;
     // The setting file never holds a key (it is the module's sealed secret): one that is there, from a hand-made or restored
     // file, is dropped and never used.
     if ('key' in this.config) { delete this.config.key; this.saveConfig(); }
+    // The module's own switch is the one switch for AI: an `enabled` an older file holds is not read and is dropped.
+    if ('enabled' in this.config) { delete this.config.enabled; this.saveConfig(); }
     // What AI may see (`sees`): only the keys that clean are kept; absent means the defaults (server/ai-policy.js).
     this.config.sees = readSees(this.config.sees);
     this.timer = null;
@@ -263,7 +262,7 @@ class Ai {
   // The key and the setting of the module are gone (it was removed with its data): nothing stays in memory or on disk.
   forget() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
-    this.config = { source: 'custom', managedProvider: '', provider: 'none', address: '', model: '', workspace: '', monthlyTokens: 0, enabled: false, sees: readSees(undefined) };
+    this.config = { source: 'custom', managedProvider: '', provider: 'none', address: '', model: '', workspace: '', monthlyTokens: 0, sees: readSees(undefined) };
     this.usage = emptyUsage();
     this.reserved = 0;
     this.gone = true; // nothing writes a file again until set() is next called
@@ -297,10 +296,8 @@ class Ai {
     return { provider: config.provider, address: config.address, model: config.model, key, workspace: config.workspace || '', ...(unreadable ? { keyUnreadable: true } : {}) };
   }
 
-  // Whether a config names an active, key-ready service -- same as ready() minus the enabled flag itself,
-  // since set() needs to know this about a candidate config before deciding what its own enabled should
-  // become (see set()'s own comment: a source/company/provider change only turns AI off when the result
-  // would not be ready, not on every change).
+  // Whether a config names an active, key-ready service -- same as ready() minus the module being on,
+  // since set() needs to know this about a candidate config.
   hasActiveService(config = this.config, keyInfo = null) {
     const c = this.effective(config, keyInfo);
     if (c.provider === 'none') return false;
@@ -339,7 +336,6 @@ class Ai {
       keySet: !!saved, // a saved key this server can't read counts as none: it has to be entered again
       keyUnreadable: unreadable,
       keyProblem: unreadable ? KEY_UNREADABLE : null, // one plain sentence for the AI settings to show, or null
-      enabled: c.enabled,
       moduleOn: Boolean(this.moduleOn()), // false: the AI Assistant module is not installed or is off, so AI is not turned on
       // What AI may see, the environment's choice (server/ai-policy.js): every key, the defaults where none is saved.
       sees: { ...SEES_DEFAULTS, ...readSees(c.sees) },
@@ -353,10 +349,6 @@ class Ai {
   set(patch) {
     const p = patch || {};
     const next = { ...this.config };
-    // Whether this patch changes source, company or provider at all -- used below to decide what happens to
-    // `enabled`, not to force it off on the spot the way this used to (the author's testing: switching between
-    // two already-working services, Managed Anthropic to Managed OpenAI say, should not need re-enabling).
-    const sourceOrProviderChanged = (p.source !== undefined && p.source !== next.source) || (p.managedProvider !== undefined && p.managedProvider !== next.managedProvider) || (p.provider !== undefined && p.provider !== next.provider);
     if (p.source !== undefined) {
       if (!SOURCES.includes(p.source)) throw new AiError('source must be "managed" or "custom"');
       next.source = p.source;
@@ -377,7 +369,6 @@ class Ai {
     const newKey = fields.key;
     delete fields.key;
     Object.assign(next, fields);
-    const candidateKey = newKey === UNREADABLE_KEY ? { key: '', unreadable: true } : { key: newKey, unreadable: false };
     // What AI may see: the keys sent replace those saved; null goes back to the defaults. A bad key or value is a 400.
     if (p.sees !== undefined) {
       if (p.sees === null) next.sees = {};
@@ -390,18 +381,6 @@ class Ai {
       if (!Number.isFinite(n) || n < 0 || n > 1e10) throw new AiError('the monthly limit must be a number of tokens, 0 for none');
       next.monthlyTokens = Math.floor(n);
     }
-    // A source/company/provider change keeps `enabled` as it was whenever the result is ready to answer with
-    // (a managed company the host offers, or a custom provider with its key); it only turns `enabled` off when
-    // the result is not ready (provider none, an unoffered managed company, a keyless custom provider).
-    // "Setting a service up does not turn AI on" still holds: an environment that has never enabled stays off.
-    if (sourceOrProviderChanged && !this.hasActiveService(next, candidateKey)) next.enabled = false;
-    if (p.enabled !== undefined) {
-      if (p.enabled === true && !this.config.enabled && this.effective(next, candidateKey).keyUnreadable) throw new AiError(KEY_UNREADABLE); // turning on with a key it can't use
-      if (p.enabled === true && !this.hasActiveService(next, candidateKey)) throw new AiError('choose a service and save it before enabling AI');
-      next.enabled = p.enabled === true;
-    }
-    if (next.source === 'custom' && next.provider === 'none') next.enabled = false;
-    if (next.source === 'managed' && !(this.managed() || []).some((o) => o.provider === next.managedProvider)) next.enabled = false;
     this.gone = false;
     this.commitKey(newKey);
     this.config = next;
@@ -420,36 +399,28 @@ class Ai {
     }
   }
 
-  // Whether a patch, if applied, would leave AI enabled: for a caller that needs to know before committing to it. Mirrors set()'s own enabled rules without changing anything -- built the
-  // same way, over a candidate config, rather than duplicating the rule by hand; applyAiFields may throw on a bad patch, which
-  // previews as "would not end up ready" here rather than raising, since set() itself is what actually refuses it.
-  previewEnabled(patch) {
-    const p = patch || {};
-    const next = { ...this.config };
-    const sourceOrProviderChanged = (p.source !== undefined && p.source !== next.source) || (p.managedProvider !== undefined && p.managedProvider !== next.managedProvider) || (p.provider !== undefined && p.provider !== next.provider);
-    if (p.source !== undefined && SOURCES.includes(p.source)) next.source = p.source;
-    if (p.managedProvider !== undefined && MANAGED_PROVIDERS.includes(p.managedProvider)) next.managedProvider = p.managedProvider;
-    let candidateKey;
-    try {
-      const fields = applyAiFields({ ...next, key: this.keyForPatch() }, p);
-      candidateKey = fields.key === UNREADABLE_KEY ? { key: '', unreadable: true } : { key: fields.key, unreadable: false };
-      delete fields.key;
-      Object.assign(next, fields);
-    } catch {
-      // A patch set() would actually refuse (openai with no key, say) never saves at all -- conservatively
-      // not ready, rather than judging readiness by whatever the untouched, pre-patch fields still say.
-      return false;
-    }
-    if (sourceOrProviderChanged && !this.hasActiveService(next, candidateKey)) next.enabled = false;
-    if (p.enabled !== undefined) next.enabled = p.enabled === true;
-    if (!this.hasActiveService(next, candidateKey)) next.enabled = false;
-    return next.enabled;
+  // Ready to answer: the AI Assistant module is installed and on (moduleOn, the one switch for AI), the active source has a
+  // provider chosen, and, for a hosted provider, there is a key.
+  ready() {
+    return this.moduleOn() && this.hasActiveService() && !this.effective().keyUnreadable;
   }
 
-  // Ready to answer: the AI Assistant module is installed and on (moduleOn), the active source has a provider chosen, this
-  // environment has it enabled, and, for a hosted provider, there is a key.
-  ready() {
-    return this.moduleOn() && this.config.enabled && this.hasActiveService() && !this.effective().keyUnreadable;
+  // Why AI is not ready, as one code for the sentence that says it (server/ai-policy.js), or '' when it is ready. The first
+  // that is true: 'module-off', 'key-unreadable', 'not-offered' (managed chosen, the host does not offer it now), 'no-service'
+  // (nothing chosen), 'no-key' (a custom company with no key).
+  notReady() {
+    if (!this.moduleOn()) return 'module-off';
+    const c = this.config;
+    if (c.source === 'managed') {
+      if (!c.managedProvider) return 'no-service';
+      if (!this.managedOffer(c.managedProvider)) return 'not-offered';
+    } else {
+      const e = this.effective();
+      if (e.keyUnreadable) return 'key-unreadable';
+      if (e.provider === 'none') return 'no-service';
+      if ((e.provider === 'anthropic' || e.provider === 'openai') && !e.key) return 'no-key';
+    }
+    return '';
   }
 
   // This month's usage: tokens and calls, and tokens by task, by template version, by person and by space.
@@ -603,7 +574,7 @@ class Ai {
     const base = { purpose: use.purpose, environment: use.environment, space: use.space, person: use.person, template: name, sent: use.counts, ...(toolbox ? { tools: toolsWanted ? 'on' : 'off' } : {}) };
     // Refused before anything is sent: the turn is given back.
     const refused = (err, reason) => { this.log({ ...base, outcome: 'refused', reason }); return err; };
-    if (this.config.enabled && this.effective().keyUnreadable) throw refused(new AiError(KEY_UNREADABLE, 503, { refund: true }), 'not-set-up');
+    if (this.moduleOn() && this.effective().keyUnreadable) throw refused(new AiError(KEY_UNREADABLE, 503, { refund: true }), 'not-set-up');
     if (!this.ready()) throw refused(new AiError('AI is not set up here.', 503, { refund: true }), 'not-set-up');
     if (this.overCap()) throw refused(new AiError(OVER_CAP, 429, { refund: true }), 'allowance');
     const c = this.effective();

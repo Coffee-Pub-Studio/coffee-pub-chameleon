@@ -168,6 +168,7 @@ function sentences(word, assistant = 'AI Assistant') {
     'module-off': `${assistant} is not turned on.`,
     'not-here': `${assistant} is not one of this ${word('space')}'s ${word('module', { many: true })}.`,
     'not-set-up': 'AI is not set up here.',
+    // Why AI is not ready, said to an owner (where to fix it) or to anyone else (whom to ask): see notReadyWhy.
     'key-unreadable': `The saved AI key can't be read on this server; ${word('owner', { a: true })} needs to enter it again.`,
     allowance: `This ${word('environment')} has used its AI allowance for the month.`,
     limit: 'You have asked the AI too many times in a minute. Try again in a moment.',
@@ -178,21 +179,39 @@ function sentences(word, assistant = 'AI Assistant') {
 // --- The policy, per server ------------------------------------------------------------------------------------------------
 // deps: { store, ai, modules, word, resolveRef, limits, aiCallsRefusal, hasOwnerRights }. Each is read at call time (the
 // server's per-environment proxies).
+// The plain sentence for one 'notReady' code (Ai#notReady): an owner is told where to fix it, anyone else whom to ask. A
+// non-owner is told nothing of the host (not which companies it offers).
+function notReadyWhy(code, word, asOwner) {
+  const env = word('environment');
+  const ask = `Ask the ${word('owner')}.`;
+  const fix = 'Open Manage, then the AI settings';
+  const line = {
+    'no-service': [`No AI service is chosen for this ${env}. ${fix}, and choose one.`, `No AI service is chosen for this ${env} yet. ${ask}`],
+    'not-offered': [`This ${env} chose an AI service the host does not offer now. ${fix}, and choose another.`, `The AI service this ${env} chose is not available now. ${ask}`],
+    'no-key': [`This ${env}'s own AI service has no key. ${fix}, and enter one.`, `This ${env}'s AI service has no key yet. ${ask}`],
+    'key-unreadable': [`The saved AI key can't be read on this server. ${fix}, and enter it again.`, `The saved AI key can't be read on this server. ${ask}`],
+  }[code];
+  return line ? line[asOwner ? 0 : 1] : '';
+}
+
 function createAiPolicy(deps) {
-  const { store, ai, modules, word, resolveRef, limits, aiCallsRefusal, hasOwnerRights } = deps;
+  const { store, ai, modules, word, resolveRef, limits, aiCallsRefusal, hasOwnerRights, logLine = () => {} } = deps;
+  let lastLogged = { line: '', at: 0 };
   const LIMIT_KEY = '#ai'; // one count for all AI together, under a key no module id can take
   // The AI Assistant module as this environment calls it (a module can be renamed).
   const assistantName = () => { try { return modules.displayOf('assistant').name || 'AI Assistant'; } catch { return 'AI Assistant'; } };
   const refuse = (status, reason, why) => ({ ok: false, status, reason, why: why || sentences(word, assistantName())[reason] });
 
   // The service itself, whoever asks: { ok } or a refusal (503 not set up or the key unreadable, 429 the allowance).
-  function service() {
+  function service(asOwner = false) {
     // The AI Assistant module off or not installed is its own reason, so a person can be told which.
     if (!ai.moduleOn()) return refuse(503, 'module-off');
     if (!ai.ready()) {
-      const v = ai.view();
-      if (v.keyUnreadable && v.enabled) return refuse(503, 'not-set-up', sentences(word)['key-unreadable']);
-      return refuse(503, 'not-set-up');
+      const code = ai.notReady();
+      // One console line naming the exact failing condition (never a key), at most once a minute for the same one.
+      const line = `AI is not set up: ${code || 'unknown'}${code === 'not-offered' ? ` (the host offers no ${ai.config.managedProvider || 'service'} now)` : ''}`;
+      if (line !== lastLogged.line || Date.now() - lastLogged.at > 60000) { lastLogged = { line, at: Date.now() }; logLine(line); }
+      return refuse(503, 'not-set-up', notReadyWhy(code, word, asOwner) || undefined);
     }
     if (ai.overCap()) return refuse(429, 'allowance');
     const calls = aiCallsRefusal(ai.inFlight());
@@ -223,7 +242,7 @@ function createAiPolicy(deps) {
     // Assistant there, nobody asks the AI there, whatever the environment has on. Asked only once the person is let in, so
     // nothing of a space's template is told to someone who is not.
     if (space && typeof store.moduleOffered === 'function' && !store.moduleOffered(space.id, 'assistant')) return refuse(403, 'not-here');
-    return service();
+    return service(owner);
   }
 
   // What a page shows before anything is asked: { available, why, reason } from the same check.
@@ -290,7 +309,9 @@ function createAiPolicy(deps) {
     return '';
   }
 
-  return { check, availability, takeTurn, giveBack, sees, admit, secrets, redact: redactText, importRefusal, sentences: () => sentences(word, assistantName()), service };
+  return { check, availability, takeTurn, giveBack, sees, admit, secrets, redact: redactText, importRefusal, notReadySentence: (asOwner) => notReadyWhy(ai.notReady(), word, asOwner),
+    // What the owner's AI page says at its top when nothing is wrong: the service in use.
+    inUseSentence: () => { const a = ai.view().active; const c = { openai: 'OpenAI', anthropic: 'Anthropic', compatible: 'another service' }[a.provider] || a.provider; return ai.moduleOn() && a.provider !== 'none' ? `AI is on: ${ai.config.source === 'managed' ? 'Managed ' : ''}${c}${a.model ? ' ' + a.model : ''}.` : ''; }, sentences: () => sentences(word, assistantName()), service };
 }
 
 module.exports = {
