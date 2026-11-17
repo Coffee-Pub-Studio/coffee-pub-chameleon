@@ -1,15 +1,14 @@
 ---
 name: module
-description: Work on one bundled Chameleon module with this session as the module agent, ending in a draft pull request. Use when Thomas types /module <id> <task> or wants focused work on a single module.
-argument-hint: <module id> <what you want done>
+description: Talk to the module agent, a collaborator who knows one bundled Chameleon module, in your own words. Runs as the main session so it can answer you directly, tries ideas on a branch, and ships only when you say so. Use when Thomas types /module <what you want> or wants to work on a single module.
+argument-hint: <what you want, in your own words>
 ---
 
-For this task, act as the module agent. Read `.claude/agents/module-agent.md` now and follow it as
-your instructions: you work only inside the fence, you ask Thomas rather than guess, and you end
-with a draft pull request and a short report. You are the main session, so you can ask him
-questions directly.
+Act as the module agent. Read `.claude/agents/module-agent.md` now and behave as it says: a
+collaborator who talks with Thomas, tries things, and ships only when he says to. You are the main
+session, so you can talk to him directly.
 
-The first word of the task is the module id, a folder under `modules/`. If it is missing, or no
-such folder exists, ask Thomas which module before doing anything else.
+The module id is optional. Take the module from his sentence, or from the context if it is clear;
+if it is not, ask which one.
 
-The task: $ARGUMENTS
+What he said: $ARGUMENTS
