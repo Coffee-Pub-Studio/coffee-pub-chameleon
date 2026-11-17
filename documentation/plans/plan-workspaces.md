@@ -68,17 +68,31 @@ Each line says how it was checked: "read in code" or "read in the guide only".
 | Moderator-made Fixed Workspaces | A moderator can save a shared layout; people who load it can change it and save their own copy | A moderator-made workspace that others cannot change |
 | Personal workspaces, always shown or a "Personal" tab with a chooser | Saved layouts, shown in the bar only if favorited; tabs hold the Workspace, Fixed Workspaces and favorites | A place for personal workspaces on the bar, and a mark for others that someone is in one |
 
+### Thomas's answers so far (2026-11-17)
+
+These are Thomas's answers in a discussion with the project manager, by clickable box and in his own words. They are not yet in this plan's Decisions list, and nothing is built. They stay part of the DRAFT.
+
+1. **What "locked" means.** Thomas chose "resize and reorder panes only" (his word "panes"; this plan says modules). The option he chose also said that opening a module in its own window, or popping it out for a second screen, is allowed, because it adds no new content to the shared layout. That is part of what he chose. He did not comment on it separately.
+2. **The five Fixed Workspaces.** Thomas chose "they become a starting set a template can use, change or add to". A template lists its workspaces. Calendar, Map, Conference, Whiteboards and Documents are the defaults a template can reuse. Conference is just a workspace that includes the call.
+3. **Personal workspaces.** Thomas chose one "Personal" tab with a chooser (like the space chooser) that replaces favorites. Others are shown that a person is in a personal workspace.
+4. **Where presence lives.** Thomas, in his own words, not with a box option: "I was thinking we'd show a little portrait of who was on each tab on the appropriate tabs, so they would see it change." This settles, for the draft, that presence is shown as small portraits on the tabs where people are, updating live. He did not say whether a person can step off after a moderator's pull. The portraits changing implies it, but he was not asked and did not answer, so it stays open (point 4 below).
+
+Thomas's outcome-focused statement still stands and may change any of this. He is asking colleagues what tools a trip or a product brainstorm needs, and how often a mixed workspace is wanted against a single-use one. Those answers are not in yet.
+
 ### Open questions (no recommendation yet)
 
-1. What does "locked" mean: resize and reorder only, or also open a module in its own window, float it, or pop it out for a second screen?
-2. Do the five Fixed Workspaces stay product-wide, or become a starting set that a template can use, change or add to? Is Conference one of them, or only a template workspace that includes the call?
-3. Personal workspaces: one per person per space, or several? Does one "Personal" tab with a chooser (like the one for spaces) replace favorites, and give others something to show, such as "Ada is in her own workspace"?
-4. After a pull to a shared tab, can a person step off, and how is that shown?
-5. Guests: today they follow the owner's default and can load shared layouts. What should they see and be pulled to?
-6. Where does a presence mark live: on each tab, beside people in Who is here, or both?
-7. Who may pull everyone? Thomas wrote "a moderator". Do the owner and the admin count?
-8. How does this relate to the call's position and the Conference workspace (the call sits above the chat by template default in all five templates, shows full-size only while a call is on, and can be popped out)?
+Answered above: what "locked" means, whether the five Fixed Workspaces stay product-wide (including Conference), the shape of personal workspaces, and where presence lives.
+
+1. Guests: today they follow the owner's default and can load shared layouts, and `userguide-call.md:324` says a guest does not see the tabs. Do guests see the tabs and the portraits at all, and what are they pulled to?
+2. Who may pull everyone? Thomas wrote "a moderator". Do the owner and the admin count?
+3. How does this relate to the call's position (above the chat by template default in all five templates, full-size only while a call is on, can be popped out) now that Conference is a workspace that includes the call?
+4. After a pull to a shared tab, can a person step off, and how is that shown? Implied by the portraits changing; not asked or answered.
+5. How many portraits fit on a tab when many people are on it?
+6. Does a person in the Personal workspace show as a portrait on the Personal tab?
+7. Favorites and saved layouts must be reconciled with a single Personal tab chooser: what a saved personal layout is, how many a person has, and whether a moderator's shared saved layout can become a moderator-created fixed workspace.
+8. What does a template's list of workspaces look like: its stored form, and how many may it hold?
 9. How often is a mixed workspace wanted against a single-purpose one? Thomas has asked colleagues; the question is open.
+10. This changes the core (space, canvas and nav-bar code, and stored layouts), so it needs a plan of its own, and the freeze window (2026-12-11 to 2026-12-18) matters for when it can be built.
 
 This section changes nothing in the Decisions or the steps. Nothing in it is built. Issues are not to be filed until Thomas says.
 
