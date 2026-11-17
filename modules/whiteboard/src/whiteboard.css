@@ -1130,3 +1130,21 @@
 .wb-notes-read { overflow: auto; max-height: 18rem; font-size: var(--text-14); }
 .wb-notes-row { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-2); }
 .wb-notes-count { margin-right: auto; color: var(--text-muted); font-size: var(--text-13); font-variant-numeric: tabular-nums; }
+
+/* The strip's grip (it floats: drag the grip, double-click turns it from a row to a column): a column of dots, the one part of the strip's edge
+   that takes a press. A moved strip is placed by pixels from the page's top left. */
+.wb-paint-grip { pointer-events: auto; flex: none; align-self: stretch; width: 12px; margin-right: var(--space-0); border-radius: var(--radius-small); cursor: grab; touch-action: none; color: var(--text-muted);
+  background: radial-gradient(circle, currentColor 1.2px, transparent 1.6px) center / 6px 6px repeat-y; }
+.wb-paint-grip:hover, .wb-paint-grip:focus-visible { color: var(--text-primary); }
+.wb-paint.wb-dragging, .wb-paint.wb-dragging .wb-paint-grip { cursor: grabbing; }
+.wb-paint.wb-dragging { box-shadow: var(--shadow-3, var(--shadow-2)); }
+
+/* Turned (double-click on the grip): a column. The groups stand on end, the dividers lie flat, the grip is a row of dots across
+   the top; a column taller than the board scrolls. */
+.wb-paint.wb-vertical { flex-direction: column; flex-wrap: nowrap; align-items: stretch; width: max-content; max-width: none; overflow-y: auto; }
+.wb-vertical .wb-paint-group, .wb-vertical .wb-paint-pair, .wb-vertical .wb-kinds { flex-direction: column; align-items: center; }
+.wb-vertical .wb-paint-group > .wb-paint-pair + .wb-paint-pair, .wb-vertical .wb-size-btn + .wb-paint-pair { margin-left: 0; margin-top: var(--space-1); }
+.wb-vertical .wb-paint-sep { align-self: stretch; width: auto; height: 1px; margin: var(--space-1) 0; }
+.wb-vertical .wb-paint-grip { width: auto; height: 12px; margin: 0 0 var(--space-0); background: radial-gradient(circle, currentColor 1.2px, transparent 1.6px) center / 6px 6px repeat-x; }
+.wb-vertical .wb-endcap { margin: 0 auto var(--space-1); }
+@media (max-width: 640px) { .wb-vertical .wb-paint-sep { display: block; } }
