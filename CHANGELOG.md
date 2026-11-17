@@ -4,6 +4,12 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### Documents: writing together is on by default (2026-11-17)
+
+#### Changed
+
+- **Documents: writing together is on by default.** Thomas tried several people typing in one document and it worked, so an owner no longer has to turn it on. An environment that has never set it now opens documents in the shared mode, with no **Edit** or **Done**. An owner can still switch it off in Module Configuration on Documents' card, and an environment that already saved it as off stays off. Documents 0.11.33: the setting `coediting` defaults to true and `dlSyncEnabled` reads an unset value as on and a saved `false` as off. The guide, the architecture document, the known issues and the TODO now say so. Verified: Thomas's own live try; the module's tests, run by a tool. Not verified: the builder did not open a document in two browser contexts, and it has not been tried on Safari, an iPad or a phone.
+
 ### AI: one switch, and it says why it can't answer (2026-11-17)
 
 Written from the code on the session branch (the AI notice change and its second round, `9745eef2`). The change updates these checks, which run against the stand-in service: `check-ai`, `check-ai-prompts`, `check-ai-page`, `check-chat-page`, `check-secrets` (their results are in the builder's and QA's reports, not rerun here). Not tried: a real AI provider (none was available), so no real answer was seen.
