@@ -2,7 +2,7 @@
 
 **Audience:** Thomas, who decides; experience-design (the editor, presence, the document Lock switch); server-development (the live channel's limits, on a held branch); quality-assurance (two real browser pages, the independent safety read); the project manager (the queue); content-manager (the documents once it is built).
 
-**Status:** Decisions recorded, 2026-11-12 (Thomas chose in the option box); the plan is ready to build, starting from the spike. Nothing is built. The request, from Thomas: co-editing is the biggest gap in Documents; today one person edits (the edit lock) and everyone else sees the saved text live; he wants several people typing in one document at once, with the rich editor (ProseMirror) and Yjs, as [plan-documents](plan-documents.md) named it. The decisions are in "Decisions"; the options and leans stay below as the record. Facts are marked **(code)** (read at `1649a84f`, Documents 0.11.11) or **(memory)** (what I recall of a library, to confirm in the spike). Builds on [plan-documents](plan-documents.md), [plan-documents-rich-editor](plan-documents-rich-editor.md), [plan-documents-paper-layout](plan-documents-paper-layout.md) and [plan-module-live](plan-module-live.md).
+**Status:** Decisions recorded, 2026-11-12 (Thomas chose in the option box). Update, 2026-11-17: co-editing is built (Documents 0.11.33 reads as the built version) and Thomas verified it live himself and decided it is **on by default** (decision 9); that replaces the off-by-default rule in step 4 below. The independent safety read (step 7) is not recorded as done here. The text from 2026-11-12 said "Nothing is built"; that no longer holds. The request, from Thomas: co-editing is the biggest gap in Documents; today one person edits (the edit lock) and everyone else sees the saved text live; he wants several people typing in one document at once, with the rich editor (ProseMirror) and Yjs, as [plan-documents](plan-documents.md) named it. The decisions are in "Decisions"; the options and leans stay below as the record. Facts are marked **(code)** (read at `1649a84f`, Documents 0.11.11) or **(memory)** (what I recall of a library, to confirm in the spike). Builds on [plan-documents](plan-documents.md), [plan-documents-rich-editor](plan-documents-rich-editor.md), [plan-documents-paper-layout](plan-documents-paper-layout.md) and [plan-module-live](plan-module-live.md).
 
 ## What it is today
 
@@ -27,6 +27,7 @@ Decided by Thomas, 2026-11-12. Where a section further down still says "Edit", "
 6. **DECIDED: an editors list plus coloured named cursors, as their own build step.** *Reason:* cursors can be cut without cutting editing.
 7. **DECIDED: offline, the page stays editable and merges on return, with a note; changes are kept in memory only.**
 8. **DECIDED: the Yjs state is a snapshot in storage beside the text, rewritten at each save, rebuilt from the text if lost.**
+9. **DECIDED (Thomas, 2026-11-17): co-editing is on by default.** Thomas: "i verified coediting docs works. it should be on by default." He tried it live himself; he did not say with how many people or on what device. This overrides the earlier rule (step 4 and step 8) that the module setting `coediting` starts off and stays off until Thomas has tried it with two real people on Safari and the phone. *Reason:* he has seen it work and does not want to wait for the rest of that list. An owner can still switch it off.
 
 ## Options: the sync model
 
@@ -163,11 +164,11 @@ All steps by the smaller model (Sonnet), one small PR each, a try build unless m
 1. **Spike (M, experience-design, sonnet).** Yjs and ProseMirror in the module's shadow root; two simulated peers over a fake channel with loss, delay and duplicates. Measures the bundle, the snapshot size for a real document and a heavily edited one, and the cost of a remote change on a page-layout pass. Proves: the Markdown round trip from a Yjs-backed document with the corpus tests; untouched blocks exact after two people edit different blocks; the three grid collisions; a malformed update; the licence files of Yjs, `y-prosemirror` and `lib0`. A short report goes to the project manager before step 2.
 2. **The live limit, server half (S, server-development, sonnet, held branch).** The manifest's `live` object accepts `bytes` and `perSecond`, each capped by a new environment variable; `api-modules` text is a content-manager job later. Tests in `check-module-live`. Not needed if the spike chooses frames.
 3. **The vendored bundle (M, experience-design, sonnet).** The rebuilt file, `THIRD-PARTY.md` rows, licences, the hash and the checks. No page change.
-4. **Sync and the snapshot (L, experience-design, sonnet).** The Yjs document bound to the editor, the live topics, session start, the writer rule, merge before write, repair, the large-change path, the last-one-out commit on page close, the Markdown box off while others edit. Behind a setting in the module (off by default) so main keeps working. Verified with two pages.
+4. **Sync and the snapshot (L, experience-design, sonnet).** The Yjs document bound to the editor, the live topics, session start, the writer rule, merge before write, repair, the large-change path, the last-one-out commit on page close, the Markdown box off while others edit. Behind a setting in the module so main keeps working. Planned off by default; since 2026-11-17 it is on by default (decision 9). Verified with two pages.
 5. **Presence (M, experience-design, sonnet).** The editors list, the cap and its read-only note, the cursors and selections.
 6. **Lock replacement (M, experience-design, sonnet).** Remove Edit and Done and the exclusive lock (`documents-lib-c-lock.js`, the lock record and its words, the heartbeat); make the rich editor the one view for editors and the safe reader view for readers; add the per-document Lock switch (`locked` field, banner, Page menu entry); offline and reconnect; the note texts; undo through Yjs.
 7. **The independent safety read (M, quality-assurance).** As above, with bad input in a real browser. Required before step 8.
-8. **On by default (S, production build).** After Thomas has tried it by hand with two real people, and on Safari and the phone. Then content-manager updates the user guide and architecture.
+8. **On by default (S, production build).** Planned: after Thomas has tried it by hand with two real people, and on Safari and the phone. Done early, 2026-11-17, on Thomas's decision after his own live try (decision 9), in commit `f9b11555` (Documents 0.11.33); Safari, iPad and phone are not recorded as tried. Content-manager still updates the user guide and architecture, which say the setting is off.
 
 ## Verify
 
@@ -184,6 +185,11 @@ All steps by the smaller model (Sonnet), one small PR each, a try build unless m
 - **Grids** (above) and a **paste of a very large block** (handled by the pull path, slow on a poor connection).
 - **A held-branch core change** (the live limit, a `bytes` / `perSecond` manifest object) delays step 4 if not read promptly.
 - **Saving on page close is best-effort.** A browser may close a page before the write ends; the snapshot and the periodic autosave are the repair.
+
+## Built differently than planned
+
+- **The default changed after the build (2026-11-17).** The plan said the module setting `coediting` ships off and is switched on only after Thomas has tried it with two real people, on Safari and the phone. Thomas verified it live himself and decided it should be on by default (decision 9). Commit `f9b11555` (Documents 0.11.33) sets `default: true` in `modules/documents/module.json`, and `dlSyncEnabled` in `documents-lib-u-coedit-sync.js` reads an unset value as on. A saved `false` stays off, so an owner who switched it off keeps it off, and an owner can still switch it off.
+- **What was and was not verified.** Thomas tried it live himself (he did not say with how many people or on what device). The module tests pass. The builder did not try two browser contexts for this change. Safari, iPad and phone are not recorded as tried. The independent safety read (step 7) is not recorded as done.
 
 ## Not decided
 
