@@ -5098,7 +5098,7 @@ app.get('/api/presence', async (req, res) => {
     online: byKey,
     present: isPresent,
     describeUser: presenceUser,
-    describeSpace: (r) => (viewer.all || viewer.owner || viewer.guestSpace || spaceAccess.isMember(viewer, r) ? shownSpace(req, r) : spaceAccess.openSpaceView(r)),
+    describeSpace: (r) => ({ ...(viewer.all || viewer.owner || viewer.guestSpace || spaceAccess.isMember(viewer, r) ? shownSpace(req, r) : spaceAccess.openSpaceView(r)), icon: spaceIcon(r) }), // `icon`: the one rule for a space's icon (spaceIcon), for the space switcher
     activeSpace: activeSpaceId(byKey),
   });
   if (viewer.key && !viewer.owner) view.spaces = [...view.spaces, ...requestSpacesFor(viewer, store.spaces)];
@@ -8169,8 +8169,9 @@ function moduleSpacesFor(req, res) {
 // A space's icon: its launch link's when one was chosen, else the template's home icon (a suitcase for trips), else a
 // neutral one. Never a chat bubble: a space is not a conversation.
 const SPACE_ICON = 'folder';
+const spaceIcon = (r) => (r.linkIcon && r.linkIcon !== 'link' ? r.linkIcon : store.templateHomeIcon || SPACE_ICON);
 const spaceSummary = (r) => {
-  const icon = r.linkIcon && r.linkIcon !== 'link' ? r.linkIcon : store.templateHomeIcon || SPACE_ICON;
+  const icon = spaceIcon(r);
   return { id: r.id, name: r.name, icon, svg: iconSvg(icon) };
 };
 

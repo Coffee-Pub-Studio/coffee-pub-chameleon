@@ -618,13 +618,16 @@ const askItem = (r) => (r.request === 'pending'
   : r.answer === 'denied'
     ? { icon: 'hand', label: r.name, hint: 'Declined', tip: r.description || undefined, disabled: true }
     : { icon: 'hand', label: r.name, hint: 'Request access', tip: r.description || undefined, onPick: () => askFromMenu(r.id, 'POST') });
+// The classes for a switcher entry's space icon (the server's `icon`): iconClasses, which draws an icon the list dropped too;
+// only the neutral folder, which no space stores and so is never "in use", is drawn as itself when the list lacks it.
+const entryIcon = (id) => (id === 'folder' && !getIcons().some((i) => i.id === id) ? 'fa-solid fa-folder' : iconClasses(id));
 export async function openSwitcher(trigger) {
   const data = await presenceNow();
   const entries = switcherEntries({ spaces: data?.spaces, users: data?.users, present: presentSpaceNow() });
   const leave = entries.find((e) => e.leave);
   const items = entries.filter((e) => !e.leave).map((e) => (e.join
-    ? { icon: 'user-plus', label: e.name, hint: 'Join', onPick: () => joinFromMenu(e.id) }
-    : { icon: e.here ? 'location-dot' : 'door-open', label: e.name, hint: hereHint(e), onPick: () => pickSpace(e.id) }));
+    ? { icon: entryIcon(e.icon), label: e.name, hint: 'Join', onPick: () => joinFromMenu(e.id) }
+    : { icon: entryIcon(e.icon), label: e.name, hint: hereHint(e), onPick: () => pickSpace(e.id) }));
   items.push(...askRows(data).map(askItem));
   if (!data) items.push({ label: "Couldn't load the list. Try again.", disabled: true });
   if (seesUpdates(account?.role)) items.push(...(items.length ? [{ divider: true }] : []), { icon: 'plus', label: `New ${envWord('space')}`, onPick: newSpace });
@@ -648,7 +651,7 @@ async function refreshMenuSpaces() {
   });
   entries.filter((e) => !e.join).forEach((e, i) => {
     const hint = hereHint(e);
-    nav.register({ id: `menu-space-${e.id}`, bar: 'primary', zone: 'right', group: 'menu-where', order: 3 + Math.min(i, 900), icon: e.here ? 'location-dot' : 'door-open', label: hint ? `${e.name} (${hint})` : e.name, visible: () => onPhone() && account !== null && !pageTabsInBar, onClick: () => pickSpace(e.id) });
+    nav.register({ id: `menu-space-${e.id}`, bar: 'primary', zone: 'right', group: 'menu-where', order: 3 + Math.min(i, 900), icon: entryIcon(e.icon), label: hint ? `${e.name} (${hint})` : e.name, visible: () => onPhone() && account !== null && !pageTabsInBar, onClick: () => pickSpace(e.id) });
   });
 }
 // A pick: the space page enters it or goes back to it (app:enter-space, the space page underneath when this page is
