@@ -534,7 +534,18 @@ function fields() {
     const { name: _n, icon: _i, ...kept } = entries[id] || {};
     modules[id] = { ...(name ? { name } : {}), ...(icon ? { icon } : {}), ...kept };
   }
-  const reactions = [...$('te-reactions').children].map((row) => ({ ...(row.dataset.id ? { id: row.dataset.id } : {}), glyph: row.querySelector('.reaction-glyph').value.trim(), label: row.querySelector('.reaction-label').value.trim() })).filter((r) => r.glyph || r.label);
+  // A saved row keeps its id; a new one gets one from its label (else its emoji, else a random one): 1 to 24 lowercase letters,
+  // digits and dashes, not one this list already has.
+  const rows = [...$('te-reactions').children].map((row) => ({ id: row.dataset.id || '', glyph: row.querySelector('.reaction-glyph').value.trim(), label: row.querySelector('.reaction-label').value.trim() })).filter((r) => r.glyph || r.label);
+  const taken = new Set(rows.map((r) => r.id).filter(Boolean));
+  const slug = (text) => String(text || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24).replace(/-+$/, '');
+  const reactions = rows.map((r) => {
+    if (r.id) return r;
+    let id = slug(r.label) || slug(r.glyph);
+    if (!id || taken.has(id)) id = `r${Math.random().toString(36).slice(2, 8)}`;
+    taken.add(id);
+    return { ...r, id };
+  });
   const iconSet = iconSetNames();
   const opensWith = readOpens();
   const show = [...$('te-show').querySelectorAll('[data-show]:checked')].map((b) => b.dataset.show);
@@ -611,6 +622,8 @@ $('template-editor').addEventListener('submit', async (e) => {
     await reload();
     location.hash = 'templates';
     say($('templates-status'), `Saved ${template.name}, version ${template.version}.`);
+    // The editor goes away with the hash change, a moment later: focus goes to the saved template's link in the list, once it shows.
+    for (let n = 0; n < 40 && !$('template-editor-view').hidden; n += 1) await new Promise((r) => setTimeout(r, 25));
     $('template-list').querySelector(`[data-id="${CSS.escape(template.id)}"] a`)?.focus();
   } catch (err) {
     const parts = showProblems(err.problems || [err.message]);

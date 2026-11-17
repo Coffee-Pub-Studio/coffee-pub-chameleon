@@ -3,7 +3,7 @@ import { pickBackground } from '/background-picker.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
-import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
+import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, markAllDups, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
 import { addSpaceFlow, moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
@@ -2554,6 +2554,7 @@ async function drawTplPage(kind) {
     try { settings = (await api('GET', '/api/settings')).settings; } catch { /* the page reads without the environment's set */ }
     if (mine !== tplDrawing || tplPart !== kind) return;
     box.innerHTML = additionsHtml(t, { editable, set: settings ? { reactions: settings.ownReactions || [], icons: settings.ownIcons || [] } : null, whose: `the ${word('environment')}` });
+    markAllDups(box);
   } else if (kind === 'modules') {
     await loadCatalog();
     if (mine !== tplDrawing || tplPart !== kind) return;

@@ -99,8 +99,11 @@ export function readPhases(root, { editing = true } = {}) {
 // `set`: { reactions: [{ glyph, label }], icons: [{ id, classes, label }] }, the environment's set, shown read only and folded
 // (on the host console, the built-in lists an environment's set starts as). `whose`: who the set is, said by the page in its own
 // words ("the Trip group"; on the console, which has no environment, "an environment").
-const reactionRow = (r) => `<div class="reaction-row tp-reaction" data-tr-id="${e(r.id || '')}"><input class="reaction-glyph" type="text" maxlength="8" value="${e(r.glyph || '')}" placeholder="🙂" aria-label="Emoji"><input class="reaction-label" type="text" maxlength="40" value="${e(r.label && r.label !== r.glyph ? r.label : '')}" placeholder="Label" aria-label="Label"><button class="btn btn-small btn-danger" type="button" data-tr-remove>Remove</button></div>`;
-const iconRow = (name) => `<div class="reaction-row tp-icon" data-ti-row><span class="icon-preview" aria-hidden="true">${name ? iconTag(name) : ''}</span><input class="reaction-label" type="text" data-ti-name maxlength="40" value="${e(name || '')}" placeholder="Font Awesome name, such as dice" aria-label="Icon, a Font Awesome name" autocapitalize="off" spellcheck="false"><button class="btn btn-small btn-danger" type="button" data-ti-remove>Remove</button></div>`;
+// The note for an addition the environment's set already has lives inside its row, so Remove takes it away, and a screen reader
+// hears which row it is (the hidden name in front). It is shown or hidden as the row is typed (markDup, from the list's data).
+const dupSlot = '<p class="hint tp-dropped" data-tp-dropped hidden></p>';
+const reactionRow = (r) => `<div class="reaction-row tp-reaction" data-tr-id="${e(r.id || '')}"><input class="reaction-glyph" type="text" maxlength="8" value="${e(r.glyph || '')}" placeholder="🙂" aria-label="Emoji"><input class="reaction-label" type="text" maxlength="40" value="${e(r.label && r.label !== r.glyph ? r.label : '')}" placeholder="Label" aria-label="Label"><button class="btn btn-small btn-danger" type="button" data-tr-remove>Remove</button>${dupSlot}</div>`;
+const iconRow = (name) => `<div class="reaction-row tp-icon" data-ti-row><span class="icon-preview" aria-hidden="true">${name ? iconTag(name) : ''}</span><input class="reaction-label" type="text" data-ti-name maxlength="40" value="${e(name || '')}" placeholder="Font Awesome name, such as dice" aria-label="Icon, a Font Awesome name" autocapitalize="off" spellcheck="false"><button class="btn btn-small btn-danger" type="button" data-ti-remove>Remove</button>${dupSlot}</div>`;
 const chipsOf = (list, draw) => `<div class="tp-chips">${list.length ? list.map(draw).join('') : '<span class="hint">None</span>'}</div>`;
 export const setReactionChips = (list) => chipsOf(list, (r) => `<span class="tp-chip" title="${e(r.label || '')}">${e(r.glyph)}</span>`);
 export const setIconChips = (list) => chipsOf(list, (i) => `<span class="tp-chip" title="${e(i.label || i.id)}"><i class="${e(i.classes)} fa-fw" aria-hidden="true"></i></span>`);
@@ -118,6 +121,7 @@ export function additionsHtml(t, { editable, set, whose }) {
   const dupNote = `Already in ${whose}'s set, not added again.`;
   const hasR = (r) => Boolean(set) && setReactions.some((x) => x.id === r.id || x.glyph === r.glyph);
   const hasI = (name) => Boolean(set) && setIcons.some((x) => x.id === name);
+  const dupData = (pairs) => (set ? ` data-dup="${e(JSON.stringify(pairs))}" data-dup-note="${e(dupNote)}"` : '');
   const noteLine = (text) => `<p class="hint tp-dropped">${text ? `${e(text)} ` : ''}${e(dupNote)}</p>`;
   const said = `<p class="hint">${e(addedOnTop(whose))}${editable ? ' Up to 40 reactions and 60 icons.' : ''}</p>`;
   const reactionSet = fold(setReactions, setReactionChips(setReactions));
@@ -128,9 +132,31 @@ export function additionsHtml(t, { editable, set, whose }) {
       + `<h4>Icons</h4><p class="hint">${e(addedOnTop(whose))}</p>${chipsOf(icons, (n) => `<span class="tp-chip" title="${e(n)}">${iconTag(n)}</span>`)}${icons.filter(hasI).map((n) => noteLine(n)).join('')}${iconSet}</div>`;
   }
   return `<div class="tf-labels"><h3>This template adds</h3>`
-    + `<h4>Reactions</h4>${said}<div class="reactions-list" data-tr-list>${reactions.map((r) => reactionRow(r) + (hasR(r) ? noteLine('') : '')).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-tr-add>Add a reaction</button></div>${reactionSet}`
-    + `<h4>Icons</h4><p class="hint">${e(addedOnTop(whose))}</p><div class="reactions-list" data-ti-list>${icons.map((n) => iconRow(n) + (hasI(n) ? noteLine('') : '')).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-ti-add>Add an icon</button></div>${iconSet}</div>`;
+    + `<h4>Reactions</h4>${said}<div class="reactions-list" data-tr-list${dupData(setReactions.map((x) => [x.id, x.glyph]))}>${reactions.map(reactionRow).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-tr-add>Add a reaction</button></div>${reactionSet}`
+    + `<h4>Icons</h4><p class="hint">${e(addedOnTop(whose))}</p><div class="reactions-list" data-ti-list${dupData(setIcons.map((x) => [x.id]))}>${icons.map(iconRow).join('')}</div><div class="row"><button class="btn btn-small" type="button" data-ti-add>Add an icon</button></div>${iconSet}</div>`;
 }
+// Show or hide a row's note, and name the row in it. A reaction repeats the set's by id or by emoji; an icon by name.
+export function markDup(row) {
+  const list = row.closest('[data-dup]');
+  const note = row.querySelector('[data-tp-dropped]');
+  if (!list || !note) return;
+  const pairs = JSON.parse(list.dataset.dup);
+  const isReaction = row.classList.contains('tp-reaction');
+  let name;
+  let dup;
+  if (isReaction) {
+    const glyph = row.querySelector('.reaction-glyph').value.trim();
+    const id = row.dataset.trId || '';
+    name = row.querySelector('.reaction-label').value.trim() || glyph;
+    dup = Boolean(glyph) && pairs.some(([i, g]) => g === glyph || (id && i === id));
+  } else {
+    name = row.querySelector('[data-ti-name]').value.trim().replace(/^fa-/, '');
+    dup = Boolean(name) && pairs.some(([i]) => i === name);
+  }
+  note.hidden = !dup;
+  note.innerHTML = dup ? `<span class="visually-hidden">${e(name)}: </span>${e(list.dataset.dupNote)}` : '';
+}
+export function markAllDups(root) { for (const row of root.querySelectorAll('.tp-reaction, [data-ti-row]')) markDup(row); }
 export function readAdditions(root, { editing = true } = {}) {
   const used = new Set();
   const reactions = [...root.querySelectorAll('.tp-reaction')].map((row) => {
@@ -319,6 +345,8 @@ export function wirePages(root) {
     }
   });
   root.addEventListener('input', (ev) => {
+    const addRow = ev.target.closest('.tp-reaction, [data-ti-row]');
+    if (addRow) markDup(addRow);
     if (ev.target.matches('[data-ti-name]')) {
       const preview = ev.target.closest('[data-ti-row]').querySelector('.icon-preview');
       const n = ev.target.value.trim().replace(/^fa-/, '');

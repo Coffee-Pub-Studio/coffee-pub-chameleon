@@ -361,6 +361,22 @@ async function live() {
           const after = (await api('GET', '/api/settings')).json.settings;
           assert.deepEqual(after.ownReactions.map((r) => r.id), idsBefore, 'Save leaves the reactions as they were on the page');
           assert.deepEqual(after.ownIcons.map((i) => i.id), iconIdsBefore, 'Save leaves the icons as they were on the page');
+          // Tabbing through both lists never leaves the focused control under the sticky Save bar.
+          const hidden = await tab.eval(`(async () => {
+            const bar = document.getElementById('lists-save-bar');
+            const bad = [];
+            for (const sel of ['#reactions-list', '#icons-list']) {
+              const els = [...document.querySelectorAll(sel + ' input, ' + sel + ' button')];
+              for (const el of els.filter((_, i) => i % 7 === 0 || i >= els.length - 12)) {
+                el.focus();
+                await new Promise((r) => setTimeout(r, 30));
+                const a = el.getBoundingClientRect(); const b = bar.getBoundingClientRect();
+                if (a.bottom > b.top + 0.5 && a.top < b.bottom) bad.push(sel + ' ' + (el.getAttribute('aria-label') || el.className));
+              }
+            }
+            return bad;
+          })()`);
+          assert.deepEqual(hidden, [], 'a focused control is under the Save bar');
           await shot(tab, `${size}-env-rows`);
         });
         await test(at('A template addition the environment\'s set already has says so'), async () => {
@@ -370,9 +386,17 @@ async function live() {
           await sleep(3000);
           await tab.eval(`location.hash = 'template/hours/reactions'`);
           await sleep(2000);
-          const seen = await tab.eval(`({ n: document.querySelectorAll('#tpl-reactions-box .tp-dropped').length, t: document.querySelector('#tpl-reactions-box').textContent.slice(0, 400), first: (document.querySelector('#tpl-reactions-box .tp-dropped') || {}).textContent })`);
+          const seen = await tab.eval(`({ n: document.querySelectorAll('#tpl-reactions-box .tp-dropped:not([hidden])').length, t: document.querySelector('#tpl-reactions-box').textContent.slice(0, 400), first: (document.querySelector('#tpl-reactions-box .tp-dropped:not([hidden])') || {}).textContent })`);
           assert.equal(seen.n, 2, JSON.stringify(seen));
           assert.match(seen.first, /Already in the environment.s set, not added again\./);
+          // The note is inside its row: it names the row, and Remove takes both away (no orphan note).
+          const inRow = await tab.eval(`(() => { const n = document.querySelector('#tpl-reactions-box .tp-reaction .tp-dropped:not([hidden])'); return { inside: Boolean(n), named: n ? /^.+: Already in/.test(n.textContent) : false, siblings: document.querySelectorAll('#tpl-reactions-box [data-tr-list] > .tp-dropped').length }; })()`);
+          assert.deepEqual(inRow, { inside: true, named: true, siblings: 0 }, JSON.stringify(inRow));
+          const left = await tab.eval(`(() => { document.querySelector('#tpl-reactions-box .tp-reaction .tp-dropped:not([hidden])').closest('.tp-reaction').querySelector('[data-tr-remove]').click(); return document.querySelectorAll('#tpl-reactions-box [data-tr-list] .tp-dropped:not([hidden])').length; })()`);
+          assert.equal(left, 0, 'removing a row with a note leaves no note');
+          // A duplicate typed into a new row says so before saving, and stops saying so when it is changed.
+          const typed = await tab.eval(`(() => { document.querySelector('#tpl-reactions-box [data-tr-add]').click(); const rows = document.querySelectorAll('#tpl-reactions-box .tp-reaction'); const row = rows[rows.length - 1]; const g = row.querySelector('.reaction-glyph'); g.value = '\\u2764\\uFE0F'; g.dispatchEvent(new Event('input', { bubbles: true })); const on = !row.querySelector('.tp-dropped').hidden; g.value = '\\u{1F9FF}'; g.dispatchEvent(new Event('input', { bubbles: true })); return [on, row.querySelector('.tp-dropped').hidden]; })()`);
+          assert.deepEqual(typed, [true, true], 'the note follows what is typed');
           await api('PATCH', '/api/environment/templates/hours', { reactions: [], iconSet: [] });
         });
         await test(at('Modules: marks, words, the starter, Plans; an edit saves'), async () => {

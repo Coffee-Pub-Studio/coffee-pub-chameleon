@@ -514,6 +514,14 @@ try {
       await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent)", 'a save from the Phases tab saves every part');
       await tab.go('#templates/tabs-copy/icons');
       await tab.waitFor(`${tab.visible('#te-part-icons')} && document.getElementById('te-icon-set').value === 'dice compass'`, 'the Icons part was saved from another tab');
+      // Add a reaction in the editor: a new row is sent with an id the server accepts, and after the save the focus is on the saved template's link.
+      await tab.go('#templates/tabs-copy/reactions');
+      await tab.waitFor(tab.visible('#te-part-reactions'), 'the Reactions tab of the copy');
+      await tab.evaluate("{ document.getElementById('te-reaction-add').click(); const row = document.getElementById('te-reactions').lastElementChild; row.querySelector('.reaction-glyph').value = '\\u{1F389}'; row.querySelector('.reaction-label').value = 'Party Time'; }");
+      await tab.evaluate("document.getElementById('te-save').click()");
+      await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent)", 'Add a reaction and Save template is accepted');
+      await tab.waitFor("document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'after a save the focus is on the saved template in the list');
+      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.reactions.map((r) => [r.id, r.glyph, r.label]), [['party-time', '\u{1F389}', 'Party Time']], got.text); }
       { const rm = await call(port, 'DELETE', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.ok(rm.status < 300, rm.text); }
       await tab.go('#templates/travel');
       await tab.waitFor(tab.visible('#te-part-basics'), 'the editor again');

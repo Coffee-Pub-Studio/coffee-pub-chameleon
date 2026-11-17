@@ -4915,10 +4915,16 @@ a.crumb-here:hover {
 }
 
 /* The Environment tab's Reactions and Icons: each list in a fold, its rows compact, the Save bar on screen while editing. */
+.tp-reaction, .tp-icon { flex-wrap: wrap; }
+.tp-dropped { flex: 1 1 100%; margin: 0; }
+.tp-dropped[hidden] { display: none; }
 .tp-fold > summary { font-weight: 600; color: var(--text); }
 .tp-fold .fold-list { max-height: 70vh; overflow-y: auto; margin: 8px 0; padding-right: 4px; }
 .tp-fold .fold-list .reaction-row { padding: 2px 0; }
 .tp-fold .fold-list .reaction-row .btn { min-width: 44px; padding-left: 0; padding-right: 0; justify-content: center; }
+/* A focused row scrolls clear of the sticky Save bar (WCAG 2.4.11): the page and each list keep room for it. */
+html:has(#lists-save-bar) { scroll-padding-bottom: 96px; }
+.tp-fold .fold-list { scroll-padding-bottom: 8px; }
 .save-bar { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; padding: 10px 0; background: var(--surface-panel); border-top: 1px solid var(--border); }
 .save-bar .status:empty { display: none; }
 
