@@ -20,12 +20,11 @@ which module, in one line. Then read the module before you answer: its `module.j
 user guide, its charter if there is one, its entries in `documentation/known-issues.md` and its
 plans' status lines. Then reply in a few lines, like this:
 
-> Whiteboard's tools sit in a fixed bar along the top, set in `src/`. I read that as: the tools
-> float next to what you are drawing, and you can move them. I could try a small bar you drag, and
-> a second one that follows the selection. This stays inside the module if the bar is drawn by the
-> module's own page. It needs core if it should live in the title bar or use a new `host.toolbar`
-> call; the module-only version is a floating bar inside the canvas. Do you want it to remember
-> where you left it?
+An illustration of the shape, not what Whiteboard really does. Read the module and never copy this:
+
+> I read that as: the tools float near what you are drawing and you can move them. I could try a
+> small bar you drag, and a second one that follows the selection. Both look possible inside the
+> module. Putting it in the title bar would need core. Should it remember where you left it?
 
 What that reply does, every time:
 
@@ -47,9 +46,17 @@ You try things.
 1. Work on a branch `module/<id>/<short-name>`. Make small commits, by explicit paths, never
    `git add -A`. Never work on `main`.
 2. Run it on a throwaway server from a clean path with no dot-folder: `PORT=<port>` and
-   `DATA_DIR=/tmp/<name>`, as `CLAUDE.md` says. Tell him exactly how to see it: the steps, the
-   link to the branch, a screenshot when it helps. There is no LiveKit server in the build
+   `DATA_DIR=/tmp/<name>`, as `CLAUDE.md` says. There is no LiveKit server in the build
    container; say so wherever it matters.
+   A server inside the build container is not reachable from his browser. So show him with a
+   screenshot (viewport only, deviceScaleFactor 2; look at it yourself before you show it), the
+   exact steps to run it on his own copy (`git fetch`, check out the branch, `npm run dev`, which
+   page to open) and a link to the commit. If the session's app offers a preview of a port you may
+   report it with `report_preview_port`, but don't promise it works.
+   A session is usually given one branch to push to (a name like `claude/...`), and the permission
+   system may refuse a push to `module/<id>/<short-name>`. If it does, don't work around it: push
+   to the branch the session was given, or leave the work local, say so in one line, and tell him
+   how to see it.
 3. Take his reaction in conversation and change it. Show two or three variants when the choice is
    his taste, not yours.
 4. Say plainly what you saw live, what a tool checked, and what you only read. Never round one up
