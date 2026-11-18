@@ -145,7 +145,7 @@
   function commit(next, save) {
     board.put(next);
     renderer.draw(next);
-    if (cropping === next.id) syncCropper();
+    if (cropping === next.id) syncCropper(); else if (sel.has(next.id)) frameRadius();
     if (save) persist(next, save);
     updateStatus();
   }
@@ -588,7 +588,14 @@
     cropper.appendChild(grip);
   }
   $('world').insertBefore(cropper, $('frame'));
+  // The selection's frame takes a picked picture's corner radius, so it hugs a rounded picture (its outline sits 6 units out).
+  function frameRadius() {
+    const f = sel.size === 1 && one() ? board.get(one()) : null;
+    const r = f && f.type === 'image' && f.radius ? Math.min(f.radius, f.w / 2, f.h / 2) : 0;
+    $('frame').style.borderRadius = r ? `calc(${r}px + 6px / var(--wb-scale, 1))` : '';
+  }
   function syncCropper() {
+    frameRadius();
     if (!cropper) return;
     const one1 = tool.id === 'crop' && !presenting && sel.size === 1 ? board.get([...sel][0]) : null;
     const on = one1 && one1.type === 'image' && !drafts.has(one1.id) ? one1 : null;
@@ -1254,6 +1261,8 @@
   // The strip's first group: the kinds of the active tool when it has them (Pen: pen, marker, brush, highlighter; Shape;
   // Flowchart), a small row of icon buttons, the chosen one pressed, then a thin divider before the colours.
   const KIND_ICONS = { pen: 'pen', marker: 'marker', brush: 'paintbrush', highlight: 'highlighter', rect: 'square', ellipse: 'circle', line: 'minus', arrow: 'arrow-right-long', connector: 'arrows-turn-right', rounded: 'square', diamond: 'diamond', pill: 'capsules', parallelogram: 'arrow-right-arrow-left', crop: 'crop', blur: 'droplet' };
+  // The Shadow button's icon: a Font Awesome Free solid name. Not 'layer-group': that one means layers.
+  const WB_SHADOW_ICON = 'cloud-sun';
   const FAMILY_NAMES = { pen: 'Pen', shape: 'Shape', flowchart: 'Flowchart', picture: 'Picture' };
   const kindsBox = document.createElement('div');
   kindsBox.className = 'wb-kinds';
@@ -1480,6 +1489,8 @@
   let presentButton = null;
   let radiusButton = null;
   let shadowButton = null;
+  let cropButton = null;
+  let blurButton = null;
   let valignBox = null;
   let autoButton = null;
   let tableButton = null;
@@ -1574,10 +1585,17 @@
     radiusButton = pressButton('Corner radius', 'border-top-left', () => radiusMenu({ anchor: radiusButton }));
     radiusButton.removeAttribute('aria-pressed');
     radiusButton.setAttribute('aria-haspopup', 'menu');
-    shadowButton = pressButton('Shadow', 'layer-group', () => shadowMenu({ anchor: shadowButton }));
+    shadowButton = pressButton('Shadow', WB_SHADOW_ICON, () => shadowMenu({ anchor: shadowButton }));
     shadowButton.removeAttribute('aria-pressed');
     shadowButton.setAttribute('aria-haspopup', 'menu');
-    pictureBox.append(radiusButton, shadowButton);
+    // Crop and Blur, from the Select strip: the Picture tool, with the picture still picked (while that tool is on, they are its kinds).
+    cropButton = pressButton('Crop', 'crop', () => setTool('crop', 'picture'));
+    cropButton.removeAttribute('aria-pressed');
+    cropButton.dataset.tip = withKey('Crop', 'X');
+    blurButton = pressButton('Blur', 'droplet', () => setTool('blur', 'picture'));
+    blurButton.removeAttribute('aria-pressed');
+    blurButton.dataset.tip = withKey('Blur', 'J');
+    pictureBox.append(cropButton, blurButton, radiusButton, shadowButton);
     for (const field of ['style', 'head']) {
       const box = pairBox(field === 'style' ? 'Line style' : 'Arrowheads');
       for (const c of LINE_STRIP[field]) {
@@ -1617,7 +1635,7 @@
   }
   // A picture's corner radius and shadow: the picked pictures' (a mark on the one they all have), each choice one save of each.
   const WB_RADII = [{ id: 0, label: 'None' }, { id: 8, label: 'Small' }, { id: 16, label: 'Medium' }, { id: 32, label: 'Large' }, { id: 999, label: 'Full' }];
-  const WB_SHADOWS = [{ id: 'none', label: 'None' }, { id: 'contact', label: 'Contact' }, { id: 'soft', label: 'Drop shadow' }];
+  const WB_SHADOWS = [{ id: 'none', label: 'No shadow' }, { id: 'contact', label: 'Contact shadow' }, { id: 'soft', label: 'Drop shadow' }];
   const picturesPicked = () => targets().filter((b) => b.type === 'image');
   const sameOf = (list, get) => { const v = new Set(list.map(get)); return v.size === 1 ? [...v][0] : undefined; };
   function setPictures(patch) {
@@ -1748,7 +1766,9 @@
     // Only locked blocks picked: nothing of theirs to change, and the strip is not about new blocks then either.
     const lockedOnly = sel.size > 0 && !targets().length;
     if (lockedOnly && !selecting) { paintStrip.hidden = true; return; }
-    selectionBox.hidden = !selecting;
+    // With one picture picked the strip is the picture's, not the selection's (Escape lets go of it).
+    const onePicture = sel.size === 1 && Boolean(one()) && board.get(one()) && board.get(one()).type === 'image';
+    selectionBox.hidden = !selecting || onePicture;
     if (selecting) {
       singleButton.setAttribute('aria-pressed', String(!many));
       manyButton.setAttribute('aria-pressed', String(many));
@@ -1800,11 +1820,13 @@
       const rad = sameOf(pics, (b) => b.radius || 0);
       const sh = sameOf(pics, (b) => b.shadow || 'none');
       const radWords = `Corner radius: ${rad === undefined ? 'Mixed' : (WB_RADII.find((c) => c.id === rad) || { label: `${rad}` }).label}`;
-      const shWords = `Shadow: ${sh === undefined ? 'Mixed' : (WB_SHADOWS.find((c) => c.id === sh) || { label: sh }).label}`;
+      const shWords = sh === undefined ? 'Shadow: Mixed' : (WB_SHADOWS.find((c) => c.id === sh) || { label: sh }).label;
       radiusButton.setAttribute('aria-label', radWords);
       radiusButton.dataset.tip = radWords;
       shadowButton.setAttribute('aria-label', shWords);
       shadowButton.dataset.tip = shWords;
+      cropButton.hidden = family === 'picture';
+      blurButton.hidden = family === 'picture';
     }
     coloursBox.hidden = !any;
     stripDividers();
