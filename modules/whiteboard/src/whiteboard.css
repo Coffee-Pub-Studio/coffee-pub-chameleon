@@ -1203,3 +1203,8 @@
    the shape is, so it shows only outside the border. The colour is the theme's shadow colour; several layers make it darker. */
 .wb-shape-shadow { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .wb-shape-shadow .wb-shadow-body { fill: var(--shadow-color); stroke: none; pointer-events: none; }
+/* A picture with holes: its shadow follows what is shown (a drop-shadow filter takes the masked picture's own outline, holes included)
+   instead of its box, so the shadow falls into a hole and not on the board round a missing corner. The border stays on its outer edge. */
+.wb-type-image[data-shadow][data-holes] { box-shadow: none; }
+.wb-type-image[data-shadow="contact"][data-holes] { filter: drop-shadow(0 1px 0.5px var(--shadow-color)) drop-shadow(0 2px 1px var(--shadow-color)) drop-shadow(0 4px 2px var(--shadow-color)); }
+.wb-type-image[data-shadow="soft"][data-holes] { filter: drop-shadow(0 14px 22px var(--shadow-color)) drop-shadow(0 6px 11px var(--shadow-color)) drop-shadow(0 2px 4px var(--shadow-color)); }

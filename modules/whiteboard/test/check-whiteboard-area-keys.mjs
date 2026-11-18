@@ -58,7 +58,7 @@ try {
   await call('PATCH', '/api/modules/whiteboard', { enabled: true });
   const space = (await call('POST', '/api/spaces', { name: 'Area keys' })).space.id;
   const up = await call('POST', `/api/modules/whiteboard/uploads?scope=space&space=${space}&name=grey.png`, png(200, 120), true);
-  const block = { id: 'p1', type: 'image', x: 60, y: 60, z: 1, w: 400, h: 240, upload: up.file.id, alt: '', stroke: 'none', weight: 2, by: 'x', at: new Date().toISOString() };
+  const block = { id: 'p1', type: 'image', x: 60, y: 60, z: 1, w: 400, h: 240, upload: up.file.id, alt: '', stroke: 'none', weight: 2, shadow: 'soft', by: 'x', at: new Date().toISOString() };
   await call('PUT', `/api/modules/whiteboard/data/${encodeURIComponent('block:main:p1')}?scope=space&space=${space}`, { value: block });
 
   browser = await launch(bin);
@@ -80,7 +80,7 @@ try {
   };
   // As the browser sends them: the key press first, then the copy or the cut.
   const key = (letter, event) => tab.eval(`(() => { const b = ${Q('#board')}; b.focus(); b.dispatchEvent(new KeyboardEvent('keydown', { key: '${letter}', code: 'Key${letter.toUpperCase()}', ctrlKey: true, bubbles: true, cancelable: true })); b.dispatchEvent(new ClipboardEvent('${event}', { bubbles: true, cancelable: true })); return true; })()`);
-  const state = () => tab.eval(`(() => { const b = ${Q('.wb-block[data-id="p1"]')}; return { there: Boolean(b), hole: Boolean(b && b.querySelector('.wb-picture').style.getPropertyValue('mask-image')), blocks: ${Q('#world')}.querySelectorAll('.wb-block').length }; })()`);
+  const state = () => tab.eval(`(() => { const b = ${Q('.wb-block[data-id="p1"]')}; return { there: Boolean(b), hole: Boolean(b && b.querySelector('.wb-picture').style.getPropertyValue('mask-image')), shadowFilter: b ? getComputedStyle(b).filter : '', boxShadow: b ? getComputedStyle(b).boxShadow : '', blocks: ${Q('#world')}.querySelectorAll('.wb-block').length }; })()`);
 
   // Picture tool, the picture picked, then the Select area kind and an area dragged over the middle of it.
   await tab.click('.mf-toolbar button, button', 'Picture');
@@ -100,7 +100,7 @@ try {
   await sleep(900); // past the key's own fallback (150 ms), so a second copy or cut would have run
   let s = await state();
   const clip = await tab.eval('window.__clip');
-  check(s.there && !s.hole && s.blocks === 1, `Ctrl+C leaves the picture as it was (${JSON.stringify(s)})`);
+  check(s.there && !s.hole && /^none$/.test(s.shadowFilter) && s.boxShadow !== 'none' && s.blocks === 1, `Ctrl+C leaves the picture as it was (still a box shadow, no hole) (${JSON.stringify(s)})`);
   check(clip.length === 1 && clip[0].type === 'image/png' && clip[0].w === 100 && clip[0].h === 30, `Ctrl+C puts the area on the clipboard as a picture of 100 by 30 (${JSON.stringify(clip)})`);
 
   await key('x', 'cut');
@@ -108,6 +108,7 @@ try {
   s = await state();
   check(s.there && s.blocks === 1, `Ctrl+X does not remove the picture (${JSON.stringify(s)})`);
   check(s.hole, 'Ctrl+X leaves a hole in the picture');
+  check(/drop-shadow/.test(s.shadowFilter) && s.boxShadow === 'none', `with a hole the picture's shadow follows what is shown (a filter, no box shadow): ${s.shadowFilter.slice(0, 60)} | ${s.boxShadow.slice(0, 30)}`);
   check((await tab.eval('window.__clip')).length === 2, 'Ctrl+X puts the area on the clipboard too');
 
   const errors = await tab.eval('window.__wbErrors');

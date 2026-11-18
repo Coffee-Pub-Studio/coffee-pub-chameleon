@@ -158,6 +158,8 @@
         if (b.alt) el.title = b.alt; else el.removeAttribute('title');
         el.style.borderRadius = b.radius ? `${b.radius}px` : '';
         if (b.shadow) el.dataset.shadow = b.shadow; else delete el.dataset.shadow;
+        // A picture with holes casts its shadow from what is shown (a filter, so a hole is lit like a cut-out); one without, from its box.
+        if (b.cut && b.cut.length) el.dataset.holes = 'true'; else delete el.dataset.holes;
         const ratio = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
         // The picture is placed through its crop: the whole picture is drawn 1/w by 1/h as big as the block and moved so the
         // part shown fills the block. What is shown is smaller than the picture, so the thumbnail is used only while the
