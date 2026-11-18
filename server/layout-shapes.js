@@ -49,12 +49,20 @@ const SHAPE_KEYS = ['shape', 'areas'];
 const quote = (id) => `"${String(id).slice(0, 40)}"`;
 
 // The one shape check. `input` is { shape, areas }; `modules` is the list of module ids an area may name (a template's
-// own, or the ones on in a space); leave it out and any well-formed id passes. Returns { shape: { shape, areas } }, or
-// { error } with one sentence saying what is wrong. Anything wrong refuses the whole shape.
-function cleanShape(input, { modules = null } = {}) {
+// own, or the ones on in a space); leave it out (or null) and any well-formed id passes; anything else that is not a
+// list is refused. `names` is { <id>: <name as a person reads it> } for the sentences; an id without one is shown with
+// a capital letter. Returns { shape: { shape, areas } }, or { error } with one sentence saying what is wrong. Anything
+// wrong refuses the whole shape.
+function cleanShape(input, options) {
+  const { modules = null, names = null } = isObject(options) ? options : {};
+  if (modules !== null && !Array.isArray(modules)) return { error: `Send the ${words.word('module', { many: true })} an area may hold as a list.` };
+  const nameOf = (id) => {
+    const given = isObject(names) && Object.hasOwn(names, id) && typeof names[id] === 'string' ? names[id].trim() : '';
+    return (given || id.charAt(0).toUpperCase() + id.slice(1)).slice(0, 40);
+  };
   if (!isObject(input)) return { error: 'Send the layout as a shape and its areas.' };
   const extra = Object.keys(input).find((k) => !SHAPE_KEYS.includes(k));
-  if (extra) return { error: `A shape does not take "${extra}"; it is a shape and its areas.` };
+  if (extra) return { error: `A shape does not take ${quote(extra)}; it is a shape and its areas.` };
   const def = typeof input.shape === 'string' ? shapeById(input.shape) : null;
   if (!def) return { error: 'Pick a shape from the list.' };
   if (!Array.isArray(input.areas) || input.areas.length !== def.areas) return { error: `This shape has ${def.areas} ${def.areas === 1 ? 'area' : 'areas'}.` };
@@ -65,8 +73,8 @@ function cleanShape(input, { modules = null } = {}) {
     if (id === null) { areas.push(null); continue; }
     if (typeof id !== 'string') return { error: `Area ${i + 1} takes ${words.word('module', { a: true })} or nothing.` };
     if (COLUMN_IDS.includes(id)) return { error: "The chat and the call are in the column on the left; they can't go in an area." };
-    if (def.stacked.includes(i + 1) && cantStack(id)) return { error: `${quote(id)} can't share a column; put it in area 1.` };
-    if (!MODULE_ID.test(id) || (Array.isArray(modules) && !modules.includes(id))) return { error: `${quote(id)} is not ${words.word('module', { a: true })} you can use here.` };
+    if (!MODULE_ID.test(id) || (modules && !modules.includes(id))) return { error: `${quote(id)} is not ${words.word('module', { a: true })} you can use here.` };
+    if (def.stacked.includes(i + 1) && cantStack(id)) return { error: `${nameOf(id)} can't share a column; put it in area 1.` };
     if (seen.has(id)) return { error: `${quote(id)} is in two areas; ${words.word('module', { a: true })} can be in one area only.` };
     seen.add(id);
     areas.push(id);
@@ -83,16 +91,22 @@ function cleanShape(input, { modules = null } = {}) {
 // A moderator's own grant for one space only adds to a role's permissions (store.spacePermissions merges in the
 // Moderator role's ticks that are on), so it can never take a read away; there is no list of people.
 const ROLES_LISTED = Object.freeze(['moderator', 'member', 'guest']);
-function whoCantOpen(moduleIds, { manifests = {}, rolePermissions = {}, off = [] } = {}) {
+function whoCantOpen(moduleIds, options) {
+  const o = isObject(options) ? options : {};
+  const manifests = isObject(o.manifests) ? o.manifests : {};
+  const rolePermissions = isObject(o.rolePermissions) ? o.rolePermissions : {};
+  const off = Array.isArray(o.off) ? o.off : [];
   const out = {};
+  // defineProperty, so an id such as __proto__ is an entry and not the answer's prototype.
+  const put = (id, value) => Object.defineProperty(out, id, { value, enumerable: true, writable: true, configurable: true });
   for (const id of Array.isArray(moduleIds) ? moduleIds : []) {
-    const manifest = manifests[id];
-    if (!manifest || off.includes(id)) { out[id] = { off: true }; continue; }
-    const guard = manifest.access && manifest.access.read;
+    const manifest = typeof id === 'string' && Object.hasOwn(manifests, id) ? manifests[id] : null;
+    if (!isObject(manifest) || off.includes(id)) { put(id, { off: true }); continue; }
+    const guard = isObject(manifest.access) ? manifest.access.read : null;
     if (!guard) continue;
     const key = `module.${id}.${guard}`;
-    const roles = ROLES_LISTED.filter((r) => !(rolePermissions[r] && rolePermissions[r][key]));
-    if (roles.length) out[id] = { roles };
+    const roles = ROLES_LISTED.filter((r) => !(isObject(rolePermissions[r]) && rolePermissions[r][key]));
+    if (roles.length) put(id, { roles });
   }
   return out;
 }

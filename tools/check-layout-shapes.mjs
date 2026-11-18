@@ -23,6 +23,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const server = require('../server/layout-shapes.js');
 const { cleanShape, whoCantOpen, SHAPES, GRID, COMPOSITE_PARTS } = server;
+// The plan's table, written out here and read from nowhere (plan-layout-picker.md, "The six shapes").
+const T = 100 / 3;
+const PLAN = [
+  { id: 'one', areas: 1, columns: [100], stacked: [] },
+  { id: 'two-equal', areas: 2, columns: [50, 50], stacked: [] },
+  { id: 'wide-narrow', areas: 2, columns: [200 / 3, T], stacked: [] },
+  { id: 'three-equal', areas: 3, columns: [T, T, T], stacked: [] },
+  { id: 'tall-split', areas: 3, columns: [50, 50], stacked: [2, 3] },
+  { id: 'wide-split', areas: 3, columns: [200 / 3, T], stacked: [2, 3] },
+];
+const PLAN_GRID = [100, 50, 200 / 3, 100 / 3];
 
 let n = 0;
 const ok = (cond, label) => { assert.ok(cond, label); n += 1; };
@@ -38,6 +49,11 @@ const { COMPOSITES } = await import(pathToFileURL(path.join(dir, 'composites.mjs
 fs.rmSync(dir, { recursive: true, force: true });
 
 // 1. The list.
+const plain = (v) => JSON.parse(JSON.stringify(v));
+same(plain(SHAPES), plain(PLAN), 'the server list is the plan table');
+same(plain(page.SHAPES), plain(PLAN), 'the page list is the plan table');
+same(plain(GRID), plain(PLAN_GRID), 'the grid is full, halves and thirds');
+ok(SHAPES.every((s, i) => s.columns.every((c, j) => c === PLAN[i].columns[j])), 'the shares match the plan to the last digit');
 same(SHAPES.map((s) => s.id), ['one', 'two-equal', 'wide-narrow', 'three-equal', 'tall-split', 'wide-split'], 'the six shapes of the sketch, in order');
 same(SHAPES.map((s) => s.areas), [1, 2, 2, 3, 3, 3], 'areas per shape');
 for (const s of SHAPES) {
@@ -94,16 +110,28 @@ bad({ shape: 'one', areas: ['dest:calendar'] }, null, 'a composite id outside a 
 bad({ shape: 'two-equal', areas: ['unknown', null] }, null, 'a module outside the list', { modules: MODS });
 good({ shape: 'two-equal', areas: ['unknown', null] }, 'no list given: any well-formed id passes');
 for (const shape of ['tall-split', 'wide-split']) {
-  for (const id of ['calendar', 'todo', 'maps', 'dest:calendar', 'dest:map']) {
+  for (const id of ['calendar', 'todo', 'maps']) {
     for (const at of [1, 2]) {
       const areas = [null, null, null];
       areas[at] = id;
-      bad({ shape, areas }, `"${id}" can't share a column; put it in area 1.`, `${shape}: ${id} in area ${at + 1}`);
+      bad({ shape, areas }, `${id[0].toUpperCase()}${id.slice(1)} can't share a column; put it in area 1.`, `${shape}: ${id} in area ${at + 1}`);
     }
   }
 }
 bad({ shape: 'tall-split', areas: [null, 'chat', null] }, "The chat and the call are in the column on the left; they can't go in an area.", 'chat in a stack says the chat sentence');
 good({ shape: 'tall-split', areas: ['documents', 'goals', 'schedule'] }, 'ordinary modules stack');
+
+bad({ shape: 'tall-split', areas: [null, 'dest:calendar', null] }, '"dest:calendar" is not a module you can use here.', 'a composite id is not a module id');
+bad({ shape: 'tall-split', areas: [null, 'calendar', null] }, "Chameleon Calendar can't share a column; put it in area 1.", 'the module name as a person reads it', { names: { calendar: 'Chameleon Calendar' } });
+bad({ shape: 'tall-split', areas: [null, 'calendar', null] }, '"calendar" is not a module you can use here.', 'a module not allowed here gets that sentence, not the stack one', { modules: ['documents'] });
+bad({ shape: 'tall-split', areas: [null, 'todo', null] }, "Todo can't share a column; put it in area 1.", 'a name not given is the id with a capital');
+bad({ shape: 'one', areas: [null], ['x'.repeat(80)]: 1 }, null, 'a long unknown key');
+ok(!cleanShape({ shape: 'one', areas: [null], ['x'.repeat(80)]: 1 }).error.includes('x'.repeat(41)), 'an unknown key is cut to 40 characters');
+for (const options of [null, undefined, 5, 'x', [], {}]) { let r; try { r = cleanShape({ shape: 'one', areas: ['documents'] }, options); } catch (e) { r = { threw: e.message }; } ok(r.shape && !r.threw, `cleanShape takes options ${JSON.stringify(options)}`); }
+for (const modules of ['documents', 5, {}, true]) bad({ shape: 'one', areas: ['documents'] }, null, `modules ${JSON.stringify(modules)} that is not a list is refused`, { modules });
+good({ shape: 'one', areas: ['documents'] }, 'modules null means any', { modules: null });
+bad({ shape: 'one', areas: ['documents'] }, null, 'an empty modules list allows none', { modules: [] });
+ok(cleanShape({ shape: 'one', areas: [null] }, { modules: [], names: null }).shape, 'an empty area needs no module');
 
 // 3. whoCantOpen().
 const manifests = {
@@ -122,4 +150,10 @@ same(whoCantOpen(['todo', 'missing'], { manifests, rolePermissions: defaults, of
 same(whoCantOpen([], { manifests }), {}, 'no modules');
 same(whoCantOpen(undefined), {}, 'no list');
 
+// whoCantOpen() with odd input.
+for (const o of [null, undefined, 5, 'x', []]) { let r; try { r = whoCantOpen(['todo'], o); } catch (e) { r = { threw: e.message }; } ok(!r.threw && r.todo && r.todo.off === true, `whoCantOpen takes options ${JSON.stringify(o)}`); }
+same(whoCantOpen(['todo'], { manifests: null, rolePermissions: null, off: null }), { todo: { off: true } }, 'null parts read as empty');
+same(whoCantOpen(['constructor', '__proto__', 'toString', 'hasOwnProperty'], { manifests }), { constructor: { off: true }, ['__proto__']: { off: true }, toString: { off: true }, hasOwnProperty: { off: true } }, 'names on Object.prototype are not installed modules');
+same(whoCantOpen(['goals'], { manifests, rolePermissions: { moderator: 'yes', member: null, guest: [] }, off: 'goals' }), { goals: { roles: ['moderator', 'member', 'guest'] } }, 'a string off is not matched with includes; odd role sets read as having none');
+same(whoCantOpen(['goals', 5, null], { manifests, rolePermissions: defaults }), { 5: { off: true }, null: { off: true } }, 'an id that is not text is off');
 console.log(`check-layout-shapes: ${n} checks passed`);
