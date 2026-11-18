@@ -1021,8 +1021,8 @@
 .wb-type-table[data-valign="bottom"] .wb-tbl td { vertical-align: bottom; }
 
 /* The strip's endcap: a small quiet round badge with the icon of the tool the strip belongs to (not a button). */
-.wb-endcap { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; margin-right: 0; border-radius: var(--radius-medium); background: var(--surface-page); border: 1px solid var(--edge-hairline); color: var(--text-muted); pointer-events: none; }
-.wb-endcap .ic { display: block; width: 14px; height: 14px; }
+.wb-endcap { display: inline-flex; align-items: center; justify-content: center; flex: none; align-self: stretch; width: 32px; margin: calc(-1 * var(--space-1)) var(--space-1) calc(-1 * var(--space-1)) calc(-1 * var(--space-1)); border-radius: calc(var(--radius-medium) - 1px) 0 0 calc(var(--radius-medium) - 1px); background: var(--surface-page); border: 0; border-right: 1px solid var(--edge-hairline); color: var(--text-muted); pointer-events: none; }
+.wb-endcap .ic { display: block; width: 16px; height: 16px; }
 .wb-endcap .ic svg { display: block; width: 100%; height: 100%; fill: currentColor; }
 /* The size button: the text-size icon with the size's word. */
 .wb-size-btn { display: inline-flex; align-items: center; gap: var(--space-1); }
@@ -1138,12 +1138,13 @@
 .wb-vertical .wb-paint-group, .wb-vertical .wb-paint-pair, .wb-vertical .wb-kinds { flex-direction: column; align-items: center; }
 .wb-vertical .wb-paint-group > .wb-paint-pair + .wb-paint-pair, .wb-vertical .wb-size-btn + .wb-paint-pair { margin-left: 0; margin-top: var(--space-1); }
 .wb-vertical .wb-paint-sep { align-self: stretch; width: auto; height: 1px; margin: var(--space-1) 0; }
-.wb-vertical .wb-endcap { margin: 0 auto; }
+.wb-vertical .wb-endcap { width: auto; height: 32px; margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-1)) var(--space-1); border-radius: calc(var(--radius-medium) - 1px) calc(var(--radius-medium) - 1px) 0 0; border-right: 0; border-bottom: 1px solid var(--edge-hairline); }
 @media (max-width: 640px) { .wb-vertical .wb-paint-sep { display: block; } }
 
 /* The strip's grip is its endcap (the tool's icon): raised a little, a grab hand over it, the accent edge when it is
    reached; the one part of the strip's edge that takes a press. A moved strip is placed by pixels from the page's top left. */
-.wb-endcap.wb-grip { pointer-events: auto; cursor: grab; touch-action: none; box-shadow: var(--shadow-2); transition: border-color 120ms, color 120ms; }
-.wb-endcap.wb-grip:hover, .wb-endcap.wb-grip:focus-visible { border-color: var(--accent); color: var(--text-primary); }
+.wb-endcap.wb-grip { pointer-events: auto; cursor: grab; touch-action: none; transition: background 120ms, color 120ms; }
+.wb-endcap.wb-grip:hover, .wb-endcap.wb-grip:focus-visible { background: var(--surface-raised, var(--surface-toolbar)); color: var(--text-primary); }
+.wb-endcap.wb-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .wb-paint.wb-dragging, .wb-paint.wb-dragging .wb-endcap.wb-grip { cursor: grabbing; }
 .wb-paint.wb-dragging { box-shadow: var(--shadow-3, var(--shadow-2)); }
