@@ -39,23 +39,22 @@
     const SHADOWS = ['none', 'contact', 'soft'];
     const MAX_RADIUS = 999;
     const cropOf = (b) => partOf(b && b.crop) || WHOLE;
-    // The mask that makes the holes see-through: white (shown) all over and black (gone) in each hole, as an SVG of the whole
-    // picture's box, used by its luminance. '' for no holes.
+    // The mask that makes the holes see-through, with no colour in it: the whole picture's box, then each hole's box, each as an SVG of
+    // that shape, combined by their alpha: the whole box less every hole (mask-composite subtract, then add for the holes among
+    // themselves, so holes that overlap are still just holes). null for no holes.
+    const boxSvg = (q) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' preserveAspectRatio='none'><rect x='${q.x}' y='${q.y}' width='${q.w}' height='${q.h}'/></svg>`)}")`;
     function holeMask(cut) {
-      if (!Array.isArray(cut) || !cut.length) return '';
-      const rects = cut.map((q) => `<rect x='${q.x}' y='${q.y}' width='${q.w}' height='${q.h}' fill='black'/>`).join('');
-      const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' preserveAspectRatio='none'><rect width='1' height='1' fill='white'/>${rects}</svg>`;
-      return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+      if (!Array.isArray(cut) || !cut.length) return null;
+      const layers = [boxSvg(WHOLE), ...cut.map(boxSvg)];
+      return { image: layers.join(', '), composite: layers.map((_, i) => (i === 0 ? 'subtract' : 'add')).join(', '), size: layers.map(() => '100% 100%').join(', ') };
     }
     function setMask(img, mask) {
-      const set = (k, v) => { img.style.setProperty(k, v); };
-      if (!mask) { for (const k of ['mask-image', '-webkit-mask-image', 'mask-mode', 'mask-size', '-webkit-mask-size']) img.style.removeProperty(k); return; }
-      set('mask-image', mask);
-      set('-webkit-mask-image', mask);
-      set('mask-mode', 'luminance');
-      set('-webkit-mask-source-type', 'luminance');
-      set('mask-size', '100% 100%');
-      set('-webkit-mask-size', '100% 100%');
+      if (!mask) { for (const k of ['mask-image', '-webkit-mask-image', 'mask-composite', 'mask-size', '-webkit-mask-size']) img.style.removeProperty(k); return; }
+      img.style.setProperty('mask-image', mask.image);
+      img.style.setProperty('-webkit-mask-image', mask.image);
+      img.style.setProperty('mask-composite', mask.composite);
+      img.style.setProperty('mask-size', mask.size);
+      img.style.setProperty('-webkit-mask-size', mask.size);
     }
     // Draw the whole picture inside an element that shows only `part` of it (fractions of the whole): nothing set for all of it.
     function place(img, part) {
