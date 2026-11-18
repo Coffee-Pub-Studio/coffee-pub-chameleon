@@ -37,12 +37,21 @@ const shapeById = (id) => SHAPES.find((s) => s.id === id) || null;
 const MODULE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 // The chat and the call are the column on the left; they can't be in an area (decision 1).
 const COLUMN_IDS = Object.freeze(['chat', 'conference']);
-// What can't share a column (NEVER_STACKED in server/layouts.js, plan-panel-stacking.md decision 2) and what reads as a
-// composite: the composites' own ids (`dest:`) and the modules they stand in for, which public/composites.js lists as
-// `parts`. tools/check-layout-shapes.mjs fails when this list and that one disagree.
+// What can't share a column in a stacked area: the composites (public/composites.js) and what stands in for them.
+// This is wider than stackable() in server/layouts.js, which refuses only the conference, Chat and `dest:*` ids, because
+// a shape names modules, and a module reads as a composite while the composite is on:
+//   calendar, todo  fold into dest:calendar only where the Calendar is on (compositesOn needs `calendar` among the ids
+//                   on; the To-do's `inCalendar` is not read there). With the Calendar off, To-do is an ordinary module.
+//   maps            is a composite only where the Map answered (`ask: true` there: it needs a map file), which the server
+//                   does not know here, so Maps is always refused in a stacked area.
+// The Calendar's own id is always refused: naming it means it is on. `on` (cleanShape) says which modules are on.
+// tools/check-layout-shapes.mjs checks this against aliasesFor() in public/composites.js.
 const COMPOSITE_PARTS = Object.freeze(['calendar', 'todo', 'maps']);
-const NEVER_STACKED = Object.freeze([...COLUMN_IDS, ...COMPOSITE_PARTS]);
-const cantStack = (id) => NEVER_STACKED.includes(id) || id.startsWith('dest:');
+const ALWAYS_COMPOSITE = Object.freeze(['calendar', 'maps']);
+// The name a person reads when the caller passes none; a module's own name (its manifest's) is better.
+const FALLBACK_NAMES = Object.freeze({ todo: 'To-do' });
+// Whether `id` reads as a composite given `on`, the ids of the modules on (null: not known, so the parts all count).
+const readsAsComposite = (id, on) => id.startsWith('dest:') || ALWAYS_COMPOSITE.includes(id) || (COMPOSITE_PARTS.includes(id) && (!on || on.includes('calendar')));
 
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 const SHAPE_KEYS = ['shape', 'areas'];
@@ -51,14 +60,16 @@ const quote = (id) => `"${String(id).slice(0, 40)}"`;
 // The one shape check. `input` is { shape, areas }; `modules` is the list of module ids an area may name (a template's
 // own, or the ones on in a space); leave it out (or null) and any well-formed id passes; anything else that is not a
 // list is refused. `names` is { <id>: <name as a person reads it> } for the sentences; an id without one is shown with
-// a capital letter. Returns { shape: { shape, areas } }, or { error } with one sentence saying what is wrong. Anything
-// wrong refuses the whole shape.
+// a capital letter (To-do for `todo`). Returns { shape: { shape, areas } }, or { error } with one sentence saying what is wrong. Anything
+// wrong refuses the whole shape. `on` is the ids of the modules on where the shape will be used; it decides whether
+// Calendar and To-do read as a composite (see above). Left out, it is `modules`; with neither, they all count.
 function cleanShape(input, options) {
-  const { modules = null, names = null } = isObject(options) ? options : {};
+  const { modules = null, names = null, on: onGiven = null } = isObject(options) ? options : {};
+  const on = Array.isArray(onGiven) ? onGiven : modules;
   if (modules !== null && !Array.isArray(modules)) return { error: `Send the ${words.word('module', { many: true })} an area may hold as a list.` };
   const nameOf = (id) => {
     const given = isObject(names) && Object.hasOwn(names, id) && typeof names[id] === 'string' ? names[id].trim() : '';
-    return (given || id.charAt(0).toUpperCase() + id.slice(1)).slice(0, 40);
+    return (given || FALLBACK_NAMES[id] || id.charAt(0).toUpperCase() + id.slice(1)).slice(0, 40);
   };
   if (!isObject(input)) return { error: 'Send the layout as a shape and its areas.' };
   const extra = Object.keys(input).find((k) => !SHAPE_KEYS.includes(k));
@@ -74,7 +85,7 @@ function cleanShape(input, options) {
     if (typeof id !== 'string') return { error: `Area ${i + 1} takes ${words.word('module', { a: true })} or nothing.` };
     if (COLUMN_IDS.includes(id)) return { error: "The chat and the call are in the column on the left; they can't go in an area." };
     if (!MODULE_ID.test(id) || (modules && !modules.includes(id))) return { error: `${quote(id)} is not ${words.word('module', { a: true })} you can use here.` };
-    if (def.stacked.includes(i + 1) && cantStack(id)) return { error: `${nameOf(id)} can't share a column; put it in area 1.` };
+    if (def.stacked.includes(i + 1) && readsAsComposite(id, on)) return { error: `${nameOf(id)} can't share a column; put it in area 1.` };
     if (seen.has(id)) return { error: `${quote(id)} is in two areas; ${words.word('module', { a: true })} can be in one area only.` };
     seen.add(id);
     areas.push(id);

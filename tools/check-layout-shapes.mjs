@@ -45,7 +45,7 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'layout-shapes-'));
 fs.copyFileSync(path.join(ROOT, 'public/layout-shapes.js'), path.join(dir, 'shapes.mjs'));
 fs.copyFileSync(path.join(ROOT, 'public/composites.js'), path.join(dir, 'composites.mjs'));
 const page = await import(pathToFileURL(path.join(dir, 'shapes.mjs')).href);
-const { COMPOSITES } = await import(pathToFileURL(path.join(dir, 'composites.mjs')).href);
+const { COMPOSITES, aliasesFor } = await import(pathToFileURL(path.join(dir, 'composites.mjs')).href);
 fs.rmSync(dir, { recursive: true, force: true });
 
 // 1. The list.
@@ -114,7 +114,7 @@ for (const shape of ['tall-split', 'wide-split']) {
     for (const at of [1, 2]) {
       const areas = [null, null, null];
       areas[at] = id;
-      bad({ shape, areas }, `${id[0].toUpperCase()}${id.slice(1)} can't share a column; put it in area 1.`, `${shape}: ${id} in area ${at + 1}`);
+      bad({ shape, areas }, `${id === 'todo' ? 'To-do' : id[0].toUpperCase() + id.slice(1)} can't share a column; put it in area 1.`, `${shape}: ${id} in area ${at + 1}`);
     }
   }
 }
@@ -124,7 +124,7 @@ good({ shape: 'tall-split', areas: ['documents', 'goals', 'schedule'] }, 'ordina
 bad({ shape: 'tall-split', areas: [null, 'dest:calendar', null] }, '"dest:calendar" is not a module you can use here.', 'a composite id is not a module id');
 bad({ shape: 'tall-split', areas: [null, 'calendar', null] }, "Chameleon Calendar can't share a column; put it in area 1.", 'the module name as a person reads it', { names: { calendar: 'Chameleon Calendar' } });
 bad({ shape: 'tall-split', areas: [null, 'calendar', null] }, '"calendar" is not a module you can use here.', 'a module not allowed here gets that sentence, not the stack one', { modules: ['documents'] });
-bad({ shape: 'tall-split', areas: [null, 'todo', null] }, "Todo can't share a column; put it in area 1.", 'a name not given is the id with a capital');
+bad({ shape: 'tall-split', areas: [null, 'todo', null] }, "To-do can't share a column; put it in area 1.", 'To-do reads To-do when no names map is passed');
 bad({ shape: 'one', areas: [null], ['x'.repeat(80)]: 1 }, null, 'a long unknown key');
 ok(!cleanShape({ shape: 'one', areas: [null], ['x'.repeat(80)]: 1 }).error.includes('x'.repeat(41)), 'an unknown key is cut to 40 characters');
 for (const options of [null, undefined, 5, 'x', [], {}]) { let r; try { r = cleanShape({ shape: 'one', areas: ['documents'] }, options); } catch (e) { r = { threw: e.message }; } ok(r.shape && !r.threw, `cleanShape takes options ${JSON.stringify(options)}`); }
@@ -132,6 +132,33 @@ for (const modules of ['documents', 5, {}, true]) bad({ shape: 'one', areas: ['d
 good({ shape: 'one', areas: ['documents'] }, 'modules null means any', { modules: null });
 bad({ shape: 'one', areas: ['documents'] }, null, 'an empty modules list allows none', { modules: [] });
 ok(cleanShape({ shape: 'one', areas: [null] }, { modules: [], names: null }).shape, 'an empty area needs no module');
+
+// To-do and Calendar read as a composite only where the Calendar is on. Checked against the real aliasesFor() of
+// public/composites.js, not assumed: an id is refused in a stacked area exactly when the page folds it into a dest:*
+// composite (Maps with the Map answering, as the server cannot know that it does not).
+const ALL = ['calendar', 'todo', 'maps', 'documents', 'goals', 'whiteboard', 'travel', 'vault', 'schedule'];
+for (const [label, on] of [['Calendar on', ALL], ['Calendar off', ALL.filter((id) => id !== 'calendar')]]) {
+  const alias = aliasesFor(on, ['map']);
+  for (const id of on) {
+    const folded = typeof alias[id] === 'string' && alias[id].startsWith('dest:');
+    const r = cleanShape({ shape: 'tall-split', areas: [null, id, null] }, { on, modules: on });
+    ok(Boolean(r.error) === folded, `${label}: ${id} ${folded ? 'folds into a composite and is refused' : 'is an ordinary module and stacks'} (${r.error || 'accepted'})`);
+  }
+}
+ok(cleanShape({ shape: 'tall-split', areas: [null, 'maps', null] }, { on: ['documents', 'maps'], modules: ['documents', 'maps'] }).error, 'Maps is refused in a stack whatever is on');
+const ON = ['calendar', 'goals', 'todo', 'documents', 'whiteboard', 'travel', 'vault'];
+const OFF = ON.filter((id) => id !== 'calendar');
+for (const areas of [['goals', 'todo', 'documents'], ['documents', 'todo', 'goals'], ['travel', 'vault', 'todo']]) {
+  const withCalendar = cleanShape({ shape: 'tall-split', areas }, { modules: ON });
+  ok(withCalendar.error === "To-do can't share a column; put it in area 1.", `${areas}: refused with the Calendar on (${withCalendar.error})`);
+  ok(cleanShape({ shape: 'tall-split', areas }, { modules: OFF }).shape, `${areas}: accepted with the Calendar off`);
+  ok(cleanShape({ shape: 'tall-split', areas }, { modules: OFF, on: ON }).error, `${areas}: \`on\` wins over \`modules\``);
+  ok(cleanShape({ shape: 'tall-split', areas }, { modules: ON, on: OFF }).shape, `${areas}: \`on\` wins over \`modules\`, off`);
+}
+good({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, 'whiteboard, goals, documents stack with the Calendar on', { modules: ON });
+good({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, 'and with it off', { modules: OFF });
+good({ shape: 'tall-split', areas: ['todo', 'goals', 'documents'] }, 'To-do in area 1 with the Calendar on', { modules: ON });
+bad({ shape: 'tall-split', areas: ['goals', 'calendar', 'documents'] }, "Calendar can't share a column; put it in area 1.", 'Calendar in a stack', { modules: ON });
 
 // 3. whoCantOpen().
 const manifests = {
