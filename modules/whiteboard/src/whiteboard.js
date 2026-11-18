@@ -4039,6 +4039,8 @@
     clearTimeout(clipTimer);
     clipTimer = setTimeout(() => {
       clipTimer = 0;
+      // A browser that sent no event: the area of a picture (Select area) is what Copy and Cut take while it is there.
+      if (tool.id === 'area' && pictureArea && letter !== 'v') { if (policy.canEdit && !(letter === 'x' && presenting)) copyArea(letter === 'x'); return; }
       if (letter === 'c') copy(); else if (letter === 'x') copy({ cut: true }); else paste();
     }, CLIP_WAIT);
   }
@@ -4046,6 +4048,8 @@
   function onCopyEvent(e, cut) {
     // An area on a picture (Select area) is what Copy and Cut take while it is there.
     if (tool.id === 'area' && pictureArea && !inField(e)) {
+      clearTimeout(clipTimer); // the key's own fallback (clipKey) is not wanted: this event is the copy or the cut
+      clipTimer = 0;
       e.preventDefault();
       if (policy.canEdit && !(cut && presenting)) copyArea(cut);
       return;
