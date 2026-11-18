@@ -1160,8 +1160,8 @@
 
 /* A picture's shadow (its Shadow menu): Contact lies under the bottom edge only (the negative spread keeps it off the sides, the
    offset puts it below), like the picture resting on the board; a Drop shadow (stored as soft) is the usual all-round one. */
-.wb-type-image[data-shadow="contact"] { box-shadow: 0 4px 3px -3px var(--shadow-color), 0 8px 6px -6px var(--shadow-color), 0 14px 10px -10px var(--shadow-color); }
-.wb-type-image[data-shadow="soft"] { box-shadow: var(--shadow-3); }
+.wb-type-image[data-shadow="contact"] { box-shadow: 0 2px 1px -1px var(--shadow-color), 0 3px 2px -2px var(--shadow-color), 0 5px 3px -3px var(--shadow-color), 0 8px 5px -5px var(--shadow-color), 0 14px 8px -8px var(--shadow-color); }
+.wb-type-image[data-shadow="soft"] { box-shadow: 0 20px 44px var(--shadow-color), 0 12px 26px var(--shadow-color), 0 6px 14px var(--shadow-color), 0 3px 6px var(--shadow-color), 0 1px 2px var(--shadow-color); }
 
 /* Cropping (the Picture tool's Crop, a picture picked): the whole picture shows faintly round the part kept, which stays bright;
    the crop frame, its thirds and its grips are drawn over it by the page (.wb-cropper). */
@@ -1199,7 +1199,7 @@
 .wb-cropper-grip[data-grip="sw"] { left: 0; top: 100%; }
 .wb-cropper-grip[data-grip="w"] { left: 0; top: 50%; }
 .board.wb-crop-on .wb-frame, .board.wb-crop-on .wb-handle { display: none; }
-/* A closed shape's shadow follows its outline (a filter on its drawing, as a box-shadow would be a box): Contact is tight and low,
-   Drop shadow is the all-round one. */
-.wb-shape[data-shadow="contact"] .wb-svg { filter: drop-shadow(0 3px 1.5px var(--shadow-color)); }
-.wb-shape[data-shadow="soft"] .wb-svg { filter: drop-shadow(0 4px 9px var(--shadow-color)); }
+/* A closed shape's shadow (lib-e-block-shape, shadowOf): its own layer under the shape, the outer outline blurred and cut out where
+   the shape is, so it shows only outside the border. The colour is the theme's shadow colour; several layers make it darker. */
+.wb-shape-shadow { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.wb-shape-shadow .wb-shadow-body { fill: var(--shadow-color); stroke: none; pointer-events: none; }

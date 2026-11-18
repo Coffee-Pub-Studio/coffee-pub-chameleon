@@ -22,6 +22,7 @@ const check = (ok, what) => { if (ok) passed += 1; else fails.push(what); };
 const make = (tag) => {
   const e = { tag, attrs: {}, children: [], dataset: {}, style: { setProperty() {} }, className: '', textContent: '', innerHTML: '', classList: { add() {}, remove() {}, toggle() {}, contains: () => false } };
   e.setAttribute = (k, v) => { e.attrs[k] = v; };
+  e.getAttribute = (k) => e.attrs[k];
   e.append = (...c) => { e.children.push(...c); };
   e.appendChild = (c) => { e.children.push(c); };
   e.replaceChildren = (...c) => { e.children = c; };
@@ -61,9 +62,12 @@ if (lib) {
   const drawn = (type, o) => {
     const el = make('div');
     blockTypes.get(type).render({ id: 's', type, w: 160, h: 100, text: '', stroke: 'ink', weight: 4, ...o }, el);
-    const svg = el.children[0];
+    // The children: the shadow layer first when there is one, then the shape's own drawing, then its words.
+    const svgs = el.children.filter((c) => c.tag === 'svg');
+    const shadow = svgs.find((c) => /wb-shape-shadow/.test(c.attrs.class || '')) || null;
+    const svg = svgs.find((c) => !/wb-shape-shadow/.test(c.attrs.class || ''));
     const body = svg && svg.children[0];
-    return { el, body };
+    return { el, body, shadow };
   };
   const rxOf = (type, o) => { const { body } = drawn(type, o); return body ? Number(body.attrs.rx) : undefined; };
   check(rxOf('rect', {}) === 4, 'a Rectangle with no radius has its usual corners (4)');
@@ -75,6 +79,20 @@ if (lib) {
   check(rxOf('rounded', { radius: 8 }) === 8, 'a Rounded box with a radius of 8 is drawn with it');
   check(drawn('ellipse', { radius: 30 }).body.tag === 'ellipse' && drawn('ellipse', { radius: 30 }).body.attrs.rx !== 30, 'an Ellipse ignores a radius');
   check(drawn('rect', { shadow: 'soft' }).el.dataset.shadow === 'soft' && drawn('rect', {}).el.dataset.shadow === undefined, 'a shape with a shadow says so on its element, and one without says nothing');
+  // The shadow: a layer of its own, under the shape, cut out where the shape is (so a fill that lets the board show shows no shadow).
+  check(drawn('rect', {}).shadow === null && drawn('rect', { shadow: 'bogus' }).shadow === null, 'a shape with no shadow has no shadow layer');
+  for (const kind of ['contact', 'soft']) {
+    const d = drawn('rect', { shadow: kind, radius: 20, weight: 8 });
+    check(d.shadow && d.el.children[0] === d.shadow, `a ${kind} shadow is a layer under the shape (first in its element)`);
+    check(d.shadow && d.shadow.children.length === 7 && d.shadow.children.every((g) => /^translate\(0 \d+\)$/.test(g.attrs.transform)), `a ${kind} shadow is seven layers, each moved down`);
+    check(d.shadow && /^path\(evenodd, 'M-4000 -4000H8000V8000H-4000Z/.test(d.shadow.style.clipPath), `a ${kind} shadow is cut out (an even-odd path with a huge box and the outline)`);
+  }
+  // The cut-out is the OUTER outline, a pixel in (so the shadow runs just under the border and no light line shows between them).
+  const cutOf = (type, o) => drawn(type, { shadow: 'soft', weight: 8, ...o }).shadow.style.clipPath;
+  check(/M21 1H139A20 20 0 0 1 159 21V79A20 20 0 0 1 139 99H21A20 20 0 0 1 1 79V21A20 20 0 0 1 21 1Z'/.test(cutOf('rect', { radius: 20 })), 'a rounded rectangle\'s shadow is cut out along its box, a pixel in, corners and all (the outside of its border)');
+  check(/M1 50A79 49 0 1 0 159 50A79 49 0 1 0 1 50Z'/.test(cutOf('ellipse', {})), 'an ellipse\'s shadow is cut out along its box, a pixel in');
+  check(/M80 1L159 60L80 119L1 60Z'/.test(cutOf('diamond', { w: 160, h: 120 })), 'a diamond\'s shadow is cut out along its corners, a pixel in');
+  check(/M1 50A79 49/.test(cutOf('ellipse', { stroke: 'none', weight: 0 })), 'with no border the cut-out is the same');
 }
 
 if (fails.length) {
