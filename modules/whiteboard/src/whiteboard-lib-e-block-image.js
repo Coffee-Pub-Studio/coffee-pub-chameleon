@@ -6,6 +6,8 @@
   // part of the picture shown and blur [{ x, y, w, h }] the boxes drawn blurred, both as fractions of the WHOLE picture
   // (0 to 1), so a crop does not move a blur box. w and h are the size of the part shown (it keeps the picture's scale: the
   // cropped part stays where it was); Reset picture (the block's menu) brings the rest back.
+  // cut [{ x, y, w, h }] are the holes Cut (the Picture tool's Select area) leaves: boxes of the whole picture, drawn see-through. Like
+  // a crop or a blur they hide and never remove: the file still has those pixels, and Reset picture brings them back.
   // radius (board units, 0 for square corners; 999 rounds it all the way) and shadow ('none', 'contact': a tight shadow under the
   // bottom edge only, like the picture resting on the board, or 'soft', shown as Drop shadow: the all-round one) are how the picture is drawn.
   // A corner changes its size and always keeps its shape. Double-click (or Enter) to describe it. Copies share the upload,
@@ -24,6 +26,7 @@
     const altOf = (v) => (typeof v === 'string' ? v.replace(/[\r\n\t]+/g, ' ').slice(0, 300) : '');
     const MIN_PART = 0.02; // the least part of the picture a crop or a blur box can be, in each direction
     const MAX_BLUR = 12;
+    const MAX_CUT = 24;
     // A box of fractions of the whole picture, or null: finite numbers, inside the picture, at least MIN_PART each way.
     function partOf(v) {
       if (!v || typeof v !== 'object') return null;
@@ -36,6 +39,24 @@
     const SHADOWS = ['none', 'contact', 'soft'];
     const MAX_RADIUS = 999;
     const cropOf = (b) => partOf(b && b.crop) || WHOLE;
+    // The mask that makes the holes see-through: white (shown) all over and black (gone) in each hole, as an SVG of the whole
+    // picture's box, used by its luminance. '' for no holes.
+    function holeMask(cut) {
+      if (!Array.isArray(cut) || !cut.length) return '';
+      const rects = cut.map((q) => `<rect x='${q.x}' y='${q.y}' width='${q.w}' height='${q.h}' fill='black'/>`).join('');
+      const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1 1' preserveAspectRatio='none'><rect width='1' height='1' fill='white'/>${rects}</svg>`;
+      return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+    }
+    function setMask(img, mask) {
+      const set = (k, v) => { img.style.setProperty(k, v); };
+      if (!mask) { for (const k of ['mask-image', '-webkit-mask-image', 'mask-mode', 'mask-size', '-webkit-mask-size']) img.style.removeProperty(k); return; }
+      set('mask-image', mask);
+      set('-webkit-mask-image', mask);
+      set('mask-mode', 'luminance');
+      set('-webkit-mask-source-type', 'luminance');
+      set('mask-size', '100% 100%');
+      set('-webkit-mask-size', '100% 100%');
+    }
     // Draw the whole picture inside an element that shows only `part` of it (fractions of the whole): nothing set for all of it.
     function place(img, part) {
       if (part.x === 0 && part.y === 0 && part.w === 1 && part.h === 1 && !img.classList.contains('wb-blur-img')) {
@@ -88,6 +109,8 @@
         if (SHADOWS.includes(raw.shadow) && raw.shadow !== 'none') out.shadow = raw.shadow;
         const blur = Array.isArray(raw.blur) ? raw.blur.map(partOf).filter(Boolean).slice(0, MAX_BLUR) : [];
         if (blur.length) out.blur = blur;
+        const cut = Array.isArray(raw.cut) ? raw.cut.map(partOf).filter(Boolean).slice(0, MAX_CUT) : [];
+        if (cut.length) out.cut = cut;
         return out;
       },
       altOf,
@@ -95,16 +118,17 @@
       shadow: true,
       cropOf,
       MAX_BLUR,
+      MAX_CUT,
       SHADOWS,
       MAX_RADIUS,
       // The block's own menu entry (a block type's `actions`): Reset picture, only while it is cropped or blurred. It puts the
       // whole picture back at the scale it has now, the part that was shown staying where it is.
       actions(b) {
-        if (!b.crop && !(b.blur && b.blur.length)) return [];
+        if (!b.crop && !(b.blur && b.blur.length) && !(b.cut && b.cut.length)) return [];
         const c = cropOf(b);
         const w = Math.min(b.w / c.w, 6000);
         const h = Math.min(b.h / c.h, 6000);
-        return [{ id: 'reset-picture', label: 'Reset picture', icon: 'rotate-left', fields: { crop: null, blur: null, x: Math.round((b.x - c.x * w) * 10) / 10, y: Math.round((b.y - c.y * h) * 10) / 10, w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10 } }];
+        return [{ id: 'reset-picture', label: 'Reset picture', icon: 'rotate-left', fields: { crop: null, blur: null, cut: null, x: Math.round((b.x - c.x * w) * 10) / 10, y: Math.round((b.y - c.y * h) * 10) / 10, w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10 } }];
       },
       box: (b) => ({ x: 0, y: 0, w: b.w, h: b.h }),
       // keep: a corner always keeps the picture's shape (Shift is not needed).
@@ -158,6 +182,10 @@
           el.insertBefore(ghost, img);
         } else if (!b.crop && ghost) { ghost.remove(); ghost = null; }
         if (ghost) { place(ghost, c, WHOLE); show(this, el, ghost, b.upload, thumb); }
+        // The holes (Cut): the picture and its blurred copies are drawn through a mask that is see-through in each hole (the masks
+        // are of the whole picture, and each of those images is the whole picture, only placed differently).
+        const hole = holeMask(b.cut);
+        setMask(img, hole);
         // The blur boxes: each its own copy of the picture, blurred, clipped to its box (so nothing but the picture's own
         // pixels, drawn the same way in the saved image: lib-l draws this element, and a backdrop filter would not carry over).
         const boxes = Array.isArray(b.blur) ? b.blur.filter((q) => q.x < c.x + c.w && q.x + q.w > c.x && q.y < c.y + c.h && q.y + q.h > c.y) : [];
@@ -186,6 +214,7 @@
           // The blur is a share of the box's least side in the screen's pixels (a small box a little, a big one a lot).
           const side = Math.min((q.w / c.w) * b.w, (q.h / c.h) * b.h);
           copy.style.filter = `blur(${Math.max(8, Math.min(32, Math.round(side * 0.2)))}px)`;
+          setMask(copy, hole);
           show(this, el, copy, b.upload, thumb);
         });
       },

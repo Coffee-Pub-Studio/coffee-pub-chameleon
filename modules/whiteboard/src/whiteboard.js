@@ -73,6 +73,7 @@
   const one = () => (sel.size === 1 ? [...sel][0] : null); // the one picked block, or null (none, or several)
   let editing = null; // { id, finish, cell? ({ r, c, td }: a table's cell) }
   let many = false; // "Many", a mode of the Select tool (on its strip): a click or tap adds to what is picked, a drag on the board draws a rectangle that adds
+  let pictureArea = null; // the Select area tool's area: { id, part } (part: fractions of the whole picture)
   let cropper = null; // the Crop tool's frame (syncCropper) and the id of the picture it is on
   let cropping = null;
   let presenting = null; // while the frames are presented: lib-e-block-frame's state ({ order, i, view }), see "presenting"
@@ -146,6 +147,7 @@
     board.put(next);
     renderer.draw(next);
     if (cropping === next.id) syncCropper(); else if (sel.has(next.id)) frameRadius();
+    if (pictureArea && pictureArea.id === next.id) showArea();
     if (save) persist(next, save);
     updateStatus();
   }
@@ -244,6 +246,9 @@
     guideBoxes: (ids) => guideBoxes(ids),
     guides: (lines) => renderer.guides(lines),
     setTool: (id) => setTool(id),
+    // The Select area tool's area on a picture ({ id, part } or null): kept, and drawn as the selection box, until it is let go.
+    area: () => pictureArea,
+    setArea: (a) => { pictureArea = a; showArea(); },
     // The pointer over the board for this tool (a tool's grips, its frame); null for the tool's own.
     cursor: (name) => { surface.style.cursor = name || tool.cursor || ''; },
     hold(id, on) { if (on) held.add(id); else release(id); },
@@ -588,6 +593,20 @@
     cropper.appendChild(grip);
   }
   $('world').insertBefore(cropper, $('frame'));
+  // The area on a picture (Select area) is drawn as the usual selection box, over the part of it that is shown. It follows the picture
+  // when that changes, and goes when nothing of it is shown, or the picture is gone.
+  function showArea() {
+    const a = pictureArea;
+    const b = a && board.get(a.id);
+    if (!b || b.type !== 'image') { pictureArea = null; renderer.marquee(null); return; }
+    const c = blockTypes.get('image').cropOf(b);
+    const x0 = Math.max(a.part.x, c.x);
+    const y0 = Math.max(a.part.y, c.y);
+    const x1 = Math.min(a.part.x + a.part.w, c.x + c.w);
+    const y1 = Math.min(a.part.y + a.part.h, c.y + c.h);
+    if (x1 <= x0 || y1 <= y0) { pictureArea = null; renderer.marquee(null); return; }
+    renderer.marquee({ x0: b.x + ((x0 - c.x) / c.w) * b.w, y0: b.y + ((y0 - c.y) / c.h) * b.h, x1: b.x + ((x1 - c.x) / c.w) * b.w, y1: b.y + ((y1 - c.y) / c.h) * b.h });
+  }
   // The selection's frame takes a picked picture's corner radius, so it hugs a rounded picture (its outline sits 6 units out).
   function frameRadius() {
     const f = sel.size === 1 && one() ? board.get(one()) : null;
@@ -1015,7 +1034,7 @@
     { id: 'pen', kinds: ['pen', 'marker', 'brush', 'highlight'] },
     { id: 'shape', kinds: ['rect', 'ellipse', 'line', 'arrow'] },
     { id: 'flowchart', kinds: ['connector', 'rounded', 'diamond', 'pill', 'parallelogram'] },
-    { id: 'picture', kinds: ['crop', 'blur'] },
+    { id: 'picture', kinds: ['crop', 'blur', 'area'] },
   ];
   const familyHas = (f) => f.kinds.some((id) => allowed.some((t) => t.id === id));
   const lastKind = Object.fromEntries(FAMILIES.map((f) => [f.id, f.kinds[0]]));
@@ -1260,7 +1279,7 @@
   const paintButtons = new Map(); // role id or 'weight' -> { button, mark }
   // The strip's first group: the kinds of the active tool when it has them (Pen: pen, marker, brush, highlighter; Shape;
   // Flowchart), a small row of icon buttons, the chosen one pressed, then a thin divider before the colours.
-  const KIND_ICONS = { pen: 'pen', marker: 'marker', brush: 'paintbrush', highlight: 'highlighter', rect: 'square', ellipse: 'circle', line: 'minus', arrow: 'arrow-right-long', connector: 'arrows-turn-right', rounded: 'square', diamond: 'diamond', pill: 'capsules', parallelogram: 'arrow-right-arrow-left', crop: 'crop', blur: 'droplet' };
+  const KIND_ICONS = { pen: 'pen', marker: 'marker', brush: 'paintbrush', highlight: 'highlighter', rect: 'square', ellipse: 'circle', line: 'minus', arrow: 'arrow-right-long', connector: 'arrows-turn-right', rounded: 'square', diamond: 'diamond', pill: 'capsules', parallelogram: 'arrow-right-arrow-left', crop: 'crop', blur: 'droplet', area: 'expand' };
   // The Shadow button's icon: a Font Awesome Free solid name. Not 'layer-group': that one means layers.
   const WB_SHADOW_ICON = 'cloud-sun';
   const FAMILY_NAMES = { pen: 'Pen', shape: 'Shape', flowchart: 'Flowchart', picture: 'Picture' };
@@ -1491,6 +1510,7 @@
   let shadowButton = null;
   let cropButton = null;
   let blurButton = null;
+  let areaButton = null;
   let valignBox = null;
   let autoButton = null;
   let tableButton = null;
@@ -1595,7 +1615,10 @@
     blurButton = pressButton('Blur', 'droplet', () => setTool('blur', 'picture'));
     blurButton.removeAttribute('aria-pressed');
     blurButton.dataset.tip = withKey('Blur', 'J');
-    pictureBox.append(cropButton, blurButton, radiusButton, shadowButton);
+    areaButton = pressButton('Select area', 'expand', () => setTool('area', 'picture'));
+    areaButton.removeAttribute('aria-pressed');
+    areaButton.dataset.tip = withKey('Select area', 'K');
+    pictureBox.append(cropButton, blurButton, areaButton, radiusButton, shadowButton);
     for (const field of ['style', 'head']) {
       const box = pairBox(field === 'style' ? 'Line style' : 'Arrowheads');
       for (const c of LINE_STRIP[field]) {
@@ -1825,6 +1848,7 @@
     shadowButton.hidden = !shList.length;
     cropButton.hidden = !pics.length || family === 'picture';
     blurButton.hidden = !pics.length || family === 'picture';
+    areaButton.hidden = !pics.length || family === 'picture';
     pictureBox.hidden = !(radList.length || shList.length || !cropButton.hidden);
     if (!pictureBox.hidden) {
       const rad = radList.length ? sameOf(radList, radiusOf) : 0;
@@ -2549,16 +2573,48 @@
   // fitted to the paper, in the light colours.
   // Not here yet (the host has no way for it): saving the picture to the Vault, and Print from a key or a button of the
   // board's own (only the title bar's menu starts the host's Print, so Ctrl or Cmd P stays the browser's).
+  // The bytes of an upload (the whole picture, or its thumbnail), for the saved image and for copying an area.
+  async function pictureBlob(upload, thumb) {
+    const address = await host.uploads.url(upload, { thumb, scope: 'space' });
+    const res = await fetch(address, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.blob();
+  }
   const exporter = createExporter({
     root,
     world: $('world'),
-    async picture(upload, thumb) {
-      const address = await host.uploads.url(upload, { thumb, scope: 'space' });
-      const res = await fetch(address, { credentials: 'same-origin' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.blob();
-    },
+    picture: pictureBlob,
   });
+  // Copy the area of a picture (Select area) to the clipboard as a PNG, and with `cut` leave a hole where it was (one undo step, only
+  // once it is on the clipboard). The clipboard item is made at once, from a promise, so the browser still counts the key press.
+  async function copyArea(cut) {
+    const a = pictureArea;
+    const b = a && board.get(a.id);
+    if (!b) return;
+    if (!navigator.clipboard || !navigator.clipboard.write || typeof ClipboardItem === 'undefined') { note('This browser cannot put a picture on the clipboard.'); return; }
+    const made = (async () => {
+      const bitmap = await createImageBitmap(await pictureBlob(b.upload, false));
+      const r = wbPictureRegion(bitmap.width, bitmap.height, a.part);
+      const canvas = document.createElement('canvas');
+      canvas.width = r.sw;
+      canvas.height = r.sh;
+      canvas.getContext('2d').drawImage(bitmap, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+      return new Promise((ok, no) => canvas.toBlob((x) => (x ? ok(x) : no(new Error('no picture'))), 'image/png'));
+    })();
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': made })]);
+    } catch {
+      note('The area could not be put on the clipboard.');
+      return;
+    }
+    if (cut) {
+      const list = wbPictureCut(board.get(b.id) || b, a.part);
+      if (list) ctx.change(b.id, { cut: list }, { save: 'now' });
+      else note(`A picture takes at most ${blockTypes.get('image').MAX_CUT} holes. The area was copied, not cut.`);
+      ctx.setArea(null);
+      note('Area cut. It is on the clipboard: paste it for a picture.');
+    } else note('Area copied. Paste it for a picture.');
+  }
   let exporting = ''; // what the status line says while a picture is made
   // What is in sight, on the board.
   const viewBox = () => {
@@ -3988,6 +4044,12 @@
   }
   const inField = (e) => Boolean(e.target && e.target.closest && e.target.closest('.wb-text-edit'));
   function onCopyEvent(e, cut) {
+    // An area on a picture (Select area) is what Copy and Cut take while it is there.
+    if (tool.id === 'area' && pictureArea && !inField(e)) {
+      e.preventDefault();
+      if (policy.canEdit && !(cut && presenting)) copyArea(cut);
+      return;
+    }
     if (inField(e) || !policy.canEdit || (cut && presenting)) return;
     clearTimeout(clipTimer);
     clipTimer = 0;

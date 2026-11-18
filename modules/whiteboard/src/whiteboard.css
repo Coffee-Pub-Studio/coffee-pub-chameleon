@@ -837,7 +837,7 @@
    "not allowed"), and a swatch of the fill colour by the pointer */
 .board[data-tool="fill"] .wb-block, .board[data-tool="fill"] .wb-block * { cursor: inherit; }
 /* the Picture tool (Crop, Blur): the board's own cursor over every block, a cross to draw with and the tool's own over the crop frame */
-.board[data-tool="crop"] .wb-block, .board[data-tool="crop"] .wb-block *, .board[data-tool="blur"] .wb-block, .board[data-tool="blur"] .wb-block * { cursor: inherit; }
+.board[data-tool="crop"] .wb-block, .board[data-tool="crop"] .wb-block *, .board[data-tool="blur"] .wb-block, .board[data-tool="blur"] .wb-block *, .board[data-tool="area"] .wb-block, .board[data-tool="area"] .wb-block * { cursor: inherit; }
 .board[data-tool="fill"] .wb-block[data-mark="no"], .board[data-tool="fill"] .wb-block[data-mark="no"] * { cursor: not-allowed; }
 .wb-block[data-mark="ok"] { outline: calc(2px / var(--wb-scale, 1)) solid var(--accent); outline-offset: calc(4px / var(--wb-scale, 1)); }
 .wb-block[data-mark="no"] { outline: calc(1px / var(--wb-scale, 1)) dashed var(--text-muted); outline-offset: calc(4px / var(--wb-scale, 1)); }

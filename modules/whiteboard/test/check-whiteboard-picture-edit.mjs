@@ -22,13 +22,13 @@ const check = (ok, what) => { if (ok) passed += 1; else fails.push(what); };
 let lib;
 try {
   const parts = fs.readdirSync(src).filter((f) => /^whiteboard-lib-[a-z]-.*\.js$/.test(f)).sort().map((f) => fs.readFileSync(path.join(src, f), 'utf8'));
-  lib = new Function('window', 'document', `${parts.join('\n')}\nreturn { blockTypes, tools, wbPictureCropTo, wbPictureGripAt, wbPictureGripRect, wbPicturePan, wbPictureBlur, wbPictureUnblur };`)({ devicePixelRatio: 1 }, undefined);
+  lib = new Function('window', 'document', `${parts.join('\n')}\nreturn { blockTypes, tools, wbPictureCropTo, wbPictureGripAt, wbPictureGripRect, wbPicturePan, wbPictureArea, wbPictureCut, wbPictureRegion, wbPictureBlur, wbPictureUnblur };`)({ devicePixelRatio: 1 }, undefined);
 } catch (err) {
   fails.push(`the libs do not load: ${err.message}`);
 }
 
 if (lib) {
-  const { blockTypes, tools, wbPictureCropTo, wbPictureGripAt, wbPictureGripRect, wbPicturePan, wbPictureBlur, wbPictureUnblur } = lib;
+  const { blockTypes, tools, wbPictureCropTo, wbPictureGripAt, wbPictureGripRect, wbPicturePan, wbPictureArea, wbPictureCut, wbPictureRegion, wbPictureBlur, wbPictureUnblur } = lib;
   const image = blockTypes.get('image');
   const up = 'a'.repeat(24);
   const base = { id: 'p', type: 'image', x: 100, y: 50, w: 400, h: 200, upload: up };
@@ -98,6 +98,23 @@ if (lib) {
   check(wbPictureUnblur(two, { x: 0.9, y: 0.9 }) === null, 'a click outside every box takes nothing away');
   check(wbPictureUnblur({ ...shownPic, blur: [{ x: 0.3, y: 0.3, w: 0.1, h: 0.1 }] }, { x: 0.2, y: 0.2 }) !== null, 'a click in a cropped picture is a point of the part shown, not of the whole');
 
+  // The holes a cut leaves, and the area copied.
+  const hole = { x: 0.1, y: 0.2, w: 0.3, h: 0.4 };
+  check(clean({}).cut === undefined && same(clean({ cut: [hole] }).cut, [hole]), 'a picture keeps its holes, and has none unless it was cut');
+  check(clean({ cut: [hole, { x: 2, y: 0, w: 0.5, h: 0.5 }, 'x'] }).cut.length === 1 && clean({ cut: 'no' }).cut === undefined, 'holes that are not valid are dropped one by one');
+  check(clean({ cut: Array.from({ length: 30 }, (_, i) => ({ x: 0.01 * i, y: 0.1, w: 0.1, h: 0.1 })) }).cut.length === 24, 'at most 24 holes are kept');
+  const area = wbPictureArea(shownPic, { x: 0, y: 0 }, { x: 0.5, y: 0.5 });
+  check(area && same(area, { x: 0.25, y: 0.25, w: 0.25, h: 0.25 }), 'an area dragged in a cropped picture is a part of the whole picture');
+  check(same(wbPictureArea(shownPic, { x: 0.5, y: 0.5 }, { x: 0, y: 0 }), area), 'an area dragged the other way is the same area');
+  check(wbPictureArea(shownPic, { x: 0.5, y: 0.5 }, { x: 0.51, y: 0.9 }) === null, 'an area too small is no area');
+  check(same(wbPictureCut(pic, hole), [hole]) && same(wbPictureCut({ ...pic, cut: [hole] }, area), [hole, area]), 'a cut adds a hole to the list');
+  check(wbPictureCut({ ...pic, cut: Array.from({ length: 24 }, () => hole) }, area) === null, 'a twenty-fifth hole is refused');
+  const px = wbPictureRegion(1000, 640, { x: 0.25, y: 0.5, w: 0.5, h: 0.25 });
+  check(px.sx === 250 && px.sy === 320 && px.sw === 500 && px.sh === 160, 'an area is the same part of the picture\'s own pixels');
+  const tiny = wbPictureRegion(100, 100, { x: 0.999, y: 0.999, w: 0.02, h: 0.02 });
+  check(tiny.sw >= 1 && tiny.sh >= 1 && tiny.sx + tiny.sw <= 100 && tiny.sy + tiny.sh <= 100, 'an area at the corner is at least a pixel and inside the picture');
+  check(image.actions({ ...pic, cut: [hole] }).length === 1 && image.actions({ ...pic, cut: [hole] })[0].fields.cut === null, 'a picture with a hole offers Reset picture, which fills it');
+
   // Reset picture.
   const reset = image.actions({ ...base, ...cropped });
   check(reset.length === 1 && reset[0].id === 'reset-picture', 'a cropped picture offers Reset picture');
@@ -109,6 +126,7 @@ if (lib) {
   // The tools.
   const byId = (id) => tools.get(id);
   check(byId('crop') && byId('crop').key === 'x' && byId('crop').edits === true && byId('crop').cursor === 'default', 'Crop is a tool on X that edits');
+  check(byId('area') && byId('area').key === 'k' && byId('area').edits === true && byId('area').cursor === 'crosshair', 'Select area is a tool on K that edits, with a cross');
   check(byId('blur') && byId('blur').key === 'j' && byId('blur').edits === true && byId('blur').cursor === 'crosshair', 'Blur is a tool on J that edits, with a cross');
 }
 

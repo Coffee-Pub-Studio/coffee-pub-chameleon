@@ -43,14 +43,14 @@ const families = {};
 for (const m of main.matchAll(/\{ id: '([a-z]+)', kinds: \[([^\]]*)\] \}/g)) families[m[1]] = [...m[2].matchAll(/'([a-z]+)'/g)].map((k) => k[1]);
 check(families.pen && families.pen.join() === 'pen,marker,brush,highlight', 'Pen has pen, marker, brush, highlighter');
 check(families.shape && families.shape.join() === 'rect,ellipse,line,arrow', 'Shape has rectangle, ellipse, line, arrow');
-check(families.picture && families.picture.join() === 'crop,blur', 'Picture has crop and blur');
+check(families.picture && families.picture.join() === 'crop,blur,area', 'Picture has crop, blur and select area');
 check(families.flowchart && families.flowchart.join() === 'connector,rounded,diamond,pill,parallelogram', 'Flowchart has the connector and the flowchart shapes');
 
 if (tools) {
   const get = (id) => tools.get(id);
   for (const [f, kinds] of Object.entries(families)) for (const k of kinds) check(Boolean(get(k)), `${f}: kind ${k} is a registered tool`);
   for (const o of sw) if (!['pen', 'flowchart', 'shape', 'picture'].includes(o.id)) check(Boolean(get(o.id)), `${o.id} is a registered tool`);
-  const keys = { p: 'pen', m: 'marker', u: 'highlight', r: 'rect', o: 'ellipse', l: 'line', a: 'arrow', c: 'connector', b: 'rounded', d: 'diamond', f: 'fill', e: 'eraser', g: 'table', s: 'frame', x: 'crop', j: 'blur', h: 'hand', v: 'select', n: 'note', t: 'text' };
+  const keys = { p: 'pen', m: 'marker', u: 'highlight', r: 'rect', o: 'ellipse', l: 'line', a: 'arrow', c: 'connector', b: 'rounded', d: 'diamond', f: 'fill', e: 'eraser', g: 'table', s: 'frame', x: 'crop', j: 'blur', k: 'area', h: 'hand', v: 'select', n: 'note', t: 'text' };
   const byKey = new Map(tools.list().map((t) => [t.key, t.id]));
   for (const [k, id] of Object.entries(keys)) check(byKey.get(k) === id, `the key ${k.toUpperCase()} picks ${id}`);
   const firstFamily = (id) => Object.entries(families).find(([, kinds]) => kinds.includes(id));

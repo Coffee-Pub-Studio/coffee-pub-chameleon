@@ -1,10 +1,13 @@
   // ---- whiteboard-lib-f-tool-picture.js: crop a picture, blur a part of it ------------------------------------------------
-  // The Picture tool in the tool switch: two kinds (the first group on the colour strip), Crop (X) and Blur (J).
+  // The Picture tool in the tool switch: three kinds (the first group on the colour strip), Crop (X), Blur (J) and Select area (K).
   //   Crop  Press a picture to pick it. The whole picture shows, the part outside the crop dimmed, with a frame, a thirds grid
   //         and a grip on each corner and edge (the page draws them: whiteboard.js, syncCropper). Drag a grip to move that edge
   //         or corner, in or out (the picture is never wider than the whole of it); drag inside the frame to slide the picture
   //         under it. The cropped part keeps its scale and stays where it is: only the frame moves. One drag is one undo step.
   //   Blur  Drag a box over a picture to blur that part. Click a blurred box to take it away. At most 12 to a picture.
+  //   Select area  Drag the usual selection box over a picture; it stays. Copy (Ctrl or Cmd C) puts that part on the clipboard as a
+  //         picture (a paste does what it always does with one); Cut (Ctrl or Cmd X) does that and leaves a hole (see-through) in
+  //         the picture. Click away, or pick another tool, to let go of the area.
   // Nothing changes the file: a crop and its blur boxes are fields of the picture block (lib-e-block-image), fractions of
   // the whole picture; Reset picture (the picture's own menu) brings all of it back. The tool stays on (Escape goes back to
   // Select). The picture is the topmost one under the pointer, so a mark drawn over it does not stand in the way.
@@ -17,6 +20,10 @@
   //     (within tol board units of an edge or corner).
   //   wbPictureGripRect(b, which, p) -> the part when the grip `which` is dragged to the board point p.
   //   wbPicturePan(b, dx, dy) -> the part when the picture is slid by (dx, dy) board units under the frame.
+  //   wbPictureArea(b, a, z) -> the part (fractions of the whole picture) of the selection box from a to z, or null when too small.
+  //   wbPictureCut(b, part) -> the list of holes with `part` added, or null at the most (24).
+  //   wbPictureRegion(nw, nh, part) -> { sx, sy, sw, sh }: the part in the pixels of the picture's own nw by nh, whole pixels, at
+  //     least one, inside it.
   //   wbPictureBlur(b, a, z) -> the blur list with the box from a to z added, or null; wbPictureUnblur(b, f) -> the list without
   //     the topmost box holding the point f, or null when none holds it.
   const WB_PICTURE_PART = 0.02; // the least part of a picture a crop or a blur box can be, each way
@@ -77,6 +84,19 @@
     const y1 = c.y + Math.max(a.y, z.y) * c.h;
     return { x: wbPictureRound4(x0), y: wbPictureRound4(y0), w: wbPictureRound4(x1 - x0), h: wbPictureRound4(y1 - y0) };
   };
+  function wbPictureArea(b, a, z) {
+    const box = wbPictureBox(b, a, z);
+    return box.w >= WB_PICTURE_PART && box.h >= WB_PICTURE_PART ? box : null;
+  }
+  function wbPictureCut(b, part) {
+    const list = Array.isArray(b.cut) ? b.cut : [];
+    return list.length >= blockTypes.get('image').MAX_CUT ? null : [...list, part];
+  }
+  function wbPictureRegion(nw, nh, part) {
+    const sx = Math.max(0, Math.min(nw - 1, Math.round(part.x * nw)));
+    const sy = Math.max(0, Math.min(nh - 1, Math.round(part.y * nh)));
+    return { sx, sy, sw: Math.max(1, Math.min(nw - sx, Math.round(part.w * nw))), sh: Math.max(1, Math.min(nh - sy, Math.round(part.h * nh))) };
+  }
   function wbPictureBlur(b, a, z) {
     const box = wbPictureBox(b, a, z);
     const list = Array.isArray(b.blur) ? b.blur : [];
@@ -219,6 +239,48 @@
         else ctx.refuseWith(`A picture takes at most ${blockTypes.get('image').MAX_BLUR} blurred parts, and each needs a little room.`);
       },
       cancel(ctx) { drag = null; ctx.marquee(null); ctx.mark(null); },
+      deactivate(ctx) { this.cancel(ctx); },
+    });
+
+    // ---- Select area ----
+    let area = null; // { id, a: { x, y }, sx, sy, moved }
+    tools.register({
+      id: 'area',
+      label: 'Select area',
+      icon: 'expand',
+      key: 'k',
+      order: 100,
+      edits: true,
+      cursor: 'crosshair',
+      hover(p, ctx) {
+        if (!p) { ctx.mark(null); return; }
+        const hit = pictureAt(p, ctx);
+        ctx.mark(hit ? hit.b.id : null, 'ok');
+      },
+      down(p, ctx) {
+        const hit = pictureAt(p, ctx);
+        ctx.setArea(null); // a press lets go of the area there was
+        if (!hit) { area = null; return; }
+        area = { id: hit.b.id, a: hit.f, sx: p.sx, sy: p.sy, moved: false };
+      },
+      move(p, ctx) {
+        if (!area) return;
+        if (!area.moved && Math.hypot(p.sx - area.sx, p.sy - area.sy) < SLOP) return;
+        area.moved = true;
+        const b = ctx.get(area.id);
+        if (!b) return;
+        const z = fractionIn(b, p);
+        ctx.marquee({ x0: b.x + area.a.x * b.w, y0: b.y + area.a.y * b.h, x1: b.x + z.x * b.w, y1: b.y + z.y * b.h });
+      },
+      up(p, ctx) {
+        const was = area;
+        area = null;
+        if (!was || !was.moved) { ctx.marquee(null); return; }
+        const b = ctx.get(was.id);
+        const part = b ? wbPictureArea(b, was.a, fractionIn(b, p)) : null;
+        ctx.setArea(part ? { id: was.id, part } : null);
+      },
+      cancel(ctx) { area = null; ctx.setArea(null); ctx.mark(null); },
       deactivate(ctx) { this.cancel(ctx); },
     });
   }
