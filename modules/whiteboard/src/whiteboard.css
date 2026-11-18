@@ -1159,7 +1159,7 @@
 .wb-vertical .wb-size-btn, .wb-vertical .wb-present-btn { min-width: 0; width: 30px; padding-left: 0; padding-right: 0; justify-content: center; }
 
 /* A picture's shadow (its Shadow menu): Contact lies under the bottom edge only (the negative spread keeps it off the sides, the
-   offset puts it below), like the picture resting on the board; Soft is the usual all-round one. */
+   offset puts it below), like the picture resting on the board; a Drop shadow (stored as soft) is the usual all-round one. */
 .wb-type-image[data-shadow="contact"] { box-shadow: 0 4px 3px -3px var(--shadow-color), 0 8px 6px -6px var(--shadow-color), 0 14px 10px -10px var(--shadow-color); }
 .wb-type-image[data-shadow="soft"] { box-shadow: var(--shadow-3); }
 

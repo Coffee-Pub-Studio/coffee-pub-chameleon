@@ -7,7 +7,7 @@
   // (0 to 1), so a crop does not move a blur box. w and h are the size of the part shown (it keeps the picture's scale: the
   // cropped part stays where it was); Reset picture (the block's menu) brings the rest back.
   // radius (board units, 0 for square corners; 999 rounds it all the way) and shadow ('none', 'contact': a tight shadow under the
-  // bottom edge only, like the picture resting on the board, or 'soft': the all-round one) are how the picture is drawn.
+  // bottom edge only, like the picture resting on the board, or 'soft', shown as Drop shadow: the all-round one) are how the picture is drawn.
   // A corner changes its size and always keeps its shape. Double-click (or Enter) to describe it. Copies share the upload,
   // and deleting the block leaves the upload where it is, so an undo brings the same picture back (lib-i, and the page).
   //

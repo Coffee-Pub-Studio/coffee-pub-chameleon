@@ -1617,7 +1617,7 @@
   }
   // A picture's corner radius and shadow: the picked pictures' (a mark on the one they all have), each choice one save of each.
   const WB_RADII = [{ id: 0, label: 'None' }, { id: 8, label: 'Small' }, { id: 16, label: 'Medium' }, { id: 32, label: 'Large' }, { id: 999, label: 'Full' }];
-  const WB_SHADOWS = [{ id: 'none', label: 'None' }, { id: 'contact', label: 'Contact' }, { id: 'soft', label: 'Soft' }];
+  const WB_SHADOWS = [{ id: 'none', label: 'None' }, { id: 'contact', label: 'Contact' }, { id: 'soft', label: 'Drop shadow' }];
   const picturesPicked = () => targets().filter((b) => b.type === 'image');
   const sameOf = (list, get) => { const v = new Set(list.map(get)); return v.size === 1 ? [...v][0] : undefined; };
   function setPictures(patch) {
