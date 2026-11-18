@@ -1260,7 +1260,7 @@
   endcap.appendChild(endcapIc);
   let endcapName = '';
   function setEndcap(icon, label) {
-    endcap.setAttribute('aria-label', label);
+    endcap.setAttribute('aria-label', `${label}. Drag to move the strip; arrow keys move it, Enter turns it, Home puts it back`);
     if (endcapName === icon) return;
     endcapName = icon;
     iconSvg(icon).then((svg) => { if (svg && endcapName === icon) endcapIc.innerHTML = svg; });
@@ -1275,17 +1275,15 @@
     stripSeps.push(sep);
   }
   paintStrip.append(endcap, selectionBox, stripSeps[0], kindsBox, stripSeps[1], fontsBox, stripSeps[2], tableBox, stripSeps[3], lineBox, stripSeps[4], presentBox, stripSeps[5], coloursBox);
-  // The strip floats: its grip, at the left end, drags it anywhere over the board (arrow keys move it by a step, Home puts it back
+  // The strip floats: its grip, the endcap at the left end (the tool's own icon), drags it anywhere over the board (arrow keys move it by a step, Home puts it back
   // under the toolbar's left end, and a double-click on the grip turns it from a row to a column and back). Where it was left, and which way it lies, is this person's own, kept in this browser and not in
   // the board's data, and is held inside the module's page when the page changes size.
   const WB_STRIP_KEY = 'whiteboard-strip';
-  const stripGrip = document.createElement('span');
-  stripGrip.className = 'wb-paint-grip';
+  const stripGrip = endcap;
+  stripGrip.classList.add('wb-grip');
   stripGrip.tabIndex = 0;
   stripGrip.setAttribute('role', 'button');
-  stripGrip.setAttribute('aria-label', 'Move the strip. Arrow keys move it, Enter turns it, Home puts it back');
   stripGrip.dataset.tip = 'Drag to move the strip; double-click to turn it';
-  paintStrip.prepend(stripGrip);
   let stripPos = null; // { x, y } in the page's pixels, or null for the usual place
   let stripVertical = false; // the strip lies as a column
   try {
