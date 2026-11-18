@@ -234,7 +234,9 @@
 .wb-tbl .wb-text-edit { text-align: var(--wb-align, left); }
 
 /* a picture: the upload drawn to its box, with a border only when one is picked; "Picture not found" when it is gone */
-.wb-type-image { border: var(--wb-weight) solid var(--wb-stroke); cursor: grab; overflow: hidden; }
+.wb-type-image { border: var(--wb-weight) solid var(--wb-stroke); cursor: grab; }
+/* the wrapper that clips the picture (and its blurred boxes) to the box and its corners; the block itself clips nothing, so it can draw its outline */
+.wb-pic { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }
 .wb-type-image[data-stroke="none"] { border-style: none; }
 .wb-picture { display: block; width: 100%; height: 100%; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
 .wb-alt { display: none; }
@@ -1161,12 +1163,12 @@
 /* A picture's shadow (its Shadow menu): Contact lies under the bottom edge only (the negative spread keeps it off the sides, the
    offset puts it below), like the picture resting on the board; a Drop shadow (stored as soft) is the usual all-round one. */
 .wb-type-image[data-shadow="contact"] { box-shadow: 0 2px 1px -1px var(--shadow-color), 0 3px 2px -2px var(--shadow-color), 0 5px 3px -3px var(--shadow-color), 0 8px 5px -5px var(--shadow-color), 0 14px 8px -8px var(--shadow-color); }
-.wb-type-image[data-shadow="soft"] { box-shadow: 0 20px 44px var(--shadow-color), 0 12px 26px var(--shadow-color), 0 6px 14px var(--shadow-color), 0 3px 6px var(--shadow-color), 0 1px 2px var(--shadow-color); }
+.wb-type-image[data-shadow="soft"] { box-shadow: 0 1px 2px var(--shadow-color), 0 2px 4px var(--shadow-color), 0 4px 7px -1px var(--shadow-color), 0 7px 11px -3px var(--shadow-color), 0 10px 15px -6px var(--shadow-color); }
 
 /* Cropping (the Picture tool's Crop, a picture picked): the whole picture shows faintly round the part kept, which stays bright;
    the crop frame, its thirds and its grips are drawn over it by the page (.wb-cropper). */
 .wb-crop-ghost { display: none; position: absolute; max-width: none; opacity: 0.35; pointer-events: none; user-select: none; -webkit-user-drag: none; }
-.wb-type-image[data-cropping] { overflow: visible; }
+.wb-type-image[data-cropping] .wb-pic { overflow: visible; }
 .wb-type-image[data-cropping] .wb-crop-ghost { display: block; }
 .wb-cropper {
   position: absolute;
@@ -1207,4 +1209,9 @@
    instead of its box, so the shadow falls into a hole and not on the board round a missing corner. The border stays on its outer edge. */
 .wb-type-image[data-shadow][data-holes] { box-shadow: none; }
 .wb-type-image[data-shadow="contact"][data-holes] { filter: drop-shadow(0 1px 0.5px var(--shadow-color)) drop-shadow(0 2px 1px var(--shadow-color)) drop-shadow(0 4px 2px var(--shadow-color)); }
-.wb-type-image[data-shadow="soft"][data-holes] { filter: drop-shadow(0 14px 22px var(--shadow-color)) drop-shadow(0 6px 11px var(--shadow-color)) drop-shadow(0 2px 4px var(--shadow-color)); }
+.wb-type-image[data-shadow="soft"][data-holes] { filter: drop-shadow(0 1px 1px var(--shadow-color)) drop-shadow(0 3px 4px var(--shadow-color)) drop-shadow(0 6px 8px var(--shadow-color)); }
+/* A picture with a hole at its edge: the border follows the cut. The block's own border goes transparent (same width, nothing moves) and
+   .wb-outline, as large as the block's border box, draws it. */
+.wb-type-image[data-outline] { border-color: transparent; }
+.wb-outline { position: absolute; left: calc(-1 * var(--wb-weight)); top: calc(-1 * var(--wb-weight)); overflow: visible; pointer-events: none; }
+.wb-outline rect { fill: none; stroke: var(--wb-stroke); }

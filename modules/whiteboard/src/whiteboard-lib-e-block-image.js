@@ -39,6 +39,63 @@
     const SHADOWS = ['none', 'contact', 'soft'];
     const MAX_RADIUS = 999;
     const cropOf = (b) => partOf(b && b.crop) || WHOLE;
+    // The outline of a picture with a hole at its edge: where a cut reaches the picture's edge (or another such cut), the border follows
+    // the cut instead of running on across it. A cut inside the picture has no border (it is just see-through). null when there is nothing to
+    // do: no border, no cuts, or only cuts inside. Pure: the block and the part shown in, { t, W, H, r, rects } out (all in board units
+    // of the block's own box: the border's width, the box, its corner radius, and each such cut as a rectangle, run out to the box's edge
+    // on any side it reaches).
+    function outlineOf(b, c) {
+      const t = b.stroke === 'none' ? 0 : Math.max(0, b.weight || 0);
+      if (!t || !Array.isArray(b.cut) || !b.cut.length) return null;
+      const W = b.w; const H = b.h; const cw = W - 2 * t; const ch = H - 2 * t;
+      if (cw <= 0 || ch <= 0) return null;
+      const eps = 0.0005;
+      const holes = [];
+      for (const q of b.cut) {
+        const x0 = Math.max(0, (q.x - c.x) / c.w); const y0 = Math.max(0, (q.y - c.y) / c.h);
+        const x1 = Math.min(1, (q.x + q.w - c.x) / c.w); const y1 = Math.min(1, (q.y + q.h - c.y) / c.h);
+        if (x1 > x0 && y1 > y0) holes.push({ x0, y0, x1, y1 });
+      }
+      const touches = (h) => h.x0 <= eps || h.y0 <= eps || h.x1 >= 1 - eps || h.y1 >= 1 - eps;
+      const meet = (p, q) => p.x0 <= q.x1 + eps && q.x0 <= p.x1 + eps && p.y0 <= q.y1 + eps && q.y0 <= p.y1 + eps;
+      const outer = new Set();
+      holes.forEach((h, i) => { if (touches(h)) outer.add(i); });
+      for (let again = true; again;) {
+        again = false;
+        holes.forEach((h, i) => { if (!outer.has(i) && [...outer].some((j) => meet(h, holes[j]))) { outer.add(i); again = true; } });
+      }
+      if (!outer.size) return null;
+      const r = Math.min(b.radius || 0, W / 2, H / 2);
+      const rects = [...outer].map((i) => {
+        const h = holes[i];
+        return { x0: h.x0 <= eps ? 0 : t + h.x0 * cw, y0: h.y0 <= eps ? 0 : t + h.y0 * ch, x1: h.x1 >= 1 - eps ? W : t + h.x1 * cw, y1: h.y1 >= 1 - eps ? H : t + h.y1 * ch };
+      });
+      return { t, W, H, r, rects };
+    }
+    // The overlay that draws it: a band along the box's edge and along each such cut, drawn only where the picture is (a mask of the box
+    // less those cuts), so the band follows the cut. The block's own border goes transparent while it is there (it is the same width, so
+    // nothing moves).
+    function syncOutline(el, b, c) {
+      const o = outlineOf(b, c);
+      let svg = el.querySelector('.wb-outline');
+      if (!o) { if (svg) svg.remove(); delete el.dataset.outline; return; }
+      el.dataset.outline = 'true';
+      if (!svg) {
+        svg = wb.svg('svg', { class: 'wb-outline', 'aria-hidden': 'true' });
+        el.insertBefore(svg, el.querySelector('.wb-missing'));
+      }
+      svg.setAttribute('width', o.W);
+      svg.setAttribute('height', o.H);
+      svg.setAttribute('viewBox', `0 0 ${o.W} ${o.H}`);
+      const band = [wb.svg('rect', { x: o.t / 2, y: o.t / 2, width: Math.max(1, o.W - o.t), height: Math.max(1, o.H - o.t), rx: Math.max(0, o.r - o.t / 2), 'stroke-width': o.t })];
+      for (const q of o.rects) band.push(wb.svg('rect', { x: q.x0, y: q.y0, width: q.x1 - q.x0, height: q.y1 - q.y0, 'stroke-width': o.t * 2 }));
+      svg.replaceChildren(...band);
+      // The mask: the box (its corners) less each cut, by alpha, as the holes in the picture are made (no colour in it).
+      const shape = (q, rx) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${o.W} ${o.H}' preserveAspectRatio='none'><rect x='${q.x0}' y='${q.y0}' width='${q.x1 - q.x0}' height='${q.y1 - q.y0}' rx='${rx}'/></svg>`)}")`;
+      const layers = [shape({ x0: 0, y0: 0, x1: o.W, y1: o.H }, o.r), ...o.rects.map((q) => shape(q, 0))];
+      const mask = { image: layers.join(', '), composite: layers.map((_, i) => (i === 0 ? 'subtract' : 'add')).join(', '), size: layers.map(() => '100% 100%').join(', ') };
+      setMask(svg, mask);
+    }
     // The mask that makes the holes see-through, with no colour in it: the whole picture's box, then each hole's box, each as an SVG of
     // that shape, combined by their alpha: the whole box less every hole (mask-composite subtract, then add for the holes among
     // themselves, so holes that overlap are still just holes). null for no holes.
@@ -116,6 +173,7 @@
       radius: true,
       shadow: true,
       cropOf,
+      outlineOf,
       MAX_BLUR,
       MAX_CUT,
       SHADOWS,
@@ -153,10 +211,20 @@
           const alt = document.createElement('div');
           alt.className = 'wb-alt';
           alt.setAttribute('aria-hidden', 'true');
-          el.replaceChildren(img, missing, alt);
+          // The picture, its faint whole (while cropping) and its blurred boxes live in a wrapper that clips them to the picture's box
+          // and its corners, so the block itself can draw outside its box (the outline of a picture with a hole at its edge).
+          const pic = document.createElement('div');
+          pic.className = 'wb-pic';
+          pic.appendChild(img);
+          el.replaceChildren(pic, missing, alt);
         }
+        const pic = el.querySelector('.wb-pic');
         if (b.alt) el.title = b.alt; else el.removeAttribute('title');
         el.style.borderRadius = b.radius ? `${b.radius}px` : '';
+        // The wrapper's corners are the block's inside its border (its border is as wide as the line weight, or none).
+        const edge = b.stroke === 'none' ? 0 : Math.max(0, b.weight || 0);
+        pic.style.borderRadius = b.radius ? `${Math.max(0, b.radius - edge)}px` : '';
+        syncOutline(el, b, cropOf(b));
         if (b.shadow) el.dataset.shadow = b.shadow; else delete el.dataset.shadow;
         // A picture with holes casts its shadow from what is shown (a filter, so a hole is lit like a cut-out); one without, from its box.
         if (b.cut && b.cut.length) el.dataset.holes = 'true'; else delete el.dataset.holes;
@@ -180,7 +248,7 @@
           ghost.draggable = false;
           ghost.decoding = 'async';
           ghost.setAttribute('aria-hidden', 'true');
-          el.insertBefore(ghost, img);
+          pic.insertBefore(ghost, img);
         } else if (!b.crop && ghost) { ghost.remove(); ghost = null; }
         if (ghost) { place(ghost, c, WHOLE); show(this, el, ghost, b.upload, thumb); }
         // The holes (Cut): the picture and its blurred copies are drawn through a mask that is see-through in each hole (the masks
@@ -204,7 +272,7 @@
             copy.draggable = false;
             copy.decoding = 'async';
             box.appendChild(copy);
-            el.insertBefore(box, el.querySelector('.wb-missing'));
+            pic.appendChild(box);
           }
           const copy = box.firstChild;
           box.style.left = `${((q.x - c.x) / c.w) * 100}%`;

@@ -84,7 +84,7 @@ if (lib) {
   for (const kind of ['contact', 'soft']) {
     const d = drawn('rect', { shadow: kind, radius: 20, weight: 8 });
     check(d.shadow && d.el.children[0] === d.shadow, `a ${kind} shadow is a layer under the shape (first in its element)`);
-    check(d.shadow && d.shadow.children.length === 7 && d.shadow.children.every((g) => /^translate\(0 \d+\)$/.test(g.attrs.transform)), `a ${kind} shadow is seven layers, each moved down`);
+    check(d.shadow && d.shadow.children.length === (kind === 'soft' ? 6 : 7) && d.shadow.children.every((g) => /^translate\(0 \d+\)$/.test(g.attrs.transform)), `a ${kind} shadow is layers, each moved down`);
     check(d.shadow && /^path\(evenodd, 'M-4000 -4000H8000V8000H-4000Z/.test(d.shadow.style.clipPath), `a ${kind} shadow is cut out (an even-odd path with a huge box and the outline)`);
   }
   // The cut-out is the OUTER outline, a pixel in (so the shadow runs just under the border and no light line shows between them).

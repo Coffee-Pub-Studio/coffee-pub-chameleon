@@ -115,6 +115,26 @@ if (lib) {
   check(tiny.sw >= 1 && tiny.sh >= 1 && tiny.sx + tiny.sw <= 100 && tiny.sy + tiny.sh <= 100, 'an area at the corner is at least a pixel and inside the picture');
   check(image.actions({ ...pic, cut: [hole] }).length === 1 && image.actions({ ...pic, cut: [hole] })[0].fields.cut === null, 'a picture with a hole offers Reset picture, which fills it');
 
+  // The outline of a picture with a hole at its edge.
+  const framed = { ...pic, w: 300, h: 200, stroke: 'ink', weight: 10, radius: 16 };
+  const outline = (cut, o = {}) => image.outlineOf({ ...framed, ...o, cut }, o.shown || { x: 0, y: 0, w: 1, h: 1 });
+  check(outline(undefined) === null && outline([]) === null, 'a picture with no holes has no outline to follow');
+  check(outline([{ x: 0.4, y: 0.4, w: 0.2, h: 0.2 }]) === null, 'a hole inside the picture has no border of its own (it is just see-through)');
+  check(outline([{ x: 0.5, y: 0.5, w: 0.2, h: 0.2 }], { stroke: 'none' }) === null && outline([{ x: 0.5, y: 0.5, w: 0.5, h: 0.5 }], { stroke: 'none' }) === null, 'a picture with no border has no outline');
+  const corner = outline([{ x: 0.5, y: 0.5, w: 0.5, h: 0.5 }]);
+  check(corner && corner.t === 10 && corner.W === 300 && corner.H === 200 && corner.r === 16 && corner.rects.length === 1, 'a hole at the corner has an outline');
+  check(corner && same(corner.rects[0], { x0: 10 + 0.5 * 280, y0: 10 + 0.5 * 180, x1: 300, y1: 200 }), 'the hole runs out to the box\'s edge on the sides it reaches, and stays on the picture on the others');
+  const side = outline([{ x: 0, y: 0.3, w: 0.2, h: 0.2 }]);
+  check(side && side.rects[0].x0 === 0 && side.rects[0].x1 === 10 + 0.2 * 280 && side.rects[0].y0 === 10 + 0.3 * 180 && side.rects[0].y1 === 10 + 0.5 * 180, 'a hole at the left edge runs out to the left only');
+  const chain = outline([{ x: 0.1, y: 0.4, w: 0.2, h: 0.2 }, { x: 0.25, y: 0.4, w: 0.3, h: 0.2 }, { x: 0.5, y: 0.4, w: 0.5, h: 0.2 }]);
+  check(chain && chain.rects.length === 3, 'holes that touch one that reaches the edge are part of the outline too (all three)');
+  const mixed = outline([{ x: 0.7, y: 0.1, w: 0.3, h: 0.2 }, { x: 0.2, y: 0.5, w: 0.2, h: 0.2 }]);
+  check(mixed && mixed.rects.length === 1, 'a hole inside the picture is left out when another reaches the edge');
+  const shownPart = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 };
+  const cropped2 = outline([{ x: 0.25, y: 0.25, w: 0.2, h: 0.2 }], { shown: shownPart });
+  check(cropped2 && cropped2.rects[0].x0 === 0 && cropped2.rects[0].y0 === 0, 'a hole at the edge of the part shown is at the edge, however much of the picture lies beyond it');
+  check(outline([{ x: 0.0, y: 0.0, w: 0.2, h: 0.2 }], { shown: shownPart }) === null, 'a hole outside the part shown is not part of the outline');
+
   // Reset picture.
   const reset = image.actions({ ...base, ...cropped });
   check(reset.length === 1 && reset[0].id === 'reset-picture', 'a cropped picture offers Reset picture');

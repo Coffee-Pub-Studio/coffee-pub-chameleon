@@ -32,7 +32,7 @@
     // with the outline in it). Contact is tight and low, Drop shadow wide.
     const SHADOWS = {
       contact: [{ dy: 1, blur: 0.5 }, { dy: 2, blur: 1 }, { dy: 2, blur: 1 }, { dy: 3, blur: 1.5 }, { dy: 4, blur: 2 }, { dy: 6, blur: 3 }, { dy: 7, blur: 3.5 }],
-      soft: [{ dy: 18, blur: 28 }, { dy: 14, blur: 22 }, { dy: 11, blur: 17 }, { dy: 8, blur: 13 }, { dy: 6, blur: 10 }, { dy: 3, blur: 5 }, { dy: 1, blur: 2 }],
+      soft: [{ dy: 1, blur: 1 }, { dy: 2, blur: 3 }, { dy: 3, blur: 5 }, { dy: 5, blur: 8 }, { dy: 7, blur: 11 }, { dy: 10, blur: 14 }],
     };
     function shadowOf(shape, b, i, kind) {
       const svg = wb.svg('svg', { class: 'wb-svg wb-shape-shadow', width: b.w, height: b.h, viewBox: `0 0 ${b.w} ${b.h}`, 'aria-hidden': 'true' });
