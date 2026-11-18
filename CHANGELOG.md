@@ -4,6 +4,12 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### Whiteboard: the tool strip floats (2026-11-18)
+
+#### Changed
+
+- **Whiteboard: you can move the strip under the toolbar.** Drag its cap, the tool's icon at the left end, anywhere over the board; double-click the cap to turn the strip into a column and back. The place and the direction are kept in your browser. Whiteboard 0.1.67. Tried in a browser here with the mouse (drag, turn, turn back, no page errors) and by the Whiteboard checks; not tried on a phone or tablet, and not after a reload.
+
 ### Documents: writing together is on by default (2026-11-17)
 
 #### Changed

@@ -1021,7 +1021,7 @@
 .wb-type-table[data-valign="bottom"] .wb-tbl td { vertical-align: bottom; }
 
 /* The strip's endcap: a small quiet round badge with the icon of the tool the strip belongs to (not a button). */
-.wb-endcap { display: inline-flex; align-items: center; justify-content: center; flex: none; align-self: stretch; width: 32px; margin: calc(-1 * var(--space-1)) var(--space-1) calc(-1 * var(--space-1)) calc(-1 * var(--space-1)); border-radius: calc(var(--radius-medium) - 1px) 0 0 calc(var(--radius-medium) - 1px); background: var(--surface-page); border: 0; border-right: 1px solid var(--edge-hairline); color: var(--text-muted); pointer-events: none; }
+.wb-endcap { display: inline-flex; align-items: center; justify-content: center; flex: none; align-self: stretch; width: 32px; margin: calc(-1 * var(--space-1)) var(--space-1) calc(-1 * var(--space-1)) calc(-1 * var(--space-1)); border-radius: var(--radius-medium) 0 0 var(--radius-medium); background: var(--surface-page); border: 0; border-right: 1px solid var(--edge-hairline); color: var(--text-muted); pointer-events: none; }
 .wb-endcap .ic { display: block; width: 16px; height: 16px; }
 .wb-endcap .ic svg { display: block; width: 100%; height: 100%; fill: currentColor; }
 /* The size button: the text-size icon with the size's word. */
@@ -1138,7 +1138,7 @@
 .wb-vertical .wb-paint-group, .wb-vertical .wb-paint-pair, .wb-vertical .wb-kinds { flex-direction: column; align-items: center; }
 .wb-vertical .wb-paint-group > .wb-paint-pair + .wb-paint-pair, .wb-vertical .wb-size-btn + .wb-paint-pair { margin-left: 0; margin-top: var(--space-1); }
 .wb-vertical .wb-paint-sep { align-self: stretch; width: auto; height: 1px; margin: var(--space-1) 0; }
-.wb-vertical .wb-endcap { width: auto; height: 32px; margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-1)) var(--space-1); border-radius: calc(var(--radius-medium) - 1px) calc(var(--radius-medium) - 1px) 0 0; border-right: 0; border-bottom: 1px solid var(--edge-hairline); }
+.wb-vertical .wb-endcap { width: auto; height: 32px; margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-1)) var(--space-1); border-radius: var(--radius-medium) var(--radius-medium) 0 0; border-right: 0; border-bottom: 1px solid var(--edge-hairline); }
 @media (max-width: 640px) { .wb-vertical .wb-paint-sep { display: block; } }
 
 /* The strip's grip is its endcap (the tool's icon): raised a little, a grab hand over it, the accent edge when it is
