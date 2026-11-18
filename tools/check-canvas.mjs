@@ -766,6 +766,146 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/\n    captureLayout,\n    loadLayout,\n/.test(canvasJs)) fail(C, 'the canvas must offer captureLayout() and loadLayout()');
 }
 
+// A layout shape on the canvas (plan-layout-picker.md, step 2): placeShape() in public/layouts.js turns a shape and its
+// areas into ordinary columns and stacks, widths from the shape's percentages of the view; an empty area is a
+// placeholder only where there is a chooser and a column (not a guest, not a phone); an area whose module can't open is
+// closed up and named, and the columns left share the view by their percentages; a closed section of a stack leaves an
+// ordinary column of its width; fitDock() says which columns wait. areaMayHold() keeps Calendar, To-do, Maps and the
+// composites out of a stacked area. canvas.js's loadLayout() takes a shape through loadShape(), the placeholder holds the
+// shared menu and is never remembered, and nothing about who can't open what is drawn.
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-shapes-'));
+  fs.copyFileSync(path.join(ROOT, 'public/snap-grid.js'), path.join(tmp, 'snap-grid.mjs'));
+  fs.copyFileSync(path.join(ROOT, 'public/layout-shapes.js'), path.join(tmp, 'layout-shapes.mjs'));
+  fs.copyFileSync(path.join(ROOT, 'public/composites.js'), path.join(tmp, 'composites.mjs'));
+  fs.writeFileSync(path.join(tmp, 'layouts.mjs'), fs.readFileSync(path.join(ROOT, 'public/layouts.js'), 'utf8').replace("from '/snap-grid.js'", "from './snap-grid.mjs'"));
+  const { placeShape, areaMayHold, leftOutNote } = await import(pathToFileURL(path.join(tmp, 'layouts.mjs')).href);
+  const { SHAPES, shapeById } = await import(pathToFileURL(path.join(tmp, 'layout-shapes.mjs')).href);
+  const { COMPOSITES, aliasesFor } = await import(pathToFileURL(path.join(tmp, 'composites.mjs')).href);
+  const { DOCK_MIN, fitDock } = await import(pathToFileURL(path.join(tmp, 'snap-grid.mjs')).href);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  const F = 'public/layouts.js';
+  const parts = [...new Set(COMPOSITES.flatMap((c) => c.parts))];
+  const place = (shape, areas, width, opts = {}, canOpen = () => true) => placeShape({ shape, areas }, width, canOpen, { shape: shapeById(shape), ...opts });
+  const ids = ['documents', 'goals', 'polls'];
+  const close = (a, b, tol = 1) => Math.abs(a - b) <= tol;
+  // Every shape, at every width the plan names: the columns, their widths from the percentages, the stacks.
+  for (const s of SHAPES) {
+    for (const W of [1600, 1000, 800, 700, 390]) {
+      const label = `${s.id} at ${W}px`;
+      const got = place(s.id, ids.slice(0, s.areas), W);
+      if (got.shape !== s.id) { fail(F, `${label}: placed nothing`); continue; }
+      const phone = W <= 640;
+      if (got.narrow !== phone) fail(F, `${label}: narrow is ${got.narrow}`);
+      if (got.columns.length !== s.columns.length) fail(F, `${label}: ${got.columns.length} columns, not ${s.columns.length}`);
+      got.columns.forEach((c, i) => {
+        if (!close(c.share, s.columns[i], 1e-9)) fail(F, `${label}: column ${i + 1} is ${c.share}% of the view, not ${s.columns[i]}%`);
+        if (!close(c.width, (s.columns[i] * W) / 100)) fail(F, `${label}: column ${i + 1} is ${c.width}px, not ${s.columns[i]}% of ${W}`);
+        if (c.flex !== (i === 0)) fail(F, `${label}: the first column is the flexible one`);
+      });
+      if (Math.abs(got.columns.reduce((a, c) => a + c.width, 0) - W) > got.columns.length) fail(F, `${label}: the columns fill the view`);
+      if (got.slots.map((x) => x.id).join() !== ids.slice(0, s.areas).join()) fail(F, `${label}: the modules in area order (${got.slots.map((x) => x.id)})`);
+      if ('dockW' in got.slots[0] || got.slots.slice(1).some((x) => x.column > 0 && !(x.dockW >= DOCK_MIN))) fail(F, `${label}: the flexible column has no width of its own, every other its share (at least DOCK_MIN): ${JSON.stringify(got.slots)}`);
+      const stackSlots = got.slots.filter((x) => x.stack);
+      if (s.stacked.length) {
+        if (stackSlots.map((x) => x.area).join() !== s.stacked.join() || stackSlots.some((x) => x.h !== 0.5) || stackSlots.map((x) => x.at).join() !== '0,1' || new Set(stackSlots.map((x) => x.stack)).size !== 1) fail(F, `${label}: areas ${s.stacked} are one stack, top first, half the column's height each: ${JSON.stringify(stackSlots)}`);
+      } else if (stackSlots.length) fail(F, `${label}: no stack`);
+      if (got.empty.length || got.closed.length || got.left.length) fail(F, `${label}: nothing empty or closed`);
+      if (phone && got.waiting.length) fail(F, `${label}: nothing waits on a phone`);
+    }
+  }
+  // Too narrow for the shape: three-equal needs 760px of canvas; below that area 3 waits, by the canvas's own rule.
+  if (place('three-equal', ids, 800).waiting.length || place('three-equal', ids, 760).waiting.length) fail(F, 'three-equal fits three columns from 760px');
+  if (place('three-equal', ids, 759).waiting.join() !== '3' || place('three-equal', ids, 700).waiting.join() !== '3') fail(F, 'three-equal below 760px: area 3 waits');
+  if (place('tall-split', ids, 700).waiting.length) fail(F, 'tall-split is two columns, so it fits at 700px (a stack is one column)');
+  const fd = fitDock(700, [{ id: 'a', width: 350, flex: true }, { id: 'b', width: 350 }], { wide: true });
+  if (fd.waiting.length) fail(F, 'fitDock() agrees: two columns at 700px');
+  // An empty area: a placeholder with the chooser, its column kept at its share.
+  const emptyOne = place('wide-narrow', ['documents', null], 1200);
+  if (emptyOne.empty.join() !== '2' || emptyOne.closed.length || emptyOne.columns.length !== 2 || emptyOne.slots[1].id !== null || !close(emptyOne.columns[1].width, 400)) fail(F, `an empty area keeps its column with the chooser: ${JSON.stringify(emptyOne)}`);
+  const allEmpty = place('one', [null], 1200);
+  if (allEmpty.empty.join() !== '1' || allEmpty.slots.length !== 1 || allEmpty.slots[0].id !== null) fail(F, 'the Default template\'s shape: one empty area, with the chooser');
+  // A guest has no chooser, and a phone no placeholder: the empty area closes up and is not a reason to leave anything out.
+  const guestSees = place('wide-narrow', ['documents', null], 1200, { chooser: false });
+  if (guestSees.empty.length || guestSees.closed.join() !== '2' || guestSees.columns.length !== 1 || !close(guestSees.columns[0].share, 100, 1e-9) || guestSees.left.length) fail(F, `a guest: the empty area closes up and area 1 takes the view: ${JSON.stringify(guestSees)}`);
+  const phoneSees = place('tall-split', [null, 'documents', 'goals'], 390);
+  if (phoneSees.empty.length || phoneSees.closed.join() !== '1' || phoneSees.slots.map((x) => x.id).join() !== 'documents,goals') fail(F, `a phone: an empty area is no tab, the modules in area order: ${JSON.stringify(phoneSees)}`);
+  // A module this person can't open closes its area up, named for the left-out note, and never offers a chooser.
+  const cant = (...no) => (id) => !no.includes(id);
+  const wn = place('wide-narrow', ['documents', 'goals'], 1200, {}, cant('goals'));
+  if (wn.closed.join() !== '2' || wn.empty.length || wn.left.join() !== 'goals' || wn.columns.length !== 1 || !close(wn.columns[0].share, 100, 1e-9) || wn.columns[0].width !== 1200) fail(F, `wide-narrow without area 2: area 1 takes the whole view: ${JSON.stringify(wn)}`);
+  const te = place('three-equal', ids, 1200, {}, cant('goals'));
+  if (te.columns.length !== 2 || te.columns.some((c) => !close(c.share, 50, 1e-9)) || te.slots.map((x) => x.id).join() !== 'documents,polls' || te.left.join() !== 'goals') fail(F, `three-equal with one closed: the other two take half each: ${JSON.stringify(te.columns)}`);
+  for (const id of ['tall-split', 'wide-split']) {
+    const one = place(id, ids, 1200, {}, cant('documents'));
+    if (one.columns.length !== 1 || !close(one.columns[0].share, 100, 1e-9) || !one.columns[0].stack || one.slots.map((x) => `${x.id}:${x.at}:${x.h}`).join() !== 'goals:0:0.5,polls:1:0.5' || 'dockW' in one.slots[0]) fail(F, `${id} with area 1 closed: the right column is the only one, its stack kept: ${JSON.stringify(one)}`);
+    const sec = place(id, ids, 1200, {}, cant('polls'));
+    const want = shapeById(id).columns;
+    if (sec.columns.length !== 2 || sec.columns[1].stack || sec.slots.some((x) => x.stack) || !close(sec.columns[1].share, want[1], 1e-9) || sec.closed.join() !== '3') fail(F, `${id} with a stacked section closed: the other has the whole column, which keeps its width: ${JSON.stringify(sec)}`);
+    const emptySec = place(id, ['documents', null, 'goals'], 1200);
+    if (!emptySec.columns[1].stack || emptySec.slots.filter((x) => x.stack).map((x) => x.id).join() !== ',goals') fail(F, `${id}: an empty stacked area is a section of the stack, with the chooser: ${JSON.stringify(emptySec.slots)}`);
+  }
+  const none = place('three-equal', ids, 1200, {}, () => false);
+  if (none.columns.length || none.slots.length || none.closed.join() !== '1,2,3' || none.left.join() !== ids.join()) fail(F, `every area closed: nothing placed, every module named: ${JSON.stringify(none)}`);
+  if (leftOutNote(none.left, (x) => x[0].toUpperCase() + x.slice(1)) !== "Documents, Goals and Polls aren't on in this space, so they were left out.") fail(F, 'the left-out note names what closed up');
+  // Read through the composites' aliases: `calendar` opens the Calendar's composite in area 1; one that reads as a
+  // composite can't be a stack's section, and a module twice (two parts of one composite) is placed once.
+  const al = aliasesFor(['calendar', 'todo', 'documents'], []);
+  const cal = place('two-equal', ['calendar', 'todo'], 1200, { aliases: al });
+  if (cal.slots.map((x) => x.id).join() !== 'dest:calendar' || cal.closed.join() !== '2' || cal.left.length) fail(F, `the Calendar's two parts are one composite, placed once: ${JSON.stringify(cal)}`);
+  const stackedCal = place('tall-split', ['documents', 'calendar', null], 1200, { aliases: al });
+  if (stackedCal.slots.some((x) => x.id === 'dest:calendar') || !stackedCal.closed.includes(2)) fail(F, 'a composite never goes into a stack');
+  if (place('one', ['chat'], 1200).slots.length || place('one', ['chat'], 1200).left.length) fail(F, 'the chat or the call in an area is never placed and never "left out" (they are the column on the left)');
+  // Nothing wrong is placed: no shape, an unknown one, a wrong length, a shape entry that is not the record's.
+  for (const [rec, opts] of [[null, {}], [{ shape: 'one', areas: ['a', 'b'] }, { shape: shapeById('one') }], [{ shape: 'one', areas: ['a'] }, {}], [{ shape: 'one', areas: ['a'] }, { shape: shapeById('two-equal') }]]) {
+    if (placeShape(rec, 1200, () => true, opts).shape !== null) fail(F, `placeShape() places nothing for ${JSON.stringify(rec)}`);
+  }
+  const rec = { shape: 'wide-split', areas: ['documents', null, 'goals'] };
+  const kept = JSON.stringify(rec);
+  placeShape(rec, 1200, () => true, { shape: shapeById('wide-split') });
+  if (JSON.stringify(rec) !== kept) fail(F, 'placeShape() must not change the record');
+  // What an empty area's chooser offers (decision 8): anything in an area of its own; in a stacked area not Calendar,
+  // To-do, Maps nor a composite. Never the chat or the call.
+  const ts = shapeById('tall-split');
+  for (const a of [2, 3]) for (const id of ['calendar', 'todo', 'maps', 'dest:calendar', 'dest:map']) if (areaMayHold(ts, a, id, { parts })) fail(F, `a stacked area must not offer ${id}`);
+  for (const id of ['calendar', 'todo', 'maps', 'dest:calendar', 'documents']) if (!areaMayHold(ts, 1, id, { parts })) fail(F, `area 1 of tall-split offers ${id}`);
+  if (!areaMayHold(ts, 2, 'documents', { parts }) || areaMayHold(shapeById('one'), 1, 'chat', { parts }) || areaMayHold(ts, 1, 'conference', { parts })) fail(F, 'a stacked area offers an ordinary module; no area offers the chat or the call');
+  if (!areaMayHold(shapeById('three-equal'), 3, 'dest:map', { parts })) fail(F, 'a column of its own may hold a composite');
+  // To-do reads as the Calendar only where the Calendar is on (aliasesFor): refused in a stacked area there, allowed where it is off.
+  const partsOf = (al) => Object.keys(al).filter((id) => typeof al[id] === 'string' && al[id].startsWith('dest:'));
+  const calOn = partsOf(aliasesFor(['calendar', 'todo', 'maps'], []));
+  const calOff = partsOf(aliasesFor(['todo', 'maps'], []));
+  if (areaMayHold(ts, 2, 'todo', { parts: calOn }) || !areaMayHold(ts, 2, 'todo', { parts: calOff })) fail(F, `To-do in a stacked area: refused while the Calendar is on (${calOn}), offered while it is off (${calOff})`);
+  const todoOff = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: aliasesFor(['todo', 'documents', 'goals'], []), mayHold: (a, id) => areaMayHold(ts, a, id, { parts: calOff }) });
+  if (todoOff.slots.map((x) => x.id).join() !== 'documents,todo,goals' || todoOff.closed.length) fail(F, `with the Calendar off To-do is placed in a stack: ${JSON.stringify(todoOff.slots)}`);
+  const todoOn = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: al, mayHold: (a, id) => areaMayHold(ts, a, id, { parts: calOn }) });
+  if (todoOn.closed.join() !== '2' || todoOn.left.length) fail(F, `with the Calendar on To-do (the Calendar) closes up in a stacked area, not "left out": ${JSON.stringify(todoOn)}`);
+  // canvas.js: loadLayout() takes a shape; the placeholder is a column with the shared menu, never remembered, never on a
+  // phone; Window Mode, a layout, the Workspace put back and leaving close it up; nothing is drawn about who can't open what.
+  const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');
+  const C = 'public/canvas.js';
+  const between = (a, b) => canvasJs.slice(canvasJs.indexOf(a), canvasJs.indexOf(b, canvasJs.indexOf(a)));
+  const load = between('  function loadLayout(', '  const nameOfLayout');
+  const shape = between('  function loadShape(', '  // Put a saved layout on the canvas');
+  if (!/typeof layout\.shape === 'string'\) return loadShape\(layout\)/.test(load)) fail(C, 'loadLayout() takes a shape record through loadShape()');
+  if (!/placeShape\(record, width, canOpenHere, \{ shape: def, aliases, narrow, chooser: !guest, mayHold: \(area, id\) => mayHoldHere\(def, area, id\) \}\)/.test(shape)) fail(C, 'loadShape() places with placeShape(), canOpenHere(), the aliases, no chooser for a guest, and the chooser\'s own rule (mayHoldHere)');
+  if (!/p\.kind !== 'builtin' && !named\.has\(p\.id\) && !keepCall\(p\)\) closeModule\(p\.id\)/.test(shape)) fail(C, 'loadShape() closes what the shape does not name, never the conference while on the call');
+  if (!/leftOutNote\(plan\.left/.test(shape) || !/syncDock\(\)/.test(shape) || !/snapshot\(\)/.test(shape)) fail(C, 'loadShape() says what it left out, fits the columns and becomes the remembered arrangement');
+  if (!/saved\.__mode = 'panel'/.test(shape) || !/all: false/.test(shape)) fail(C, 'a shape is columns: Panel Mode, the grid\'s switch off');
+  const openArea = between('  function openArea(', '  // Take a placeholder away.');
+  if (!/mountHostMenu\(a\.list, \(\) => areaItems\(a\)\)/.test(canvasJs) || !/createModuleFrame\(/.test(openArea) || !/close: true/.test(openArea)) fail(C, 'an empty area is a docked frame with Close and the shared menu (mountHostMenu) as its chooser');
+  if (/opened\.set\(/.test(openArea) || /remember\(/.test(openArea)) fail(C, 'an empty area is never a module and never remembered');
+  if (!/const mayHoldHere = \(shape, area, id\) => areaMayHold\(shape, area, id, \{ parts: compositePartsHere\(\) \}\)/.test(canvasJs) || !/const compositePartsHere = \(\) => Object\.keys\(aliases\)/.test(canvasJs)) fail(C, 'one rule for what an area holds (mayHoldHere), its composite parts read from this space\'s aliases (aliasesFor)');
+  if ((canvasJs.match(/areaMayHold\(/g) || []).length !== 1) fail(C, 'areaMayHold() is asked in one place only (mayHoldHere)');
+  if (!/mayHoldHere\(a\.shape, a\.area, m\.id\)/.test(between('  const areaChoices', '  function areaItems(')) || !/!opened\.has\(m\.id\)/.test(between('  const areaChoices', '  function areaItems(')) || !/mayHoldHere\(a\.shape, a\.area, m\.id\)/.test(between('  function fillArea(', '  // Put a shape on the canvas'))) fail(C, 'the chooser and a pick list what is not open and what the area may hold (mayHoldHere)');
+  if (!/a\.el\.hidden = isNarrow\(\) \|\| a\.waiting/.test(canvasJs)) fail(C, 'an empty area is not drawn on a phone or while its column waits');
+  for (const [fn, end] of [['  function restore(', '  // --- saved layouts'], ['  function closeAllModules(', '  function setMode('], ['  function setArrangeMode(', '  // Window Mode puts the stacks away']]) {
+    if (!/clearAreas\(\)/.test(between(fn, end))) fail(C, `${fn.trim()}...) closes the empty areas up`);
+  }
+  if (/cantOpen|can't open this/.test(shape + openArea)) fail(C, 'nothing about who can\'t open what is drawn on the canvas (decision 20)');
+  if (!/const dockedModules = \(\) => holders\(\)/.test(canvasJs) || !/columnsFrom\(holders\(\)\.filter\(wantsColumn\)\.concat\(extra\)\)/.test(canvasJs)) fail(C, 'an empty area is a column for the fit and the stacks (holders())');
+}
+
 // Panel stacking (plan-panel-stacking.md, GitHub #387): the stack's arithmetic in public/layouts.js (grouping, the heights
 // with the 156 px least, the short canvas, the divider, refusals) and how canvas.js uses it: a stack is one column of the
 // docked limit, only installed modules that are not composites stack, the frame's menu carries the stack entries, the
