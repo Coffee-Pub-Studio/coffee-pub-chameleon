@@ -332,6 +332,8 @@ A swatch is hidden when the picked blocks, or the blocks the tool makes, do not 
 
 The strip lets presses through: a click on the board beside its buttons reaches the board and the blocks under it.
 
+To move the strip, drag the tool's icon at its left end (the cap); the strip stays on the board. Double-click the icon to turn the strip between a row and a column. With the icon focused (Tab), the arrow keys move the strip (Shift for bigger steps), **Enter** turns it, and **Home** puts it back under the toolbar's left end as a row. Where you leave it, and which way it lies, is your own: your browser keeps it, other people do not see it, and it is not in the board's data. Read from the code and tried in a browser with the mouse; not tried on a phone or a tablet.
+
 ## Layers
 
 Blocks lie on top of each other. Right-click a block and choose, under **Layer**: **Bring to front**, **Forward one layer**, **Back one layer** or **Send to back**. Forward and back step past the next block that overlaps it. A choice that would change nothing is greyed out.

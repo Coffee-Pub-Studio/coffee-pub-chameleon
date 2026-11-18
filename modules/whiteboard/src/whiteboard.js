@@ -1260,7 +1260,7 @@
   endcap.appendChild(endcapIc);
   let endcapName = '';
   function setEndcap(icon, label) {
-    endcap.setAttribute('aria-label', label);
+    endcap.setAttribute('aria-label', `${label}. Drag to move the strip; arrow keys move it, Enter turns it, Home puts it back`);
     if (endcapName === icon) return;
     endcapName = icon;
     iconSvg(icon).then((svg) => { if (svg && endcapName === icon) endcapIc.innerHTML = svg; });
@@ -1275,6 +1275,89 @@
     stripSeps.push(sep);
   }
   paintStrip.append(endcap, selectionBox, stripSeps[0], kindsBox, stripSeps[1], fontsBox, stripSeps[2], tableBox, stripSeps[3], lineBox, stripSeps[4], presentBox, stripSeps[5], coloursBox);
+  // The strip floats: its grip, the endcap at the left end (the tool's own icon), drags it anywhere over the board (arrow keys move it by a step, Home puts it back
+  // under the toolbar's left end, and a double-click on the grip turns it from a row to a column and back). Where it was left, and which way it lies, is this person's own, kept in this browser and not in
+  // the board's data, and is held inside the module's page when the page changes size.
+  const WB_STRIP_KEY = 'whiteboard-strip';
+  const stripGrip = endcap;
+  stripGrip.classList.add('wb-grip');
+  stripGrip.tabIndex = 0;
+  stripGrip.setAttribute('role', 'button');
+  stripGrip.dataset.tip = 'Drag to move the strip; double-click to turn it';
+  let stripPos = null; // { x, y } in the page's pixels, or null for the usual place
+  let stripVertical = false; // the strip lies as a column
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(WB_STRIP_KEY));
+    if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y)) stripPos = { x: raw.x, y: raw.y };
+    stripVertical = Boolean(raw && raw.v);
+  } catch { stripPos = null; }
+  function stripSave() {
+    try {
+      if (stripPos || stripVertical) window.localStorage.setItem(WB_STRIP_KEY, JSON.stringify({ ...(stripPos || {}), v: stripVertical }));
+      else window.localStorage.removeItem(WB_STRIP_KEY);
+    } catch { /* kept for this visit only */ }
+  }
+  function stripPlace() {
+    const area = paintStrip.offsetParent;
+    paintStrip.classList.toggle('wb-vertical', stripVertical);
+    if (!stripPos) { paintStrip.classList.remove('wb-moved'); for (const k of ['left', 'top', 'maxWidth', 'maxHeight']) paintStrip.style[k] = ''; if (stripVertical && area) paintStrip.style.maxHeight = `${Math.max(120, area.clientHeight - 16)}px`; return; }
+    if (!area || !paintStrip.offsetWidth) return; // hidden or not drawn yet: the place is kept
+    const room = 8;
+    const x = Math.max(0, Math.min(stripPos.x, area.clientWidth - 48));
+    const y = Math.max(0, Math.min(stripPos.y, area.clientHeight - Math.min(paintStrip.offsetHeight, 48)));
+    paintStrip.classList.add('wb-moved');
+    paintStrip.style.left = `${x}px`;
+    paintStrip.style.top = `${y}px`;
+    paintStrip.style.maxWidth = stripVertical ? '' : `${Math.max(120, area.clientWidth - x - room)}px`;
+    paintStrip.style.maxHeight = stripVertical ? `${Math.max(120, area.clientHeight - y - room)}px` : '';
+    // Pulled back by the edge: it is the edge's place now, so the next drag starts from where it is seen.
+    const seen = paintStrip.offsetLeft + paintStrip.offsetWidth > area.clientWidth ? Math.max(0, area.clientWidth - paintStrip.offsetWidth) : x;
+    paintStrip.style.left = `${seen}px`;
+  }
+  const stripReset = () => { stripPos = null; stripVertical = false; stripSave(); stripPlace(); afterPaint(); };
+  // A double-click turns the strip: where it lies stays (a strip in its usual place stays there).
+  const stripTurn = () => { stripVertical = !stripVertical; stripSave(); stripPlace(); afterPaint(); };
+  let stripDrag = null;
+  stripGrip.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    stripDrag = { id: e.pointerId, dx: e.clientX - paintStrip.getBoundingClientRect().left, dy: e.clientY - paintStrip.getBoundingClientRect().top };
+    try { stripGrip.setPointerCapture(e.pointerId); } catch { /* the drag still follows the pointer over the grip */ }
+    paintStrip.classList.add('wb-dragging');
+  });
+  stripGrip.addEventListener('pointermove', (e) => {
+    if (!stripDrag || e.pointerId !== stripDrag.id) return;
+    const at = paintStrip.offsetParent.getBoundingClientRect();
+    stripPos = { x: Math.round(e.clientX - stripDrag.dx - at.left), y: Math.round(e.clientY - stripDrag.dy - at.top) };
+    stripPlace();
+    afterPaint();
+  });
+  const stripDrop = (e) => {
+    if (!stripDrag || e.pointerId !== stripDrag.id) return;
+    stripDrag = null;
+    paintStrip.classList.remove('wb-dragging');
+    if (stripPos) { stripPos = { x: paintStrip.offsetLeft, y: paintStrip.offsetTop }; stripSave(); }
+  };
+  stripGrip.addEventListener('pointerup', stripDrop);
+  stripGrip.addEventListener('pointercancel', stripDrop);
+  stripGrip.addEventListener('dblclick', (e) => { e.stopPropagation(); stripTurn(); });
+  stripGrip.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 40 : 8;
+    const move = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (e.key === 'Home') { e.preventDefault(); e.stopPropagation(); stripReset(); return; }
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); stripTurn(); return; }
+    if (!move) return;
+    e.preventDefault();
+    e.stopPropagation();
+    stripPos = { x: paintStrip.offsetLeft + move[0], y: paintStrip.offsetTop + move[1] };
+    stripPlace();
+    stripPos = { x: paintStrip.offsetLeft, y: paintStrip.offsetTop };
+    stripSave();
+    afterPaint();
+  });
+  new ResizeObserver(() => { stripPlace(); }).observe(paintStrip);
+  if (paintStrip.offsetParent) new ResizeObserver(() => { stripPlace(); }).observe(paintStrip.offsetParent);
   // A divider shows between two groups that both show.
   function stripDividers() {
     stripSeps.forEach((sep, i) => { sep.hidden = !(!stripGroups[i + 1].hidden && stripGroups.slice(0, i + 1).some((g) => !g.hidden)); });
