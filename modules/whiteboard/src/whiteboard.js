@@ -971,6 +971,7 @@
     { id: 'pen', kinds: ['pen', 'marker', 'brush', 'highlight'] },
     { id: 'shape', kinds: ['rect', 'ellipse', 'line', 'arrow'] },
     { id: 'flowchart', kinds: ['connector', 'rounded', 'diamond', 'pill', 'parallelogram'] },
+    { id: 'picture', kinds: ['crop', 'blur'] },
   ];
   const familyHas = (f) => f.kinds.some((id) => allowed.some((t) => t.id === id));
   const lastKind = Object.fromEntries(FAMILIES.map((f) => [f.id, f.kinds[0]]));
@@ -987,6 +988,7 @@
     { id: 'shape', label: 'Shape', icon: 'shapes' },
     { id: 'table', label: 'Table', icon: 'table' },
     { id: 'frame', label: 'Frame', icon: 'crop-simple' },
+    { id: 'picture', label: 'Picture', icon: 'image' },
   ];
   const inSwitch = (o) => (FAMILIES.some((f) => f.id === o.id) ? familyHas(FAMILIES.find((f) => f.id === o.id)) : allowed.some((t) => t.id === o.id));
   // A tool picked with the mouse leaves the focus on the toolbar's button; the board takes it, so the tool's letter and Escape work
@@ -1213,8 +1215,8 @@
   const paintButtons = new Map(); // role id or 'weight' -> { button, mark }
   // The strip's first group: the kinds of the active tool when it has them (Pen: pen, marker, brush, highlighter; Shape;
   // Flowchart), a small row of icon buttons, the chosen one pressed, then a thin divider before the colours.
-  const KIND_ICONS = { pen: 'pen', marker: 'marker', brush: 'paintbrush', highlight: 'highlighter', rect: 'square', ellipse: 'circle', line: 'minus', arrow: 'arrow-right-long', connector: 'arrows-turn-right', rounded: 'square', diamond: 'diamond', pill: 'capsules', parallelogram: 'arrow-right-arrow-left' };
-  const FAMILY_NAMES = { pen: 'Pen', shape: 'Shape', flowchart: 'Flowchart' };
+  const KIND_ICONS = { pen: 'pen', marker: 'marker', brush: 'paintbrush', highlight: 'highlighter', rect: 'square', ellipse: 'circle', line: 'minus', arrow: 'arrow-right-long', connector: 'arrows-turn-right', rounded: 'square', diamond: 'diamond', pill: 'capsules', parallelogram: 'arrow-right-arrow-left', crop: 'crop', blur: 'droplet' };
+  const FAMILY_NAMES = { pen: 'Pen', shape: 'Shape', flowchart: 'Flowchart', picture: 'Picture' };
   const kindsBox = document.createElement('div');
   kindsBox.className = 'wb-kinds';
   kindsBox.setAttribute('role', 'group');

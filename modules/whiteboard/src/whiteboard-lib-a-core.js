@@ -226,7 +226,7 @@
   function wbStripPlan(tool, def, family = null) {
     if (!tool || tool.mode || tool.id === 'eraser') return null; // the Hand and the Eraser have no strip
     if (tool.id === 'select') return { selection: true, fonts: false, line: false, present: false, colours: false };
-    return { selection: false, fonts: wbBearsWords(def), line: tool.id === 'connector' || family === 'flowchart', present: tool.id === 'frame', colours: true };
+    return { selection: false, fonts: wbBearsWords(def), line: tool.id === 'connector' || family === 'flowchart', present: tool.id === 'frame', colours: family !== 'picture' };
   }
   // What the colour strip's fonts group shows: size and horizontal align for the picked blocks whose words take markup
   // (else for the active tool's type: size and align), vertical align only where a picked block's type has it. Pure: blocks and their
