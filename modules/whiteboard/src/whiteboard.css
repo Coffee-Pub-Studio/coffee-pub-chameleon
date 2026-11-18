@@ -1151,3 +1151,7 @@
 .wb-endcap.wb-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .wb-paint.wb-dragging, .wb-paint.wb-dragging .wb-endcap.wb-grip { cursor: grabbing; }
 .wb-paint.wb-dragging { box-shadow: var(--shadow-3, var(--shadow-2)); }
+/* A column keeps to the width of its icons: a button with a word (the text size, Present) shows only its icon, and its tooltip
+   and label say the rest. */
+.wb-vertical .wb-btn-word { display: none; }
+.wb-vertical .wb-size-btn, .wb-vertical .wb-present-btn { min-width: 0; width: 30px; padding-left: 0; padding-right: 0; justify-content: center; }

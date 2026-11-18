@@ -1499,6 +1499,7 @@
     sizeIc.setAttribute('aria-hidden', 'true');
     iconSvg('text-height').then((svg) => { if (svg) sizeIc.innerHTML = svg; });
     sizeLabel = document.createElement('span');
+    sizeLabel.className = 'wb-btn-word'; // the word a column leaves out (the tooltip has it)
     sizeButton.append(sizeIc, sizeLabel);
     fontsBox.append(sizeButton, hBox, valignBox);
     presentButton = document.createElement('button');
@@ -1510,7 +1511,10 @@
     presentIc.className = 'ic';
     presentIc.setAttribute('aria-hidden', 'true');
     iconSvg('play').then((svg) => { if (svg) presentIc.innerHTML = svg; });
-    presentButton.append(presentIc, document.createTextNode('Present'));
+    const presentWord = document.createElement('span');
+    presentWord.className = 'wb-btn-word';
+    presentWord.textContent = 'Present';
+    presentButton.append(presentIc, presentWord);
     presentButton.addEventListener('click', () => {
       if (presentButton.getAttribute('aria-disabled') === 'true') { note('No frames to present. Add a frame first.'); return; }
       startPresenting();
