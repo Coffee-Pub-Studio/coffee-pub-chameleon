@@ -1199,3 +1199,7 @@
 .wb-cropper-grip[data-grip="sw"] { left: 0; top: 100%; }
 .wb-cropper-grip[data-grip="w"] { left: 0; top: 50%; }
 .board.wb-crop-on .wb-frame, .board.wb-crop-on .wb-handle { display: none; }
+/* A closed shape's shadow follows its outline (a filter on its drawing, as a box-shadow would be a box): Contact is tight and low,
+   Drop shadow is the all-round one. */
+.wb-shape[data-shadow="contact"] .wb-svg { filter: drop-shadow(0 3px 1.5px var(--shadow-color)); }
+.wb-shape[data-shadow="soft"] .wb-svg { filter: drop-shadow(0 4px 9px var(--shadow-color)); }

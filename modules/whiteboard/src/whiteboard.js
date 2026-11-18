@@ -1303,7 +1303,7 @@
   const pictureBox = document.createElement('div');
   pictureBox.className = 'wb-paint-group wb-picturegroup';
   pictureBox.setAttribute('role', 'group');
-  pictureBox.setAttribute('aria-label', 'Picture');
+  pictureBox.setAttribute('aria-label', 'Style');
   pictureBox.hidden = true;
   // The strip begins with a quiet badge: the icon of the tool it belongs to (or of the kind of block picked).
   const endcap = document.createElement('span');
@@ -1636,19 +1636,23 @@
   // A picture's corner radius and shadow: the picked pictures' (a mark on the one they all have), each choice one save of each.
   const WB_RADII = [{ id: 0, label: 'None' }, { id: 8, label: 'Small' }, { id: 16, label: 'Medium' }, { id: 32, label: 'Large' }, { id: 999, label: 'Full' }];
   const WB_SHADOWS = [{ id: 'none', label: 'No shadow' }, { id: 'contact', label: 'Contact shadow' }, { id: 'soft', label: 'Drop shadow' }];
-  const picturesPicked = () => targets().filter((b) => b.type === 'image');
+  // The picked blocks a choice is for: all of them have it (a block type's `radius` or `shadow`), else none (the buttons hide).
+  const styled = (key) => { const list = targets(); return list.length && list.every((b) => defOf(b)[key]) ? list : []; };
+  const picturesPicked = () => { const list = targets(); return list.length && list.every((b) => b.type === 'image') ? list : []; };
   const sameOf = (list, get) => { const v = new Set(list.map(get)); return v.size === 1 ? [...v][0] : undefined; };
-  function setPictures(patch) {
-    for (const b of picturesPicked()) ctx.change(b.id, patch, { save: 'now' });
+  // A radius as the menu marks it: a picture's none is 0; a shape with none chosen has its own usual corners (null: no row marked).
+  const radiusOf = (b) => (b.radius !== undefined ? b.radius : b.type === 'image' ? 0 : null);
+  function setStyle(key, patch) {
+    for (const b of styled(key)) ctx.change(b.id, patch, { save: 'now' });
     updatePaint();
   }
   function radiusMenu(where) {
-    const now = sameOf(picturesPicked(), (b) => b.radius || 0);
-    host.menu.show({ id: 'radius', ...where, items: WB_RADII.map((c) => choiceRow(c.id, c.label, now, () => setPictures({ radius: c.id }))) });
+    const now = sameOf(styled('radius'), radiusOf);
+    host.menu.show({ id: 'radius', ...where, items: WB_RADII.map((c) => choiceRow(c.id, c.label, now, () => setStyle('radius', { radius: c.id }))) });
   }
   function shadowMenu(where) {
-    const now = sameOf(picturesPicked(), (b) => b.shadow || 'none');
-    host.menu.show({ id: 'shadow', ...where, items: WB_SHADOWS.map((c) => choiceRow(c.id, c.label, now, () => setPictures({ shadow: c.id }))) });
+    const now = sameOf(styled('shadow'), (b) => b.shadow || 'none');
+    host.menu.show({ id: 'shadow', ...where, items: WB_SHADOWS.map((c) => choiceRow(c.id, c.label, now, () => setStyle('shadow', { shadow: c.id }))) });
   }
   // The line group shows for picked connectors, or for the Connector tool with nothing picked.
   const lineOf = () => targets().filter((b) => b.type === CONNECTOR);
@@ -1814,19 +1818,23 @@
       presentButton.dataset.tip = words;
       presentButton.setAttribute('aria-label', words);
     }
+    const radList = styled('radius');
+    const shList = styled('shadow');
     const pics = picturesPicked();
-    pictureBox.hidden = !(pics.length && pics.length === targets().length);
+    radiusButton.hidden = !radList.length;
+    shadowButton.hidden = !shList.length;
+    cropButton.hidden = !pics.length || family === 'picture';
+    blurButton.hidden = !pics.length || family === 'picture';
+    pictureBox.hidden = !(radList.length || shList.length || !cropButton.hidden);
     if (!pictureBox.hidden) {
-      const rad = sameOf(pics, (b) => b.radius || 0);
-      const sh = sameOf(pics, (b) => b.shadow || 'none');
-      const radWords = `Corner radius: ${rad === undefined ? 'Mixed' : (WB_RADII.find((c) => c.id === rad) || { label: `${rad}` }).label}`;
+      const rad = radList.length ? sameOf(radList, radiusOf) : 0;
+      const sh = shList.length ? sameOf(shList, (b) => b.shadow || 'none') : 'none';
+      const radWords = `Corner radius: ${rad === undefined ? 'Mixed' : rad === null ? 'Default' : (WB_RADII.find((c) => c.id === rad) || { label: `${rad}` }).label}`;
       const shWords = sh === undefined ? 'Shadow: Mixed' : (WB_SHADOWS.find((c) => c.id === sh) || { label: sh }).label;
       radiusButton.setAttribute('aria-label', radWords);
       radiusButton.dataset.tip = radWords;
       shadowButton.setAttribute('aria-label', shWords);
       shadowButton.dataset.tip = shWords;
-      cropButton.hidden = family === 'picture';
-      blurButton.hidden = family === 'picture';
     }
     coloursBox.hidden = !any;
     stripDividers();

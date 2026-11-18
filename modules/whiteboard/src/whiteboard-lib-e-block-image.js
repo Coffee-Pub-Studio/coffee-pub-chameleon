@@ -91,6 +91,8 @@
         return out;
       },
       altOf,
+      radius: true,
+      shadow: true,
       cropOf,
       MAX_BLUR,
       SHADOWS,
