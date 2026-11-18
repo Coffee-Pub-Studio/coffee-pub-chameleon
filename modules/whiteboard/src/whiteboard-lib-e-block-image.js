@@ -6,6 +6,8 @@
   // part of the picture shown and blur [{ x, y, w, h }] the boxes drawn blurred, both as fractions of the WHOLE picture
   // (0 to 1), so a crop does not move a blur box. w and h are the size of the part shown (it keeps the picture's scale: the
   // cropped part stays where it was); Reset picture (the block's menu) brings the rest back.
+  // radius (board units, 0 for square corners; 999 rounds it all the way) and shadow ('none', 'contact': a tight shadow under the
+  // bottom edge only, like the picture resting on the board, or 'soft': the all-round one) are how the picture is drawn.
   // A corner changes its size and always keeps its shape. Double-click (or Enter) to describe it. Copies share the upload,
   // and deleting the block leaves the upload where it is, so an undo brings the same picture back (lib-i, and the page).
   //
@@ -31,6 +33,8 @@
       return { x, y, w, h };
     }
     const WHOLE = { x: 0, y: 0, w: 1, h: 1 };
+    const SHADOWS = ['none', 'contact', 'soft'];
+    const MAX_RADIUS = 999;
     const cropOf = (b) => partOf(b && b.crop) || WHOLE;
     // Draw the whole picture inside an element that shows only `part` of it (fractions of the whole): nothing set for all of it.
     function place(img, part) {
@@ -77,7 +81,11 @@
         if (typeof raw.upload !== 'string' || !UPLOAD.test(raw.upload)) return null;
         const out = { upload: raw.upload, w: wb.size(raw.w, 24, 320), h: wb.size(raw.h, 24, 240), alt: altOf(raw.alt) };
         const crop = partOf(raw.crop);
-        if (crop) out.crop = crop;
+        // A crop of the whole picture is no crop.
+        if (crop && !(crop.x === 0 && crop.y === 0 && crop.w >= 0.9999 && crop.h >= 0.9999)) out.crop = crop;
+        const radius = typeof raw.radius === 'number' && Number.isFinite(raw.radius) ? Math.round(Math.max(0, Math.min(MAX_RADIUS, raw.radius))) : 0;
+        if (radius > 0) out.radius = radius;
+        if (SHADOWS.includes(raw.shadow) && raw.shadow !== 'none') out.shadow = raw.shadow;
         const blur = Array.isArray(raw.blur) ? raw.blur.map(partOf).filter(Boolean).slice(0, MAX_BLUR) : [];
         if (blur.length) out.blur = blur;
         return out;
@@ -85,6 +93,8 @@
       altOf,
       cropOf,
       MAX_BLUR,
+      SHADOWS,
+      MAX_RADIUS,
       // The block's own menu entry (a block type's `actions`): Reset picture, only while it is cropped or blurred. It puts the
       // whole picture back at the scale it has now, the part that was shown staying where it is.
       actions(b) {
@@ -121,6 +131,8 @@
           el.replaceChildren(img, missing, alt);
         }
         if (b.alt) el.title = b.alt; else el.removeAttribute('title');
+        el.style.borderRadius = b.radius ? `${b.radius}px` : '';
+        if (b.shadow) el.dataset.shadow = b.shadow; else delete el.dataset.shadow;
         const ratio = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
         // The picture is placed through its crop: the whole picture is drawn 1/w by 1/h as big as the block and moved so the
         // part shown fills the block. What is shown is smaller than the picture, so the thumbnail is used only while the
@@ -128,7 +140,22 @@
         const c = cropOf(b);
         const thumb = Math.max(b.w / c.w, b.h / c.h) * ratio <= THUMB;
         place(img, c, WHOLE);
+        // The picture is shown through the crop (and clipped to it, so the page can let the rest show while it is cropped).
+        img.style.clipPath = b.crop ? `inset(${c.y * 100}% ${(1 - c.x - c.w) * 100}% ${(1 - c.y - c.h) * 100}% ${c.x * 100}%)` : '';
         show(this, el, img, b.upload, thumb);
+        // While the Crop tool has it picked (el.dataset.cropping), the whole picture shows faintly round the part kept: a copy
+        // of it behind, hidden the rest of the time.
+        let ghost = el.querySelector('.wb-crop-ghost');
+        if (b.crop && !ghost) {
+          ghost = document.createElement('img');
+          ghost.className = 'wb-crop-ghost';
+          ghost.alt = '';
+          ghost.draggable = false;
+          ghost.decoding = 'async';
+          ghost.setAttribute('aria-hidden', 'true');
+          el.insertBefore(ghost, img);
+        } else if (!b.crop && ghost) { ghost.remove(); ghost = null; }
+        if (ghost) { place(ghost, c, WHOLE); show(this, el, ghost, b.upload, thumb); }
         // The blur boxes: each its own copy of the picture, blurred, clipped to its box (so nothing but the picture's own
         // pixels, drawn the same way in the saved image: lib-l draws this element, and a backdrop filter would not carry over).
         const boxes = Array.isArray(b.blur) ? b.blur.filter((q) => q.x < c.x + c.w && q.x + q.w > c.x && q.y < c.y + c.h && q.y + q.h > c.y) : [];

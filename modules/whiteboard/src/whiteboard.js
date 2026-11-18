@@ -73,6 +73,8 @@
   const one = () => (sel.size === 1 ? [...sel][0] : null); // the one picked block, or null (none, or several)
   let editing = null; // { id, finish, cell? ({ r, c, td }: a table's cell) }
   let many = false; // "Many", a mode of the Select tool (on its strip): a click or tap adds to what is picked, a drag on the board draws a rectangle that adds
+  let cropper = null; // the Crop tool's frame (syncCropper) and the id of the picture it is on
+  let cropping = null;
   let presenting = null; // while the frames are presented: lib-e-block-frame's state ({ order, i, view }), see "presenting"
   let tool = tools.get('select');
   let lent = null; // an insert tool's press on a block, lent to Select for that press (lib-f-tool-insert)
@@ -143,6 +145,7 @@
   function commit(next, save) {
     board.put(next);
     renderer.draw(next);
+    if (cropping === next.id) syncCropper();
     if (save) persist(next, save);
     updateStatus();
   }
@@ -241,6 +244,8 @@
     guideBoxes: (ids) => guideBoxes(ids),
     guides: (lines) => renderer.guides(lines),
     setTool: (id) => setTool(id),
+    // The pointer over the board for this tool (a tool's grips, its frame); null for the tool's own.
+    cursor: (name) => { surface.style.cursor = name || tool.cursor || ''; },
     hold(id, on) { if (on) held.add(id); else release(id); },
     // Where a connector's end goes for a pointer on the board ({ block, side } or null: the board), and the connection
     // points to show ([{ block, side }], [] for none).
@@ -564,9 +569,41 @@
     for (const id of want.length ? wbExpandGroups(want, board.all()) : []) if (board.has(id)) sel.add(id);
     if (cellNav && !(sel.size === 1 && sel.has(cellNav.id))) leaveCells(); // the cells are the one picked table's
     renderer.select([...sel], handlesOf(one()));
+    syncCropper();
     toolbarTail();
     if (Boolean(pair()) !== addCanConnect) setAdd();
     updateStatus();
+  }
+  // The Crop tool's frame: over the one picture that is picked while Crop is the tool, the frame, its thirds and a grip on each
+  // corner and edge (whiteboard.css, .wb-cropper). It draws only; pressing the grips is the tool's (lib-f-tool-picture). The picture
+  // itself shows whole and faint round the part kept while it is cropped (its element's data-cropping, lib-e-block-image).
+  cropper = document.createElement('div');
+  cropper.className = 'wb-cropper';
+  cropper.hidden = true;
+  cropper.setAttribute('aria-hidden', 'true');
+  for (const g of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+    const grip = document.createElement('span');
+    grip.className = 'wb-cropper-grip';
+    grip.dataset.grip = g;
+    cropper.appendChild(grip);
+  }
+  $('world').insertBefore(cropper, $('frame'));
+  function syncCropper() {
+    if (!cropper) return;
+    const one1 = tool.id === 'crop' && !presenting && sel.size === 1 ? board.get([...sel][0]) : null;
+    const on = one1 && one1.type === 'image' && !drafts.has(one1.id) ? one1 : null;
+    if (cropping && (!on || on.id !== cropping)) {
+      const old = renderer.element(cropping);
+      if (old) delete old.dataset.cropping;
+      cropping = null;
+    }
+    surface.classList.toggle('wb-crop-on', Boolean(on)); // the picked frame and its handles give way to the crop frame
+    if (!on) { cropper.hidden = true; return; }
+    const el = renderer.element(on.id);
+    if (el) el.dataset.cropping = 'true';
+    cropping = on.id;
+    Object.assign(cropper.style, { left: `${on.x}px`, top: `${on.y}px`, width: `${on.w}px`, height: `${on.h}px` });
+    cropper.hidden = false;
   }
   // The toolbar's buttons that come and go, always in this order after the Timer: Present (the board has a frame; anyone who
   // can see the board), Delete (something picked may be deleted), Arrange (two or more picked, for someone who may change
@@ -1028,12 +1065,13 @@
     family = nextFamily;
     if (!(tool.makes && blockTypes.get(tool.makes) && ['rounded', 'diamond', 'pill', 'parallelogram'].includes(tool.makes))) lastFlow = null;
     if (family) lastKind[family] = tool.id;
-    if (tool.id !== 'select' && !tool.mode && sel.size) select(null); // a tool's strip is about the tool, not what was picked before
+    if (tool.id !== 'select' && !tool.mode && family !== 'picture' && sel.size) select(null); // a tool's strip is about the tool, not what was picked before (the Picture tool works on what is picked)
     if (tool.activate) tool.activate(ctx);
     surface.dataset.tool = tool.id;
     surface.style.cursor = tool.cursor || '';
     renderer.cursorIcon(null); // the next mouse move shows the new tool's icon
     renderer.select([...sel], handlesOf(one()));
+    syncCropper();
     showTool();
     updateHint();
     updateStatus();
@@ -1252,6 +1290,12 @@
   presentBox.setAttribute('role', 'group');
   presentBox.setAttribute('aria-label', 'Frames');
   presentBox.hidden = true;
+  // A picture's own choices: its corner radius and its shadow (shown while every block picked is a picture).
+  const pictureBox = document.createElement('div');
+  pictureBox.className = 'wb-paint-group wb-picturegroup';
+  pictureBox.setAttribute('role', 'group');
+  pictureBox.setAttribute('aria-label', 'Picture');
+  pictureBox.hidden = true;
   // The strip begins with a quiet badge: the icon of the tool it belongs to (or of the kind of block picked).
   const endcap = document.createElement('span');
   endcap.className = 'wb-endcap';
@@ -1267,7 +1311,7 @@
     endcapName = icon;
     iconSvg(icon).then((svg) => { if (svg && endcapName === icon) endcapIc.innerHTML = svg; });
   }
-  const stripGroups = [selectionBox, kindsBox, fontsBox, tableBox, lineBox, presentBox, coloursBox];
+  const stripGroups = [selectionBox, kindsBox, fontsBox, tableBox, lineBox, presentBox, pictureBox, coloursBox];
   const stripSeps = [];
   for (let i = 1; i < stripGroups.length; i += 1) {
     const sep = document.createElement('span');
@@ -1276,7 +1320,7 @@
     sep.hidden = true;
     stripSeps.push(sep);
   }
-  paintStrip.append(endcap, selectionBox, stripSeps[0], kindsBox, stripSeps[1], fontsBox, stripSeps[2], tableBox, stripSeps[3], lineBox, stripSeps[4], presentBox, stripSeps[5], coloursBox);
+  paintStrip.append(endcap, selectionBox, stripSeps[0], kindsBox, stripSeps[1], fontsBox, stripSeps[2], tableBox, stripSeps[3], lineBox, stripSeps[4], presentBox, stripSeps[5], pictureBox, stripSeps[6], coloursBox);
   // The strip floats: its grip, the endcap at the left end (the tool's own icon), drags it anywhere over the board (arrow keys move it by a step, Home puts it back
   // under the toolbar's left end, and a double-click on the grip turns it from a row to a column and back). Where it was left, and which way it lies, is this person's own, kept in this browser and not in
   // the board's data, and is held inside the module's page when the page changes size.
@@ -1434,6 +1478,8 @@
   let sizeButton = null;
   let sizeLabel = null;
   let presentButton = null;
+  let radiusButton = null;
+  let shadowButton = null;
   let valignBox = null;
   let autoButton = null;
   let tableButton = null;
@@ -1525,6 +1571,13 @@
     notesButton.dataset.tip = 'Speaker notes for the picked frame';
     notesButton.hidden = true;
     presentBox.appendChild(notesButton);
+    radiusButton = pressButton('Corner radius', 'border-top-left', () => radiusMenu({ anchor: radiusButton }));
+    radiusButton.removeAttribute('aria-pressed');
+    radiusButton.setAttribute('aria-haspopup', 'menu');
+    shadowButton = pressButton('Shadow', 'layer-group', () => shadowMenu({ anchor: shadowButton }));
+    shadowButton.removeAttribute('aria-pressed');
+    shadowButton.setAttribute('aria-haspopup', 'menu');
+    pictureBox.append(radiusButton, shadowButton);
     for (const field of ['style', 'head']) {
       const box = pairBox(field === 'style' ? 'Line style' : 'Arrowheads');
       for (const c of LINE_STRIP[field]) {
@@ -1561,6 +1614,23 @@
   function sizeMenu(where) {
     const now = (fontsNow() || {}).size;
     host.menu.show({ id: 'size', ...where, items: WB_SIZES.map((c) => choiceRow(c.id, c.label, now, () => setWords('size', c.id))) });
+  }
+  // A picture's corner radius and shadow: the picked pictures' (a mark on the one they all have), each choice one save of each.
+  const WB_RADII = [{ id: 0, label: 'None' }, { id: 8, label: 'Small' }, { id: 16, label: 'Medium' }, { id: 32, label: 'Large' }, { id: 999, label: 'Full' }];
+  const WB_SHADOWS = [{ id: 'none', label: 'None' }, { id: 'contact', label: 'Contact' }, { id: 'soft', label: 'Soft' }];
+  const picturesPicked = () => targets().filter((b) => b.type === 'image');
+  const sameOf = (list, get) => { const v = new Set(list.map(get)); return v.size === 1 ? [...v][0] : undefined; };
+  function setPictures(patch) {
+    for (const b of picturesPicked()) ctx.change(b.id, patch, { save: 'now' });
+    updatePaint();
+  }
+  function radiusMenu(where) {
+    const now = sameOf(picturesPicked(), (b) => b.radius || 0);
+    host.menu.show({ id: 'radius', ...where, items: WB_RADII.map((c) => choiceRow(c.id, c.label, now, () => setPictures({ radius: c.id }))) });
+  }
+  function shadowMenu(where) {
+    const now = sameOf(picturesPicked(), (b) => b.shadow || 'none');
+    host.menu.show({ id: 'shadow', ...where, items: WB_SHADOWS.map((c) => choiceRow(c.id, c.label, now, () => setPictures({ shadow: c.id }))) });
   }
   // The line group shows for picked connectors, or for the Connector tool with nothing picked.
   const lineOf = () => targets().filter((b) => b.type === CONNECTOR);
@@ -1724,9 +1794,21 @@
       presentButton.dataset.tip = words;
       presentButton.setAttribute('aria-label', words);
     }
+    const pics = picturesPicked();
+    pictureBox.hidden = !(pics.length && pics.length === targets().length);
+    if (!pictureBox.hidden) {
+      const rad = sameOf(pics, (b) => b.radius || 0);
+      const sh = sameOf(pics, (b) => b.shadow || 'none');
+      const radWords = `Corner radius: ${rad === undefined ? 'Mixed' : (WB_RADII.find((c) => c.id === rad) || { label: `${rad}` }).label}`;
+      const shWords = `Shadow: ${sh === undefined ? 'Mixed' : (WB_SHADOWS.find((c) => c.id === sh) || { label: sh }).label}`;
+      radiusButton.setAttribute('aria-label', radWords);
+      radiusButton.dataset.tip = radWords;
+      shadowButton.setAttribute('aria-label', shWords);
+      shadowButton.dataset.tip = shWords;
+    }
     coloursBox.hidden = !any;
     stripDividers();
-    paintStrip.hidden = !any && !kinds && selectionBox.hidden && fontsBox.hidden && tableBox.hidden && lineBox.hidden && presentBox.hidden;
+    paintStrip.hidden = !any && !kinds && selectionBox.hidden && fontsBox.hidden && tableBox.hidden && lineBox.hidden && presentBox.hidden && pictureBox.hidden;
     // The endcap: the tool's icon, or the kind of the one block picked (the Select arrow for several).
     const picked = targets();
     const one1 = picked.length === 1 ? picked[0] : null;
@@ -2305,7 +2387,12 @@
       if (batch) {
         const same = sel.size === batch.picked.length && batch.picked.every((id) => sel.has(id));
         batch.made.push(b.id);
-        if (same) select(batch.made.slice());
+        if (same) {
+          // A picture just added has its own tools: the Picture strip (Crop, Blur, corner radius, shadow) with the picture picked.
+          // Escape goes back to Select.
+          if (family !== 'picture') setTool(allowed.some((t) => t.id === lastKind.picture) ? lastKind.picture : 'crop', 'picture');
+          select(batch.made.slice());
+        }
         batch.picked = [...sel];
       }
       return true;

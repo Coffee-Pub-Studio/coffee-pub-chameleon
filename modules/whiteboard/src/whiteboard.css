@@ -836,6 +836,8 @@
 /* the Fill tool: the board's cursor over every block, the block under the pointer marked (a block with no background:
    "not allowed"), and a swatch of the fill colour by the pointer */
 .board[data-tool="fill"] .wb-block, .board[data-tool="fill"] .wb-block * { cursor: inherit; }
+/* the Picture tool (Crop, Blur): the board's own cursor over every block, a cross to draw with and the tool's own over the crop frame */
+.board[data-tool="crop"] .wb-block, .board[data-tool="crop"] .wb-block *, .board[data-tool="blur"] .wb-block, .board[data-tool="blur"] .wb-block * { cursor: inherit; }
 .board[data-tool="fill"] .wb-block[data-mark="no"], .board[data-tool="fill"] .wb-block[data-mark="no"] * { cursor: not-allowed; }
 .wb-block[data-mark="ok"] { outline: calc(2px / var(--wb-scale, 1)) solid var(--accent); outline-offset: calc(4px / var(--wb-scale, 1)); }
 .wb-block[data-mark="no"] { outline: calc(1px / var(--wb-scale, 1)) dashed var(--text-muted); outline-offset: calc(4px / var(--wb-scale, 1)); }
@@ -1155,3 +1157,45 @@
    and label say the rest. */
 .wb-vertical .wb-btn-word { display: none; }
 .wb-vertical .wb-size-btn, .wb-vertical .wb-present-btn { min-width: 0; width: 30px; padding-left: 0; padding-right: 0; justify-content: center; }
+
+/* A picture's shadow (its Shadow menu): Contact lies under the bottom edge only (the negative spread keeps it off the sides, the
+   offset puts it below), like the picture resting on the board; Soft is the usual all-round one. */
+.wb-type-image[data-shadow="contact"] { box-shadow: 0 4px 3px -3px var(--shadow-color), 0 8px 6px -6px var(--shadow-color), 0 14px 10px -10px var(--shadow-color); }
+.wb-type-image[data-shadow="soft"] { box-shadow: var(--shadow-3); }
+
+/* Cropping (the Picture tool's Crop, a picture picked): the whole picture shows faintly round the part kept, which stays bright;
+   the crop frame, its thirds and its grips are drawn over it by the page (.wb-cropper). */
+.wb-crop-ghost { display: none; position: absolute; max-width: none; opacity: 0.35; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.wb-type-image[data-cropping] { overflow: visible; }
+.wb-type-image[data-cropping] .wb-crop-ghost { display: block; }
+.wb-cropper {
+  position: absolute;
+  z-index: 2147482999;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: calc(1.5px / var(--wb-scale, 1)) solid var(--accent);
+  background-image:
+    linear-gradient(to right, transparent calc(33.333% - 0.5px), var(--wb-cropper-line) calc(33.333% - 0.5px), var(--wb-cropper-line) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.666% - 0.5px), var(--wb-cropper-line) calc(66.666% - 0.5px), var(--wb-cropper-line) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px)),
+    linear-gradient(to bottom, transparent calc(33.333% - 0.5px), var(--wb-cropper-line) calc(33.333% - 0.5px), var(--wb-cropper-line) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.666% - 0.5px), var(--wb-cropper-line) calc(66.666% - 0.5px), var(--wb-cropper-line) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px));
+  --wb-cropper-line: color-mix(in srgb, var(--surface-page) 55%, transparent);
+}
+.wb-cropper[hidden] { display: none; }
+.wb-cropper-grip {
+  position: absolute;
+  width: calc(10px / var(--wb-scale, 1));
+  height: calc(10px / var(--wb-scale, 1));
+  margin: calc(-5px / var(--wb-scale, 1)) 0 0 calc(-5px / var(--wb-scale, 1));
+  box-sizing: border-box;
+  border: calc(2px / var(--wb-scale, 1)) solid var(--accent);
+  border-radius: var(--radius-min);
+  background: var(--surface-page);
+}
+.wb-cropper-grip[data-grip="nw"] { left: 0; top: 0; }
+.wb-cropper-grip[data-grip="n"] { left: 50%; top: 0; }
+.wb-cropper-grip[data-grip="ne"] { left: 100%; top: 0; }
+.wb-cropper-grip[data-grip="e"] { left: 100%; top: 50%; }
+.wb-cropper-grip[data-grip="se"] { left: 100%; top: 100%; }
+.wb-cropper-grip[data-grip="s"] { left: 50%; top: 100%; }
+.wb-cropper-grip[data-grip="sw"] { left: 0; top: 100%; }
+.wb-cropper-grip[data-grip="w"] { left: 0; top: 50%; }
+.board.wb-crop-on .wb-frame, .board.wb-crop-on .wb-handle { display: none; }
