@@ -43,7 +43,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'check-template-pages-b-'));
 const stand = path.join(tmp, 'template-pages.mjs');
 const escapeStand = "const escapeHtml = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));";
 fs.writeFileSync(path.join(tmp, 'list-rows.mjs'), read('public/list-rows.js').replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, escapeStand).replace(/^import \{ upgradeColourInputs \} from '\/colour-pick\.js';/m, 'const upgradeColourInputs = () => {};'));
-fs.writeFileSync(stand, read('public/template-pages.js').replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, escapeStand).replace(/^import \{ upgradeColourInputs \} from '\/colour-pick\.js';/m, 'const upgradeColourInputs = () => {};').replace("from '/list-rows.js'", "from './list-rows.mjs'"));
+fs.writeFileSync(path.join(tmp, 'opens-with.mjs'), read('public/opens-with.js'));
+fs.writeFileSync(stand, read('public/template-pages.js').replace("from '/opens-with.js'", "from './opens-with.mjs'").replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, escapeStand).replace(/^import \{ upgradeColourInputs \} from '\/colour-pick\.js';/m, 'const upgradeColourInputs = () => {};').replace("from '/list-rows.js'", "from './list-rows.mjs'"));
 const P = await import(pathToFileURL(stand).href);
 const word = (key, o = {}) => ({ space: 'space', module: o.many ? 'modules' : 'module', environment: 'environment' }[key] || key);
 const catalog = [
@@ -131,6 +132,17 @@ await test('Workspace, Phases, Additions: fields when editable, lines when not, 
   const ws = P.workspaceHtml(tpl, { editable: true, catalog, word });
   assert.equal((ws.match(/data-tw-show=/g) || []).length, 5);
   assert.match(ws, /nobody can hide it/);
+  // The layout (plan-layout-picker.md, step 3): read only in plain words until the picker, no Opens with list, and carried
+  // in the markup so a save sends it back unchanged.
+  assert.doesNotMatch(ws, /data-tw-open|Opens with/);
+  assert.match(ws, /<h3>Layout<\/h3>[^]*?data-tw-layout="\{&quot;shape&quot;:&quot;one&quot;,&quot;areas&quot;:\[null\]\}">One empty area opens, for each person to choose a module\.<\/p>/);
+  const held = (html) => ({ querySelector: (q) => (q === '[data-tw-layout]' ? { dataset: { twLayout: (html.match(/data-tw-layout="([^"]*)"/) || [])[1]?.replace(/&quot;/g, '"') } } : q === '[data-tw-first]' ? { value: 'calendar' } : null), querySelectorAll: () => [] });
+  assert.deepEqual(P.readWorkspace(held(ws)), { workspace: { layout: { shape: 'one', areas: [null] }, opensFirst: 'calendar' } }, 'the layout is sent back as it was');
+  const noLayout = P.workspaceHtml({ ...tpl, workspace: { show: ['calendar'] } }, { editable: true, catalog, word });
+  assert.match(noLayout, /data-tw-layout="">None: the chat and every module that is on\.<\/p>/);
+  assert.deepEqual(P.readWorkspace(held(noLayout)), { workspace: { opensFirst: 'calendar' } }, 'no layout, none sent');
+  const named = P.workspaceHtml({ ...tpl, workspace: { layout: { shape: 'wide-narrow', areas: ['marks', 'travel'] } } }, { editable: false, catalog, word });
+  assert.match(named, /<dt>Layout<\/dt><dd>Timesheet opens wide, with Planner - Travel narrow beside it\.<\/dd>/, 'the template\'s own names');
   assert.doesNotMatch(P.workspaceHtml(tpl, { editable: false, catalog, word }), /<input|<select/);
   const ph = P.phasesHtml(tpl, { editable: true, word });
   assert.equal((ph.match(/data-tp-phase=/g) || []).length, 2);
@@ -282,8 +294,9 @@ async function live() {
         const count = (sel) => `document.querySelectorAll(${JSON.stringify(sel)}).length`;
 
         await test(at('Default Workspace: fields for an own template, lines for the Default'), async () => {
-          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-open]')} >= 3 && ${count('#tpl-workspace-box [data-tw-show]')} === 5 && document.querySelector('#tpl-workspace-box [data-tw-open="marks"]').checked && document.querySelector('#tpl-workspace-box [data-tw-show="calendar"]').checked`, 'the Default Workspace page');
-          await open('template/default/workspace', `${count('#tpl-workspace-box .tf-line')} === 3 && ${count('#tpl-workspace-box input')} === 0 && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of the Default template');
+          // The layout is read only until the picker (plan-layout-picker.md, steps 3 to 5): one line in plain words, no Opens with list.
+          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-open]')} === 0 && document.querySelector('#tpl-workspace-box [data-tw-layout]')?.textContent === 'Timesheet and an empty area open side by side, the same width. Each person chooses a module for the empty area.' && ${count('#tpl-workspace-box [data-tw-show]')} === 5 && document.querySelector('#tpl-workspace-box [data-tw-show="calendar"]').checked`, 'the Default Workspace page');
+          await open('template/default/workspace', `${count('#tpl-workspace-box .tf-line')} === 3 && ${count('#tpl-workspace-box input')} === 0 && document.querySelector('#tpl-workspace-box .tf-line dd')?.textContent === 'One empty area opens, for each person to choose a module.' && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of the Default template');
           await shot(tab, `${size}-workspace-default`);
         });
         await test(at('Default Workspace saves'), async () => {

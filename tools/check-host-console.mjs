@@ -465,6 +465,9 @@ try {
       assert.deepEqual([got.words, got.locked], [3, 8], 'Space, Member and the Home page, and eight locked words');
       assert.ok(got.modules >= 3 && got.call === 7 && got.measure === 'dates' && got.phases > 0, JSON.stringify(got));
       assert.ok(!got.parts.some((p) => /verb|theme/i.test(p)), 'no verbs or theme part');
+      // The Default Workspace's layout (plan-layout-picker.md, step 3): read only in plain words until the picker, no Opens with list.
+      assert.deepEqual(await tab.evaluate(`({ line: document.getElementById('te-layout').textContent, list: document.querySelectorAll('#te-part-workspace .opens-row, #te-part-workspace [data-opens]').length })`),
+        { line: 'Itinerary opens wide, with Vault narrow beside it.', list: 0 }, 'the layout is one line in plain words');
       await tab.go('#templates/default');
       await tab.waitFor(`${tab.visible('#template-editor-view')} && document.getElementById('template-editor-title').textContent === 'The Default template'`, 'the Default template, read only');
       assert.equal(await tab.evaluate(`document.getElementById('te-save').hidden && document.querySelectorAll('#template-editor .hc-part input:not(:disabled)').length === 0`), true, 'the Default template shows no way to save');
@@ -521,7 +524,7 @@ try {
       await tab.evaluate("document.getElementById('te-save').click()");
       await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent)", 'Add a reaction and Save template is accepted');
       await tab.waitFor("document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'after a save the focus is on the saved template in the list');
-      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.reactions.map((r) => [r.id, r.glyph, r.label]), [['party-time', '\u{1F389}', 'Party Time']], got.text); }
+      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.reactions.map((r) => [r.id, r.glyph, r.label]), [['party-time', '\u{1F389}', 'Party Time']], got.text); assert.deepEqual(got.json.template.workspace.layout, { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'saving never loses the layout'); }
       { const rm = await call(port, 'DELETE', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.ok(rm.status < 300, rm.text); }
       await tab.go('#templates/travel');
       await tab.waitFor(tab.visible('#te-part-basics'), 'the editor again');

@@ -5,6 +5,7 @@
 import { escapeHtml } from '/brand.js';
 import { listControl, readList, listClick, listWords } from '/list-rows.js';
 import { upgradeColourInputs } from '/colour-pick.js';
+import { layoutLine } from '/opens-with.js';
 
 const e = escapeHtml;
 const cap = (s) => (s ? s[0].toLocaleUpperCase('en') + s.slice(1) : s);
@@ -26,38 +27,45 @@ export const offers = (t, id) => !t || t.modules === '*' || (isObject(t.modules)
 const entryOf = (t, id) => (t && isObject(t.modules) && isObject(t.modules[id]) ? t.modules[id] : {});
 
 // --- Default Workspace ----------------------------------------------------------------------------------------------------
-// What the Workspace opens with (the template's modules, in order) and which Fixed Workspaces a new space shows. A workspace
-// shown here is shown for everyone: nobody can hide it (decision 9).
+// How the Workspace starts on a first visit (the template's layout, a shape and its modules; plan-layout-picker.md, step 3)
+// and which Fixed Workspaces a new space shows. A workspace shown here is shown for everyone: nobody can hide it
+// (decision 9). The layout is read only here until the layout picker comes (steps 4 and 5): it is drawn in plain words and
+// carried in the markup (`data-tw-layout`), so a save sends it back as it was and never loses it.
+const layoutOf = (w) => (w && isObject(w.layout) && typeof w.layout.shape === 'string' && Array.isArray(w.layout.areas) ? w.layout : null);
+// The layout in plain words: its shape and the modules in it, by the names `nameOf` gives; with none, what the product opens.
+export function layoutWords(layout, { nameOf = (id) => id, word }) {
+  if (!layout) return `None: the chat and every ${word('module')} that is on.`;
+  return layoutLine({ layout, nameOf, space: word('space'), module: word('module') });
+}
 export function workspaceHtml(t, { editable, catalog, word }) {
   const w = (t && t.workspace) || {};
-  const opens = Array.isArray(w.opensWith) ? w.opensWith : [];
+  const layout = layoutOf(w);
   const show = Array.isArray(w.show) ? w.show : [];
   const first = w.opensFirst || 'workspace';
-  const offered = catalog.filter((m) => offers(t, m.id));
-  const ordered = [...opens.map((id) => offered.find((m) => m.id === id)).filter(Boolean), ...offered.filter((m) => !opens.includes(m.id))];
-  // The template's own name and icon for a module, as the Modules page shows it, else the catalog's.
-  const shownOf = (id) => { const m = catalog.find((x) => x.id === id) || { name: id }; const en = entryOf(t, id); return { name: en.name || m.name, icon: en.icon || m.icon || 'puzzle-piece' }; };
-  const nameOf = (id) => shownOf(id).name;
-  const opensAbout = `What a new ${e(word('space'))}'s Workspace opens with. With none ticked it opens the chat and every ${e(word('module'))} that is on.`;
+  // The template's own name for a module, as the Modules page shows it, else the catalog's.
+  const nameOf = (id) => entryOf(t, id).name || (catalog.find((x) => x.id === id) || { name: id }).name;
+  const layoutText = e(layoutWords(layout, { nameOf, word }));
+  const layoutAbout = `How the Workspace starts the first time someone enters a new ${e(word('space'))}. After that, each person's own arrangement is kept.`;
   const pinNote = `A Fixed Workspace shown here is shown for everyone in a new ${e(word('space'))}; nobody can hide it. People still add layouts of their own.`;
   if (!editable) {
-    const openList = opens.length ? opens.map((id) => `${iconTag(shownOf(id).icon)} ${e(nameOf(id))}`).join('<br>') : `<span class="hint">The chat and every ${e(word('module'))} that is on, the usual</span>`;
     const shownList = show.length ? show.map((id) => e((FIXED_WORKSPACES.find(([x]) => x === id) || [id, id])[1])).join(', ') : '<span class="hint">None</span>';
     const firstName = first === 'workspace' ? 'The Workspace' : (FIXED_WORKSPACES.find(([x]) => x === first) || [first, first])[1];
-    return `<dl class="tf-read">${line('Opens with', openList)}${line('Fixed Workspaces shown', shownList)}${line('Opens first', e(firstName))}</dl><p class="hint">${pinNote}</p>`;
+    return `<dl class="tf-read">${line('Layout', layoutText)}${line('Fixed Workspaces shown', shownList)}${line('Opens first', e(firstName))}</dl><p class="hint">${pinNote}</p>`;
   }
-  const rows = ordered.map((m) => `<label class="sdk-choice-row"><input type="checkbox" data-tw-open="${e(m.id)}"${opens.includes(m.id) ? ' checked' : ''}><span class="sdk-choice-text"><span>${iconTag(shownOf(m.id).icon)} ${e(nameOf(m.id))}</span></span></label>`).join('');
   const fixed = FIXED_WORKSPACES.map(([id, label]) => `<label class="sdk-choice-row"><input type="checkbox" data-tw-show="${id}"${show.includes(id) ? ' checked' : ''}><span class="sdk-choice-text">${e(label)}</span></label>`).join('');
   const firstOptions = [['workspace', 'The Workspace'], ...FIXED_WORKSPACES].map(([v, l]) => `<option value="${e(v)}"${v === first ? ' selected' : ''}>${e(l)}</option>`).join('');
-  return `<div class="tf-labels"><h3>Opens with</h3><p class="hint">${opensAbout}</p><div class="tp-checks">${rows}</div>`
+  return `<div class="tf-labels"><h3>Layout</h3><p class="hint">${layoutAbout}</p><p class="tp-layout" data-tw-layout="${e(layout ? JSON.stringify(layout) : '')}">${layoutText}</p>`
     + `<h3>Fixed Workspaces shown</h3><p class="hint">${pinNote}</p><div class="tp-checks">${fixed}</div>`
     + `<h3>Opens first</h3><label class="tf-field"><span class="field-label">What a new ${e(word('space'))} shows first</span><select data-tw-first>${firstOptions}</select></label></div>`;
 }
+// The Default Workspace's fields: the layout as it was drawn (sent unchanged, so a save never loses it), the shown Fixed
+// Workspaces and Opens first.
 export function readWorkspace(root, { editing = true } = {}) {
-  const opensWith = [...root.querySelectorAll('[data-tw-open]:checked')].map((b) => b.dataset.twOpen);
+  let layout = null;
+  try { const held = root.querySelector('[data-tw-layout]')?.dataset.twLayout; layout = held ? JSON.parse(held) : null; } catch { layout = null; }
   const show = [...root.querySelectorAll('[data-tw-show]:checked')].map((b) => b.dataset.twShow);
   const first = root.querySelector('[data-tw-first]')?.value || 'workspace';
-  const workspace = { ...(opensWith.length ? { opensWith } : {}), ...(show.length ? { show } : {}), ...(first !== 'workspace' ? { opensFirst: first } : {}) };
+  const workspace = { ...(layoutOf({ layout }) ? { layout } : {}), ...(show.length ? { show } : {}), ...(first !== 'workspace' ? { opensFirst: first } : {}) };
   return { workspace: Object.keys(workspace).length ? workspace : (editing ? null : {}) };
 }
 

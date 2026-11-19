@@ -93,7 +93,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-check-'));
   const copy = path.join(tmp, 'opens-with.mjs');
   fs.copyFileSync(path.join(ROOT, 'public/opens-with.js'), copy);
-  const { whatOpens, conferenceAllowed, opensWithLine, shouldAutoJoin, firstVisitLayout, SYSTEM_TABS } = await import(pathToFileURL(copy).href);
+  const { whatOpens, conferenceAllowed, layoutLine, shouldAutoJoin, firstVisitLayout, firstVisitShape, SYSTEM_TABS } = await import(pathToFileURL(copy).href);
   fs.rmSync(tmp, { recursive: true, force: true });
   // GitHub #199: entering joins the call by itself only with the environment's setting on, out of the call, where Join
   // the call would show, not in an aside, and not for a person who left the call since they entered.
@@ -121,25 +121,21 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     ['nothing set, a guest without the conference: the chat',
       { modules: ['todo'], canOpen: noConference, guest: true }, ['chat']],
     ['the remembered layout wins after a first visit',
-      { remembered: ['todo', 'conference'], own: ['chat'], modules: ['todo', 'notes'] }, ['todo', 'conference']],
+      { remembered: ['todo', 'conference'], modules: ['todo', 'notes'] }, ['todo', 'conference']],
     ['a remembered empty layout stays empty',
-      { remembered: [], own: ['chat'], modules: ['todo'] }, []],
-    ['a guest has no remembered layout: the space\'s own list',
-      { remembered: ['todo'], own: ['notes', 'chat'], modules: ['todo', 'notes'], guest: true }, ['notes', 'chat']],
-    ['the space\'s list (its template\'s), less what may not be opened, in its order',
-      { own: ['notes', 'conference', 'gone', 'chat'], modules: ['notes'], canOpen: (id) => id !== 'gone' }, ['notes', 'conference', 'chat']],
-    ['a guest with the template\'s list',
-      { own: ['todo', 'chat'], modules: ['todo'], guest: true }, ['todo', 'chat']],
-    ['a list set with nothing that may be opened leaves the canvas empty',
-      { own: ['gone'], canOpen: (id) => id !== 'gone' }, []],
-    ['a repeat opens once',
-      { own: ['chat', 'chat', 'todo'] }, ['chat', 'todo']],
+      { remembered: [], modules: ['todo'] }, []],
+    ['a guest has no remembered layout: the conference and the chat',
+      { remembered: ['todo'], modules: ['todo', 'notes'], guest: true }, ['conference', 'chat']],
+    ['nothing set, less what may not be opened',
+      { modules: ['notes', 'gone'], canOpen: (id) => id !== 'gone' }, ['chat', 'notes']],
+    ['a remembered repeat opens once',
+      { remembered: ['chat', 'chat', 'todo'] }, ['chat', 'todo']],
+    ['a template\'s list is no longer read (plan-layout-picker.md, decision 12)',
+      { own: ['notes'], modules: ['todo'] }, ['chat', 'todo']],
     // The always-on column (plan-one-bar.md, step 6): asked with `column`, the conference and the chat are left out of
     // what goes on the canvas, whichever list names them; the lists themselves keep them (a phone's tabs).
     ['the column: the remembered layout without the conference and the chat',
       { remembered: ['todo', 'conference', 'chat'], modules: ['todo'], column: true }, ['todo']],
-    ['the column: the space\'s own list without them',
-      { own: ['chat', 'notes', 'conference'], modules: ['notes'], column: true }, ['notes']],
     ['the column: nothing set gives the modules alone',
       { modules: ['todo', 'notes'], column: true }, ['todo', 'notes']],
     ['the column, a guest: nothing on the canvas',
@@ -150,8 +146,6 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     // `dest:calendar` while the Calendar is on in the space, once, where the first is named; the list is not rewritten.
     ['the composite: a remembered list naming calendar and todo opens the composite once, in the first\'s place',
       { remembered: ['todo', 'notes', 'calendar'], modules: ['calendar', 'todo', 'notes'], aliases: { calendar: 'dest:calendar', todo: 'dest:calendar' } }, ['dest:calendar', 'notes']],
-    ['the composite: the space\'s own list naming todo opens it, when it may open here',
-      { own: ['todo', 'chat'], modules: ['calendar', 'todo'], canOpen: (id) => id !== 'todo', aliases: { calendar: 'dest:calendar', todo: 'dest:calendar' }, column: true }, ['dest:calendar']],
     ['the composite off (the Calendar off here): a remembered dest:calendar opens the To-do\'s own list',
       { remembered: ['dest:calendar', 'notes'], modules: ['todo', 'notes'], aliases: { 'dest:calendar': ['todo'] } }, ['todo', 'notes']],
     ['the composite off, the To-do off too: a remembered dest:calendar opens nothing',
@@ -175,22 +169,43 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     ['the conference switched on: refused without the permission', conferenceAllowed({ conferenceEnabled: true, permitted: false }), false],
     ['no call service on the server: refused for an owner, the switch on', conferenceAllowed({ callService: false, conferenceEnabled: true, permitted: true }), false],
     ['a call service, the switch on, an owner: allowed', conferenceAllowed({ callService: true, conferenceEnabled: true, permitted: true }), true],
-    ['a list with the conference, switched off, for an owner', whatOpens({ own: ['conference', 'chat'], canOpen: ownerCanOpen(false) }), ['chat']],
-    ['a list with the conference, switched on, for an owner', whatOpens({ own: ['conference', 'chat'], canOpen: ownerCanOpen(true) }), ['conference', 'chat']],
-    // Set up's read-only line says what the template opens a new person with, each name once.
-    ['the template names a list: its names, in its order, less what cannot open',
-      opensWithLine({ list: ['gone', 'chat', 'todo'], modules: ['todo'], canOpen: (id) => id !== 'gone', nameOf: (id) => ({ chat: 'Chat', todo: 'To-do' })[id] || id }),
-      'Chat and To-do open.'],
-    ['one name: it opens',
-      opensWithLine({ list: ['chat'], nameOf: () => 'Chat' }), 'Chat opens.'],
-    ['a list with nothing that can open: nothing opens, and no module is named',
-      opensWithLine({ list: ['gone'], modules: ['todo'], canOpen: (id) => id !== 'gone', nameOf: () => 'To-do' }), 'Nothing opens.'],
-    ['the template names none: what the product opens, by name',
-      opensWithLine({ list: null, modules: ['todo', 'polls'], nameOf: (id) => ({ chat: 'Chat', todo: 'To-do', polls: 'Polls' })[id] }),
-      'Chat, To-do and Polls open.'],
-    ['the line says each switch once: To-do under Calendar',
-      opensWithLine({ list: null, modules: ['maps', 'calendar', 'todo'], nameOf: (id) => ({ maps: 'Maps', calendar: 'Calendar' })[id] || id, groupOf: (id) => ({ todo: 'calendar' })[id] || id }),
-      'chat, Maps and Calendar open.'],
+    ['a guest, the conference switched off, for an owner', whatOpens({ guest: true, canOpen: ownerCanOpen(false) }), ['chat']],
+    ['a guest, the conference switched on, for an owner', whatOpens({ guest: true, canOpen: ownerCanOpen(true) }), ['conference', 'chat']],
+    // Set up's read-only line (plan-layout-picker.md, step 3): the template's layout, its shape and its modules in plain
+    // words; with none, what the product opens, each name once.
+    ...(() => {
+      const names = { whiteboard: 'Whiteboard', goals: 'Goals', documents: 'Documents', schedule: 'Project plan', todo: 'To-do', calendar: 'Calendar', travel: 'Itinerary', vault: 'Vault', polls: 'Polls', chat: 'Chat' };
+      const nameOf = (id) => names[id] || id;
+      const line = (layout, more = {}) => layoutLine({ layout, nameOf, ...more });
+      return [
+        ['the Default template: one empty area', line({ shape: 'one', areas: [null] }), 'One empty area opens, for each person to choose a module.'],
+        ['one module', line({ shape: 'one', areas: ['polls'] }), 'Polls fills the Workspace.'],
+        ['two equal, one empty', line({ shape: 'two-equal', areas: ['calendar', null] }), 'Calendar and an empty area open side by side, the same width. Each person chooses a module for the empty area.'],
+        ['Projects: wide and narrow, To-do under the Calendar where it is on', line({ shape: 'wide-narrow', areas: ['schedule', 'todo'] }, { groupOf: (id) => ({ todo: 'calendar' })[id] || id }), 'Project plan opens wide, with Calendar narrow beside it.'],
+        ['three equal', line({ shape: 'three-equal', areas: ['goals', null, 'polls'] }), 'Goals, an empty area and Polls open side by side, the same width. Each person chooses a module for the empty area.'],
+        ['Education: tall and split', line({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }), 'Whiteboard opens on the left, with Goals above Documents on the right.'],
+        ['wide and split, two empty, an empty area first', line({ shape: 'wide-split', areas: [null, 'goals', null] }), 'An empty area opens wide, with Goals above an empty area narrow beside it. Each person chooses a module for the empty areas.'],
+        ['a module off in the space: its area closes up, said', line({ shape: 'wide-narrow', areas: ['travel', 'vault'] }, { canOpen: (id) => id !== 'vault', space: 'trip' }), 'Itinerary opens wide, with Vault narrow beside it. Vault is off in this trip, so its area closes up.'],
+        ['two off', line({ shape: 'two-equal', areas: ['goals', 'polls'] }, { canOpen: () => false }), 'Goals and Polls open side by side, the same width. Goals and Polls are off in this space, so their areas close up.'],
+        ['an unknown shape reads as none: what the product opens', line({ shape: 'nine', areas: [] }, { modules: ['polls'] }), 'Chat and Polls open.'],
+        ['no layout: what the product opens, by name', line(null, { modules: ['todo', 'polls'] }), 'Chat, To-do and Polls open.'],
+        ['no layout, nothing that can open', line(null, { modules: ['todo'], canOpen: () => false }), 'Nothing opens.'],
+        ['no layout, each name once: To-do under Calendar', line(null, { modules: ['maps', 'calendar', 'todo'], groupOf: (id) => ({ todo: 'calendar' })[id] || id }), 'Chat, maps and Calendar open.'],
+      ];
+    })(),
+    // The template's layout on a first visit (plan-layout-picker.md, decision 2): only with no remembered arrangement here,
+    // a guest every time.
+    ...(() => {
+      const shape = { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] };
+      return [
+        ['a first visit starts from the template\'s shape', firstVisitShape({ shape }), shape],
+        ['a second visit: the person\'s own arrangement wins', firstVisitShape({ shape, remembered: ['goals'] }), null],
+        ['a remembered empty arrangement still wins', firstVisitShape({ shape, remembered: [] }), null],
+        ['a guest starts from it every time', firstVisitShape({ shape, remembered: ['goals'], guest: true }), shape],
+        ['no layout: none', firstVisitShape({ shape: null }), null],
+        ['not a shape record: none', firstVisitShape({ shape: { areas: [] } }), null],
+      ];
+    })(),
   ];
   for (const [name, got, want] of checks) {
     try {
@@ -201,23 +216,22 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   }
   // The first visit's layout (plan-layout-views.md, step 5): the server's resolved firstVisit.layout on entering, for a
   // first visit (or a guest); a remembered arrangement wins after; a guest has no Calendar or Map tab. Opens with sits
-  // beside a layout (no layout needs a list, a list never stops a layout), and whatOpens still answers the list.
-  const fv = (layout, opensWith = null) => ({ layout, opensWith });
+  // beside a layout (no layout needs a shape, a shape never stops a layout).
+  const fv = (layout, shape = null) => ({ layout, shape });
   const firstCases = [
     ['nothing resolved: the Workspace', firstVisitLayout({}), 'workspace'],
     ['an old answer with no firstVisit: the Workspace', firstVisitLayout({ firstVisit: null }), 'workspace'],
-    ['the Workspace with a list', firstVisitLayout({ firstVisit: fv('workspace', ['chat', 'todo']) }), 'workspace'],
+    ['the Workspace with a shape', firstVisitLayout({ firstVisit: fv('workspace', { shape: 'one', areas: [null] }) }), 'workspace'],
     ['Calendar on a first visit', firstVisitLayout({ firstVisit: fv('calendar') }), 'calendar'],
-    ['Map on a first visit, a list beside it', firstVisitLayout({ firstVisit: fv('map', ['notes']) }), 'map'],
-    ['a shared layout with no Opens with set: it opens all the same', firstVisitLayout({ firstVisit: fv('labc123') }), 'labc123'],
-    ['a shared layout with Opens with set too (an old space with both)', firstVisitLayout({ firstVisit: fv('labc123', ['todo']) }), 'labc123'],
+    ['Map on a first visit, a shape beside it', firstVisitLayout({ firstVisit: fv('map', { shape: 'one', areas: ['notes'] }) }), 'map'],
+    ['a shared layout with no shape: it opens all the same', firstVisitLayout({ firstVisit: fv('labc123') }), 'labc123'],
+    ['a shared layout with the template\'s shape too: the shared layout', firstVisitLayout({ firstVisit: fv('labc123', { shape: 'one', areas: ['todo'] }) }), 'labc123'],
     ['remembered: the Workspace as remembered, whatever the first visit says', firstVisitLayout({ firstVisit: fv('calendar'), remembered: ['todo'] }), 'workspace'],
     ['remembered empty is still remembered', firstVisitLayout({ firstVisit: fv('labc123'), remembered: [] }), 'workspace'],
     ['not entering (the Workspace tab pressed): the Workspace', firstVisitLayout({ firstVisit: fv('map'), entering: false }), 'workspace'],
     ['a guest: a shared layout every time', firstVisitLayout({ firstVisit: fv('labc123'), remembered: ['todo'], guest: true }), 'labc123'],
     ['a guest: no Calendar tab', firstVisitLayout({ firstVisit: fv('calendar'), guest: true }), 'workspace'],
     ['the tabs a first visit may open', [...SYSTEM_TABS], ['calendar', 'map', 'conference', 'whiteboard', 'documents']],
-    ['Opens with beside a layout is still the Workspace\'s list', whatOpens({ own: ['chat', 'todo'], modules: ['todo'] }), ['chat', 'todo']],
   ];
   for (const [name, got, want] of firstCases) {
     try {
@@ -230,7 +244,8 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/allowed: \(\) => conferenceAllowed\(\{ callService: features\.callService, conferenceEnabled: features\.conferenceEnabled/.test(spaceJs)) fail('public/space.js', 'the conference module\'s allowed() must follow the server\'s call service and the environment\'s switch (conferenceAllowed), for owners too');
   if (!/callService: branding\.callService !== false/.test(spaceJs)) fail('public/space.js', 'features.callService must come from branding.callService, so a server with no call service shows no conference');
   const settingsJs = fs.readFileSync(path.join(ROOT, 'public/space-setup.js'), 'utf8');
-  if (!/opensWithLine\(\{\s*list: state\.options\.opensWith/.test(settingsJs)) fail('public/space-setup.js', 'the Opens with line must come from the template\'s list (opensWithLine with list: state.options.opensWith)');
+  if (!/layoutLine\(\{\s*layout: state\.options\.layout/.test(settingsJs)) fail('public/space-setup.js', 'the Opens with line must come from the template\'s layout (layoutLine with layout: state.options.layout)');
+  if (/opensWith/.test(settingsJs)) fail('public/space-setup.js', 'no Opens with list is read: the template\'s layout replaces it (plan-layout-picker.md, decision 12)');
   if (/spaceDefaultsOpensWith|state\.draft\.opensWith|data-opens/.test(settingsJs) || /spaceDefaultsOpensWith/.test(fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8'))) fail('public/space-setup.js', 'Opens with is read only: no switches, no draft, no environment list (the template decides)');
   const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');
   const restore = canvasJs.slice(canvasJs.indexOf('function restore('), canvasJs.indexOf('// --- the toolbar button'));
@@ -243,7 +258,12 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   // The first visit's layout (plan-layout-views.md, step 5): restore() asks firstVisitLayout, and no longer asks for Opens
   // with to be set before a layout opens; a phone opens Calendar's or Map's composite first.
   if (!/firstVisitLayout\(\{ firstVisit: spaceFirstVisit, remembered: saved\.__open, guest, entering: enteringNow, last \}\)/.test(restore)) fail('public/canvas.js', 'restore() must ask firstVisitLayout (opens-with.js) for the first visit\'s layout');
-  if (/spaceDefaultLayout && Array\.isArray\(spaceOpensWith\)/.test(restore)) fail('public/canvas.js', 'a layout as the first visit must not need Opens with to be set');
+  // The template's layout (plan-layout-picker.md, step 3): a first visit with no remembered arrangement starts from the
+  // template's shape, placed by the canvas's own loader (loadShape), before the product's default list; no Opens with is read.
+  if (!/const shape = request \? null : firstVisitShape\(\{ shape: spaceShape, remembered: saved\.__open, guest \}\);/.test(restore)) fail('public/canvas.js', 'restore() must ask firstVisitShape (opens-with.js) with the template\'s layout');
+  if (!/if \(shape && shapeById\(shape\.shape\)\) \{[\s\S]*?loadShape\(shape\);/.test(restore) || restore.indexOf('loadShape(shape)') > restore.indexOf('whatOpens({')) fail('public/canvas.js', 'restore() must place the template\'s shape through loadShape, before the product\'s default list');
+  if (!/spaceShape = answer\.layout && typeof answer\.layout\.shape === 'string'/.test(canvasJs)) fail('public/canvas.js', 'the template\'s layout comes from GET /api/modules/for-space, `layout`');
+  if (/opensWith/.test(canvasJs)) fail('public/canvas.js', 'no Opens with is read: the template\'s layout replaces it (plan-layout-picker.md, decision 12)');
   // A phone has no layout tabs: the fixed layout that opens first there is its composite or module, as the first tab; for
   // Conference it is the call itself (plan-workspaces.md, step 7), opened as its switch opens it ("Not in a call": it
   // never joins), only where this person may open it, and shown first.

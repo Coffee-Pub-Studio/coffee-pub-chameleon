@@ -29,7 +29,7 @@ const test = async (name, fn) => {
   fs.copyFileSync(path.join(ROOT, 'public/opens-with.js'), path.join(dir, 'opens-with.mjs'));
   const { firstVisitLayout } = await import(pathToFileURL(path.join(dir, 'opens-with.mjs')).href);
   fs.rmSync(dir, { recursive: true, force: true });
-  const fv = (layout) => ({ layout, opensWith: null });
+  const fv = (layout) => ({ layout, shape: null });
   const cases = [
     ['no last: the owner\'s default', firstVisitLayout({ firstVisit: fv('calendar') }), 'calendar'],
     ['a last layout beats the owner\'s default', firstVisitLayout({ firstVisit: fv('conference'), last: 'calendar' }), 'calendar'],

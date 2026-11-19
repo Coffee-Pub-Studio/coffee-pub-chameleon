@@ -2,13 +2,13 @@
 /*
  * check-pinned-pages.mjs -- Workspaces, the page half (documentation/plans/plan-templates-redesign.md, step 8; decisions 9,
  * 35 and 36), in a real browser against a throwaway seeded server (tools/shots.mjs; no LiveKit):
- *   - Set up's Settings tab shows what the template opens a new person with as one read-only line with its reason ("This
+ *   - Set up's Settings tab shows what the template opens a new person with (its layout, in plain words) as one read-only line with its reason ("This
  *     comes from the <space>'s template."), no switches, for an owner (the admin) and a moderator, at 1280 and 390
  *   - Set up's Layouts section marks a shown Fixed Workspace as pinned (the Workspace and a hidden one carry no mark)
  *   - a member's tab bar: a pinned tab wears the pin and has the owner's sentence in its title; the page offers no hide for
  *     it (the Layout menu's Favorite and Unfavorite are not drawn for it: read in check-nav); a stale page's attempt is
  *     refused by the server with its sentence, which the page shows as it is
- *   - a first visit opens the template's list: the template's layout is the tab shown, with its Opens with
+ *   - a first visit opens the template's Opens first: that layout is the tab shown, with the template's layout behind it
  *   - a phone (390): the line and the Layouts rows keep 44 px targets and the panel does not scroll sideways
  * Run it under the shared browser lock. With no Chromium it says SKIPPED (set CHROME_PATH); that is not a pass.
  *   - the Layout menu (in Set up's Modules tab): a pinned row wears the pin and its ... has no Favorite or Unfavorite
@@ -67,7 +67,7 @@ try {
     let json = null; try { json = await r.json(); } catch { /* none */ }
     return { status: r.status, json };
   };
-  // The trip's template: the owner's own copy that opens Chat and Calendar, shows Calendar and Documents, opens Documents first.
+  // The trip's template: the owner's own copy whose layout is Calendar and an empty area, shows Calendar and Documents, opens Documents first.
   for (const m of ['calendar', 'documents']) {
     await call('admin', 'POST', `/api/modules/bundled/${m}/install`, {});
     await call('admin', 'PATCH', `/api/modules/${m}`, { enabled: true });
@@ -108,12 +108,12 @@ try {
 
   for (const [who, label] of [['admin', 'the owner'], ['mia', 'a moderator']]) {
     for (const width of [1280, 390]) {
-      await test(`Set up shows the template's Opens with as a read-only line for ${label} at ${width}`, async () => {
+      await test(`Set up shows the template's layout as a read-only line for ${label} at ${width}`, async () => {
         const tab = await inSpace(who, width);
         await settingsTab(tab);
         const l = await readLine(tab);
         assert.equal(l.tag, 'P', 'a line of text, not a list of switches');
-        assert.equal(l.text, 'Chat and Calendar open.', 'what the template opens a new person with');
+        assert.equal(l.text, 'Calendar and an empty area open side by side, the same width. Each person chooses a module for the empty area.', 'what the template opens a new person with: its layout in plain words');
         assert.equal(l.controls, 0, 'nothing to switch');
         assert.equal(l.oldList, false, 'no switch list');
         assert.match(l.why, /^This comes from the .+'s template\.$/, 'and why');

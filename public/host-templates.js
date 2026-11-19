@@ -6,7 +6,7 @@
 // /new), its parts as tabs, one at a time, each with its own address (#templates/<id>/<part>; decision 52).
 import { api, escapeHtml, word } from '/brand.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields } from '/template-fields.js';
-import { setFoldHtml, setReactionChips, setIconChips } from '/template-pages.js';
+import { setFoldHtml, setReactionChips, setIconChips, layoutWords } from '/template-pages.js';
 import { fileText } from '/file-text.js';
 import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
@@ -27,6 +27,7 @@ let nameOf = (slug) => slug; // an environment's name, from host.js's list
 let ready = false; // the list has come from host.js
 let pendingView = null; // an editor asked for (#templates/<id>/<part>) before the list came: [id, part]
 let editing = null; // the template being edited in full, or null for a new one
+let editingLayout = null; // its workspace.layout ({ shape, areas }), shown read only and saved back unchanged
 let comparing = null; // the bundled id whose update is open in the compare panel
 let moduleIds = [...BUILT_IN]; // the modules a template can list: the ones the image ships, then any other a template names
 let builtInLists = null; // GET /api/host/settings `builtIn`: { reactions, icons }, what an environment's set starts as
@@ -369,7 +370,10 @@ async function openEditor(t) {
     + `<input type="text" data-name maxlength="40" value="${escapeHtml((entries[id] && entries[id].name) || '')}" placeholder="${escapeHtml(moduleName(id))}" aria-label="${escapeHtml(moduleName(id))}: name">`
     + `${iconField(entries[id] && entries[id].icon, `${moduleName(id)}: icon, a Font Awesome name`, moduleIcon(id))}</div>`).join('');
   const w = (t && t.workspace) || {};
-  renderOpens(w.opensWith || []);
+  // The template's layout (plan-layout-picker.md, step 3): read only until the layout picker comes (steps 4 and 5), and
+  // sent back unchanged by a save, so saving never loses it.
+  editingLayout = w.layout && typeof w.layout.shape === 'string' && Array.isArray(w.layout.areas) ? w.layout : null;
+  $('te-layout').textContent = layoutWords(editingLayout, { nameOf: (id) => (entries[id] && entries[id].name) || moduleName(id), word });
   $('te-show').innerHTML = FIXED_WORKSPACES.map(([id, label]) => `<label class="sdk-choice-row"><input type="checkbox" data-show="${id}"${(w.show || []).includes(id) ? ' checked' : ''}><span class="sdk-choice-text">${escapeHtml(label)}</span></label>`).join('');
   $('te-opens-first').innerHTML = options([['workspace', 'The workspace'], ...FIXED_WORKSPACES], w.opensFirst || 'workspace');
   const c = (t && t.call) || {};
@@ -449,29 +453,6 @@ $('te-phases').addEventListener('click', (e) => {
 function selectedModules() {
   return [...$('te-modules').querySelectorAll('[data-module]:checked')].map((box) => box.dataset.module);
 }
-function renderOpens(saved) {
-  const fromTemplate = arguments.length > 0;
-  const mods = selectedModules();
-  const have = new Set(mods);
-  const prior = fromTemplate ? (saved || []) : [...$('te-opens').querySelectorAll('.opens-row')].map((row) => row.dataset.open);
-  const ticked = new Set(fromTemplate
-    ? (saved || [])
-    : [...$('te-opens').querySelectorAll('[data-opens]:checked')].map((box) => box.closest('.opens-row').dataset.open));
-  const ranked = [...prior.filter((id) => have.has(id)), ...mods.filter((id) => !prior.includes(id))];
-  $('te-opens').innerHTML = ranked.map((id) => `<div class="opens-row" data-open="${escapeHtml(id)}"><label class="sdk-choice-row"><input type="checkbox" data-opens${ticked.has(id) ? ' checked' : ''}><span class="sdk-choice-text">${escapeHtml(moduleName(id))}</span></label>`
-    + `<span class="list-tools"><button type="button" class="btn btn-small" data-open-move="up" aria-label="Move ${escapeHtml(moduleName(id))} up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>`
-    + `<button type="button" class="btn btn-small" data-open-move="down" aria-label="Move ${escapeHtml(moduleName(id))} down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button></span></div>`).join('');
-}
-function readOpens() {
-  return [...$('te-opens').querySelectorAll('.opens-row')].filter((row) => row.querySelector('[data-opens]').checked).map((row) => row.dataset.open);
-}
-$('te-modules').addEventListener('change', () => { if (!$('template-editor-view').hidden) renderOpens(); });
-$('te-opens').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-open-move]');
-  if (!btn) return;
-  moveRow(btn.closest('.opens-row'), btn.dataset.openMove);
-  btn.focus();
-});
 
 $('te-module-display').addEventListener('input', (e) => {
   if (!e.target.matches('[data-icon]')) return;
@@ -547,10 +528,9 @@ function fields() {
     return { ...r, id };
   });
   const iconSet = iconSetNames();
-  const opensWith = readOpens();
   const show = [...$('te-show').querySelectorAll('[data-show]:checked')].map((b) => b.dataset.show);
   const opensFirst = $('te-opens-first').value;
-  const workspace = { ...(opensWith.length ? { opensWith } : {}), ...(show.length ? { show } : {}), ...(opensFirst && opensFirst !== 'workspace' ? { opensFirst } : {}) };
+  const workspace = { ...(editingLayout ? { layout: editingLayout } : {}), ...(show.length ? { show } : {}), ...(opensFirst && opensFirst !== 'workspace' ? { opensFirst } : {}) };
   const call = { joinOnEntry: $('te-join').checked, position: $('te-call-position').value, layout: $('te-call-layout').value };
   const starterSpaces = [...$('te-starter').children].map((row) => ({ name: row.querySelector('[data-starter-name]').value.trim(), description: row.querySelector('[data-starter-description]').value.trim() })).filter((sp) => sp.name || sp.description);
   const out = {

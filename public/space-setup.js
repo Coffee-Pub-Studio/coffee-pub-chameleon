@@ -167,7 +167,6 @@ export function withEntrySwitch(draft = {}, which, on) {
 }
 
 const sameSet = (a = [], b = []) => a.length === b.length && a.every((k) => b.includes(k));
-const listOrNull = (v) => (Array.isArray(v) && v.length ? v.filter((id) => typeof id === 'string') : null);
 const text = (v) => (typeof v === 'string' ? v.trim() : '');
 // A space's phase dates as stored ({ <phase id>: { start?, end? } }), copied; anything else is none.
 const datesCopy = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? JSON.parse(JSON.stringify(v)) : {});
@@ -413,7 +412,7 @@ const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // --- the panel ----------------------------------------------------------------------------------------------------
 
-// `deps`: { tabOverflow, openMenu, api, word, verb, icons, switchListHtml, wireSwitchList, opensWithLine, escapeHtml, doc, layoutVerb,
+// `deps`: { tabOverflow, openMenu, api, word, verb, icons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, doc, layoutVerb,
 // renderModuleSettings }. Returns { open(opts), close(), done(), cancel(), isOpen(), select(tab), el }. `open({ space,
 // owner, moderator, phases, rule, today, tab, onDone, onSaved, onDeleted, onLinks, onTab, onLeave, nameInput })`:
 // `space` the space's record, `phases` the template's phases (a list) and `rule` the Phases object (public/phases.js),
@@ -422,7 +421,7 @@ const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // a part of it did and a later request was refused, `onDeleted(space)` after Delete, `onLinks(space)` after an invite
 // or guest link action, `onTab(id)` as the tab changes, `onLeave()` when the mode ends either way.
 export function createSpaceSetup(deps) {
-  const { api, word, switchListHtml, wireSwitchList, opensWithLine, escapeHtml, tabOverflow, openMenu: openHostMenu } = deps; // tabOverflow (primary-nav.js) and openMenu (host-menu.js) come from the page
+  const { api, word, switchListHtml, wireSwitchList, layoutLine, escapeHtml, tabOverflow, openMenu: openHostMenu } = deps; // tabOverflow (primary-nav.js) and openMenu (host-menu.js) come from the page
   const doc = deps.doc || document;
   const el = doc.createElement('aside');
   el.id = 'space-setup';
@@ -636,7 +635,7 @@ export function createSpaceSetup(deps) {
         <p class="visually-hidden" id="setup-layouts-live" role="status" aria-live="polite"></p></section>`;
   }
   // First visit, a section of the Settings tab (plan-layout-views.md, step 5; plan-workspaces.md, step 3): what a new person sees
-  // in the Workspace (its Opens with switches), and the shared layouts by name, which share Opens first's radios with the
+  // in the Workspace (the template's layout, one read-only line; plan-layout-picker.md, step 3), and the shared layouts by name, which share Opens first's radios with the
   // fixed layouts above (paintLayouts). Each person's own arrangement is remembered after the first visit.
   function firstVisitHtml() {
     return `<section class="setup-section" data-section="first-visit"><h3 class="setup-heading" id="setup-first-visit-heading">First visit</h3>
@@ -1177,11 +1176,14 @@ export function createSpaceSetup(deps) {
       ...o.modules.map((m) => ({ id: m.id, name: m.name, icon: m.icon })),
     ];
   }
-  // What the template opens a new person with, as a sentence: read only (the template's Default Workspace decides).
+  // What the template opens a new person with, as a sentence: read only (the template's Default Workspace decides): its
+  // layout's shape and the modules in it, in plain words (opens-with.js, layoutLine).
   function paintOpensWith() {
     const all = choices();
-    q('#setup-opens-with').textContent = opensWithLine({
-      list: state.options.opensWith,
+    q('#setup-opens-with').textContent = layoutLine({
+      layout: state.options.layout,
+      space: spaceWord(),
+      module: word('module'),
       modules: state.options.modules.map((m) => m.id),
       canOpen: (id) => all.some((c) => c.id === id),
       nameOf: (id) => all.find((c) => c.id === id)?.name || id,
@@ -1890,8 +1892,8 @@ export function createSpaceSetup(deps) {
     state.options = {
       modules: (answer.modules || []).filter((m) => !m.canvas || m.canvas.menu !== false),
       builtin: answer.builtin || [],
-      // What the template opens a new person with (its Default Workspace); the space keeps no list of its own. Read only.
-      opensWith: listOrNull((answer.firstVisit && answer.firstVisit.opensWith !== undefined ? answer.firstVisit : answer).opensWith),
+      // What the template opens a new person with (its Default Workspace's layout, { shape, areas }); the space keeps none of its own. Read only.
+      layout: answer.layout && typeof answer.layout.shape === 'string' && Array.isArray(answer.layout.areas) ? answer.layout : null,
       budgetModules: answer.modules || [], // a moderator's list for the Budget section (an owner has GET /api/modules)
     };
     // The server's own view is the freshest: the presence record may lag a save by someone else. What was not touched
@@ -1922,7 +1924,7 @@ export function createSpaceSetup(deps) {
     const before = beforeOf(space);
     state = {
       space, tabs, tab: null, opts, owner: Boolean(opts.owner), before, draft: copyOf(before),
-      options: { modules: [], builtin: [], opensWith: null }, layouts: { system: [], shared: [], canSetDefault: true },
+      options: { modules: [], builtin: [], layout: null }, layouts: { system: [], shared: [], canSetDefault: true },
       image: { file: null, url: '', remove: false }, links: { guestToken: space.guestToken || null, allowGuests: space.allowGuests !== false },
       users: null, saving: false, rule, phaseList, today: opts.today || null, installed: null, moduleSettings: null,
     };

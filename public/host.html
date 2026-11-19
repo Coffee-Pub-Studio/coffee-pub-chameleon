@@ -394,8 +394,9 @@
 
                   <fieldset class="sdk-panel hc-part" id="te-part-workspace" role="tabpanel" aria-labelledby="te-tab-workspace" tabindex="-1" hidden>
                     <legend class="hc-part-name">Default Workspace</legend>
-                    <p class="sdk-hint">What a new space opens, in this order. The ticks are the template's modules, including chat and the conference.</p>
-                    <div id="te-opens"></div>
+                    <span class="field-label" id="te-layout-label">Layout</span>
+                    <p class="sdk-hint" id="te-layout-hint">How the Workspace starts the first time someone enters a new space. After that, each person's own arrangement is kept.</p>
+                    <p class="te-layout" id="te-layout" aria-labelledby="te-layout-label" aria-describedby="te-layout-hint"></p>
                     <span class="field-label">The workspaces a new space shows</span>
                     <div class="template-modules" id="te-show"></div>
                     <label class="tf-field">Opens first<select id="te-opens-first"></select></label>

@@ -18,7 +18,7 @@ import { createModuleFrame } from '/module-frame.js';
 import { mountHostMenu } from '/host-menu.js';
 import { fileWindowCount, closeAllFiles, openFile } from '/file-viewer.js';
 import { nav } from '/nav-bar.js';
-import { whatOpens, readAliased, firstVisitLayout, SYSTEM_TABS } from '/opens-with.js';
+import { whatOpens, readAliased, firstVisitLayout, firstVisitShape, SYSTEM_TABS } from '/opens-with.js';
 import { layoutOf, placeLayout, placeShape, areaMayHold, leftOutNote, partOfNote, groupColumns, splitHeights, dragShares, evenShares, cleanShares, stackRefusal, STACK, STACK_ID } from '/layouts.js';
 import { shapeById } from '/layout-shapes.js';
 import { TINTS, moduleTint } from '/module-tint.js';
@@ -125,10 +125,11 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   let colors = new Map();
   const colorOf = (id) => { const c = compositeById(id); const base = c ? c.main : id; return moduleTint(base, colors.get(base) || null); };
   const tintAttr = (id) => (colorOf(id) ? ` data-tint="${colorOf(id)}"` : '');
-  // What this space opens with (its template's Default Workspace), or null. Null until a space is loaded.
-  let spaceOpensWith = null;
+  // What this space's Workspace starts from (its template's layout, { shape, areas }; plan-layout-picker.md, step 3), or
+  // null when the template names none. Null until a space is loaded.
+  let spaceShape = null;
   let spaceDefaultLayout = null; // the space's default layout when it is a shared one, whole (plan-saved-layouts.md, decision 4), or null
-  // What a first visit opens, as the server resolved it (plan-layout-views.md, step 5): { layout, opensWith }, or null.
+  // What a first visit opens, as the server resolved it (plan-layout-views.md, step 5): { layout, shape }, or null.
   let spaceFirstVisit = null;
   // Set by refresh() for the space just entered, used up by the restore that follows: only entering shows the first
   // visit's layout (a press on the Workspace tab restores the Workspace alone).
@@ -2377,7 +2378,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   }
 
   // Open what this space starts with (plan-entering.md, "What opens on entering"): a fresh request, then the
-  // remembered layout (never for a guest), then the space's own list, then the environment's list, then the chat and
+  // remembered layout (never for a guest), then the template's layout (a shape, placed by loadShape), then the chat and
   // every module on here without the conference (for a guest, the conference and the chat). See opens-with.js.
   // On entering, a first visit opens the space's first visit layout (plan-layout-views.md, step 5; firstVisitLayout):
   // a shared layout loads into the Workspace here; for Calendar or Map the Workspace opens as above and restore()
@@ -2409,19 +2410,46 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     }
     // The person's own last layout is shown as its tab is pressed, a saved one included (the page checked it is there).
     const tab = SYSTEM_TABS.includes(firstLayout) || (firstLayout !== 'workspace' && firstLayout === last && !guest) ? firstLayout : null;
+    // A phone with Calendar or Map as the first visit: that composite first (a stored `calendar` or `maps` read as it).
+    // With Conference as the first visit the call is first (plan-workspaces.md, step 7): a phone has no Conference
+    // layout, the call is its own view there, shown "Not in a call" until the person joins (opening it never joins).
+    const lead = tab && isNarrow() ? (tab === 'conference' ? ['conference'] : readAliased([tab === 'map' ? 'maps' : tab], aliases)).filter((id) => canOpenHere(id)) : [];
+    // The template's layout (plan-layout-picker.md, step 3; decisions 2, 6 and 14): with no remembered arrangement here
+    // (a guest never has one) the Workspace starts from the template's shape, placed by loadShape exactly as a shape loaded
+    // by hand is (an empty area with the chooser, an area this person can't open closed up, the left-out note), and that
+    // becomes the person's remembered arrangement, which wins from then on.
+    const shape = request ? null : firstVisitShape({ shape: spaceShape, remembered: saved.__open, guest });
+    if (shape && shapeById(shape.shape)) {
+      restoring = false;
+      suspended = false;
+      loadShape(shape);
+      // A phone has no column: the chat is a tab after the shape's modules (the conference and the chat for a guest, as
+      // whatOpens opens them), and a first visit's Calendar, Map or call is the first tab.
+      if (isNarrow()) {
+        const builtinsHere = (guest ? ['conference', 'chat'] : ['chat']).filter((id) => !lead.includes(id));
+        for (const id of [...lead, ...builtinsHere]) {
+          if (opened.has(readId(id)) || !canOpenHere(id)) continue;
+          if (builtins.has(id)) api_openBuiltin(id);
+          else { const m = available.find((x) => x.id === readId(id)); if (m) openModule(m); }
+        }
+        const first = Math.min(0, ...[...opened.values()].map((p) => p.order));
+        lead.forEach((id, i) => { const p = opened.get(readId(id)); if (p) p.order = first - lead.length + i; });
+        const shown = [...lead.map(readId), ...shape.areas.filter(Boolean).map(readId), ...builtinsHere].find((id) => opened.has(id));
+        if (shown) view = shown;
+        syncDock();
+        update();
+        snapshot();
+      }
+      return tab && !isNarrow() ? tab : null;
+    }
     const opens = request ? [request.module] : whatOpens({
       remembered: saved.__open,
-      own: spaceOpensWith,
       modules: available.map((m) => m.id),
       canOpen: canOpenHere,
       guest,
       column: columnMode(),
       aliases, // a stored `calendar` or `todo` opens the composite while the Calendar is on here (composites.js)
     });
-    // A phone with Calendar or Map as the first visit: that composite first (a stored `calendar` or `maps` read as it).
-    // With Conference as the first visit the call is first (plan-workspaces.md, step 7): a phone has no Conference
-    // layout, the call is its own view there, shown "Not in a call" until the person joins (opening it never joins).
-    const lead = tab && isNarrow() ? (tab === 'conference' ? ['conference'] : readAliased([tab === 'map' ? 'maps' : tab], aliases)).filter((id) => canOpenHere(id)) : [];
     const want = [...lead, ...opens.filter((id) => !lead.includes(id))];
     for (const id of want) {
       if (builtins.has(id)) { if (canOpenHere(id)) api_openBuiltin(id); }
@@ -3010,7 +3038,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     available = [];
     aliases = {};
     colors = new Map();
-    spaceOpensWith = null;
+    spaceShape = null;
     spaceDefaultLayout = null;
     spaceFirstVisit = null;
     entering = Boolean(id);
@@ -3029,12 +3057,12 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
         available = composeList(modules, shown);
         aliases = aliasesFor(modules.map((m) => m.id), shown);
         colors = new Map((answer.modules || []).filter((m) => TINTS.includes(m.color)).map((m) => [m.id, m.color]));
-        spaceOpensWith = Array.isArray(answer.opensWith) ? answer.opensWith : null;
+        spaceShape = answer.layout && typeof answer.layout.shape === 'string' && Array.isArray(answer.layout.areas) ? answer.layout : null;
         spaceDefaultLayout = answer.defaultLayout && Array.isArray(answer.defaultLayout.modules) ? answer.defaultLayout : null;
-        // The first visit, as the server resolved it; from a server before it, the shared default as it opened then.
+        // The first visit, as the server resolved it.
         spaceFirstVisit = answer.firstVisit && typeof answer.firstVisit.layout === 'string'
           ? answer.firstVisit
-          : { layout: spaceDefaultLayout && spaceOpensWith ? spaceDefaultLayout.id : 'workspace', opensWith: spaceOpensWith };
+          : { layout: 'workspace', shape: spaceShape };
         showBuiltin(answer.builtin);
       } catch {
         available = [];
