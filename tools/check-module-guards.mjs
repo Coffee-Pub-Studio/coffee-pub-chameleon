@@ -617,9 +617,9 @@ try {
       assert.equal(mine.status, 200, JSON.stringify(mine.json));
       assert.equal(mine.json.summaries[0].title, 'Hotel Avenida Palace');
       assert.equal(typeof mine.json.summaries[0].amount, 'number', 'a member sees what it costs');
-      // Not a member of Kyoto: hidden, no title; Mia, who is, sees it.
+      // Not a member of Kyoto: gone (a space the reader cannot enter reads as one that is not here), no title; Mia, who is, sees it.
       const outside = (await call('POST', '/api/chat/citations', { refs: [kyoto] }, 'sam')).json.summaries[0];
-      assert.deepEqual([outside.state, outside.title], ['hidden', undefined], 'sam is not in Kyoto');
+      assert.deepEqual([outside.state, outside.title], ['gone', undefined], 'sam is not in Kyoto');
       assert.equal(typeof (await call('POST', '/api/chat/citations', { refs: [kyoto] }, 'mia')).json.summaries[0].title, 'string', 'mia is');
       // A guest: their own space only, never its hidden fields, nothing of the environment.
       const guest = await asGuest('POST', `/api/chat/citations?${sp()}`, { refs: [plan, kyoto, { module: 'travel', kind: 'plan', id: 'a1', scope: 'environment' }] });
