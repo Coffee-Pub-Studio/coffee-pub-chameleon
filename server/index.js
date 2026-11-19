@@ -43,7 +43,7 @@ const { ModuleUploads } = require('./module-uploads');
 const { inspectHead } = require('./image-clean');
 const { cleanName, nameForType, folderBytes, VISIBILITIES, PEOPLE_MAX } = require('./vault-store');
 const vaultTypes = require('./vault-types');
-const { whoCantOpen } = require('./layout-shapes');
+const { whoCantOpen, canOpenArea } = require('./layout-shapes');
 const { createScanner } = require('./vault-scan');
 const pdfViewer = require('./pdf-viewer');
 const { mountVaultShares } = require('./vault-share');
@@ -82,7 +82,7 @@ const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
-const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS } = require('./store');
+const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
 const phaseRule = require('../public/phases.js');
 const phaseMeasure = require('./phase-measure.js'); // a phase's Done switch and the count of the goals that name it (plan-templates-redesign.md, step 6)
@@ -1844,7 +1844,7 @@ function publicUser(req, u, opts = {}) {
 // portrait size (store.settings), the same number the participant box uses.
 function presenceUser(u) {
   const p = store.effectivePlayer(u);
-  return { key: u.key, displayName: u.displayName, isOwner: hasOwnerRights(u), border: p.border, borderColor: p.borderColor, borderWidth: p.borderWidth, mutedBorder: p.mutedBorder, mutedColor: p.mutedColor, plate: p.plate, plateLayout: p.plateLayout, plateColor: p.plateColor, plateTextColor: p.plateTextColor, plateFontSize: p.plateFontSize, plateOpacity: p.plateOpacity, plateTextCase: p.plateTextCase, charBorder: p.charBorder, charBorderColor: p.charBorderColor, charMutedBorder: p.charMutedBorder, charMutedColor: p.charMutedColor, charBorderWidth: p.charBorderWidth, pictureBackground: p.pictureBackground, pictureColor: p.pictureColor, pictureScale: p.pictureScale, images: Object.fromEntries(SLOTS.map((slot) => [slot, !!u.images[slot]])) };
+  return { key: u.key, displayName: u.displayName, ...(u.agent ? { agent: true } : {}), isOwner: hasOwnerRights(u), border: p.border, borderColor: p.borderColor, borderWidth: p.borderWidth, mutedBorder: p.mutedBorder, mutedColor: p.mutedColor, plate: p.plate, plateLayout: p.plateLayout, plateColor: p.plateColor, plateTextColor: p.plateTextColor, plateFontSize: p.plateFontSize, plateOpacity: p.plateOpacity, plateTextCase: p.plateTextCase, charBorder: p.charBorder, charBorderColor: p.charBorderColor, charMutedBorder: p.charMutedBorder, charMutedColor: p.charMutedColor, charBorderWidth: p.charBorderWidth, pictureBackground: p.pictureBackground, pictureColor: p.pictureColor, pictureScale: p.pictureScale, images: Object.fromEntries(SLOTS.map((slot) => [slot, !!u.images[slot]])) };
 }
 
 // A space's guest link (guestToken, a way into the call in itself) goes only to those who can manage it: an owner
@@ -1935,9 +1935,17 @@ function branding() {
 // the template the space reads (plan-templates-redesign.md, decision 12). Never the template's id or name, and never its
 // modules: which modules a person sees there is /api/modules/for-space's, by their permissions.
 const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
-function lookView(spaceId) {
+// `guest`: the viewer has no account; the template's layout then reads as a guest is shown it (guestShape).
+function lookView(spaceId, guest = false) {
   const look = store.lookOf(spaceId);
-  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, inUseIcons: look.inUseIcons, workspace: look.workspace };
+  let workspace = look.workspace && look.workspace.layout ? { ...look.workspace, layout: guestShape(look.workspace.layout, guest, spaceId) } : look.workspace;
+  // A guest has no Fixed Workspaces at all (systemLayoutsFor answers none), so the template's `tabs` are
+  // not theirs to be told: the list reads as the Workspace alone, which is what opens. No page of a guest reads it.
+  if (guest && workspace) {
+    workspace = { ...workspace };
+    if ('tabs' in workspace) workspace.tabs = [{ id: 'workspace', show: true }];
+  }
+  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, inUseIcons: look.inUseIcons, workspace };
 }
 // The phases a space reads, for the rules that walk them (the AI's rollup, covering the main phase).
 const phasesOfSpace = (spaceId) => { const p = store.lookOf(spaceId).phases; return Array.isArray(p) ? p : []; };
@@ -2647,7 +2655,8 @@ function cantOpenFor(env, t) {
   if (!t) return {};
   const manifests = catalogManifests(env);
   const ids = (t.modules === '*' ? [...manifests.keys()] : Object.keys(t.modules)).filter((id) => !templates.BUILTIN_MODULE_IDS.includes(id) && manifests.get(id)?.surfaces?.canvas);
-  if (env) return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions: env.store.roles(), off: ids.filter((id) => !env.modules.enabled(id)) });
+  // `on`: what the template lists that is on, so a To-do beside the Calendar is judged as the Calendar (layout-shapes.js, canOpenArea).
+  if (env) { const off = ids.filter((id) => !env.modules.enabled(id)); return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions: env.store.roles(), off, on: ids.filter((id) => !off.includes(id)) }); }
   const rolePermissions = { moderator: {}, member: {}, guest: {} };
   for (const id of ids) {
     const manifest = manifests.get(id);
@@ -2657,7 +2666,7 @@ function cantOpenFor(env, t) {
       if (manifest.library && vaultTypes.GUEST_LOCKED.includes(p.key)) rolePermissions.guest[`module.${id}.${p.key}`] = false;
     }
   }
-  return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions, off: [] });
+  return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions, off: [], on: ids });
 }
 // Every built environment that reads template `id` (as its own, or through a space) reads its live part again.
 function refreshTemplateLive(id) {
@@ -3218,7 +3227,7 @@ hostRouter.get('/api/host/settings', requireHostAdmin, (_req, res) => {
     baseDomain: BASE_DOMAIN, productDomain: PRODUCT_HOST, version: VERSION, hostAdmins: hostRegistry.listAdmins(), productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, contactEmail: CONTACT_EMAIL || null, productSiteUrl: PRODUCT_SITE,
     plans: hostRegistry.plansCatalog(), signup: signupEnabled, billingSecretSet: Boolean(BILLING_SECRET),
     // The modules this image ships, for the template editor: the built-in two, then the bundled ones by id.
-    modules: [...BUILTIN_MODULES, ...bundledModules(BUNDLED_DIR)].map((m) => ({ id: m.id, name: m.name || m.id, icon: m.icon || null })),
+    modules: [...BUILTIN_MODULES, ...bundledModules(BUNDLED_DIR)].map((m) => ({ id: m.id, name: m.name || m.id, icon: m.icon || null, canvas: Boolean(m.surfaces?.canvas) })),
     // The built-in reaction and icon lists every environment's start as (server/default-lists.js), for the template
     // editor's read-only "An environment's set starts as these" (decision 12 as corrected); the owner's GET /api/settings
     // answers the same field.
@@ -4805,7 +4814,7 @@ app.get('/api/guest-link/:token', (req, res) => {
   const theSpace = store.spaceByGuestToken(req.params.token);
   if (!theSpace) return res.status(404).json({ error: `that ${word('guest')} link is off or wrong` });
   if (spaceAccess.isClosed(theSpace)) return res.status(403).json({ error: closedSentence(), closed: true });
-  res.json({ spaceId: theSpace.id, spaceName: theSpace.name, look: lookView(theSpace.id) }); // that space's words, not the environment's
+  res.json({ spaceId: theSpace.id, spaceName: theSpace.name, look: lookView(theSpace.id, true) }); // that space's words, not the environment's
 });
 // The address's new guest sessions this request would be the next of: 429 with the sentence when it is past the limit.
 function newGuestSessionRefusal(req) {
@@ -5256,7 +5265,7 @@ app.get('/api/spaces/:id/look', (req, res) => {
   const space = store.spaceById(req.params.id);
   const viewer = space && !space.isLobby && space.id !== LOBBY ? presenceViewer(req) : null;
   if (!space || !viewer || viewer.all || !spaceAccess.mayEnter(viewer, space)) return res.status(404).json({ error: spaceContext.exit(() => `no such ${word('space')}`) }); // outside the space's own words: the access key is let into the context
-  res.json({ look: lookView(space.id) });
+  res.json({ look: lookView(space.id, !currentUser(req)) });
 });
 app.get('/api/spaces', (req, res) => {
   const viewer = presenceViewer(req);
@@ -5406,6 +5415,7 @@ app.patch('/api/spaces/:id', requireUser, (req, res) => {
     if (!moderates(currentUser(req), space) || !onlyTheirs) return res.status(403).json({ error: `${word('owner', { many: true })} only` });
   }
   const space = store.updateSpace(req.params.id, body);
+  if (body.members !== undefined) endAgentAsks(); // an agent taken off the members: its waiting requests here end
   liveAccessChanged(); // guests turned off, say: their live streams end now
   res.json({ space: answeredSpace(req, space) });
 });
@@ -5564,6 +5574,7 @@ app.patch('/api/users/:key', requireOwner, (req, res) => {
   let user = store.updateUser(req.params.key, patch);
   if (off !== undefined) user = store.setAgentOff(req.params.key, off);
   if (chatPost !== undefined) user = store.setAgentChatPost(req.params.key, chatPost);
+  if (off === true) endAgentAsks(); // what it asked for and no page carried out yet is dropped
   liveAccessChanged(); // a role changed, or a new password signed them out everywhere: their streams ask again now
   res.json({ user: publicUser(req, user) });
 });
@@ -5572,6 +5583,7 @@ app.delete('/api/users/:key', requireOwner, (req, res) => {
   if (currentUser(req).key === req.params.key) return res.status(400).json({ error: 'you cannot delete yourself' });
   store.removeUser(req.params.key);
   currentEnvironment().tokens.revoke(req.params.key); // an agent's token goes with it; its objects and messages keep their `by`
+  endAgentAsks(); // and what it asked for that no page carried out yet
   attention.forgetPerson(req.params.key);
   liveAccessChanged(); // their streams end now
   res.json({ ok: true });
@@ -5628,13 +5640,16 @@ app.post('/api/users/:key/token', requireOwner, (req, res) => {
   if (refused) return res.status(403).json({ error: refused });
   if (agent.off) return res.status(409).json({ error: 'This agent is turned off. Turn it on first.' });
   const { token, record } = currentEnvironment().tokens.make(agent.key, 'agent');
+  endAgentAsks(); // what the earlier token asked for ends with it
   res.status(201).set('Cache-Control', 'no-store').json({ token, expiresAt: record.expiresAt });
 });
 // DELETE: revokes it at once: { ok: true, revoked } (false when it had none).
 app.delete('/api/users/:key/token', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
-  res.set('Cache-Control', 'no-store').json({ ok: true, revoked: currentEnvironment().tokens.revoke(agent.key, 'agent') });
+  const revoked = currentEnvironment().tokens.revoke(agent.key, 'agent');
+  endAgentAsks(); // what it asked for that no page carried out yet ends with the token
+  res.set('Cache-Control', 'no-store').json({ ok: true, revoked });
 });
 // What the agent did: the last 100 lines of its log, newest first, before `before` (a time) when given:
 // { entries: [{ at, token, method, route, space, action, request, message, status, address, kind }], more }.
@@ -5690,6 +5705,7 @@ app.patch('/api/users/:key/spaces/:spaceId', requireOwner, (req, res) => {
 });
 app.delete('/api/spaces/:id/members/:key', requireOwner, (req, res) => {
   store.removeMember(req.params.id, req.params.key);
+  endAgentAsks(); // an agent's waiting requests in this space end with its membership
   liveAccessChanged(); // their streams there end now
   res.json({ user: publicUser(req, store.userByKey(req.params.key)) });
 });
@@ -6393,7 +6409,8 @@ function layoutSpaceFor(req, res) {
 const sharedLayoutRefusal = () => `Only ${word('owner', { many: true })}, the ${word('admin')} and this ${word('space')}'s ${word('moderator', { many: true })} can change shared layouts.`;
 const guestLayoutRefusal = () => `${word('guest', { many: true, cap: true })} can load shared layouts but not save or change them.`;
 function sendLayoutError(err, res) {
-  if (err instanceof LayoutError) return res.status(err.status).json({ error: err.message, ...err.extra });
+  // Always { error, problems: [error], parts: [null] } as every layout refusal is; a 409 for a taken name also carries `id`.
+  if (err instanceof LayoutError) return res.status(err.status).json({ error: err.message, problems: [err.message], parts: [null], ...err.extra });
   throw err;
 }
 
@@ -6499,20 +6516,78 @@ function firstVisitFor(found) {
   } else if (stored && store.defaultLayoutOf(space.id)) {
     layout = stored;
   }
-  return { layout, shape: store.layoutOf(space.id) };
+  // The template's shape, as this viewer is shown it: a guest's areas for modules they can't open read empty (guestShape).
+  return { layout, shape: guestShape(store.layoutOf(space.id), !found.who.user, space.id) };
 }
 // The icon ids a layout in space `spaceId` may use: the icons that space offers (its own template's additions when it has
 // one, as its /look lists them, else the environment's), the modules' own icons, and the defaults.
 const layoutIconIds = (spaceId) => [...new Set([...store.iconIdsAt(spaceId), ...store.moduleIconIds(), ...Object.values(SYSTEM_ICONS), 'object-group'])];
+
+// What an area of a layout for everyone may name in a space (plan-layout-picker.md, step 6): { modules, names }. `modules` are
+// the ids on in the space with a place on the canvas (the template's rule for an area), which is also what decides whether
+// Calendar and To-do read as a composite; `names` is { <id>: the name this space shows } for every module installed or
+// shipped, so a sentence names a module as the space shows it. Checked when the layout is saved, never when it is read.
+function sharedShapeOptions(space) {
+  const on = modules.enabledAll()
+    .filter(({ manifest, entry }) => manifest.scope.includes('space') && manifest.surfaces?.canvas && !refusedInLobby(manifest, space.id) && modules.isOnIn(entry.id, space.id))
+    .map(({ manifest }) => manifest.id);
+  const names = Object.create(null);
+  // A name that is not a good display name (a stored one edited by hand) is not used: the manifest's own is.
+  for (const manifest of catalogManifests(currentEnvironment()).values()) {
+    const shown = shownModule(manifest, space.id).name;
+    names[manifest.id] = typeof shown === 'string' && shown.trim() && !displayNameProblem(shown.trim()) ? shown : manifest.name;
+  }
+  // On in the space but with no place on the canvas (the Assistant, the Stream): named as "can't go in an area".
+  const noArea = modules.enabledAll().filter(({ manifest, entry }) => !on.includes(manifest.id) && modules.isOnIn(entry.id, space.id)).map(({ manifest }) => manifest.id);
+  return { modules: on, on, names, noArea };
+}
+// Who can't open each module a layout for everyone may name here, for whoever may edit it (decisions 17 and 19):
+// { <module id>: { roles: [...] } | { off: true } }, a module everyone can open left out. It covers every module on in the
+// space, and any module a shared layout names that is off now. The roles are the environment's Roles (a moderator's own
+// grant for one space only adds permissions, so it never changes who can't open); an owner and the admin open everything.
+function sharedCantOpen(found, shared) {
+  const { modules: on } = sharedShapeOptions(found.space);
+  const named = shared.flatMap((l) => (Array.isArray(l.areas) ? l.areas : [])).filter((id) => typeof id === 'string');
+  const ids = [...new Set([...on, ...named])];
+  return whoCantOpen(ids, { manifests: Object.fromEntries(catalogManifests(currentEnvironment())), rolePermissions: store.roles(), off: ids.filter((id) => !on.includes(id)), on });
+}
+// A shared shape as a guest is shown it: an area naming a module the guest can't open (off in the space, or one they can't
+// read) reads as empty (the page closes it up either way), so a guest is not told the id of a module they can't open. Anyone else, and null, as they are.
+function guestShape(layout, guest, spaceId) {
+  if (!layout || !guest || !Array.isArray(layout.areas)) return layout;
+  // What a guest opens is what the page opens for them: the module when it is on here and they can read it, or the
+  // composite it folds into (a To-do beside the Calendar is the Calendar) when they can read the main (canOpenArea).
+  const manifests = Object.fromEntries(catalogManifests(currentEnvironment()));
+  const on = Object.keys(manifests).filter((id) => modules.isOnIn(id, spaceId));
+  const permissions = store.roleSet('guest');
+  const off = Object.keys(manifests).filter((id) => !on.includes(id));
+  return { ...layout, areas: layout.areas.map((id) => (id !== null && !canOpenArea(id, { manifests, permissions, on, off }) ? null : id)) };
+}
+// The names of the modules a maker's answer talks about, { <module id>: <name as the space shows it> }: every module a shared
+// layout names and every module in `cantOpen`, so a page can say "Research" for a module that is off or not installed here
+// instead of its id. The same names the refusals use (sharedShapeOptions: the space's own, else the manifest's, and clean). A
+// module the server has no manifest for has no entry. Names only, sent only to those who get `cantOpen`.
+function withNames(found, shared) {
+  const cantOpen = sharedCantOpen(found, shared);
+  return { cantOpen, names: sharedNames(found, shared, cantOpen) };
+}
+function sharedNames(found, shared, cantOpen) {
+  const { names } = sharedShapeOptions(found.space);
+  const ids = new Set([...Object.keys(cantOpen), ...shared.flatMap((l) => (Array.isArray(l.areas) ? l.areas : [])).filter((id) => typeof id === 'string')]);
+  return Object.fromEntries([...ids].filter((id) => typeof names[id] === 'string' && names[id]).map((id) => [id, names[id]]));
+}
+// A refused layout's answer, as a template's: { error, problems, parts }.
+const layoutProblems = (out) => ({ error: out.error, problems: out.problems, parts: out.parts });
 
 app.get('/api/spaces/:id/layouts', (req, res) => {
   const found = layoutSpaceFor(req, res);
   if (!found) return;
   const me = found.who.user ? found.who.user.key : null;
   const listed = store.layouts.list(found.space.id, me);
-  // A guest is shown only the modules that are on in this space; a layout never names one they cannot use.
+  // A guest is shown only the modules that are on in this space: an area naming one that is off reads as empty, which
+  // closes up for a guest as an area they can't open does. A member's answer names it, and the page closes the area up.
   const mine = listed.mine;
-  const shared = found.who.user ? listed.shared : listed.shared.map((l) => ({ ...l, modules: l.modules.filter((m) => modules.isOnIn(m.id, found.space.id)) }));
+  const shared = found.who.user ? listed.shared : listed.shared.map((l) => guestShape(l, true, found.space.id));
   // defaultLayout: the id of the shared layout this space opens with on a first visit, or null (store.defaultLayoutOf).
   const fallback = store.defaultLayoutOf(found.space.id);
   // favorites: this person's favorite layouts' ids, in the order favorited (plan-favorite-layouts.md); [] for a guest.
@@ -6522,7 +6597,7 @@ app.get('/api/spaces/:id/layouts', (req, res) => {
   // last: the person's own last layout, only while it can still be opened (lastLayoutFor); left out for a guest and when none.
   const system = systemLayoutsFor(found);
   const last = lastLayoutFor(found, system);
-  res.json({ mine, shared, system, defaultLayout: fallback ? fallback.id : null, firstVisit: firstVisitFor(found), favorites, canShare: found.canShare, canSetDefault: found.canSetDefault, ...(found.canSetDefault ? { tabs: tabsOf(found.space.tabs) } : {}), ...(last ? { last } : {}) });
+  res.json({ mine, shared, system, defaultLayout: fallback ? fallback.id : null, firstVisit: firstVisitFor(found), favorites, canShare: found.canShare, canSetDefault: found.canSetDefault, ...(found.canShare ? withNames(found, shared) : {}), ...(found.canSetDefault ? { tabs: tabsOf(found.space.tabs) } : {}), ...(last ? { last } : {}) });
 });
 
 // The layout a person last used in a space (plan-workspaces.md, decision 20): PUT { layout } writes the signed-in person's
@@ -6551,8 +6626,11 @@ app.post('/api/spaces/:id/layouts', (req, res) => {
   const found = layoutSpaceFor(req, res);
   if (!found) return;
   if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
-  const { layout, error } = cleanLayout(req.body, { icons: layoutIconIds(found.space.id) });
-  if (error) return res.status(400).json({ error });
+  // Who may share is decided before the layout is read, so a member learns nothing of the space's modules from a refusal.
+  if (isPlainBody(req.body) && req.body.shared === true && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
+  const out = cleanLayout(req.body, { icons: layoutIconIds(found.space.id), shapeOptions: sharedShapeOptions(found.space) });
+  if (out.error) return res.status(400).json(layoutProblems(out));
+  const { layout } = out;
   if (layout.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   try {
     res.status(201).json({ layout: store.layouts.add(found.space.id, found.who.user.key, layout) });
@@ -6564,7 +6642,8 @@ app.post('/api/spaces/:id/layouts', (req, res) => {
 // The name a person sees for a system layout, for a refusal's sentence (its default word when it is not on here).
 const systemNameOf = (found, id) => systemLayoutsFor(found).find((l) => l.id === id)?.name || { workspace: 'Workspace', calendar: 'Calendar', map: 'Map', conference: 'Conference', whiteboard: 'Whiteboards', documents: 'Documents' }[id];
 
-// Rename (name), or replace with the current canvas (modules, snap): any of the three.
+// Rename (name), or replace: a personal layout with the current canvas (modules, snap, arrange), a shared one with a shape
+// and its areas (shape, areas).
 app.put('/api/spaces/:id/layouts/:layoutId', (req, res) => {
   const found = layoutSpaceFor(req, res);
   if (!found) return;
@@ -6575,12 +6654,16 @@ app.put('/api/spaces/:id/layouts/:layoutId', (req, res) => {
   if (!there) return res.status(404).json({ error: 'There is no such layout here.' });
   if (there.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   // The icon it has already is taken back unchanged (it may be one a template switched away offered); a new one is checked.
-  const { layout: patch, error } = cleanLayout(req.body, { partial: true, icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
-  if (error) return res.status(400).json({ error });
-  if (!Object.keys(patch).length) return res.status(400).json({ error: `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.` });
+  const out = cleanLayout(req.body, { partial: true, shared: there.shared, shapeOptions: there.shared ? sharedShapeOptions(found.space) : null, icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
+  if (out.error) return res.status(400).json(layoutProblems(out));
+  const patch = out.layout;
+  if (!Object.keys(patch).length) {
+    const error = there.shared ? 'Send a new name, or a shape and its areas to replace the layout with.' : `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.`;
+    return res.status(400).json({ error, problems: [error], parts: [null] });
+  }
   try {
     const layout = store.layouts.update(found.space.id, req.params.layoutId, me, patch);
-    // Replacing the default layout's modules moves the space's Opens with along with it.
+    // Keeps the space's defaultLayout while the layout still exists (a replace never changes it).
     if (there.shared) store.syncDefaultLayout(found.space.id);
     res.json({ layout });
   } catch (err) {
@@ -8094,6 +8177,8 @@ app.post('/api/spaces/:id/action', (req, res) => {
     // A view (Polls' draftPoll) opens a form on the person's own open page; Chat sends it only when the module is open,
     // so it is handed out for a minute and never waits for the module's next opening (BUS_LIMITS.openOnlyMs).
     openOnly: Boolean(def.local),
+    // An agent's request carries the token that asked: it is carried out only while that token and its agent may ask.
+    ...(req.agent ? { agentToken: req.agent.token.id } : {}),
   });
   if (req.agent) res.locals.agentLog.request = request.id;
   res.json({ id: request.id, status: request.status });
@@ -9665,6 +9750,41 @@ const publicEvent = (e) => ({ id: e.id, at: e.at, module: e.module, name: e.name
 // `by` is the asker's name; `byKey` is the asker's key (null for a guest or someone no longer here), which a module reads as
 // `ctx.byKey` and may store or look up as a person (plan-agent-access.md, decision 9).
 const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action, input: a.input, by: store.userByKey(a.by)?.displayName || 'someone', byKey: store.userByKey(a.by) ? a.by : null });
+// A request an agent asked for (plan-agent-access.md, "What a leaked token can do") is carried out only while the agent may
+// still ask: AGENT_TOKENS and the environment's Agents switch on, the agent here, an agent and not turned off, holding a token
+// that has not reached its end and is the very token that asked (a new token ends what the old one asked for), and still a
+// member of the request's space who may work there. A person's request is not asked about. Read when a request is offered
+// (pending and the live stream), claimed, finished, and when a page's write names its asker, so a path that changes any of
+// these without ending the requests (below) still holds. `standing`: membership only, never whether the space is closed for
+// set up for now, for ending requests for good (endAgentAsks); the offer, claim and finish ask the whole rule.
+const AGENT_ASK_ENDED = 'The agent that asked for this can no longer ask for it.';
+const agentAsk = (a) => Boolean(a) && (a.agent === true || store.userByKey(a.by)?.agent === true);
+function agentAskStands(a, { standing = false } = {}) {
+  if (!agentAsk(a)) return true;
+  if (!agentTokensOn || store.settings.agents !== true) return false;
+  const agent = store.userByKey(a.by);
+  if (!agent || !agent.agent || agent.off) return false;
+  const tokens = currentEnvironment().tokens;
+  const token = tokens.of(agent.key, 'agent');
+  if (!token || !tokens.live(token) || typeof a.agentToken !== 'string' || token.id !== a.agentToken) return false;
+  const spaceId = a.space || (typeof a.scopeKey === 'string' && a.scopeKey.startsWith('space:') ? a.scopeKey.slice(6) : null);
+  const space = spaceId ? store.spaceById(spaceId) : null;
+  if (standing) return Boolean(space) && !space.isLobby && space.members.includes(agent.key);
+  return Boolean(agentSpaceOf(agent, spaceId));
+}
+// Ends, for good, every waiting request of an agent that may no longer ask for it: called by every route that can take
+// that away (Revoke, a new token, Turn off, Delete, Agents off, taking it off a space's members). One line in the activity
+// list for each agent, module and place, naming the agent.
+function endAgentAsks() {
+  const ended = moduleBus.cancel((a) => agentAsk(a) && !agentAskStands(a, { standing: true }), AGENT_ASK_ENDED);
+  const groups = new Map();
+  for (const a of ended) {
+    const mark = `${a.by}|${a.provider}|${a.scopeKey}`;
+    groups.set(mark, { a, n: (groups.get(mark)?.n || 0) + 1 });
+  }
+  for (const { a, n } of groups.values()) noteActivity(a.provider, `can no longer ask, so ${n === 1 ? 'a waiting request was' : `${n} waiting requests were`} dropped`, a.by, a.scopeKey);
+  return ended.length;
+}
 // A request carried out for someone else (plan-agent-access.md, decision 9). The page that took it may send `for` (the asker's
 // key) and `request` (its id) with a data write, as a HINT. The server holds the request and uses the hint only when every
 // condition holds, and otherwise ignores it: the write is saved as the carrier's own and nobody else is named, and nothing is
@@ -9683,6 +9803,9 @@ function carriedFor(who, moduleId, given, requestId, writeScope, exists) {
   const held = id > 0 ? moduleBus.actionById(id) : null;
   // An honest page whose hint does not apply (an overwrite, another place, over the cap, past the minute, a view): nothing is
   // named and nothing is said.
+  // A request this carrier claimed whose agent may no longer ask (or that was ended for that, `cancelled`): the write is the
+  // carrier's own and names nobody, and the honest page is not blamed for it.
+  if (held && held.provider === moduleId && held.claimedBy === me && held.by === given && held.by !== me && (held.cancelled || !agentAskStands(held))) return '';
   if (held && held.provider === moduleId && held.status === 'claimed' && held.claimedBy === me && held.by === given && held.by !== me && store.userByKey(held.by)) {
     const request = !exists && !held.local ? moduleBus.carrying(id, moduleId, me, writeScope) : null;
     return request && moduleBus.useCarry(request) ? request.by : '';
@@ -9904,7 +10027,8 @@ app.get('/api/bus/actions/pending', busRoute((who, req) => {
   // object's space when the request names one, else here.
   const me = who.user?.key || 'guest';
   const mayTake = (a) => (a.local ? a.by === me : (!a.askerOnly || a.by === me) && (a.space ? busMayDo(who, id, scope, req.query.space, a) : canWrite));
-  return { actions: moduleBus.pending(id, at.scopeKey).filter(mayTake).map(publicAction) };
+  // An agent's request whose agent may no longer ask is not offered (agentAskStands).
+  return { actions: moduleBus.pending(id, at.scopeKey).filter((a) => mayTake(a) && agentAskStands(a)).map(publicAction) };
 }));
 // Someone else's request that only its asker's page may take (`askerOnly`): told no, as a request another page took is.
 const notTheAsker = (who, request) => Boolean(request && request.askerOnly && request.by !== (who.user?.key || 'guest'));
@@ -9913,6 +10037,7 @@ app.post('/api/bus/actions/claim', busRoute((who, req) => {
   const at = busPlace(who, String(id || ''), busScope(scope), space, 'read');
   const waiting = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, waiting)) return { ok: false };
+  if (waiting && !agentAskStands(waiting)) return { ok: false }; // its agent may no longer ask: told no, as a request another page took is
   if (waiting && waiting.local) { if (waiting.by !== (who.user?.key || 'guest')) return { ok: false }; } else if (waiting && waiting.space && waiting.provider === id && waiting.scopeKey === at.scopeKey) busPlace(who, String(id || ''), 'space', waiting.space, 'write'); else busPlace(who, String(id || ''), busScope(scope), space, 'write');
   const request = moduleBus.claim(Number(requestId), id, at.scopeKey, who.user?.key || 'guest');
   // `mine`: the person took their own request, so nothing is written on anyone else's behalf.
@@ -9924,6 +10049,7 @@ app.post('/api/bus/actions/complete', busRoute((who, req) => {
   const at = busPlace(who, String(id || ''), busScope(scope), space, 'read');
   const done = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, done)) return { ok: false };
+  if (done && !agentAskStands(done)) return { ok: false }; // its agent may no longer ask: nothing is recorded as carried out
   if (done && done.local) { if (done.by !== (who.user?.key || 'guest')) return { ok: false }; } else if (done && done.space && done.provider === id && done.scopeKey === at.scopeKey) busPlace(who, String(id || ''), 'space', done.space, 'write'); else busPlace(who, String(id || ''), busScope(scope), space, 'write');
   const clean = { ok: Boolean(result?.ok) };
   if (typeof result?.error === 'string') clean.error = result.error.slice(0, 200);
@@ -11932,10 +12058,10 @@ app.get('/api/modules/for-space', (req, res) => {
     // The built-in modules' names and icons as this environment shows them (the canvas's Conference and Chat switches).
     builtin: BUILTIN_MODULES.map((b) => ({ id: b.id, ...shownModule(b, space.id), ...(b.description ? { description: fillWords(b.description) } : {}) })),
     // What this space starts with: its template's Default Workspace layout (store.layoutOf), { shape, areas }, or null when the template names none.
-    layout: store.layoutOf(space.id),
+    layout: guestShape(store.layoutOf(space.id), !who.user, space.id),
     // The space's default layout, whole (as GET /api/spaces/:id/layouts lists it), or null: what a first visit opens,
     // with its places (plan-saved-layouts.md, decision 4).
-    defaultLayout: store.defaultLayoutOf(space.id),
+    defaultLayout: guestShape(store.defaultLayoutOf(space.id), !who.user, space.id),
     // What a first visit shows for this viewer, resolved (firstVisitFor): { layout, shape }.
     firstVisit: firstVisitFor({ who, space }),
   });
@@ -12693,6 +12819,7 @@ app.get('/api/modules/stream', (req, res) => {
   // A request for a module to do something: the providing module's frames are told; one claims it.
   const onAction = listenIn(env, (r) => {
     if ((r.local || r.askerOnly) && r.by !== (who.user?.key || 'guest')) return; // a view, or what is the asker's, is for the person who asked
+    if (!agentAskStands(r)) return; // an agent's request whose agent may no longer ask
     for (const v of views) {
       const at = place(v, r.provider, r.scopeKey);
       if (at) send(v, 'action', r, { ...publicAction(r), provider: r.provider, scope: at.scope });
@@ -13159,6 +13286,7 @@ app.patch('/api/settings', requireOwner, settingsJson, async (req, res) => {
     if (problem) return res.status(400).json({ error: problem });
   }
   if (template === undefined || Object.keys(rest).length) watchTheme(() => store.updateSettings(rest));
+  if (rest.agents === false) endAgentAsks(); // Agents off: every agent's waiting requests end
   // A module frame's inline icons are cached by id (iconSvg); a new icon list may give an id other classes.
   if (rest.icons !== undefined || rest.resetLists !== undefined) iconSvgs.clear();
   if (template === undefined) return res.json({ settings: ownerSettings() });

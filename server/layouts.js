@@ -23,7 +23,10 @@
 // environment copy leaves it out (server/environment-export.js).
 // A user layout may carry an `icon`; one stored without reads as kind `user` with the default icon.
 //
-// A layout is { id, name, by, at, modules: [{ id, mode, dockW?, box?, snap?, stack?, at?, h?, folded? }] (empty: a blank layout), snap?: { all, pitch }, arrange?: 'dock' | 'window' }. cleanLayout()
+// A personal layout is { id, name, by, at, modules: [{ id, mode, dockW?, box?, snap?, stack?, at?, h?, folded? }] (empty: a blank layout), snap?: { all, pitch }, arrange?: 'dock' | 'window', icon? }.
+// A shared layout (for everyone in a space) is a shape and its areas, { id, name, by, at, shape, areas, icon? }
+// (documentation/plans/plan-layout-picker.md, decision 5): it has no modules, snap or arrange, and a stored shared entry
+// that is not a valid shape is dropped on read (nothing is converted or rewritten until the next save). cleanLayout()
 // is the one shape check, pure; the Layouts class keeps the lists, their limits and the clean-up when a space or a
 // person is removed (server/store.js calls forgetSpace and forgetPerson). The browser's own remembered layout
 // (app.canvas.<space id>) is unchanged and separate. An aside has no layouts: index.js only finds spaces.
@@ -34,6 +37,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const words = require('./words');
+const { cleanShape, COLUMN_IDS } = require('./layout-shapes');
 
 const LAYOUT_LIMITS = Object.freeze({
   personal: 10, // per person per space
@@ -66,6 +70,9 @@ const ICON_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const MODULE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const MODES = ['dock', 'float'];
 const TOP_KEYS = ['name', 'shared', 'modules', 'snap', 'icon', 'arrange'];
+// A shared layout is a shape and its areas; these are the keys only a free-form (personal) layout takes, and the two only a shape takes.
+const FREE_FORM_KEYS = ['modules', 'snap', 'arrange'];
+const SHAPE_KEYS = ['shape', 'areas'];
 const ARRANGES = ['dock', 'window'];
 const MODULE_KEYS = ['id', 'mode', 'dockW', 'box', 'snap', 'stack', 'at', 'h', 'folded'];
 const BOX_KEYS = ['x', 'y', 'w', 'h'];
@@ -135,61 +142,124 @@ function cleanName(value) {
   return typeof value === 'string' ? value.replace(/\p{Cc}/gu, ' ').replace(/\s+/g, ' ').trim() : '';
 }
 
-// The one shape check, pure. `input` is what a request sends ({ name, shared?, modules, snap?, icon? }); with `partial`
-// (a PUT) any of name, modules and snap may be left out, and shared is not taken. `icons`, when given, is the list of
-// icon ids an `icon` must come from. Returns { layout } with only the
-// fields given, cleaned (numbers of pixels rounded), or { error } with one sentence saying what is wrong; anything
-// wrong refuses the whole layout.
-function cleanLayout(input, { partial = false, icons = null } = {}) {
-  if (!isObject(input)) return { error: `Send the layout as JSON: a name and the ${many('module')} it opens.` };
-  const allowed = partial ? TOP_KEYS.filter((k) => k !== 'shared') : TOP_KEYS;
+// The text of a module id as a sentence may show it: printable ASCII, short.
+// Each character that is not printable ASCII shows as ?, so an id is never shown as another id; one with nothing printable
+// in it has no text to show (hasText false).
+const plainId = (id) => [...String(id)].map((c) => (/[\x20-\x7e]/.test(c) ? c : '?')).join('').slice(0, 40);
+const hasText = (id) => /[\x20-\x7e]/.test(String(id));
+const notAModule = (id) => (hasText(id) ? `"${plainId(id)}" is not ${words.word('module', { a: true })} you can use here.` : `That id is not ${words.word('module', { a: true })} you can use here.`);
+
+// The check of a shared layout's shape (decision 5), pure: `input` is { shape, areas } as a request sends them. `options`
+// is { modules, on, names }: the ids an area may name (the modules on in the space with a place on the canvas), the ids
+// that are on (decides whether Calendar and To-do read as a composite; layout-shapes.js), and { <id>: <name as the space
+// shows it> } for every module installed. Left out, any well-formed id passes. Answers { shape: { shape, areas } }, or
+// { problems: [sentence...], parts: ['shape' | 'areas', ...] }, one plain sentence each: an id that is not text-safe is
+// quoted plain and short, a module is named as the space shows it, and a module listed twice is named once.
+function checkShape(input, options) {
+  const { modules = null, on = null, names = null, noArea = null } = isObject(options) ? options : {};
+  const shown = Object.assign(Object.create(null), isObject(names) ? names : {});
+  const nameOf = (id) => (typeof shown[id] === 'string' && shown[id].trim() ? shown[id].replace(/\p{Cc}/gu, ' ').trim().slice(0, 40) : plainId(id));
+  const areas = isObject(input) && Array.isArray(input.areas) ? input.areas : [];
+  const strings = areas.filter((id) => typeof id === 'string' && !COLUMN_IDS.includes(id));
+  const problems = [];
+  const parts = [];
+  const say = (text, part) => { problems.push(text); parts.push(part); };
+  if (Array.isArray(modules)) {
+    for (const id of new Set(strings.filter((i) => !MODULE_ID.test(i) || !modules.includes(i)))) {
+      if (!MODULE_ID.test(id) || typeof shown[id] !== 'string') say(notAModule(id), 'areas');
+      else if (Array.isArray(noArea) && noArea.includes(id)) say(`${nameOf(id)} can't go in an area.`, 'areas');
+      else say(`${nameOf(id)} is not available in this ${words.word('space')}.`, 'areas');
+    }
+  }
+  const twice = [...new Set(strings.filter((id, i) => MODULE_ID.test(id) && strings.indexOf(id) !== i && (!Array.isArray(modules) || modules.includes(id))))];
+  for (const id of twice) say(`${nameOf(id)} is in two areas; ${words.word('module', { a: true })} can be in one area only.`, 'areas');
+  if (problems.length) return { problems, parts };
+  const out = cleanShape({ shape: isObject(input) ? input.shape : undefined, areas: isObject(input) ? input.areas : undefined }, { modules, on, names: shown });
+  if (out.error) return { problems: [out.error], parts: [/^(Pick a shape|A shape does not take|Send the layout)/.test(out.error) ? 'shape' : 'areas'] };
+  return { shape: out.shape };
+}
+
+// The one shape check, pure. `input` is what a request sends. A personal layout: { name, shared?, modules, snap?, icon?,
+// arrange? }. A layout for everyone (`shared: true`): { name, shared: true, shape, areas, icon? }, a shape and its areas,
+// checked by cleanShape against `shapeOptions` ({ modules, on, names }; see checkShape); it takes no modules, snap or
+// arrange, and a personal layout takes no shape or areas (plan-layout-picker.md, decisions 5 and 15). With `partial` (a
+// PUT) any of name, modules (personal), shape with areas (shared) and snap may be left out, `shared` is not taken and
+// the option `shared` says which kind the layout being changed is. `icons`, when given, is the list of icon ids an
+// `icon` must come from. Returns { layout } with only the fields given, cleaned (numbers of pixels rounded), or
+// { error, problems, parts } with one sentence saying what is wrong (`problems` all the sentences, `parts` the field
+// each is about, as a template's refusal); anything wrong refuses the whole layout.
+function cleanLayout(input, { partial = false, icons = null, shared: sharedKind = false, shapeOptions = null } = {}) {
+  const out = cleanLayoutParts(input, { partial, icons, sharedKind, shapeOptions });
+  if (out.layout) return out;
+  const problems = out.problems || [out.error];
+  return { error: problems[0], problems, parts: out.parts || [out.part ?? null] };
+}
+function cleanLayoutParts(input, { partial, icons, sharedKind, shapeOptions }) {
+  const no = (error, part = null) => ({ error, part });
+  if (!isObject(input)) return no(`Send the layout as JSON: a name and the ${many('module')} it opens.`);
+  const allowed = [...(partial ? TOP_KEYS.filter((k) => k !== 'shared') : TOP_KEYS), ...SHAPE_KEYS];
   const extra = Object.keys(input).find((k) => !allowed.includes(k));
-  if (extra) return { error: partial && extra === 'shared' ? 'A saved layout cannot be moved between your own and the shared ones; save it again instead.' : `A layout does not take "${extra}".` };
+  if (extra) return no(partial && extra === 'shared' ? 'A saved layout cannot be moved between your own and the shared ones; save it again instead.' : `A layout does not take ${JSON.stringify(plainId(extra))}.`, null);
   const out = {};
 
   if (!partial || input.name !== undefined) {
-    if (input.name !== undefined && typeof input.name !== 'string') return { error: 'A layout\'s name must be text.' };
+    if (input.name !== undefined && typeof input.name !== 'string') return no('A layout\'s name must be text.', 'name');
     const name = cleanName(input.name);
-    if (!name) return { error: 'Give the layout a name.' };
-    if ([...name].length > LAYOUT_LIMITS.name) return { error: `A layout's name can be at most ${LAYOUT_LIMITS.name} characters.` };
+    if (!name) return no('Give the layout a name.', 'name');
+    if ([...name].length > LAYOUT_LIMITS.name) return no(`A layout's name can be at most ${LAYOUT_LIMITS.name} characters.`, 'name');
     out.name = name;
   }
 
   if (!partial && input.shared !== undefined) {
-    if (typeof input.shared !== 'boolean') return { error: 'Say whether the layout is shared with true or false.' };
+    if (typeof input.shared !== 'boolean') return no('Say whether the layout is shared with true or false.', 'shared');
     out.shared = input.shared;
   }
+  const shared = partial ? Boolean(sharedKind) : input.shared === true;
 
-  if (!partial || input.modules !== undefined) {
-    if (!Array.isArray(input.modules)) return { error: `List the ${many('module')} the layout opens (an empty list is a blank layout).` };
-    if (input.modules.length > LAYOUT_LIMITS.modules) return { error: `A layout can hold at most ${LAYOUT_LIMITS.modules} ${many('module')}.` };
+  if (shared) {
+    const free = FREE_FORM_KEYS.find((k) => input[k] !== undefined);
+    if (free) return no('A layout for everyone is a shape; pick one with the picker.', 'shape');
+    if (!partial || input.shape !== undefined || input.areas !== undefined) {
+      const checked = checkShape(input, shapeOptions);
+      if (!checked.shape) return { error: checked.problems[0], problems: checked.problems, parts: checked.parts };
+      out.shape = checked.shape.shape;
+      out.areas = checked.shape.areas;
+    }
+  } else {
+    const shapeKey = SHAPE_KEYS.find((k) => input[k] !== undefined);
+    if (shapeKey) return no(`Only a layout for everyone is a shape; a layout of your own is saved as it is on the ${words.word('canvas')}.`, 'shape');
+  }
+
+  if (!shared && (!partial || input.modules !== undefined)) {
+    if (!Array.isArray(input.modules)) return no(`List the ${many('module')} the layout opens (an empty list is a blank layout).`, 'modules');
+    if (input.modules.length > LAYOUT_LIMITS.modules) return no(`A layout can hold at most ${LAYOUT_LIMITS.modules} ${many('module')}.`, 'modules');
     const seen = new Set();
     const entries = [];
     for (const entry of input.modules) {
-      if (!isObject(entry)) return { error: `Each ${words.word('module')} in a layout needs an id and a mode.` };
+      if (!isObject(entry)) return no(`Each ${words.word('module')} in a layout needs an id and a mode.`, 'modules');
       const id = entry.id;
-      if (typeof id !== 'string' || !MODULE_ID.test(id)) return { error: `${JSON.stringify(id ?? null)} is not ${words.word('module', { a: true })} id.` };
-      if (seen.has(id)) return { error: `"${id}" is listed twice in the layout.` };
+      if (typeof id !== 'string' || !MODULE_ID.test(id)) return no(`${JSON.stringify(typeof id === 'string' ? plainId(id) : id ?? null)} is not ${words.word('module', { a: true })} id.`, 'modules');
+      if (seen.has(id)) return no(`"${id}" is listed twice in the layout.`, 'modules');
       seen.add(id);
       const unknown = Object.keys(entry).find((k) => !MODULE_KEYS.includes(k));
-      if (unknown) return { error: `"${id}": a layout does not keep "${unknown}".` };
-      if (!MODES.includes(entry.mode)) return { error: `"${id}": mode must be dock or float.` };
+      if (unknown) return no(`"${id}": a layout does not keep ${JSON.stringify(plainId(unknown))}.`, 'modules');
+      if (!MODES.includes(entry.mode)) return no(`"${id}": mode must be dock or float.`, 'modules');
       const kept = { id, mode: entry.mode };
       if (entry.dockW !== undefined) {
         const w = entry.dockW;
         if (typeof w !== 'number' || !Number.isFinite(w) || w < LAYOUT_LIMITS.dockWMin || w > LAYOUT_LIMITS.dockWMax) {
-          return { error: `"${id}": dockW must be a width in pixels from ${LAYOUT_LIMITS.dockWMin} to ${LAYOUT_LIMITS.dockWMax}.` };
+          return no(`"${id}": dockW must be a width in pixels from ${LAYOUT_LIMITS.dockWMin} to ${LAYOUT_LIMITS.dockWMax}.`, 'modules');
         }
         kept.dockW = Math.round(w);
       }
       if (entry.box !== undefined) {
         const b = entry.box;
         const bad = !isObject(b) || Object.keys(b).some((k) => !BOX_KEYS.includes(k)) || !BOX_KEYS.every((k) => isFraction(b[k])) || b.w === 0 || b.h === 0;
-        if (bad) return { error: `"${id}": box must be { x, y, w, h }, each a fraction of the ${words.word('canvas')} from 0 to 1, with w and h above 0.` };
+        if (bad) return no(`"${id}": box must be { x, y, w, h }, each a fraction of the ${words.word('canvas')} from 0 to 1, with w and h above 0.`, 'modules');
         kept.box = { x: b.x, y: b.y, w: b.w, h: b.h };
       }
       if (entry.snap !== undefined) {
-        if (typeof entry.snap !== 'boolean') return { error: `"${id}": snap must be true or false.` };
+        if (typeof entry.snap !== 'boolean') return no(`"${id}": snap must be true or false.`, 'modules');
         kept.snap = entry.snap;
       }
       entries.push({ kept, raw: entry });
@@ -198,13 +268,13 @@ function cleanLayout(input, { partial = false, icons = null } = {}) {
   }
 
   if (input.arrange !== undefined) {
-    if (!ARRANGES.includes(input.arrange)) return { error: 'Arrange must be dock or window.' };
+    if (!ARRANGES.includes(input.arrange)) return no('Arrange must be dock or window.', 'arrange');
     out.arrange = input.arrange;
   }
 
   if (input.icon !== undefined) {
     const bad = typeof input.icon !== 'string' || !ICON_RE.test(input.icon) || (Array.isArray(icons) && !icons.includes(input.icon));
-    if (bad) return { error: 'Pick an icon from the list.' };
+    if (bad) return no('Pick an icon from the list.', 'icon');
     out.icon = input.icon;
   }
 
@@ -213,7 +283,7 @@ function cleanLayout(input, { partial = false, icons = null } = {}) {
     const pitch = s?.pitch;
     const bad = !isObject(s) || Object.keys(s).some((k) => !SNAP_KEYS.includes(k)) || typeof s.all !== 'boolean'
       || typeof pitch !== 'number' || !Number.isFinite(pitch) || pitch < LAYOUT_LIMITS.pitchMin || pitch > LAYOUT_LIMITS.pitchMax;
-    if (bad) return { error: `A layout's snap must be { all, pitch }, with all true or false and pitch from ${LAYOUT_LIMITS.pitchMin} to ${LAYOUT_LIMITS.pitchMax} pixels.` };
+    if (bad) return no(`A layout's snap must be { all, pitch }, with all true or false and pitch from ${LAYOUT_LIMITS.pitchMin} to ${LAYOUT_LIMITS.pitchMax} pixels.`, 'snap');
     out.snap = { all: s.all, pitch: Math.round(pitch) };
   }
   return { layout: out };
@@ -336,6 +406,14 @@ class LayoutError extends Error {
 // survive a roll back), else dropped.
 const storedLayout = (l) => isObject(l) && typeof l.id === 'string' && l.id && typeof l.name === 'string' && Array.isArray(l.modules);
 const storedList = (list) => (Array.isArray(list) ? list.filter(storedLayout) : []);
+// A shared layout as read from the file: a valid shape and its areas (cleanShape with no module list; `on: []` so a To-do in
+// a stacked area saved while the Calendar was off is kept). A free-form one (modules, from before shared layouts were
+// shapes) is dropped, as is anything else that is not a shape; the file is not rewritten until the next save.
+// Any free-form key present (modules, snap, arrange, whatever its value) drops the entry, and only the shape's own fields are kept.
+const storedShared = (l) => isObject(l) && typeof l.id === 'string' && l.id && typeof l.name === 'string' && !FREE_FORM_KEYS.some((k) => k in l)
+  && Boolean(cleanShape({ shape: l.shape, areas: l.areas }, { on: [] }).shape);
+const SHARED_FIELDS = ['id', 'name', 'by', 'at', 'shape', 'areas', 'icon'];
+const storedSharedList = (list) => (Array.isArray(list) ? list.filter(storedShared).map((l) => Object.fromEntries(SHARED_FIELDS.filter((k) => k in l).map((k) => [k, l[k]]))) : []);
 const copy = (l) => structuredClone(l);
 
 class Layouts {
@@ -359,7 +437,7 @@ class Layouts {
         const kept = storedList(list);
         if (kept.length) people[key] = kept;
       }
-      const shared = storedList(entry.shared);
+      const shared = storedSharedList(entry.shared);
       // A file from before favorites has no key: it reads as none. Ids that are not text, or listed twice, are dropped.
       // Ids of a layout that person cannot see (gone, dropped above as malformed, or hand-edited in) are dropped too,
       // so a space whose favorites name nothing left keeps no entry.
@@ -553,7 +631,7 @@ class Layouts {
 
   // Saves a new layout, already cleaned by cleanLayout: in the shared list when `shared`, else in `by`'s own. Throws
   // a LayoutError (409) when the name is taken in that list (with the id of the one that has it) or the list is full.
-  add(spaceId, by, { name, shared = false, modules, snap, icon, arrange }) {
+  add(spaceId, by, { name, shared = false, modules, shape, areas, snap, icon, arrange }) {
     this.mustWrite();
     const owner = shared ? null : by;
     const current = this.listOf(spaceId, owner);
@@ -565,7 +643,8 @@ class Layouts {
         ? `This ${words.word('space')} has ${cap} shared layouts. Delete one first.`
         : `You have ${cap} saved layouts here. Delete one first.`, 409);
     }
-    const layout = { id: this.newId(spaceId), name, by, at: new Date().toISOString(), modules, ...(snap ? { snap } : {}), ...(icon ? { icon } : {}), ...(arrange ? { arrange } : {}) };
+    const body = shared ? { shape, areas } : { modules, ...(snap ? { snap } : {}), ...(arrange ? { arrange } : {}) };
+    const layout = { id: this.newId(spaceId), name, by, at: new Date().toISOString(), ...body, ...(icon ? { icon } : {}) };
     this.listOf(spaceId, owner, true).push(layout);
     this.save();
     return copy(layout);
@@ -584,10 +663,12 @@ class Layouts {
       if (same) throw new LayoutError(`There is already a layout called ${same.name}.`, 409, { id: same.id });
       layout.name = patch.name;
     }
-    if (patch.modules !== undefined) layout.modules = patch.modules;
-    if (patch.snap !== undefined) layout.snap = patch.snap;
+    // A shared layout is a shape and a personal one is free-form: cleanLayout never gives a patch the other kind's keys.
+    if (patch.modules !== undefined && !found.shared) layout.modules = patch.modules;
+    if (patch.shape !== undefined && found.shared) { layout.shape = patch.shape; layout.areas = patch.areas; }
+    if (patch.snap !== undefined && !found.shared) layout.snap = patch.snap;
     if (patch.icon !== undefined) layout.icon = patch.icon;
-    if (patch.arrange !== undefined) layout.arrange = patch.arrange;
+    if (patch.arrange !== undefined && !found.shared) layout.arrange = patch.arrange;
     layout.at = new Date().toISOString();
     this.save();
     return copy(layout);

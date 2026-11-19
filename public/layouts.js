@@ -264,7 +264,9 @@ export function layoutOf(modules, area, snap = {}, aliases = {}) {
   return { modules: tidyStacks(out.slice(0, LAYOUT_LIMITS.modules)), snap: { all: Boolean(snap?.all), pitch: pitchOf(snap?.pitch) } };
 }
 
-// Where a layout's modules go on a canvas `area` ({ x, y, w, h }). `canOpen(id)` says whether this person may open a
+// Where a free-form layout's modules go on a canvas `area` ({ x, y, w, h }): a personal layout, or a fixed one (Calendar,
+// Map). A layout for everyone is a shape ({ shape, areas }, plan-layout-picker.md decision 5) and has no `modules`: it is
+// placed by placeShape() below, never here (canvas.loadLayout sends it there). `canOpen(id)` says whether this person may open a
 // module here (on in the space, installed, readable): the others are left out, named in `left`, and the stored layout
 // is not changed, so it comes back whole when the module is on again. The answer:
 //   modules  [{ id, mode, dockW?, box?, cell?, snap, stack?, at?, h?, folded? }] in the layout's order: a docked width
@@ -494,6 +496,37 @@ export function leftOutNote(ids, nameOf = (id) => id, space = 'space') {
   if (names.length === 1) return `${names[0]} isn't on in this ${space}, so it was left out.`;
   const list = `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
   return `${list} aren't on in this ${space}, so they were left out.`;
+}
+
+// The line on a layout for everyone's row in the Layouts section (plan-layout-picker.md, decisions 17, 19 and 20): who
+// won't see which of its modules, for those who may edit it (the page draws it only where GET .../layouts answered
+// `cantOpen`). `areas` is the shared layout's areas (module ids or null); `cantOpen` is the server's map, { <id>: { roles:
+// ['moderator' | 'member' | 'guest', ...] } | { off: true } }; a module not in it opens for everyone. The modules are
+// grouped by who can't open them, in area order, one sentence a group:
+//   "Guests won't see To-do."  "Members and guests won't see To-do and Polls."  "Vault is off in this space, so nobody sees it."
+// `nameOf(id)` gives a module's name, `roleWord(role)` a role's plural word ("guests"), `space` the space word. '' when
+// every area opens for everyone. Text only: the page shows it with textContent.
+const NOTICE_ROLES = ['moderator', 'member', 'guest'];
+const andList = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '');
+export function sharedRowNotice(areas, cantOpen, { nameOf = (id) => id, roleWord = (role) => `${role}s`, space = 'space' } = {}) {
+  if (!cantOpen || typeof cantOpen !== 'object' || !Array.isArray(areas)) return '';
+  const own = (id) => Object.prototype.hasOwnProperty.call(cantOpen, id) && cantOpen[id] && typeof cantOpen[id] === 'object';
+  const named = (id) => { const n = nameOf(id); return typeof n === 'string' && n.trim() ? n.trim() : id; };
+  const groups = new Map(); // who -> names, in the order first met
+  for (const id of [...new Set(areas.filter((a) => typeof a === 'string' && a))]) {
+    if (!own(id)) continue;
+    const entry = cantOpen[id];
+    const roles = entry.off === true ? null : NOTICE_ROLES.filter((r) => Array.isArray(entry.roles) && entry.roles.includes(r));
+    if (roles && !roles.length) continue;
+    const key = roles ? roles.join(',') : 'off';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(named(id));
+  }
+  return [...groups].map(([key, names]) => {
+    if (key === 'off') return `${andList(names)} ${names.length > 1 ? 'are' : 'is'} off in this ${space}, so nobody sees ${names.length > 1 ? 'them' : 'it'}.`;
+    const who = andList(key.split(',').map((r) => roleWord(r) || `${r}s`));
+    return `${who.charAt(0).toUpperCase()}${who.slice(1)} won't see ${andList(names)}.`;
+  }).join(' ');
 }
 
 // Whether two arrangements differ, for the Modified mark on the current layout. Each is a layout's shape (a stored layout

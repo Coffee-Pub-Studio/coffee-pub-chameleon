@@ -10,6 +10,11 @@
  *      (MODULE_ID) are never offered, and a module listed twice is offered once. Odd input throws nowhere. noticeWords
  *      says the maker's notice for one role, several (moderator, member, guest, by the environment's words), a module
  *      that is off, the host console's "by default" form, and nothing for a module not in cantOpen; it is drawn as text.
+ *  1b. In Node: a template's layout in its editor (public/template-layout.js, step 5): only a whole record is sent, the areas
+ *      offer the template's canvas modules (never the chat or the call), what is no longer ticked is found in area order and
+ *      said in plain words before saving, a template with no layout is said plainly, and Manage's notice says "environment".
+ *      layoutRecord takes exactly what the server's cleanShape takes, for every shape and arrangement, Calendar on and off;
+ *      a tick that moves modules says what moved (movedNote), and none of these lines carries a direction character.
  *   2. In Chromium (skipped, said so, when there is none), with real keys over the DevTools protocol, at 1280 and 390, light
  *      and dark: six shapes drawn in two rows of three, each with its number of areas at the shape's percentages; picking a
  *      shape carries the areas sensibly and a shape change never loses the list it carries from; the area menu offers Empty
@@ -48,7 +53,8 @@ for (const f of fs.readdirSync(path.join(ROOT, 'public')).filter((x) => x.endsWi
 }
 const P = await import(pathToFileURL(path.join(tmp, 'layout-picker.js')).href);
 const { SHAPES, shapeById } = await import(pathToFileURL(path.join(tmp, 'layout-shapes.js')).href);
-const { areaMayHold } = await import(pathToFileURL(path.join(tmp, 'layouts.js')).href);
+const { areaMayHold, sharedRowNotice } = await import(pathToFileURL(path.join(tmp, 'layouts.js')).href);
+const T = await import(pathToFileURL(path.join(tmp, 'template-layout.js')).href);
 fs.rmSync(tmp, { recursive: true, force: true });
 
 eq(SHAPES.map((s) => s.id), SERVER_SHAPES.map((s) => s.id), 'the page and the server list the same shapes');
@@ -162,6 +168,101 @@ const holder = (shape, parts) => (a, id) => areaMayHold(shape, a, id, { parts })
   const src = fs.readFileSync(path.join(ROOT, 'public/layout-picker.js'), 'utf8');
   const fn = src.slice(src.indexOf('function noticeEl('), src.indexOf('function areaContent('));
   ok(fn.length > 50 && !/innerHTML|insertAdjacentHTML/.test(fn) && /textContent = text/.test(fn), 'the notice is not drawn as text only');
+  // Manage's template pages: a module off in the environment (offIn), and the default stays the space.
+  eq(P.noticeWords({ off: true }, { offIn: 'environment' }), 'Off in this environment. This area closes up for everyone.', 'notice, off in the environment');
+  eq(P.noticeWords({ off: true }, { offIn: 'environment', byDefault: true }), 'Not installed. This area closes up for everyone.', 'notice, by default wins over offIn');
+}
+
+// ---- 1b. A template's layout in its editor (public/template-layout.js; plan step 5) ----
+{
+  // What is sent: only a whole record the shape check can take.
+  eq(T.layoutRecord({ shape: 'wide-narrow', areas: ['travel', 'vault'] }), { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'a valid record is sent');
+  eq(T.layoutRecord({ shape: 'one', areas: [null] }), { shape: 'one', areas: [null] }, 'an empty area is a valid record');
+  for (const [bad, why] of [[null, 'none'], [{ shape: 'nine', areas: [null] }, 'unknown shape'], [{ shape: 'one', areas: [] }, 'too few areas'], [{ shape: 'one', areas: [null, null] }, 'too many areas'], [{ shape: 'two-equal', areas: ['goals', 'goals'] }, 'a module twice'], [{ shape: 'one', areas: ['Goals'] }, 'a capital'], [{ shape: 'one', areas: ['__proto__'] }, '__proto__'], [{ shape: 'one', areas: [7] }, 'a number'], [{ shape: 'one' }, 'no areas']]) eq(T.layoutRecord(bad), null, `not sent: ${why}`);
+  const rec = { shape: 'two-equal', areas: ['goals', null] };
+  const back = T.layoutRecord(rec);
+  back.areas.push('x');
+  eq(rec.areas, ['goals', null], 'the record sent is a copy');
+  // What an area offers: the template's modules with a place on the canvas, never the chat or the call, each once.
+  const names = { goals: 'Learning plan', documents: 'Documents', assistant: 'AI Assistant' };
+  eq(T.templateLayoutModules(['chat', 'conference', 'goals', 'assistant', 'documents', 'goals', 'Bad', 7], { isCanvas: (id) => id !== 'assistant', nameOf: (id) => names[id], iconOf: () => 'star' }),
+    [{ id: 'goals', name: 'Learning plan', icon: 'star' }, { id: 'documents', name: 'Documents', icon: 'star' }], 'the template\'s canvas modules, once, in order');
+  eq(T.templateLayoutModules(undefined), [], 'no modules');
+  // What the layout uses that is no longer ticked, in area order, and the two lines saying so before saving.
+  eq(T.layoutMissing({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, ['documents', 'chat']), ['whiteboard', 'goals'], 'the unticked ones, in area order');
+  eq(T.layoutMissing({ shape: 'one', areas: [null] }, []), [], 'an empty area is never missing');
+  eq(T.layoutMissing(null, []), [], 'no layout, nothing missing');
+  eq(T.missingNote(['Whiteboard'], { where: 'Modules' }), 'The layout uses Whiteboard, which is not ticked under Modules. Tick it again, or take it out of the layout.', 'beside the picker, one');
+  eq(T.missingNote(['Whiteboard', 'Goals'], { where: 'Modules' }), 'The layout uses Whiteboard and Goals, which are not ticked under Modules. Tick them again, or take them out of the layout.', 'beside the picker, two');
+  eq(T.missingNote([]), '', 'nothing to say');
+  eq(T.usesNote(['Vault']), 'The layout on the Default Workspace tab uses Vault. Tick it again, or take it out of the layout there.', 'under Modules, one');
+  eq(T.usesNote(['Vault', 'Polls']), 'The layout on the Default Workspace tab uses Vault and Polls. Tick them again, or take them out of the layout there.', 'under Modules, two');
+  eq(T.noLayoutWords((k) => k), 'No layout. A new space opens the chat and every module that is on.', 'no layout, in plain words');
+  // layoutRecord takes exactly what cleanShape takes (the form, the chat and the call, the stacked areas), for every shape
+  // and every arrangement of these ids, with the Calendar on and off (`parts` as the editor gives it: partsFor of the
+  // template's modules). Whether a module is the template's is the server's alone, so the ids are the template's here.
+  {
+    let compared = 0;
+    const wrong = [];
+    for (const calendar of [true, false]) {
+      const mods = ['calendar', 'todo', 'maps', 'goals', 'documents', 'chat', 'conference'].filter((x) => calendar || x !== 'calendar');
+      const parts = P.partsFor(mods);
+      const ids = [...mods, null];
+      const combos = (n) => (n === 0 ? [[]] : combos(n - 1).flatMap((c) => ids.map((id) => [...c, id])));
+      for (const sh of SHAPES) for (const areas of combos(sh.areas)) {
+        const rec = { shape: sh.id, areas };
+        const mine = Boolean(T.layoutRecord(rec, { parts }));
+        const theirs = !cleanShape(rec, { modules: mods, on: mods }).error;
+        compared += 1;
+        if (mine !== theirs) wrong.push(`${JSON.stringify(rec)} calendar ${calendar ? 'on' : 'off'}: page ${mine}, server ${theirs}`);
+      }
+    }
+    ok(compared > 1000 && !wrong.length, `layoutRecord and cleanShape disagree on ${wrong.length} of ${compared}: ${wrong.slice(0, 3).join('; ')}`);
+    eq(T.layoutRecord({ shape: 'tall-split', areas: ['goals', 'todo', null] }), null, 'told nothing, To-do in a stacked area is refused (as the server reads it)');
+    eq(T.layoutRecord({ shape: 'tall-split', areas: ['goals', 'todo', null] }, { parts: [] }), { shape: 'tall-split', areas: ['goals', 'todo', null] }, 'with the Calendar off, To-do may share a column');
+    eq(T.layoutRecord({ shape: 'one', areas: ['chat'] }, { parts: [] }), null, 'the chat is never in an area');
+  }
+  // What moved when the Calendar was ticked under a stacked To-do (decision 25), and nothing when it was unticked again.
+  {
+    const def = shapeById('tall-split');
+    const names = { todo: 'To-do', travel: 'Itinerary', vault: 'Vault', calendar: 'Calendar' };
+    const on = ['todo'];
+    const before = { shape: 'tall-split', areas: ['travel', 'vault', 'todo'] };
+    const carried = P.carryAreas(before.areas, def, (area, id) => areaMayHold(def, area, id, { parts: on }));
+    eq(carried.areas, ['todo', 'vault', 'travel'], 'the Calendar on: To-do swaps into area 1');
+    eq(T.movedNote(before, { shape: 'tall-split', areas: carried.areas }, { nameOf: (id) => names[id], parts: on, mayHold: (area, id) => areaMayHold(def, area, id, { parts: on }) }),
+      "To-do moved to area 1: while Calendar is on, it can't share a column. Itinerary moved to area 3 to free area 1.", 'what moved, said');
+    const back = P.carryAreas(before.areas, def, (area, id) => areaMayHold(def, area, id, { parts: [] }));
+    eq(back.areas, before.areas, 'the Calendar off again: from the person\'s arrangement, it is back as it was');
+    eq(T.movedNote(before, { shape: 'tall-split', areas: back.areas }, { parts: [] }), '', 'nothing moved, nothing said');
+    eq(T.movedNote(null, before), '', 'no arrangement, nothing said');
+  }
+  // No control or direction character (U+202A to U+202E, U+2066 to U+2069, and the rest) reaches a line from a typed name.
+  {
+    const bidi = /[\u0000-\u001F\u007F-\u009F\u061C\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFEFF]/;
+    const typed = ['Go\u202Eals', '\u2066Vault\u2069', '\u202Ax\u202C', '\u2067\u2068'];
+    const lines = [T.missingNote(typed, { where: 'Modules' }), T.usesNote(typed), T.movedNote({ shape: 'two-equal', areas: ['goals', 'vault'] }, { shape: 'two-equal', areas: ['vault', 'goals'] }, { nameOf: (id) => (id === 'goals' ? typed[0] : typed[1]) })];
+    ok(lines.every((l) => l && !bidi.test(l)), `a direction character reached a line: ${JSON.stringify(lines)}`);
+    eq(T.missingNote(['Go\u202Eals', '\u2067\u2068'], { where: 'Modules' }), 'The layout uses Goals, which is not ticked under Modules. Tick it again, or take it out of the layout.', 'a name left empty is not said');
+    eq(T.usesNote(['\u2066Vault\u2069']), 'The layout on the Default Workspace tab uses Vault. Tick it again, or take it out of the layout there.', 'usesNote cleans the name');
+  }
+  // Every record the picker can be left holding passes the server's check against the template's modules.
+  const mods = ['whiteboard', 'goals', 'documents', 'todo', 'calendar'];
+  for (const s of SHAPES) {
+    const areas = mods.slice(0, s.areas);
+    const r = T.layoutRecord({ shape: s.id, areas: areas.map((id, i) => (i === 0 ? id : null)) });
+    ok(r && !cleanShape(r, { modules: mods, on: mods }).error, `${s.id}: a record sent passes cleanShape`);
+  }
+}
+
+// ---- 1c. The Layouts row's names, cleaned as the picker cleans them (space.js moduleNameHere: cleanText) ----
+{
+  const served = { evil: '\u202Eevil\u200Bname', long: 'L'.repeat(300) };
+  const line = sharedRowNotice(['evil', 'long'], { evil: { off: true }, long: { off: true } }, { nameOf: (id) => P.cleanText(served[id]) || P.cleanText(id), space: 'trip' });
+  ok(!/[\u202E\u200B]/.test(line), `a direction or control character in a served name reaches the row's line: ${JSON.stringify(line)}`);
+  ok(line.includes('evilname') && !line.includes('L'.repeat(61)) && line.includes('L'.repeat(60)), `a served name is not cut to 60 or cleaned on the row: ${JSON.stringify(line)}`);
+  const spaceJs = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
+  ok(/const moduleNameHere = \(id\) => cleanText\(moduleHere\(id\)\?\.name \|\| ''\) \|\| cleanText\(nameFromServer\(id\)\) \|\| cleanText\(String\(id\)\);/.test(spaceJs), 'space.js moduleNameHere cleans every name with the picker\'s cleanText');
 }
 
 // ---- 2. the browser ----
@@ -462,6 +563,17 @@ else {
       for (const want of ["Guests can't open this. For them, this area closes up.", "Members and guests can't open this. For them, this area closes up.", 'Off in this space. This area closes up for everyone.', "Guests can't open this by default.", "Members and guests can't open this by default.", 'Not installed. This area closes up for everyone.']) {
         ok(seen.includes(want), `the Design System page does not show the notice "${want}" (it shows ${JSON.stringify(seen)})`);
       }
+    }
+    // A template's layout read in that the page's rule refuses (To-do stacked while the Calendar is on): the editor still
+    // shows a layout, the person's arrangement is kept, and what it would send is a whole record (the picker moved To-do).
+    {
+      await open({ width: 1280, mode: 'light', opts: {} });
+      const got = await ev(`import('/template-layout.js').then((m) => { const h = document.getElementById('here'); h.replaceChildren();
+        const part = m.mountTemplateLayout(h, { record: { shape: 'tall-split', areas: ['whiteboard', 'todo', 'documents'] }, modules: ${JSON.stringify(MODS)}, parts: ['calendar', 'todo'], word: (k) => k });
+        return JSON.stringify({ shown: !!h.querySelector('.layout-picker [data-part="2"]:not([hidden])'), none: !!h.querySelector('.tp-layout-words'), value: part.value(), arrangement: part.arrangement() }); })`).then(JSON.parse);
+      ok(got.shown && !got.none, `a refused template record still shows the picker on its areas: ${JSON.stringify(got)}`);
+      ok(got.value !== null && got.value.shape === 'tall-split' && got.value.areas.includes('todo'), `a refused template record still has a value (the picker moved To-do), not null: ${JSON.stringify(got.value)}`);
+      eq(got.arrangement, { shape: 'tall-split', areas: ['whiteboard', 'todo', 'documents'] }, 'the arrangement read in is kept');
     }
     ok(!errors.length, `the page threw: ${errors.join(' | ')}`);
   } catch (err) {

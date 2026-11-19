@@ -2,7 +2,7 @@
   "id": "mentoring",
   "name": "Mentoring",
   "description": "Grow with a mentor: goals, next steps, check-ins and a meeting log.",
-  "version": 4,
+  "version": 5,
   "words": {
     "space": {
       "one": "mentorship",
@@ -137,11 +137,14 @@
   },
   "workspace": {
     "layout": { "shape": "wide-narrow", "areas": ["documents", "goals"] },
-    "show": [
-      "calendar",
-      "documents"
-    ],
-    "opensFirst": "workspace"
+    "tabs": [
+      { "id": "workspace", "show": true },
+      { "id": "calendar", "show": true },
+      { "id": "map", "show": false },
+      { "id": "conference", "show": false },
+      { "id": "whiteboard", "show": false },
+      { "id": "documents", "show": true }
+    ]
   },
   "phases": [
     {

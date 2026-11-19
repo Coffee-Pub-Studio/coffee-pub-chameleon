@@ -183,4 +183,72 @@ same(whoCantOpen(['todo'], { manifests: null, rolePermissions: null, off: null }
 same(whoCantOpen(['constructor', '__proto__', 'toString', 'hasOwnProperty'], { manifests }), { constructor: { off: true }, ['__proto__']: { off: true }, toString: { off: true }, hasOwnProperty: { off: true } }, 'names on Object.prototype are not installed modules');
 same(whoCantOpen(['goals'], { manifests, rolePermissions: { moderator: 'yes', member: null, guest: [] }, off: 'goals' }), { goals: { roles: ['moderator', 'member', 'guest'] } }, 'a string off is not matched with includes; odd role sets read as having none');
 same(whoCantOpen(['goals', 5, null], { manifests, rolePermissions: defaults }), { 5: { off: true }, null: { off: true } }, 'an id that is not text is off');
+// What a person opens through a composite (the maker's notice and a guest's layout answer say what the page does). The
+// server's table equals public/composites.js, and canOpenArea() answers what the page does for every set of modules on and
+// every set a person can read: the page reads the layout's id through aliasesFor() over the ids this person can open, and
+// opens the composite when it is there, else the module itself when it is among them.
+{
+  same(server.COMPOSITES.map((c) => [c.main, [...c.parts]]), COMPOSITES.map((c) => [c.main, [...c.parts]]), 'the server\'s composite table is the page\'s');
+  const ids = ['calendar', 'todo', 'maps', 'polls'];
+  const subsets = (list) => list.reduce((all, x) => all.concat(all.map((s) => [...s, x])), [[]]);
+  const manifests = Object.fromEntries(ids.map((id) => [id, { id, access: { read: 'view' } }]));
+  let cases = 0;
+  for (const on of subsets(ids)) {
+    for (const can of subsets(on)) { // what this person can read, among what is on
+      const permissions = Object.fromEntries(can.map((id) => [`module.${id}.view`, true]));
+      const alias = aliasesFor(can, ['map']);
+      for (const id of ids) {
+        const page = Object.hasOwn(alias, id) && typeof alias[id] === 'string' ? true : can.includes(id);
+        const got = server.canOpenArea(id, { manifests, permissions, on, off: ids.filter((x) => !on.includes(x)) });
+        if (page !== got) assert.fail(`on ${on} can ${can} ${id}: the page ${page}, canOpenArea ${got}`);
+        cases += 1;
+      }
+    }
+  }
+  ok(cases > 300, `canOpenArea equals the page's reading in ${cases} cases`);
+  // The notice: To-do beside the Calendar is the Calendar's rights. A guest who reads the Calendar but not To-do opens it.
+  const mans = { calendar: { id: 'calendar', access: { read: 'view' } }, todo: { id: 'todo', access: { read: 'view' } } };
+  const rp = (g) => ({ moderator: { 'module.calendar.view': true, 'module.todo.view': true }, member: { 'module.calendar.view': true, 'module.todo.view': true }, guest: g });
+  const guestCal = rp({ 'module.calendar.view': true });
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar', 'todo'] }), {}, 'Calendar on, guests read it but not To-do: nobody is shut out of the To-do area');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['todo'] }), { todo: { roles: ['guest'] } }, 'Calendar off: To-do is its own, guests can\'t open it');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: rp({ 'module.todo.view': true }), on: ['calendar', 'todo'] }), {}, 'guests read To-do but not the Calendar: the composite is off for them, the To-do opens');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: rp({}), on: ['calendar', 'todo'] }), { todo: { roles: ['guest'] } }, 'guests read neither');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar'], off: ['todo'] }), {}, 'To-do off with the Calendar on still opens the Calendar');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar'], off: ['calendar', 'todo'] }), { todo: { off: true } }, 'both off: off');
+  same(whoCantOpen(['calendar'], { manifests: mans, rolePermissions: guestCal, on: ['calendar', 'todo'] }), {}, 'the Calendar itself is its own rights');
+}
+// The same, through the page's real path rather than a model of it: the list the page is given (the modules on, readable by
+// this person, with a canvas place), composeList() and aliasesFor() over it, and placeShape() placing one area. The area is
+// open exactly when canOpenArea() says so, for every set of modules on, every set this person reads, the Map answered or not,
+// and each id (and one that is not a module).
+{
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'layout-shapes-page-'));
+  fs.copyFileSync(path.join(ROOT, 'public/snap-grid.js'), path.join(dir2, 'snap-grid.mjs'));
+  fs.writeFileSync(path.join(dir2, 'layouts.mjs'), fs.readFileSync(path.join(ROOT, 'public/layouts.js'), 'utf8').replace("from '/snap-grid.js'", "from './snap-grid.mjs'"));
+  fs.copyFileSync(path.join(ROOT, 'public/composites.js'), path.join(dir2, 'composites.mjs'));
+  fs.copyFileSync(path.join(ROOT, 'public/layout-shapes.js'), path.join(dir2, 'shapes.mjs'));
+  const { placeShape } = await import(pathToFileURL(path.join(dir2, 'layouts.mjs')).href);
+  const real = await import(pathToFileURL(path.join(dir2, 'composites.mjs')).href);
+  const { shapeById: pageShape } = await import(pathToFileURL(path.join(dir2, 'shapes.mjs')).href);
+  fs.rmSync(dir2, { recursive: true, force: true });
+  const IDS = ['calendar', 'todo', 'maps', 'polls'];
+  const mans = Object.fromEntries(IDS.map((id) => [id, JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', id, 'module.json'), 'utf8'))]));
+  const subs = (a) => Array.from({ length: 1 << a.length }, (_, m) => a.filter((_, i) => m & (1 << i)));
+  let cases = 0;
+  for (const on of subs(IDS)) for (const can of subs(IDS)) for (const mapAnswered of [false, true]) for (const id of [...IDS, 'gone']) {
+    const list = IDS.filter((x) => on.includes(x) && can.includes(x)).map((x) => ({ id: x, name: x, canvas: mans[x].surfaces.canvas })).filter((m) => m.canvas);
+    const asked = real.compositesToAsk(list.map((m) => m.id)).map((c) => c.dest);
+    const answered = mapAnswered ? asked : [];
+    const available = real.composeList(list, answered);
+    const aliases = real.aliasesFor(list.map((m) => m.id), answered);
+    const readId = (x) => { const to = aliases[x]; return typeof to === 'string' ? to : Array.isArray(to) ? to[0] || x : x; };
+    const plan = placeShape({ shape: 'one', areas: [id] }, 1400, (x) => available.some((m) => m.id === readId(x)), { shape: pageShape('one'), aliases, narrow: false, chooser: false });
+    const permissions = Object.fromEntries(can.map((x) => [`module.${x}.view`, true]));
+    const got = server.canOpenArea(id, { manifests: mans, permissions, on, off: IDS.filter((x) => !on.includes(x)) });
+    if (plan.slots.some((sl) => sl.id) !== got) assert.fail(`on ${on} read ${can} map ${mapAnswered} ${id}: the page ${!got}, canOpenArea ${got}`);
+    cases += 1;
+  }
+  ok(cases > 1000, `canOpenArea equals what placeShape opens, through composeList and aliasesFor, in ${cases} cases`);
+}
 console.log(`check-layout-shapes: ${n} checks passed`);

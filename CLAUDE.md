@@ -58,15 +58,21 @@ decide those.
 - A change confined to `modules/<id>/` is a module-lane change: module-scoped checks only and no
   independent review. A change to the core (`public/sdk/`, `public/module-host.js`,
   `public/module-frame.js`, `server/`, `tools/`, the stored data format, or a manifest's
-  permissions, uploads or refs) is not (Thomas, 2026-11-09).
+  permissions, uploads or refs) is not (Thomas, 2026-11-09). Even so, a core change in a try build gets
+  no independent review: only a feedback or production build does (Thomas, 2026-11-19).
 - `public/design-system/sources.js` holds nothing from `modules/`. The Design System pages read module
   stylesheets and icons from `/design-system/module-sources.js` at run time.
 - Be exact about verification: "verified live", "checked by a tool" and "read as code only" are
   different claims.
 - Work comes in three kinds, and Thomas names the kind: a **try build** (the default; one builder, one
-  pass, its own checks, pushed at once, no QA, docs or CHANGELOG; if it changes a module it still bumps that module's patch version, nothing else), a **feedback build**
+  pass, its own checks, pushed at once and merged to `main` when GitHub's checks are green, no QA, docs or CHANGELOG; if it changes a module it still bumps that module's patch version, nothing else), a **feedback build**
   (one short QA pass for regressions, must-fixes only, a CHANGELOG line) and a **production build**
-  (the full flow: plan, QA, docs, version bumps). Never treat a try build as production.
+  (the full flow: plan, QA, docs, version bumps). Never treat a try build as production, and never
+  offer or recommend a production build: only Thomas calls one (Thomas, 2026-11-19).
+- Decisions stick. When Thomas decides something, record it in the same turn where it will be found: a
+  plan for a feature, this file or `.claude/agents/project-manager.md` for a process rule. Before asking
+  him anything, look there for an earlier decision, and never ask a variation of one he has made. Ask only
+  when blocked; for a small choice take the planner's lean, write it down and say so (Thomas, 2026-11-19).
 - Start every GitHub issue title with its area and a colon, then the title (`Settings: Profile photo won't save`).
   The areas: Settings, Chat, Call, Home, Phases, Planner, Calendar, Places, Maps, Budget, Research, To-do,
   Polls, Forms, Whiteboard, Documents, Design, Layout, Server, Docs, Verify, Ideas. Settings covers anything about configuring
@@ -122,7 +128,8 @@ Roles:
 decide (`/plan-feature <idea>` for a planning conversation), **experience-design** builds the front end and how it feels,
 **server-development** builds `server/`, the API and the checks, **bug-fixes** fixes defects in any
 layer, **quality-assurance** tests and reviews the result without changing code, and
-**content-manager** writes the documentation, README and changelog. The flow: plan, Thomas approves,
+**content-manager** writes the documentation, README and changelog. The flow, for a production build
+only (a try build skips it; see Rules): plan, Thomas approves,
 build, QA, documentation, commit. Only product-planner writes plans, and only
 content-manager edits the rest of `documentation/`, `CHANGELOG.md` and the README; the builders
 describe their changes in their reports. The exception: a module agent run with `/module` may also edit its own

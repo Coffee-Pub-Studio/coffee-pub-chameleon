@@ -1241,7 +1241,8 @@ export function createSpaceSetup(deps) {
     q('#setup-first-visit-layouts').innerHTML = choices.map((c) => `<label class="setup-choice"><input type="radio" name="setup-first-visit" value="${escapeHtml(c.id)}"><i class="fa-solid fa-${escapeHtml(c.icon)} fa-fw" aria-hidden="true"></i><span class="setup-choice-name">${escapeHtml(c.name)}</span></label>`).join('');
     radioChecks();
     const note = q('#setup-layout-note');
-    note.textContent = layouts.shared.length ? '' : `A shared layout can be picked too: save one from the ${modulesWord(true)} tab, for everyone in this ${word('space')}.`;
+    // A layout for everyone is made with the layout picker, New layout for everyone in the Modules tab (plan-layout-picker.md, step 6).
+    note.textContent = layouts.shared.length ? '' : `A shared layout can be picked too: make one with New layout for everyone, in the ${modulesWord(true)} tab.`;
     note.hidden = !note.textContent;
     paintLayoutLine();
   }
