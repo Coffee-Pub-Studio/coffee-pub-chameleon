@@ -2,7 +2,7 @@
 
 **Audience:** a member planning what to learn or where to grow with the Planner - Goals module on a Coffee Pub Chameleon server, and an owner setting it up.
 
-Planner - Goals (module id `goals`; the Goal outline) keeps a plan of **goals**, the **steps** under each and how far along each is, with dates optional. It is one of three planners; the others are the day-by-day [Planner - Itinerary](userguide-planner.md) and [Planner - Projects](userguide-planner-projects.md). A space has the planner its template lists: the Learning template lists this one and shows it as **Learning plan**, and the Mentoring template shows it as **Development plan**, with the goal's owner read as **mentee**. Under the Default template it is there too, with every other module. The words below are the defaults; a template may rename a goal, a step, a note and an owner.
+Planner - Goals (module id `goals`; the Goal outline) keeps a plan of **goals**, the **steps** under each and how far along each is, with dates optional. It is one of three planners; the others are the day-by-day [Planner - Itinerary](userguide-planner.md) and [Planner - Projects](userguide-planner-projects.md). A space has the planner its template lists: the Education template lists this one and shows it as **Learning plan**, and the Mentoring template shows it as **Development plan**, with the goal's owner read as **mentee**. Under the Default template it is there too, with every other module. The words below are the defaults; a template may rename a goal, a step, a note and an owner.
 
 Who can: anyone who may **See the goals** (members, guests and moderators by default) sees them; **Add and change goals** (members and moderators by default) adds and changes; **Clear all goals** (moderators by default) clears them. Owners always may. An owner changes who on the Roles tab, under **Module: Planner - Goals**.
 
@@ -51,7 +51,7 @@ The title bar's count reads, for example, "1 of 3 goals done".
 
 ## Phases
 
-Under the Learning and Mentoring templates the phases are measured by goals: a phase is done when every goal that names it is done, and the status strip says how far ("Practice · 2 of 4"). A phase no goal names has a **Done** switch in Set up instead (see [Spaces](userguide-spaces.md), "Phases"). A goal names a phase in its **Phase** field.
+Under the Education and Mentoring templates the phases are measured by goals: a phase is done when every goal that names it is done, and the status strip says how far ("Practice · 2 of 4"). A phase no goal names has a **Done** switch in Set up instead (see [Spaces](userguide-spaces.md), "Phases"). A goal names a phase in its **Phase** field.
 
 ## Who sees what
 

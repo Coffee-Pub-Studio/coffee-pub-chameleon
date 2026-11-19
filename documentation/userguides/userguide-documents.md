@@ -13,7 +13,7 @@ An owner always can do both. Tags follow the same rights: reading them needs the
 
 ## Starter documents
 
-A template can give a new space documents to start from, made once when the space is made: a project brief (Project), session notes and a handout (Games), a learning journal (Learning) and a meeting log (Mentoring). They are ordinary documents; edit or delete them like any other. They are never made again, on a change of template or a restore. The default editor (Markdown or Rich text) is each person's own choice; a template does not set it yet.
+A template can give a new space documents to start from, made once when the space is made: a project brief (Projects), session notes and a handout (Gaming), a learning journal (Education) and a meeting log (Mentoring). They are ordinary documents; edit or delete them like any other. They are never made again, on a change of template or a restore. The default editor (Markdown or Rich text) is each person's own choice; a template does not set it yet.
 
 ## The list
 
