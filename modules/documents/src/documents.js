@@ -1916,7 +1916,7 @@
     // (A locked shared document keeps the Page button for a person who can type: its menu holds Unlock.)
     const wantPage = wantFmt || Boolean(ed && ed.co && ed.co.ready && !ed.lost && ed.co.editor && coLocked());
     const wantBack = Boolean((openId && !ed) || (ed && ed.co));
-    const wantTags = Boolean(tagsOn && canEdit && (openId || (ed && !ed.lost && (!ed.co || joining() || !coReadOnly()))));
+    const wantTags = Boolean(tagsOn && canEdit && !(ed && ed.lost) && (openId || (ed && (!ed.co || joining() || !coReadOnly())))); // gone with the formatting once this page can no longer edit (#634)
     const wantSwitch = !ed && !openId; // the list's look switch is there only while the list is
     const made = [wantBack, wantTags, wantFmt, wantPage, wantSwitch].join();
     if (made !== chromeMade) {

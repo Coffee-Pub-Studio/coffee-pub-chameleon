@@ -4,6 +4,12 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### Documents: no dead Tags button (2026-11-19)
+
+#### Fixed
+
+- **Documents 0.11.36: the Tags button goes when the page can no longer edit.** When a window lost the right to edit (another window took over, or the document was deleted), the formatting buttons went but **Tags** stayed and did nothing when clicked (#634). It now goes with them. Checked by reading the code and by the module's tests; the lost-editor toolbar was not seen in a browser.
+
 ### Documents: a paste over the size limit says so (2026-11-19)
 
 #### Fixed
