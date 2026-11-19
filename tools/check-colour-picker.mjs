@@ -12,6 +12,13 @@
  *      each Dark colour as words on white, white words on each Strong colour, all at 4.5:1 or more; each Strong colour at 3:1 or
  *      more against white and against the dark ground #0e1a2b). colourPaletteCheck: takes the default and a small module palette
  *      (answering a cleaned copy) and refuses each bad shape with its one sentence. colourOpacity and colourAnswer: the edges.
+ *      colourPaletteCheck also: holes (new Array(1), new Array(6), [g, , g], colours [ , ] and new Array(3)) are refused, and an
+ *      own `map` on the palette or on a colours list is never what is answered (the checked copy, or the refusal); headings and
+ *      names of only zero-width characters, or holding a direction mark, soft hyphen, override or isolate, U+2028 or U+2029, a
+ *      delete or U+0085 control, a lone surrogate, or no letter or digit at all, are refused, while "Black & white", Rot "dunkel",
+ *      Café and Ébène 2 are kept. colourContrast and colourReadableOn are strict (no "2f6cbf", "#2F6CBF", spaces or "#fff").
+ *      colourFromHsv always answers #rrggbb (empty, NaN, Infinity, null) and wraps hue (-60, 360, 720) and clamps saturation and
+ *      brightness. The plan's palette figures hold as lower bounds (12.8, 10.3, 11.9, 4.8 and 3.2).
  *      colourContrast and colourReadableOn: equal to contrast() and pickOn() in public/theme-colour.js on every palette colour and
  *      the grid, and refusing what is not a colour with their sentences. The block reaches nothing outside itself (it is run again
  *      in an empty context with no window, document, require or process). Read as code: host.util names contrast and readableOn
@@ -238,6 +245,112 @@ section('the contrast helper, held equal to public/theme-colour.js', () => {
   }
   const R = 'host.util.readableOn takes a #rrggbb colour';
   for (const v of ['red', '#fff', '', null, undefined, 123, '#ffffff00']) throws(() => P.colourReadableOn(v), `colourReadableOn(${JSON.stringify(v)}) is refused`, R);
+});
+
+section('the palette check: holes and an overridden map', () => {
+  const SENTENCE = 'host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour';
+  const g = { name: 'Ink', color: '#1a2b3c' };
+  const WANT = [{ heading: 'H', colours: [{ name: 'Ink', color: '#1a2b3c' }] }];
+  const holes = [
+    ['new Array(1)', new Array(1)],
+    ['new Array(6)', new Array(6)],
+    ['[g, , g] as the palette', [{ heading: 'H', colours: [g] }, , { heading: 'H2', colours: [g] }]],
+    ['a hole in the middle of a group (colours [g, , g])', [{ heading: 'H', colours: [g, , g] }]],
+    ['colours [ , ]', [{ heading: 'H', colours: [, ,] }]],
+    ['colours new Array(3)', [{ heading: 'H', colours: new Array(3) }]],
+  ];
+  for (const [what, pal] of holes) throws(() => P.colourPaletteCheck(pal), `colourPaletteCheck refuses ${what}`, SENTENCE);
+  // An own `map` is never called: the answer is the checked copy, or a refusal, never what map returns.
+  const viaMap = (what, pal) => {
+    let got; let refused = null;
+    try { got = P.colourPaletteCheck(pal); } catch (e) { refused = e; }
+    if (refused) {
+      ok(refused instanceof TypeError && refused.message === SENTENCE, `${what}: refused with "${refused && refused.message}", wanted a TypeError saying "${SENTENCE}"`);
+    } else {
+      same(JSON.parse(JSON.stringify(got)), WANT, `${what}: the answer is the checked copy`);
+      ok(!JSON.stringify(got).includes('script'), `${what}: the answer is not what map returned`);
+    }
+  };
+  const a = [{ heading: 'H', colours: [g] }];
+  a.map = () => ['<script>'];
+  viaMap('a palette array with its own map', a);
+  const b = [g];
+  b.map = () => ['<script>'];
+  viaMap('a colours array with its own map', [{ heading: 'H', colours: b }]);
+  const c2 = [g];
+  c2.map = () => { throw new Error('map was called'); };
+  viaMap('a colours array whose map throws', [{ heading: 'H', colours: c2 }]);
+});
+
+section('the palette check: headings and names', () => {
+  const SENTENCE = 'host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour';
+  const asHeading = (s) => [{ heading: s, colours: [{ name: 'Ink', color: '#1a2b3c' }] }];
+  const asName = (s) => [{ heading: 'Inks', colours: [{ name: s, color: '#1a2b3c' }] }];
+  const refused = [
+    ['only a zero-width space', '​'],
+    ['only two zero-width joiners', '‍‍'],
+    ['a left-to-right mark', 'a‎b'],
+    ['a soft hyphen', 'a­b'],
+    ['a right-to-left override', 'a‮b'],
+    ['a right-to-left isolate', 'a⁧b'],
+    ['a line separator (U+2028)', 'a b'],
+    ['a paragraph separator (U+2029)', 'a b'],
+    ['a delete character', 'a\u007fb'],
+    ['a next-line control (U+0085)', 'a\u0085b'],
+    ['a lone surrogate', '\ud800'],
+    ['a lone surrogate among letters', 'ab\ud800c'],
+    ['no letter or digit (---)', '---'],
+  ];
+  for (const [what, s] of refused) {
+    throws(() => P.colourPaletteCheck(asHeading(s)), `colourPaletteCheck refuses a heading with ${what}`, SENTENCE);
+    throws(() => P.colourPaletteCheck(asName(s)), `colourPaletteCheck refuses a name with ${what}`, SENTENCE);
+  }
+  for (const s of ['Black & white', 'Rot "dunkel"', 'Café', 'Ébène 2']) {
+    for (const [where, pal, pick] of [['heading', asHeading(s), (r) => r[0].heading], ['name', asName(s), (r) => r[0].colours[0].name]]) {
+      let got; let err = null;
+      try { got = P.colourPaletteCheck(pal); } catch (e) { err = e; }
+      ok(!err, `colourPaletteCheck takes the ${where} ${JSON.stringify(s)}${err ? ` (said "${err.message}")` : ''}`);
+      if (!err) same(pick(got), s, `colourPaletteCheck keeps the ${where} ${JSON.stringify(s)} as it is`);
+    }
+  }
+});
+
+section('the contrast helper is strict', () => {
+  const C = 'host.util.contrast takes two #rrggbb colours';
+  const R = 'host.util.readableOn takes a #rrggbb colour';
+  for (const v of ['2f6cbf', '#2F6CBF', ' #2f6cbf ', '#fff']) {
+    throws(() => P.colourContrast(v, '#ffffff'), `colourContrast(${JSON.stringify(v)}, white) is refused`, C);
+    throws(() => P.colourContrast('#ffffff', v), `colourContrast(white, ${JSON.stringify(v)}) is refused`, C);
+    throws(() => P.colourReadableOn(v), `colourReadableOn(${JSON.stringify(v)}) is refused`, R);
+  }
+  let fine = true;
+  try { P.colourContrast('#2f6cbf', '#ffffff'); P.colourContrast('#ffffff', '#2f6cbf'); P.colourReadableOn('#2f6cbf'); } catch { fine = false; }
+  ok(fine, 'colourContrast and colourReadableOn accept #2f6cbf');
+});
+
+section('colourFromHsv always answers a colour', () => {
+  for (const [what, v] of [['{}', {}], ['NaN everywhere', { h: NaN, s: NaN, v: NaN }], ['{ h: Infinity }', { h: Infinity }], ['{ h: -Infinity, s: Infinity, v: -Infinity }', { h: -Infinity, s: Infinity, v: -Infinity }], ['null', null], ['undefined', undefined]]) {
+    let got; let err = null;
+    try { got = P.colourFromHsv(v); } catch (e) { err = e; }
+    ok(!err && typeof got === 'string' && P.COLOUR_HEX.test(got), `colourFromHsv(${what}) answers #rrggbb, got ${err ? `a throw "${err.message}"` : JSON.stringify(got)}`);
+  }
+  same(P.colourFromHsv({ h: -60, s: 100, v: 100 }), '#ff00ff', 'colourFromHsv: hue -60 wraps to magenta');
+  same(P.colourFromHsv({ h: 360, s: 100, v: 100 }), '#ff0000', 'colourFromHsv: hue 360 wraps to red');
+  same(P.colourFromHsv({ h: 720, s: 100, v: 100 }), '#ff0000', 'colourFromHsv: hue 720 wraps to red');
+  same(P.colourFromHsv({ h: 200, s: 150, v: 150 }), P.colourFromHsv({ h: 200, s: 100, v: 100 }), 'colourFromHsv clamps saturation and brightness above 100');
+  same(P.colourFromHsv({ h: 200, s: -5, v: 50 }), P.colourFromHsv({ h: 200, s: 0, v: 50 }), 'colourFromHsv clamps saturation below 0');
+  same(P.colourFromHsv({ h: 200, s: 50, v: -5 }), P.colourFromHsv({ h: 200, s: 50, v: 0 }), 'colourFromHsv clamps brightness below 0');
+});
+
+section('the default palette: the plan\'s figures as lower bounds', () => {
+  const least = (list, other) => Math.min(...list.map((c) => TC.contrast(c, other)));
+  // The plan states these to one decimal, rounded (Orange on white is 4.7988, stated as 4.8), so the least is compared at 2 decimals.
+  const bound = (what, got, min) => ok(Math.round(got * 100) / 100 >= min, `${what}: the least is ${got.toFixed(4)}, wanted ${min} or more`);
+  bound('dark words #1c2024 on Light', least(group('Light'), '#1c2024'), 12.8);
+  bound('light words #eceff3 on Dark', least(group('Dark'), '#eceff3'), 10.3);
+  bound('Dark as words on white', least(group('Dark'), '#ffffff'), 11.9);
+  bound('white words on Strong', least(group('Strong'), '#ffffff'), 4.8);
+  bound('Strong against #0e1a2b', least(group('Strong'), '#0e1a2b'), 3.2);
 });
 
 section('the block reaches nothing outside itself', () => {
