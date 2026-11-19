@@ -525,6 +525,24 @@ try {
       await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent)", 'Add a reaction and Save template is accepted');
       await tab.waitFor("document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'after a save the focus is on the saved template in the list');
       { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.reactions.map((r) => [r.id, r.glyph, r.label]), [['party-time', '\u{1F389}', 'Party Time']], got.text); assert.deepEqual(got.json.template.workspace.layout, { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'saving never loses the layout'); }
+      // A layout refusal (plan-layout-picker.md, step 3): untick a module the layout uses and save. The server marks the
+      // sentence with `parts: ['workspace']`, so it lands once in the Default Workspace part and badges that tab alone; the
+      // status line says where, never the sentence again.
+      await tab.go('#templates/tabs-copy/modules');
+      await tab.waitFor(tab.visible('#te-part-modules'), 'the Modules tab of the copy');
+      await tab.evaluate("document.querySelector('#te-modules [data-module=vault]').click()");
+      await tab.evaluate("document.getElementById('te-save').click()");
+      await tab.waitFor("document.getElementById('te-status').classList.contains('error')", 'the layout refusal');
+      {
+        const got = await tab.evaluate("({ part: [...document.querySelectorAll('#te-part-workspace .problems li')].map((li) => li.textContent), top: [...document.querySelectorAll('#tp-problems li')].map((li) => li.textContent), all: [...document.querySelectorAll('#template-editor .problems li')].map((li) => li.textContent), status: document.getElementById('te-status').textContent, badged: [...document.querySelectorAll('#te-jump [data-part]')].filter((b) => !b.querySelector('[data-problems]').hidden).map((b) => b.dataset.part) })");
+        assert.equal(got.part.length, 1, JSON.stringify(got));
+        assert.match(got.part[0], /^The layout uses .*Vault/, 'the layout sentence, in the Default Workspace part');
+        assert.deepEqual(got.top, [], 'not in the list at the top');
+        assert.equal(got.all.filter((t) => t === got.part[0]).length, 1, 'once');
+        assert.deepEqual(got.badged, ['te-part-workspace'], 'its tab badged, no other');
+        assert.equal(got.status, '1 part has problems, marked on its tab.', 'the status line says where, not the sentence');
+      }
+      await tab.evaluate("document.querySelector('#te-modules [data-module=vault]').click()"); // ticked again: nothing changed on the server
       { const rm = await call(port, 'DELETE', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.ok(rm.status < 300, rm.text); }
       await tab.go('#templates/travel');
       await tab.waitFor(tab.visible('#te-part-basics'), 'the editor again');

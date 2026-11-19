@@ -92,8 +92,8 @@ export function shouldAutoJoin({ setting = false, inCall = false, canJoin = fals
 // layout (`layout`, { shape, areas }) as its shape and the modules in it, else, with none, what the product opens (the
 // chat and the modules on here). `nameOf(id)` is the name a person reads; `groupOf(id)` the id whose name an id sits
 // under (To-do under the Calendar where the Calendar is on). `canOpen(id)`: whether the module is on here; an area whose
-// module is not closes up (decision 13), and the line says so. `space` and `module` are the words a person reads for
-// a space and a module (the page's word()); the defaults are for node.
+// module is not closes up (decision 13), and the line says so. `space` is the word a person reads for a space (the
+// page's word()); the default is for node. The line never needs the word for a module, so no article ever goes wrong.
 // "Whiteboard opens on the left, with Goals above Documents on the right." Each shape's words take its areas' names, null
 // for an area left empty; two or three empty areas are counted ("two empty areas"), never listed one by one.
 const EMPTY = 'an empty area';
@@ -114,16 +114,18 @@ const SHAPE_WORDS = {
   },
   'tall-split': ([a, b, c]) => {
     if (!b && !c) return a ? `${a} opens on the left, with two empty areas above each other on the right.` : 'Three empty areas open: one on the left, and two above each other on the right.';
+    if (!a && !(b && c)) return `${b || c} opens on the right, at the ${b ? 'top' : 'bottom'}. The other two areas are empty.`;
     return `${or(a)} opens on the left, with ${or(b)} above ${or(c)} on the right.`;
   },
   'wide-split': ([a, b, c]) => {
     if (!b && !c) return a ? `${a} opens wide, with two empty areas above each other narrow beside it.` : 'Three empty areas open: one wide, and two above each other narrow beside it.';
+    if (!a && !(b && c)) return `${b || c} opens narrow on the right, at the ${b ? 'top' : 'bottom'}. The other two areas are empty.`;
     return `${or(a)} opens wide, with ${or(b)} above ${or(c)} narrow beside it.`;
   },
 };
 const andList = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '');
 const upFirst = (text) => (text ? text[0].toUpperCase() + text.slice(1) : text);
-export function layoutLine({ layout = null, modules = [], canOpen = () => true, nameOf = (id) => id, groupOf = (id) => id, space = 'space', module = 'module' } = {}) {
+export function layoutLine({ layout = null, modules = [], canOpen = () => true, nameOf = (id) => id, groupOf = (id) => id, space = 'space' } = {}) {
   const words = layout && typeof layout === 'object' && Object.prototype.hasOwnProperty.call(SHAPE_WORDS, layout.shape) ? SHAPE_WORDS[layout.shape] : null;
   if (!words || !Array.isArray(layout.areas)) {
     const names = [...new Set(whatOpens({ modules, canOpen }).map(groupOf))].map(nameOf);
@@ -131,7 +133,7 @@ export function layoutLine({ layout = null, modules = [], canOpen = () => true, 
     return upFirst(`${andList(names)} ${names.length > 1 ? 'open' : 'opens'}.`);
   }
   const areas = layout.areas.map((id) => (typeof id === 'string' && id ? id : null));
-  if (layout.shape === 'one' && !areas[0]) return `One empty area opens, for each person to choose a ${module}.`;
+  if (layout.shape === 'one' && !areas[0]) return 'One empty area opens. Each person chooses what goes in it.';
   const off = [];
   const named = areas.map((id) => {
     if (!id) return null;
@@ -140,7 +142,7 @@ export function layoutLine({ layout = null, modules = [], canOpen = () => true, 
   });
   const lines = [upFirst(words(named))];
   const empty = areas.filter((id) => !id).length;
-  if (empty) lines.push(`Each person chooses a ${module} for the empty ${empty > 1 ? 'areas' : 'area'}.`);
+  if (empty) lines.push(`Each person chooses what goes in the empty ${empty > 1 ? 'areas' : 'area'}.`);
   if (off.length) lines.push(`${andList(off)} ${off.length > 1 ? 'are' : 'is'} off in this ${space}, so ${off.length > 1 ? 'their areas close' : 'its area closes'} up.`);
   return lines.join(' ');
 }

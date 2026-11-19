@@ -113,7 +113,7 @@ try {
         await settingsTab(tab);
         const l = await readLine(tab);
         assert.equal(l.tag, 'P', 'a line of text, not a list of switches');
-        assert.equal(l.text, 'Calendar and an empty area open side by side, the same width. Each person chooses a module for the empty area.', 'what the template opens a new person with: its layout in plain words');
+        assert.equal(l.text, 'Calendar and an empty area open side by side, the same width. Each person chooses what goes in the empty area.', 'what the template opens a new person with: its layout in plain words');
         assert.equal(l.controls, 0, 'nothing to switch');
         assert.equal(l.oldList, false, 'no switch list');
         assert.match(l.why, /^This comes from the .+'s template\.$/, 'and why');

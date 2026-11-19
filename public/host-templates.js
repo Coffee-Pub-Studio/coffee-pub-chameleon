@@ -6,7 +6,7 @@
 // /new), its parts as tabs, one at a time, each with its own address (#templates/<id>/<part>; decision 52).
 import { api, escapeHtml, word } from '/brand.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields } from '/template-fields.js';
-import { setFoldHtml, setReactionChips, setIconChips, layoutWords } from '/template-pages.js';
+import { setFoldHtml, setReactionChips, setIconChips, layoutWords, problemPlaces } from '/template-pages.js';
 import { fileText } from '/file-text.js';
 import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
@@ -573,12 +573,15 @@ function clearProblems(only) {
   for (const ul of document.querySelectorAll('#template-editor .problems')) if (!only || (ul.dataset.problems || '').split(' ').includes(only)) ul.replaceChildren();
   markTabs();
 }
-function showProblems(problems) {
-  for (const p of problems) {
-    const key = (p.match(/^"?([A-Za-z]+)/) || [])[1] || '';
-    const ul = [...document.querySelectorAll('#template-editor [data-problems]')].find((x) => x.tagName === 'UL' && x.dataset.problems.split(' ').includes(key)) || $('tp-problems');
+// Each problem in its part's list (template-pages.js, problemPlaces: the field the server marks it with in `parts`, else
+// the field a sentence starts with), else in the list at the top; each sentence once. Answers how many tabs are marked.
+function showProblems(problems, marks) {
+  const lists = [...document.querySelectorAll('#template-editor ul.problems[data-problems]')];
+  const fields = lists.flatMap((ul) => ul.dataset.problems.split(' '));
+  for (const { text, part } of problemPlaces(problems, fields, marks)) {
+    const ul = (part && lists.find((x) => x.dataset.problems.split(' ').includes(part))) || $('tp-problems');
     const li = document.createElement('li');
-    li.textContent = p;
+    li.textContent = text;
     ul.append(li);
     ul.closest('details')?.setAttribute('open', '');
   }
@@ -606,8 +609,10 @@ $('template-editor').addEventListener('submit', async (e) => {
     for (let n = 0; n < 40 && !$('template-editor-view').hidden; n += 1) await new Promise((r) => setTimeout(r, 25));
     $('template-list').querySelector(`[data-id="${CSS.escape(template.id)}"] a`)?.focus();
   } catch (err) {
-    const parts = showProblems(err.problems || [err.message]);
-    say($('te-status'), parts ? `${parts} ${parts === 1 ? 'part has' : 'parts have'} problems, marked on ${parts === 1 ? 'its tab' : 'their tabs'}.` : err.message, true);
+    const parts = showProblems(err.problems || [err.message], err.parts);
+    // The sentences are in the lists; the status line says where, never the same sentence again.
+    const top = $('tp-problems').childElementCount;
+    say($('te-status'), parts ? `${parts} ${parts === 1 ? 'part has' : 'parts have'} problems, marked on ${parts === 1 ? 'its tab' : 'their tabs'}.` : `Not saved. ${top > 1 ? 'The problems are' : 'The problem is'} below.`, true);
   } finally {
     save.disabled = false;
     if (document.activeElement === document.body && was && was.isConnected && !$('template-editor-view').hidden) was.focus({ preventScroll: true });

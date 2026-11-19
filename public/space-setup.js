@@ -636,10 +636,10 @@ export function createSpaceSetup(deps) {
   }
   // First visit, a section of the Settings tab (plan-layout-views.md, step 5; plan-workspaces.md, step 3): what a new person sees
   // in the Workspace (the template's layout, one read-only line; plan-layout-picker.md, step 3), and the shared layouts by name, which share Opens first's radios with the
-  // fixed layouts above (paintLayouts). Each person's own arrangement is remembered after the first visit.
+  // fixed layouts above (paintLayouts). Each person's own arrangement is remembered once they have a module open.
   function firstVisitHtml() {
     return `<section class="setup-section" data-section="first-visit"><h3 class="setup-heading" id="setup-first-visit-heading">First visit</h3>
-        <p class="hint setup-first-visit-hint" id="setup-first-visit-hint">What someone sees the first time they enter this ${esc(spaceWord())}. After that, each person's own arrangement is remembered. Opens first, above, picks the layout; a shared layout can be picked here.</p>
+        <p class="hint setup-first-visit-hint" id="setup-first-visit-hint">What someone sees the first time they enter this ${esc(spaceWord())}. Once they open something, their own arrangement is remembered. Opens first, above, picks the layout; a shared layout can be picked here.</p>
         <div class="setup-opens-with-layout" id="setup-opens-with-layout" hidden>
           <span class="setup-opens-with-layout-text" id="setup-opens-with-layout-text"></span>
           <button type="button" class="btn btn-small" id="setup-opens-with-layout-stop">Stop using it</button>
@@ -1183,7 +1183,6 @@ export function createSpaceSetup(deps) {
     q('#setup-opens-with').textContent = layoutLine({
       layout: state.options.layout,
       space: spaceWord(),
-      module: word('module'),
       modules: state.options.modules.map((m) => m.id),
       canOpen: (id) => all.some((c) => c.id === id),
       nameOf: (id) => all.find((c) => c.id === id)?.name || id,

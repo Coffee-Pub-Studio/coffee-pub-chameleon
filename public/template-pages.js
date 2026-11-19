@@ -35,7 +35,7 @@ const layoutOf = (w) => (w && isObject(w.layout) && typeof w.layout.shape === 's
 // The layout in plain words: its shape and the modules in it, by the names `nameOf` gives; with none, what the product opens.
 export function layoutWords(layout, { nameOf = (id) => id, word }) {
   if (!layout) return `None: the chat and every ${word('module')} that is on.`;
-  return layoutLine({ layout, nameOf, space: word('space'), module: word('module') });
+  return layoutLine({ layout, nameOf, space: word('space') });
 }
 export function workspaceHtml(t, { editable, catalog, word }) {
   const w = (t && t.workspace) || {};
@@ -45,7 +45,7 @@ export function workspaceHtml(t, { editable, catalog, word }) {
   // The template's own name for a module, as the Modules page shows it, else the catalog's.
   const nameOf = (id) => entryOf(t, id).name || (catalog.find((x) => x.id === id) || { name: id }).name;
   const layoutText = e(layoutWords(layout, { nameOf, word }));
-  const layoutAbout = `How the Workspace starts the first time someone enters a new ${e(word('space'))}. After that, each person's own arrangement is kept.`;
+  const layoutAbout = `How the Workspace first looks to each person in a new ${e(word('space'))}. Once they open something, their own arrangement is kept.`;
   const pinNote = `A Fixed Workspace shown here is shown for everyone in a new ${e(word('space'))}; nobody can hide it. People still add layouts of their own.`;
   if (!editable) {
     const shownList = show.length ? show.map((id) => e((FIXED_WORKSPACES.find(([x]) => x === id) || [id, id])[1])).join(', ') : '<span class="hint">None</span>';
@@ -67,6 +67,24 @@ export function readWorkspace(root, { editing = true } = {}) {
   const first = root.querySelector('[data-tw-first]')?.value || 'workspace';
   const workspace = { ...(layoutOf({ layout }) ? { layout } : {}), ...(show.length ? { show } : {}), ...(first !== 'workspace' ? { opensFirst: first } : {}) };
   return { workspace: Object.keys(workspace).length ? workspace : (editing ? null : {}) };
+}
+
+// --- Where a template's problems are shown (the host console's editor) ------------------------------------------------------
+// The server answers `problems` (sentences) and beside them `parts`: parts[i] is the template field problems[i] is about
+// (`workspace` for the layout, `phases`, `call` ...), or null. A problem the server marks goes under that field; one it does
+// not (null, or no `parts` at all) is placed by its first word where that names a field ('"call" takes only ...',
+// 'phases[1].id ...'). `fields` lists the fields the page has a list for; any other problem has part null (the list at the
+// top). The same sentence is shown once. Answers [{ text, part }], in the server's order.
+export function problemPlaces(problems, fields = [], marks = []) {
+  const out = [];
+  (Array.isArray(problems) ? problems : []).forEach((p, i) => {
+    const text = typeof p === 'string' ? p : '';
+    if (!text || out.some((o) => o.text === text)) return;
+    const mark = Array.isArray(marks) && typeof marks[i] === 'string' && marks[i] ? marks[i] : null;
+    const named = mark || (text.match(/^"?([A-Za-z]+)/) || [])[1] || '';
+    out.push({ text, part: fields.includes(named) ? named : null });
+  });
+  return out;
 }
 
 // --- Phases -----------------------------------------------------------------------------------------------------------------
