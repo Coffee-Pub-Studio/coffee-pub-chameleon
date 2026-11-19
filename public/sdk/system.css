@@ -4728,6 +4728,8 @@ html[data-dialog-open] { overflow: hidden; }
   box-sizing: border-box;
   width: 100%;
   height: var(--cp-area-h);
+  /* The handle is centred on the colour, so at an edge half of it lies outside the area: the area keeps that half inside the popover. */
+  margin-inline: max(0px, calc(var(--cp-thumb) / 2 - var(--pop-pad, 0px)));
   border: 1px solid var(--edge-hairline);
   border-radius: var(--radius-small);
   background-color: var(--cp-hue);
@@ -4739,9 +4741,8 @@ html[data-dialog-open] { overflow: hidden; }
 
 .sdk-cp-handle {
   position: absolute;
-  /* It travels inside the area, as a slider's thumb does on its track, so at the edges it stays in the popover. */
-  left: calc(var(--cp-thumb) / 2 + (100% - var(--cp-thumb)) * var(--cp-x));
-  top: calc(var(--cp-thumb) / 2 + (100% - var(--cp-thumb)) * var(--cp-y));
+  left: calc(var(--cp-x) * 100%);
+  top: calc(var(--cp-y) * 100%);
   box-sizing: border-box;
   width: var(--cp-thumb);
   height: var(--cp-thumb);

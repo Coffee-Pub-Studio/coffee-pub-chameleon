@@ -2135,6 +2135,15 @@
   }
   const editorDeps = { root: env.root, rootElement: env.rootElement, icon: (name) => menuIcon(name), opened: openEditors, editorAt, lift: env.lift, get moduleId() { return (info && info.module && info.module.id) || ''; } };
 
+  // The module's box in the window, for the popovers (position: fixed). Where the module's root is the document's own element (a
+  // sandboxed frame, a host page), the box is the window: that element's rect moves up by the scroll, while a popover does not.
+  function rootBox() {
+    const el = env.rootElement;
+    if (el === document.documentElement) return { left: 0, top: 0, w: el.clientWidth || window.innerWidth, h: el.clientHeight || window.innerHeight };
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, w: el.clientWidth || 400, h: el.clientHeight || 400 };
+  }
+
   // Only one host.menu is ever open at once (per module): { id, cleanup }.
   let openMenu = null;
   function closeMenu() {
@@ -2240,12 +2249,12 @@
     const container = editor || (env.root === document ? document.body : env.root);
     // The box the menu and its flyout stay in: the module's own root, or the window inside an editor.
     const bounds = () => {
-      const modBox = env.rootElement.getBoundingClientRect();
+      const modBox = rootBox();
       return {
         modBox,
         box: editor ? { left: 0, top: 0 } : modBox,
-        w: editor ? window.innerWidth : env.rootElement.clientWidth || 400,
-        h: editor ? window.innerHeight : env.rootElement.clientHeight || 400,
+        w: editor ? window.innerWidth : modBox.w,
+        h: editor ? window.innerHeight : modBox.h,
       };
     };
     let framed = false;
@@ -2568,12 +2577,12 @@
       const editor = editorAt(anchor);
       const container = editor || (env.root === document ? document.body : env.root);
       const bounds = () => {
-        const modBox = env.rootElement.getBoundingClientRect();
+        const modBox = rootBox();
         return {
           modBox,
           box: editor ? { left: 0, top: 0 } : modBox,
-          w: editor ? window.innerWidth : env.rootElement.clientWidth || 400,
-          h: editor ? window.innerHeight : env.rootElement.clientHeight || 400,
+          w: editor ? window.innerWidth : modBox.w,
+          h: editor ? window.innerHeight : modBox.h,
         };
       };
       // What had the focus before the picker took it: in a module in the page the element inside its shadow root, not the root's host.
@@ -2610,8 +2619,7 @@
       area.setAttribute('aria-label', 'Saturation and brightness');
       area.setAttribute('aria-valuemin', '0');
       area.setAttribute('aria-valuemax', '100');
-      const handle = make('span', 'sdk-cp-handle');
-      area.appendChild(handle);
+      area.appendChild(make('span', 'sdk-cp-handle'));
       const slider = (cls, name, max) => {
         const s = make('div', `sdk-cp-slider ${cls}`);
         s.tabIndex = 0;
@@ -2764,8 +2772,7 @@
       };
       drag(area, (e) => {
         const r = area.getBoundingClientRect();
-        const hw = handle.offsetWidth || 0; // the handle travels inside the area, as a slider's thumb does on its track
-        hsv = { h: hsv.h, s: clamp((e.clientX - r.left - hw / 2) / Math.max(1, r.width - hw)) * 100, v: (1 - clamp((e.clientY - r.top - hw / 2) / Math.max(1, r.height - hw))) * 100 };
+        hsv = { h: hsv.h, s: clamp((e.clientX - r.left) / (r.width || 1)) * 100, v: (1 - clamp((e.clientY - r.top) / (r.height || 1))) * 100 };
         changed();
       });
       const along = (el, e) => {
@@ -2832,7 +2839,7 @@
         const c = colourClean(hexIn.value);
         if (!c) { markBad(true); return; }
         setHex(c);
-        finish(touched); // Enter on the colour it opened with, nothing changed: null
+        finish(true); // Enter is a choice, as a swatch is, even on the colour it opened with
       });
       hexIn.addEventListener('change', () => {
         if (!pop.isConnected) return;
@@ -2904,8 +2911,12 @@
         if (anchor) {
           const r = anchor.getBoundingClientRect();
           x = r.left - box.left;
-          y = r.bottom - box.top + 4;
-          if (y + pop.offsetHeight > h) y = r.top - box.top - pop.offsetHeight - 4;
+          const below = h - (r.bottom - box.top + 4) - 4;
+          const above = r.top - box.top - 4 - 4;
+          // Under the anchor, else above it; where it fits on neither side, on the side with more room, scrolling inside itself
+          // there, so it never covers the control it came from.
+          if (pop.offsetHeight > below && pop.offsetHeight > above) pop.style.maxHeight = `${Math.max(120, Math.max(below, above))}px`;
+          y = pop.offsetHeight <= below || below >= above ? r.bottom - box.top + 4 : r.top - box.top - pop.offsetHeight - 4;
         }
         x = Math.max(4, Math.min(x, w - pop.offsetWidth - 4));
         y = Math.max(4, Math.min(y, h - pop.offsetHeight - 4));
@@ -3029,7 +3040,8 @@
     const pointed = input.id ? [...(input.labels || [])].filter((l) => l.htmlFor === input.id) : [];
     if (pointed.length) {
       let id = `${input.id}-colour`;
-      for (let n = 2; doc.getElementById(id); n += 1) id = `${input.id}-colour-${n}`;
+      const scope = typeof input.getRootNode === 'function' && typeof input.getRootNode().getElementById === 'function' ? input.getRootNode() : doc;
+      for (let n = 2; scope.getElementById(id) || doc.getElementById(id); n += 1) id = `${input.id}-colour-${n}`;
       trigger.id = id;
       for (const l of pointed) l.htmlFor = trigger.id;
     }
@@ -5384,8 +5396,8 @@
       }
 
       const bounds = () => {
-        const modBox = env.rootElement.getBoundingClientRect();
-        return { box: editor ? { left: 0, top: 0 } : modBox, w: editor ? window.innerWidth : env.rootElement.clientWidth || 400, h: editor ? window.innerHeight : env.rootElement.clientHeight || 400 };
+        const modBox = rootBox();
+        return { box: editor ? { left: 0, top: 0 } : modBox, w: editor ? window.innerWidth : modBox.w, h: editor ? window.innerHeight : modBox.h };
       };
       function place() {
         const { box, w, h } = bounds();
