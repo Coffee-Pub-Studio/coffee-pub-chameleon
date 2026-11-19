@@ -1215,6 +1215,10 @@ try {
     assert.equal(settings.json.productDomain, 'product.localhost');
     assert.equal(settings.json.baseDomain, 'localhost');
     assert.equal('consoleHost' in settings.json, false);
+    // Each module in the answer says whether it has a place on the canvas (the template editors' area menu offers only those).
+    const canvasOf = Object.fromEntries(settings.json.modules.map((m) => [m.id, m.canvas]));
+    assert.ok(settings.json.modules.every((m) => typeof m.canvas === 'boolean'), 'every module carries canvas');
+    assert.deepEqual([canvasOf.chat, canvasOf.conference, canvasOf.assistant, canvasOf.stream, canvasOf.calendar], [false, false, false, false, true], 'canvas: false for chat, conference, the Assistant and the Stream; true for a module with a canvas surface');
     await server.stop();
     server = null;
   });

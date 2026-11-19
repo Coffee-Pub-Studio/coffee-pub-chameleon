@@ -3218,7 +3218,7 @@ hostRouter.get('/api/host/settings', requireHostAdmin, (_req, res) => {
     baseDomain: BASE_DOMAIN, productDomain: PRODUCT_HOST, version: VERSION, hostAdmins: hostRegistry.listAdmins(), productName: PRODUCT_NAME, productShortName: PRODUCT_SHORT_NAME, contactEmail: CONTACT_EMAIL || null, productSiteUrl: PRODUCT_SITE,
     plans: hostRegistry.plansCatalog(), signup: signupEnabled, billingSecretSet: Boolean(BILLING_SECRET),
     // The modules this image ships, for the template editor: the built-in two, then the bundled ones by id.
-    modules: [...BUILTIN_MODULES, ...bundledModules(BUNDLED_DIR)].map((m) => ({ id: m.id, name: m.name || m.id, icon: m.icon || null })),
+    modules: [...BUILTIN_MODULES, ...bundledModules(BUNDLED_DIR)].map((m) => ({ id: m.id, name: m.name || m.id, icon: m.icon || null, canvas: Boolean(m.surfaces?.canvas) })),
     // The built-in reaction and icon lists every environment's start as (server/default-lists.js), for the template
     // editor's read-only "An environment's set starts as these" (decision 12 as corrected); the owner's GET /api/settings
     // answers the same field.
