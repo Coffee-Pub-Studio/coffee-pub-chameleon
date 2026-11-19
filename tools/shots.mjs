@@ -86,7 +86,8 @@ const ONLY_THEME = opt('theme');
 const DIR = path.resolve(opt('dir') || process.env.SHOTS_DIR || path.join(root, 'tools', '.shots'));
 const THRESHOLD = Number(process.env.SHOTS_THRESHOLD || 0);
 const TOLERANCE = Number(process.env.SHOTS_TOLERANCE || 0);
-const JOBS = Math.max(1, Number(opt('jobs') || process.env.SHOTS_JOBS || Math.min(6, os.cpus().length + 1)));
+// The product tier shoots one screen at a time by default: every page of the browser shares the layout tab the person last chose, so screens at once change each other's tab.
+const JOBS = Math.max(1, Number(opt('jobs') || process.env.SHOTS_JOBS || (PRODUCT ? 1 : Math.min(6, os.cpus().length + 1))));
 const SIZES = PRODUCT ? [1440, Number(opt('size')) || 1440] : // product: 1440, or --size=<px> for another width (1280 for the site)
    [1280, 700, 390, 260]; // 260: a narrow module window (planner-narrow-stay)
 const THEMES = PRODUCT ? ['dark', 'light'] : ['light', 'dark']; // product: dark by default, one screen also names light

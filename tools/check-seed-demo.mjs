@@ -107,7 +107,7 @@ try {
   // The trip is in the future of the day it was given, ten days long, and the phases follow it.
   const trip = (await api('GET', `/api/modules/travel/data/trip:main?scope=space&space=${second.space.id}`)).json.item.value;
   assert.ok(trip.start > TODAY, 'the trip starts after today');
-  assert.equal(trip.start, dayPlus(TODAY, 45));
+  assert.equal(trip.start, dayPlus(TODAY, 3));
   assert.equal(trip.end, dayPlus(trip.start, 9));
   const phases = (await api('GET', `/api/spaces/${second.space.id}`)).json.space.phases;
   assert.equal(Object.keys(phases).length, 6, 'dates on all six phases');

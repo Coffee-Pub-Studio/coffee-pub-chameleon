@@ -8030,7 +8030,7 @@ function overlayParams() {
   const homeIconEl = document.querySelector('[data-brand="home-icon"]');
   const homeIcon = homeIconEl?.dataset.iconId;
   if (homeIcon) params.set('homeIcon', homeIcon);
-  if (document.querySelector('.topbar .brand-logo img:not([hidden])')) params.set('hasIcon', '1'); // the logo box shows the uploaded logo
+  if (document.querySelector('.topbar .brand-logo img:not([data-product-mark])')) params.set('hasIcon', '1'); // the logo box shows the environment's own logo, not the mark
   return params;
 }
 function openOverlay(path) {
