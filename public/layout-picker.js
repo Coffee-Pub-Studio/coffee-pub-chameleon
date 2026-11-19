@@ -24,6 +24,8 @@
 //              in the order the menu lists them. `icon` is a Font Awesome name or a whole class list; `tint` one of the
 //              eight tint names. The chat and the call may be in it; no area offers them. The caller leaves out what
 //              can't be a column.
+//   others     [{ id, name, icon, tint? }]: modules an area may still show by name and icon but is never offered (a
+//              template's module that is no longer ticked, while the layout still names it; template-layout.js).
 //   parts      the ids that read as a composite where the layout is used (composites.js's aliasesFor; canvas.js's
 //              compositePartsHere). Left out, it is worked out from `modules` (partsFor), as the shape check reads a
 //              template: To-do counts while the Calendar is among them.
@@ -32,6 +34,8 @@
 //              gets the maker's notice under it, in noticeWords' words, read with the area. A module not in it gets none.
 //   byDefault  true in the host console's template editor, where the roles are the manifests' defaults ("Guests can't
 //              open this by default.").
+//   offIn      'environment' on Manage's template pages, where a module in cantOpen as off is off in the environment
+//              ("Off in this environment."); 'space' (the default) in a space.
 //   readOnly   drawn read only (a shipped template): step 2, the areas not pressable, the bar's Close only.
 //   bar        false to draw no bar (a surface with a Save of its own); `onChange(record)` then hears each change.
 //   onSave(record)   does the save; false, or a throw with the refusal in its message, keeps the picker open and
@@ -216,11 +220,13 @@ export function refusedNote(names, shape) {
 //   "Members and guests can't open this. For them, this area closes up."
 //   "Off in this space. This area closes up for everyone."
 // `byDefault` (the host console's template editor, where the roles are the manifests' defaults): "Guests can't open this
-// by default." `wordOf(key, opts)` is word() unless given. '' when there is nothing to say.
+// by default." `offIn`: where a module is off, 'space' (a space's layout) or 'environment' (a template in Manage, where
+// a module is off or not installed in the environment): "Off in this environment. ..." `wordOf(key, opts)` is word()
+// unless given. '' when there is nothing to say.
 export const NOTICE_ROLES = Object.freeze(['moderator', 'member', 'guest']);
-export function noticeWords(entry, { byDefault = false, wordOf = word } = {}) {
+export function noticeWords(entry, { byDefault = false, offIn = 'space', wordOf = word } = {}) {
   if (!entry || typeof entry !== 'object') return '';
-  if (entry.off === true) return byDefault ? 'Not installed. This area closes up for everyone.' : fill('Off in this {space}. This area closes up for everyone.');
+  if (entry.off === true) return byDefault ? 'Not installed. This area closes up for everyone.' : `Off in this ${wordOf(offIn === 'environment' ? 'environment' : 'space')}. This area closes up for everyone.`;
   const given = Array.isArray(entry.roles) ? entry.roles : [];
   const roles = NOTICE_ROLES.filter((r) => given.includes(r));
   if (!roles.length) return '';
@@ -238,9 +244,11 @@ export function createLayoutPicker({
   doc = document,
   record = null,
   modules = [],
+  others = [],
   parts = null,
   cantOpen = null,
   byDefault = false,
+  offIn = 'space',
   readOnly = false,
   bar: withBar = true,
   step: startStep = 0,
@@ -251,7 +259,7 @@ export function createLayoutPicker({
 } = {}) {
   const uid = `layout-picker-${++made}`;
   const list = cleanModules(modules);
-  const byId = new Map(list.map((m) => [m.id, m]));
+  const byId = new Map([...cleanModules(others), ...list].map((m) => [m.id, m])); // what is offered wins over `others`
   let cantMap = cantOpen && typeof cantOpen === 'object' ? cantOpen : null; // who can't open each module (step 6's cantOpen)
   const compositeParts = Array.isArray(parts) ? parts : partsFor(list.map((m) => m.id));
   const nameOf = (id) => (byId.get(id) && byId.get(id).name) || id; // names are cleanText'd in cleanModules
@@ -440,7 +448,7 @@ export function createLayoutPicker({
   // share one. Text only: nothing in it goes through innerHTML.
   const hasOwn = (o, k) => Boolean(o) && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k);
   function noticeEl(a, id, where) {
-    const text = id && hasOwn(cantMap, id) ? noticeWords(cantMap[id], { byDefault }) : '';
+    const text = id && hasOwn(cantMap, id) ? noticeWords(cantMap[id], { byDefault, offIn }) : '';
     if (!text) return null;
     const p = doc.createElement('span');
     p.className = 'layout-picker-notice';

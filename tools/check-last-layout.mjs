@@ -30,13 +30,14 @@ const same = (got, want, label) => { assert.deepEqual(got, want, label); n += 1;
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `check-last-layout-${name}-`));
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const blank = (name) => ({ name, modules: [] });
+const shape = (name) => ({ name, shape: 'one', areas: [null] }); // a shared layout is a shape (plan-layout-picker.md, decision 5)
 
 // --- the Layouts class ---------------------------------------------------------------------------------------------------
 {
   const dir = tmp('class');
   const file = path.join(dir, 'layouts.json');
   const layouts = new Layouts(dir);
-  const shared = layouts.add('s1', 'pat', { ...blank('Shared'), shared: true });
+  const shared = layouts.add('s1', 'pat', { ...shape('Shared'), shared: true });
   const own = layouts.add('s1', 'pat', blank('Mine'));
   const sams = layouts.add('s1', 'sam', blank('Sams'));
   same(layouts.lastOf('s1', 'pat'), null, 'none to begin with');
@@ -119,9 +120,9 @@ const blank = (name) => ({ name, modules: [] });
 
 // --- the environment copy leaves it out -------------------------------------------------------------------------------------
 {
-  const file = Buffer.from(JSON.stringify({ spaces: { s1: { shared: [{ id: 'labc', name: 'A', modules: [] }], people: {}, favorites: { pat: ['labc'] }, last: { pat: { layout: 'labc', at: 1 } } }, s2: { shared: [], people: {}, last: { pat: { layout: 'map', at: 1 } } } } }));
+  const file = Buffer.from(JSON.stringify({ spaces: { s1: { shared: [{ id: 'labc', name: 'A', shape: 'one', areas: [null] }], people: {}, favorites: { pat: ['labc'] }, last: { pat: { layout: 'labc', at: 1 } } }, s2: { shared: [], people: {}, last: { pat: { layout: 'map', at: 1 } } } } }));
   const out = JSON.parse(exportLayouts(file).toString('utf8'));
-  same(out.spaces.s1, { shared: [{ id: 'labc', name: 'A', modules: [] }], people: {}, favorites: { pat: ['labc'] } }, 'the copy keeps the layouts and favorites and drops last');
+  same(out.spaces.s1, { shared: [{ id: 'labc', name: 'A', shape: 'one', areas: [null] }], people: {}, favorites: { pat: ['labc'] } }, 'the copy keeps the layouts and favorites and drops last');
   ok(!JSON.stringify(out).includes('"last"'), 'no last anywhere in it');
   const entries = exportEntries([['layouts.json', file]], { settings: {}, users: [], spaces: [] });
   ok(!entries.find(([name]) => name === 'layouts.json')[1].toString().includes('"last"'), 'through exportEntries too');
@@ -277,7 +278,7 @@ try {
   // -- a saved layout: only one the person can see ----------------------------------------------------------------------------
   const mine = (await expect('a member saves one', 201, 'POST', L(A), { token: T.member, body: blank('Mine') })).json.layout;
   const modsOwn = (await expect('a moderator saves one', 201, 'POST', L(A), { token: T.mod, body: blank('Mona') })).json.layout;
-  const shared = (await expect('the owner shares one', 201, 'POST', L(A), { token: T.owner, body: { ...blank('Everyone'), shared: true } })).json.layout;
+  const shared = (await expect('the owner shares one', 201, 'POST', L(A), { token: T.owner, body: { ...shape('Everyone'), shared: true } })).json.layout;
   await expect('a member sets their own saved layout', 200, 'PUT', LAST(A), { token: T.member, body: { layout: mine.id } });
   same(await lastOf(T.member), mine.id, 'read back');
   r = await expect("another person's own layout", 400, 'PUT', LAST(A), { token: T.member, body: { layout: modsOwn.id } });

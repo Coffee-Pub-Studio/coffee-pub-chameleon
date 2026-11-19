@@ -642,7 +642,7 @@ try {
     assert.deepEqual(answer(await asModerator('PATCH', url, { layout: { shape: 'one', areas: [null] } })), [403, ownersOnly], 'a moderator may not send a layout: the template\'s');
     assert.equal('layout' in stored(), false, 'nothing stored');
     // A shared layout, made by the moderator (they may), then set as the default.
-    const made = await asModerator('POST', `${url}/layouts`, { name: 'Planning', shared: true, modules: [{ id: 'conference', mode: 'dock' }, { id: 'todo', mode: 'dock', dockW: 360 }] });
+    const made = await asModerator('POST', `${url}/layouts`, { name: 'Planning', shared: true, shape: 'two-equal', areas: [null, null] });
     assert.equal(made.status, 201, made.text);
     const layout = made.json.layout;
     const set = await asModerator('PATCH', url, { defaultLayout: layout.id });

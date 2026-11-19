@@ -465,12 +465,18 @@ try {
       assert.deepEqual([got.words, got.locked], [3, 8], 'Space, Member and the Home page, and eight locked words');
       assert.ok(got.modules >= 3 && got.call === 7 && got.measure === 'dates' && got.phases > 0, JSON.stringify(got));
       assert.ok(!got.parts.some((p) => /verb|theme/i.test(p)), 'no verbs or theme part');
-      // The Default Workspace's layout (plan-layout-picker.md, step 3): read only in plain words until the picker, no Opens with list.
-      assert.deepEqual(await tab.evaluate(`({ line: document.getElementById('te-layout').textContent, list: document.querySelectorAll('#te-part-workspace .opens-row, #te-part-workspace [data-opens]').length })`),
-        { line: 'Itinerary opens wide, with Vault narrow beside it.', list: 0 }, 'the layout is one line in plain words');
-      await tab.go('#templates/default');
+      // The Default Workspace's layout (plan-layout-picker.md, step 5): the layout picker, opened on the template's areas, with
+      // the maker's notice "by default" (Vault's guests, from the manifest's defaults), Remove the layout, no Opens with list.
+      await tab.go('#templates/travel/workspace');
+      await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area'), 'the layout picker in the editor');
+      assert.deepEqual(await tab.evaluate(`({ areas: [...document.querySelectorAll('#te-layout .layout-picker-board .layout-picker-area')].map((a) => a.getAttribute('aria-label')), notices: [...document.querySelectorAll('#te-layout .layout-picker-board .layout-picker-notice')].map((n) => n.textContent), bar: document.querySelectorAll('#te-layout .action-bar').length, remove: Boolean(document.querySelector('#te-layout [data-layout-remove]')), held: document.getElementById('te-layout').dataset.twLayout, list: document.querySelectorAll('#te-part-workspace .opens-row, #te-part-workspace [data-opens]').length })`),
+        { areas: ['Area 1 of 2: Itinerary', 'Area 2 of 2: Vault'], notices: ["Guests can't open this by default."], bar: 0, remove: true, held: '{"shape":"wide-narrow","areas":["travel","vault"]}', list: 0 }, 'the picker, with the notice by default and no bar of its own');
+      await tab.go('#templates/default/workspace');
       await tab.waitFor(`${tab.visible('#template-editor-view')} && document.getElementById('template-editor-title').textContent === 'The Default template'`, 'the Default template, read only');
       assert.equal(await tab.evaluate(`document.getElementById('te-save').hidden && document.querySelectorAll('#template-editor .hc-part input:not(:disabled)').length === 0`), true, 'the Default template shows no way to save');
+      await tab.waitFor(tab.visible('#te-layout .layout-picker'), 'the Default template\'s layout');
+      assert.deepEqual(await tab.evaluate(`({ readOnly: document.querySelector('#te-layout .layout-picker').classList.contains('layout-picker-readonly'), areas: [...document.querySelectorAll('#te-layout .layout-picker-board [data-area]')].filter((a) => a.getClientRects().length).map((a) => [a.tagName, a.getAttribute('aria-label')]), controls: document.querySelectorAll('#te-layout [data-layout-remove], #te-layout [data-layout-add], #te-layout .layout-picker-board button').length })`),
+        { readOnly: true, areas: [['DIV', 'Area 1 of 1: Empty']], controls: 0 }, 'the Default template\'s layout is read only: one empty area, nothing to press');
       await tab.go('#templates/travel');
       await tab.waitFor(`${tab.visible('#template-editor-view')} && document.getElementById('template-editor-title').textContent.startsWith('Edit ')`, 'the editor again');
       // The parts are tabs (decision 52): one part on the screen, its own address, the typed values kept between them.
@@ -525,12 +531,39 @@ try {
       await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent)", 'Add a reaction and Save template is accepted');
       await tab.waitFor("document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'after a save the focus is on the saved template in the list');
       { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.reactions.map((r) => [r.id, r.glyph, r.label]), [['party-time', '\u{1F389}', 'Party Time']], got.text); assert.deepEqual(got.json.template.workspace.layout, { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'saving never loses the layout'); }
-      // A layout refusal (plan-layout-picker.md, step 3): untick a module the layout uses and save. The server marks the
+      // A layout changed in the picker (step 5): another shape, Vault moved into area 1, saved with the form's Save and read
+      // back from the server and in the editor.
+      await tab.go('#templates/tabs-copy/workspace');
+      await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area'), 'the copy\'s layout');
+      await tab.evaluate("document.querySelector('#te-layout .layout-picker-step[data-step=\"1\"]').click()");
+      await tab.evaluate("document.querySelector('#te-layout .layout-picker-shape[data-shape=\"two-equal\"]').click()");
+      await tab.evaluate("document.querySelector('#te-layout .layout-picker-step[data-step=\"2\"]').click()");
+      await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area[data-area=\"1\"]'), 'step 2 of the new shape');
+      await tab.evaluate("document.querySelector('#te-layout .layout-picker-board .layout-picker-area[data-area=\"1\"]').click()");
+      await tab.waitFor("[...document.querySelectorAll('.host-menu-item')].some((b) => b.querySelector('.host-menu-label').textContent.trim() === 'Vault')", 'the area\'s menu');
+      assert.deepEqual(await tab.evaluate("[...document.querySelectorAll('.host-menu-item')].map((b) => b.querySelector('.host-menu-label').textContent.trim()).filter((t) => /^(Chat|Conference|Empty)$/.test(t))"), ['Empty'], 'Empty first; never the chat or the call');
+      await tab.evaluate("[...document.querySelectorAll('.host-menu-item')].find((b) => b.querySelector('.host-menu-label').textContent.trim() === 'Vault').click()");
+      await tab.waitFor("document.getElementById('te-layout').dataset.twLayout === '{\"shape\":\"two-equal\",\"areas\":[\"vault\",null]}'", 'Vault moved to area 1');
+      await tab.evaluate("document.getElementById('te-save').click()");
+      await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent) && document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'the layout saved');
+      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.workspace.layout, { shape: 'two-equal', areas: ['vault', null] }, 'the layout as the picker held it'); }
+      await tab.go('#templates/tabs-copy/workspace');
+      await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area'), 'the copy reopened');
+      assert.deepEqual(await tab.evaluate("[...document.querySelectorAll('#te-layout .layout-picker-board .layout-picker-area')].map((a) => a.getAttribute('aria-label'))"), ['Area 1 of 2: Vault', 'Area 2 of 2: Empty'], 'reopened as saved');
+      // A layout refusal (plan-layout-picker.md, step 3): untick a module the layout uses and save. Before saving, the
+      // Modules tab and the picker both say so (step 5); the Vault area keeps its name and Vault is no longer offered.
       // sentence with `parts: ['workspace']`, so it lands once in the Default Workspace part and badges that tab alone; the
       // status line says where, never the sentence again.
       await tab.go('#templates/tabs-copy/modules');
       await tab.waitFor(tab.visible('#te-part-modules'), 'the Modules tab of the copy');
       await tab.evaluate("document.querySelector('#te-modules [data-module=vault]').click()");
+      assert.equal(await tab.evaluate("document.getElementById('te-modules-layout').textContent"), 'The layout on the Default Workspace tab uses Vault. Tick it again, or take it out of the layout there.', 'said under Modules before saving');
+      assert.equal(await tab.evaluate("document.querySelector('#te-layout .tp-layout-missing').textContent"), 'The layout uses Vault, which is not ticked under Modules. Tick it again, or take it out of the layout.', 'said beside the picker before saving');
+      assert.equal(await tab.evaluate("document.querySelector('#te-layout .layout-picker-board .layout-picker-area[data-area=\"1\"]').getAttribute('aria-label')"), 'Area 1 of 2: Vault', 'the area keeps its module, by name');
+      await tab.evaluate("document.querySelector('#te-layout .layout-picker-board .layout-picker-area[data-area=\"2\"]').click()");
+      await tab.waitFor("document.querySelectorAll('.host-menu-item').length > 0", 'the menu of area 2');
+      assert.equal(await tab.evaluate("[...document.querySelectorAll('.host-menu-item')].some((b) => b.querySelector('.host-menu-label').textContent.trim() === 'Vault')"), false, 'an unticked module is not offered');
+      await tab.key('Escape', 'Escape', 27);
       await tab.evaluate("document.getElementById('te-save').click()");
       await tab.waitFor("document.getElementById('te-status').classList.contains('error')", 'the layout refusal');
       {
@@ -543,7 +576,53 @@ try {
         assert.equal(got.status, '1 part has problems, marked on its tab.', 'the status line says where, not the sentence');
       }
       await tab.evaluate("document.querySelector('#te-modules [data-module=vault]').click()"); // ticked again: nothing changed on the server
+      assert.equal(await tab.evaluate("document.getElementById('te-modules-layout').textContent + document.querySelector('#te-layout .tp-layout-missing').textContent"), '', 'ticked again: the lines go');
+      // Remove the layout: a line in plain words and Pick a shape; saved, the template has no layout.
+      await tab.go('#templates/tabs-copy/workspace');
+      await tab.evaluate("document.querySelector('#te-layout [data-layout-remove]').click()");
+      assert.deepEqual(await tab.evaluate("({ words: document.querySelector('#te-layout .tp-layout-words').textContent, add: document.activeElement.matches('#te-layout [data-layout-add]'), held: document.getElementById('te-layout').dataset.twLayout })"),
+        { words: 'No layout. A new space opens the chat and every module that is on.', add: true, held: '' }, 'no layout: said plainly, the focus on Pick a shape');
+      await tab.evaluate("document.getElementById('te-save').click()");
+      await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent) && document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'saved with no layout');
+      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.equal(got.json.template.workspace?.layout, undefined, 'no layout sent, none kept'); }
+      await tab.go('#templates/tabs-copy/workspace');
+      await tab.waitFor(tab.visible('#te-layout [data-layout-add]'), 'Pick a shape');
+      await tab.evaluate("document.querySelector('#te-layout [data-layout-add]').click()");
+      assert.equal(await tab.evaluate("document.activeElement.matches('#te-layout .layout-picker-shape') && document.getElementById('te-layout').dataset.twLayout === ''"), true, 'Pick a shape opens step 1 on the first shape; nothing to send until one is picked');
       { const rm = await call(port, 'DELETE', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.ok(rm.status < 300, rm.text); }
+      // A tick that moves modules (decision 25): To-do stacked in area 3 while the Calendar is unticked; ticking the Calendar
+      // moves To-do into area 1 (it can't share a column then) and Itinerary down, and a line says so; unticking it again
+      // gives the person's own arrangement back, with no line.
+      {
+        const mk = await call(port, 'POST', 'admin', '/api/host/templates/travel/duplicate', { id: 'cal-copy', name: 'Cal copy' }, { cookie });
+        assert.ok(mk.status < 300, mk.text);
+        const { modules } = (await call(port, 'GET', 'admin', '/api/host/templates/cal-copy', undefined, { cookie })).json.template;
+        delete modules.calendar;
+        const put = await call(port, 'PATCH', 'admin', '/api/host/templates/cal-copy', { modules, workspace: { layout: { shape: 'tall-split', areas: ['travel', 'vault', 'todo'] } } }, { cookie });
+        assert.ok(put.status < 300, put.text);
+      }
+      await tab.go('#templates/cal-copy/modules');
+      await tab.waitFor(`${tab.visible('#te-part-modules')} && document.getElementById('te-layout').dataset.twLayout === '{"shape":"tall-split","areas":["travel","vault","todo"]}'`, 'the Calendar copy, To-do stacked');
+      await tab.evaluate("document.querySelector('#te-modules [data-module=calendar]').click()");
+      {
+        const got = await tab.evaluate("({ held: document.getElementById('te-layout').dataset.twLayout, note: document.querySelector('#te-layout .tp-layout-missing').textContent })");
+        assert.equal(got.held, '{"shape":"tall-split","areas":["todo","vault","travel"]}', 'the Calendar ticked: To-do into area 1, Itinerary down');
+        assert.match(got.note, /^To-do moved to area 1: while .+ is on, it can't share a column\. Itinerary moved to area 3 to free area 1\.$/, 'what moved, said beside the picker');
+      }
+      await tab.evaluate("document.querySelector('#te-modules [data-module=calendar]').click()");
+      assert.deepEqual(await tab.evaluate("({ held: document.getElementById('te-layout').dataset.twLayout, note: document.querySelector('#te-layout .tp-layout-missing').textContent })"),
+        { held: '{"shape":"tall-split","areas":["travel","vault","todo"]}', note: '' }, 'the Calendar unticked again: the person\'s arrangement is back');
+      // The canvas field (GET /api/host/settings): a module with no place on the canvas is never offered in an area.
+      await tab.evaluate("document.querySelector('#te-tab-workspace').click()");
+      await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area[data-area=\"2\"]'), 'the Calendar copy\'s areas');
+      await tab.evaluate("document.querySelector('#te-layout .layout-picker-board .layout-picker-area[data-area=\"1\"]').click()");
+      await tab.waitFor("document.querySelectorAll('.host-menu-item').length > 2", 'the menu of area 1');
+      {
+        const offered = await tab.evaluate("[...document.querySelectorAll('.host-menu-item .host-menu-label')].map((l) => l.textContent.trim())");
+        assert.ok(offered.length > 3 && !offered.some((t) => /Assistant|Stream/.test(t)), `nothing without a place on the canvas: ${offered.join(', ')}`);
+      }
+      await tab.key('Escape', 'Escape', 27);
+      { const rm = await call(port, 'DELETE', 'admin', '/api/host/templates/cal-copy', undefined, { cookie }); assert.ok(rm.status < 300, rm.text); }
       await tab.go('#templates/travel');
       await tab.waitFor(tab.visible('#te-part-basics'), 'the editor again');
       assert.deepEqual(await tab.layoutProblems(), []);
@@ -558,6 +637,11 @@ try {
         await tab.waitFor(`${tab.visible(`#te-part-${part}`)} && document.querySelectorAll('#template-editor .hc-part:not([hidden])').length === 1`, `${part} at 390`);
         assert.deepEqual(await tab.layoutProblems(), [], `${part} at 390`);
       }
+      // The layout at 390: the picker's list, one row per area, each at least 44px tall.
+      await tab.go('#templates/travel/workspace');
+      await tab.waitFor(tab.visible('#te-layout .layout-picker-row-main'), 'the layout list at 390');
+      assert.deepEqual(await tab.evaluate("({ board: [...document.querySelectorAll('#te-layout .layout-picker-board .layout-picker-area')].filter((a) => a.getClientRects().length).length, rows: [...document.querySelectorAll('#te-layout .layout-picker-row-main')].filter((r) => r.getClientRects().length).map((r) => [r.getAttribute('aria-label'), r.getBoundingClientRect().height >= 44]) })"),
+        { board: 0, rows: [['Area 1 of 2: Itinerary', true], ['Area 2 of 2: Vault', true]] }, 'one row per area at 390');
       assert.equal(await tab.evaluate("(() => { const s = document.getElementById('te-jump'); return s.scrollWidth > s.clientWidth && getComputedStyle(s).overflowX === 'auto'; })()"), true, 'the strip scrolls inside itself');
       await tab.shot('template-editor');
     } finally { await tab.close(); }

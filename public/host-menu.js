@@ -115,6 +115,9 @@ function build(trigger, items, inline) {
   if (reopening || (!inline && (!list || !list.length))) return null;
   const doc = trigger.ownerDocument;
   const view = doc.defaultView;
+  // A trigger inside a modal <dialog> (the layout picker in space.js's openShapeSheet): the menu goes in that dialog, so it
+  // is in the top layer with it and not made inert behind it; else the page's body, as always.
+  const layer = (!inline && trigger.closest && trigger.closest('dialog[open]')) || doc.body;
   const menu = doc.createElement('div');
   menu.className = inline ? 'host-menu host-menu-inline' : 'host-menu';
   menu.setAttribute('role', 'menu');
@@ -176,7 +179,7 @@ function build(trigger, items, inline) {
     el.setAttribute('aria-label', item.label || '');
     const flyRows = [];
     for (const entry of entries) addEntry(el, entry, flyRows, { inFlyout: true });
-    doc.body.appendChild(el);
+    layer.appendChild(el);
     const m = menu.getBoundingClientRect();
     const r = row.getBoundingClientRect();
     const at = flyoutPlace({ row: { left: m.left, right: m.right, top: r.top }, size: { w: el.offsetWidth, h: el.offsetHeight }, view: { w: view.innerWidth, h: view.innerHeight } });
@@ -404,7 +407,9 @@ function build(trigger, items, inline) {
     const action = menuKeyAction(e.key, { inFlyout, onCategory, drilled: Boolean(sub && sub.label) });
     if (action === 'close') {
       if (inline) { if (inFlyout) { e.stopPropagation(); closeFly({ refocus: true }); } return; }
-      if (e.key === 'Escape') { e.stopPropagation(); close({ refocus: true }); } else close();
+      // Escape closes the menu only: preventDefault too, so a modal <dialog> the menu is in does not also take it as its own
+      // close request (the shape sheet would ask "Discard changes?").
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close({ refocus: true }); } else close();
     } else if (action === 'next' || action === 'prev' || action === 'first' || action === 'last') {
       e.preventDefault();
       move(action === 'next' ? 1 : action === 'prev' ? -1 : action);
@@ -449,7 +454,7 @@ function build(trigger, items, inline) {
     };
   }
 
-  doc.body.appendChild(menu);
+  layer.appendChild(menu);
   // The click that opened this menu has already happened. Listening on the next frame keeps that same
   // click from counting as an outside press and closing the menu before it can be used.
   frame = view.requestAnimationFrame(() => {

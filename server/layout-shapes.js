@@ -93,13 +93,46 @@ function cleanShape(input, options) {
   return { shape: { shape: def.id, areas } };
 }
 
+// The composites (public/composites.js COMPOSITES, which tools/check-layout-shapes.mjs checks this against with aliasesFor):
+// while a composite's `main` is on, each of its other `parts` opens as the composite, which is the main's page. So a layout
+// naming `todo` where the Calendar is on opens the Calendar for anyone who can read the Calendar, and the To-do's own
+// read permission does not matter to them. The Map's composite has only its main, so it changes nothing here.
+const COMPOSITES = Object.freeze([
+  Object.freeze({ main: 'calendar', parts: Object.freeze(['calendar', 'todo']) }),
+  Object.freeze({ main: 'maps', parts: Object.freeze(['maps']) }),
+]);
+// The main module `id` folds into while it is on, or null. `on` lists the ids on in the place (not known: nothing folds).
+const foldsInto = (id, on) => COMPOSITES.find((c) => c.main !== id && c.parts.includes(id) && Array.isArray(on) && on.includes(c.main))?.main || null;
+
+// Whether someone whose permissions are `permissions` (keyed `module.<id>.<key>`) opens the area that names `id`, pure,
+// as the page does: through the composite's main when `id` folds into it and they can read the main, else as the module
+// itself when it is on and they can read it. `manifests` is { <id>: manifest } for the ones installed; `on` the ids on in
+// the place and `off` the ids that are off there (a module not installed is off).
+function canOpenArea(id, { manifests, permissions, on = null, off = [] } = {}) {
+  const mans = isObject(manifests) ? manifests : {};
+  const perms = isObject(permissions) ? permissions : {};
+  const own = (x) => (typeof x === 'string' && Object.hasOwn(mans, x) && isObject(mans[x]) ? mans[x] : null);
+  const reads = (x) => {
+    const m = own(x);
+    if (!m) return false;
+    const guard = isObject(m.access) ? m.access.read : null;
+    return !guard || Boolean(perms[`module.${x}.${guard}`]);
+  };
+  const gone = (x) => !own(x) || (Array.isArray(off) && off.includes(x));
+  const main = foldsInto(id, on);
+  if (main && !gone(main) && reads(main)) return true;
+  return !gone(id) && reads(id);
+}
+
 // Who can't open each module (decision 17), pure. `moduleIds` are the modules to answer for; `manifests` is { <id>:
 // manifest } for the ones installed; `rolePermissions` is { moderator, member, guest }, each a set of permissions keyed
 // `module.<id>.<key>` as the Roles grid holds them (a role left out reads as having none); `off` lists the ids that
-// are off in the place asked about. A module everyone can open is not in the answer. A module that is off or not
-// installed answers { off: true }. Otherwise { roles: [...] }, the roles whose permissions lack the module's read
-// permission, in the order moderator, member, guest. An owner and the admin open everything, so they are never listed.
-// A moderator's own grant for one space only adds to a role's permissions (store.spacePermissions merges in the
+// are off in the place asked about; `on` the ids that are on there (it decides which modules fold into a composite, see
+// canOpenArea; left out, none do). A module everyone can open is not in the answer. A module that is off or not
+// installed, and not opened through a composite by anyone, answers { off: true }. Otherwise { roles: [...] }, the roles
+// that can't open it, in the order moderator, member, guest. What a role opens is what the page opens for it: a To-do
+// that folds into the Calendar is the Calendar's rights. An owner and the admin open everything, so they are never
+// listed. A moderator's own grant for one space only adds to a role's permissions (store.spacePermissions merges in the
 // Moderator role's ticks that are on), so it can never take a read away; there is no list of people.
 const ROLES_LISTED = Object.freeze(['moderator', 'member', 'guest']);
 function whoCantOpen(moduleIds, options) {
@@ -107,19 +140,20 @@ function whoCantOpen(moduleIds, options) {
   const manifests = isObject(o.manifests) ? o.manifests : {};
   const rolePermissions = isObject(o.rolePermissions) ? o.rolePermissions : {};
   const off = Array.isArray(o.off) ? o.off : [];
+  const on = Array.isArray(o.on) ? o.on : null;
   const out = {};
   // defineProperty, so an id such as __proto__ is an entry and not the answer's prototype.
   const put = (id, value) => Object.defineProperty(out, id, { value, enumerable: true, writable: true, configurable: true });
   for (const id of Array.isArray(moduleIds) ? moduleIds : []) {
     const manifest = typeof id === 'string' && Object.hasOwn(manifests, id) ? manifests[id] : null;
-    if (!isObject(manifest) || off.includes(id)) { put(id, { off: true }); continue; }
-    const guard = isObject(manifest.access) ? manifest.access.read : null;
-    if (!guard) continue;
-    const key = `module.${id}.${guard}`;
-    const roles = ROLES_LISTED.filter((r) => !(isObject(rolePermissions[r]) && rolePermissions[r][key]));
+    const gone = !isObject(manifest) || off.includes(id);
+    const main = foldsInto(id, on);
+    const mainThere = Boolean(main) && Object.hasOwn(manifests, main) && !off.includes(main);
+    if (gone && !mainThere) { put(id, { off: true }); continue; }
+    const roles = ROLES_LISTED.filter((r) => !canOpenArea(id, { manifests, permissions: isObject(rolePermissions[r]) ? rolePermissions[r] : {}, on, off }));
     if (roles.length) put(id, { roles });
   }
   return out;
 }
 
-module.exports = { SHAPES, SHAPE_IDS, GRID, COLUMN_IDS, COMPOSITE_PARTS, shapeById, cleanShape, whoCantOpen };
+module.exports = { COMPOSITES, foldsInto, canOpenArea, SHAPES, SHAPE_IDS, GRID, COLUMN_IDS, COMPOSITE_PARTS, shapeById, cleanShape, whoCantOpen };

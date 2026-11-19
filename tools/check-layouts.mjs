@@ -30,11 +30,13 @@ const require = createRequire(import.meta.url);
 const { Layouts, LayoutError, cleanLayout, cleanSystemPatch, LAYOUT_LIMITS, SYSTEM_IDS } = require('../server/layouts.js');
 import { pathToFileURL } from 'node:url';
 const { Store } = require('../server/store.js');
+const SHB = { shape: 'one', areas: [null] }; // a shared layout's body: a shape and its areas
 const ONE = { shape: 'one', areas: [null] }; // the Default template's layout, which a space with no template of its own starts with
 
 let n = 0;
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `check-layouts-${name}-`));
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+const SH = { shape: 'two-equal', areas: ['calendar', 'notes'] };
 const good = () => ({
   name: 'Game night',
   modules: [
@@ -118,9 +120,9 @@ const refused = (input, pattern, label, options) => {
 {
   const out = cleanLayout(good());
   assert.deepEqual(out.layout, good(), 'a good layout comes back as sent');
-  const trimmed = cleanLayout({ ...good(), name: '  Game \t night  ', shared: true, modules: [{ id: 'calendar', mode: 'dock', dockW: 360.4 }], snap: { all: true, pitch: 99.6 } }).layout;
+  const trimmed = cleanLayout({ ...good(), name: '  Game \t night  ', modules: [{ id: 'calendar', mode: 'dock', dockW: 360.4 }], snap: { all: true, pitch: 99.6 } }).layout;
   assert.equal(trimmed.name, 'Game night', 'the name is trimmed, its whitespace collapsed');
-  assert.equal(trimmed.shared, true);
+  assert.ok(!('shared' in trimmed), 'shared is not given when it was not sent');
   assert.equal(trimmed.modules[0].dockW, 360, 'pixels rounded');
   assert.equal(trimmed.snap.pitch, 100);
   assert.ok(!('snap' in cleanLayout({ name: 'x', modules: [{ id: 'chat', mode: 'dock' }] }).layout), 'snap may be left out');
@@ -178,6 +180,144 @@ const refused = (input, pattern, label, options) => {
   refused({ modules: 'chat' }, /List the/, 'a PUT with modules not a list', { partial: true });
 }
 
+// --- cleanLayout: a layout for everyone is a shape (plan-layout-picker.md, step 6; decision 5) -----------------------
+{
+  const opts = { shapeOptions: { modules: ['calendar', 'polls', 'todo', 'notes'], on: ['calendar', 'polls', 'todo', 'notes'], names: { calendar: 'Calendar', polls: 'Votes', todo: 'To-do', notes: 'Notes', vault: 'Vault' } } };
+  const offCalendar = { shapeOptions: { modules: ['polls', 'todo', 'notes'], on: ['polls', 'todo', 'notes'], names: { polls: 'Votes', todo: 'To-do', notes: 'Notes' } } };
+  const sh = (shape, areas, more = {}) => ({ name: 'For all', shared: true, shape, areas, ...more });
+  const sharedRefused = (input, pattern, label, options = opts) => {
+    const out = cleanLayout(input, options);
+    assert.ok(out.error && !out.layout, `${label}: refused (${JSON.stringify(out)})`);
+    assert.match(out.error, pattern, label);
+    assert.match(out.error, /^[^\n]+\.$/, `${label}: one sentence`);
+    assert.ok(Array.isArray(out.problems) && out.problems[0] === out.error && out.parts.length === out.problems.length, `${label}: problems and parts`);
+    n += 1;
+    return out;
+  };
+  // Each shape is accepted with modules and with empty areas, and comes back as a shape and its areas, no free-form keys.
+  for (const [shape, areas] of [['one', ['calendar']], ['one', [null]], ['two-equal', ['calendar', null]], ['wide-narrow', ['polls', 'calendar']], ['three-equal', ['calendar', 'polls', 'todo']], ['tall-split', ['calendar', 'polls', null]], ['wide-split', ['calendar', null, 'notes']]]) {
+    assert.deepEqual(cleanLayout(sh(shape, areas), opts).layout, { name: 'For all', shared: true, shape, areas }, `${shape} ${JSON.stringify(areas)}`);
+  }
+  n += 1;
+  assert.equal(cleanLayout(sh('one', [null], { name: '  Our \t day ', icon: 'couch' }), { ...opts, icons: ['couch'] }).layout.name, 'Our day');
+  assert.equal(cleanLayout(sh('one', [null], { icon: 'couch' }), opts).layout.icon, 'couch', 'a shared shape takes an icon');
+  // With no list of modules, any well-formed id passes (the pure check alone).
+  assert.ok(cleanLayout(sh('two-equal', ['anything', null])).layout, 'with no module list given');
+  // The shape rules reach the layout: To-do stacks while the Calendar is off in the space, and not once it is on.
+  assert.ok(cleanLayout(sh('tall-split', ['polls', 'todo', 'notes']), offCalendar).layout, 'To-do in a stacked area where the Calendar is off');
+  sharedRefused(sh('tall-split', ['polls', 'todo', 'notes']), /^To-do can't share a column; put it in area 1\.$/, 'To-do in a stacked area, Calendar on');
+  sharedRefused(sh('wide-split', ['polls', 'calendar', null]), /^Calendar can't share a column; put it in area 1\.$/, 'Calendar in a stacked area');
+  sharedRefused(sh('nine', [null]), /^Pick a shape from the list\.$/, 'an unknown shape');
+  sharedRefused({ name: 'x', shared: true, areas: [null] }, /^Pick a shape from the list\.$/, 'no shape');
+  sharedRefused(sh('two-equal', [null]), /^This shape has 2 areas\.$/, 'the wrong area count');
+  sharedRefused(sh('one', 'calendar'), /^This shape has 1 area\.$/, 'areas not a list');
+  sharedRefused(sh('two-equal', ['chat', null]), /column on the left/, 'the chat');
+  sharedRefused(sh('two-equal', [null, 'conference']), /column on the left/, 'the call');
+  sharedRefused(sh('two-equal', ['polls', 'polls']), /^Votes is in two areas; a module can be in one area only\.$/, 'a module twice, named as the space shows it');
+  sharedRefused(sh('two-equal', ['vault', null]), /^Vault is not available in this space\.$/, 'a module that is not on in the space');
+  sharedRefused(sh('one', [7]), /^Area 1 takes a module or nothing\.$/, 'an area that is not text');
+  const two = sharedRefused(sh('three-equal', ['vault', 'polls', 'polls']), /./, 'two problems');
+  assert.deepEqual([two.problems.length, two.parts], [2, ['areas', 'areas']], 'every sentence, with its part');
+  for (const key of ['modules', 'snap', 'arrange']) sharedRefused(sh('one', [null], { [key]: key === 'snap' ? { all: true, pitch: 100 } : key === 'arrange' ? 'dock' : [] }), /^A layout for everyone is a shape; pick one with the picker\.$/, `${key} on a shared layout`);
+  sharedRefused(sh('one', [null], { widths: [100] }), /does not take "widths"/, 'a width');
+  // Hostile ids and names: one short plain line, the id quoted without anything but printable ASCII, a name cleaned.
+  for (const id of ['__proto__', 'constructor', 'a\nb', '‮evil', '<img src=x onerror=1>', 'x'.repeat(80), '', 'Polls']) {
+    const out = sharedRefused(sh('one', [id]), /./, `hostile id ${JSON.stringify(id).slice(0, 20)}`);
+    assert.match(out.error, /^("[ -~]{0,40}"|That id) is not a module you can use here\.$/, out.error);
+  }
+  // A character that is not printable shows as ?, so no id reads as another one; an id with nothing printable has no text.
+  for (const [id, want] of [['to\ndo', '"to?do" is not a module you can use here.'], ['\u202etodo', '"?todo" is not a module you can use here.'], ['', 'That id is not a module you can use here.'], ['\u00e9'.repeat(300), 'That id is not a module you can use here.'], ['t\u00e9st', '"t?st" is not a module you can use here.']]) {
+    assert.equal(sharedRefused(sh('one', [id]), /./, `an id with unprintable characters ${JSON.stringify(id).slice(0, 12)}`).error, want);
+  }
+  // A module on in the space with no place on the canvas: it can't go in an area, named as the space shows it.
+  const noArea = sharedRefused(sh('one', ['assistant']), /./, 'a module with no canvas place', { shapeOptions: { modules: ['notes'], names: { assistant: 'AI Assistant', notes: 'Notes' }, noArea: ['assistant'] } });
+  assert.equal(noArea.error, "AI Assistant can't go in an area.");
+  assert.equal(sharedRefused(sh('one', ['vault']), /./, 'a module not on at all', { shapeOptions: { modules: ['notes'], names: { vault: 'Vault' }, noArea: ['assistant'] } }).error, 'Vault is not available in this space.');
+  const hostileName = cleanLayout(sh('one', ['notes']), { shapeOptions: { modules: ['notes'], names: { notes: '<b>x\nyz</b>'.repeat(10) } } });
+  assert.ok(hostileName.layout, 'a hostile name only matters in a sentence');
+  const dup = cleanLayout(sh('two-equal', ['notes', 'notes']), { shapeOptions: { modules: ['notes'], names: { notes: 'a\nb'.repeat(30) } } });
+  assert.ok(!dup.error.includes('\n') && dup.error.length < 120, 'a name with a line break in a sentence is cleaned and cut');
+  // A personal layout takes no shape; a shared one is a shape, never free-form.
+  refused({ ...good(), shape: 'one', areas: [null] }, /^Only a layout for everyone is a shape/, 'a personal layout with a shape');
+  refused({ name: 'x', modules: [], areas: [null] }, /^Only a layout for everyone is a shape/, 'a personal layout with areas');
+  // A PUT: the layout's kind says which keys it takes.
+  const asShared = { partial: true, shared: true, ...opts };
+  assert.deepEqual(cleanLayout({ name: 'Renamed' }, asShared).layout, { name: 'Renamed' }, 'a rename of a shape');
+  assert.deepEqual(cleanLayout({ shape: 'two-equal', areas: ['polls', null] }, asShared).layout, { shape: 'two-equal', areas: ['polls', null] }, 'a replace');
+  assert.deepEqual(cleanLayout({}, asShared).layout, {}, 'nothing to change is the route\'s to refuse');
+  refused({ shape: 'two-equal' }, /^This shape has 2 areas\.$/, 'a shape with no areas', asShared);
+  refused({ areas: [null] }, /^Pick a shape from the list\.$/, 'areas with no shape', asShared);
+  refused({ modules: [] }, /^A layout for everyone is a shape/, 'modules on a shared PUT', asShared);
+  refused({ shape: 'one', areas: [null] }, /^Only a layout for everyone is a shape/, 'a shape on a personal PUT', { partial: true });
+  assert.deepEqual(cleanLayout({ modules: stackedDock() }, { partial: true }).layout.modules.map((m) => m.id), ['a', 'b'], 'a personal PUT is as it was');
+  n += 1;
+}
+function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'dock' }]; }
+
+// --- the file: free-form shared layouts are dropped on read (plan-layout-picker.md, decision 5) ------------------------
+{
+  const dir = tmp('dropped');
+  const file = path.join(dir, 'layouts.json');
+  const entry = (id, more) => ({ id, name: `Layout ${id}`, by: 'x', at: '2026-11-01T00:00:00.000Z', ...more });
+  const own = entry('lown001', { modules: [{ id: 'chat', mode: 'dock' }] });
+  fs.writeFileSync(file, JSON.stringify({ spaces: {
+    s1: {
+      shared: [
+        entry('lfree01', { modules: [{ id: 'calendar', mode: 'dock', dockW: 360 }], snap: { all: false, pitch: 130 } }),
+        entry('lshape1', { shape: 'tall-split', areas: ['calendar', 'polls', null] }),
+        entry('lnoshap', { areas: [null] }),
+        entry('lbadshp', { shape: 'nine', areas: [null] }),
+        entry('lbadlen', { shape: 'two-equal', areas: [null] }),
+        entry('lboth01', { shape: 'one', areas: [null], modules: [] }),
+        entry('lnullmd', { shape: 'one', areas: [null], modules: null }),
+        entry('lstrmod', { shape: 'one', areas: [null], modules: 'x' }),
+        entry('lsnap01', { shape: 'one', areas: [null], snap: { all: true, pitch: 100 } }),
+        entry('larrng1', { shape: 'one', areas: [null], arrange: 'dock' }),
+        entry('lunk001', { shape: 'one', areas: [null], icon: 'couch', evil: '<img onerror=alert(1)>' }),
+        entry('lcal001', { shape: 'tall-split', areas: ['polls', 'calendar', null] }),
+        entry('ltodo01', { shape: 'tall-split', areas: ['polls', 'todo', null] }),
+      ],
+      people: { pat: [own] },
+      favorites: { pat: ['lfree01', 'lshape1', 'lown001'] },
+      last: { pat: { layout: 'lfree01', at: 5 }, sam: { layout: 'lshape1', at: 6 } },
+    },
+    s2: { shared: [entry('lfree02', { modules: [] })], people: {} },
+  } }));
+  const read = new Layouts(dir);
+  assert.deepEqual(read.listOf('s1', null).map((l) => l.id), ['lshape1', 'lunk001', 'ltodo01'], 'only the valid shapes stay (any modules, snap or arrange key drops an entry, null or text too; an unknown key is cut but the entry stays): a free-form one, a bad or missing shape, a wrong count and one with modules are dropped; a Calendar in a stacked area too, a To-do there is kept (the Calendar may be off)');
+  assert.deepEqual(Object.keys(read.listOf('s1', null).find((l) => l.id === 'lunk001')).sort(), ['areas', 'at', 'by', 'icon', 'id', 'name', 'shape'], 'only the shape fields are kept: an unknown key never reaches an answer');
+  assert.deepEqual(read.favorites('s1', 'pat'), ['lshape1', 'lown001'], 'a favorite that named a dropped layout is gone');
+  assert.equal(read.lastOf('s1', 'pat'), null, 'and so is a last layout');
+  assert.equal(read.lastOf('s1', 'sam'), 'lshape1', 'one that names a shape stays');
+  assert.equal(read.find('s1', 'lfree01', 'pat'), null, 'a dropped one is not found');
+  assert.ok(!read.spaces.s2, 'a space left with nothing is dropped');
+  assert.equal(readJson(file).spaces.s1.shared.length, 13, 'reading rewrites nothing');
+  read.add('s1', 'pat', { name: 'Later', modules: [], shared: false });
+  assert.deepEqual(readJson(file).spaces.s1.shared.map((l) => l.id), ['lshape1', 'lunk001', 'ltodo01'], 'the dropped ones leave the file at the next save');
+  assert.ok(!('s2' in readJson(file).spaces), 'and their space with them');
+  // The limit counts the shapes that are left, and a layout of the same name as a dropped one can be saved.
+  assert.doesNotThrow(() => read.add('s1', 'pat', { name: 'Layout lfree01', shared: true, shape: 'one', areas: [null] }), 'the name of a dropped layout is free');
+  fs.rmSync(dir, { recursive: true, force: true });
+  n += 1;
+
+  // A space's defaultLayout that names a dropped layout reads as none, and a first visit opens the Workspace.
+  const dir2 = tmp('dropped-default');
+  const store = new Store(dir2);
+  const pat = store.addUser({ login: 'pat', displayName: 'Pat', role: 'member', passwordHash: 'x' });
+  const a = store.addSpace({ name: 'A', members: [pat.key] });
+  const kept = store.layouts.add(a.id, pat.key, { name: 'Kept', shared: true, ...SHB });
+  store.updateSpace(a.id, { defaultLayout: kept.id });
+  const raw = readJson(path.join(dir2, 'app.json'));
+  raw.spaces.find((r) => r.id === a.id).defaultLayout = 'lfree01';
+  fs.writeFileSync(path.join(dir2, 'app.json'), JSON.stringify(raw));
+  const again = new Store(dir2);
+  assert.equal(again.defaultLayoutOf(a.id), null, 'a default that names a dropped layout reads as none');
+  assert.equal(again.defaultLayoutOf(a.id) === null && again.layouts.find(a.id, 'lfree01', null), null);
+  assert.throws(() => again.updateSpace(a.id, { defaultLayout: 'lfree01' }), (e) => e.status === 404, 'and cannot be set again');
+  fs.rmSync(dir2, { recursive: true, force: true });
+  n += 1;
+}
+
 // --- the file: lists, limits, names, clean-up --------------------------------------------------------------------
 
 {
@@ -185,7 +325,7 @@ const refused = (input, pattern, label, options) => {
   const layouts = new Layouts(dir);
   assert.ok(!fs.existsSync(path.join(dir, 'layouts.json')), 'nothing written until something is saved');
   const g = cleanLayout(good()).layout;
-  const shared = layouts.add('s1', 'pat', { ...g, shared: true });
+  const shared = layouts.add('s1', 'pat', { ...g, ...SH, shared: true });
   assert.match(shared.id, /^l[a-z0-9]{6}$/);
   assert.equal(shared.by, 'pat');
   assert.ok(!Number.isNaN(Date.parse(shared.at)));
@@ -204,21 +344,21 @@ const refused = (input, pattern, label, options) => {
 
   // Names unique in their list, regardless of case: 409 with the id of the one that has it.
   assert.throws(() => layouts.add('s1', 'pat', { ...g, name: 'GAME night' }), (e) => e instanceof LayoutError && e.status === 409 && e.extra.id === mine.id && e.message === 'There is already a layout called game NIGHT.');
-  assert.throws(() => layouts.add('s1', 'sam', { ...g, shared: true, name: 'Game Night' }), (e) => e.status === 409 && e.extra.id === shared.id);
+  assert.throws(() => layouts.add('s1', 'sam', { ...g, ...SH, shared: true, name: 'Game Night' }), (e) => e.status === 409 && e.extra.id === shared.id);
   assert.equal(layouts.add('s2', 'pat', { ...g }).name, 'Game night', 'the same name in another space is fine');
 
   // 10 personal per person per space, 10 shared per space.
   for (let i = 1; i < 10; i += 1) layouts.add('s1', 'pat', { ...g, name: `Mine ${i}` });
   assert.throws(() => layouts.add('s1', 'pat', { ...g, name: 'Eleventh' }), (e) => e.status === 409 && e.message === 'You have 10 saved layouts here. Delete one first.');
   assert.ok(layouts.add('s1', 'sam', { ...g, name: 'Eleventh' }), 'the limit is per person');
-  for (let i = 1; i < 10; i += 1) layouts.add('s1', 'sam', { ...g, shared: true, name: `Shared ${i}` });
-  assert.throws(() => layouts.add('s1', 'pat', { ...g, shared: true, name: 'Eleventh shared' }), (e) => e.status === 409 && e.message === 'This space has 10 shared layouts. Delete one first.');
+  for (let i = 1; i < 10; i += 1) layouts.add('s1', 'sam', { ...g, ...SH, shared: true, name: `Shared ${i}` });
+  assert.throws(() => layouts.add('s1', 'pat', { ...g, ...SH, shared: true, name: 'Eleventh shared' }), (e) => e.status === 409 && e.message === 'This space has 10 shared layouts. Delete one first.');
 
   // Rename and replace; a rename onto a taken name is a 409; renaming to its own name in another case is fine.
   assert.equal(layouts.update('s1', mine.id, 'pat', { name: 'Game Night' }).name, 'Game Night');
   assert.throws(() => layouts.update('s1', mine.id, 'pat', { name: 'mine 1' }), (e) => e.status === 409);
-  const replaced = layouts.update('s1', shared.id, 'sam', { modules: [{ id: 'chat', mode: 'dock' }], snap: { all: true, pitch: 90 } });
-  assert.deepEqual(replaced.modules, [{ id: 'chat', mode: 'dock' }]);
+  const replaced = layouts.update('s1', shared.id, 'sam', { shape: 'one', areas: ['notes'] });
+  assert.deepEqual([replaced.shape, replaced.areas, 'modules' in replaced], ['one', ['notes'], false], 'a shared layout is replaced with a shape');
   assert.equal(replaced.by, 'pat', 'by stays who saved it first');
   assert.equal(layouts.update('s1', mine.id, 'sam', { name: 'Taken' }), null, "nobody changes another person's own");
   assert.equal(layouts.remove('s1', mine.id, 'sam'), false);
@@ -236,12 +376,12 @@ const refused = (input, pattern, label, options) => {
 
   // A later version's extra fields survive a read and a write here; malformed entries are dropped.
   const dir2 = tmp('extra');
-  fs.writeFileSync(path.join(dir2, 'layouts.json'), JSON.stringify({ spaces: { s1: { shared: [{ id: 'lfuture', name: 'Future', by: 'x', at: 'now', modules: [{ id: 'chat', mode: 'dock', later: 1 }], later: true }, 'junk', { id: 7 }], people: { pat: 'junk' } } } }));
+  fs.writeFileSync(path.join(dir2, 'layouts.json'), JSON.stringify({ spaces: { s1: { shared: [{ id: 'lfuture', name: 'Future', by: 'x', at: 'now', shape: 'one', areas: ['notes'], later: true }, { id: 'lold', name: 'Free-form', by: 'x', at: 'now', modules: [{ id: 'chat', mode: 'dock' }] }, 'junk', { id: 7 }], people: { pat: 'junk' } } } }));
   const kept = new Layouts(dir2);
   kept.add('s1', 'pat', { ...g });
   const back = readJson(path.join(dir2, 'layouts.json')).spaces.s1;
-  assert.equal(back.shared.length, 1);
-  assert.equal(back.shared[0].later, true, 'a field this version does not know is kept');
+  assert.equal(back.shared.length, 1, 'the free-form shared layout is dropped on read, and the shape stays');
+  assert.ok(!('later' in back.shared[0]), 'a shared layout keeps only the shape fields, so a field this version does not know is cut');
   n += 1;
 
   // A file that is there but cannot be read is never written over: lists read empty, every change refused with a 500.
@@ -264,7 +404,7 @@ const refused = (input, pattern, label, options) => {
   const file = path.join(dir, 'layouts.json');
   const layouts = new Layouts(dir);
   const g = cleanLayout(good()).layout;
-  const shared = Array.from({ length: 10 }, (_, i) => layouts.add('s1', 'mod', { ...g, name: `Shared ${i}`, shared: true }));
+  const shared = Array.from({ length: 10 }, (_, i) => layouts.add('s1', 'mod', { ...g, ...SH, name: `Shared ${i}`, shared: true }));
   const patOwn = Array.from({ length: 10 }, (_, i) => layouts.add('s1', 'pat', { ...g, name: `Pat ${i}` }));
   const samOwn = layouts.add('s1', 'sam', { ...g, name: 'Sam' });
   const before = fs.readFileSync(file, 'utf8');
@@ -478,7 +618,7 @@ const refused = (input, pattern, label, options) => {
   assert.match(setFn, /const \{ favorites, layout: answered \} = await layoutRequest\(/);
   assert.match(setFn, /if \(system\) system\.tab = answered && typeof answered\.tab === 'boolean' \? answered\.tab : on;/, 'Calendar and Map: the answer says whether their tab shows (plan-layout-views.md, step 2)');
   assert.match(setFn, /layoutList\.favorites = Array\.isArray\(favorites\) \? favorites : \[\];/);
-  assert.match(server, /res\.json\(\{ mine, shared, system, defaultLayout: [^}]*favorites, canShare: found\.canShare, canSetDefault: found\.canSetDefault, \.\.\.\(found\.canSetDefault \? \{ tabs: tabsOf\(found\.space\.tabs\) \} : \{\}\), \.\.\.\(last \? \{ last \} : \{\}\) \}\);/);
+  assert.match(server, /res\.json\(\{ mine, shared, system, defaultLayout: [^}]*favorites, canShare: found\.canShare, canSetDefault: found\.canSetDefault, \.\.\.\(found\.canShare \? withNames\(found, shared\) : \{\}\), \.\.\.\(found\.canSetDefault \? \{ tabs: tabsOf\(found\.space\.tabs\) \} : \{\}\), \.\.\.\(last \? \{ last \} : \{\}\) \}\);/);
   assert.match(space, /favorites: Array\.isArray\(got\.favorites\) \? got\.favorites : \[\]/);
   // A guest never asks: no ... entry, no favorite tabs (the server's 403 is the backstop).
   assert.match(space, /const mayFavorite = \(\) => !guestToken && Boolean\(me\?\.key\) && me\.role !== 'guest';/);
@@ -495,7 +635,8 @@ const refused = (input, pattern, label, options) => {
   assert.match(setupSrc, /if \(nowLayout !== wasLayout\) patch\.defaultLayout = nowLayout;/, 'the layout goes only when it changed');
   // The layout tabs (plan-layout-views.md, steps 2 and 3) load the page's own copy, as a row in the menu does: a favorite
   // from the saved lists, Calendar and Map from GET's `system` list (their `modules`, the composite docked).
-  assert.match(space, /const layout = findSystemLayout\(id\) \|\| findLayout\(id\);\n\s*if \(!layout \|\| !Array\.isArray\(layout\.modules\)\) return;/);
+  // A layout for everyone is a shape ({ shape, areas }; plan-layout-picker.md, step 6): loaded the same way, by loadShape.
+  assert.match(space, /const layout = findSystemLayout\(id\) \|\| findLayout\(id\);\n\s*if \(!layout \|\| !\(Array\.isArray\(layout\.modules\) \|\| isShapeLayout\(layout\)\)\) return;/);
   assert.match(space, /const findSystemLayout = \(id\) => layoutList\.system\.find\(\(l\) => l\.id === id\) \|\| null;/);
   assert.match(space, /system: Array\.isArray\(got\.system\) \? got\.system : \[\],/, 'GET\'s `system` list read for the tabs');
   n += 1;
@@ -512,7 +653,7 @@ const refused = (input, pattern, label, options) => {
   const b = store.addSpace({ name: 'B', members: [pat.key, sam.key] });
   const g = cleanLayout(good()).layout;
   store.layouts.add(a.id, pat.key, { ...g });
-  store.layouts.add(a.id, sam.key, { ...g, shared: true });
+  store.layouts.add(a.id, sam.key, { ...g, ...SH, shared: true });
   store.layouts.add(b.id, pat.key, { ...g });
   store.layouts.add(b.id, sam.key, { ...g });
   store.removeSpace(a.id);
@@ -662,7 +803,7 @@ function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in
   const a = store.addSpace({ name: 'A', members: [pat.key] });
   const g = cleanLayout(good()).layout;
   assert.ok(!('defaultLayout' in store.spaceById(a.id)), 'absent while not set');
-  const shared = store.layouts.add(a.id, pat.key, { ...g, shared: true });
+  const shared = store.layouts.add(a.id, pat.key, { ...g, ...SH, shared: true });
   const own = store.layouts.add(a.id, pat.key, { ...g, name: 'Mine' });
 
   // Setting it leaves the record's other fields alone; refusals change nothing. A space keeps no Opens with of its own
@@ -694,7 +835,7 @@ function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in
   assert.equal(space.defaultLayout, shared.id);
 
   // Replacing its modules leaves the default; a rename does not touch it.
-  store.layouts.update(a.id, shared.id, pat.key, { modules: [{ id: 'notes', mode: 'dock' }, { id: 'chat', mode: 'float', box: { x: 0, y: 0, w: 0.5, h: 0.5 } }] });
+  store.layouts.update(a.id, shared.id, pat.key, { shape: 'one', areas: ['notes'] });
   store.syncDefaultLayout(a.id);
   assert.equal(store.spaceById(a.id).defaultLayout, shared.id);
 
@@ -710,7 +851,7 @@ function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in
 
   // Deleting it clears the default; deleting another changes nothing.
   store.updateSpace(a.id, { defaultLayout: shared.id });
-  const other = store.layouts.add(a.id, pat.key, { ...g, name: 'Other', shared: true });
+  const other = store.layouts.add(a.id, pat.key, { ...g, ...SH, name: 'Other', shared: true });
   store.layouts.remove(a.id, other.id, pat.key);
   store.syncDefaultLayout(a.id);
   assert.equal(store.spaceById(a.id).defaultLayout, shared.id, 'deleting another shared layout keeps the default');
@@ -816,8 +957,8 @@ try {
   const workspace = { id: 'workspace', kind: 'system', name: 'Workspace', icon: 'columns', tab: true, shown: true, pinned: true, defaultName: 'Workspace', defaultIcon: 'columns', modules: [] };
   const empty = await expect('member reads', 200, 'GET', L, { cookie: pat });
   assert.deepEqual(empty.json, { mine: [], shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: false, canSetDefault: false });
-  assert.deepEqual((await expect('moderator reads', 200, 'GET', L, { cookie: sam })).json, { mine: [], shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: true, canSetDefault: true, tabs: { order: [...SYSTEM_IDS], hide: [] } }, 'a moderator may set the default (plan-one-bar.md step 4)');
-  assert.deepEqual((await expect('owner reads', 200, 'GET', L, { cookie: owner })).json, { mine: [], shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: true, canSetDefault: true, tabs: { order: [...SYSTEM_IDS], hide: [] } });
+  assert.deepEqual((await expect('moderator reads', 200, 'GET', L, { cookie: sam })).json, { mine: [], shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: true, canSetDefault: true, cantOpen: {}, names: {}, tabs: { order: [...SYSTEM_IDS], hide: [] } }, 'a moderator may set the default (plan-one-bar.md step 4)');
+  assert.deepEqual((await expect('owner reads', 200, 'GET', L, { cookie: owner })).json, { mine: [], shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: true, canSetDefault: true, cantOpen: {}, names: {}, tabs: { order: [...SYSTEM_IDS], hide: [] } });
   assert.deepEqual((await expect('guest reads', 200, 'GET', `${L}${asGuest}`)).json, { mine: [], shared: [], system: [], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: false, canSetDefault: false });
   await expect('nobody signed in', 401, 'GET', L);
   await expect('a member of another space', 404, 'GET', L, { cookie: out });
@@ -829,10 +970,10 @@ try {
   const patOwn = await expect('member saves own', 201, 'POST', L, { cookie: pat, body: good() });
   assert.equal(patOwn.json.layout.name, 'Game night');
   assert.equal(patOwn.json.layout.by, patUser.key);
-  const refusal = await expect('member saves shared', 403, 'POST', L, { cookie: pat, body: { ...good(), shared: true } });
+  const refusal = await expect('member saves shared', 403, 'POST', L, { cookie: pat, body: { ...SHB, name: 'Game night', shared: true } });
   assert.equal(refusal.json.error, "Only owners, the admin and this space's moderators can change shared layouts.");
   await expect('guest saves', 403, 'POST', `${L}${asGuest}`, { body: good() });
-  await expect('guest saves shared', 403, 'POST', `${L}${asGuest}`, { body: { ...good(), shared: true } });
+  await expect('guest saves shared', 403, 'POST', `${L}${asGuest}`, { body: { ...SHB, name: 'Game night', shared: true } });
   await expect('outsider saves', 404, 'POST', L, { cookie: out, body: good() });
   await expect('bad shape', 400, 'POST', L, { cookie: pat, body: { ...good(), modules: [{ id: 'chat', mode: 'window' }] } });
   // A blank layout (modules []) is saved like any layout: name required, the unique-name rule, a guest cannot create one.
@@ -846,12 +987,12 @@ try {
   assert.deepEqual((await call('GET', L, { cookie: pat })).json.mine.find((l) => l.id === blank.json.layout.id).modules, [], 'read back blank');
   await expect('delete the blank one', 204, 'DELETE', `${L}/${blank.json.layout.id}`, { cookie: pat });
   await expect('not JSON fields', 400, 'POST', L, { cookie: pat, body: { name: 'x' } });
-  const samShared = await expect('moderator saves shared', 201, 'POST', L, { cookie: sam, body: { ...good(), name: 'Planning', shared: true } });
-  const ownerShared = await expect('owner saves shared', 201, 'POST', L, { cookie: owner, body: { ...good(), shared: true } });
+  const samShared = await expect('moderator saves shared', 201, 'POST', L, { cookie: sam, body: { ...SHB, name: 'Planning', shared: true } });
+  const ownerShared = await expect('owner saves shared', 201, 'POST', L, { cookie: owner, body: { ...SHB, name: 'Game night', shared: true } });
   const taken = await expect('name taken in own list', 409, 'POST', L, { cookie: pat, body: { ...good(), name: 'GAME NIGHT' } });
   assert.equal(taken.json.id, patOwn.json.layout.id, 'the 409 names the one with that name');
   assert.equal(taken.json.error, 'There is already a layout called Game night.');
-  const takenShared = await expect('name taken in shared list', 409, 'POST', L, { cookie: sam, body: { ...good(), name: 'planning', shared: true } });
+  const takenShared = await expect('name taken in shared list', 409, 'POST', L, { cookie: sam, body: { ...SHB, name: 'planning', shared: true } });
   assert.equal(takenShared.json.id, samShared.json.layout.id);
   n += 1;
 
@@ -868,7 +1009,7 @@ try {
   const spaceB = (await call('POST', '/api/spaces', { cookie: owner, body: { name: 'Other', members: [] } })).json.space;
   await expect('B allows guests', 200, 'PATCH', `/api/spaces/${spaceB.id}`, { cookie: owner, body: { allowGuests: true } });
   const guestB = `?guest=${encodeURIComponent((await expect('B guest link', 200, 'POST', `/api/spaces/${spaceB.id}/guest-link`, { cookie: owner, body: {} })).json.space.guestToken)}`;
-  await expect('B owner saves shared', 201, 'POST', `/api/spaces/${spaceB.id}/layouts`, { cookie: owner, body: { ...good(), name: 'Only B', shared: true } });
+  await expect('B owner saves shared', 201, 'POST', `/api/spaces/${spaceB.id}/layouts`, { cookie: owner, body: { ...SHB, name: 'Only B', shared: true } });
   assert.deepEqual((await expect('guest of B reads B', 200, 'GET', `/api/spaces/${spaceB.id}/layouts${guestB}`)).json.shared.map((l) => l.name), ['Only B']);
   await expect('guest of A reads B', 403, 'GET', `/api/spaces/${spaceB.id}/layouts${asGuest}`);
   await expect('guest of B reads A', 403, 'GET', `${L}${guestB}`);
@@ -909,8 +1050,8 @@ try {
   for (let i = 1; i < 10; i += 1) await expect(`pat's own #${i + 1}`, 201, 'POST', L, { cookie: pat, body: { ...good(), name: `Mine ${i}` } });
   const full = await expect('the eleventh own', 409, 'POST', L, { cookie: pat, body: { ...good(), name: 'Eleventh' } });
   assert.equal(full.json.error, 'You have 10 saved layouts here. Delete one first.');
-  for (let i = 1; i < 10; i += 1) await expect(`shared #${i + 1}`, 201, 'POST', L, { cookie: owner, body: { ...good(), name: `Shared ${i}`, shared: true } });
-  const fullShared = await expect('the eleventh shared', 409, 'POST', L, { cookie: sam, body: { ...good(), name: 'Eleventh', shared: true } });
+  for (let i = 1; i < 10; i += 1) await expect(`shared #${i + 1}`, 201, 'POST', L, { cookie: owner, body: { ...SHB, name: `Shared ${i}`, shared: true } });
+  const fullShared = await expect('the eleventh shared', 409, 'POST', L, { cookie: sam, body: { ...SHB, name: 'Eleventh', shared: true } });
   assert.equal(fullShared.json.error, 'This space has 10 shared layouts. Delete one first.');
   const samMine = (await expect('sam may still save his own', 201, 'POST', L, { cookie: sam, body: { ...good(), name: 'Mine' } })).json.layout;
   n += 1;
@@ -972,7 +1113,7 @@ try {
   assert.deepEqual((await call('GET', L, { cookie: sam })).json.favorites, [samMine.id], "gone from sam's");
   assert.ok(!readJson(path.join(dataDir, 'layouts.json')).spaces[S].favorites[samUser.key].includes(sharedIds[0]), 'and from the file');
   await expect('a deleted layout', 404, 'PUT', fav(sharedIds[0]), { cookie: pat });
-  await expect('replace the shared one deleted', 201, 'POST', L, { cookie: owner, body: { ...good(), name: 'Shared again', shared: true } });
+  await expect('replace the shared one deleted', 201, 'POST', L, { cookie: owner, body: { ...SHB, name: 'Shared again', shared: true } });
   n += 1;
 
   // Kept across a restart, in DATA_DIR/layouts.json.
@@ -1010,8 +1151,8 @@ try {
   assert.ok(!('defaultLayout' in camp), 'a new space has none');
   const C = `/api/spaces/${camp.id}`;
   await expect('sam made moderator of Camp', 200, 'PATCH', `/api/users/${samUser.key}/spaces/${camp.id}`, { cookie: owner2, body: { permissions: { moderator: true } } });
-  const night = (await expect('moderator saves shared in Camp', 201, 'POST', `${C}/layouts`, { cookie: sam2, body: { ...good(), shared: true } })).json.layout;
-  const plan = (await expect('owner saves shared in Camp', 201, 'POST', `${C}/layouts`, { cookie: owner2, body: { ...good(), name: 'Planning', modules: [{ id: 'calendar', mode: 'dock' }], shared: true } })).json.layout;
+  const night = (await expect('moderator saves shared in Camp', 201, 'POST', `${C}/layouts`, { cookie: sam2, body: { ...SHB, name: 'Game night', shared: true } })).json.layout;
+  const plan = (await expect('owner saves shared in Camp', 201, 'POST', `${C}/layouts`, { cookie: owner2, body: { ...SHB, name: 'Planning', shared: true } })).json.layout;
   const ownCamp = (await expect('owner saves own in Camp', 201, 'POST', `${C}/layouts`, { cookie: owner2, body: { ...good(), name: 'Mine' } })).json.layout;
   const forSpace = async (cookie, query = '') => (await expect('for-space', 200, 'GET', `/api/modules/for-space?space=${camp.id}${query}`, { cookie })).json;
   assert.equal((await forSpace(pat2)).defaultLayout, null, 'for-space: null while none is set');
@@ -1054,10 +1195,10 @@ try {
   assert.equal((await call('PATCH', `${C}${campGuest}`, { body: { defaultLayout: null } })).status, 401, 'a guest cannot clear it');
 
   // Replacing the default's modules, renaming it or replacing another layout leaves the starting layout alone.
-  await expect('moderator replaces the default', 200, 'PUT', `${C}/layouts/${night.id}`, { cookie: sam2, body: { modules: [{ id: 'chat', mode: 'dock' }, { id: 'notes', mode: 'dock' }] } });
+  await expect('moderator replaces the default', 200, 'PUT', `${C}/layouts/${night.id}`, { cookie: sam2, body: { shape: 'two-equal', areas: [null, null] } });
   assert.deepEqual((await forSpace(pat2)).layout, ONE, 'the starting layout does not follow a replace');
   await expect('rename the default', 200, 'PUT', `${C}/layouts/${night.id}`, { cookie: sam2, body: { name: 'Late night' } });
-  await expect('replace another', 200, 'PUT', `${C}/layouts/${plan.id}`, { cookie: owner2, body: { modules: [{ id: 'map', mode: 'dock' }] } });
+  await expect('replace another', 200, 'PUT', `${C}/layouts/${plan.id}`, { cookie: owner2, body: { shape: 'one', areas: [null] } });
   let fs2 = await forSpace(pat2);
   assert.deepEqual(fs2.layout, ONE);
   assert.equal(fs2.defaultLayout.name, 'Late night');
@@ -1206,15 +1347,166 @@ try {
   assert.equal((await call('GET', L, { cookie: pat3 })).json.system[1].name, 'Our plans', 'and comes back as the person left it');
   n += 1;
 
+  // Shared layouts are shapes (plan-layout-picker.md, step 6, decision 5): a layout for everyone is { shape, areas }, checked
+  // against the modules on in the space, with no modules, snap or arrange; a personal one stays free-form and takes no shape.
+  for (const id of ['polls', 'todo']) {
+    await expect(`install ${id}`, 201, 'POST', `/api/modules/bundled/${id}/install`, { cookie: owner2 });
+    await expect(`enable ${id}`, 200, 'PATCH', `/api/modules/${id}`, { cookie: owner2, body: { enabled: true, allSpaces: true } });
+  }
+  await expect('Calendar on in every space', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: true, allSpaces: true } });
+  const LC = `${C}/layouts`;
+  const sharedOf = async (cookie) => (await call('GET', LC, { cookie })).json;
+  const refusedShape = async (label, body, sentence, cookie = owner2) => {
+    const r = await expect(label, 400, 'POST', LC, { cookie, body: { name: 'Refused', shared: true, ...body } });
+    if (sentence instanceof RegExp) assert.match(r.json.error, sentence, label); else if (sentence) assert.equal(r.json.error, sentence, label);
+    assert.ok(!/[\n\r]/.test(r.json.error) && r.json.error.length <= 160, `${label}: one short line`);
+    assert.ok(Array.isArray(r.json.problems) && r.json.problems[0] === r.json.error && Array.isArray(r.json.parts) && r.json.parts.length === r.json.problems.length, `${label}: problems and parts, as a template's refusal`);
+    return r.json;
+  };
+  const duo = (await expect('owner saves a shape', 201, 'POST', LC, { cookie: owner2, body: { name: 'Duo', shape: 'two-equal', areas: ['calendar', 'polls'], shared: true } })).json.layout;
+  assert.deepEqual([duo.shape, duo.areas, 'modules' in duo, 'snap' in duo, 'arrange' in duo], ['two-equal', ['calendar', 'polls'], false, false, false], 'a shape and its areas, nothing free-form');
+  const split = (await expect('moderator saves a shape with an empty area', 201, 'POST', LC, { cookie: sam2, body: { name: 'Split', shape: 'wide-split', areas: ['calendar', 'polls', null], icon: 'couch', shared: true } })).json.layout;
+  assert.deepEqual([split.shape, split.areas, split.icon, split.by], ['wide-split', ['calendar', 'polls', null], 'couch', samUser.key]);
+  assert.deepEqual(readJson(path.join(dataDir, 'layouts.json')).spaces[camp.id].shared.find((l) => l.id === split.id), split, 'stored as answered');
+  // To-do stacks while the Calendar is off in the space and is refused there once the Calendar is on: the rule reads the space.
+  await refusedShape('To-do in a stacked area, Calendar on', { shape: 'tall-split', areas: ['polls', 'todo', null] }, "To-do can't share a column; put it in area 1.");
+  await refusedShape('Calendar in a stacked area', { shape: 'tall-split', areas: ['polls', 'calendar', null] }, "Calendar can't share a column; put it in area 1.");
+  await expect('To-do in area 1 beside the Calendar', 201, 'POST', LC, { cookie: owner2, body: { name: 'Todo one', shape: 'two-equal', areas: ['todo', 'calendar'], shared: true } });
+  // The refusals, each one plain sentence, 400.
+  await refusedShape('free-form modules for a shared layout', { modules: [{ id: 'calendar', mode: 'dock' }] }, 'A layout for everyone is a shape; pick one with the picker.');
+  await refusedShape('snap for a shared layout', { ...SHB, snap: { all: true, pitch: 100 } }, 'A layout for everyone is a shape; pick one with the picker.');
+  await refusedShape('arrange for a shared layout', { ...SHB, arrange: 'dock' }, 'A layout for everyone is a shape; pick one with the picker.');
+  await refusedShape('modules with a shape', { ...SHB, modules: [] }, 'A layout for everyone is a shape; pick one with the picker.');
+  await refusedShape('no shape', { areas: [null] }, 'Pick a shape from the list.');
+  await refusedShape('an unknown shape', { shape: 'nine', areas: [null] }, 'Pick a shape from the list.');
+  await refusedShape('a shape that is not text', { shape: 5, areas: [null] }, 'Pick a shape from the list.');
+  await refusedShape('too few areas', { shape: 'three-equal', areas: [null, null] }, 'This shape has 3 areas.');
+  await refusedShape('too many areas', { shape: 'one', areas: [null, null] }, 'This shape has 1 area.');
+  await refusedShape('areas not a list', { shape: 'one', areas: 'polls' }, 'This shape has 1 area.');
+  await refusedShape('a width', { shape: 'one', areas: [null], widths: [100] }, /does not take "widths"/);
+  await refusedShape('the chat in an area', { shape: 'two-equal', areas: ['chat', null] }, "The chat and the call are in the column on the left; they can't go in an area.");
+  await refusedShape('the conference in an area', { shape: 'two-equal', areas: [null, 'conference'] }, "The chat and the call are in the column on the left; they can't go in an area.");
+  await refusedShape('a module that is not installed here', { shape: 'one', areas: ['vault'] }, /^Vault is not available in this space\.$/);
+  await refusedShape('an area that is not text', { shape: 'one', areas: [5] }, /^Area 1 takes a module or nothing\.$/);
+  const twice = await refusedShape('a module twice', { shape: 'two-equal', areas: ['polls', 'polls'] }, 'Polls is in two areas; a module can be in one area only.');
+  assert.deepEqual(twice.parts, ['areas']);
+  const both = await refusedShape('two problems at once', { shape: 'three-equal', areas: ['vault', 'polls', 'polls'] });
+  assert.equal(both.problems.length, 2, 'every sentence, not only the first');
+  assert.deepEqual(both.parts, ['areas', 'areas']);
+  // Hostile ids and names: never echoed raw, never a line break, never longer than a short line.
+  for (const bad of ['__proto__', 'a\nb', '<img src=x onerror=alert(1)>', 'x'.repeat(300), 'Polls', '\u202egnp', 'a b', '']) {
+    const hostile = await refusedShape(`hostile id ${JSON.stringify(bad).slice(0, 24)}`, { shape: 'one', areas: [bad] });
+    assert.ok(/^"[ -~]{0,40}" is not a module you can use here\.$/.test(hostile.error) || hostile.error === 'That id is not a module you can use here.', `a quoted, plain, short id: ${hostile.error}`);
+  }
+  await refusedShape('a hostile id twice', { shape: 'two-equal', areas: ['a\nb', 'a\nb'] });
+  await refusedShape('an object as an area', { shape: 'one', areas: [{}] }, /^Area 1 takes a module or nothing\.$/);
+  // A personal layout stays free-form and takes no shape; a refusal for it too.
+  const personalShape = await expect('a personal layout with a shape', 400, 'POST', LC, { cookie: pat3, body: { name: 'Mine shaped', ...SHB } });
+  assert.equal(personalShape.json.error, 'Only a layout for everyone is a shape; a layout of your own is saved as it is on the canvas.');
+  await expect('a personal layout with modules still saves', 201, 'POST', LC, { cookie: pat3, body: { name: 'Mine free', modules: [{ id: 'polls', mode: 'float', box: { x: 0.1, y: 0.1, w: 0.4, h: 0.4 } }] } });
+  // Who may: a member and a guest are refused (403) before anything is read, so they learn nothing about the space.
+  assert.equal((await expect('member saves a shape', 403, 'POST', LC, { cookie: pat3, body: { name: 'Nope', shared: true, shape: 'nine', areas: 7 } })).json.error, "Only owners, the admin and this space's moderators can change shared layouts.");
+  await expect('guest saves a shape', 403, 'POST', `${LC}${campGuest.replace('?', '?')}`, { body: { name: 'Nope', shared: true, ...SHB } });
+  // A replace and a rename.
+  const duoPath = `${LC}/${duo.id}`;
+  let put = await expect('moderator replaces the shape', 200, 'PUT', duoPath, { cookie: sam2, body: { shape: 'three-equal', areas: ['calendar', null, 'polls'] } });
+  assert.deepEqual([put.json.layout.shape, put.json.layout.areas, put.json.layout.by, 'modules' in put.json.layout], ['three-equal', ['calendar', null, 'polls'], duo.by, false], 'by stays who first saved it');
+  put = await expect('rename a shape', 200, 'PUT', duoPath, { cookie: owner2, body: { name: 'Three' } });
+  assert.deepEqual([put.json.layout.name, put.json.layout.shape], ['Three', 'three-equal'], 'a rename keeps the shape');
+  assert.equal((await expect('modules on a shared PUT', 400, 'PUT', duoPath, { cookie: sam2, body: { modules: [] } })).json.error, 'A layout for everyone is a shape; pick one with the picker.');
+  await expect('a shape with no areas on a PUT', 400, 'PUT', duoPath, { cookie: sam2, body: { shape: 'two-equal' } });
+  await expect('areas with no shape on a PUT', 400, 'PUT', duoPath, { cookie: sam2, body: { areas: [null] } });
+  await expect('a refused replace changes nothing', 400, 'PUT', duoPath, { cookie: sam2, body: { shape: 'wide-split', areas: ['polls', 'calendar', null] } });
+  assert.deepEqual((await sharedOf(pat3)).shared.find((l) => l.id === duo.id).areas, ['calendar', null, 'polls'], 'the refused replace left it as it was');
+  await expect('member replaces a shape', 403, 'PUT', duoPath, { cookie: pat3, body: { shape: 'one', areas: [null] } });
+  assert.equal((await expect('a PUT with nothing', 400, 'PUT', duoPath, { cookie: sam2, body: {} })).json.error, 'Send a new name, or a shape and its areas to replace the layout with.');
+  const patFree = (await sharedOf(pat3)).mine.find((l) => l.name === 'Mine free');
+  assert.equal((await expect('a shape on a personal PUT', 400, 'PUT', `${LC}/${patFree.id}`, { cookie: pat3, body: { shape: 'one', areas: [null] } })).json.error, 'Only a layout for everyone is a shape; a layout of your own is saved as it is on the canvas.');
+  await expect('a personal replace stays free-form', 200, 'PUT', `${LC}/${patFree.id}`, { cookie: pat3, body: { modules: [{ id: 'polls', mode: 'dock' }] } });
+
+  // cantOpen: answered to the owner, the admin and the space's moderators, whether or not they saved the layout; never to a
+  // member or a guest. Every module on in the space is in it, and a module a layout names that is off.
+  const guestsOff = async (id, on) => expect(`guests ${on ? 'may' : 'may not'} see ${id}`, 200, 'PATCH', '/api/roles/guest', { cookie: owner2, body: { [`module.${id}.view`]: on } });
+  const membersOff = async (id, on) => expect(`members ${on ? 'may' : 'may not'} see ${id}`, 200, 'PATCH', '/api/roles/member', { cookie: owner2, body: { [`module.${id}.view`]: on } });
+  let seen2 = await sharedOf(owner2);
+  assert.deepEqual(seen2.cantOpen, {}, 'everyone can open everything by default');
+  await guestsOff('todo', false);
+  await guestsOff('polls', false);
+  await membersOff('polls', false);
+  for (const [label, cookie] of [['owner', owner2], ['moderator', sam2]]) {
+    seen2 = await sharedOf(cookie);
+    assert.ok(!('todo' in seen2.cantOpen), `${label}: with the Calendar on To-do is the Calendar, which guests read, so it shuts nobody out (a notice that said otherwise was false)`);
+    assert.deepEqual(seen2.cantOpen.polls, { roles: ['member', 'guest'] }, `${label}: Polls closes for members and guests, in role order`);
+    assert.ok(!('calendar' in seen2.cantOpen), `${label}: a module everyone can open is not listed`);
+    assert.ok(Object.values(seen2.cantOpen).every((v) => (v.roles && !v.roles.includes('owner') && !v.roles.includes('admin')) || v.off === true), `${label}: only roles that can lack it, or off`);
+  }
+  for (const [label, got] of [['member', await sharedOf(pat3)], ['guest', (await call('GET', `${LC}${campGuest}`)).json]]) {
+    assert.ok(!('cantOpen' in got) && !('names' in got), `${label} is not told which modules others can't open, or any module's name`);
+    assert.ok(!JSON.stringify(got).includes('"roles"'), `${label}: nothing of it anywhere in the answer`);
+  }
+  // What each person sees for a To-do area, a module they can't read and a module that is off (the four cases):
+  //   Calendar on, guests read it but not To-do: the area opens the Calendar for them. Nobody is told it closes; the guest keeps the id.
+  //   Calendar off: To-do is its own. Makers are told guests can't open it; a guest's area reads empty, a member's keeps the id.
+  //   a module a guest can't read (Polls): a guest's area reads empty, a member's answer keeps the id, makers see the roles.
+  //   a module off: makers see { off: true }; a guest's area reads empty, a member's keeps the id.
+  const todoOne = (await sharedOf(owner2)).shared.find((l) => l.name === 'Todo one');
+  const guestAreas = async (l) => (await call('GET', `${LC}${campGuest}`)).json.shared.find((x) => x.id === l.id).areas;
+  assert.deepEqual(await guestAreas(todoOne), ['todo', 'calendar'], 'Calendar on: a guest who reads the Calendar keeps the To-do area');
+  assert.deepEqual(await guestAreas(duo), ['calendar', null, null], 'Polls unreadable for guests: a guest is not told its id');
+  assert.deepEqual((await sharedOf(pat3)).shared.find((x) => x.id === duo.id).areas, ['calendar', null, 'polls'], 'a member keeps the id (unchanged)');
+  await expect('Calendar off', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: false } });
+  seen2 = await sharedOf(sam2);
+  assert.deepEqual(seen2.cantOpen.todo, { roles: ['guest'] }, 'Calendar off: To-do is its own and guests can\'t open it');
+  assert.deepEqual(seen2.cantOpen.calendar, { off: true }, 'and the Calendar is off');
+  assert.deepEqual(await guestAreas(todoOne), [null, null], 'Calendar off: a guest\'s To-do area reads empty');
+  assert.deepEqual((await sharedOf(pat3)).shared.find((x) => x.id === todoOne.id).areas, ['todo', 'calendar'], 'and a member keeps the ids');
+  await expect('Calendar on again', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: true, allSpaces: true } });
+  assert.ok(!('todo' in (await sharedOf(sam2)).cantOpen), 'back on, To-do is the Calendar again');
+  // A module a layout names that is off: still listed, unchanged, and marked off for those who may edit; a guest's area reads empty.
+  await expect('turn Polls off', 200, 'PATCH', '/api/modules/polls', { cookie: owner2, body: { enabled: false } });
+  seen2 = await sharedOf(owner2);
+  assert.deepEqual(seen2.cantOpen.polls, { off: true }, 'Polls is off, whatever the roles say');
+  assert.deepEqual(seen2.shared.find((l) => l.id === duo.id).areas, ['calendar', null, 'polls'], 'the layout is answered as it was saved');
+  assert.deepEqual((await sharedOf(pat3)).shared.find((l) => l.id === duo.id).areas, ['calendar', null, 'polls'], 'a member still gets the layout whole; the page closes the area');
+  assert.deepEqual((await call('GET', `${LC}${campGuest}`)).json.shared.find((l) => l.id === duo.id).areas, ['calendar', null, null], 'a guest is shown only what is on in the space');
+  await refusedShape('a module that is off cannot be saved into a new layout', { shape: 'one', areas: ['polls'] }, /^Polls is not available in this space\.$/);
+  // for-space tells a guest what GET .../layouts does: an area whose module is off reads empty.
+  await expect('Duo is the default while Polls is off', 200, 'PATCH', C, { cookie: owner2, body: { defaultLayout: duo.id } });
+  const guestFor = (await expect('for-space as a guest', 200, 'GET', `/api/modules/for-space?space=${camp.id}&guest=${campGuest.slice(7)}`)).json;
+  assert.deepEqual(guestFor.defaultLayout.areas, ['calendar', null, null], 'a guest is not told the id of a module that is off, or one they can\'t read');
+  assert.deepEqual((await forSpace(pat3)).defaultLayout.areas, ['calendar', null, 'polls'], 'a member is');
+  await expect('turn Polls on again', 200, 'PATCH', '/api/modules/polls', { cookie: owner2, body: { enabled: true, allSpaces: true } });
+  await guestsOff('todo', true);
+  await guestsOff('polls', true);
+  await membersOff('polls', true);
+  assert.deepEqual((await sharedOf(owner2)).cantOpen, {}, 'and nothing is left once the roles are back');
+
+  // The limit of 10 shared layouts, and the default layout.
+  const have = (await sharedOf(owner2)).shared.length;
+  for (let i = have; i < 10; i += 1) await expect(`shape #${i + 1}`, 201, 'POST', LC, { cookie: owner2, body: { name: `Fill ${i}`, ...SHB, shared: true } });
+  const nameClash = await expect('a taken name', 409, 'POST', LC, { cookie: sam2, body: { name: 'Three', ...SHB, shared: true } });
+  assert.deepEqual([nameClash.json.problems, nameClash.json.parts, typeof nameClash.json.id], [[nameClash.json.error], [null], 'string'], 'a 409 for a taken name: { error, problems, parts, id }');
+  const fullBody = (await expect('the eleventh shape, whole answer', 409, 'POST', LC, { cookie: sam2, body: { name: 'Eleventh body', ...SHB, shared: true } })).json;
+  assert.deepEqual(fullBody, { error: 'This space has 10 shared layouts. Delete one first.', problems: ['This space has 10 shared layouts. Delete one first.'], parts: [null] }, 'a 409 for a full list: { error, problems, parts }');
+  assert.equal((await expect('the eleventh shape', 409, 'POST', LC, { cookie: sam2, body: { name: 'Eleventh shape', ...SHB, shared: true } })).json.error, 'This space has 10 shared layouts. Delete one first.');
+  await expect('moderator sets a shape as the default', 200, 'PATCH', C, { cookie: sam2, body: { defaultLayout: duo.id } });
+  assert.equal((await sharedOf(pat3)).defaultLayout, duo.id, 'a shape can be the default');
+  assert.equal((await call('PATCH', C, { cookie: pat3, body: { defaultLayout: duo.id } })).status, 403, 'member sets the default');
+  assert.equal((await call('PATCH', C, { cookie: pat3, body: { name: 'Mine' } })).status, 403, 'member sets an owner-only key');
+  assert.equal((await call('PATCH', C, { cookie: sam2, body: { name: 'Mine' } })).status, 403, 'moderator sets an owner-only key');
+  for (const l of (await sharedOf(owner2)).shared.filter((x) => x.name.startsWith('Fill'))) await expect('clear a filler', 204, 'DELETE', `${LC}/${l.id}`, { cookie: owner2 });
+  await expect('stop using the default', 200, 'PATCH', C, { cookie: sam2, body: { defaultLayout: null } });
+  n += 1;
+
   // Stacks through the routes (plan-panel-stacking.md, decision 4): a shared layout, a person's own, the space's default
   // layout and a replace all keep a stack; a malformed one is cleaned on the way in.
   const st = (id, extra) => ({ id, mode: 'dock', dockW: 320, ...extra });
   const stackBody = [st('calendar'), st('todo', { stack: 's1', at: 0, h: 0.5 }), st('polls', { stack: 's1', at: 1, h: 0.5 })];
-  const stackedShared = (await expect('owner saves a shared layout with a stack', 201, 'POST', `${C}/layouts`, { cookie: owner2, body: { name: 'Stacked', modules: stackBody, shared: true } })).json.layout;
-  assert.deepEqual(stackedShared.modules, stackBody, 'the shared layout answers with its stack');
-  await expect('the stacked layout is the default', 200, 'PATCH', C, { cookie: owner2, body: { defaultLayout: stackedShared.id } });
+  const stackedShared = (await expect('owner saves a shared layout', 201, 'POST', `${C}/layouts`, { cookie: owner2, body: { name: 'Stacked', shape: 'tall-split', areas: ['calendar', 'polls', null], shared: true } })).json.layout;
+  assert.deepEqual([stackedShared.shape, stackedShared.areas, 'modules' in stackedShared], ['tall-split', ['calendar', 'polls', null], false], 'the shared layout answers with its shape and areas, no modules');
+  await expect('the shared shape is the default', 200, 'PATCH', C, { cookie: owner2, body: { defaultLayout: stackedShared.id } });
   const listed = (await call('GET', `${C}/layouts`, { cookie: pat3 })).json;
-  assert.deepEqual(listed.shared.find((l) => l.id === stackedShared.id).modules, stackBody, 'a member reads the stack');
+  assert.deepEqual(listed.shared.find((l) => l.id === stackedShared.id).areas, ['calendar', 'polls', null], 'a member reads the shape');
   assert.equal(listed.defaultLayout, stackedShared.id, 'as the default layout');
   assert.deepEqual(listed.firstVisit.layout, stackedShared.id, 'and a first visit opens it');
   const stackedOwn = (await expect('a person saves their own with a stack', 201, 'POST', `${C}/layouts`, { cookie: pat3, body: { name: 'Mine stacked', modules: stackBody } })).json.layout;
@@ -1223,6 +1515,87 @@ try {
   const messy = [st('calendar', { stack: 's9', at: 0 }), st('chat', { stack: 'q', at: 0 }), st('todo', { stack: 'q', at: 1 }), st('polls', { stack: 'q', at: 2 })];
   const cleanedPut = (await expect('a replace is cleaned', 200, 'PUT', `${C}/layouts/${stackedOwn.id}`, { cookie: pat3, body: { modules: messy } })).json.layout;
   assert.deepEqual(cleanedPut.modules, [st('calendar'), st('chat'), st('todo', { stack: 'q', at: 0 }), st('polls', { stack: 'q', at: 1 })], 'a lone stack and Chat in a stack are cleaned');
+  n += 1;
+
+  // A data folder that holds a free-form shared layout (from before shared layouts were shapes): it is not listed, a space's
+  // default that named it falls back to the Workspace, favorites and last layouts that named it are gone, and the shapes stay.
+  await stopServer();
+  const oldFile = readJson(path.join(dataDir, 'layouts.json'));
+  const campEntry = oldFile.spaces[camp.id];
+  const keptShapes = campEntry.shared.map((l) => l.id);
+  keptShapes.push('lvault01');
+  campEntry.shared.push({ id: 'lvault01', name: 'Names one', by: samUser.key, at: '2026-10-02T00:00:00.000Z', shape: 'two-equal', areas: ['vault', 'ghostmod'] });
+  campEntry.shared.unshift({ id: 'lfreefm', name: 'Old free-form', by: samUser.key, at: '2026-10-01T00:00:00.000Z', modules: [{ id: 'calendar', mode: 'dock', dockW: 360 }], snap: { all: false, pitch: 130 } });
+  campEntry.favorites = { ...(campEntry.favorites || {}), [patUser.key]: ['lfreefm', keptShapes[0]] };
+  campEntry.last = { ...(campEntry.last || {}), [patUser.key]: { layout: 'lfreefm', at: 1 } };
+  fs.writeFileSync(path.join(dataDir, 'layouts.json'), JSON.stringify(oldFile));
+  const appPath = path.join(dataDir, 'app.json');
+  const appFile = readJson(appPath);
+  appFile.spaces.find((r) => r.id === camp.id).defaultLayout = 'lfreefm';
+  fs.writeFileSync(appPath, JSON.stringify(appFile));
+  await startServer();
+  const pat4 = await login('pat', 'memberpass1234');
+  const sam4 = await login('sam', 'memberpass1234');
+  const oldRead = (await expect('read a space with a dropped free-form layout', 200, 'GET', `${C}/layouts`, { cookie: pat4 })).json;
+  assert.deepEqual(oldRead.shared.map((l) => l.id), keptShapes, 'the free-form shared layout is not listed; the shapes are');
+  assert.ok(oldRead.shared.every((l) => typeof l.shape === 'string' && Array.isArray(l.areas) && !('modules' in l)), 'every shared layout is a shape');
+  assert.equal(oldRead.defaultLayout, null, 'a default that named it reads as none');
+  assert.deepEqual(oldRead.firstVisit, { layout: 'workspace', shape: ONE }, 'the first visit falls back to the Workspace');
+  assert.ok(!oldRead.favorites.includes('lfreefm') && oldRead.last !== 'lfreefm', 'no favorite or last layout names it');
+  assert.equal((await forSpace(pat4)).defaultLayout, null, 'for-space carries no default either');
+  assert.equal((await call('GET', `${C}/layouts${campGuest}`)).json.defaultLayout, null, 'nor for a guest');
+  await expect('the dropped layout is not there', 404, 'PUT', `${C}/layouts/lfreefm`, { cookie: sam4, body: { name: 'Back' } });
+  await expect('and cannot be made the default', 404, 'PATCH', C, { cookie: sam4, body: { defaultLayout: 'lfreefm' } });
+  assert.ok(!('modules' in ((await sharedOf(sam4)).shared[0])), 'a moderator reads shapes too');
+  n += 1;
+
+  // Module names for the makers (owner, admin, moderator): every module a shared layout names and every one in cantOpen, as
+  // the space shows it; a module not installed here (Vault) and a module the server has no manifest for (ghostmod) too: the
+  // first has its manifest's name, the second none. Nobody else is sent a name, or the key.
+  for (const [label, cookie] of [['owner', owner2], ['moderator', sam4]]) {
+    const got = await sharedOf(cookie);
+    assert.equal(got.names.vault, 'Vault', `${label}: a module that is not installed here is named`);
+    assert.ok(!('ghostmod' in got.names), `${label}: a module with no manifest has no name`);
+    assert.ok(got.names.calendar && got.names.polls, `${label}: modules a layout names are named`);
+    assert.deepEqual(got.cantOpen.vault, { off: true }, `${label}: and shown as off`);
+    assert.ok(Object.values(got.names).every((v) => typeof v === 'string' && v.length < 60), `${label}: names only`);
+  }
+  for (const [label, got] of [['member', await call('GET', `${C}/layouts`, { cookie: pat4 })], ['guest', await call('GET', `${C}/layouts${campGuest}`)]]) {
+    assert.ok(!('names' in got.json) && !('cantOpen' in got.json), `${label}: no names key`);
+    assert.ok(!got.text.includes('Vault') && !got.text.includes('"names"'), `${label}: no module name anywhere in the answer`);
+  }
+  // A template's layout, as a guest is shown it: a space on the Project template opens Project plan (schedule) and To-do. A
+  // guest who can't read the Plan gets null for it in `layout` and `firstVisit.shape` of for-space, in the space's look, and
+  // in GET .../layouts; a member gets the id.
+  await expect('install the Plan', 201, 'POST', '/api/modules/bundled/schedule/install', { cookie: owner2 });
+  await expect('enable the Plan', 200, 'PATCH', '/api/modules/schedule', { cookie: owner2, body: { enabled: true, allSpaces: true } });
+  await expect('spaces may have their own template', 200, 'PATCH', '/api/settings', { cookie: owner2, body: { spaceTemplates: true } });
+  const proj = (await expect('a space on the Project template', 200, 'POST', '/api/spaces', { cookie: owner2, body: { name: 'Proj', template: 'project', members: [patUser.key] } })).json.space;
+  await expect('guests allowed on Proj', 200, 'PATCH', `/api/spaces/${proj.id}`, { cookie: owner2, body: { allowGuests: true } });
+  const projGuest = (await expect('Proj guest link', 200, 'POST', `/api/spaces/${proj.id}/guest-link`, { cookie: owner2, body: {} })).json.space.guestToken;
+  const gq = `guest=${encodeURIComponent(projGuest)}`;
+  const shapeOf = (r) => [r.json.layout?.areas, r.json.firstVisit?.shape?.areas];
+  assert.deepEqual(shapeOf(await call('GET', `/api/modules/for-space?space=${proj.id}&${gq}`)), [['schedule', 'todo'], ['schedule', 'todo']], 'guests read the Plan: the ids');
+  await expect('guests lose the Plan', 200, 'PATCH', '/api/roles/guest', { cookie: owner2, body: { 'module.schedule.view': false } });
+  const forGuest = await call('GET', `/api/modules/for-space?space=${proj.id}&${gq}`);
+  assert.equal(forGuest.json.layout.areas[0], null, 'for-space: a guest gets null for a module they cannot read');
+  assert.equal(forGuest.json.firstVisit.shape.areas[0], null, 'and in firstVisit.shape');
+  assert.equal((await call('GET', `/api/spaces/${proj.id}/layouts?${gq}`)).json.firstVisit.shape.areas[0], null, 'GET .../layouts: firstVisit.shape too');
+  assert.equal((await call('GET', `/api/guest-link/${encodeURIComponent(projGuest)}`)).json.look.workspace.layout.areas[0], null, 'the guest link\'s look');
+  const forMember = await call('GET', `/api/modules/for-space?space=${proj.id}`, { cookie: pat4 });
+  assert.deepEqual(shapeOf(forMember), [['schedule', 'todo'], ['schedule', 'todo']], 'a member keeps the id (unchanged)');
+  assert.equal((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: pat4 })).json.look.workspace.layout.areas[0], 'schedule', 'and in the look');
+  // The template's Fixed Workspaces (`show`, `opensFirst`) are not a guest's: they have none, so their look says none and the
+  // Workspace. A member's and a maker's look keep what the template says.
+  const memberLook = (await call('GET', `/api/spaces/${proj.id}/look`, { cookie: pat4 })).json.look.workspace;
+  assert.deepEqual([memberLook.show, memberLook.opensFirst], [['calendar', 'documents'], 'workspace'], 'a member: as the template says');
+  assert.deepEqual((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: owner2 })).json.look.workspace.show, ['calendar', 'documents'], 'a maker: as the template says');
+  const linkLook = (await call('GET', `/api/guest-link/${encodeURIComponent(projGuest)}`)).json.look.workspace;
+  assert.deepEqual([linkLook.show, linkLook.opensFirst], [[], 'workspace'], 'the guest link: no Fixed Workspace');
+  const guestLook = (await call('GET', `/api/spaces/${proj.id}/look?${gq}`)).json.look.workspace;
+  assert.deepEqual([guestLook.show, guestLook.opensFirst], [[], 'workspace'], 'a guest\'s look: no Fixed Workspace');
+  assert.deepEqual(guestLook.layout.areas, linkLook.layout.areas, 'and the same shape');
+  await expect('guests read the Plan again', 200, 'PATCH', '/api/roles/guest', { cookie: owner2, body: { 'module.schedule.view': true } });
   n += 1;
 
   // A removed person takes their own layouts; a removed space takes all of its layouts.

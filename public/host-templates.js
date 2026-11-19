@@ -6,7 +6,9 @@
 // /new), its parts as tabs, one at a time, each with its own address (#templates/<id>/<part>; decision 52).
 import { api, escapeHtml, word } from '/brand.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields } from '/template-fields.js';
-import { setFoldHtml, setReactionChips, setIconChips, layoutWords, problemPlaces } from '/template-pages.js';
+import { setFoldHtml, setReactionChips, setIconChips, problemPlaces } from '/template-pages.js';
+import { mountTemplateLayout, templateLayoutModules, usesNote } from '/template-layout.js';
+import { partsFor } from '/layout-picker.js';
 import { fileText } from '/file-text.js';
 import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
@@ -27,13 +29,17 @@ let nameOf = (slug) => slug; // an environment's name, from host.js's list
 let ready = false; // the list has come from host.js
 let pendingView = null; // an editor asked for (#templates/<id>/<part>) before the list came: [id, part]
 let editing = null; // the template being edited in full, or null for a new one
-let editingLayout = null; // its workspace.layout ({ shape, areas }), shown read only and saved back unchanged
+let layoutPart = null; // the Default Workspace's layout (template-layout.js): the picker, or a line and Pick a shape
+let editingCantOpen = {}; // who can't open each of the template's modules by default (the editor route's `cantOpen`)
 let comparing = null; // the bundled id whose update is open in the compare panel
 let moduleIds = [...BUILT_IN]; // the modules a template can list: the ones the image ships, then any other a template names
 let builtInLists = null; // GET /api/host/settings `builtIn`: { reactions, icons }, what an environment's set starts as
-let shipped = null; // GET /api/host/settings `modules`: [{ id, name, icon }], loaded once
+let shipped = null; // GET /api/host/settings `modules`: [{ id, name, icon, canvas }], loaded once
 const moduleName = (id) => (shipped || []).find((m) => m.id === id)?.name || id;
 const moduleIcon = (id) => (shipped || []).find((m) => m.id === id)?.icon || 'puzzle-piece';
+// Whether a module has a place on the canvas (`canvas`, from its manifest's surfaces.canvas; the server's rule for an
+// area). A module this image does not ship is offered, and the server's check has the last word.
+const onCanvas = (id) => { const m = (shipped || []).find((x) => x.id === id); return m ? m.canvas === true : true; };
 
 // host.js hands over the list it loaded, and is told when it changes (the create form uses it too).
 export function initTemplates(templates, changed, name, environmentName) {
@@ -51,14 +57,18 @@ export function initTemplates(templates, changed, name, environmentName) {
 // Which view: the table (''), or the editor of one template ('new' for a new one). host.js calls it from the address.
 const TEMPLATE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 let shownId = '';
+let shownPartAsked = ''; // the part the address asks for now: an editor still loading opens this one, not the first asked
 export async function showTemplatesView(id, part = '') {
+  shownPartAsked = part;
   if (!ready) { pendingView = [id, part]; return; }
   $('templates-list-view').hidden = Boolean(id);
   $('template-editor-view').hidden = !id;
   if (!id) { editing = null; shownId = ''; return; }
   if (id === shownId) { selectPart(part); return; } // the same template: only its tab changes, what was typed stays
   shownId = id;
-  if (id === 'new') { await openEditor(null); selectPart(part); return; }
+  // The last template's layout goes at once, so nothing reads it as this one's while this one loads.
+  if (layoutPart) { layoutPart.destroy(); layoutPart = null; }
+  if (id === 'new') { await openEditor(null, {}); if (shownId === id) selectPart(shownPartAsked); return; }
   // Only a template id reaches the route (the server's pattern, server/templates.js): "." or ".." in the address would
   // otherwise walk the request to another route.
   if (!TEMPLATE_ID.test(id)) {
@@ -68,8 +78,12 @@ export async function showTemplatesView(id, part = '') {
     return;
   }
   try {
-    await openEditor((await api('GET', `/api/host/templates/${encodeURIComponent(id)}`)).template);
-    selectPart(part);
+    const answer = await api('GET', `/api/host/templates/${encodeURIComponent(id)}`);
+    if (shownId !== id) return; // another template was asked for meanwhile
+    await openEditor(answer.template, answer.cantOpen);
+    // Another tab of this template may have been asked for while it loaded (#templates/<id>/modules after .../workspace):
+    // the address now wins, so a part chosen meanwhile is not taken back.
+    if (shownId === id) selectPart(shownPartAsked);
   } catch (err) {
     location.hash = 'templates';
     say($('templates-status'), err.message, true);
@@ -344,8 +358,9 @@ const CALL_LAYOUTS = [['grid', 'Grid'], ['strip', 'Strip'], ['focus', 'Focus'], 
 const MEASURES = [['dates', 'Its dates'], ['goals', 'Its goals'], ['progress', 'Progress']];
 const options = (list, value) => list.map(([v, l]) => `<option value="${escapeHtml(v)}"${v === value ? ' selected' : ''}>${escapeHtml(l)}</option>`).join('');
 
-async function openEditor(t) {
+async function openEditor(t, cantOpen = {}) {
   editing = t;
+  editingCantOpen = cantOpen && typeof cantOpen === 'object' ? cantOpen : {};
   clearProblems();
   say($('te-status'), '');
   await loadModuleIds();
@@ -370,10 +385,21 @@ async function openEditor(t) {
     + `<input type="text" data-name maxlength="40" value="${escapeHtml((entries[id] && entries[id].name) || '')}" placeholder="${escapeHtml(moduleName(id))}" aria-label="${escapeHtml(moduleName(id))}: name">`
     + `${iconField(entries[id] && entries[id].icon, `${moduleName(id)}: icon, a Font Awesome name`, moduleIcon(id))}</div>`).join('');
   const w = (t && t.workspace) || {};
-  // The template's layout (plan-layout-picker.md, step 3): read only until the layout picker comes (steps 4 and 5), and
-  // sent back unchanged by a save, so saving never loses it.
-  editingLayout = w.layout && typeof w.layout.shape === 'string' && Array.isArray(w.layout.areas) ? w.layout : null;
-  $('te-layout').textContent = layoutWords(editingLayout, { nameOf: (id) => (entries[id] && entries[id].name) || moduleName(id), word });
+  // The template's layout (plan-layout-picker.md, step 5): the layout picker, its areas offering the modules ticked under
+  // Modules (those with a place on the canvas), the notice "by default" from the route's cantOpen. The form's Save sends it.
+  if (layoutPart) layoutPart.destroy();
+  const layoutNow = layoutModules();
+  layoutPart = mountTemplateLayout($('te-layout'), {
+    record: w.layout || null,
+    ...layoutNow,
+    cantOpen: editingCantOpen,
+    byDefault: true,
+    readOnly: fixed,
+    word,
+    nameOf: shownName,
+    onChange: () => markLayoutUses(),
+  });
+  markLayoutUses();
   $('te-show').innerHTML = FIXED_WORKSPACES.map(([id, label]) => `<label class="sdk-choice-row"><input type="checkbox" data-show="${id}"${(w.show || []).includes(id) ? ' checked' : ''}><span class="sdk-choice-text">${escapeHtml(label)}</span></label>`).join('');
   $('te-opens-first').innerHTML = options([['workspace', 'The workspace'], ...FIXED_WORKSPACES], w.opensFirst || 'workspace');
   const c = (t && t.call) || {};
@@ -454,6 +480,34 @@ function selectedModules() {
   return [...$('te-modules').querySelectorAll('[data-module]:checked')].map((box) => box.dataset.module);
 }
 
+// What the layout picker works from, as the Modules part is now: the ticked modules with a place on the canvas (the
+// Default template's "*": every one this image ships), by the names and icons typed under "Module names and icons";
+// a module the layout uses that is no longer ticked, drawn by name and never offered; the Calendar rule from the ticked
+// modules (the server's `on`); and the ticked ids, for the line about what is no longer ticked.
+const shownName = (id) => $('te-module-display').querySelector(`[data-display="${CSS.escape(id)}"] [data-name]`)?.value.trim() || moduleName(id);
+const shownIcon = (id) => ($('te-module-display').querySelector(`[data-display="${CSS.escape(id)}"] [data-icon]`)?.value.trim() || moduleIcon(id)).replace(/^fa-/, '');
+function layoutModules() {
+  const all = editing && editing.modules === '*';
+  const ticked = all ? moduleIds : selectedModules();
+  const list = templateLayoutModules(ticked, { isCanvas: onCanvas, nameOf: shownName, iconOf: shownIcon });
+  const used = layoutPart ? layoutPart.arrangement() : (editing && editing.workspace && editing.workspace.layout) || null;
+  const gone = (used && Array.isArray(used.areas) ? used.areas : []).filter((id) => id && !list.some((m) => m.id === id));
+  return { modules: list, others: templateLayoutModules(gone, { nameOf: shownName, iconOf: shownIcon }), parts: partsFor(list.map((m) => m.id)), ticked: all ? null : ticked };
+}
+// Under the Modules list: the modules the layout uses that are no longer ticked, said before saving (the same line is
+// beside the picker), so the server's refusal is never the first word of it.
+function markLayoutUses() {
+  const note = $('te-modules-layout');
+  const text = layoutPart ? usesNote(layoutPart.missingIds().map(shownName)) : '';
+  note.textContent = text;
+}
+$('te-modules').addEventListener('change', () => {
+  if (!layoutPart) return;
+  layoutPart.update(layoutModules());
+  markLayoutUses();
+});
+$('te-module-display').addEventListener('change', () => { if (layoutPart) layoutPart.update(layoutModules()); });
+
 $('te-module-display').addEventListener('input', (e) => {
   if (!e.target.matches('[data-icon]')) return;
   e.target.previousElementSibling.className = `fa-solid fa-${e.target.value.trim() || e.target.placeholder} fa-fw`;
@@ -530,7 +584,8 @@ function fields() {
   const iconSet = iconSetNames();
   const show = [...$('te-show').querySelectorAll('[data-show]:checked')].map((b) => b.dataset.show);
   const opensFirst = $('te-opens-first').value;
-  const workspace = { ...(editingLayout ? { layout: editingLayout } : {}), ...(show.length ? { show } : {}), ...(opensFirst && opensFirst !== 'workspace' ? { opensFirst } : {}) };
+  const layout = layoutPart ? layoutPart.value() : null;
+  const workspace = { ...(layout ? { layout } : {}), ...(show.length ? { show } : {}), ...(opensFirst && opensFirst !== 'workspace' ? { opensFirst } : {}) };
   const call = { joinOnEntry: $('te-join').checked, position: $('te-call-position').value, layout: $('te-call-layout').value };
   const starterSpaces = [...$('te-starter').children].map((row) => ({ name: row.querySelector('[data-starter-name]').value.trim(), description: row.querySelector('[data-starter-description]').value.trim() })).filter((sp) => sp.name || sp.description);
   const out = {

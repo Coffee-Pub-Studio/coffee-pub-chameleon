@@ -490,8 +490,8 @@ try {
 
   await test('hosted: the host settings list the modules the image ships, with names and icons, for the template editor', async () => {
     const mods = (await console_('GET', '/api/host/settings')).json.modules;
-    assert.deepEqual(mods.slice(0, 2), [{ id: 'conference', name: 'Conference', icon: 'video' }, { id: 'chat', name: 'Chat', icon: 'message' }]);
-    assert.deepEqual(mods.find((m) => m.id === 'travel'), { id: 'travel', name: 'Planner - Itinerary', icon: 'suitcase-rolling' });
+    assert.deepEqual(mods.slice(0, 2), [{ id: 'conference', name: 'Conference', icon: 'video', canvas: false }, { id: 'chat', name: 'Chat', icon: 'message', canvas: false }]);
+    assert.deepEqual(mods.find((m) => m.id === 'travel'), { id: 'travel', name: 'Planner - Itinerary', icon: 'suitcase-rolling', canvas: true });
     assert.deepEqual((await call(server, 'admin', 'GET', '/api/host/settings')).status, 401, 'host only');
   });
 } finally {
