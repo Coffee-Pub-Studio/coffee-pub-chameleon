@@ -343,8 +343,8 @@ export function areaMayHold(shape, area, id, { parts = [] } = {}) {
 }
 
 // The columns a shape is made of, in order: each a list of area numbers, top first. An area outside `stacked` is a column
-// of its own; the stacked ones share one, where the first of them is.
-function shapeColumns(shape) {
+// of its own; the stacked ones share one, where the first of them is. The layout picker draws its shapes from it too.
+export function shapeColumns(shape) {
   const stacked = Array.isArray(shape.stacked) ? shape.stacked : [];
   const cols = [];
   for (let a = 1; a <= shape.areas; a += 1) {

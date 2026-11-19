@@ -263,6 +263,33 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
           empty: { icon: 'inbox', title: 'Nothing here yet', text: 'Add the first one with New.' }, status: { text: 'Nothing yet', items: [{ text: 'Saved', icon: 'check', tone: 'ok' }] } });
         f.el.style.height = '100%'; document.getElementById('mf-here').append(f.el); });`,
     },
+    // The layout picker (public/layout-picker.js; plan-layout-picker.md, step 4): an app page's piece, imported as the module
+    // panel is. Not yet in the template editors (step 5) or a space's Layouts (step 6); this is where it is seen and tried.
+    {
+      id: 'live-layout-picker', block: 'pickers', name: 'Live: layout picker, a new layout', height: 640, title: 'Live layout picker, a new layout', ctx: 'app', module: true,
+      desc: 'The real public/layout-picker.js. Step 1: pick a shape (a click goes on; the arrow keys move and pick, Enter goes on). Step 2: press an area for the shared menu, Empty first, then what that area may hold. The stacked areas of the last two shapes never offer Calendar or Maps, nor To-do here, where the Calendar is on. Save hands back { shape, areas }, shown under the bar. Change the width at the top: at 390 step 2 is one row per area.',
+      body: '<div class="dsf-live"><div id="lp-new" style="height:560px"></div><p id="lp-new-out"></p></div>',
+      script: `return import('/layout-picker.js').then(function (m) {
+        var mods = [{ id: 'whiteboard', name: 'Whiteboard', icon: 'chalkboard', tint: 'teal' }, { id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' },
+          { id: 'todo', name: 'To-do', icon: 'list-check', tint: 'green' }, { id: 'calendar', name: 'Calendar', icon: 'calendar-days', tint: 'red' }, { id: 'maps', name: 'Maps', icon: 'map-location-dot', tint: 'pink' },
+          { id: 'vault', name: 'Vault', icon: 'vault', tint: 'blue' }, { id: 'polls', name: 'Polls', icon: 'square-poll-vertical', tint: 'purple' }, { id: 'chat', name: 'Chat', icon: 'comments' }];
+        var out = document.getElementById('lp-new-out');
+        var p = m.createLayoutPicker({ modules: mods, onSave: function (r) { out.textContent = 'Saved: ' + JSON.stringify(r); }, onCancel: function () { p.set(null); out.textContent = 'Cancelled.'; } });
+        p.el.style.height = '100%'; document.getElementById('lp-new').append(p.el); window.__layoutPicker = p; });`,
+    },
+    {
+      id: 'live-layout-picker-edit', block: 'pickers', name: 'Live: layout picker, editing a layout', height: 640, title: 'Live layout picker, editing a layout', ctx: 'app', module: true,
+      desc: 'The same piece opened on a saved layout (Education\'s, tall-split: Whiteboard; Goals above Documents), so it starts at step 2. Back goes to the shapes; a new shape keeps the modules in order where it can and says in one line what it took out. Under each area is the place for the maker\'s notice (step 6); here one area shows it.',
+      body: '<div class="dsf-live"><div id="lp-edit" style="height:560px"></div><p id="lp-edit-out"></p></div>',
+      script: `return import('/layout-picker.js').then(function (m) {
+        var mods = [{ id: 'whiteboard', name: 'Whiteboard', icon: 'chalkboard', tint: 'teal' }, { id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' },
+          { id: 'todo', name: 'To-do', icon: 'list-check', tint: 'green' }, { id: 'calendar', name: 'Calendar', icon: 'calendar-days', tint: 'red' }];
+        var out = document.getElementById('lp-edit-out');
+        var p = m.createLayoutPicker({ modules: mods, record: { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] },
+          noticeFor: function (id) { return id === 'documents' ? 'Guests can\\'t open this.' : ''; },
+          onSave: function (r) { out.textContent = 'Saved: ' + JSON.stringify(r); }, onCancel: function () { p.set({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }); out.textContent = 'Cancelled.'; } });
+        p.el.style.height = '100%'; document.getElementById('lp-edit').append(p.el); });`,
+    },
   ];
 
   window.DS_NOT_MOUNTED.push(
