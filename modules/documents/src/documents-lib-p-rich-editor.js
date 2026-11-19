@@ -542,9 +542,9 @@
         if (!slice) return false;
         tr.replaceSelection(slice);
       }
-      // A shared document over the saver's cap: the paste is refused before it is a change, so it is never shared and never shown as unsaved.
-      // The size is the saver's own: the text getText would write for the document as it would then stand.
-      if (shared && env.sizeMax) {
+      // A document over the saver's cap (env.sizeMax, given by the page): the paste is refused before it is a change, so it is never shared, never stored
+      // and never shown as unsaved. The size is the saver's own: the text getText would write for the document as it would then stand.
+      if (env && env.sizeMax) {
         const after = tr.doc;
         if (dlRichText(PM, dlRichTidy(PM, after, stored), stored, lex).text.length > env.sizeMax) { if (env.onTooBig) env.onTooBig(); return false; }
       }

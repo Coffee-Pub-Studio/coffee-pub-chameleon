@@ -10,6 +10,12 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 - **Documents 0.11.36: the Tags button goes when the page can no longer edit.** When a window lost the right to edit (another window took over, or the document was deleted), the formatting buttons went but **Tags** stayed and did nothing when clicked (#634). It now goes with them. Checked by reading the code and by the module's tests; the lost-editor toolbar was not seen in a browser.
 
+### Documents: a paste over the size limit says so (2026-11-19)
+
+#### Fixed
+
+- **Documents 0.11.35: a paste over the 150,000-character limit is refused with a note.** In Rich text and in the Markdown box it used to go in, show "Not saved yet" for good and never be stored. Now nothing goes in and "That is too big for a document." shows (#752). Checked by the module's tests (`npm run check:module -- documents`); not tried by pasting 150,000 characters in a browser.
+
 ### Templates: an ordered tab list (2026-11-19)
 
 #### Changed
