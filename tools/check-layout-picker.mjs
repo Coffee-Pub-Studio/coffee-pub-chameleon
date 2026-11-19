@@ -130,6 +130,21 @@ const holder = (shape, parts) => (a, id) => areaMayHold(shape, a, id, { parts })
   eq(P.areaChoices(tall, 0, [{ id: 'goals' }]), [], 'areaChoices at area 0');
   eq(P.areaChoices(null, 1, [{ id: 'goals' }]), [], 'areaChoices with no shape');
 }
+// A shape claiming more areas than any shape has is not drawn or counted (it once ran Node out of memory); ids the
+// server's rule refuses never reach an area; names lose control and direction characters.
+{
+  const huge = { id: 'huge', areas: 1e7, columns: [100], stacked: [2] };
+  const t = Date.now();
+  eq(P.refusedNote(['A'], huge), '', 'refusedNote with a huge area count');
+  eq(P.carryAreas(['goals'], huge, () => true), { areas: [], dropped: [] }, 'carryAreas with a huge area count');
+  eq(P.areaChoices(huge, 5, [{ id: 'goals' }]), [], 'areaChoices with a huge area count');
+  ok(Date.now() - t < 500, 'a huge area count took too long');
+  ok(P.MAX_AREAS === Math.max(...SHAPES.map((x) => x.areas)), 'MAX_AREAS is the largest shape');
+  const three = shapeById('three-equal');
+  eq(P.carryAreas(['__proto__', 'Goals', 'goals', 'dest:calendar', 'a'.repeat(33), 'with.dot'], three, () => true), { areas: [null, null, 'goals'], dropped: [] }, 'carryAreas drops ids the server refuses, unnamed');
+  eq(P.cleanText('\u202Egnp.exe\u202C Docs\u200F\n'), 'gnp.exe Docs', 'cleanText strips direction and control characters');
+  eq(P.cleanModules([{ id: 'goals', name: '\u202EslaoG' }, { id: 'vault', name: '\u0007' }]).map((m) => m.name), ['slaoG', 'vault'], 'cleanModules cleans names, the id when none is left');
+}
 // The maker's notice (plan, "The maker's notice"; decisions 17 and 19), by the environment's words for the roles.
 {
   eq(P.noticeWords({ roles: ['guest'] }), "Guests can't open this. For them, this area closes up.", 'notice, one role');
@@ -382,6 +397,27 @@ else {
       await open({ width: 1280, mode, opts: { record: { shape: 'wide-narrow', areas: ['schedule', 'todo'] }, readOnly: true } });
       ok(await ev("document.querySelectorAll('.layout-picker-board button[data-area]').length === 0 && document.querySelector('.layout-picker-steps').hidden && document.querySelector('.action-bar-save').hidden && !document.querySelector('.layout-picker-nav')"), `${mode}: read only should press nothing and offer only Close`);
 
+      // --- the chosen shape is a fill, not a border or a ring; the keyboard's focus ring still shows ---
+      await open({ width: 1280, mode, opts: { record: { shape: 'two-equal', areas: [null, null] }, step: 1 } });
+      const look = await ev(`(() => { const on = document.querySelector('.layout-picker-shape.selected'); const off = document.querySelector('.layout-picker-shape:not(.selected)'); const a = getComputedStyle(on); const b = getComputedStyle(off);
+        return { border: a.borderTopColor === b.borderTopColor, ring: a.boxShadow, fill: a.backgroundColor !== b.backgroundColor, check: getComputedStyle(on.querySelector('.layout-picker-shape-check')).visibility }; })()`);
+      ok(look.border && look.ring === 'none' && look.fill && look.check === 'visible', `${mode}: the chosen shape should be a fill with its check mark, its edge as the others': ${JSON.stringify(look)}`);
+      await ev("document.querySelector('.layout-picker-shape.selected').focus()");
+      await key('ArrowRight'); await key('ArrowLeft');
+      const ring = await ev("(() => { const a = document.activeElement; const c = getComputedStyle(a); return { sel: a.classList.contains('selected'), outline: c.outlineStyle !== 'none' && parseFloat(c.outlineWidth) > 0 }; })()");
+      ok(ring.sel && ring.outline, `${mode}: the keyboard's focus ring does not show on the chosen shape: ${JSON.stringify(ring)}`);
+
+      // --- a record naming ids the server refuses: nothing drawn, nothing handed back; names drawn without direction marks ---
+      await open({ width: 1280, mode, mods: [...MODS, { id: 'polls', name: '\u202Esllop\u202C Polls' }], opts: { record: { shape: 'three-equal', areas: ['__proto__', 'Goals', 'polls'] } } });
+      eq(await value(), { shape: 'three-equal', areas: [null, null, 'polls'] }, `${mode}: ids the server refuses are kept out of the record`);
+      const drawnText = await ev("document.querySelector('.layout-picker-board').textContent + '|' + [...document.querySelectorAll('.layout-picker [aria-label]')].map((x) => x.getAttribute('aria-label')).join('|')");
+      const firstTwo = await ev("[1, 2].map((a) => document.querySelector('.layout-picker-board [data-area=\"' + a + '\"]').getAttribute('aria-label'))");
+      ok(!/__proto__/.test(drawnText) && firstTwo.join('|') === 'Area 1 of 3: Empty|Area 2 of 3: Empty', `${mode}: a refused id is drawn: ${firstTwo.join('|')} ${drawnText}`);
+      ok(!/[\u202A-\u202E\u2066-\u2069]/.test(drawnText) && /sllop Polls/.test(drawnText), `${mode}: a name is drawn with its direction characters: ${JSON.stringify(drawnText)}`);
+      await ev("document.querySelector('.layout-picker-board [data-area=\"1\"]').click()");
+      ok(!(await menuLabels()).some((l) => /[\u202A-\u202E]/.test(l)), `${mode}: the menu draws a name with its direction characters`);
+      await key('Escape');
+
       // --- a phone: two rows of three; step 2 one row per area, 44px and more ---
       await open({ width: 390, mode, opts: { record: { shape: 'wide-split', areas: ['calendar', 'goals', null] }, cantOpen: { goals: { roles: ['member', 'guest'] } } } });
       const row2 = await ev(`(() => { const b = document.querySelector('.layout-picker-row-main[data-area="2"]'); const r = b.getBoundingClientRect(); const c = b.querySelector('.layout-picker-area-caret').getBoundingClientRect(); const n = b.querySelector('.layout-picker-notice').getBoundingClientRect(); const w = b.querySelector('.layout-picker-area-what').getBoundingClientRect();
@@ -406,6 +442,26 @@ else {
       await ev("document.querySelector('.layout-picker-nav').click()");
       const shapes = await ev("[...document.querySelectorAll('.layout-picker-shape')].map((b) => { const r = b.getBoundingClientRect(); return { top: Math.round(r.top), h: r.height, right: r.right }; })");
       ok(new Set(shapes.map((x) => x.top)).size === 2 && shapes.every((x) => x.h >= 44 && x.right <= 390), `${mode} 390: the shapes are not two rows of three inside the screen: ${JSON.stringify(shapes)}`);
+    }
+    // The Design System page shows each notice form: its layout-picker entries, run here as the page runs them.
+    {
+      const vm = await import('node:vm');
+      const ctx = { window: {} };
+      ctx.window.window = ctx.window;
+      ctx.window.DSH = { fa: () => '' };
+      vm.createContext(ctx);
+      vm.runInContext(fs.readFileSync(path.join(ROOT, 'public/design-system/components-3.js'), 'utf8'), ctx);
+      const specs = (ctx.window.DS_LIVE || []).filter((x) => /^live-layout-picker/.test(x.id));
+      const seen = [];
+      for (const spec of specs) {
+        await open({ width: 1280, mode: 'light', opts: {} });
+        await ev(`(async () => { document.getElementById('here').innerHTML = ${JSON.stringify(spec.body)}; await (async function () { ${spec.script} })(); return true; })()`);
+        await wait(80);
+        seen.push(...(await ev("[...document.querySelectorAll('.layout-picker-board .layout-picker-notice')].map((x) => x.textContent)")));
+      }
+      for (const want of ["Guests can't open this. For them, this area closes up.", "Members and guests can't open this. For them, this area closes up.", 'Off in this space. This area closes up for everyone.', "Guests can't open this by default.", "Members and guests can't open this by default.", 'Not installed. This area closes up for everyone.']) {
+        ok(seen.includes(want), `the Design System page does not show the notice "${want}" (it shows ${JSON.stringify(seen)})`);
+      }
     }
     ok(!errors.length, `the page threw: ${errors.join(' | ')}`);
   } catch (err) {

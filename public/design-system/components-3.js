@@ -290,6 +290,26 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
           onSave: function (r) { out.textContent = 'Saved: ' + JSON.stringify(r); }, onCancel: function () { p.set({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }); out.textContent = 'Cancelled.'; } });
         p.el.style.height = '100%'; document.getElementById('lp-edit').append(p.el); });`,
     },
+    {
+      id: 'live-layout-picker-off', block: 'pickers', name: 'Live: layout picker, the maker\'s notice in a space', height: 520, title: 'Live layout picker, notices in a space', ctx: 'app', module: true,
+      desc: 'The notice for each form cantOpen gives in a space (plan decisions 17 and 19): several roles (Goals), one role (Documents) and a module that is off in the space (Vault). Seen by whoever may edit the layout; nothing shows on the canvas.',
+      body: '<div class="dsf-live"><div id="lp-off" style="height:460px"></div></div>',
+      script: `return import('/layout-picker.js').then(function (m) {
+        var mods = [{ id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' }, { id: 'vault', name: 'Vault', icon: 'vault', tint: 'blue' }];
+        var p = m.createLayoutPicker({ modules: mods, record: { shape: 'three-equal', areas: ['goals', 'documents', 'vault'] },
+          cantOpen: { goals: { roles: ['member', 'guest'] }, documents: { roles: ['guest'] }, vault: { off: true } } });
+        p.el.style.height = '100%'; document.getElementById('lp-off').append(p.el); });`,
+    },
+    {
+      id: 'live-layout-picker-default', block: 'pickers', name: 'Live: layout picker, the maker\'s notice in a template', height: 520, title: 'Live layout picker, notices by default', ctx: 'app', module: true,
+      desc: 'The host console\'s template editor (byDefault): the roles come from each module\'s manifest defaults, so the notice says "by default" (Goals, Documents), and a module the template names that is not installed says so (Polls).',
+      body: '<div class="dsf-live"><div id="lp-default" style="height:460px"></div></div>',
+      script: `return import('/layout-picker.js').then(function (m) {
+        var mods = [{ id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' }, { id: 'polls', name: 'Polls', icon: 'square-poll-vertical', tint: 'purple' }];
+        var p = m.createLayoutPicker({ modules: mods, record: { shape: 'three-equal', areas: ['goals', 'documents', 'polls'] }, byDefault: true,
+          cantOpen: { goals: { roles: ['guest'] }, documents: { roles: ['member', 'guest'] }, polls: { off: true } } });
+        p.el.style.height = '100%'; document.getElementById('lp-default').append(p.el); });`,
+    },
   ];
 
   window.DS_NOT_MOUNTED.push(

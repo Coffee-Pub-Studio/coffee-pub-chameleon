@@ -71,8 +71,18 @@ export const SHAPE_ABOUT = Object.freeze({
 // what cleanShape() refuses (a `dest:*` composite, a capital, a dot, a 33rd character, `__proto__`).
 export const MODULE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const isModuleId = (id) => typeof id === 'string' && MODULE_ID.test(id) && id !== '__proto__';
+// The most areas a shape has (public/layout-shapes.js): a shape claiming more is not one of ours, and nothing is drawn
+// or counted for it.
+export const MAX_AREAS = Math.max(...SHAPES.map((x) => x.areas));
+const shapeAreas = (shape) => (shape && Number.isInteger(shape.areas) && shape.areas >= 1 && shape.areas <= MAX_AREAS ? shape.areas : 0);
+// A name as the picker draws it: the caller's words without control or direction characters (U+202E and the like, which
+// would turn the text around it), trimmed and at most 60 characters.
+const DIRECTION_OR_CONTROL = /[\u0000-\u001F\u007F-\u009F\u061C\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFEFF]/g;
+export function cleanText(text) {
+  return typeof text === 'string' ? text.replace(DIRECTION_OR_CONTROL, '').trim().slice(0, 60) : '';
+}
 // An area number of `shape` (from 1), or 0.
-const areaOf = (shape, area) => (shape && Number.isInteger(shape.areas) && Number.isInteger(area) && area >= 1 && area <= shape.areas ? area : 0);
+const areaOf = (shape, area) => (Number.isInteger(area) && area >= 1 && area <= shapeAreas(shape) ? area : 0);
 
 // The ids that read as a composite given the ids on (composites.js's aliasesFor): Calendar and To-do while the Calendar
 // is among them; Maps only where the Map answered (`shown`), though areaMayHold refuses Maps in a stacked area anyway.
@@ -81,14 +91,17 @@ export function partsFor(ids, shown = []) {
   return Object.keys(aliases).filter((id) => typeof aliases[id] === 'string' && aliases[id].startsWith('dest:'));
 }
 
-// The modules as the menus list them: each a well-formed module id (MODULE_ID), each once, in the order given.
+// The modules as the menus list them: each a well-formed module id (MODULE_ID), each once, in the order given, its name
+// as the picker draws it (cleanText; the id when it has none left).
 export function cleanModules(modules) {
   const seen = new Set();
-  return (Array.isArray(modules) ? modules : []).filter((m) => {
-    if (!m || typeof m !== 'object' || !isModuleId(m.id) || seen.has(m.id)) return false;
+  const out = [];
+  for (const m of Array.isArray(modules) ? modules : []) {
+    if (!m || typeof m !== 'object' || !isModuleId(m.id) || seen.has(m.id)) continue;
     seen.add(m.id);
-    return true;
-  });
+    out.push({ ...m, name: cleanText(m.name) || m.id });
+  }
+  return out;
 }
 
 // What area `area` (from 1) of `shape` offers: the modules it may hold (areaMayHold, the canvas chooser's rule, on
@@ -115,13 +128,15 @@ export function areaRefused(shape, area, modules, { parts = [] } = {}) {
 // stacked is free), 'full' (no area left for it) or 'column' (the chat or the call, never in an area). `mayHold(area, id)`.
 // Answers { areas, dropped }; with no shape, no areas and nothing dropped.
 export function carryAreas(list, shape, mayHold) {
-  const n = shape && Number.isInteger(shape.areas) && shape.areas > 0 ? shape.areas : 0;
+  const n = shapeAreas(shape);
   if (!n || typeof mayHold !== 'function') return { areas: [], dropped: [] };
   const out = Array.from({ length: n }, () => null);
   const seen = new Set();
   const rest = [];
   (Array.isArray(list) ? list : []).forEach((id, i) => {
-    if (typeof id !== 'string' || !id || seen.has(id)) return;
+    // An id the server's rule refuses (MODULE_ID: a capital, a dot, `__proto__`, a `dest:*` composite) is never drawn or
+    // handed back, and is not named: it is not a module.
+    if (!isModuleId(id) || seen.has(id)) return;
     seen.add(id);
     if (i < n && mayHold(i + 1, id)) out[i] = id; else rest.push(id);
   });
@@ -184,9 +199,10 @@ export const areaName = (area, count, name) => `Area ${area} of ${count}: ${name
 // '' when nothing is refused, or when every area of the shape is stacked (there is nowhere to send them).
 export function refusedNote(names, shape) {
   const list = (Array.isArray(names) ? names : []).filter((x) => typeof x === 'string' && x);
-  if (!list.length || !shape || !Number.isInteger(shape.areas)) return '';
+  const n = shapeAreas(shape);
+  if (!list.length || !n) return '';
   const stacked = Array.isArray(shape.stacked) ? shape.stacked : [];
-  const open = Array.from({ length: shape.areas }, (_, i) => i + 1).filter((a) => !stacked.includes(a));
+  const open = Array.from({ length: n }, (_, i) => i + 1).filter((a) => !stacked.includes(a));
   if (!open.length) return '';
   const where = open.length > 1 ? `areas ${andList(open.map(String))}` : `area ${open[0]}`;
   return `${andList(list)} can't share a column; ${list.length > 1 ? 'they' : 'it'} can go in ${where}.`;
@@ -238,8 +254,8 @@ export function createLayoutPicker({
   const byId = new Map(list.map((m) => [m.id, m]));
   let cantMap = cantOpen && typeof cantOpen === 'object' ? cantOpen : null; // who can't open each module (step 6's cantOpen)
   const compositeParts = Array.isArray(parts) ? parts : partsFor(list.map((m) => m.id));
-  const nameOf = (id) => (byId.get(id) && byId.get(id).name) || id;
-  const mayHoldIn = (def) => (area, id) => areaMayHold(def, area, id, { parts: compositeParts });
+  const nameOf = (id) => (byId.get(id) && byId.get(id).name) || id; // names are cleanText'd in cleanModules
+  const mayHoldIn = (def) => (area, id) => isModuleId(id) && areaMayHold(def, area, id, { parts: compositeParts });
 
   // The state: the shape chosen, its areas, the list a shape change carries from (the areas as step 2 last left them),
   // the step shown, the line about what a change left out, the refusal from a save.

@@ -7467,10 +7467,10 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
 }
 
+/* Chosen: a fill (Thomas's rule: a selected state is a fill, never a border or a ring), with the check mark beside its
+   label so the colour never carries it alone. The keyboard's focus ring is the page's own, apart from this. */
 .layout-picker-shape.selected {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+  background: var(--selected-bg);
 }
 
 .layout-picker-shape-foot {
