@@ -24,6 +24,18 @@ Written from the code on the branch `claude/colour-picker-933` (head `549b317`),
 
 Known and left, in [known-issues](documentation/known-issues.md), "The colour picker: gaps": Recent isn't kept in a sandboxed module; the eyedropper is Chromium only; a sandboxed frame never gets the light-mode attribute; `--status-danger-text` is 4.4:1 on a dark popover; a menu in an in-page module stays open after a press outside the module; at 360 pixels the swatches are about 42 pixels wide. What is left to build is in [TODO](documentation/TODO.md).
 
+### Documents: no dead Tags button (2026-11-19)
+
+#### Fixed
+
+- **Documents 0.11.36: the Tags button goes when the page can no longer edit.** When a window lost the right to edit (another window took over, or the document was deleted), the formatting buttons went but **Tags** stayed and did nothing when clicked (#634). It now goes with them. Checked by reading the code and by the module's tests; the lost-editor toolbar was not seen in a browser.
+
+### Documents: a paste over the size limit says so (2026-11-19)
+
+#### Fixed
+
+- **Documents 0.11.35: a paste over the 150,000-character limit is refused with a note.** In Rich text and in the Markdown box it used to go in, show "Not saved yet" for good and never be stored. Now nothing goes in and "That is too big for a document." shows (#752). Checked by the module's tests (`npm run check:module -- documents`); not tried by pasting 150,000 characters in a browser.
+
 ### Templates: an ordered tab list (2026-11-19)
 
 #### Changed

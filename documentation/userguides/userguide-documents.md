@@ -68,7 +68,7 @@ Good to know:
 - **Text size.** While you edit, the **Page** button's menu has **Text size**: **Small**, **Normal** (the usual), **Large**, **Larger** and **Largest**. It is the document's own, for everyone, and headings and code follow it. It is not a font choice, and it does not change the zoom.
 - **Page colour.** **Page colour** (the palette) sets the document's paper for everyone: **Pure White** (the usual), **Creme**, **Light Grey**, **Light Blue**, **Slate**, **Dark Blue** or **Black**. These are fixed colours, the same in light and dark mode.
 - **Rename** and **Delete** are in the title-bar dropdown of an open document. Rename asks for the title in a small box.
-- A document is at most about 150,000 characters.
+- A document is at most about 150,000 characters. A paste that would take it over that is not put in, and a note says "That is too big for a document." Paste it in pieces.
 
 ## Tags
 

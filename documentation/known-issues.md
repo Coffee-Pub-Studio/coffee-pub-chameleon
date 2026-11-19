@@ -84,15 +84,13 @@ The access bundle, steps 1 to 7 ([architecture-access](architecture/architecture
 
 ## Documents: Paper, the rich editor and writing together
 
-Documents 0.7 to 0.11.34 ([userguide-documents](userguides/userguide-documents.md), [architecture-documents](architecture/architecture-documents.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.
+Documents 0.7 to 0.11.36 ([userguide-documents](userguides/userguide-documents.md), [architecture-documents](architecture/architecture-documents.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.
 
 - **The Markdown box is not paged.** In Paper it shows one sheet; the pages appear in reading and in the rich editor.
 - **The editor and the reading view can count pages differently** for a very large table: the editor does not split a table between pages, reading does.
 - **Writing together is on by default, and not yet tried on Safari, an iPad or a phone** (#665, setting `coediting`, on by default since Documents 0.11.33). Thomas tried it live with several people typing and it worked; the module tests pass. An owner can switch it off in Module Configuration, and an environment that saved it off stays off. Other people's cursors are not drawn. The document lock is kept by the editing pages only: a hostile editor can bypass it.
-- **A paste over the size limit is lost without a word** (#752, from its title; not checked against the code here). Paste it in pieces.
 - **A teal rectangle** can show in the reading sheet where a focus outline is drawn (#778, from its title).
 - **Text that does not make the round trip in Rich text.** A run of four or more `$` signs is not kept exactly (#611). A link made at a caret, with no words selected, to a `mailto:` address with square brackets is not kept exactly: the "cannot keep exactly" note shows (#632).
-- **The Tags button stays after the edit lock is lost** (#634); the formats and the editor switch go, and whether Tags should go too is undecided.
 - **Paste from Word keeps only the words** (#800): its formatting is never read, by design (see the guide); the issue asks for more.
 - **Print and Save as Markdown file** were read from the code and not tried in a real print dialog or in Safari or Firefox (0.11.18).
 
