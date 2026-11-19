@@ -2,22 +2,22 @@
 
 **Audience:** a member planning a project with the Planner - Projects module on a Coffee Pub Chameleon server, and an owner setting it up.
 
-Planner - Projects (module id `schedule`; the Schedule outline) plans one project for a space: **milestones**, the **work** that gets there with who does it and when, **notes**, and what **waits on** what. It is one of three planners; the others are the day-by-day [Planner - Itinerary](userguide-planner.md) and [Planner - Goals](userguide-planner-goals.md). A space has the planner its template lists: the Project template lists this one and shows it as **Project plan**, and the Games template shows it as **Campaign**, with its milestones read as sessions, its work as scenes and its tags as story threads. Under the Default template it is there too, with every other module. Which words you see below are the template's; the defaults are written here.
+Planner - Projects (module id `schedule`; the Schedule outline) plans one project for a space: **milestones**, the **work** that gets there with who does it and when, **notes**, and what **waits on** what. It is one of three planners; the others are the day-by-day [Planner - Itinerary](userguide-planner.md) and [Planner - Goals](userguide-planner-goals.md). A space has the planner its template lists: the Projects template lists this one and shows it as **Project plan**, and the Gaming template shows it as **Campaign**, with its milestones read as sessions, its work as scenes and its tags as story threads. Under the Default template it is there too, with every other module. Which words you see below are the template's; the defaults are written here.
 
 Who can: anyone who may **See the plan** (members, guests and moderators by default) sees it; **Add and change the plan** (members and moderators by default) adds and changes; **Clear the whole plan** (moderators by default) clears it. Owners always may. An owner changes who on the Roles tab, under **Module: Planner - Projects**.
 
 ## Set it up (owner)
 
 1. On the Modules tab, choose **Install** beside **Planner - Projects**, then **Approve and enable**. It asks to link to other modules' objects. A space has it only if its template offers it (see [Modules](userguide-modules.md), "Which modules a space has"); to give a space a different planner, choose another template for it.
-2. Its settings are the template's. Under the Project template the two switches below are set by the template and show "Set by the Project template.", read-only; the others are yours to change in the module's section on the space's **Set up**, **Settings** tab. To change a driven one, copy the template and edit your copy (see [Templates](userguide-templates.md)).
+2. Its settings are the template's. Under the Projects template the two switches below are set by the template and show "Set by the Projects template.", read-only; the others are yours to change in the module's section on the space's **Set up**, **Settings** tab. To change a driven one, copy the template and edit your copy (see [Templates](userguide-templates.md)).
 
 | Setting | What it does | Set by the template |
 |---|---|---|
-| **Dates are needed** | A milestone and a piece of work need dates. Off, dates are optional and the Timeline shows only the dated entries | Driven (Project: on; Games: off) |
-| **Waits on** | Lets an entry say which others it waits on, and draws the lines between them | Driven (Project: on; Games: off) |
+| **Dates are needed** | A milestone and a piece of work need dates. Off, dates are optional and the Timeline shows only the dated entries | Driven (Projects: on; Gaming: off) |
+| **Waits on** | Lets an entry say which others it waits on, and draws the lines between them | Driven (Projects: on; Gaming: off) |
 | **Progress counts** | What the plan's count says: **Milestones done** (the default) or **Work done** | Driven |
 | **Opens on** | The view a space opens on, **Timeline** or **List** | The template's start; you may change it |
-| **Tags** | The tags an entry may carry (the Games template seeds story threads) | The template's start; you may change it |
+| **Tags** | The tags an entry may carry (the Gaming template seeds story threads) | The template's start; you may change it |
 
 ## Add to the plan
 

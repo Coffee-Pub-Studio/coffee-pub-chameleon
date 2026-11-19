@@ -21,6 +21,7 @@ class TemplateFileError extends Error {
     super(message);
     this.status = status;
     if (problems) this.problems = problems;
+    if (problems?.parts) this.parts = problems.parts; // the field each problem is about (templates.problemsOf)
   }
 }
 

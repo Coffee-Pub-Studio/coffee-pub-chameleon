@@ -2,7 +2,7 @@
 
 **Audience:** members, moderators and owners who keep a space's files (photos, audio, video, PDFs and notes) in one place, and anyone who opens them.
 
-The Vault holds the files of a space: tickets and confirmations as PDFs, photos, a voice note, a clip, a Markdown note. By default everyone in the space sees the same files, and you can limit who sees a file you add (see "Who can see a file"). In the Travel template the Vault is called Documents, and in the Games template it is called Handouts; the steps are the same. Other tools, such as the Planner, can link to a file, and a file can be shared by a link with people outside the space.
+The Vault holds the files of a space: tickets and confirmations as PDFs, photos, a voice note, a clip, a Markdown note. By default everyone in the space sees the same files, and you can limit who sees a file you add (see "Who can see a file"). In the Travel template the Vault is called Documents, and in the Gaming template it is called Handouts; the steps are the same. Other tools, such as the Planner, can link to a file, and a file can be shared by a link with people outside the space.
 
 **Who sees a file.** A file you add can be for everyone in the space, for only you, or for people you choose. Owners and the admin can always see every file. See "Who can see a file" below.
 

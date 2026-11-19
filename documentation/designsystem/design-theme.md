@@ -385,6 +385,10 @@ A new row in a list setting (the Planner's marker types, Research's tags) starts
 
 The trigger of `colorField` is the Pickers family's (`.sdk-picker`: a 22 px swatch, the hex in words, a chevron). The rules are the colour picker part of the Pickers block in `public/sdk/system.css`. The Design System page draws the picker and its states in its Pickers entry (focus on the area, a bad hex, a pale swatch with its stronger edge, the eyedropper hidden, Opacity switched off) and a live one under Live SDK pieces.
 
+## The layout picker
+
+The piece a layout is set with (`public/layout-picker.js`, class `.layout-picker`, [architecture-canvas](../architecture/architecture-canvas.md), "Layout shapes and the picker"). It is shown in the Design System's Pickers family ("Live: layout picker") and nowhere else yet. Step 1 draws six small shapes in a row of radio buttons; step 2 draws the chosen shape large, each area a button. In a drawing the chat and call column on the left is a band tinted from `--tint-pink` over `--bg-card`, and each area is `--tint-green` over `--bg-card`, numbered, at the shape's own percentages; the chosen shape and the pressed step take `--accent` (`--on-accent` for text on it). Text is `--text` and `--text-dim`, spacing is `--space-*`, and the bar is the shared action bar. At 520 px of the picker's own width and below (a phone, a narrow editor) step 2 is a list with one row per area. Colours come from the tokens only; `check-no-raw-colours` holds it. Read from the stylesheet (`layout-picker:start` in `public/style.css`), not seen drawn for this entry.
+
 ## Modules
 
 A module runs in a sandboxed frame, so it cannot see Chameleon's stylesheet. The host reads the current theme from the page's computed style and hands it to the module on start, and the module SDK sets it on the frame's `:root` as CSS custom properties. A module written to the rules above follows the theme with no code. Chameleon also adds a small base stylesheet to each module page (`.btn`, `.btn-primary`, `.action-btn`, `.card`, styled inputs) built from the same tokens. The rules apply to module authors too; see [api-module-sdk](../api/api-module-sdk.md).

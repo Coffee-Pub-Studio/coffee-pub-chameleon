@@ -279,6 +279,53 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
           empty: { icon: 'inbox', title: 'Nothing here yet', text: 'Add the first one with New.' }, status: { text: 'Nothing yet', items: [{ text: 'Saved', icon: 'check', tone: 'ok' }] } });
         f.el.style.height = '100%'; document.getElementById('mf-here').append(f.el); });`,
     },
+    // The layout picker (public/layout-picker.js; plan-layout-picker.md, step 4): an app page's piece, imported as the module
+    // panel is. Not yet in the template editors (step 5) or a space's Layouts (step 6); this is where it is seen and tried.
+    {
+      id: 'live-layout-picker', block: 'pickers', name: 'Live: layout picker, a new layout', height: 640, title: 'Live layout picker, a new layout', ctx: 'app', module: true,
+      desc: 'The real public/layout-picker.js. Step 1: pick a shape (a click goes on; the arrow keys move and pick, Enter goes on). Step 2: press an area for the shared menu, Empty first, then what that area may hold. The stacked areas of the last two shapes never offer Calendar or Maps, nor To-do here, where the Calendar is on. Save hands back { shape, areas }, shown under the bar. Change the width at the top: at 390 step 2 is one row per area.',
+      body: '<div class="dsf-live"><div id="lp-new" style="height:560px"></div><p id="lp-new-out"></p></div>',
+      script: `return import('/layout-picker.js').then(function (m) {
+        var mods = [{ id: 'whiteboard', name: 'Whiteboard', icon: 'chalkboard', tint: 'teal' }, { id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' },
+          { id: 'todo', name: 'To-do', icon: 'list-check', tint: 'green' }, { id: 'calendar', name: 'Calendar', icon: 'calendar-days', tint: 'red' }, { id: 'maps', name: 'Maps', icon: 'map-location-dot', tint: 'pink' },
+          { id: 'vault', name: 'Vault', icon: 'vault', tint: 'blue' }, { id: 'polls', name: 'Polls', icon: 'square-poll-vertical', tint: 'purple' }, { id: 'chat', name: 'Chat', icon: 'comments' }];
+        var out = document.getElementById('lp-new-out');
+        var p = m.createLayoutPicker({ modules: mods, onSave: function (r) { out.textContent = 'Saved: ' + JSON.stringify(r); }, onCancel: function () { p.set(null); out.textContent = 'Cancelled.'; } });
+        p.el.style.height = '100%'; document.getElementById('lp-new').append(p.el); window.__layoutPicker = p; });`,
+    },
+    {
+      id: 'live-layout-picker-edit', block: 'pickers', name: 'Live: layout picker, editing a layout', height: 640, title: 'Live layout picker, editing a layout', ctx: 'app', module: true,
+      desc: 'The same piece opened on a saved layout (Education\'s, tall-split: Whiteboard; Goals above Documents), so it starts at step 2. Back goes to the shapes; a new shape keeps the modules in order where it can and says in one line what it took out. The maker\'s notice shows under an area whose module someone can\'t open (cantOpen, as step 6 will answer it): here guests can\'t open Documents, and members and guests can\'t open Goals.',
+      body: '<div class="dsf-live"><div id="lp-edit" style="height:560px"></div><p id="lp-edit-out"></p></div>',
+      script: `return import('/layout-picker.js').then(function (m) {
+        var mods = [{ id: 'whiteboard', name: 'Whiteboard', icon: 'chalkboard', tint: 'teal' }, { id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' },
+          { id: 'todo', name: 'To-do', icon: 'list-check', tint: 'green' }, { id: 'calendar', name: 'Calendar', icon: 'calendar-days', tint: 'red' }];
+        var out = document.getElementById('lp-edit-out');
+        var p = m.createLayoutPicker({ modules: mods, record: { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] },
+          cantOpen: { documents: { roles: ['guest'] }, goals: { roles: ['member', 'guest'] } },
+          onSave: function (r) { out.textContent = 'Saved: ' + JSON.stringify(r); }, onCancel: function () { p.set({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }); out.textContent = 'Cancelled.'; } });
+        p.el.style.height = '100%'; document.getElementById('lp-edit').append(p.el); });`,
+    },
+    {
+      id: 'live-layout-picker-off', block: 'pickers', name: 'Live: layout picker, the maker\'s notice in a space', height: 520, title: 'Live layout picker, notices in a space', ctx: 'app', module: true,
+      desc: 'The notice for each form cantOpen gives in a space (plan decisions 17 and 19): several roles (Goals), one role (Documents) and a module that is off in the space (Vault). Seen by whoever may edit the layout; nothing shows on the canvas.',
+      body: '<div class="dsf-live"><div id="lp-off" style="height:460px"></div></div>',
+      script: `return import('/layout-picker.js').then(function (m) {
+        var mods = [{ id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' }, { id: 'vault', name: 'Vault', icon: 'vault', tint: 'blue' }];
+        var p = m.createLayoutPicker({ modules: mods, record: { shape: 'three-equal', areas: ['goals', 'documents', 'vault'] },
+          cantOpen: { goals: { roles: ['member', 'guest'] }, documents: { roles: ['guest'] }, vault: { off: true } } });
+        p.el.style.height = '100%'; document.getElementById('lp-off').append(p.el); });`,
+    },
+    {
+      id: 'live-layout-picker-default', block: 'pickers', name: 'Live: layout picker, the maker\'s notice in a template', height: 520, title: 'Live layout picker, notices by default', ctx: 'app', module: true,
+      desc: 'The host console\'s template editor (byDefault): the roles come from each module\'s manifest defaults, so the notice says "by default" (Goals, Documents), and a module the template names that is not installed says so (Polls).',
+      body: '<div class="dsf-live"><div id="lp-default" style="height:460px"></div></div>',
+      script: `return import('/layout-picker.js').then(function (m) {
+        var mods = [{ id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' }, { id: 'polls', name: 'Polls', icon: 'square-poll-vertical', tint: 'purple' }];
+        var p = m.createLayoutPicker({ modules: mods, record: { shape: 'three-equal', areas: ['goals', 'documents', 'polls'] }, byDefault: true,
+          cantOpen: { goals: { roles: ['guest'] }, documents: { roles: ['member', 'guest'] }, polls: { off: true } } });
+        p.el.style.height = '100%'; document.getElementById('lp-default').append(p.el); });`,
+    },
   ];
 
   window.DS_NOT_MOUNTED.push(

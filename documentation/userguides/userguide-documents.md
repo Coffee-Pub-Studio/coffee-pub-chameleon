@@ -13,7 +13,7 @@ An owner always can do both. Tags follow the same rights: reading them needs the
 
 ## Starter documents
 
-A template can give a new space documents to start from, made once when the space is made: a project brief (Project), session notes and a handout (Games), a learning journal (Learning) and a meeting log (Mentoring). They are ordinary documents; edit or delete them like any other. They are never made again, on a change of template or a restore. The default editor (Markdown or Rich text) is each person's own choice; a template does not set it yet.
+A template can give a new space documents to start from, made once when the space is made: a project brief (Projects), session notes and a handout (Gaming), a learning journal (Education) and a meeting log (Mentoring). They are ordinary documents; edit or delete them like any other. They are never made again, on a change of template or a restore. The default editor (Markdown or Rich text) is each person's own choice; a template does not set it yet.
 
 ## The list
 
@@ -32,14 +32,14 @@ Open a document from the list. It shows as a page, in the page colour chosen for
 The title bar shows the open document's title as a dropdown. Its menu lists the space's documents, the most recently changed first, and choosing one opens it. It lists at most 40; past that a grey line says how many more exist, and you find them in the list. People who can write documents also find **New document**, **Rename** and **Delete** there.
 
 - **Save as Markdown file** and **Print** are in the title bar's **...** menu while a document is open, not on the list. **Save as Markdown file** downloads the text as a `.md` file named after the title, with unsaved typing included while you edit. **Print** is the usual Print action: a Paper document prints on its own page size with its margin and page numbers; a Fluid one prints as a plain white page with dark ink and no controls. Neither was tried in a real print dialog or in Safari or Firefox; both were read from the code.
-- **Zoom** in the title bar: **Zoom in**, **Zoom out** (the magnifier icons) and the **Zoom** menu with **Fit width**, **Actual size** and the levels 50, 75, 100, 125, 150 and 200 percent. **Fit width** is the usual. The same icons are in the title bar while you edit. On a Paper document, **Fit width** scales the page to the window, up to 200 percent.
+- **Zoom** in the title bar: **Zoom in**, **Zoom out** (the magnifier icons) and the **Zoom** menu with **Fit width** and the levels 50, 75, 100, 125, 150, 200, 300, 400 and 500 percent (100 is the actual size). **Fit width** is the usual. The same icons are in the title bar while you edit. **Fit width** scales the page to the window's width, up to 200 percent. A high zoom is for reading with low vision: in a narrow window the text wraps to the window.
 - If someone else is editing, you see **<name> is editing** and the page changes as they save. You do not need to refresh.
 - A document can hold headings, bold and italic, lists, checklists, quotes, code, links, tables and formulas. Links use only web addresses, email addresses and links to other objects. Nothing is loaded from outside the server.
 
 ## Write a document
 
 1. Open the document and choose **Edit**. If someone else is already editing, **Edit** is off and the page says who. Try again when they are done.
-2. Type. The formatting bar has **Bold**, **Italic**, **Code**, **Heading**, **Bulleted list**, **Numbered list**, **Checklist**, **Quote**, **Link** and **Insert**. **Insert** (the plus) holds **Grid**, **Formula** and **Page break**. **Link** asks for the address in a small box, and an existing link can be edited or removed.
+2. Type. The formatting bar has **Bold**, **Italic**, **Code**, **Heading**, **Bulleted list**, **Numbered list**, **Checklist**, **Quote**, **Link** and **Insert**. **Insert** (the plus) holds **Table**, **Formula** and **Page break**. **Link** asks for the address in a small box, and an existing link can be edited or removed.
 3. It saves itself about three seconds after you stop typing. Choose **Done** to finish and let the next person edit.
 
 The edit bar has more at its right end: **Editor**, **Layout** and **Page**, described next.
@@ -50,7 +50,7 @@ The edit bar has more at its right end: **Editor**, **Layout** and **Page**, des
 
 **Pasting in Rich text.** The editor reads only the plain text of what you paste, as Markdown: a line starting with `#` becomes a heading, `- ` a list row, and so on. The formatting of what you copied (its fonts, colours, tables and pictures) is never read, so pasting from a web page or a word processor brings the words and not the look. If the clipboard holds only formatted content with no plain text, its words alone are taken. Lines indented by four spaces or a tab become one code block, as in any Markdown. Dropping text onto the editor works the same way; dropped files are ignored.
 
-In **Rich text**, grids are tables you edit in place. Press **Tab** in the last cell to add a row, up to 200 rows; a grid has at most 200 rows and 20 columns. While the cursor is in a grid, **Insert** shows the **Grid** group (rows, columns and alignment) first.
+In **Rich text**, tables are edited in place. Press **Tab** in the last cell to add a row, up to 200 rows; a table has at most 200 rows and 20 columns. While the cursor is in a table, **Insert** shows the **Table** group (rows, columns and alignment) first.
 
 ### Paper and Fluid
 
@@ -59,12 +59,13 @@ In **Rich text**, grids are tables you edit in place. Press **Tab** in the last 
 - The Markdown box is one sheet: it is not split into pages while you type.
 - In a window narrower than 60 percent of the page's width, a Paper document is drawn as Fluid until the window is wide again.
 - A Paper document of more than 6000 blocks is drawn as one sheet, not paged.
-- The page count in the editor and in reading can differ for very large grids: the editor does not split a grid between pages.
+- The page count in the editor and in reading can differ for very large tables: the editor does not split a table between pages.
 
 Good to know:
 
 - **One editor at a time.** Editing holds a lock that your page renews every 10 seconds. If your page goes quiet for about 35 seconds, others can take over.
 - **If someone else saved first,** you see "You stopped editing because someone else saved first. Your changes are kept here." and your text stays on the screen so you can copy it. **Close without saving?** asks before it is thrown away. If a save did not go, it says "Not saved. Try Done again."
+- **Text size.** While you edit, the **Page** button's menu has **Text size**: **Small**, **Normal** (the usual), **Large**, **Larger** and **Largest**. It is the document's own, for everyone, and headings and code follow it. It is not a font choice, and it does not change the zoom.
 - **Page colour.** **Page colour** (the palette) sets the document's paper for everyone: **Pure White** (the usual), **Creme**, **Light Grey**, **Light Blue**, **Slate**, **Dark Blue** or **Black**. These are fixed colours, the same in light and dark mode.
 - **Rename** and **Delete** are in the title-bar dropdown of an open document. Rename asks for the title in a small box.
 - A document is at most about 150,000 characters.

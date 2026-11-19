@@ -39,7 +39,7 @@ const LAYOUT_LIMITS = Object.freeze({
   personal: 10, // per person per space
   shared: 10, // per space
   name: 40, // characters, after trimming
-  modules: 20, // entries in a layout's modules, the same count as a space's opensWith
+  modules: 20, // entries in a layout's modules, the most a layout holds
   dockWMin: 160,
   dockWMax: 2000,
   pitchMin: 50, // the snap grid's pitch in pixels, as the canvas's SNAP_PITCH
@@ -62,7 +62,7 @@ const SYSTEM_IDS = Object.freeze(['workspace', 'calendar', 'map', 'conference', 
 const SYSTEM_ICONS = Object.freeze({ workspace: 'columns', calendar: 'calendar-days', map: 'map-location-dot', conference: 'video', whiteboard: 'chalkboard', documents: 'file-lines' });
 const USER_ICON = 'object-group';
 const ICON_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
-// A module id: the same rule as a space's opensWith (server/store.js).
+// A module id: the same rule as a template's module ids (server/layout-shapes.js).
 const MODULE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const MODES = ['dock', 'float'];
 const TOP_KEYS = ['name', 'shared', 'modules', 'snap', 'icon', 'arrange'];

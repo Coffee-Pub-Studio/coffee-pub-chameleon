@@ -98,6 +98,8 @@ const ROUND_OK = [
   { file: 'public/sdk/system.css', sel: '.sdk-badge-micro', why: 'the corner count: the count\'s 14px circle on an icon' },
   { file: 'public/sdk/system.css', sel: '.sdk-dot', why: 'a 7px dot' },
   { file: 'public/sdk/system.css', sel: '.sdk-card-icon', why: 'the card\'s icon: a solid 36px disc (a square box, a true circle)' },
+  { file: 'public/style.css', sel: '.layout-picker-step-n', why: 'the layout picker\'s step number: a 24px disc (a square box, a true circle)' },
+  { file: 'public/style.css', sel: '.layout-picker-area-n', why: 'the layout picker\'s area number: a 24px disc (a square box, a true circle)' },
   { file: 'public/sdk/system.css', sel: '.sdk-avatar', why: 'an avatar' },
   { file: 'public/sdk/system.css', sel: '.sdk-avatar > img', why: 'an avatar\'s picture' },
   { file: 'public/sdk/system.css', sel: '.sdk-member-dot', why: 'the online dot on a member tile' },

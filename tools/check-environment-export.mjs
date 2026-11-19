@@ -52,7 +52,7 @@ function seededApp(secrets = strong) {
     secrets,
     settings: {
       environmentName: 'Seeded', mfaRequired: true, words: { space: { one: 'trip' } },
-      spaceDefaults: { profile: 'characters', opensWith: ['todo'] }, otherCalendars: true, publishedCalendar: true,
+      spaceDefaults: { profile: 'characters' }, otherCalendars: true, publishedCalendar: true,
       publishedCalendarFeed: feed(),
       welcomeNote: { text: 'Welcome to **us**.', updatedAt: '2026-01-02T00:00:00.000Z', by: 'ownerkey' },
     },
@@ -81,7 +81,7 @@ function seededApp(secrets = strong) {
       { id: 'lobby', name: 'Lobby', members: ['ownerkey'], createdAt: '2026-01-01T00:00:00.000Z' },
       {
         id: 'trip01', name: 'Trip', description: 'A trip', members: ['ownerkey'], createdAt: '2026-01-01T00:00:00.000Z', profile: 'characters',
-        link: 'https://example.com/', linkIcon: 'link', guestToken: token(20), allowGuests: true, entry: 'accounts', requestAccess: true, closed: true, opensWith: ['todo'], defaultLayout: 'lay01', tabs: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['map'] },
+        link: 'https://example.com/', linkIcon: 'link', guestToken: token(20), allowGuests: true, entry: 'accounts', requestAccess: true, closed: true, defaultLayout: 'lay01', tabs: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['map'] },
         aiOff: true, template: 'games', aiSees: { chat: true }, publishCalendar: false, guestsSeeHidden: true, call: { position: 'left' }, phases: { main: { start: '2026-02-01', end: '2026-02-05' } }, phaseDone: { main: true },
         budget: { amount: 1200, currency: 'EUR' }, starterDone: true,
       },

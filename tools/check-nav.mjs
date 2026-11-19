@@ -2470,7 +2470,7 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   assert.match(setup, /<h3 class="setup-heading" id="setup-first-visit-heading">First visit<\/h3>/);
   assert.match(setup, /<fieldset class="setup-first-visit" id="setup-first-visit" aria-labelledby="setup-first-visit-heading"/);
   // Workspace's Opens first radio is the Layouts section's (plan-workspaces.md, step 3); the Workspace's Opens with switches stay in First visit.
-  assert.match(setup, /<fieldset class="setup-first-visit" id="setup-first-visit"[^>]*>\n\s*<div class="setup-workspace-content">[\s\S]*?id="setup-opens-with" aria-labelledby="setup-opens-with-label"[\s\S]*?<\/div>\n\s*<div class="setup-first-layouts" id="setup-first-visit-layouts"><\/div>/);
+  assert.match(setup, /<fieldset class="setup-first-visit" id="setup-first-visit"[^>]*>\n\s*<div class="setup-workspace-content">[\s\S]*?<p class="setup-subheading" id="setup-opens-with-label">[^<]*<\/p>\n\s*<p class="setup-opens-with-read" id="setup-opens-with"><\/p>[\s\S]*?<\/div>\n\s*<div class="setup-first-layouts" id="setup-first-visit-layouts"><\/div>/);
   assert.match(setup, /layoutRows\(state\.draft\.tabs, state\.layouts\.system\)/, 'the fixed layouts only while the payload lists them');
   assert.match(setup, /\.\.\.shared\.map\(\(l\) => \(\{ id: l\.id, name: l\.name,/, 'the shared layouts by name');
   assert.match(setup, /state\.draft = withOpensFirst\(state\.draft, t\.value\);/, 'Opens first is one group of radios, the Layouts rows and the shared layouts');

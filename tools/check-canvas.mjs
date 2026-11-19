@@ -93,7 +93,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-check-'));
   const copy = path.join(tmp, 'opens-with.mjs');
   fs.copyFileSync(path.join(ROOT, 'public/opens-with.js'), copy);
-  const { whatOpens, conferenceAllowed, opensWithLine, shouldAutoJoin, firstVisitLayout, SYSTEM_TABS } = await import(pathToFileURL(copy).href);
+  const { whatOpens, conferenceAllowed, layoutLine, shouldAutoJoin, firstVisitLayout, firstVisitShape, SYSTEM_TABS } = await import(pathToFileURL(copy).href);
   fs.rmSync(tmp, { recursive: true, force: true });
   // GitHub #199: entering joins the call by itself only with the environment's setting on, out of the call, where Join
   // the call would show, not in an aside, and not for a person who left the call since they entered.
@@ -121,25 +121,21 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     ['nothing set, a guest without the conference: the chat',
       { modules: ['todo'], canOpen: noConference, guest: true }, ['chat']],
     ['the remembered layout wins after a first visit',
-      { remembered: ['todo', 'conference'], own: ['chat'], modules: ['todo', 'notes'] }, ['todo', 'conference']],
+      { remembered: ['todo', 'conference'], modules: ['todo', 'notes'] }, ['todo', 'conference']],
     ['a remembered empty layout stays empty',
-      { remembered: [], own: ['chat'], modules: ['todo'] }, []],
-    ['a guest has no remembered layout: the space\'s own list',
-      { remembered: ['todo'], own: ['notes', 'chat'], modules: ['todo', 'notes'], guest: true }, ['notes', 'chat']],
-    ['the space\'s list (its template\'s), less what may not be opened, in its order',
-      { own: ['notes', 'conference', 'gone', 'chat'], modules: ['notes'], canOpen: (id) => id !== 'gone' }, ['notes', 'conference', 'chat']],
-    ['a guest with the template\'s list',
-      { own: ['todo', 'chat'], modules: ['todo'], guest: true }, ['todo', 'chat']],
-    ['a list set with nothing that may be opened leaves the canvas empty',
-      { own: ['gone'], canOpen: (id) => id !== 'gone' }, []],
-    ['a repeat opens once',
-      { own: ['chat', 'chat', 'todo'] }, ['chat', 'todo']],
+      { remembered: [], modules: ['todo'] }, []],
+    ['a guest has no remembered layout: the conference and the chat',
+      { remembered: ['todo'], modules: ['todo', 'notes'], guest: true }, ['conference', 'chat']],
+    ['nothing set, less what may not be opened',
+      { modules: ['notes', 'gone'], canOpen: (id) => id !== 'gone' }, ['chat', 'notes']],
+    ['a remembered repeat opens once',
+      { remembered: ['chat', 'chat', 'todo'] }, ['chat', 'todo']],
+    ['a template\'s list is no longer read (plan-layout-picker.md, decision 12)',
+      { own: ['notes'], modules: ['todo'] }, ['chat', 'todo']],
     // The always-on column (plan-one-bar.md, step 6): asked with `column`, the conference and the chat are left out of
     // what goes on the canvas, whichever list names them; the lists themselves keep them (a phone's tabs).
     ['the column: the remembered layout without the conference and the chat',
       { remembered: ['todo', 'conference', 'chat'], modules: ['todo'], column: true }, ['todo']],
-    ['the column: the space\'s own list without them',
-      { own: ['chat', 'notes', 'conference'], modules: ['notes'], column: true }, ['notes']],
     ['the column: nothing set gives the modules alone',
       { modules: ['todo', 'notes'], column: true }, ['todo', 'notes']],
     ['the column, a guest: nothing on the canvas',
@@ -150,8 +146,6 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     // `dest:calendar` while the Calendar is on in the space, once, where the first is named; the list is not rewritten.
     ['the composite: a remembered list naming calendar and todo opens the composite once, in the first\'s place',
       { remembered: ['todo', 'notes', 'calendar'], modules: ['calendar', 'todo', 'notes'], aliases: { calendar: 'dest:calendar', todo: 'dest:calendar' } }, ['dest:calendar', 'notes']],
-    ['the composite: the space\'s own list naming todo opens it, when it may open here',
-      { own: ['todo', 'chat'], modules: ['calendar', 'todo'], canOpen: (id) => id !== 'todo', aliases: { calendar: 'dest:calendar', todo: 'dest:calendar' }, column: true }, ['dest:calendar']],
     ['the composite off (the Calendar off here): a remembered dest:calendar opens the To-do\'s own list',
       { remembered: ['dest:calendar', 'notes'], modules: ['todo', 'notes'], aliases: { 'dest:calendar': ['todo'] } }, ['todo', 'notes']],
     ['the composite off, the To-do off too: a remembered dest:calendar opens nothing',
@@ -175,22 +169,107 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     ['the conference switched on: refused without the permission', conferenceAllowed({ conferenceEnabled: true, permitted: false }), false],
     ['no call service on the server: refused for an owner, the switch on', conferenceAllowed({ callService: false, conferenceEnabled: true, permitted: true }), false],
     ['a call service, the switch on, an owner: allowed', conferenceAllowed({ callService: true, conferenceEnabled: true, permitted: true }), true],
-    ['a list with the conference, switched off, for an owner', whatOpens({ own: ['conference', 'chat'], canOpen: ownerCanOpen(false) }), ['chat']],
-    ['a list with the conference, switched on, for an owner', whatOpens({ own: ['conference', 'chat'], canOpen: ownerCanOpen(true) }), ['conference', 'chat']],
-    // Set up's read-only line says what the template opens a new person with, each name once.
-    ['the template names a list: its names, in its order, less what cannot open',
-      opensWithLine({ list: ['gone', 'chat', 'todo'], modules: ['todo'], canOpen: (id) => id !== 'gone', nameOf: (id) => ({ chat: 'Chat', todo: 'To-do' })[id] || id }),
-      'Chat and To-do open.'],
-    ['one name: it opens',
-      opensWithLine({ list: ['chat'], nameOf: () => 'Chat' }), 'Chat opens.'],
-    ['a list with nothing that can open: nothing opens, and no module is named',
-      opensWithLine({ list: ['gone'], modules: ['todo'], canOpen: (id) => id !== 'gone', nameOf: () => 'To-do' }), 'Nothing opens.'],
-    ['the template names none: what the product opens, by name',
-      opensWithLine({ list: null, modules: ['todo', 'polls'], nameOf: (id) => ({ chat: 'Chat', todo: 'To-do', polls: 'Polls' })[id] }),
-      'Chat, To-do and Polls open.'],
-    ['the line says each switch once: To-do under Calendar',
-      opensWithLine({ list: null, modules: ['maps', 'calendar', 'todo'], nameOf: (id) => ({ maps: 'Maps', calendar: 'Calendar' })[id] || id, groupOf: (id) => ({ todo: 'calendar' })[id] || id }),
-      'chat, Maps and Calendar open.'],
+    ['a guest, the conference switched off, for an owner', whatOpens({ guest: true, canOpen: ownerCanOpen(false) }), ['chat']],
+    ['a guest, the conference switched on, for an owner', whatOpens({ guest: true, canOpen: ownerCanOpen(true) }), ['conference', 'chat']],
+    // Set up's read-only line (plan-layout-picker.md, step 3): the template's layout, its shape and its modules in plain
+    // words; with none, what the product opens, each name once.
+    ...(() => {
+      const names = { whiteboard: 'Whiteboard', goals: 'Goals', documents: 'Documents', schedule: 'Project plan', todo: 'To-do', calendar: 'Calendar', travel: 'Itinerary', vault: 'Vault', polls: 'Polls', chat: 'Chat' };
+      const nameOf = (id) => names[id] || id;
+      const line = (layout, more = {}) => layoutLine({ layout, nameOf, ...more });
+      return [
+        ['the Default template: one empty area', line({ shape: 'one', areas: [null] }), 'One empty area opens. Each person chooses what goes in it.'],
+        ['one module', line({ shape: 'one', areas: ['polls'] }), 'Polls fills the Workspace.'],
+        ['two equal, one empty', line({ shape: 'two-equal', areas: ['calendar', null] }), 'Calendar and an empty area open side by side, the same width. Each person chooses what goes in the empty area.'],
+        ['Projects: wide and narrow, To-do under the Calendar where it is on', line({ shape: 'wide-narrow', areas: ['schedule', 'todo'] }, { groupOf: (id) => ({ todo: 'calendar' })[id] || id }), 'Project plan opens wide, with Calendar narrow beside it.'],
+        ['three equal', line({ shape: 'three-equal', areas: ['goals', null, 'polls'] }), 'Goals, an empty area and Polls open side by side, the same width. Each person chooses what goes in the empty area.'],
+        ['Education: tall and split', line({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }), 'Whiteboard opens on the left, with Goals above Documents on the right.'],
+        ['wide and split, two empty around one module: counted, not named one by one', line({ shape: 'wide-split', areas: [null, 'goals', null] }), 'Goals opens narrow on the right, at the top. The other two areas are empty. Each person chooses what goes in the empty areas.'],
+        ['a module off in the space: its area closes up, said', line({ shape: 'wide-narrow', areas: ['travel', 'vault'] }, { canOpen: (id) => id !== 'vault', space: 'trip' }), 'Itinerary opens wide, with Vault narrow beside it. Vault is off in this trip, so its area closes up.'],
+        ['two off', line({ shape: 'two-equal', areas: ['goals', 'polls'] }, { canOpen: () => false }), 'Goals and Polls open side by side, the same width. Goals and Polls are off in this space, so their areas close up.'],
+        ['an unknown shape reads as none: what the product opens', line({ shape: 'nine', areas: [] }, { modules: ['polls'] }), 'Chat and Polls open.'],
+        ['no layout: what the product opens, by name', line(null, { modules: ['todo', 'polls'] }), 'Chat, To-do and Polls open.'],
+        ['no layout, nothing that can open', line(null, { modules: ['todo'], canOpen: () => false }), 'Nothing opens.'],
+        ['no layout, no names given: the sentence still starts with a capital', layoutLine({ modules: ['todo'] }), 'Chat and todo open.'],
+        // Every shape with every mix of empty and filled areas (34): two or three empty areas are counted, never named one by
+        // one, so no sentence says "an empty area" twice; the line never needs the word for a module (no "a activity").
+        ...[
+          ['one', ['whiteboard'], "Whiteboard fills the Workspace."],
+          ['one', [null], "One empty area opens. Each person chooses what goes in it."],
+          ['two-equal', ['whiteboard', 'goals'], "Whiteboard and Goals open side by side, the same width."],
+          ['two-equal', ['whiteboard', null], "Whiteboard and an empty area open side by side, the same width. Each person chooses what goes in the empty area."],
+          ['two-equal', [null, 'goals'], "An empty area and Goals open side by side, the same width. Each person chooses what goes in the empty area."],
+          ['two-equal', [null, null], "Two empty areas open side by side, the same width. Each person chooses what goes in the empty areas."],
+          ['wide-narrow', ['whiteboard', 'goals'], "Whiteboard opens wide, with Goals narrow beside it."],
+          ['wide-narrow', ['whiteboard', null], "Whiteboard opens wide, with an empty area narrow beside it. Each person chooses what goes in the empty area."],
+          ['wide-narrow', [null, 'goals'], "An empty area opens wide, with Goals narrow beside it. Each person chooses what goes in the empty area."],
+          ['wide-narrow', [null, null], "Two empty areas open, one wide and one narrow beside it. Each person chooses what goes in the empty areas."],
+          ['three-equal', ['whiteboard', 'goals', 'polls'], "Whiteboard, Goals and Polls open side by side, the same width."],
+          ['three-equal', ['whiteboard', 'goals', null], "Whiteboard, Goals and an empty area open side by side, the same width. Each person chooses what goes in the empty area."],
+          ['three-equal', ['whiteboard', null, 'polls'], "Whiteboard, an empty area and Polls open side by side, the same width. Each person chooses what goes in the empty area."],
+          ['three-equal', [null, 'goals', 'polls'], "An empty area, Goals and Polls open side by side, the same width. Each person chooses what goes in the empty area."],
+          ['three-equal', ['whiteboard', null, null], "Whiteboard opens on the left, with two empty areas beside it, all the same width. Each person chooses what goes in the empty areas."],
+          ['three-equal', [null, 'goals', null], "Goals opens in the middle, with an empty area on each side, all the same width. Each person chooses what goes in the empty areas."],
+          ['three-equal', [null, null, 'polls'], "Polls opens on the right, with two empty areas beside it, all the same width. Each person chooses what goes in the empty areas."],
+          ['three-equal', [null, null, null], "Three empty areas open side by side, the same width. Each person chooses what goes in the empty areas."],
+          ['tall-split', ['whiteboard', 'goals', 'polls'], "Whiteboard opens on the left, with Goals above Polls on the right."],
+          ['tall-split', ['whiteboard', 'goals', null], "Whiteboard opens on the left, with Goals above an empty area on the right. Each person chooses what goes in the empty area."],
+          ['tall-split', ['whiteboard', null, 'polls'], "Whiteboard opens on the left, with an empty area above Polls on the right. Each person chooses what goes in the empty area."],
+          ['tall-split', [null, 'goals', 'polls'], "An empty area opens on the left, with Goals above Polls on the right. Each person chooses what goes in the empty area."],
+          ['tall-split', ['whiteboard', null, null], "Whiteboard opens on the left, with two empty areas above each other on the right. Each person chooses what goes in the empty areas."],
+          ['tall-split', [null, 'goals', null], "Goals opens on the right, at the top. The other two areas are empty. Each person chooses what goes in the empty areas."],
+          ['tall-split', [null, null, 'polls'], "Polls opens on the right, at the bottom. The other two areas are empty. Each person chooses what goes in the empty areas."],
+          ['tall-split', [null, null, null], "Three empty areas open: one on the left, and two above each other on the right. Each person chooses what goes in the empty areas."],
+          ['wide-split', ['whiteboard', 'goals', 'polls'], "Whiteboard opens wide, with Goals above Polls narrow beside it."],
+          ['wide-split', ['whiteboard', 'goals', null], "Whiteboard opens wide, with Goals above an empty area narrow beside it. Each person chooses what goes in the empty area."],
+          ['wide-split', ['whiteboard', null, 'polls'], "Whiteboard opens wide, with an empty area above Polls narrow beside it. Each person chooses what goes in the empty area."],
+          ['wide-split', [null, 'goals', 'polls'], "An empty area opens wide, with Goals above Polls narrow beside it. Each person chooses what goes in the empty area."],
+          ['wide-split', ['whiteboard', null, null], "Whiteboard opens wide, with two empty areas above each other narrow beside it. Each person chooses what goes in the empty areas."],
+          ['wide-split', [null, 'goals', null], "Goals opens narrow on the right, at the top. The other two areas are empty. Each person chooses what goes in the empty areas."],
+          ['wide-split', [null, null, 'polls'], "Polls opens narrow on the right, at the bottom. The other two areas are empty. Each person chooses what goes in the empty areas."],
+          ['wide-split', [null, null, null], "Three empty areas open: one wide, and two above each other narrow beside it. Each person chooses what goes in the empty areas."],
+        ].map(([shape, areas, want]) => [`${shape} ${JSON.stringify(areas)}`, line({ shape, areas }), want]),
+        ['every mix is covered, and no sentence names an empty area twice', (() => {
+          const seen = [];
+          for (const [id, n] of [['one', 1], ['two-equal', 2], ['wide-narrow', 2], ['three-equal', 3], ['tall-split', 3], ['wide-split', 3]]) {
+            for (let mask = 0; mask < 2 ** n; mask += 1) {
+              const text = line({ shape: id, areas: [...Array(n)].map((_, i) => (mask & (1 << i) ? null : ['whiteboard', 'goals', 'polls'][i])) });
+              if ((text.match(/\ban empty area\b/gi) || []).length > 1) seen.push(text);
+            }
+          }
+          return seen;
+        })(), []],
+        ['a template\'s word for a module changes nothing (no article to get wrong)', layoutLine({ layout: { shape: 'two-equal', areas: ['goals', null] }, nameOf, module: 'activity' }), 'Goals and an empty area open side by side, the same width. Each person chooses what goes in the empty area.'],
+        ['no layout, each name once: To-do under Calendar', line(null, { modules: ['maps', 'calendar', 'todo'], groupOf: (id) => ({ todo: 'calendar' })[id] || id }), 'Chat, maps and Calendar open.'],
+      ];
+    })(),
+    // The template's layout on a first visit (plan-layout-picker.md, decision 2): only with no remembered arrangement here,
+    // a guest every time.
+    ...(() => {
+      const shape = { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] };
+      return [
+        ['a first visit starts from the template\'s shape', firstVisitShape({ shape }), shape],
+        ['a second visit: the person\'s own arrangement wins', firstVisitShape({ shape, remembered: ['goals'] }), null],
+        ['a remembered empty arrangement, nothing ever placed: the shape again', firstVisitShape({ shape, remembered: [] }), shape],
+        ['a guest starts from it every time', firstVisitShape({ shape, remembered: ['goals'], guest: true }), shape],
+        ['a guest, even with something placed', firstVisitShape({ shape, remembered: [], placed: true, guest: true }), shape],
+        // Nothing chosen is nothing remembered (Thomas, 2026-11-19): the chat and the call alone are not a choice.
+        ...(() => {
+          const empty = { shape: 'one', areas: [null] };
+          return [
+            ['Default, back with only the chat remembered and nothing placed: the empty area again', firstVisitShape({ shape: empty, remembered: ['chat'] }), empty],
+            ['Default, the chat and the call remembered, nothing placed: the empty area again', firstVisitShape({ shape: empty, remembered: ['conference', 'chat'] }), empty],
+            ['Default, Whiteboard chosen in the area: their own arrangement', firstVisitShape({ shape: empty, remembered: ['whiteboard'], placed: true }), null],
+            ['Default, Whiteboard chosen, then closed: their own (empty) arrangement, not the area again', firstVisitShape({ shape: empty, remembered: ['chat'], placed: true }), null],
+            ['a remembered module with no mark (stored before the mark): chosen', firstVisitShape({ shape: empty, remembered: ['chat', 'polls'] }), null],
+            ['Education after its first visit (its modules placed): the remembered arrangement wins', firstVisitShape({ shape, remembered: ['whiteboard', 'goals'], placed: true }), null],
+            ['Education with every module closed after: still their own', firstVisitShape({ shape, remembered: [], placed: true }), null],
+          ];
+        })(),
+        ['no layout: none', firstVisitShape({ shape: null }), null],
+        ['not a shape record: none', firstVisitShape({ shape: { areas: [] } }), null],
+      ];
+    })(),
   ];
   for (const [name, got, want] of checks) {
     try {
@@ -201,23 +280,22 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   }
   // The first visit's layout (plan-layout-views.md, step 5): the server's resolved firstVisit.layout on entering, for a
   // first visit (or a guest); a remembered arrangement wins after; a guest has no Calendar or Map tab. Opens with sits
-  // beside a layout (no layout needs a list, a list never stops a layout), and whatOpens still answers the list.
-  const fv = (layout, opensWith = null) => ({ layout, opensWith });
+  // beside a layout (no layout needs a shape, a shape never stops a layout).
+  const fv = (layout, shape = null) => ({ layout, shape });
   const firstCases = [
     ['nothing resolved: the Workspace', firstVisitLayout({}), 'workspace'],
     ['an old answer with no firstVisit: the Workspace', firstVisitLayout({ firstVisit: null }), 'workspace'],
-    ['the Workspace with a list', firstVisitLayout({ firstVisit: fv('workspace', ['chat', 'todo']) }), 'workspace'],
+    ['the Workspace with a shape', firstVisitLayout({ firstVisit: fv('workspace', { shape: 'one', areas: [null] }) }), 'workspace'],
     ['Calendar on a first visit', firstVisitLayout({ firstVisit: fv('calendar') }), 'calendar'],
-    ['Map on a first visit, a list beside it', firstVisitLayout({ firstVisit: fv('map', ['notes']) }), 'map'],
-    ['a shared layout with no Opens with set: it opens all the same', firstVisitLayout({ firstVisit: fv('labc123') }), 'labc123'],
-    ['a shared layout with Opens with set too (an old space with both)', firstVisitLayout({ firstVisit: fv('labc123', ['todo']) }), 'labc123'],
+    ['Map on a first visit, a shape beside it', firstVisitLayout({ firstVisit: fv('map', { shape: 'one', areas: ['notes'] }) }), 'map'],
+    ['a shared layout with no shape: it opens all the same', firstVisitLayout({ firstVisit: fv('labc123') }), 'labc123'],
+    ['a shared layout with the template\'s shape too: the shared layout', firstVisitLayout({ firstVisit: fv('labc123', { shape: 'one', areas: ['todo'] }) }), 'labc123'],
     ['remembered: the Workspace as remembered, whatever the first visit says', firstVisitLayout({ firstVisit: fv('calendar'), remembered: ['todo'] }), 'workspace'],
     ['remembered empty is still remembered', firstVisitLayout({ firstVisit: fv('labc123'), remembered: [] }), 'workspace'],
     ['not entering (the Workspace tab pressed): the Workspace', firstVisitLayout({ firstVisit: fv('map'), entering: false }), 'workspace'],
     ['a guest: a shared layout every time', firstVisitLayout({ firstVisit: fv('labc123'), remembered: ['todo'], guest: true }), 'labc123'],
     ['a guest: no Calendar tab', firstVisitLayout({ firstVisit: fv('calendar'), guest: true }), 'workspace'],
     ['the tabs a first visit may open', [...SYSTEM_TABS], ['calendar', 'map', 'conference', 'whiteboard', 'documents']],
-    ['Opens with beside a layout is still the Workspace\'s list', whatOpens({ own: ['chat', 'todo'], modules: ['todo'] }), ['chat', 'todo']],
   ];
   for (const [name, got, want] of firstCases) {
     try {
@@ -230,7 +308,8 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/allowed: \(\) => conferenceAllowed\(\{ callService: features\.callService, conferenceEnabled: features\.conferenceEnabled/.test(spaceJs)) fail('public/space.js', 'the conference module\'s allowed() must follow the server\'s call service and the environment\'s switch (conferenceAllowed), for owners too');
   if (!/callService: branding\.callService !== false/.test(spaceJs)) fail('public/space.js', 'features.callService must come from branding.callService, so a server with no call service shows no conference');
   const settingsJs = fs.readFileSync(path.join(ROOT, 'public/space-setup.js'), 'utf8');
-  if (!/opensWithLine\(\{\s*list: state\.options\.opensWith/.test(settingsJs)) fail('public/space-setup.js', 'the Opens with line must come from the template\'s list (opensWithLine with list: state.options.opensWith)');
+  if (!/layoutLine\(\{\s*layout: state\.options\.layout/.test(settingsJs)) fail('public/space-setup.js', 'the Opens with line must come from the template\'s layout (layoutLine with layout: state.options.layout)');
+  if (/opensWith/.test(settingsJs)) fail('public/space-setup.js', 'no Opens with list is read: the template\'s layout replaces it (plan-layout-picker.md, decision 12)');
   if (/spaceDefaultsOpensWith|state\.draft\.opensWith|data-opens/.test(settingsJs) || /spaceDefaultsOpensWith/.test(fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8'))) fail('public/space-setup.js', 'Opens with is read only: no switches, no draft, no environment list (the template decides)');
   const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');
   const restore = canvasJs.slice(canvasJs.indexOf('function restore('), canvasJs.indexOf('// --- the toolbar button'));
@@ -243,7 +322,16 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   // The first visit's layout (plan-layout-views.md, step 5): restore() asks firstVisitLayout, and no longer asks for Opens
   // with to be set before a layout opens; a phone opens Calendar's or Map's composite first.
   if (!/firstVisitLayout\(\{ firstVisit: spaceFirstVisit, remembered: saved\.__open, guest, entering: enteringNow, last \}\)/.test(restore)) fail('public/canvas.js', 'restore() must ask firstVisitLayout (opens-with.js) for the first visit\'s layout');
-  if (/spaceDefaultLayout && Array\.isArray\(spaceOpensWith\)/.test(restore)) fail('public/canvas.js', 'a layout as the first visit must not need Opens with to be set');
+  // The template's layout (plan-layout-picker.md, step 3): a first visit with no remembered arrangement starts from the
+  // template's shape, placed by the canvas's own loader (loadShape), before the product's default list; no Opens with is read.
+  if (!/const shape = request \? null : firstVisitShape\(\{ shape: spaceShape, remembered: saved\.__open, placed: saved\.__placed === true, guest \}\);/.test(restore)) fail('public/canvas.js', 'restore() must ask firstVisitShape (opens-with.js) with the template\'s layout');
+  if (!/if \(shape && shapeById\(shape\.shape\)\) \{[\s\S]*?loadShape\(shape\);/.test(restore) || restore.indexOf('loadShape(shape)') > restore.indexOf('whatOpens({')) fail('public/canvas.js', 'restore() must place the template\'s shape through loadShape, before the product\'s default list');
+  if (!/spaceShape = answer\.layout && typeof answer\.layout\.shape === 'string'/.test(canvasJs)) fail('public/canvas.js', 'the template\'s layout comes from GET /api/modules/for-space, `layout`');
+  // Whether anything was chosen (Thomas, 2026-11-19): snapshot() marks `__placed` once a module of the person's own (not
+  // the chat or the call) is on the canvas, never on a one-object request (keepLayout returns first), and never unsets it.
+  const snapFn = canvasJs.slice(canvasJs.indexOf('  function snapshot() {'), canvasJs.indexOf('  function remember('));
+  if (!/if \(suspended \|\| !spaceId \|\| keepLayout\) return;/.test(snapFn) || !/if \(\[\.\.\.opened\.values\(\)\]\.some\(\(p\) => p\.kind !== 'builtin'\)\) saved\.__placed = true;/.test(snapFn) || /__placed = false|delete saved\.__placed/.test(canvasJs)) fail('public/canvas.js', 'snapshot() marks __placed once a module of the person\'s own is on the canvas, and nothing unsets it');
+  if (/opensWith/.test(canvasJs)) fail('public/canvas.js', 'no Opens with is read: the template\'s layout replaces it (plan-layout-picker.md, decision 12)');
   // A phone has no layout tabs: the fixed layout that opens first there is its composite or module, as the first tab; for
   // Conference it is the call itself (plan-workspaces.md, step 7), opened as its switch opens it ("Not in a call": it
   // never joins), only where this person may open it, and shown first.
@@ -764,6 +852,180 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/leftOutNote\(plan\.left/.test(load)) fail(C, 'loadLayout() says in one line what it left out');
   if (/function applyLayout\(/.test(canvasJs)) fail(C, 'applyLayout is space.js\'s window-width handler; the canvas\'s load is loadLayout()');
   if (!/\n    captureLayout,\n    loadLayout,\n/.test(canvasJs)) fail(C, 'the canvas must offer captureLayout() and loadLayout()');
+}
+
+// A layout shape on the canvas (plan-layout-picker.md, step 2): placeShape() in public/layouts.js turns a shape and its
+// areas into ordinary columns and stacks, widths from the shape's percentages of the view; an empty area is a
+// placeholder only where there is a chooser and a column (not a guest, not a phone); an area whose module can't open is
+// closed up and named, and the columns left share the view by their percentages; a closed section of a stack leaves an
+// ordinary column of its width; fitDock() says which columns wait. areaMayHold() keeps Calendar, To-do, Maps and the
+// composites out of a stacked area. canvas.js's loadLayout() takes a shape through loadShape(), the placeholder holds the
+// shared menu and is never remembered, and nothing about who can't open what is drawn.
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-shapes-'));
+  fs.copyFileSync(path.join(ROOT, 'public/snap-grid.js'), path.join(tmp, 'snap-grid.mjs'));
+  fs.copyFileSync(path.join(ROOT, 'public/layout-shapes.js'), path.join(tmp, 'layout-shapes.mjs'));
+  fs.copyFileSync(path.join(ROOT, 'public/composites.js'), path.join(tmp, 'composites.mjs'));
+  fs.writeFileSync(path.join(tmp, 'layouts.mjs'), fs.readFileSync(path.join(ROOT, 'public/layouts.js'), 'utf8').replace("from '/snap-grid.js'", "from './snap-grid.mjs'"));
+  const { placeShape, areaMayHold, leftOutNote, partOfNote } = await import(pathToFileURL(path.join(tmp, 'layouts.mjs')).href);
+  const { SHAPES, shapeById } = await import(pathToFileURL(path.join(tmp, 'layout-shapes.mjs')).href);
+  const { COMPOSITES, aliasesFor } = await import(pathToFileURL(path.join(tmp, 'composites.mjs')).href);
+  const { DOCK_MIN, fitDock } = await import(pathToFileURL(path.join(tmp, 'snap-grid.mjs')).href);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  const F = 'public/layouts.js';
+  const parts = [...new Set(COMPOSITES.flatMap((c) => c.parts))];
+  const place = (shape, areas, width, opts = {}, canOpen = () => true) => placeShape({ shape, areas }, width, canOpen, { shape: shapeById(shape), ...opts });
+  const ids = ['documents', 'goals', 'polls'];
+  const close = (a, b, tol = 1) => Math.abs(a - b) <= tol;
+  // Every shape, at every width the plan names: the columns, their widths from the percentages, the stacks.
+  for (const s of SHAPES) {
+    for (const W of [1600, 1000, 800, 700, 390]) {
+      const label = `${s.id} at ${W}px`;
+      const got = place(s.id, ids.slice(0, s.areas), W);
+      if (got.shape !== s.id) { fail(F, `${label}: placed nothing`); continue; }
+      const phone = W <= 640;
+      if (got.narrow !== phone) fail(F, `${label}: narrow is ${got.narrow}`);
+      if (got.columns.length !== s.columns.length) fail(F, `${label}: ${got.columns.length} columns, not ${s.columns.length}`);
+      got.columns.forEach((c, i) => {
+        if (!close(c.share, s.columns[i], 1e-9)) fail(F, `${label}: column ${i + 1} is ${c.share}% of the view, not ${s.columns[i]}%`);
+        if (!close(c.width, (s.columns[i] * W) / 100)) fail(F, `${label}: column ${i + 1} is ${c.width}px, not ${s.columns[i]}% of ${W}`);
+        if (c.flex !== (i === 0)) fail(F, `${label}: the first column is the flexible one`);
+      });
+      if (Math.abs(got.columns.reduce((a, c) => a + c.width, 0) - W) > got.columns.length) fail(F, `${label}: the columns fill the view`);
+      if (got.slots.map((x) => x.id).join() !== ids.slice(0, s.areas).join()) fail(F, `${label}: the modules in area order (${got.slots.map((x) => x.id)})`);
+      if ('dockW' in got.slots[0] || got.slots.slice(1).some((x) => x.column > 0 && !(x.dockW >= DOCK_MIN))) fail(F, `${label}: the flexible column has no width of its own, every other its share (at least DOCK_MIN): ${JSON.stringify(got.slots)}`);
+      const stackSlots = got.slots.filter((x) => x.stack);
+      if (s.stacked.length) {
+        if (stackSlots.map((x) => x.area).join() !== s.stacked.join() || stackSlots.some((x) => x.h !== 0.5) || stackSlots.map((x) => x.at).join() !== '0,1' || new Set(stackSlots.map((x) => x.stack)).size !== 1) fail(F, `${label}: areas ${s.stacked} are one stack, top first, half the column's height each: ${JSON.stringify(stackSlots)}`);
+      } else if (stackSlots.length) fail(F, `${label}: no stack`);
+      if (got.empty.length || got.closed.length || got.left.length) fail(F, `${label}: nothing empty or closed`);
+      if (phone && got.waiting.length) fail(F, `${label}: nothing waits on a phone`);
+    }
+  }
+  // Too narrow for the shape: three-equal needs 760px of canvas; below that area 3 waits, by the canvas's own rule.
+  if (place('three-equal', ids, 800).waiting.length || place('three-equal', ids, 760).waiting.length) fail(F, 'three-equal fits three columns from 760px');
+  if (place('three-equal', ids, 759).waiting.join() !== '3' || place('three-equal', ids, 700).waiting.join() !== '3') fail(F, 'three-equal below 760px: area 3 waits');
+  if (place('tall-split', ids, 700).waiting.length) fail(F, 'tall-split is two columns, so it fits at 700px (a stack is one column)');
+  const fd = fitDock(700, [{ id: 'a', width: 350, flex: true }, { id: 'b', width: 350 }], { wide: true });
+  if (fd.waiting.length) fail(F, 'fitDock() agrees: two columns at 700px');
+  // An empty area: a placeholder with the chooser, its column kept at its share.
+  const emptyOne = place('wide-narrow', ['documents', null], 1200);
+  if (emptyOne.empty.join() !== '2' || emptyOne.closed.length || emptyOne.columns.length !== 2 || emptyOne.slots[1].id !== null || !close(emptyOne.columns[1].width, 400)) fail(F, `an empty area keeps its column with the chooser: ${JSON.stringify(emptyOne)}`);
+  const allEmpty = place('one', [null], 1200);
+  if (allEmpty.empty.join() !== '1' || allEmpty.slots.length !== 1 || allEmpty.slots[0].id !== null) fail(F, 'the Default template\'s shape: one empty area, with the chooser');
+  // A guest has no chooser, and a phone no placeholder: the empty area closes up and is not a reason to leave anything out.
+  const guestSees = place('wide-narrow', ['documents', null], 1200, { chooser: false });
+  if (guestSees.empty.length || guestSees.closed.join() !== '2' || guestSees.columns.length !== 1 || !close(guestSees.columns[0].share, 100, 1e-9) || guestSees.left.length) fail(F, `a guest: the empty area closes up and area 1 takes the view: ${JSON.stringify(guestSees)}`);
+  const phoneSees = place('tall-split', [null, 'documents', 'goals'], 390);
+  if (phoneSees.empty.length || phoneSees.closed.join() !== '1' || phoneSees.slots.map((x) => x.id).join() !== 'documents,goals') fail(F, `a phone: an empty area is no tab, the modules in area order: ${JSON.stringify(phoneSees)}`);
+  // A module this person can't open closes its area up, named for the left-out note, and never offers a chooser.
+  const cant = (...no) => (id) => !no.includes(id);
+  const wn = place('wide-narrow', ['documents', 'goals'], 1200, {}, cant('goals'));
+  if (wn.closed.join() !== '2' || wn.empty.length || wn.left.join() !== 'goals' || wn.columns.length !== 1 || !close(wn.columns[0].share, 100, 1e-9) || wn.columns[0].width !== 1200) fail(F, `wide-narrow without area 2: area 1 takes the whole view: ${JSON.stringify(wn)}`);
+  const te = place('three-equal', ids, 1200, {}, cant('goals'));
+  if (te.columns.length !== 2 || te.columns.some((c) => !close(c.share, 50, 1e-9)) || te.slots.map((x) => x.id).join() !== 'documents,polls' || te.left.join() !== 'goals') fail(F, `three-equal with one closed: the other two take half each: ${JSON.stringify(te.columns)}`);
+  for (const id of ['tall-split', 'wide-split']) {
+    const one = place(id, ids, 1200, {}, cant('documents'));
+    if (one.columns.length !== 1 || !close(one.columns[0].share, 100, 1e-9) || !one.columns[0].stack || one.slots.map((x) => `${x.id}:${x.at}:${x.h}`).join() !== 'goals:0:0.5,polls:1:0.5' || 'dockW' in one.slots[0]) fail(F, `${id} with area 1 closed: the right column is the only one, its stack kept: ${JSON.stringify(one)}`);
+    const sec = place(id, ids, 1200, {}, cant('polls'));
+    const want = shapeById(id).columns;
+    if (sec.columns.length !== 2 || sec.columns[1].stack || sec.slots.some((x) => x.stack) || !close(sec.columns[1].share, want[1], 1e-9) || sec.closed.join() !== '3') fail(F, `${id} with a stacked section closed: the other has the whole column, which keeps its width: ${JSON.stringify(sec)}`);
+    const emptySec = place(id, ['documents', null, 'goals'], 1200);
+    if (!emptySec.columns[1].stack || emptySec.slots.filter((x) => x.stack).map((x) => x.id).join() !== ',goals') fail(F, `${id}: an empty stacked area is a section of the stack, with the chooser: ${JSON.stringify(emptySec.slots)}`);
+  }
+  const none = place('three-equal', ids, 1200, {}, () => false);
+  if (none.columns.length || none.slots.length || none.closed.join() !== '1,2,3' || none.left.join() !== ids.join()) fail(F, `every area closed: nothing placed, every module named: ${JSON.stringify(none)}`);
+  if (leftOutNote(none.left, (x) => x[0].toUpperCase() + x.slice(1)) !== "Documents, Goals and Polls aren't on in this space, so they were left out.") fail(F, 'the left-out note names what closed up');
+  // Read through the composites' aliases: `calendar` opens the Calendar's composite in area 1; one that reads as a
+  // composite can't be a stack's section, and a module twice (two parts of one composite) is placed once.
+  const al = aliasesFor(['calendar', 'todo', 'documents'], []);
+  const cal = place('two-equal', ['calendar', 'todo'], 1200, { aliases: al });
+  if (cal.slots.map((x) => x.id).join() !== 'dest:calendar' || cal.closed.join() !== '2' || cal.left.length) fail(F, `the Calendar's two parts are one composite, placed once: ${JSON.stringify(cal)}`);
+  const stackedCal = place('tall-split', ['documents', 'calendar', null], 1200, { aliases: al });
+  if (stackedCal.slots.some((x) => x.id === 'dest:calendar') || !stackedCal.closed.includes(2)) fail(F, 'a composite never goes into a stack');
+  if (place('one', ['chat'], 1200).slots.length || place('one', ['chat'], 1200).left.length) fail(F, 'the chat or the call in an area is never placed and never "left out" (they are the column on the left)');
+  // Nothing wrong is placed: no shape, an unknown one, a wrong length, a shape entry that is not the record's.
+  for (const [rec, opts] of [[null, {}], [{ shape: 'one', areas: ['a', 'b'] }, { shape: shapeById('one') }], [{ shape: 'one', areas: ['a'] }, {}], [{ shape: 'one', areas: ['a'] }, { shape: shapeById('two-equal') }]]) {
+    if (placeShape(rec, 1200, () => true, opts).shape !== null) fail(F, `placeShape() places nothing for ${JSON.stringify(rec)}`);
+  }
+  const rec = { shape: 'wide-split', areas: ['documents', null, 'goals'] };
+  const kept = JSON.stringify(rec);
+  placeShape(rec, 1200, () => true, { shape: shapeById('wide-split') });
+  if (JSON.stringify(rec) !== kept) fail(F, 'placeShape() must not change the record');
+  // What an empty area's chooser offers (decision 8): anything in an area of its own; in a stacked area not Calendar,
+  // To-do, Maps nor a composite. Never the chat or the call.
+  const ts = shapeById('tall-split');
+  for (const a of [2, 3]) for (const id of ['calendar', 'todo', 'maps', 'dest:calendar', 'dest:map']) if (areaMayHold(ts, a, id, { parts })) fail(F, `a stacked area must not offer ${id}`);
+  for (const id of ['calendar', 'todo', 'maps', 'dest:calendar', 'documents']) if (!areaMayHold(ts, 1, id, { parts })) fail(F, `area 1 of tall-split offers ${id}`);
+  if (!areaMayHold(ts, 2, 'documents', { parts }) || areaMayHold(shapeById('one'), 1, 'chat', { parts }) || areaMayHold(ts, 1, 'conference', { parts })) fail(F, 'a stacked area offers an ordinary module; no area offers the chat or the call');
+  if (!areaMayHold(shapeById('three-equal'), 3, 'dest:map', { parts })) fail(F, 'a column of its own may hold a composite');
+  // To-do reads as the Calendar only where the Calendar is on (aliasesFor): refused in a stacked area there, allowed where it is off.
+  const partsOf = (al) => Object.keys(al).filter((id) => typeof al[id] === 'string' && al[id].startsWith('dest:'));
+  const calOn = partsOf(aliasesFor(['calendar', 'todo', 'maps'], []));
+  const calOff = partsOf(aliasesFor(['todo', 'maps'], []));
+  if (areaMayHold(ts, 2, 'todo', { parts: calOn }) || !areaMayHold(ts, 2, 'todo', { parts: calOff })) fail(F, `To-do in a stacked area: refused while the Calendar is on (${calOn}), offered while it is off (${calOff})`);
+  const todoOff = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: aliasesFor(['todo', 'documents', 'goals'], []), mayHold: (a, id) => areaMayHold(ts, a, id, { parts: calOff }) });
+  if (todoOff.slots.map((x) => x.id).join() !== 'documents,todo,goals' || todoOff.closed.length) fail(F, `with the Calendar off To-do is placed in a stack: ${JSON.stringify(todoOff.slots)}`);
+  const todoOn = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: al, mayHold: (a, id) => areaMayHold(ts, a, id, { parts: calOn }) });
+  if (todoOn.closed.join() !== '2' || todoOn.left.length) fail(F, `with the Calendar on To-do (the Calendar) closes up in a stacked area, not "left out": ${JSON.stringify(todoOn)}`);
+  // ... and it is named (Thomas, 2026-11-19): "To-do is part of the Calendar here, so it was left out."
+  if (JSON.stringify(todoOn.folded) !== JSON.stringify([{ id: 'todo', into: 'dest:calendar' }])) fail(F, `To-do closed up as part of the Calendar is reported as folded: ${JSON.stringify(todoOn.folded)}`);
+  if (JSON.stringify(place('two-equal', ['calendar', 'todo'], 1200, { aliases: al }).folded) !== JSON.stringify([{ id: 'todo', into: 'dest:calendar' }])) fail(F, 'To-do beside the Calendar (the same composite twice) is reported as folded');
+  if (todoOff.folded.length || place('one', ['todo'], 1200, { aliases: al }).folded.length) fail(F, 'nothing is folded where To-do is placed (the Calendar off, or To-do opening the Calendar in area 1)');
+  const nm = (id) => ({ todo: 'To-do', 'dest:calendar': 'Calendar', polls: 'Polls' }[id] || id);
+  if (partOfNote(todoOn.folded, nm) !== 'To-do is part of the Calendar here, so it was left out.') fail(F, `the To-do note: ${partOfNote(todoOn.folded, nm)}`);
+  if (partOfNote([{ id: 'todo', into: 'dest:calendar' }, { id: 'polls', into: 'dest:calendar' }], nm) !== 'To-do and Polls are part of the Calendar here, so they were left out.' || partOfNote([]) !== '') fail(F, 'the note for several, and none for none');
+  // Maps and Calendar are refused in a stacked area whatever is on, with and without the space's map file (the Map composite
+  // asks for one; a QA read caught Maps offered where there was none).
+  for (const shown of [[], ['map']]) for (const on of [['calendar', 'todo', 'maps'], ['todo', 'maps']]) {
+    const p = partsOf(aliasesFor(on, shown));
+    for (const sh of ['tall-split', 'wide-split']) for (const a of [2, 3]) for (const id of ['maps', 'calendar']) {
+      if (areaMayHold(shapeById(sh), a, id, { parts: p })) fail(F, `${sh} area ${a} must not hold ${id} (on: ${on}, map file: ${shown.length > 0})`);
+    }
+  }
+  const mapsNoFile = place('tall-split', ['documents', 'maps', 'goals'], 1200, { aliases: aliasesFor(['maps', 'documents', 'goals'], []), mayHold: (a, id) => areaMayHold(ts, a, id, { parts: partsOf(aliasesFor(['maps', 'documents', 'goals'], [])) }) });
+  if (mapsNoFile.closed.join() !== '2' || mapsNoFile.slots.some((x) => x.id === 'maps')) fail(F, `Maps with no map file still closes up in a stacked area: ${JSON.stringify(mapsNoFile.slots)}`);
+  // The page's rule and the server's shape check (cleanShape, server/layout-shapes.js) agree for every module id in every
+  // area of every shape, with the Calendar on and off and with and without a map file.
+  {
+    const { createRequire } = await import('node:module');
+    const { cleanShape } = createRequire(import.meta.url)('../server/layout-shapes.js');
+    const every = ['calendar', 'todo', 'maps', 'documents', 'polls', 'research', 'chat', 'conference'];
+    for (const shown of [[], ['map']]) for (const on of [every.filter((x) => !['chat', 'conference'].includes(x)), every.filter((x) => !['chat', 'conference', 'calendar'].includes(x))]) {
+      const p = partsOf(aliasesFor(on, shown));
+      for (const s of SHAPES) for (let a = 1; a <= s.areas; a += 1) for (const id of every) {
+        const areasRec = Array.from({ length: s.areas }, (_, i) => (i === a - 1 ? id : null));
+        const server = !cleanShape({ shape: s.id, areas: areasRec }, { on }).error;
+        const page = areaMayHold(s, a, id, { parts: p });
+        if (server !== page) fail(F, `${s.id} area ${a}, ${id} (Calendar ${on.includes('calendar') ? 'on' : 'off'}, map file ${shown.length ? 'yes' : 'no'}): the server says ${server}, the page ${page}`);
+      }
+    }
+  }
+  // canvas.js: loadLayout() takes a shape; the placeholder is a column with the shared menu, never remembered, never on a
+  // phone; Window Mode, a layout, the Workspace put back and leaving close it up; nothing is drawn about who can't open what.
+  const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');
+  const C = 'public/canvas.js';
+  const between = (a, b) => canvasJs.slice(canvasJs.indexOf(a), canvasJs.indexOf(b, canvasJs.indexOf(a)));
+  const load = between('  function loadLayout(', '  const nameOfLayout');
+  const shape = between('  function loadShape(', '  // Put a saved layout on the canvas');
+  if (!/typeof layout\.shape === 'string'\) return loadShape\(layout\)/.test(load)) fail(C, 'loadLayout() takes a shape record through loadShape()');
+  if (!/placeShape\(record, width, canOpenHere, \{ shape: def, aliases, narrow, chooser: !guest, mayHold: \(area, id\) => mayHoldHere\(def, area, id\) \}\)/.test(shape)) fail(C, 'loadShape() places with placeShape(), canOpenHere(), the aliases, no chooser for a guest, and the chooser\'s own rule (mayHoldHere)');
+  if (!/p\.kind !== 'builtin' && !named\.has\(p\.id\) && !keepCall\(p\)\) closeModule\(p\.id\)/.test(shape)) fail(C, 'loadShape() closes what the shape does not name, never the conference while on the call');
+  if (!/leftOutNote\(plan\.left/.test(shape) || !/syncDock\(\)/.test(shape) || !/snapshot\(\)/.test(shape)) fail(C, 'loadShape() says what it left out, fits the columns and becomes the remembered arrangement');
+  if (!/partOfNote\(folded, partName\)/.test(shape) || !/compositeById\(f\.into\)\?\.main !== f\.id/.test(shape)) fail(C, 'loadShape() names a module left out as part of a composite (To-do with the Calendar on), never the composite\'s own main');
+  if (!/saved\.__mode = 'panel'/.test(shape) || !/all: false/.test(shape)) fail(C, 'a shape is columns: Panel Mode, the grid\'s switch off');
+  const openArea = between('  function openArea(', '  // Take a placeholder away.');
+  if (!/mountHostMenu\(a\.list, \(\) => areaItems\(a\)\)/.test(canvasJs) || !/createModuleFrame\(/.test(openArea) || !/close: true/.test(openArea)) fail(C, 'an empty area is a docked frame with Close and the shared menu (mountHostMenu) as its chooser');
+  if (/opened\.set\(/.test(openArea) || /remember\(/.test(openArea)) fail(C, 'an empty area is never a module and never remembered');
+  if (!/const mayHoldHere = \(shape, area, id\) => areaMayHold\(shape, area, id, \{ parts: compositePartsHere\(\) \}\)/.test(canvasJs) || !/const compositePartsHere = \(\) => Object\.keys\(aliases\)/.test(canvasJs)) fail(C, 'one rule for what an area holds (mayHoldHere), its composite parts read from this space\'s aliases (aliasesFor)');
+  if ((canvasJs.match(/areaMayHold\(/g) || []).length !== 1) fail(C, 'areaMayHold() is asked in one place only (mayHoldHere)');
+  if (!/mayHoldHere\(a\.shape, a\.area, m\.id\)/.test(between('  const areaChoices', '  function areaItems(')) || !/!opened\.has\(m\.id\)/.test(between('  const areaChoices', '  function areaItems(')) || !/mayHoldHere\(a\.shape, a\.area, m\.id\)/.test(between('  function fillArea(', '  // Put a shape on the canvas'))) fail(C, 'the chooser and a pick list what is not open and what the area may hold (mayHoldHere)');
+  if (!/a\.el\.hidden = isNarrow\(\) \|\| a\.waiting/.test(canvasJs)) fail(C, 'an empty area is not drawn on a phone or while its column waits');
+  for (const [fn, end] of [['  function restore(', '  // --- saved layouts'], ['  function closeAllModules(', '  function setMode('], ['  function setArrangeMode(', '  // Window Mode puts the stacks away']]) {
+    if (!/clearAreas\(\)/.test(between(fn, end))) fail(C, `${fn.trim()}...) closes the empty areas up`);
+  }
+  if (/cantOpen|can't open this/.test(shape + openArea)) fail(C, 'nothing about who can\'t open what is drawn on the canvas (decision 20)');
+  if (!/const dockedModules = \(\) => holders\(\)/.test(canvasJs) || !/columnsFrom\(holders\(\)\.filter\(wantsColumn\)\.concat\(extra\)\)/.test(canvasJs)) fail(C, 'an empty area is a column for the fit and the stacks (holders())');
 }
 
 // Panel stacking (plan-panel-stacking.md, GitHub #387): the stack's arithmetic in public/layouts.js (grouping, the heights

@@ -139,9 +139,8 @@ fieldset.hc-part > legend.hc-part-name + * { clear: both; }
 .icon-field input { flex: 1; min-width: 0; }
 .icon-field i { width: 1.4em; text-align: center; flex: none; }
 .template-modules { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; }
-.phase-row, .opens-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.phase-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .phase-row input[type="text"] { flex: 1 1 8rem; min-width: 0; }
-.opens-row .sdk-choice-row { flex: 1; width: auto; min-width: 8rem; }
 @media (max-width: 640px) {
   .module-display-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .module-display-row > :first-child { grid-column: 1 / -1; }

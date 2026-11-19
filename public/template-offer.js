@@ -1,6 +1,6 @@
 // A template's offer after a switch (plan-environment-templates.md, "Addendum: switching a template", GitHub #59), shared
 // by Manage's Template tab and the host console's environment card. The offer is what the server answers with a switch:
-// { modules: [{ id, name, allowed, why? }], lobby: { name, description } | null, spaceDefaults: { profile?, opensWith? } | null,
+// { modules: [{ id, name, allowed, why? }], lobby: { name, description } | null, spaceDefaults: { profile? } | null,
 // reactions: [{ id, glyph, label }] | null, iconSet: [Font Awesome names] | null } (addendum 2, "templates grow"; no theme: the
 // theme left templates, plan-templates-redesign.md decision 13).
 // Modules are ticked by default; one the plan leaves out is shown unticked and disabled, with the server's why. The
@@ -61,19 +61,7 @@ export function renderOffer(box, { templateName, offer, lobbyName = '', apply, l
     const defaults = offer.spaceDefaults;
     const p = defaults.profile;
     const profile = p ? `New ${escapeHtml(word('space', { many: true }))} use the ${escapeHtml(PROFILE_LABELS[p] || p)} profile` : '';
-    const names = (defaults.opensWith || []).map((id) => {
-      const offered = (offer.modules || []).find((m) => m.id === id);
-      if (offered && offered.name) return offered.name;
-      if (id === 'chat') return 'Chat';
-      if (id === 'conference') return 'Conference';
-      return id;
-    });
-    const opens = names.length === 1
-      ? `A new ${escapeHtml(word('space'))} opens ${escapeHtml(names[0])}`
-      : names.length > 1
-        ? `A new ${escapeHtml(word('space'))} opens ${names.slice(0, -1).map(escapeHtml).join(', ')} and ${escapeHtml(names[names.length - 1])}`
-        : '';
-    const text = [profile, opens].filter(Boolean).join('. ');
+    const text = profile;
     return `<label class="sdk-choice-row"><input type="checkbox" data-offer-space-defaults> <span>${text}</span></label>`;
   };
   const reactionsRow = () => {
