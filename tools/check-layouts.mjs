@@ -635,7 +635,8 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   assert.match(setupSrc, /if \(nowLayout !== wasLayout\) patch\.defaultLayout = nowLayout;/, 'the layout goes only when it changed');
   // The layout tabs (plan-layout-views.md, steps 2 and 3) load the page's own copy, as a row in the menu does: a favorite
   // from the saved lists, Calendar and Map from GET's `system` list (their `modules`, the composite docked).
-  assert.match(space, /const layout = findSystemLayout\(id\) \|\| findLayout\(id\);\n\s*if \(!layout \|\| !Array\.isArray\(layout\.modules\)\) return;/);
+  // A layout for everyone is a shape ({ shape, areas }; plan-layout-picker.md, step 6): loaded the same way, by loadShape.
+  assert.match(space, /const layout = findSystemLayout\(id\) \|\| findLayout\(id\);\n\s*if \(!layout \|\| !\(Array\.isArray\(layout\.modules\) \|\| isShapeLayout\(layout\)\)\) return;/);
   assert.match(space, /const findSystemLayout = \(id\) => layoutList\.system\.find\(\(l\) => l\.id === id\) \|\| null;/);
   assert.match(space, /system: Array\.isArray\(got\.system\) \? got\.system : \[\],/, 'GET\'s `system` list read for the tabs');
   n += 1;

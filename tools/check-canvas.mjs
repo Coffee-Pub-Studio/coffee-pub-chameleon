@@ -2836,6 +2836,41 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/if \(reason === 'kicked'\) return leaveKicked\(\);/.test(spaceJs)) fail(F, 'a kick\'s `removed` on the live stream leaves the space (leaveKicked)');
 }
 
+// Layouts for everyone are shapes (plan-layout-picker.md, step 6): the maker's line on a shared row (sharedRowNotice, pure),
+// the first visit's shared default loaded as a shape, and the picker's composite parts from the canvas.
+{
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-shared-'));
+  fs.copyFileSync(path.join(ROOT, 'public/snap-grid.js'), path.join(tmp, 'snap-grid.mjs'));
+  fs.writeFileSync(path.join(tmp, 'layouts.mjs'), fs.readFileSync(path.join(ROOT, 'public/layouts.js'), 'utf8').replace("from '/snap-grid.js'", "from './snap-grid.mjs'"));
+  const { sharedRowNotice } = await import(pathToFileURL(path.join(tmp, 'layouts.mjs')).href);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  const F = 'public/layouts.js';
+  const names = { todo: 'To-do', polls: 'Polls', vault: 'Vault', documents: 'Documents' };
+  const opts = { nameOf: (id) => names[id], roleWord: (r) => ({ moderator: 'moderators', member: 'members', guest: 'guests' })[r], space: 'trip' };
+  const cases = [
+    [['documents', 'todo', null], { todo: { roles: ['guest'] } }, "Guests won't see To-do."],
+    [['todo', 'polls', 'documents'], { todo: { roles: ['guest', 'member'] }, polls: { roles: ['member', 'guest'] } }, "Members and guests won't see To-do and Polls."],
+    [['todo', 'vault', 'polls'], { todo: { roles: ['guest'] }, vault: { off: true }, polls: { roles: ['guest'] } }, "Guests won't see To-do and Polls. Vault is off in this trip, so nobody sees it."],
+    [['documents', null], { todo: { roles: ['guest'] } }, ''], // a module not in the layout says nothing
+    [['documents'], {}, ''],
+    [['documents'], null, ''], // no cantOpen (a member, a guest): nothing
+    [['todo'], { todo: { roles: [] } }, ''],
+    [['todo', 'polls'], { todo: { off: true }, polls: { off: true } }, 'To-do and Polls are off in this trip, so nobody sees them.'],
+    [['__proto__'], { }, ''],
+  ];
+  for (const [areas, cantOpen, want] of cases) {
+    const got = sharedRowNotice(areas, cantOpen, opts);
+    if (got !== want) fail(F, `sharedRowNotice(${JSON.stringify(areas)}, ${JSON.stringify(cantOpen)}) says ${JSON.stringify(got)}, not ${JSON.stringify(want)}`);
+  }
+  // A name the page gives is shown as text; an id with no name is shown as the id.
+  if (sharedRowNotice(['odd'], { odd: { roles: ['guest'] } }, { roleWord: () => 'guests' }) !== "Guests won't see odd.") fail(F, 'sharedRowNotice: a module with no name is named by its id');
+  const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');
+  const C = 'public/canvas.js';
+  if (!/spaceDefaultLayout = answer\.defaultLayout && typeof answer\.defaultLayout\.shape === 'string' && Array\.isArray\(answer\.defaultLayout\.areas\) \? answer\.defaultLayout : null;/.test(canvasJs)) fail(C, 'the first visit\'s shared default is a shape (for-space\'s defaultLayout), loaded through loadLayout and loadShape');
+  if (!/if \(layout && typeof layout\.shape === 'string'\) return loadShape\(layout\);/.test(canvasJs)) fail(C, 'loadLayout() sends a shape to loadShape()');
+  if (!/compositeParts: \(\) => compositePartsHere\(\),/.test(canvasJs)) fail(C, 'the canvas answers the composite parts here, for the picker\'s stacked areas');
+}
+
 if (problems.length) {
   console.error(`check-canvas: ${problems.length} problem(s)\n  ${problems.join('\n  ')}`);
   process.exit(1);
