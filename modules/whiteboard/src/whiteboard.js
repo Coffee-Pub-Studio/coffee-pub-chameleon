@@ -151,14 +151,51 @@
     if (save) persist(next, save);
     updateStatus();
   }
+  // Marks that travel with a picture (lib-u). A mark saved is on the picture it sits on, or on none (wbAttachment). While a picture is
+  // resized its marks are scaled from the state they were in when the resize began (markBase), so the many small steps of a drag
+  // do not add up their rounding; they are saved with the picture, in the same turn, so the resize is one undo step.
+  let markBase = null; // { id, box, marks: Map(mark id -> block) }
+  let flushingMarks = false;
   function persist(b, how) {
-    const stamped = { ...b, by: me, at: new Date().toISOString() };
+    let own = b;
+    if (wbIsMark(b)) {
+      const on = wbAttachment(b, live(), heightOf);
+      own = { ...b };
+      if (on) own.on = on; else delete own.on;
+    }
+    const stamped = { ...own, by: me, at: new Date().toISOString() };
     if (history) history.record(b.id, known.get(b.id) || null, stamped);
     known.set(b.id, stamped);
     board.put(stamped);
     drafts.delete(b.id);
     waiting.delete(b.id); // ours is newer than what waited
     if (how === 'soon') sync.saveSoon(stamped); else sync.save(stamped);
+    if (markBase && !flushingMarks) {
+      const base = markBase;
+      markBase = null;
+      if (base.id === b.id) {
+        flushingMarks = true;
+        try {
+          for (const id of base.marks.keys()) {
+            const m = board.get(id);
+            if (m && !sameBlock(known.get(id), m)) persist(m, how);
+          }
+        } finally { flushingMarks = false; }
+      }
+    }
+  }
+  // The marks of a picture follow its resize: from the state they were in when it began, by the factors its box changed by.
+  function scaleMarks(prev, next) {
+    if (next.w === prev.w && next.h === prev.h) return; // a move: its marks go with it as the drag's own (wbFrameFollow)
+    if (!markBase || markBase.id !== prev.id) {
+      markBase = { id: prev.id, box: { x: prev.x, y: prev.y, w: prev.w, h: prev.h }, marks: new Map(live().filter((m) => m.on === prev.id && m.locked !== true).map((m) => [m.id, m])) };
+    }
+    const f = { ox: markBase.box.x, oy: markBase.box.y, sx: next.w / markBase.box.w, sy: next.h / markBase.box.h, nx: next.x, ny: next.y };
+    for (const [id, m0] of markBase.marks) {
+      if (!board.has(id)) continue;
+      const n = wbClean({ ...m0, ...wbScaleMark(m0, f) });
+      if (n) commit(n, false);
+    }
   }
 
   // What tools and block types may ask of the board: they never touch storage or permissions themselves.
@@ -197,7 +234,11 @@
       if (b && !drafts.has(id) && b.locked && policy.canLock(b)) { lockedNote(1, 1); return; }
       if (!b || (!drafts.has(id) && !policy.canChange(b))) return;
       const next = wbClean({ ...b, ...patch });
-      if (next) commit(next, save);
+      if (!next) return;
+      if (markBase && markBase.id !== id) markBase = null;
+      // A resize of a picture scales its marks; a crop (or Reset picture) changes its box but not its scale, so it moves none.
+      if (b.type === 'image' && !('crop' in patch) && !drafts.has(id)) scaleMarks(b, next);
+      commit(next, save);
     },
     // Save a block as it is now: once, at the end of a gesture; nothing when the gesture left it as it was.
     save(id) {
@@ -343,7 +384,7 @@
   // A delete of several blocks (lib-m, wbDeleteSet): the locked ones stay, and the person is told.
   function removeMany(ids) {
     if (presenting) return;
-    const r = wbDeleteSet(ids, board.all(), { canDelete: (b) => drafts.has(b.id) || policy.canDelete(b), refsOf: (b) => { const d = defOf(b); return d && d.refs ? d.refs(b) : []; } });
+    const r = wbDeleteSet(ids, board.all(), { canDelete: (b) => drafts.has(b.id) || policy.canDelete(b), refsOf: (b) => { const d = defOf(b); const own = d && d.refs ? d.refs(b) : []; return b.on ? [...own, b.on] : own; } }); // a mark goes with its picture (lib-u)
     for (const id of r.ids) remove(id, { force: true });
     if (r.locked) lockedNote(r.locked, ids.length);
   }

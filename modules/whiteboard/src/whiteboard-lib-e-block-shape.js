@@ -98,6 +98,7 @@
         paint: { stroke: { extra: ['none'] }, fill: { extra: ['none'] }, ink: {} },
         weight: true,
         create: () => ({ w: shape.w, h: shape.h, text: '', stroke: 'ink', fill: 'ink', ink: 'ink', weight: 3, size: 'medium', align: 'center' }),
+        mark: true, // travels with the picture it is put on (lib-u)
         radius: Boolean(shape.radius),
         shadow: true,
         clean(raw) {

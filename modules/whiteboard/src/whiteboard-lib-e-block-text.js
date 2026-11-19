@@ -9,6 +9,7 @@
     edit: 'text',
     markup: true,
     textEmpty: 'remove',
+    mark: true, // travels with the picture it is put on (lib-u)
     paint: { stroke: { extra: ['none'] }, fill: { extra: ['none'] }, ink: {} },
     weight: true,
     create: () => ({ w: 240, text: '', ink: 'ink', fill: 'none', stroke: 'none', weight: 2, size: 'large', align: 'left' }),

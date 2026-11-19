@@ -26,6 +26,8 @@
       const copy = { ...JSON.parse(JSON.stringify(b)), id: idMap.get(b.id), ...wbMoved(b, dx, dy) };
       delete copy.locked;
       if (groupMap.has(wbGroupOf(b))) copy.group = groupMap.get(wbGroupOf(b)); else delete copy.group;
+      // A mark copied with its picture is on the copy of it; copied without (or the picture is not among the copies), it is on none.
+      if (copy.on) { if (idMap.has(copy.on)) copy.on = idMap.get(copy.on); else delete copy.on; }
       const def = blockTypes.get(b.type);
       if (def && def.remap && (!def.refs || def.refs(b).length)) Object.assign(copy, def.remap(copy, idMap));
       if (def && def.copied) Object.assign(copy, def.copied(copy));
