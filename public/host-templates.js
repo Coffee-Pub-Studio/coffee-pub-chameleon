@@ -37,9 +37,9 @@ let builtInLists = null; // GET /api/host/settings `builtIn`: { reactions, icons
 let shipped = null; // GET /api/host/settings `modules`: [{ id, name, icon, canvas }], loaded once
 const moduleName = (id) => (shipped || []).find((m) => m.id === id)?.name || id;
 const moduleIcon = (id) => (shipped || []).find((m) => m.id === id)?.icon || 'puzzle-piece';
-// Whether a module has a place on the canvas (its manifest's surfaces.canvas; the server's rule for an area). A module this
-// image does not ship, or a list with no `canvas` field, is offered, and the server's check has the last word.
-const onCanvas = (id) => (shipped || []).find((m) => m.id === id)?.canvas !== false;
+// Whether a module has a place on the canvas (`canvas`, from its manifest's surfaces.canvas; the server's rule for an
+// area). A module this image does not ship is offered, and the server's check has the last word.
+const onCanvas = (id) => { const m = (shipped || []).find((x) => x.id === id); return m ? m.canvas === true : true; };
 
 // host.js hands over the list it loaded, and is told when it changes (the create form uses it too).
 export function initTemplates(templates, changed, name, environmentName) {
@@ -57,14 +57,18 @@ export function initTemplates(templates, changed, name, environmentName) {
 // Which view: the table (''), or the editor of one template ('new' for a new one). host.js calls it from the address.
 const TEMPLATE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 let shownId = '';
+let shownPartAsked = ''; // the part the address asks for now: an editor still loading opens this one, not the first asked
 export async function showTemplatesView(id, part = '') {
+  shownPartAsked = part;
   if (!ready) { pendingView = [id, part]; return; }
   $('templates-list-view').hidden = Boolean(id);
   $('template-editor-view').hidden = !id;
   if (!id) { editing = null; shownId = ''; return; }
   if (id === shownId) { selectPart(part); return; } // the same template: only its tab changes, what was typed stays
   shownId = id;
-  if (id === 'new') { await openEditor(null, {}); selectPart(part); return; }
+  // The last template's layout goes at once, so nothing reads it as this one's while this one loads.
+  if (layoutPart) { layoutPart.destroy(); layoutPart = null; }
+  if (id === 'new') { await openEditor(null, {}); if (shownId === id) selectPart(shownPartAsked); return; }
   // Only a template id reaches the route (the server's pattern, server/templates.js): "." or ".." in the address would
   // otherwise walk the request to another route.
   if (!TEMPLATE_ID.test(id)) {
@@ -75,8 +79,11 @@ export async function showTemplatesView(id, part = '') {
   }
   try {
     const answer = await api('GET', `/api/host/templates/${encodeURIComponent(id)}`);
+    if (shownId !== id) return; // another template was asked for meanwhile
     await openEditor(answer.template, answer.cantOpen);
-    selectPart(part);
+    // Another tab of this template may have been asked for while it loaded (#templates/<id>/modules after .../workspace):
+    // the address now wins, so a part chosen meanwhile is not taken back.
+    if (shownId === id) selectPart(shownPartAsked);
   } catch (err) {
     location.hash = 'templates';
     say($('templates-status'), err.message, true);
@@ -483,7 +490,7 @@ function layoutModules() {
   const all = editing && editing.modules === '*';
   const ticked = all ? moduleIds : selectedModules();
   const list = templateLayoutModules(ticked, { isCanvas: onCanvas, nameOf: shownName, iconOf: shownIcon });
-  const used = layoutPart ? layoutPart.value() : (editing && editing.workspace && editing.workspace.layout) || null;
+  const used = layoutPart ? layoutPart.arrangement() : (editing && editing.workspace && editing.workspace.layout) || null;
   const gone = (used && Array.isArray(used.areas) ? used.areas : []).filter((id) => id && !list.some((m) => m.id === id));
   return { modules: list, others: templateLayoutModules(gone, { nameOf: shownName, iconOf: shownIcon }), parts: partsFor(list.map((m) => m.id)), ticked: all ? null : ticked };
 }

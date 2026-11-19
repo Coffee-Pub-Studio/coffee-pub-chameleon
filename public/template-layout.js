@@ -13,18 +13,19 @@
 //
 //   const part = mountTemplateLayout(holder, { record, modules, parts, cantOpen, byDefault, readOnly, word });
 //   part.value()   -> { shape, areas } when it is a valid record, else null (nothing to send)
-//   part.update({ modules, others, parts, ticked })   the template's modules changed (the picker is drawn again)
+//   part.update({ modules, others, parts, ticked })   the template's modules changed (the picker is drawn again from the
+//                  arrangement the person made, and a line says what moved)
 //
 // The holder keeps the valid record as JSON in `data-tw-layout` (template-pages.js's readWorkspace reads it there).
-import { createLayoutPicker, partsFor, MODULE_ID } from '/layout-picker.js';
+import { createLayoutPicker, partsFor, cleanText, MODULE_ID } from '/layout-picker.js';
 import { shapeById } from '/layout-shapes.js';
-import { COLUMN_IDS } from '/layouts.js';
+import { COLUMN_IDS, areaMayHold } from '/layouts.js';
 
 // --- the pure parts (tools/check-layout-picker.mjs runs them in node) ----------------------------------------------------
 
-// `value` as a record the server's shape check can take, or null: a known shape, as many areas as it has, each a
-// module id (MODULE_ID) or null, no module twice. Saving sends `workspace.layout` only when this is not null.
-export function layoutRecord(value) {
+// `value` as a shape and its areas, or null: a known shape, as many areas as it has, each a module id (MODULE_ID) or
+// null, no module twice. What an area may hold is not asked: this is the arrangement as the person made it.
+function areasOf(value) {
   if (!value || typeof value !== 'object') return null;
   const def = shapeById(value.shape);
   if (!def || !Array.isArray(value.areas) || value.areas.length !== def.areas) return null;
@@ -35,6 +36,20 @@ export function layoutRecord(value) {
     seen.add(id);
   }
   return { shape: def.id, areas: value.areas.slice() };
+}
+
+// `value` as a record the server's shape check takes, or null. Saving sends `workspace.layout` only when this is not
+// null. Besides the form (areasOf), each area must be able to hold its module by the picker's own rule (layouts.js's
+// areaMayHold, the one the canvas uses): never the chat or the call, and in a stacked area no Calendar or Maps, nor an
+// id in `parts` (To-do while the Calendar is on: partsFor of the template's modules, as the server's `on`). Without
+// `parts`, To-do counts as part of the Calendar, as the server reads a layout it is not told about. Whether a module is
+// one of the template's is left to the server (it says so in one sentence, and the page says it first: missingNote).
+export function layoutRecord(value, { parts = ['todo'] } = {}) {
+  const r = areasOf(value);
+  if (!r) return null;
+  const def = shapeById(r.shape);
+  const list = Array.isArray(parts) ? parts : [];
+  return r.areas.every((id, i) => id === null || areaMayHold(def, i + 1, id, { parts: list })) ? r : null;
 }
 
 // The modules a template's areas may offer, [{ id, name, icon }] in the order given: each of `ids` (the template's
@@ -53,20 +68,22 @@ export function templateLayoutModules(ids, { isCanvas = () => true, nameOf = (id
 
 // The modules `record` puts in an area that are not among `ids` (the modules ticked now), in area order.
 export function layoutMissing(record, ids) {
-  const r = layoutRecord(record);
+  const r = areasOf(record);
   if (!r) return [];
   const have = new Set(Array.isArray(ids) ? ids : []);
   return r.areas.filter((id) => id && !have.has(id));
 }
 
 const andList = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '');
+// The names a line says, as the picker draws them (cleanText: no control or direction characters, at most 60), each a word.
+const namesIn = (names) => (Array.isArray(names) ? names : []).map(cleanText).filter(Boolean);
 
 // The line beside the picker for modules the layout uses that are no longer ticked: what the server would refuse, said
 // before saving. `where` names the part they are ticked in (the environment's word for modules, plural, capitalised: the
 // Modules part). '' when there are none.
 //   "The layout uses Goals, which is not ticked under Modules. Tick it again, or take it out of the layout."
 export function missingNote(names, { where = '' } = {}) {
-  const list = (Array.isArray(names) ? names : []).filter((x) => typeof x === 'string' && x);
+  const list = namesIn(names);
   if (!list.length) return '';
   const many = list.length > 1;
   return `The layout uses ${andList(list)}, which ${many ? 'are' : 'is'} not ticked under ${where}. Tick ${many ? 'them' : 'it'} again, or take ${many ? 'them' : 'it'} out of the layout.`;
@@ -75,10 +92,32 @@ export function missingNote(names, { where = '' } = {}) {
 // The same, said where the modules are ticked (the host console's Modules tab), naming where the layout is:
 //   "The layout on the Default Workspace tab uses Goals. Tick it again, or take it out of the layout there."
 export function usesNote(names, { where = 'the Default Workspace tab' } = {}) {
-  const list = (Array.isArray(names) ? names : []).filter((x) => typeof x === 'string' && x);
+  const list = namesIn(names);
   if (!list.length) return '';
   const many = list.length > 1;
   return `The layout on ${where} uses ${andList(list)}. Tick ${many ? 'them' : 'it'} again, or take ${many ? 'them' : 'it'} out of the layout there.`;
+}
+
+// What moved when the template's modules changed under the layout (plan decision 25: modules move, they are not dropped,
+// and a short line says what moved): `before` is the arrangement the person made, `after` the one the picker now holds.
+// A module that could no longer stay in its area says why; one moved out of the way says which area it freed.
+//   "To-do moved to area 1: while Calendar is on, it can't share a column. Itinerary moved to area 3 to free area 1."
+// `mayHold(area, id)` is the rule now; `parts` the ids that read as a composite now. '' when nothing moved.
+export function movedNote(before, after, { nameOf = (id) => id, mayHold = () => true, parts = [] } = {}) {
+  const b = areasOf(before);
+  const a = areasOf(after);
+  if (!b || !a) return '';
+  const name = (id) => cleanText(nameOf(id)) || id;
+  const calendar = name('calendar');
+  const pushed = [];
+  const shifted = [];
+  a.areas.forEach((id, i) => {
+    const was = id ? b.areas.indexOf(id) : -1;
+    if (was < 0 || was === i) return;
+    if (!mayHold(was + 1, id)) pushed.push(`${name(id)} moved to area ${i + 1}: ${id === 'todo' && Array.isArray(parts) && parts.includes('todo') ? `while ${calendar} is on, it` : 'it'} can't share a column.`);
+    else shifted.push(`${name(id)} moved to area ${i + 1} to free area ${was + 1}.`);
+  });
+  return [...pushed, ...shifted].join(' ');
 }
 
 // The line for a template with no layout.
@@ -103,9 +142,14 @@ export function mountTemplateLayout(holder, {
 } = {}) {
   const doc = holder.ownerDocument;
   const opts = { modules, others, parts, ticked };
+  const partsNow = () => (Array.isArray(opts.parts) ? opts.parts : partsFor(opts.modules.map((m) => m.id)));
   let picker = null;
-  let current = layoutRecord(record);
-  let started = Boolean(current); // a picker is shown (a layout, or "Pick a shape" pressed)
+  // The arrangement the person made (or the one read in): what a change of the template's modules is worked out from
+  // again, so ticking the Calendar and unticking it again gives the person's arrangement back.
+  let base = areasOf(record);
+  let current = layoutRecord(base, { parts: partsNow() });
+  let moved = ''; // what the last change of the template's modules moved (movedNote), until the person changes something
+  let started = Boolean(base); // a picker is shown (a layout, or "Pick a shape" pressed)
 
   const keep = () => {
     holder.dataset.twLayout = current ? JSON.stringify(current) : '';
@@ -117,7 +161,7 @@ export function mountTemplateLayout(holder, {
   let noteEl = null;
   function drawNote() {
     if (!noteEl) return;
-    const text = missingText();
+    const text = [moved, missingText()].filter(Boolean).join(' ');
     noteEl.textContent = text; // an empty live region stays in place (no height), so the line is heard when it comes
   }
 
@@ -128,7 +172,7 @@ export function mountTemplateLayout(holder, {
       record: rec,
       modules: opts.modules,
       others: opts.others,
-      parts: Array.isArray(opts.parts) ? opts.parts : partsFor(opts.modules.map((m) => m.id)),
+      parts: partsNow(),
       cantOpen,
       byDefault,
       offIn,
@@ -137,14 +181,16 @@ export function mountTemplateLayout(holder, {
       step,
       label: 'Layout',
       onChange: (v) => {
-        current = layoutRecord(v);
+        base = areasOf(v);
+        current = layoutRecord(v, { parts: partsNow() });
+        moved = '';
         keep();
         drawNote();
         if (typeof onChange === 'function') onChange(current);
       },
     });
     // A record read in may lose what the shape can't hold (the picker says so): what it holds now is what is kept.
-    current = layoutRecord(picker.value());
+    current = layoutRecord(picker.value(), { parts: partsNow() });
     return picker;
   }
 
@@ -165,6 +211,8 @@ export function mountTemplateLayout(holder, {
         add.innerHTML = '<i class="fa-solid fa-table-columns fa-fw" aria-hidden="true"></i><span>Pick a shape</span>';
         add.addEventListener('click', () => {
           started = true;
+          base = null;
+          moved = '';
           draw({ focus: 'shape' });
           if (typeof onChange === 'function') onChange(current);
         });
@@ -190,6 +238,8 @@ export function mountTemplateLayout(holder, {
       remove.addEventListener('click', () => {
         started = false;
         current = null;
+        base = null;
+        moved = '';
         draw({ focus: 'add' });
         if (typeof onChange === 'function') onChange(current);
       });
@@ -206,16 +256,20 @@ export function mountTemplateLayout(holder, {
 
   return {
     value: () => current,
-    // The template's modules changed: the picker is drawn again on what it holds, at the step it was on.
+    // The arrangement the person made, which a change of the template's modules is worked out from ({ shape, areas } or null).
+    arrangement: () => (base ? { shape: base.shape, areas: base.areas.slice() } : null),
+    // The template's modules changed: the picker is drawn again, at the step it was on, from the arrangement the person
+    // made (not from what the last change left), and a line says what that moved.
     update(next = {}) {
       for (const k of ['modules', 'others', 'parts', 'ticked']) if (Object.prototype.hasOwnProperty.call(next, k)) opts[k] = next[k];
       if (!started) { drawNote(); return; }
-      const step = picker ? picker.step() : (current ? 2 : 1);
+      const step = picker ? picker.step() : (base ? 2 : 1);
       const had = picker && picker.el.contains(doc.activeElement);
-      const wasAt = picker ? picker.value() : current;
-      picker.destroy();
+      if (picker) picker.destroy();
       picker = null;
-      const fresh = makePicker(wasAt, step);
+      const fresh = makePicker(base, step);
+      const def = base ? shapeById(base.shape) : null;
+      moved = def ? movedNote(base, fresh.value(), { nameOf, parts: partsNow(), mayHold: (area, id) => areaMayHold(def, area, id, { parts: partsNow() }) }) : '';
       holder.insertBefore(fresh.el, noteEl.nextSibling);
       keep();
       drawNote();

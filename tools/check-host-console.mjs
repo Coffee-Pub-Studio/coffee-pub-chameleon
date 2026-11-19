@@ -590,6 +590,39 @@ try {
       await tab.evaluate("document.querySelector('#te-layout [data-layout-add]').click()");
       assert.equal(await tab.evaluate("document.activeElement.matches('#te-layout .layout-picker-shape') && document.getElementById('te-layout').dataset.twLayout === ''"), true, 'Pick a shape opens step 1 on the first shape; nothing to send until one is picked');
       { const rm = await call(port, 'DELETE', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.ok(rm.status < 300, rm.text); }
+      // A tick that moves modules (decision 25): To-do stacked in area 3 while the Calendar is unticked; ticking the Calendar
+      // moves To-do into area 1 (it can't share a column then) and Itinerary down, and a line says so; unticking it again
+      // gives the person's own arrangement back, with no line.
+      {
+        const mk = await call(port, 'POST', 'admin', '/api/host/templates/travel/duplicate', { id: 'cal-copy', name: 'Cal copy' }, { cookie });
+        assert.ok(mk.status < 300, mk.text);
+        const { modules } = (await call(port, 'GET', 'admin', '/api/host/templates/cal-copy', undefined, { cookie })).json.template;
+        delete modules.calendar;
+        const put = await call(port, 'PATCH', 'admin', '/api/host/templates/cal-copy', { modules, workspace: { layout: { shape: 'tall-split', areas: ['travel', 'vault', 'todo'] } } }, { cookie });
+        assert.ok(put.status < 300, put.text);
+      }
+      await tab.go('#templates/cal-copy/modules');
+      await tab.waitFor(`${tab.visible('#te-part-modules')} && document.getElementById('te-layout').dataset.twLayout === '{"shape":"tall-split","areas":["travel","vault","todo"]}'`, 'the Calendar copy, To-do stacked');
+      await tab.evaluate("document.querySelector('#te-modules [data-module=calendar]').click()");
+      {
+        const got = await tab.evaluate("({ held: document.getElementById('te-layout').dataset.twLayout, note: document.querySelector('#te-layout .tp-layout-missing').textContent })");
+        assert.equal(got.held, '{"shape":"tall-split","areas":["todo","vault","travel"]}', 'the Calendar ticked: To-do into area 1, Itinerary down');
+        assert.match(got.note, /^To-do moved to area 1: while .+ is on, it can't share a column\. Itinerary moved to area 3 to free area 1\.$/, 'what moved, said beside the picker');
+      }
+      await tab.evaluate("document.querySelector('#te-modules [data-module=calendar]').click()");
+      assert.deepEqual(await tab.evaluate("({ held: document.getElementById('te-layout').dataset.twLayout, note: document.querySelector('#te-layout .tp-layout-missing').textContent })"),
+        { held: '{"shape":"tall-split","areas":["travel","vault","todo"]}', note: '' }, 'the Calendar unticked again: the person\'s arrangement is back');
+      // The canvas field (GET /api/host/settings): a module with no place on the canvas is never offered in an area.
+      await tab.evaluate("document.querySelector('#te-tab-workspace').click()");
+      await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area[data-area=\"2\"]'), 'the Calendar copy\'s areas');
+      await tab.evaluate("document.querySelector('#te-layout .layout-picker-board .layout-picker-area[data-area=\"1\"]').click()");
+      await tab.waitFor("document.querySelectorAll('.host-menu-item').length > 2", 'the menu of area 1');
+      {
+        const offered = await tab.evaluate("[...document.querySelectorAll('.host-menu-item .host-menu-label')].map((l) => l.textContent.trim())");
+        assert.ok(offered.length > 3 && !offered.some((t) => /Assistant|Stream/.test(t)), `nothing without a place on the canvas: ${offered.join(', ')}`);
+      }
+      await tab.key('Escape', 'Escape', 27);
+      { const rm = await call(port, 'DELETE', 'admin', '/api/host/templates/cal-copy', undefined, { cookie }); assert.ok(rm.status < 300, rm.text); }
       await tab.go('#templates/travel');
       await tab.waitFor(tab.visible('#te-part-basics'), 'the editor again');
       assert.deepEqual(await tab.layoutProblems(), []);
