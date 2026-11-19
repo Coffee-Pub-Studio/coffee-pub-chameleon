@@ -2550,8 +2550,10 @@
     const keeps = opt.opacity !== false;
     const label = typeof opt.label === 'string' && opt.label.trim() ? opt.label.trim().slice(0, 80) : 'Colour';
     const onInput = typeof opt.onInput === 'function' ? opt.onInput : null;
-    // The same call again while it is open (the same anchor, or a point again: a toolbar button pressed twice) closes it: null.
-    const reopening = Boolean(openMenu && openMenu.id === 'sdk-colour' && openMenu.anchor === anchor);
+    // The same call again while it is open closes it (null): the same anchor element, or the same point (a toolbar button pressed
+    // twice gives the same x). A picker at another point (another toolbar button) closes the first and opens.
+    const same = openMenu && openMenu.id === 'sdk-colour' ? openMenu : null;
+    const reopening = Boolean(same && (anchor ? same.anchor === anchor : !same.anchor && same.at && same.at.x === at.x && same.at.y === at.y));
     closeMenu();
     if (reopening) return Promise.resolve(null);
 
@@ -2568,8 +2570,7 @@
           h: editor ? window.innerHeight : env.rootElement.clientHeight || 400,
         };
       };
-      let framed = false;
-      try { framed = window.parent !== window && env.root === document; } catch (err) { framed = true; }
+      const opener = document.activeElement; // what had the focus before the picker took it
       const uid = `sdk-cp-${++colourSeq}`;
       const names = new Map();
       for (const g of palette) for (const c of g.colours) if (!names.has(c.color)) names.set(c.color, c.name);
@@ -2705,7 +2706,7 @@
         opac.style.setProperty('--cp-at', String(alpha / 100));
         area.setAttribute('aria-valuenow', String(round(hsv.s)));
         area.setAttribute('aria-valuetext', `Saturation ${round(hsv.s)} percent, brightness ${round(hsv.v)} percent`);
-        const h = round(hsv.h) % 360;
+        const h = Math.min(359, round(hsv.h));
         hue.setAttribute('aria-valuenow', String(h));
         hue.setAttribute('aria-valuetext', `Hue ${h} degrees`);
         opac.setAttribute('aria-valuenow', String(alpha));
@@ -2736,7 +2737,7 @@
         hsv = n;
         changed(from);
       };
-      const finish = (keep) => { result = keep ? answer() : null; closeMenu(); };
+      const finish = (keep) => { if (!openMenu || openMenu.menu !== pop) return; result = keep ? answer() : null; closeMenu(); };
 
       // Dragging: the area, Hue and Opacity follow the pointer (touch-action: none on them only, so the page does not scroll).
       const clamp = (n) => Math.max(0, Math.min(1, n));
@@ -2907,6 +2908,13 @@
       if (surface) for (const b of swatches()) if (colourContrast(b.dataset.color, surface) < 3) b.classList.add('sdk-cp-faint');
       place();
       const first = groups.length ? groups[0].querySelector('.sdk-swatch[aria-checked="true"]') : null;
+      // The first focus is ours, not the person's: the chosen swatch's label (data-tip) would cover its heading, so it waits until
+      // the keyboard leaves that swatch.
+      if (first && first.dataset.tip) {
+        const tip = first.dataset.tip;
+        first.removeAttribute('data-tip');
+        first.addEventListener('blur', () => { first.dataset.tip = tip; }, { once: true });
+      }
       (first || hexIn).focus({ preventScroll: true });
 
       // Escape answers null; Tab goes round inside the picker; a press outside answers what is showing (the anchor's own press is the
@@ -2937,6 +2945,7 @@
       openMenu = {
         id: 'sdk-colour',
         anchor,
+        at,
         menu: pop,
         cleanup: () => {
           clearTimeout(sayTimer);
@@ -2945,7 +2954,15 @@
           env.root.removeEventListener('pointerdown', onOutside, true);
           if (result && opt.recent !== false) writeRecent(result.color);
           if (anchor && anchor.focus && !outside) { try { anchor.focus(); } catch (err) { /* not focusable */ } }
-          else if (!anchor && !outside && framed) { const now = document.activeElement; if (!now || now === document.body) Promise.resolve(call('focus.opener', {})).catch(() => {}); }
+          // A point (a toolbar button, a title-bar action), focus left on nothing: back to what had it when the picker opened (a module in
+          // the page, a host page: the toolbar button itself), else, in a frame, the host control that opened it (focus.opener).
+          else if (!anchor && !outside) {
+            const now = document.activeElement;
+            if (!now || now === document.body) {
+              if (opener && opener !== document.body && opener.isConnected && typeof opener.focus === 'function') { try { opener.focus(); } catch (err) { /* not focusable */ } }
+              if (document.activeElement === document.body || !document.activeElement) Promise.resolve().then(() => call('focus.opener', {})).catch(() => {});
+            }
+          }
           resolve(result);
         },
       };
@@ -2977,7 +2994,15 @@
     input.hidden = true;
     input.tabIndex = -1;
     input.before(trigger); // first, so a <label> around both leads to the trigger, not to the hidden input
-    const value = () => colourClean(input.value) || palette[0].colours[0].color;
+    // A <label for="<the input's id>"> elsewhere leads to the trigger instead (its `for` moves to the trigger's id; destroy() puts it back).
+    const pointed = input.id ? [...(input.labels || [])].filter((l) => l.htmlFor === input.id) : [];
+    if (pointed.length) {
+      trigger.id = `${input.id}-colour`;
+      for (const l of pointed) l.htmlFor = trigger.id;
+    }
+    // What the input holds ('#rrggbb', or null when it holds no colour), and what the trigger shows (the palette's first colour then).
+    const held = () => colourClean(input.value);
+    const value = () => held() || palette[0].colours[0].color;
     const show = (c) => {
       sw.style.setProperty('--sw', c);
       words.textContent = c;
@@ -2991,8 +3016,7 @@
     let opened = false;
     const open = () => {
       if (input.disabled && !opened) return Promise.resolve(null);
-      const before = value();
-      const asked = showColourPicker({ anchor: trigger, value: before, opacity: keeps ? alpha : false, palette: opt.palette !== undefined ? palette : undefined, recent: opt.recent, label, onInput: (a) => show(a.color) });
+      const asked = showColourPicker({ anchor: trigger, value: value(), opacity: keeps ? alpha : false, palette: opt.palette !== undefined ? palette : undefined, recent: opt.recent, label, onInput: (a) => show(a.color) });
       if (opened) return asked; // the same trigger again: that was the toggle, the picker is closed
       opened = true;
       trigger.setAttribute('aria-expanded', 'true');
@@ -3000,7 +3024,7 @@
         opened = false;
         trigger.setAttribute('aria-expanded', 'false');
         if (!a) { show(value()); return null; }
-        const moved = a.color !== before;
+        const moved = a.color !== held(); // an empty field takes any answer, the palette's first colour too
         const faded = a.opacity !== alpha;
         alpha = a.opacity;
         if (moved) {
@@ -3016,7 +3040,8 @@
     const onClick = () => { open(); };
     trigger.addEventListener('click', onClick);
     return {
-      get value() { return value(); },
+      // The colour the input holds, '#rrggbb', or '' when it holds none.
+      get value() { return held() || ''; },
       // Shows a colour without telling anyone (no events, no onChange); anything that is not a hex is ignored.
       set: (c) => { const x = colourClean(c); if (!x) return false; input.value = x; show(x); return true; },
       open,
@@ -3025,6 +3050,7 @@
         if (opened && openMenu && openMenu.id === 'sdk-colour' && openMenu.anchor === trigger) closeMenu();
         if (watch) watch.disconnect();
         trigger.removeEventListener('click', onClick);
+        for (const l of pointed) if (l.htmlFor === trigger.id) l.htmlFor = input.id;
         trigger.remove();
         input.hidden = was.hidden;
         if (was.tabIndex === null) input.removeAttribute('tabindex'); else input.setAttribute('tabindex', was.tabIndex);
