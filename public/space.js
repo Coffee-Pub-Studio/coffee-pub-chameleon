@@ -6120,7 +6120,7 @@ async function applySpeaker() {
   }
 }
 
-const RESOLUTIONS = { 360: { width: 640, height: 360 }, 540: { width: 960, height: 540 }, 720: { width: 1280, height: 720 } };
+const RESOLUTIONS = { 360: { width: 640, height: 360 }, 540: { width: 960, height: 540 }, 720: { width: 1280, height: 720 }, 1080: { width: 1920, height: 1080 } };
 function videoConstraints() {
   const c = { resolution: RESOLUTIONS[prefs.quality] || RESOLUTIONS[720] };
   if (prefs.camId) c.deviceId = { exact: prefs.camId };
@@ -6976,11 +6976,11 @@ async function toggleCam() {
 // camera at all) wait needlessly.
 async function setCameraEnabledWithRetry(enabled) {
   try {
-    await call.localParticipant.setCameraEnabled(enabled);
+    await call.localParticipant.setCameraEnabled(enabled, enabled ? videoConstraints() : undefined);
   } catch (err) {
     if (!enabled || err?.name !== 'NotReadableError') throw err;
     await new Promise((resolve) => setTimeout(resolve, 700));
-    await call.localParticipant.setCameraEnabled(enabled);
+    await call.localParticipant.setCameraEnabled(enabled, enabled ? videoConstraints() : undefined);
   }
 }
 
