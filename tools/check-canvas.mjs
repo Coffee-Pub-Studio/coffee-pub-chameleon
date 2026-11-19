@@ -230,8 +230,22 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
       return [
         ['a first visit starts from the template\'s shape', firstVisitShape({ shape }), shape],
         ['a second visit: the person\'s own arrangement wins', firstVisitShape({ shape, remembered: ['goals'] }), null],
-        ['a remembered empty arrangement still wins', firstVisitShape({ shape, remembered: [] }), null],
+        ['a remembered empty arrangement, nothing ever placed: the shape again', firstVisitShape({ shape, remembered: [] }), shape],
         ['a guest starts from it every time', firstVisitShape({ shape, remembered: ['goals'], guest: true }), shape],
+        ['a guest, even with something placed', firstVisitShape({ shape, remembered: [], placed: true, guest: true }), shape],
+        // Nothing chosen is nothing remembered (Thomas, 2026-11-19): the chat and the call alone are not a choice.
+        ...(() => {
+          const empty = { shape: 'one', areas: [null] };
+          return [
+            ['Default, back with only the chat remembered and nothing placed: the empty area again', firstVisitShape({ shape: empty, remembered: ['chat'] }), empty],
+            ['Default, the chat and the call remembered, nothing placed: the empty area again', firstVisitShape({ shape: empty, remembered: ['conference', 'chat'] }), empty],
+            ['Default, Whiteboard chosen in the area: their own arrangement', firstVisitShape({ shape: empty, remembered: ['whiteboard'], placed: true }), null],
+            ['Default, Whiteboard chosen, then closed: their own (empty) arrangement, not the area again', firstVisitShape({ shape: empty, remembered: ['chat'], placed: true }), null],
+            ['a remembered module with no mark (stored before the mark): chosen', firstVisitShape({ shape: empty, remembered: ['chat', 'polls'] }), null],
+            ['Education after its first visit (its modules placed): the remembered arrangement wins', firstVisitShape({ shape, remembered: ['whiteboard', 'goals'], placed: true }), null],
+            ['Education with every module closed after: still their own', firstVisitShape({ shape, remembered: [], placed: true }), null],
+          ];
+        })(),
         ['no layout: none', firstVisitShape({ shape: null }), null],
         ['not a shape record: none', firstVisitShape({ shape: { areas: [] } }), null],
       ];
@@ -290,9 +304,13 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/firstVisitLayout\(\{ firstVisit: spaceFirstVisit, remembered: saved\.__open, guest, entering: enteringNow, last \}\)/.test(restore)) fail('public/canvas.js', 'restore() must ask firstVisitLayout (opens-with.js) for the first visit\'s layout');
   // The template's layout (plan-layout-picker.md, step 3): a first visit with no remembered arrangement starts from the
   // template's shape, placed by the canvas's own loader (loadShape), before the product's default list; no Opens with is read.
-  if (!/const shape = request \? null : firstVisitShape\(\{ shape: spaceShape, remembered: saved\.__open, guest \}\);/.test(restore)) fail('public/canvas.js', 'restore() must ask firstVisitShape (opens-with.js) with the template\'s layout');
+  if (!/const shape = request \? null : firstVisitShape\(\{ shape: spaceShape, remembered: saved\.__open, placed: saved\.__placed === true, guest \}\);/.test(restore)) fail('public/canvas.js', 'restore() must ask firstVisitShape (opens-with.js) with the template\'s layout');
   if (!/if \(shape && shapeById\(shape\.shape\)\) \{[\s\S]*?loadShape\(shape\);/.test(restore) || restore.indexOf('loadShape(shape)') > restore.indexOf('whatOpens({')) fail('public/canvas.js', 'restore() must place the template\'s shape through loadShape, before the product\'s default list');
   if (!/spaceShape = answer\.layout && typeof answer\.layout\.shape === 'string'/.test(canvasJs)) fail('public/canvas.js', 'the template\'s layout comes from GET /api/modules/for-space, `layout`');
+  // Whether anything was chosen (Thomas, 2026-11-19): snapshot() marks `__placed` once a module of the person's own (not
+  // the chat or the call) is on the canvas, never on a one-object request (keepLayout returns first), and never unsets it.
+  const snapFn = canvasJs.slice(canvasJs.indexOf('  function snapshot() {'), canvasJs.indexOf('  function remember('));
+  if (!/if \(suspended \|\| !spaceId \|\| keepLayout\) return;/.test(snapFn) || !/if \(\[\.\.\.opened\.values\(\)\]\.some\(\(p\) => p\.kind !== 'builtin'\)\) saved\.__placed = true;/.test(snapFn) || /__placed = false|delete saved\.__placed/.test(canvasJs)) fail('public/canvas.js', 'snapshot() marks __placed once a module of the person\'s own is on the canvas, and nothing unsets it');
   if (/opensWith/.test(canvasJs)) fail('public/canvas.js', 'no Opens with is read: the template\'s layout replaces it (plan-layout-picker.md, decision 12)');
   // A phone has no layout tabs: the fixed layout that opens first there is its composite or module, as the first tab; for
   // Conference it is the call itself (plan-workspaces.md, step 7), opened as its switch opens it ("Not in a call": it

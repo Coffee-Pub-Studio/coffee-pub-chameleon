@@ -207,6 +207,11 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     const prev = Array.isArray(saved.__open) ? saved.__open : guest ? ['conference', 'chat'] : ['chat'];
     const kept = (id) => prev.includes(id);
     saved.__open = columnMode() ? ids.filter((id) => { const p = opened.get(id); return !columnOwned(p) || kept(id); }) : ids;
+    // Whether this person has ever had a module of their own on the canvas here (`__placed`; Thomas, 2026-11-19): chosen
+    // in an empty area, opened from the Modules tab, or placed by a shape or a layout. Until then nothing is chosen, so
+    // the template's layout (the Default template's empty area with the chooser) comes back on each visit
+    // (opens-with.js, firstVisitShape). The chat and the call alone are not a choice. Never unset.
+    if ([...opened.values()].some((p) => p.kind !== 'builtin')) saved.__placed = true;
     persist();
   }
 
@@ -2414,11 +2419,11 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     // With Conference as the first visit the call is first (plan-workspaces.md, step 7): a phone has no Conference
     // layout, the call is its own view there, shown "Not in a call" until the person joins (opening it never joins).
     const lead = tab && isNarrow() ? (tab === 'conference' ? ['conference'] : readAliased([tab === 'map' ? 'maps' : tab], aliases)).filter((id) => canOpenHere(id)) : [];
-    // The template's layout (plan-layout-picker.md, step 3; decisions 2, 6 and 14): with no remembered arrangement here
-    // (a guest never has one) the Workspace starts from the template's shape, placed by loadShape exactly as a shape loaded
+    // The template's layout (plan-layout-picker.md, step 3; decisions 2, 6 and 14): until this person has chosen anything
+    // here (no module of theirs ever on the canvas; a guest every time) the Workspace starts from the template's shape, placed by loadShape exactly as a shape loaded
     // by hand is (an empty area with the chooser, an area this person can't open closed up, the left-out note), and that
     // becomes the person's remembered arrangement, which wins from then on.
-    const shape = request ? null : firstVisitShape({ shape: spaceShape, remembered: saved.__open, guest });
+    const shape = request ? null : firstVisitShape({ shape: spaceShape, remembered: saved.__open, placed: saved.__placed === true, guest });
     if (shape && shapeById(shape.shape)) {
       restoring = false;
       suspended = false;

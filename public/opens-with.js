@@ -4,7 +4,8 @@
 // in node.
 //
 // In order:
-//   1. the person's remembered arrangement for this space (`__open`), if they have been in it before; never for a guest;
+//   1. the person's remembered arrangement for this space (`__open`), once they have chosen something in it (firstVisitShape);
+//      never for a guest;
 //   2. the template's layout (workspace.layout, a shape and its areas): firstVisitShape() answers it, and restore()
 //      places it with the canvas's own shape loader (loadShape, the one canvas.loadLayout uses for a shape), so it is
 //      only the starting arrangement (decision 6);
@@ -38,11 +39,16 @@ export function whatOpens({ remembered = null, modules = [], canOpen = () => tru
 
 // The template's layout a visit starts from (step 2 above), or null: `shape` is the server's { shape, areas }
 // (GET /api/modules/for-space, `layout`; the Default template's is `one` with its area empty). Only while this person has
-// no remembered arrangement here (a guest never has one, so a guest starts from it every time); after the first visit
-// the person's own arrangement wins (plan-layout-picker.md, decision 2). Whether the shape's id is known, and what each
-// area may hold here, is the canvas's to decide when it places it.
-export function firstVisitShape({ shape = null, remembered = null, guest = false } = {}) {
-  if (!guest && Array.isArray(remembered)) return null;
+// chosen nothing here (Thomas, 2026-11-19): `placed` (the canvas's `__placed`) says a module of theirs has ever been on the
+// canvas here, chosen in an empty area, opened by them, or placed by a shape or a layout; a remembered list naming any
+// module but the chat and the call says so too. Nothing chosen is nothing remembered: the chat alone is not a choice, so
+// a person who came back without filling the Default template's empty area gets the area and its chooser again. After
+// that the person's own arrangement wins (plan-layout-picker.md, decision 2), even one they emptied by closing what they
+// placed. A guest has no remembered arrangement, so a guest starts from it every time. Whether the shape's id is known,
+// and what each area may hold here, is the canvas's to decide when it places it.
+export function firstVisitShape({ shape = null, remembered = null, placed = false, guest = false } = {}) {
+  const chosen = placed === true || (Array.isArray(remembered) && remembered.some((id) => !COLUMN_IDS.includes(id)));
+  if (!guest && chosen) return null;
   return shape && typeof shape === 'object' && typeof shape.shape === 'string' && Array.isArray(shape.areas) ? shape : null;
 }
 
