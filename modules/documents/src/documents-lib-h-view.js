@@ -2,7 +2,7 @@
 //
 // A person's view is 'fit' (the sheet fills the window, up to fitMax) or a zoom level in percent (100 is Actual size: the 48rem
 // sheet, centred). Zoom scales the sheet's width and its text together. The page keeps the choice per person, in this browser.
-const DL_VIEW = Object.freeze({ fit: 'fit', levels: Object.freeze([50, 75, 100, 125, 150, 200]), actual: 100, sheetRem: 48, fitMaxRem: 120 });
+const DL_VIEW = Object.freeze({ fit: 'fit', levels: Object.freeze([50, 75, 100, 125, 150, 200, 300, 400, 500]), actual: 100, sheetRem: 48, fitMaxRem: 120 });
 
 // -> 'fit' or a level in DL_VIEW.levels; anything else (nothing, a stray value, a number between levels) is Fit width.
 function dlCleanView(v) {

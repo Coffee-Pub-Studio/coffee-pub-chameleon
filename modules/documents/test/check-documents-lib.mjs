@@ -752,13 +752,15 @@ test('view: zoom steps', () => {
   assert.equal(L.dlViewStep(100, 1), 125);
   assert.equal(L.dlViewStep(100, -1), 75);
   assert.equal(L.dlViewStep(50, -1), 50);
-  assert.equal(L.dlViewStep(200, 1), 200);
+  assert.equal(L.dlViewStep(500, 1), 500);
+  assert.equal(L.dlCleanView('500'), 500); assert.equal(L.dlCleanView('600'), 'fit');
+  assert.equal(L.dlViewStep(200, 1), 300);
   assert.equal(L.dlViewStep('fit', 1), 125);
   assert.equal(L.dlViewStep('fit', -1), 75);
   let v = 50; const seen = [v];
-  for (let i = 0; i < 8; i += 1) { v = L.dlViewStep(v, 1); seen.push(v); }
-  assert.deepEqual(seen.slice(0, 6), [50, 75, 100, 125, 150, 200]);
-  assert.equal(seen.at(-1), 200);
+  for (let i = 0; i < 12; i += 1) { v = L.dlViewStep(v, 1); seen.push(v); }
+  assert.deepEqual(seen.slice(0, 9), [50, 75, 100, 125, 150, 200, 300, 400, 500]);
+  assert.equal(seen.at(-1), 500);
 });
 test('view: keys', () => {
   assert.equal(L.dlViewKey({ key: '+', ctrlKey: true }), 'in');
