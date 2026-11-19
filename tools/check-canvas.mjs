@@ -2845,7 +2845,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   const { sharedRowNotice } = await import(pathToFileURL(path.join(tmp, 'layouts.mjs')).href);
   fs.rmSync(tmp, { recursive: true, force: true });
   const F = 'public/layouts.js';
-  const names = { todo: 'To-do', polls: 'Polls', vault: 'Vault', documents: 'Documents' };
+  const names = { todo: 'To-do', polls: 'Polls', vault: 'Vault', documents: 'Documents', calendar: 'Calendar' };
   const opts = { nameOf: (id) => names[id], roleWord: (r) => ({ moderator: 'moderators', member: 'members', guest: 'guests' })[r], space: 'trip' };
   const cases = [
     [['documents', 'todo', null], { todo: { roles: ['guest'] } }, "Guests won't see To-do."],
@@ -2857,6 +2857,12 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     [['todo'], { todo: { roles: [] } }, ''],
     [['todo', 'polls'], { todo: { off: true }, polls: { off: true } }, 'To-do and Polls are off in this trip, so nobody sees them.'],
     [['__proto__'], { }, ''],
+    // To-do and the Calendar (server e951ca77): with the Calendar on, To-do folds into it and cantOpen judges it by the
+    // Calendar's rights, so a guest who reads the Calendar gets no To-do entry and the row says nothing about it.
+    [['documents', 'todo'], { budget: { roles: ['guest'] } }, ''],
+    // The Calendar off: To-do is its own module, and the row names it; the Calendar's own entry says nothing unless an area names it.
+    [['documents', 'todo'], { todo: { roles: ['guest'] }, calendar: { off: true } }, "Guests won't see To-do."],
+    [['calendar', 'todo'], { todo: { roles: ['guest'] }, calendar: { off: true } }, "Calendar is off in this trip, so nobody sees it. Guests won't see To-do."], // in area order
   ];
   for (const [areas, cantOpen, want] of cases) {
     const got = sharedRowNotice(areas, cantOpen, opts);

@@ -3335,7 +3335,21 @@ function sharedRowLine(l) {
   return sharedRowNotice(l.areas, layoutList.cantOpen, { nameOf: moduleNameHere, roleWord: (role) => word(role, { many: true }), space: word('space') });
 }
 // A module's name as this space shows it (the canvas's list), else its id made readable.
-const moduleNameHere = (id) => canvas.list().find((m) => m.id === id)?.name || String(id).charAt(0).toUpperCase() + String(id).slice(1).replace(/-/g, ' ');
+// A module's name and icon for the notice and the picker: as this space shows it (the canvas's list), else, for one that
+// is off here or that this person can't open, the environment's catalog (GET /api/modules: an owner's and the admin's
+// read, loaded once below), else its id as it is. A moderator has no catalog read, so a module that is off reads as its id.
+let moduleCatalog = null; // Map id -> { name, icon } once read; null while not read
+let moduleCatalogAsked = false;
+function loadModuleCatalog() {
+  if (moduleCatalogAsked || !hasOwnerRights(me)) return;
+  moduleCatalogAsked = true;
+  api('GET', '/api/modules').then((r) => {
+    moduleCatalog = new Map((r.modules || []).filter((m) => m && typeof m.id === 'string').map((m) => [m.id, { name: m.displayName || m.name || m.id, icon: m.displayIcon || m.icon || '' }]));
+    renderLayouts(); // the rows' lines name it now
+  }).catch(() => { moduleCatalogAsked = false; });
+}
+const moduleHere = (id) => canvas.list().find((m) => m.id === id) || null;
+const moduleNameHere = (id) => moduleHere(id)?.name || moduleCatalog?.get(id)?.name || String(id);
 // Making a shared layout the space's default is the owners' and the admin's, as Opens with is (decision 4).
 const maySetDefault = (shared) => !guestMode && shared && layoutList.canSetDefault;
 const findLayout = (id) => layoutList.shared.find((l) => l.id === id) || layoutList.mine.find((l) => l.id === id) || null;
@@ -3358,6 +3372,7 @@ async function refreshLayouts() {
     const got = await layoutRequest('GET', layoutUrl(id));
     if (ask !== layoutAsk || layoutSpaceId() !== id) return;
     layoutList = { spaceId: id, mine: got.mine || [], shared: got.shared || [], system: Array.isArray(got.system) ? got.system : [], cantOpen: got.cantOpen && typeof got.cantOpen === 'object' && !Array.isArray(got.cantOpen) ? got.cantOpen : null, firstVisit: got.firstVisit && typeof got.firstVisit.layout === 'string' ? got.firstVisit : null, defaultLayout: got.defaultLayout || null, favorites: Array.isArray(got.favorites) ? got.favorites : [], last: typeof got.last === 'string' && got.last ? got.last : null, canShare: Boolean(got.canShare), canSetDefault: Boolean(got.canSetDefault) };
+    if (layoutList.cantOpen) loadModuleCatalog(); // the notice and the picker name a module that is off here
   } catch {
     if (ask !== layoutAsk) return;
     layoutList = { spaceId: id, mine: [], shared: [], system: [], cantOpen: null, firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
@@ -3706,7 +3721,10 @@ function startRename(layoutId) {
 // together). A refusal is filed where it belongs: the sentences about the shape and its areas under the shape, in the
 // picker; the rest (the name, the limit of 10, a refused right) under the name. Every sentence is shown as text.
 // `layout` is the shared layout to edit, or null for a new one. Opened from the Layouts section, which takes the keyboard
-// back when the sheet closes. A new layout is shown at once (its tab is pressed); an edited one again if it is shown now.
+// back when the sheet closes (backToLayouts: the row it was opened from). A new layout is shown at once (its tab is
+// pressed); an edited one again if it is shown now. A module an area names that is off here, or that this person can't
+// open, is named as the catalog names it (moduleNameHere), never offered. Save is off, and Escape asks nothing, until
+// something is changed: the start is the record as the picker read it (a stored arrangement it had to move is that).
 function openShapeSheet(layout = null) {
   const id = layoutSpaceId();
   if (!id || !layoutList.canShare) return;
@@ -3714,7 +3732,6 @@ function openShapeSheet(layout = null) {
   const doc = canvasDoc();
   const title = editing ? `Edit ${editing.name}` : 'New layout for everyone';
   const startName = editing ? editing.name : '';
-  const startRecord = editing ? { shape: editing.shape, areas: editing.areas.slice() } : null;
   const dlg = doc.createElement('dialog');
   dlg.className = 'layout-sheet layout-shape-sheet';
   dlg.setAttribute('aria-labelledby', 'layout-shape-title');
@@ -3737,12 +3754,17 @@ function openShapeSheet(layout = null) {
   const modules = canvas.list()
     .filter((m) => m && !COLUMN_IDS.includes(m.id) && m.canvas)
     .map((m) => ({ id: m.id, name: m.name, icon: m.icon, ...(canvas.colorOf(m.id) ? { tint: canvas.colorOf(m.id) } : {}) }));
+  // What an area names that is not offered here (off in the space, or not for this person): drawn by its name, never offered.
+  const others = (editing ? editing.areas : [])
+    .filter((a) => typeof a === 'string' && !modules.some((m) => m.id === a))
+    .map((a) => ({ id: a, name: moduleNameHere(a), icon: moduleCatalog?.get(a)?.icon || 'puzzle-piece' }));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   let bar = null;
   const picker = createLayoutPicker({
     doc,
-    record: startRecord,
+    record: editing ? { shape: editing.shape, areas: editing.areas.slice() } : null,
     modules,
+    others,
     parts: canvas.compositeParts(),
     cantOpen: layoutList.cantOpen,
     bar: false,
@@ -3750,7 +3772,12 @@ function openShapeSheet(layout = null) {
     onChange: () => bar?.refresh(),
   });
   dlg.querySelector('#layout-shape-picker').appendChild(picker.el);
-  const opener = nav.elementOf('setup');
+  const startRecord = picker.value(); // after the picker's read (carryAreas), so an unchanged sheet is not dirty
+  // Where the keyboard goes back to: Edit's row (its "..."), else New layout for everyone.
+  let backTo = editing ? { more: editing.name } : { label: 'New layout for everyone' };
+  let savedNow = false;
+  // Scrolling the sheet closes an open area menu (the sheet's body scrolls here, not the picker's).
+  dlg.querySelector('.layout-form-body').addEventListener('scroll', () => closeHostMenu(), { passive: true });
   const showError = (text) => { errorEl.textContent = text; errorEl.hidden = !text; };
   // The server's refusal, each sentence under its part: shape and areas in the picker (under the shape), the rest here.
   function fileRefusal(err) {
@@ -3760,7 +3787,10 @@ function openShapeSheet(layout = null) {
     const here = problems.filter((_, i) => parts[i] !== 'shape' && parts[i] !== 'areas');
     picker.refuse(inPicker.join(' '));
     showError(here.join(' '));
-    if (here.length) input.focus();
+    if (here.length) { input.focus(); return; }
+    // A refusal about the shape or its areas: the keyboard goes to it (read out as it is focused), never left on the page.
+    const said = picker.el.querySelector('.layout-picker-error');
+    if (said && !said.hidden) { said.tabIndex = -1; said.focus(); }
   }
   bar = actionBar({
     submit: true,
@@ -3787,12 +3817,15 @@ function openShapeSheet(layout = null) {
         fileRefusal(err);
         return false;
       }
+      savedNow = true;
+      backTo = editing ? { more: saved.name } : { label: 'New layout for everyone' };
       dlg.close();
       layoutNote(editing ? `Saved ${saved.name}.` : `Created ${saved.name}.`);
       await refreshLayouts();
       if (layoutSpaceId() !== id) return true;
       if (!editing) pressLayoutTab(saved.id);
       else if (currentLayoutTab === saved.id) pressLayoutTab(saved.id, null, { remember: false });
+      setTimeout(() => backToLayouts(backTo), 0); // once the section is drawn again
       return true;
     },
   });
@@ -3803,7 +3836,7 @@ function openShapeSheet(layout = null) {
   dlg.addEventListener('close', () => {
     picker.destroy();
     dlg.remove();
-    if (opener && opener.isConnected && opener.getClientRects().length) opener.focus();
+    if (!savedNow) backToLayouts(backTo); // a save puts it back once the list is drawn again (above)
   });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -3814,6 +3847,21 @@ function openShapeSheet(layout = null) {
   bar.refresh();
   input.focus();
   if (editing) input.select();
+}
+// The keyboard back in the Layouts section (Set up > Modules) after the shape sheet: the row it was opened from, found
+// again by its words since the list is drawn anew (`more`: a layout's "..." by the layout's name; `label`: an entry),
+// else the section's first entry, else the Set up button.
+function backToLayouts({ more = '', label = '' } = {}) {
+  const box = document.getElementById('setup-show');
+  const shown = (b) => b.getClientRects().length > 0;
+  const rows = box ? [...box.querySelectorAll('.host-menu-item, .host-menu-more')].filter(shown) : [];
+  const words = (b) => (b.querySelector('.host-menu-label')?.textContent || '').trim();
+  const target = (more && rows.find((b) => b.classList.contains('host-menu-more') && b.getAttribute('aria-label') === `More for ${more}`))
+    || (label && rows.find((b) => b.classList.contains('host-menu-item') && words(b) === label))
+    || rows.find((b) => b.classList.contains('host-menu-item') && !b.disabled)
+    || null;
+  const setup = nav.elementOf('setup');
+  (target || (setup && setup.isConnected && shown(setup) ? setup : null))?.focus();
 }
 
 // Change icon (plan-layout-views.md, decision 4, "Icons" and step 4): a small sheet like the layout sheet, on the shared

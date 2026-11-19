@@ -725,7 +725,7 @@ test('layouts for everyone are shapes (plan-layout-picker.md, step 6): New layou
   const sheet = space.slice(space.indexOf('function openShapeSheet('), space.indexOf('// Change icon (plan-layout-views.md'));
   assert.match(sheet, /if \(!id \|\| !layoutList\.canShare\) return;/, 'only for those who may share');
   assert.match(sheet, /dlg\.className = 'layout-sheet layout-shape-sheet';/);
-  assert.match(sheet, /const picker = createLayoutPicker\(\{[\s\S]*?record: startRecord,[\s\S]*?parts: canvas\.compositeParts\(\),[\s\S]*?cantOpen: layoutList\.cantOpen,[\s\S]*?bar: false,/, 'the picker on the record, the composite parts here and the maker\'s notice');
+  assert.match(sheet, /const picker = createLayoutPicker\(\{[\s\S]*?record: editing \? \{ shape: editing\.shape, areas: editing\.areas\.slice\(\) \} : null,[\s\S]*?parts: canvas\.compositeParts\(\),[\s\S]*?cantOpen: layoutList\.cantOpen,[\s\S]*?bar: false,/, 'the picker on the record, the composite parts here and the maker\'s notice');
   assert.match(sheet, /\.filter\(\(m\) => m && !COLUMN_IDS\.includes\(m\.id\) && m\.canvas\)/, 'areas offer the modules on here with a place on the canvas, never the chat or the call');
   assert.match(sheet, /: \{ name, shared: true, shape: record\.shape, areas: record\.areas \};/, 'New: POST { name, shared: true, shape, areas }');
   assert.match(sheet, /\? \{ \.\.\.\(name !== editing\.name \? \{ name \} : \{\}\), \.\.\.\(!same\(record, startRecord\) \? \{ shape: record\.shape, areas: record\.areas \} : \{\}\) \}/, 'Edit: PUT only what changed, the shape with its areas');
@@ -738,6 +738,20 @@ test('layouts for everyone are shapes (plan-layout-picker.md, step 6): New layou
   assert.match(space, /problems = Array\.isArray\(data\.problems\)[^\n]*\n\s*const parts = Array\.isArray\(data\.parts\) \? data\.parts : \[\];/, 'layoutRequest keeps problems and parts');
   for (const needle of ['actionBar({', 'bar.bindEscape(dlg);', "dlg.addEventListener('cancel', (event) => { event.preventDefault(); bar.requestCancel(); });", 'form.appendChild(bar.el);']) assert.ok(sheet.includes(needle), `the sheet has ${needle}`);
   assert.match(sheet, /if \(!editing\) pressLayoutTab\(saved\.id\);/, 'a new layout is shown at once');
+  // The independent read of d781d670: a shape refusal takes the keyboard (never left on <body>); the sheet's body scroll
+  // closes an area menu; a module not offered here is named, not its id; the Edit sheet opens unchanged; the keyboard goes
+  // back to the Layouts row.
+  assert.match(sheet, /if \(here\.length\) \{ input\.focus\(\); return; \}\n[^\n]*\n\s*const said = picker\.el\.querySelector\('\.layout-picker-error'\);\n\s*if \(said && !said\.hidden\) \{ said\.tabIndex = -1; said\.focus\(\); \}/, 'a refusal about the shape or areas takes the keyboard');
+  assert.match(sheet, /dlg\.querySelector\('\.layout-form-body'\)\.addEventListener\('scroll', \(\) => closeHostMenu\(\), \{ passive: true \}\);/, 'scrolling the sheet closes an open area menu');
+  assert.match(sheet, /\.map\(\(a\) => \(\{ id: a, name: moduleNameHere\(a\), icon: [^\n]*\}\)\);[\s\S]*?modules,\n\s*others,/, 'a module the layout names that is not offered here is drawn by its name');
+  assert.match(space, /const moduleNameHere = \(id\) => moduleHere\(id\)\?\.name \|\| moduleCatalog\?\.get\(id\)\?\.name \|\| String\(id\);/, 'names come from the space, then the catalog; never an id made into a word');
+  assert.match(space, /api\('GET', '\/api\/modules'\)[\s\S]{0,200}m\.displayName \|\| m\.name/, 'the catalog\'s own names (an owner\'s and the admin\'s read)');
+  assert.ok(sheet.indexOf('const startRecord = picker.value();') > sheet.indexOf('const picker = createLayoutPicker({'), 'the start record is the picker\'s read, so an unchanged Edit sheet is not dirty');
+  assert.match(sheet, /if \(!savedNow\) backToLayouts\(backTo\);/, 'Cancel and Escape put the keyboard back on the Layouts row');
+  assert.match(sheet, /setTimeout\(\(\) => backToLayouts\(backTo\), 0\);/, 'and so does Save, once the list is drawn again');
+  const back = space.slice(space.indexOf('function backToLayouts('), space.indexOf('// Change icon (plan-layout-views.md'));
+  assert.match(back, /document\.getElementById\('setup-show'\)/);
+  assert.match(back, /`More for \$\{more\}`/, 'Edit\'s row is its "..."');
   // A shape loads from a tab and the menu; Update and Replace never write the canvas over a shape.
   assert.match(space, /if \(!id \|\| !layout \|\| isShapeLayout\(layout\)\) return; \/\/ a layout for everyone is changed with Edit/);
   // The menu opens inside the dialog (else the modal makes it inert); the sheet is wide.
