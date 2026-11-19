@@ -19,7 +19,7 @@ import { mountHostMenu } from '/host-menu.js';
 import { fileWindowCount, closeAllFiles, openFile } from '/file-viewer.js';
 import { nav } from '/nav-bar.js';
 import { whatOpens, readAliased, firstVisitLayout, SYSTEM_TABS } from '/opens-with.js';
-import { layoutOf, placeLayout, placeShape, areaMayHold, leftOutNote, groupColumns, splitHeights, dragShares, evenShares, cleanShares, stackRefusal, STACK, STACK_ID } from '/layouts.js';
+import { layoutOf, placeLayout, placeShape, areaMayHold, leftOutNote, partOfNote, groupColumns, splitHeights, dragShares, evenShares, cleanShares, stackRefusal, STACK, STACK_ID } from '/layouts.js';
 import { shapeById } from '/layout-shapes.js';
 import { TINTS, moduleTint } from '/module-tint.js';
 import { returnPlace } from '/pop-return.js';
@@ -2674,7 +2674,11 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     update();
     snapshot();
     const waiting = [...opened.values()].filter((p) => p.waiting).sort(byOrder).map((p) => p.id);
-    const lines = [leftOutNote(plan.left, nameOfLayout, word('space'))];
+    // A module that closed up because it is part of a composite here (To-do while the Calendar is on) is named too
+    // (Thomas, 2026-11-19), by the name a person reads (the server's list keeps To-do's own); the composite's own main is not.
+    const folded = plan.folded.filter((f) => compositeById(f.into)?.main !== f.id);
+    const partName = (id) => modules.find((m) => m.id === id)?.name || nameOfLayout(id);
+    const lines = [leftOutNote(plan.left, nameOfLayout, word('space')), partOfNote(folded, partName)];
     if (waiting.length) {
       const names = waiting.map(nameOf);
       const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
@@ -2683,7 +2687,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     // An empty area cannot float: it waits unseen, so the note says so (it shows when the window is wide enough).
     if ([...areas.values()].some((a) => a.waiting)) lines.push('The window is too narrow for the empty area. It shows when the window is wide enough.');
     note(lines.filter(Boolean).join(' '));
-    return { left: plan.left, waiting };
+    return { left: [...plan.left, ...folded.map((f) => f.id)], waiting };
   }
 
   // Put a saved layout on the canvas (plan-saved-layouts.md, "Saving and loading"): what may open here (canOpenHere)

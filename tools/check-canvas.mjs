@@ -779,7 +779,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   fs.copyFileSync(path.join(ROOT, 'public/layout-shapes.js'), path.join(tmp, 'layout-shapes.mjs'));
   fs.copyFileSync(path.join(ROOT, 'public/composites.js'), path.join(tmp, 'composites.mjs'));
   fs.writeFileSync(path.join(tmp, 'layouts.mjs'), fs.readFileSync(path.join(ROOT, 'public/layouts.js'), 'utf8').replace("from '/snap-grid.js'", "from './snap-grid.mjs'"));
-  const { placeShape, areaMayHold, leftOutNote } = await import(pathToFileURL(path.join(tmp, 'layouts.mjs')).href);
+  const { placeShape, areaMayHold, leftOutNote, partOfNote } = await import(pathToFileURL(path.join(tmp, 'layouts.mjs')).href);
   const { SHAPES, shapeById } = await import(pathToFileURL(path.join(tmp, 'layout-shapes.mjs')).href);
   const { COMPOSITES, aliasesFor } = await import(pathToFileURL(path.join(tmp, 'composites.mjs')).href);
   const { DOCK_MIN, fitDock } = await import(pathToFileURL(path.join(tmp, 'snap-grid.mjs')).href);
@@ -880,6 +880,13 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (todoOff.slots.map((x) => x.id).join() !== 'documents,todo,goals' || todoOff.closed.length) fail(F, `with the Calendar off To-do is placed in a stack: ${JSON.stringify(todoOff.slots)}`);
   const todoOn = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: al, mayHold: (a, id) => areaMayHold(ts, a, id, { parts: calOn }) });
   if (todoOn.closed.join() !== '2' || todoOn.left.length) fail(F, `with the Calendar on To-do (the Calendar) closes up in a stacked area, not "left out": ${JSON.stringify(todoOn)}`);
+  // ... and it is named (Thomas, 2026-11-19): "To-do is part of the Calendar here, so it was left out."
+  if (JSON.stringify(todoOn.folded) !== JSON.stringify([{ id: 'todo', into: 'dest:calendar' }])) fail(F, `To-do closed up as part of the Calendar is reported as folded: ${JSON.stringify(todoOn.folded)}`);
+  if (JSON.stringify(place('two-equal', ['calendar', 'todo'], 1200, { aliases: al }).folded) !== JSON.stringify([{ id: 'todo', into: 'dest:calendar' }])) fail(F, 'To-do beside the Calendar (the same composite twice) is reported as folded');
+  if (todoOff.folded.length || place('one', ['todo'], 1200, { aliases: al }).folded.length) fail(F, 'nothing is folded where To-do is placed (the Calendar off, or To-do opening the Calendar in area 1)');
+  const nm = (id) => ({ todo: 'To-do', 'dest:calendar': 'Calendar', polls: 'Polls' }[id] || id);
+  if (partOfNote(todoOn.folded, nm) !== 'To-do is part of the Calendar here, so it was left out.') fail(F, `the To-do note: ${partOfNote(todoOn.folded, nm)}`);
+  if (partOfNote([{ id: 'todo', into: 'dest:calendar' }, { id: 'polls', into: 'dest:calendar' }], nm) !== 'To-do and Polls are part of the Calendar here, so they were left out.' || partOfNote([]) !== '') fail(F, 'the note for several, and none for none');
   // Maps and Calendar are refused in a stacked area whatever is on, with and without the space's map file (the Map composite
   // asks for one; a QA read caught Maps offered where there was none).
   for (const shown of [[], ['map']]) for (const on of [['calendar', 'todo', 'maps'], ['todo', 'maps']]) {
@@ -917,6 +924,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/placeShape\(record, width, canOpenHere, \{ shape: def, aliases, narrow, chooser: !guest, mayHold: \(area, id\) => mayHoldHere\(def, area, id\) \}\)/.test(shape)) fail(C, 'loadShape() places with placeShape(), canOpenHere(), the aliases, no chooser for a guest, and the chooser\'s own rule (mayHoldHere)');
   if (!/p\.kind !== 'builtin' && !named\.has\(p\.id\) && !keepCall\(p\)\) closeModule\(p\.id\)/.test(shape)) fail(C, 'loadShape() closes what the shape does not name, never the conference while on the call');
   if (!/leftOutNote\(plan\.left/.test(shape) || !/syncDock\(\)/.test(shape) || !/snapshot\(\)/.test(shape)) fail(C, 'loadShape() says what it left out, fits the columns and becomes the remembered arrangement');
+  if (!/partOfNote\(folded, partName\)/.test(shape) || !/compositeById\(f\.into\)\?\.main !== f\.id/.test(shape)) fail(C, 'loadShape() names a module left out as part of a composite (To-do with the Calendar on), never the composite\'s own main');
   if (!/saved\.__mode = 'panel'/.test(shape) || !/all: false/.test(shape)) fail(C, 'a shape is columns: Panel Mode, the grid\'s switch off');
   const openArea = between('  function openArea(', '  // Take a placeholder away.');
   if (!/mountHostMenu\(a\.list, \(\) => areaItems\(a\)\)/.test(canvasJs) || !/createModuleFrame\(/.test(openArea) || !/close: true/.test(openArea)) fail(C, 'an empty area is a docked frame with Close and the shared menu (mountHostMenu) as its chooser');

@@ -382,6 +382,9 @@ function shapeColumns(shape) {
 //   empty    the area numbers drawn empty, with the chooser;
 //   closed   the area numbers closed up;
 //   left     the ids that can't open here, in area order, for leftOutNote();
+//   folded   [{ id, into }]: a module named in an area that closed up because it reads as a composite here (`into`, its
+//            `dest:*` id: To-do while the Calendar is on, in a stacked area or beside the Calendar itself), for
+//            partOfNote() (Thomas, 2026-11-19: the note names it, as it names a module that isn't on);
 //   waiting  the area numbers whose column the view has no room for now (fitDock(), the same rule the canvas fits its
 //            columns by; three-equal needs 760 px), which wait as today's columns do. None on a phone.
 // `mayHold(area, id)` is the one rule for what an area may hold, the chooser's too (areaMayHold above by default; canvas.js
@@ -390,7 +393,7 @@ export function placeShape(record, width, canOpen = () => true, { shape = null, 
   const holds = typeof mayHold === 'function' ? mayHold : (a, x) => areaMayHold(shape, a, x);
   const W = Math.max(0, num(width));
   const phone = narrow === undefined ? W <= NARROW : Boolean(narrow);
-  const none = { shape: null, narrow: phone, columns: [], slots: [], empty: [], closed: [], left: [], waiting: [] };
+  const none = { shape: null, narrow: phone, columns: [], slots: [], empty: [], closed: [], left: [], folded: [], waiting: [] };
   const def = shape && record && typeof record === 'object' && shape.id === record.shape ? shape : null;
   if (!def || !Array.isArray(record.areas) || record.areas.length !== def.areas || !Array.isArray(def.columns)) return none;
   const stacked = Array.isArray(def.stacked) ? def.stacked : [];
@@ -400,20 +403,29 @@ export function placeShape(record, width, canOpen = () => true, { shape = null, 
   const seen = new Set();
   const left = [];
   const kind = new Map(); // area -> { id } | { empty: true } | { closed: true }
+  // A module that reads as a composite here (To-do while the Calendar is on) and closes up for it: named for partOfNote().
+  const folded = [];
+  const foldedInto = (stored) => { const to = typeof stored === 'string' ? aliasOf(stored, aliases) : null; return typeof to === 'string' && to !== stored && to.startsWith('dest:') ? to : null; };
+  const closeFolded = (a, stored) => {
+    const into = foldedInto(stored);
+    if (into && !folded.some((f) => f.id === stored)) folded.push({ id: stored, into });
+    kind.set(a, { closed: true });
+  };
   for (let a = 1; a <= def.areas; a += 1) {
     const stored = record.areas[a - 1];
     if (stored === null || stored === undefined) { kind.set(a, chooser && !phone ? { empty: true } : { closed: true }); continue; }
-    if (typeof stored !== 'string' || !stored || !holds(a, stored)) { kind.set(a, { closed: true }); continue; }
+    if (typeof stored !== 'string' || !stored) { kind.set(a, { closed: true }); continue; }
+    if (!holds(a, stored)) { closeFolded(a, stored); continue; }
     const to = aliasOf(stored, aliases);
     const id = Array.isArray(to) ? to.find((x) => typeof x === 'string' && x) || null : to;
-    if (typeof id === 'string' && id && !holds(a, id)) { kind.set(a, { closed: true }); continue; }
+    if (typeof id === 'string' && id && !holds(a, id)) { closeFolded(a, stored); continue; }
     if (typeof id !== 'string' || !id || !canOpen(id)) {
       const named = typeof id === 'string' && id ? id : stored;
       if (!left.includes(named)) left.push(named);
       kind.set(a, { closed: true });
       continue;
     }
-    if (seen.has(id)) { kind.set(a, { closed: true }); continue; }
+    if (seen.has(id)) { closeFolded(a, stored); continue; }
     seen.add(id);
     kind.set(a, { id });
   }
@@ -452,8 +464,26 @@ export function placeShape(record, width, canOpen = () => true, { shape = null, 
     empty: all.filter((a) => kind.get(a).empty),
     closed: all.filter((a) => kind.get(a).closed),
     left,
+    folded,
     waiting,
   };
+}
+
+// The one line a load says about a module it left out because it is part of a composite here, as leftOutNote() says one
+// that isn't on: "To-do is part of the Calendar here, so it was left out." `list` is placeShape()'s `folded`; `nameOf(id)`
+// gives a module's name and a composite's (its main module's). '' when there is none.
+export function partOfNote(list, nameOf = (id) => id) {
+  const byInto = new Map();
+  for (const f of Array.isArray(list) ? list : []) {
+    if (!f || typeof f.id !== 'string' || typeof f.into !== 'string') continue;
+    if (!byInto.has(f.into)) byInto.set(f.into, []);
+    byInto.get(f.into).push(nameOf(f.id) || f.id);
+  }
+  return [...byInto].map(([into, names]) => {
+    const whole = nameOf(into) || into;
+    if (names.length === 1) return `${names[0]} is part of the ${whole} here, so it was left out.`;
+    return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are part of the ${whole} here, so they were left out.`;
+  }).join(' ');
 }
 
 // The one line a load says about what it left out, by the modules' names: "Map isn't on in this space, so it was left
