@@ -98,7 +98,6 @@ Documents 0.7 to 0.11.36 ([userguide-documents](userguides/userguide-documents.m
 
 These fail on `main` (`67998604`) and none was caused by the work since; a change that touches them should name the failure and move on. Read again for this entry, 2026-11-16.
 
-- **`check-module-guards` fails on main** (#686): 1 of 28 cases fails, "chat's citations resolve as the reader, with or without the Assistant module": for a person who is not in the space it gets `gone` where it expects `hidden`. The cause: a space a person may not enter is answered as an id that does not exist (`closedToWho`, 404, so `gone`), by design since the access bundle, while the check and the API doc expect 403 and `hidden`. Waiting for a decision (#940).
 - **`check-template-pages-b` is not in `npm run check`**, so nothing runs it by default.
 
 Fixed since the last list: `check-catalog` (the catalog is back to four tools, then six with the Planner's two, #896 and #905), the six browser checks that stopped at the Budget chip (#894, #896), `check-buttons` (buttons size through `--btn-h`, #893; it passed when run on 67998604), and, in #940 step 1, `check-spacing`, `check-conformance`, `check-destinations`, `check-nav`, `check-sources-modules`, `check-streams`, `check-stacking`, `check-action-bar`, `check-closed-space` and `check-guest-door`.
