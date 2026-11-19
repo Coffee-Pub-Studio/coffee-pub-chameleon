@@ -637,32 +637,32 @@ try {
     assert.deepEqual(stored().phases, moved);
   });
 
-  await test('PATCH defaultLayout (Set up, step 4): a moderator may, with the same rules as an owner; nothing else; a member may not; Opens with is the template\'s', async () => {
+  await test('PATCH defaultLayout (Set up, step 4): a moderator may, with the same rules as an owner; nothing else; a member may not; a layout is the template\'s', async () => {
     const url = `/api/spaces/${trip.id}`;
-    const opensSentence = { error: 'What a trip opens with comes from its template; pick another template to change it.' };
-    assert.deepEqual(answer(await asModerator('PATCH', url, { opensWith: ['todo', 'calendar'] })), [400, opensSentence], 'a moderator is refused Opens with, in a sentence');
-    assert.equal('opensWith' in stored(), false, 'nothing stored');
+    assert.deepEqual(answer(await asModerator('PATCH', url, { layout: { shape: 'one', areas: [null] } })), [403, ownersOnly], 'a moderator may not send a layout: the template\'s');
+    assert.equal('layout' in stored(), false, 'nothing stored');
     // A shared layout, made by the moderator (they may), then set as the default.
     const made = await asModerator('POST', `${url}/layouts`, { name: 'Planning', shared: true, modules: [{ id: 'conference', mode: 'dock' }, { id: 'todo', mode: 'dock', dockW: 360 }] });
     assert.equal(made.status, 201, made.text);
     const layout = made.json.layout;
     const set = await asModerator('PATCH', url, { defaultLayout: layout.id });
     assert.deepEqual([set.status, set.json.space.defaultLayout, set.json.space.opensWith], [200, layout.id, undefined], set.text);
+    assert.equal('layout' in set.json.space, false, 'the space answers no layout of its own');
     assert.equal(stored().defaultLayout, layout.id);
     assert.deepEqual(answer(await asModerator('PATCH', url, { defaultLayout: 'lnope00' })), [404, { error: 'This trip has no shared layout with that id.' }]);
-    assert.deepEqual(answer(await asModerator('PATCH', url, { defaultLayout: layout.id, opensWith: ['conference', 'todo'] })), [400, opensSentence], 'with Opens with the whole body is refused');
+    assert.deepEqual(answer(await asModerator('PATCH', url, { defaultLayout: layout.id, layout: { shape: 'one', areas: [null] } })), [403, ownersOnly], 'with a layout the whole body is refused');
     assert.deepEqual((await asModerator('PATCH', url, { defaultLayout: null })).json.space.defaultLayout, undefined, 'null stops using it');
     assert.equal('defaultLayout' in stored(), false);
     // Together with phases, fine; anything else beside them, or alone, is the owners'.
     const both = await asModerator('PATCH', url, { phases: stored().phases, defaultLayout: layout.id });
     assert.equal(both.status, 200, both.text);
     await asModerator('PATCH', url, { defaultLayout: null });
-    for (const body of [{ name: 'Porto' }, { name: 'Porto', opensWith: ['todo'] }, { description: 'x', defaultLayout: layout.id }, { allowGuests: true }, { profile: 'characters' }, { members: [mo.key] }]) {
+    for (const body of [{ name: 'Porto' }, { name: 'Porto', layout: { shape: 'one', areas: [null] } }, { description: 'x', defaultLayout: layout.id }, { allowGuests: true }, { profile: 'characters' }, { members: [mo.key] }]) {
       assert.deepEqual(answer(await asModerator('PATCH', url, body)), [403, ownersOnly], JSON.stringify(body));
     }
-    assert.deepEqual(answer(await asMember('PATCH', url, { opensWith: ['todo'] })), [403, ownersOnly], 'a member: Opens with');
+    assert.deepEqual(answer(await asMember('PATCH', url, { layout: { shape: 'one', areas: [null] } })), [403, ownersOnly], 'a member: a layout');
     assert.deepEqual(answer(await asMember('PATCH', url, { defaultLayout: layout.id })), [403, ownersOnly], 'a member: the default layout');
-    assert.deepEqual(answer(await call(server, 'PATCH', url, { cookie: outsider.cookie, body: { opensWith: ['todo'] } })), [404, { error: 'no such trip' }], 'someone not in the space');
+    assert.deepEqual(answer(await call(server, 'PATCH', url, { cookie: outsider.cookie, body: { layout: { shape: 'one', areas: [null] } } })), [404, { error: 'no such trip' }], 'someone not in the space');
     assert.deepEqual([stored().name, 'opensWith' in stored(), 'defaultLayout' in stored()], ['Lisbon', false, false], 'the refusals changed nothing');
     // The admin, unchanged: anything at once.
     const own = await asAdmin('PATCH', url, { description: 'May' });

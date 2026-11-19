@@ -51,7 +51,7 @@ const catalog = [
   { id: 'marks', name: 'Marks', icon: 'star', settings: [{ key: 'unit', label: 'Counts', type: 'choice', scope: 'space', template: 'driven', default: 'money', options: [{ value: 'money', label: 'Money' }, { value: 'hours', label: 'Hours' }] }, { key: 'split', label: 'Who owes whom', type: 'boolean', scope: 'space', template: 'default', default: true }, { key: 'own', label: 'Own', type: 'boolean', scope: 'space', default: false }, { key: 'tags', label: 'Tags', type: 'list', scope: 'environment', template: 'default', fixed: ['other'], maxLength: 30, default: [{ id: 'other', label: 'Other', icon: 'flag', color: '#888888' }, { id: 'a', label: 'Alpha', icon: 'star', color: '#4f8fdd' }] }], labels: { event: { one: 'event', many: 'events' } }, starter: true },
   { id: 'travel', name: 'Planner - Travel', icon: 'route', settings: [], labels: {} },
 ];
-const tpl = { id: 't', name: 'T', modules: { chat: {}, marks: { name: 'Timesheet', settings: { unit: 'hours' }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:a': { x: 1 } } } }, workspace: { opensWith: ['chat'], show: ['calendar'], opensFirst: 'calendar' }, phases: [{ id: 'a', label: 'Start', main: true }, { id: 'b', label: 'End' }], phaseMeasure: 'goals', reactions: [{ id: 'ship', glyph: '🚀', label: 'Ship' }], iconSet: ['rocket'] };
+const tpl = { id: 't', name: 'T', modules: { chat: {}, marks: { name: 'Timesheet', settings: { unit: 'hours' }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:a': { x: 1 } } } }, workspace: { layout: { shape: 'one', areas: [null] }, show: ['calendar'], opensFirst: 'calendar' }, phases: [{ id: 'a', label: 'Start', main: true }, { id: 'b', label: 'End' }], phaseMeasure: 'goals', reactions: [{ id: 'ship', glyph: '🚀', label: 'Ship' }], iconSet: ['rocket'] };
 
 await test('A template change names the modules that turn off and on, and says their data is kept (switch and a space\'s change)', async () => {
   const C = await import(pathToFileURL(path.join(ROOT, 'public/template-choice.js')).href);
@@ -223,7 +223,7 @@ async function live() {
     const reset = async () => {
       const mine = await api('PATCH', '/api/environment/templates/mine', {
         modules: mods({ name: 'Timesheet', settings: { mode: true, title: 'Our plan', palette: [{ id: 'red', label: 'Red', icon: 'heart', color: '#d9534f' }, { id: 'blue', label: 'Blue', icon: 'water', color: '#4f8fdd' }] }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:one': { a: 1 } } }),
-        workspace: { opensWith: ['chat', 'marks'], show: ['calendar'] },
+        workspace: { layout: { shape: 'two-equal', areas: ['marks', null] }, show: ['calendar'] },
         phases: phases3, phaseMeasure: 'dates',
         reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['rocket'],
       });
@@ -293,7 +293,7 @@ async function live() {
           await sleep(1200);
           const t = (await api('GET', '/api/environment/templates/mine')).json.template;
           assert.deepEqual(t.workspace.show.slice().sort(), ['calendar', 'map']);
-          assert.deepEqual(t.workspace.opensWith, ['chat', 'marks']);
+          assert.deepEqual(t.workspace.layout, { shape: 'two-equal', areas: ['marks', null] });
         });
         await test(at('Phases: the list and the measure; an edit saves'), async () => {
           await open('template/mine/phases', `${count('#tpl-phases-box [data-tp-phase]')} === 3 && document.querySelector('#tpl-phases-box [data-tp-measure]').value === 'dates' && document.querySelector('#tpl-phases-box [data-tp-main]:checked') !== null`, 'the Phases page');

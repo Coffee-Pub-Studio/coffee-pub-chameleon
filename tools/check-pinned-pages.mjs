@@ -73,7 +73,7 @@ try {
     await call('admin', 'PATCH', `/api/modules/${m}`, { enabled: true });
   }
   assert.equal((await call('admin', 'POST', '/api/environment/templates', { from: 'default', id: 'mine', name: 'Mine' })).status, 201, 'a template of its own');
-  assert.equal((await call('admin', 'PATCH', '/api/environment/templates/mine', { workspace: { opensWith: ['chat', 'calendar'], show: ['calendar', 'documents'], opensFirst: 'documents' } })).status, 200, 'its Default Workspace');
+  assert.equal((await call('admin', 'PATCH', '/api/environment/templates/mine', { workspace: { layout: { shape: 'two-equal', areas: ['calendar', null] }, show: ['calendar', 'documents'], opensFirst: 'documents' } })).status, 200, 'its Default Workspace');
   const tpl = await call('admin', 'PATCH', `/api/spaces/${ctx.trip}`, { template: 'mine' });
   assert.equal(tpl.status, 200, `the trip takes it (${JSON.stringify(tpl.json)})`);
   // The seeded trip already has tabs: the template's show is its seed for a new space only, so the owner sets the bar here.
@@ -181,7 +181,7 @@ try {
     assert.equal(fav.json.error, PINNED);
     const seen = (await call('sam', 'GET', `/api/spaces/${ctx.trip}/layouts`)).json;
     assert.deepEqual(seen.system.filter((l) => l.pinned).map((l) => l.id).sort(), ['calendar', 'documents', 'workspace']);
-    assert.deepEqual(seen.firstVisit, { layout: 'documents', opensWith: ['chat', 'calendar'] }, 'the first visit is the template\'s list');
+    assert.deepEqual(seen.firstVisit, { layout: 'documents', shape: { shape: 'two-equal', areas: ['calendar', null] } }, 'the first visit is the template\'s layout');
     await shot(tab, 'tab-bar-1280.png');
   });
   await test('the Layout menu: a pinned layout\'s row has the pin, and its ... has Rename and Change icon but no Favorite or Unfavorite', async () => {

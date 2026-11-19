@@ -137,25 +137,26 @@ try {
     const sideModules = (await as('GET', `/api/modules/for-space?space=${side}`)).json.modules;
     assert.ok(sideModules.every((m) => m.description === undefined || (typeof m.description === 'string' && m.description && !/[{}]/.test(m.description))), 'a module\'s description is its manifest\'s, filled, or absent');
     assert.ok(sideModules.some((m) => m.description), 'at least one bundled module is described');
-    assert.equal(lobbyModules.opensWith, null, 'with no template, nothing is set to open');
+    assert.deepEqual(lobbyModules.layout, { shape: 'one', areas: [null] }, 'with no template, the Default template\'s: one empty area');
+    assert.equal('opensWith' in lobbyModules, false, 'opensWith is gone');
     assert.equal((await as('GET', '/api/modules')).json.modules.find((m) => m.id === 'polls').lobby, false);
     assert.equal((await as('GET', '/api/modules')).json.modules.find((m) => m.id === 'calendar').lobby, true);
   });
 
-  // What a space opens with is its template's (plan-templates-redesign.md, decision 8): nobody sets it on the space, and
-  // GET /api/modules/for-space answers the template's list.
-  await test('a space\'s Opens with is the template\'s: refused for everyone, never stored, read live', async () => {
-    const forSpace = async (id) => (await as('GET', `/api/modules/for-space?space=${id}`)).json.opensWith;
+  // What a space starts with is its template's (plan-templates-redesign.md, decision 8; plan-layout-picker.md, decision 12):
+  // nobody sets it on the space, and GET /api/modules/for-space answers the template's layout.
+  await test('a space\'s layout is the template\'s: never stored on the space, read live; no opensWith in any answer', async () => {
+    const forSpace = async (id) => (await as('GET', `/api/modules/for-space?space=${id}`)).json;
     const stored = () => readJson(path.join(single, 'app.json')).spaces.find((s) => s.id === side);
-    assert.equal('opensWith' in stored(), false, 'nothing is stored');
-    assert.equal('opensWith' in (await as('GET', '/api/spaces')).json.spaces.find((s) => s.id === side), false, 'absent');
-    assert.equal(await forSpace(side), null, 'no template: nothing to open');
-    for (const bad of [['chat'], null, [], 'chat', 5]) {
-      const r = await as('PATCH', `/api/spaces/${side}`, { name: 'Renamed', opensWith: bad });
-      assert.equal(r.status, 400, JSON.stringify(bad));
-      assert.match(r.json.error, /^What a (space|trip) opens with comes from its template; pick another template to change it\.$/);
-    }
-    assert.equal(stored().name, 'Side', 'a refusal refuses the whole change');
+    assert.equal('layout' in stored(), false, 'nothing is stored');
+    assert.equal('layout' in (await as('GET', '/api/spaces')).json.spaces.find((s) => s.id === side), false, 'absent');
+    const answer = await forSpace(side);
+    assert.deepEqual(answer.layout, { shape: 'one', areas: [null] }, 'no template of its own: the Default\'s');
+    assert.deepEqual(answer.firstVisit.shape, { shape: 'one', areas: [null] }, 'a first visit carries it');
+    assert.equal('opensWith' in answer || 'opensWith' in answer.firstVisit, false);
+    assert.equal((await as('PATCH', `/api/spaces/${side}`, { name: 'Renamed', layout: { shape: 'two-equal', areas: [null, null] } })).status, 200);
+    assert.equal('layout' in stored(), false, 'a layout sent to the space is not kept');
+    assert.equal((await as('PATCH', `/api/spaces/${side}`, { name: 'Side' })).status, 200);
     // Owner only to change the space; a member is refused before anything else, a member who moderates the space
     // gets the same sentence as the owner.
     const made = await as('POST', '/api/users', { login: 'opener', displayName: 'Opener', role: 'member', password: 'opener-password-1' });
@@ -164,12 +165,12 @@ try {
     assert.equal((await as('PATCH', `/api/spaces/${side}`, { members: [key] })).status, 200);
     const member = cookieOf(await call(server, '', 'POST', '/api/login', { body: { login: 'opener', password: 'opener-password-1' } }));
     const asMember = (method, url, body) => call(server, '', method, url, { cookie: member, body });
-    assert.deepEqual(await asMember('PATCH', `/api/spaces/${side}`, { opensWith: ['chat'] }).then((x) => [x.status, x.json]), [403, { error: 'owners only' }], 'a member');
+    assert.deepEqual(await asMember('PATCH', `/api/spaces/${side}`, { layout: { shape: 'one', areas: [null] } }).then((x) => [x.status, x.json]), [403, { error: 'owners only' }], 'a member');
     assert.equal((await as('PATCH', `/api/users/${key}/spaces/${side}`, { permissions: { moderator: true } })).status, 200);
-    assert.equal((await asMember('PATCH', `/api/spaces/${side}`, { opensWith: ['chat'] })).status, 400, 'a member who moderates the space');
-    assert.equal('opensWith' in stored(), false, 'still nothing stored');
+    assert.equal((await asMember('PATCH', `/api/spaces/${side}`, { layout: { shape: 'one', areas: [null] } })).status, 403, 'a member who moderates the space may not send it either');
+    assert.equal('layout' in stored(), false, 'still nothing stored');
     assert.deepEqual(await asMember('PATCH', `/api/spaces/${side}`, { name: 'Side 2' }).then((x) => [x.status, x.json]), [403, { error: 'owners only' }], 'the name is still the owners\'');
-    assert.equal((await asMember('GET', '/api/modules/for-space?space=lobby')).json.opensWith, null, 'a member reads it');
+    assert.deepEqual((await asMember('GET', '/api/modules/for-space?space=lobby')).json.layout, { shape: 'one', areas: [null] }, 'a member reads it');
     assert.equal((await as('DELETE', `/api/users/${key}`)).status, 200);
   });
 
@@ -277,10 +278,10 @@ try {
     assert.equal((await as('PATCH', `/api/spaces/${side}`, { aiOff: true })).status, 200);
     assert.deepEqual(await as('POST', `/api/spaces/${side}/ai`, { question: 'hello there' }).then((x) => [x.status, x.json]), [403, aiOffSentence]);
     await server.stop();
-    // A space's Opens with, hand-edited on disk, is dropped when read back: the template decides it.
+    // A stray key on a stored space is not read back: the template decides what it starts with.
     const appFile = path.join(single, 'app.json');
     const onDisk = readJson(appFile);
-    onDisk.spaces.find((s) => s.id === side).opensWith = ['chat', 'todo'];
+    onDisk.spaces.find((s) => s.id === side).layout = { shape: 'one', areas: ['todo'] };
     fs.writeFileSync(appFile, JSON.stringify(onDisk));
     server = await startServer(single, env);
     cookie = cookieOf(await call(server, '', 'POST', '/api/login', { body: { login: 'admin', password: 'admin-password-1' } }));
@@ -291,7 +292,7 @@ try {
     assert.ok(!server.output().includes('Applied the "travel" template'), server.output());
     assert.equal((await as('GET', '/api/spaces')).json.spaces.find((s) => s.id === 'lobby').name, 'Lobby');
     const spaces = (await as('GET', '/api/spaces')).json.spaces;
-    assert.equal('opensWith' in spaces.find((s) => s.id === side), false, 'a stored Opens with is dropped on load');
+    assert.equal('layout' in spaces.find((s) => s.id === side), false, 'a stored layout on a space is not read');
     assert.equal(spaces.find((s) => s.id === side).aiOff, true, 'AI off kept across a restart');
     assert.equal('aiOff' in readJson(appFile).spaces.find((s) => s.id === 'lobby'), false, 'nothing stored for a space that never set it');
     assert.deepEqual(await as('POST', `/api/spaces/${side}/ai`, { question: 'hello there' }).then((x) => [x.status, x.json]), [403, aiOffSentence], 'still refused after a restart');
@@ -350,10 +351,10 @@ try {
     assert.equal(lobby.name, 'Home base', 'the Lobby\'s name, ticked, taken');
     const home = (await call(server, 'beta', 'GET', '/api/modules/for-space?space=lobby', { cookie: owner })).json;
     assert.deepEqual(home.modules.map((m) => m.id), ['calendar'], 'the Planner is not in "Home base"');
-    assert.deepEqual(home.opensWith, ['travel', 'chat'], 'the Lobby reads the environment\'s template: the Planner and chat');
-    // Opens with is the template's, on a hosted environment as on a single one: nobody sets it.
-    assert.equal((await call(server, 'beta', 'PATCH', '/api/spaces/lobby', { cookie: owner, body: { opensWith: ['chat', 'travel'] } })).status, 400);
-    assert.deepEqual((await call(server, 'beta', 'GET', '/api/modules/for-space?space=lobby', { cookie: owner })).json.opensWith, ['travel', 'chat'], 'and nothing changed');
+    assert.deepEqual(home.layout, { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'the Lobby reads the environment\'s template: the Planner and the Vault');
+    // The layout is the template's, on a hosted environment as on a single one: nobody sets it on a space.
+    await call(server, 'beta', 'PATCH', '/api/spaces/lobby', { cookie: owner, body: { layout: { shape: 'one', areas: [null] } } });
+    assert.deepEqual((await call(server, 'beta', 'GET', '/api/modules/for-space?space=lobby', { cookie: owner })).json.layout, { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'and nothing changed');
     assert.equal((await call(server, 'beta', 'GET', '/api/environment', { cookie: owner })).json.template.id, 'travel');
     const history = readJson(path.join(hosted, 'environments', 'beta', 'app.json')).templateHistory;
     assert.deepEqual(history.map((h) => [h.from, h.to, h.by]), [['default', 'travel', 'host']]);
@@ -387,7 +388,7 @@ try {
     assert.deepEqual(inside.filter((m) => m.id === 'schedule').map((m) => m.name), ['Campaign']);
     assert.deepEqual([shown.calendar[0], shown.todo[0]], ['Sessions', 'Quests']);
     const home = (await asOwner('GET', '/api/modules/for-space?space=lobby')).json;
-    assert.deepEqual(home.opensWith, ['chat', 'calendar']);
+    assert.equal(home.layout, null, 'Gaming names no layout');
     assert.equal((await asOwner('GET', '/api/settings')).json.settings.showMap, true, 'Games has Maps now, so the map is shown');
     assert.equal((await console_('DELETE', '/api/host/environments/dice')).status < 500, true);
   });

@@ -1,8 +1,8 @@
 {
   "id": "project",
-  "name": "Project",
+  "name": "Projects",
   "description": "Run a project together: tasks, meetings, effort, a brief and a calendar.",
-  "version": 3,
+  "version": 4,
   "words": {
     "space": {
       "one": "project",
@@ -143,11 +143,7 @@
     "layout": "grid"
   },
   "workspace": {
-    "opensWith": [
-      "schedule",
-      "todo",
-      "chat"
-    ],
+    "layout": { "shape": "wide-narrow", "areas": ["schedule", "todo"] },
     "show": [
       "calendar",
       "documents"
