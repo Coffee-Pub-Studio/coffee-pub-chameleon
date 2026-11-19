@@ -67,7 +67,7 @@ Good to know:
 - **If someone else saved first,** you see "You stopped editing because someone else saved first. Your changes are kept here." and your text stays on the screen so you can copy it. **Close without saving?** asks before it is thrown away. If a save did not go, it says "Not saved. Try Done again."
 - **Page colour.** **Page colour** (the palette) sets the document's paper for everyone: **Pure White** (the usual), **Creme**, **Light Grey**, **Light Blue**, **Slate**, **Dark Blue** or **Black**. These are fixed colours, the same in light and dark mode.
 - **Rename** and **Delete** are in the title-bar dropdown of an open document. Rename asks for the title in a small box.
-- A document is at most about 150,000 characters.
+- A document is at most about 150,000 characters. A paste that would take it over that is not put in, and a note says "That is too big for a document." Paste it in pieces.
 
 ## Tags
 
