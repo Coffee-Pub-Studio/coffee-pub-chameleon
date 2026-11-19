@@ -2404,9 +2404,9 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     // whatever the lists or a layout say, and whatOpens leaves them out of what goes on the canvas.
     if (columnMode()) for (const id of builtins.keys()) if (canOpenHere(id)) api_openBuiltin(id);
     const firstLayout = request ? 'workspace' : firstVisitLayout({ firstVisit: spaceFirstVisit, remembered: saved.__open, guest, entering: enteringNow, last });
-    // A shared layout as the first visit (plan-saved-layouts.md, decision 4): it opens through loadLayout, modes and
-    // places included, whether or not Opens with is set (the two are independent now). A person's remembered layout
-    // still wins after their first visit (plan-entering, decision 5).
+    // A shared layout as the first visit (plan-saved-layouts.md, decision 4): a shape (plan-layout-picker.md, step 6), it
+    // opens through loadLayout, which places it by loadShape (an area this person can't open closed up, an empty one
+    // with the chooser, none for a guest). A person's remembered layout still wins after their first visit (plan-entering, decision 5).
     if (firstLayout !== 'workspace' && !SYSTEM_TABS.includes(firstLayout) && firstLayout !== last && spaceDefaultLayout && spaceDefaultLayout.id === firstLayout) {
       restoring = false;
       suspended = false;
@@ -3063,7 +3063,8 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
         aliases = aliasesFor(modules.map((m) => m.id), shown);
         colors = new Map((answer.modules || []).filter((m) => TINTS.includes(m.color)).map((m) => [m.id, m.color]));
         spaceShape = answer.layout && typeof answer.layout.shape === 'string' && Array.isArray(answer.layout.areas) ? answer.layout : null;
-        spaceDefaultLayout = answer.defaultLayout && Array.isArray(answer.defaultLayout.modules) ? answer.defaultLayout : null;
+        // A layout for everyone is a shape (plan-layout-picker.md, step 6): restore() loads it through loadLayout, which places it by loadShape.
+        spaceDefaultLayout = answer.defaultLayout && typeof answer.defaultLayout.shape === 'string' && Array.isArray(answer.defaultLayout.areas) ? answer.defaultLayout : null;
         // The first visit, as the server resolved it.
         spaceFirstVisit = answer.firstVisit && typeof answer.firstVisit.layout === 'string'
           ? answer.firstVisit
@@ -3223,6 +3224,9 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     // Show list's composed one.
     list: () => modules.slice(),
     colorOf,
+    // The ids that read as a composite here (Calendar and To-do while the Calendar is on): the layout picker's `parts`, so
+    // a stacked area offers what the shape check takes (plan-layout-picker.md, decision 8).
+    compositeParts: () => compositePartsHere(),
     // The built-in modules: the conference and the chat register their element and how to be told about changes.
     registerBuiltin(def) {
       def.order ??= 0; // the conference sets -1 to come first; the chat is the next column

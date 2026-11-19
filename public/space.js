@@ -8,7 +8,8 @@ import { addSpaceFlow } from '/template-choice.js';
 import { renderModuleSettings } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
 import { createCanvas } from '/canvas.js';
-import { layoutDiffers } from '/layouts.js';
+import { layoutDiffers, sharedRowNotice, COLUMN_IDS } from '/layouts.js';
+import { createLayoutPicker, cleanText } from '/layout-picker.js';
 import { conferenceAllowed, layoutLine, shouldAutoJoin } from '/opens-with.js';
 import { switchListHtml, wireSwitchList } from '/switch-list.js';
 import { createWhoHere } from '/space-people.js';
@@ -3294,27 +3295,53 @@ function paintSetupLabel() {
 // keeps or takes away its tab), then the shared layouts, then your own, each an entry that loads it (canvas.loadLayout)
 // and leaves the menu open, with a ... that offers, for everyone signed in, Favorite or Unfavorite (a favorite is a tab;
 // no limit, decision 13); for an owner on a shared layout, Make default or Stop using as default (decision 4); and on a layout
-// you may change (your own, or a shared one for owners, the admin and the space's moderators), Replace with this layout,
-// Rename and Delete (asked once, in the menu's own confirm row). A favorite's entry shows a small heart, the default
-// one the word Default. Then Save this layout, which opens a small sheet (openLayoutSheet): a name and, for those who
-// may share, a switch for everyone in the space; Rename opens the same sheet. A guest loads shared layouts only. The
+// you may change (your own, or a shared one for owners, the admin and the space's moderators), Replace with this layout
+// (your own) or Edit (a shared one: a layout for everyone is a shape, changed only with the layout picker,
+// plan-layout-picker.md decision 5), Rename and Delete (asked once, in the menu's own confirm row). A favorite's entry
+// shows a small heart, the default one the word Default; a shared one, for those who may edit it, the maker's notice
+// under its name ("Guests won't see To-do."; decisions 17, 19 and 20). Then New layout and Save as new layout, which open
+// a small sheet (openLayoutSheet) asking a name for a layout of your own; Rename opens the same sheet. For those who may
+// share, New layout for everyone opens the layout picker (openShapeSheet). A guest loads shared layouts only. The
 // server keeps the limits (10 of your own and 10 shared in a space, names up to 40 characters, each name once in its
 // list) and says what it refuses; its sentence is shown as it is. Not drawn on a narrow canvas, in an aside, or for a
 // guest with nothing to load.
-let layoutList = { spaceId: null, mine: [], shared: [], system: [], firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
+let layoutList = { spaceId: null, mine: [], shared: [], system: [], cantOpen: null, firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
 let layoutAsk = 0; // the latest request for the list; an older answer arriving late is dropped
 const layoutSpaceId = () => (currentSpace && !currentSpace.isAside ? currentSpace.id : null); // an aside has no layouts
 const layoutUrl = (id, layoutId = '') => `/api/spaces/${encodeURIComponent(id)}/layouts${layoutId ? `/${encodeURIComponent(layoutId)}` : ''}${guestToken ? `?guest=${encodeURIComponent(guestToken)}` : ''}`;
 // A request that keeps the server's whole answer on a refusal: a taken name answers 409 with the id of the layout that
-// has it, so the sheet can offer to replace that one.
+// has it, so the sheet can offer to replace that one; a refused layout answers every sentence (`problems`) and the field
+// each is about (`parts`: name, shared, shape, areas, modules, snap, arrange, icon or null), so the shape sheet can file
+// each under its part.
 async function layoutRequest(method, url, body) {
   const res = await fetch(url, { method, headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
   let data = {};
   try { data = res.status === 204 ? {} : await res.json(); } catch { data = {}; }
-  if (!res.ok) throw Object.assign(new Error(typeof data.error === 'string' && data.error ? data.error : 'That did not work. Try again.'), { status: res.status, id: data.id || null });
+  if (!res.ok) {
+    const problems = Array.isArray(data.problems) ? data.problems.filter((p) => typeof p === 'string' && p) : [];
+    const parts = Array.isArray(data.parts) ? data.parts : [];
+    throw Object.assign(new Error(typeof data.error === 'string' && data.error ? data.error : 'That did not work. Try again.'), { status: res.status, id: data.id || null, problems, parts });
+  }
   return data;
 }
 const mayChangeLayout = (shared) => !guestMode && (!shared || layoutList.canShare);
+// A layout for everyone is a shape (plan-layout-picker.md, decision 5): it is changed only with the picker (Edit), never
+// by writing the canvas over it (Replace, Update), which is for your own layouts.
+const isShapeLayout = (l) => Boolean(l) && typeof l.shape === 'string' && Array.isArray(l.areas);
+// The maker's notice on a shared row (decisions 17, 19 and 20): only where the server answered `cantOpen`, which it does for
+// those who may edit a layout for everyone (the owner, the admin and the space's moderators); '' for everyone else.
+function sharedRowLine(l) {
+  if (!layoutList.cantOpen || !isShapeLayout(l)) return '';
+  return sharedRowNotice(l.areas, layoutList.cantOpen, { nameOf: moduleNameHere, roleWord: (role) => word(role, { many: true }), space: word('space') });
+}
+// A module's name for the notice and the picker: as this space shows it (the canvas's list), else, for one that is off
+// here or that this person can't open, the name the server sends a layout's makers with `cantOpen` (GET .../layouts
+// `names`: every module a shared layout's areas name and every module in `cantOpen`; absent for members and guests), else
+// its id as it is (a module with no manifest). Cleaned here as the picker cleans a name (cleanText: no control or direction
+// characters, at most 60), so the row's line and the picker read the same; the row sets it as text.
+const moduleHere = (id) => canvas.list().find((m) => m.id === id) || null;
+const nameFromServer = (id) => (layoutList.names && Object.prototype.hasOwnProperty.call(layoutList.names, id) && typeof layoutList.names[id] === 'string' && layoutList.names[id].trim() ? layoutList.names[id] : '');
+const moduleNameHere = (id) => cleanText(moduleHere(id)?.name || '') || cleanText(nameFromServer(id)) || cleanText(String(id));
 // Making a shared layout the space's default is the owners' and the admin's, as Opens with is (decision 4).
 const maySetDefault = (shared) => !guestMode && shared && layoutList.canSetDefault;
 const findLayout = (id) => layoutList.shared.find((l) => l.id === id) || layoutList.mine.find((l) => l.id === id) || null;
@@ -3329,17 +3356,17 @@ async function refreshLayouts() {
   const id = layoutSpaceId();
   const ask = ++layoutAsk;
   if (!id) {
-    layoutList = { spaceId: null, mine: [], shared: [], system: [], firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
+    layoutList = { spaceId: null, mine: [], shared: [], system: [], cantOpen: null, firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
     renderLayouts();
     return;
   }
   try {
     const got = await layoutRequest('GET', layoutUrl(id));
     if (ask !== layoutAsk || layoutSpaceId() !== id) return;
-    layoutList = { spaceId: id, mine: got.mine || [], shared: got.shared || [], system: Array.isArray(got.system) ? got.system : [], firstVisit: got.firstVisit && typeof got.firstVisit.layout === 'string' ? got.firstVisit : null, defaultLayout: got.defaultLayout || null, favorites: Array.isArray(got.favorites) ? got.favorites : [], last: typeof got.last === 'string' && got.last ? got.last : null, canShare: Boolean(got.canShare), canSetDefault: Boolean(got.canSetDefault) };
+    layoutList = { spaceId: id, mine: got.mine || [], shared: got.shared || [], system: Array.isArray(got.system) ? got.system : [], cantOpen: got.cantOpen && typeof got.cantOpen === 'object' && !Array.isArray(got.cantOpen) ? got.cantOpen : null, names: got.cantOpen && got.names && typeof got.names === 'object' && !Array.isArray(got.names) ? got.names : null, firstVisit: got.firstVisit && typeof got.firstVisit.layout === 'string' ? got.firstVisit : null, defaultLayout: got.defaultLayout || null, favorites: Array.isArray(got.favorites) ? got.favorites : [], last: typeof got.last === 'string' && got.last ? got.last : null, canShare: Boolean(got.canShare), canSetDefault: Boolean(got.canSetDefault) };
   } catch {
     if (ask !== layoutAsk) return;
-    layoutList = { spaceId: id, mine: [], shared: [], system: [], firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
+    layoutList = { spaceId: id, mine: [], shared: [], system: [], cantOpen: null, firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
   }
   renderLayouts();
 }
@@ -3360,6 +3387,9 @@ function layoutMenuItems() {
   const entry = (l, isShared) => ({
     icon: userLayoutIcon(l, isShared),
     label: l.name,
+    // The maker's notice (plan-layout-picker.md, decisions 17, 19 and 20): who won't see which module, a line under the
+    // name, read after it; only for those who may edit a layout for everyone, and never on the canvas.
+    ...(isShared && sharedRowLine(l) ? { hint: sharedRowLine(l), clamp: true } : {}),
     mark: isFavorite(l.id) ? 'heart' : undefined,
     tag: l.id === layoutList.defaultLayout ? 'Default' : undefined,
     keepOpen: true,
@@ -3386,11 +3416,12 @@ function layoutMenuItems() {
       more: mayFavorite() ? () => systemRowItems(l.id) : undefined,
     });
   }
-  // Modified: right under the layout shown, with Update where this person may change it (otherwise the word alone).
+  // Modified: right under the layout shown, with Update where this person may change it (otherwise the word alone). A
+  // layout for everyone is a shape, changed with Edit only: its Modified is the word alone (plan-layout-picker.md, decision 5).
   const withModified = (l, isShared) => {
     items.push(entry(l, isShared));
     if (layoutModified && l.id === currentLayoutTab) {
-      items.push(mayChangeLayout(isShared)
+      items.push(mayChangeLayout(isShared) && !isShared
         ? { icon: 'arrows-rotate', label: 'Update', tag: 'Modified', keepOpen: true, onPick: () => updateLayout(l.id) }
         : { label: 'Modified', disabled: true });
     }
@@ -3402,6 +3433,9 @@ function layoutMenuItems() {
     items.push({ icon: 'plus', label: 'New layout', onPick: () => openSaveLayout({ blank: true }) });
     items.push({ icon: 'floppy-disk', label: 'Save as new layout', onPick: () => openSaveLayout() });
   }
+  // A layout for everyone is made with the layout picker (plan-layout-picker.md, decisions 4 and 5): a shape and a module
+  // in each area. Only for those who may share (the owner, the admin and the space's moderators).
+  if (canSave && layoutList.canShare) items.push({ icon: 'user-group', label: 'New layout for everyone', onPick: () => openShapeSheet() });
   return items;
 }
 
@@ -3458,7 +3492,10 @@ function layoutRowItems(layoutId, anchor = null) {
   if (entries.length) entries.push({ divider: true });
   return [
     ...entries,
-    { icon: 'arrows-rotate', label: 'Replace with this layout', onPick: () => replaceLayout(layoutId) },
+    // A layout for everyone is a shape: Edit opens the picker on it. Your own is free-form: Replace writes the canvas over it.
+    shared
+      ? { icon: 'table-columns', label: 'Edit', onPick: () => openShapeSheet(layout) }
+      : { icon: 'arrows-rotate', label: 'Replace with this layout', onPick: () => replaceLayout(layoutId) },
     { icon: 'pen', label: 'Rename', onPick: () => startRename(layoutId) },
     { icon: 'icons', label: 'Change icon', onPick: () => startChangeIcon(layoutId) },
     { icon: 'trash', label: 'Delete', danger: true, onPick: () => openConfirmMenu(trigger(), {
@@ -3526,15 +3563,15 @@ async function replaceLayout(layoutId, sheet = null) {
   }
 }
 
-// The small sheet (a <dialog>) for Save this layout and Rename: Name, for Save the share switch (those who may share),
-// the server's refusal under them, and the action bar (action-bar.js): Save, off until the name or the switch changed,
-// and Cancel. A click outside does nothing; Escape or Cancel closes it, asking "Discard changes?" when something was
-// typed; Enter in the name saves. `onSave(name,
-// shared, sheet)` does the work and closes the sheet (sheet.close) or shows what went wrong (sheet.error, with
-// `replaceId` for a taken name: "Replace it" beside the sentence). Opened from the Layout button, which takes the
+// The small sheet (a <dialog>) for New layout, Save as new layout and Rename: Name, the server's refusal under it, and the
+// action bar (action-bar.js): Save, off until the name changed, and Cancel. These are your own layouts: a layout for
+// everyone is a shape, made and changed with the layout picker (openShapeSheet; plan-layout-picker.md, decision 5), so
+// this sheet has no switch for everyone. A click outside does nothing; Escape or Cancel closes it, asking "Discard
+// changes?" when something was typed; Enter in the name saves. `onSave(name, sheet)` does the work and closes the sheet
+// (sheet.close) or shows what went wrong (sheet.error, with `replaceId` for a taken name: "Replace it" beside the sentence). Opened from the Layout button, which takes the
 // keyboard back when the sheet closes. `emptyName` (Rename on a system layout): the name an empty field stands for,
 // its default; the field's placeholder shows it, a line under it says so, and an empty name saves as that default.
-function openLayoutSheet({ title, name = '', share = null, emptyName = '', onSave }) {
+function openLayoutSheet({ title, name = '', emptyName = '', onSave }) {
   const doc = canvasDoc();
   const dlg = doc.createElement('dialog');
   dlg.className = 'layout-sheet';
@@ -3545,16 +3582,12 @@ function openLayoutSheet({ title, name = '', share = null, emptyName = '', onSav
       <h2 class="layout-sheet-title">${escapeHtml(title)}</h2>
       <label class="layout-field"><span class="layout-field-label">Name</span><input type="text" id="layout-name" autocomplete="off" spellcheck="false" maxlength="40"></label>
       <p class="layout-field-hint" id="layout-name-hint" hidden></p>
-      <label class="sdk-choice-row" id="layout-shared-row" hidden><i class="fa-solid fa-user-group fa-fw" aria-hidden="true"></i><span class="sdk-choice-text"><span class="sdk-choice-label" id="layout-shared-label"></span></span><input type="checkbox" class="sdk-switch" role="switch" id="layout-shared"></label>
       <p class="layout-form-error" id="layout-form-error" role="alert" hidden></p>
       </div>
     </form>`;
   const form = dlg.querySelector('form');
   const input = dlg.querySelector('#layout-name');
-  const sharedRow = dlg.querySelector('#layout-shared-row');
-  const sharedSwitch = dlg.querySelector('#layout-shared');
   const errorEl = dlg.querySelector('#layout-form-error');
-  dlg.querySelector('#layout-shared-label').textContent = `For everyone in this ${word('space')}`;
   input.value = name;
   if (emptyName) {
     input.placeholder = emptyName;
@@ -3563,9 +3596,6 @@ function openLayoutSheet({ title, name = '', share = null, emptyName = '', onSav
     hint.hidden = false;
     input.setAttribute('aria-describedby', hint.id);
   }
-  sharedRow.hidden = share === null;
-  sharedSwitch.checked = Boolean(share);
-  wireSwitchList(form); // Enter flips the share switch, as Space does
   const opener = nav.elementOf('setup');
   let failed = false; // the last save was refused (sheet.error)
   const bar = actionBar({
@@ -3573,13 +3603,13 @@ function openLayoutSheet({ title, name = '', share = null, emptyName = '', onSav
     label: 'Save the layout',
     doc,
     ids: { save: 'layout-save', cancel: 'layout-cancel' },
-    dirty: () => input.value.trim() !== name.trim() || (share !== null && sharedSwitch.checked !== Boolean(share)),
+    dirty: () => input.value.trim() !== name.trim(),
     onCancel: () => sheet.close(),
     onSave: async () => {
       const value = input.value.trim();
       if (!value && !emptyName) { sheet.error('Give the layout a name.'); return false; }
       failed = false;
-      await onSave(value, share !== null && layoutList.canShare && sharedSwitch.checked, sheet);
+      await onSave(value, sheet);
       return !failed;
     },
   });
@@ -3620,20 +3650,20 @@ function openLayoutSheet({ title, name = '', share = null, emptyName = '', onSav
   input.select();
   return sheet;
 }
-// New layout (`blank`): a layout with no module open, the arrangement mode and snap as they are now. Save as new layout:
-// the canvas as it is. Both ask the name in the same sheet, save with POST, then show the new layout (it becomes the one
-// shown: a Save as new layout leaves the canvas as it is, a New layout empties it).
+// New layout (`blank`): a layout of your own with no module open, the arrangement mode and snap as they are now. Save as
+// new layout: the canvas as it is, as a layout of your own. Both ask the name in the same sheet, save with POST, then
+// show the new layout (it becomes the one shown: a Save as new layout leaves the canvas as it is, a New layout empties
+// it). A layout for everyone is New layout for everyone (openShapeSheet).
 function openSaveLayout({ blank = false } = {}) {
   const id = layoutSpaceId();
   if (!id) return;
   openLayoutSheet({
     title: blank ? 'New layout' : 'Save as new layout',
-    share: layoutList.canShare ? false : null,
-    onSave: async (name, shared, sheet) => {
+    onSave: async (name, sheet) => {
       const now = canvas.captureLayout();
       const captured = blank ? { modules: [], arrange: now.arrange, ...(now.snap ? { snap: now.snap } : {}) } : now;
       try {
-        const { layout } = await layoutRequest('POST', layoutUrl(id), { name, shared, ...captured });
+        const { layout } = await layoutRequest('POST', layoutUrl(id), { name, ...captured });
         sheet.close();
         layoutNote(blank ? `Created ${layout.name}.` : `Saved ${layout.name}.`);
         await refreshLayouts();
@@ -3657,7 +3687,7 @@ function startRename(layoutId) {
     title: 'Rename',
     name: layout.name,
     emptyName: system ? system.defaultName || '' : '',
-    onSave: async (name, _shared, sheet) => {
+    onSave: async (name, sheet) => {
       if (name === layout.name) { sheet.close(); return; }
       try {
         if (system) await layoutRequest('PATCH', systemLayoutUrl(layoutSpaceId(), layoutId), { name: name || null });
@@ -3669,6 +3699,160 @@ function startRename(layoutId) {
       }
     },
   });
+}
+
+// New layout for everyone, and Edit on a layout for everyone (plan-layout-picker.md, step 6; decisions 4, 5, 17 to 20):
+// a <dialog> in the layout sheet's shell, wider, holding the layout's Name and the layout picker (layout-picker.js, its own
+// bar off), then the shared action bar: Save, off until the name or the layout changed, and Cancel (Escape and Cancel
+// ask "Discard changes?" when something changed; a click outside does nothing). The picker's areas offer the modules on
+// in this space (canvas.list(), never the chat or the call; Calendar and To-do kept out of a stacked area where they are
+// part of the Calendar here, canvas.compositeParts()). Under each area whose module someone can't open, the maker's
+// notice, from GET .../layouts's `cantOpen` (answered only to those who may edit a layout for everyone). Save sends
+// { name, shared: true, shape, areas } (POST), or on Edit only what changed (PUT: the name, and the shape with its areas
+// together). A refusal is filed where it belongs: the sentences about the shape and its areas under the shape, in the
+// picker; the rest (the name, the limit of 10, a refused right) under the name. Every sentence is shown as text.
+// `layout` is the shared layout to edit, or null for a new one. Opened from the Layouts section, which takes the keyboard
+// back when the sheet closes (backToLayouts: the row it was opened from). A new layout is shown at once (its tab is
+// pressed); an edited one again if it is shown now. A module an area names that is off here, or that this person can't
+// open, is named as the catalog names it (moduleNameHere), never offered. Save is off, and Escape asks nothing, until
+// something is changed: the start is the record as the picker read it (a stored arrangement it had to move is that).
+function openShapeSheet(layout = null) {
+  const id = layoutSpaceId();
+  if (!id || !layoutList.canShare) return;
+  const editing = isShapeLayout(layout) ? layout : null;
+  const doc = canvasDoc();
+  const title = editing ? `Edit ${editing.name}` : 'New layout for everyone';
+  const startName = editing ? editing.name : '';
+  const dlg = doc.createElement('dialog');
+  dlg.className = 'layout-sheet layout-shape-sheet';
+  dlg.setAttribute('aria-labelledby', 'layout-shape-title');
+  dlg.innerHTML = `
+    <form class="layout-form" novalidate>
+      <div class="layout-form-body action-content">
+      <h2 class="layout-sheet-title" id="layout-shape-title"></h2>
+      <p class="layout-field-hint" id="layout-shape-lead"></p>
+      <label class="layout-field"><span class="layout-field-label">Name</span><input type="text" id="layout-shape-name" autocomplete="off" spellcheck="false" maxlength="40" aria-describedby="layout-shape-error"></label>
+      <p class="layout-form-error" id="layout-shape-error" role="alert" hidden></p>
+      <div class="layout-shape-picker" id="layout-shape-picker"></div>
+      </div>
+    </form>`;
+  const form = dlg.querySelector('form');
+  const input = dlg.querySelector('#layout-shape-name');
+  const errorEl = dlg.querySelector('#layout-shape-error');
+  dlg.querySelector('#layout-shape-title').textContent = title;
+  dlg.querySelector('#layout-shape-lead').textContent = `Everyone in this ${word('space')} can open it. Each person can still change it for themselves.`;
+  input.value = startName;
+  const modules = canvas.list()
+    .filter((m) => m && !COLUMN_IDS.includes(m.id) && m.canvas)
+    .map((m) => ({ id: m.id, name: m.name, icon: m.icon, ...(canvas.colorOf(m.id) ? { tint: canvas.colorOf(m.id) } : {}) }));
+  // What an area names that is not offered here (off in the space, or not for this person): drawn by its name, never offered.
+  const others = (editing ? editing.areas : [])
+    .filter((a) => typeof a === 'string' && !modules.some((m) => m.id === a))
+    .map((a) => ({ id: a, name: moduleNameHere(a), icon: 'puzzle-piece' }));
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  let bar = null;
+  const picker = createLayoutPicker({
+    doc,
+    record: editing ? { shape: editing.shape, areas: editing.areas.slice() } : null,
+    modules,
+    others,
+    parts: canvas.compositeParts(),
+    cantOpen: layoutList.cantOpen,
+    bar: false,
+    label: 'Layout',
+    onChange: () => bar?.refresh(),
+  });
+  dlg.querySelector('#layout-shape-picker').appendChild(picker.el);
+  const startRecord = picker.value(); // after the picker's read (carryAreas), so an unchanged sheet is not dirty
+  // Where the keyboard goes back to: Edit's row (its "..."), else New layout for everyone.
+  let backTo = editing ? { more: editing.name } : { label: 'New layout for everyone' };
+  let savedNow = false;
+  // Scrolling the sheet closes an open area menu (the sheet's body scrolls here, not the picker's).
+  dlg.querySelector('.layout-form-body').addEventListener('scroll', () => closeHostMenu(), { passive: true });
+  const showError = (text) => { errorEl.textContent = text; errorEl.hidden = !text; };
+  // The server's refusal, each sentence under its part: shape and areas in the picker (under the shape), the rest here.
+  function fileRefusal(err) {
+    const problems = err.problems && err.problems.length ? err.problems : [err.message || 'It was not saved.'];
+    const parts = err.problems && err.problems.length ? err.parts : [null];
+    const inPicker = problems.filter((_, i) => parts[i] === 'shape' || parts[i] === 'areas');
+    const here = problems.filter((_, i) => parts[i] !== 'shape' && parts[i] !== 'areas');
+    picker.refuse(inPicker.join(' '));
+    showError(here.join(' '));
+    if (here.length) { input.focus(); return; }
+    // A refusal about the shape or its areas: the keyboard goes to it (read out as it is focused), never left on the page.
+    const said = picker.el.querySelector('.layout-picker-error');
+    if (said && !said.hidden) { said.tabIndex = -1; said.focus(); }
+  }
+  bar = actionBar({
+    submit: true,
+    label: 'Save the layout',
+    doc,
+    ids: { save: 'layout-shape-save', cancel: 'layout-shape-cancel' },
+    dirty: () => input.value.trim() !== startName.trim() || !same(picker.value(), startRecord),
+    onCancel: () => { if (dlg.open) dlg.close(); },
+    onSave: async () => {
+      const name = input.value.trim();
+      const record = picker.value();
+      showError('');
+      picker.refuse('');
+      if (!name) { showError('Give the layout a name.'); input.focus(); return false; }
+      if (!record) { picker.refuse('Pick a shape first.'); return false; }
+      const body = editing
+        ? { ...(name !== editing.name ? { name } : {}), ...(!same(record, startRecord) ? { shape: record.shape, areas: record.areas } : {}) }
+        : { name, shared: true, shape: record.shape, areas: record.areas };
+      if (editing && !Object.keys(body).length) { dlg.close(); return true; }
+      let saved;
+      try {
+        ({ layout: saved } = await layoutRequest(editing ? 'PUT' : 'POST', layoutUrl(id, editing ? editing.id : ''), body));
+      } catch (err) {
+        fileRefusal(err);
+        return false;
+      }
+      savedNow = true;
+      backTo = editing ? { more: saved.name } : { label: 'New layout for everyone' };
+      dlg.close();
+      layoutNote(editing ? `Saved ${saved.name}.` : `Created ${saved.name}.`);
+      await refreshLayouts();
+      if (layoutSpaceId() !== id) return true;
+      if (!editing) pressLayoutTab(saved.id);
+      else if (currentLayoutTab === saved.id) pressLayoutTab(saved.id, null, { remember: false });
+      setTimeout(() => backToLayouts(backTo), 0); // once the section is drawn again
+      return true;
+    },
+  });
+  form.appendChild(bar.el);
+  bar.bindEscape(dlg);
+  dlg.addEventListener('cancel', (event) => { event.preventDefault(); bar.requestCancel(); });
+  input.addEventListener('input', () => { showError(''); bar.refresh(); });
+  dlg.addEventListener('close', () => {
+    picker.destroy();
+    dlg.remove();
+    if (!savedNow) backToLayouts(backTo); // a save puts it back once the list is drawn again (above)
+  });
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    bar.save();
+  });
+  doc.body.appendChild(dlg);
+  dlg.showModal();
+  bar.refresh();
+  input.focus();
+  if (editing) input.select();
+}
+// The keyboard back in the Layouts section (Set up > Modules) after the shape sheet: the row it was opened from, found
+// again by its words since the list is drawn anew (`more`: a layout's "..." by the layout's name; `label`: an entry),
+// else the section's first entry, else the Set up button.
+function backToLayouts({ more = '', label = '' } = {}) {
+  const box = document.getElementById('setup-show');
+  const shown = (b) => b.getClientRects().length > 0;
+  const rows = box ? [...box.querySelectorAll('.host-menu-item, .host-menu-more')].filter(shown) : [];
+  const words = (b) => (b.querySelector('.host-menu-label')?.textContent || '').trim();
+  const target = (more && rows.find((b) => b.classList.contains('host-menu-more') && b.getAttribute('aria-label') === `More for ${more}`))
+    || (label && rows.find((b) => b.classList.contains('host-menu-item') && words(b) === label))
+    || rows.find((b) => b.classList.contains('host-menu-item') && !b.disabled)
+    || null;
+  const setup = nav.elementOf('setup');
+  (target || (setup && setup.isConnected && shown(setup) ? setup : null))?.focus();
 }
 
 // Change icon (plan-layout-views.md, decision 4, "Icons" and step 4): a small sheet like the layout sheet, on the shared
@@ -4003,9 +4187,11 @@ function pressLayoutTab(id, from = null, { load = true, remember = true } = {}) 
     return;
   }
   // Calendar and Map are system layouts (their `modules`: the composite, docked, filling the canvas), reloaded as saved
-  // on every press (decision 15); a favorite is a saved layout. Both load the same way.
+  // on every press (decision 15); a favorite is a saved layout. Both load the same way. A layout for everyone is a shape
+  // ({ shape, areas }; plan-layout-picker.md, step 6): canvas.loadLayout places it by loadShape, an area this person
+  // can't open closed up (a guest's answer reads such an area as empty, which closes up for a guest too).
   const layout = findSystemLayout(id) || findLayout(id);
-  if (!layout || !Array.isArray(layout.modules)) return;
+  if (!layout || !(Array.isArray(layout.modules) || isShapeLayout(layout))) return;
   canvas.holdMemory(); // only the Workspace remembers: from here on nothing is written until it is shown again
   currentLayoutTab = id;
   layoutBase = null;
@@ -4072,7 +4258,7 @@ function checkModified() {
 async function updateLayout(layoutId) {
   const id = layoutSpaceId();
   const layout = findLayout(layoutId);
-  if (!id || !layout) return;
+  if (!id || !layout || isShapeLayout(layout)) return; // a layout for everyone is changed with Edit (the picker)
   const captured = canvas.captureLayout();
   try {
     await layoutRequest('PUT', layoutUrl(id, layoutId), captured);
@@ -4091,7 +4277,8 @@ function placeModified() {
   if (!layout || !tab) { layoutModifiedEl.hidden = true; return; }
   const shared = layoutList.shared.includes(layout);
   layoutModifiedEl.replaceChildren(layoutModifiedEl.ownerDocument.createTextNode('Modified'));
-  if (mayChangeLayout(shared)) {
+  // Update writes the canvas over the layout: your own only. A layout for everyone is a shape, changed with Edit (decision 5).
+  if (mayChangeLayout(shared) && !shared) {
     const b = layoutModifiedEl.ownerDocument.createElement('button');
     b.type = 'button';
     b.className = 'layout-update';

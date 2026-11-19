@@ -2156,6 +2156,33 @@ body.in-space .subnav {
   font-size: var(--text-12);
 }
 
+/* New layout for everyone and Edit (space.js, openShapeSheet; plan-layout-picker.md, step 6): the layout sheet, as wide as
+   a browsing dialog, its Name and then the layout picker in a framed box (as a template's editor frames it), the picker's
+   own height kept so the sheet's body is the one that scrolls above the action bar. */
+/* Two classes: the dialog shell (system.css) sets --dlg-w on .layout-sheet, and it loads after this file. */
+.layout-sheet.layout-shape-sheet {
+  --dlg-w: var(--dlg-w-browse);
+}
+
+.layout-shape-sheet .layout-form-error {
+  max-width: none;
+}
+
+.layout-shape-picker {
+  min-width: 0;
+}
+
+.layout-shape-picker .layout-picker {
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-medium);
+  background: var(--surface);
+}
+
+.layout-shape-picker .layout-picker-body {
+  overflow: visible;
+}
+
 .layout-icon-grid {
   max-height: min(264px, 45dvh);
   overflow-y: auto;
@@ -6778,6 +6805,18 @@ body.chat-window {
 .tp-offer { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
 .tp-module-head .tp-offer { width: auto; min-width: 0; } /* every row's highlight ends at the same place: the summary has its own column */
 .tp-module-sum { text-align: right; }
+/* A template's layout in its editor (plan-layout-picker.md, step 5; public/template-layout.js): the layout picker in a
+   framed box, or a line and Pick a shape when there is none; Remove the layout under it; and the line saying the layout
+   uses a module that is no longer ticked (beside the picker, under the Modules list, and in a module's row). */
+.tp-layout { margin: var(--space-2) 0 var(--space-3); min-width: 0; }
+.tp-layout .layout-picker { border: 1px solid var(--border); border-radius: var(--radius-medium); background: var(--surface); }
+.tp-layout-words { margin: 0 0 var(--space-2); overflow-wrap: anywhere; }
+.tp-layout-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.tp-layout-missing { margin: 0; color: var(--status-warn-text); font-size: var(--text-13); font-weight: var(--weight-strong); overflow-wrap: anywhere; }
+.tp-layout-missing:not(:empty) { margin: var(--space-2) 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-small); background: var(--status-warn-tint); }
+.tp-module-head .tp-uses { grid-column: 2 / -1; }
+.tp-module-head .tp-uses:empty { display: none; }
+@media (max-width: 640px) { .tp-layout .tp-layout-button { --btn-h: 44px; min-height: 44px; } }
 .tp-module-body { padding: 4px 12px 12px; border-top: 1px solid var(--border); min-width: 0; }
 .tp-module-body .tf-form { margin-top: 8px; }
 .tp-settings { display: grid; gap: 0; }

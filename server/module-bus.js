@@ -133,9 +133,11 @@ class ModuleBus extends EventEmitter {
   // the module in that space may take it (plan-calendar-destination, decision 21).
   // `openOnly`: the request is for a page already open, and is handed out for LIMITS.openOnlyMs only (`expiresAt`).
   // `askerOnly`: only the asker's own page may take it (the routes check `by`); it waits for that page as any request does.
-  request({ from, provider, action, input, scopeKey, by, local, askerOnly, space, openOnly }) {
+  // `agentToken`: for a request an agent asked for through its token (plan-agent-access.md), that token's id. The request is
+  // marked `agent: true` and is carried out only while that agent still may ask (the routes check it, server/index.js).
+  request({ from, provider, action, input, scopeKey, by, local, askerOnly, space, openOnly, agentToken }) {
     const at = Date.now();
-    const request = { id: ++this.state.seq, at, from, provider, action, input, scopeKey, by, ...(local ? { local: true } : {}), ...(askerOnly ? { askerOnly: true } : {}), ...(space ? { space } : {}), ...(openOnly ? { expiresAt: at + LIMITS.openOnlyMs } : {}), status: 'pending', claimedAt: 0, result: null };
+    const request = { id: ++this.state.seq, at, from, provider, action, input, scopeKey, by, ...(local ? { local: true } : {}), ...(askerOnly ? { askerOnly: true } : {}), ...(space ? { space } : {}), ...(openOnly ? { expiresAt: at + LIMITS.openOnlyMs } : {}), ...(agentToken ? { agent: true, agentToken } : {}), status: 'pending', claimedAt: 0, result: null };
     this.state.actions.push(request);
     this.pruneAndSave();
     this.emit('action', request);
@@ -203,6 +205,24 @@ class ModuleBus extends EventEmitter {
     this.save();
     this.emit('actionDone', a);
     return a;
+  }
+
+  // Ends every request not yet carried out for which `test(request)` is true: it is done, failed with `error`, and marked
+  // `cancelled`, so no page is offered it, may claim it or finish it, and its asker reads the sentence as its result. A page
+  // that claimed it a moment ago is told no when it finishes. Not announced as done (nothing was carried out). Returns the
+  // requests ended.
+  cancel(test, error) {
+    const now = Date.now();
+    const ended = this.state.actions.filter((a) => a.status !== 'done' && test(a));
+    for (const a of ended) {
+      a.status = 'done';
+      a.doneAt = now;
+      a.doneBy = '';
+      a.cancelled = true;
+      a.result = { ok: false, error };
+    }
+    if (ended.length) this.save();
+    return ended;
   }
 
   dropModule(id) {

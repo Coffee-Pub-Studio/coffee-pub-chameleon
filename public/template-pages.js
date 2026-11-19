@@ -29,8 +29,9 @@ const entryOf = (t, id) => (t && isObject(t.modules) && isObject(t.modules[id]) 
 // --- Default Workspace ----------------------------------------------------------------------------------------------------
 // How the Workspace starts on a first visit (the template's layout, a shape and its modules; plan-layout-picker.md, step 3)
 // and which Fixed Workspaces a new space shows. A workspace shown here is shown for everyone: nobody can hide it
-// (decision 9). The layout is read only here until the layout picker comes (steps 4 and 5): it is drawn in plain words and
-// carried in the markup (`data-tw-layout`), so a save sends it back as it was and never loses it.
+// (decision 9). The layout is drawn here as a place for the layout picker (step 5; the page mounts it with
+// template-layout.js's mountTemplateLayout), holding the layout in plain words until then and the record in the markup
+// (`data-tw-layout`), which the picker keeps as it changes, so a save sends what it holds.
 const layoutOf = (w) => (w && isObject(w.layout) && typeof w.layout.shape === 'string' && Array.isArray(w.layout.areas) ? w.layout : null);
 // The layout in plain words: its shape and the modules in it, by the names `nameOf` gives; with none, what the product opens.
 export function layoutWords(layout, { nameOf = (id) => id, word }) {
@@ -47,19 +48,20 @@ export function workspaceHtml(t, { editable, catalog, word }) {
   const layoutText = e(layoutWords(layout, { nameOf, word }));
   const layoutAbout = `How the Workspace first looks to each person in a new ${e(word('space'))}. Once they open something, their own arrangement is kept.`;
   const pinNote = `A Fixed Workspace shown here is shown for everyone in a new ${e(word('space'))}; nobody can hide it. People still add layouts of their own.`;
+  const layoutBox = `<div class="tp-layout" data-tw-layout="${e(layout ? JSON.stringify(layout) : '')}">${layoutText}</div>`;
   if (!editable) {
     const shownList = show.length ? show.map((id) => e((FIXED_WORKSPACES.find(([x]) => x === id) || [id, id])[1])).join(', ') : '<span class="hint">None</span>';
     const firstName = first === 'workspace' ? 'The Workspace' : (FIXED_WORKSPACES.find(([x]) => x === first) || [first, first])[1];
-    return `<dl class="tf-read">${line('Layout', layoutText)}${line('Fixed Workspaces shown', shownList)}${line('Opens first', e(firstName))}</dl><p class="hint">${pinNote}</p>`;
+    return `<div class="tf-labels"><h3>Layout</h3><p class="hint">${layoutAbout}</p>${layoutBox}</div><dl class="tf-read">${line('Fixed Workspaces shown', shownList)}${line('Opens first', e(firstName))}</dl><p class="hint">${pinNote}</p>`;
   }
   const fixed = FIXED_WORKSPACES.map(([id, label]) => `<label class="sdk-choice-row"><input type="checkbox" data-tw-show="${id}"${show.includes(id) ? ' checked' : ''}><span class="sdk-choice-text">${e(label)}</span></label>`).join('');
   const firstOptions = [['workspace', 'The Workspace'], ...FIXED_WORKSPACES].map(([v, l]) => `<option value="${e(v)}"${v === first ? ' selected' : ''}>${e(l)}</option>`).join('');
-  return `<div class="tf-labels"><h3>Layout</h3><p class="hint">${layoutAbout}</p><p class="tp-layout" data-tw-layout="${e(layout ? JSON.stringify(layout) : '')}">${layoutText}</p>`
+  return `<div class="tf-labels"><h3>Layout</h3><p class="hint">${layoutAbout}</p>${layoutBox}`
     + `<h3>Fixed Workspaces shown</h3><p class="hint">${pinNote}</p><div class="tp-checks">${fixed}</div>`
     + `<h3>Opens first</h3><label class="tf-field"><span class="field-label">What a new ${e(word('space'))} shows first</span><select data-tw-first>${firstOptions}</select></label></div>`;
 }
-// The Default Workspace's fields: the layout as it was drawn (sent unchanged, so a save never loses it), the shown Fixed
-// Workspaces and Opens first.
+// The Default Workspace's fields: the layout the picker holds (only a whole record; none when it was removed), the shown
+// Fixed Workspaces and Opens first.
 export function readWorkspace(root, { editing = true } = {}) {
   let layout = null;
   try { const held = root.querySelector('[data-tw-layout]')?.dataset.twLayout; layout = held ? JSON.parse(held) : null; } catch { layout = null; }
@@ -224,8 +226,14 @@ function settingControl(def, v, set) {
   if (def.type === 'list') return `<div class="tp-list"${set ? '' : ' inert'}>${listControl({ ...def, value: Array.isArray(v) ? v : (Array.isArray(def.default) ? def.default : []) })}</div>`;
   return `<input type="text" data-ts-value="${key}" aria-label="${e(def.label)}" maxlength="${def.maxLength || 100}" value="${e(v === undefined ? (def.default ?? '') : v)}"${off}>`;
 }
+// The modules a template's layout puts in an area.
+const layoutUses = (t) => { const l = layoutOf(t && t.workspace); return l ? l.areas.filter((id) => typeof id === 'string' && id) : []; };
+// Beside an offered module the layout uses: unticking it says so at once, before saving (the server refuses it).
+export const LAYOUT_USES_NOTE = 'The layout on the Default Workspace page uses this. Take it out of the layout first, or this page won\'t save.';
 function moduleRow(t, m, { editable, word }) {
   const entry = entryOf(t, m.id);
+  const used = editable && layoutUses(t).includes(m.id);
+  const noteId = `tm-uses-${e(m.id)}`;
   const on = offers(t, m.id);
   const settings = settingsOf(m);
   const starterCount = isObject(entry.starter) ? Object.keys(entry.starter).length : 0;
@@ -234,7 +242,7 @@ function moduleRow(t, m, { editable, word }) {
   if (settings.length) pieces.push(`${settings.length} setting${settings.length === 1 ? '' : 's'}`);
   if (starterCount) pieces.push('starter content');
   const head = editable
-    ? `<label class="tp-offer sdk-choice-row"><input type="checkbox" data-tm-offer${on ? ' checked' : ''}${m.id === 'chat' ? ' disabled' : ''} aria-label="${e(`Offer ${m.name}`)}"><span class="sdk-choice-text"><strong>${iconTag(entry.icon || m.icon || 'puzzle-piece')} ${e(shown)}</strong></span></label>`
+    ? `<label class="tp-offer sdk-choice-row"><input type="checkbox" data-tm-offer${on ? ' checked' : ''}${m.id === 'chat' ? ' disabled' : ''} aria-label="${e(`Offer ${m.name}`)}"${used ? ` aria-describedby="${noteId}"` : ''}><span class="sdk-choice-text"><strong>${iconTag(entry.icon || m.icon || 'puzzle-piece')} ${e(shown)}</strong></span></label>`
     : `<span class="tp-offer"><strong>${iconTag(entry.icon || m.icon || 'puzzle-piece')} ${e(shown)}</strong> <span class="sdk-status" data-tone="${on ? 'ok' : 'neutral'}">${on ? 'Offered' : 'Not offered'}</span></span>`;
   const nameFields = editable
     ? `<div class="tf-form"><label class="tf-field"><span class="field-label">Shown as</span><input type="text" data-tm-name maxlength="40" autocomplete="off" value="${e(entry.name || '')}" placeholder="${e(m.name)}"></label>`
@@ -252,7 +260,7 @@ function moduleRow(t, m, { editable, word }) {
     ? `<label class="sdk-choice-row"><input type="checkbox" data-tm-starter checked><span class="sdk-choice-text">Keep the starter content (${starterCount} ${starterCount === 1 ? 'object' : 'objects'}, made once when a ${e(word('space'))} is made)</span></label>`
     : `<p class="hint">${starterCount} ${starterCount === 1 ? 'object' : 'objects'}, made once when a ${e(word('space'))} is made.</p>`}` : '';
   const more = nameFields + settingBlock + starterBlock;
-  return `<details class="tp-module" data-tm="${e(m.id)}"><summary class="tp-module-head">${head}<span class="hint tp-module-sum">${e(pieces.join(', '))}</span></summary><div class="tp-module-body">${more}</div></details>`;
+  return `<details class="tp-module" data-tm="${e(m.id)}"><summary class="tp-module-head">${head}<span class="hint tp-module-sum">${e(pieces.join(', '))}</span>${used ? `<span class="tp-layout-missing tp-uses" id="${noteId}" data-tm-uses role="status"></span>` : ''}</summary><div class="tp-module-body">${more}</div></details>`;
 }
 export function modulesHtml(t, { editable, catalog, word }) {
   const all = t && t.modules === '*';
@@ -359,6 +367,10 @@ export function wirePages(root) {
     else if (t.closest('[data-ti-add]')) { root.querySelector('[data-ti-list]').insertAdjacentHTML('beforeend', iconRow('')); root.querySelector('[data-ti-list]').lastElementChild.querySelector('[data-ti-name]').focus(); }
   });
   root.addEventListener('change', (ev) => {
+    if (ev.target.matches('[data-tm-offer]')) {
+      const uses = ev.target.closest('[data-tm]')?.querySelector('[data-tm-uses]');
+      if (uses) uses.textContent = ev.target.checked ? '' : LAYOUT_USES_NOTE;
+    }
     const set = ev.target.closest('[data-ts-set]');
     if (set) {
       for (const input of set.closest('[data-ts]').querySelectorAll('[data-ts-value]')) input.disabled = !set.checked;
