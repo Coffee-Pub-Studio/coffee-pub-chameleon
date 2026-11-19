@@ -1170,32 +1170,40 @@
       ['Teal', '#00796b'], ['Blue', '#2f6cbf'], ['Purple', '#7c55c8'], ['Pink', '#b23f7f']]],
   ].map(([heading, list]) => Object.freeze({ heading, colours: Object.freeze(list.map(([name, hex]) => Object.freeze({ name, color: hex }))) })));
   // A module's own palette, checked: a fresh copy [{ heading, colours: [{ name, color }] }] with names trimmed and colours cleaned.
-  // At most 6 groups and 48 colours; every heading and name plain text (at most 40 characters, no control characters, no < or >).
+  // At most 6 groups and 48 colours; every heading and name plain text: at most 40 characters, at least one letter or digit, and no
+  // control, format (zero-width, bidi), line or paragraph separator characters, lone surrogates, < or >. The input is walked by index
+  // and copied into new arrays, so a hole or an array's own `map` decides nothing. A name reaches the page only as text.
   function colourPaletteCheck(palette) {
     const refuse = () => new TypeError('host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour');
     const plain = (x) => {
       if (typeof x !== 'string') return null;
       const t = x.trim();
-      return t && t.length <= 40 && !/[\u0000-\u001f\u007f-\u009f<>]/.test(t) ? t : null;
+      if (!t || t.length > 40) return null;
+      if (/[\u0000-\u001f\u007f-\u009f<>]|[\p{Cf}\p{Zl}\p{Zp}]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(t)) return null;
+      return /[\p{L}\p{N}]/u.test(t) ? t : null;
     };
+    const has = (o, i) => Object.prototype.hasOwnProperty.call(o, i);
     if (!Array.isArray(palette) || !palette.length || palette.length > 6) throw refuse();
+    const out = [];
     let count = 0;
-    return palette.map((group) => {
+    for (let i = 0; i < palette.length; i += 1) {
+      const group = has(palette, i) ? palette[i] : undefined;
       const heading = group && typeof group === 'object' ? plain(group.heading) : null;
-      const list = group && Array.isArray(group.colours) ? group.colours : null;
+      const list = group && typeof group === 'object' && Array.isArray(group.colours) ? group.colours : null;
       if (!heading || !list || !list.length) throw refuse();
       count += list.length;
       if (count > 48) throw refuse();
-      return {
-        heading,
-        colours: list.map((entry) => {
-          const name = entry && typeof entry === 'object' ? plain(entry.name) : null;
-          const hex = entry && typeof entry === 'object' ? colourClean(entry.color) : null;
-          if (!name || !hex) throw refuse();
-          return { name, color: hex };
-        }),
-      };
-    });
+      const colours = [];
+      for (let j = 0; j < list.length; j += 1) {
+        const entry = has(list, j) ? list[j] : undefined;
+        const name = entry && typeof entry === 'object' ? plain(entry.name) : null;
+        const hex = entry && typeof entry === 'object' ? colourClean(entry.color) : null;
+        if (!name || !hex) throw refuse();
+        colours.push({ name, color: hex });
+      }
+      out.push({ heading, colours });
+    }
+    return out;
   }
   // An opacity as a whole percent from 0 to 100; anything that is not a number is 100.
   function colourOpacity(value) {
@@ -1213,9 +1221,10 @@
     const f = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
     return 0.2126 * f(n >> 16) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255);
   };
+  // Strict: '#' and six lower-case hex digits only (COLOUR_HEX); anything else throws.
   function colourContrast(a, b) {
-    const x = colourClean(a);
-    const y = colourClean(b);
+    const x = typeof a === 'string' && COLOUR_HEX.test(a) ? a : null;
+    const y = typeof b === 'string' && COLOUR_HEX.test(b) ? b : null;
     if (!x || !y) throw new TypeError('host.util.contrast takes two #rrggbb colours');
     const p = colourLum(x);
     const q = colourLum(y);
@@ -1223,7 +1232,7 @@
   }
   // White or near-black words on a fill, whichever has more contrast (white on a tie, as pickOn); ok at 4.5:1 or more.
   function colourReadableOn(fill) {
-    const f = colourClean(fill);
+    const f = typeof fill === 'string' && COLOUR_HEX.test(fill) ? fill : null;
     if (!f) throw new TypeError('host.util.readableOn takes a #rrggbb colour');
     const w = colourContrast('#ffffff', f);
     const d = colourContrast('#0a0a0a', f);
@@ -2490,6 +2499,539 @@
     return { close: closeMenu };
   }
 
+  // ---- The colour picker (host.ui.colorPicker and host.ui.colorField; plan-colour-picker.md, step 2) ----
+  // Drawn by the SDK in the module's own page, like host.menu.show, and one of the same "one open at a time": opening it closes any
+  // menu, a menu closes it, and the same call again while it is open closes it (a toggle). Placed under `anchor` (flipped above when
+  // there is no room below) or at the point `at`, clamped inside the module's box, and scrolling inside itself when the box is short.
+  // The pure parts (cleaning, hue and back, the palette and its check, the answer, contrast) are the block between colour:start and
+  // colour:end above. The colours in the area, the sliders and the swatches are data, set as custom properties (--sw, --cp-*); the
+  // picker itself is theme tokens only (the Pickers block of system.css, colourpicker part).
+  const COLOUR_ICONS = {
+    check: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.6 2.4 7.8l1.4-1.4 2.4 2.4 6-6 1.4 1.4z"/></svg>',
+    dropper: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M13.4 1.3a2 2 0 0 0-2.8 0L8.9 3l-.7-.7-1.4 1.4.7.7-5.2 5.2a1 1 0 0 0-.3.7V13h2.7a1 1 0 0 0 .7-.3l5.2-5.2.7.7 1.4-1.4-.7-.7 1.7-1.7a2 2 0 0 0 0-2.8zM4.3 11.5h-.8v-.8l5.1-5.1.8.8z"/></svg>',
+    chevron: '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M2.3 5.3 8 11l5.7-5.7-1.4-1.4L8 8.2 3.7 3.9z"/></svg>',
+  };
+  // The ends of the area (no colour at the top right is "white", the bottom is "black") and the hue track's stops, worked out from the
+  // colour maths, so no colour is written in a stylesheet or a style string.
+  const COLOUR_WHITE = colourFromHsv({ h: 0, s: 0, v: 100 });
+  const COLOUR_BLACK = colourFromHsv({ h: 0, s: 0, v: 0 });
+  const COLOUR_AREA = `linear-gradient(to top, ${COLOUR_BLACK}, transparent), linear-gradient(to right, ${COLOUR_WHITE}, transparent)`;
+  const COLOUR_HUES = `linear-gradient(to right, ${[0, 60, 120, 180, 240, 300, 360].map((h) => colourFromHsv({ h: h % 360, s: 100, v: 100 })).join(', ')})`;
+  const COLOUR_RECENT_MAX = 8;
+  const COLOUR_HEX_HINT = 'Type six hex digits, like #2f6cbf'; // the hex field's error line
+  let colourSeq = 0;
+  // The browser's eyedropper: offered where it exists; the first time it refuses (a frame it may not work in), it is hidden from then on.
+  let colourDropper = typeof window.EyeDropper === 'function';
+  // Any CSS colour the page computed (the menu's surface: rgb(), color(srgb ...)) as #rrggbb, through a 1px canvas; null if it cannot.
+  function colourOfCss(css) {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 1;
+      c.height = 1;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      if (!g || !css) return null;
+      g.clearRect(0, 0, 1, 1);
+      g.fillStyle = css;
+      g.fillRect(0, 0, 1, 1);
+      const d = g.getImageData(0, 0, 1, 1).data;
+      if (d[3] < 128) return null;
+      return colourClean([d[0], d[1], d[2]].map((n) => n.toString(16).padStart(2, '0')).join(''));
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function showColourPicker(o) {
+    const opt = o && typeof o === 'object' ? o : {};
+    const anchor = opt.anchor && opt.anchor.nodeType === 1 && typeof opt.anchor.getBoundingClientRect === 'function' ? opt.anchor : null;
+    const at = opt.at && typeof opt.at === 'object' && Number.isFinite(opt.at.x) && Number.isFinite(opt.at.y) ? { x: opt.at.x, y: opt.at.y } : null;
+    if (!anchor && !at) throw new Error('host.ui.colorPicker needs an anchor or a point');
+    const palette = opt.palette !== undefined ? colourPaletteCheck(opt.palette) : COLOUR_PALETTE;
+    const keeps = opt.opacity !== false;
+    const label = typeof opt.label === 'string' && opt.label.trim() ? opt.label.trim().slice(0, 80) : 'Colour';
+    const onInput = typeof opt.onInput === 'function' ? opt.onInput : null;
+    // The same call again while it is open (the same anchor, or a point again: a toolbar button pressed twice) closes it: null.
+    const reopening = Boolean(openMenu && openMenu.id === 'sdk-colour' && openMenu.anchor === anchor);
+    closeMenu();
+    if (reopening) return Promise.resolve(null);
+
+    return new Promise((resolve) => {
+      const make = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+      const editor = editorAt(anchor);
+      const container = editor || (env.root === document ? document.body : env.root);
+      const bounds = () => {
+        const modBox = env.rootElement.getBoundingClientRect();
+        return {
+          modBox,
+          box: editor ? { left: 0, top: 0 } : modBox,
+          w: editor ? window.innerWidth : env.rootElement.clientWidth || 400,
+          h: editor ? window.innerHeight : env.rootElement.clientHeight || 400,
+        };
+      };
+      let framed = false;
+      try { framed = window.parent !== window && env.root === document; } catch (err) { framed = true; }
+      const uid = `sdk-cp-${++colourSeq}`;
+      const names = new Map();
+      for (const g of palette) for (const c of g.colours) if (!names.has(c.color)) names.set(c.color, c.name);
+      // The recent colours: this browser, this module (as the kind picker keeps its recent choices; not kept where storage is shut).
+      const memory = `app:colour:${editorDeps.moduleId}`;
+      const readRecent = () => { try { const v = JSON.parse(localStorage.getItem(memory) || '[]'); return Array.isArray(v) ? v.map(colourClean).filter(Boolean).filter((c, i, a) => a.indexOf(c) === i).slice(0, COLOUR_RECENT_MAX) : []; } catch (err) { return []; } };
+      const writeRecent = (c) => { try { localStorage.setItem(memory, JSON.stringify([c, ...readRecent().filter((x) => x !== c)].slice(0, COLOUR_RECENT_MAX))); } catch (err) { /* not kept */ } };
+
+      const startHex = colourClean(opt.value) || palette[0].colours[0].color;
+      let hsv = colourToHsv(startHex);
+      let hex = startHex;
+      let alpha = keeps ? colourOpacity(opt.opacity === undefined ? 100 : opt.opacity) : 100;
+      let result = null;
+      let outside = false;
+      let dropping = false;
+      let sent = `${hex}/${alpha}`;
+
+      const pop = make('div', 'sdk-popover sdk-popover-dense sdk-picker-pop sdk-cp');
+      pop.id = uid;
+      pop.setAttribute('role', 'dialog');
+      pop.setAttribute('aria-label', label);
+      pop.style.setProperty('--cp-area', COLOUR_AREA);
+      pop.style.setProperty('--cp-hue-track', COLOUR_HUES);
+
+      // The area: saturation across, brightness up. One slider for the keyboard.
+      const area = make('div', 'sdk-cp-area');
+      area.tabIndex = 0;
+      area.setAttribute('role', 'slider');
+      area.setAttribute('aria-label', 'Saturation and brightness');
+      area.setAttribute('aria-valuemin', '0');
+      area.setAttribute('aria-valuemax', '100');
+      area.appendChild(make('span', 'sdk-cp-handle'));
+      const slider = (cls, name, max) => {
+        const s = make('div', `sdk-cp-slider ${cls}`);
+        s.tabIndex = 0;
+        s.setAttribute('role', 'slider');
+        s.setAttribute('aria-label', name);
+        s.setAttribute('aria-valuemin', '0');
+        s.setAttribute('aria-valuemax', String(max));
+        s.setAttribute('aria-orientation', 'horizontal');
+        s.append(make('span', 'sdk-cp-track'), make('span', 'sdk-cp-thumb'));
+        return s;
+      };
+      const hue = slider('sdk-cp-hue', 'Hue', 359);
+      const opac = slider('sdk-cp-alpha', 'Opacity', 100);
+      pop.append(area, hue, opac);
+      if (!keeps) {
+        // Option O2: drawn at 100 and switched off, with the reason under it; it stays in the Tab order so a screen reader hears why.
+        const note = make('p', 'sdk-cp-note', 'Opacity isn\'t kept here.');
+        note.id = `${uid}-note`;
+        opac.setAttribute('aria-disabled', 'true');
+        opac.setAttribute('aria-describedby', note.id);
+        pop.appendChild(note);
+      }
+
+      // The row: the colour as it is, the hex, and the eyedropper.
+      const row = make('div', 'sdk-cp-row');
+      const current = make('span', 'sdk-cp-current');
+      current.setAttribute('aria-hidden', 'true');
+      const hexLabel = make('label', 'sdk-cp-hex');
+      const hexWord = make('span', 'sdk-cp-hex-word', 'Hex');
+      const hexIn = make('input', 'sdk-cp-hexin');
+      hexIn.type = 'text';
+      hexIn.autocomplete = 'off';
+      hexIn.spellcheck = false;
+      hexIn.maxLength = 9;
+      hexIn.setAttribute('autocapitalize', 'off');
+      hexLabel.append(hexWord, hexIn);
+      const dropper = make('button', 'sdk-icon-btn btn-small btn-quiet sdk-cp-dropper');
+      dropper.type = 'button';
+      dropper.setAttribute('aria-label', 'Pick from the screen');
+      dropper.dataset.tip = 'Pick from the screen';
+      dropper.innerHTML = COLOUR_ICONS.dropper;
+      dropper.hidden = !colourDropper;
+      row.append(current, hexLabel, dropper);
+      const error = make('p', 'sdk-error sdk-cp-error');
+      error.id = `${uid}-error`;
+      error.setAttribute('aria-live', 'polite');
+      pop.append(row, error);
+
+      // The swatches: the palette's groups as one radio group (one Tab stop, the arrows inside), then Recent as another.
+      const groups = [];
+      const swatchGroup = (name, headings) => {
+        const g = make('div', 'sdk-cp-swatches');
+        g.setAttribute('role', 'radiogroup');
+        g.setAttribute('aria-label', name);
+        for (const { heading, colours } of headings) {
+          if (heading) { const hd = make('div', 'sdk-cp-head', heading); hd.setAttribute('aria-hidden', 'true'); g.appendChild(hd); }
+          const grid = make('div', 'sdk-swatch-grid');
+          grid.setAttribute('role', 'presentation');
+          for (const c of colours) {
+            const b = make('button', 'sdk-swatch');
+            b.type = 'button';
+            b.tabIndex = -1;
+            b.setAttribute('role', 'radio');
+            b.setAttribute('aria-checked', 'false');
+            b.setAttribute('aria-label', c.name || c.color);
+            b.dataset.tip = c.name ? `${c.name}, ${c.color}` : c.color;
+            b.dataset.color = c.color;
+            b.style.setProperty('--sw', c.color);
+            b.innerHTML = `<i aria-hidden="true">${COLOUR_ICONS.check}</i>`;
+            grid.appendChild(b);
+          }
+          g.appendChild(grid);
+        }
+        groups.push(g);
+        return g;
+      };
+      pop.appendChild(swatchGroup('Colours', palette.map((p) => ({ heading: p.heading, colours: p.colours }))));
+      const recent = opt.recent === false ? [] : readRecent();
+      if (recent.length) pop.appendChild(swatchGroup('Recent', [{ heading: 'Recent', colours: recent.map((c) => ({ name: names.get(c) || '', color: c })) }]));
+      // What a screen reader hears once the colour settles: "Teal, #00796b" or "#2f6cbf".
+      const live = make('div', 'sdk-cp-live');
+      live.setAttribute('aria-live', 'polite');
+      pop.appendChild(live);
+      const swatches = () => [...pop.querySelectorAll('.sdk-swatch')];
+
+      const say = () => `${names.has(hex) ? `${names.get(hex)}, ` : ''}${hex}`;
+      let sayTimer = 0;
+      const announce = (now) => { clearTimeout(sayTimer); const go = () => { live.textContent = say(); }; if (now) go(); else sayTimer = setTimeout(go, 700); };
+      const markBad = (bad) => {
+        if (bad) { hexIn.setAttribute('aria-invalid', 'true'); hexIn.setAttribute('aria-describedby', error.id); error.textContent = COLOUR_HEX_HINT; } else { hexIn.removeAttribute('aria-invalid'); hexIn.removeAttribute('aria-describedby'); error.textContent = ''; }
+      };
+      const round = (n) => Math.round(n);
+      const paint = (from) => {
+        hex = colourFromHsv(hsv);
+        pop.style.setProperty('--cp-hue', colourFromHsv({ h: hsv.h, s: 100, v: 100 }));
+        pop.style.setProperty('--cp-color', hex);
+        pop.style.setProperty('--cp-alpha', `${alpha}%`);
+        pop.style.setProperty('--cp-x', String(hsv.s / 100));
+        pop.style.setProperty('--cp-y', String(1 - hsv.v / 100));
+        hue.style.setProperty('--cp-at', String(Math.min(hsv.h, 359) / 359));
+        opac.style.setProperty('--cp-at', String(alpha / 100));
+        area.setAttribute('aria-valuenow', String(round(hsv.s)));
+        area.setAttribute('aria-valuetext', `Saturation ${round(hsv.s)} percent, brightness ${round(hsv.v)} percent`);
+        const h = round(hsv.h) % 360;
+        hue.setAttribute('aria-valuenow', String(h));
+        hue.setAttribute('aria-valuetext', `Hue ${h} degrees`);
+        opac.setAttribute('aria-valuenow', String(alpha));
+        opac.setAttribute('aria-valuetext', `Opacity ${alpha} percent`);
+        if (from !== 'hex') { hexIn.value = hex; markBad(false); }
+        for (const g of groups) {
+          const cells = [...g.querySelectorAll('.sdk-swatch')];
+          let stop = null;
+          for (const b of cells) { const on = b.dataset.color === hex; b.setAttribute('aria-checked', String(on)); if (on && !stop) stop = b; }
+          const focused = cells.find((b) => b.tabIndex === 0 && b === ((env.root && env.root.activeElement) || document.activeElement));
+          stop = focused || stop || cells[0];
+          for (const b of cells) b.tabIndex = b === stop ? 0 : -1;
+        }
+      };
+      const answer = () => colourAnswer(hex, alpha, keeps);
+      const changed = (from) => {
+        paint(from);
+        const key = `${hex}/${alpha}`;
+        if (key === sent) return;
+        sent = key;
+        if (onInput) { try { onInput(answer()); } catch (err) { console.error(err); } }
+      };
+      // A colour from a hex, a swatch or the eyedropper. A grey keeps the hue where it was, black keeps the saturation too, so the
+      // hue slider and the handle do not jump.
+      const setHex = (c, from) => {
+        const n = colourToHsv(c);
+        if (n.v === 0) { n.h = hsv.h; n.s = hsv.s; } else if (n.s === 0) n.h = hsv.h;
+        hsv = n;
+        changed(from);
+      };
+      const finish = (keep) => { result = keep ? answer() : null; closeMenu(); };
+
+      // Dragging: the area, Hue and Opacity follow the pointer (touch-action: none on them only, so the page does not scroll).
+      const clamp = (n) => Math.max(0, Math.min(1, n));
+      const drag = (el, move) => {
+        el.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0 || el.getAttribute('aria-disabled') === 'true') return;
+          e.preventDefault();
+          el.focus({ preventScroll: true });
+          try { el.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is gone */ }
+          move(e);
+        });
+        el.addEventListener('pointermove', (e) => { if (el.hasPointerCapture && el.hasPointerCapture(e.pointerId)) move(e); });
+        el.addEventListener('lostpointercapture', () => announce(true));
+      };
+      drag(area, (e) => {
+        const r = area.getBoundingClientRect();
+        hsv = { h: hsv.h, s: clamp((e.clientX - r.left) / (r.width || 1)) * 100, v: (1 - clamp((e.clientY - r.top) / (r.height || 1))) * 100 };
+        changed();
+      });
+      const along = (el, e) => {
+        const r = el.getBoundingClientRect();
+        const t = el.querySelector('.sdk-cp-thumb');
+        const tw = (t && t.offsetWidth) || 0;
+        return clamp((e.clientX - r.left - tw / 2) / Math.max(1, r.width - tw));
+      };
+      drag(hue, (e) => { hsv = { ...hsv, h: Math.min(359, along(hue, e) * 359) }; changed(); });
+      drag(opac, (e) => { alpha = round(along(opac, e) * 100); changed(); });
+
+      // The keys of "Keyboard and screen reader": arrows by 1, Shift by 10; on the sliders Page Up and Page Down by 10, Home and End to
+      // the ends; on the area Left and Right are saturation, Up and Down brightness, Home and End the ends of saturation.
+      const by = (e) => (e.shiftKey ? 10 : 1);
+      const lim = (n, max) => Math.max(0, Math.min(max, n));
+      area.addEventListener('keydown', (e) => {
+        let { s, v } = hsv;
+        if (e.key === 'ArrowLeft') s = round(s) - by(e);
+        else if (e.key === 'ArrowRight') s = round(s) + by(e);
+        else if (e.key === 'ArrowUp') v = round(v) + by(e);
+        else if (e.key === 'ArrowDown') v = round(v) - by(e);
+        else if (e.key === 'Home') s = 0;
+        else if (e.key === 'End') s = 100;
+        else return;
+        e.preventDefault();
+        hsv = { h: hsv.h, s: lim(s, 100), v: lim(v, 100) };
+        changed();
+        announce();
+      });
+      const sliderKey = (e, now, max) => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') return lim(round(now) - by(e), max);
+        if (e.key === 'ArrowRight' || e.key === 'ArrowUp') return lim(round(now) + by(e), max);
+        if (e.key === 'PageUp') return lim(round(now) + 10, max);
+        if (e.key === 'PageDown') return lim(round(now) - 10, max);
+        if (e.key === 'Home') return 0;
+        if (e.key === 'End') return max;
+        return null;
+      };
+      hue.addEventListener('keydown', (e) => {
+        const next = sliderKey(e, hsv.h, 359);
+        if (next === null) return;
+        e.preventDefault();
+        hsv = { ...hsv, h: next };
+        changed();
+        announce();
+      });
+      opac.addEventListener('keydown', (e) => {
+        if (!keeps) return;
+        const next = sliderKey(e, alpha, 100);
+        if (next === null) return;
+        e.preventDefault();
+        alpha = next;
+        changed();
+      });
+
+      // Hex: a whole hex as it is typed shows at once; Enter takes it and closes; leaving the field takes a good one and marks a bad
+      // one with its line, the colour unchanged.
+      hexIn.addEventListener('input', () => { const c = colourClean(hexIn.value); if (c) { markBad(false); setHex(c, 'hex'); } });
+      hexIn.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        e.stopPropagation();
+        const c = colourClean(hexIn.value);
+        if (!c) { markBad(true); return; }
+        setHex(c);
+        finish(true);
+      });
+      hexIn.addEventListener('change', () => {
+        if (!pop.isConnected) return;
+        const c = colourClean(hexIn.value);
+        if (!c) { markBad(true); return; }
+        setHex(c);
+        announce(true);
+      });
+
+      dropper.addEventListener('click', async () => {
+        if (dropping || typeof window.EyeDropper !== 'function') return;
+        dropping = true;
+        try {
+          const got = await new window.EyeDropper().open();
+          const c = got && (colourClean(got.sRGBHex) || colourOfCss(got.sRGBHex));
+          if (c && pop.isConnected) { setHex(c); announce(true); }
+        } catch (err) {
+          // The person backed out (AbortError); anything else means it does not work here: hide it from now on.
+          if (!err || err.name !== 'AbortError') { colourDropper = false; dropper.hidden = true; if (pop.isConnected) hexIn.focus(); }
+        } finally {
+          dropping = false;
+        }
+      });
+
+      // A swatch answers and closes. The arrows move between the swatches of a group (Up and Down by rows), Home and End to its ends;
+      // Enter or Space chooses (the button's own click).
+      for (const g of groups) {
+        g.addEventListener('click', (e) => {
+          const b = e.target.closest('.sdk-swatch');
+          if (!b || !g.contains(b)) return;
+          setHex(b.dataset.color);
+          finish(true);
+        });
+        g.addEventListener('keydown', (e) => {
+          const cells = [...g.querySelectorAll('.sdk-swatch')];
+          const now = e.target.closest('.sdk-swatch');
+          if (!now || !cells.length) return;
+          let next = null;
+          const i = cells.indexOf(now);
+          if (e.key === 'ArrowRight') next = cells[Math.min(cells.length - 1, i + 1)];
+          else if (e.key === 'ArrowLeft') next = cells[Math.max(0, i - 1)];
+          else if (e.key === 'Home') next = cells[0];
+          else if (e.key === 'End') next = cells[cells.length - 1];
+          else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            const down = e.key === 'ArrowDown';
+            const r = now.getBoundingClientRect();
+            const mid = r.left + r.width / 2;
+            const rows = cells.map((c) => ({ c, r: c.getBoundingClientRect() })).filter(({ r: q }) => (down ? q.top > r.top + 2 : q.top < r.top - 2));
+            if (rows.length) {
+              const top = down ? Math.min(...rows.map(({ r: q }) => q.top)) : Math.max(...rows.map(({ r: q }) => q.top));
+              const line = rows.filter(({ r: q }) => Math.abs(q.top - top) < 2);
+              next = line.reduce((a, b) => (Math.abs(b.r.left + b.r.width / 2 - mid) < Math.abs(a.r.left + a.r.width / 2 - mid) ? b : a)).c;
+            } else next = now;
+          } else return;
+          e.preventDefault();
+          for (const c of cells) c.tabIndex = c === next ? 0 : -1;
+          next.focus();
+        });
+      }
+
+      // Placed like a menu: under the anchor (above it when there is no room below) or at the point, inside the module's box; taller
+      // than the box, it scrolls inside itself.
+      const place = () => {
+        const { modBox, box, w, h } = bounds();
+        pop.style.maxHeight = `${Math.max(120, h - 8)}px`;
+        pop.style.maxWidth = `${Math.max(120, w - 8)}px`;
+        let x = (at ? at.x : 0) + (editor ? modBox.left : 0);
+        let y = (at ? at.y : 0) + (editor ? modBox.top : 0);
+        if (anchor) {
+          const r = anchor.getBoundingClientRect();
+          x = r.left - box.left;
+          y = r.bottom - box.top + 4;
+          if (y + pop.offsetHeight > h) y = r.top - box.top - pop.offsetHeight - 4;
+        }
+        x = Math.max(4, Math.min(x, w - pop.offsetWidth - 4));
+        y = Math.max(4, Math.min(y, h - pop.offsetHeight - 4));
+        pop.style.left = `${box.left + x}px`;
+        pop.style.top = `${box.top + y}px`;
+      };
+
+      container.appendChild(pop);
+      paint();
+      // A swatch whose colour has under 3:1 against the menu's own surface (White on a light menu, Black on a dark one) gets the stronger edge.
+      const surface = colourOfCss(getComputedStyle(pop).backgroundColor);
+      if (surface) for (const b of swatches()) if (colourContrast(b.dataset.color, surface) < 3) b.classList.add('sdk-cp-faint');
+      place();
+      const first = groups.length ? groups[0].querySelector('.sdk-swatch[aria-checked="true"]') : null;
+      (first || hexIn).focus({ preventScroll: true });
+
+      // Escape answers null; Tab goes round inside the picker; a press outside answers what is showing (the anchor's own press is the
+      // toggle, so it is left to the call).
+      const active = () => (env.root && env.root.activeElement) || document.activeElement;
+      const onKey = (e) => {
+        if (e.key === 'Escape') {
+          if (dropping) return;
+          e.preventDefault();
+          e.stopPropagation();
+          finish(false);
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        const now = active();
+        if (!now || !pop.contains(now)) return;
+        const stops = [area, hue, opac, hexIn, dropper.hidden ? null : dropper, ...groups.map((g) => g.querySelector('.sdk-swatch[tabindex="0"]'))].filter(Boolean);
+        const i = stops.indexOf(now);
+        if (e.shiftKey && i === 0) { e.preventDefault(); stops[stops.length - 1].focus(); } else if (!e.shiftKey && i === stops.length - 1) { e.preventDefault(); stops[0].focus(); }
+      };
+      const onOutside = (e) => {
+        if (dropping || pop.contains(e.target) || (anchor && anchor.contains(e.target))) return;
+        outside = true;
+        finish(true);
+      };
+      document.addEventListener('keydown', onKey, true);
+      env.root.addEventListener('pointerdown', onOutside, true);
+      openMenu = {
+        id: 'sdk-colour',
+        anchor,
+        menu: pop,
+        cleanup: () => {
+          clearTimeout(sayTimer);
+          pop.remove();
+          document.removeEventListener('keydown', onKey, true);
+          env.root.removeEventListener('pointerdown', onOutside, true);
+          if (result && opt.recent !== false) writeRecent(result.color);
+          if (anchor && anchor.focus && !outside) { try { anchor.focus(); } catch (err) { /* not focusable */ } }
+          else if (!anchor && !outside && framed) { const now = document.activeElement; if (!now || now === document.body) Promise.resolve(call('focus.opener', {})).catch(() => {}); }
+          resolve(result);
+        },
+      };
+    });
+  }
+
+  // A colour field: a trigger (.sdk-picker: a swatch, the hex in words, a chevron) on an <input> the module or page has, which stays,
+  // hidden, holding '#rrggbb'. The picker opens under the trigger; a choice sets the input and sends `input` and `change` from it.
+  function colourField(input, o) {
+    if (!input || input.nodeType !== 1 || input.tagName !== 'INPUT') throw new Error('host.ui.colorField needs an <input>');
+    const opt = o && typeof o === 'object' ? o : {};
+    const palette = opt.palette !== undefined ? colourPaletteCheck(opt.palette) : COLOUR_PALETTE;
+    const keeps = opt.opacity !== false;
+    let alpha = keeps ? colourOpacity(opt.opacity === undefined ? 100 : opt.opacity) : 100;
+    const names = new Map();
+    for (const g of palette) for (const c of g.colours) if (!names.has(c.color)) names.set(c.color, c.name);
+    const own = input.labels && input.labels[0] ? input.labels[0].textContent.replace(/\s+/g, ' ').trim() : '';
+    const label = (typeof opt.label === 'string' && opt.label.trim()) || input.getAttribute('aria-label') || own || 'Colour';
+    const doc = input.ownerDocument;
+    const trigger = doc.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'sdk-picker';
+    trigger.setAttribute('aria-haspopup', 'dialog');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.innerHTML = `<span class="sdk-picker-sw" aria-hidden="true"></span><span class="sdk-picker-value"><span class="sdk-hex"></span></span><span class="sdk-picker-icon" aria-hidden="true">${COLOUR_ICONS.chevron}</span>`;
+    const sw = trigger.querySelector('.sdk-picker-sw');
+    const words = trigger.querySelector('.sdk-hex');
+    const was = { hidden: input.hidden, tabIndex: input.getAttribute('tabindex') };
+    input.hidden = true;
+    input.tabIndex = -1;
+    input.before(trigger); // first, so a <label> around both leads to the trigger, not to the hidden input
+    const value = () => colourClean(input.value) || palette[0].colours[0].color;
+    const show = (c) => {
+      sw.style.setProperty('--sw', c);
+      words.textContent = c;
+      trigger.setAttribute('aria-label', `${label}, ${names.has(c) ? `${names.get(c)}, ` : ''}${c}. Change it`);
+    };
+    show(value());
+    const sync = () => { trigger.disabled = Boolean(input.disabled); };
+    sync();
+    const watch = typeof MutationObserver === 'function' ? new MutationObserver(sync) : null;
+    if (watch) watch.observe(input, { attributes: true, attributeFilter: ['disabled'] });
+    let opened = false;
+    const open = () => {
+      if (input.disabled && !opened) return Promise.resolve(null);
+      const before = value();
+      const asked = showColourPicker({ anchor: trigger, value: before, opacity: keeps ? alpha : false, palette: opt.palette !== undefined ? palette : undefined, recent: opt.recent, label, onInput: (a) => show(a.color) });
+      if (opened) return asked; // the same trigger again: that was the toggle, the picker is closed
+      opened = true;
+      trigger.setAttribute('aria-expanded', 'true');
+      return asked.then((a) => {
+        opened = false;
+        trigger.setAttribute('aria-expanded', 'false');
+        if (!a) { show(value()); return null; }
+        const moved = a.color !== before;
+        const faded = a.opacity !== alpha;
+        alpha = a.opacity;
+        if (moved) {
+          input.value = a.color;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        show(value());
+        if ((moved || faded) && typeof opt.onChange === 'function') { try { opt.onChange({ color: a.color, opacity: a.opacity }); } catch (err) { console.error(err); } }
+        return a;
+      });
+    };
+    const onClick = () => { open(); };
+    trigger.addEventListener('click', onClick);
+    return {
+      get value() { return value(); },
+      // Shows a colour without telling anyone (no events, no onChange); anything that is not a hex is ignored.
+      set: (c) => { const x = colourClean(c); if (!x) return false; input.value = x; show(x); return true; },
+      open,
+      close: () => { if (opened && openMenu && openMenu.id === 'sdk-colour' && openMenu.anchor === trigger) closeMenu(); },
+      destroy: () => {
+        if (opened && openMenu && openMenu.id === 'sdk-colour' && openMenu.anchor === trigger) closeMenu();
+        if (watch) watch.disconnect();
+        trigger.removeEventListener('click', onClick);
+        trigger.remove();
+        input.hidden = was.hidden;
+        if (was.tabIndex === null) input.removeAttribute('tabindex'); else input.setAttribute('tabindex', was.tabIndex);
+      },
+    };
+  }
+
   const host = {
     // Resolves with { user, context, permissions, theme, module }. `context` is { scope: 'environment' | 'space' | 'keyed',
     // spaceId }: the module's own page, a space's canvas (with that space's id), or a keyed page.
@@ -3159,6 +3701,28 @@
           },
         };
       },
+      // The colour picker (plan-colour-picker.md): an area of saturation and brightness, Hue, Opacity (always shown), the colour as it is,
+      // a Hex field, Pick from the screen (only where the browser has an eyedropper that works here), the palette's groups and Recent (the
+      // last 8 chosen in this browser for this module, newest first). Drawn in the module's own page, one at a time with host.menu.
+      //   colorPicker({ anchor | at, value?, opacity?, palette?, recent?, label?, onInput? }) -> Promise<{ color, opacity } | null>
+      //   anchor   an element of the module's page to open under; or at: { x, y } in the module's area, as host.menu.show takes it
+      //            (from a toolbar button: { x: e.x, y: 4 }). Clamped inside the module's box; it scrolls inside itself when the box is short.
+      //   value    '#rrggbb' to start from (anything else starts on the palette's first colour). opacity: 0 to 100 (default 100), or
+      //            false where the opacity is not kept: the slider is drawn at 100, switched off, "Opacity isn't kept here.", and the
+      //            answer's opacity is always 100.
+      //   palette  [{ heading, colours: [{ name, color }] }] in place of the default (at most 6 groups, 48 colours). recent: false leaves
+      //            Recent out. label: what the dialog is called ("Fill colour"; default "Colour").
+      //   onInput  (answer) on each change while it is open, to show it live; save the answer, not these.
+      // The answer is { color: '#rrggbb' lower case, opacity: 0..100 }. A swatch or a recent colour answers and closes; Enter in the hex
+      // field or a press outside answers what is showing; Escape, or the same call again while it is open (a toggle), answers null.
+      // Throws at once: "host.ui.colorPicker needs an anchor or a point"; a bad palette with the palette check's sentence.
+      colorPicker: (o) => showColourPicker(o),
+      // A colour field on an <input> (type color or text) the module has: the input stays, hidden, holding '#rrggbb'; a trigger (a
+      // swatch, the hex in words, a chevron) opens the picker under it. A choice sets the input and sends `input` and `change`;
+      // onChange({ color, opacity }) gives both (the input never holds the opacity). Follows a disabled input.
+      //   colorField(input, { palette?, opacity?, recent?, label?, onChange? }) -> { value, set(hex), open(), close(), destroy() }
+      // Anything but an input throws "host.ui.colorField needs an <input>".
+      colorField: (input, o) => colourField(input, o),
       // A view or filter switch, drawn in the toolbar (see host.toolbar.set) -- its most common tool, so
       // this is the one built for every module rather than each writing its own diffing and event wiring.
       // { id, options: [{ id, label?, icon?, regular?, iconOnly? }], value, onChange }: an option needs a
@@ -5039,4 +5603,20 @@
   // Chat's Discussion | Assistant (fit only) and a destination's switches draw and fit with these. rove sets the segmented
   // switch's one Tab stop (the keyboard itself is the document's listener above); keydown is that listener, for the checks.
   global.hostSwitch = { fill: fillChoice, fit: fitSwitches, watch: watchSwitches, rove: roveSwitch, keydown: switchKeydown };
+  // The colour picker likewise, for the host's own pages (plan-colour-picker.md, step 3): the same field and picker a module gets, on
+  // one page host (so one picker or menu is open at a time on the page). field(input, o) is host.ui.colorField, picker(o) host.ui.colorPicker.
+  let colourPage = null;
+  const colourUi = () => {
+    if (!colourPage) {
+      colourPage = createHost({
+        call: (method) => (method === 'hello' ? Promise.resolve({}) : Promise.reject(new Error('not available on a page'))),
+        root: document,
+        rootElement: document.documentElement,
+        elementAt: (pt) => document.elementFromPoint(pt.x, pt.y),
+        applyTheme: () => {},
+      }).host;
+    }
+    return colourPage.ui;
+  };
+  global.hostColour = { field: (input, o) => colourUi().colorField(input, o), picker: (o) => colourUi().colorPicker(o) };
 })(window);
