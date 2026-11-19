@@ -24,7 +24,24 @@
  *      in an empty context with no window, document, require or process). Read as code: host.util names contrast and readableOn
  *      as colourContrast and colourReadableOn, and host.js creates no <input type="color"> (comments are left out of that search,
  *      since colorField is documented as taking one a module already has).
- *   2. Chromium: added with step 2 of the plan (the picker itself).
+ *   2. Chromium (step 2; SKIPPED, said so, when there is none: that is not a pass). One throwaway server (tools/shots.mjs startServer,
+ *      no seed), signed in as admin, in light and dark, at 1280 and at a 390 touch screen. In a module running in the page (a shadow
+ *      root made with createHost on the admin page, in a box of its own): the refusals and their sentences; the picker under an anchor,
+ *      flipped above one at the box's foot, at a point, at { x: 100000, y: 4 } and { x: 50, y: 4 }, always inside the box, and the same
+ *      call again closing it (both null); a swatch (pressed, or Enter) answers and closes; Tab order (the area, Hue, Opacity, Hex, Pick
+ *      from the screen when shown, the palette, Recent, round again) and each control's keys; a typed hex taken in any case and a bad
+ *      one marked aria-invalid with its line, the colour unchanged; Escape answers null and puts focus back; a drag (a touch drag at
+ *      390) sends onInput and a press outside answers once; opacity: false shows 100, aria-disabled, described by "Opacity isn't kept
+ *      here.", moves by nothing, and answers 100; a module palette in place of the default; Recent, newest first, named by colour name
+ *      or hex; colorField (the trigger's name, input then change then onChange, Escape sends nothing, the toggle, set(), disabled,
+ *      destroy) and the page's own hostColour.field; 44px targets and 16px hex text at 390; Hex, the typed hex, a heading, the note
+ *      and the error line at 4.5:1 on the picker; the stronger edge exactly on the swatches under 3:1 against the menu's surface
+ *      (White in light, Black in dark); the accessibility tree names the dialog, the area, the sliders, Hex, the radio groups and each
+ *      radio (aria-valuetext is read from the element: this Chromium's DevTools tree leaves it empty even on a plain slider). In an
+ *      uploaded module in its sandboxed frame (built here at run time): its toolbar button opens the picker at { x, y: 4 } inside the
+ *      frame, Escape answers null and focus goes back to the toolbar button, the button pressed again closes it, and a colorField in
+ *      its form sets the input. The popover's background in a frame is not asserted (a separate fix in public/module-host.js).
+ *      Every answer seen is { color: #rrggbb, opacity: a whole number from 0 to 100 }. CHROME_PATH names the browser.
  * Usage: node tools/check-colour-picker.mjs. Exits 0 when every check passes, 1 with a line per failure.
  */
 import assert from 'node:assert/strict';
@@ -396,8 +413,8 @@ section('read as code', () => {
 say(`Node: ${n} checks${problems.length ? `, ${problems.length} failed` : ' passed'}`);
 
 // ---- 2. Chromium (step 2) ----
-// Headless Chromium on a throwaway server (one per run, stopped at the end; only what this check started is stopped). In light and
-// dark, at 1280 and at a 390 touch screen:
+// Headless Chromium on a throwaway server (one per run, stopped at the end; only what this check started is stopped), as the header
+// says. In light and dark, at 1280 and at a 390 touch screen:
 //   - in a module running in the page (a shadow root made with createHost on the admin page, in a box of its own): the refusals; the
 //     popover opened under an anchor, flipped above an anchor at the box's foot, at a point, at { x: 100000, y: 4 } and { x: 50, y: 4 },
 //     always inside the box, and the same call again closing it; a swatch answers and closes; the keyboard order and each control's
@@ -743,8 +760,7 @@ host.ready().then(() => {
     for (const [role, name] of [['dialog', 'Fill colour'], ['slider', 'Saturation and brightness'], ['slider', 'Hue'], ['slider', 'Opacity'], ['textbox', 'Hex'], ['radiogroup', 'Colours'], ['radiogroup', 'Recent'], ...NAMES_ALL.map((x) => ['radio', x])]) {
       ok(named(role, name), `${label}: the accessibility tree has no ${role} named "${name}"`);
     }
-    const valuetext = ax.find((x) => x.role && x.role.value === 'slider' && x.name && x.name.value === 'Hue');
-    ok(valuetext && ((valuetext.properties || []).some((p) => p.name === 'valuetext' && p.value.value === 'Hue 359 degrees') || (valuetext.value && valuetext.value.value === 'Hue 359 degrees')), `${label}: the accessibility tree does not read Hue's value as "Hue 359 degrees" (${JSON.stringify(valuetext && { value: valuetext.value, properties: valuetext.properties })})`);
+    // (Hue's aria-valuetext is read from the element above: this Chromium's DevTools tree leaves valuetext empty even on a plain slider.)
     const checked = ax.filter((x) => x.role && x.role.value === 'radio' && (x.properties || []).some((p) => p.name === 'checked' && p.value.value === 'true'));
     ok(checked.length === 0 || checked.every((x) => x.name), `${label}: a checked radio has no name`);
 
@@ -791,7 +807,7 @@ host.ready().then(() => {
     const bad = await ev(`(() => { const i = window.__in('.sdk-cp-hexin'); const d = i.getAttribute('aria-describedby'); return [i.getAttribute('aria-invalid'), d ? (__R.getElementById(d) || document.getElementById(d)).textContent : null, getComputedStyle(window.__cp()).getPropertyValue('--cp-color').trim(), window.__inputs.at(-1).color]; })()`);
     same(bad, ['true', HINT, '#abcdef', '#abcdef'], `${label}: a bad hex is marked aria-invalid, described by its line, and the colour does not change`);
     const errRatio = await ratio(`window.__in('.sdk-cp-error')`);
-    ok(errRatio >= 4.5, `${label}: the hex error line is ${errRatio.toFixed(2)}:1 on the picker; wanted 4.5:1`);
+    ok(errRatio >= 4.5, `${label}: the hex error line (${await ev(`getComputedStyle(window.__in('.sdk-cp-error')).color`)}) is ${errRatio.toFixed(2)}:1 on the picker (${await ev(`getComputedStyle(window.__cp()).backgroundColor`)}); wanted 4.5:1`);
     await typeHex('2F6CBF');
     same(await ev(`window.__in('.sdk-cp-hexin').getAttribute('aria-invalid')`), null, `${label}: a good hex typed after a bad one clears the mark`);
     await key(send, 'Enter');
@@ -914,7 +930,7 @@ host.ready().then(() => {
     await ev(`(__R.getElementById('fld').disabled = false, 1)`);
     await tick();
     same(await ev(`window.__trig().disabled`), false, `${label}: the trigger follows the input back on`);
-    await ev('window.__f.open()');
+    await ev('(window.__f.open(), 1)');
     await tick();
     await ev('window.__f.destroy()');
     await tick();
@@ -971,6 +987,10 @@ host.ready().then(() => {
       if (!sid) { ok(false, `${label}: the uploaded module's frame did not start`); return; }
       const fev = typeof sid === 'string' ? (expr) => frameEval(sid, expr) : async (expr) => { const r = await send('Runtime.evaluate', { expression: `(async () => (${expr}))()`, contextId: sid.context, returnByValue: true, awaitPromise: true }); return r.result.value; };
       if (typeof sid === 'string') await cdp.send('Runtime.enable', {}, sid).catch(() => {});
+      // Waits (up to 4s) for something in the frame to be true: the toolbar's press reaches the module by a message.
+      const until = async (expr) => { for (let i = 0; i < 40; i += 1) { if (await fev(expr).catch(() => false)) return true; await sleep(100); } return false; };
+      const PICKER = 'Boolean(document.querySelector(".sdk-cp"))';
+      const NO_PICKER = '!document.querySelector(".sdk-cp")';
       ok(await fev(`(() => { try { return window.origin === 'null' && window.parent !== window; } catch (e) { return false; } })()`), `${label}: the module's frame is not sandboxed (its origin is not opaque)`);
       // The frame's place in the page, and the toolbar button.
       const frameBox = await tab.eval(`(() => { const f = [...document.querySelectorAll('iframe')].find((x) => x.getClientRects().length && x.getBoundingClientRect().width > 100); const r = f.getBoundingClientRect(); return { l: r.left + f.clientLeft, t: r.top + f.clientTop, w: f.clientWidth, h: f.clientHeight }; })()`);
@@ -981,7 +1001,7 @@ host.ready().then(() => {
       }
       if (!btn) { ok(false, `${label}: the module's toolbar button "Colour" is not on the page`); return; }
       await press(send, coarse, btn.x, btn.y);
-      await sleep(250);
+      await until(PICKER);
       const pos = await fev(`(() => { const p = document.querySelector('.sdk-cp'); if (!p) return null; const r = p.getBoundingClientRect(); const a = document.activeElement; return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight, x: window.__tbx, focus: a && a.getAttribute('aria-label') }; })()`);
       ok(Boolean(pos), `${label}: the toolbar button opened no picker in the module's frame`);
       if (pos) {
@@ -993,28 +1013,29 @@ host.ready().then(() => {
         same(pos.focus, 'Red', `${label}: in the frame focus starts on the chosen swatch`);
         // Escape: null, and focus goes back to the toolbar button through the host.
         await key(send, 'Escape');
-        await sleep(250);
+        await until('window.__answers.length === 1');
+        await sleep(150);
         same(await fev('[window.__answers.at(-1), Boolean(document.querySelector(".sdk-cp"))]'), [null, false], `${label}: Escape in the frame answers null and closes`);
         answers.push(null);
         same(await tab.eval(`document.activeElement && document.activeElement.getAttribute('data-cp-check')`), '1', `${label}: after Escape in the frame, focus is not back on the toolbar button`);
         // The same toolbar button twice: the second press closes it.
         await press(send, coarse, btn.x, btn.y);
-        await sleep(200);
-        ok(await fev('Boolean(document.querySelector(".sdk-cp"))'), `${label}: the toolbar button did not open the picker again`);
+        ok(await until(PICKER), `${label}: the toolbar button did not open the picker again`);
         await press(send, coarse, btn.x, btn.y);
-        await sleep(250);
+        await until('window.__answers.length === 3');
         same(await fev('[Boolean(document.querySelector(".sdk-cp")), window.__answers.slice(-2)]'), [false, [null, null]], `${label}: the toolbar button pressed again closes the picker (both answers null)`);
       }
       // A colour field in the module's form.
       const tr = await fev(`(() => { const t = document.querySelector('.sdk-picker'); const r = t.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, name: t.getAttribute('aria-label') }; })()`);
       same(tr.name, 'Fill, Blue, #2f6cbf. Change it', `${label}: in the frame the field's trigger is named by its <label>`);
       await press(send, coarse, frameBox.l + tr.x, frameBox.t + tr.y);
-      await sleep(200);
+      await until(PICKER);
       const sw = await fev(`(() => { const b = document.querySelector('.sdk-cp .sdk-swatch[aria-label="Gold"]'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
       ok(Boolean(sw), `${label}: the field's trigger opened no picker in the frame`);
       if (sw) {
         await press(send, coarse, frameBox.l + sw.x, frameBox.t + sw.y);
-        await sleep(200);
+        await until(NO_PICKER);
+        await until('window.__events.length === 3');
         same(await fev(`[document.getElementById('fld').value, window.__events]`), ['#8a6a00', ['input', 'change', { color: '#8a6a00', opacity: 100 }]], `${label}: in the frame a choice sets the field's input, sends input then change, and onChange`);
         answers.push({ color: '#8a6a00', opacity: 100 });
       }
