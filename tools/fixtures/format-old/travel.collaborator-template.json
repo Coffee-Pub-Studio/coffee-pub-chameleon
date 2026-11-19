@@ -56,7 +56,7 @@
     "description": "Everyone on every trip."
   },
   "workspace": {
-    "layout": { "shape": "wide-narrow", "areas": ["travel", "vault"] }
+    "layout": { "shape": "wide-narrow", "areas": ["travel", "maps"] }
   },
   "spaceDefaults": {
     "profile": "participants"
