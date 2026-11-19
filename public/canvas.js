@@ -2680,6 +2680,8 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
       const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
       lines.push(names.length === 1 ? `The window is too narrow for another column, so ${list} is floating.` : `The window is too narrow for more columns, so ${list} are floating.`);
     }
+    // An empty area cannot float: it waits unseen, so the note says so (it shows when the window is wide enough).
+    if ([...areas.values()].some((a) => a.waiting)) lines.push('The window is too narrow for the empty area. It shows when the window is wide enough.');
     note(lines.filter(Boolean).join(' '));
     return { left: plan.left, waiting };
   }

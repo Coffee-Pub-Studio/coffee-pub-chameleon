@@ -880,6 +880,32 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (todoOff.slots.map((x) => x.id).join() !== 'documents,todo,goals' || todoOff.closed.length) fail(F, `with the Calendar off To-do is placed in a stack: ${JSON.stringify(todoOff.slots)}`);
   const todoOn = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: al, mayHold: (a, id) => areaMayHold(ts, a, id, { parts: calOn }) });
   if (todoOn.closed.join() !== '2' || todoOn.left.length) fail(F, `with the Calendar on To-do (the Calendar) closes up in a stacked area, not "left out": ${JSON.stringify(todoOn)}`);
+  // Maps and Calendar are refused in a stacked area whatever is on, with and without the space's map file (the Map composite
+  // asks for one; a QA read caught Maps offered where there was none).
+  for (const shown of [[], ['map']]) for (const on of [['calendar', 'todo', 'maps'], ['todo', 'maps']]) {
+    const p = partsOf(aliasesFor(on, shown));
+    for (const sh of ['tall-split', 'wide-split']) for (const a of [2, 3]) for (const id of ['maps', 'calendar']) {
+      if (areaMayHold(shapeById(sh), a, id, { parts: p })) fail(F, `${sh} area ${a} must not hold ${id} (on: ${on}, map file: ${shown.length > 0})`);
+    }
+  }
+  const mapsNoFile = place('tall-split', ['documents', 'maps', 'goals'], 1200, { aliases: aliasesFor(['maps', 'documents', 'goals'], []), mayHold: (a, id) => areaMayHold(ts, a, id, { parts: partsOf(aliasesFor(['maps', 'documents', 'goals'], [])) }) });
+  if (mapsNoFile.closed.join() !== '2' || mapsNoFile.slots.some((x) => x.id === 'maps')) fail(F, `Maps with no map file still closes up in a stacked area: ${JSON.stringify(mapsNoFile.slots)}`);
+  // The page's rule and the server's shape check (cleanShape, server/layout-shapes.js) agree for every module id in every
+  // area of every shape, with the Calendar on and off and with and without a map file.
+  {
+    const { createRequire } = await import('node:module');
+    const { cleanShape } = createRequire(import.meta.url)('../server/layout-shapes.js');
+    const every = ['calendar', 'todo', 'maps', 'documents', 'polls', 'research', 'chat', 'conference'];
+    for (const shown of [[], ['map']]) for (const on of [every.filter((x) => !['chat', 'conference'].includes(x)), every.filter((x) => !['chat', 'conference', 'calendar'].includes(x))]) {
+      const p = partsOf(aliasesFor(on, shown));
+      for (const s of SHAPES) for (let a = 1; a <= s.areas; a += 1) for (const id of every) {
+        const areasRec = Array.from({ length: s.areas }, (_, i) => (i === a - 1 ? id : null));
+        const server = !cleanShape({ shape: s.id, areas: areasRec }, { on }).error;
+        const page = areaMayHold(s, a, id, { parts: p });
+        if (server !== page) fail(F, `${s.id} area ${a}, ${id} (Calendar ${on.includes('calendar') ? 'on' : 'off'}, map file ${shown.length ? 'yes' : 'no'}): the server says ${server}, the page ${page}`);
+      }
+    }
+  }
   // canvas.js: loadLayout() takes a shape; the placeholder is a column with the shared menu, never remembered, never on a
   // phone; Window Mode, a layout, the Workspace put back and leaving close it up; nothing is drawn about who can't open what.
   const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');

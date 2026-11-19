@@ -329,13 +329,17 @@ export function placeLayout(layout, area, canOpen = () => true, aliases = {}) {
 // columns, stacked }; handed in, so this file stays free of the page's other lists), `columns` the widths as percentages
 // of the view.
 
-// Whether `id` may go in area `area` (counted from 1) of `shape`, for the chooser in an empty area: never the chat or the
-// conference (the column on the left, decision 1), and in a stacked area never a composite (`dest:*`) nor a module that
-// reads as one (`parts`: composites.js's parts, Calendar, To-do and Maps; decision 8), as the shape check refuses them.
+// Whether `id` may go in area `area` (counted from 1) of `shape`, for the chooser in an empty area and for placing a
+// shape: never the chat or the conference (the column on the left, decision 1); in a stacked area (decision 8) never a
+// composite (`dest:*`), never Calendar or Maps (ALWAYS_COMPOSITE: whether Maps is the Map composite depends on a map
+// file, so it is refused whatever is on, as the server's shape check refuses both), and never a module in `parts`, the
+// ones that read as a composite in this space now (composites.js's aliasesFor: To-do while the Calendar is on). The same
+// rule as cleanShape() in server/layout-shapes.js; tools/check-canvas.mjs holds the two together.
+export const ALWAYS_COMPOSITE = Object.freeze(['calendar', 'maps']);
 export function areaMayHold(shape, area, id, { parts = [] } = {}) {
   if (!shape || typeof id !== 'string' || !id || inColumn(id)) return false;
   if (!(Array.isArray(shape.stacked) && shape.stacked.includes(area))) return true;
-  return !id.startsWith('dest:') && !(Array.isArray(parts) && parts.includes(id));
+  return !id.startsWith('dest:') && !ALWAYS_COMPOSITE.includes(id) && !(Array.isArray(parts) && parts.includes(id));
 }
 
 // The columns a shape is made of, in order: each a list of area numbers, top first. An area outside `stacked` is a column
