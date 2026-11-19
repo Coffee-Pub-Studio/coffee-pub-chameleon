@@ -404,6 +404,7 @@
     sheet.dataset.layout = p.layout;
     sheet.dataset.size = p.pageSize;
     sheet.dataset.numbers = p.pageNumbers ? 'on' : 'off';
+    sheet.style.setProperty('--doc-text', `${p.textSize}px`);
     sheet.style.setProperty('--doc-page-w', `${g.w}px`);
     sheet.style.setProperty('--doc-page-h', `${g.h}px`);
     sheet.style.setProperty('--doc-page-m', `${g.margin}px`);
@@ -430,6 +431,10 @@
           if (id === 'read') schedulePaginate();
         }
         if (narrow) sheet.style.removeProperty('--doc-zoom'); else sheet.style.setProperty('--doc-zoom', String(dlPageFit(w, pageW)));
+      } else if (view === 'fit' && !box.hidden && paper === false) { // a Fluid sheet at Fit width: the 48rem sheet scaled up to the window's width, as Paper is
+        const rem = parseFloat(getComputedStyle(doc.documentElement).fontSize) || 16;
+        sheet.style.setProperty('--doc-zoom', String(dlFluidFit(avail(box), DL_VIEW.sheetRem * rem)));
+        if (sheet.hasAttribute('data-narrow')) { sheet.removeAttribute('data-narrow'); if (id === 'read') schedulePaginate(); }
       } else {
         sheet.style.removeProperty('--doc-zoom');
         if (sheet.hasAttribute('data-narrow')) { sheet.removeAttribute('data-narrow'); if (id === 'read') schedulePaginate(); }
@@ -493,7 +498,7 @@
   }
   function pageChanged() {
     paintPage($('editor').querySelector('.sheet'), ed.page);
-    coMetaPush({ layout: ed.page.layout, pageSize: ed.page.pageSize, pageNumbers: ed.page.pageNumbers });
+    coMetaPush({ layout: ed.page.layout, pageSize: ed.page.pageSize, pageNumbers: ed.page.pageNumbers, textSize: ed.page.textSize });
     typed();
     renderChrome();
     ed.editor.focus();
@@ -501,6 +506,11 @@
   function choosePageSize(id) {
     if (!ed || ed.lost || coReadOnly() || ed.page.pageSize === dlCleanPageSize(id)) return;
     ed.page = { ...ed.page, pageSize: dlCleanPageSize(id) };
+    pageChanged();
+  }
+  function chooseTextSize(px) {
+    if (!ed || ed.lost || coReadOnly() || ed.page.textSize === dlCleanTextSize(px)) return;
+    ed.page = { ...ed.page, textSize: dlCleanTextSize(px) };
     pageChanged();
   }
   function togglePageNumbers() {
@@ -516,6 +526,7 @@
     const items = [{ id: 'colour', label: 'Page colour...', icon: 'palette', ...(ro ? { disabled: true } : {}), onClick: () => paperMenu(e) }, ...dlPageMenuModel(ed.page).map((m) => {
       if (m.kind === 'heading') return { heading: m.label };
       if (m.kind === 'size') return { id: m.id, label: m.label, current: m.current, ariaLabel: `${m.label}${m.current ? ', chosen' : ''}`, icon: 'ruler-combined', ...(ro ? { disabled: true } : {}), onClick: () => choosePageSize(m.id) };
+      if (m.kind === 'text') return { id: `text${m.id}`, label: m.label, current: m.current, ariaLabel: `${m.label}${m.current ? ', chosen' : ''}`, icon: 'text-height', ...(ro ? { disabled: true } : {}), onClick: () => chooseTextSize(m.px) };
       if (m.kind === 'numbers') return { id: m.id, label: m.label, current: m.current, ariaLabel: `${m.label}${m.current ? ', on' : ', off'}`, icon: 'arrow-down-1-9', ...(ro ? { disabled: true } : {}), onClick: togglePageNumbers };
       return null;
     }).filter(Boolean)];
@@ -1718,7 +1729,7 @@
   const viewShown = () => Boolean(ed ? !ed.lost : openId);
   function zoomMenu(e) {
     if (!viewShown()) return;
-    const level = (n) => ({ id: `z${n}`, label: `${n}%`, icon: 'magnifying-glass', current: view === n, onClick: () => setView(n) });
+    const level = (n) => ({ id: `z${n}`, label: `${n}%`, icon: 'magnifying-glass', ...(n === DL_VIEW.actual ? { hint: keyHint('0') } : {}), current: view === n, onClick: () => setView(n) });
     host.menu.show({
       id: 'zoom',
       at: { x: e && Number.isFinite(e.x) ? e.x : 100000, y: 4 },
@@ -1726,9 +1737,8 @@
         { id: 'in', label: 'Zoom in', icon: 'magnifying-glass-plus', hint: keyHint('+'), onClick: () => setView(dlViewStep(view, 1)) },
         { id: 'out', label: 'Zoom out', icon: 'magnifying-glass-minus', hint: keyHint('-'), onClick: () => setView(dlViewStep(view, -1)) },
         { id: 'fit', label: 'Fit width', icon: 'expand', current: view === 'fit', onClick: () => setView('fit') },
-        { id: 'actual', label: 'Actual size', icon: 'magnifying-glass', hint: keyHint('0'), current: view === DL_VIEW.actual, onClick: () => setView(DL_VIEW.actual) },
         { heading: 'Zoom' },
-        ...DL_VIEW.levels.filter((n) => n !== DL_VIEW.actual).map(level),
+        ...DL_VIEW.levels.map(level),
       ],
     });
   }
@@ -1795,7 +1805,7 @@
     const entry = (id, label, icon) => ({ id, label, icon, ...(rich && !dlRichCan(id) ? { disabled: true } : {}), onClick: () => applyFormat(id) });
     host.menu.show({
       id: 'insert', at: { x: e && Number.isFinite(e.x) ? e.x : 100000, y: 4 },
-      items: dlRichInsertItems([entry('grid', 'Grid', 'table-cells'), entry('formula', 'Formula', 'square-root-variable'), { id: 'break', label: 'Page break', icon: 'scissors', onClick: () => applyFormat('pagebreak') }], gridItems()),
+      items: dlRichInsertItems([entry('grid', 'Table', 'table-cells'), entry('formula', 'Formula', 'square-root-variable'), { id: 'break', label: 'Page break', icon: 'scissors', onClick: () => applyFormat('pagebreak') }], gridItems()),
       onClose: () => { if (ed && !ed.lost) ed.editor.focus(); }, // Escape or a press outside: the keyboard goes back to the editor
     });
   }

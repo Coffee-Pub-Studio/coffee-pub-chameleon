@@ -84,10 +84,10 @@ The access bundle, steps 1 to 7 ([architecture-access](architecture/architecture
 
 ## Documents: Paper, the rich editor and writing together
 
-Documents 0.7 to 0.11.34 ([userguide-documents](userguides/userguide-documents.md), [architecture-documents](architecture/architecture-documents.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.
+Documents 0.7 to 0.11.35 ([userguide-documents](userguides/userguide-documents.md), [architecture-documents](architecture/architecture-documents.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.
 
 - **The Markdown box is not paged.** In Paper it shows one sheet; the pages appear in reading and in the rich editor.
-- **The editor and the reading view can count pages differently** for a very large grid: the editor does not split a grid between pages, reading does.
+- **The editor and the reading view can count pages differently** for a very large table: the editor does not split a table between pages, reading does.
 - **Writing together is on by default, and not yet tried on Safari, an iPad or a phone** (#665, setting `coediting`, on by default since Documents 0.11.33). Thomas tried it live with several people typing and it worked; the module tests pass. An owner can switch it off in Module Configuration, and an environment that saved it off stays off. Other people's cursors are not drawn. The document lock is kept by the editing pages only: a hostile editor can bypass it.
 - **A teal rectangle** can show in the reading sheet where a focus outline is drawn (#778, from its title).
 - **Text that does not make the round trip in Rich text.** A run of four or more `$` signs is not kept exactly (#611). A link made at a caret, with no words selected, to a `mailto:` address with square brackets is not kept exactly: the "cannot keep exactly" note shows (#632).
@@ -146,7 +146,7 @@ Agent access, steps 1 to 4 ([architecture-agent-access](architecture/architectur
 
 The templates redesign ([plan-templates-redesign](plans/plan-templates-redesign.md)) is merged through step 15b. These differ from the plan or are not built. Read from the code on 255fd8e3 and again on a19d7d34, 2026-11-16; none was seen in a browser.
 
-- **Some driven settings do not exist.** Budget's unit and split, To-do's owners, Documents' default editor and Maps' real and picture map switches were to be set by templates and are not built. Project's **Effort**, Learning's and Mentoring's **Time** and Games' maps are names and categories only. Workaround: none; the names and categories work.
+- **Some driven settings do not exist.** Budget's unit and split, To-do's owners, Documents' default editor and Maps' real and picture map switches were to be set by templates and are not built. Projects' **Effort**, Education's and Mentoring's **Time** and Gaming's maps are names and categories only. Workaround: none; the names and categories work.
 - **Some module words are declared and not wired.** Maps (`place`), Research (`note`) and Whiteboard (`board`) declare their labels, and their pages do not read them, so a template renaming one changes nothing there. Workaround: none.
 - **The host console does not have the Manage pages.** Its template editor is one form; it does not edit a module's settings, renamed words or starter content (they are kept as they are). Workaround: edit those in Manage on an owner's copy, or write the template file.
 - **Manage has no page for a template's call settings or starter spaces.** An owner's copy keeps those of the template it was copied from. Workaround: the host console edits them.

@@ -317,7 +317,7 @@ try {
   await expect('a door guest writes tabs', 401, 'PATCH', P(A), { cookie: doorCookie, body: { tabs } });
   // A moderator may send tabs with the other moderator fields, and not with an owners-only field.
   await expect('a moderator: tabs with the first visit', 200, 'PATCH', P(A), { token: T.mod, body: { tabs, defaultLayout: null } });
-  await expect('a moderator: Opens with is the template\'s', 400, 'PATCH', P(A), { token: T.mod, body: { tabs, opensWith: ['chat'] } });
+  await expect('a moderator: a layout is the template\'s', 403, 'PATCH', P(A), { token: T.mod, body: { tabs, layout: { shape: 'one', areas: [null] } } });
   await expect('a moderator: tabs with a name', 403, 'PATCH', P(A), { token: T.mod, body: { tabs: null, name: 'Mine' } });
   same((await call('GET', P(A), { token: T.admin })).json.space.name, 'Alpha', 'and nothing of it applied');
   r = (await expect('the moderator\'s Set up read carries the tabs', 200, 'GET', P(A), { token: T.mod })).json.space;

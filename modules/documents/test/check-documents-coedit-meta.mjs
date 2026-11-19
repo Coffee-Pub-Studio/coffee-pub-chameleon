@@ -5,7 +5,7 @@
  * tests. Plan: plan-documents-coediting.md, step 4b, slice 3. What this does NOT cover: the page's controls and the title field's caret rule, the
  * 'changes' event that tells a page its document was deleted (the live run with two real pages does).
  *
- *  1. The gate: the meta map is checked in every update (live check and reference check agree): the five keys with plain values pass; any other key,
+ *  1. The gate: the meta map is checked in every update (live check and reference check agree): the six keys with plain values pass; any other key,
  *     type, length or value is refused as `attrs`; a root type other than the text and the map is still refused.
  *  2. The map: set, read with fallbacks, fill what is missing, compare with a record.
  *  3. Travelling: a rename, a colour and a layout set on one page reach the other and the stored record, from the map and not from a page's own state; a
@@ -36,11 +36,11 @@ function updateOf(live, mut) {
   d.transact(() => mut(d), 'test');
   return PM.encodeStateAsUpdate(d, before);
 }
-const GOOD = { title: 'Session notes', paper: 'dark-blue', layout: 'paper', pageSize: 'a4', pageNumbers: true };
+const GOOD = { title: 'Session notes', paper: 'dark-blue', layout: 'paper', pageSize: 'a4', pageNumbers: true, textSize: 16 };
 
 // ---- 1. the gate -----------------------------------------------------------------------------------------------------------------------
 const CASES = [
-  ['all five keys, plain values', (d) => { const m = d.getMap('meta'); for (const [k, v] of Object.entries(GOOD)) m.set(k, v); }, ''],
+  ['all six keys, plain values', (d) => { const m = d.getMap('meta'); for (const [k, v] of Object.entries(GOOD)) m.set(k, v); }, ''],
   ['a title of exactly the longest allowed', (d) => d.getMap('meta').set('title', 'x'.repeat(L.DL.titleMax)), ''],
   ['an empty title (a person cleared the field)', (d) => d.getMap('meta').set('title', ''), ''],
   ['a title one longer than the record allows', (d) => d.getMap('meta').set('title', 'x'.repeat(L.DL.titleMax + 1)), 'attrs'],
@@ -57,6 +57,8 @@ const CASES = [
   ['a layout that is not fluid or paper', (d) => d.getMap('meta').set('layout', 'grid'), 'attrs'],
   ['a page size that is not letter or a4', (d) => d.getMap('meta').set('pageSize', 'a5'), 'attrs'],
   ['page numbers that are a word', (d) => d.getMap('meta').set('pageNumbers', 'yes'), 'attrs'],
+  ['a text size that is not one of the sizes', (d) => d.getMap('meta').set('textSize', 13), 'attrs'],
+  ['a text size that is a word', (d) => d.getMap('meta').set('textSize', 'large'), 'attrs'],
   ['a sixth key', (d) => d.getMap('meta').set('evil', 'x'), 'attrs'],
   ['a key called __proto__', (d) => d.getMap('meta').set('__proto__', 'x'), 'attrs'],
   ['a key called constructor', (d) => d.getMap('meta').set('constructor', 'x'), 'attrs'],
@@ -74,7 +76,7 @@ for (const [name, mut, want] of CASES) {
     g.prime();
     const r = g.receive(u, 'p1');
     assert.equal(r.ok, !want, `live check: ${JSON.stringify(r).slice(0, 200)}`);
-    if (want) { assert.equal(r.reason, want); assert.equal(live.getMap('meta').size, 0, 'nothing was applied to the live document'); } else if (name.startsWith('all five')) {
+    if (want) { assert.equal(r.reason, want); assert.equal(live.getMap('meta').size, 0, 'nothing was applied to the live document'); } else if (name.startsWith('all six')) {
       assert.equal(live.getMap('meta').get('title'), 'Session notes');
     }
     g.destroy();
@@ -109,13 +111,13 @@ await test('the copy and a rebuild go through the same check: a state with a bad
 });
 
 // ---- 2. the map ------------------------------------------------------------------------------------------------------------------------
-const REC = { title: 'Plan', paper: 'light-creme', layout: 'paper', pageSize: 'a4', pageNumbers: true };
+const REC = { title: 'Plan', paper: 'light-creme', layout: 'paper', pageSize: 'a4', pageNumbers: true, textSize: 18 };
 await test('dlMetaOf, dlMetaFill, dlMetaRead, dlMetaSet, dlMetaSame', () => {
   const d = new PM.Doc();
   assert.deepEqual(L.dlMetaRead(d, { title: 'T', paper: 'dark-slate', page: { layout: 'paper' } }).missing, [...L.DL_META.keys]);
   const m0 = L.dlMetaRead(d, { title: 'T', paper: 'dark-slate', page: { layout: 'paper' } });
   assert.equal(m0.title, 'T'); assert.equal(m0.paper, 'dark-slate'); assert.equal(m0.page.layout, 'paper', 'a missing key reads as the fallback');
-  assert.equal(L.dlMetaFill(d, REC), 5, 'a document without the keys gets all five from the record');
+  assert.equal(L.dlMetaFill(d, REC), 6, 'a document without the keys gets all six from the record');
   assert.equal(L.dlMetaFill(d, { ...REC, title: 'Other' }), 0, 'and a second fill changes nothing');
   assert.equal(L.dlMetaRead(d).title, 'Plan');
   assert.ok(L.dlMetaSame(d, REC)); assert.ok(!L.dlMetaSame(d, { ...REC, title: 'x' }));
@@ -124,9 +126,9 @@ await test('dlMetaOf, dlMetaFill, dlMetaRead, dlMetaSet, dlMetaSame', () => {
   assert.equal(L.dlMetaRead(d).title, 'New'); assert.equal(L.dlMetaRead(d).paper, 'light-creme');
   assert.equal(L.dlMetaProblem(d.getMap('meta')), '');
 });
-await test('the meta map cannot be turned into a store: more than five keys is refused whatever they hold', () => {
+await test('the meta map cannot be turned into a store: more than seven keys is refused whatever they hold', () => {
   const d = new PM.Doc(); const m = d.getMap('meta');
-  for (let i = 0; i < 6; i += 1) m.set(`k${i}`, 'x');
+  for (let i = 0; i < 8; i += 1) m.set(`k${i}`, 'x');
   assert.ok(L.dlMetaProblem(m));
 });
 
