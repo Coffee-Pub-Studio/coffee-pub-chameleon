@@ -831,6 +831,18 @@ test('a module frame gets every colour role the theme writes and every one syste
   assert.deepEqual(inputs.filter((t) => !defined.has(t) && !sent.has(t)), [], 'tokens system.css\'s colour roles read that a frame neither defines nor is given');
   assert.deepEqual(listOf(slice('public/design-system/ds.js', 'const THEME_TOKENS = [', '];')), tokens, 'public/design-system/ds.js THEME_TOKENS must be module-host.js\'s list');
 });
+// A role the page leaves out (the theme does not set it) must leave a frame's :root too, or the frame keeps the old theme's value.
+test('a module frame drops a theme role the page no longer sends', () => {
+  const src = slice('public/sdk/host.js', 'let themed = new Set();', 'themed = new Set(Object.keys(theme));\n    };');
+  const set = new Map();
+  const style = { setProperty: (k, v) => set.set(k, v), removeProperty: (k) => set.delete(k) };
+  const applyTheme = new Function('document', `${src}\nreturn applyTheme;`)({ documentElement: { style } });
+  applyTheme({ '--bg': '#fff', '--tone-gold': '#8c6d2c' });
+  applyTheme({ '--bg': '#000' });
+  assert.deepEqual([...set], [['--bg', '#000']], 'a role not sent this time stayed set');
+  applyTheme({ '--bg': '#000', '--tone-gold': '#111' });
+  assert.equal(set.get('--tone-gold'), '#111');
+});
 await Promise.all(pending);
 if (failed) process.exit(1);
 console.log(`check-module-host: OK (${n} groups)`);

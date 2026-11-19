@@ -5559,9 +5559,14 @@
     });
     // The theme arrives as CSS custom properties; setting them on :root lets a module's plain CSS follow
     // the theme (var(--bg), var(--text) ...).
+    // The page leaves out a role the theme doesn't set, so a name set last time and missing now is removed.
+    let themed = new Set();
     const applyTheme = (theme) => {
       if (!theme) return;
-      for (const [name, value] of Object.entries(theme)) document.documentElement.style.setProperty(name, value);
+      const style = document.documentElement.style;
+      for (const name of themed) if (!(name in theme)) style.removeProperty(name);
+      for (const [name, value] of Object.entries(theme)) style.setProperty(name, value);
+      themed = new Set(Object.keys(theme));
     };
     const built = createHost({
       call,
