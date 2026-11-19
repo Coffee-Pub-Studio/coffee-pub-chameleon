@@ -860,7 +860,8 @@
   const RICH_KEY = 'documents-rich';
   let rich = false;
   try { rich = window.localStorage.getItem(RICH_KEY) === '1'; } catch { /* no browser storage: the text box */ }
-  const TOO_BIG = 'That file is too big for a document.'; // Open Markdown file, and a paste into a shared document
+  const TOO_BIG = 'That file is too big for a document.'; // Open Markdown file
+  const PASTE_TOO_BIG = 'That is too big for a document.'; // a paste that would take the text over the limit: nothing goes in
   const INEXACT = 'This block has formatting Markdown cannot keep exactly; switch to Markdown to check.';
   // Makes the editor for the choice, with this text, in the sheet: one of the two shows, both behind the same adapter.
   function mountEditor(text, shared) {
@@ -868,7 +869,8 @@
     const box = $('edit-rich');
     $('editor').scrollTop = 0; // a new document starts at its top, not where the last one was scrolled to
     ta.hidden = rich || Boolean(shared); box.hidden = !(rich || shared);
-    ed.editor = shared ? dlRichEditor(DlPM, doc, lex, box, { shared, sizeMax: DL.sizeMax, onTooBig: () => note(TOO_BIG) }) : rich ? dlRichEditor(DlPM, doc, lex, box) : dlTextareaEditor(ta, doc);
+    const big = { sizeMax: DL.sizeMax, onTooBig: () => note(PASTE_TOO_BIG) };
+    ed.editor = shared ? dlRichEditor(DlPM, doc, lex, box, { shared, ...big }) : rich ? dlRichEditor(DlPM, doc, lex, box, big) : dlTextareaEditor(ta, doc, big);
     ed.editor.onChange(typed);
     ed.editor.onChange(() => { sizeEditSoon(); keepCaret(); });
     if (ed.editor.onSelect) ed.editor.onSelect(paintActive);
