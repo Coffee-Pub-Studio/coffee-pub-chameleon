@@ -1939,12 +1939,11 @@ const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: 
 function lookView(spaceId, guest = false) {
   const look = store.lookOf(spaceId);
   let workspace = look.workspace && look.workspace.layout ? { ...look.workspace, layout: guestShape(look.workspace.layout, guest, spaceId) } : look.workspace;
-  // A guest has no Fixed Workspaces at all (systemLayoutsFor answers none), so the template's `show` and `opensFirst` are
-  // not theirs to be told: show reads empty and the first visit is the Workspace. No page of a guest reads them.
+  // A guest has no Fixed Workspaces at all (systemLayoutsFor answers none), so the template's `tabs` are
+  // not theirs to be told: the list reads as the Workspace alone, which is what opens. No page of a guest reads it.
   if (guest && workspace) {
     workspace = { ...workspace };
-    if ('show' in workspace) workspace.show = [];
-    if ('opensFirst' in workspace) workspace.opensFirst = 'workspace';
+    if ('tabs' in workspace) workspace.tabs = [{ id: 'workspace', show: true }];
   }
   return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, inUseIcons: look.inUseIcons, workspace };
 }

@@ -764,7 +764,9 @@ test('layouts for everyone are shapes (plan-layout-picker.md, step 6): New layou
   // The menu opens inside the dialog (else the modal makes it inert); the sheet is wide.
   assert.match(hostMenu, /const layer = \(!inline && trigger\.closest && trigger\.closest\('dialog\[open\]'\)\) \|\| doc\.body;/);
   assert.match(hostMenu, /\n {2}layer\.appendChild\(menu\);/);
-  assert.match(css, /\.layout-sheet\.layout-shape-sheet \{\n\s*--dlg-w: var\(--dlg-w-browse\);/);
+  // The sheet's width is the dialog shell's browse width (system.css, with the other browsing dialogs); style.css sets no --dlg-w.
+  assert.match(fs.readFileSync(path.join(ROOT, 'public/sdk/system.css'), 'utf8'), /:is\([^)]*\.layout-shape-sheet[^)]*\) \{ --dlg-w: var\(--dlg-w-browse\); \}/);
+  assert.ok(!/--dlg-w:/.test(css), 'no --dlg-w in style.css');
   // Set up's First visit points to the picker, not to a free-form save.
   assert.match(setup, /make one with New layout for everyone, in the \$\{modulesWord\(true\)\} tab\./);
   assert.ok(!/save one from the/.test(setup), 'the old way is gone');

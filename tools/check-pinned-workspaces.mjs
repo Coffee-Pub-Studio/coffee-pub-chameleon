@@ -4,8 +4,9 @@
  * decisions 8, 9 and 36):
  *   1. The Default Workspace is the template's. A space keeps no layout of its own, and what it starts with is read live from its template (store.layoutOf, `layout` on
  *      GET /api/modules/for-space and on a first visit); a template that is deleted or switched changes it at once.
- *   2. A new space's tabs and first visit are seeded from its template's `workspace.show` and `opensFirst` (the
- *      environment's template when the space has none of its own), then the owner owns them.
+ *   2. A new space's tab order, hide list and first visit are seeded from its template's `workspace.tabs` (an ordered
+ *      list of { id, show }; the first shown row opens first; the environment's template when the space has none of
+ *      its own), then the owner owns them.
  *   3. The pin rule. A Fixed Workspace the owner shows is pinned: `pinned` is true on the system layouts, and nobody
  *      hides it for themselves, by any route (PATCH .../layouts/system/:id, DELETE .../layouts/:id/favorite, whoever
  *      asks: a member, a moderator), 409 "The owner keeps this one in the bar."; a stored hide is ignored and never
@@ -38,54 +39,59 @@ const TAKE_OUT = 'To take this one out of the bar, hide it for everyone in Set u
 {
   const dir = tmp('store');
   const store = new Store(dir);
+  // A tab list: the ids in order, the `off` ones not shown.
+  const rows = (ids, off = []) => ids.map((id) => ({ id, show: !off.includes(id) }));
+  const ALL = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'];
+  const DOCS_FIRST = ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard'];
   const custom = {
-    shows: templates.cleanTemplate({ id: 'shows', name: 'Shows', description: 'x', modules: { chat: {}, calendar: {} }, workspace: { layout: { shape: 'two-equal', areas: ['calendar', null] }, show: ['calendar', 'documents'], opensFirst: 'documents' } }),
-    away: templates.cleanTemplate({ id: 'away', name: 'Away', description: 'x', modules: { chat: {} }, workspace: { show: ['calendar'], opensFirst: 'map' } }),
+    shows: templates.cleanTemplate({ id: 'shows', name: 'Shows', description: 'x', modules: { chat: {}, calendar: {} }, workspace: { layout: { shape: 'two-equal', areas: ['calendar', null] }, tabs: rows(DOCS_FIRST, ['map', 'conference', 'whiteboard']) } }),
+    away: templates.cleanTemplate({ id: 'away', name: 'Away', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['workspace', 'calendar']) } }),
     plain: templates.cleanTemplate({ id: 'plain', name: 'Plain', description: 'x', modules: { chat: {} } }),
-    first: templates.cleanTemplate({ id: 'first', name: 'First', description: 'x', modules: { chat: {} }, workspace: { opensFirst: 'conference' } }),
-    none: templates.cleanTemplate({ id: 'none', name: 'None', description: 'x', modules: { chat: {} }, workspace: { show: [], opensFirst: 'workspace' } }),
+    first: templates.cleanTemplate({ id: 'first', name: 'First', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents']) } }),
+    none: templates.cleanTemplate({ id: 'none', name: 'None', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['workspace']) } }),
   };
   store.templateById = (id) => custom[id] || templates.get(id) || null;
 
   // The seed, pure.
   same(store.workspaceSeed(undefined), { tabs: null, defaultLayout: null }, 'nothing given: nothing seeded');
   same(store.workspaceSeed({}), { tabs: null, defaultLayout: null }, 'an empty workspace: nothing seeded');
-  same(store.workspaceSeed(custom.shows.workspace), { tabs: { hide: ['map', 'conference', 'whiteboard'] }, defaultLayout: 'documents' }, 'show names the bar; every other fixed one is hidden');
-  same(store.workspaceSeed(custom.away.workspace), { tabs: { hide: ['map', 'conference', 'whiteboard', 'documents'] }.hide && { hide: ['map', 'conference', 'whiteboard', 'documents'] }, defaultLayout: null }, 'opens-first a hidden tab is not taken');
-  same(store.workspaceSeed(custom.first.workspace), { tabs: null, defaultLayout: 'conference' }, 'opensFirst alone: the bar is the default');
-  same(store.workspaceSeed(custom.none.workspace).defaultLayout, null, 'the Workspace is no default layout');
-  same(store.workspaceSeed(custom.none.workspace).tabs, { hide: ['calendar', 'map', 'conference', 'whiteboard', 'documents'] }, 'an empty show hides every fixed one but never the Workspace');
-  same(store.workspaceSeed({ show: ['workspace', 'nope', 'map'], opensFirst: 'nope' }), { tabs: { hide: ['calendar', 'conference', 'whiteboard', 'documents'] }, defaultLayout: null }, 'unknown ids and the Workspace are ignored');
+  same(store.workspaceSeed(custom.shows.workspace), { tabs: { order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }, defaultLayout: 'documents' }, 'the list is the order, a row not shown is hidden, the first shown row opens first');
+  same(store.workspaceSeed(custom.away.workspace), { tabs: { hide: ['map', 'conference', 'whiteboard', 'documents'] }, defaultLayout: null }, 'a layout the list leaves out is hidden; the Workspace first opens the Workspace');
+  same(store.workspaceSeed(custom.first.workspace), { tabs: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'] }, defaultLayout: 'conference' }, 'the Conference first: it opens first, every tab shown');
+  same(store.workspaceSeed(custom.none.workspace), { tabs: { hide: ['calendar', 'map', 'conference', 'whiteboard', 'documents'] }, defaultLayout: null }, 'only the Workspace: every other one hidden, the Workspace is no default layout');
+  same(store.workspaceSeed({ tabs: rows(ALL) }), { tabs: null, defaultLayout: null }, 'every layout shown in the default order is the default: nothing stored');
+  same(store.workspaceSeed({ tabs: [{ id: 'calendar', show: false }, { id: 'nope', show: true }, { id: 'map', show: true }, { id: 'map', show: false }] }), { tabs: { order: ['calendar', 'map', 'workspace', 'conference', 'whiteboard', 'documents'], hide: ['calendar', 'conference', 'whiteboard', 'documents'] }, defaultLayout: 'map' }, 'a hidden first row is passed over; unknown ids and repeats are ignored');
+  same(store.workspaceSeed({ show: ['calendar'], opensFirst: 'map' }), { tabs: null, defaultLayout: null }, 'show and opensFirst are no longer read');
   same(store.workspaceSeed('x'), { tabs: null, defaultLayout: null }, 'not an object');
 
   // A new space.
   const g = store.addSpace({ name: 'G', template: 'shows' });
-  same([g.tabs, g.defaultLayout], [{ hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'seeded from its own template');
+  same([g.tabs, g.defaultLayout], [{ order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'seeded from its own template');
   ok(!('layout' in g) && !('opensWith' in g), 'no layout on the record');
   same(store.layoutOf(g.id), { shape: 'two-equal', areas: ['calendar', null] }, 'the layout is read from the template');
   same(store.lookOf(g.id).workspace, custom.shows.workspace, 'lookOf carries the workspace');
   const plain = store.addSpace({ name: 'P', template: 'plain' });
-  ok(!('tabs' in plain) && !('defaultLayout' in plain), 'a template that gives no show seeds nothing');
+  ok(!('tabs' in plain) && !('defaultLayout' in plain), 'a template that gives no tab list seeds nothing');
   same(store.layoutOf(plain.id), null, 'and opens as the product does');
 
   // The owner owns them after: a template switch changes what it opens with, never the tabs.
   const switched = store.updateSpace(g.id, { template: 'plain' });
-  same([switched.tabs, switched.defaultLayout], [{ hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'a template switch leaves the owner\'s tabs and first visit');
+  same([switched.tabs, switched.defaultLayout], [{ order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'a template switch leaves the owner\'s tabs and first visit');
   same(store.layoutOf(g.id), null, 'the new template decides what it starts with, at once');
   store.updateSpace(g.id, { template: 'shows' });
-  custom.shows = { ...custom.shows, workspace: { ...custom.shows.workspace, layout: { shape: 'one', areas: ['calendar'] }, show: ['map'] } };
+  custom.shows = { ...custom.shows, workspace: { ...custom.shows.workspace, layout: { shape: 'one', areas: ['calendar'] }, tabs: rows(ALL, ['calendar']) } };
   same(store.layoutOf(g.id), { shape: 'one', areas: ['calendar'] }, 'an edited template is read at once');
-  same(store.spaceById(g.id).tabs, { hide: ['map', 'conference', 'whiteboard'] }, 'and the seeded tabs are not re-seeded');
+  same(store.spaceById(g.id).tabs, { order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }, 'and the seeded tabs are not re-seeded');
   delete custom.shows;
   store.templateById = (id) => custom[id] || templates.get(id) || null; // a new lookup, so the catalog is read again
-  same([store.layoutOf(g.id), store.spaceById(g.id).tabs], [null, { hide: ['map', 'conference', 'whiteboard'] }], 'a deleted template: the environment\'s, and the tabs stay');
+  same([store.layoutOf(g.id), store.spaceById(g.id).tabs], [null, { order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }], 'a deleted template: the environment\'s, and the tabs stay');
 
   // The environment's template seeds a space with none of its own.
   const env = new Store(tmp('env'));
-  env.templateById = (id) => ({ shows: templates.cleanTemplate({ id: 'shows', name: 'Shows', description: 'x', modules: { chat: {} }, workspace: { show: ['calendar'], opensFirst: 'calendar', layout: { shape: 'one', areas: [null] } } }) })[id] || templates.get(id) || null;
+  env.templateById = (id) => ({ shows: templates.cleanTemplate({ id: 'shows', name: 'Shows', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['calendar', 'workspace', 'map', 'conference', 'whiteboard', 'documents'], ['map', 'conference', 'whiteboard', 'documents']), layout: { shape: 'one', areas: [null] } } }) })[id] || templates.get(id) || null;
   templates.useLive(env, env.templateById('shows'));
   const e = env.addSpace({ name: 'E' });
-  same([e.tabs, e.defaultLayout, env.layoutOf(e.id)], [{ hide: ['map', 'conference', 'whiteboard', 'documents'] }, 'calendar', { shape: 'one', areas: [null] }], 'the environment\'s template seeds a space with none of its own');
+  same([e.tabs, e.defaultLayout, env.layoutOf(e.id)], [{ order: ['calendar', 'workspace', 'map', 'conference', 'whiteboard', 'documents'], hide: ['map', 'conference', 'whiteboard', 'documents'] }, 'calendar', { shape: 'one', areas: [null] }], 'the environment\'s template seeds a space with none of its own');
 
   // A stray opensWith on a stored space is not read; the environment's settings take no layout or opensWith.
   ok(!('opensWith' in store.sanitizeSpace({ id: 'abcd', name: 'x', members: [], opensWith: ['chat'] })), 'a stray key on a stored space is not read');
@@ -142,9 +148,9 @@ try {
   }
   const mk = async (login) => (await expect(`make ${login}`, 201, 'POST', '/api/users', { token: admin, body: { login, displayName: login, role: 'member', password: 'memberpass1234' } })).json.user.key;
   const keys = { mod: await mk('mona'), member: await mk('mia'), other: await mk('otto') };
-  // An owner's own template that shows two Fixed Workspaces and opens the second first.
+  // An owner's own template that shows two Fixed Workspaces and lists Documents first.
   await expect('copy a template', 201, 'POST', '/api/environment/templates', { token: admin, body: { from: 'default', id: 'mine', name: 'Mine' } });
-  await expect('set its Default Workspace', 200, 'PATCH', '/api/environment/templates/mine', { token: admin, body: { workspace: { layout: { shape: 'one', areas: ['calendar'] }, show: ['calendar', 'documents'], opensFirst: 'documents' } } });
+  await expect('set its Default Workspace', 200, 'PATCH', '/api/environment/templates/mine', { token: admin, body: { workspace: { layout: { shape: 'one', areas: ['calendar'] }, tabs: [{ id: 'documents', show: true }, { id: 'workspace', show: true }, { id: 'calendar', show: true }, { id: 'map', show: false }, { id: 'conference', show: false }, { id: 'whiteboard', show: false }] } } });
   const A = (await expect('space A', 200, 'POST', '/api/spaces', { token: admin, body: { name: 'Alpha', members: [keys.mod, keys.member], template: 'mine' } })).json.space;
   const B = (await expect('space B', 200, 'POST', '/api/spaces', { token: admin, body: { name: 'Beta', members: [keys.mod, keys.member] } })).json.space;
   const C = (await expect('space C', 200, 'POST', '/api/spaces', { token: admin, body: { name: 'Gamma', members: [keys.member] } })).json.space;
@@ -157,15 +163,15 @@ try {
   const sysOf = async (id, token) => Object.fromEntries((await expect('read', 200, 'GET', L(id), { token })).json.system.map((l) => [l.id, l]));
 
   // -- 2. the seed, through the routes
-  same([A.tabs, A.defaultLayout], [{ hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'the record the route answers carries the seed');
-  ok(!('tabs' in B) && !('defaultLayout' in B), 'a space with no template and an environment with no show seeds nothing');
+  same([A.tabs, A.defaultLayout], [{ order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard'], hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'the record the route answers carries the seed');
+  ok(!('tabs' in B) && !('defaultLayout' in B), 'a space with no template and an environment with no tab list seeds nothing');
   let seen = await sysOf(A.id, T.member);
-  same(Object.keys(seen), ['workspace', 'calendar', 'conference', 'whiteboard', 'documents'], 'the member lists what is on here');
-  same(Object.values(seen).map((l) => [l.id, l.shown, l.pinned, l.tab]), [['workspace', true, true, true], ['calendar', true, true, true], ['conference', false, false, false], ['whiteboard', false, false, false], ['documents', true, true, true]], 'shown ones are pinned and in the bar; hidden ones are neither');
+  same(Object.keys(seen), ['documents', 'workspace', 'calendar', 'conference', 'whiteboard'], 'the member lists what is on here, in the owner\'s order');
+  same(Object.values(seen).map((l) => [l.id, l.shown, l.pinned, l.tab]), [['documents', true, true, true], ['workspace', true, true, true], ['calendar', true, true, true], ['conference', false, false, false], ['whiteboard', false, false, false]], 'shown ones are pinned and in the bar; hidden ones are neither');
   same((await expect('first visit', 200, 'GET', L(A.id), { token: T.member })).json.firstVisit, { layout: 'documents', shape: { shape: 'one', areas: ['calendar'] } }, 'opens first on the template\'s choice, with its layout');
   same((await expect('for-space', 200, 'GET', `/api/modules/for-space?space=${A.id}`, { token: T.member })).json.layout, { shape: 'one', areas: ['calendar'] }, 'for-space says what the template starts with');
-  same((await expect('look', 200, 'GET', `/api/spaces/${A.id}/look`, { token: T.member })).json.look.workspace, { layout: { shape: 'one', areas: ['calendar'] }, show: ['calendar', 'documents'], opensFirst: 'documents' }, 'look carries the Default Workspace');
-  same((await expect('look of B', 200, 'GET', `/api/spaces/${B.id}/look`, { token: T.member })).json.look.workspace, { layout: { shape: 'one', areas: [null] } }, 'the Default template\'s own layout');
+  same((await expect('look', 200, 'GET', `/api/spaces/${A.id}/look`, { token: T.member })).json.look.workspace, { layout: { shape: 'one', areas: ['calendar'] }, tabs: [{ id: 'documents', show: true }, { id: 'workspace', show: true }, { id: 'calendar', show: true }, { id: 'map', show: false }, { id: 'conference', show: false }, { id: 'whiteboard', show: false }] }, 'look carries the Default Workspace');
+  same((await expect('look of B', 200, 'GET', `/api/spaces/${B.id}/look`, { token: T.member })).json.look.workspace, { layout: { shape: 'one', areas: [null] }, tabs: ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'].map((id) => ({ id, show: true })) }, 'the Default template\'s own layout and tab list');
   // A layout is the template's, never the space's: the owner's request changes nothing, and no one else may send it.
   for (const [who, status] of [['admin', 200], ['mod', 403], ['member', 403], ['other', 404]]) {
     const r = await call('PATCH', `/api/spaces/${A.id}`, { token: T[who], body: { layout: { shape: 'one', areas: [null] } } });

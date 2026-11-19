@@ -4313,7 +4313,7 @@ span.message-vis {
 
 /* The editor window is the one dialog that scrolls as a whole: its head and foot are sticky. */
 .sdk-editor { overflow: auto; overscroll-behavior: contain; }
-:is(.sdk-editor-large, .phase-sheet, .bgpick-card) { --dlg-w: var(--dlg-w-browse); }
+:is(.sdk-editor-large, .phase-sheet, .bgpick-card, .layout-shape-sheet) { --dlg-w: var(--dlg-w-browse); }
 :is(.aside-overlay-card, .sdk-dialog-confirm) { --dlg-w: var(--dlg-w-confirm); }
 :is(.sdk-editor, .layout-sheet, .phase-sheet, .sdk-dialog-confirm):focus { outline: none; }
 

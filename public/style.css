@@ -2157,13 +2157,8 @@ body.in-space .subnav {
 }
 
 /* New layout for everyone and Edit (space.js, openShapeSheet; plan-layout-picker.md, step 6): the layout sheet, as wide as
-   a browsing dialog, its Name and then the layout picker in a framed box (as a template's editor frames it), the picker's
+   a browsing dialog (its width is the dialog shell's, in /sdk/system.css), its Name and then the layout picker in a framed box (as a template's editor frames it), the picker's
    own height kept so the sheet's body is the one that scrolls above the action bar. */
-/* Two classes: the dialog shell (system.css) sets --dlg-w on .layout-sheet, and it loads after this file. */
-.layout-sheet.layout-shape-sheet {
-  --dlg-w: var(--dlg-w-browse);
-}
-
 .layout-shape-sheet .layout-form-error {
   max-width: none;
 }

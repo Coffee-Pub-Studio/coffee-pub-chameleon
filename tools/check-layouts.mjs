@@ -1585,15 +1585,15 @@ try {
   const forMember = await call('GET', `/api/modules/for-space?space=${proj.id}`, { cookie: pat4 });
   assert.deepEqual(shapeOf(forMember), [['schedule', 'todo'], ['schedule', 'todo']], 'a member keeps the id (unchanged)');
   assert.equal((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: pat4 })).json.look.workspace.layout.areas[0], 'schedule', 'and in the look');
-  // The template's Fixed Workspaces (`show`, `opensFirst`) are not a guest's: they have none, so their look says none and the
-  // Workspace. A member's and a maker's look keep what the template says.
+  // The template's Fixed Workspaces (`tabs`) are not a guest's: they have none, so their look lists the Workspace alone. A member's and a maker's look keep what the template says.
   const memberLook = (await call('GET', `/api/spaces/${proj.id}/look`, { cookie: pat4 })).json.look.workspace;
-  assert.deepEqual([memberLook.show, memberLook.opensFirst], [['calendar', 'documents'], 'workspace'], 'a member: as the template says');
-  assert.deepEqual((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: owner2 })).json.look.workspace.show, ['calendar', 'documents'], 'a maker: as the template says');
+  const projectTabs = SYSTEM_IDS.map((id) => ({ id, show: ['workspace', 'calendar', 'documents'].includes(id) }));
+  assert.deepEqual(memberLook.tabs, projectTabs, 'a member: as the template says');
+  assert.deepEqual((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: owner2 })).json.look.workspace.tabs, projectTabs, 'a maker: as the template says');
   const linkLook = (await call('GET', `/api/guest-link/${encodeURIComponent(projGuest)}`)).json.look.workspace;
-  assert.deepEqual([linkLook.show, linkLook.opensFirst], [[], 'workspace'], 'the guest link: no Fixed Workspace');
+  assert.deepEqual(linkLook.tabs, [{ id: 'workspace', show: true }], 'the guest link: no Fixed Workspace');
   const guestLook = (await call('GET', `/api/spaces/${proj.id}/look?${gq}`)).json.look.workspace;
-  assert.deepEqual([guestLook.show, guestLook.opensFirst], [[], 'workspace'], 'a guest\'s look: no Fixed Workspace');
+  assert.deepEqual(guestLook.tabs, [{ id: 'workspace', show: true }], 'a guest\'s look: no Fixed Workspace');
   assert.deepEqual(guestLook.layout.areas, linkLook.layout.areas, 'and the same shape');
   await expect('guests read the Plan again', 200, 'PATCH', '/api/roles/guest', { cookie: owner2, body: { 'module.schedule.view': true } });
   n += 1;

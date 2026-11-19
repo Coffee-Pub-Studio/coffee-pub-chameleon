@@ -6,6 +6,7 @@
 // /new), its parts as tabs, one at a time, each with its own address (#templates/<id>/<part>; decision 52).
 import { api, escapeHtml, word } from '/brand.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields } from '/template-fields.js';
+import { tabListHtml, tabListClick, tabListChange, readTabList } from '/tab-list.js';
 import { setFoldHtml, setReactionChips, setIconChips, problemPlaces } from '/template-pages.js';
 import { mountTemplateLayout, templateLayoutModules, usesNote } from '/template-layout.js';
 import { partsFor } from '/layout-picker.js';
@@ -352,7 +353,6 @@ async function loadModuleIds() {
 }
 
 const iconField = (value, label, placeholder) => `<span class="icon-field"><i class="fa-solid fa-${escapeHtml(value || placeholder)} fa-fw" aria-hidden="true"></i><input type="text" data-icon maxlength="40" value="${escapeHtml(value || '')}" placeholder="${escapeHtml(placeholder)}" aria-label="${escapeHtml(label)}" autocapitalize="off" spellcheck="false"></span>`;
-const FIXED_WORKSPACES = [['calendar', 'Calendar'], ['map', 'Map'], ['conference', 'Conference'], ['whiteboard', 'Whiteboards'], ['documents', 'Documents']];
 const CALL_POSITIONS = [['top', 'Top'], ['bottom', 'Bottom'], ['left', 'Left'], ['right', 'Right'], ['float', 'Floating'], ['workspace', 'In the workspace'], ['window', 'In its own window']];
 const CALL_LAYOUTS = [['grid', 'Grid'], ['strip', 'Strip'], ['focus', 'Focus'], ['spotlight', 'Spotlight']];
 const MEASURES = [['dates', 'Its dates'], ['goals', 'Its goals'], ['progress', 'Progress']];
@@ -400,8 +400,7 @@ async function openEditor(t, cantOpen = {}) {
     onChange: () => markLayoutUses(),
   });
   markLayoutUses();
-  $('te-show').innerHTML = FIXED_WORKSPACES.map(([id, label]) => `<label class="sdk-choice-row"><input type="checkbox" data-show="${id}"${(w.show || []).includes(id) ? ' checked' : ''}><span class="sdk-choice-text">${escapeHtml(label)}</span></label>`).join('');
-  $('te-opens-first').innerHTML = options([['workspace', 'The workspace'], ...FIXED_WORKSPACES], w.opensFirst || 'workspace');
+  $('te-tabs').innerHTML = tabListHtml(w.tabs, { editable: !fixed });
   const c = (t && t.call) || {};
   $('te-join').checked = c.joinOnEntry === true;
   $('te-call-position').innerHTML = options(CALL_POSITIONS, c.position || 'top');
@@ -506,6 +505,8 @@ $('te-modules').addEventListener('change', () => {
   layoutPart.update(layoutModules());
   markLayoutUses();
 });
+$('te-tabs').addEventListener('click', tabListClick);
+$('te-tabs').addEventListener('change', tabListChange);
 $('te-module-display').addEventListener('change', () => { if (layoutPart) layoutPart.update(layoutModules()); });
 
 $('te-module-display').addEventListener('input', (e) => {
@@ -582,10 +583,9 @@ function fields() {
     return { ...r, id };
   });
   const iconSet = iconSetNames();
-  const show = [...$('te-show').querySelectorAll('[data-show]:checked')].map((b) => b.dataset.show);
-  const opensFirst = $('te-opens-first').value;
+  const tabs = readTabList($('te-tabs'));
   const layout = layoutPart ? layoutPart.value() : null;
-  const workspace = { ...(layout ? { layout } : {}), ...(show.length ? { show } : {}), ...(opensFirst && opensFirst !== 'workspace' ? { opensFirst } : {}) };
+  const workspace = { ...(layout ? { layout } : {}), ...(tabs ? { tabs } : {}) };
   const call = { joinOnEntry: $('te-join').checked, position: $('te-call-position').value, layout: $('te-call-layout').value };
   const starterSpaces = [...$('te-starter').children].map((row) => ({ name: row.querySelector('[data-starter-name]').value.trim(), description: row.querySelector('[data-starter-description]').value.trim() })).filter((sp) => sp.name || sp.description);
   const out = {

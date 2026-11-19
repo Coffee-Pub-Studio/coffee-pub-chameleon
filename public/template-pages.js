@@ -6,6 +6,7 @@ import { escapeHtml } from '/brand.js';
 import { listControl, readList, listClick, listWords } from '/list-rows.js';
 import { colourFields } from '/colour-field.js';
 import { layoutLine } from '/opens-with.js';
+import { tabListHtml, tabListClick, tabListChange, readTabList } from '/tab-list.js';
 
 const e = escapeHtml;
 const cap = (s) => (s ? s[0].toLocaleUpperCase('en') + s.slice(1) : s);
@@ -14,8 +15,6 @@ const line = (label, value) => `<div class="tf-line"><dt>${e(label)}</dt><dd>${v
 const slug = (text) => String(text || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24);
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
-// The Fixed Workspaces a template may show for a new space (every layout but the Workspace itself).
-export const FIXED_WORKSPACES = [['calendar', 'Calendar'], ['map', 'Map'], ['conference', 'Conference'], ['whiteboard', 'Whiteboards'], ['documents', 'Documents']];
 // The planners sit together under "Plans" (decision 46): they are alternatives.
 export const PLANNER_IDS = ['travel', 'schedule', 'goals'];
 const MEASURES = [['dates', 'Dates', 'Each phase has dates, set in Set up.'], ['goals', 'Goals', 'A phase is done when every planner entry that names it is done. One no entry names has a Done switch in Set up.'], ['progress', 'Progress', 'Each phase has a Done switch in Set up.']];
@@ -28,8 +27,8 @@ const entryOf = (t, id) => (t && isObject(t.modules) && isObject(t.modules[id]) 
 
 // --- Default Workspace ----------------------------------------------------------------------------------------------------
 // How the Workspace starts on a first visit (the template's layout, a shape and its modules; plan-layout-picker.md, step 3)
-// and which Fixed Workspaces a new space shows. A workspace shown here is shown for everyone: nobody can hide it
-// (decision 9). The layout is drawn here as a place for the layout picker (step 5; the page mounts it with
+// and the tab list: which workspaces a new space shows and in what order, the first shown one opening first (/tab-list.js).
+// A workspace shown here is shown for everyone: nobody can hide it (decision 9). The layout is drawn here as a place for the layout picker (step 5; the page mounts it with
 // template-layout.js's mountTemplateLayout), holding the layout in plain words until then and the record in the markup
 // (`data-tw-layout`), which the picker keeps as it changes, so a save sends what it holds.
 const layoutOf = (w) => (w && isObject(w.layout) && typeof w.layout.shape === 'string' && Array.isArray(w.layout.areas) ? w.layout : null);
@@ -41,33 +40,21 @@ export function layoutWords(layout, { nameOf = (id) => id, word }) {
 export function workspaceHtml(t, { editable, catalog, word }) {
   const w = (t && t.workspace) || {};
   const layout = layoutOf(w);
-  const show = Array.isArray(w.show) ? w.show : [];
-  const first = w.opensFirst || 'workspace';
   // The template's own name for a module, as the Modules page shows it, else the catalog's.
   const nameOf = (id) => entryOf(t, id).name || (catalog.find((x) => x.id === id) || { name: id }).name;
   const layoutText = e(layoutWords(layout, { nameOf, word }));
   const layoutAbout = `How the Workspace first looks to each person in a new ${e(word('space'))}. Once they open something, their own arrangement is kept.`;
-  const pinNote = `A Fixed Workspace shown here is shown for everyone in a new ${e(word('space'))}; nobody can hide it. People still add layouts of their own.`;
   const layoutBox = `<div class="tp-layout" data-tw-layout="${e(layout ? JSON.stringify(layout) : '')}">${layoutText}</div>`;
-  if (!editable) {
-    const shownList = show.length ? show.map((id) => e((FIXED_WORKSPACES.find(([x]) => x === id) || [id, id])[1])).join(', ') : '<span class="hint">None</span>';
-    const firstName = first === 'workspace' ? 'The Workspace' : (FIXED_WORKSPACES.find(([x]) => x === first) || [first, first])[1];
-    return `<div class="tf-labels"><h3>Layout</h3><p class="hint">${layoutAbout}</p>${layoutBox}</div><dl class="tf-read">${line('Fixed Workspaces shown', shownList)}${line('Opens first', e(firstName))}</dl><p class="hint">${pinNote}</p>`;
-  }
-  const fixed = FIXED_WORKSPACES.map(([id, label]) => `<label class="sdk-choice-row"><input type="checkbox" data-tw-show="${id}"${show.includes(id) ? ' checked' : ''}><span class="sdk-choice-text">${e(label)}</span></label>`).join('');
-  const firstOptions = [['workspace', 'The Workspace'], ...FIXED_WORKSPACES].map(([v, l]) => `<option value="${e(v)}"${v === first ? ' selected' : ''}>${e(l)}</option>`).join('');
-  return `<div class="tf-labels"><h3>Layout</h3><p class="hint">${layoutAbout}</p>${layoutBox}`
-    + `<h3>Fixed Workspaces shown</h3><p class="hint">${pinNote}</p><div class="tp-checks">${fixed}</div>`
-    + `<h3>Opens first</h3><label class="tf-field"><span class="field-label">What a new ${e(word('space'))} shows first</span><select data-tw-first>${firstOptions}</select></label></div>`;
+  const tabsAbout = `The tabs of a new ${e(word('space'))}, first to last. The first one shown opens first. A workspace shown here is shown for everyone; nobody can hide it.`;
+  const tabs = `<h3>Tabs</h3><p class="hint">${tabsAbout}</p>${tabListHtml(w.tabs, { editable })}`;
+  return `<div class="tf-labels"><h3>Layout</h3><p class="hint">${layoutAbout}</p>${layoutBox}${tabs}</div>`;
 }
-// The Default Workspace's fields: the layout the picker holds (only a whole record; none when it was removed), the shown
-// Fixed Workspaces and Opens first.
+// The Default Workspace's fields: the layout the picker holds (only a whole record; none when it was removed) and the tab list.
 export function readWorkspace(root, { editing = true } = {}) {
   let layout = null;
   try { const held = root.querySelector('[data-tw-layout]')?.dataset.twLayout; layout = held ? JSON.parse(held) : null; } catch { layout = null; }
-  const show = [...root.querySelectorAll('[data-tw-show]:checked')].map((b) => b.dataset.twShow);
-  const first = root.querySelector('[data-tw-first]')?.value || 'workspace';
-  const workspace = { ...(layoutOf({ layout }) ? { layout } : {}), ...(show.length ? { show } : {}), ...(first !== 'workspace' ? { opensFirst: first } : {}) };
+  const tabs = readTabList(root);
+  const workspace = { ...(layoutOf({ layout }) ? { layout } : {}), ...(tabs ? { tabs } : {}) };
   return { workspace: Object.keys(workspace).length ? workspace : (editing ? null : {}) };
 }
 
@@ -352,6 +339,7 @@ export function wirePages(root) {
   root.addEventListener('click', (ev) => {
     const t = ev.target;
     if (t.closest('[data-list-setting]')) { listClick(ev); return; }
+    if (tabListClick(ev)) return;
     const phase = t.closest('[data-tp-phase]');
     if (phase && t.closest('[data-tp-remove]')) phase.remove();
     else if (phase && t.closest('[data-tp-up]') && phase.previousElementSibling) phase.parentElement.insertBefore(phase, phase.previousElementSibling);
@@ -367,6 +355,7 @@ export function wirePages(root) {
     else if (t.closest('[data-ti-add]')) { root.querySelector('[data-ti-list]').insertAdjacentHTML('beforeend', iconRow('')); root.querySelector('[data-ti-list]').lastElementChild.querySelector('[data-ti-name]').focus(); }
   });
   root.addEventListener('change', (ev) => {
+    if (tabListChange(ev)) return;
     if (ev.target.matches('[data-tm-offer]')) {
       const uses = ev.target.closest('[data-tm]')?.querySelector('[data-tm-uses]');
       if (uses) uses.textContent = ev.target.checked ? '' : LAYOUT_USES_NOTE;
