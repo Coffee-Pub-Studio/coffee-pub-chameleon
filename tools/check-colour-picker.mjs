@@ -490,9 +490,15 @@ host.ready().then(() => {
   fld.addEventListener('input', () => window.__events.push('input'));
   fld.addEventListener('change', () => window.__events.push('change'));
   window.__field = host.ui.colorField(fld, { onChange: (a) => window.__events.push(a) });
+  window.__clicks = 0;
   host.ui.toolbarButton({ id: 'colour', label: 'Colour', icon: 'palette', onClick: (e) => {
+    window.__clicks += 1;
     window.__tbx = e.x;
     host.ui.colorPicker({ at: { x: Number.isFinite(e.x) ? e.x : 100000, y: 4 }, value: '#c0392b' }).then((a) => window.__answers.push(a));
+  } });
+  host.ui.toolbarButton({ id: 'shade', label: 'Shade', icon: 'palette', onClick: (e) => {
+    window.__clicks2 = (window.__clicks2 || 0) + 1;
+    host.ui.colorPicker({ at: { x: Number.isFinite(e.x) ? e.x : 100000, y: 4 }, value: '#00796b', label: 'Shade' }).then((a) => window.__answers.push(a));
   } });
   window.__ready = true;
 });`);
@@ -1010,6 +1016,93 @@ host.ready().then(() => {
     ok(trigWords >= 4.5, `${label}: read case 4: the colour field's hex is ${trigWords.toFixed(2)}:1 on its trigger; wanted 4.5:1`);
     await ev('(window.__f3.destroy(), 1)');
 
+    // ==== The cases from step 2's second independent read. ====
+    const closeIfOpen = async () => { if (await open()) { await key(send, 'Escape'); await tick(); } };
+    // A point in the module's box that is outside the picker (the picker may fill most of a phone's width).
+    const outsidePoint = async () => {
+      const c = await ev(`window.__rect(window.__cp())`);
+      const spots = [[boxRect.r - 6, boxRect.b - 6], [boxRect.l + 6, boxRect.b - 6], [boxRect.l + 6, boxRect.t + 6], [boxRect.r - 6, boxRect.t + 6], [c.r + 10, c.b + 10]];
+      return spots.find(([x, y]) => x >= boxRect.l && x <= boxRect.r && y >= boxRect.t && y <= boxRect.b && !(x >= c.l - 2 && x <= c.r + 2 && y >= c.t - 2 && y <= c.b + 2)) || spots[0];
+    };
+
+    // Label move: two <label for> on one input both point at the trigger; an id that needs escaping works; destroy() puts every `for`
+    // back; an element already holding "<id>-colour" makes the trigger take a different, unique id and the label still opens the field.
+    await ev(`(() => { const b = document.createElement('div'); b.id = 'lm-box'; b.style.cssText = 'position:absolute;left:12px;top:70px'; b.innerHTML = '<label id="lm-l1" for="a b.c#d">One</label> <label id="lm-l2" for="a b.c#d">Two</label> <input type="text" id="a b.c#d" value="#2f6cbf">'; __R.appendChild(b); window.__lmf = __h.ui.colorField(__R.getElementById('a b.c#d')); return 1; })()`);
+    const lm = await ev(`(() => { const t = __R.querySelector('#lm-box .sdk-picker'); const l1 = __R.getElementById('lm-l1'), l2 = __R.getElementById('lm-l2'); return { id: t.id, f1: l1.htmlFor, f2: l2.htmlFor, c1: l1.control === t, c2: l2.control === t, labels: t.labels.length, unique: [...__R.querySelectorAll('[id]')].filter((e) => e.id === t.id).length }; })()`);
+    same(lm, { id: 'a b.c#d-colour', f1: 'a b.c#d-colour', f2: 'a b.c#d-colour', c1: true, c2: true, labels: 2, unique: 1 }, `${label}: label move: two <label for> on an input whose id needs escaping (a b.c#d) both point at the trigger`);
+    await pressOn(`__R.getElementById('lm-l2')`);
+    await tick();
+    same(await ev(`[Boolean(window.__cp()), __R.querySelector('#lm-box .sdk-picker').getAttribute('aria-expanded')]`), [true, 'true'], `${label}: label move: pressing the second label opened the picker`);
+    await closeIfOpen();
+    await ev(`(window.__lmf.destroy(), 1)`);
+    same(await ev(`[__R.getElementById('lm-l1').htmlFor, __R.getElementById('lm-l2').htmlFor, __R.getElementById('lm-l1').control === __R.getElementById('a b.c#d'), Boolean(__R.querySelector('#lm-box .sdk-picker'))]`), ['a b.c#d', 'a b.c#d', true, false], `${label}: label move: destroy() puts every label's for back on the input`);
+    await ev(`(__R.getElementById('lm-box').remove(), 1)`);
+    await ev(`(() => { const x = document.createElement('div'); x.id = 'lm2-colour'; x.setAttribute('data-taken', '1'); __R.appendChild(x); const b = document.createElement('div'); b.id = 'lm2-box'; b.style.cssText = 'position:absolute;left:12px;top:70px'; b.innerHTML = '<label id="lm2-l" for="lm2">Shade</label> <input type="text" id="lm2" value="#2f6cbf">'; __R.appendChild(b); window.__lm2f = __h.ui.colorField(__R.getElementById('lm2')); return 1; })()`);
+    const lm2 = await ev(`(() => { const t = __R.querySelector('#lm2-box .sdk-picker'); const l = __R.getElementById('lm2-l'); return { differs: Boolean(t.id) && t.id !== 'lm2-colour', unique: [...__R.querySelectorAll('[id]')].filter((e) => e.id === t.id).length, forIsTrigger: l.htmlFor === t.id, control: l.control === t, takenKept: __R.getElementById('lm2-colour').getAttribute('data-taken') }; })()`);
+    same(lm2, { differs: true, unique: 1, forIsTrigger: true, control: true, takenKept: '1' }, `${label}: label move: where "<id>-colour" is taken the trigger gets another, unique id, the label points at it, and the other element is left alone`);
+    await pressOn(`__R.getElementById('lm2-l')`);
+    await tick();
+    same(await ev(`Boolean(window.__cp())`), true, `${label}: label move: where "<id>-colour" is taken the label still opens the field`);
+    await closeIfOpen();
+    await ev(`(window.__lm2f.destroy(), 1)`);
+    same(await ev(`[__R.getElementById('lm2-l').htmlFor, Boolean(__R.querySelector('#lm2-box .sdk-picker'))]`), ['lm2', false], `${label}: label move: destroy() puts the label's for back where "<id>-colour" was taken`);
+    await ev(`(__R.getElementById('lm2-box').remove(), __R.getElementById('lm2-colour').remove(), 1)`);
+
+    // Hue at the top: #ff0001 reads 359 and "Hue 359 degrees"; ArrowRight from there does not change the colour.
+    await pick(`{ at: { x: 20, y: 60 }, value: '#ff0001' }`);
+    same(await ev(`[window.__in('.sdk-cp-hue').getAttribute('aria-valuenow'), window.__in('.sdk-cp-hue').getAttribute('aria-valuetext')]`), ['359', 'Hue 359 degrees'], `${label}: hue at the top: #ff0001 reads 359 and "Hue 359 degrees"`);
+    await ev(`window.__in('.sdk-cp-hue').focus()`);
+    await key(send, 'ArrowRight');
+    same(await ev(`[window.__in('.sdk-cp-hexin').value, window.__in('.sdk-cp-hue').getAttribute('aria-valuenow'), window.__inputs.length ? window.__inputs.at(-1).color : null]`), ['#ff0001', '359', null], `${label}: hue at the top: ArrowRight from 359 changes nothing (Hex, Hue and onInput)`);
+    await escape('hue at the top');
+
+    // Tooltip: none shows when the picker opens, by a press (the pointer is over the trigger) or by Enter (the trigger has focus).
+    await ev(`(window.__tf = __h.ui.colorField(__R.getElementById('fld')), 1)`);
+    const tipShown = () => ev(`Boolean(document.querySelector('.sdk-tooltip[data-show], #sdk-tip[data-show]'))`);
+    await pressOn('window.__trig()');
+    await sleep(800); // the tooltip's hover delay is 500 ms
+    same([await open(), await tipShown()], [true, false], `${label}: tooltip: after a press opens the picker, wanted [picker open, tooltip showing] to be this`);
+    await closeIfOpen();
+    await ev(`(window.__trig().focus(), 1)`);
+    await key(send, 'Enter');
+    await sleep(300);
+    same([await open(), await tipShown()], [true, false], `${label}: tooltip: after Enter opens the picker, wanted [picker open, tooltip showing] to be this`);
+    await closeIfOpen();
+    await sleep(300);
+    await ev(`(window.__tf.destroy(), 1)`);
+
+    // Press outside. An empty field: nothing changed answers null and writes nothing; a swatch on the shown colour writes it. A filled
+    // field: a press outside after a drag answers the dragged colour.
+    const mkField = (id, value) => ev(`(() => { const i = document.createElement('input'); i.type = 'text'; i.id = '${id}'; i.value = '${value}'; i.setAttribute('aria-label', 'Outside'); i.style.cssText = 'position:absolute;left:12px;top:70px'; __R.appendChild(i); window.__po = []; window.__poa = 'pending'; i.addEventListener('input', () => __po.push('input')); i.addEventListener('change', () => __po.push('change')); window.__pof = __h.ui.colorField(i, { onChange: (a) => __po.push(a) }); window.__pof.open().then((a) => { window.__poa = a; }); return 1; })()`);
+    const rmField = () => ev(`(window.__pof.destroy(), __R.getElementById('po-in').remove(), 1)`);
+    await mkField('po-in', '');
+    await tick();
+    const [ox, oy] = await outsidePoint();
+    await press(send, coarse, ox, oy);
+    await tick();
+    same(await ev(`[window.__poa, __R.getElementById('po-in').value, window.__po, Boolean(window.__cp())]`), [null, '', [], false], `${label}: press outside: on an empty field a press outside with nothing changed answers null, writes nothing and sends nothing`);
+    await rmField();
+    await mkField('po-in', '');
+    await tick();
+    await pressOn(swatch('White'));
+    await tick();
+    same(await ev(`[__R.getElementById('po-in').value, window.__po]`), ['#ffffff', ['input', 'change', { color: '#ffffff', opacity: 100 }]], `${label}: press outside: on an empty field a swatch press on the shown colour writes it`);
+    await rmField();
+    await mkField('po-in', '#c0392b');
+    await tick();
+    const area2 = await ev(`window.__rect(window.__in('.sdk-cp-area'))`);
+    const pts2 = [];
+    for (let i = 0; i <= 6; i += 1) pts2.push([area2.l + 10 + i * (area2.w - 20) / 6, area2.t + 10 + i * (area2.h - 20) / 6]);
+    await drag(send, coarse, pts2);
+    const draggedHex = await ev(`window.__in('.sdk-cp-hexin').value`);
+    ok(draggedHex !== '#c0392b', `${label}: press outside: the drag did not change the colour (${draggedHex})`);
+    const [px, py] = await outsidePoint();
+    await press(send, coarse, px, py);
+    await tick();
+    same(await ev(`[window.__poa && window.__poa.color, __R.getElementById('po-in').value, window.__po, Boolean(window.__cp())]`), [draggedHex, draggedHex, ['input', 'change', { color: draggedHex, opacity: 100 }], false], `${label}: press outside: on a filled field a press outside after a drag answers the dragged colour and writes it`);
+    await rmField();
+    await closeIfOpen();
+
     // Read case 6: no listener left on the document, the window or the module's root after 50 opens and closes (Escape, a swatch, a
     // press outside, in turn), and no picker left in the page.
     const listeners = async () => {
@@ -1103,12 +1196,37 @@ host.ready().then(() => {
     if (!opened) return;
     const pos = await tab.eval(`(() => { const p = ${DEEP_CP}; const box = p.getRootNode().host; const r = p.getBoundingClientRect(); const b = box.getBoundingClientRect(); return { inside: r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5, top: r.top - b.top }; })()`);
     ok(pos.inside && Math.abs(pos.top - 4) <= 1, `${label}: read case 7: from the in-page toolbar the picker is not inside the module's box at y 4 (${JSON.stringify(pos)})`);
+    const onButton = () => tab.eval(`(() => { const a = document.activeElement; return a ? a.tagName.toLowerCase() + (a.getAttribute('data-cp-check') ? ' (the toolbar button)' : '') : 'nothing'; })()`);
+    const pickerOpen = () => tab.eval(`Boolean(${DEEP_CP})`);
+    const waitOpen = async () => { let o = false; for (let i = 0; i < 40 && !o; i += 1) { o = await pickerOpen(); if (!o) await sleep(100); } return o; };
     await key(send, 'Escape');
     await sleep(200);
-    const focus = await tab.eval(`(() => { const a = document.activeElement; return a ? a.tagName.toLowerCase() + (a.getAttribute('data-cp-check') ? ' (the toolbar button)' : '') : 'nothing'; })()`);
     same(await tab.eval('window.__answers'), [null], `${label}: read case 7: Escape from the in-page toolbar answers null`);
-    ok(focus !== 'body' && focus !== 'nothing', `${label}: read case 7 (in-page toolbar focus): after Escape focus is on ${focus}; wanted it not on the page's body (the toolbar button)`);
+    same(await onButton(), 'button (the toolbar button)', `${label}: read case 7 (in-page toolbar focus): after a mouse press and Escape, focus is not back on the module's own button`);
     answers.push(null);
+    // After Enter on the button: the same point, Escape, and focus on the button again.
+    await tab.eval(`(document.querySelector('[data-cp-check]').focus(), 1)`);
+    await key(send, 'Enter');
+    ok(await waitOpen(), `${label}: in-page button: Enter on the module's own button opened no picker`);
+    await key(send, 'Escape');
+    await sleep(200);
+    same(await tab.eval('window.__answers'), [null, null], `${label}: in-page button: Escape after Enter answers null`);
+    same(await onButton(), 'button (the toolbar button)', `${label}: in-page button: after Enter and Escape, focus is not back on the module's own button`);
+    ok(!(await pickerOpen()), `${label}: in-page button: the picker is still open after Escape`);
+    answers.push(null);
+    // A press on a host-page input outside the module closes the picker.
+    await press(send, coarse, btn.x, btn.y);
+    ok(await waitOpen(), `${label}: in-page click outside: the button did not open the picker`);
+    const host = await tab.eval(`(() => { const i = document.createElement('input'); i.id = 'cp-host-in'; i.type = 'text'; i.setAttribute('aria-label', 'Host page input'); i.style.cssText = 'position:fixed;left:2px;top:' + Math.max(0, innerHeight - 56) + 'px;width:120px;height:40px;z-index:2147483647'; document.body.appendChild(i); const r = i.getBoundingClientRect(); const x = r.left + r.width / 2, y = r.top + r.height / 2; const p = ${DEEP_CP}; const pr = p ? p.getBoundingClientRect() : null; return { x, y, hit: document.elementFromPoint(x, y) === i, clear: !pr || pr.bottom < r.top }; })()`);
+    if (!host.hit || !host.clear) ok(false, `${label}: in-page click outside: the host-page input is covered (on top ${host.hit}, clear of the picker ${host.clear}); the case cannot press it`);
+    else {
+      await press(send, coarse, host.x, host.y);
+      await sleep(250);
+      ok(!(await pickerOpen()), `${label}: in-page click outside: a press on a host-page input outside the module left the picker open`);
+      same(await tab.eval('window.__answers.length'), 3, `${label}: in-page click outside: the picker was not answered once when a host-page input was pressed`);
+      answers.push(await tab.eval('window.__answers.at(-1)'));
+    }
+    await tab.eval(`(document.getElementById('cp-host-in').remove(), 1)`);
   }
 
   // ---- read cases 5, 10 and 11: the phone widths ----
@@ -1126,6 +1244,17 @@ host.ready().then(() => {
       ok(m.l >= 0 && m.r <= m.vw + 0.5, `${label}: read case 5: ${how} the picker (${Math.round(m.l)} to ${Math.round(m.r)}) is not inside the ${m.vw}px screen`);
       await key(send, 'Escape');
       answers.push(await tab.eval('window.__pp'));
+    }
+    if (width !== 375) {
+      // Red and Teal chosen (the chosen swatch carries a ring): the popover has no sideways scroll, at the top left, the top right and under the field.
+      for (const [name, value] of [['Red', '#c0392b'], ['Teal', '#00796b']]) {
+        for (const [how, o] of [['at { x: 0, y: 4 }', `{ at: { x: 0, y: 4 }, value: '${value}' }`], ['at { x: 100000, y: 4 }', `{ at: { x: 100000, y: 4 }, value: '${value}' }`], ['under the field', `{ anchor: document.querySelector('#cp-phone .sdk-picker'), value: '${value}' }`]]) {
+          const m = await tab.eval(`(() => { window.__pp = hostColour.picker(${o}); const p = document.querySelector('.sdk-cp'); return { sw: p.scrollWidth, cw: p.clientWidth, chosen: p.querySelectorAll('.sdk-swatch[aria-checked="true"]').length }; })()`);
+          ok(m.sw <= m.cw, `${label}: no sideways scroll: with ${name} chosen ${how} the picker scrolls sideways (scrollWidth ${m.sw}, clientWidth ${m.cw})`);
+          await key(send, 'Escape');
+          answers.push(await tab.eval('window.__pp'));
+        }
+      }
     }
     await tab.eval(`(window.__pp = hostColour.picker({ at: { x: 0, y: 4 } }), 1)`);
     if (width === 360) {
@@ -1179,7 +1308,7 @@ host.ready().then(() => {
       const fev = typeof sid === 'string' ? (expr) => frameEval(sid, expr) : async (expr) => { const r = await send('Runtime.evaluate', { expression: `(async () => (${expr}))()`, contextId: sid.context, returnByValue: true, awaitPromise: true }); return r.result.value; };
       if (typeof sid === 'string') await cdp.send('Runtime.enable', {}, sid).catch(() => {});
       // Waits (up to 4s) for something in the frame to be true: the toolbar's press reaches the module by a message.
-      const until = async (expr) => { for (let i = 0; i < 40; i += 1) { if (await fev(expr).catch(() => false)) return true; await sleep(100); } return false; };
+      const until = async (expr, tries = 40) => { for (let i = 0; i < tries; i += 1) { if (await fev(expr).catch(() => false)) return true; await sleep(100); } return false; };
       const PICKER = 'Boolean(document.querySelector(".sdk-cp"))';
       const NO_PICKER = '!document.querySelector(".sdk-cp")';
       ok(await fev(`(() => { try { return window.origin === 'null' && window.parent !== window; } catch (e) { return false; } })()`), `${label}: the module's frame is not sandboxed (its origin is not opaque)`);
@@ -1191,12 +1320,24 @@ host.ready().then(() => {
         if (!btn) await sleep(100);
       }
       if (!btn) { ok(false, `${label}: the module's toolbar button "Colour" is not on the page`); return; }
-      await press(send, coarse, btn.x, btn.y);
-      await until(PICKER);
-      const pos = await fev(`(() => { const p = document.querySelector('.sdk-cp'); if (!p) return null; const r = p.getBoundingClientRect(); const a = document.activeElement; return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight, x: window.__tbx, focus: a && a.getAttribute('aria-label') }; })()`);
+      // The first press can be lost under load (the page or the frame is still settling). Wait up to 8s for the picker; if the module
+      // never saw the press (its click count did not move), press once more and wait 8s again. A press the module did see is not
+      // repeated (a second one would close the picker). The failure line says what happened.
+      const under = async () => tab.eval(`(() => { const e = document.elementFromPoint(${btn.x}, ${btn.y}); return e ? e.tagName.toLowerCase() + '.' + String(e.className).slice(0, 60) + ' "' + (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 30) + '"' : 'nothing'; })()`).catch(() => 'unreadable');
+      const story = [];
+      let opened = false;
+      for (let attempt = 1; attempt <= 2 && !opened; attempt += 1) {
+        const clicksBefore = await fev('window.__clicks').catch(() => null);
+        const landed = await under();
+        await press(send, coarse, btn.x, btn.y);
+        opened = await until(PICKER, 80);
+        const clicksAfter = await fev('window.__clicks').catch(() => null);
+        story.push(`press ${attempt} at ${Math.round(btn.x)},${Math.round(btn.y)} landed on ${landed}; the module counted ${clicksAfter} click(s) (${clicksBefore} before); picker ${opened ? 'open' : 'not open'} after 8s`);
+        if (!opened && clicksAfter !== null && clicksAfter !== clicksBefore) break; // the module saw it: pressing again would only toggle
+      }
+      const pos = await fev(`(() => { const p = document.querySelector('.sdk-cp'); if (!p) return null; const r = p.getBoundingClientRect(); const a = document.activeElement; return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight, x: window.__tbx, focus: a && a.getAttribute('aria-label') }; })()`).catch(() => null);
       if (!pos) {
-        const why = await tab.eval(`(() => { const e = document.elementFromPoint(${btn.x}, ${btn.y}); return e ? e.tagName.toLowerCase() + '.' + String(e.className).slice(0, 60) + ' "' + (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 30) + '"' : 'nothing'; })()`);
-        ok(false, `${label}: the toolbar button opened no picker in the module's frame (the press at ${Math.round(btn.x)},${Math.round(btn.y)} landed on ${why}; the module saw x ${JSON.stringify(await fev('window.__tbx'))})`);
+        ok(false, `${label}: the toolbar button opened no picker in the module's frame: ${story.join('; ')}; the module's last x was ${JSON.stringify(await fev('window.__tbx').catch(() => 'unreadable'))}`);
       }
       if (pos) {
         ok(pos.l >= 3.5 && pos.t >= 3.5 && pos.r <= pos.vw + 0.5 && pos.b <= pos.vh + 0.5, `${label}: from the toolbar the picker (${Math.round(pos.l)},${Math.round(pos.t)} to ${Math.round(pos.r)},${Math.round(pos.b)}) is not inside the frame (${pos.vw}x${pos.vh})`);
@@ -1218,6 +1359,35 @@ host.ready().then(() => {
         await press(send, coarse, btn.x, btn.y);
         await until('window.__answers.length === 3');
         same(await fev('[Boolean(document.querySelector(".sdk-cp")), window.__answers.slice(-2)]'), [false, [null, null]], `${label}: the toolbar button pressed again closes the picker (both answers null)`);
+      }
+      // Two toolbar buttons: the first opens its picker, the second then opens its own; the new one has keyboard focus and Escape closes it.
+      if (pos) {
+        const btn2 = await (async () => {
+          for (let i = 0; i < 30; i += 1) {
+            const b = await tab.eval(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getClientRects().length && ((x.getAttribute('aria-label') || '').trim() === 'Shade' || x.textContent.trim() === 'Shade')); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+            if (b) return b;
+            await sleep(100);
+          }
+          return null;
+        })();
+        if (!btn2) ok(false, `${label}: two toolbar buttons: the module's second button "Shade" is not on the page`);
+        else {
+          const picked = () => fev(`(() => { const all = document.querySelectorAll('.sdk-cp'); const p = all[0]; if (!p) return null; const a = document.activeElement; return { count: all.length, name: p.getAttribute('aria-label'), focusInside: p.contains(a), focus: a ? (a.getAttribute('aria-label') || a.className || a.tagName) : 'nothing' }; })()`).catch(() => null);
+          const nBefore = await fev('window.__answers.length');
+          await press(send, coarse, btn.x, btn.y);
+          const first = await until('document.querySelector(".sdk-cp") && document.querySelector(".sdk-cp").getAttribute("aria-label") === "Colour"', 80);
+          ok(first, `${label}: two toolbar buttons: button 1 opened no picker (${JSON.stringify(await picked())})`);
+          await press(send, coarse, btn2.x, btn2.y);
+          await until('document.querySelector(".sdk-cp") && document.querySelector(".sdk-cp").getAttribute("aria-label") === "Shade"', 80);
+          await sleep(150);
+          const second = await picked();
+          same(second, second ? { count: 1, name: 'Shade', focusInside: true, focus: second.focus } : 'an open picker', `${label}: two toolbar buttons: after button 1 then button 2, one picker is open, it is the second's ("Shade"), and keyboard focus is inside it (got ${JSON.stringify(second)})`);
+          await key(send, 'Escape');
+          await until('!document.querySelector(".sdk-cp")', 30);
+          await sleep(100);
+          same(await fev('[Boolean(document.querySelector(".sdk-cp")), window.__answers.length - ' + nBefore + ', window.__answers.at(-1)]'), [false, 2, null], `${label}: two toolbar buttons: Escape closes the second picker (answers: the first closed with null, then the second with null)`);
+          answers.push(null);
+        }
       }
       // A colour field in the module's form.
       const tr = await fev(`(() => { const t = document.querySelector('.sdk-picker'); const r = t.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, name: t.getAttribute('aria-label') }; })()`);

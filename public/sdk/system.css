@@ -4549,7 +4549,7 @@ html[data-dialog-open] { overflow: hidden; }
      palette are dense popovers (8px around a grid). A long list on a phone is the Menus bottom sheet (.sdk-kind-sheet, host.css).
    - Selected is neutral. A list row is the selected fill (Menus). A swatch is a check on a neutral disc. The one exception: the chosen
      day in the date picker is the solid accent fill (Thomas, 2026-10-19), because it is the single value the picker is for.
-   - The palette is data (public/colour-pick.js): colours a person may store, passed to a swatch as --sw.
+   - The palette is data (host.js, COLOUR_PALETTE, or a module's own): colours a person may store, passed to a swatch as --sw.
    Colours are roles, radii are --radius-* tokens. No state draws a coloured edge, a bar or an underline. */
 /* pickers:start */
 :root {
@@ -4634,7 +4634,7 @@ html[data-dialog-open] { overflow: hidden; }
 
 .sdk-hex { font-variant-numeric: tabular-nums; }
 
-/* ---- The colour picker's flyout: a grid of swatches and the browser's own input, "Custom" ---- */
+/* ---- The colour picker's flyout and its grid of swatches (the picker itself is below) ---- */
 .sdk-picker-pop { position: fixed; z-index: var(--z-popover); display: block; width: fit-content; max-width: calc(100vw - 16px); }
 
 .sdk-swatch-grid { display: grid; grid-template-columns: repeat(8, var(--pk-sw-cell)); gap: 0; }
@@ -4685,38 +4685,6 @@ html[data-dialog-open] { overflow: hidden; }
 }
 
 .sdk-swatch[aria-checked="true"] > i { display: block; }
-
-.sdk-swatch-custom {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-  padding: var(--space-2) var(--space-1) 0;
-  border-top: 1px solid var(--edge-hairline);
-  color: var(--text-primary);
-  font-size: var(--text-13);
-}
-
-.sdk-swatch-custom > span { flex: 1 1 auto; }
-
-.sdk-swatch-custom input[type="color"] {
-  flex: none;
-  appearance: none;
-  -webkit-appearance: none;
-  box-sizing: border-box;
-  width: var(--pk-sw);
-  height: var(--pk-sw);
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--edge-hairline);
-  border-radius: var(--radius-small);
-  background: none;
-  cursor: pointer;
-}
-
-.sdk-swatch-custom input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-.sdk-swatch-custom input[type="color"]::-webkit-color-swatch { border: 0; border-radius: var(--radius-min); }
-.sdk-swatch-custom input[type="color"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* ---- The colour picker: host.ui.colorPicker and host.ui.colorField (plan-colour-picker.md, step 2) ----
    The dense popover (.sdk-popover .sdk-popover-dense .sdk-picker-pop) with .sdk-cp: the area (.sdk-cp-area, saturation across and
@@ -4771,8 +4739,9 @@ html[data-dialog-open] { overflow: hidden; }
 
 .sdk-cp-handle {
   position: absolute;
-  left: calc(var(--cp-x) * 100%);
-  top: calc(var(--cp-y) * 100%);
+  /* It travels inside the area, as a slider's thumb does on its track, so at the edges it stays in the popover. */
+  left: calc(var(--cp-thumb) / 2 + (100% - var(--cp-thumb)) * var(--cp-x));
+  top: calc(var(--cp-thumb) / 2 + (100% - var(--cp-thumb)) * var(--cp-y));
   box-sizing: border-box;
   width: var(--cp-thumb);
   height: var(--cp-thumb);
@@ -4869,6 +4838,8 @@ html[data-dialog-open] { overflow: hidden; }
   color: var(--text-muted);
   font-size: var(--text-12);
 }
+
+.sdk-cp-hex-word { flex: none; }
 
 .sdk-cp-hex .sdk-cp-hexin {
   flex: 1 1 auto;

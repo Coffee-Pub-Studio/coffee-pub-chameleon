@@ -2520,6 +2520,7 @@
   const COLOUR_RECENT_MAX = 8;
   const COLOUR_HEX_HINT = 'Type six hex digits, like #2f6cbf'; // the hex field's error line
   let colourSeq = 0;
+  let colourLastOutside = null; // { anchor, at, time }: a module in the page whose picker a press on the page closed
   // The browser's eyedropper: offered where it exists; the first time it refuses (a frame it may not work in), it is hidden from then on.
   let colourDropper = typeof window.EyeDropper === 'function';
   // Any CSS colour the page computed (the menu's surface: rgb(), color(srgb ...)) as #rrggbb, through a 1px canvas; null if it cannot.
@@ -2554,8 +2555,13 @@
     // twice gives the same x). A picker at another point (another toolbar button) closes the first and opens.
     const same = openMenu && openMenu.id === 'sdk-colour' ? openMenu : null;
     const reopening = Boolean(same && (anchor ? same.anchor === anchor : !same.anchor && same.at && same.at.x === at.x && same.at.y === at.y));
+    // A module in the page: the press on the host's toolbar button (outside the module's root) closed it just before this call; that
+    // was the toggle, so it does not open again.
+    const last = colourLastOutside;
+    colourLastOutside = null;
+    const justClosed = Boolean(!same && last && Date.now() - last.time < 600 && (anchor ? last.anchor === anchor : !last.anchor && last.at && last.at.x === at.x && last.at.y === at.y));
     closeMenu();
-    if (reopening) return Promise.resolve(null);
+    if (reopening || justClosed) return Promise.resolve(null);
 
     return new Promise((resolve) => {
       const make = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
@@ -2570,7 +2576,8 @@
           h: editor ? window.innerHeight : env.rootElement.clientHeight || 400,
         };
       };
-      const opener = document.activeElement; // what had the focus before the picker took it
+      // What had the focus before the picker took it: in a module in the page the element inside its shadow root, not the root's host.
+      const opener = (env.root !== document && env.root.activeElement) || document.activeElement;
       const uid = `sdk-cp-${++colourSeq}`;
       const names = new Map();
       for (const g of palette) for (const c of g.colours) if (!names.has(c.color)) names.set(c.color, c.name);
@@ -2587,6 +2594,7 @@
       let outside = false;
       let dropping = false;
       let sent = `${hex}/${alpha}`;
+      let touched = false; // the person changed the colour or the opacity since it opened
 
       const pop = make('div', 'sdk-popover sdk-popover-dense sdk-picker-pop sdk-cp');
       pop.id = uid;
@@ -2602,7 +2610,8 @@
       area.setAttribute('aria-label', 'Saturation and brightness');
       area.setAttribute('aria-valuemin', '0');
       area.setAttribute('aria-valuemax', '100');
-      area.appendChild(make('span', 'sdk-cp-handle'));
+      const handle = make('span', 'sdk-cp-handle');
+      area.appendChild(handle);
       const slider = (cls, name, max) => {
         const s = make('div', `sdk-cp-slider ${cls}`);
         s.tabIndex = 0;
@@ -2727,6 +2736,7 @@
         const key = `${hex}/${alpha}`;
         if (key === sent) return;
         sent = key;
+        touched = true;
         if (onInput) { try { onInput(answer()); } catch (err) { console.error(err); } }
       };
       // A colour from a hex, a swatch or the eyedropper. A grey keeps the hue where it was, black keeps the saturation too, so the
@@ -2754,7 +2764,8 @@
       };
       drag(area, (e) => {
         const r = area.getBoundingClientRect();
-        hsv = { h: hsv.h, s: clamp((e.clientX - r.left) / (r.width || 1)) * 100, v: (1 - clamp((e.clientY - r.top) / (r.height || 1))) * 100 };
+        const hw = handle.offsetWidth || 0; // the handle travels inside the area, as a slider's thumb does on its track
+        hsv = { h: hsv.h, s: clamp((e.clientX - r.left - hw / 2) / Math.max(1, r.width - hw)) * 100, v: (1 - clamp((e.clientY - r.top - hw / 2) / Math.max(1, r.height - hw))) * 100 };
         changed();
       });
       const along = (el, e) => {
@@ -2797,6 +2808,7 @@
         const next = sliderKey(e, hsv.h, 359);
         if (next === null) return;
         e.preventDefault();
+        if (next === Math.min(359, round(hsv.h))) return; // the reading does not move (359.76 at the end): the colour stays
         hsv = { ...hsv, h: next };
         changed();
         announce();
@@ -2820,7 +2832,7 @@
         const c = colourClean(hexIn.value);
         if (!c) { markBad(true); return; }
         setHex(c);
-        finish(true);
+        finish(touched); // Enter on the colour it opened with, nothing changed: null
       });
       hexIn.addEventListener('change', () => {
         if (!pop.isConnected) return;
@@ -2913,7 +2925,9 @@
       if (first && first.dataset.tip) {
         const tip = first.dataset.tip;
         first.removeAttribute('data-tip');
-        first.addEventListener('blur', () => { first.dataset.tip = tip; }, { once: true });
+        const back = () => { first.dataset.tip = tip; first.removeEventListener('blur', back); first.removeEventListener('pointerover', back); };
+        first.addEventListener('blur', back);
+        first.addEventListener('pointerover', back); // before the tooltip's own listener on the document, so a hover shows it
       }
       (first || hexIn).focus({ preventScroll: true });
 
@@ -2923,6 +2937,8 @@
       const onKey = (e) => {
         if (e.key === 'Escape') {
           if (dropping) return;
+          const here = active();
+          if (!here || !pop.contains(here)) { outside = true; finish(false); return; } // typed elsewhere: close, leave the focus where it is
           e.preventDefault();
           e.stopPropagation();
           finish(false);
@@ -2938,10 +2954,19 @@
       const onOutside = (e) => {
         if (dropping || pop.contains(e.target) || (anchor && anchor.contains(e.target))) return;
         outside = true;
-        finish(true);
+        finish(touched); // nothing changed since it opened: null, so an empty field is not given a colour nobody chose
+      };
+      // A module in the page: a press on the page outside the module's root closes it too (inside the root, onOutside above has it).
+      const onPage = (e) => {
+        if (env.root === document) return;
+        const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+        if (path.includes(env.rootElement) || path.includes(pop)) return;
+        colourLastOutside = { anchor, at, time: Date.now() };
+        onOutside(e);
       };
       document.addEventListener('keydown', onKey, true);
       env.root.addEventListener('pointerdown', onOutside, true);
+      if (env.root !== document) document.addEventListener('pointerdown', onPage, true);
       openMenu = {
         id: 'sdk-colour',
         anchor,
@@ -2952,16 +2977,22 @@
           pop.remove();
           document.removeEventListener('keydown', onKey, true);
           env.root.removeEventListener('pointerdown', onOutside, true);
+          document.removeEventListener('pointerdown', onPage, true);
           if (result && opt.recent !== false) writeRecent(result.color);
           if (anchor && anchor.focus && !outside) { try { anchor.focus(); } catch (err) { /* not focusable */ } }
           // A point (a toolbar button, a title-bar action), focus left on nothing: back to what had it when the picker opened (a module in
           // the page, a host page: the toolbar button itself), else, in a frame, the host control that opened it (focus.opener).
+          // Not when another picker or menu took its place (a second toolbar button): that one has the focus, and keeps it.
           else if (!anchor && !outside) {
-            const now = document.activeElement;
-            if (!now || now === document.body) {
+            Promise.resolve().then(() => {
+              if (openMenu) return;
+              const now = document.activeElement;
+              if (now && now !== document.body) return;
               if (opener && opener !== document.body && opener.isConnected && typeof opener.focus === 'function') { try { opener.focus(); } catch (err) { /* not focusable */ } }
-              if (document.activeElement === document.body || !document.activeElement) Promise.resolve().then(() => call('focus.opener', {})).catch(() => {});
-            }
+              const after = document.activeElement;
+              if (!after || after === document.body) return call('focus.opener', {});
+              return null;
+            }).catch(() => {});
           }
           resolve(result);
         },
@@ -2997,7 +3028,9 @@
     // A <label for="<the input's id>"> elsewhere leads to the trigger instead (its `for` moves to the trigger's id; destroy() puts it back).
     const pointed = input.id ? [...(input.labels || [])].filter((l) => l.htmlFor === input.id) : [];
     if (pointed.length) {
-      trigger.id = `${input.id}-colour`;
+      let id = `${input.id}-colour`;
+      for (let n = 2; doc.getElementById(id); n += 1) id = `${input.id}-colour-${n}`;
+      trigger.id = id;
       for (const l of pointed) l.htmlFor = trigger.id;
     }
     // What the input holds ('#rrggbb', or null when it holds no colour), and what the trigger shows (the palette's first colour then).
