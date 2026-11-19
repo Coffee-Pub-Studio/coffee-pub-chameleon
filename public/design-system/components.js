@@ -85,7 +85,7 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
   const CP_PALETTE = [
     ['Light', [['White', '#ffffff'], ['Cream', '#f5eedb'], ['Light grey', '#e4e6ea'], ['Light blue', '#dce9f6'], ['Light green', '#ddeedd'], ['Light yellow', '#fbf4c8'], ['Light pink', '#f8e0e9'], ['Light purple', '#e8e0f5']]],
     ['Dark', [['Black', '#000000'], ['Slate', '#2b3440'], ['Dark grey', '#34373c'], ['Navy', '#14274b'], ['Forest', '#163a2b'], ['Wine', '#4a1b2b'], ['Plum', '#2f2050'], ['Brown', '#3d2b1f']]],
-    ['Strong', [['Red', '#c0392b'], ['Orange', '#b8560f'], ['Gold', '#8a6a00'], ['Green', '#2e7d32'], ['Teal', '#00796c'], ['Blue', '#2f6cbf'], ['Purple', '#7c55c8'], ['Pink', '#b23f7f']]],
+    ['Strong', [['Red', '#c0392b'], ['Orange', '#b8560f'], ['Gold', '#8a6a00'], ['Green', '#2e7d32'], ['Teal', '#00796b'], ['Blue', '#2f6cbf'], ['Purple', '#7c55c8'], ['Pink', '#b23f7f']]],
   ];
   // The same colour maths as host.js (colourToHsv, colourFromHsv), to place the handle and the thumbs for the colour shown.
   const cpHsv = (c) => {
@@ -102,7 +102,7 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
   const CP_AREA = `linear-gradient(to top, ${cpHex(0, 0, 0)}, transparent), linear-gradient(to right, ${cpHex(0, 0, 100)}, transparent)`;
   const CP_HUES = `linear-gradient(to right, ${[0, 60, 120, 180, 240, 300, 360].map((x) => cpHex(x % 360, 100, 100)).join(', ')})`;
   // host.js's own icons (COLOUR_ICONS): the check on a chosen swatch, Pick from the screen and the trigger's chevron.
-  const CP_CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.7 2.4 7.8l1.4-1.4 2.4 2.4 6-6 1.4 1.4z"/></svg>';
+  const CP_CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.6 2.4 7.8l1.4-1.4 2.4 2.4 6-6 1.4 1.4z"/></svg>';
   const CP_DROPPER = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M13.4 1.3a2 2 0 0 0-2.8 0L8.9 3l-.7-.7-1.4 1.4.7.7-5.2 5.2a1 1 0 0 0-.3.7V13h2.7a1 1 0 0 0 .7-.3l5.2-5.2.7.7 1.4-1.4-.7-.7 1.7-1.7a2 2 0 0 0 0-2.8zM4.3 11.5h-.8v-.8l5.1-5.1.8.8z"/></svg>';
   const CP_CHEVRON = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M2.3 5.3 8 11l5.7-5.7-1.4-1.4L8 8.2 3.7 3.9z"/></svg>';
   const cpSwatch = (name, c, on, faint) => `<button type="button" class="sdk-swatch${faint ? ' sdk-cp-faint' : ''}" tabindex="${on ? 0 : -1}" role="radio" aria-checked="${on}" aria-label="${name || c}" data-tip="${name ? name + ', ' : ''}${c}" style="--sw:${c}"><i aria-hidden="true">${CP_CHECK}</i></button>`;
