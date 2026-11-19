@@ -4,6 +4,12 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### Documents: Table, a 100% zoom, up to 500%, and a text size (2026-11-19)
+
+#### Changed
+
+- **Documents 0.11.34: the Insert menu says Table, zoom has a 100% entry and reaches 500%, and a document has a text size.** **Insert** and its group in the rich editor say **Table** where they said Grid. The **Zoom** menu lists **100%** (Ctrl 0) in place of **Actual size** and goes up to 500% for low vision. In Fluid, **Fit width** now scales the page to the window's width, up to 200%, as Paper does. **Page > Text size** (Small to Largest) is kept in the document and shared when writing together. Checked by the module's tests (`npm run check:module -- documents`, including the writing-together checks); not seen in a browser, Safari or Print.
+
 ### Whiteboard: edit a picture (2026-11-19)
 
 #### Added

@@ -84,10 +84,10 @@ The access bundle, steps 1 to 7 ([architecture-access](architecture/architecture
 
 ## Documents: Paper, the rich editor and writing together
 
-Documents 0.7 to 0.11.33 ([userguide-documents](userguides/userguide-documents.md), [architecture-documents](architecture/architecture-documents.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.
+Documents 0.7 to 0.11.34 ([userguide-documents](userguides/userguide-documents.md), [architecture-documents](architecture/architecture-documents.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.
 
 - **The Markdown box is not paged.** In Paper it shows one sheet; the pages appear in reading and in the rich editor.
-- **The editor and the reading view can count pages differently** for a very large grid: the editor does not split a grid between pages, reading does.
+- **The editor and the reading view can count pages differently** for a very large table: the editor does not split a table between pages, reading does.
 - **Writing together is on by default, and not yet tried on Safari, an iPad or a phone** (#665, setting `coediting`, on by default since Documents 0.11.33). Thomas tried it live with several people typing and it worked; the module tests pass. An owner can switch it off in Module Configuration, and an environment that saved it off stays off. Other people's cursors are not drawn. The document lock is kept by the editing pages only: a hostile editor can bypass it.
 - **A paste over the size limit is lost without a word** (#752, from its title; not checked against the code here). Paste it in pieces.
 - **A teal rectangle** can show in the reading sheet where a focus outline is drawn (#778, from its title).
