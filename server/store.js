@@ -274,7 +274,7 @@ const TEMPLATE_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // settings popover except which physical device to use (that's per-machine,
 // stays in the browser's own localStorage) so they follow the account
 // wherever it signs in, not just the browser that last set them.
-const QUALITY_OPTIONS = [360, 540, 720];
+const QUALITY_OPTIONS = [360, 540, 720, 1080];
 const BACKGROUND_MODES = ['none', 'blur', 'image'];
 // "Mod+KeyD" style strings (see public/hotkeys.js): Mod is Cmd on a Mac,
 // Ctrl elsewhere, same as Google Meet's own mute/camera shortcuts.
