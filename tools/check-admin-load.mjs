@@ -115,6 +115,9 @@ async function main() {
             await tab.eval(`location.hash = ${JSON.stringify(hash)}`); await sleep(1200);
             expect(await tab.eval(ready), `${sz}: ${what} is not drawn (${hash})`);
             await sideways(what);
+            // Colours are chosen with the SDK's picker; the only native colour inputs on Manage are the theme editor's (#theme-*).
+            const native = await tab.eval(`[...document.querySelectorAll('input[type=color]')].filter((i) => i.getClientRects().length && !/^theme-/.test(i.id)).map((i) => i.id || i.name || 'an input with no id')`);
+            expect(native.length === 0, `${sz}: ${what} shows a native colour input (${native.join(', ')}); use host.ui.colorField`);
             left();
           };
           const box = (id, sel) => `document.querySelectorAll('#${id} ${sel}').length`;

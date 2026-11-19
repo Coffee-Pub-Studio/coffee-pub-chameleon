@@ -13,6 +13,7 @@
  */
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 
 function slice(file, startMark, endMark) {
   const src = fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
@@ -807,6 +808,41 @@ test('the budget target (#216): the hello carries host.space().budget, the page 
     assert.match(fs.readFileSync(new URL('../public/module-host.js', import.meta.url), 'utf8'), /send\('change', \{[^}]*\.\.\.changeStamp\(d\) \}\)/);
   });
 }
+// A module's frame has system.css but not style.css or /theme.css: its colours are the tokens the page hands over (THEME_TOKENS, readTheme).
+// Every colour role the theme writes must be among them, or a role in the frame differs from the page's; and every token system.css's
+// colour roles are worked out from must be among them or defined by system.css or host.css, or that role is invalid in the frame
+// (a menu, the date picker and the colour picker had no background: their surface comes from --surface-panel).
+test('a module frame gets every colour role the theme writes and every one system.css works its roles out from', () => {
+  const req = createRequire(import.meta.url);
+  const { THEME_BASE, THEME_OPTIONAL } = req('../server/store.js');
+  const { PICKED, NEUTRAL_WASH } = req('../server/theme-css.js');
+  const listOf = (src) => [...src.matchAll(/'(--[a-z0-9-]+)'/g)].map((m) => m[1]);
+  const tokens = listOf(slice('public/module-host.js', 'const THEME_TOKENS = [', '];'));
+  const sent = new Set(tokens);
+  const written = [...THEME_BASE, ...THEME_OPTIONAL, ...PICKED, ...NEUTRAL_WASH.map(([k]) => k)].map((k) => `--${k}`);
+  assert.deepEqual(written.filter((t) => !sent.has(t)), [], 'roles /theme.css writes that a frame is not given (module-host.js THEME_TOKENS)');
+  const css = fs.readFileSync(new URL('../public/sdk/system.css', import.meta.url), 'utf8');
+  const roles = css.slice(css.indexOf('/* ================= Colour roles'), css.indexOf('\n}\n', css.indexOf('/* ================= Colour roles')));
+  assert.ok(roles.length > 1000, 'system.css: the colour roles block was not found');
+  const rootOf = (text) => [...text.matchAll(/(?:^|\n)\s*:root\s*\{([\s\S]*?)\n\}/g)].map((m) => m[1]).join('\n');
+  const defined = new Set([...`${rootOf(css)}\n${rootOf(fs.readFileSync(new URL('../public/sdk/host.css', import.meta.url), 'utf8'))}`
+    .matchAll(/(?:^|[;{\s])(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  const inputs = [...new Set([...roles.matchAll(/var\((--[a-z0-9-]+)/g)].map((m) => m[1]))];
+  assert.deepEqual(inputs.filter((t) => !defined.has(t) && !sent.has(t)), [], 'tokens system.css\'s colour roles read that a frame neither defines nor is given');
+  assert.deepEqual(listOf(slice('public/design-system/ds.js', 'const THEME_TOKENS = [', '];')), tokens, 'public/design-system/ds.js THEME_TOKENS must be module-host.js\'s list');
+});
+// A role the page leaves out (the theme does not set it) must leave a frame's :root too, or the frame keeps the old theme's value.
+test('a module frame drops a theme role the page no longer sends', () => {
+  const src = slice('public/sdk/host.js', 'let themed = new Set();', 'themed = new Set(Object.keys(theme));\n    };');
+  const set = new Map();
+  const style = { setProperty: (k, v) => set.set(k, v), removeProperty: (k) => set.delete(k) };
+  const applyTheme = new Function('document', `${src}\nreturn applyTheme;`)({ documentElement: { style } });
+  applyTheme({ '--bg': '#fff', '--tone-gold': '#8c6d2c' });
+  applyTheme({ '--bg': '#000' });
+  assert.deepEqual([...set], [['--bg', '#000']], 'a role not sent this time stayed set');
+  applyTheme({ '--bg': '#000', '--tone-gold': '#111' });
+  assert.equal(set.get('--tone-gold'), '#111');
+});
 await Promise.all(pending);
 if (failed) process.exit(1);
 console.log(`check-module-host: OK (${n} groups)`);

@@ -172,6 +172,17 @@ Documents up to 0.6.1 ([userguide-documents](userguides/userguide-documents.md),
 - **No shared "tag this" control on a row.** Each module places its own button.
 - **No divider or group for action buttons in a toolbar.** A module's toolbar buttons all sit ungrouped; a module that wants a group cannot draw a line between them.
 
+## The colour picker: gaps
+
+Recorded with the colour picker (#933, [plan-colour-picker](plans/plan-colour-picker.md); [api-module-sdk](api/api-module-sdk.md), "Choosing a colour"), from the builders' and QA's reports and the code on its branch.
+
+- **Recent is not kept in a sandboxed module.** A module that runs sandboxed has no storage, so the picker's **Recent** row stays empty there, the same as the kind picker's recent choices. A module that runs in the page, and the host's own pages, keep it. There is no workaround.
+- **Pick from the screen is Chromium only.** The eyedropper shows only in browsers that have one (Chrome, Edge); in Safari and Firefox it is hidden. A real pick inside a sandboxed module was not tried. If it fails once, it is hidden until the page is loaded again. Workaround: type the hex code.
+- **A sandboxed module's frame never gets the light-mode attribute.** The frame now gets every theme role, but not `data-theme-mode="light"` on its root, which `system.css` reads for a few light values. So in light mode, inside an uploaded module, shadows are heavier than on the page, and `--text-danger` and the `--map-*` roles keep their dark values. The rest of the theme matches.
+- **`--status-danger-text` on a popover is 4.4:1 in dark mode** on the default theme's menu surface, under the 4.5:1 for words. The colour picker mixes its own hex error line toward the text colour to reach 5.35:1; other popovers that use the role as it is were not changed.
+- **A menu in a module that runs in the page stays open after a press outside the module.** `host.menu.show` closes on a press inside the module but not on the page around it, and Escape typed anywhere on the page closes it and takes the focus. The colour picker fixed this for itself; menus were not changed. Workaround: press Escape, or press inside the module.
+- **At 360 pixels the swatches are about 42 pixels wide.** On a 360-pixel phone the eight swatch cells narrow so nothing scrolls sideways; they keep their 44-pixel height, but are just under 44 pixels wide.
+
 ## Stacked modules and the tab order without moveBefore
 
 A stack of docked modules keeps its sections in the page in the order the stack shows them with the browser's

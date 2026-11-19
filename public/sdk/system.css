@@ -4549,7 +4549,7 @@ html[data-dialog-open] { overflow: hidden; }
      palette are dense popovers (8px around a grid). A long list on a phone is the Menus bottom sheet (.sdk-kind-sheet, host.css).
    - Selected is neutral. A list row is the selected fill (Menus). A swatch is a check on a neutral disc. The one exception: the chosen
      day in the date picker is the solid accent fill (Thomas, 2026-10-19), because it is the single value the picker is for.
-   - The palette is data (public/colour-pick.js): colours a person may store, passed to a swatch as --sw.
+   - The palette is data (host.js, COLOUR_PALETTE, or a module's own): colours a person may store, passed to a swatch as --sw.
    Colours are roles, radii are --radius-* tokens. No state draws a coloured edge, a bar or an underline. */
 /* pickers:start */
 :root {
@@ -4634,7 +4634,7 @@ html[data-dialog-open] { overflow: hidden; }
 
 .sdk-hex { font-variant-numeric: tabular-nums; }
 
-/* ---- The colour picker's flyout: a grid of swatches and the browser's own input, "Custom" ---- */
+/* ---- The colour picker's flyout and its grid of swatches (the picker itself is below) ---- */
 .sdk-picker-pop { position: fixed; z-index: var(--z-popover); display: block; width: fit-content; max-width: calc(100vw - 16px); }
 
 .sdk-swatch-grid { display: grid; grid-template-columns: repeat(8, var(--pk-sw-cell)); gap: 0; }
@@ -4686,37 +4686,209 @@ html[data-dialog-open] { overflow: hidden; }
 
 .sdk-swatch[aria-checked="true"] > i { display: block; }
 
-.sdk-swatch-custom {
+/* ---- The colour picker: host.ui.colorPicker and host.ui.colorField (plan-colour-picker.md, step 2) ----
+   The dense popover (.sdk-popover .sdk-popover-dense .sdk-picker-pop) with .sdk-cp: the area (.sdk-cp-area, saturation across and
+   brightness up, a round handle), Hue and Opacity (.sdk-cp-slider: a track and a thumb), the line under a switched-off Opacity
+   (.sdk-cp-note), the row (.sdk-cp-current, the Hex field .sdk-cp-hex, Pick from the screen .sdk-cp-dropper), the hex error line
+   (.sdk-error), the palette's groups and Recent (.sdk-cp-swatches: .sdk-cp-head over a .sdk-swatch-grid), and the live line (.sdk-cp-live).
+   Every colour in it that is the person's colour is data, set by host.js as a custom property on the popover: --cp-hue (the pure hue
+   under the area), --cp-color (the colour), --cp-alpha (the opacity, a percent), --cp-area (the area's white and black, worked out
+   from the colour maths), --cp-hue-track (the hue run, likewise), --cp-x and --cp-y (the handle), and --cp-at on each slider (its
+   thumb, 0 to 1); a swatch's colour is --sw. The checked ground behind Opacity is two see-through mixes of --text-primary over the surface.
+   A swatch with under 3:1 against the menu's surface (worked out in host.js) is .sdk-cp-faint: a stronger edge. Selected is the check
+   on its neutral disc, as above. Only the area and the sliders take touch dragging (touch-action: none); 44px targets at 640px and below. */
+.sdk-cp {
+  --cp-hue: var(--text-muted);
+  --cp-color: var(--text-muted);
+  --cp-alpha: 100%;
+  --cp-area: none;
+  --cp-hue-track: none;
+  --cp-x: 0;
+  --cp-y: 0;
+  --cp-area-h: 140px;
+  --cp-bar-h: 20px;
+  --cp-track-h: 12px;
+  --cp-thumb: 16px;
+  --cp-ctl-h: var(--btn-h-small);
+  --cp-check-a: color-mix(in srgb, var(--text-primary) 16%, transparent);
+  --cp-check-b: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  --cp-checks: repeating-conic-gradient(var(--cp-check-a) 0 25%, var(--cp-check-b) 0 50%);
+  /* The hex error line: --status-danger-text is 4.4:1 on the dark menu surface of the default theme; a step toward the text colour
+     takes it past 4.5:1 in both modes. */
+  --cp-error: color-mix(in srgb, var(--status-danger-text) 80%, var(--text-primary));
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-2);
-  margin-top: var(--space-2);
-  padding: var(--space-2) var(--space-1) 0;
-  border-top: 1px solid var(--edge-hairline);
-  color: var(--text-primary);
-  font-size: var(--text-13);
+  overflow: auto;
 }
 
-.sdk-swatch-custom > span { flex: 1 1 auto; }
-
-.sdk-swatch-custom input[type="color"] {
+.sdk-cp-area {
+  position: relative;
   flex: none;
-  appearance: none;
-  -webkit-appearance: none;
   box-sizing: border-box;
-  width: var(--pk-sw);
-  height: var(--pk-sw);
-  margin: 0;
-  padding: 0;
+  align-self: stretch;
+  width: auto;
+  height: var(--cp-area-h);
+  /* The handle is centred on the colour, so at an edge half of it lies outside the area: the area keeps that half inside the popover. */
+  margin-inline: max(0px, calc(var(--cp-thumb) / 2 - var(--pop-pad, 0px)));
   border: 1px solid var(--edge-hairline);
   border-radius: var(--radius-small);
-  background: none;
-  cursor: pointer;
+  background-color: var(--cp-hue);
+  background-image: var(--cp-area);
+  cursor: crosshair;
+  touch-action: none;
+  outline: none;
 }
 
-.sdk-swatch-custom input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
-.sdk-swatch-custom input[type="color"]::-webkit-color-swatch { border: 0; border-radius: var(--radius-min); }
-.sdk-swatch-custom input[type="color"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.sdk-cp-handle {
+  position: absolute;
+  left: calc(var(--cp-x) * 100%);
+  top: calc(var(--cp-y) * 100%);
+  box-sizing: border-box;
+  width: var(--cp-thumb);
+  height: var(--cp-thumb);
+  border: 2px solid var(--surface-popover);
+  border-radius: var(--radius-round);
+  background: var(--cp-color);
+  box-shadow: 0 0 0 1px var(--text-primary);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.sdk-cp-slider {
+  --cp-at: 0;
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--cp-bar-h);
+  border-radius: var(--radius-small);
+  cursor: pointer;
+  touch-action: none;
+  outline: none;
+}
+
+.sdk-cp-track {
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  box-sizing: border-box;
+  height: var(--cp-track-h);
+  border: 1px solid var(--edge-hairline);
+  border-radius: var(--radius-small);
+  transform: translateY(-50%);
+}
+
+.sdk-cp-hue .sdk-cp-track { background-image: var(--cp-hue-track); }
+
+.sdk-cp-alpha .sdk-cp-track {
+  background-color: var(--surface-popover);
+  background-image: linear-gradient(to right, transparent, var(--cp-color)), var(--cp-checks);
+  background-size: 100% 100%, 8px 8px;
+}
+
+.sdk-cp-thumb {
+  position: absolute;
+  top: 50%;
+  left: calc((100% - var(--cp-thumb)) * var(--cp-at));
+  box-sizing: border-box;
+  width: var(--cp-thumb);
+  height: var(--cp-thumb);
+  border: 2px solid var(--surface-popover);
+  border-radius: var(--radius-round);
+  box-shadow: 0 0 0 1px var(--text-primary);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.sdk-cp-hue .sdk-cp-thumb { background: var(--cp-hue); }
+.sdk-cp-alpha .sdk-cp-thumb { background: color-mix(in srgb, var(--cp-color) var(--cp-alpha), transparent); }
+
+.sdk-cp-area:focus-visible, .sdk-cp-slider:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Opacity where it is not kept: drawn at 100, half strength, the line under it says why. */
+.sdk-cp-slider[aria-disabled="true"] { cursor: not-allowed; }
+.sdk-cp-slider[aria-disabled="true"] > * { opacity: 0.5; }
+
+.sdk-cp-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 16px;
+}
+
+.sdk-cp-row { display: flex; align-items: center; gap: var(--space-2); }
+
+.sdk-cp-current {
+  flex: none;
+  box-sizing: border-box;
+  width: var(--cp-ctl-h);
+  height: var(--cp-ctl-h);
+  border: 1px solid var(--edge-hairline);
+  border-radius: var(--radius-small);
+  background-color: var(--surface-popover);
+  background-image: linear-gradient(to right, var(--cp-color) 50%, color-mix(in srgb, var(--cp-color) var(--cp-alpha), transparent) 50%), var(--cp-checks);
+  background-size: 100% 100%, 8px 8px;
+}
+
+.sdk-cp-hex {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.sdk-cp-hex-word { flex: none; }
+
+.sdk-cp-hex .sdk-cp-hexin {
+  flex: 1 1 auto;
+  width: 0;
+  min-width: 0;
+  height: var(--cp-ctl-h);
+  font-variant-numeric: tabular-nums;
+}
+
+.sdk-cp-row .sdk-cp-dropper { width: var(--cp-ctl-h); height: var(--cp-ctl-h); }
+.sdk-cp-dropper[hidden] { display: none; }
+
+.sdk-cp .sdk-cp-error { padding-top: 0; color: var(--cp-error); }
+
+.sdk-cp-swatches { display: flex; flex-direction: column; }
+
+/* Eight cells to a row whatever the room: a cell narrows (never past its swatch) when the box is under eight 44px cells wide (a 360px
+   phone), and keeps its height, so each target stays 44px tall. */
+.sdk-cp .sdk-swatch-grid { grid-template-columns: repeat(8, minmax(var(--pk-sw), var(--pk-sw-cell))); }
+.sdk-cp .sdk-swatch { width: 100%; }
+
+.sdk-cp-head {
+  padding: var(--space-1) var(--space-0) var(--space-0);
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-weight: var(--weight-strong);
+  letter-spacing: var(--tracking-caps);
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
+.sdk-cp .sdk-swatch > i svg { display: block; width: 10px; height: 10px; margin: 3px; }
+.sdk-swatch.sdk-cp-faint::before { border-color: color-mix(in srgb, var(--text-muted) 75%, var(--edge-hairline)); }
+
+.sdk-cp-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .sdk-cp { --cp-area-h: 160px; --cp-bar-h: 44px; --cp-thumb: 24px; --cp-ctl-h: 44px; }
+  .sdk-cp-hex .sdk-cp-hexin { font-size: var(--text-16); }
+}
 
 /* ---- The date picker: a dense popover with a month grid ---- */
 .sdk-dp { position: fixed; z-index: var(--z-popover); display: block; width: fit-content; max-width: calc(100vw - 16px); }

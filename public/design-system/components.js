@@ -79,17 +79,81 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
     });
     return s;
   };
-  const SW = ['#c47a2c', '#2c7ac4', '#3f9a5a', '#2a9d9a', '#7a2cc4', '#c43a2c', '#d9822b', '#c42c7a'];
+  // The colour picker (host.ui.colorPicker, host.ui.colorField), drawn as the SDK draws it. A page can read the default palette
+  // (window.hostColour.palette), but this catalogue is static markup built before any page global is there, so the three groups are
+  // written here as in public/sdk/host.js (COLOUR_PALETTE): change both together. The colours in it are data, set as custom properties (--sw, --cp-*), as host.js sets them.
+  const CP_PALETTE = [
+    ['Light', [['White', '#ffffff'], ['Cream', '#f5eedb'], ['Light grey', '#e4e6ea'], ['Light blue', '#dce9f6'], ['Light green', '#ddeedd'], ['Light yellow', '#fbf4c8'], ['Light pink', '#f8e0e9'], ['Light purple', '#e8e0f5']]],
+    ['Dark', [['Black', '#000000'], ['Slate', '#2b3440'], ['Dark grey', '#34373c'], ['Navy', '#14274b'], ['Forest', '#163a2b'], ['Wine', '#4a1b2b'], ['Plum', '#2f2050'], ['Brown', '#3d2b1f']]],
+    ['Strong', [['Red', '#c0392b'], ['Orange', '#b8560f'], ['Gold', '#8a6a00'], ['Green', '#2e7d32'], ['Teal', '#00796b'], ['Blue', '#2f6cbf'], ['Purple', '#7c55c8'], ['Pink', '#b23f7f']]],
+  ];
+  // The same colour maths as host.js (colourToHsv, colourFromHsv), to place the handle and the thumbs for the colour shown.
+  const cpHsv = (c) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255);
+    const max = Math.max(r, g, b); const d = max - Math.min(r, g, b);
+    let hh = 0;
+    if (d) hh = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return { h: (hh * 60 + 360) % 360, s: max ? (d / max) * 100 : 0, v: max * 100 };
+  };
+  const cpHex = (h, s, v) => {
+    const f = (k) => { const x = (k + h / 60) % 6; return v / 100 - (v / 100) * (s / 100) * Math.max(0, Math.min(x, 4 - x, 1)); };
+    return '#' + [f(5), f(3), f(1)].map((x) => Math.round(x * 255).toString(16).padStart(2, '0')).join('');
+  };
+  const CP_AREA = `linear-gradient(to top, ${cpHex(0, 0, 0)}, transparent), linear-gradient(to right, ${cpHex(0, 0, 100)}, transparent)`;
+  const CP_HUES = `linear-gradient(to right, ${[0, 60, 120, 180, 240, 300, 360].map((x) => cpHex(x % 360, 100, 100)).join(', ')})`;
+  // host.js's own icons (COLOUR_ICONS): the check on a chosen swatch, Pick from the screen and the trigger's chevron.
+  const CP_CHECK = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.6 2.4 7.8l1.4-1.4 2.4 2.4 6-6 1.4 1.4z"/></svg>';
+  const CP_DROPPER = '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M13.4 1.3a2 2 0 0 0-2.8 0L8.9 3l-.7-.7-1.4 1.4.7.7-5.2 5.2a1 1 0 0 0-.3.7V13h2.7a1 1 0 0 0 .7-.3l5.2-5.2.7.7 1.4-1.4-.7-.7 1.7-1.7a2 2 0 0 0 0-2.8zM4.3 11.5h-.8v-.8l5.1-5.1.8.8z"/></svg>';
+  const CP_CHEVRON = '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M2.3 5.3 8 11l5.7-5.7-1.4-1.4L8 8.2 3.7 3.9z"/></svg>';
+  const cpSwatch = (name, c, on, faint) => `<button type="button" class="sdk-swatch${faint ? ' sdk-cp-faint' : ''}" tabindex="${on ? 0 : -1}" role="radio" aria-checked="${on}" aria-label="${name || c}" data-tip="${name ? name + ', ' : ''}${c}" style="--sw:${c}"><i aria-hidden="true">${CP_CHECK}</i></button>`;
+  // A group of swatches (the palette, or Recent): one radio group, a heading over each row of eight. faint: the names with the stronger edge.
+  const cpSwatches = (label, groups, chosen, faint = []) => `<div class="sdk-cp-swatches" role="radiogroup" aria-label="${label}">` + groups.map(([head, list]) => `<div class="sdk-cp-head" aria-hidden="true">${head}</div><div class="sdk-swatch-grid" role="presentation">${list.map(([n, c]) => cpSwatch(n, c, c === chosen, faint.includes(n || c))).join('')}</div>`).join('') + '</div>';
+  // The hex row: the colour as it is, Hex, and Pick from the screen (hidden where the browser has no eyedropper).
+  const cpRow = (c, o = {}) => `<div class="sdk-cp-row"><span class="sdk-cp-current" aria-hidden="true"></span><label class="sdk-cp-hex"><span class="sdk-cp-hex-word">Hex</span><input class="sdk-cp-hexin" type="text" autocomplete="off" spellcheck="false" maxlength="9" autocapitalize="off" value="${o.typed || c}"${o.bad ? ' aria-invalid="true" aria-describedby="cp-err"' : ''}></label><button type="button" class="sdk-icon-btn btn-small btn-quiet sdk-cp-dropper" aria-label="Pick from the screen" data-tip="Pick from the screen"${o.noDropper ? ' hidden' : ''}>${CP_DROPPER}</button></div><p class="sdk-error sdk-cp-error" id="cp-err" aria-live="polite">${o.bad ? 'Type six hex digits, like #2f6cbf' : ''}</p>`;
+  // The popover around its parts, with the colour's custom properties as host.js sets them. width: a part drawn alone keeps the picker's width.
+  const cpPop = (c, alpha, inner, width) => {
+    const { h, s, v } = cpHsv(c);
+    return `<div class="sdk-popover sdk-popover-dense sdk-picker-pop sdk-cp" role="dialog" aria-label="Colour" style="--cp-area:${CP_AREA};--cp-hue-track:${CP_HUES};--cp-hue:${cpHex(h, 100, 100)};--cp-color:${c};--cp-alpha:${alpha}%;--cp-x:${s / 100};--cp-y:${1 - v / 100}${width ? ';width:' + width + 'px' : ''}">${inner}</div>`;
+  };
+  const cpSlider = (cls, name, max, now, text, off) => `<div class="sdk-cp-slider ${cls}" tabindex="0" role="slider" aria-label="${name}" aria-valuemin="0" aria-valuemax="${max}" aria-valuenow="${now}" aria-valuetext="${text}" aria-orientation="horizontal"${off ? ' aria-disabled="true" aria-describedby="cp-note"' : ''} style="--cp-at:${now / max}"><span class="sdk-cp-track"></span><span class="sdk-cp-thumb"></span></div>`;
+  // The whole picker: the area, Hue, Opacity (switched off where the opacity is not kept), the hex row, the palette and Recent.
+  const cpPicker = (c, alpha, o = {}) => {
+    const { h, s, v } = cpHsv(c);
+    const r = Math.round;
+    const off = o.opacity === false;
+    const a = off ? 100 : alpha;
+    const named = new Map(CP_PALETTE.flatMap(([, list]) => list.map(([n, x]) => [x, n])));
+    const recent = (o.recent || []).map((x) => [named.get(x) || '', x]);
+    const inner = `<div class="sdk-cp-area" tabindex="0" role="slider" aria-label="Saturation and brightness" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${r(s)}" aria-valuetext="Saturation ${r(s)} percent, brightness ${r(v)} percent"><span class="sdk-cp-handle"></span></div>`
+      + cpSlider('sdk-cp-hue', 'Hue', 359, Math.min(359, r(h)), `Hue ${Math.min(359, r(h))} degrees`)
+      + cpSlider('sdk-cp-alpha', 'Opacity', 100, a, `Opacity ${a} percent`, off)
+      + (off ? '<p class="sdk-cp-note" id="cp-note">Opacity isn\'t kept here.</p>' : '')
+      + cpRow(c, o)
+      + cpSwatches('Colours', CP_PALETTE, c, o.faint)
+      + (recent.length ? cpSwatches('Recent', [['Recent', recent]], c, o.faint) : '')
+      + '<div class="sdk-cp-live" aria-live="polite"></div>';
+    return cpPop(c, a, inner);
+  };
+  const CP_RECENT = ['#00796b', '#d4572a', '#fbf4c8'];
+  const CP_LIGHT = CP_PALETTE[0][1].map(([n]) => n);
   F.push({
     id: 'pickers', group: 'Controls', name: 'Pickers: date, kind, colour',
-    desc: 'The SDK\'s own pickers: the date picker\'s month (<code>.sdk-dp</code>, from host.ui.datePicker), the kind picker\'s field (<code>.sdk-kind-field</code>, host.ui.kindPicker; its list is under Menus) and the colour picker (<code>.sdk-picker</code> with <code>.sdk-picker-pop</code> and <code>.sdk-swatch</code>). Live ones are under Live SDK pieces.',
+    desc: 'The SDK\'s own pickers: the date picker\'s month (<code>.sdk-dp</code>, from host.ui.datePicker), the kind picker\'s field (<code>.sdk-kind-field</code>, host.ui.kindPicker; its list is under Menus) and the colour picker (<code>.sdk-cp</code>, a dense popover). <code>host.ui.colorPicker({ anchor | at, value, opacity, palette, recent, label, onInput })</code> opens the picker and answers <code>{ color, opacity }</code>, or null when the person cancels; <code>host.ui.colorField(input, options)</code> puts a trigger (<code>.sdk-picker</code>) on an input in a form and opens the picker under it. The colours inside are data (<code>--sw</code>, <code>--cp-*</code>); the picker itself is theme tokens. Live ones are under Live SDK pieces.',
     variants: [
       { n: 'Date picker month .sdk-dp', ctx: 'host', sel: '.sdk-dp', static: true, note: 'Today is a fill; the chosen day is the accent; a range is a tint. The real one is placed under its field.', html: '<div class="sdk-dp"><div class="sdk-dp-head"><button type="button" class="sdk-icon-btn btn-quiet btn-small" aria-label="Earlier">' + fa('chevron-left') + '</button><strong class="sdk-dp-title">October 2026</strong><button type="button" class="sdk-icon-btn btn-quiet btn-small" aria-label="Later">' + fa('chevron-right') + '</button></div><div class="sdk-dp-grid">' + dpDays() + '</div><div class="sdk-dp-foot"><button type="button" class="btn btn-small btn-quiet">Today</button><button type="button" class="btn btn-small btn-quiet">Clear</button></div></div>' },
       { n: 'Kind picker field .sdk-kind-field', ctx: 'host', sel: '.sdk-kind-field', html: '<div class="sdk-kind" style="max-width:280px"><div class="sdk-kind-field"><span class="sdk-kind-chip" style="--kind-color:#c47a2c">' + fa('landmark') + '</span><input class="sdk-kind-input" value="Sight" aria-label="What is it"><span class="sdk-kind-chevron">' + fa('chevron-down') + '</span></div></div>', target: '.sdk-kind-field', states: [{ n: 'Focus', force: 'focus' }, { n: 'Open', html: '<div class="sdk-kind open" style="max-width:280px"><div class="sdk-kind-field"><span class="sdk-kind-chip" style="--kind-color:#c47a2c">' + fa('landmark') + '</span><input class="sdk-kind-input" value="Sight" aria-label="What is it"><span class="sdk-kind-chevron">' + fa('chevron-down') + '</span></div></div>' }] },
-      { n: 'Colour picker .sdk-picker', ctx: 'app', sel: '.sdk-picker', note: 'public/colour-pick.js: the trigger shows the swatch and its value; the swatches open under it.', html: '<button type="button" class="sdk-picker" aria-haspopup="dialog" aria-expanded="false"><span class="sdk-picker-sw" style="--sw:#2c7ac4" aria-hidden="true"></span><span class="sdk-picker-value"><span class="sdk-hex">#2c7ac4</span></span><span class="sdk-picker-icon">' + fa('chevron-down') + '</span></button>', states: ['hover', 'focus', { n: 'Open', attrs: { 'aria-expanded': 'true' } }, 'disabled'] },
-      { n: 'Colour swatches .sdk-picker-pop', ctx: 'app', sel: '.sdk-swatch-grid', static: true, target: '.sdk-swatch', states: ['hover', 'focus'], html: '<div class="sdk-popover sdk-popover-dense sdk-picker-pop" role="dialog" aria-label="Colour"><div class="sdk-swatch-grid" role="radiogroup" aria-label="Colours">' + SW.map((c, i) => `<button type="button" class="sdk-swatch" role="radio" aria-checked="${i === 1}" aria-label="${c}" style="--sw:${c}">${fa('check')}</button>`).join('') + '</div><label class="sdk-swatch-custom"><span>Custom</span><input type="color" value="#888888" aria-label="Custom colour"></label></div>' },
+      { n: 'Colour field trigger .sdk-picker', ctx: 'host', sel: '.sdk-picker', note: 'host.ui.colorField: the swatch, the hex and a chevron, on an input that stays hidden and holds the colour. Pressed, it opens the picker under it.', html: '<button type="button" class="sdk-picker" aria-haspopup="dialog" aria-expanded="false" aria-label="Colour, Blue, #2f6cbf. Change it"><span class="sdk-picker-sw" aria-hidden="true" style="--sw:#2f6cbf"></span><span class="sdk-picker-value"><span class="sdk-hex">#2f6cbf</span></span><span class="sdk-picker-icon" aria-hidden="true">' + CP_CHEVRON + '</span></button>', states: ['hover', 'focus', { n: 'Open', attrs: { 'aria-expanded': 'true' } }, 'disabled'] },
+      { n: 'Colour picker .sdk-cp', ctx: 'host', sel: '.sdk-cp', static: true, wide: true, target: '.sdk-cp-area', note: 'host.ui.colorPicker, from top to bottom: the area (saturation across, brightness up), Hue, Opacity over a checked ground, the hex row, the palette\'s three groups (Light, Dark, Strong) and Recent. The chosen colour has the check. Where the colour is kept without its opacity (opacity: false), Opacity is drawn at 100, switched off, with the line under it. The Light group has the stronger edge, as the real picker draws it on a light menu (on a dark menu it is the Dark group, worked out when it opens).',
+        html: cpPicker('#2f6cbf', 80, { recent: CP_RECENT, faint: CP_LIGHT }),
+        states: [{ n: 'Focus on the area', force: 'focus' }, { n: 'Opacity not kept', html: cpPicker('#2f6cbf', 100, { opacity: false, recent: CP_RECENT, faint: CP_LIGHT }) }] },
+      { n: 'The hex row .sdk-cp-row', ctx: 'host', sel: '.sdk-cp-row', static: true, note: 'A bad hex keeps the colour as it was and gets the line under it. Pick from the screen shows only where the browser has an eyedropper that works there (not in Safari or Firefox).',
+        html: cpPop('#2f6cbf', 100, cpRow('#2f6cbf'), 240),
+        states: [{ n: 'A bad hex', html: cpPop('#2f6cbf', 100, cpRow('#2f6cbf', { typed: '#2f6cb', bad: true }), 240) }, { n: 'No eyedropper', html: cpPop('#2f6cbf', 100, cpRow('#2f6cbf', { noDropper: true }), 240) }] },
+      { n: 'Pale swatches .sdk-cp-faint', ctx: 'host', sel: '.sdk-swatch.sdk-cp-faint', static: true, note: 'A swatch with under 3:1 against the menu\'s surface gets a stronger edge, worked out when the picker opens: the Light group on a light menu, the Dark group on a dark one. Here the Light group has it, whatever the mode.',
+        html: cpPop('#ffffff', 100, cpSwatches('Colours', [CP_PALETTE[0]], '#ffffff')),
+        states: [{ n: 'Stronger edge', html: cpPop('#ffffff', 100, cpSwatches('Colours', [CP_PALETTE[0]], '#ffffff', CP_LIGHT)) }, { n: 'Focus on a swatch', html: cpPop('#ffffff', 100, cpSwatches('Colours', [CP_PALETTE[0]], '#ffffff', CP_LIGHT).replace('class="sdk-swatch sdk-cp-faint" tabindex="-1"', 'class="sdk-swatch sdk-cp-faint ds-force-focus" tabindex="-1"')) }] },
     ],
-    notMounted: 'the kind picker\'s phone sheet (fixed to the screen) and the date picker\'s placement under its field.',
+    notMounted: 'the kind picker\'s phone sheet (fixed to the screen), the date picker\'s and the colour picker\'s placement under their field, and the eyedropper itself.',
   });
 
   // ---- Links (public/style.css) ----

@@ -565,7 +565,7 @@ Anything more than one module needs belongs in the SDK, not copied into each mod
 - `host.ui.currencySelect(select, { value, empty, onChange })` fills a `<select>` you already have with the currencies the server accepts: a **Common** group, then **All currencies**, each by its name in the viewer's language (the bare code where there is no name). `value` is matched in capitals; a value not on the list (an old or odd code) gets its own selected option, so nothing stored disappears. `empty: true` adds a first choice, "Default (<the environment's currency>)", whose value is `""`; give a string instead to label it yourself. `onChange(code)` runs on each change (`""` for the default). It returns `{ set(value), value, destroy() }`. Call it after `host.ready()`, since the list comes with the handshake; with no list there it falls back to the browser's own list, then to the common codes.
 - **Labels.** `host.locale().labels` holds the module's own renameable words (its manifest's `labels`) as this place reads them, each `{ one, many, a }`: the template's word where it renames one, else the manifest's. `host.util.label(key, { many, cap, a, fallback })` answers one the way `host.util.word` answers a level: `label('event')` "meeting", `label('event', { many: true, cap: true })` "Meetings", `label('event', { a: true })` "a meeting". A key the manifest does not declare answers `fallback` when given, else the key itself. It is plain text: set it with `textContent`, never as HTML. Draw every word a person reads that a template may rename through it, and keep the rest as written; `tools/check-names.mjs --words` holds labels like words. No template id or name ever reaches a module.
 - `host.ui.viewSwitch({ id, options, value, onChange, zone?, label? })` draws a labelled view or filter switch in the toolbar (see "The toolbar" below) and owns the boilerplate every module drawing one otherwise repeats: it only calls `host.toolbar.set` when the value or an option's label actually changed, and wires the `toolbar` event for you. Call `.set(value, options?)` on every render (it no-ops when nothing changed) rather than diffing and calling `toolbar.set` yourself. A module may make more than one (Research: whose items, then Cards/List): every live switch shares the toolbar row, drawn in the order they were made with a separator between, and any one changing redraws the row; `destroy()` takes one out again. Do not call `toolbar.set` yourself while a switch is live, since the next switch change would draw over it. A switch holds up to 12 options. `label` names the switch: it is the switch's accessible name and its heading in the **More** menu, and without it the name is **Tools**. It is a plain string, spaces collapsed, at most 30 characters; it is ignored if it is empty, not a string, or contains `<` or `>`, and direction and zero-width characters are removed from it. `zone: 'end'` puts the switch in the row's right zone (see "The toolbar"). Each option is `{ id, label, icon?, regular? }`: give every option an `icon` (a Font Awesome name; `regular` for the outlined set) and the switch shows the icon beside the word, and only the icon when the row is too narrow for the words, the word staying as the tooltip and what a screen reader reads; an option without an icon always shows its word. With `element` (an element of your own page), the switch is drawn there instead of in the toolbar, in the same look and fitted to that element's parent, for a page with no toolbar row (a destination's panel). The look is the base stylesheet's (`.tb-tabs`, `.tb-tab`, `.tb-tab-glyph`, `.tb-tab-word`, `.tb-tabs-compact` in `/sdk/system.css`); a module must not size them (`tools/check-switches.mjs` fails a bundled module that does).
-- `host.ui.toolbarButton({ id, label, icon, iconOnly, on, disabled, onClick, zone? })` puts one button in the same toolbar row as the view switches (after the switches made before it), for a chooser that opens a menu, such as Research's Tags: `onClick` runs on a click and receives the `toolbar` event (`{ id, x? }`), and the returned `{ set({ label, icon, on, disabled }), destroy() }` changes what it shows (`set` redraws only when something changed). Open the menu it belongs to under the button with `host.menu.show({ at: { x: e.x, y: 4 }, ... })`; where the host gives no `x`, `{ x: 100000, y: 4 }` lands at the top right of the module, under the toolbar. `zone: 'end'` puts the button in the row's right zone (see "The toolbar"). Leave `on` out and the button is not a toggle: it has no pressed state and no tick in the folded **More** menu. `on: true` or `on: false` makes it a toggle, and so does a later `set({ on })`. The same holds for a `button` item of `host.toolbar.set`.
+- `host.ui.toolbarButton({ id, label, icon, iconOnly, on, disabled, onClick, zone? })` puts one button in the same toolbar row as the view switches (after the switches made before it), for a chooser that opens a menu, such as Research's Tags: `onClick` runs on a click and receives the `toolbar` event (`{ id, x? }`), and the returned `{ set({ label, icon, on, disabled }), destroy() }` changes what it shows (`set` redraws only when something changed). Open the menu it belongs to under the button with `host.menu.show({ at: { x: e.x, y: 4 }, ... })` (the colour picker the same way, `host.ui.colorPicker({ at: { x: e.x, y: 4 }, ... })`); where the host gives no `x`, `{ x: 100000, y: 4 }` lands at the top right of the module, under the toolbar. `zone: 'end'` puts the button in the row's right zone (see "The toolbar"). Leave `on` out and the button is not a toggle: it has no pressed state and no tick in the folded **More** menu. `on: true` or `on: false` makes it a toggle, and so does a later `set({ on })`. The same holds for a `button` item of `host.toolbar.set`.
 - `host.people()` returns the people of the space the module is open in, `[{ key, name }]` (empty outside a space), for choosing a person ("whose is it"): store their `key`, not the name.
 - `host.ui.moreButton(el?, { label })` makes the shared "..." button (`ellipsis-vertical`, centered, class `sdk-more`) for a card's, a row's or a day's menu. Pass a `<button>` you already have (its `data-action` and listeners stay) or nothing to get a new one; `label` is the accessible name (default: the button's `aria-label`, else "More"). It sets `aria-haspopup="menu"` and returns the button; open your menu from it with `host.menu.show`. A `<button>` in your markup that shows `ellipsis-vertical` must carry `sdk-more` (`tools/check-module-window.mjs`).
 - `host.ui.icon(name, style)` returns a Font Awesome icon ("circle-right", style "solid", "regular" or "brands") as inline SVG text, coloured by the text colour, for a module that cannot load the icon font (a sandboxed frame). It rejects if there is no such icon.
@@ -575,6 +575,8 @@ Anything more than one module needs belongs in the SDK, not copied into each mod
 - `host.actions.pick(items, point)` is the small menu described under Actions.
 - `host.ui.editor(dialog, { size, isDirty, onClose })` opens your Add or Edit form as a window over the whole page, a sheet in the narrow layout, with a close button, the focus trap and the "Discard your changes?" question. See "An editor window" below.
 - `host.ui.kindPicker(el, { label, groups, value, start, recent, onChange })` draws a one-row field for choosing the kind of a thing from named, iconed, coloured options in groups, with typing to filter and the recent choices first. See "Choosing a kind" below.
+- `host.ui.colorPicker({ anchor | at, value, opacity, palette, recent, label, onInput })` opens the colour picker and resolves the colour chosen, `{ color: '#rrggbb', opacity }`, or `null`. `host.ui.colorField(input, { palette, opacity, recent, label, onChange })` puts a colour trigger on an input in a form. See "Choosing a colour" below.
+- `host.util.contrast(a, b)` is the WCAG 2 contrast ratio of two `#rrggbb` colours, and `host.util.readableOn(fill)` says whether white or near-black words read on a fill. See "Choosing a colour" below.
 - `host.util` holds `esc` (text made safe for HTML), `id()` (a new id for something you store), `objectKey(ref)` (a pointer as one string, for comparing; `refKey` throws naming it), and `ymd(date)` / `parseYmd(text)` (a local day as `"2026-09-24"`, and back).
 
 When you find yourself writing something a second module might also need, ask for it here instead. The Calendar, To-do, Polls, Research, Places and the Planner use these.
@@ -865,6 +867,79 @@ kind.destroy();         // closes the list, empties the element and takes the cl
 - `input` and `change` fire once for each accepted time, never for each typed letter. The field is 44 px tall with 16 px text on a touch screen. Its accessible name is the field's `<label>`, kept live, or `label`.
 - It returns `{ value, set(hhmm), min, max, focus(), refresh(), destroy() }`. Call `refresh()` if the clock setting changes while a form is open. Anything but an input throws "host.ui.timeField needs an <input>". The Calendar's start and end times and the Planner's times use it. The look is in [design-theme](../designsystem/design-theme.md), "The time field".
 
+### Choosing a colour
+
+A colour a person picks (a fill, a line, a background, a marker's colour) is chosen with the SDK's colour picker, never with the browser's own `<input type="color">`. It is drawn by the SDK in your module's own page, like `host.menu.show`, so it works the same in the page and in a sandboxed frame. The plan is [plan-colour-picker](../plans/plan-colour-picker.md); the look and the default palette are in [design-theme](../designsystem/design-theme.md), "The colour picker".
+
+```js
+const answer = await host.ui.colorPicker({
+  at: { x: e.x, y: 4 },   // or anchor: an element of your page
+  value: '#2f6cbf',       // where it starts
+  opacity: 80,            // 0 to 100, or false where you keep the colour only
+  label: 'Fill colour',   // what a screen reader calls it
+  onInput: (a) => preview(a.color, a.opacity), // showing only, never saving
+});
+if (answer) save(answer.color, answer.opacity); // null: nothing chosen
+```
+
+**`host.ui.colorPicker(options)`** opens the picker and returns a Promise of `{ color, opacity }` or `null`.
+
+- `anchor` is an element of your page to open under; `at` is a point `{ x, y }` in your module's area, as `host.menu.show` takes it. One of the two is needed. Without either it throws "host.ui.colorPicker needs an anchor or a point".
+- `value` is the `#rrggbb` colour to start from. Anything that is not a hex is ignored, and the picker starts on the palette's first colour.
+- `opacity` is the percent to start the Opacity slider at, 0 to 100 (100 if left out). `opacity: false` is for a colour you store without an opacity: the slider is drawn at 100 and switched off, with the line "Opacity isn't kept here.", and the answer's `opacity` is always 100.
+- `palette` replaces the default palette with your own groups: `[{ heading, colours: [{ name, color }] }]`, at most 6 groups and 48 colours in all. A heading and a name are plain text, up to 40 characters, with at least one letter or digit and no `<`, `>` or control characters; a colour is `#rrggbb`. Anything else throws "host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour". A module cannot read the default palette from code; its colours are listed in [design-theme](../designsystem/design-theme.md), "The colour picker".
+- `recent: false` leaves out **Recent** and keeps nothing.
+- `label` is what the dialog is called for a screen reader ("Fill colour"); the default is "Colour". It is cut to 80 characters.
+- `onInput(answer)` runs on each change while the picker is open (dragging, typing a hex, the eyedropper), with the same `{ color, opacity }`. **It is for showing only.** Never save on it: a drag sends many, and saving each one floods your saves and your undo history. Save the answer the Promise resolves with, once. On `null`, put back what you showed before.
+
+**The answer.** `color` is always `#` and six lower-case hex digits; `opacity` is always a whole number from 0 to 100, kept apart from the colour, never as `#rrggbbaa`. Check both again before you store or draw them, and store the colour as `#rrggbb` (decision 7 of the plan).
+
+**What ends a pick.**
+
+- A swatch or a recent colour answers and closes.
+- Enter in the **Hex** field answers what is shown and closes. It is always a choice, even on the colour the picker opened with.
+- A press outside the picker answers what is shown if anything changed since it opened, else `null`.
+- Escape answers `null`.
+- The same call again while it is open (the same `anchor`, or the same point) closes it and answers `null`: a second press on the same toolbar button is a toggle. A press on the module's own toolbar or title bar closes the picker, and the same call within 600 ms after that counts as the toggle and answers `null`; a press anywhere else closes it without that rule. A call with another anchor or point closes the first (`null`) and opens the new one.
+- One picker or menu is open at a time: opening the picker closes any `host.menu.show` menu, and a menu closes the picker.
+- Focus goes back to the anchor, or for a point to what had it when the picker opened (a toolbar button, through the host in a frame). After a press outside it stays where the person pressed. A press inside the picker on a heading or a gap keeps the focus in it.
+
+**Where it opens.**
+
+- **From the toolbar**, the main use: in the `onClick` of a `host.ui.toolbarButton` (or a `button` of `host.toolbar.set`), open it with `at: { x: e.x, y: 4 }`, so it sits under the toolbar at the button. Where the host gives no `x`, `{ x: 100000, y: 4 }` puts it at the top right of the module. A title-bar action opens it at the top of the content, at the button's `x`, as a menu does.
+- **In context:** under a control of your page with `anchor` (a swatch in a strip, a row's colour), or where the person clicked with `at` (the click's point in your module's area).
+- It opens under the anchor, else flipped above it, else on the side with more room, scrolling inside itself; at a point, it opens there. It is always kept inside your module's box (the window, on a host page or in a frame, or the window inside an open editor).
+
+**Recent.** The last 8 colours chosen, newest first, kept in this browser for your module (`localStorage`, key `app:colour:<moduleId>`), and shown under the palette when there are any. A sandboxed frame has no storage, so there Recent stays empty.
+
+**Pick from the screen** (the eyedropper) is shown only where the browser has one (`window.EyeDropper`, Chromium browsers). If it fails once, it is hidden for the rest of the page's life.
+
+**`host.ui.colorField(input, options)`** puts a colour trigger on an `<input>` you have (type `color` or `text`), for a form. It returns `{ value, set(hex), open(), close(), destroy() }`.
+
+- The trigger is a button showing a swatch, the hex in words and a chevron (`.sdk-picker`). It opens the picker under itself. Its name for a screen reader is "<label>, <colour name if the palette has one>, <hex>. Change it". The label is `label`, else the input's `aria-label`, else its `<label>`'s words, else "Colour".
+- The input stays, hidden, and holds `#rrggbb`. A choice that changes the colour sets it and fires `input`, then `change`, from it, so a form reads and saves it as before. `onChange({ color, opacity })` runs when the colour or the opacity changed; the input never holds the opacity.
+- `palette`, `opacity`, `recent` and `label` are the picker's. Pass `opacity: false` where the value keeps the colour only.
+- `value` is the colour the input holds, or `''` when it holds none (the trigger then shows the palette's first colour). `set(hex)` shows a colour without telling anyone (no events, no `onChange`) and ignores anything that is not a hex. `open()` opens the picker and returns its Promise; `close()` closes it. `destroy()` takes the trigger away and shows the input again.
+- It follows a disabled input, and a disabled fieldset around it: the trigger is disabled with it and won't open.- A `<label for>` that points at the input is moved to the trigger, and `destroy()` puts it back.
+- Anything but an `<input>` throws "host.ui.colorField needs an <input>".
+
+**Keyboard and screen reader.** The picker is a dialog named by `label`. The area is one slider, "Saturation and brightness": Left and Right change the saturation, Up and Down the brightness. **Hue** and **Opacity** are sliders too. Arrows move by 1 and by 10 with Shift; on Hue and Opacity Page Up and Page Down move by 10 and Home and End go to the ends, and on the area Home and End go to the ends of the saturation. **Hex** is a text field: it takes `2f6cbf` or `#2F6CBF` and shows it lower case; a bad value is marked with "Type six hex digits, like #2f6cbf" and changes nothing. The palette and Recent are each a radio group (one Tab stop, arrows inside), each swatch named by its colour's name, or its hex. Tab goes round inside the picker. A live line says the colour once it settles ("Teal, #00796b"). A switched-off Opacity stays in the Tab order and is described by its line.
+
+**On a phone** (640 px and below) the sliders, the hex field and the eyedropper are 44 px tall, the swatch cells 44 px, and the hex is 16 px text so the phone does not zoom. At 360 px the cells narrow to about 42 px wide so nothing scrolls sideways. Only the area and the sliders take touch dragging.
+
+**Contrast.** Two helpers, the same maths as the theme editor's (`public/theme-colour.js`), which `tools/check-colour-picker.mjs` holds equal:
+
+- `host.util.contrast(a, b)` is the WCAG 2 contrast ratio of two colours, a number: `contrast('#ffffff', '#2f6cbf')` is about 5.1. Both must be `#` and six lower-case hex digits (as the picker answers); anything else throws "host.util.contrast takes two #rrggbb colours".
+- `host.util.readableOn(fill)` is `{ color, ratio, ok }`: `color` is `#ffffff` or `#0a0a0a`, whichever has more contrast with `fill` (white on a tie), `ratio` that contrast, and `ok` true at 4.5:1 or more. Use it for words on a fill a person chose. Anything but a lower-case `#rrggbb` throws "host.util.readableOn takes a #rrggbb colour".
+
+There is no contrast warning inside the picker.
+
+**What it costs.** Nothing to declare: no permission, no manifest key, no route. The host stores nothing; your module stores the answer. A module that starts using it bumps its own version.
+
+**The host's own pages** get the same picker through `window.hostColour`, which `/sdk/host.js` sets: `field(input, options)` is `colorField`, `picker(options)` is `colorPicker`, and `palette` is the default palette, read only. `public/colour-field.js` puts it on every colour field the host draws (a module's `color` setting and a list row's colour) with `opacity: false`.
+
+`tools/check-colour-picker.mjs` runs the pure parts (cleaning a hex, the colour maths, the palette and its check, the answer, the contrast helpers) in node, sliced out of `public/sdk/host.js` between its `colour:start` and `colour:end` markers, and the picker itself in a browser.
+
 ### Events and actions: reacting to and asking things of other modules
 
 The other two conduits between modules, and like refs they name no module. Declare them in `module.json` and an owner approves what your module hears and asks for.
@@ -1052,7 +1127,7 @@ With `video: false` and `audio: false` only the state is followed (the host subs
 
 The eight tint tokens (`--tint-gold`, `--tint-blue`, `--tint-green`, `--tint-teal`, `--tint-purple`, `--tint-red`, `--tint-orange`, `--tint-pink`) reach your page too: `/sdk/host.css` defines them, and the host sends them with the theme in the mode showing, so you can mark something with your module's colour (`color` in `module.json`). A phase band's `tint` from `host.util.phaseTimeline()` names one of the same eight, so draw a phase in `var(--tint-<name>)`. They are fixed, not a theme's; see [design-theme](../designsystem/design-theme.md), "Tints".
 
-The SDK applies the theme to your page as CSS custom properties on `:root`, so plain CSS follows the theme. **Never hard-code colors, and never assume a dark background.** The tokens and the rules are in [design-theme](../designsystem/design-theme.md). The base stylesheet gives you `.btn`, `.btn-primary`, `.btn-danger`, `.card`, `.section` and styled inputs.
+The SDK applies the theme to your page as CSS custom properties on `:root`, so plain CSS follows the theme. In a sandboxed frame the host sends every theme role the page's `/theme.css` may set (`THEME_TOKENS` in `public/module-host.js`, which `tools/check-module-host.mjs` holds to the server's list), so the SDK's menus and pickers have their surfaces there as on the page, and a role the page no longer sends after a theme change is removed from the frame. The frame's root does not get `data-theme-mode`, so the few rules `system.css` keys on `data-theme-mode="light"` keep their dark values there. **Never hard-code colors, and never assume a dark background.** The tokens and the rules are in [design-theme](../designsystem/design-theme.md). The base stylesheet gives you `.btn`, `.btn-primary`, `.btn-danger`, `.card`, `.section` and styled inputs.
 
 ## Running in the page
 

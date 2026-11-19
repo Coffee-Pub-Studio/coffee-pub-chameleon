@@ -2,17 +2,16 @@
 // remove and add. Shared by the module settings forms (/module-settings.js) and a template's Modules page (/template-pages.js), so
 // a list reads and edits the same wherever it is. Nothing here talks to the server; the page decides what to send.
 import { escapeHtml } from '/brand.js';
-import { upgradeColourInputs } from '/colour-pick.js';
+import { colourFields, newRowColours } from '/colour-field.js';
 
 // A list of things with a label, an icon and a colour each (Planner's marker types): rows to change, reorder, remove and add. The rows the
 // module says are fixed (def.fixed: ids) are always there; their label, icon and colour can change but they cannot be removed.
 // Icons are picked from a small set of Font Awesome names that suit a plan; the colour is a hex value.
 const ICONS = ['flag', 'flag-checkered', 'plane-departure', 'plane-arrival', 'plane', 'train', 'car', 'ship', 'bus', 'bed', 'utensils', 'mug-hot', 'martini-glass', 'camera', 'mountain', 'umbrella-beach', 'person-walking', 'person-hiking', 'ticket', 'bell', 'clock', 'hourglass-half', 'moon', 'sun', 'face-smile', 'heart', 'star', 'users', 'shopping-bag', 'landmark', 'music', 'circle-exclamation', 'triangle-exclamation', 'location-dot', 'suitcase', 'gift', 'wine-glass', 'spa', 'bolt', 'note-sticky', 'city', 'dungeon', 'chess-rook', 'beer-mug-empty', 'skull', 'dragon', 'hat-wizard', 'compass', 'map', 'campground', 'church', 'house', 'store', 'tree', 'water', 'book', 'gem', 'shield-halved', 'fire', 'horse', 'anchor', 'monument', 'building', 'coins', 'scroll', 'khanda', 'tents'];
-// The colours a list row stores, as data (the `color` field of an item, a value a person picks, not styling). The first is the
-// grey that means "no colour chosen": the manifests store it, and it is what a row without a valid colour shows. The rest are what
-// a new row starts with, one after another, so rows added in a run do not all look alike.
-const ROW_COLORS = ['#888888', '#4f8fdd', '#e0883a', '#4caf7a', '#b268d8', '#d9534f', '#2fb5b5', '#c9a227', '#7f8fa6'];
-const [NO_COLOR, ...NEW_COLORS] = ROW_COLORS;
+// A row's colour is data (the `color` field of a row, a value a person picks, not styling), '#rrggbb'. A row without a valid colour
+// shows the grey the manifests store for "no colour chosen". A new row starts with the default palette's colours, one after another
+// (/colour-field.js), so rows added in a run do not all look alike.
+const NO_COLOR = '#888888';
 const ICON_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const HEX = /^#[0-9a-f]{6}$/i;
 export function listRow(def, r) {
@@ -20,7 +19,7 @@ export function listRow(def, r) {
   const color = HEX.test(r.color || '') ? r.color : NO_COLOR;
   const icon = ICONS.includes(r.icon) || ICON_RE.test(r.icon || '') ? r.icon : ICONS[0]; // a saved icon outside the picker stays as it is
   return `<li class="sdk-row list-row" data-id="${escapeHtml(r.id || '')}" data-icon="${escapeHtml(icon)}">
-    <input type="color" data-f="color" value="${escapeHtml(color)}" aria-label="Colour">
+    <input type="text" data-f="color" data-colour-field value="${escapeHtml(color)}" aria-label="Colour">
     <details class="icon-pick"><summary aria-label="Icon" title="Icon"><i class="fa-solid fa-${escapeHtml(icon)} fa-fw" aria-hidden="true"></i></summary><div class="icon-grid">${ICONS.map((n) => `<button type="button" data-icon-choice="${n}" data-tip="${n.replace(/-/g, ' ')}" aria-label="${n.replace(/-/g, ' ')}"><i class="fa-solid fa-${n} fa-fw" aria-hidden="true"></i></button>`).join('')}</div></details>
     <input type="text" data-f="label" value="${escapeHtml(r.label || '')}" maxlength="${def.maxLength || 30}" placeholder="Label" aria-label="Label">
     <span class="list-tools"><button type="button" class="btn btn-small" data-list="up" data-tip="Move up" aria-label="Move up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button><button type="button" class="btn btn-small" data-list="down" data-tip="Move down" aria-label="Move down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>${fixed ? '<span class="sdk-status">Built in</span>' : '<button type="button" class="btn btn-small btn-danger" data-list="remove" data-tip="Remove" aria-label="Remove"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>'}</span>
@@ -54,8 +53,9 @@ export function listClick(event) {
   if (!b) return;
   const list = el.querySelector('.list-rows');
   if (b.dataset.list === 'add') {
-    list.insertAdjacentHTML('beforeend', listRow(def, { id: '', label: '', icon: 'flag', color: NEW_COLORS[list.children.length % NEW_COLORS.length] }));
-    upgradeColourInputs(list.lastElementChild);
+    const colours = newRowColours();
+    list.insertAdjacentHTML('beforeend', listRow(def, { id: '', label: '', icon: 'flag', color: colours.length ? colours[list.children.length % colours.length] : NO_COLOR }));
+    colourFields(list.lastElementChild);
     list.lastElementChild.querySelector('[data-f="label"]').focus();
   } else if (li && b.dataset.list === 'remove') li.remove();
   else if (li && b.dataset.list === 'up' && li.previousElementSibling) li.previousElementSibling.before(li);

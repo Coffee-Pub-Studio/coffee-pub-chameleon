@@ -333,6 +333,58 @@ The field a form asks what a thing is with (`host.ui.kindPicker`, [api-module-sd
 
 The list (`.sdk-kind-list`) is `--bg-card` on a 1 px `--border` with a `--radius-large` radius, a shadow and 4 px padding, at most 360 px tall; group titles are `--text-dim`, 10 px, bold, upper-case, letter-spaced, and groups are divided by a `--border` line. The active option (the one the keys are on) is a 14% accent tint; "Nothing matches" is `--text-dim`. At 640 px and below the open picker is a sheet fixed to the bottom of the screen (`.sdk-kind.open .sdk-kind-sheet`): `--bg-section` with a `--border` line above, 12 px top corners, a shadow and the safe-area insets, over a tint of `--bg` at 60%; the field grows to 44 px and the input to 16 px so a phone does not zoom, and each option is at least 44 px tall. The chevron turns when the list is open, with a short transition unless `prefers-reduced-motion` is set. No theme sets any of this, and the rules use no colour of their own except the shadows' black (`tools/check-module-window.mjs` fails a fixed colour there). The rules are in `public/sdk/host.css` between `kind:start` and `kind:end`.
 
+## The colour picker
+
+The colour picker (`host.ui.colorPicker` and `host.ui.colorField`, [api-module-sdk](../api/api-module-sdk.md), "Choosing a colour"; [plan-colour-picker](../plans/plan-colour-picker.md)) is the one way a person picks a colour, in a module and on the host's own pages. No page or module draws the browser's `<input type="color">` for a person to use; the theme editor's fields are the one exception, unchanged for now (`tools/check-no-colour-input.mjs` holds this for `public/`).
+
+**Picked colours are data, not tokens.** A colour a person picks is stored as `#rrggbb` and must look the same in every theme and mode, so the colours inside the picker (its palette, the area, the hue run, the chosen colour) are not theme tokens and never follow the theme. Everything around them is: the popover's surface, its edges, the headings, the words, the check disc and the focus ring. The person's colours reach the page only as custom properties set by the SDK (`--sw` on a swatch; `--cp-hue`, `--cp-color`, `--cp-alpha`, `--cp-area`, `--cp-hue-track`, `--cp-x`, `--cp-y` on the popover and `--cp-at` on a slider), never as declarations in a stylesheet. Even the area's white and black and the hue run are worked out from the colour maths in `host.js`, so no colour is written in a stylesheet. A module that draws a picked colour does the same: it sets it as data and draws words on it with `host.util.readableOn`. The theme's eight tints, which change with the mode, are not in the palette.
+
+**The default palette.** Three named groups of 8, each a row of the swatch grid under its heading. It is the plan's proposal, built as proposed; Thomas has not yet confirmed the names and values (open question 1). The list is `COLOUR_PALETTE` in `public/sdk/host.js`, between `colour:start` and `colour:end`, and `tools/check-colour-picker.mjs` holds each group to its contrast figures.
+
+| Group | What it is for | Name | Colour |
+|---|---|---|---|
+| **Light** | Pale fills and backgrounds. Dark words (`#1c2024`) on each reach 12.8:1 or more. | White | `#ffffff` |
+| | | Cream | `#f5eedb` |
+| | | Light grey | `#e4e6ea` |
+| | | Light blue | `#dce9f6` |
+| | | Light green | `#ddeedd` |
+| | | Light yellow | `#fbf4c8` |
+| | | Light pink | `#f8e0e9` |
+| | | Light purple | `#e8e0f5` |
+| **Dark** | Dark fills and backgrounds, and words on a light ground. Light words (`#eceff3`) on each reach 10.3:1 or more; each reaches 11.9:1 or more as words on white. | Black | `#000000` |
+| | | Slate | `#2b3440` |
+| | | Dark grey | `#34373c` |
+| | | Navy | `#14274b` |
+| | | Forest | `#163a2b` |
+| | | Wine | `#4a1b2b` |
+| | | Plum | `#2f2050` |
+| | | Brown | `#3d2b1f` |
+| **Strong** | Marks, lines, borders and bold fills. White words on each reach 4.8:1 or more, and each reaches 3:1 or more against a white surface and against the default dark ground (`#0e1a2b`), so it reads as a mark in either mode. | Red | `#c0392b` |
+| | | Orange | `#b8560f` |
+| | | Gold | `#8a6a00` |
+| | | Green | `#2e7d32` |
+| | | Teal | `#00796b` |
+| | | Blue | `#2f6cbf` |
+| | | Purple | `#7c55c8` |
+| | | Pink | `#b23f7f` |
+
+A new row in a list setting (the Planner's marker types, Research's tags) starts with the Strong colours in turn. A module may pass its own groups in place of these; it cannot read the default yet.
+
+**The look.** The picker is the Pickers family's dense popover (`.sdk-popover .sdk-popover-dense .sdk-picker-pop`, with `.sdk-cp`) on the menu surface, top down:
+
+1. **The area** (`.sdk-cp-area`, 140 px tall): the hue, white to the left, black at the bottom, on a hairline with `--radius-small`, and a round 16 px handle in the colour with a ring of the surface and a hairline of `--text-primary`.
+2. **Hue** and **Opacity** (`.sdk-cp-slider`): a 12 px track on a hairline and a round thumb like the handle. Opacity's track runs from clear to the colour over a checked ground, two see-through mixes of `--text-primary` (16% and 4%) over the surface, so clear is visible. Where the opacity is not kept, the slider is drawn at 100 at half strength with `cursor: not-allowed`, and the line "Opacity isn't kept here." (`.sdk-cp-note`, 12 px `--text-muted`) is under it.
+3. **The row** (`.sdk-cp-row`): the colour as it is (`.sdk-cp-current`, half of it over the checked ground when the opacity is under 100), **Hex** (a 12 px `--text-muted` word before a field with tabular figures), and **Pick from the screen** (a small quiet icon button), hidden where there is no eyedropper. The hex error line is `--status-danger-text` mixed 80% with `--text-primary`, because the plain role is 4.4:1 on the dark menu surface of the default theme; the mix reaches 4.5:1 in both modes.
+4. **The palette**, then **Recent**: each group's heading (`.sdk-cp-head`, 11 px, strong, upper case, letter-spaced, `--text-muted`) over a grid of 8 swatches (`.sdk-swatch-grid`, `.sdk-swatch`, the Pickers family's 24 px swatch in a 28 px cell).
+
+- **Selected** is the check on a neutral disc over the swatch, never an accent border ("Selected states" above).
+- **Pale and dark swatches.** Every swatch keeps its hairline edge; a swatch with less than 3:1 against the menu's surface (worked out with the contrast helper when it is drawn, against the real surface) gets a stronger edge, `--text-muted` mixed 75% into the hairline (`.sdk-cp-faint`). So White on a light menu and Black on a dark one can both be seen.
+- **Focus** on the area and the sliders is a 2 px `--focus-ring` outline, 2 px out.
+- **Phone** (640 px and below): the area is 160 px tall, the sliders, the hex field and the eyedropper 44 px, the thumb 24 px, the hex 16 px text, and each swatch cell 44 px. A cell narrows (never under its 24 px swatch) when the box is less than eight 44 px cells wide, so at 360 px the cells are about 42 px wide and nothing scrolls sideways. Only the area and the sliders have `touch-action: none`.
+- **A short box.** The picker is kept inside the module's box and scrolls inside itself when the box is too short.
+
+The trigger of `colorField` is the Pickers family's (`.sdk-picker`: a 22 px swatch, the hex in words, a chevron). The rules are the colour picker part of the Pickers block in `public/sdk/system.css`. The Design System page draws the picker and its states in its Pickers entry (focus on the area, a bad hex, a pale swatch with its stronger edge, the eyedropper hidden, Opacity switched off) and a live one under Live SDK pieces.
+
 ## The layout picker
 
 The piece a layout is set with (`public/layout-picker.js`, class `.layout-picker`, [architecture-canvas](../architecture/architecture-canvas.md), "Layout shapes and the picker"). It is shown in the Design System's Pickers family ("Live: layout picker") and nowhere else yet. Step 1 draws six small shapes in a row of radio buttons; step 2 draws the chosen shape large, each area a button. In a drawing the chat and call column on the left is a band tinted from `--tint-pink` over `--bg-card`, and each area is `--tint-green` over `--bg-card`, numbered, at the shape's own percentages; the chosen shape and the pressed step take `--accent` (`--on-accent` for text on it). Text is `--text` and `--text-dim`, spacing is `--space-*`, and the bar is the shared action bar. At 520 px of the picker's own width and below (a phone, a narrow editor) step 2 is a list with one row per area. Colours come from the tokens only; `check-no-raw-colours` holds it. Read from the stylesheet (`layout-picker:start` in `public/style.css`), not seen drawn for this entry.

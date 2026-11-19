@@ -202,6 +202,22 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
       script: `host.ui.datePicker(document.getElementById('d2'), { clearable: true }); var b = document.querySelector('.sdk-datefield .sdk-icon-btn'); if (b) b.click();`,
     },
     {
+      id: 'live-colour', block: 'pickers', name: 'Live: colour picker, open', height: 620, title: 'Live colour picker, open',
+      desc: 'host.ui.colorField on two inputs, the first opened: Fill keeps an opacity; Row colour keeps the colour only (opacity: false), so its Opacity is switched off. The button opens host.ui.colorPicker under itself and shows the answer. Recent shows once a colour has been chosen here. The picker is placed inside this frame, as it is inside a module.',
+      body: `<div class="dsf-live" style="min-height:580px"><form class="sdk-form" onsubmit="return false">
+        <div class="sdk-form-row">
+          <label class="sdk-field sdk-m"><span class="sdk-label">Fill</span><input type="text" id="c1" value="#2f6cbf"><span class="sdk-hint"></span></label>
+          <label class="sdk-field sdk-m"><span class="sdk-label">Row colour</span><input type="text" id="c2" value="#00796b"><span class="sdk-hint"></span></label>
+        </div></form>
+        <div class="dsf-row"><button type="button" class="btn" id="cb">Choose a colour</button><p id="cb-out" aria-live="polite"></p></div></div>`,
+      script: `
+        var fill = host.ui.colorField(document.getElementById('c1'), { opacity: 80 });
+        host.ui.colorField(document.getElementById('c2'), { opacity: false });
+        var b = document.getElementById('cb'); var out = document.getElementById('cb-out');
+        b.addEventListener('click', function () { host.ui.colorPicker({ anchor: b, label: 'Colour' }).then(function (a) { out.textContent = a ? a.color + ', opacity ' + a.opacity + ' percent' : 'Nothing chosen'; }); });
+        fill.open();`,
+    },
+    {
       id: 'live-menu', block: 'menus', name: 'Live: host.menu.show (the module menu and its flyout)', height: 330, title: 'Live menu',
       desc: '.sdk-menu, opened by host.menu.show on a button, with a category that opens a flyout, a separator, a heading, a danger row and a disabled one.',
       body: '<div class="dsf-live"><div class="dsf-row"><button type="button" class="btn" id="mb">Open the menu</button><button type="button" class="sdk-icon-btn btn-quiet btn-small" id="mm" aria-label="More"></button></div></div>',

@@ -129,6 +129,8 @@ const ROUND_OK = [
   { file: 'public/sdk/system.css', sel: 'progress.sdk-progress::-moz-progress-bar', why: 'the progress bar\'s fill' },
   { file: 'public/sdk/system.css', sel: '.sdk-mic', why: 'the microphone\'s 40px circle and its level fill' },
   { file: 'public/sdk/system.css', sel: '.mf-empty-icon', why: 'the empty state\'s icon disc' },
+  { file: 'public/sdk/system.css', sel: '.sdk-cp-handle', why: 'the colour picker\'s round handle on its area (a square box, a true circle)' },
+  { file: 'public/sdk/system.css', sel: '.sdk-cp-thumb', why: 'the colour picker\'s slider thumb: a circle, as the range thumb' },
   // public/style.css
   { file: 'public/style.css', sel: '.sdk-member .call-mark', why: 'the 15px on-the-call mark on a member tile' },
   { file: 'public/style.css', sel: '.whoami img', why: 'your picture in the top bar' },
