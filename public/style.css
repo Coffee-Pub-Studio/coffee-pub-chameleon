@@ -7297,7 +7297,7 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
 
 .layout-picker-steps {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-1);
   margin: 0 0 var(--space-4);
@@ -7342,6 +7342,7 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
 }
 
 .layout-picker-step-n {
+  flex: none;
   display: inline-grid;
   place-items: center;
   width: 24px;
@@ -7693,8 +7694,19 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
   grid-area: name;
 }
 
+.layout-picker-area .layout-picker-notice {
+  justify-content: center;
+  text-align: center;
+}
+
+.layout-picker-row-main .layout-picker-area-caret {
+  grid-column: 3;
+  grid-row: 1;
+}
+
 .layout-picker-row-main .layout-picker-notice {
   grid-column: 2 / -1;
+  grid-row: 2;
 }
 
 /* What a change left out, and a refusal: under the shape, one line each. */
@@ -7752,6 +7764,27 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
 
   .layout-picker-shape-word {
     font-size: var(--text-12);
+  }
+
+  /* The two steps stay on one line: the chevron between them goes, and the words may shrink. */
+  .layout-picker-step-sep {
+    display: none;
+  }
+
+  .layout-picker-steps li {
+    min-width: 0;
+  }
+
+  .layout-picker-step {
+    max-width: 100%;
+    padding-right: var(--space-2);
+  }
+
+  .layout-picker-step-word {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

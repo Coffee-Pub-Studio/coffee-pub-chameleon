@@ -6,15 +6,21 @@
  *      area that may hold them (swapping a Calendar into area 1), keeps a module once, and says what it dropped and why;
  *      putInArea moves a module rather than doubling it; droppedNote and refusedNote say it in one sentence; partsFor reads
  *      composites.js. What areaChoices offers agrees with cleanShape() (server/layout-shapes.js) for every shape, area and
- *      module, with the Calendar on and off, so the picker never offers what the server refuses.
+ *      module, with the Calendar on and off, so the picker never offers what the server refuses; ids the server refuses
+ *      (MODULE_ID) are never offered, and a module listed twice is offered once. Odd input throws nowhere. noticeWords
+ *      says the maker's notice for one role, several (moderator, member, guest, by the environment's words), a module
+ *      that is off, the host console's "by default" form, and nothing for a module not in cantOpen; it is drawn as text.
  *   2. In Chromium (skipped, said so, when there is none), with real keys over the DevTools protocol, at 1280 and 390, light
  *      and dark: six shapes drawn in two rows of three, each with its number of areas at the shape's percentages; picking a
  *      shape carries the areas sensibly and a shape change never loses the list it carries from; the area menu offers Empty
  *      first, then what the area may hold (no Calendar or Maps in a stacked area, no To-do there while the Calendar is on,
  *      To-do there when it is off); a module chosen in a second area leaves the first; the keyboard (arrows on the shapes,
- *      Enter on, Tab through the areas in order, the menu by Enter); the names a screen reader hears; Save hands back
+ *      Enter on, Tab through the areas in order, the menu by Enter); the names a screen reader hears (each shape's name is
+ *      its label alone; each area is heard with its notice); the notice under each area from cantOpen, in the muted
+ *      colour with its warning icon; no id twice in the picker; after Save the keyboard is on Close; Save hands back
  *      exactly { shape, areas }, and every record handed back passes cleanShape(); Escape with changes asks first; at 390
- *      step 2 is one row per area, each at least 44px tall, and the drawing is not shown.
+ *      step 2 is one row per area, each at least 44px tall, its chevron at the end of its first line above a notice, the
+ *      two steps on one line, and the drawing is not shown.
  */
 import fs from 'node:fs';
 import http from 'node:http';
@@ -93,6 +99,54 @@ const holder = (shape, parts) => (a, id) => areaMayHold(shape, a, id, { parts })
     }
   }
   ok(n > 200, `the agreement ran on ${n} cases`);
+}
+// Ids the server refuses are never offered, and a module listed twice is offered once.
+{
+  const odd = ['__proto__', 'Goals', 'a'.repeat(33), 'with.dot', '1abc', 'dest:calendar', 'dest:map', '', 'goals', 'goals', 'vault'];
+  const mods = odd.map((id) => ({ id }));
+  for (const s of SHAPES) {
+    for (let a = 1; a <= s.areas; a += 1) {
+      const offered = P.areaChoices(s, a, mods, { parts: [] }).map((m) => m.id);
+      eq(offered, ['goals', 'vault'], `${s.id} area ${a}: offered from odd ids`);
+      for (const id of offered) ok(!cleanShape({ shape: s.id, areas: Array.from({ length: s.areas }, (_, i) => (i === a - 1 ? id : null)) }, { modules: odd.filter(Boolean) }).error, `${s.id} area ${a}: ${id} offered and refused`);
+    }
+  }
+  eq(P.cleanModules([{ id: 'goals' }, { id: 'goals', name: 'Again' }, null, { id: 'x.y' }]).map((m) => m.id), ['goals'], 'cleanModules');
+}
+// Odd input: nothing throws, nothing is written where it should not be.
+{
+  const tall = shapeById('tall-split');
+  const threw = (fn) => { try { fn(); return false; } catch { return true; } };
+  ok(!threw(() => P.carryAreas(['goals'], null, () => true)), 'carryAreas with no shape throws');
+  eq(P.carryAreas(['goals'], null, () => true), { areas: [], dropped: [] }, 'carryAreas with no shape');
+  eq(P.carryAreas(['goals'], tall, null), { areas: [], dropped: [] }, 'carryAreas with no rule');
+  ok(!threw(() => P.refusedNote(null, tall)) && P.refusedNote(null, tall) === '', 'refusedNote(null) throws or says something');
+  eq(P.refusedNote(['Calendar'], { id: 'x', areas: 2, stacked: [1, 2] }), '', 'refusedNote with every area stacked');
+  eq(P.refusedNote(['Calendar'], null), '', 'refusedNote with no shape');
+  eq(P.putInArea(['goals', null], 0, 'vault'), { areas: ['goals', null], from: 0 }, 'putInArea at area 0');
+  eq(P.putInArea(['goals', null], 9, 'vault'), { areas: ['goals', null], from: 0 }, 'putInArea past the end');
+  eq(P.putInArea(null, 1, 'vault'), { areas: [], from: 0 }, 'putInArea with no list');
+  eq(P.droppedNote([{ why: 'stack' }, null, { id: '', why: 'full' }]), '', 'droppedNote with entries that name nothing');
+  eq(P.areaChoices(tall, 0, [{ id: 'goals' }]), [], 'areaChoices at area 0');
+  eq(P.areaChoices(null, 1, [{ id: 'goals' }]), [], 'areaChoices with no shape');
+}
+// The maker's notice (plan, "The maker's notice"; decisions 17 and 19), by the environment's words for the roles.
+{
+  eq(P.noticeWords({ roles: ['guest'] }), "Guests can't open this. For them, this area closes up.", 'notice, one role');
+  eq(P.noticeWords({ roles: ['guest', 'member'] }), "Members and guests can't open this. For them, this area closes up.", 'notice, two roles, in the order moderator, member, guest');
+  eq(P.noticeWords({ roles: ['guest', 'moderator', 'member'] }), "Moderators, members and guests can't open this. For them, this area closes up.", 'notice, three roles');
+  eq(P.noticeWords({ off: true }), 'Off in this space. This area closes up for everyone.', 'notice, off in the space');
+  eq(P.noticeWords({ roles: ['guest'] }, { byDefault: true }), "Guests can't open this by default.", 'notice, by default');
+  eq(P.noticeWords({ roles: ['member', 'guest'] }, { byDefault: true }), "Members and guests can't open this by default.", 'notice, two roles by default');
+  eq(P.noticeWords(undefined), '', 'notice, a module not in cantOpen');
+  eq(P.noticeWords({ roles: [] }), '', 'notice, no roles');
+  eq(P.noticeWords({ roles: ['owner', 'admin'] }), '', 'notice, roles never listed');
+  const students = (key, o) => ({ member: o && o.many ? 'students' : 'student', guest: o && o.many ? 'guests' : 'guest', moderator: 'moderators' }[key]);
+  eq(P.noticeWords({ roles: ['member'] }, { wordOf: students }), "Students can't open this. For them, this area closes up.", 'notice, the environment\'s word for members');
+  // The notice is text: nothing in it goes through innerHTML.
+  const src = fs.readFileSync(path.join(ROOT, 'public/layout-picker.js'), 'utf8');
+  const fn = src.slice(src.indexOf('function noticeEl('), src.indexOf('function areaContent('));
+  ok(fn.length > 50 && !/innerHTML|insertAdjacentHTML/.test(fn) && /textContent = text/.test(fn), 'the notice is not drawn as text only');
 }
 
 // ---- 2. the browser ----
@@ -181,6 +235,12 @@ else {
     const value = () => ev('JSON.stringify(window.__p.value())').then(JSON.parse);
     const active = () => ev(`(() => { const a = document.activeElement; return a ? (a.getAttribute('aria-label') || a.dataset.shape || a.textContent.trim()) : null; })()`);
     const menuLabels = () => ev(`[...document.querySelectorAll('body > .host-menu .host-menu-item')].map((b) => b.querySelector('.host-menu-label').textContent)`);
+    // The names and descriptions a screen reader gets, from the browser's own accessibility tree.
+    const ax = async (role) => {
+      const { nodes } = await s('Accessibility.getFullAXTree');
+      return nodes.filter((n) => !n.ignored && n.role && n.role.value === role).map((n) => ({ name: n.name ? n.name.value : '', description: (n.description && n.description.value) || '' }));
+    };
+    const dupIds = () => ev("(() => { const ids = [...document.querySelectorAll('.layout-picker [id]')].map((x) => x.id); return ids.filter((x, i) => ids.indexOf(x) !== i); })()");
     const save = async (ids) => { await ev("document.querySelector('.action-bar-save').click()"); await wait(80); const r = await ev('JSON.stringify(window.__saved[window.__saved.length - 1] || null)').then(JSON.parse); records.push({ r, ids }); return r; };
 
     for (const mode of ['dark', 'light']) {
@@ -202,6 +262,8 @@ else {
         ok(d.stacked.reduce((a, x) => a + x, 0) === def.areas && d.stacked.filter((x) => x === 2).length === (def.stacked.length ? 1 : 0), `${mode} ${d.id}: the stacked areas are not drawn in one column`);
         ok(d.band > 0.08 && d.band < 0.2, `${mode} ${d.id}: the chat and call band is ${(d.band * 100).toFixed(0)}% of the drawing; it should be a narrow band`);
       }
+      eq((await ax('radio')).map((r) => r.name), ['One', 'Two equal', 'Large and narrow', 'Three equal', 'Two, right split', 'Large, right split'], `${mode}: each shape's name is its label alone`);
+      ok((await ax('radio')).every((r) => /^(One|Two|A|Three)\b.*\.$/.test(r.description)), `${mode}: a shape's description is missing`);
       ok(await ev("document.querySelector('[data-step=\"2\"]').disabled"), `${mode}: step 2 is reachable before a shape is picked`);
       ok(await ev("document.querySelector('.action-bar-save').disabled"), `${mode}: Save is on before anything is picked`);
 
@@ -249,6 +311,8 @@ else {
       ok(!(await ev("document.querySelector('.action-bar-save').disabled")), `${mode}: Save is off after a change`);
       eq(await save(MODS.map((m) => m.id)), { shape: 'wide-split', areas: ['calendar', 'goals', null] }, `${mode}: Save hands back the record`);
       ok(await ev("document.querySelector('.action-bar-save').disabled"), `${mode}: Save is still on after saving`);
+      await wait(50);
+      ok((await ev("(() => { const a = document.activeElement; return a && a.classList.contains('action-bar-cancel') ? a.textContent.trim() : (a ? a.tagName : 'none'); })()")) === 'Close', `${mode}: after Save the keyboard should be on Close`);
 
       // --- a shape change carries the areas, and never loses the list it carries from ---
       await open({ width: 1280, mode, opts: { record: { shape: 'three-equal', areas: ['goals', 'calendar', 'documents'] } } });
@@ -292,17 +356,40 @@ else {
       ok((await ev("document.querySelector('.layout-picker-note').textContent")) === "Maps can't share a column, so it was taken out.", `${mode}: the refused module is not named in one sentence`);
       ok(await ev("!document.querySelector('.layout-picker-notice')"), `${mode}: a notice is drawn with no noticeFor`);
 
-      // --- the maker's notice place, read with its area ---
-      await open({ width: 1280, mode, opts: { record: { shape: 'two-equal', areas: ['goals', 'todo'] }, noticeFor: null } });
-      await ev(`(async () => { const m = await import('/layout-picker.js'); document.getElementById('here').replaceChildren(); const p = m.createLayoutPicker({ modules: window.__mods, record: { shape: 'two-equal', areas: ['goals', 'todo'] }, noticeFor: (id) => (id === 'todo' ? 'Guests can\\'t open this.' : '') }); p.el.style.height = '100%'; document.getElementById('here').append(p.el); return true; })()`);
-      ok(await ev("(() => { const b = document.querySelector('.layout-picker-board [data-area=\"2\"]'); const d = document.getElementById(b.getAttribute('aria-describedby') || 'x'); return Boolean(d) && d.textContent.includes('Guests') && !document.querySelector('.layout-picker-board [data-area=\"1\"]').hasAttribute('aria-describedby'); })()"), `${mode}: the notice is not read with its area`);
+      // --- the maker's notice from cantOpen: one role, several, off, none; read with its area ---
+      const cant = { documents: { roles: ['guest'] }, goals: { roles: ['guest', 'member'] }, vault: { off: true } };
+      await open({ width: 1280, mode, opts: { record: { shape: 'three-equal', areas: ['goals', 'documents', 'vault'] }, cantOpen: cant } });
+      const notices = await ev(`[1, 2, 3].map((a) => { const b = document.querySelector('.layout-picker-board [data-area="' + a + '"]'); const d = document.getElementById(b.getAttribute('aria-describedby') || 'x'); return d ? d.textContent : ''; })`);
+      eq(notices, ["Members and guests can't open this. For them, this area closes up.", "Guests can't open this. For them, this area closes up.", 'Off in this space. This area closes up for everyone.'], `${mode}: the notices under the areas`);
+      const areaAx = (await ax('button')).filter((b) => /^Area \d of 3/.test(b.name));
+      ok(areaAx.some((b) => b.name === 'Area 2 of 3: Documents' && b.description === "Guests can't open this. For them, this area closes up."), `${mode}: a screen reader does not hear the notice with its area: ${JSON.stringify(areaAx)}`);
+      ok(await ev("(() => { const probe = document.createElement('span'); probe.style.color = 'var(--text-dim)'; document.body.append(probe); const want = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(document.querySelector('.layout-picker-notice')).color === want; })()") && await ev("Boolean(document.querySelector('.layout-picker-notice .fa-triangle-exclamation[aria-hidden=\"true\"]'))"), `${mode}: the notice is not in the muted text colour with a warning icon`);
+      eq(await dupIds(), [], `${mode}: duplicate ids in the picker`);
+      // A module not in cantOpen has no notice; a new choice gets its notice at once.
+      await ev("document.querySelector('.layout-picker-board [data-area=\"3\"]').click()");
+      await ev("[...document.querySelectorAll('body > .host-menu .host-menu-item')].find((b) => b.textContent.startsWith('Whiteboard')).click()");
+      ok(await ev("!document.querySelector('.layout-picker-board [data-area=\"3\"]').hasAttribute('aria-describedby') && !document.querySelector('.layout-picker-board [data-area=\"3\"] .layout-picker-notice')"), `${mode}: a module not in cantOpen has a notice`);
+      await ev("document.querySelector('.layout-picker-board [data-area=\"3\"]').click()");
+      await ev("[...document.querySelectorAll('body > .host-menu .host-menu-item')].find((b) => b.textContent.startsWith('Vault')).click()");
+      ok((await ev("document.querySelector('.layout-picker-board [data-area=\"3\"] .layout-picker-notice')?.textContent || ''")) === 'Off in this space. This area closes up for everyone.', `${mode}: a module chosen does not get its notice at once`);
+      await ev("window.__p.setCantOpen({ goals: { roles: ['member'] } })");
+      eq(await ev("[...document.querySelectorAll('.layout-picker-board .layout-picker-notice')].map((x) => x.textContent)"), ["Members can't open this. For them, this area closes up."], `${mode}: setCantOpen redraws the notices`);
+      // The host console's template editor: by default.
+      await open({ width: 1280, mode, opts: { record: { shape: 'two-equal', areas: ['goals', 'documents'] }, cantOpen: { documents: { roles: ['guest'] } }, byDefault: true } });
+      eq(await ev("[...document.querySelectorAll('.layout-picker-board .layout-picker-notice')].map((x) => x.textContent)"), ["Guests can't open this by default."], `${mode}: the by-default notice`);
 
       // --- read only ---
       await open({ width: 1280, mode, opts: { record: { shape: 'wide-narrow', areas: ['schedule', 'todo'] }, readOnly: true } });
       ok(await ev("document.querySelectorAll('.layout-picker-board button[data-area]').length === 0 && document.querySelector('.layout-picker-steps').hidden && document.querySelector('.action-bar-save').hidden && !document.querySelector('.layout-picker-nav')"), `${mode}: read only should press nothing and offer only Close`);
 
       // --- a phone: two rows of three; step 2 one row per area, 44px and more ---
-      await open({ width: 390, mode, opts: { record: { shape: 'wide-split', areas: ['calendar', 'goals', null] } } });
+      await open({ width: 390, mode, opts: { record: { shape: 'wide-split', areas: ['calendar', 'goals', null] }, cantOpen: { goals: { roles: ['member', 'guest'] } } } });
+      const row2 = await ev(`(() => { const b = document.querySelector('.layout-picker-row-main[data-area="2"]'); const r = b.getBoundingClientRect(); const c = b.querySelector('.layout-picker-area-caret').getBoundingClientRect(); const n = b.querySelector('.layout-picker-notice').getBoundingClientRect(); const w = b.querySelector('.layout-picker-area-what').getBoundingClientRect();
+        return { caretRight: r.right - c.right, caretAbove: c.bottom <= n.top + 1, caretBesideName: c.top < w.bottom && c.bottom > w.top }; })()`);
+      ok(row2.caretRight < 24 && row2.caretAbove && row2.caretBesideName, `${mode} 390: a row's chevron is not at the end of its first line: ${JSON.stringify(row2)}`);
+      eq(await dupIds(), [], `${mode} 390: duplicate ids in the picker`);
+      const steps = await ev("[...document.querySelectorAll('.layout-picker-step')].map((b) => { const r = b.getBoundingClientRect(); return { top: Math.round(r.top), right: r.right, h: r.height }; })");
+      ok(steps[0].top === steps[1].top && steps[1].right <= 390 && steps.every((x) => x.h >= 44), `${mode} 390: the two steps are not on one line, inside the screen, 44px tall: ${JSON.stringify(steps)}`);
       const phone = await ev(`(() => { const rows = [...document.querySelectorAll('.layout-picker-row-main')].filter((b) => b.getClientRects().length);
         return { board: document.querySelector('.layout-picker-board').getClientRects().length, rows: rows.map((b) => ({ h: b.getBoundingClientRect().height, w: b.getBoundingClientRect().width, name: b.getAttribute('aria-label') })),
           overflow: document.documentElement.scrollWidth > innerWidth, bar: [...document.querySelectorAll('.action-bar button')].filter((b) => b.getClientRects().length).map((b) => { const h = b.getBoundingClientRect().height; const a = getComputedStyle(b, '::after'); return Math.round(a.content !== 'none' && a.position === 'absolute' ? h - 2 * parseFloat(a.top) : h); }) }; })()`);

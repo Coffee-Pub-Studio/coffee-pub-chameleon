@@ -27,21 +27,24 @@
 //   parts      the ids that read as a composite where the layout is used (composites.js's aliasesFor; canvas.js's
 //              compositePartsHere). Left out, it is worked out from `modules` (partsFor), as the shape check reads a
 //              template: To-do counts while the Calendar is among them.
-//   noticeFor  (id, area) => '' or a line: the place for the maker's notice under an area (decisions 17 and 19; step 6
-//              fills it from `cantOpen`). Nothing is drawn while it gives ''.
+//   cantOpen   { <module id>: { roles: ['moderator' | 'member' | 'guest', ...] } | { off: true } }: who can't open each
+//              module (server/layout-shapes.js's whoCantOpen; plan, "Telling the maker"). An area whose module is in it
+//              gets the maker's notice under it, in noticeWords' words, read with the area. A module not in it gets none.
+//   byDefault  true in the host console's template editor, where the roles are the manifests' defaults ("Guests can't
+//              open this by default.").
 //   readOnly   drawn read only (a shipped template): step 2, the areas not pressable, the bar's Close only.
 //   bar        false to draw no bar (a surface with a Save of its own); `onChange(record)` then hears each change.
 //   onSave(record)   does the save; false, or a throw with the refusal in its message, keeps the picker open and
 //              shows the refusal under the shape in one line (the server's own words). Anything else is saved.
 //   onCancel() closes the surface, edits dropped (the bar asks first when something changed).
-// Returns { el, value, set, setStep, step, refuse, bar, destroy }.
+// Returns { el, value, set, setStep, step, refuse, setCantOpen, bar, destroy }.
 import { SHAPES, shapeById } from '/layout-shapes.js';
 import { areaMayHold, shapeColumns, COLUMN_IDS } from '/layouts.js';
 import { aliasesFor } from '/composites.js';
 import { openHostMenu, closeHostMenu } from '/host-menu.js';
 import { actionBar } from '/action-bar.js';
 import { gridStep } from '/primary-nav.js';
-import { fill } from '/words.js';
+import { fill, word } from '/words.js';
 
 // The words a person reads for each shape (the plan's suggestions; open question 3).
 export const SHAPE_LABELS = Object.freeze({
@@ -64,32 +67,56 @@ export const SHAPE_ABOUT = Object.freeze({
 
 // --- the pure parts (tools/check-layout-picker.mjs runs them in node) ----------------------------------------------------
 
+// A module id an area may name: the stored shape's rule (MODULE_ID in server/layout-shapes.js), so the picker never offers
+// what cleanShape() refuses (a `dest:*` composite, a capital, a dot, a 33rd character, `__proto__`).
+export const MODULE_ID = /^[a-z][a-z0-9-]{0,31}$/;
+const isModuleId = (id) => typeof id === 'string' && MODULE_ID.test(id) && id !== '__proto__';
+// An area number of `shape` (from 1), or 0.
+const areaOf = (shape, area) => (shape && Number.isInteger(shape.areas) && Number.isInteger(area) && area >= 1 && area <= shape.areas ? area : 0);
+
 // The ids that read as a composite given the ids on (composites.js's aliasesFor): Calendar and To-do while the Calendar
 // is among them; Maps only where the Map answered (`shown`), though areaMayHold refuses Maps in a stacked area anyway.
 export function partsFor(ids, shown = []) {
-  const aliases = aliasesFor(Array.isArray(ids) ? ids : [], shown);
+  const aliases = aliasesFor(Array.isArray(ids) ? ids : [], Array.isArray(shown) ? shown : []);
   return Object.keys(aliases).filter((id) => typeof aliases[id] === 'string' && aliases[id].startsWith('dest:'));
 }
 
-// What area `area` (from 1) of `shape` offers: the modules it may hold, in the order given.
-export function areaChoices(shape, area, modules, { parts = [] } = {}) {
-  return (Array.isArray(modules) ? modules : []).filter((m) => m && areaMayHold(shape, area, m.id, { parts }));
+// The modules as the menus list them: each a well-formed module id (MODULE_ID), each once, in the order given.
+export function cleanModules(modules) {
+  const seen = new Set();
+  return (Array.isArray(modules) ? modules : []).filter((m) => {
+    if (!m || typeof m !== 'object' || !isModuleId(m.id) || seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
 }
 
-// The modules of `modules` an area refuses because they can't share a column (a stacked area): named in the menu's
-// note so nobody wonders where the Calendar went. The chat and the call are not named: they are never in an area.
+// What area `area` (from 1) of `shape` offers: the modules it may hold (areaMayHold, the canvas chooser's rule, on
+// well-formed ids only), each once, in the order given.
+export function areaChoices(shape, area, modules, { parts = [] } = {}) {
+  if (!areaOf(shape, area)) return [];
+  return cleanModules(modules).filter((m) => areaMayHold(shape, area, m.id, { parts: Array.isArray(parts) ? parts : [] }));
+}
+
+// The modules an area refuses because they can't share a column (a stacked area): named in the menu's note so nobody
+// wonders where the Calendar went. The chat and the call are not named: they are never in an area.
 export function areaRefused(shape, area, modules, { parts = [] } = {}) {
-  return (Array.isArray(modules) ? modules : []).filter((m) => m && typeof m.id === 'string' && !COLUMN_IDS.includes(m.id) && !areaMayHold(shape, area, m.id, { parts }));
+  if (!areaOf(shape, area)) return [];
+  return cleanModules(modules).filter((m) => !COLUMN_IDS.includes(m.id) && !areaMayHold(shape, area, m.id, { parts: Array.isArray(parts) ? parts : [] }));
 }
 
 // The areas of `shape` filled from `list` (the areas as they were, in area order, null for an empty one) when the shape
-// changes or a record is read: each module stays in its area where that area is there and may hold it; the rest go, in
-// order, into the first empty area that may hold them, moving another module to an empty area that may hold it when
-// that frees an area for it (a Calendar from a stacked area into area 1, its module down into the stack). A module named twice
-// counts once. What can't be placed is dropped: { id, why } with `why` 'stack' (it can't share a column, and no area
-// that is not stacked is free), 'full' (no area left for it) or 'column' (the chat or the call, never in an area). `mayHold(area, id)`. Answers { areas, dropped }.
+// changes or a record is read. Nothing the shape can hold is lost: each module stays in its area where that area is still
+// there and may hold it; the rest go, in order, into the first empty area that may hold them, moving another module to an
+// empty area that may hold it when that frees an area for it (a Calendar from a stacked area into area 1, its module down
+// into the stack). This goes further than the plan's "keeps the modules in order and empties areas that no longer exist":
+// a module from an area that went moves into a free one rather than being dropped. A module named twice counts once.
+// What can't be placed is dropped: { id, why } with `why` 'stack' (it can't share a column, and no area that is not
+// stacked is free), 'full' (no area left for it) or 'column' (the chat or the call, never in an area). `mayHold(area, id)`.
+// Answers { areas, dropped }; with no shape, no areas and nothing dropped.
 export function carryAreas(list, shape, mayHold) {
-  const n = shape && Number.isInteger(shape.areas) ? shape.areas : 0;
+  const n = shape && Number.isInteger(shape.areas) && shape.areas > 0 ? shape.areas : 0;
+  if (!n || typeof mayHold !== 'function') return { areas: [], dropped: [] };
   const out = Array.from({ length: n }, () => null);
   const seen = new Set();
   const rest = [];
@@ -100,6 +127,7 @@ export function carryAreas(list, shape, mayHold) {
   });
   const dropped = [];
   const freeFor = (id) => out.findIndex((x, i) => x === null && mayHold(i + 1, id));
+  const stacked = Array.isArray(shape.stacked) ? shape.stacked : [];
   for (const id of rest) {
     let at = freeFor(id);
     for (let a = 0; at < 0 && a < n; a += 1) {
@@ -109,33 +137,37 @@ export function carryAreas(list, shape, mayHold) {
       if (b >= 0) { out[b] = there; out[a] = null; at = a; }
     }
     if (at >= 0) { out[at] = id; continue; }
-    const stacked = Array.isArray(shape.stacked) ? shape.stacked : [];
     const why = COLUMN_IDS.includes(id) ? 'column' : stacked.length && stacked.every((a) => !mayHold(a, id)) ? 'stack' : 'full';
     dropped.push({ id, why });
   }
   return { areas: out, dropped };
 }
 
-// `areas` with module `id` (or null) put in area `area` (from 1). A module already in another area leaves it, empty.
-// Answers { areas, from }: the new list and the area it came from (0 when none).
+// `areas` with module `id` (or null) put in area `area` (from 1, within the list). A module already in another area
+// leaves it, empty. Answers { areas, from }: the new list and the area it came from (0 when none). An area outside the
+// list changes nothing.
 export function putInArea(areas, area, id) {
   const out = Array.isArray(areas) ? areas.slice() : [];
+  if (!Number.isInteger(area) || area < 1 || area > out.length) return { areas: out, from: 0 };
   let from = 0;
-  if (typeof id === 'string' && id) {
-    const was = out.indexOf(id);
+  const put = typeof id === 'string' && id ? id : null;
+  if (put) {
+    const was = out.indexOf(put);
     if (was >= 0 && was !== area - 1) { out[was] = null; from = was + 1; }
   }
-  out[area - 1] = typeof id === 'string' && id ? id : null;
+  out[area - 1] = put;
   return { areas: out, from };
 }
 
 const andList = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '');
+const upFirst = (text) => (text ? text.charAt(0).toUpperCase() + text.slice(1) : text);
 
 // The one line saying what a shape change (or a record read) left out, by the modules' names; '' when nothing was.
 // "Calendar can't share a column, so it was taken out." "There is no area left for Polls and Vault, so they were taken out."
 export function droppedNote(dropped, nameOf = (id) => id) {
-  const list = Array.isArray(dropped) ? dropped : [];
-  const of = (why) => list.filter((d) => d && d.why === why).map((d) => nameOf(d.id) || d.id);
+  const list = (Array.isArray(dropped) ? dropped : []).filter((d) => d && typeof d.id === 'string' && d.id);
+  const named = (id) => { const n = typeof nameOf === 'function' ? nameOf(id) : ''; return typeof n === 'string' && n ? n : id; };
+  const of = (why) => list.filter((d) => d.why === why).map((d) => named(d.id));
   const lines = [];
   const stack = of('stack');
   if (stack.length) lines.push(`${andList(stack)} can't share a column, so ${stack.length > 1 ? 'they were' : 'it was'} taken out.`);
@@ -149,12 +181,35 @@ export function droppedNote(dropped, nameOf = (id) => id) {
 export const areaName = (area, count, name) => `Area ${area} of ${count}: ${name || 'Empty'}`;
 
 // The menu's note in an area that refuses some modules: "Calendar and Maps can't share a column; they can go in area 1."
+// '' when nothing is refused, or when every area of the shape is stacked (there is nowhere to send them).
 export function refusedNote(names, shape) {
-  if (!names.length || !shape) return '';
+  const list = (Array.isArray(names) ? names : []).filter((x) => typeof x === 'string' && x);
+  if (!list.length || !shape || !Number.isInteger(shape.areas)) return '';
   const stacked = Array.isArray(shape.stacked) ? shape.stacked : [];
   const open = Array.from({ length: shape.areas }, (_, i) => i + 1).filter((a) => !stacked.includes(a));
+  if (!open.length) return '';
   const where = open.length > 1 ? `areas ${andList(open.map(String))}` : `area ${open[0]}`;
-  return `${andList(names)} can't share a column; ${names.length > 1 ? 'they' : 'it'} can go in ${where}.`;
+  return `${andList(list)} can't share a column; ${list.length > 1 ? 'they' : 'it'} can go in ${where}.`;
+}
+
+// The maker's notice (decisions 17 and 19; plan, "The maker's notice"): the one line under an area whose module someone
+// can't open, from its `cantOpen` entry ({ roles: ['moderator' | 'member' | 'guest', ...] } or { off: true }; a module
+// not in `cantOpen` has none). The roles are named in the order moderator, member, guest, each by this environment's
+// word for it, plural (words.js's word(), so a template that calls members "students" says "Students"):
+//   "Guests can't open this. For them, this area closes up."
+//   "Members and guests can't open this. For them, this area closes up."
+//   "Off in this space. This area closes up for everyone."
+// `byDefault` (the host console's template editor, where the roles are the manifests' defaults): "Guests can't open this
+// by default." `wordOf(key, opts)` is word() unless given. '' when there is nothing to say.
+export const NOTICE_ROLES = Object.freeze(['moderator', 'member', 'guest']);
+export function noticeWords(entry, { byDefault = false, wordOf = word } = {}) {
+  if (!entry || typeof entry !== 'object') return '';
+  if (entry.off === true) return byDefault ? 'Not installed. This area closes up for everyone.' : fill('Off in this {space}. This area closes up for everyone.');
+  const given = Array.isArray(entry.roles) ? entry.roles : [];
+  const roles = NOTICE_ROLES.filter((r) => given.includes(r));
+  if (!roles.length) return '';
+  const who = upFirst(andList(roles.map((r) => wordOf(r, { many: true }))));
+  return byDefault ? `${who} can't open this by default.` : `${who} can't open this. For them, this area closes up.`;
 }
 
 // --- the piece -----------------------------------------------------------------------------------------------------------
@@ -168,7 +223,8 @@ export function createLayoutPicker({
   record = null,
   modules = [],
   parts = null,
-  noticeFor = () => '',
+  cantOpen = null,
+  byDefault = false,
   readOnly = false,
   bar: withBar = true,
   step: startStep = 0,
@@ -178,8 +234,9 @@ export function createLayoutPicker({
   onChange = null,
 } = {}) {
   const uid = `layout-picker-${++made}`;
-  const list = (Array.isArray(modules) ? modules : []).filter((m) => m && typeof m.id === 'string' && m.id);
+  const list = cleanModules(modules);
   const byId = new Map(list.map((m) => [m.id, m]));
+  let cantMap = cantOpen && typeof cantOpen === 'object' ? cantOpen : null; // who can't open each module (step 6's cantOpen)
   const compositeParts = Array.isArray(parts) ? parts : partsFor(list.map((m) => m.id));
   const nameOf = (id) => (byId.get(id) && byId.get(id).name) || id;
   const mayHoldIn = (def) => (area, id) => areaMayHold(def, area, id, { parts: compositeParts });
@@ -243,10 +300,12 @@ export function createLayoutPicker({
   // --- drawing a shape ---
   // The band (the chat and call column) and the view beside it: a column per shape column at its percentage (as flex
   // grow, so the gaps never upset the shares), a stacked column's areas above each other, each half its height.
-  function drawShape(def, makeArea) {
+  // `picture`: a drawing only (a shape's radio, the small one beside step 2's heading), hidden from a screen reader.
+  function drawShape(def, makeArea, { picture = false } = {}) {
     const frame = doc.createElement('span');
     frame.className = 'layout-picker-drawing';
     frame.dataset.shape = def.id;
+    if (picture) frame.setAttribute('aria-hidden', 'true');
     const band = doc.createElement('span');
     band.className = 'layout-picker-band';
     band.innerHTML = '<i class="fa-solid fa-video fa-fw" aria-hidden="true"></i><i class="fa-solid fa-comments fa-fw" aria-hidden="true"></i>';
@@ -286,16 +345,19 @@ export function createLayoutPicker({
       about.id = `${uid}-about-${def.id}`;
       about.textContent = SHAPE_ABOUT[def.id] || '';
       b.setAttribute('aria-describedby', about.id);
-      const word = doc.createElement('span');
-      word.className = 'layout-picker-shape-word';
-      word.textContent = SHAPE_LABELS[def.id] || def.id;
+      // Its name is its label alone ("Two, right split"); what it looks like is its description.
+      const lab = doc.createElement('span');
+      lab.className = 'layout-picker-shape-word';
+      lab.id = `${uid}-shape-${def.id}`;
+      lab.textContent = SHAPE_LABELS[def.id] || def.id;
+      b.setAttribute('aria-labelledby', lab.id);
       const check = doc.createElement('i');
       check.className = 'fa-solid fa-circle-check fa-fw layout-picker-shape-check';
       check.setAttribute('aria-hidden', 'true');
       const foot = doc.createElement('span');
       foot.className = 'layout-picker-shape-foot';
-      foot.append(word, check);
-      b.append(drawShape(def, smallArea), foot, about);
+      foot.append(lab, check);
+      b.append(drawShape(def, smallArea, { picture: true }), foot, about);
       shapesEl.appendChild(b);
     }
     markShapes();
@@ -357,15 +419,22 @@ export function createLayoutPicker({
     if (m && TINT.test(m.tint || '')) i.dataset.tint = m.tint;
     return i;
   };
-  // The maker's notice under an area (decisions 17 and 19), when the caller gives one (step 6 builds the words).
-  function noticeEl(a, id) {
-    const text = id && typeof noticeFor === 'function' ? String(noticeFor(id, a) || '') : '';
+  // The maker's notice under an area (decisions 17 and 19): its module's `cantOpen` entry in words (noticeWords), read
+  // with the area (aria-describedby). Its id names where it is drawn (`where`: the board or the list), so the two never
+  // share one. Text only: nothing in it goes through innerHTML.
+  const hasOwn = (o, k) => Boolean(o) && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k);
+  function noticeEl(a, id, where) {
+    const text = id && hasOwn(cantMap, id) ? noticeWords(cantMap[id], { byDefault }) : '';
     if (!text) return null;
     const p = doc.createElement('span');
     p.className = 'layout-picker-notice';
-    p.id = `${uid}-notice-${a}`;
-    p.innerHTML = '<i class="fa-solid fa-triangle-exclamation fa-fw" aria-hidden="true"></i>';
-    p.append(doc.createTextNode(text));
+    p.id = `${uid}-notice-${where}-${a}`;
+    const icon = doc.createElement('i');
+    icon.className = 'fa-solid fa-triangle-exclamation fa-fw';
+    icon.setAttribute('aria-hidden', 'true');
+    const words = doc.createElement('span');
+    words.textContent = text;
+    p.append(icon, words);
     return p;
   }
   function areaContent(holder, a) {
@@ -396,9 +465,6 @@ export function createLayoutPicker({
       what.append(...(readOnly ? [] : [plus]), named, name);
     }
     holder.append(n, what);
-    const notice = noticeEl(a, id);
-    if (notice) { holder.appendChild(notice); return notice.id; }
-    return '';
   }
   function areaControl(a, { row = false } = {}) {
     const count = state.shape.areas;
@@ -415,14 +481,16 @@ export function createLayoutPicker({
       box.setAttribute('aria-label', spoken);
       box.addEventListener('click', () => openArea(box, a));
     }
-    const notice = areaContent(box, a);
+    areaContent(box, a);
+    // The chevron before the notice, so in a row it stays at the end of the first line and the notice takes a line of its own.
     if (!readOnly) {
       const caret = doc.createElement('i');
       caret.className = 'fa-solid fa-chevron-down fa-fw layout-picker-area-caret';
       caret.setAttribute('aria-hidden', 'true');
       box.appendChild(caret);
     }
-    if (notice) box.setAttribute('aria-describedby', notice);
+    const notice = noticeEl(a, id, row ? 'row' : 'board');
+    if (notice) { box.appendChild(notice); box.setAttribute('aria-describedby', notice.id); box.classList.add('has-notice'); }
     return box;
   }
   function drawAreas() {
@@ -431,7 +499,7 @@ export function createLayoutPicker({
     mini.replaceChildren();
     if (!state.shape) return;
     board.appendChild(drawShape(state.shape, (a) => areaControl(a)));
-    mini.appendChild(drawShape(state.shape, smallArea));
+    mini.appendChild(drawShape(state.shape, smallArea, { picture: true }));
     for (let a = 1; a <= state.shape.areas; a += 1) {
       const li = doc.createElement('li');
       li.className = 'layout-picker-row';
@@ -524,7 +592,12 @@ export function createLayoutPicker({
     errorEl.hidden = !state.refusal;
     if (navButton) {
       const back = state.step === 2;
-      navButton.innerHTML = back ? '<i class="fa-solid fa-arrow-left fa-fw" aria-hidden="true"></i><span>Back</span>' : `<span>${fill('Choose {modules}')}</span><i class="fa-solid fa-arrow-right fa-fw" aria-hidden="true"></i>`;
+      const arrow = doc.createElement('i');
+      arrow.className = `fa-solid fa-arrow-${back ? 'left' : 'right'} fa-fw`;
+      arrow.setAttribute('aria-hidden', 'true');
+      const words = doc.createElement('span');
+      words.textContent = back ? 'Back' : fill('Choose {modules}');
+      navButton.replaceChildren(...(back ? [arrow, words] : [words, arrow]));
       navButton.disabled = !back && !state.shape;
     }
   }
@@ -547,6 +620,8 @@ export function createLayoutPicker({
         kept = record;
         state.refusal = '';
         draw();
+        // Save turns itself off once saved, which would leave the keyboard nowhere: it goes to the bar's Close.
+        setTimeout(() => { const at = doc.activeElement; if (bar && (!at || at === doc.body || at === bar.saveButton || !el.contains(at))) bar.cancelButton.focus(); }, 0);
         return true;
       },
       onCancel: () => { closeHostMenu(); if (typeof onCancel === 'function') onCancel(); },
@@ -607,6 +682,8 @@ export function createLayoutPicker({
     setStep: (n) => setStep(n, { focus: false }),
     step: () => state.step,
     refuse,
+    // Who can't open each module, when it arrives after the picker was drawn (step 6's GET .../layouts answers it).
+    setCantOpen: (map) => { cantMap = map && typeof map === 'object' ? map : null; draw(); },
     bar,
     destroy: () => { closeHostMenu(); el.remove(); },
   };

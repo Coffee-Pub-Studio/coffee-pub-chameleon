@@ -279,14 +279,14 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
     },
     {
       id: 'live-layout-picker-edit', block: 'pickers', name: 'Live: layout picker, editing a layout', height: 640, title: 'Live layout picker, editing a layout', ctx: 'app', module: true,
-      desc: 'The same piece opened on a saved layout (Education\'s, tall-split: Whiteboard; Goals above Documents), so it starts at step 2. Back goes to the shapes; a new shape keeps the modules in order where it can and says in one line what it took out. Under each area is the place for the maker\'s notice (step 6); here one area shows it.',
+      desc: 'The same piece opened on a saved layout (Education\'s, tall-split: Whiteboard; Goals above Documents), so it starts at step 2. Back goes to the shapes; a new shape keeps the modules in order where it can and says in one line what it took out. The maker\'s notice shows under an area whose module someone can\'t open (cantOpen, as step 6 will answer it): here guests can\'t open Documents, and members and guests can\'t open Goals.',
       body: '<div class="dsf-live"><div id="lp-edit" style="height:560px"></div><p id="lp-edit-out"></p></div>',
       script: `return import('/layout-picker.js').then(function (m) {
         var mods = [{ id: 'whiteboard', name: 'Whiteboard', icon: 'chalkboard', tint: 'teal' }, { id: 'goals', name: 'Goals', icon: 'bullseye', tint: 'green' }, { id: 'documents', name: 'Documents', icon: 'file-lines', tint: 'orange' },
           { id: 'todo', name: 'To-do', icon: 'list-check', tint: 'green' }, { id: 'calendar', name: 'Calendar', icon: 'calendar-days', tint: 'red' }];
         var out = document.getElementById('lp-edit-out');
         var p = m.createLayoutPicker({ modules: mods, record: { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] },
-          noticeFor: function (id) { return id === 'documents' ? 'Guests can\\'t open this.' : ''; },
+          cantOpen: { documents: { roles: ['guest'] }, goals: { roles: ['member', 'guest'] } },
           onSave: function (r) { out.textContent = 'Saved: ' + JSON.stringify(r); }, onCancel: function () { p.set({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }); out.textContent = 'Cancelled.'; } });
         p.el.style.height = '100%'; document.getElementById('lp-edit').append(p.el); });`,
     },
