@@ -2434,7 +2434,7 @@ hostRouter.post('/api/host/templates', requireHostAdmin, templateJson, (req, res
   if (read.error) return res.status(400).json({ error: read.error });
   const raw = read.fields;
   const problems = templates.problemsOf(raw, { manifests: templates.bundledManifests() });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   const taken = templateIdTaken(raw.id);
   if (taken) return res.status(409).json({ error: taken });
   const now = new Date().toISOString();
@@ -2462,7 +2462,7 @@ hostRouter.patch('/api/host/templates/:id', requireHostAdmin, templateJson, (req
   if (changed) {
     const merged = mergeTemplate(stored, edits, t.id);
     const problems = templates.problemsOf(merged, { manifests: templates.bundledManifests() });
-    if (problems.length) return res.status(400).json({ error: problems[0], problems });
+    if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
     if ((stored.version || 1) >= templates.MAX_VERSION) return res.status(409).json({ error: VERSION_SPENT });
     next = { ...storedTemplate(templates.cleanTemplate(merged)), version: (stored.version || 1) + 1, hidden: next.hidden, createdAt: stored.createdAt, updatedAt: new Date().toISOString() };
   }
@@ -2510,7 +2510,7 @@ hostRouter.post('/api/host/templates/:id/duplicate', requireHostAdmin, templateJ
   if (unknown) return res.status(400).json({ error: `A copy takes only an id and a name; "${String(unknown).slice(0, 40)}" is not one of them.` });
   const raw = { ...copyFields(t, null), id: body.id, name: body.name };
   const problems = templates.problemsOf(raw, { manifests: templates.bundledManifests() });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   const taken = templateIdTaken(raw.id);
   if (taken) return res.status(409).json({ error: taken });
   const now = new Date().toISOString();
@@ -2630,7 +2630,7 @@ function patchBundledTemplate(t, edits, hiddenGiven, res) {
   const current = record?.template != null ? record.template : storedTemplate(shipped);
   const merged = mergeTemplate(current, edits, t.id);
   const problems = templates.problemsOf(merged, { manifests: templates.bundledManifests() });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   const clean = templates.cleanTemplate({ ...merged, version: versionNow + 1 });
   saveBundledEdit(t.id, { template: storedTemplate(clean), version: versionNow + 1, base, hidden });
   refreshTemplateLive(t.id);
@@ -13250,7 +13250,7 @@ app.post('/api/environment/templates', requireOwner, templateJson, (req, res) =>
   const manifests = catalogManifests(env);
   const raw = { ...copyFields(from, env), id: body.id, name: body.name };
   const problems = templates.problemsOf(raw, { manifests });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   if (templateFor(env, raw.id) || (hostRegistry && templateFor(null, raw.id))) return res.status(409).json({ error: `There is already a template called ${raw.id}.` });
   if (env.store.ownTemplates.length >= MAX_OWN_TEMPLATES) return res.status(409).json({ error: tooManyOwnTemplates() });
   const now = new Date().toISOString();
@@ -13273,7 +13273,7 @@ app.patch('/api/environment/templates/:id', requireOwner, templateJson, (req, re
   const manifests = catalogManifests(env);
   const merged = mergeTemplate(stored, read.fields, t.id);
   const problems = templates.problemsOf(merged, { manifests });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   if ((Number.isInteger(stored.version) ? stored.version : 1) >= templates.MAX_VERSION) return res.status(409).json({ error: VERSION_SPENT });
   env.store.putOwnTemplate({ ...storedTemplate(templates.cleanTemplate(merged, { manifests })), version: (Number.isInteger(stored.version) ? stored.version : 1) + 1, createdAt: stored.createdAt || null, updatedAt: new Date().toISOString(), copiedFrom: stored.copiedFrom || null });
   if (env.store.templateRecord?.id === t.id) templates.useLive(env.store, templateFor(env, t.id));

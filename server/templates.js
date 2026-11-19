@@ -235,7 +235,9 @@ function moduleEntryProblems(id, entry, manifest, faDir, say) {
 // match.
 function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID } = {}) {
   const out = [];
-  const say = (text) => out.push(text);
+  // `part`: the template field a sentence is about when its first word does not say so (the page files it there).
+  const parts = [];
+  const say = (text, part = null) => { out.push(text); parts.push(part); };
   if (!isObject(raw)) return ['A template must be a JSON object.'];
   let size = 0;
   try { size = Buffer.byteLength(JSON.stringify(raw)); } catch { return ['A template must be plain JSON.']; }
@@ -319,17 +321,30 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
         // Only modules with a place on the canvas can fill an area (the Assistant and the Stream have none).
         const onCanvas = (id) => Boolean(catalog.get(id)?.surfaces?.canvas);
         const named = (raw.modules === '*' ? [...catalog.keys()] : [...listed]).filter(onCanvas);
-        // The name a person reads in this template: its own for the module, else the manifest's, else the id.
-        const names = Object.fromEntries([...catalog.values()].map((m) => [m.id, m.name]));
-        if (isObject(raw.modules)) for (const [id, entry] of Object.entries(raw.modules)) if (isObject(entry) && typeof entry.name === 'string' && entry.name.trim()) names[id] = entry.name.trim();
-        const nameOf = (id) => shown(names[id] || id);
-        // An area naming a module the layout can't use is said with that name; every other refusal is cleanShape's own sentence.
+        // The name a person reads in this template: its own for the module when it is a good display name, else the
+        // manifest's. A null-prototype object, so an id such as __proto__ is only ever an id.
+        const names = Object.assign(Object.create(null), Object.fromEntries([...catalog.values()].map((m) => [m.id, m.name])));
+        if (isObject(raw.modules)) {
+          for (const [id, entry] of Object.entries(raw.modules)) {
+            const own = isObject(entry) && typeof entry.name === 'string' ? entry.name.trim() : '';
+            if (own && !displayNameProblem(own)) names[id] = own;
+          }
+        }
+        // Only a well-formed id is ever put in a sentence by name; anything else is quoted, plain and short.
+        const plain = (id) => String(id).replace(/[^\x20-\x7e]/g, '').slice(0, 40);
+        const nameOf = (id) => names[id] || plain(id);
         const areas = isObject(w.layout) && Array.isArray(w.layout.areas) ? w.layout.areas : [];
-        const unusable = [...new Set(areas.filter((id) => typeof id === 'string' && !named.includes(id) && !BUILTIN_MODULE_IDS.includes(id)))];
-        for (const id of unusable) say(catalog.has(id) && (listed.has(id) || raw.modules === '*') ? `The layout uses ${nameOf(id)}, which can't go in an area.` : `The layout uses ${nameOf(id)}, which this template doesn't include.`);
-        if (!unusable.length) {
+        const strings = areas.filter((id) => typeof id === 'string');
+        const unusable = [...new Set(strings.filter((id) => !named.includes(id) && !BUILTIN_MODULE_IDS.includes(id)))];
+        for (const id of unusable) {
+          if (!ID_RE.test(id)) say(`"${plain(id)}" is not a module you can use here.`, 'workspace');
+          else say(catalog.has(id) && (listed.has(id) || raw.modules === '*') ? `The layout uses ${nameOf(id)}, which can't go in an area.` : `The layout uses ${nameOf(id)}, which this template doesn't include.`, 'workspace');
+        }
+        const twice = [...new Set(strings.filter((id, i) => named.includes(id) && strings.indexOf(id) !== i))];
+        for (const id of twice) say(`${nameOf(id)} is in two areas; a module can be in one area only.`, 'workspace');
+        if (!unusable.length && !twice.length) {
           const { error } = cleanShape(w.layout, { modules: named, on: named, names });
-          if (error) say(error);
+          if (error) say(error, 'workspace');
         }
       }
       if (w.show !== undefined) {
@@ -415,6 +430,8 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
       }
     }
   }
+  // `parts` rides on the answer without being part of it: the field each sentence is about, or null (see `say`).
+  Object.defineProperty(out, 'parts', { value: parts, enumerable: false });
   return out;
 }
 

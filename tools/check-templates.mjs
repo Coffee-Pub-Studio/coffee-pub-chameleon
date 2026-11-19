@@ -339,7 +339,7 @@ try {
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: ['polls'] } } })), ['The layout uses Polls, which this template doesn\'t include.'], 'an area names only this template\'s modules');
     assert.deepEqual(problems(minimal({ modules: '*', workspace: { layout: { shape: 'two-equal', areas: ['polls', 'nope'] } } })), ['The layout uses nope, which this template doesn\'t include.']);
     assert.deepEqual(problems(minimal({ modules: '*', workspace: { layout: { shape: 'two-equal', areas: ['polls', null] } } })), [], 'with "*", any module of the catalog');
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: {} }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['"polls" is in two areas; a module can be in one area only.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: {} }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['Polls is in two areas; a module can be in one area only.']);
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'two-equal', areas: ['chat', null] } } })), ["The chat and the call are in the column on the left; they can't go in an area."]);
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'ring', areas: [] } } })), ['Pick a shape from the list.']);
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'three-equal', areas: [null] } } })), ['This shape has 3 areas.']);
@@ -352,9 +352,23 @@ try {
     }
     assert.deepEqual(problems(minimal({ modules: { chat: {} }, workspace: { layout: { shape: 'one', areas: ['todo'] } } })), ['The layout uses To-do, which this template doesn\'t include.'], 'the manifest\'s name when the template names none');
     assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { name: 'Votes' } }, workspace: { layout: { shape: 'one', areas: ['todo'] } } })), ['The layout uses To-do, which this template doesn\'t include.']);
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { name: 'Votes' } }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['"polls" is in two areas; a module can be in one area only.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { name: 'Votes' } }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['Votes is in two areas; a module can be in one area only.']);
     assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { name: 'Quests' } }, workspace: { layout: { shape: 'one', areas: ['polls'] } } })), ['The layout uses Polls, which this template doesn\'t include.'], 'a module left out of the template');
     assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { name: 'Quests' }, calendar: {} }, workspace: { layout: { shape: 'tall-split', areas: [null, 'todo', null] } } })), ['Quests can\'t share a column; put it in area 1.'], 'the template\'s own name for a module');
+    // Odd ids in an area: one plain line each, never the id raw and never JavaScript's own text.
+    for (const id of ['__proto__', 'constructor', 'toString', '', 'a\nb', '\u202eevil', '<img src=x onerror=1>', 'x'.repeat(80)]) {
+      const got = problems(minimal({ workspace: { layout: { shape: 'one', areas: [id] } } }));
+      assert.equal(got.length, 1, JSON.stringify(id));
+      assert.ok(!/\[object|native code|function|[\n\u202e\u0000-\u001f]/.test(got[0]) && got[0].length < 120, `${JSON.stringify(id)}: ${got[0]}`);
+      assert.ok(got[0].startsWith('The layout uses') || /^"[ -~]{0,40}" is not a module you can use here\.$/.test(got[0]), got[0]);
+    }
+    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: ['a\nb'] } } })), ['"ab" is not a module you can use here.']);
+    // A template's own module name is used only when it is a good display name.
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { name: '<b>x</b>' }, calendar: {} }, workspace: { layout: { shape: 'tall-split', areas: [null, 'todo', null] } } })).filter((p) => p.includes('<b>')), [], 'a refused name never reaches a layout sentence');
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { name: 'Votes' } }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['Votes is in two areas; a module can be in one area only.'], 'the duplicate names the module as the template shows it');
+    // The field a layout sentence is about rides on the answer, for the page to file it.
+    const withParts = problems(minimal({ workspace: { layout: { shape: 'ring', areas: [] } } }));
+    assert.deepEqual([withParts.parts, Object.keys(withParts)], [['workspace'], ['0']], 'parts is not part of the list');
     assert.deepEqual(problems(minimal({ workspace: { opensWith: ['chat'] } })), ['"workspace" takes only layout, show and opensFirst.'], 'opensWith is gone: the layout replaces it');
     // To-do in a stacked area: refused only where the Calendar is on (the template's modules; "*" counts the Calendar as on).
     const stacked = (modules) => problems(minimal({ modules, workspace: { layout: { shape: 'tall-split', areas: ['polls', 'todo', null] } } }));
