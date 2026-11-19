@@ -1844,7 +1844,7 @@ function publicUser(req, u, opts = {}) {
 // portrait size (store.settings), the same number the participant box uses.
 function presenceUser(u) {
   const p = store.effectivePlayer(u);
-  return { key: u.key, displayName: u.displayName, isOwner: hasOwnerRights(u), border: p.border, borderColor: p.borderColor, borderWidth: p.borderWidth, mutedBorder: p.mutedBorder, mutedColor: p.mutedColor, plate: p.plate, plateLayout: p.plateLayout, plateColor: p.plateColor, plateTextColor: p.plateTextColor, plateFontSize: p.plateFontSize, plateOpacity: p.plateOpacity, plateTextCase: p.plateTextCase, charBorder: p.charBorder, charBorderColor: p.charBorderColor, charMutedBorder: p.charMutedBorder, charMutedColor: p.charMutedColor, charBorderWidth: p.charBorderWidth, pictureBackground: p.pictureBackground, pictureColor: p.pictureColor, pictureScale: p.pictureScale, images: Object.fromEntries(SLOTS.map((slot) => [slot, !!u.images[slot]])) };
+  return { key: u.key, displayName: u.displayName, ...(u.agent ? { agent: true } : {}), isOwner: hasOwnerRights(u), border: p.border, borderColor: p.borderColor, borderWidth: p.borderWidth, mutedBorder: p.mutedBorder, mutedColor: p.mutedColor, plate: p.plate, plateLayout: p.plateLayout, plateColor: p.plateColor, plateTextColor: p.plateTextColor, plateFontSize: p.plateFontSize, plateOpacity: p.plateOpacity, plateTextCase: p.plateTextCase, charBorder: p.charBorder, charBorderColor: p.charBorderColor, charMutedBorder: p.charMutedBorder, charMutedColor: p.charMutedColor, charBorderWidth: p.charBorderWidth, pictureBackground: p.pictureBackground, pictureColor: p.pictureColor, pictureScale: p.pictureScale, images: Object.fromEntries(SLOTS.map((slot) => [slot, !!u.images[slot]])) };
 }
 
 // A space's guest link (guestToken, a way into the call in itself) goes only to those who can manage it: an owner
@@ -5406,6 +5406,7 @@ app.patch('/api/spaces/:id', requireUser, (req, res) => {
     if (!moderates(currentUser(req), space) || !onlyTheirs) return res.status(403).json({ error: `${word('owner', { many: true })} only` });
   }
   const space = store.updateSpace(req.params.id, body);
+  if (body.members !== undefined) endAgentAsks(); // an agent taken off the members: its waiting requests here end
   liveAccessChanged(); // guests turned off, say: their live streams end now
   res.json({ space: answeredSpace(req, space) });
 });
@@ -5564,6 +5565,7 @@ app.patch('/api/users/:key', requireOwner, (req, res) => {
   let user = store.updateUser(req.params.key, patch);
   if (off !== undefined) user = store.setAgentOff(req.params.key, off);
   if (chatPost !== undefined) user = store.setAgentChatPost(req.params.key, chatPost);
+  if (off === true) endAgentAsks(); // what it asked for and no page carried out yet is dropped
   liveAccessChanged(); // a role changed, or a new password signed them out everywhere: their streams ask again now
   res.json({ user: publicUser(req, user) });
 });
@@ -5572,6 +5574,7 @@ app.delete('/api/users/:key', requireOwner, (req, res) => {
   if (currentUser(req).key === req.params.key) return res.status(400).json({ error: 'you cannot delete yourself' });
   store.removeUser(req.params.key);
   currentEnvironment().tokens.revoke(req.params.key); // an agent's token goes with it; its objects and messages keep their `by`
+  endAgentAsks(); // and what it asked for that no page carried out yet
   attention.forgetPerson(req.params.key);
   liveAccessChanged(); // their streams end now
   res.json({ ok: true });
@@ -5628,13 +5631,16 @@ app.post('/api/users/:key/token', requireOwner, (req, res) => {
   if (refused) return res.status(403).json({ error: refused });
   if (agent.off) return res.status(409).json({ error: 'This agent is turned off. Turn it on first.' });
   const { token, record } = currentEnvironment().tokens.make(agent.key, 'agent');
+  endAgentAsks(); // what the earlier token asked for ends with it
   res.status(201).set('Cache-Control', 'no-store').json({ token, expiresAt: record.expiresAt });
 });
 // DELETE: revokes it at once: { ok: true, revoked } (false when it had none).
 app.delete('/api/users/:key/token', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
-  res.set('Cache-Control', 'no-store').json({ ok: true, revoked: currentEnvironment().tokens.revoke(agent.key, 'agent') });
+  const revoked = currentEnvironment().tokens.revoke(agent.key, 'agent');
+  endAgentAsks(); // what it asked for that no page carried out yet ends with the token
+  res.set('Cache-Control', 'no-store').json({ ok: true, revoked });
 });
 // What the agent did: the last 100 lines of its log, newest first, before `before` (a time) when given:
 // { entries: [{ at, token, method, route, space, action, request, message, status, address, kind }], more }.
@@ -5690,6 +5696,7 @@ app.patch('/api/users/:key/spaces/:spaceId', requireOwner, (req, res) => {
 });
 app.delete('/api/spaces/:id/members/:key', requireOwner, (req, res) => {
   store.removeMember(req.params.id, req.params.key);
+  endAgentAsks(); // an agent's waiting requests in this space end with its membership
   liveAccessChanged(); // their streams there end now
   res.json({ user: publicUser(req, store.userByKey(req.params.key)) });
 });
@@ -8141,6 +8148,8 @@ app.post('/api/spaces/:id/action', (req, res) => {
     // A view (Polls' draftPoll) opens a form on the person's own open page; Chat sends it only when the module is open,
     // so it is handed out for a minute and never waits for the module's next opening (BUS_LIMITS.openOnlyMs).
     openOnly: Boolean(def.local),
+    // An agent's request carries the token that asked: it is carried out only while that token and its agent may ask.
+    ...(req.agent ? { agentToken: req.agent.token.id } : {}),
   });
   if (req.agent) res.locals.agentLog.request = request.id;
   res.json({ id: request.id, status: request.status });
@@ -9712,6 +9721,41 @@ const publicEvent = (e) => ({ id: e.id, at: e.at, module: e.module, name: e.name
 // `by` is the asker's name; `byKey` is the asker's key (null for a guest or someone no longer here), which a module reads as
 // `ctx.byKey` and may store or look up as a person (plan-agent-access.md, decision 9).
 const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action, input: a.input, by: store.userByKey(a.by)?.displayName || 'someone', byKey: store.userByKey(a.by) ? a.by : null });
+// A request an agent asked for (plan-agent-access.md, "What a leaked token can do") is carried out only while the agent may
+// still ask: AGENT_TOKENS and the environment's Agents switch on, the agent here, an agent and not turned off, holding a token
+// that has not reached its end and is the very token that asked (a new token ends what the old one asked for), and still a
+// member of the request's space who may work there. A person's request is not asked about. Read when a request is offered
+// (pending and the live stream), claimed, finished, and when a page's write names its asker, so a path that changes any of
+// these without ending the requests (below) still holds. `standing`: membership only, never whether the space is closed for
+// set up for now, for ending requests for good (endAgentAsks); the offer, claim and finish ask the whole rule.
+const AGENT_ASK_ENDED = 'The agent that asked for this can no longer ask for it.';
+const agentAsk = (a) => Boolean(a) && (a.agent === true || store.userByKey(a.by)?.agent === true);
+function agentAskStands(a, { standing = false } = {}) {
+  if (!agentAsk(a)) return true;
+  if (!agentTokensOn || store.settings.agents !== true) return false;
+  const agent = store.userByKey(a.by);
+  if (!agent || !agent.agent || agent.off) return false;
+  const tokens = currentEnvironment().tokens;
+  const token = tokens.of(agent.key, 'agent');
+  if (!token || !tokens.live(token) || typeof a.agentToken !== 'string' || token.id !== a.agentToken) return false;
+  const spaceId = a.space || (typeof a.scopeKey === 'string' && a.scopeKey.startsWith('space:') ? a.scopeKey.slice(6) : null);
+  const space = spaceId ? store.spaceById(spaceId) : null;
+  if (standing) return Boolean(space) && !space.isLobby && space.members.includes(agent.key);
+  return Boolean(agentSpaceOf(agent, spaceId));
+}
+// Ends, for good, every waiting request of an agent that may no longer ask for it: called by every route that can take
+// that away (Revoke, a new token, Turn off, Delete, Agents off, taking it off a space's members). One line in the activity
+// list for each agent, module and place, naming the agent.
+function endAgentAsks() {
+  const ended = moduleBus.cancel((a) => agentAsk(a) && !agentAskStands(a, { standing: true }), AGENT_ASK_ENDED);
+  const groups = new Map();
+  for (const a of ended) {
+    const mark = `${a.by}|${a.provider}|${a.scopeKey}`;
+    groups.set(mark, { a, n: (groups.get(mark)?.n || 0) + 1 });
+  }
+  for (const { a, n } of groups.values()) noteActivity(a.provider, `can no longer ask, so ${n === 1 ? 'a waiting request was' : `${n} waiting requests were`} dropped`, a.by, a.scopeKey);
+  return ended.length;
+}
 // A request carried out for someone else (plan-agent-access.md, decision 9). The page that took it may send `for` (the asker's
 // key) and `request` (its id) with a data write, as a HINT. The server holds the request and uses the hint only when every
 // condition holds, and otherwise ignores it: the write is saved as the carrier's own and nobody else is named, and nothing is
@@ -9730,6 +9774,9 @@ function carriedFor(who, moduleId, given, requestId, writeScope, exists) {
   const held = id > 0 ? moduleBus.actionById(id) : null;
   // An honest page whose hint does not apply (an overwrite, another place, over the cap, past the minute, a view): nothing is
   // named and nothing is said.
+  // A request this carrier claimed whose agent may no longer ask (or that was ended for that, `cancelled`): the write is the
+  // carrier's own and names nobody, and the honest page is not blamed for it.
+  if (held && held.provider === moduleId && held.claimedBy === me && held.by === given && held.by !== me && (held.cancelled || !agentAskStands(held))) return '';
   if (held && held.provider === moduleId && held.status === 'claimed' && held.claimedBy === me && held.by === given && held.by !== me && store.userByKey(held.by)) {
     const request = !exists && !held.local ? moduleBus.carrying(id, moduleId, me, writeScope) : null;
     return request && moduleBus.useCarry(request) ? request.by : '';
@@ -9951,7 +9998,8 @@ app.get('/api/bus/actions/pending', busRoute((who, req) => {
   // object's space when the request names one, else here.
   const me = who.user?.key || 'guest';
   const mayTake = (a) => (a.local ? a.by === me : (!a.askerOnly || a.by === me) && (a.space ? busMayDo(who, id, scope, req.query.space, a) : canWrite));
-  return { actions: moduleBus.pending(id, at.scopeKey).filter(mayTake).map(publicAction) };
+  // An agent's request whose agent may no longer ask is not offered (agentAskStands).
+  return { actions: moduleBus.pending(id, at.scopeKey).filter((a) => mayTake(a) && agentAskStands(a)).map(publicAction) };
 }));
 // Someone else's request that only its asker's page may take (`askerOnly`): told no, as a request another page took is.
 const notTheAsker = (who, request) => Boolean(request && request.askerOnly && request.by !== (who.user?.key || 'guest'));
@@ -9960,6 +10008,7 @@ app.post('/api/bus/actions/claim', busRoute((who, req) => {
   const at = busPlace(who, String(id || ''), busScope(scope), space, 'read');
   const waiting = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, waiting)) return { ok: false };
+  if (waiting && !agentAskStands(waiting)) return { ok: false }; // its agent may no longer ask: told no, as a request another page took is
   if (waiting && waiting.local) { if (waiting.by !== (who.user?.key || 'guest')) return { ok: false }; } else if (waiting && waiting.space && waiting.provider === id && waiting.scopeKey === at.scopeKey) busPlace(who, String(id || ''), 'space', waiting.space, 'write'); else busPlace(who, String(id || ''), busScope(scope), space, 'write');
   const request = moduleBus.claim(Number(requestId), id, at.scopeKey, who.user?.key || 'guest');
   // `mine`: the person took their own request, so nothing is written on anyone else's behalf.
@@ -9971,6 +10020,7 @@ app.post('/api/bus/actions/complete', busRoute((who, req) => {
   const at = busPlace(who, String(id || ''), busScope(scope), space, 'read');
   const done = moduleBus.actionById(Number(requestId));
   if (notTheAsker(who, done)) return { ok: false };
+  if (done && !agentAskStands(done)) return { ok: false }; // its agent may no longer ask: nothing is recorded as carried out
   if (done && done.local) { if (done.by !== (who.user?.key || 'guest')) return { ok: false }; } else if (done && done.space && done.provider === id && done.scopeKey === at.scopeKey) busPlace(who, String(id || ''), 'space', done.space, 'write'); else busPlace(who, String(id || ''), busScope(scope), space, 'write');
   const clean = { ok: Boolean(result?.ok) };
   if (typeof result?.error === 'string') clean.error = result.error.slice(0, 200);
@@ -12740,6 +12790,7 @@ app.get('/api/modules/stream', (req, res) => {
   // A request for a module to do something: the providing module's frames are told; one claims it.
   const onAction = listenIn(env, (r) => {
     if ((r.local || r.askerOnly) && r.by !== (who.user?.key || 'guest')) return; // a view, or what is the asker's, is for the person who asked
+    if (!agentAskStands(r)) return; // an agent's request whose agent may no longer ask
     for (const v of views) {
       const at = place(v, r.provider, r.scopeKey);
       if (at) send(v, 'action', r, { ...publicAction(r), provider: r.provider, scope: at.scope });
@@ -13206,6 +13257,7 @@ app.patch('/api/settings', requireOwner, settingsJson, async (req, res) => {
     if (problem) return res.status(400).json({ error: problem });
   }
   if (template === undefined || Object.keys(rest).length) watchTheme(() => store.updateSettings(rest));
+  if (rest.agents === false) endAgentAsks(); // Agents off: every agent's waiting requests end
   // A module frame's inline icons are cached by id (iconSvg); a new icon list may give an id other classes.
   if (rest.icons !== undefined || rest.resetLists !== undefined) iconSvgs.clear();
   if (template === undefined) return res.json({ settings: ownerSettings() });
