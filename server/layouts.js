@@ -143,7 +143,11 @@ function cleanName(value) {
 }
 
 // The text of a module id as a sentence may show it: printable ASCII, short.
-const plainId = (id) => String(id).replace(/[^\x20-\x7e]/g, '').slice(0, 40);
+// Each character that is not printable ASCII shows as ?, so an id is never shown as another id; one with nothing printable
+// in it has no text to show (hasText false).
+const plainId = (id) => [...String(id)].map((c) => (/[\x20-\x7e]/.test(c) ? c : '?')).join('').slice(0, 40);
+const hasText = (id) => /[\x20-\x7e]/.test(String(id));
+const notAModule = (id) => (hasText(id) ? `"${plainId(id)}" is not ${words.word('module', { a: true })} you can use here.` : `That id is not ${words.word('module', { a: true })} you can use here.`);
 
 // The check of a shared layout's shape (decision 5), pure: `input` is { shape, areas } as a request sends them. `options`
 // is { modules, on, names }: the ids an area may name (the modules on in the space with a place on the canvas), the ids
@@ -152,7 +156,7 @@ const plainId = (id) => String(id).replace(/[^\x20-\x7e]/g, '').slice(0, 40);
 // { problems: [sentence...], parts: ['shape' | 'areas', ...] }, one plain sentence each: an id that is not text-safe is
 // quoted plain and short, a module is named as the space shows it, and a module listed twice is named once.
 function checkShape(input, options) {
-  const { modules = null, on = null, names = null } = isObject(options) ? options : {};
+  const { modules = null, on = null, names = null, noArea = null } = isObject(options) ? options : {};
   const shown = Object.assign(Object.create(null), isObject(names) ? names : {});
   const nameOf = (id) => (typeof shown[id] === 'string' && shown[id].trim() ? shown[id].replace(/\p{Cc}/gu, ' ').trim().slice(0, 40) : plainId(id));
   const areas = isObject(input) && Array.isArray(input.areas) ? input.areas : [];
@@ -162,7 +166,8 @@ function checkShape(input, options) {
   const say = (text, part) => { problems.push(text); parts.push(part); };
   if (Array.isArray(modules)) {
     for (const id of new Set(strings.filter((i) => !MODULE_ID.test(i) || !modules.includes(i)))) {
-      if (!MODULE_ID.test(id) || typeof shown[id] !== 'string') say(`"${plainId(id)}" is not ${words.word('module', { a: true })} you can use here.`, 'areas');
+      if (!MODULE_ID.test(id) || typeof shown[id] !== 'string') say(notAModule(id), 'areas');
+      else if (Array.isArray(noArea) && noArea.includes(id)) say(`${nameOf(id)} can't go in an area.`, 'areas');
       else say(`${nameOf(id)} is not available in this ${words.word('space')}.`, 'areas');
     }
   }
@@ -404,9 +409,11 @@ const storedList = (list) => (Array.isArray(list) ? list.filter(storedLayout) : 
 // A shared layout as read from the file: a valid shape and its areas (cleanShape with no module list; `on: []` so a To-do in
 // a stacked area saved while the Calendar was off is kept). A free-form one (modules, from before shared layouts were
 // shapes) is dropped, as is anything else that is not a shape; the file is not rewritten until the next save.
-const storedShared = (l) => isObject(l) && typeof l.id === 'string' && l.id && typeof l.name === 'string' && !Array.isArray(l.modules)
+// Any free-form key present (modules, snap, arrange, whatever its value) drops the entry, and only the shape's own fields are kept.
+const storedShared = (l) => isObject(l) && typeof l.id === 'string' && l.id && typeof l.name === 'string' && !FREE_FORM_KEYS.some((k) => k in l)
   && Boolean(cleanShape({ shape: l.shape, areas: l.areas }, { on: [] }).shape);
-const storedSharedList = (list) => (Array.isArray(list) ? list.filter(storedShared) : []);
+const SHARED_FIELDS = ['id', 'name', 'by', 'at', 'shape', 'areas', 'icon'];
+const storedSharedList = (list) => (Array.isArray(list) ? list.filter(storedShared).map((l) => Object.fromEntries(SHARED_FIELDS.filter((k) => k in l).map((k) => [k, l[k]]))) : []);
 const copy = (l) => structuredClone(l);
 
 class Layouts {
