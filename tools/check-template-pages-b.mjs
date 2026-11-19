@@ -141,17 +141,25 @@ await test('Workspace, Phases, Additions: fields when editable, lines when not, 
   const ws = P.workspaceHtml(tpl, { editable: true, catalog, word });
   assert.equal((ws.match(/data-tw-show=/g) || []).length, 5);
   assert.match(ws, /nobody can hide it/);
-  // The layout (plan-layout-picker.md, step 3): read only in plain words until the picker, no Opens with list, and carried
-  // in the markup so a save sends it back unchanged.
+  // The layout (plan-layout-picker.md, step 5): a place for the layout picker, holding the record (the picker keeps it as it
+  // changes, so a save sends what it holds) and the layout in plain words until the picker is mounted; no Opens with list.
   assert.doesNotMatch(ws, /data-tw-open|Opens with/);
-  assert.match(ws, /<h3>Layout<\/h3>[^]*?data-tw-layout="\{&quot;shape&quot;:&quot;one&quot;,&quot;areas&quot;:\[null\]\}">One empty area opens\. Each person chooses what goes in it\.<\/p>/);
+  assert.match(ws, /<h3>Layout<\/h3>[^]*?<div class="tp-layout" data-tw-layout="\{&quot;shape&quot;:&quot;one&quot;,&quot;areas&quot;:\[null\]\}">One empty area opens\. Each person chooses what goes in it\.<\/div>/);
   const held = (html) => ({ querySelector: (q) => (q === '[data-tw-layout]' ? { dataset: { twLayout: (html.match(/data-tw-layout="([^"]*)"/) || [])[1]?.replace(/&quot;/g, '"') } } : q === '[data-tw-first]' ? { value: 'calendar' } : null), querySelectorAll: () => [] });
   assert.deepEqual(P.readWorkspace(held(ws)), { workspace: { layout: { shape: 'one', areas: [null] }, opensFirst: 'calendar' } }, 'the layout is sent back as it was');
   const noLayout = P.workspaceHtml({ ...tpl, workspace: { show: ['calendar'] } }, { editable: true, catalog, word });
-  assert.match(noLayout, /data-tw-layout="">None: the chat and every module that is on\.<\/p>/);
+  assert.match(noLayout, /data-tw-layout="">None: the chat and every module that is on\.<\/div>/);
   assert.deepEqual(P.readWorkspace(held(noLayout)), { workspace: { opensFirst: 'calendar' } }, 'no layout, none sent');
   const named = P.workspaceHtml({ ...tpl, workspace: { layout: { shape: 'wide-narrow', areas: ['marks', 'travel'] } } }, { editable: false, catalog, word });
-  assert.match(named, /<dt>Layout<\/dt><dd>Timesheet opens wide, with Planner - Travel narrow beside it\.<\/dd>/, 'the template\'s own names');
+  assert.match(named, /<h3>Layout<\/h3>[^]*?<div class="tp-layout" data-tw-layout="[^"]+">Timesheet opens wide, with Planner - Travel narrow beside it\.<\/div>/, 'read only, a place for the picker too, with the template\'s own names');
+  // The Modules page: a module the layout uses carries the line said when it is unticked (empty until then, read with its box).
+  const usesTpl = { ...tpl, workspace: { layout: { shape: 'one', areas: ['marks'] } } };
+  const mh = P.modulesHtml(usesTpl, { editable: true, catalog, word });
+  assert.match(mh, /data-tm-offer checked aria-label="Offer Marks" aria-describedby="tm-uses-marks">/, 'the box is described by the line');
+  assert.match(mh, /<span class="tp-layout-missing tp-uses" id="tm-uses-marks" data-tm-uses role="status"><\/span>/);
+  assert.equal((mh.match(/data-tm-uses/g) || []).length, 1, 'only the module the layout uses');
+  assert.doesNotMatch(P.modulesHtml(usesTpl, { editable: false, catalog, word }), /data-tm-uses/, 'nothing to untick when read only');
+  assert.equal(P.LAYOUT_USES_NOTE, 'The layout on the Default Workspace page uses this. Take it out of the layout first, or this page won\'t save.');
   assert.doesNotMatch(P.workspaceHtml(tpl, { editable: false, catalog, word }), /<input|<select/);
   const ph = P.phasesHtml(tpl, { editable: true, word });
   assert.equal((ph.match(/data-tp-phase=/g) || []).length, 2);
@@ -303,19 +311,41 @@ async function live() {
         const count = (sel) => `document.querySelectorAll(${JSON.stringify(sel)}).length`;
 
         await test(at('Default Workspace: fields for an own template, lines for the Default'), async () => {
-          // The layout is read only until the picker (plan-layout-picker.md, steps 3 to 5): one line in plain words, no Opens with list.
-          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-open]')} === 0 && document.querySelector('#tpl-workspace-box [data-tw-layout]')?.textContent === 'Timesheet and an empty area open side by side, the same width. Each person chooses what goes in the empty area.' && ${count('#tpl-workspace-box [data-tw-show]')} === 5 && document.querySelector('#tpl-workspace-box [data-tw-show="calendar"]').checked`, 'the Default Workspace page');
-          await open('template/default/workspace', `${count('#tpl-workspace-box .tf-line')} === 3 && ${count('#tpl-workspace-box input')} === 0 && document.querySelector('#tpl-workspace-box .tf-line dd')?.textContent === 'One empty area opens. Each person chooses what goes in it.' && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of the Default template');
+          // The layout picker (plan-layout-picker.md, step 5) on the owner's own template: its areas (the board, or one row per
+          // area at 390), no bar of its own, Remove the layout; no Opens with list.
+          const areas = `[...document.querySelectorAll('#tpl-workspace-box :is(.layout-picker-area, .layout-picker-row-main)')].filter((a) => a.getClientRects().length).map((a) => a.getAttribute('aria-label')).join('|')`;
+          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-open]')} === 0 && ${areas} === 'Area 1 of 2: Timesheet|Area 2 of 2: Empty' && ${count('#tpl-workspace-box .action-bar')} === 0 && ${count('#tpl-workspace-box [data-layout-remove]')} === 1 && ${count('#tpl-workspace-box [data-tw-show]')} === 5 && document.querySelector('#tpl-workspace-box [data-tw-show="calendar"]').checked`, 'the Default Workspace page');
+          if (phone) assert.ok(await tab.eval(`${count('#tpl-workspace-box .layout-picker-board .layout-picker-area')} > 0 && [...document.querySelectorAll('#tpl-workspace-box .layout-picker-board')].every((b) => !b.getClientRects().length) && [...document.querySelectorAll('#tpl-workspace-box .layout-picker-row-main')].every((r) => r.getBoundingClientRect().height >= 44) && [...document.querySelectorAll('#tpl-workspace-box .tp-layout-button')].every((b) => b.getBoundingClientRect().height >= 44)`), at('the layout at 390: a list, 44 px targets'));
+          // Read only (the Default template, the plain one): the picker with nothing to press, Copy to change it.
+          await open('template/default/workspace', `${count('#tpl-workspace-box .tf-line')} === 2 && ${count('#tpl-workspace-box input')} === 0 && ${areas} === 'Area 1 of 1: Empty' && ${count('#tpl-workspace-box .layout-picker-readonly')} === 1 && [...document.querySelectorAll('#tpl-workspace-box button')].filter((b) => b.getClientRects().length).length === 0 && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of the Default template');
           await shot(tab, `${size}-workspace-default`);
+          // A shipped template with no layout (Gaming): said plainly, no Pick a shape, Copy to change it.
+          await open('template/games/workspace', `document.querySelector('#tpl-workspace-box .tp-layout-words')?.textContent === 'No layout. A new space opens the chat and every module that is on.' && ${count('#tpl-workspace-box [data-layout-add], #tpl-workspace-box .layout-picker')} === 0 && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of Gaming');
         });
         await test(at('Default Workspace saves'), async () => {
           await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-show]')} === 5`, 'the Default Workspace page');
           await shot(tab, `${size}-workspace`);
-          await tab.eval(`(() => { document.querySelector('#tpl-workspace-box [data-tw-show="map"]').click(); document.querySelector('#tpl-workspace-card [data-tpl-save-button]').click(); return true; })()`);
+          // Another shape in the picker (Timesheet carried into area 1), a Fixed Workspace ticked, saved with the page's Save.
+          await tab.eval(`(() => { document.querySelector('#tpl-workspace-box .layout-picker-step[data-step="1"]').click(); document.querySelector('#tpl-workspace-box .layout-picker-shape[data-shape="one"]').click(); document.querySelector('#tpl-workspace-box [data-tw-show="map"]').click(); document.querySelector('#tpl-workspace-card [data-tpl-save-button]').click(); return true; })()`);
           await sleep(1200);
           const t = (await api('GET', '/api/environment/templates/mine')).json.template;
           assert.deepEqual(t.workspace.show.slice().sort(), ['calendar', 'map']);
-          assert.deepEqual(t.workspace.layout, { shape: 'two-equal', areas: ['marks', null] });
+          assert.deepEqual(t.workspace.layout, { shape: 'one', areas: ['marks'] }, 'the layout as the picker held it');
+          await open('template/list', 'true', 'the list');
+          await open('template/mine/workspace', `document.querySelector('#tpl-workspace-box [data-tw-layout]')?.dataset.twLayout === '{"shape":"one","areas":["marks"]}' && [...document.querySelectorAll('#tpl-workspace-box :is(.layout-picker-area, .layout-picker-row-main)')].filter((a) => a.getClientRects().length).map((a) => a.getAttribute('aria-label')).join('|') === 'Area 1 of 1: Timesheet'`, 'the layout read back');
+          // Unticking a module the layout uses says so in its row at once, before saving; ticked again, the line goes.
+          await open('template/mine/modules', `${count('#tpl-modules-box [data-tm="marks"] [data-tm-uses]')} === 1`, 'the Modules page');
+          await tab.eval(`document.querySelector('#tpl-modules-box [data-tm="marks"] [data-tm-offer]').click()`);
+          assert.equal(await tab.eval(`document.querySelector('#tpl-modules-box [data-tm="marks"] [data-tm-uses]').textContent`), "The layout on the Default Workspace page uses this. Take it out of the layout first, or this page won't save.", at('the line before saving'));
+          await tab.eval(`document.querySelector('#tpl-modules-box [data-tm="marks"] [data-tm-offer]').click()`);
+          assert.equal(await tab.eval(`document.querySelector('#tpl-modules-box [data-tm="marks"] [data-tm-uses]').textContent`), '', at('ticked again, no line'));
+          // Remove the layout and save: the template has none, said plainly with Pick a shape.
+          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-layout-remove]')} === 1`, 'the Default Workspace page');
+          await tab.eval(`(() => { document.querySelector('#tpl-workspace-box [data-layout-remove]').click(); document.querySelector('#tpl-workspace-card [data-tpl-save-button]').click(); return true; })()`);
+          await sleep(1200);
+          assert.equal((await api('GET', '/api/environment/templates/mine')).json.template.workspace?.layout, undefined, 'removed: no layout');
+          await open('template/list', 'true', 'the list');
+          await open('template/mine/workspace', `document.querySelector('#tpl-workspace-box .tp-layout-words')?.textContent === 'No layout. A new space opens the chat and every module that is on.' && ${count('#tpl-workspace-box [data-layout-add]')} === 1`, 'no layout, with Pick a shape');
         });
         await test(at('Phases: the list and the measure; an edit saves'), async () => {
           await open('template/mine/phases', `${count('#tpl-phases-box [data-tp-phase]')} === 3 && document.querySelector('#tpl-phases-box [data-tp-measure]').value === 'dates' && document.querySelector('#tpl-phases-box [data-tp-main]:checked') !== null`, 'the Phases page');

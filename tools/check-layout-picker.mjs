@@ -10,6 +10,9 @@
  *      (MODULE_ID) are never offered, and a module listed twice is offered once. Odd input throws nowhere. noticeWords
  *      says the maker's notice for one role, several (moderator, member, guest, by the environment's words), a module
  *      that is off, the host console's "by default" form, and nothing for a module not in cantOpen; it is drawn as text.
+ *  1b. In Node: a template's layout in its editor (public/template-layout.js, step 5): only a whole record is sent, the areas
+ *      offer the template's canvas modules (never the chat or the call), what is no longer ticked is found in area order and
+ *      said in plain words before saving, a template with no layout is said plainly, and Manage's notice says "environment".
  *   2. In Chromium (skipped, said so, when there is none), with real keys over the DevTools protocol, at 1280 and 390, light
  *      and dark: six shapes drawn in two rows of three, each with its number of areas at the shape's percentages; picking a
  *      shape carries the areas sensibly and a shape change never loses the list it carries from; the area menu offers Empty
@@ -49,6 +52,7 @@ for (const f of fs.readdirSync(path.join(ROOT, 'public')).filter((x) => x.endsWi
 const P = await import(pathToFileURL(path.join(tmp, 'layout-picker.js')).href);
 const { SHAPES, shapeById } = await import(pathToFileURL(path.join(tmp, 'layout-shapes.js')).href);
 const { areaMayHold } = await import(pathToFileURL(path.join(tmp, 'layouts.js')).href);
+const T = await import(pathToFileURL(path.join(tmp, 'template-layout.js')).href);
 fs.rmSync(tmp, { recursive: true, force: true });
 
 eq(SHAPES.map((s) => s.id), SERVER_SHAPES.map((s) => s.id), 'the page and the server list the same shapes');
@@ -162,6 +166,43 @@ const holder = (shape, parts) => (a, id) => areaMayHold(shape, a, id, { parts })
   const src = fs.readFileSync(path.join(ROOT, 'public/layout-picker.js'), 'utf8');
   const fn = src.slice(src.indexOf('function noticeEl('), src.indexOf('function areaContent('));
   ok(fn.length > 50 && !/innerHTML|insertAdjacentHTML/.test(fn) && /textContent = text/.test(fn), 'the notice is not drawn as text only');
+  // Manage's template pages: a module off in the environment (offIn), and the default stays the space.
+  eq(P.noticeWords({ off: true }, { offIn: 'environment' }), 'Off in this environment. This area closes up for everyone.', 'notice, off in the environment');
+  eq(P.noticeWords({ off: true }, { offIn: 'environment', byDefault: true }), 'Not installed. This area closes up for everyone.', 'notice, by default wins over offIn');
+}
+
+// ---- 1b. A template's layout in its editor (public/template-layout.js; plan step 5) ----
+{
+  // What is sent: only a whole record the shape check can take.
+  eq(T.layoutRecord({ shape: 'wide-narrow', areas: ['travel', 'vault'] }), { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'a valid record is sent');
+  eq(T.layoutRecord({ shape: 'one', areas: [null] }), { shape: 'one', areas: [null] }, 'an empty area is a valid record');
+  for (const [bad, why] of [[null, 'none'], [{ shape: 'nine', areas: [null] }, 'unknown shape'], [{ shape: 'one', areas: [] }, 'too few areas'], [{ shape: 'one', areas: [null, null] }, 'too many areas'], [{ shape: 'two-equal', areas: ['goals', 'goals'] }, 'a module twice'], [{ shape: 'one', areas: ['Goals'] }, 'a capital'], [{ shape: 'one', areas: ['__proto__'] }, '__proto__'], [{ shape: 'one', areas: [7] }, 'a number'], [{ shape: 'one' }, 'no areas']]) eq(T.layoutRecord(bad), null, `not sent: ${why}`);
+  const rec = { shape: 'two-equal', areas: ['goals', null] };
+  const back = T.layoutRecord(rec);
+  back.areas.push('x');
+  eq(rec.areas, ['goals', null], 'the record sent is a copy');
+  // What an area offers: the template's modules with a place on the canvas, never the chat or the call, each once.
+  const names = { goals: 'Learning plan', documents: 'Documents', assistant: 'AI Assistant' };
+  eq(T.templateLayoutModules(['chat', 'conference', 'goals', 'assistant', 'documents', 'goals', 'Bad', 7], { isCanvas: (id) => id !== 'assistant', nameOf: (id) => names[id], iconOf: () => 'star' }),
+    [{ id: 'goals', name: 'Learning plan', icon: 'star' }, { id: 'documents', name: 'Documents', icon: 'star' }], 'the template\'s canvas modules, once, in order');
+  eq(T.templateLayoutModules(undefined), [], 'no modules');
+  // What the layout uses that is no longer ticked, in area order, and the two lines saying so before saving.
+  eq(T.layoutMissing({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, ['documents', 'chat']), ['whiteboard', 'goals'], 'the unticked ones, in area order');
+  eq(T.layoutMissing({ shape: 'one', areas: [null] }, []), [], 'an empty area is never missing');
+  eq(T.layoutMissing(null, []), [], 'no layout, nothing missing');
+  eq(T.missingNote(['Whiteboard'], { where: 'Modules' }), 'The layout uses Whiteboard, which is not ticked under Modules. Tick it again, or take it out of the layout.', 'beside the picker, one');
+  eq(T.missingNote(['Whiteboard', 'Goals'], { where: 'Modules' }), 'The layout uses Whiteboard and Goals, which are not ticked under Modules. Tick them again, or take them out of the layout.', 'beside the picker, two');
+  eq(T.missingNote([]), '', 'nothing to say');
+  eq(T.usesNote(['Vault']), 'The layout on the Default Workspace tab uses Vault. Tick it again, or take it out of the layout there.', 'under Modules, one');
+  eq(T.usesNote(['Vault', 'Polls']), 'The layout on the Default Workspace tab uses Vault and Polls. Tick them again, or take them out of the layout there.', 'under Modules, two');
+  eq(T.noLayoutWords((k) => k), 'No layout. A new space opens the chat and every module that is on.', 'no layout, in plain words');
+  // Every record the picker can be left holding passes the server's check against the template's modules.
+  const mods = ['whiteboard', 'goals', 'documents', 'todo', 'calendar'];
+  for (const s of SHAPES) {
+    const areas = mods.slice(0, s.areas);
+    const r = T.layoutRecord({ shape: s.id, areas: areas.map((id, i) => (i === 0 ? id : null)) });
+    ok(r && !cleanShape(r, { modules: mods, on: mods }).error, `${s.id}: a record sent passes cleanShape`);
+  }
 }
 
 // ---- 2. the browser ----

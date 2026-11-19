@@ -5,6 +5,7 @@ import { wireFlightSchedule } from '/flight-schedule.js';
 import '/slot-paste.js'; // paste a picture into any image slot
 import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, markAllDups, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
+import { mountTemplateLayout, templateLayoutModules } from '/template-layout.js';
 import { addSpaceFlow, moduleShift } from '/template-choice.js';
 import { confirmDialog } from '/confirm.js';
 import { fileText } from '/file-text.js';
@@ -2306,6 +2307,7 @@ let tplList = [];
 let templateOffer = null;
 let offerPutAway = false;
 const tplFull = new Map(); // id -> the template in full (GET /api/environment/templates/:id), read when a page opens it
+const tplCantOpen = new Map(); // id -> who can't open each of its modules here (the same answer's `cantOpen`, this environment's Roles)
 const templateName = (t) => (t && (t.name || t.id)) || '';
 const capitalOf = (text) => text.charAt(0).toLocaleUpperCase('en') + text.slice(1);
 // The kind of a template as a person reads it.
@@ -2504,7 +2506,11 @@ function renderTemplateNote() {
 // own is shown read-only, with Copy to change it.
 const currentTplId = () => tplId || (madeFrom && madeFrom.id) || 'default';
 async function templateRecord(id) {
-  if (!tplFull.has(id)) tplFull.set(id, (await api('GET', `/api/environment/templates/${encodeURIComponent(id)}`)).template);
+  if (!tplFull.has(id)) {
+    const answer = await api('GET', `/api/environment/templates/${encodeURIComponent(id)}`);
+    tplFull.set(id, answer.template);
+    tplCantOpen.set(id, answer.cantOpen && typeof answer.cantOpen === 'object' ? answer.cantOpen : {});
+  }
   return tplFull.get(id);
 }
 const tplPages = {
@@ -2547,6 +2553,7 @@ async function drawTplPage(kind) {
     await loadCatalog();
     if (mine !== tplDrawing || tplPart !== kind) return;
     box.innerHTML = workspaceHtml(t, { editable, catalog: templateCatalog(), word });
+    drawTplLayout(box, t, editable);
   } else if (kind === 'phases') {
     box.innerHTML = phasesHtml(t, { editable, word });
   } else if (kind === 'reactions') {
@@ -2570,6 +2577,32 @@ async function drawTplPage(kind) {
   }
   panel.querySelector('[data-tpl-save]').hidden = !editable;
   say(panel.querySelector('[data-tpl-status]'), '');
+}
+// The Default Workspace's layout (plan-layout-picker.md, step 5): the layout picker in the place workspaceHtml drew, read
+// only on a template that is not the owner's own (with its notices). Its areas offer the template's modules with a place
+// on the canvas: an installed module's manifest says so (surfaces.canvas); one not installed or not on here is in the
+// route's `cantOpen` as off exactly when it has one. The notice is this environment's Roles grid (`cantOpen`). The
+// page's Save sends what the picker holds (readWorkspace reads it from the place).
+function drawTplLayout(box, t, editable) {
+  const holder = box.querySelector('[data-tw-layout]');
+  if (!holder) return;
+  const cantOpen = tplCantOpen.get(t.id) || {};
+  const own = (id) => (t.modules && typeof t.modules === 'object' && t.modules[id] && typeof t.modules[id] === 'object' ? t.modules[id] : {});
+  const installed = (id) => installedModules.find((m) => m.id === id);
+  const bundled = (id) => bundledModules.find((b) => b.id === id);
+  const isCanvas = (id) => Boolean(installed(id)?.surfaces?.canvas) || Object.hasOwn(cantOpen, id);
+  const nameOf = (id) => own(id).name || installed(id)?.name || bundled(id)?.name || id;
+  const iconOf = (id) => own(id).icon || installed(id)?.icon || bundled(id)?.icon || 'puzzle-piece';
+  const ids = t.modules === '*' ? [...installedModules.map((m) => m.id), ...bundledModules.map((b) => b.id)] : Object.keys(t.modules || {});
+  mountTemplateLayout(holder, {
+    record: t.workspace && t.workspace.layout ? t.workspace.layout : null,
+    modules: templateLayoutModules(ids, { isCanvas, nameOf, iconOf }),
+    cantOpen,
+    offIn: 'environment',
+    readOnly: !editable,
+    word,
+    nameOf,
+  });
 }
 // The modules a template can offer (the installed ones that are on, and the built-in ones), each { id, name, icon, settings, labels,
 // starter } as the catalog gives it (GET /api/modules), for the Default Workspace and Modules pages. `full` keeps the settings and
