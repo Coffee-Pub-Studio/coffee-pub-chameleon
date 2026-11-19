@@ -73,6 +73,9 @@
   const one = () => (sel.size === 1 ? [...sel][0] : null); // the one picked block, or null (none, or several)
   let editing = null; // { id, finish, cell? ({ r, c, td }: a table's cell) }
   let many = false; // "Many", a mode of the Select tool (on its strip): a click or tap adds to what is picked, a drag on the board draws a rectangle that adds
+  let pictureArea = null; // the Select area tool's area: { id, part } (part: fractions of the whole picture)
+  let cropper = null; // the Crop tool's frame (syncCropper) and the id of the picture it is on
+  let cropping = null;
   let presenting = null; // while the frames are presented: lib-e-block-frame's state ({ order, i, view }), see "presenting"
   let tool = tools.get('select');
   let lent = null; // an insert tool's press on a block, lent to Select for that press (lib-f-tool-insert)
@@ -143,17 +146,57 @@
   function commit(next, save) {
     board.put(next);
     renderer.draw(next);
+    if (cropping === next.id) syncCropper(); else if (sel.has(next.id)) frameRadius();
+    if (pictureArea && pictureArea.id === next.id) showArea();
     if (save) persist(next, save);
     updateStatus();
   }
+  // Marks that travel with a picture (lib-u). A mark saved is on the picture it sits on, or on none (wbAttachment). While a picture is
+  // resized its marks are scaled from the state they were in when the resize began (markBase), so the many small steps of a drag
+  // do not add up their rounding; they are saved with the picture, in the same turn, so the resize is one undo step.
+  let markBase = null; // { id, box, marks: Map(mark id -> block) }
+  let flushingMarks = false;
+  let restoring = false; // undo or redo is putting blocks back: a mark keeps the `on` it had, even before its picture is back
   function persist(b, how) {
-    const stamped = { ...b, by: me, at: new Date().toISOString() };
+    let own = b;
+    if (wbIsMark(b) && !restoring) {
+      const on = wbAttachment(b, live(), heightOf);
+      own = { ...b };
+      if (on) own.on = on; else delete own.on;
+    }
+    const stamped = { ...own, by: me, at: new Date().toISOString() };
     if (history) history.record(b.id, known.get(b.id) || null, stamped);
     known.set(b.id, stamped);
     board.put(stamped);
     drafts.delete(b.id);
     waiting.delete(b.id); // ours is newer than what waited
     if (how === 'soon') sync.saveSoon(stamped); else sync.save(stamped);
+    if (markBase && !flushingMarks) {
+      const base = markBase;
+      markBase = null;
+      if (base.id === b.id) {
+        flushingMarks = true;
+        try {
+          for (const id of base.marks.keys()) {
+            const m = board.get(id);
+            if (m && !sameBlock(known.get(id), m)) persist(m, how);
+          }
+        } finally { flushingMarks = false; }
+      }
+    }
+  }
+  // The marks of a picture follow its resize: from the state they were in when it began, by the factors its box changed by.
+  function scaleMarks(prev, next) {
+    if (next.w === prev.w && next.h === prev.h) return; // a move: its marks go with it as the drag's own (wbFrameFollow)
+    if (!markBase || markBase.id !== prev.id) {
+      markBase = { id: prev.id, box: { x: prev.x, y: prev.y, w: prev.w, h: prev.h }, marks: new Map(live().filter((m) => m.on === prev.id && m.locked !== true).map((m) => [m.id, m])) };
+    }
+    const f = { ox: markBase.box.x, oy: markBase.box.y, sx: next.w / markBase.box.w, sy: next.h / markBase.box.h, nx: next.x, ny: next.y };
+    for (const [id, m0] of markBase.marks) {
+      if (!board.has(id)) continue;
+      const n = wbClean({ ...m0, ...wbScaleMark(m0, f) });
+      if (n) commit(n, false);
+    }
   }
 
   // What tools and block types may ask of the board: they never touch storage or permissions themselves.
@@ -192,7 +235,11 @@
       if (b && !drafts.has(id) && b.locked && policy.canLock(b)) { lockedNote(1, 1); return; }
       if (!b || (!drafts.has(id) && !policy.canChange(b))) return;
       const next = wbClean({ ...b, ...patch });
-      if (next) commit(next, save);
+      if (!next) return;
+      if (markBase && markBase.id !== id) markBase = null;
+      // A resize of a picture scales its marks; a crop (or Reset picture) changes its box but not its scale, so it moves none.
+      if (b.type === 'image' && !('crop' in patch) && !drafts.has(id)) scaleMarks(b, next);
+      commit(next, save);
     },
     // Save a block as it is now: once, at the end of a gesture; nothing when the gesture left it as it was.
     save(id) {
@@ -241,6 +288,11 @@
     guideBoxes: (ids) => guideBoxes(ids),
     guides: (lines) => renderer.guides(lines),
     setTool: (id) => setTool(id),
+    // The Select area tool's area on a picture ({ id, part } or null): kept, and drawn as the selection box, until it is let go.
+    area: () => pictureArea,
+    setArea: (a) => { pictureArea = a; showArea(); },
+    // The pointer over the board for this tool (a tool's grips, its frame); null for the tool's own.
+    cursor: (name) => { surface.style.cursor = name || tool.cursor || ''; },
     hold(id, on) { if (on) held.add(id); else release(id); },
     // Where a connector's end goes for a pointer on the board ({ block, side } or null: the board), and the connection
     // points to show ([{ block, side }], [] for none).
@@ -333,7 +385,7 @@
   // A delete of several blocks (lib-m, wbDeleteSet): the locked ones stay, and the person is told.
   function removeMany(ids) {
     if (presenting) return;
-    const r = wbDeleteSet(ids, board.all(), { canDelete: (b) => drafts.has(b.id) || policy.canDelete(b), refsOf: (b) => { const d = defOf(b); return d && d.refs ? d.refs(b) : []; } });
+    const r = wbDeleteSet(ids, board.all(), { canDelete: (b) => drafts.has(b.id) || policy.canDelete(b), refsOf: (b) => { const d = defOf(b); const own = d && d.refs ? d.refs(b) : []; return b.on ? [...own, b.on] : own; } }); // a mark goes with its picture (lib-u)
     for (const id of r.ids) remove(id, { force: true });
     if (r.locked) lockedNote(r.locked, ids.length);
   }
@@ -564,9 +616,62 @@
     for (const id of want.length ? wbExpandGroups(want, board.all()) : []) if (board.has(id)) sel.add(id);
     if (cellNav && !(sel.size === 1 && sel.has(cellNav.id))) leaveCells(); // the cells are the one picked table's
     renderer.select([...sel], handlesOf(one()));
+    syncCropper();
     toolbarTail();
     if (Boolean(pair()) !== addCanConnect) setAdd();
     updateStatus();
+  }
+  // The Crop tool's frame: over the one picture that is picked while Crop is the tool, the frame, its thirds and a grip on each
+  // corner and edge (whiteboard.css, .wb-cropper). It draws only; pressing the grips is the tool's (lib-f-tool-picture). The picture
+  // itself shows whole and faint round the part kept while it is cropped (its element's data-cropping, lib-e-block-image).
+  cropper = document.createElement('div');
+  cropper.className = 'wb-cropper';
+  cropper.hidden = true;
+  cropper.setAttribute('aria-hidden', 'true');
+  for (const g of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+    const grip = document.createElement('span');
+    grip.className = 'wb-cropper-grip';
+    grip.dataset.grip = g;
+    cropper.appendChild(grip);
+  }
+  $('world').insertBefore(cropper, $('frame'));
+  // The area on a picture (Select area) is drawn as the usual selection box, over the part of it that is shown. It follows the picture
+  // when that changes, and goes when nothing of it is shown, or the picture is gone.
+  function showArea() {
+    const a = pictureArea;
+    const b = a && board.get(a.id);
+    if (!b || b.type !== 'image') { pictureArea = null; renderer.marquee(null); return; }
+    const c = blockTypes.get('image').cropOf(b);
+    const x0 = Math.max(a.part.x, c.x);
+    const y0 = Math.max(a.part.y, c.y);
+    const x1 = Math.min(a.part.x + a.part.w, c.x + c.w);
+    const y1 = Math.min(a.part.y + a.part.h, c.y + c.h);
+    if (x1 <= x0 || y1 <= y0) { pictureArea = null; renderer.marquee(null); return; }
+    renderer.marquee({ x0: b.x + ((x0 - c.x) / c.w) * b.w, y0: b.y + ((y0 - c.y) / c.h) * b.h, x1: b.x + ((x1 - c.x) / c.w) * b.w, y1: b.y + ((y1 - c.y) / c.h) * b.h });
+  }
+  // The selection's frame takes a picked picture's corner radius, so it hugs a rounded picture (its outline sits 6 units out).
+  function frameRadius() {
+    const f = sel.size === 1 && one() ? board.get(one()) : null;
+    const r = f && f.type === 'image' && f.radius ? Math.min(f.radius, f.w / 2, f.h / 2) : 0;
+    $('frame').style.borderRadius = r ? `calc(${r}px + 6px / var(--wb-scale, 1))` : '';
+  }
+  function syncCropper() {
+    frameRadius();
+    if (!cropper) return;
+    const one1 = tool.id === 'crop' && !presenting && sel.size === 1 ? board.get([...sel][0]) : null;
+    const on = one1 && one1.type === 'image' && !drafts.has(one1.id) ? one1 : null;
+    if (cropping && (!on || on.id !== cropping)) {
+      const old = renderer.element(cropping);
+      if (old) delete old.dataset.cropping;
+      cropping = null;
+    }
+    surface.classList.toggle('wb-crop-on', Boolean(on)); // the picked frame and its handles give way to the crop frame
+    if (!on) { cropper.hidden = true; return; }
+    const el = renderer.element(on.id);
+    if (el) el.dataset.cropping = 'true';
+    cropping = on.id;
+    Object.assign(cropper.style, { left: `${on.x}px`, top: `${on.y}px`, width: `${on.w}px`, height: `${on.h}px` });
+    cropper.hidden = false;
   }
   // The toolbar's buttons that come and go, always in this order after the Timer: Present (the board has a frame; anyone who
   // can see the board), Delete (something picked may be deleted), Arrange (two or more picked, for someone who may change
@@ -971,6 +1076,7 @@
     { id: 'pen', kinds: ['pen', 'marker', 'brush', 'highlight'] },
     { id: 'shape', kinds: ['rect', 'ellipse', 'line', 'arrow'] },
     { id: 'flowchart', kinds: ['connector', 'rounded', 'diamond', 'pill', 'parallelogram'] },
+    { id: 'picture', kinds: ['crop', 'blur', 'area'] },
   ];
   const familyHas = (f) => f.kinds.some((id) => allowed.some((t) => t.id === id));
   const lastKind = Object.fromEntries(FAMILIES.map((f) => [f.id, f.kinds[0]]));
@@ -987,6 +1093,7 @@
     { id: 'shape', label: 'Shape', icon: 'shapes' },
     { id: 'table', label: 'Table', icon: 'table' },
     { id: 'frame', label: 'Frame', icon: 'crop-simple' },
+    { id: 'picture', label: 'Picture', icon: 'image' },
   ];
   const inSwitch = (o) => (FAMILIES.some((f) => f.id === o.id) ? familyHas(FAMILIES.find((f) => f.id === o.id)) : allowed.some((t) => t.id === o.id));
   // A tool picked with the mouse leaves the focus on the toolbar's button; the board takes it, so the tool's letter and Escape work
@@ -1026,12 +1133,13 @@
     family = nextFamily;
     if (!(tool.makes && blockTypes.get(tool.makes) && ['rounded', 'diamond', 'pill', 'parallelogram'].includes(tool.makes))) lastFlow = null;
     if (family) lastKind[family] = tool.id;
-    if (tool.id !== 'select' && !tool.mode && sel.size) select(null); // a tool's strip is about the tool, not what was picked before
+    if (tool.id !== 'select' && !tool.mode && family !== 'picture' && sel.size) select(null); // a tool's strip is about the tool, not what was picked before (the Picture tool works on what is picked)
     if (tool.activate) tool.activate(ctx);
     surface.dataset.tool = tool.id;
     surface.style.cursor = tool.cursor || '';
     renderer.cursorIcon(null); // the next mouse move shows the new tool's icon
     renderer.select([...sel], handlesOf(one()));
+    syncCropper();
     showTool();
     updateHint();
     updateStatus();
@@ -1213,8 +1321,10 @@
   const paintButtons = new Map(); // role id or 'weight' -> { button, mark }
   // The strip's first group: the kinds of the active tool when it has them (Pen: pen, marker, brush, highlighter; Shape;
   // Flowchart), a small row of icon buttons, the chosen one pressed, then a thin divider before the colours.
-  const KIND_ICONS = { pen: 'pen', marker: 'marker', brush: 'paintbrush', highlight: 'highlighter', rect: 'square', ellipse: 'circle', line: 'minus', arrow: 'arrow-right-long', connector: 'arrows-turn-right', rounded: 'square', diamond: 'diamond', pill: 'capsules', parallelogram: 'arrow-right-arrow-left' };
-  const FAMILY_NAMES = { pen: 'Pen', shape: 'Shape', flowchart: 'Flowchart' };
+  const KIND_ICONS = { pen: 'pen', marker: 'marker', brush: 'paintbrush', highlight: 'highlighter', rect: 'square', ellipse: 'circle', line: 'minus', arrow: 'arrow-right-long', connector: 'arrows-turn-right', rounded: 'square', diamond: 'diamond', pill: 'capsules', parallelogram: 'arrow-right-arrow-left', crop: 'crop', blur: 'droplet', area: 'expand' };
+  // The Shadow button's icon: a Font Awesome Free solid name. Not 'layer-group': that one means layers.
+  const WB_SHADOW_ICON = 'cloud-sun';
+  const FAMILY_NAMES = { pen: 'Pen', shape: 'Shape', flowchart: 'Flowchart', picture: 'Picture' };
   const kindsBox = document.createElement('div');
   kindsBox.className = 'wb-kinds';
   kindsBox.setAttribute('role', 'group');
@@ -1250,6 +1360,12 @@
   presentBox.setAttribute('role', 'group');
   presentBox.setAttribute('aria-label', 'Frames');
   presentBox.hidden = true;
+  // A picture's own choices: its corner radius and its shadow (shown while every block picked is a picture).
+  const pictureBox = document.createElement('div');
+  pictureBox.className = 'wb-paint-group wb-picturegroup';
+  pictureBox.setAttribute('role', 'group');
+  pictureBox.setAttribute('aria-label', 'Style');
+  pictureBox.hidden = true;
   // The strip begins with a quiet badge: the icon of the tool it belongs to (or of the kind of block picked).
   const endcap = document.createElement('span');
   endcap.className = 'wb-endcap';
@@ -1265,7 +1381,7 @@
     endcapName = icon;
     iconSvg(icon).then((svg) => { if (svg && endcapName === icon) endcapIc.innerHTML = svg; });
   }
-  const stripGroups = [selectionBox, kindsBox, fontsBox, tableBox, lineBox, presentBox, coloursBox];
+  const stripGroups = [selectionBox, kindsBox, fontsBox, tableBox, lineBox, presentBox, pictureBox, coloursBox];
   const stripSeps = [];
   for (let i = 1; i < stripGroups.length; i += 1) {
     const sep = document.createElement('span');
@@ -1274,7 +1390,7 @@
     sep.hidden = true;
     stripSeps.push(sep);
   }
-  paintStrip.append(endcap, selectionBox, stripSeps[0], kindsBox, stripSeps[1], fontsBox, stripSeps[2], tableBox, stripSeps[3], lineBox, stripSeps[4], presentBox, stripSeps[5], coloursBox);
+  paintStrip.append(endcap, selectionBox, stripSeps[0], kindsBox, stripSeps[1], fontsBox, stripSeps[2], tableBox, stripSeps[3], lineBox, stripSeps[4], presentBox, stripSeps[5], pictureBox, stripSeps[6], coloursBox);
   // The strip floats: its grip, the endcap at the left end (the tool's own icon), drags it anywhere over the board (arrow keys move it by a step, Home puts it back
   // under the toolbar's left end, and a double-click on the grip turns it from a row to a column and back). Where it was left, and which way it lies, is this person's own, kept in this browser and not in
   // the board's data, and is held inside the module's page when the page changes size.
@@ -1432,6 +1548,12 @@
   let sizeButton = null;
   let sizeLabel = null;
   let presentButton = null;
+  let radiusButton = null;
+  let shadowButton = null;
+  let cropButton = null;
+  let blurButton = null;
+  let areaButton = null;
+  let flattenButton = null;
   let valignBox = null;
   let autoButton = null;
   let tableButton = null;
@@ -1497,6 +1619,7 @@
     sizeIc.setAttribute('aria-hidden', 'true');
     iconSvg('text-height').then((svg) => { if (svg) sizeIc.innerHTML = svg; });
     sizeLabel = document.createElement('span');
+    sizeLabel.className = 'wb-btn-word'; // the word a column leaves out (the tooltip has it)
     sizeButton.append(sizeIc, sizeLabel);
     fontsBox.append(sizeButton, hBox, valignBox);
     presentButton = document.createElement('button');
@@ -1508,7 +1631,10 @@
     presentIc.className = 'ic';
     presentIc.setAttribute('aria-hidden', 'true');
     iconSvg('play').then((svg) => { if (svg) presentIc.innerHTML = svg; });
-    presentButton.append(presentIc, document.createTextNode('Present'));
+    const presentWord = document.createElement('span');
+    presentWord.className = 'wb-btn-word';
+    presentWord.textContent = 'Present';
+    presentButton.append(presentIc, presentWord);
     presentButton.addEventListener('click', () => {
       if (presentButton.getAttribute('aria-disabled') === 'true') { note('No frames to present. Add a frame first.'); return; }
       startPresenting();
@@ -1519,6 +1645,26 @@
     notesButton.dataset.tip = 'Speaker notes for the picked frame';
     notesButton.hidden = true;
     presentBox.appendChild(notesButton);
+    radiusButton = pressButton('Corner radius', 'border-top-left', () => radiusMenu({ anchor: radiusButton }));
+    radiusButton.removeAttribute('aria-pressed');
+    radiusButton.setAttribute('aria-haspopup', 'menu');
+    shadowButton = pressButton('Shadow', WB_SHADOW_ICON, () => shadowMenu({ anchor: shadowButton }));
+    shadowButton.removeAttribute('aria-pressed');
+    shadowButton.setAttribute('aria-haspopup', 'menu');
+    // Crop and Blur, from the Select strip: the Picture tool, with the picture still picked (while that tool is on, they are its kinds).
+    cropButton = pressButton('Crop', 'crop', () => setTool('crop', 'picture'));
+    cropButton.removeAttribute('aria-pressed');
+    cropButton.dataset.tip = withKey('Crop', 'X');
+    blurButton = pressButton('Blur', 'droplet', () => setTool('blur', 'picture'));
+    blurButton.removeAttribute('aria-pressed');
+    blurButton.dataset.tip = withKey('Blur', 'J');
+    areaButton = pressButton('Select area', 'expand', () => setTool('area', 'picture'));
+    areaButton.removeAttribute('aria-pressed');
+    areaButton.dataset.tip = withKey('Select area', 'K');
+    flattenButton = pressButton('Flatten', 'stamp', () => { const one1 = picturesPicked(); if (one1.length === 1) flatten(one1[0].id); });
+    flattenButton.removeAttribute('aria-pressed');
+    flattenButton.dataset.tip = 'Flatten: bake the crop, blur, holes and marks into one picture';
+    pictureBox.append(cropButton, blurButton, areaButton, radiusButton, shadowButton, flattenButton);
     for (const field of ['style', 'head']) {
       const box = pairBox(field === 'style' ? 'Line style' : 'Arrowheads');
       for (const c of LINE_STRIP[field]) {
@@ -1555,6 +1701,27 @@
   function sizeMenu(where) {
     const now = (fontsNow() || {}).size;
     host.menu.show({ id: 'size', ...where, items: WB_SIZES.map((c) => choiceRow(c.id, c.label, now, () => setWords('size', c.id))) });
+  }
+  // A picture's corner radius and shadow: the picked pictures' (a mark on the one they all have), each choice one save of each.
+  const WB_RADII = [{ id: 0, label: 'None' }, { id: 8, label: 'Small' }, { id: 16, label: 'Medium' }, { id: 32, label: 'Large' }, { id: 999, label: 'Full' }];
+  const WB_SHADOWS = [{ id: 'none', label: 'No shadow' }, { id: 'contact', label: 'Contact shadow' }, { id: 'soft', label: 'Drop shadow' }];
+  // The picked blocks a choice is for: all of them have it (a block type's `radius` or `shadow`), else none (the buttons hide).
+  const styled = (key) => { const list = targets(); return list.length && list.every((b) => defOf(b)[key]) ? list : []; };
+  const picturesPicked = () => { const list = targets(); return list.length && list.every((b) => b.type === 'image') ? list : []; };
+  const sameOf = (list, get) => { const v = new Set(list.map(get)); return v.size === 1 ? [...v][0] : undefined; };
+  // A radius as the menu marks it: a picture's none is 0; a shape with none chosen has its own usual corners (null: no row marked).
+  const radiusOf = (b) => (b.radius !== undefined ? b.radius : b.type === 'image' ? 0 : null);
+  function setStyle(key, patch) {
+    for (const b of styled(key)) ctx.change(b.id, patch, { save: 'now' });
+    updatePaint();
+  }
+  function radiusMenu(where) {
+    const now = sameOf(styled('radius'), radiusOf);
+    host.menu.show({ id: 'radius', ...where, items: WB_RADII.map((c) => choiceRow(c.id, c.label, now, () => setStyle('radius', { radius: c.id }))) });
+  }
+  function shadowMenu(where) {
+    const now = sameOf(styled('shadow'), (b) => b.shadow || 'none');
+    host.menu.show({ id: 'shadow', ...where, items: WB_SHADOWS.map((c) => choiceRow(c.id, c.label, now, () => setStyle('shadow', { shadow: c.id }))) });
   }
   // The line group shows for picked connectors, or for the Connector tool with nothing picked.
   const lineOf = () => targets().filter((b) => b.type === CONNECTOR);
@@ -1672,7 +1839,9 @@
     // Only locked blocks picked: nothing of theirs to change, and the strip is not about new blocks then either.
     const lockedOnly = sel.size > 0 && !targets().length;
     if (lockedOnly && !selecting) { paintStrip.hidden = true; return; }
-    selectionBox.hidden = !selecting;
+    // With one picture picked the strip is the picture's, not the selection's (Escape lets go of it).
+    const onePicture = sel.size === 1 && Boolean(one()) && board.get(one()) && board.get(one()).type === 'image';
+    selectionBox.hidden = !selecting || onePicture;
     if (selecting) {
       singleButton.setAttribute('aria-pressed', String(!many));
       manyButton.setAttribute('aria-pressed', String(many));
@@ -1718,9 +1887,29 @@
       presentButton.dataset.tip = words;
       presentButton.setAttribute('aria-label', words);
     }
+    const radList = styled('radius');
+    const shList = styled('shadow');
+    const pics = picturesPicked();
+    radiusButton.hidden = !radList.length;
+    shadowButton.hidden = !shList.length;
+    cropButton.hidden = !pics.length || family === 'picture';
+    blurButton.hidden = !pics.length || family === 'picture';
+    areaButton.hidden = !pics.length || family === 'picture';
+    flattenButton.hidden = !(pics.length === 1 && flattenable(pics[0]));
+    pictureBox.hidden = !(radList.length || shList.length || !cropButton.hidden || !flattenButton.hidden);
+    if (!pictureBox.hidden) {
+      const rad = radList.length ? sameOf(radList, radiusOf) : 0;
+      const sh = shList.length ? sameOf(shList, (b) => b.shadow || 'none') : 'none';
+      const radWords = `Corner radius: ${rad === undefined ? 'Mixed' : rad === null ? 'Default' : (WB_RADII.find((c) => c.id === rad) || { label: `${rad}` }).label}`;
+      const shWords = sh === undefined ? 'Shadow: Mixed' : (WB_SHADOWS.find((c) => c.id === sh) || { label: sh }).label;
+      radiusButton.setAttribute('aria-label', radWords);
+      radiusButton.dataset.tip = radWords;
+      shadowButton.setAttribute('aria-label', shWords);
+      shadowButton.dataset.tip = shWords;
+    }
     coloursBox.hidden = !any;
     stripDividers();
-    paintStrip.hidden = !any && !kinds && selectionBox.hidden && fontsBox.hidden && tableBox.hidden && lineBox.hidden && presentBox.hidden;
+    paintStrip.hidden = !any && !kinds && selectionBox.hidden && fontsBox.hidden && tableBox.hidden && lineBox.hidden && presentBox.hidden && pictureBox.hidden;
     // The endcap: the tool's icon, or the kind of the one block picked (the Select arrow for several).
     const picked = targets();
     const one1 = picked.length === 1 ? picked[0] : null;
@@ -1839,7 +2028,10 @@
     // missing (no key: the usual), put back with commitBoard.
     const isBoard = (id) => id === WB_BOARD_STEP;
     const boardy = (b) => Boolean(b && b.type === 'board');
-    const r = wbApplyChanges(list, {
+    restoring = true;
+    let r;
+    try {
+      r = wbApplyChanges(list, {
       get: (id) => (isBoard(id) ? boardSettings : board.get(id)),
       remove: (id) => { if (!isBoard(id)) remove(id); },
       put: (b) => (boardy(b) ? commitBoard(b) : commit(b, 'now')),
@@ -1853,7 +2045,8 @@
       pointsAt: (b) => { const def = blockTypes.get(b.type); return Boolean(def && def.refs); },
       missing: (b) => !boardy(b) && missingRefs(b).length > 0,
       isBoard,
-    });
+      });
+    } finally { restoring = false; }
     select(r.touched.filter((id) => board.has(id)));
     return r;
   }
@@ -2278,6 +2471,7 @@
     onPlaced(job, file) {
       renderer.pending(job.id, null);
       updateStatus();
+      if (job.flatten) return placeFlattened(job, file);
       if (!policy.canCreate()) return false;
       // The upload may finish after a switch of board: the picture is for the board it was started on (lib-s wbLateHome).
       const home = job.batch && job.batch.home;
@@ -2299,13 +2493,19 @@
       if (batch) {
         const same = sel.size === batch.picked.length && batch.picked.every((id) => sel.has(id));
         batch.made.push(b.id);
-        if (same) select(batch.made.slice());
+        if (same) {
+          // A picture just added has its own tools: the Picture strip (Crop, Blur, corner radius, shadow) with the picture picked.
+          // Escape goes back to Select.
+          if (family !== 'picture') setTool(allowed.some((t) => t.id === lastKind.picture) ? lastKind.picture : 'crop', 'picture');
+          select(batch.made.slice());
+        }
         batch.picked = [...sel];
       }
       return true;
     },
     onFailed(job, err) {
       renderer.pending(job.id, null);
+      if (job.flatten) flattening.delete(job.flatten.id);
       note(err && err.status === 403 ? 'You may not add pictures to this whiteboard.' : `The picture was not added. ${sentence(err && err.message)}`.trim());
       updateStatus();
     },
@@ -2319,6 +2519,69 @@
     if (!list.length) return;
     // The pictures added together share a batch, so they are picked together as they arrive.
     pictures.add(list, at || renderer.center(), { batch: { tag: `pictures:${host.util.id()}`, made: [], picked: [...sel], home: { board: session.id, epoch: session.epoch } } });
+  }
+  // Flatten (the Picture tool): the picture as it is shown (its crop, blur and holes) and its marks become ONE new picture, which takes
+  // their place. The exporter draws them to a see-through PNG (the picture's own border, corners and shadow left out: they stay the block's
+  // own), and that goes up as any picture does; when its upload is in, the new block is put on the board and the picture and its marks are
+  // taken off it, in one turn, so one undo brings them all back. The original upload is kept, as every upload is (see lib-i): it is no
+  // redaction of the original file, only of what the board shows.
+  const flattening = new Set(); // ids of pictures being flattened
+  const pictureOf = (id) => { const b = board.get(id); return b && b.type === 'image' && !drafts.has(id) ? b : null; };
+  function flattenable(b) {
+    return Boolean(b && b.type === 'image' && pictures && policy.canEdit && !presenting && !flattening.has(b.id) && wbNeedsFlatten(b, wbFlattenPlan(b, live(), heightOf)));
+  }
+  async function flatten(id) {
+    const b = pictureOf(id);
+    if (!b || !pictures || !policy.canEdit || presenting || flattening.has(id)) return;
+    if (b.locked || !policy.canChange(b)) { lockedNote(1, 1); return; }
+    const plan = wbFlattenPlan(b, live(), heightOf);
+    if (!wbNeedsFlatten(b, plan)) { note('There is nothing to flatten: this picture has no crop, blur, holes or marks.'); return; }
+    if (plan.marks.some((m) => m.locked === true)) { note('A mark on this picture is locked. Unlock it, then flatten.'); return; }
+    const el = renderer.element(id);
+    if (!el) return;
+    flattening.add(id);
+    try {
+      // The picture's own pixels per board unit (at most 2000 pixels on the long edge, which the upload keeps to anyway).
+      let scale = 1;
+      try {
+        const bitmap = await createImageBitmap(await pictureBlob(b.upload, false));
+        scale = (bitmap.width * blockTypes.get('image').cropOf(b).w) / plan.content.w;
+        if (bitmap.close) bitmap.close();
+      } catch { /* drawn at the board's own scale */ }
+      scale = Math.max(0.25, Math.min(Math.max(scale, 0.25), 2000 / Math.max(plan.extent.w, plan.extent.h)));
+      const size = wbExportSize(plan.extent, scale);
+      const items = [{ block: b, el }, ...plan.marks.map((m) => ({ block: m, el: renderer.element(m.id) })).filter((x) => x.el)];
+      const blob = await exporter.png(items, plan.extent, size, { background: '', flat: true });
+      const file = new File([blob], 'flattened.png', { type: 'image/png' });
+      const snap = [b, ...plan.marks].map((x) => JSON.parse(JSON.stringify(x)));
+      pictures.add([file], { x: plan.box.x + plan.box.w / 2, y: plan.box.y + plan.box.h / 2 }, {
+        batch: { tag: `flatten:${host.util.id()}`, made: [], picked: [...sel], home: { board: session.id, epoch: session.epoch } },
+        flatten: { id, marks: plan.marks.map((m) => m.id), box: plan.box, holes: wbFlattenHoles(b, plan), snap },
+      });
+      note('Flattening the picture...');
+    } catch (err) {
+      flattening.delete(id);
+      note(`The picture could not be flattened. ${sentence(err && err.message)}`.trim());
+    }
+  }
+  // The flattened picture's upload is in: it takes the place of the picture and its marks, as they were when it was drawn.
+  function placeFlattened(job, file) {
+    const f = job.flatten;
+    flattening.delete(f.id);
+    const changed = f.snap.some((s) => { const now = board.get(s.id); return !now || !sameBlock(s, now); });
+    if (changed) { note('The picture or its marks changed while it was being flattened, so nothing was replaced.'); return false; }
+    if (!policy.canCreate() || presenting) return false;
+    if (wbLateHome(job.batch && job.batch.home, session) !== 'here') { note('You changed board while a picture was being flattened. It was not replaced.'); return false; }
+    const old = board.get(f.id);
+    const def = blockTypes.get('image');
+    const next = wbClean({ ...def.create(), id: job.id, type: 'image', x: f.box.x, y: f.box.y, w: f.box.w, h: f.box.h, upload: file.id, z: old.z, alt: old.alt, stroke: old.stroke, weight: old.weight, radius: old.radius, shadow: old.shadow, holes: f.holes });
+    if (!next) return false;
+    if (history && job.batch) history.tag(job.batch.tag, { join: true });
+    commit(next, 'now');
+    for (const id of [f.id, ...f.marks]) if (board.has(id)) remove(id, { force: true });
+    select([next.id]);
+    note('Flattened. The original picture file is still kept with the space.');
+    return true;
   }
   // The computer's own file chooser, for "Add a picture" (touch and the keyboard too).
   $('picker').accept = WB_PICTURE_ACCEPT;
@@ -2426,16 +2689,48 @@
   // fitted to the paper, in the light colours.
   // Not here yet (the host has no way for it): saving the picture to the Vault, and Print from a key or a button of the
   // board's own (only the title bar's menu starts the host's Print, so Ctrl or Cmd P stays the browser's).
+  // The bytes of an upload (the whole picture, or its thumbnail), for the saved image and for copying an area.
+  async function pictureBlob(upload, thumb) {
+    const address = await host.uploads.url(upload, { thumb, scope: 'space' });
+    const res = await fetch(address, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.blob();
+  }
   const exporter = createExporter({
     root,
     world: $('world'),
-    async picture(upload, thumb) {
-      const address = await host.uploads.url(upload, { thumb, scope: 'space' });
-      const res = await fetch(address, { credentials: 'same-origin' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.blob();
-    },
+    picture: pictureBlob,
   });
+  // Copy the area of a picture (Select area) to the clipboard as a PNG, and with `cut` leave a hole where it was (one undo step, only
+  // once it is on the clipboard). The clipboard item is made at once, from a promise, so the browser still counts the key press.
+  async function copyArea(cut) {
+    const a = pictureArea;
+    const b = a && board.get(a.id);
+    if (!b) return;
+    if (!navigator.clipboard || !navigator.clipboard.write || typeof ClipboardItem === 'undefined') { note('This browser cannot put a picture on the clipboard.'); return; }
+    const made = (async () => {
+      const bitmap = await createImageBitmap(await pictureBlob(b.upload, false));
+      const r = wbPictureRegion(bitmap.width, bitmap.height, a.part);
+      const canvas = document.createElement('canvas');
+      canvas.width = r.sw;
+      canvas.height = r.sh;
+      canvas.getContext('2d').drawImage(bitmap, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+      return new Promise((ok, no) => canvas.toBlob((x) => (x ? ok(x) : no(new Error('no picture'))), 'image/png'));
+    })();
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': made })]);
+    } catch {
+      note('The area could not be put on the clipboard.');
+      return;
+    }
+    if (cut) {
+      const list = wbPictureCut(board.get(b.id) || b, a.part);
+      if (list) ctx.change(b.id, { cut: list }, { save: 'now' });
+      else note(`A picture takes at most ${blockTypes.get('image').MAX_CUT} holes. The area was copied, not cut.`);
+      ctx.setArea(null);
+      note('Area cut. It is on the clipboard: paste it for a picture.');
+    } else note('Area copied. Paste it for a picture.');
+  }
   let exporting = ''; // what the status line says while a picture is made
   // What is in sight, on the board.
   const viewBox = () => {
@@ -3707,6 +4002,7 @@
       at,
       items: [
         ...(def && def.edit === 'text' ? [{ id: 'edit', label: def.editLabel || 'Edit', icon: 'pen', hint: keyHint('Enter'), onClick: () => edit(single.id) }] : []),
+        ...(single && flattenable(single) ? [{ id: 'flatten', label: 'Flatten', icon: 'stamp', onClick: () => flatten(single.id) }] : []),
         // The block type's own entries (a note's Add pointer, Remove pointer): each one save of the fields it names.
         ...(cell ? cellRows(single, cell) : def && def.actions ? def.actions(single).map((a) => ({ id: a.id, label: a.label, icon: a.icon, onClick: () => ctx.change(single.id, a.fields, { save: 'now' }) })) : []),
         ...(list.length ? [{ id: 'colour', label: 'Colour', icon: 'palette', onClick: () => { setTimeout(() => colourMenu({ at }), 0); } }] : []),
@@ -3860,11 +4156,21 @@
     clearTimeout(clipTimer);
     clipTimer = setTimeout(() => {
       clipTimer = 0;
+      // A browser that sent no event: the area of a picture (Select area) is what Copy and Cut take while it is there.
+      if (tool.id === 'area' && pictureArea && letter !== 'v') { if (policy.canEdit && !(letter === 'x' && presenting)) copyArea(letter === 'x'); return; }
       if (letter === 'c') copy(); else if (letter === 'x') copy({ cut: true }); else paste();
     }, CLIP_WAIT);
   }
   const inField = (e) => Boolean(e.target && e.target.closest && e.target.closest('.wb-text-edit'));
   function onCopyEvent(e, cut) {
+    // An area on a picture (Select area) is what Copy and Cut take while it is there.
+    if (tool.id === 'area' && pictureArea && !inField(e)) {
+      clearTimeout(clipTimer); // the key's own fallback (clipKey) is not wanted: this event is the copy or the cut
+      clipTimer = 0;
+      e.preventDefault();
+      if (policy.canEdit && !(cut && presenting)) copyArea(cut);
+      return;
+    }
     if (inField(e) || !policy.canEdit || (cut && presenting)) return;
     clearTimeout(clipTimer);
     clipTimer = 0;

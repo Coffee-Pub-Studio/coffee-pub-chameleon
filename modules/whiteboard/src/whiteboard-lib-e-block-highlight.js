@@ -18,6 +18,7 @@
       paint: { stroke: { label: 'Colour' } },
       weight: true,
       straight,
+      mark: true, // travels with the picture it is drawn on (lib-u)
       create: () => ({ points: [0, 0], stroke: 'gold', weight: 12 }),
       clean(raw) {
         const max = WB_LIMITS.numbers;

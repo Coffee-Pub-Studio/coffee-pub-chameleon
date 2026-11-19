@@ -94,6 +94,7 @@
       valign: 'top', // the usual (a note without the field): the words start at the top
       paint: { stroke: { extra: ['auto', 'none'] }, fill: {}, ink: {} },
       weight: true,
+      mark: true, // travels with the picture it is put on (lib-u)
       create: () => ({ w: 180, h: 180, text: '', pointer: null, fill: 'gold', stroke: 'auto', ink: 'ink', weight: 1, size: 'medium', align: 'left' }),
       clean(raw) {
         const w = wb.size(raw.w, 40, 180);

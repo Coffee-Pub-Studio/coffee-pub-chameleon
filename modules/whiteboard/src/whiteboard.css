@@ -235,9 +235,14 @@
 
 /* a picture: the upload drawn to its box, with a border only when one is picked; "Picture not found" when it is gone */
 .wb-type-image { border: var(--wb-weight) solid var(--wb-stroke); cursor: grab; }
+/* the wrapper that clips the picture (and its blurred boxes) to the box and its corners; the block itself clips nothing, so it can draw its outline */
+.wb-pic { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }
 .wb-type-image[data-stroke="none"] { border-style: none; }
 .wb-picture { display: block; width: 100%; height: 100%; pointer-events: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
 .wb-alt { display: none; }
+/* A blurred part of a picture (Picture tool, Blur): a box over the picture holding its own blurred copy of it. */
+.wb-blur { position: absolute; overflow: hidden; pointer-events: none; }
+.wb-blur-img { max-width: none; }
 .wb-missing {
   display: none;
   position: absolute;
@@ -833,6 +838,8 @@
 /* the Fill tool: the board's cursor over every block, the block under the pointer marked (a block with no background:
    "not allowed"), and a swatch of the fill colour by the pointer */
 .board[data-tool="fill"] .wb-block, .board[data-tool="fill"] .wb-block * { cursor: inherit; }
+/* the Picture tool (Crop, Blur): the board's own cursor over every block, a cross to draw with and the tool's own over the crop frame */
+.board[data-tool="crop"] .wb-block, .board[data-tool="crop"] .wb-block *, .board[data-tool="blur"] .wb-block, .board[data-tool="blur"] .wb-block *, .board[data-tool="area"] .wb-block, .board[data-tool="area"] .wb-block * { cursor: inherit; }
 .board[data-tool="fill"] .wb-block[data-mark="no"], .board[data-tool="fill"] .wb-block[data-mark="no"] * { cursor: not-allowed; }
 .wb-block[data-mark="ok"] { outline: calc(2px / var(--wb-scale, 1)) solid var(--accent); outline-offset: calc(4px / var(--wb-scale, 1)); }
 .wb-block[data-mark="no"] { outline: calc(1px / var(--wb-scale, 1)) dashed var(--text-muted); outline-offset: calc(4px / var(--wb-scale, 1)); }
@@ -1148,3 +1155,63 @@
 .wb-endcap.wb-grip:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .wb-paint.wb-dragging, .wb-paint.wb-dragging .wb-endcap.wb-grip { cursor: grabbing; }
 .wb-paint.wb-dragging { box-shadow: var(--shadow-3, var(--shadow-2)); }
+/* A column keeps to the width of its icons: a button with a word (the text size, Present) shows only its icon, and its tooltip
+   and label say the rest. */
+.wb-vertical .wb-btn-word { display: none; }
+.wb-vertical .wb-size-btn, .wb-vertical .wb-present-btn { min-width: 0; width: 30px; padding-left: 0; padding-right: 0; justify-content: center; }
+
+/* A picture's shadow (its Shadow menu): Contact lies under the bottom edge only (the negative spread keeps it off the sides, the
+   offset puts it below), like the picture resting on the board; a Drop shadow (stored as soft) is the usual all-round one. */
+.wb-type-image[data-shadow="contact"] { box-shadow: 0 2px 1px -1px var(--shadow-color), 0 3px 2px -2px var(--shadow-color), 0 5px 3px -3px var(--shadow-color), 0 8px 5px -5px var(--shadow-color), 0 14px 8px -8px var(--shadow-color); }
+.wb-type-image[data-shadow="soft"] { box-shadow: 0 1px 2px var(--shadow-color), 0 2px 4px var(--shadow-color), 0 4px 7px -1px var(--shadow-color), 0 7px 11px -3px var(--shadow-color), 0 10px 15px -6px var(--shadow-color); }
+
+/* Cropping (the Picture tool's Crop, a picture picked): the whole picture shows faintly round the part kept, which stays bright;
+   the crop frame, its thirds and its grips are drawn over it by the page (.wb-cropper). */
+.wb-crop-ghost { display: none; position: absolute; max-width: none; opacity: 0.35; pointer-events: none; user-select: none; -webkit-user-drag: none; }
+.wb-type-image[data-cropping] .wb-pic { overflow: visible; }
+.wb-type-image[data-cropping] .wb-crop-ghost { display: block; }
+.wb-cropper {
+  position: absolute;
+  z-index: 2147482999;
+  box-sizing: border-box;
+  pointer-events: none;
+  border: calc(1.5px / var(--wb-scale, 1)) solid var(--accent);
+  background-image:
+    linear-gradient(to right, transparent calc(33.333% - 0.5px), var(--wb-cropper-line) calc(33.333% - 0.5px), var(--wb-cropper-line) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.666% - 0.5px), var(--wb-cropper-line) calc(66.666% - 0.5px), var(--wb-cropper-line) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px)),
+    linear-gradient(to bottom, transparent calc(33.333% - 0.5px), var(--wb-cropper-line) calc(33.333% - 0.5px), var(--wb-cropper-line) calc(33.333% + 0.5px), transparent calc(33.333% + 0.5px), transparent calc(66.666% - 0.5px), var(--wb-cropper-line) calc(66.666% - 0.5px), var(--wb-cropper-line) calc(66.666% + 0.5px), transparent calc(66.666% + 0.5px));
+  --wb-cropper-line: color-mix(in srgb, var(--surface-page) 55%, transparent);
+}
+.wb-cropper[hidden] { display: none; }
+.wb-cropper-grip {
+  position: absolute;
+  width: calc(10px / var(--wb-scale, 1));
+  height: calc(10px / var(--wb-scale, 1));
+  margin: calc(-5px / var(--wb-scale, 1)) 0 0 calc(-5px / var(--wb-scale, 1));
+  box-sizing: border-box;
+  border: calc(2px / var(--wb-scale, 1)) solid var(--accent);
+  border-radius: var(--radius-min);
+  background: var(--surface-page);
+}
+.wb-cropper-grip[data-grip="nw"] { left: 0; top: 0; }
+.wb-cropper-grip[data-grip="n"] { left: 50%; top: 0; }
+.wb-cropper-grip[data-grip="ne"] { left: 100%; top: 0; }
+.wb-cropper-grip[data-grip="e"] { left: 100%; top: 50%; }
+.wb-cropper-grip[data-grip="se"] { left: 100%; top: 100%; }
+.wb-cropper-grip[data-grip="s"] { left: 50%; top: 100%; }
+.wb-cropper-grip[data-grip="sw"] { left: 0; top: 100%; }
+.wb-cropper-grip[data-grip="w"] { left: 0; top: 50%; }
+.board.wb-crop-on .wb-frame, .board.wb-crop-on .wb-handle { display: none; }
+/* A closed shape's shadow (lib-e-block-shape, shadowOf): its own layer under the shape, the outer outline blurred and cut out where
+   the shape is, so it shows only outside the border. The colour is the theme's shadow colour; several layers make it darker. */
+.wb-shape-shadow { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.wb-shape-shadow .wb-shadow-body { fill: var(--shadow-color); stroke: none; pointer-events: none; }
+/* A picture with holes: its shadow follows what is shown (a drop-shadow filter takes the masked picture's own outline, holes included)
+   instead of its box, so the shadow falls into a hole and not on the board round a missing corner. The border stays on its outer edge. */
+.wb-type-image[data-shadow][data-holes] { box-shadow: none; }
+.wb-type-image[data-shadow="contact"][data-holes] { filter: drop-shadow(0 1px 0.5px var(--shadow-color)) drop-shadow(0 2px 1px var(--shadow-color)) drop-shadow(0 4px 2px var(--shadow-color)); }
+.wb-type-image[data-shadow="soft"][data-holes] { filter: drop-shadow(0 1px 1px var(--shadow-color)) drop-shadow(0 3px 4px var(--shadow-color)) drop-shadow(0 6px 8px var(--shadow-color)); }
+/* A picture with a hole at its edge: the border follows the cut. The block's own border goes transparent (same width, nothing moves) and
+   .wb-outline, as large as the block's border box, draws it. */
+.wb-type-image[data-outline] { border-color: transparent; }
+.wb-outline { position: absolute; left: calc(-1 * var(--wb-weight)); top: calc(-1 * var(--wb-weight)); overflow: visible; pointer-events: none; }
+.wb-outline rect { fill: none; stroke: var(--wb-stroke); }

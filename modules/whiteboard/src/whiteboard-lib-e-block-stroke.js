@@ -107,6 +107,7 @@
       edit: 'colour',
       paint: { stroke: { label: 'Line' } },
       weight: true,
+      mark: true, // travels with the picture it is drawn on (lib-u)
       brushes: BRUSHES,
       maxWide: MAX_WIDE,
       simplify,
