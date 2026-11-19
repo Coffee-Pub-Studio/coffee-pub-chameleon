@@ -1435,7 +1435,7 @@ try {
   await membersOff('polls', false);
   for (const [label, cookie] of [['owner', owner2], ['moderator', sam2]]) {
     seen2 = await sharedOf(cookie);
-    assert.deepEqual(seen2.cantOpen.todo, { roles: ['guest'] }, `${label}: To-do closes for guests`);
+    assert.ok(!('todo' in seen2.cantOpen), `${label}: with the Calendar on To-do is the Calendar, which guests read, so it shuts nobody out (a notice that said otherwise was false)`);
     assert.deepEqual(seen2.cantOpen.polls, { roles: ['member', 'guest'] }, `${label}: Polls closes for members and guests, in role order`);
     assert.ok(!('calendar' in seen2.cantOpen), `${label}: a module everyone can open is not listed`);
     assert.ok(Object.values(seen2.cantOpen).every((v) => (v.roles && !v.roles.includes('owner') && !v.roles.includes('admin')) || v.off === true), `${label}: only roles that can lack it, or off`);
@@ -1444,6 +1444,24 @@ try {
     assert.ok(!('cantOpen' in got), `${label} is not told which modules others can't open`);
     assert.ok(!JSON.stringify(got).includes('"roles"'), `${label}: nothing of it anywhere in the answer`);
   }
+  // What each person sees for a To-do area, a module they can't read and a module that is off (the four cases):
+  //   Calendar on, guests read it but not To-do: the area opens the Calendar for them. Nobody is told it closes; the guest keeps the id.
+  //   Calendar off: To-do is its own. Makers are told guests can't open it; a guest's area reads empty, a member's keeps the id.
+  //   a module a guest can't read (Polls): a guest's area reads empty, a member's answer keeps the id, makers see the roles.
+  //   a module off: makers see { off: true }; a guest's area reads empty, a member's keeps the id.
+  const todoOne = (await sharedOf(owner2)).shared.find((l) => l.name === 'Todo one');
+  const guestAreas = async (l) => (await call('GET', `${LC}${campGuest}`)).json.shared.find((x) => x.id === l.id).areas;
+  assert.deepEqual(await guestAreas(todoOne), ['todo', 'calendar'], 'Calendar on: a guest who reads the Calendar keeps the To-do area');
+  assert.deepEqual(await guestAreas(duo), ['calendar', null, null], 'Polls unreadable for guests: a guest is not told its id');
+  assert.deepEqual((await sharedOf(pat3)).shared.find((x) => x.id === duo.id).areas, ['calendar', null, 'polls'], 'a member keeps the id (unchanged)');
+  await expect('Calendar off', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: false } });
+  seen2 = await sharedOf(sam2);
+  assert.deepEqual(seen2.cantOpen.todo, { roles: ['guest'] }, 'Calendar off: To-do is its own and guests can\'t open it');
+  assert.deepEqual(seen2.cantOpen.calendar, { off: true }, 'and the Calendar is off');
+  assert.deepEqual(await guestAreas(todoOne), [null, null], 'Calendar off: a guest\'s To-do area reads empty');
+  assert.deepEqual((await sharedOf(pat3)).shared.find((x) => x.id === todoOne.id).areas, ['todo', 'calendar'], 'and a member keeps the ids');
+  await expect('Calendar on again', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: true, allSpaces: true } });
+  assert.ok(!('todo' in (await sharedOf(sam2)).cantOpen), 'back on, To-do is the Calendar again');
   // A module a layout names that is off: still listed, unchanged, and marked off for those who may edit; a guest's area reads empty.
   await expect('turn Polls off', 200, 'PATCH', '/api/modules/polls', { cookie: owner2, body: { enabled: false } });
   seen2 = await sharedOf(owner2);
@@ -1455,7 +1473,7 @@ try {
   // for-space tells a guest what GET .../layouts does: an area whose module is off reads empty.
   await expect('Duo is the default while Polls is off', 200, 'PATCH', C, { cookie: owner2, body: { defaultLayout: duo.id } });
   const guestFor = (await expect('for-space as a guest', 200, 'GET', `/api/modules/for-space?space=${camp.id}&guest=${campGuest.slice(7)}`)).json;
-  assert.deepEqual(guestFor.defaultLayout.areas, ['calendar', null, null], 'a guest is not told the id of a module that is off');
+  assert.deepEqual(guestFor.defaultLayout.areas, ['calendar', null, null], 'a guest is not told the id of a module that is off, or one they can\'t read');
   assert.deepEqual((await forSpace(pat3)).defaultLayout.areas, ['calendar', null, 'polls'], 'a member is');
   await expect('turn Polls on again', 200, 'PATCH', '/api/modules/polls', { cookie: owner2, body: { enabled: true, allSpaces: true } });
   await guestsOff('todo', true);

@@ -43,7 +43,7 @@ const { ModuleUploads } = require('./module-uploads');
 const { inspectHead } = require('./image-clean');
 const { cleanName, nameForType, folderBytes, VISIBILITIES, PEOPLE_MAX } = require('./vault-store');
 const vaultTypes = require('./vault-types');
-const { whoCantOpen } = require('./layout-shapes');
+const { whoCantOpen, canOpenArea } = require('./layout-shapes');
 const { createScanner } = require('./vault-scan');
 const pdfViewer = require('./pdf-viewer');
 const { mountVaultShares } = require('./vault-share');
@@ -2647,7 +2647,8 @@ function cantOpenFor(env, t) {
   if (!t) return {};
   const manifests = catalogManifests(env);
   const ids = (t.modules === '*' ? [...manifests.keys()] : Object.keys(t.modules)).filter((id) => !templates.BUILTIN_MODULE_IDS.includes(id) && manifests.get(id)?.surfaces?.canvas);
-  if (env) return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions: env.store.roles(), off: ids.filter((id) => !env.modules.enabled(id)) });
+  // `on`: what the template lists that is on, so a To-do beside the Calendar is judged as the Calendar (layout-shapes.js, canOpenArea).
+  if (env) { const off = ids.filter((id) => !env.modules.enabled(id)); return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions: env.store.roles(), off, on: ids.filter((id) => !off.includes(id)) }); }
   const rolePermissions = { moderator: {}, member: {}, guest: {} };
   for (const id of ids) {
     const manifest = manifests.get(id);
@@ -2657,7 +2658,7 @@ function cantOpenFor(env, t) {
       if (manifest.library && vaultTypes.GUEST_LOCKED.includes(p.key)) rolePermissions.guest[`module.${id}.${p.key}`] = false;
     }
   }
-  return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions, off: [] });
+  return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions, off: [], on: ids });
 }
 // Every built environment that reads template `id` (as its own, or through a space) reads its live part again.
 function refreshTemplateLive(id) {
@@ -6539,13 +6540,19 @@ function sharedCantOpen(found, shared) {
   const { modules: on } = sharedShapeOptions(found.space);
   const named = shared.flatMap((l) => (Array.isArray(l.areas) ? l.areas : [])).filter((id) => typeof id === 'string');
   const ids = [...new Set([...on, ...named])];
-  return whoCantOpen(ids, { manifests: Object.fromEntries(catalogManifests(currentEnvironment())), rolePermissions: store.roles(), off: ids.filter((id) => !on.includes(id)) });
+  return whoCantOpen(ids, { manifests: Object.fromEntries(catalogManifests(currentEnvironment())), rolePermissions: store.roles(), off: ids.filter((id) => !on.includes(id)), on });
 }
-// A shared shape as a guest is shown it: an area naming a module that is off in the space reads as empty (the page closes it
-// up either way), so a guest is not told the id of a module that is off. Anyone else, and null, as they are.
+// A shared shape as a guest is shown it: an area naming a module the guest can't open (off in the space, or one they can't
+// read) reads as empty (the page closes it up either way), so a guest is not told the id of a module they can't open. Anyone else, and null, as they are.
 function guestShape(layout, guest, spaceId) {
   if (!layout || !guest || !Array.isArray(layout.areas)) return layout;
-  return { ...layout, areas: layout.areas.map((id) => (id !== null && !modules.isOnIn(id, spaceId) ? null : id)) };
+  // What a guest opens is what the page opens for them: the module when it is on here and they can read it, or the
+  // composite it folds into (a To-do beside the Calendar is the Calendar) when they can read the main (canOpenArea).
+  const manifests = Object.fromEntries(catalogManifests(currentEnvironment()));
+  const on = Object.keys(manifests).filter((id) => modules.isOnIn(id, spaceId));
+  const permissions = store.roleSet('guest');
+  const off = Object.keys(manifests).filter((id) => !on.includes(id));
+  return { ...layout, areas: layout.areas.map((id) => (id !== null && !canOpenArea(id, { manifests, permissions, on, off }) ? null : id)) };
 }
 // A refused layout's answer, as a template's: { error, problems, parts }.
 const layoutProblems = (out) => ({ error: out.error, problems: out.problems, parts: out.parts });
