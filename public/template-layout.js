@@ -222,7 +222,10 @@ export function mountTemplateLayout(holder, {
       keep();
       return;
     }
-    makePicker(current, current ? 2 : 1);
+    // From the arrangement the person made or read in (as update() does), not from the checked record: a record the page's
+    // rule refuses (To-do stacked while the Calendar is on) is read by the picker, which moves or says what it can't hold,
+    // so the arrangement is never dropped. The server checks it again on Save.
+    makePicker(base, base ? 2 : 1);
     // The line about modules no longer ticked goes above the picker, where it is seen before the areas and before Save.
     noteEl = doc.createElement('p');
     noteEl.className = 'tp-layout-missing';

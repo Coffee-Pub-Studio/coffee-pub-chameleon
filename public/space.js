@@ -9,7 +9,7 @@ import { renderModuleSettings } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
 import { createCanvas } from '/canvas.js';
 import { layoutDiffers, sharedRowNotice, COLUMN_IDS } from '/layouts.js';
-import { createLayoutPicker } from '/layout-picker.js';
+import { createLayoutPicker, cleanText } from '/layout-picker.js';
 import { conferenceAllowed, layoutLine, shouldAutoJoin } from '/opens-with.js';
 import { switchListHtml, wireSwitchList } from '/switch-list.js';
 import { createWhoHere } from '/space-people.js';
@@ -3334,14 +3334,14 @@ function sharedRowLine(l) {
   if (!layoutList.cantOpen || !isShapeLayout(l)) return '';
   return sharedRowNotice(l.areas, layoutList.cantOpen, { nameOf: moduleNameHere, roleWord: (role) => word(role, { many: true }), space: word('space') });
 }
-// A module's name as this space shows it (the canvas's list), else its id made readable.
 // A module's name for the notice and the picker: as this space shows it (the canvas's list), else, for one that is off
 // here or that this person can't open, the name the server sends a layout's makers with `cantOpen` (GET .../layouts
 // `names`: every module a shared layout's areas name and every module in `cantOpen`; absent for members and guests), else
-// its id as it is (a module with no manifest). The picker cleans the names it draws (cleanText); the row sets them as text.
+// its id as it is (a module with no manifest). Cleaned here as the picker cleans a name (cleanText: no control or direction
+// characters, at most 60), so the row's line and the picker read the same; the row sets it as text.
 const moduleHere = (id) => canvas.list().find((m) => m.id === id) || null;
 const nameFromServer = (id) => (layoutList.names && Object.prototype.hasOwnProperty.call(layoutList.names, id) && typeof layoutList.names[id] === 'string' && layoutList.names[id].trim() ? layoutList.names[id] : '');
-const moduleNameHere = (id) => moduleHere(id)?.name || nameFromServer(id) || String(id);
+const moduleNameHere = (id) => cleanText(moduleHere(id)?.name || '') || cleanText(nameFromServer(id)) || cleanText(String(id));
 // Making a shared layout the space's default is the owners' and the admin's, as Opens with is (decision 4).
 const maySetDefault = (shared) => !guestMode && shared && layoutList.canSetDefault;
 const findLayout = (id) => layoutList.shared.find((l) => l.id === id) || layoutList.mine.find((l) => l.id === id) || null;

@@ -745,7 +745,9 @@ test('layouts for everyone are shapes (plan-layout-picker.md, step 6): New layou
   assert.match(sheet, /if \(here\.length\) \{ input\.focus\(\); return; \}\n[^\n]*\n\s*const said = picker\.el\.querySelector\('\.layout-picker-error'\);\n\s*if \(said && !said\.hidden\) \{ said\.tabIndex = -1; said\.focus\(\); \}/, 'a refusal about the shape or areas takes the keyboard');
   assert.match(sheet, /dlg\.querySelector\('\.layout-form-body'\)\.addEventListener\('scroll', \(\) => closeHostMenu\(\), \{ passive: true \}\);/, 'scrolling the sheet closes an open area menu');
   assert.match(sheet, /\.map\(\(a\) => \(\{ id: a, name: moduleNameHere\(a\), icon: [^\n]*\}\)\);[\s\S]*?modules,\n\s*others,/, 'a module the layout names that is not offered here is drawn by its name');
-  assert.match(space, /const moduleNameHere = \(id\) => moduleHere\(id\)\?\.name \|\| nameFromServer\(id\) \|\| String\(id\);/, 'names come from the space, then the names the server sends a maker (GET .../layouts `names`); never an id made into a word');
+  assert.match(space, /const moduleNameHere = \(id\) => cleanText\(moduleHere\(id\)\?\.name \|\| ''\) \|\| cleanText\(nameFromServer\(id\)\) \|\| cleanText\(String\(id\)\);/, 'names come from the space, then the names the server sends a maker (GET .../layouts `names`), each cleaned as the picker cleans one, so the row and the picker read the same; never an id made into a word');
+  assert.match(space, /import \{ createLayoutPicker, cleanText \} from '\/layout-picker\.js';/, 'the picker\'s own cleanText');
+  assert.ok(!/its id made readable/.test(space), 'the stale comment is gone');
   // A maker's names arrive with cantOpen and only then (server 20c9723b); a member or a guest has none and the page asks for none.
   assert.match(space, /names: got\.cantOpen && got\.names && typeof got\.names === 'object' && !Array\.isArray\(got\.names\) \? got\.names : null,/, 'names are read only beside cantOpen');
   assert.match(space, /const nameFromServer = \(id\) => \(layoutList\.names && Object\.prototype\.hasOwnProperty\.call\(layoutList\.names, id\)/, 'an own key only (no __proto__)');

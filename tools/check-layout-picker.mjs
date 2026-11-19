@@ -53,7 +53,7 @@ for (const f of fs.readdirSync(path.join(ROOT, 'public')).filter((x) => x.endsWi
 }
 const P = await import(pathToFileURL(path.join(tmp, 'layout-picker.js')).href);
 const { SHAPES, shapeById } = await import(pathToFileURL(path.join(tmp, 'layout-shapes.js')).href);
-const { areaMayHold } = await import(pathToFileURL(path.join(tmp, 'layouts.js')).href);
+const { areaMayHold, sharedRowNotice } = await import(pathToFileURL(path.join(tmp, 'layouts.js')).href);
 const T = await import(pathToFileURL(path.join(tmp, 'template-layout.js')).href);
 fs.rmSync(tmp, { recursive: true, force: true });
 
@@ -253,6 +253,16 @@ const holder = (shape, parts) => (a, id) => areaMayHold(shape, a, id, { parts })
     const r = T.layoutRecord({ shape: s.id, areas: areas.map((id, i) => (i === 0 ? id : null)) });
     ok(r && !cleanShape(r, { modules: mods, on: mods }).error, `${s.id}: a record sent passes cleanShape`);
   }
+}
+
+// ---- 1c. The Layouts row's names, cleaned as the picker cleans them (space.js moduleNameHere: cleanText) ----
+{
+  const served = { evil: '\u202Eevil\u200Bname', long: 'L'.repeat(300) };
+  const line = sharedRowNotice(['evil', 'long'], { evil: { off: true }, long: { off: true } }, { nameOf: (id) => P.cleanText(served[id]) || P.cleanText(id), space: 'trip' });
+  ok(!/[\u202E\u200B]/.test(line), `a direction or control character in a served name reaches the row's line: ${JSON.stringify(line)}`);
+  ok(line.includes('evilname') && !line.includes('L'.repeat(61)) && line.includes('L'.repeat(60)), `a served name is not cut to 60 or cleaned on the row: ${JSON.stringify(line)}`);
+  const spaceJs = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
+  ok(/const moduleNameHere = \(id\) => cleanText\(moduleHere\(id\)\?\.name \|\| ''\) \|\| cleanText\(nameFromServer\(id\)\) \|\| cleanText\(String\(id\)\);/.test(spaceJs), 'space.js moduleNameHere cleans every name with the picker\'s cleanText');
 }
 
 // ---- 2. the browser ----
@@ -553,6 +563,17 @@ else {
       for (const want of ["Guests can't open this. For them, this area closes up.", "Members and guests can't open this. For them, this area closes up.", 'Off in this space. This area closes up for everyone.', "Guests can't open this by default.", "Members and guests can't open this by default.", 'Not installed. This area closes up for everyone.']) {
         ok(seen.includes(want), `the Design System page does not show the notice "${want}" (it shows ${JSON.stringify(seen)})`);
       }
+    }
+    // A template's layout read in that the page's rule refuses (To-do stacked while the Calendar is on): the editor still
+    // shows a layout, the person's arrangement is kept, and what it would send is a whole record (the picker moved To-do).
+    {
+      await open({ width: 1280, mode: 'light', opts: {} });
+      const got = await ev(`import('/template-layout.js').then((m) => { const h = document.getElementById('here'); h.replaceChildren();
+        const part = m.mountTemplateLayout(h, { record: { shape: 'tall-split', areas: ['whiteboard', 'todo', 'documents'] }, modules: ${JSON.stringify(MODS)}, parts: ['calendar', 'todo'], word: (k) => k });
+        return JSON.stringify({ shown: !!h.querySelector('.layout-picker [data-part="2"]:not([hidden])'), none: !!h.querySelector('.tp-layout-words'), value: part.value(), arrangement: part.arrangement() }); })`).then(JSON.parse);
+      ok(got.shown && !got.none, `a refused template record still shows the picker on its areas: ${JSON.stringify(got)}`);
+      ok(got.value !== null && got.value.shape === 'tall-split' && got.value.areas.includes('todo'), `a refused template record still has a value (the picker moved To-do), not null: ${JSON.stringify(got.value)}`);
+      eq(got.arrangement, { shape: 'tall-split', areas: ['whiteboard', 'todo', 'documents'] }, 'the arrangement read in is kept');
     }
     ok(!errors.length, `the page threw: ${errors.join(' | ')}`);
   } catch (err) {
