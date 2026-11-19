@@ -2463,7 +2463,7 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   assert.equal(setupAddress('?setup=../x', ''), null, 'only an id');
   assert.equal(pickTab(owner, `#${setupAddress('?setup=abcd1234', '#nonsense').tab}`), 'space', 'an unknown fragment: the first tab');
   const initFn = space.slice(space.indexOf('async function init() {'));
-  assert.match(initFn, /const setupAsked = setupAddress\(location\.search, location\.hash\);[\s\S]*?if \(setupAsked\) \{\n\s*const rest = new URLSearchParams\(location\.search\);\n\s*rest\.delete\('setup'\);[^\n]*\n[^\n]*\n\s*openSetupFor\(setupAsked\.id, setupAsked\.tab\);\n\s*\} else if \(invited\) \{/, 'the address opens it once; a reload does not, and the remembered space is not entered instead');
+  assert.match(initFn, /const setupAsked = setupAddress\(location\.search, location\.hash\);[\s\S]*?if \(setupAsked\) \{\n\s*const rest = new URLSearchParams\(location\.search\);\n\s*rest\.delete\('setup'\);[^\n]*\n[^\n]*\n\s*entering = openSetupFor\(setupAsked\.id, setupAsked\.tab\);\n\s*} else if \(invited\) \{/, 'the address opens it once; a reload does not, and the remembered space is not entered instead');
   const openFor = space.slice(space.indexOf('async function openSetupFor('), space.indexOf('// After Save:'));
   assert.match(openFor, /await joinInvitedSpace\(id\);\n\s*if \(entered && currentSpace\?\.id === id && canSetUp\(\)\) enterSetup\(\{ tab: hash \}\);/, 'enters the space (not the call); the panel only for whoever may set up');
   assert.match(space, /else if \(action === 'setup'\) openSetupFor\(id, event\.detail\.tab \|\| ''\);/, 'Manage over a call asks the space page underneath');
@@ -2548,7 +2548,8 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   const css = fs.readFileSync(path.join(ROOT, 'public/style.css'), 'utf8');
   assert.match(css, /\.setup-first-visit \{[^}]*border: 0;/);
   assert.match(css, /\.setup-choice:has\(input:focus-visible\) \{[^}]*outline: 2px solid var\(--accent\);/, 'the keyboard ring on the row');
-  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?#setup-opens-with-layout-stop,\n\s*\.setup-layout-move \.btn,\n\s*\.setup-choice \{\n\s*min-height: 44px;/, 'a 44px row on a phone');
+  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?#setup-opens-with-layout-stop,\n\s*\.setup-choice \{\n\s*min-height: 44px;/, 'a 44px row on a phone');
+  assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?\.setup-layout-move \.btn \{\n\s*--btn-h: 44px;/, 'and the layout move buttons are 44px through --btn-h (buttons size through it)');
   assert.match(css, /\.space-setup \.phase-row \{\n\s*grid-template-columns: minmax\(0, 1fr\) minmax\(0, 1fr\);\n\s*grid-template-areas: "name name" "start end" "days tools" "problem problem";/, 'the rows as cards in the narrow panel');
   assert.match(css, /\.setup-status \{\n\s*margin: 8px 0 0;/, 'the refusal line stands clear of the last hint');
 });

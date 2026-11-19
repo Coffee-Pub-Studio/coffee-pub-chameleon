@@ -131,6 +131,8 @@ await test('server/index.js: no bare members.includes gates a route unless it is
     ["return spaces.some((r) => (r.members || []).includes(user.key));", 'guestMaySeePerson: spaces is already only the ones the guest may enter (mayEnter)'],
     ["if (!space.members.includes(currentUser(req).key) && !isOwner(req)) return res.status(403)", 'requireSpaceMember (the space address routes): right after its spaceAccess.mayEnter refusal'],
     ["aside.members.includes(user.key)", 'an aside: asides cannot be closed (isClosed is for spaces)'],
+    ["member: sp.members.includes(u.key) }));", 'the demo loader\'s moderatesOf: the host console\'s list of a login\'s stored moderator ticks, with whether they are also a member; it reads, it gates no route'],
+    ["if (standing) return Boolean(space) && !space.isLobby && space.members.includes(agent.key);", 'agentAskStands({ standing }): membership only, on purpose, never whether the space is closed for now, so ending an agent\'s requests for good does not happen while a space is closed for set up'],
     ["if (people.some((k) => !space.members.includes(k)))", 'checks who was chosen, not who asks; the asker passed the route\'s own entry test'],
   ];
   const lines = fs.readFileSync(path.join(ROOT, 'server', 'index.js'), 'utf8').split('\n');

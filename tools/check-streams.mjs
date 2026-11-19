@@ -6,9 +6,9 @@
 // (public/module-host.js, the stream relay) and opens no stream of its own.
 // Measured in the running product (headless Chromium over the DevTools protocol, the screenshot seed, a stand-in map file so the
 // Map window is on), on plain HTTP/1.1 (the throwaway server speaks nothing else):
-//   1. The Workspace with the default layout (the Map and Calendar windows) holds at most 3 open event streams, counted from
+//   1. The Workspace with the Map shown, or the Calendar (their layout tabs; each fills the canvas as a window frame), holds at most 3 open event streams, counted from
 //      the browser's own network events (every EventSource the page and its frames opened and that has not ended).
-//   2. Both windows finish loading within 10 s: the Map window's place list and the Calendar window's events are drawn, and no
+//   2. Each window finishes loading within 10 s: the Map window's place list and the Calendar window's events are drawn, and no
 //      request of the page or its frames is left waiting.
 //   3. A change from a second session reaches a window frame: a place sam saves through the API appears in the Map window's
 //      list within a few seconds (the frame heard it from the page's stream).
@@ -457,18 +457,17 @@ async function main() {
       try {
         const started = Date.now();
         await driveScreen(tab, { id: 'workspace', as: 'mia', url: '/#join={trip}' }, S.base, S.cookies, S.ctx);
+        // Map and Calendar are layout tabs now (plan-layout-picker.md): each fills the canvas, as a composite frame, while its tab is shown.
+        await tab.click('[data-layout-tab="map"]');
         const map = await until(tab, ROWS('/map', '.place-row'), (v) => Array.isArray(v) && v.length > 0, LOAD_MS);
         const mapMs = Date.now() - started;
-        const cal = await until(tab, ROWS('/calendar', '#body [data-open]'), (v) => Array.isArray(v) && v.length > 0, Math.max(500, LOAD_MS - mapMs));
-        const calMs = Date.now() - started;
         if (!map.ok) failures.push(`the Map window's place list was not drawn within ${LOAD_MS / 1000} s (${map.value === null ? 'no Map window' : `${map.value.length} rows`})`);
-        if (!cal.ok) failures.push(`the Calendar window's events were not drawn within ${LOAD_MS / 1000} s (${cal.value === null ? 'no Calendar window' : `${cal.value.length} events`})`);
-        say(`Map window: ${map.ok ? `${map.value.length} places drawn after ${(mapMs / 1000).toFixed(1)} s` : 'not loaded'}; Calendar window: ${cal.ok ? `${cal.value.length} events drawn after ${(calMs / 1000).toFixed(1)} s` : 'not loaded'}`);
+        say(`Map window: ${map.ok ? `${map.value.length} places drawn after ${(mapMs / 1000).toFixed(1)} s` : 'not loaded'}`);
         await sleep(1500);
         const stuck = net.pending(5000);
         if (stuck.length) failures.push(`${stuck.length} requests waited over 5 s and never returned: ${[...new Set(stuck)].slice(0, 6).join(', ')}`);
         const streams = net.streams();
-        say(`open event streams on the Workspace: ${streams.length} (${streams.join(', ')})`);
+        say(`open event streams on the Workspace with the Map shown: ${streams.length} (${streams.join(', ')})`);
         if (streams.length > MAX_STREAMS) failures.push(`the Workspace holds ${streams.length} event streams open, over ${MAX_STREAMS}: ${streams.join(', ')}`);
         if (streams.some((u) => u.startsWith('/api/modules/stream') && u.includes('from='))) failures.push('a window frame opened a stream of its own');
 
@@ -483,16 +482,23 @@ async function main() {
           say(`a place saved by a second session: ${seen.ok ? `in the Map window after ${((Date.now() - t0) / 1000).toFixed(1)} s` : 'never reached the Map window'}`);
         }
 
-        // 4. The Map window closed: what it needed goes with it, nothing else.
-        const closed = await tab.eval(`(() => { const f = [...document.querySelectorAll('iframe.composite-frame')].find((x) => { try { return x.contentWindow.location.pathname === '/map'; } catch { return false; } }); const w = f && f.closest('.module-floating, .mf, [data-module-id]'); const b = w && w.querySelector('button[aria-label^="Close"]'); if (!b) return false; b.click(); return true; })()`);
-        if (closed) {
-          await sleep(1500);
-          const after = net.streams();
-          say(`after closing the Map window: ${after.length} open (${after.join(', ')})`);
-          if (after.length > streams.length) failures.push(`closing the Map window left more streams open (${after.length}) than before (${streams.length})`);
-          const stillMap = await tab.eval(`[...document.querySelectorAll('iframe.composite-frame')].some((x) => { try { return x.contentWindow.location.pathname === '/map'; } catch { return false; } })`);
-          if (stillMap) failures.push('the Map window did not close');
-        } else say('no Close button found on the Map window; step 4 not measured');
+        // 4. The Map window gone (the Workspace tab is pressed): what it needed goes with it, nothing else.
+        await tab.click('[data-layout-tab="workspace"]');
+        await sleep(1500);
+        const after = net.streams();
+        say(`after the Map window closed: ${after.length} open (${after.join(', ')})`);
+        if (after.length > streams.length) failures.push(`closing the Map window left more streams open (${after.length}) than before (${streams.length})`);
+        const stillMap = await tab.eval(`[...document.querySelectorAll('iframe.composite-frame')].some((x) => { try { return x.contentWindow.location.pathname === '/map'; } catch { return false; } })`);
+        if (stillMap) failures.push('the Map window did not close');
+
+        // 2 (the Calendar). Its window finishes loading too.
+        const calStart = Date.now();
+        await tab.click('[data-layout-tab="calendar"]');
+        const cal = await until(tab, ROWS('/calendar', '#body [data-open]'), (v) => Array.isArray(v) && v.length > 0, LOAD_MS);
+        if (!cal.ok) failures.push(`the Calendar window's events were not drawn within ${LOAD_MS / 1000} s (${cal.value === null ? 'no Calendar window' : `${cal.value.length} events`})`);
+        say(`Calendar window: ${cal.ok ? `${cal.value.length} events drawn after ${((Date.now() - calStart) / 1000).toFixed(1)} s` : 'not loaded'}`);
+        const calStreams = net.streams();
+        if (calStreams.length > MAX_STREAMS) failures.push(`the Workspace holds ${calStreams.length} event streams open with the Calendar shown, over ${MAX_STREAMS}: ${calStreams.join(', ')}`);
       } finally { net.stop(); await tab.close(); }
     }
 
@@ -522,6 +528,7 @@ async function main() {
       await tab.open(1280, 'light', true);
       try {
         await driveScreen(tab, { id: 'workspace', as: 'mia', url: '/#join={trip}' }, S.base, S.cookies, S.ctx);
+        await tab.click('[data-layout-tab="map"]');
         await until(tab, ROWS('/map', '.place-row'), (v) => Array.isArray(v) && v.length > 0, LOAD_MS);
         let clicked = false;
         try { await tab.click('#popout'); clicked = true; } catch { /* not on this screen */ }

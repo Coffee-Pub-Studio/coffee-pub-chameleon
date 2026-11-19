@@ -4873,7 +4873,8 @@ html[data-dialog-open] { overflow: hidden; }
   text-transform: uppercase;
 }
 
-.sdk-cp .sdk-swatch > i svg { display: block; width: 10px; height: 10px; margin: 3px; }
+.sdk-cp .sdk-swatch[aria-checked="true"] > i { display: grid; }
+.sdk-cp .sdk-swatch > i svg { display: block; width: 10px; height: 10px; margin: auto; }
 .sdk-swatch.sdk-cp-faint::before { border-color: color-mix(in srgb, var(--text-muted) 75%, var(--edge-hairline)); }
 
 .sdk-cp-live {

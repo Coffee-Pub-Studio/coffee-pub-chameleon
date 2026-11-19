@@ -1019,10 +1019,12 @@ try {
     const settings = (await call('GET', '/api/settings', { token: admin })).json.settings;
     assert.deepEqual([settings.showCalendar, settings.showMap], [true, true]);
   });
-  // Whichever module is the calendar's main by then (the bundled Calendar once it declares one, else a stand-in).
+  // The calendar's main by then: the bundled Calendar, which declares it and is in Travel's template (a stand-in module
+  // is not in the template, so Home would not offer it a tile).
   if (!(await call('GET', '/api/destinations/calendar', { token: admin })).json?.main) {
-    assert.equal((await call('POST', '/api/modules', { token: admin, body: datesZip, type: 'application/zip' })).status, 201);
-    assert.equal((await call('PATCH', '/api/modules/dest-dates', { token: admin, body: { enabled: true, allSpaces: true } })).status, 200);
+    const calendarZip = buildModule(path.join(ROOT, 'modules', 'calendar')).zip;
+    assert.equal((await call('POST', '/api/modules', { token: admin, body: calendarZip, type: 'application/zip' })).status, 201);
+    assert.equal((await call('PATCH', '/api/modules/calendar', { token: admin, body: { enabled: true, allSpaces: true } })).status, 200);
   }
   await test('travel: with no destination page yet, /calendar goes home and module pages and tiles stay their own', async () => {
     const d = await call('GET', '/api/destinations/calendar', { token: admin });

@@ -430,8 +430,18 @@ async function main() {
           await sleep(1200);
           await closeMenus();
           const all = await tab.eval(`fetch('/api/spaces/${S.ctx.trip}/layouts').then((r) => r.json())`);
+          // A layout just saved is shown as a tab of its own, and a layout shown writes nothing back to the Workspace's memory
+          // (decision 15): back to the Workspace, which is what the rest of this part is about.
+          await tab.click('[data-layout-tab="workspace"]');
+          await sleep(1200);
           return [...(all.mine || []), ...(all.shared || [])].find((x) => x.name === name) || null;
         };
+        // Only the Workspace remembers its arrangement (a loaded layout is its own tab and writes nothing back, decision 15), and
+        // Window Mode keeps the stacks it puts away in that memory: so this part starts from a Workspace of its own, the stack of
+        // three stored (as a person's stack is), entered and shown by the Workspace tab, not the layout loaded above.
+        await enter(['travel', 'maps', 'polls', 'research'], { maps: { stack: 's1', at: 0, h: 0.4, dockW: 520 }, polls: { stack: 's1', at: 1, h: 0.3, dockW: 520 }, research: { stack: 's1', at: 2, h: 0.3, dockW: 520 } });
+        await tab.click('[data-layout-tab="workspace"]');
+        await sleep(1500);
         // Uneven heights and the lowest collapsed, in a stack of three beside the Itinerary.
         await tab.eval(`document.querySelectorAll('#canvas > .stack-divider')[0].focus()`);
         await key('ArrowDown'); await key('ArrowDown'); await key('ArrowDown');
