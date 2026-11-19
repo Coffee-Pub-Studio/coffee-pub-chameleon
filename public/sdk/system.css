@@ -4726,7 +4726,8 @@ html[data-dialog-open] { overflow: hidden; }
   position: relative;
   flex: none;
   box-sizing: border-box;
-  width: 100%;
+  align-self: stretch;
+  width: auto;
   height: var(--cp-area-h);
   /* The handle is centred on the colour, so at an edge half of it lies outside the area: the area keeps that half inside the popover. */
   margin-inline: max(0px, calc(var(--cp-thumb) / 2 - var(--pop-pad, 0px)));
