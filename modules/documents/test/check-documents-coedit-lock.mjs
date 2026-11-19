@@ -159,7 +159,7 @@ await test('the last editor who locks and leaves at once still stores the lock',
 });
 await test('fill: a document made from a locked record takes the lock; a document that has its keys but no lock is not given a removed lock back', async () => {
   const d = new PM.Doc(); const rec = L.dlCleanDoc({ ...REC, lock: LOCK });
-  assert.equal(L.dlMetaFill(d, rec), 6, 'five keys and the lock');
+  assert.equal(L.dlMetaFill(d, rec), 7, 'six keys and the lock');
   assert.deepEqual(L.dlMetaRead(d).lock, LOCK);
   const e = new PM.Doc(); L.dlMetaFill(e, L.dlCleanDoc(REC)); // a document with all five keys and no lock (it was unlocked)
   assert.equal(L.dlMetaFill(e, rec), 0, 'a stale record does not lock it again');

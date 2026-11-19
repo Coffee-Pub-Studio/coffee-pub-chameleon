@@ -113,12 +113,20 @@
   const dlCleanLayout = (v) => (v === 'paper' ? 'paper' : DL_LAYOUT_DEFAULT);
   const dlCleanPageSize = (v) => (v === 'a4' ? 'a4' : DL_PAGESIZE_DEFAULT);
   const dlCleanPageNumbers = (v) => v === true;
-  // The three together: -> { layout, pageSize, pageNumbers } from any record or nothing.
-  const dlCleanPage = (v) => ({ layout: dlCleanLayout(v && v.layout), pageSize: dlCleanPageSize(v && v.pageSize), pageNumbers: dlCleanPageNumbers(v && v.pageNumbers) });
+  // The base text size of the document (px): the reading and editing text, with the headings and code in proportion. Like the layout it is the document's own
+  // and every reader sees the same. 14 is what the page always was; a missing or unknown value reads as 14.
+  const DL_TEXT_SIZES = Object.freeze([
+    Object.freeze({ px: 12, label: 'Small' }), Object.freeze({ px: 14, label: 'Normal' }), Object.freeze({ px: 16, label: 'Large' }),
+    Object.freeze({ px: 18, label: 'Larger' }), Object.freeze({ px: 20, label: 'Largest' }),
+  ]);
+  const DL_TEXT_DEFAULT = 14;
+  const dlCleanTextSize = (v) => (DL_TEXT_SIZES.some((s) => s.px === v) ? v : DL_TEXT_DEFAULT);
+  // The four together: -> { layout, pageSize, pageNumbers, textSize } from any record or nothing.
+  const dlCleanPage = (v) => ({ layout: dlCleanLayout(v && v.layout), pageSize: dlCleanPageSize(v && v.pageSize), pageNumbers: dlCleanPageNumbers(v && v.pageNumbers), textSize: dlCleanTextSize(v && v.textSize) });
   const dlSamePage = (a, b) => {
     const x = dlCleanPage(a);
     const y = dlCleanPage(b);
-    return x.layout === y.layout && x.pageSize === y.pageSize && x.pageNumbers === y.pageNumbers;
+    return x.layout === y.layout && x.pageSize === y.pageSize && x.pageNumbers === y.pageNumbers && x.textSize === y.textSize;
   };
 
   const dlIsRecord = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);

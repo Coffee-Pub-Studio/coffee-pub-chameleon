@@ -5,7 +5,7 @@
 // THE META MAP. The title, the page colour and the page layout of a shared document sit in a small Y.Map on the shared document (the root type `meta`), beside the
 // text. A person's control (the title field, the colour, the page menu) sets a key; every page observes the map and draws what it says; the writer's save reads
 // the map and writes the record from it (never from what the page last drew). The keys: title (a string, at most DL.titleMax characters, no control
-// characters), paper (one of the fixed colours), layout ('fluid' or 'paper'), pageSize ('letter' or 'a4'), pageNumbers (true or false). Nothing else is a key.
+// characters), paper (one of the fixed colours), layout ('fluid' or 'paper'), pageSize ('letter' or 'a4'), pageNumbers (true or false), textSize (12, 14, 16, 18 or 20). Nothing else is a key.
 // The gate checks the map in every update (documents-lib-t-coedit-gate.js calls dlMetaProblem): a wrong key, type, length or value is refused as `attrs`.
 // A key is settled by Yjs the way any map key is: the last change wins, the same on every page.
 //
@@ -19,7 +19,7 @@
 
 const DL_META = Object.freeze({
   root: 'meta',
-  keys: Object.freeze(['title', 'paper', 'layout', 'pageSize', 'pageNumbers']),
+  keys: Object.freeze(['title', 'paper', 'layout', 'pageSize', 'pageNumbers', 'textSize']),
   // THE LOCK (step 4c): a sixth key that may be there or not. { by: <person key>, name: <display name>, at: <time, ms> }. A locked document is read-only for
   // everyone. The gate checks the shape only: it cannot know a role, so the lock is a courtesy guard that an honest page keeps and a hostile editor can bypass.
   optional: Object.freeze(['lock']),
@@ -52,10 +52,10 @@ function dlCoRemoveRules({ me, role, lock, ownerWord }) {
   return lock && !r.unlock ? { off: true, reason: r.reason } : { off: false, reason: '' };
 }
 
-// The meta of a record: -> { title, paper, layout, pageSize, pageNumbers }, cleaned.
+// The meta of a record: -> { title, paper, layout, pageSize, pageNumbers, textSize }, cleaned.
 function dlMetaOf(rec) {
   const page = dlCleanPage(rec);
-  return { title: rec && typeof rec.title === 'string' ? rec.title : '', paper: dlCleanPaper(rec && rec.paper), layout: page.layout, pageSize: page.pageSize, pageNumbers: page.pageNumbers, lock: (rec && dlCoLockClean(rec.lock)) || null };
+  return { title: rec && typeof rec.title === 'string' ? rec.title : '', paper: dlCleanPaper(rec && rec.paper), layout: page.layout, pageSize: page.pageSize, pageNumbers: page.pageNumbers, textSize: page.textSize, lock: (rec && dlCoLockClean(rec.lock)) || null };
 }
 // Why this value may not be a key of the map ('' when it may).
 function dlMetaValueProblem(key, v) {
@@ -69,10 +69,11 @@ function dlMetaValueProblem(key, v) {
   if (key === 'layout') return v === 'fluid' || v === 'paper' ? '' : 'layout is not fluid or paper';
   if (key === 'pageSize') return v === 'letter' || v === 'a4' ? '' : 'pageSize is not letter or a4';
   if (key === 'pageNumbers') return typeof v === 'boolean' ? '' : 'pageNumbers is not true or false';
+  if (key === 'textSize') return DL_TEXT_SIZES.some((s) => s.px === v) ? '' : 'textSize is not one of the sizes';
   if (key === 'lock') return dlCoLockClean(v) ? '' : 'lock is not who and when';
   return 'a key the map does not have';
 }
-// Is the map (a Y.Map) only what it may be? -> '' or the first problem. The map holds at most six keys (the lock is the optional one); a type inside it, or an entry outside it, is refused.
+// Is the map (a Y.Map) only what it may be? -> '' or the first problem. The map holds at most seven keys (the lock is the optional one); a type inside it, or an entry outside it, is refused.
 function dlMetaProblem(map) {
   if (map._start !== null && map._start !== undefined) return 'something outside the keys';
   let n = 0;
@@ -85,7 +86,7 @@ function dlMetaProblem(map) {
   }
   return '';
 }
-// What the shared document says. `fallback`: { title, paper, page } for a key that is missing. -> { title, paper, page: {layout,pageSize,pageNumbers}, missing: [keys] }.
+// What the shared document says. `fallback`: { title, paper, page } for a key that is missing. -> { title, paper, page: {layout,pageSize,pageNumbers,textSize}, missing: [keys] }.
 function dlMetaRead(ydoc, fallback) {
   const map = ydoc.getMap(DL_META.root);
   const fb = fallback || {};
@@ -95,7 +96,7 @@ function dlMetaRead(ydoc, fallback) {
   return {
     title: pick('title', typeof fb.title === 'string' ? fb.title : ''),
     paper: pick('paper', dlCleanPaper(fb.paper)),
-    page: { layout: pick('layout', fp.layout), pageSize: pick('pageSize', fp.pageSize), pageNumbers: pick('pageNumbers', fp.pageNumbers) },
+    page: { layout: pick('layout', fp.layout), pageSize: pick('pageSize', fp.pageSize), pageNumbers: pick('pageNumbers', fp.pageNumbers), textSize: pick('textSize', fp.textSize) },
     lock: dlCoLockClean(map.get('lock')),
     missing,
   };
@@ -127,7 +128,7 @@ function dlMetaSame(ydoc, rec) {
   const m = dlMetaRead(ydoc, null);
   if (m.missing.length) return false;
   const all = dlMetaOf(rec);
-  return m.title === all.title && m.paper === all.paper && m.page.layout === all.layout && m.page.pageSize === all.pageSize && m.page.pageNumbers === all.pageNumbers && dlCoLockSame(m.lock, all.lock);
+  return m.title === all.title && m.paper === all.paper && m.page.layout === all.layout && m.page.pageSize === all.pageSize && m.page.pageNumbers === all.pageNumbers && m.page.textSize === all.textSize && dlCoLockSame(m.lock, all.lock);
 }
 
 // A document renamed from the list while it is open here: the title the writer puts into the shared settings, or '' for none. `recTitle`: the record's title now;
