@@ -336,26 +336,31 @@ try {
     assert.deepEqual(problems(minimal({ call: { position: 'middle' } })), ['call.position must be one of top, bottom, left, right, float, workspace, window.']);
     assert.deepEqual(problems(minimal({ call: { layout: 'mosaic' } })), ['call.layout must be one of grid, strip, focus, spotlight.']);
     assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: {} }, workspace: { layout: { shape: 'two-equal', areas: ['polls', null] }, show: ['calendar', 'map'], opensFirst: 'calendar' } })), []);
-    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: ['polls'] } } })), ['workspace.layout: "polls" is not a module you can use here.'], 'an area names only this template\'s modules');
-    assert.deepEqual(problems(minimal({ modules: '*', workspace: { layout: { shape: 'two-equal', areas: ['polls', 'nope'] } } })), ['workspace.layout: "nope" is not a module you can use here.']);
+    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: ['polls'] } } })), ['The layout uses Polls, which this template doesn\'t include.'], 'an area names only this template\'s modules');
+    assert.deepEqual(problems(minimal({ modules: '*', workspace: { layout: { shape: 'two-equal', areas: ['polls', 'nope'] } } })), ['The layout uses nope, which this template doesn\'t include.']);
     assert.deepEqual(problems(minimal({ modules: '*', workspace: { layout: { shape: 'two-equal', areas: ['polls', null] } } })), [], 'with "*", any module of the catalog');
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: {} }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['workspace.layout: "polls" is in two areas; a module can be in one area only.']);
-    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'two-equal', areas: ['chat', null] } } })), ["workspace.layout: The chat and the call are in the column on the left; they can't go in an area."]);
-    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'ring', areas: [] } } })), ['workspace.layout: Pick a shape from the list.']);
-    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'three-equal', areas: [null] } } })), ['workspace.layout: This shape has 3 areas.']);
-    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: [null], widths: [100] } } })), ['workspace.layout: A shape does not take "widths"; it is a shape and its areas.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: {} }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['"polls" is in two areas; a module can be in one area only.']);
+    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'two-equal', areas: ['chat', null] } } })), ["The chat and the call are in the column on the left; they can't go in an area."]);
+    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'ring', areas: [] } } })), ['Pick a shape from the list.']);
+    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'three-equal', areas: [null] } } })), ['This shape has 3 areas.']);
+    assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: [null], widths: [100] } } })), ['A shape does not take "widths"; it is a shape and its areas.']);
     assert.deepEqual(problems(minimal({ workspace: { show: ['calendar'], opensFirst: 'conference' } })), ['workspace.opensFirst: "conference" must also be in workspace.show.'], 'an opens-first that is not shown would do nothing');
     assert.deepEqual(problems(minimal({ workspace: { show: ['calendar'], opensFirst: 'workspace' } })), [], 'the Workspace is always there');
     for (const id of ['assistant', 'stream']) {
       if (!templates.bundledManifests().has(id)) continue;
       assert.deepEqual(problems(minimal({ modules: { chat: {}, [id]: {} }, workspace: { layout: { shape: 'one', areas: [id] } } })).length, 1, `${id} has no place on the canvas, so no area takes it`);
     }
+    assert.deepEqual(problems(minimal({ modules: { chat: {} }, workspace: { layout: { shape: 'one', areas: ['todo'] } } })), ['The layout uses To-do, which this template doesn\'t include.'], 'the manifest\'s name when the template names none');
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { name: 'Votes' } }, workspace: { layout: { shape: 'one', areas: ['todo'] } } })), ['The layout uses To-do, which this template doesn\'t include.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { name: 'Votes' } }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['"polls" is in two areas; a module can be in one area only.']);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { name: 'Quests' } }, workspace: { layout: { shape: 'one', areas: ['polls'] } } })), ['The layout uses Polls, which this template doesn\'t include.'], 'a module left out of the template');
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { name: 'Quests' }, calendar: {} }, workspace: { layout: { shape: 'tall-split', areas: [null, 'todo', null] } } })), ['Quests can\'t share a column; put it in area 1.'], 'the template\'s own name for a module');
     assert.deepEqual(problems(minimal({ workspace: { opensWith: ['chat'] } })), ['"workspace" takes only layout, show and opensFirst.'], 'opensWith is gone: the layout replaces it');
     // To-do in a stacked area: refused only where the Calendar is on (the template's modules; "*" counts the Calendar as on).
     const stacked = (modules) => problems(minimal({ modules, workspace: { layout: { shape: 'tall-split', areas: ['polls', 'todo', null] } } }));
     assert.deepEqual(stacked({ chat: {}, polls: {}, todo: {} }), [], 'no Calendar: To-do stacks');
-    assert.deepEqual(stacked({ chat: {}, polls: {}, todo: {}, calendar: {} }), ["workspace.layout: To-do can't share a column; put it in area 1."], 'with the Calendar: refused, named as a person reads it');
-    assert.deepEqual(stacked('*'), ["workspace.layout: To-do can't share a column; put it in area 1."], '"*" counts the Calendar as on');
+    assert.deepEqual(stacked({ chat: {}, polls: {}, todo: {}, calendar: {} }), ["To-do can't share a column; put it in area 1."], 'with the Calendar: refused, named as a person reads it');
+    assert.deepEqual(stacked('*'), ["To-do can't share a column; put it in area 1."], '"*" counts the Calendar as on');
     assert.deepEqual(problems(minimal({ workspace: { show: ['workspace'] } })), ['workspace.show must be a list of Fixed Workspaces, each once: calendar, map, conference, whiteboard, documents.']);
     assert.deepEqual(problems(minimal({ workspace: { opensFirst: 'home' } })), ['workspace.opensFirst must be one of workspace, calendar, map, conference, whiteboard, documents.']);
     assert.deepEqual(problems(minimal({ workspace: { tabs: [] } })), ['"workspace" takes only layout, show and opensFirst.']);

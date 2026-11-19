@@ -5,7 +5,7 @@
  * the same days and never moving an earlier one, chipWords before, during and after the main phase, no phases at
  * all, the status strip's storyWords for each row of plan-space-story-strip.md's words table, and countdown), then the routes on a throwaway server (PORT=0, DATA_DIR under the system tmpdir, stopped by its pid): a space
  * carries `phases`, PATCH /api/spaces/:id { phases } for the admin and a moderator (and, for Set up, step 4, a
- * moderator's `opensWith` and `defaultLayout` and nothing else), refused for a member, each refusal
+ * moderator's `defaultLayout` and nothing else), refused for a member, each refusal
  * with its sentence, POST /api/spaces/:id/phases/cover for a member who can write in a module on in the space, and
  * the stored key.
  */

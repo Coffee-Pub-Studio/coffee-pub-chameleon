@@ -14,8 +14,8 @@
  * layouts gain kind and icon; the system layouts workspace, calendar and map are made per space from what is on and
  * never stored; a person's own name, icon and tab for them are stored per person per space (PATCH
  * .../layouts/system/:systemId); the favorite routes take calendar and map; there is no limit on favorites. Step 5 (the
- * first visit as one choice): defaultLayout also takes calendar and map while they are on in the space, it and opensWith
- * are independent fields, and GET .../layouts and GET /api/modules/for-space carry the resolved `firstVisit`.
+ * first visit as one choice): defaultLayout also takes calendar and map while they are on in the space, it and the template's layout
+ * are independent, and GET .../layouts and GET /api/modules/for-space carry the resolved `firstVisit`.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

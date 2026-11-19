@@ -319,9 +319,18 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
         // Only modules with a place on the canvas can fill an area (the Assistant and the Stream have none).
         const onCanvas = (id) => Boolean(catalog.get(id)?.surfaces?.canvas);
         const named = (raw.modules === '*' ? [...catalog.keys()] : [...listed]).filter(onCanvas);
+        // The name a person reads in this template: its own for the module, else the manifest's, else the id.
         const names = Object.fromEntries([...catalog.values()].map((m) => [m.id, m.name]));
-        const { error } = cleanShape(w.layout, { modules: named, on: named, names });
-        if (error) say(`workspace.layout: ${error}`);
+        if (isObject(raw.modules)) for (const [id, entry] of Object.entries(raw.modules)) if (isObject(entry) && typeof entry.name === 'string' && entry.name.trim()) names[id] = entry.name.trim();
+        const nameOf = (id) => shown(names[id] || id);
+        // An area naming a module the layout can't use is said with that name; every other refusal is cleanShape's own sentence.
+        const areas = isObject(w.layout) && Array.isArray(w.layout.areas) ? w.layout.areas : [];
+        const unusable = [...new Set(areas.filter((id) => typeof id === 'string' && !named.includes(id) && !BUILTIN_MODULE_IDS.includes(id)))];
+        for (const id of unusable) say(catalog.has(id) && (listed.has(id) || raw.modules === '*') ? `The layout uses ${nameOf(id)}, which can't go in an area.` : `The layout uses ${nameOf(id)}, which this template doesn't include.`);
+        if (!unusable.length) {
+          const { error } = cleanShape(w.layout, { modules: named, on: named, names });
+          if (error) say(error);
+        }
       }
       if (w.show !== undefined) {
         if (!Array.isArray(w.show) || w.show.some((id) => !FIXED_WORKSPACES.includes(id)) || new Set(w.show).size !== w.show.length) say(`workspace.show must be a list of Fixed Workspaces, each once: ${FIXED_WORKSPACES.join(', ')}.`);
