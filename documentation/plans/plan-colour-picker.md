@@ -2,7 +2,7 @@
 
 **Audience:** Thomas decides. If he approves, experience-design builds the picker in the SDK, the host pages' use of it and its entry on the design-system Pickers page; server-development writes its check. This is a core change (`public/sdk/host.js`, `public/sdk/system.css`, and the host pages that draw a colour field today), so each step is held for an independent read, and the full `npm run check` covers it at release prep, run by the project manager. content-manager documents it afterwards. The Whiteboard's colours (#544) are a module-lane follow-up once step 2 lands, not part of this build.
 
-**Status:** Draft for Thomas, 2026-11-19, by product-planner. Nothing is built. It comes from GitHub issue #933 ("Design: A reusable colour picker (`host.ui.colorPicker`)"), which Thomas asked for because it blocks #544. Thomas answered the first draft on 2026-11-19 (decisions 1 to 5 below), including "We can scrap all previous pickers and colour palettes." His earlier words in #544 (2026-11-10) still bind it: "No native colour input as a stopgap", and a colour a person picks "may be stored as `#rrggbb` in module data; validate strictly" (decisions 6 and 7). Four questions are still open, listed at the end: the new default palette's colours, whether the opacity slider is always shown, the SDK call's shape, and whether this lands before the freeze.
+**Status:** Draft for Thomas, 2026-11-19, by product-planner. Nothing is built. It comes from GitHub issue #933 ("Design: A reusable colour picker (`host.ui.colorPicker`)"), which Thomas asked for because it blocks #544. Thomas answered the first draft on 2026-11-19 (decisions 1 to 5 below), including "We can scrap all previous pickers and colour palettes", and then three more the same day (decisions 8 to 10: the opacity slider is always shown, the call is two calls, and the picker lands before the freeze whatever else slips). His earlier words in #544 (2026-11-10) still bind it: "No native colour input as a stopgap", and a colour a person picks "may be stored as `#rrggbb` in module data; validate strictly" (decisions 6 and 7). Eight questions are still open, listed at the end; two of them (the default palette, and what a colour that is stored without its opacity does with it) block a step.
 
 **What was read.** `CLAUDE.md`; GitHub issues #933, #544 (with its two comments) and #480 (with its comment), read through the GitHub REST API; [plan-layout-picker](plan-layout-picker.md) for the format; [plan-release](plan-release.md) ("The freeze", the gating list); [plan-templates-redesign](plan-templates-redesign.md) (the freeze window); [design-theme](../designsystem/design-theme.md) (the tokens, the rules, Selected states, Tints, The kind picker); [api-module-sdk](../api/api-module-sdk.md) ("Settings", "Shared tools", "The module frame", "Theme", "Running in the page", "The sandbox"); `documentation/TODO.md` and `documentation/known-issues.md` (searched). In code: `public/colour-pick.js` (all of it); `public/sdk/host.js` (the `ui` block, lines 2599 to 3130; `showMenu()` and its placing, lines 2097 to 2330; `host.menu`, lines 4203 to 4240; the page globals at the end, lines 4890 to 4921); `public/module-host.js` (`createFrameBands()`, lines 1163 to 1255; the `ui.toast`, `ui.confirm` and `ui.prompt` handlers, lines 1605 to 1619; the lift's header, lines 1057 to 1073); `public/module-frame.js` (searched for colour: nothing); the Pickers block of `public/sdk/system.css` (lines 4540 to 4700); `public/design-system/components.js` (the `pickers` entry, lines 82 to 92) and the approved family in `public/design-system/legacy/system-v1/proposed-pickers.js` (searched); `public/theme-colour.js` (lines 1 to 118); `public/list-rows.js`, `public/module-settings.js`, `public/template-pages.js` (their colour lines); `server/modules.js` (`SETTING_TYPES`, line 612; the `color` setting, line 798); the Whiteboard's `whiteboard.css` (the fixed colours, lines 35 to 75), `whiteboard-lib-a-core.js` (lines 40 to 110) and `whiteboard.js` (lines 1120 to 1160); the headers of `tools/check-no-raw-colours.mjs`, `tools/check-system-css.mjs` (line 172), `tools/check-sdk-pick.mjs`, `tools/check-module-host.mjs` and `tools/check-template-pages-b.mjs` (line 45). **Not read:** `public/admin.js`'s theme editor, the kind picker's own code (`createKindPicker`) beyond its comment, how the kind picker keeps its recent choices in a sandboxed frame, and `tools/check-module-window.mjs` beyond a search. The proposed palette's contrast figures were worked out with a short script using the WCAG 2 formula (the same as `theme-colour.js`); nothing in the product was run.
 
@@ -33,7 +33,7 @@ All of this is replaced by the picker; decision 5 says none of it needs to be ke
 Thomas, 2026-11-19 (his answers to the first draft's questions 1 to 4, and a further decision).
 
 1. **The picker opens at an element in the module or at a point (option N1).** The main use is from the toolbar, but it must also open in context: where a person clicked, or at a control in the module's page. So the call takes an `anchor` (an element of the module's own page) or `at` (a point in the module's area), as `host.menu.show` does. The host's button rectangle (#480 point 3, the first draft's step 5 and option N2) is not taken. Reason: it covers the toolbar and every place a module opens colours from today, with no change to the module frame.
-2. **The picker has an opacity slider.** Opacity is a whole-number percent from 0 to 100 beside `#rrggbb` in the answer, never inside it (option B1, not B2). Whether the slider is always shown or only when a module asks is open (question 2). Reason: #544 wants a transparency for fills, and the colour stays seven characters (decision 7).
+2. **The picker has an opacity slider.** Opacity is a whole-number percent from 0 to 100 beside `#rrggbb` in the answer, never inside it (option B1, not B2). Decision 8 shows it always. Reason: #544 wants a transparency for fills, and the colour stays seven characters (decision 7).
 3. **A contrast helper in the SDK, with no picker UI (option C2).** `host.util.contrast(a, b)` and `host.util.readableOn(fill)`, the same maths as the theme editor's; no warning inside the picker. Reason: #544 needs words on a fill to pick light or dark at 4.5:1, which this answers, and a warning in the picker is not needed for it.
 4. **A core default palette, and a module may replace it with its own named groups (option D2).** Reason: one palette everywhere by default, and a module with colours of its own (the Whiteboard) can still offer them in the same picker.
 5. **"We can scrap all previous pickers and colour palettes."** Nothing of today's colour choosing is kept: the native "Custom" input in `public/colour-pick.js`, its popover and its 16 named swatches, `list-rows.js`'s own colours for new rows, and the Whiteboard's fixed colours and their ids are not binding. Reason: the product is unreleased (`CLAUDE.md`: no compatibility layers; test data may be reset).
@@ -42,6 +42,12 @@ Thomas, 2026-11-10, in #544. Still true.
 
 6. **No native colour input as a stopgap.** No page or module draws `<input type="color">` for a person to use.
 7. **A colour a person picks is stored as `#rrggbb`, checked strictly:** exactly 7 characters, hex digits only, and never an unchecked string in CSS. So the picker answers `#rrggbb` and nothing else, and a module checks it again before it stores or uses it.
+
+Thomas, 2026-11-19 (his answers to the second draft's questions 2, 3 and 4).
+
+8. **The opacity slider is always shown.** Not only when a module asks; this replaces the planner's suggestion. So every answer carries an opacity. What a colour that is stored as `#rrggbb` alone (a `color` setting, a list row's colour) does with it is open question 2. Reason: one picker that looks the same everywhere.
+9. **The SDK call is two calls: `host.ui.colorPicker(options)` and `host.ui.colorField(input, options)` (option S3).** The first opens the picker and resolves the answer; the second puts a colour trigger on an input in a form, and is what the host's own pages use. Reason: a choice from the toolbar or in context and a value in a form are different uses.
+10. **The colour picker lands before the freeze, whatever else slips.** Steps 1 to 4 are merged, with their reads, QA and documentation, by Thursday 2026-12-10. If the builders can't do everything before the freeze, other work moves, not this. Reason: #544 and the module settings wait on it, and a new SDK call can't be added once the freeze starts.
 
 **What decision 5 lets the plan drop.**
 
@@ -54,7 +60,7 @@ Thomas, 2026-11-10, in #544. Still true.
 
 ## Options for Thomas
 
-Decided: B by decision 2, C by 3, D by 4, N by 1. Their options stay below as the record of what was weighed. S (the call's shape) is still open. A was not asked on its own; the contract is drafted on A1, the planner's reading of decision 1.
+Decided: B by decisions 2 and 8, C by 3, D by 4, N by 1, S by 9. Their options stay below as the record of what was weighed. A was not asked on its own; the contract is drafted on A1, the planner's reading of decision 1 (open question 3). O, what a colour stored without its opacity does with the slider's value, is new and open (open question 2).
 
 ### A. Where the picker is drawn
 
@@ -67,7 +73,7 @@ Not asked separately. Decision 1 (an element in the module or a point, and no ho
 
 ### B. Opacity
 
-Decided: B1 (decision 2). Whether the slider is always shown is open question 2.
+Decided: B1 (decision 2), with the slider always shown (decision 8).
 
 | Option | What it is | Cost |
 |---|---|---|
@@ -107,15 +113,25 @@ Decided: N1 (decision 1). N2 is not taken, and #480 point 3 stays its own issue.
 
 ### S. The SDK call's shape
 
-Still open (question 3).
+Decided: S3 (decision 9).
 
 | Option | What it is | Fits | Cost |
 |---|---|---|---|
 | S1. A field, like `datePicker` | `host.ui.colorPicker(input, options)` upgrades an input the module has: the trigger, then the popover | A form in an editor window | The Whiteboard opens colours from its toolbar and in context, with no field |
 | S2. A popover that answers, like `host.menu.show` | `host.ui.colorPicker({ anchor?, at?, value, ... })` opens it and resolves the answer, or `null` | The toolbar, menus, a click on the board | A form draws its own trigger |
-| **S3. Both, as two calls (lean)** | `host.ui.colorPicker(options)` is S2. `host.ui.colorField(input, options)` is S1, built on it, and is what the host's pages use | Both | Two names where #933 named one |
+| **S3. Both, as two calls** | `host.ui.colorPicker(options)` is S2. `host.ui.colorField(input, options)` is S1, built on it, and is what the host's pages use | Both | Two names where #933 named one |
 
-Why S3: the two uses differ (a value in a form, a choice from the toolbar or in context), and one call that takes either an input or an options object reads unclearly. If Thomas wants one name only, S2 is the one decision 1's uses need.
+### O. A colour stored without its opacity
+
+Open (question 2). The slider is always shown (decision 8), so every answer carries an opacity. But a `color` setting stores `#rrggbb` only (`server/modules.js`, line 798), and so does a list row's colour (`list-rows.js`). As drafted, a person could move the slider there and the opacity would be thrown away when the setting is saved, with nothing saying so. The same holds for a module that stores a colour alone.
+
+| Option | What it is | Cost | Rules out |
+|---|---|---|---|
+| O1. Shown, and ignored where it is not kept | The answer carries `opacity`; a `color` setting and a list row keep the colour only. The slider works but has no lasting effect there | Nothing to build. A person is shown a control that does nothing after saving, which the release's "done" contract forbids ("A person is never offered a control that does nothing", plan-release) | Nothing |
+| **O2. Shown, but held at 100 and switched off where it is not kept (lean)** | `colorField` and `colorPicker` take `opacity: false` for a value that keeps the colour only: the slider is drawn, at 100 percent and disabled, with one line under it, "Opacity isn't kept here." The host's `color` settings and list rows pass it. A module that keeps an opacity leaves it out | One option and one line of words. The slider is still always shown (decision 8) | A transparent colour in a module setting, until O3 is chosen for it |
+| O3. The setting keeps the opacity | A `color` setting may declare `"opacity": true` in the manifest and then stores `{ color, opacity }` (or a second value beside the colour); a list row likewise | A new manifest field and a change to a stored format: a server half in `server/modules.js` and the forms, more for the independent read, and both fall under the freeze, so they must also land by 2026-12-10 (decision 10) | Nothing |
+
+Why O2: it keeps the slider always shown, tells the person plainly where opacity does not stick, and changes no stored format before the freeze. O3 can follow for a setting that needs a transparent colour, after the release if need be. No module setting asks for one today.
 
 ## The default palette (proposed)
 
@@ -132,11 +148,11 @@ Decision 4 asks for a core default; decision 5 frees it from today's 16. This is
 - **Where the values come from.** The Light and Dark groups take the Whiteboard's fixed colours as they are today (`whiteboard.css`), which Thomas has already seen, plus Light purple and Brown so each group fills a row. Strong takes the light values of the eight tints (design-theme, "Tints") where they pass, and lightens Blue, Purple and Pink slightly so they also pass 3:1 on the dark ground. Not tried in a browser.
 - **Theme tokens where possible.** The colours inside the palette can't be theme tokens: a picked colour is data and must look the same in every theme and mode (decision 7; `colour-pick.js`'s own rule). Everything around them is tokens: the popover, the headings, the edges, the check disc, the focus ring. The eight theme tints, which change with the mode, are not in the palette.
 - **Swatches on both themes.** A pale swatch on a light menu, or a dark one on a dark menu, has less than 3:1 against the surface (White on white is 1:1). Every swatch whose colour has less than 3:1 against the menu's surface gets a stronger edge, worked out when it is drawn with the contrast helper (see "What a person sees"). So all 24 can be seen in either mode.
-- **Where it lives.** One list in the SDK, with each colour's name. Whether a module can read it (so its own menus can offer the same colours) belongs with the call's shape (open question 3); suggested: yes, read only.
+- **Where it lives.** One list in the SDK, with each colour's name. Whether a module can read it (so its own menus can offer the same colours) is part of open question 1; suggested: yes, read only, as `host.ui.colorPalette()` (a suggested name), answering the groups as the picker shows them.
 
 ## The contract
 
-Drafted on decisions 1 to 7, the planner's reading A1, and the suggestions for open questions 2 and 3 (opacity on request; two calls). A different answer to an open question changes only the part that names it.
+Drafted on decisions 1 to 10, the planner's reading A1 (open question 3), and the suggestion for open question 2 (option O2: the slider switched off where the opacity is not kept). A different answer to an open question changes only the part that names it.
 
 ### The SDK calls (experience-design; core)
 
@@ -146,12 +162,12 @@ host.ui.colorPicker({
   anchor,      // an element of the module's own page to open under; or
   at,          // { x, y } in the module's area, as host.menu.show takes it
   value,       // '#rrggbb' to start from (anything else starts from the palette's first colour)
-  opacity,     // true to show the Opacity slider, or a number 0 to 100 to start it at (open question 2)
+  opacity,     // 0 to 100 to start the slider at (default 100); false where the opacity is not kept (option O2, open question 2)
   palette,     // [{ heading, colours: [{ name, color }] }] in place of the default (decision 4)
   recent,      // false to leave out the recent colours (default: shown)
   label,       // what the dialog is called for a screen reader ("Fill colour"); default "Colour"
   onInput,     // (answer) => {} on each change while it is open, to show it live; never stored by the SDK
-}) // -> Promise<{ color: '#rrggbb', opacity?: 0..100 } | null>
+}) // -> Promise<{ color: '#rrggbb', opacity: 0..100 } | null>
 
 host.ui.colorField(input, { palette, opacity, recent, label, onChange })
 // -> { value, set(hex), open(), close(), destroy() }
@@ -162,11 +178,11 @@ host.ui.colorField(input, { palette, opacity, recent, label, onChange })
   - **In context:** at a control in the module's page with `anchor` (a swatch in the Whiteboard's strip, a row's colour), under it and flipped above when it does not fit below; or where the person clicked with `at` (the click's point in the module's area, as a right-click menu is placed today). From a menu row (the Whiteboard's "Custom colour"), at the point the menu was opened.
   - **From a title-bar action:** at the top of the content, at the button's `x`, as menus do today. The host's button rectangle (#480 point 3) is not part of this plan.
   - In every case it is clamped inside the module's box.
-- **The answer.** `color` is always exactly `#` and six lower-case hex digits (decision 7). `opacity` is a whole number from 0 to 100, there when the slider was shown (decision 2). `null` means nothing changed: Escape, or the same call again while it is open (a toggle, as `host.menu.show` does). There is no `id`: a colour from a module's own palette answers its `color` like any other (decision 5).
-- **When it answers.** A swatch or a recent colour answers and closes. Dragging in the area or on a slider, typing a hex or using the eyedropper sends `onInput` and leaves it open; Enter in the hex field, or a press outside the picker, answers with what is showing and closes. Escape answers `null`, and the module puts back what it showed before. Suggested; open question 8.
+- **The answer.** `color` is always exactly `#` and six lower-case hex digits (decision 7). `opacity` is always there, a whole number from 0 to 100 (decisions 2 and 8); with `opacity: false` it is always 100. `null` means nothing changed: Escape, or the same call again while it is open (a toggle, as `host.menu.show` does). There is no `id`: a colour from a module's own palette answers its `color` like any other (decision 5).
+- **When it answers.** A swatch or a recent colour answers and closes. Dragging in the area or on a slider, typing a hex or using the eyedropper sends `onInput` and leaves it open; Enter in the hex field, or a press outside the picker, answers with what is showing and closes. Escape answers `null`, and the module puts back what it showed before. Suggested; open question 6.
 - **Refused, thrown at once** (as `kindPicker` and `timeField` do): no `anchor` and no `at` ("host.ui.colorPicker needs an anchor or a point"); a `palette` that is not groups of `{ name, color }` with a plain-text name and a `#rrggbb` colour, at most 6 groups and 48 colours ("host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour"). A `value` that is not `#rrggbb` is not refused; it is ignored.
 - **One at a time.** Opening one closes any menu or picker the module has open, as `host.menu.show` does.
-- **`colorField`.** A trigger (a swatch, the hex in words, a chevron; `.sdk-picker`) on an `<input type="color">` or `<input type="text">` the module or page has. The input stays, hidden, and holds the value; a choice sets it and sends `input` and `change`. With opacity, `onChange({ color, opacity })` gives both. It follows a disabled input. It never shows the browser's own colour input (decision 6).
+- **`colorField`.** A trigger (a swatch, the hex in words, a chevron; `.sdk-picker`) on an `<input type="color">` or `<input type="text">` the module or page has. The input stays, hidden, and holds the colour; a choice sets it and sends `input` and `change`. `onChange({ color, opacity })` gives both; the input never holds the opacity. A field whose value keeps the colour only passes `opacity: false` (option O2, open question 2). It follows a disabled input. It never shows the browser's own colour input (decision 6).
 - **What it costs a module.** Nothing to declare: no permission, no manifest key, no route, and nothing stored by the host. It is an interface piece like `datePicker`. The recent colours are kept in this browser for this module, the way the kind picker's `recent` is (the builder reads how that works in a sandboxed frame and does the same). A module that starts using it bumps its own version.
 
 ### The contrast helper (experience-design; core; decision 3)
@@ -177,11 +193,11 @@ host.ui.colorField(input, { palette, opacity, recent, label, onChange })
 
 ### What a person sees (experience-design)
 
-The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk-popover-dense .sdk-picker-pop`), on `--surface-menu` with the theme's edge and radius. Suggested words, all Thomas's to change (open question 9):
+The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk-popover-dense .sdk-picker-pop`), on `--surface-menu` with the theme's edge and radius. Suggested words, all Thomas's to change (open question 7):
 
 1. **The area**: a square of the current hue, white to the left, black at the bottom; a round handle shows the colour. Drag or tap to choose.
 2. **Hue**: a slider across the colours.
-3. **Opacity** (decision 2; shown as open question 2 settles): a slider from clear to solid, over a checked ground so clear is visible.
+3. **Opacity** (decisions 2 and 8: always shown): a slider from clear to solid, over a checked ground so clear is visible. Where the opacity is not kept (`opacity: false`), it is drawn at 100 percent and switched off, with one line under it, "Opacity isn't kept here." (option O2, open question 2).
 4. **A row**: a swatch of the chosen colour (half over a checked ground when opacity is below 100), the **Hex** field (`#2f6cbf`; it takes `2f6cbf` or `#2F6CBF` and shows it lower case), and **Pick from the screen** (the eyedropper button), shown only where the browser has it and it works here.
 5. **The palette**: the default's three groups (Light, Dark, Strong), each a row of 8 under its heading, or the module's own groups.
 6. **Recent**: the last 8 colours chosen with this picker in this browser, newest first; not shown when empty.
@@ -195,7 +211,7 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 - The trigger (`colorField`) is a button with `aria-haspopup="dialog"` and `aria-expanded`, named "<label>, <colour name if any>, <hex>. Change it".
 - The popover is `role="dialog"` named by `label`. Focus goes to the chosen swatch, else the hex field. Tab moves: the area, Hue, Opacity, the hex field, Pick from the screen, the palette (one Tab stop, arrows inside), Recent (one Tab stop). Escape closes and puts focus back on what opened it (the anchor, or the module's toolbar button through the host, as menus do).
 - **The area** is one focusable element, `role="slider"`, named "Saturation and brightness", with `aria-valuetext` such as "Saturation 40 percent, brightness 70 percent". Left and Right change saturation, Up and Down brightness, by 1; with Shift by 10; Home and End go to the ends of saturation.
-- **Hue** and **Opacity** are `role="slider"` (`aria-valuetext` "Hue 210 degrees", "Opacity 80 percent"), arrows by 1, Shift by 10, Page Up and Page Down by 10, Home and End to the ends.
+- **Hue** and **Opacity** are `role="slider"` (`aria-valuetext` "Hue 210 degrees", "Opacity 80 percent"), arrows by 1, Shift by 10, Page Up and Page Down by 10, Home and End to the ends. A switched-off Opacity slider is `aria-disabled` and is described by its line ("Opacity isn't kept here."); it stays in the Tab order so a screen reader finds it and hears why.
 - **Hex** is a text field labelled "Hex". On Enter or leaving it, a good value is taken; a bad one gets `aria-invalid` and one line under it, "Type six hex digits, like #2f6cbf", and the colour does not change.
 - **Swatches** are a radio group: each is a radio named by its colour's name; a recent colour with no name is named by its hex.
 - A live region says the chosen colour once it settles (not on every drag step): "Teal, #00796b" or "#2f6cbf".
@@ -205,7 +221,7 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 
 - Swatch cells are 44 px (`--pk-sw-cell` already is). The sliders and their handles, the hex field and the eyedropper button are 44 px tall, and the hex field is 16 px text so the phone does not zoom (`check-phone-targets`).
 - 8 cells of 44 px are 352 px, which fits a 390 px screen with the popover's 8 px around it. The area takes the popover's width and about 160 px of height.
-- In a module, the picker is clamped to the module's box as menus are. Where that box is too short for the whole picker, the popover scrolls inside itself (the Menus family's scroll cue). Suggested; open question 10 asks whether a phone should get a bottom sheet instead.
+- In a module, the picker is clamped to the module's box as menus are. Where that box is too short for the whole picker, the popover scrolls inside itself (the Menus family's scroll cue). Suggested; open question 8 asks whether a phone should get a bottom sheet instead.
 - The area and the sliders take touch dragging without scrolling the page (`touch-action: none` on them only).
 
 ### The host's own pages (experience-design; core)
@@ -214,19 +230,20 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 - `list-rows.js`'s own colours for new rows (`ROW_COLORS`) are replaced by the default palette's colours, in order (decision 5).
 - `host.html` and `profile.html` load `/sdk/host.js`.
 - `tools/check-template-pages-b.mjs` stubs the old `colour-pick.js` import; it changes with the new call.
-- Colours already stored by the host's pages (a `color` setting, a list row's colour) are `#rrggbb` and stay valid. Nothing is converted; test data may be reset.
-- The theme editor's colour fields are not changed in this plan (open question 7).
+- A `color` setting and a list row's colour keep `#rrggbb` only, so their fields pass `opacity: false` (option O2, open question 2). If Thomas takes O3 instead, step 3 gains a server half (a manifest field and a stored opacity, `server/modules.js`, built by server-development), which also lands by 2026-12-10 (decision 10).
+- Colours already stored by the host's pages are `#rrggbb` and stay valid. Nothing is converted; test data may be reset.
+- The theme editor's colour fields are not changed in this plan (open question 5).
 
 ### The design-system Pickers page (experience-design)
 
-- The `pickers` entry in `public/design-system/components.js` draws the new popover in place of the native Custom row: the area, Hue, Opacity, the hex row, the three palette groups and Recent, with its states (focus on the area, a bad hex, a pale swatch with its stronger edge, the eyedropper hidden). Its description names `host.ui.colorPicker` (and `host.ui.colorField`, if open question 3 keeps it).
+- The `pickers` entry in `public/design-system/components.js` draws the new popover in place of the native Custom row: the area, Hue, Opacity, the hex row, the three palette groups and Recent, with its states (focus on the area, a bad hex, a pale swatch with its stronger edge, the eyedropper hidden). It shows the Opacity slider switched off with its line as one more state. Its description names `host.ui.colorPicker` and `host.ui.colorField` (decision 9).
 - A live one under Live SDK pieces (`components-3.js`), opened from a trigger, as the date and kind pickers are there.
 - `tools/check-design-system-catalog.mjs` holds every class the entry draws to a real rule.
 
 ### The stored format
 
-- A module stores what the answer gives: `color` as `#rrggbb`, lower case, and, if it uses it, `opacity` apart, as a whole number from 0 to 100. It checks them again before storing or drawing (decision 7).
-- The host stores nothing new. A `color` setting stays `#rrggbb` as `server/modules.js` checks it now. No stored format, route or key changes.
+- A module stores what the answer gives: `color` as `#rrggbb`, lower case, and, if it keeps it, `opacity` apart, as a whole number from 0 to 100. It checks them again before storing or drawing (decision 7). A module that keeps the colour only passes `opacity: false`.
+- The host stores nothing new. A `color` setting stays `#rrggbb` as `server/modules.js` checks it now. No stored format, route or key changes, unless Thomas takes O3 (open question 2).
 
 ## Not in version 1
 
@@ -236,7 +253,8 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 - Recent colours kept on the server or shared between devices or people.
 - A contrast warning inside the picker (decision 3).
 - The host's button rectangle for a toolbar or title-bar button (#480 point 3; decision 1), and swatches on toolbar buttons (#480 point 1).
-- The theme editor's colour fields (open question 7).
+- The theme editor's colour fields (open question 5).
+- An opacity kept by a `color` setting or a list row, unless Thomas takes O3 (open question 2).
 - An outlined-swatch option for `host.menu.show` rows (#544 lists it as a core menu option for later).
 
 ## Left to build, in order
@@ -246,61 +264,76 @@ Each step is one build, leaves the app working and can be checked on its own. Si
 | Step | Job | Agent | Files | Size | Risk |
 |---|---|---|---|---|---|
 | 1 | **The pure parts.** In `host.js`, between markers: cleaning a hex, hex to hue, saturation and brightness and back, the default palette as one named list (as open question 1 settles it), the palette check, the answer's shape, and the contrast helper (decision 3). The check runs them in node, holds the contrast maths equal to `pickOn()` in `theme-colour.js`, and holds the palette to its contrast figures | experience-design; the check by server-development | `public/sdk/host.js`, `tools/check-colour-picker.mjs` | S | Low. Core: independent read |
-| 2 | **The picker in the SDK.** `host.ui.colorPicker` (and `host.ui.colorField`, as open question 3 settles it): the popover (area, Hue, Opacity, hex row, eyedropper where it works, palette groups, Recent), placing by `anchor` or `at` (decision 1), the keys, the names and the live region, the phone sizes, and the styles in the Pickers block. The check's browser half | experience-design; the check by server-development | `public/sdk/host.js`, `public/sdk/system.css`, `tools/check-colour-picker.mjs` | L | Medium. Core: independent read |
-| 3 | **The host's pages use it.** `colour-pick.js` is removed; `module-settings.js`, `list-rows.js` and `template-pages.js` use the SDK's field; `list-rows.js`'s own colours go; `host.html` and `profile.html` load the SDK; the checks that stub or name `colour-pick.js` (`check-template-pages-b`, the comment in `check-system-css`) change with it | experience-design; the checks by server-development | `public/colour-pick.js` (removed), `public/module-settings.js`, `public/list-rows.js`, `public/template-pages.js`, `public/host.html`, `public/profile.html`, `tools/check-template-pages-b.mjs`, `tools/check-system-css.mjs` | M | Medium. Core: independent read |
+| 2 | **The picker in the SDK.** `host.ui.colorPicker` and `host.ui.colorField` (decision 9): the popover (area, Hue, the Opacity slider always shown and switched off by `opacity: false` (decision 8; option O2 as open question 2 settles it), hex row, eyedropper where it works, palette groups, Recent), placing by `anchor` or `at` (decision 1), the keys, the names and the live region, the phone sizes, and the styles in the Pickers block. The check's browser half | experience-design; the check by server-development | `public/sdk/host.js`, `public/sdk/system.css`, `tools/check-colour-picker.mjs` | L | Medium. Core: independent read |
+| 3 | **The host's pages use it.** `colour-pick.js` is removed; `module-settings.js`, `list-rows.js` and `template-pages.js` use the SDK's field, with `opacity: false` where only `#rrggbb` is kept (or, with O3, a server half that keeps the opacity); `list-rows.js`'s own colours go; `host.html` and `profile.html` load the SDK; the checks that stub or name `colour-pick.js` (`check-template-pages-b`, the comment in `check-system-css`) change with it | experience-design; the checks by server-development | `public/colour-pick.js` (removed), `public/module-settings.js`, `public/list-rows.js`, `public/template-pages.js`, `public/host.html`, `public/profile.html`, `tools/check-template-pages-b.mjs`, `tools/check-system-css.mjs` | M | Medium. Core: independent read |
 | 4 | **The design-system Pickers page.** The entry and its states, and the live piece | experience-design | `public/design-system/components.js`, `public/design-system/components-3.js` | S | Low |
-| 5 | **The documents.** api-module-sdk ("Shared tools": the call or calls and the helper), design-theme (a section "The colour picker" with the default palette), the user guides where a colour is chosen, `known-issues.md` (the eyedropper where it is hidden), and the CHANGELOG | content-manager | `documentation/`, `CHANGELOG.md` | S | Low |
+| 5 | **The documents.** api-module-sdk ("Shared tools": the two calls and the helper), design-theme (a section "The colour picker" with the default palette), the user guides where a colour is chosen, `known-issues.md` (the eyedropper where it is hidden), and the CHANGELOG | content-manager | `documentation/`, `CHANGELOG.md` | S | Low |
 
 Order: 1, then 2, then 3 and 4 side by side; 5 with each step and a summary at the end.
 
-**What changed from the first draft.** The first draft's step 5 (the host button's rectangle) is gone (decision 1). Step 3 now removes `colour-pick.js` and `list-rows.js`'s own colours instead of keeping their exports, so it is M, not S to M, and touches two more checks (decision 5). Step 1 carries the new default palette and its contrast figures. Nothing carries an `id` through the answer.
+**What changed from the first draft.** The first draft's step 5 (the host button's rectangle) is gone (decision 1). Step 3 now removes `colour-pick.js` and `list-rows.js`'s own colours instead of keeping their exports, so it is M, not S to M, and touches two more checks (decision 5). Step 1 carries the new default palette and its contrast figures. Nothing carries an `id` through the answer. After decisions 8 to 10: step 2 builds both calls and the always-shown slider with its switched-off state; step 3 passes `opacity: false` on the host's colour-only fields, or gains a server half if Thomas takes O3; and the steps have latest start dates (below), not a condition.
 
 **The Whiteboard (#544) is a module-lane follow-up after step 2 is merged,** with its own version bump, not part of this build. With decision 5 it may drop its fixed colour ids, its `--wb-fixed-*` properties and the raw-colour allowance they need, store `#rrggbb` (and an opacity for fills) from the picker, open the picker from its toolbar and in context (decision 1), use `host.util.readableOn` for words on a fill (decision 3), and reset its test boards. Whether it keeps a theme-following Tinted group in its own menus is #544's question, not this plan's.
 
 **Agents and the kind of build.** Thomas names the kind of build. This plan assumes a production build: each step gets its independent read (steps 1, 2 and 3 are core), a QA pass and its documentation before it is committed (`CLAUDE.md`). quality-assurance reads and tries each step without changing code.
 
-**The freeze.** A new SDK call is one of the things the freeze stops (plan-release, "The freeze"). The freeze starts in the window 2026-12-11 to 2026-12-18 (plan-templates-redesign, "The earliest freeze"). So steps 1 to 4 must be merged, with their reads, QA and documentation, before the freeze starts, which to be safe means by Thursday 2026-12-10. Otherwise the picker waits until after the release is tagged, and #544 with it. Plan-release lists #544 as not gating and its colours as out of the first release, so waiting is allowed by today's plans; open question 4 asks Thomas which he wants. Steps 1 to 4 are about two to three days of building plus a day for reads and QA, and they compete for the same builders as plan-templates-redesign and plan-layout-picker, which must also land before the same freeze.
+**The freeze (decision 10).** A new SDK call is one of the things the freeze stops (plan-release, "The freeze"), and the freeze starts in the window 2026-12-11 to 2026-12-18 (plan-templates-redesign, "The earliest freeze"). Thomas decided the picker lands before it, whatever else slips: steps 1 to 4 are merged, with their reads, QA and documentation, by the end of Thursday 2026-12-10. Where the same builders are needed for plan-templates-redesign or plan-layout-picker, which must also land before the freeze, those move, not this. The latest start for each step, counting back from 2026-12-10 along the order above (calendar days, weekends counted as working days, since the builders are agents, as in plan-layout-picker):
+
+| Step | Latest start | Build | Read, QA and documentation | Merged by | Waits for |
+|---|---|---|---|---|---|
+| 1 | Wednesday 2026-12-02 | 12-02 | 12-03 (independent read) | 12-03 | Open question 1 (see below) |
+| 2 | Friday 2026-12-04 | 12-04 to 12-05 | 12-06 to 12-07 (independent read) | 12-07 | Step 1; open question 2 |
+| 3 | Tuesday 2026-12-08 | 12-08 | 12-09 to 12-10 (independent read) | 12-10 | Step 2 |
+| 4 | Wednesday 2026-12-09 | 12-09 | 12-10 | 12-10 | Step 2 |
+| 5 | With each step | | | 12-10 for the summary pass | Each step |
+
+What that means for the schedule:
+
+- From today (2026-11-19) there are about 13 days before step 1's latest start. After the latest starts there is no slack: the critical path is step 1, then step 2, then step 3, and a slip in step 2 (the L step) moves step 3 day for day toward the freeze.
+- If no work happens on weekends, steps 1 and 2 start two days earlier: Monday 2026-11-30 and Wednesday 2026-12-02.
+- If Thomas takes O3 (open question 2), step 3 gains a server half of about a day, so step 3 starts Monday 2026-12-07, step 2 must be merged by 2026-12-06 (latest start Thursday 2026-12-03), and step 1 starts Tuesday 2026-12-01.
+- Open question 1 (the palette) need not hold up step 1: if it is not answered by step 1's latest start, step 1 builds with the proposed palette, and Thomas's changes are an edit to one list and its figures in the check before step 2 is merged.
+- The planner's suggestion: have the project manager start step 1 as soon as builders are free rather than at its latest start, and report to Thomas at once on any step that has not started by its date.
 
 **The full check.** `npm run check` (every check) runs once, at release prep, by the project manager. Each step runs only its own checks and their direct neighbours.
 
 ## Verify
 
 - **Step 1, checked by a tool** (`tools/check-colour-picker.mjs`, node half). A hex is cleaned (`#2F6CBF`, `2f6cbf` and ` #2f6cbf ` become `#2f6cbf`; `#2f6cb`, `#2f6cbfff`, `red` and `url(x)` are refused). Every palette colour, black, white and a grid of colours round-trip through hue, saturation and brightness and back to the same hex. The palette check takes a good palette and refuses each bad shape with its sentence. `host.util.contrast` and `readableOn` agree with `pickOn()` in `theme-colour.js` on every palette colour. The default palette holds its figures: dark words on each Light colour and light words on each Dark colour at 4.5:1 or more; white words on each Strong colour at 4.5:1 or more, and each Strong colour at 3:1 or more against white and against `#0e1a2b`.
-- **Step 2, checked by a tool** (the check's browser half, in headless Chromium; skipped and said so when there is none). Light and dark, at 1280 and at a 390 touch screen: the popover opens under an anchor, at a point, and at `{ x, y: 4 }` from a toolbar button's event, always inside the module's box; keyboard only, every control is reached in the order above and changes the colour by the keys listed; a typed hex is taken and a bad one is marked with its line; Escape answers `null` and puts focus back; a swatch answers and closes; `onInput` fires while dragging and the answer comes once; the opacity slider shows as open question 2 settles and the answer carries the percent; a module palette is drawn in place of the default and answers its colour; at 390 px every target is 44 px; the picker's own words reach 4.5:1 on its surface; White on a light menu and Black on a dark one have the stronger edge; the accessibility tree names the dialog, the area, the sliders, the field and each radio. `check-system-css`, `check-no-raw-colours`, `check-radius`, `check-nav` (selected states) and `check-phone-targets` pass. **Live, by the builder:** a bundled module in the page and an uploaded module in a sandboxed frame, each opening the picker from a toolbar button and from a click in its page, in Chromium, with the eyedropper tried in both.
-- **Step 3, checked by a tool:** `check-template-pages-b`, `check-admin-load` and the module settings' check open the pages with a colour field and no page error; no file in `public/` draws `<input type="color">` for a person to use except the theme editor's, and `colour-pick.js` is gone. **Live in Chromium:** a module setting of type `color` in Manage, a list row's colour (and a new row's first colour from the default palette), a colour field in the host console's template editor and one on Profile each open the new picker, save, and show the saved colour after a reload.
+- **Step 2, checked by a tool** (the check's browser half, in headless Chromium; skipped and said so when there is none). Light and dark, at 1280 and at a 390 touch screen: the popover opens under an anchor, at a point, and at `{ x, y: 4 }` from a toolbar button's event, always inside the module's box; keyboard only, every control is reached in the order above and changes the colour by the keys listed; a typed hex is taken and a bad one is marked with its line; Escape answers `null` and puts focus back; a swatch answers and closes; `onInput` fires while dragging and the answer comes once; the opacity slider is always shown, the answer always carries the percent, and with `opacity: false` the slider is at 100, switched off, with its line, and the answer's opacity is 100; `colorField` and `colorPicker` both work in a form and from a toolbar button; a module palette is drawn in place of the default and answers its colour; at 390 px every target is 44 px; the picker's own words reach 4.5:1 on its surface; White on a light menu and Black on a dark one have the stronger edge; the accessibility tree names the dialog, the area, the sliders, the field and each radio. `check-system-css`, `check-no-raw-colours`, `check-radius`, `check-nav` (selected states) and `check-phone-targets` pass. **Live, by the builder:** a bundled module in the page and an uploaded module in a sandboxed frame, each opening the picker from a toolbar button and from a click in its page, in Chromium, with the eyedropper tried in both.
+- **Step 3, checked by a tool:** `check-template-pages-b`, `check-admin-load` and the module settings' check open the pages with a colour field and no page error; no file in `public/` draws `<input type="color">` for a person to use except the theme editor's, and `colour-pick.js` is gone. **Live in Chromium:** a module setting of type `color` in Manage, a list row's colour (and a new row's first colour from the default palette), a colour field in the host console's template editor and one on Profile each open the new picker with the Opacity slider shown and switched off (or, with O3, kept), save, and show the saved colour after a reload.
 - **Step 4, checked by a tool:** `check-design-system-catalog` and `check-design-system`. **Live:** the Pickers entry shows the popover and its states in light and dark.
 - **Not checked by any step:** a real screen reader (only the accessibility tree is read), a real phone, Safari and Firefox (where there is no eyedropper: it must be hidden there; to be tried by a person), the eyedropper in a sandboxed frame outside Chromium, and the palette's look on a theme other than the default. A real LiveKit call is not involved: nothing here touches the call.
 - **Always:** `npm run check:docs` for the documents.
 
 ## Risks, ranked
 
-1. **The freeze.** A new SDK call after the freeze starts waits for the release tag, and #544 waits with it. Steps 1 to 4 share builders with two other plans that must land first. Mitigation: open question 4 settles it now; if Thomas wants it before the freeze, the project manager starts step 1 at once and reports a missed step.
-2. **The eyedropper in a sandboxed frame.** The browser's EyeDropper exists in Chromium only, and whether it works inside a sandboxed frame with an opaque origin has not been checked here. Mitigation: feature-detect by trying it, hide the button where it fails, and say so in `known-issues.md`. Open question 6 asks whether it is in version 1 at all.
-3. **A narrow module.** The picker is clamped to the module's box (A1, the reading of decision 1). A docked module narrower than about 260 px, or a short one, can't show it whole. Mitigation: the popover scrolls inside itself; the lift or drawing over the page (A2) is the larger fix, not in this plan.
-4. **The raw-colour check.** The hue slider is a run of colours. Written as a gradient of hex stops in a stylesheet or a style string, it is a raw colour (`check-no-raw-colours`). The default palette in `host.js` is plain data and is not read. Mitigation: draw the hue from data (a custom property set from a list, as `--sw` is, or a `<canvas>`), and if a stylesheet still needs it, an explicit allow entry with its reason, which Thomas decides.
-5. **The palette on other themes.** The contrast figures are worked out against white and the default dark ground. A theme with a mid-tone surface can make some swatches faint. Mitigation: the stronger edge is worked out against the real surface when drawn; words a module puts on a fill use `readableOn`, which does not depend on the theme.
-6. **Two copies of the contrast maths.** `theme-colour.js` and the SDK's helper could drift. Mitigation: step 1's check holds them equal.
-7. **Removing a page piece everyone uses.** `colour-pick.js` reaches Manage, the host console, Profile and a space's settings, and two checks name it. Mitigation: step 3 changes its three users and the checks in one step, and its live checks open each page.
-8. **Undo and saves while dragging.** A module that saves on every `onInput` floods its saves and its undo history. Mitigation: the SDK document says `onInput` is for showing only, and the answer is the one change to save.
+1. **The freeze, with no fallback (decision 10).** Steps 1 to 4 must be merged by 2026-12-10, and the latest starts leave no slack on the critical path (steps 1, 2 and 3). The same builders are building plan-templates-redesign and plan-layout-picker for the same freeze. Mitigation: Thomas has put this first, so other work moves; start step 1 early; the project manager reports a missed start to Thomas at once. O3 (open question 2) would add a server half and a stored format change to the same window.
+2. **A slider that does nothing.** With the slider always shown (decision 8), a field that keeps the colour only would offer a control whose value is thrown away, which plan-release's "done" contract forbids. Mitigation: option O2 (switched off, with a line saying why), or O3 (keep it); open question 2.
+3. **The eyedropper in a sandboxed frame.** The browser's EyeDropper exists in Chromium only, and whether it works inside a sandboxed frame with an opaque origin has not been checked here. Mitigation: feature-detect by trying it, hide the button where it fails, and say so in `known-issues.md`. Open question 4 asks whether it is in version 1 at all.
+4. **A narrow module.** The picker is clamped to the module's box (A1, the reading of decision 1; open question 3). A docked module narrower than about 260 px, or a short one, can't show it whole, and the slider always shown (decision 8) makes the picker one row taller. Mitigation: the popover scrolls inside itself; the lift or drawing over the page (A2) is the larger fix, not in this plan.
+5. **The raw-colour check.** The hue slider is a run of colours. Written as a gradient of hex stops in a stylesheet or a style string, it is a raw colour (`check-no-raw-colours`). The default palette in `host.js` is plain data and is not read. Mitigation: draw the hue from data (a custom property set from a list, as `--sw` is, or a `<canvas>`), and if a stylesheet still needs it, an explicit allow entry with its reason, which Thomas decides.
+6. **The palette on other themes.** The contrast figures are worked out against white and the default dark ground. A theme with a mid-tone surface can make some swatches faint. Mitigation: the stronger edge is worked out against the real surface when drawn; words a module puts on a fill use `readableOn`, which does not depend on the theme.
+7. **Two copies of the contrast maths.** `theme-colour.js` and the SDK's helper could drift. Mitigation: step 1's check holds them equal.
+8. **Removing a page piece everyone uses.** `colour-pick.js` reaches Manage, the host console, Profile and a space's settings, and two checks name it. Mitigation: step 3 changes its three users and the checks in one step, and its live checks open each page.
+9. **Undo and saves while dragging.** A module that saves on every `onInput` floods its saves and its undo history. Mitigation: the SDK document says `onInput` is for showing only, and the answer is the one change to save.
 
 ## Rollback
 
-There is no setting. Each step is its own commit. Reverting step 3 brings back `colour-pick.js` with its native Custom row, against decisions 5 and 6, so only as a stopgap Thomas allows. Reverting step 2 removes the SDK call; any module that has started using it must be reverted first. Nothing stored by the host changes. A revert after the freeze starts is a change in the freeze, which only Thomas allows.
+There is no setting. Each step is its own commit. Reverting step 3 brings back `colour-pick.js` with its native Custom row, against decisions 5 and 6, so only as a stopgap Thomas allows. Reverting step 2 removes the two SDK calls; any module that has started using it must be reverted first. Nothing stored by the host changes. A revert after the freeze starts is a change in the freeze, which only Thomas allows.
 
 ## Open questions for Thomas
 
-Each has the planner's suggestion. The first draft's questions on anchoring, opacity, a contrast helper and the palette are answered (decisions 1 to 4), and decision 5 adds question 1.
+Each has the planner's suggestion. The first draft's questions on anchoring, opacity, a contrast helper and the palette are answered (decisions 1 to 4); the second draft's questions on the opacity slider, the call's shape and the freeze are answered (decisions 8 to 10). Decision 5 added question 1, and decision 8 added question 2.
 
-1. **The new default palette.** Proposed under "The default palette (proposed)": three named groups of 8, Light, Dark and Strong, 24 colours, with the contrast each reaches. Confirm the groups, the names and the values, or change them. **Blocks step 1's palette.**
-2. **The opacity slider: always shown, or only when a module asks?** Suggested: only when asked (`opacity: true`). A `color` setting and a list row's colour store `#rrggbb` only, so a slider there would set something that is thrown away; a module that stores an opacity (the Whiteboard's fills) asks for it. **Blocks step 2.**
-3. **The SDK call's shape.** Suggested: two calls, `host.ui.colorPicker(options)` that opens and resolves the answer, and `host.ui.colorField(input, options)` for a form, which the host's pages also use (S3). If one name only: `host.ui.colorPicker(options)` (S2). Within this: whether a module can read the default palette (suggested: yes, read only). **Blocks step 2.**
-4. **Before the freeze, or after the release?** A new SDK call is frozen once the freeze starts (2026-12-11 to 2026-12-18), and plan-release lists #544 as after the first release. Suggested: before the freeze only if the other open plans are on time by 2026-12-01; else after the release. **Blocks starting step 1.**
-5. **Drawn in the module's page (A1).** The planner's reading of decision 1, which the contract is drafted on. Confirm, or say if the picker should be drawn over the page. Does not block unless changed.
-6. **The eyedropper in version 1?** Suggested: yes, shown only where it works, hidden elsewhere and named in `known-issues.md`. Does not block.
-7. **The theme editor's colour fields.** They are native inputs today. Decision 5 may already cover them ("all previous pickers"). Suggested: leave them out of this plan, since a theme's colours are design, not data, and the theme editor has its own contrast panel; give them the picker in a later step if Thomas wants it. Does not block.
-8. **What ends a pick.** Suggested: a swatch, Enter in the hex field, or a press outside the picker keeps the colour; Escape puts back the colour it opened with. Does not block step 1.
-9. **The words a person reads.** "Hue", "Opacity", "Hex", "Pick from the screen", "Recent", the group names "Light", "Dark", "Strong", "Saturation and brightness" (for a screen reader), and the hex line "Type six hex digits, like #2f6cbf". Suggested as written. Does not block.
-10. **The phone: popover or bottom sheet?** Suggested: the popover, as the approved Pickers family says for a grid, scrolling inside itself in a short module. Does not block step 1.
+1. **The new default palette.** Proposed under "The default palette (proposed)": three named groups of 8, Light, Dark and Strong, 24 colours, with the contrast each reaches. Confirm the groups, the names and the values, or change them. Within this: whether a module can read the default palette (suggested: yes, read only). **Blocks step 1's palette**, but step 1 can be built with the proposal and changed before step 2 is merged (see "The freeze").
+2. **A colour stored without its opacity.** The slider is always shown (decision 8), but a `color` setting and a list row's colour keep `#rrggbb` only, so as drafted their opacity would be thrown away. The options are under "O. A colour stored without its opacity": O1, shown and ignored; O2, shown at 100 and switched off with the line "Opacity isn't kept here."; O3, the setting declares and keeps an opacity (a new manifest field and stored format, before the freeze). Suggested: O2 now, O3 later if a setting needs it. **Blocks step 2's switched-off state and step 3.**
+3. **Drawn in the module's page (A1).** The planner's reading of decision 1, which the contract is drafted on. Confirm, or say if the picker should be drawn over the page. Does not block unless changed.
+4. **The eyedropper in version 1?** Suggested: yes, shown only where it works, hidden elsewhere and named in `known-issues.md`. Does not block.
+5. **The theme editor's colour fields.** They are native inputs today. Decision 5 may already cover them ("all previous pickers"). Suggested: leave them out of this plan, since a theme's colours are design, not data, and the theme editor has its own contrast panel; give them the picker in a later step if Thomas wants it. Does not block.
+6. **What ends a pick.** Suggested: a swatch, Enter in the hex field, or a press outside the picker keeps the colour; Escape puts back the colour it opened with. Does not block step 1.
+7. **The words a person reads.** "Hue", "Opacity", "Opacity isn't kept here.", "Hex", "Pick from the screen", "Recent", the group names "Light", "Dark", "Strong", "Saturation and brightness" (for a screen reader), and the hex line "Type six hex digits, like #2f6cbf". Suggested as written. Does not block.
+8. **The phone: popover or bottom sheet?** Suggested: the popover, as the approved Pickers family says for a grid, scrolling inside itself in a short module. Does not block step 1.
 
 ## What the issues say that this plan could not confirm
 
