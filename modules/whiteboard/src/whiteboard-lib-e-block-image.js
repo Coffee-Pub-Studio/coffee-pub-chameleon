@@ -8,6 +8,9 @@
   // cropped part stays where it was); Reset picture (the block's menu) brings the rest back.
   // cut [{ x, y, w, h }] are the holes Cut (the Picture tool's Select area) leaves: boxes of the whole picture, drawn see-through. Like
   // a crop or a blur they hide and never remove: the file still has those pixels, and Reset picture brings them back.
+  // holes [{ x, y, w, h }] are holes that are already in the picture's pixels (a Flatten baked them in): the same kind of box as cut, of the whole
+  // picture, but nothing is masked (those pixels are see-through already). They are kept so the border and the shadow still follow the edge of
+  // the hole, as they did before it was baked. Reset picture leaves them (there is nothing to bring back).
   // radius (board units, 0 for square corners; 999 rounds it all the way) and shadow ('none', 'contact': a tight shadow under the
   // bottom edge only, like the picture resting on the board, or 'soft', shown as Drop shadow: the all-round one) are how the picture is drawn.
   // A corner changes its size and always keeps its shape. Double-click (or Enter) to describe it. Copies share the upload,
@@ -46,12 +49,13 @@
     // on any side it reaches).
     function outlineOf(b, c) {
       const t = b.stroke === 'none' ? 0 : Math.max(0, b.weight || 0);
-      if (!t || !Array.isArray(b.cut) || !b.cut.length) return null;
+      const cuts = [...(Array.isArray(b.cut) ? b.cut : []), ...(Array.isArray(b.holes) ? b.holes : [])];
+      if (!t || !cuts.length) return null;
       const W = b.w; const H = b.h; const cw = W - 2 * t; const ch = H - 2 * t;
       if (cw <= 0 || ch <= 0) return null;
       const eps = 0.0005;
       const holes = [];
-      for (const q of b.cut) {
+      for (const q of cuts) {
         const x0 = Math.max(0, (q.x - c.x) / c.w); const y0 = Math.max(0, (q.y - c.y) / c.h);
         const x1 = Math.min(1, (q.x + q.w - c.x) / c.w); const y1 = Math.min(1, (q.y + q.h - c.y) / c.h);
         if (x1 > x0 && y1 > y0) holes.push({ x0, y0, x1, y1 });
@@ -167,6 +171,8 @@
         if (blur.length) out.blur = blur;
         const cut = Array.isArray(raw.cut) ? raw.cut.map(partOf).filter(Boolean).slice(0, MAX_CUT) : [];
         if (cut.length) out.cut = cut;
+        const holes = Array.isArray(raw.holes) ? raw.holes.map(partOf).filter(Boolean).slice(0, MAX_CUT) : [];
+        if (holes.length) out.holes = holes;
         return out;
       },
       altOf,
@@ -227,7 +233,7 @@
         syncOutline(el, b, cropOf(b));
         if (b.shadow) el.dataset.shadow = b.shadow; else delete el.dataset.shadow;
         // A picture with holes casts its shadow from what is shown (a filter, so a hole is lit like a cut-out); one without, from its box.
-        if (b.cut && b.cut.length) el.dataset.holes = 'true'; else delete el.dataset.holes;
+        if ((b.cut && b.cut.length) || (b.holes && b.holes.length)) el.dataset.holes = 'true'; else delete el.dataset.holes;
         const ratio = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
         // The picture is placed through its crop: the whole picture is drawn 1/w by 1/h as big as the block and moved so the
         // part shown fills the block. What is shown is smaller than the picture, so the thumbnail is used only while the

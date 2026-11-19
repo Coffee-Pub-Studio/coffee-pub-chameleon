@@ -2,7 +2,7 @@
 /*
  * check-whiteboard-flatten.mjs -- Flatten (whiteboard.js: flatten, placeFlattened; lib-u wbFlattenPlan; lib-l's flat export), in a real browser against
  * a throwaway server (tools/shots.mjs; no LiveKit).
- * Guards: a picture with something to bake offers Flatten, and one with nothing does not; Flatten makes ONE new picture with an upload of its own, in the
+ * Guards: a picture with something to bake offers Flatten, and one with nothing does not; Flatten makes ONE new picture with an upload of its own (it keeps where its holes were, so the border and shadow still follow them), in the
  * place of the picture and its marks (both gone from the board and from the stored data), with no crop, blur or holes left in it; what was
  * drawn is in the new file's pixels: its size is the cropped part's, the hole is see-through, the mark is drawn over the picture and the rest is
  * the picture; the new block keeps the old one's box; and one undo brings the picture and its mark back and takes the new picture away. The
@@ -101,6 +101,7 @@ try {
     check(flat && flat.crop === undefined && flat.blur === undefined && flat.cut === undefined, 'with no crop, blur or holes left in it');
     check(flat && flat.x === 60 && flat.y === 60 && flat.w === 200 && flat.h === 240, `in the old picture's box (got ${flat && `${flat.x},${flat.y} ${flat.w}x${flat.h}`})`);
     check(flat && flat.alt === 'a grey picture', 'and its description');
+    check(flat && Array.isArray(flat.holes) && flat.holes.length === 1 && Math.abs(flat.holes[0].w - 0.2) < 0.001 && Math.abs(flat.holes[0].h - 0.4) < 0.001 && flat.holes[0].x === 0 && flat.holes[0].y === 0, `the hole is kept as an outline for the border and the shadow (${JSON.stringify(flat && flat.holes)})`);
     check((await read('pic')) === null && (await read('mark')) === null, 'the old picture and its mark are gone from the stored data');
     check((await read('plain')) !== null, 'another picture was not touched');
 

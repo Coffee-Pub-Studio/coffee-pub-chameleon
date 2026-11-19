@@ -76,3 +76,31 @@
     return { t, marks, content, extent, box };
   }
   const wbNeedsFlatten = (pic, plan) => Boolean(pic.crop || (pic.blur && pic.blur.length) || (pic.cut && pic.cut.length) || (plan && plan.marks.length));
+
+  // The holes a flattened picture still has, as the outline and the shadow need them (its new `holes`): the old cuts and holes, as boxes of the
+  // NEW picture (which is the old one's shown part, as large as the plan's extent). A hole outside the part shown is left out. Where the
+  // picture grew to hold a mark that hung over its edge, the new margin is see-through too: a hole along that side, so the border and the
+  // shadow stay on the picture's own edge, with the mark hanging out over them, as it was.
+  function wbFlattenHoles(pic, plan) {
+    const c = blockTypes.get('image').cropOf(pic);
+    const r4 = (n) => Math.round(n * 10000) / 10000;
+    const out = [];
+    const e = plan.extent;
+    const k = plan.content;
+    const slack = 0.05; // board units: less than that is no margin
+    if (k.x - e.x > slack) out.push({ x: 0, y: 0, w: r4((k.x - e.x) / e.w), h: 1 });
+    if (e.x + e.w - (k.x + k.w) > slack) out.push({ x: r4((k.x + k.w - e.x) / e.w), y: 0, w: r4((e.x + e.w - (k.x + k.w)) / e.w), h: 1 });
+    if (k.y - e.y > slack) out.push({ x: 0, y: 0, w: 1, h: r4((k.y - e.y) / e.h) });
+    if (e.y + e.h - (k.y + k.h) > slack) out.push({ x: 0, y: r4((k.y + k.h - e.y) / e.h), w: 1, h: r4((e.y + e.h - (k.y + k.h)) / e.h) });
+    for (const q of [...(pic.cut || []), ...(pic.holes || [])]) {
+      const x0 = Math.max(0, (q.x - c.x) / c.w); const y0 = Math.max(0, (q.y - c.y) / c.h);
+      const x1 = Math.min(1, (q.x + q.w - c.x) / c.w); const y1 = Math.min(1, (q.y + q.h - c.y) / c.h);
+      if (x1 <= x0 || y1 <= y0) continue;
+      const nx0 = (plan.content.x + x0 * plan.content.w - plan.extent.x) / plan.extent.w;
+      const ny0 = (plan.content.y + y0 * plan.content.h - plan.extent.y) / plan.extent.h;
+      const nx1 = (plan.content.x + x1 * plan.content.w - plan.extent.x) / plan.extent.w;
+      const ny1 = (plan.content.y + y1 * plan.content.h - plan.extent.y) / plan.extent.h;
+      out.push({ x: r4(nx0), y: r4(ny0), w: r4(nx1 - nx0), h: r4(ny1 - ny0) });
+    }
+    return out.slice(0, blockTypes.get('image').MAX_CUT);
+  }

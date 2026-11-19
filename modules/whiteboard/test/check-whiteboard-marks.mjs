@@ -24,13 +24,13 @@ const check = (ok, what) => { if (ok) passed += 1; else fails.push(what); };
 let lib;
 try {
   const parts = fs.readdirSync(src).filter((f) => /^whiteboard-lib-[a-z]-.*\.js$/.test(f)).sort().map((f) => fs.readFileSync(path.join(src, f), 'utf8'));
-  lib = new Function('window', 'document', `${parts.join('\n')}\nreturn { blockTypes, wbClean, wbIsMark, wbAttachment, wbScaleMark, wbFrameFollow, wbCopies, wbDeleteSet, wbRect, wbFlattenPlan, wbNeedsFlatten };`)({ devicePixelRatio: 1 }, undefined);
+  lib = new Function('window', 'document', `${parts.join('\n')}\nreturn { blockTypes, wbClean, wbIsMark, wbAttachment, wbScaleMark, wbFrameFollow, wbCopies, wbDeleteSet, wbRect, wbFlattenPlan, wbNeedsFlatten, wbFlattenHoles };`)({ devicePixelRatio: 1 }, undefined);
 } catch (err) {
   fails.push(`the libs do not load: ${err.message}`);
 }
 
 if (lib) {
-  const { blockTypes, wbClean, wbIsMark, wbAttachment, wbScaleMark, wbFrameFollow, wbCopies, wbDeleteSet, wbFlattenPlan, wbNeedsFlatten } = lib;
+  const { blockTypes, wbClean, wbIsMark, wbAttachment, wbScaleMark, wbFrameFollow, wbCopies, wbDeleteSet, wbFlattenPlan, wbNeedsFlatten, wbFlattenHoles } = lib;
   const up = 'a'.repeat(24);
   const pic = (o = {}) => ({ id: 'pic', type: 'image', x: 100, y: 100, z: 1, w: 400, h: 200, upload: up, ...o });
   const rect = (o = {}) => ({ id: 'r1', type: 'rect', x: 150, y: 150, z: 5, w: 100, h: 50, text: '', stroke: 'ink', fill: 'gold', ink: 'ink', weight: 3, size: 'medium', align: 'center', ...o });
@@ -113,6 +113,30 @@ if (lib) {
   check(!wbNeedsFlatten(framed, wbFlattenPlan(framed, [framed])), 'a picture with nothing done to it has nothing to flatten');
   check(wbNeedsFlatten(pic({ crop: { x: 0, y: 0, w: 0.5, h: 0.5 } }), wbFlattenPlan(pic(), [pic()])) && wbNeedsFlatten(pic({ blur: [{ x: 0, y: 0, w: 0.2, h: 0.2 }] }), wbFlattenPlan(pic(), [pic()])) && wbNeedsFlatten(pic({ cut: [{ x: 0, y: 0, w: 0.2, h: 0.2 }] }), wbFlattenPlan(pic(), [pic()])), 'a crop, a blur or a hole is something to flatten');
   check(wbNeedsFlatten(framed, inPlan), 'a mark on it is something to flatten');
+
+  // The holes a flattened picture keeps (so its border and shadow still follow them).
+  const holey = pic({ stroke: 'ink', weight: 10, cut: [{ x: 0.5, y: 0.5, w: 0.5, h: 0.5 }] });
+  const holesPlan = wbFlattenPlan(holey, [holey]);
+  const kept = wbFlattenHoles(holey, holesPlan);
+  check(kept.length === 1 && same(kept[0], { x: 0.5, y: 0.5, w: 0.5, h: 0.5 }), 'a hole in a picture that is not cropped and has nothing hanging over is the same box in the flattened one');
+  const cropped = pic({ stroke: 'ink', weight: 10, crop: { x: 0.25, y: 0, w: 0.5, h: 1 }, cut: [{ x: 0.25, y: 0, w: 0.1, h: 0.4 }, { x: 0.9, y: 0.1, w: 0.1, h: 0.1 }] });
+  const crop2 = wbFlattenHoles(cropped, wbFlattenPlan(cropped, [cropped]));
+  check(crop2.length === 1 && same(crop2[0], { x: 0, y: 0, w: 0.2, h: 0.4 }), 'a hole is a box of the part that was shown, and a hole outside it is left out');
+  const wider = pic({ stroke: 'ink', weight: 10, cut: [{ x: 0.5, y: 0.5, w: 0.5, h: 0.5 }] });
+  const grown = wbFlattenPlan(wider, [wider, rect({ on: 'pic', x: 450, y: 150, w: 100, h: 50 })]); // a mark hangs over the right edge: the picture grows to hold it
+  const grownHoles = wbFlattenHoles(wider, grown);
+  const strip = grownHoles.find((h) => h.h === 1 && h.w < 0.2);
+  const real = grownHoles.find((h) => h.h < 1);
+  check(grownHoles.length === 2 && strip && strip.y === 0 && Math.abs((strip.x * grown.extent.w + grown.extent.x) - (wider.x + 10 + 380)) < 0.2, 'where the picture grew to hold a mark, the new margin is a hole along that side (so the border stays on the picture\'s own edge)');
+  check(real && Math.abs(real.x * grown.extent.w + grown.extent.x - (wider.x + 10 + 0.5 * 380)) < 0.1, 'and the holes keep their place on it');
+  check(wbFlattenHoles(holey, holesPlan).every((h) => !(h.h === 1 && h.w < 0.2) && !(h.w === 1 && h.h < 0.2)), 'a picture that did not grow has no margin holes');
+  const again = pic({ stroke: 'ink', weight: 10, holes: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.2 }], cut: [{ x: 0.6, y: 0.6, w: 0.3, h: 0.3 }] });
+  check(wbFlattenHoles(again, wbFlattenPlan(again, [again])).length === 2, 'flattening again keeps the holes it kept and the new cuts');
+  check(blockTypes.get('image').clean({ ...pic(), holes: [{ x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, { x: 5, y: 0, w: 1, h: 1 }] }).holes.length === 1 && blockTypes.get('image').clean(pic()).holes === undefined, 'a picture keeps its baked holes, drops invalid ones, and has none unless flattened');
+  const outl = blockTypes.get('image').outlineOf({ ...framed, holes: [{ x: 0.5, y: 0.5, w: 0.5, h: 0.5 }] }, { x: 0, y: 0, w: 1, h: 1 });
+  check(outl && outl.rects.length === 1, 'baked holes at the edge get the border round them, as cuts do');
+  check(blockTypes.get('image').actions({ ...pic(), holes: [{ x: 0.5, y: 0.5, w: 0.5, h: 0.5 }] }).length === 0, 'baked holes offer no Reset picture (there is nothing to bring back)');
+  check(!wbNeedsFlatten({ ...pic(), holes: [{ x: 0.5, y: 0.5, w: 0.5, h: 0.5 }] }, wbFlattenPlan(pic(), [pic()])), 'baked holes are not something to flatten');
 
   // Delete.
   const refsOf = (b) => { const d = blockTypes.get(b.type); const own = d && d.refs ? d.refs(b) : []; return b.on ? [...own, b.on] : own; };

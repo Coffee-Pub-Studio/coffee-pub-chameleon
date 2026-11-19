@@ -2556,7 +2556,7 @@
       const snap = [b, ...plan.marks].map((x) => JSON.parse(JSON.stringify(x)));
       pictures.add([file], { x: plan.box.x + plan.box.w / 2, y: plan.box.y + plan.box.h / 2 }, {
         batch: { tag: `flatten:${host.util.id()}`, made: [], picked: [...sel], home: { board: session.id, epoch: session.epoch } },
-        flatten: { id, marks: plan.marks.map((m) => m.id), box: plan.box, snap },
+        flatten: { id, marks: plan.marks.map((m) => m.id), box: plan.box, holes: wbFlattenHoles(b, plan), snap },
       });
       note('Flattening the picture...');
     } catch (err) {
@@ -2574,7 +2574,7 @@
     if (wbLateHome(job.batch && job.batch.home, session) !== 'here') { note('You changed board while a picture was being flattened. It was not replaced.'); return false; }
     const old = board.get(f.id);
     const def = blockTypes.get('image');
-    const next = wbClean({ ...def.create(), id: job.id, type: 'image', x: f.box.x, y: f.box.y, w: f.box.w, h: f.box.h, upload: file.id, z: old.z, alt: old.alt, stroke: old.stroke, weight: old.weight, radius: old.radius, shadow: old.shadow });
+    const next = wbClean({ ...def.create(), id: job.id, type: 'image', x: f.box.x, y: f.box.y, w: f.box.w, h: f.box.h, upload: file.id, z: old.z, alt: old.alt, stroke: old.stroke, weight: old.weight, radius: old.radius, shadow: old.shadow, holes: f.holes });
     if (!next) return false;
     if (history && job.batch) history.tag(job.batch.tag, { join: true });
     commit(next, 'now');
