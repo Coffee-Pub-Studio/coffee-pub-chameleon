@@ -18,8 +18,9 @@ import { createModuleFrame } from '/module-frame.js';
 import { mountHostMenu } from '/host-menu.js';
 import { fileWindowCount, closeAllFiles, openFile } from '/file-viewer.js';
 import { nav } from '/nav-bar.js';
-import { whatOpens, readAliased, firstVisitLayout, SYSTEM_TABS } from '/opens-with.js';
-import { layoutOf, placeLayout, leftOutNote, groupColumns, splitHeights, dragShares, evenShares, cleanShares, stackRefusal, STACK, STACK_ID } from '/layouts.js';
+import { whatOpens, readAliased, firstVisitLayout, firstVisitShape, SYSTEM_TABS } from '/opens-with.js';
+import { layoutOf, placeLayout, placeShape, areaMayHold, leftOutNote, partOfNote, groupColumns, splitHeights, dragShares, evenShares, cleanShares, stackRefusal, STACK, STACK_ID } from '/layouts.js';
+import { shapeById } from '/layout-shapes.js';
 import { TINTS, moduleTint } from '/module-tint.js';
 import { returnPlace } from '/pop-return.js';
 import { MIN_W, MIN_H, SNAP_GAP, gridFor, cellBox, snapCell, leastSpan, clampCell, nearestFree, nextFree, resettle, tidyBoxes, fillBoxes, TIDY_GAP, DOCK_MIN, FLEX_MIN, NARROW, dockLimit, fitDock } from '/snap-grid.js';
@@ -82,13 +83,26 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // The column's even while it is out of it: lifted over the Workspace (a screen share, or the person floating it) or
   // popped into a window of its own from the column (popBuiltin). Closing that window brings it back to the column.
   const columnOwned = (p) => inColumn(p) || Boolean(p.lifted) || Boolean(p.popped);
-  const onCanvas = () => [...opened.values()].some((p) => !inColumn(p) && !p.popped); // whether anything is open on the canvas itself
+  // Whether anything is open on the canvas itself (an empty area with its chooser counts).
+  const onCanvas = () => [...opened.values()].some((p) => !inColumn(p) && !p.popped) || [...areas.values()].some((a) => !a.el.hidden);
   let saved = loadSaved(null);
   // Nothing is remembered until a join has restored the space's modules, and not while the space is
   // being torn down: closing every module on the way out must not become the layout.
   let suspended = true;
   const opened = new Map(); // id -> module; a module is open while it is in here
   const builtins = new Map(); // id -> the built-in module's definition (the conference and the chat)
+  // The empty areas a layout shape left on the canvas (plan-layout-picker.md, step 2; loadShape below): `area-<n>` -> a
+  // placeholder column (or stack section) with the module chooser in it. Not modules: never in `opened`, never remembered
+  // (an empty area is simply not there on the next visit), never a tab. They are columns all the same, so the column
+  // and stack rules read them with the modules (holders(), slotOf()): { id, kind: 'area', area, shape, mode ('dock', or
+  // 'wait' while the window has no room for its column), waiting, order, width, stack?, at?, h?, el, frame, menu }.
+  const areas = new Map();
+  const isArea = (p) => Boolean(p) && p.kind === 'area';
+  const slotOf = (id) => opened.get(id) || areas.get(id) || null;
+  const holders = () => [...opened.values(), ...areas.values()];
+  // A column member's stack record: a module's is what is remembered (`saved`), an empty area's is on itself.
+  const recFor = (id) => areas.get(id) || saved[id] || {};
+  const setRec = (id, patch) => { const a = areas.get(id); if (a) Object.assign(a, patch); else saved[id] = { ...(saved[id] || {}), ...patch }; };
   const canvasEmpty = document.getElementById('canvas-empty');
   let spaceId = null;
   // The modules on in this space for this person, as the server lists them (`modules`: Chat reads commands and names
@@ -111,10 +125,11 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   let colors = new Map();
   const colorOf = (id) => { const c = compositeById(id); const base = c ? c.main : id; return moduleTint(base, colors.get(base) || null); };
   const tintAttr = (id) => (colorOf(id) ? ` data-tint="${colorOf(id)}"` : '');
-  // What this space opens with (its template's Default Workspace), or null. Null until a space is loaded.
-  let spaceOpensWith = null;
+  // What this space's Workspace starts from (its template's layout, { shape, areas }; plan-layout-picker.md, step 3), or
+  // null when the template names none. Null until a space is loaded.
+  let spaceShape = null;
   let spaceDefaultLayout = null; // the space's default layout when it is a shared one, whole (plan-saved-layouts.md, decision 4), or null
-  // What a first visit opens, as the server resolved it (plan-layout-views.md, step 5): { layout, opensWith }, or null.
+  // What a first visit opens, as the server resolved it (plan-layout-views.md, step 5): { layout, shape }, or null.
   let spaceFirstVisit = null;
   // Set by refresh() for the space just entered, used up by the restore that follows: only entering shows the first
   // visit's layout (a press on the Workspace tab restores the Workspace alone).
@@ -192,6 +207,11 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     const prev = Array.isArray(saved.__open) ? saved.__open : guest ? ['conference', 'chat'] : ['chat'];
     const kept = (id) => prev.includes(id);
     saved.__open = columnMode() ? ids.filter((id) => { const p = opened.get(id); return !columnOwned(p) || kept(id); }) : ids;
+    // Whether this person has ever had a module of their own on the canvas here (`__placed`; Thomas, 2026-11-19): chosen
+    // in an empty area, opened from the Modules tab, or placed by a shape or a layout. Until then nothing is chosen, so
+    // the template's layout (the Default template's empty area with the chooser) comes back on each visit
+    // (opens-with.js, firstVisitShape). The chat and the call alone are not a choice. Never unset.
+    if ([...opened.values()].some((p) => p.kind !== 'builtin')) saved.__placed = true;
     persist();
   }
 
@@ -356,6 +376,8 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
       if (!isNarrow()) restoreStacks(floating);
       return;
     }
+    // An empty area cannot float: Window Mode closes it up (a layout shape is columns; plan-layout-picker.md).
+    if (areas.size) { clearAreas(); tidyStackRecords(); }
     if (isNarrow()) { update(); return; }
     keepStacks();
     const columns = [...opened.values()].filter((p) => (p.mode === 'dock' || p.waiting) && !inColumn(p) && !p.lifted && supports(p, 'float')).sort(byOrder);
@@ -561,7 +583,8 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
 
   // --- docked: columns of the grid ------------------------------------------
 
-  const dockedModules = () => [...opened.values()].filter((p) => p.mode === 'dock').sort((a, b) => a.order - b.order);
+  // Every docked column member, an empty area's placeholder included (it is a column like any other).
+  const dockedModules = () => holders().filter((p) => p.mode === 'dock').sort((a, b) => a.order - b.order);
 
   const maxDock = () => Math.max(DOCK_MIN, Math.round(canvas.clientWidth * 0.6));
   const clampDock = (w) => Math.min(Math.max(Math.round(w), DOCK_MIN), maxDock());
@@ -577,12 +600,13 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // top and height (paintStacks), and a divider between two of them is the call and chat column's own splitter, turned.
   // Not on a phone (640 px and below): one view at a time there, the stack kept in what is remembered for a wide window.
   const canStack = (p) => Boolean(p) && p.kind === 'module' && !compositeOf(p.m) && supports(p, 'dock');
-  const stackOf = (p) => { const s = canStack(p) ? saved[p.id]?.stack : null; return typeof s === 'string' && STACK_ID.test(s) ? s : null; };
+  // An empty area's placeholder (a layout shape's) is a section of the stack the shape made; nothing stacks into it.
+  const stackOf = (p) => { const s = isArea(p) ? p.stack : canStack(p) ? saved[p.id]?.stack : null; return typeof s === 'string' && STACK_ID.test(s) ? s : null; };
   // The columns the modules in `mods` make, in column order (layouts.js's groupColumns): [{ key, stack, mods }], a stack's
   // modules top first. A stack id only one of them carries is an ordinary column (decision 8).
   function columnsFrom(mods) {
     const byId = new Map(mods.map((p) => [p.id, p]));
-    return groupColumns(mods.map((p) => ({ id: p.id, order: p.order, stack: stackOf(p), at: saved[p.id]?.at })))
+    return groupColumns(mods.map((p) => ({ id: p.id, order: p.order, stack: stackOf(p), at: recFor(p.id).at })))
       .map((c) => ({ key: c.key, stack: c.stack, mods: c.ids.map((id) => byId.get(id)) }));
   }
   const stacked = (c) => Boolean(c) && c.mods.length > 1;
@@ -596,6 +620,8 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // A module out of its stack: no stack keys, and its own width again (`ownW`, kept when it was stacked and its width
   // became the column's), unless `restore` is false (a saved layout gives the width itself).
   function clearStackRecord(id, { restore = true } = {}) {
+    const a = areas.get(id);
+    if (a) { delete a.stack; delete a.at; delete a.h; return; }
     if (!saved[id] || !['stack', 'at', 'h', 'folded', 'ownW'].some((k) => k in saved[id])) return;
     const { stack, at, h, folded, ownW, ...rest } = saved[id];
     if (restore && Number.isFinite(ownW) && stack) {
@@ -626,7 +652,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   const fitOpts = () => ({ wide: !isNarrow() });
   // fitDock() over every module wanting a column now, and `extra` (one about to dock); `waiting` is the modules' ids.
   const planColumns = (extra = []) => {
-    const cols = columnsFrom([...opened.values()].filter(wantsColumn).concat(extra));
+    const cols = columnsFrom(holders().filter(wantsColumn).concat(extra));
     const plan = fitDock(canvasWidth(), specsOf(cols), fitOpts());
     const waits = new Set(plan.waiting);
     return { ...plan, cols, waiting: cols.filter((c) => waits.has(c.key)).flatMap((c) => c.mods.map((p) => p.id)) };
@@ -638,7 +664,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // in front of the person, or is not theirs.
   let hush = 0;
   const quiet = () => hush > 0 || restoring || suspended;
-  const nameOf = (id) => opened.get(id)?.m?.name || available.find((x) => x.id === id)?.name || builtins.get(id)?.name || id;
+  const nameOf = (id) => (areas.has(id) ? 'Empty area' : null) || opened.get(id)?.m?.name || available.find((x) => x.id === id)?.name || builtins.get(id)?.name || id;
   let noteTimer = null;
   let noteAt = 0;
   function note(text) {
@@ -698,6 +724,11 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
         if (p.mode === 'dock' && waits.has(p.id)) { startWaiting(p); started.push(p.id); }
         else if (p.waiting && !waits.has(p.id)) stopWaiting(p);
       }
+      // An empty area waits too, as a column: it cannot float, so it is not drawn until the window has room for it.
+      for (const a of areas.values()) {
+        a.waiting = waits.has(a.id);
+        a.mode = a.waiting ? 'wait' : 'dock';
+      }
     } finally {
       fitting = false;
     }
@@ -708,7 +739,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // are full (so a pick never stores a dock it cannot show). A stack counts as one column.
   function dockBlocked(p) {
     if (p.waiting) return 'Docks when the window is wide enough';
-    const full = !isNarrow() && columnsFrom([...opened.values()].filter(wantsColumn)).length >= dockLimit(canvasWidth(), fitOpts());
+    const full = !isNarrow() && columnsFrom(holders().filter(wantsColumn)).length >= dockLimit(canvasWidth(), fitOpts());
     return full ? 'The window is too narrow for another column' : '';
   }
   // A waiting module's box says so (data-waiting).
@@ -742,7 +773,9 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     // The narrow layout keys off this, as it does off chat-open.
     canvas.classList.toggle('module-open', docked.some((p) => p.kind === 'module'));
     syncView();
-    for (const p of opened.values()) p.el.classList?.remove('is-flex');
+    // An empty area shows only where it has a column: not on a phone (it is no tab there) and not while it waits.
+    for (const a of areas.values()) a.el.hidden = isNarrow() || a.waiting;
+    for (const p of holders()) p.el.classList?.remove('is-flex');
     for (const p of docked) for (const el of p.parts()) el.style.gridColumn = '';
     if (canvasEmpty) canvasEmpty.hidden = onCanvas();
     paintDockButtons();
@@ -819,7 +852,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
       if (!stacked(c)) return;
       const sid = c.stack;
       const ids = c.mods.map((p) => p.id);
-      const { px, auto, open } = splitHeights(total, { h: ids.map((id) => saved[id]?.h), folded: ids.map((id) => saved[id]?.folded === true), keep: ids.indexOf(keepOpen.get(sid)) }, { titleH: headH(), min: sectionMin() });
+      const { px, auto, open } = splitHeights(total, { h: ids.map((id) => recFor(id).h), folded: ids.map((id) => recFor(id).folded === true), keep: ids.indexOf(keepOpen.get(sid)) }, { titleH: headH(), min: sectionMin() });
       autoFolded.set(sid, auto);
       const owns = [];
       let y = 0;
@@ -836,7 +869,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
           content.style.height = `${px[i]}px`;
           owns.push(content.id);
         }
-        paintFold(p, shut, !shut && open.length === 1);
+        if (!isArea(p)) paintFold(p, shut, !shut && open.length === 1); // an empty area has no collapse: it closes
         y += px[i];
         if (i === c.mods.length - 1) return;
         const key = `${sid}:${i}`;
@@ -861,7 +894,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
       g.setAttribute('aria-owns', owns.join(' '));
     });
     for (const c of cols) if (stacked(c)) orderInPage(c);
-    for (const p of opened.values()) if (p.kind === 'module' && !inStack.has(p.id)) clearSection(p);
+    for (const p of holders()) if ((p.kind === 'module' || isArea(p)) && !inStack.has(p.id)) clearSection(p);
     for (const [key, dv] of dividers) if (!liveDividers.has(key)) { dv.remove(); dividers.delete(key); }
     for (const [sid, g] of groups) if (!liveGroups.has(sid)) { g.remove(); groups.delete(sid); autoFolded.delete(sid); }
   }
@@ -988,9 +1021,9 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // The section above `dv` to be `upper` px tall: only the two beside it change (layouts.js's dragShares).
   function moveDivider(dv, upper, { store = true } = {}) {
     const { ids, i, px } = dv._stack;
-    const shares = cleanShares(ids.map((id) => saved[id]?.h), ids.length);
+    const shares = cleanShares(ids.map((id) => recFor(id).h), ids.length);
     const next = dragShares({ px, h: shares, i, upper, min: sectionMin() }).h;
-    ids.forEach((id, k) => { saved[id] = { ...(saved[id] || {}), h: next[k] }; });
+    ids.forEach((id, k) => setRec(id, { h: next[k] }));
     relayoutStacks();
     if (store) persist();
   }
@@ -998,7 +1031,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     const c = columnsFrom(dockedModules()).find((x) => x.stack === sid);
     if (!stacked(c)) return;
     const shares = evenShares(c.mods.length);
-    c.mods.forEach((p, k) => { saved[p.id] = { ...(saved[p.id] || {}), h: shares[k] }; });
+    c.mods.forEach((p, k) => setRec(p.id, { h: shares[k] }));
     persist();
     relayoutStacks();
     if (say) note(`${listWords(c.mods.map((p) => nameOf(p.id)))} have equal heights.`);
@@ -1024,20 +1057,22 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
 
   // --- a stack changed: the columns rearranged --------------------------------------------------------------------------
   // The columns of every module wanting one, as plain lists to change: [{ ids, stack, width }], in column order.
-  const currentColumns = () => columnsFrom([...opened.values()].filter(wantsColumn)).map((c) => ({ ids: c.mods.map((p) => p.id), stack: c.stack, width: dockWidthOf(c.mods[0]) }));
+  const currentColumns = () => columnsFrom(holders().filter(wantsColumn)).map((c) => ({ ids: c.mods.map((p) => p.id), stack: c.stack, width: dockWidthOf(c.mods[0]) }));
   // Put the columns in this order and grouping, `cols` from currentColumns() changed: each module's place in the column
   // order (the order values they had, given out again in the new order), and each stack's records (`even`: a new stack, or
   // one joined, starts with equal heights, decision 6; else each keeps its share, the rest closing up). A column of one
   // keeps no stack. Every module of a column takes the column's width.
   function arrange(cols) {
-    const pool = cols.flatMap((c) => c.ids).map((id) => opened.get(id)?.order).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
+    const pool = cols.flatMap((c) => c.ids).map((id) => slotOf(id)?.order).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
     let k = 0;
     for (const c of cols) {
       if (c.ids.length < 2) clearStackRecord(c.ids[0]);
       else {
         const sid = c.stack || newStackId();
-        const shares = c.even ? evenShares(c.ids.length) : cleanShares(c.ids.map((id) => saved[id]?.h), c.ids.length);
+        const shares = c.even ? evenShares(c.ids.length) : cleanShares(c.ids.map((id) => recFor(id).h), c.ids.length);
         c.ids.forEach((id, at) => {
+          const a = areas.get(id);
+          if (a) { Object.assign(a, { stack: sid, at, h: shares[at] }); if (c.width) a.width = c.width; return; } // an empty area: on itself, never remembered
           const was = saved[id] || {};
           const own = Number.isFinite(was.ownW) ? was.ownW : was.stack ? undefined : (opened.get(id)?.mode === 'dock' ? opened.get(id).width : undefined) ?? was.dockW;
           saved[id] = { ...was, stack: sid, at, h: shares[at], folded: was.folded === true, ...(Number.isFinite(own) ? { ownW: own } : {}) };
@@ -1048,7 +1083,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
           }
         });
       }
-      for (const id of c.ids) { const p = opened.get(id); if (p && k < pool.length) p.order = pool[k++]; }
+      for (const id of c.ids) { const p = slotOf(id); if (p && k < pool.length) p.order = pool[k++]; }
     }
     persist();
   }
@@ -1060,11 +1095,11 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     const sid = typeof saved[id]?.stack === 'string' ? saved[id].stack : null;
     if (!sid) return null;
     clearStackRecord(id);
-    const rest = [...opened.values()].filter((p) => p.id !== id && wantsColumn(p) && stackOf(p) === sid)
-      .sort((a, b) => (saved[a.id]?.at ?? 99) - (saved[b.id]?.at ?? 99));
+    const rest = holders().filter((p) => p.id !== id && wantsColumn(p) && stackOf(p) === sid)
+      .sort((a, b) => (recFor(a.id).at ?? 99) - (recFor(b.id).at ?? 99));
     if (rest.length === 1) { clearStackRecord(rest[0].id); persist(); return rest[0].id; }
-    const shares = cleanShares(rest.map((p) => saved[p.id]?.h), rest.length);
-    rest.forEach((p, at) => { saved[p.id] = { ...saved[p.id], at, h: shares[at] }; });
+    const shares = cleanShares(rest.map((p) => recFor(p.id).h), rest.length);
+    rest.forEach((p, at) => setRec(p.id, { at, h: shares[at] }));
     persist();
     return null;
   }
@@ -1073,25 +1108,29 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // record on a module not in one let go.
   function tidyStackRecords() {
     const kept = new Set();
-    for (const c of columnsFrom([...opened.values()].filter(wantsColumn))) {
+    for (const c of columnsFrom(holders().filter(wantsColumn))) {
       if (!stacked(c)) continue;
-      const shares = cleanShares(c.mods.map((p) => saved[p.id]?.h), c.mods.length);
-      const allFolded = c.mods.every((p) => saved[p.id]?.folded === true);
+      const shares = cleanShares(c.mods.map((p) => recFor(p.id).h), c.mods.length);
+      const allFolded = c.mods.every((p) => recFor(p.id).folded === true);
       const width = dockWidthOf(c.mods[0]); // one column, one width: the top module's (as drawn, clamped to this window)
       // What is stored is the top module's own remembered width, not the drawn one: a phone's clamp must not shrink a stack's width for the day the window is wide again.
-      const keptW = Number.isFinite(saved[c.mods[0].id]?.dockW) ? saved[c.mods[0].id].dockW : width;
+      const keptW = Number.isFinite(recFor(c.mods[0].id).dockW) ? recFor(c.mods[0].id).dockW : width;
       c.mods.forEach((p, at) => {
-        if (p.mode === 'dock') p.width = width;
-        saved[p.id] = { ...saved[p.id], at, h: shares[at], dockW: keptW, folded: saved[p.id]?.folded === true && !(allFolded && at === c.mods.length - 1) };
+        if (p.mode === 'dock' || isArea(p)) p.width = width;
+        // An empty area keeps its place on itself (it has no collapse and nothing remembered).
+        if (isArea(p)) Object.assign(p, { at, h: shares[at] });
+        else saved[p.id] = { ...saved[p.id], at, h: shares[at], dockW: keptW, folded: saved[p.id]?.folded === true && !(allFolded && at === c.mods.length - 1) };
         kept.add(p.id);
       });
     }
     for (const id of Object.keys(saved)) if (!id.startsWith('__') && saved[id] && typeof saved[id] === 'object' && !kept.has(id)) clearStackRecord(id);
+    for (const a of areas.values()) if (!kept.has(a.id)) clearStackRecord(a.id);
     persist();
   }
 
   // Why `id` cannot go into column `c` (columnsFrom's) as a section: a short line, or ''.
   function refusalFor(id, c) {
+    if (c.mods.some(isArea)) return 'Fill or close the empty area first.'; // a layout shape's placeholder takes nothing stacked onto it
     const code = stackRefusal({ mover: canStack(opened.get(id)), target: c.mods.every(canStack), n: c.mods.length, inIt: c.mods.some((p) => p.id === id), height: canvas.clientHeight, min: sectionMin() });
     if (code === 'mover') return `${nameOf(id)} can't be in a stack.`;
     if (code === 'target') return `${nameOf(c.mods[0].id)} can't hold a stack.`;
@@ -1253,7 +1292,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   const relRect = (r) => { const cr = canvas.getBoundingClientRect(); return { x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height }; };
   // A column's box on the canvas: its modules' content (a module's) or parts (the conference's, the chat's).
   function columnRect(c) {
-    const boxes = c.mods.flatMap((p) => (p.kind === 'module' ? [contentOf(p)] : p.parts())).filter(Boolean).map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
+    const boxes = c.mods.flatMap((p) => (p.kind === 'module' || isArea(p) ? [contentOf(p)] : p.parts())).filter(Boolean).map((el) => el.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
     if (!boxes.length) return null;
     const left = Math.min(...boxes.map((r) => r.left)); const top = Math.min(...boxes.map((r) => r.top));
     const right = Math.max(...boxes.map((r) => r.right)); const bottom = Math.max(...boxes.map((r) => r.bottom));
@@ -1446,7 +1485,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
       drag = null;
       handle.classList.remove('dragging');
       canvas.classList.remove('resizing-dock');
-      for (const p of columnMates(mod)) { p.width = mod.width; remember(p.id, { dockW: mod.width }); }
+      for (const p of columnMates(mod)) { p.width = mod.width; if (!isArea(p)) remember(p.id, { dockW: mod.width }); } // an empty area remembers nothing
       mod.onWidth?.(mod.width);
     };
     handle.addEventListener('pointerup', stop);
@@ -2010,6 +2049,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   }
 
   function closeAllModules() {
+    clearAreas();
     for (const p of [...opened.values()]) if (p.kind === 'module') closeModule(p.id);
   }
 
@@ -2199,6 +2239,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
       }
     }
     bindDoc(doc);
+    for (const a of areas.values()) mountChooser(a); // the chooser's keys are its new document's
     for (const { m, mode } of again) openModule(m, isNarrow() ? undefined : mode);
     placeBuiltins(); // the column, or the phone's tabs, by this window's width
     suspended = false;
@@ -2342,7 +2383,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   }
 
   // Open what this space starts with (plan-entering.md, "What opens on entering"): a fresh request, then the
-  // remembered layout (never for a guest), then the space's own list, then the environment's list, then the chat and
+  // remembered layout (never for a guest), then the template's layout (a shape, placed by loadShape), then the chat and
   // every module on here without the conference (for a guest, the conference and the chat). See opens-with.js.
   // On entering, a first visit opens the space's first visit layout (plan-layout-views.md, step 5; firstVisitLayout):
   // a shared layout loads into the Workspace here; for Calendar or Map the Workspace opens as above and restore()
@@ -2352,6 +2393,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   function restore({ last = null } = {}) {
     suspended = true;
     restoring = true;
+    clearAreas(); // a shape's empty areas last only until the arrangement is put back
     const enteringNow = entering;
     entering = false;
     // A pending request to open one item wins, when the module is on for this space and the request is fresh.
@@ -2373,19 +2415,46 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     }
     // The person's own last layout is shown as its tab is pressed, a saved one included (the page checked it is there).
     const tab = SYSTEM_TABS.includes(firstLayout) || (firstLayout !== 'workspace' && firstLayout === last && !guest) ? firstLayout : null;
+    // A phone with Calendar or Map as the first visit: that composite first (a stored `calendar` or `maps` read as it).
+    // With Conference as the first visit the call is first (plan-workspaces.md, step 7): a phone has no Conference
+    // layout, the call is its own view there, shown "Not in a call" until the person joins (opening it never joins).
+    const lead = tab && isNarrow() ? (tab === 'conference' ? ['conference'] : readAliased([tab === 'map' ? 'maps' : tab], aliases)).filter((id) => canOpenHere(id)) : [];
+    // The template's layout (plan-layout-picker.md, step 3; decisions 2, 6 and 14): until this person has chosen anything
+    // here (no module of theirs ever on the canvas; a guest every time) the Workspace starts from the template's shape, placed by loadShape exactly as a shape loaded
+    // by hand is (an empty area with the chooser, an area this person can't open closed up, the left-out note), and that
+    // becomes the person's remembered arrangement, which wins from then on.
+    const shape = request ? null : firstVisitShape({ shape: spaceShape, remembered: saved.__open, placed: saved.__placed === true, guest });
+    if (shape && shapeById(shape.shape)) {
+      restoring = false;
+      suspended = false;
+      loadShape(shape);
+      // A phone has no column: the chat is a tab after the shape's modules (the conference and the chat for a guest, as
+      // whatOpens opens them), and a first visit's Calendar, Map or call is the first tab.
+      if (isNarrow()) {
+        const builtinsHere = (guest ? ['conference', 'chat'] : ['chat']).filter((id) => !lead.includes(id));
+        for (const id of [...lead, ...builtinsHere]) {
+          if (opened.has(readId(id)) || !canOpenHere(id)) continue;
+          if (builtins.has(id)) api_openBuiltin(id);
+          else { const m = available.find((x) => x.id === readId(id)); if (m) openModule(m); }
+        }
+        const first = Math.min(0, ...[...opened.values()].map((p) => p.order));
+        lead.forEach((id, i) => { const p = opened.get(readId(id)); if (p) p.order = first - lead.length + i; });
+        const shown = [...lead.map(readId), ...shape.areas.filter(Boolean).map(readId), ...builtinsHere].find((id) => opened.has(id));
+        if (shown) view = shown;
+        syncDock();
+        update();
+        snapshot();
+      }
+      return tab && !isNarrow() ? tab : null;
+    }
     const opens = request ? [request.module] : whatOpens({
       remembered: saved.__open,
-      own: spaceOpensWith,
       modules: available.map((m) => m.id),
       canOpen: canOpenHere,
       guest,
       column: columnMode(),
       aliases, // a stored `calendar` or `todo` opens the composite while the Calendar is on here (composites.js)
     });
-    // A phone with Calendar or Map as the first visit: that composite first (a stored `calendar` or `maps` read as it).
-    // With Conference as the first visit the call is first (plan-workspaces.md, step 7): a phone has no Conference
-    // layout, the call is its own view there, shown "Not in a call" until the person joins (opening it never joins).
-    const lead = tab && isNarrow() ? (tab === 'conference' ? ['conference'] : readAliased([tab === 'map' ? 'maps' : tab], aliases)).filter((id) => canOpenHere(id)) : [];
     const want = [...lead, ...opens.filter((id) => !lead.includes(id))];
     for (const id of want) {
       if (builtins.has(id)) { if (canOpenHere(id)) api_openBuiltin(id); }
@@ -2455,6 +2524,205 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     return { ...layoutOf(mods, canvasArea(), { all: snapAllOn(), pitch: snapPitch() }), arrange: arrangeMode() === 'window' ? 'window' : 'dock' };
   }
 
+  // --- a layout shape (plan-layout-picker.md, step 2) --------------------------------------------------------------
+  // A shape and its areas ({ shape, areas }; public/layout-shapes.js) opens as today's ordinary columns and stacks, each
+  // module docked at its share of the view (layouts.js's placeShape), and from then on it is the person's own
+  // arrangement (decision 6). An area the maker left empty is a placeholder column (or stack section) with the module
+  // chooser in it (decision 3): the shared menu the Modules tab mounts (host-menu.js, mountHostMenu), listing what this
+  // person can open here and has not open, and in a stacked area nothing that can't share a column (decision 8).
+  // Choosing one puts it in that area; the placeholder's close closes the area up. An area whose module this person can't
+  // open is closed up, with no chooser (decisions 13 and 18), and today's left-out note names it. Nothing about who can't
+  // open what is drawn on the canvas (decision 20).
+  // The one rule for what an area may hold here, for the chooser, a pick and loadShape's placing alike (layouts.js's
+  // areaMayHold): `parts` are the modules that read as a composite in this space now (composites.js's aliasesFor, from
+  // the ids on here: To-do only while the Calendar is on, Maps only while the space's Map shows), so To-do may be in a
+  // stacked area where the Calendar is off.
+  const compositePartsHere = () => Object.keys(aliases).filter((id) => typeof aliases[id] === 'string' && aliases[id].startsWith('dest:'));
+  const mayHoldHere = (shape, area, id) => areaMayHold(shape, area, id, { parts: compositePartsHere() });
+  // What the chooser in area `a` offers: the modules on here for this person that are not open, can be a column, and
+  // may be in that area.
+  const areaChoices = (a) => available.filter((m) => !opened.has(m.id) && supports({ modes: m.canvas?.mode }, 'dock') && mayHoldHere(a.shape, a.area, m.id));
+  function areaItems(a) {
+    const list = areaChoices(a);
+    a.lead.textContent = list.length ? fill('Choose {a module} for this area.') : fill('Every {module} you can open here is open.');
+    return list.map((m) => ({ icon: m.icon, tint: colorOf(m.id), label: m.name, ...(m.description ? { hint: m.description, clamp: true } : {}), onPick: () => fillArea(a.id, m.id) }));
+  }
+  // The chooser drawn into the placeholder (again after a pop-out: the menu's keys are its document's).
+  function mountChooser(a) {
+    a.menu?.destroy();
+    a.menu = mountHostMenu(a.list, () => areaItems(a));
+    a.list.querySelector(':scope > .host-menu')?.setAttribute('aria-label', fill('Choose {a module}'));
+  }
+  // A placeholder for an empty area: a docked column like a module's (a module frame, docked, with Close), so it lines
+  // up with its neighbours, takes part in the column fit and stacks, and is never remembered.
+  function openArea(slot, shape) {
+    const doc = canvasDoc();
+    const id = `area-${slot.area}`;
+    const section = doc.createElement('section');
+    section.className = 'module module-docked module-area';
+    section.dataset.area = String(slot.area);
+    section.innerHTML = '<div class="dock-resize" title="Drag to resize"></div><div class="mod-content dock-content"></div>';
+    const body = doc.createElement('div');
+    body.className = 'area-chooser';
+    const lead = doc.createElement('p');
+    lead.className = 'area-chooser-lead';
+    const list = doc.createElement('div');
+    list.className = 'area-chooser-list';
+    body.append(lead, list);
+    const frame = createModuleFrame({
+      document: doc,
+      title: 'Empty area',
+      icon: 'square-plus',
+      variant: 'docked',
+      bands: { status: false },
+      titlebar: { close: true, onAction: (e) => { if (e.id === 'close') closeArea(id); } },
+      content: body,
+    });
+    frame.el.classList.add('mf-docked');
+    frame.el.dataset.area = String(slot.area);
+    section.querySelector('.dock-content').append(frame.el);
+    canvas.appendChild(section);
+    const a = { id, kind: 'area', area: slot.area, shape, mode: 'dock', waiting: false, order: ++order, width: clampDock(slot.width), el: section, frame, lead, list, menu: null, parts: () => [...section.children] };
+    if (slot.stack) Object.assign(a, { stack: slot.stack, at: slot.at, h: slot.h });
+    areas.set(id, a);
+    mountChooser(a);
+    wireDockResize(() => areas.get(id), section.querySelector('.dock-resize'));
+    return a;
+  }
+  // Take a placeholder away. Its stack closes up behind it (one left is an ordinary column, its width kept), unless a
+  // module is about to take its place (`keepStack`). Answers the id of a module left alone in its column, or null.
+  function removeArea(id, { keepStack = false } = {}) {
+    const a = areas.get(id);
+    if (!a) return null;
+    a.menu?.destroy();
+    a.frame?.destroy();
+    a.el.remove();
+    areas.delete(id);
+    if (keepStack || !a.stack) return null;
+    const rest = holders().filter((p) => wantsColumn(p) && stackOf(p) === a.stack).sort((x, y) => (recFor(x.id).at ?? 99) - (recFor(y.id).at ?? 99));
+    if (rest.length === 1) { clearStackRecord(rest[0].id, { restore: false }); persist(); return rest[0].id; }
+    const shares = cleanShares(rest.map((p) => recFor(p.id).h), rest.length);
+    rest.forEach((p, at) => setRec(p.id, { at, h: shares[at] }));
+    persist();
+    return null;
+  }
+  // Every placeholder away (a layout loaded, the Workspace put back, Window Mode, leaving the space). The caller fits.
+  function clearAreas() {
+    for (const id of [...areas.keys()]) removeArea(id);
+  }
+  // The person closed an empty area (its title bar's close): it closes up, the others take its width. The keyboard goes
+  // to the next column's title, else the one before.
+  function closeArea(id) {
+    const a = areas.get(id);
+    if (!a) return;
+    const cols = columnsFrom(dockedModules());
+    const at = cols.findIndex((c) => c.mods.includes(a));
+    removeArea(id);
+    syncDock();
+    update();
+    const next = columnsFrom(dockedModules());
+    const to = next[Math.min(Math.max(0, at), next.length - 1)]?.mods[0];
+    const title = (to && (to.frame?.titlebar || to.el)?.querySelector?.('.mf-titlebar-title')) || null;
+    if (title) title.focus(); else canvas.focus?.();
+  }
+  // The person chose a module for an empty area: it opens docked in the area's place (its column, its width, its place in
+  // a stack), the placeholder goes, and the keyboard goes to the module's title.
+  function fillArea(id, moduleId) {
+    const a = areas.get(id);
+    const m = available.find((x) => x.id === moduleId);
+    if (!a || !m || opened.has(m.id) || !mayHoldHere(a.shape, a.area, m.id)) return;
+    // No personOpens(): the chooser is on the canvas itself, so the Conference layout (which hides it) is not shown.
+    const spot = { order: a.order, width: a.width, stack: a.stack, at: a.at, h: a.h };
+    removeArea(id, { keepStack: true });
+    remember(m.id, { mode: 'dock', dockW: spot.width });
+    clearStackRecord(m.id, { restore: false });
+    if (spot.stack) remember(m.id, { stack: spot.stack, at: spot.at, h: spot.h, folded: false });
+    hush += 1;
+    try { openModule(m, 'dock'); } finally { hush -= 1; }
+    const mod = opened.get(m.id);
+    if (mod) {
+      mod.order = spot.order;
+      if (mod.mode === 'dock') mod.width = clampDock(spot.width);
+    }
+    syncDock();
+    update();
+    requestAnimationFrame(() => opened.get(m.id)?.frame?.titlebar?.querySelector('.mf-titlebar-title')?.focus());
+  }
+  // Put a shape on the canvas (canvas.loadLayout takes one, as it takes a free-form layout): what may open here opens
+  // or moves into its column, docked; the open modules the shape does not name close, except the conference while this
+  // person is on the call; an empty area gets its placeholder; the columns are fitted by fitDock() as a resize would,
+  // so a column the window has no room for waits (a module floating, as today; an empty area not drawn). The result
+  // becomes this person's remembered arrangement (decision 2), Panel Mode, with the grid's switch off. On a phone the
+  // modules are the tabs in area order, the first area's shown, and no placeholder is made. Answers { left, waiting }, as
+  // loadLayout does.
+  function loadShape(record) {
+    const def = shapeById(record.shape);
+    if (!spaceId || !def) return { left: [], waiting: [] };
+    const narrow = isNarrow();
+    const width = canvasWidth() || canvasArea().w;
+    const plan = placeShape(record, width, canOpenHere, { shape: def, aliases, narrow, chooser: !guest, mayHold: (area, id) => mayHoldHere(def, area, id) });
+    if (!plan.shape) return { left: [], waiting: [] };
+    const named = new Set(plan.slots.filter((s) => s.id).map((s) => s.id));
+    const keepCall = (p) => p.id === 'conference' && p.kind === 'builtin' && Boolean(p.def?.inCall?.());
+    const sids = new Map(); // the plan's stack keys -> a stack id of this canvas's
+    const sidOf = (key) => { if (!sids.has(key)) sids.set(key, newStackId()); return sids.get(key); };
+    suspended = true;
+    restoring = true;
+    try {
+      clearAreas();
+      for (const p of [...opened.values()]) if (p.kind !== 'builtin' && !named.has(p.id) && !keepCall(p)) closeModule(p.id);
+      delete saved.__stacks; // stacks Window Mode put away are the arrangement this replaces
+      saved.__snap = { ...(saved.__snap || {}), all: false }; // a shape is columns: the grid's switch would float them
+      saved.__mode = 'panel';
+      for (const slot of plan.slots) {
+        const sid = slot.stack ? sidOf(slot.stack) : null;
+        if (!slot.id) { openArea({ ...slot, stack: sid }, def); continue; }
+        const m = available.find((x) => x.id === slot.id);
+        if (!m) continue;
+        remember(slot.id, { mode: 'dock', ...(slot.dockW ? { dockW: slot.dockW } : {}) });
+        clearStackRecord(slot.id, { restore: false }); // the shape's width is the one
+        if (sid) remember(slot.id, { stack: sid, at: slot.at, h: slot.h, folded: false });
+        let mod = opened.get(slot.id);
+        if (mod && mod.waiting) { mod.width = clampDock(slot.width); continue; } // it wants its column already; the fit decides
+        if (!mod) openModule(m, narrow ? undefined : 'dock');
+        else if (mod.mode !== 'dock' && !narrow) setMode(slot.id, 'dock');
+        mod = opened.get(slot.id);
+        if (mod && mod.mode === 'dock') { mod.width = clampDock(slot.width); mod.onWidth?.(mod.width); }
+      }
+      // The column order is the shape's: its areas left to right, top first, after whatever stays (the conference on the call).
+      for (const slot of plan.slots) { const p = slot.id ? opened.get(slot.id) : areas.get(`area-${slot.area}`); if (p) p.order = ++order; }
+      if (narrow) {
+        if (plan.slots.some((s) => s.id)) arrangeOnWide = true; // Panel Mode on the canvas when the window is wide (placeForWidth)
+        const first = plan.slots.find((s) => s.id && opened.has(s.id));
+        if (first) view = first.id;
+      }
+    } finally {
+      restoring = false;
+      suspended = false;
+    }
+    keepLayout = false;
+    tidyStackRecords();
+    hush += 1;
+    try { syncDock(); } finally { hush -= 1; }
+    update();
+    snapshot();
+    const waiting = [...opened.values()].filter((p) => p.waiting).sort(byOrder).map((p) => p.id);
+    // A module that closed up because it is part of a composite here (To-do while the Calendar is on) is named too
+    // (Thomas, 2026-11-19), by the name a person reads (the server's list keeps To-do's own); the composite's own main is not.
+    const folded = plan.folded.filter((f) => compositeById(f.into)?.main !== f.id);
+    const partName = (id) => modules.find((m) => m.id === id)?.name || nameOfLayout(id);
+    const lines = [leftOutNote(plan.left, nameOfLayout, word('space')), partOfNote(folded, partName)];
+    if (waiting.length) {
+      const names = waiting.map(nameOf);
+      const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+      lines.push(names.length === 1 ? `The window is too narrow for another column, so ${list} is floating.` : `The window is too narrow for more columns, so ${list} are floating.`);
+    }
+    // An empty area cannot float: it waits unseen, so the note says so (it shows when the window is wide enough).
+    if ([...areas.values()].some((a) => a.waiting)) lines.push('The window is too narrow for the empty area. It shows when the window is wide enough.');
+    note(lines.filter(Boolean).join(' '));
+    return { left: [...plan.left, ...folded.map((f) => f.id)], waiting };
+  }
+
   // Put a saved layout on the canvas (plan-saved-layouts.md, "Saving and loading"): what may open here (canOpenHere)
   // opens or moves to its mode, in order; the open modules the layout does not name close, except the conference while
   // this person is on the call (closing it would hang up); docked widths, floating boxes scaled from the fractions,
@@ -2463,7 +2731,9 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // modes and places are remembered for a wider window and the first module is the view. Answers { left, waiting }:
   // the ids left out, and the ids waiting for a column; the panel's note says both in plain words.
   function loadLayout(layout) {
+    if (layout && typeof layout.shape === 'string') return loadShape(layout); // a layout shape (plan-layout-picker.md)
     if (!spaceId || !layout || !Array.isArray(layout.modules)) return { left: [], waiting: [] };
+    clearAreas(); // a shape's empty areas are not part of any other layout
     const narrow = isNarrow();
     const area = canvasArea();
     const plan = placeLayout(layout, area, canOpenHere, aliases); // a stored `calendar` or `todo` places the composite
@@ -2673,6 +2943,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     snapshot();
     paintDockButtons();
     if (canvasEmpty) canvasEmpty.hidden = onCanvas();
+    for (const a of areas.values()) a.menu?.redraw(); // an empty area's chooser lists only what is not open
     if (!inline()) { refreshMenu(); return; }
     // The phone's tab bar (the Tab bar family, system.css): a tab per module, the chat first; the conference is not a
     // tab (the call is the bar's pinned call item, space.js). The current tab is the view being shown.
@@ -2772,7 +3043,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     available = [];
     aliases = {};
     colors = new Map();
-    spaceOpensWith = null;
+    spaceShape = null;
     spaceDefaultLayout = null;
     spaceFirstVisit = null;
     entering = Boolean(id);
@@ -2791,12 +3062,12 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
         available = composeList(modules, shown);
         aliases = aliasesFor(modules.map((m) => m.id), shown);
         colors = new Map((answer.modules || []).filter((m) => TINTS.includes(m.color)).map((m) => [m.id, m.color]));
-        spaceOpensWith = Array.isArray(answer.opensWith) ? answer.opensWith : null;
+        spaceShape = answer.layout && typeof answer.layout.shape === 'string' && Array.isArray(answer.layout.areas) ? answer.layout : null;
         spaceDefaultLayout = answer.defaultLayout && Array.isArray(answer.defaultLayout.modules) ? answer.defaultLayout : null;
-        // The first visit, as the server resolved it; from a server before it, the shared default as it opened then.
+        // The first visit, as the server resolved it.
         spaceFirstVisit = answer.firstVisit && typeof answer.firstVisit.layout === 'string'
           ? answer.firstVisit
-          : { layout: spaceDefaultLayout && spaceOpensWith ? spaceDefaultLayout.id : 'workspace', opensWith: spaceOpensWith };
+          : { layout: 'workspace', shape: spaceShape };
         showBuiltin(answer.builtin);
       } catch {
         available = [];

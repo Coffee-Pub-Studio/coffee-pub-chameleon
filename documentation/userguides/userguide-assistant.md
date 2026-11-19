@@ -2,7 +2,7 @@
 
 **Audience:** an owner setting up the AI on a Coffee Pub Chameleon server, and anyone asking it questions or bringing in research from another AI.
 
-The AI is asked from Chat now, in its **Assistant** tab or with `/ai`; see [Chat](userguide-chat.md), "Ask the AI". The Assistant tab shows only your own commands and answers. The **AI Assistant** is a module (it was two things, a module and an "AI service"; they are one now), and it holds the AI setup. It has no window of its own and is not on Set up's **Modules** tab; Chat's Assistant tab is where its answers show. `/ai` and Research's AI controls need it installed and on: without it Chat says "AI Assistant is not turned on.", and a space whose template leaves it out says it is not one of the space's modules. The Travel and Games templates offer it; the others do not, though the Default template offers every module. Research brought in from another AI comes in through Chat too.
+The AI is asked from Chat now, in its **Assistant** tab or with `/ai`; see [Chat](userguide-chat.md), "Ask the AI". The Assistant tab shows only your own commands and answers. The **AI Assistant** is a module (it was two things, a module and an "AI service"; they are one now), and it holds the AI setup. It has no window of its own and is not on Set up's **Modules** tab; Chat's Assistant tab is where its answers show. `/ai` and Research's AI controls need it installed and on: without it Chat says "AI Assistant is not turned on.", and a space whose template leaves it out says it is not one of the space's modules. The Travel and Gaming templates offer it; the others do not, though the Default template offers every module. Research brought in from another AI comes in through Chat too.
 
 ## Set it up (owner)
 

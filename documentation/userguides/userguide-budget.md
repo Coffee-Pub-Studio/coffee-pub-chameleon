@@ -91,4 +91,4 @@ the status strip are hidden, so the strip shows one figure for money, not two. T
 
 ## Not yet
 
-An owner installs and turns Budget on in Manage; a space then has it only if its template offers it (the Travel, Games, Project, Learning and Mentoring templates do, and Default offers every module). A template may show it under another name, such as **Effort**, **Time** or **Costs**, and give it its own categories. Its unit (money, hours or effort) and the split are not settings a template can set yet, so Budget counts money under every template.
+An owner installs and turns Budget on in Manage; a space then has it only if its template offers it (the Travel, Gaming, Projects, Education and Mentoring templates do, and Default offers every module). A template may show it under another name, such as **Effort**, **Time** or **Costs**, and give it its own categories. Its unit (money, hours or effort) and the split are not settings a template can set yet, so Budget counts money under every template.

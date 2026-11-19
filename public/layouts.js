@@ -17,7 +17,7 @@
 // of its own. The person's own remembered layout (canvas.js, `app.canvas.<space>`) keeps the same four keys on each
 // module's record. The stack's arithmetic (grouping, heights, the divider, the short canvas) is here too.
 
-import { MIN_W, MIN_H, DOCK_MIN, gridFor, cellBox, resettle } from '/snap-grid.js';
+import { MIN_W, MIN_H, DOCK_MIN, NARROW, gridFor, cellBox, resettle, fitDock } from '/snap-grid.js';
 
 // The server's limits (server/layouts.js, LAYOUT_LIMITS), so the page says what the server would refuse before asking.
 // A stack: at most stackMax modules in one column, each one's share of the column's height from stackHMin to stackHMax,
@@ -320,6 +320,170 @@ export function placeLayout(layout, area, canOpen = () => true, aliases = {}) {
     }
   }
   return { modules: tidyStacks(modules), left, snap };
+}
+
+// --- a layout shape (plan-layout-picker.md, step 2) ----------------------------------------------------------------------
+// A shape and its areas, { shape: '<id>', areas: ['<module id>' | null, ...] } (server/layout-shapes.js holds the one
+// check), put on a canvas as today's ordinary columns and stacks: it is only a start (decision 6), and what the person
+// does after that is their own arrangement. `shape` is the shape's entry from public/layout-shapes.js ({ id, areas,
+// columns, stacked }; handed in, so this file stays free of the page's other lists), `columns` the widths as percentages
+// of the view.
+
+// Whether `id` may go in area `area` (counted from 1) of `shape`, for the chooser in an empty area and for placing a
+// shape: never the chat or the conference (the column on the left, decision 1); in a stacked area (decision 8) never a
+// composite (`dest:*`), never Calendar or Maps (ALWAYS_COMPOSITE: whether Maps is the Map composite depends on a map
+// file, so it is refused whatever is on, as the server's shape check refuses both), and never a module in `parts`, the
+// ones that read as a composite in this space now (composites.js's aliasesFor: To-do while the Calendar is on). The same
+// rule as cleanShape() in server/layout-shapes.js; tools/check-canvas.mjs holds the two together.
+export const ALWAYS_COMPOSITE = Object.freeze(['calendar', 'maps']);
+export function areaMayHold(shape, area, id, { parts = [] } = {}) {
+  if (!shape || typeof id !== 'string' || !id || inColumn(id)) return false;
+  if (!(Array.isArray(shape.stacked) && shape.stacked.includes(area))) return true;
+  return !id.startsWith('dest:') && !ALWAYS_COMPOSITE.includes(id) && !(Array.isArray(parts) && parts.includes(id));
+}
+
+// The columns a shape is made of, in order: each a list of area numbers, top first. An area outside `stacked` is a column
+// of its own; the stacked ones share one, where the first of them is. The layout picker draws its shapes from it too.
+export function shapeColumns(shape) {
+  const stacked = Array.isArray(shape.stacked) ? shape.stacked : [];
+  const cols = [];
+  for (let a = 1; a <= shape.areas; a += 1) {
+    if (!stacked.includes(a)) cols.push([a]);
+    else if (a === Math.min(...stacked)) cols.push(stacked.slice().sort((x, y) => x - y));
+  }
+  return cols;
+}
+
+// Where a shape's areas go on a canvas `width` px wide (the view: the canvas beside the chat and call column). `canOpen(id)`
+// says whether this person may open a module here, as for placeLayout. Options: `shape` (the shape's entry, above;
+// without it, or when its id is not the record's, nothing is placed), `aliases` (composites.js, as for placeLayout:
+// `calendar` reads as the Calendar's composite), `narrow` (the window is a phone's: no columns, one view at a time;
+// by default when `width` is NARROW or less), `chooser` (false for a guest, who has no chooser).
+//
+// Each area is one of:
+//   a module   placed, docked, in its column (and its stack);
+//   empty      an area the maker left empty (null): a placeholder with the chooser (decision 3), only where there is a
+//              chooser and a column for it, so not for a guest and not on a phone (an empty area is no tab there);
+//   closed     closed up for this person: its module can't open here (off in the space, not installed, not readable
+//              by them; named in `left`, decisions 13 and 18, no chooser in it), or it is empty where there is no
+//              chooser, or it names the chat or the conference, a module a second time, or in a stacked area a module
+//              that can't share a column (the shape check refuses those last three, so a stored shape has none).
+// A closed column is left out before the widths are worked out: the columns left share the view in the proportion of
+// their percentages (wide-narrow without area 2: area 1 takes it all; three-equal without one: half each). A stack with
+// one section closed is an ordinary column, its width kept. Answers:
+//   shape    the shape's id, or null when nothing could be placed;
+//   narrow   as given;
+//   columns  [{ areas, share, width, flex, stack }]: the area numbers shown in it, top first, its share of the view in
+//            percent and in pixels, whether it is the flexible column (the first; it takes what the others leave), and a
+//            stack key ('c1', 'c2', ...) when two or more are shown in it;
+//   slots    [{ area, id, column, width, dockW?, stack?, at?, h? }] in column order, top first: `id` the module's id as
+//            it reads here, or null for an empty area; `dockW` the column's width for any but the flexible one, clamped as
+//            the canvas's clampDock() does (DOCK_MIN to 60% of the view); a stack's sections with equal heights;
+//   empty    the area numbers drawn empty, with the chooser;
+//   closed   the area numbers closed up;
+//   left     the ids that can't open here, in area order, for leftOutNote();
+//   folded   [{ id, into }]: a module named in an area that closed up because it reads as a composite here (`into`, its
+//            `dest:*` id: To-do while the Calendar is on, in a stacked area or beside the Calendar itself), for
+//            partOfNote() (Thomas, 2026-11-19: the note names it, as it names a module that isn't on);
+//   waiting  the area numbers whose column the view has no room for now (fitDock(), the same rule the canvas fits its
+//            columns by; three-equal needs 760 px), which wait as today's columns do. None on a phone.
+// `mayHold(area, id)` is the one rule for what an area may hold, the chooser's too (areaMayHold above by default; canvas.js
+// hands in the same rule its chooser uses): an area naming what it may not hold closes up, and nothing is "left out".
+export function placeShape(record, width, canOpen = () => true, { shape = null, aliases = {}, narrow, chooser = true, mayHold = null } = {}) {
+  const holds = typeof mayHold === 'function' ? mayHold : (a, x) => areaMayHold(shape, a, x);
+  const W = Math.max(0, num(width));
+  const phone = narrow === undefined ? W <= NARROW : Boolean(narrow);
+  const none = { shape: null, narrow: phone, columns: [], slots: [], empty: [], closed: [], left: [], folded: [], waiting: [] };
+  const def = shape && record && typeof record === 'object' && shape.id === record.shape ? shape : null;
+  if (!def || !Array.isArray(record.areas) || record.areas.length !== def.areas || !Array.isArray(def.columns)) return none;
+  const stacked = Array.isArray(def.stacked) ? def.stacked : [];
+  const columns = shapeColumns(def);
+  if (columns.length !== def.columns.length) return none;
+  // Each area: what it holds here.
+  const seen = new Set();
+  const left = [];
+  const kind = new Map(); // area -> { id } | { empty: true } | { closed: true }
+  // A module that reads as a composite here (To-do while the Calendar is on) and closes up for it: named for partOfNote().
+  const folded = [];
+  const foldedInto = (stored) => { const to = typeof stored === 'string' ? aliasOf(stored, aliases) : null; return typeof to === 'string' && to !== stored && to.startsWith('dest:') ? to : null; };
+  const closeFolded = (a, stored) => {
+    const into = foldedInto(stored);
+    if (into && !folded.some((f) => f.id === stored)) folded.push({ id: stored, into });
+    kind.set(a, { closed: true });
+  };
+  for (let a = 1; a <= def.areas; a += 1) {
+    const stored = record.areas[a - 1];
+    if (stored === null || stored === undefined) { kind.set(a, chooser && !phone ? { empty: true } : { closed: true }); continue; }
+    if (typeof stored !== 'string' || !stored) { kind.set(a, { closed: true }); continue; }
+    if (!holds(a, stored)) { closeFolded(a, stored); continue; }
+    const to = aliasOf(stored, aliases);
+    const id = Array.isArray(to) ? to.find((x) => typeof x === 'string' && x) || null : to;
+    if (typeof id === 'string' && id && !holds(a, id)) { closeFolded(a, stored); continue; }
+    if (typeof id !== 'string' || !id || !canOpen(id)) {
+      const named = typeof id === 'string' && id ? id : stored;
+      if (!left.includes(named)) left.push(named);
+      kind.set(a, { closed: true });
+      continue;
+    }
+    if (seen.has(id)) { closeFolded(a, stored); continue; }
+    seen.add(id);
+    kind.set(a, { id });
+  }
+  const shown = (a) => !kind.get(a).closed;
+  // The columns left, and their shares of the view.
+  const kept = columns.map((areas, i) => ({ areas: areas.filter(shown), pct: num(def.columns[i]) })).filter((c) => c.areas.length);
+  const total = kept.reduce((s, c) => s + c.pct, 0) || 1;
+  const maxDock = Math.max(DOCK_MIN, Math.round(W * 0.6));
+  const out = kept.map((c, i) => {
+    const share = (100 * c.pct) / total;
+    return { areas: c.areas, share, width: Math.round((share * W) / 100), flex: i === 0, stack: c.areas.length > 1 ? `c${i + 1}` : null };
+  });
+  const slots = [];
+  out.forEach((c, ci) => {
+    const h = evenShares(c.areas.length);
+    c.areas.forEach((a, at) => {
+      const k = kind.get(a);
+      const slot = { area: a, id: k.id || null, column: ci, width: c.width };
+      if (!c.flex) slot.dockW = clamp(c.width, DOCK_MIN, maxDock);
+      if (c.stack) Object.assign(slot, { stack: c.stack, at, h: Math.round(h[at] * 10000) / 10000 });
+      slots.push(slot);
+    });
+  });
+  // The columns the view holds now, by the canvas's own rule; the rest wait.
+  const waiting = [];
+  if (!phone && out.length) {
+    const plan = fitDock(W, out.map((c, i) => ({ id: `c${i}`, width: c.flex ? c.width : clamp(c.width, DOCK_MIN, maxDock), flex: c.flex })), { wide: true });
+    for (const key of plan.waiting) waiting.push(...out[Number(key.slice(1))].areas);
+  }
+  const all = [...kind.keys()];
+  return {
+    shape: def.id,
+    narrow: phone,
+    columns: out,
+    slots,
+    empty: all.filter((a) => kind.get(a).empty),
+    closed: all.filter((a) => kind.get(a).closed),
+    left,
+    folded,
+    waiting,
+  };
+}
+
+// The one line a load says about a module it left out because it is part of a composite here, as leftOutNote() says one
+// that isn't on: "To-do is part of the Calendar here, so it was left out." `list` is placeShape()'s `folded`; `nameOf(id)`
+// gives a module's name and a composite's (its main module's). '' when there is none.
+export function partOfNote(list, nameOf = (id) => id) {
+  const byInto = new Map();
+  for (const f of Array.isArray(list) ? list : []) {
+    if (!f || typeof f.id !== 'string' || typeof f.into !== 'string') continue;
+    if (!byInto.has(f.into)) byInto.set(f.into, []);
+    byInto.get(f.into).push(nameOf(f.id) || f.id);
+  }
+  return [...byInto].map(([into, names]) => {
+    const whole = nameOf(into) || into;
+    if (names.length === 1) return `${names[0]} is part of the ${whole} here, so it was left out.`;
+    return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are part of the ${whole} here, so they were left out.`;
+  }).join(' ');
 }
 
 // The one line a load says about what it left out, by the modules' names: "Map isn't on in this space, so it was left

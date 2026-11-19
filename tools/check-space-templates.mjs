@@ -210,15 +210,15 @@ await test('a new space starts from its template, else the environment; later ch
   const store = fresh('seed');
   store.updateSettings({ spaceDefaults: { profile: 'characters' } });
   const g = store.addSpace({ name: 'G', template: 'games' });
-  assert.deepEqual(store.opensWithOf(g.id), ['chat', 'calendar'], "the games template's opens-with, read live");
-  assert.equal('opensWith' in g, false, 'and never stored on the space');
+  assert.equal(store.layoutOf(g.id), null, 'the games template names no layout');
+  assert.equal('layout' in g, false, 'and never stored on the space');
   assert.equal(g.profile, 'characters', "games has no profile of its own: the environment's");
   const t = store.addSpace({ name: 'T', template: 'travel' });
   assert.equal(t.profile, 'participants');
-  assert.deepEqual(store.opensWithOf(t.id), ['travel', 'chat']);
+  assert.deepEqual(store.layoutOf(t.id), { shape: 'wide-narrow', areas: ['travel', 'vault'] }, "the travel template's layout, read live");
   const plain = store.addSpace({ name: 'P' });
   assert.equal(plain.profile, 'characters');
-  assert.deepEqual(store.opensWithOf(plain.id), ['travel', 'chat'], 'no template of its own: the environment\'s, read live');
+  assert.deepEqual(store.layoutOf(plain.id), { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'no template of its own: the environment\'s, read live');
   const picked = store.addSpace({ name: 'Q', template: 'travel', profile: 'roleplaying' });
   assert.equal(picked.profile, 'roleplaying', 'a profile given wins');
   // A change of template touches only the key.
@@ -389,15 +389,15 @@ try {
     const member = await mia.as('GET', `/api/spaces/${campaign.id}`);
     assert.deepEqual([member.status, member.json], [403, { error: 'owners only' }], 'a member is told nothing of it');
     assert.equal(member.text.includes('games'), false);
-    assert.equal(member.text.includes('Games'), false, "a member is told no name");
+    assert.equal(member.text.includes('Gaming'), false, "a member is told no name");
     const stranger = await out.as('GET', `/api/spaces/${campaign.id}`);
-    assert.equal(stranger.text.includes('Games') || stranger.text.includes('games'), false, 'an outsider reads what an unseen space reads');
+    assert.equal(stranger.text.includes('Gaming') || stranger.text.includes('games'), false, 'an outsider reads what an unseen space reads');
     const plain = (await asAdmin('POST', '/api/spaces', { name: 'Plain', members: [mo.key] })).json.space;
     assert.equal((await asAdmin('PATCH', `/api/users/${mo.key}/spaces/${plain.id}`, { permissions: { moderator: true } })).status, 200);
     const none = (await mo.as('GET', `/api/spaces/${plain.id}`)).json.space;
     assert.equal(none.template, null, 'a space with no template still reads null');
     assert.equal('templateName' in none, false, 'and adds no name');
-    assert.equal(JSON.stringify(none).includes('Games'), false, 'nor the environment template');
+    assert.equal(JSON.stringify(none).includes('Gaming'), false, 'nor the environment template');
     // Another space's template is never named: the moderator of the plain space cannot read the campaign.
     assert.equal((await mo.as('GET', `/api/spaces/${campaign.id}`)).json.space.templateName, templates.get('games').name, 'the campaign names its own template only');
   });

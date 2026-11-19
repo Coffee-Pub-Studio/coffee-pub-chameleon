@@ -2,7 +2,8 @@
   "id": "default",
   "name": "Default",
   "description": "Every module this server has, with the usual words. Copy it to make your own.",
-  "version": 1,
+  "version": 2,
   "modules": "*",
+  "workspace": { "layout": { "shape": "one", "areas": [null] } },
   "call": { "joinOnEntry": false, "position": "top", "layout": "grid" }
 }

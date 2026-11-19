@@ -9,7 +9,7 @@ import { renderModuleSettings } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
 import { createCanvas } from '/canvas.js';
 import { layoutDiffers } from '/layouts.js';
-import { conferenceAllowed, opensWithLine, shouldAutoJoin } from '/opens-with.js';
+import { conferenceAllowed, layoutLine, shouldAutoJoin } from '/opens-with.js';
 import { switchListHtml, wireSwitchList } from '/switch-list.js';
 import { createWhoHere } from '/space-people.js';
 import { openLiveStream, liveStreamUrl, peopleFromPresence } from '/space-live.js';
@@ -3107,7 +3107,7 @@ nav.register({ id: 'aside-rejoin', bar: 'primary', zone: 'right', group: 'aside'
 // in order, and leaves the mode; Cancel and Escape leave it and drop the edits, asking "Discard your changes?" first
 // when something was edited; a click outside does nothing. A member has no Set up. /?setup=<id>#<tab> opens it from an
 // address (openSetupFor, step 6), as do the space card's Set up link on Home and Manage's Edit link.
-const spaceSetup = createSpaceSetup({ tabOverflow, openMenu: openHostMenu, api, word, verb, icons: getIcons, switchListHtml, wireSwitchList, opensWithLine, escapeHtml, layoutVerb: () => verb('layout'), renderModuleSettings });
+const spaceSetup = createSpaceSetup({ tabOverflow, openMenu: openHostMenu, api, word, verb, icons: getIcons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, layoutVerb: () => verb('layout'), renderModuleSettings });
 let settingUp = false;
 const setupNameInput = document.createElement('input');
 setupNameInput.type = 'text';
@@ -3494,14 +3494,14 @@ async function setFavorite(layout, on) {
 }
 
 // Makes a shared layout what a first visit opens, or stops (`layoutId` null: the Workspace again): PATCH /api/spaces/:id
-// with `defaultLayout` alone. Opens with is not touched either way (plan-layout-views.md, step 5: it is the Workspace's
-// own content). Then the list again, for the Default mark.
+// with `defaultLayout` alone. The template's layout is not touched either way (plan-layout-views.md, step 5: it is the
+// Workspace's own content). Then the list again, for the Default mark.
 async function setDefaultLayout(layoutId, layout) {
   const id = layoutSpaceId();
   if (!id) return;
   try {
     const { space } = await api('PATCH', `/api/spaces/${encodeURIComponent(id)}`, { defaultLayout: layoutId });
-    if (space && currentSpace?.id === space.id) Object.assign(currentSpace, { opensWith: space.opensWith ?? null, defaultLayout: space.defaultLayout ?? null });
+    if (space && currentSpace?.id === space.id) Object.assign(currentSpace, { defaultLayout: space.defaultLayout ?? null });
     layoutNote(layoutId ? `A first visit opens ${layout.name} now.` : `${layout.name} is no longer the default. A first visit opens the Workspace.`);
   } catch (err) {
     layoutNote(err.message || 'That did not work. Try again.');

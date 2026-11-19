@@ -48,25 +48,6 @@ const SLOTS = ['profile', 'background', ...PARTICIPANT_SLOTS, ...CHARACTER_SLOTS
 // offered for it, on a member's per-space section and (eventually) in
 // Studio's publish UI: Roleplaying wants both, the other two just one.
 const SPACE_PROFILES = ['roleplaying', 'participants', 'characters'];
-// A stale Opens with inside the environment's spaceDefaults (the template decides it now) is dropped on load, so a save never copies it on.
-function stripOpensWith(settings) {
-  const d = settings.spaceDefaults;
-  if (!d || typeof d !== 'object' || Array.isArray(d) || !('opensWith' in d)) return settings;
-  const { opensWith, ...rest } = d; // eslint-disable-line no-unused-vars
-  const out = { ...settings };
-  if (Object.keys(rest).length) out.spaceDefaults = rest; else delete out.spaceDefaults;
-  return out;
-}
-const OPENS_WITH_ID = /^[a-z][a-z0-9-]{0,31}$/;
-const MAX_OPENS_WITH = 20;
-// The module ids a template's Default Workspace opens with (workspace.opensWith), as read: up to 20 distinct strings of
-// the module id pattern, the built-ins `conference` and `chat` included; a module that is off or not installed is kept.
-// null when nothing is left, which means "not set".
-function cleanOpensWith(list) {
-  if (!Array.isArray(list)) return null;
-  const out = [...new Set(list.filter((id) => typeof id === 'string' && OPENS_WITH_ID.test(id)))].slice(0, MAX_OPENS_WITH);
-  return out.length ? out : null;
-}
 // A space's budget target (plan-space-story-strip.md, decision 5; #216; plan-budget-module.md, decision 7):
 // { amount?, currency? } with at least one of them: a positive amount of at most 12 digits before the point, rounded to
 // cents, and a three-letter currency code (absent: the currency the module reporting the money uses). A currency alone
@@ -842,7 +823,7 @@ class Store {
         stream: strongKey(raw.secrets?.stream, STREAM_KEY_BYTES) ? raw.secrets.stream : randomToken(STREAM_KEY_BYTES),
       },
       // A deep copy: DEFAULT_SETTINGS is every store's, and its roles, themes, icons and reactions must not be shared.
-      settings: stripOpensWith({ ...structuredClone(DEFAULT_SETTINGS), ...migrateMfaSettings(raw.settings) }),
+      settings: { ...structuredClone(DEFAULT_SETTINGS), ...migrateMfaSettings(raw.settings) },
       users: Array.isArray(raw.users) ? raw.users.map((u) => this.sanitizeUser(u)).filter(Boolean) : [],
       spaces: Array.isArray(raw.spaces) ? raw.spaces.map((r) => this.sanitizeSpace(r)).filter(Boolean) : [],
       // Asides (plan-names step 8): their own record, never among the spaces. Each lives only while someone is in it
@@ -960,7 +941,7 @@ class Store {
       ...(id !== LOBBY && r.requestAccess === true ? { requestAccess: true } : {}),
       // Closed for set up: only owners, the admin and the space's moderators enter it (space-access.js); absent while open. Not the Lobby.
       ...(id !== LOBBY && r.closed === true ? { closed: true } : {}),
-      // What the space opens with is its template's (lookOf(...).workspace.opensWith); the record keeps no list of its own.
+      // What the space opens with is its template's (lookOf(...).workspace.layout); the record keeps no list of its own.
       // The shared saved layout this space opens with on a first visit (plan-saved-layouts.md, decision 4): its id,
       // absent while not set. Kept by updateSpace and syncDefaultLayout.
       ...(cleanLayoutId(r.defaultLayout) ? { defaultLayout: r.defaultLayout } : {}),
@@ -2435,10 +2416,12 @@ class Store {
     return { tabs, defaultLayout: first };
   }
 
-  // What a space's Workspace opens with, from its template (the environment's when it has none of its own): the module
-  // ids, or null while the template names none (the page then opens as the product does). Never stored on the space.
-  opensWithOf(spaceId) {
-    return cleanOpensWith(this.lookOf(spaceId).workspace.opensWith);
+  // What a space's Workspace starts with, from its template (the environment's when it has none of its own): the shape
+  // and its areas, { shape, areas }, or null while the template names none (the page then opens as the product does).
+  // Never stored on the space.
+  layoutOf(spaceId) {
+    const layout = this.lookOf(spaceId).workspace.layout;
+    return layout ? { shape: layout.shape, areas: [...layout.areas] } : null;
   }
 
   // A template named for a space, checked: the catalog's entry. 400 with one sentence for a value that is not an id, an id
@@ -2598,10 +2581,8 @@ class Store {
       draft.allowGuests = patch.allowGuests;
       if (!draft.allowGuests && draft.guestToken) draft.guestToken = null;
     }
-    // Opens with is the template's to decide (plan-templates-redesign.md, decision 8): the space has no list of its own.
-    if (patch.opensWith !== undefined) throw new StoreError(`What a ${this.word('space')} opens with comes from its template; pick another template to change it.`);
     // The first visit's layout (plan-layout-views.md, step 5): a shared layout's id, `calendar` or `map` (the system
-    // layouts, while they are on in this space), or null for Workspace with Opens with. It does not touch Opens with.
+    // layouts, while they are on in this space), or null for the Workspace with its template's layout.
     // Who may do this is the route's to decide (owners, the admin and this space's moderators).
     if (patch.defaultLayout !== undefined) {
       if (patch.defaultLayout === null) {

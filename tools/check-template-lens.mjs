@@ -64,7 +64,7 @@ const PROJECT_RAW = {
   words: { space: { one: 'project', many: 'projects' } },
   modules: { travel: { name: 'Project plan', icon: 'diagram-project' }, maps: {}, budget: { name: 'Effort' }, assistant: {}, chat: {}, conference: {} },
   call: { joinOnEntry: false, position: 'left', layout: 'strip' },
-  workspace: { opensWith: ['travel', 'chat'], show: ['calendar'], opensFirst: 'workspace' },
+  workspace: { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] }, show: ['calendar'], opensFirst: 'workspace' },
   phases: [{ id: 'start', label: 'Start' }, { id: 'build', label: 'Build', main: true }],
   phaseMeasure: 'progress',
   reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }],
@@ -132,8 +132,8 @@ await test('two spaces on two templates: different module sets, names, icons, re
   assert.deepEqual(lp.phases.map((x) => x.id), ['start', 'build']);
   assert.equal(lp.phaseMeasure, 'progress');
   assert.deepEqual(lp.call, { joinOnEntry: false, position: 'left', layout: 'strip' }, 'the call as stored');
-  assert.deepEqual(lp.workspace, { opensWith: ['travel', 'chat'], show: ['calendar'], opensFirst: 'workspace' }, 'the workspace as stored');
-  assert.deepEqual([lg.call, lg.workspace.opensWith], [{ joinOnEntry: false, position: 'top', layout: 'grid' }, ['chat', 'calendar']]);
+  assert.deepEqual(lp.workspace, { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] }, show: ['calendar'], opensFirst: 'workspace' }, 'the workspace as stored');
+  assert.deepEqual([lg.call, lg.workspace.layout], [{ joinOnEntry: false, position: 'top', layout: 'grid' }, undefined], 'Gaming names no layout');
   // The answer is the reader's own: changing it changes nothing stored or read again.
   lp.modules.push('calendar');
   lp.names.travel.name = 'Changed';
@@ -429,7 +429,7 @@ try {
   const out = await makeUser('ola');
   // The owner's own templates: a project (from travel, with additions) and a lean one (no AI Assistant, no Maps).
   assert.equal((await owner.as('POST', '/api/environment/templates', { from: 'travel', id: 'harbor', name: 'Harbor' })).status, 201);
-  const projectEdit = await owner.as('PATCH', '/api/environment/templates/harbor', { words: { space: { one: 'project', many: 'projects' } }, modules: { travel: { name: 'Project plan', icon: 'diagram-project' }, maps: {}, budget: { name: 'Effort' }, assistant: {}, documents: {}, chat: {}, conference: {} }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['diagram-project'] });
+  const projectEdit = await owner.as('PATCH', '/api/environment/templates/harbor', { words: { space: { one: 'project', many: 'projects' } }, modules: { travel: { name: 'Project plan', icon: 'diagram-project' }, maps: {}, budget: { name: 'Effort' }, assistant: {}, documents: {}, chat: {}, conference: {} }, workspace: { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] } }, reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['diagram-project'] });
   assert.equal(projectEdit.status, 200, projectEdit.text);
   assert.equal((await owner.as('POST', '/api/environment/templates', { from: 'default', id: 'lean', name: 'Lean' })).status, 201);
   assert.equal((await owner.as('PATCH', '/api/environment/templates/lean', { modules: { travel: { name: 'Plan' }, calendar: {}, chat: {}, conference: {} } })).status, 200);

@@ -84,7 +84,7 @@ try {
   const choose = (tab, value) => tab.eval(`(() => { const s = document.getElementById('setup-template'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; })()`);
 
   for (const width of [1280, 390]) {
-    await test(`owner at ${width}: the Template choice lists "Same as ..." then what is offered; choosing Games changes that space's words only`, async () => {
+    await test(`owner at ${width}: the Template choice lists "Same as ..." then what is offered; choosing Gaming changes that space's words only`, async () => {
       const tab = await setupOpen('admin', width);
       const choice = await tab.eval(`(() => {
         const s = document.getElementById('setup-template');
@@ -102,7 +102,7 @@ try {
       await tab.eval(`document.querySelector('.action-bar-save').click()`);
       await tab.waitFor('dialog.sdk-dialog-confirm[open] [data-ok]');
       const asked = await tab.eval(`document.querySelector('dialog.sdk-dialog-confirm').textContent.replace(/\\s+/g, ' ')`);
-      assert.match(asked, /Change this trip to Games\?/);
+      assert.match(asked, /Change this trip to Gaming\?/);
       assert.match(asked, /Its words, phases and module names change now\. In this trip, .*(turn|stay)/);
       assert.match(asked, /Nothing is deleted\./);
       assert.doesNotMatch(asked, /Nothing is removed/);
@@ -157,7 +157,7 @@ try {
         const s = document.querySelector('#space-setup [data-section="template-seen"]');
         return { text: s && !s.hidden ? s.textContent.replace(/\\s+/g, ' ').trim() : null, control: Boolean(document.getElementById('setup-template')) };
       })()`);
-      assert.match(seen.text || '', /This campaign reads the .*games.* template\./i);
+      assert.match(seen.text || '', /This campaign reads the .*gaming.* template\./i);
       assert.match(seen.text || '', /Only the owner can change it\./);
       assert.equal(seen.control, false, 'no control for a moderator');
       assert.equal(await noOverflow(mod), true);
@@ -253,7 +253,7 @@ try {
     assert.equal(await mod.eval(`(() => { const s = document.querySelector('#space-setup [data-section="template-seen"]'); return !s || s.hidden; })()`), true, 'a moderator is told nothing while it is off');
     await mod.close();
     await setSwitch(true);
-    assert.equal(await lookWord(ctx.trip), 'campaign', 'the keys were kept: on again, the space reads Games');
+    assert.equal(await lookWord(ctx.trip), 'campaign', 'the keys were kept: on again, the space reads Gaming');
     const back = await setupOpen('admin', 1280);
     assert.equal(await back.eval(`document.getElementById('setup-template').value`), 'games');
     await back.close();

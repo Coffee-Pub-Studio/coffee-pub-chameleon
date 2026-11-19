@@ -1,8 +1,8 @@
 {
   "id": "learning",
-  "name": "Learning",
+  "name": "Education",
   "description": "Learn something together: exercises, reading, a journal and sessions on a calendar.",
-  "version": 3,
+  "version": 4,
   "words": {
     "space": {
       "one": "course",
@@ -140,6 +140,7 @@
     },
     "vault": {},
     "assistant": {},
+    "whiteboard": {},
     "chat": {},
     "conference": {}
   },
@@ -149,12 +150,7 @@
     "layout": "grid"
   },
   "workspace": {
-    "opensWith": [
-      "goals",
-      "todo",
-      "documents",
-      "chat"
-    ],
+    "layout": { "shape": "tall-split", "areas": ["whiteboard", "goals", "documents"] },
     "show": [
       "calendar",
       "documents"

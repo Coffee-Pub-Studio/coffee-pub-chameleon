@@ -43,7 +43,8 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'check-template-pages-b-'));
 const stand = path.join(tmp, 'template-pages.mjs');
 const escapeStand = "const escapeHtml = (s) => String(s ?? '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' }[c]));";
 fs.writeFileSync(path.join(tmp, 'list-rows.mjs'), read('public/list-rows.js').replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, escapeStand).replace(/^import \{ upgradeColourInputs \} from '\/colour-pick\.js';/m, 'const upgradeColourInputs = () => {};'));
-fs.writeFileSync(stand, read('public/template-pages.js').replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, escapeStand).replace(/^import \{ upgradeColourInputs \} from '\/colour-pick\.js';/m, 'const upgradeColourInputs = () => {};').replace("from '/list-rows.js'", "from './list-rows.mjs'"));
+fs.writeFileSync(path.join(tmp, 'opens-with.mjs'), read('public/opens-with.js'));
+fs.writeFileSync(stand, read('public/template-pages.js').replace("from '/opens-with.js'", "from './opens-with.mjs'").replace(/^import \{ escapeHtml \} from '\/brand\.js';/m, escapeStand).replace(/^import \{ upgradeColourInputs \} from '\/colour-pick\.js';/m, 'const upgradeColourInputs = () => {};').replace("from '/list-rows.js'", "from './list-rows.mjs'"));
 const P = await import(pathToFileURL(stand).href);
 const word = (key, o = {}) => ({ space: 'space', module: o.many ? 'modules' : 'module', environment: 'environment' }[key] || key);
 const catalog = [
@@ -51,7 +52,7 @@ const catalog = [
   { id: 'marks', name: 'Marks', icon: 'star', settings: [{ key: 'unit', label: 'Counts', type: 'choice', scope: 'space', template: 'driven', default: 'money', options: [{ value: 'money', label: 'Money' }, { value: 'hours', label: 'Hours' }] }, { key: 'split', label: 'Who owes whom', type: 'boolean', scope: 'space', template: 'default', default: true }, { key: 'own', label: 'Own', type: 'boolean', scope: 'space', default: false }, { key: 'tags', label: 'Tags', type: 'list', scope: 'environment', template: 'default', fixed: ['other'], maxLength: 30, default: [{ id: 'other', label: 'Other', icon: 'flag', color: '#888888' }, { id: 'a', label: 'Alpha', icon: 'star', color: '#4f8fdd' }] }], labels: { event: { one: 'event', many: 'events' } }, starter: true },
   { id: 'travel', name: 'Planner - Travel', icon: 'route', settings: [], labels: {} },
 ];
-const tpl = { id: 't', name: 'T', modules: { chat: {}, marks: { name: 'Timesheet', settings: { unit: 'hours' }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:a': { x: 1 } } } }, workspace: { opensWith: ['chat'], show: ['calendar'], opensFirst: 'calendar' }, phases: [{ id: 'a', label: 'Start', main: true }, { id: 'b', label: 'End' }], phaseMeasure: 'goals', reactions: [{ id: 'ship', glyph: '🚀', label: 'Ship' }], iconSet: ['rocket'] };
+const tpl = { id: 't', name: 'T', modules: { chat: {}, marks: { name: 'Timesheet', settings: { unit: 'hours' }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:a': { x: 1 } } } }, workspace: { layout: { shape: 'one', areas: [null] }, show: ['calendar'], opensFirst: 'calendar' }, phases: [{ id: 'a', label: 'Start', main: true }, { id: 'b', label: 'End' }], phaseMeasure: 'goals', reactions: [{ id: 'ship', glyph: '🚀', label: 'Ship' }], iconSet: ['rocket'] };
 
 await test('A template change names the modules that turn off and on, and says their data is kept (switch and a space\'s change)', async () => {
   const C = await import(pathToFileURL(path.join(ROOT, 'public/template-choice.js')).href);
@@ -127,10 +128,30 @@ await test('Modules: read only draws lines, no fields; the Default template offe
   assert.match(html, /Offered/);
   assert.match(html, /Its own/);
 });
+await test('where a template\'s problems show (the host console): the server\'s parts first, else the first word, else the top; each once', () => {
+  const fields = ['id', 'name', 'modules', 'workspace', 'call', 'phases', 'phaseMeasure'];
+  const layout = 'The layout uses Vault, which this template doesn\'t include.';
+  assert.deepEqual(P.problemPlaces([layout, 'phases[0].id must be lowercase.', '"call" takes only joinOnEntry, position and layout.', 'Something else.'], fields, ['workspace', null]),
+    [{ text: layout, part: 'workspace' }, { text: 'phases[0].id must be lowercase.', part: 'phases' }, { text: '"call" takes only joinOnEntry, position and layout.', part: 'call' }, { text: 'Something else.', part: null }]);
+  assert.deepEqual(P.problemPlaces([layout], fields), [{ text: layout, part: null }], 'no parts from the server: the first word ("The") names no field, so the top');
+  assert.deepEqual(P.problemPlaces([layout, layout], fields, ['workspace', 'workspace']), [{ text: layout, part: 'workspace' }], 'the same sentence once');
+  assert.deepEqual(P.problemPlaces(['x'], fields, ['nowhere']), [{ text: 'x', part: null }], 'a part the page has no list for: the top');
+});
 await test('Workspace, Phases, Additions: fields when editable, lines when not, the pin rule said', () => {
   const ws = P.workspaceHtml(tpl, { editable: true, catalog, word });
   assert.equal((ws.match(/data-tw-show=/g) || []).length, 5);
   assert.match(ws, /nobody can hide it/);
+  // The layout (plan-layout-picker.md, step 3): read only in plain words until the picker, no Opens with list, and carried
+  // in the markup so a save sends it back unchanged.
+  assert.doesNotMatch(ws, /data-tw-open|Opens with/);
+  assert.match(ws, /<h3>Layout<\/h3>[^]*?data-tw-layout="\{&quot;shape&quot;:&quot;one&quot;,&quot;areas&quot;:\[null\]\}">One empty area opens\. Each person chooses what goes in it\.<\/p>/);
+  const held = (html) => ({ querySelector: (q) => (q === '[data-tw-layout]' ? { dataset: { twLayout: (html.match(/data-tw-layout="([^"]*)"/) || [])[1]?.replace(/&quot;/g, '"') } } : q === '[data-tw-first]' ? { value: 'calendar' } : null), querySelectorAll: () => [] });
+  assert.deepEqual(P.readWorkspace(held(ws)), { workspace: { layout: { shape: 'one', areas: [null] }, opensFirst: 'calendar' } }, 'the layout is sent back as it was');
+  const noLayout = P.workspaceHtml({ ...tpl, workspace: { show: ['calendar'] } }, { editable: true, catalog, word });
+  assert.match(noLayout, /data-tw-layout="">None: the chat and every module that is on\.<\/p>/);
+  assert.deepEqual(P.readWorkspace(held(noLayout)), { workspace: { opensFirst: 'calendar' } }, 'no layout, none sent');
+  const named = P.workspaceHtml({ ...tpl, workspace: { layout: { shape: 'wide-narrow', areas: ['marks', 'travel'] } } }, { editable: false, catalog, word });
+  assert.match(named, /<dt>Layout<\/dt><dd>Timesheet opens wide, with Planner - Travel narrow beside it\.<\/dd>/, 'the template\'s own names');
   assert.doesNotMatch(P.workspaceHtml(tpl, { editable: false, catalog, word }), /<input|<select/);
   const ph = P.phasesHtml(tpl, { editable: true, word });
   assert.equal((ph.match(/data-tp-phase=/g) || []).length, 2);
@@ -223,7 +244,7 @@ async function live() {
     const reset = async () => {
       const mine = await api('PATCH', '/api/environment/templates/mine', {
         modules: mods({ name: 'Timesheet', settings: { mode: true, title: 'Our plan', palette: [{ id: 'red', label: 'Red', icon: 'heart', color: '#d9534f' }, { id: 'blue', label: 'Blue', icon: 'water', color: '#4f8fdd' }] }, labels: { event: { one: 'meeting', many: 'meetings' } }, starter: { 'k:one': { a: 1 } } }),
-        workspace: { opensWith: ['chat', 'marks'], show: ['calendar'] },
+        workspace: { layout: { shape: 'two-equal', areas: ['marks', null] }, show: ['calendar'] },
         phases: phases3, phaseMeasure: 'dates',
         reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }], iconSet: ['rocket'],
       });
@@ -282,8 +303,9 @@ async function live() {
         const count = (sel) => `document.querySelectorAll(${JSON.stringify(sel)}).length`;
 
         await test(at('Default Workspace: fields for an own template, lines for the Default'), async () => {
-          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-open]')} >= 3 && ${count('#tpl-workspace-box [data-tw-show]')} === 5 && document.querySelector('#tpl-workspace-box [data-tw-open="marks"]').checked && document.querySelector('#tpl-workspace-box [data-tw-show="calendar"]').checked`, 'the Default Workspace page');
-          await open('template/default/workspace', `${count('#tpl-workspace-box .tf-line')} === 3 && ${count('#tpl-workspace-box input')} === 0 && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of the Default template');
+          // The layout is read only until the picker (plan-layout-picker.md, steps 3 to 5): one line in plain words, no Opens with list.
+          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-open]')} === 0 && document.querySelector('#tpl-workspace-box [data-tw-layout]')?.textContent === 'Timesheet and an empty area open side by side, the same width. Each person chooses what goes in the empty area.' && ${count('#tpl-workspace-box [data-tw-show]')} === 5 && document.querySelector('#tpl-workspace-box [data-tw-show="calendar"]').checked`, 'the Default Workspace page');
+          await open('template/default/workspace', `${count('#tpl-workspace-box .tf-line')} === 3 && ${count('#tpl-workspace-box input')} === 0 && document.querySelector('#tpl-workspace-box .tf-line dd')?.textContent === 'One empty area opens. Each person chooses what goes in it.' && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of the Default template');
           await shot(tab, `${size}-workspace-default`);
         });
         await test(at('Default Workspace saves'), async () => {
@@ -293,7 +315,7 @@ async function live() {
           await sleep(1200);
           const t = (await api('GET', '/api/environment/templates/mine')).json.template;
           assert.deepEqual(t.workspace.show.slice().sort(), ['calendar', 'map']);
-          assert.deepEqual(t.workspace.opensWith, ['chat', 'marks']);
+          assert.deepEqual(t.workspace.layout, { shape: 'two-equal', areas: ['marks', null] });
         });
         await test(at('Phases: the list and the measure; an edit saves'), async () => {
           await open('template/mine/phases', `${count('#tpl-phases-box [data-tp-phase]')} === 3 && document.querySelector('#tpl-phases-box [data-tp-measure]').value === 'dates' && document.querySelector('#tpl-phases-box [data-tp-main]:checked') !== null`, 'the Phases page');

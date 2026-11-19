@@ -6,7 +6,7 @@
  * half-edited; Save is off until something changed and says "Saved" afterwards. Read as code (no browser):
  *   - public/action-bar.js: the shared piece (Save, Cancel, the question, Save off while clean, "Saved", Escape);
  *   - the styles: sticky to the bottom, the safe area, tokens only, 44 px on a phone;
- *   - each surface (the phase sheet, the Set up panel, the layout sheet) builds its bar with actionBar(), sends its
+ *   - each surface (the phase sheet, the Set up panel, the layout sheet, the layout picker) builds its bar with actionBar(), sends its
  *     changes only from Save, has no backdrop click, asks on Escape and Cancel, and the Set up panel has no Done and
  *     Cancel in the top bar;
  *   - a sweep: any script in public/ that opens a modal <dialog> or compares a click's target with its dialog must use
@@ -72,6 +72,7 @@ const SURFACES = [
   { name: 'the Set up panel', file: 'public/space-setup.js', from: 'export function createSpaceSetup(' },
   { name: 'the layout sheet', file: 'public/space.js', from: 'function openLayoutSheet(', to: 'function openSaveLayout(' },
   { name: 'the layout icon sheet', file: 'public/space.js', from: 'function openIconSheet(', to: 'function startChangeIcon(' },
+  { name: 'the layout picker', file: 'public/layout-picker.js', from: 'export function createLayoutPicker(' },
 ];
 
 for (const s of SURFACES) {
