@@ -169,6 +169,12 @@ try {
     assert.equal((await as('PATCH', `/api/users/${key}/spaces/${side}`, { permissions: { moderator: true } })).status, 200);
     assert.equal((await asMember('PATCH', `/api/spaces/${side}`, { layout: { shape: 'one', areas: [null] } })).status, 403, 'a member who moderates the space may not send it either');
     assert.equal('layout' in stored(), false, 'still nothing stored');
+    const editor = await asMember('GET', '/api/environment/templates/default');
+    assert.equal(editor.status, 403, 'a member who moderates may not read the template editor');
+    assert.equal('cantOpen' in (editor.json || {}), false, 'and gets no cantOpen');
+    assert.equal((await asMember('PATCH', `/api/spaces/${side}`, { opensWith: ['chat'] })).status, 403, 'a moderator sending opensWith');
+    assert.equal((await as('PATCH', `/api/spaces/${side}`, { opensWith: ['chat'] })).status, 200, 'the owner sending opensWith: ignored');
+    assert.equal('opensWith' in stored(), false, 'and nothing stored');
     assert.deepEqual(await asMember('PATCH', `/api/spaces/${side}`, { name: 'Side 2' }).then((x) => [x.status, x.json]), [403, { error: 'owners only' }], 'the name is still the owners\'');
     assert.deepEqual((await asMember('GET', '/api/modules/for-space?space=lobby')).json.layout, { shape: 'one', areas: [null] }, 'a member reads it');
     assert.equal((await as('DELETE', `/api/users/${key}`)).status, 200);

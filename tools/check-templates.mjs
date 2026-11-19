@@ -137,6 +137,20 @@ try {
     assert.equal(templates.get('games').workspace.opensFirst, 'conference');
   });
 
+  await test('seeded result: a new space on each shipped template gets the tabs and first layout its template names (a field that does nothing fails)', () => {
+    const env = freshEnvironment('seeded');
+    env.store.templateById = (id) => templates.get(id) || null;
+    for (const t of templates.all().values()) {
+      const space = env.store.addSpace({ name: `On ${t.id}`, template: t.id });
+      const w = t.workspace;
+      if (w.opensFirst && w.opensFirst !== 'workspace') assert.equal(space.defaultLayout, w.opensFirst, `${t.id}: opens first on ${w.opensFirst}`);
+      else assert.equal(space.defaultLayout, undefined, `${t.id}: no first layout of its own`);
+      for (const id of w.show || []) assert.equal((space.tabs?.hide || []).includes(id), false, `${t.id}: ${id} is shown`);
+    }
+    const gaming = env.store.spaces.find((x) => x.template === 'games');
+    assert.deepEqual([gaming.defaultLayout, gaming.tabs], ['conference', { hide: ['whiteboard', 'documents'] }], 'Gaming opens on the Conference, which is shown');
+  });
+
   await test('the Default template (decisions 3 and 33): the whole catalog as "*", no words, the core call, nothing added', () => {
     const d = templates.get('default');
     assert.deepEqual([d.id, d.name, d.version, d.modules, d.words, d.home, d.phases, d.reactions, d.iconSet, d.starterSpaces, d.settings, d.lobby], ['default', 'Default', 2, '*', {}, null, [], [], [], [], {}, {}]);
@@ -165,7 +179,7 @@ try {
     assert.deepEqual(g.words, { space: { one: 'campaign', many: 'campaigns' }, member: { one: 'player', many: 'players' } }, 'Games loses group, game master and whisper (decisions 5 and 32)');
     assert.equal(Object.hasOwn(g.modules, 'travel'), false, 'Games has the Schedule outline, not the Planner (decision 42)');
     assert.deepEqual([g.modules.calendar.name, g.modules.todo.name, g.modules.research.name, g.modules.vault], ['Sessions', 'Quests', 'Lore', {}]);
-    assert.deepEqual(g.workspace, { show: ['calendar', 'map'], opensFirst: 'conference' }, 'Gaming opens on the Conference and names no layout');
+    assert.equal(g.workspace.layout, undefined, 'Gaming names no layout');
     assert.deepEqual([g.name, templates.get('learning').name, templates.get('project').name], ['Gaming', 'Education', 'Projects'], 'the names a person reads; the ids stay');
   });
 
@@ -330,6 +344,12 @@ try {
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'ring', areas: [] } } })), ['workspace.layout: Pick a shape from the list.']);
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'three-equal', areas: [null] } } })), ['workspace.layout: This shape has 3 areas.']);
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: [null], widths: [100] } } })), ['workspace.layout: A shape does not take "widths"; it is a shape and its areas.']);
+    assert.deepEqual(problems(minimal({ workspace: { show: ['calendar'], opensFirst: 'conference' } })), ['workspace.opensFirst: "conference" must also be in workspace.show.'], 'an opens-first that is not shown would do nothing');
+    assert.deepEqual(problems(minimal({ workspace: { show: ['calendar'], opensFirst: 'workspace' } })), [], 'the Workspace is always there');
+    for (const id of ['assistant', 'stream']) {
+      if (!templates.bundledManifests().has(id)) continue;
+      assert.deepEqual(problems(minimal({ modules: { chat: {}, [id]: {} }, workspace: { layout: { shape: 'one', areas: [id] } } })).length, 1, `${id} has no place on the canvas, so no area takes it`);
+    }
     assert.deepEqual(problems(minimal({ workspace: { opensWith: ['chat'] } })), ['"workspace" takes only layout, show and opensFirst.'], 'opensWith is gone: the layout replaces it');
     // To-do in a stacked area: refused only where the Calendar is on (the template's modules; "*" counts the Calendar as on).
     const stacked = (modules) => problems(minimal({ modules, workspace: { layout: { shape: 'tall-split', areas: ['polls', 'todo', null] } } }));
@@ -521,7 +541,8 @@ try {
         assert.ok(ids.includes(id) && !['chat', 'conference'].includes(id), `${id} is one of its modules an area may hold`);
         assert.ok((Array.isArray(v.roles) && v.roles.every((r) => ['moderator', 'member', 'guest'].includes(r)) && !('off' in v)) || v.off === true, JSON.stringify(v));
       }
-      assert.deepEqual(Object.values(cant).every((v) => v.off === true) && Object.keys(cant).length, ids.length - 2, 'nothing is installed here yet: every module an area may hold is off');
+      assert.equal(Object.values(cant).every((v) => v.off === true) && 'assistant' in cant, false, 'the Assistant has no place on the canvas, so it is left out');
+      assert.ok(Object.keys(cant).length > 0 && Object.values(cant).every((v) => v.off === true), 'nothing is installed here yet: every module an area may hold is off');
       assert.equal((await api('POST', '/api/modules/bundled/vault/install')).status, 201);
       assert.equal((await api('PATCH', '/api/modules/vault', { enabled: true })).status, 200);
       const after = (await api('GET', '/api/environment/templates/travel')).json.cantOpen;

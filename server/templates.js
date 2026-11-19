@@ -316,7 +316,9 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
       if (w.layout !== undefined) {
         // The modules an area may name: this template's own; the Default template's "*" is the whole catalog, and then
         // the Calendar counts as on (the conservative reading, so To-do in a stacked area is refused).
-        const named = raw.modules === '*' ? [...catalog.keys()] : [...listed];
+        // Only modules with a place on the canvas can fill an area (the Assistant and the Stream have none).
+        const onCanvas = (id) => Boolean(catalog.get(id)?.surfaces?.canvas);
+        const named = (raw.modules === '*' ? [...catalog.keys()] : [...listed]).filter(onCanvas);
         const names = Object.fromEntries([...catalog.values()].map((m) => [m.id, m.name]));
         const { error } = cleanShape(w.layout, { modules: named, on: named, names });
         if (error) say(`workspace.layout: ${error}`);
@@ -325,6 +327,7 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
         if (!Array.isArray(w.show) || w.show.some((id) => !FIXED_WORKSPACES.includes(id)) || new Set(w.show).size !== w.show.length) say(`workspace.show must be a list of Fixed Workspaces, each once: ${FIXED_WORKSPACES.join(', ')}.`);
       }
       if (w.opensFirst !== undefined && !SYSTEM_IDS.includes(w.opensFirst)) say(`workspace.opensFirst must be one of ${SYSTEM_IDS.join(', ')}.`);
+      else if (w.opensFirst !== undefined && w.opensFirst !== 'workspace' && Array.isArray(w.show) && !w.show.includes(w.opensFirst)) say(`workspace.opensFirst: "${w.opensFirst}" must also be in workspace.show.`);
     }
   }
   if (raw.phases !== undefined) {
@@ -614,7 +617,7 @@ async function applyTemplate(env, template, { allowed = () => true, modulesDir =
 //   modules: each module it lists (with what it requires) not already on in every space it may be in, with whether
 //            the plan allows it ({ id, name, allowed, why? }); the conference when listed and off
 //   lobby: the template's Lobby name and description when they differ from the Lobby's own, else null
-//   spaceDefaults: the new-space profile, and what a new space opens with, for each that differs from the environment's, else null
+//   spaceDefaults: the new-space profile, for each that differs from the environment's, else null
 function offerFor(env, template, { allowed = () => true, modulesDir = MODULES_DIR, name = (id) => id, applied = null } = {}) {
   const { store, modules } = env;
   // With fingerprints from the last time this template's once-only part was applied or passed over, a part is offered

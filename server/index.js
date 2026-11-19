@@ -2646,7 +2646,7 @@ const fullTemplate = (t) => (t ? { ...t } : null);
 function cantOpenFor(env, t) {
   if (!t) return {};
   const manifests = catalogManifests(env);
-  const ids = (t.modules === '*' ? [...manifests.keys()] : Object.keys(t.modules)).filter((id) => !templates.BUILTIN_MODULE_IDS.includes(id));
+  const ids = (t.modules === '*' ? [...manifests.keys()] : Object.keys(t.modules)).filter((id) => !templates.BUILTIN_MODULE_IDS.includes(id) && manifests.get(id)?.surfaces?.canvas);
   if (env) return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions: env.store.roles(), off: ids.filter((id) => !env.modules.enabled(id)) });
   const rolePermissions = { moderator: {}, member: {}, guest: {} };
   for (const id of ids) {
