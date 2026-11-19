@@ -4,6 +4,12 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### Documents: Table, a 100% zoom, up to 500%, and a text size (2026-11-19)
+
+#### Changed
+
+- **Documents 0.11.34: the Insert menu says Table, zoom has a 100% entry and reaches 500%, and a document has a text size.** **Insert** and its group in the rich editor say **Table** where they said Grid. The **Zoom** menu lists **100%** (Ctrl 0) in place of **Actual size** and goes up to 500% for low vision. In Fluid, **Fit width** now scales the page to the window's width, up to 200%, as Paper does. **Page > Text size** (Small to Largest) is kept in the document and shared when writing together. Checked by the module's tests (`npm run check:module -- documents`, including the writing-together checks); not seen in a browser, Safari or Print.
+
 ### Templates start from a layout, not a list of modules (layout picker, steps 1 to 4, 2026-11-19)
 
 Written from the code on branch `claude/hopeful-cray-4bf2y3` and from [plan-layout-picker](documentation/plans/plan-layout-picker.md) (commits `3694ab37`, `c5bebda8`, `fd946e56`, `044d8954`, `d6af7f2d`, `7a1b4753`, `763775df`, `7730efa4`, `0ae39f8a`, `d9d4b07e`, `4cbb0c28`, `e9b5988a`, `23442c4d`, `9c668545`, `bb37a5ee`, `8067f9b0`). The builders' and readers' own checks are reported in the plan, not rerun for this entry: the pure parts and the server rules by tools (`check-layout-shapes`, `check-layout-picker`, `check-canvas`, `check-templates`, `check-layouts`, `check-template-switch`), and the canvas, a first visit and the picker by hand in headless Chromium, light and dark, at 1280, 900, 700 and 390 pixels. The independent read of `d9d4b07e`, `9c668545` and `8067f9b0` is still pending. Not verified: a real call (the call "In the workspace" with real tiles, loading a shape while on a call), a hosted install, the host console's template editor in a browser, a real phone, a real screen reader, Firefox and Safari. Steps 5 and 6 are not built (below).
