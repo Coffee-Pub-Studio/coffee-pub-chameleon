@@ -93,20 +93,20 @@
 @container (min-width: 50rem) { .sheet { padding: var(--space-7) var(--space-8); } }
 
 /* the rendered document */
-.page { color: var(--doc-ink); font-size: var(--text-14); line-height: var(--leading-body, 1.6); overflow-wrap: anywhere; min-width: 0; }
+.page { color: var(--doc-ink); font-size: var(--doc-text, var(--text-14)); line-height: var(--leading-body, 1.6); overflow-wrap: anywhere; min-width: 0; }
 .page:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .page > :first-child { margin-top: 0; }
 .page h1, .page h2, .page h3, .page h4 { margin: var(--space-4) 0 var(--space-2); line-height: 1.25; font-weight: var(--weight-strong); }
-.page h1 { font-size: var(--text-22); }
-.page h2 { font-size: var(--text-18); }
-.page h3, .page h4 { font-size: var(--text-16); }
+.page h1 { font-size: calc(var(--doc-text, var(--text-14)) * 1.5714); }
+.page h2 { font-size: calc(var(--doc-text, var(--text-14)) * 1.2857); }
+.page h3, .page h4 { font-size: calc(var(--doc-text, var(--text-14)) * 1.1429); }
 .page p { margin: 0 0 var(--space-4); }
 .page a { color: var(--doc-ink); text-decoration: underline; text-underline-offset: 2px; }
 .page blockquote { margin: 0 0 var(--space-3); padding-left: var(--space-3); border-left: 3px solid var(--doc-edge); color: var(--doc-quiet); }
 .page pre { margin: 0 0 var(--space-3); padding: var(--space-2) var(--space-3); background: var(--doc-field); border-radius: var(--radius-small); overflow: auto; white-space: pre-wrap; }
-.page code { font-family: var(--font-mono, monospace); font-size: var(--text-13); background: var(--doc-field); border-radius: var(--radius-min); padding: 0 var(--space-1); }
+.page code { font-family: var(--font-mono, monospace); font-size: calc(var(--doc-text, var(--text-14)) * 0.9286); background: var(--doc-field); border-radius: var(--radius-min); padding: 0 var(--space-1); }
 .page pre code { background: none; padding: 0; }
-.page .dl-math { font-family: var(--font-mono, monospace); font-size: var(--text-13); background: var(--doc-field); border-radius: var(--radius-min); padding: 0 var(--space-1); }
+.page .dl-math { font-family: var(--font-mono, monospace); font-size: calc(var(--doc-text, var(--text-14)) * 0.9286); background: var(--doc-field); border-radius: var(--radius-min); padding: 0 var(--space-1); }
 .page .dl-math-block { display: block; padding: var(--space-1) var(--space-2); margin: var(--space-2) 0; overflow-x: auto; }
 .page ul, .page ol { margin: 0 0 var(--space-3); padding-left: var(--space-5, 1.5rem); }
 .page li > p { margin: 0 0 var(--space-1); }

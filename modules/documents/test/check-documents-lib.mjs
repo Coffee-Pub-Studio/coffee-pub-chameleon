@@ -25,7 +25,7 @@ const NAMES = ['DL', 'dlCleanText', 'dlTrimBreaks', 'dlCleanLine', 'dlCut', 'dlC
   'dlPreview', 'dlCleanPreview', 'dlThumbText', 'DL_LISTVIEWS', 'dlCleanListView', 'DL_EDITVIEWS', 'dlEditViewId', 'dlEditViewIsRich',
   'dlTagsKey', 'dlCleanTagIds', 'dlCleanTags', 'dlKnownTagIds', 'dlTagsDelta', 'dlTagsApply', 'dlTagsCommit', 'dlTagCounts', 'dlTagsMatch', 'DL_TAGS_MAX',
   'dlResyncPlan', 'dlResyncAfterHidden', 'DL_VIEW', 'dlCleanView', 'dlViewStore', 'dlViewRead', 'dlViewLabel', 'dlViewSheet', 'dlViewStep', 'dlViewKey',
-  'dlCleanLayout', 'dlCleanPageSize', 'dlCleanPageNumbers', 'dlCleanPage', 'dlSamePage', 'DL_PAGE_SIZES', 'dlPageGeometry', 'DL_PAGE_FIT_MAX', 'dlPageFit', 'dlFluidFit', 'DL_PAGE_FLOOR', 'dlPaperNarrow', 'dlThumbPreview', 'DL_LAYOUTS', 'dlPageMenuModel', 'dlPageBreak', 'DL_PAGE_BREAK_LINE', 'dlPageBreaks',
+  'dlCleanLayout', 'dlCleanPageSize', 'dlCleanPageNumbers', 'DL_TEXT_SIZES', 'DL_TEXT_DEFAULT', 'dlCleanTextSize', 'dlCleanPage', 'dlSamePage', 'DL_PAGE_SIZES', 'dlPageGeometry', 'DL_PAGE_FIT_MAX', 'dlPageFit', 'dlFluidFit', 'DL_PAGE_FLOOR', 'dlPaperNarrow', 'dlThumbPreview', 'DL_LAYOUTS', 'dlPageMenuModel', 'dlPageBreak', 'DL_PAGE_BREAK_LINE', 'dlPageBreaks',
   'DL_ACTIONS', 'dlTextareaEditor', 'dlStubEditor', 'dlEditorDirty', 'dlEditorSnapshot'];
 const L = new Function(`${code}\nreturn { ${NAMES.join(', ')} };`)();
 const markedLib = createRequire(import.meta.url)(path.join(src, 'documents-lib-0-marked.js'));
@@ -36,7 +36,7 @@ const fails = [];
 const pending = [];
 function test(name, fn) { try { const r = fn(); if (r && typeof r.then === 'function') pending.push(r.then(() => { passed += 1; }, (err) => { fails.push(`${name}: ${err.message}`); })); else passed += 1; } catch (err) { fails.push(`${name}: ${err.message}`); } }
 
-const doc = { id: 'abcd1234', type: 'doc', title: 'Plan', rev: 2, chunks: ['aaaa1111'], size: 10, excerpt: 'Hi', paper: 'light-white', layout: 'fluid', pageSize: 'letter', pageNumbers: false, by: 'u1', at: '2026-11-11T10:00:00.000Z', editedBy: 'u1', editedByName: 'Ana', editedAt: '2026-11-11T10:00:00.000Z' };
+const doc = { id: 'abcd1234', type: 'doc', title: 'Plan', rev: 2, chunks: ['aaaa1111'], size: 10, excerpt: 'Hi', paper: 'light-white', layout: 'fluid', pageSize: 'letter', pageNumbers: false, textSize: 14, by: 'u1', at: '2026-11-11T10:00:00.000Z', editedBy: 'u1', editedByName: 'Ana', editedAt: '2026-11-11T10:00:00.000Z' };
 const lock = { id: 'lock', type: 'lock', doc: 'abcd1234', holder: 'u1', name: 'Ana', at: '2026-11-11T10:00:00.000Z', seq: 1, by: 'u1' };
 
 test('the library has no page, host or Documents words', () => {
@@ -116,7 +116,14 @@ test('layout fields: cleaned on reading; a missing one reads as Fluid, Letter, n
   for (const v of ['A4', 'legal', '', 5, null, {}, 'a4;x']) assert.equal(L.dlCleanDoc({ ...doc, pageSize: v }).pageSize, 'letter', JSON.stringify(v));
   for (const v of ['true', 1, 'yes', null, {}, [], 'on']) assert.equal(L.dlCleanDoc({ ...doc, pageNumbers: v }).pageNumbers, false, JSON.stringify(v));
   assert.equal(L.dlCleanDoc({ ...doc, size: 10 }).size, 10); // size is still the text's length
-  assert.deepEqual(L.dlCleanPage(undefined), { layout: 'fluid', pageSize: 'letter', pageNumbers: false });
+  assert.deepEqual(L.dlCleanPage(undefined), { layout: 'fluid', pageSize: 'letter', pageNumbers: false, textSize: 14 });
+  // the base text size: one of the five, else 14; it is the document's own, so a change is a change to save
+  for (const v of [12, 14, 16, 18, 20]) assert.equal(L.dlCleanTextSize(v), v);
+  for (const v of [13, 0, -1, '16', null, undefined, NaN, {}]) assert.equal(L.dlCleanTextSize(v), 14, String(v));
+  assert.equal(L.dlCleanDoc({ ...doc, textSize: 18 }).textSize, 18);
+  assert.equal(L.dlCleanDoc({ ...doc, textSize: 99 }).textSize, 14);
+  assert.equal(L.dlSamePage({ textSize: 16 }, { textSize: 14 }), false);
+  assert.equal(L.dlSamePage({}, { textSize: 14 }), true);
 });
 test('layout fields: a save carries them, and a change makes the page dirty (the page colour\'s path)', () => {
   const base = { old: [{ id: 'aaaa1111', text: 'Hi' }], text: 'Hi', title: 'Plan', rec: doc, me: 'u1', name: 'Ana', now: '2026-11-11T11:00:00.000Z', fresh: () => 'bbbb2222', lex };

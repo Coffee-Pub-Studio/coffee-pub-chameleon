@@ -99,5 +99,7 @@ function dlPageMenuModel(page) {
     ...Object.values(DL_PAGE_SIZES).map((s) => ({ kind: 'size', id: s.id, label: s.label, current: p.pageSize === s.id })),
     { kind: 'heading', label: 'On the page' },
     { kind: 'numbers', id: 'numbers', label: 'Page numbers', current: p.pageNumbers },
+    { kind: 'heading', label: 'Text size' },
+    ...DL_TEXT_SIZES.map((s) => ({ kind: 'text', id: String(s.px), px: s.px, label: s.label, current: p.textSize === s.px })),
   ];
 }

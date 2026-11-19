@@ -404,6 +404,7 @@
     sheet.dataset.layout = p.layout;
     sheet.dataset.size = p.pageSize;
     sheet.dataset.numbers = p.pageNumbers ? 'on' : 'off';
+    sheet.style.setProperty('--doc-text', `${p.textSize}px`);
     sheet.style.setProperty('--doc-page-w', `${g.w}px`);
     sheet.style.setProperty('--doc-page-h', `${g.h}px`);
     sheet.style.setProperty('--doc-page-m', `${g.margin}px`);
@@ -497,7 +498,7 @@
   }
   function pageChanged() {
     paintPage($('editor').querySelector('.sheet'), ed.page);
-    coMetaPush({ layout: ed.page.layout, pageSize: ed.page.pageSize, pageNumbers: ed.page.pageNumbers });
+    coMetaPush({ layout: ed.page.layout, pageSize: ed.page.pageSize, pageNumbers: ed.page.pageNumbers, textSize: ed.page.textSize });
     typed();
     renderChrome();
     ed.editor.focus();
@@ -505,6 +506,11 @@
   function choosePageSize(id) {
     if (!ed || ed.lost || coReadOnly() || ed.page.pageSize === dlCleanPageSize(id)) return;
     ed.page = { ...ed.page, pageSize: dlCleanPageSize(id) };
+    pageChanged();
+  }
+  function chooseTextSize(px) {
+    if (!ed || ed.lost || coReadOnly() || ed.page.textSize === dlCleanTextSize(px)) return;
+    ed.page = { ...ed.page, textSize: dlCleanTextSize(px) };
     pageChanged();
   }
   function togglePageNumbers() {
@@ -520,6 +526,7 @@
     const items = [{ id: 'colour', label: 'Page colour...', icon: 'palette', ...(ro ? { disabled: true } : {}), onClick: () => paperMenu(e) }, ...dlPageMenuModel(ed.page).map((m) => {
       if (m.kind === 'heading') return { heading: m.label };
       if (m.kind === 'size') return { id: m.id, label: m.label, current: m.current, ariaLabel: `${m.label}${m.current ? ', chosen' : ''}`, icon: 'ruler-combined', ...(ro ? { disabled: true } : {}), onClick: () => choosePageSize(m.id) };
+      if (m.kind === 'text') return { id: `text${m.id}`, label: m.label, current: m.current, ariaLabel: `${m.label}${m.current ? ', chosen' : ''}`, icon: 'text-height', ...(ro ? { disabled: true } : {}), onClick: () => chooseTextSize(m.px) };
       if (m.kind === 'numbers') return { id: m.id, label: m.label, current: m.current, ariaLabel: `${m.label}${m.current ? ', on' : ', off'}`, icon: 'arrow-down-1-9', ...(ro ? { disabled: true } : {}), onClick: togglePageNumbers };
       return null;
     }).filter(Boolean)];
