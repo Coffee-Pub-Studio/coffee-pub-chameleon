@@ -2529,7 +2529,7 @@
   const COLOUR_RECENT_MAX = 8;
   const COLOUR_HEX_HINT = 'Type six hex digits, like #2f6cbf'; // the hex field's error line
   let colourSeq = 0;
-  let colourLastOutside = null; // { anchor, at, time }: a module in the page whose picker a press on the page closed
+  let colourLastOutside = null; // { at, time }: a module in the page whose picker (opened at a point) a press on its own toolbar or title bar closed
   // The browser's eyedropper: offered where it exists; the first time it refuses (a frame it may not work in), it is hidden from then on.
   let colourDropper = typeof window.EyeDropper === 'function';
   // Any CSS colour the page computed (the menu's surface: rgb(), color(srgb ...)) as #rrggbb, through a 1px canvas; null if it cannot.
@@ -2564,11 +2564,12 @@
     // twice gives the same x). A picker at another point (another toolbar button) closes the first and opens.
     const same = openMenu && openMenu.id === 'sdk-colour' ? openMenu : null;
     const reopening = Boolean(same && (anchor ? same.anchor === anchor : !same.anchor && same.at && same.at.x === at.x && same.at.y === at.y));
-    // A module in the page: the press on the host's toolbar button (outside the module's root) closed it just before this call; that
-    // was the toggle, so it does not open again.
+    // A module in the page: a press on its own toolbar or title bar (the host's, outside the module's root) closed a picker opened at
+    // this same point just before this call; that press was the toolbar button's toggle, so it does not open again. Only for a point:
+    // a host button is never an anchor.
     const last = colourLastOutside;
     colourLastOutside = null;
-    const justClosed = Boolean(!same && last && Date.now() - last.time < 600 && (anchor ? last.anchor === anchor : !last.anchor && last.at && last.at.x === at.x && last.at.y === at.y));
+    const justClosed = Boolean(!same && !anchor && last && Date.now() - last.time < 600 && last.at && last.at.x === at.x && last.at.y === at.y);
     closeMenu();
     if (reopening || justClosed) return Promise.resolve(null);
 
@@ -2609,6 +2610,7 @@
       pop.id = uid;
       pop.setAttribute('role', 'dialog');
       pop.setAttribute('aria-label', label);
+      pop.tabIndex = -1; // a press on a part that takes no focus (a heading, the gaps) leaves the focus in the picker, not on the page
       pop.style.setProperty('--cp-area', COLOUR_AREA);
       pop.style.setProperty('--cp-hue-track', COLOUR_HUES);
 
@@ -2960,6 +2962,7 @@
         if (!now || !pop.contains(now)) return;
         const stops = [area, hue, opac, hexIn, dropper.hidden ? null : dropper, ...groups.map((g) => g.querySelector('.sdk-swatch[tabindex="0"]'))].filter(Boolean);
         const i = stops.indexOf(now);
+        if (now === pop) { e.preventDefault(); stops[e.shiftKey ? stops.length - 1 : 0].focus(); return; } // after a press on a part with no focus
         if (e.shiftKey && i === 0) { e.preventDefault(); stops[stops.length - 1].focus(); } else if (!e.shiftKey && i === stops.length - 1) { e.preventDefault(); stops[0].focus(); }
       };
       const onOutside = (e) => {
@@ -2972,7 +2975,10 @@
         if (env.root === document) return;
         const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
         if (path.includes(env.rootElement) || path.includes(pop)) return;
-        colourLastOutside = { anchor, at, time: Date.now() };
+        // The module's own frame (module-frame.js: a section.mf around the module's content) and its toolbar or title bar.
+        const frame = env.rootElement && typeof env.rootElement.closest === 'function' ? env.rootElement.closest('.mf') : null;
+        const chrome = Boolean(frame) && path.some((n) => n && n.classList && (n.classList.contains('mf-toolbar') || n.classList.contains('mf-titlebar')) && n.closest('.mf') === frame);
+        if (!anchor && chrome) colourLastOutside = { at, time: Date.now() };
         onOutside(e);
       };
       document.addEventListener('keydown', onKey, true);
@@ -3060,7 +3066,7 @@
     if (watch) watch.observe(input, { attributes: true, attributeFilter: ['disabled'] });
     let opened = false;
     const open = () => {
-      if (input.disabled && !opened) return Promise.resolve(null);
+      if (input.matches(':disabled') && !opened) return Promise.resolve(null); // a disabled input, or one in a disabled fieldset
       const asked = showColourPicker({ anchor: trigger, value: value(), opacity: keeps ? alpha : false, palette: opt.palette !== undefined ? palette : undefined, recent: opt.recent, label, onInput: (a) => show(a.color) });
       if (opened) return asked; // the same trigger again: that was the toggle, the picker is closed
       opened = true;

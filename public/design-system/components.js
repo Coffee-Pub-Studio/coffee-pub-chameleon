@@ -79,9 +79,9 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
     });
     return s;
   };
-  // The colour picker (host.ui.colorPicker, host.ui.colorField), drawn as the SDK draws it. The SDK keeps its default palette to itself
-  // (no call gives it out, and this page is static markup), so the three groups are written here as in public/sdk/host.js
-  // (COLOUR_PALETTE): change both together. The colours in it are data, set as custom properties (--sw, --cp-*), as host.js sets them.
+  // The colour picker (host.ui.colorPicker, host.ui.colorField), drawn as the SDK draws it. A page can read the default palette
+  // (window.hostColour.palette), but this catalogue is static markup built before any page global is there, so the three groups are
+  // written here as in public/sdk/host.js (COLOUR_PALETTE): change both together. The colours in it are data, set as custom properties (--sw, --cp-*), as host.js sets them.
   const CP_PALETTE = [
     ['Light', [['White', '#ffffff'], ['Cream', '#f5eedb'], ['Light grey', '#e4e6ea'], ['Light blue', '#dce9f6'], ['Light green', '#ddeedd'], ['Light yellow', '#fbf4c8'], ['Light pink', '#f8e0e9'], ['Light purple', '#e8e0f5']]],
     ['Dark', [['Black', '#000000'], ['Slate', '#2b3440'], ['Dark grey', '#34373c'], ['Navy', '#14274b'], ['Forest', '#163a2b'], ['Wine', '#4a1b2b'], ['Plum', '#2f2050'], ['Brown', '#3d2b1f']]],
@@ -109,7 +109,7 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
   // A group of swatches (the palette, or Recent): one radio group, a heading over each row of eight. faint: the names with the stronger edge.
   const cpSwatches = (label, groups, chosen, faint = []) => `<div class="sdk-cp-swatches" role="radiogroup" aria-label="${label}">` + groups.map(([head, list]) => `<div class="sdk-cp-head" aria-hidden="true">${head}</div><div class="sdk-swatch-grid" role="presentation">${list.map(([n, c]) => cpSwatch(n, c, c === chosen, faint.includes(n || c))).join('')}</div>`).join('') + '</div>';
   // The hex row: the colour as it is, Hex, and Pick from the screen (hidden where the browser has no eyedropper).
-  const cpRow = (c, o = {}) => `<div class="sdk-cp-row"><span class="sdk-cp-current" aria-hidden="true"></span><label class="sdk-cp-hex"><span>Hex</span><input class="sdk-cp-hexin" type="text" autocomplete="off" spellcheck="false" maxlength="9" autocapitalize="off" value="${o.typed || c}"${o.bad ? ' aria-invalid="true" aria-describedby="cp-err"' : ''}></label><button type="button" class="sdk-icon-btn btn-small btn-quiet sdk-cp-dropper" aria-label="Pick from the screen" data-tip="Pick from the screen"${o.noDropper ? ' hidden' : ''}>${CP_DROPPER}</button></div><p class="sdk-error sdk-cp-error" id="cp-err" aria-live="polite">${o.bad ? 'Type six hex digits, like #2f6cbf' : ''}</p>`;
+  const cpRow = (c, o = {}) => `<div class="sdk-cp-row"><span class="sdk-cp-current" aria-hidden="true"></span><label class="sdk-cp-hex"><span class="sdk-cp-hex-word">Hex</span><input class="sdk-cp-hexin" type="text" autocomplete="off" spellcheck="false" maxlength="9" autocapitalize="off" value="${o.typed || c}"${o.bad ? ' aria-invalid="true" aria-describedby="cp-err"' : ''}></label><button type="button" class="sdk-icon-btn btn-small btn-quiet sdk-cp-dropper" aria-label="Pick from the screen" data-tip="Pick from the screen"${o.noDropper ? ' hidden' : ''}>${CP_DROPPER}</button></div><p class="sdk-error sdk-cp-error" id="cp-err" aria-live="polite">${o.bad ? 'Type six hex digits, like #2f6cbf' : ''}</p>`;
   // The popover around its parts, with the colour's custom properties as host.js sets them. width: a part drawn alone keeps the picker's width.
   const cpPop = (c, alpha, inner, width) => {
     const { h, s, v } = cpHsv(c);
@@ -130,7 +130,7 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
       + (off ? '<p class="sdk-cp-note" id="cp-note">Opacity isn\'t kept here.</p>' : '')
       + cpRow(c, o)
       + cpSwatches('Colours', CP_PALETTE, c, o.faint)
-      + (recent.length ? cpSwatches('Recent', [['Recent', recent]], c) : '')
+      + (recent.length ? cpSwatches('Recent', [['Recent', recent]], c, o.faint) : '')
       + '<div class="sdk-cp-live" aria-live="polite"></div>';
     return cpPop(c, a, inner);
   };
@@ -143,9 +143,9 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
       { n: 'Date picker month .sdk-dp', ctx: 'host', sel: '.sdk-dp', static: true, note: 'Today is a fill; the chosen day is the accent; a range is a tint. The real one is placed under its field.', html: '<div class="sdk-dp"><div class="sdk-dp-head"><button type="button" class="sdk-icon-btn btn-quiet btn-small" aria-label="Earlier">' + fa('chevron-left') + '</button><strong class="sdk-dp-title">October 2026</strong><button type="button" class="sdk-icon-btn btn-quiet btn-small" aria-label="Later">' + fa('chevron-right') + '</button></div><div class="sdk-dp-grid">' + dpDays() + '</div><div class="sdk-dp-foot"><button type="button" class="btn btn-small btn-quiet">Today</button><button type="button" class="btn btn-small btn-quiet">Clear</button></div></div>' },
       { n: 'Kind picker field .sdk-kind-field', ctx: 'host', sel: '.sdk-kind-field', html: '<div class="sdk-kind" style="max-width:280px"><div class="sdk-kind-field"><span class="sdk-kind-chip" style="--kind-color:#c47a2c">' + fa('landmark') + '</span><input class="sdk-kind-input" value="Sight" aria-label="What is it"><span class="sdk-kind-chevron">' + fa('chevron-down') + '</span></div></div>', target: '.sdk-kind-field', states: [{ n: 'Focus', force: 'focus' }, { n: 'Open', html: '<div class="sdk-kind open" style="max-width:280px"><div class="sdk-kind-field"><span class="sdk-kind-chip" style="--kind-color:#c47a2c">' + fa('landmark') + '</span><input class="sdk-kind-input" value="Sight" aria-label="What is it"><span class="sdk-kind-chevron">' + fa('chevron-down') + '</span></div></div>' }] },
       { n: 'Colour field trigger .sdk-picker', ctx: 'host', sel: '.sdk-picker', note: 'host.ui.colorField: the swatch, the hex and a chevron, on an input that stays hidden and holds the colour. Pressed, it opens the picker under it.', html: '<button type="button" class="sdk-picker" aria-haspopup="dialog" aria-expanded="false" aria-label="Colour, Blue, #2f6cbf. Change it"><span class="sdk-picker-sw" aria-hidden="true" style="--sw:#2f6cbf"></span><span class="sdk-picker-value"><span class="sdk-hex">#2f6cbf</span></span><span class="sdk-picker-icon" aria-hidden="true">' + CP_CHEVRON + '</span></button>', states: ['hover', 'focus', { n: 'Open', attrs: { 'aria-expanded': 'true' } }, 'disabled'] },
-      { n: 'Colour picker .sdk-cp', ctx: 'host', sel: '.sdk-cp', static: true, wide: true, target: '.sdk-cp-area', note: 'host.ui.colorPicker, from top to bottom: the area (saturation across, brightness up), Hue, Opacity over a checked ground, the hex row, the palette\'s three groups (Light, Dark, Strong) and Recent. The chosen colour has the check. Where the colour is kept without its opacity (opacity: false), Opacity is drawn at 100, switched off, with the line under it.',
-        html: cpPicker('#2f6cbf', 80, { recent: CP_RECENT }),
-        states: [{ n: 'Focus on the area', force: 'focus' }, { n: 'Opacity not kept', html: cpPicker('#2f6cbf', 100, { opacity: false, recent: CP_RECENT }) }] },
+      { n: 'Colour picker .sdk-cp', ctx: 'host', sel: '.sdk-cp', static: true, wide: true, target: '.sdk-cp-area', note: 'host.ui.colorPicker, from top to bottom: the area (saturation across, brightness up), Hue, Opacity over a checked ground, the hex row, the palette\'s three groups (Light, Dark, Strong) and Recent. The chosen colour has the check. Where the colour is kept without its opacity (opacity: false), Opacity is drawn at 100, switched off, with the line under it. The Light group has the stronger edge, as the real picker draws it on a light menu (on a dark menu it is the Dark group, worked out when it opens).',
+        html: cpPicker('#2f6cbf', 80, { recent: CP_RECENT, faint: CP_LIGHT }),
+        states: [{ n: 'Focus on the area', force: 'focus' }, { n: 'Opacity not kept', html: cpPicker('#2f6cbf', 100, { opacity: false, recent: CP_RECENT, faint: CP_LIGHT }) }] },
       { n: 'The hex row .sdk-cp-row', ctx: 'host', sel: '.sdk-cp-row', static: true, note: 'A bad hex keeps the colour as it was and gets the line under it. Pick from the screen shows only where the browser has an eyedropper that works there (not in Safari or Firefox).',
         html: cpPop('#2f6cbf', 100, cpRow('#2f6cbf'), 240),
         states: [{ n: 'A bad hex', html: cpPop('#2f6cbf', 100, cpRow('#2f6cbf', { typed: '#2f6cb', bad: true }), 240) }, { n: 'No eyedropper', html: cpPop('#2f6cbf', 100, cpRow('#2f6cbf', { noDropper: true }), 240) }] },
