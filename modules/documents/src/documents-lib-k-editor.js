@@ -24,11 +24,20 @@
   };
 
   // The plain text box. `ta` is the textarea, `doc` the page's document (for execCommand, which keeps the browser's undo).
-  function dlTextareaEditor(ta, doc) {
+  // `opts` ({ sizeMax, onTooBig }): a paste that would take the text over sizeMax is refused before it goes in, and onTooBig says so.
+  function dlTextareaEditor(ta, doc, opts) {
     let rev = 0;
     const fns = [];
     const bump = () => { rev += 1; for (const fn of fns) fn(); };
     ta.addEventListener('input', bump);
+    const guard = (e) => {
+      const max = opts && opts.sizeMax;
+      const said = e && e.clipboardData && typeof e.clipboardData.getData === 'function' ? e.clipboardData.getData('text') : '';
+      if (!max || ta.readOnly || ta.value.length - (ta.selectionEnd - ta.selectionStart) + said.length <= max) return;
+      e.preventDefault();
+      if (opts.onTooBig) opts.onTooBig();
+    };
+    ta.addEventListener('paste', guard);
     return {
       getText: () => ta.value,
       setText: (text) => { ta.value = text; rev += 1; },
@@ -50,7 +59,7 @@
       },
       // Copy's fallback for a browser without the clipboard: select what is there.
       selectAll: () => { ta.focus(); ta.select(); },
-      destroy: () => { ta.removeEventListener('input', bump); fns.length = 0; },
+      destroy: () => { ta.removeEventListener('input', bump); ta.removeEventListener('paste', guard); fns.length = 0; },
     };
   }
 

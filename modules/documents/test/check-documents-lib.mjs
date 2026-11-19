@@ -1178,6 +1178,18 @@ test('editor: the textarea adapter reads and writes the box, counts input events
   ta.setSelectionRange(0, 2); e.run('bold'); assert.equal(ta.value, '**hi**'); assert.equal(n, 2);
   e.destroy(); assert.equal(ls.length, 0);
 });
+test('editor: a paste that would take the text box over the limit is refused and said; a smaller one, and a read-only box, are left alone (#752)', () => {
+  const ls = {};
+  const ta = { value: 'a'.repeat(90), readOnly: false, selectionStart: 90, selectionEnd: 90, addEventListener: (t, f) => { ls[t] = f; }, removeEventListener: (t) => { delete ls[t]; }, focus() {}, select() {}, setSelectionRange() {} };
+  let said = 0; const e = L.dlTextareaEditor(ta, {}, { sizeMax: 100, onTooBig: () => { said += 1; } });
+  const paste = (text) => { const ev = { clipboardData: { getData: () => text }, prevented: false, preventDefault() { this.prevented = true; } }; ls.paste(ev); return ev.prevented; };
+  assert.equal(paste('b'.repeat(10)), false); assert.equal(said, 0); // exactly the limit
+  assert.equal(paste('b'.repeat(11)), true); assert.equal(said, 1);
+  ta.selectionStart = 0; ta.selectionEnd = 90; assert.equal(paste('b'.repeat(100)), false); // the selection is replaced, so it fits
+  ta.selectionStart = 90; ta.selectionEnd = 90; ta.readOnly = true; assert.equal(paste('b'.repeat(500)), false);
+  e.destroy(); assert.equal(ls.paste, undefined);
+  const free = L.dlTextareaEditor({ ...ta, readOnly: false, addEventListener: (t, f) => { ls[t] = f; } }, {}); assert.equal(paste('b'.repeat(500)), false); free.destroy();
+});
 
 // ---- the automatic page breaks (documents-lib-s-pages.js) ------------------------------------------------------------------------------
 {

@@ -42,6 +42,14 @@ test('over the cap together with what is there: refused; and a document without 
   assert.equal(ed.paste(paras(10)), false); assert.equal(ed.state().doc.childCount, before); assert.equal(told.length, 1);
   const plain = L.dlRichEditor(PM, null, lex, null); assert.equal(plain.paste(paras(200)), true);
 });
+test('the ordinary rich editor (no shared document) refuses a paste over the cap too, said once, nothing inserted (#752)', () => {
+  const told = [];
+  const ed = L.dlRichEditor(PM, null, lex, null, { sizeMax: 2000, onTooBig: () => told.push(1) });
+  const rev = ed.revision();
+  assert.equal(ed.paste(paras(200)), false);
+  assert.equal(ed.state().doc.childCount, 1, 'nothing was inserted'); assert.equal(told.length, 1); assert.equal(ed.revision(), rev, 'not a change');
+  assert.equal(ed.paste(paras(10)), true); assert.equal(told.length, 1);
+});
 
 // The saver's own figure: the text getText writes, and dlSplit's cap (refuses only above DL.sizeMax).
 const saverSays = (ed) => L.dlSplit(ed.getText()).ok;
