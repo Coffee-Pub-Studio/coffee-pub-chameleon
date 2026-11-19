@@ -81,6 +81,7 @@ The access bundle, steps 1 to 7 ([architecture-access](architecture/architecture
 - **No module open in a guest's canvas was tested.** A guest from the door sees a space; what a module does for that guest was checked for the guest link only.
 - **The guest door's count is in memory.** A restart forgets who is here; a session still in date is counted again when it next asks.
 - **The Trips step is not built** (step 8 of the plan): a person who joined a space cannot yet remove it themselves from their profile.
+- **A guest and a member read a chat citation to a space they cannot enter differently** (decided 2026-11-19, not a defect). A citation to another space reads "hidden" (403) for a guest and "gone" (404) for a member who cannot enter it. Thomas decided to leave guests as they are: it is intended.
 
 ## Documents: Paper, the rich editor and writing together
 
@@ -249,6 +250,12 @@ Workaround: run the seeder only on a throwaway environment. See [Getting Started
 A demo person is an account an earlier load made and marked (`demo: true`; #884), and only such an account is ever given a new password. A load refuses an account with a demo person's login that was not made by a demo, one with another name or role, one with two-step sign-in on, and a host admin. A demo person who moderates a real space, by the API or by a stored moderator tick, is refused before any change since #909. But a demo person whom someone has since put in a real space as an ordinary member is still a demo person: the next load resets their password with the rest.
 
 Workaround: do not put a demo person into a real space; make a real account instead.
+
+## The demo's Home shows an "admin" tile
+
+The demo loader adds whoever runs it to the demo space, so the demo's Home shows a tile for that person, usually "admin". Decided 2026-11-19, not a defect: Thomas chose to leave it, because Home is not one of the product-page screens.
+
+Workaround: none is needed.
 
 ## There is no Remove demo
 
