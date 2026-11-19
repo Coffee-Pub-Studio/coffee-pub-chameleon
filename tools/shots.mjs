@@ -54,6 +54,11 @@
 // no browser needed; differences go to a `diff` folder beside <after>), --only=<id text, several with commas>, --dir=<folder>, --size=<px>, --theme=light|dark, --jobs=<n>
 // (one more than the cores, at most 6, by default), --list (print the table's screens), --dump, --html=<selector>.
 // Environment: CHROME_PATH (the browser), SHOTS_DIR, SHOTS_THRESHOLD, SHOTS_TOLERANCE, SHOTS_PORT, SHOTS_JOBS, SHOTS_DEBUG.
+// The product tier (`npm run shots:product -- --out=<folder>`, or --seed=product): the website's screens. It seeds from the DEMO data
+// (templates/demo/travel.json) through the demo loader (bootDemo, not tools/shots-seed.mjs), on the same fixed clock, and takes the
+// rows marked "seed": "product" at 1440 px, 2x, dark; a row naming themes dark+light also writes <id>-light.png. Files are <id>.png,
+// outside git (default tools/.shots/baseline, or --out). --size=1280 renders the same set at another width. A console or page error
+// on a screen is printed as WARNING; a near-blank picture fails. The call column is the stand-in of tools/shots-livekit-stub.mjs.
 // Browser: CHROME_PATH, else a Playwright or system Chromium. With none it says so and exits 0 (a skip, never a pass).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -65,12 +70,15 @@ import { spawn } from 'node:child_process';
 import { startBrowser, stopBrowser } from './browser-launch.mjs';
 import { fileURLToPath } from 'node:url';
 import { SEEDS, seedChatFor, PASSWORD, TODAY } from './shots-seed.mjs';
+import { runSeed } from './seed-demo.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const opt = (name) => { const a = args.find((x) => x.startsWith(`--${name}=`)); return a ? a.slice(name.length + 3) : null; };
 const COMPARE = args.includes('--compare') && !opt('out');
-const SEED = opt('seed') || 'travel'; // which seed (tools/shots-seed.mjs SEEDS): travel, or games; a screen with a "seed" field runs only for that one
+const PRODUCT = args.includes('--product') || opt('seed') === 'product'; // the product tier: the demo data, 1440 px, dark (a screen may add light, file -light), 2x, named by what each shows
+const SCALE = PRODUCT ? 2 : 1;
+const SEED = PRODUCT ? 'product' : opt('seed') || 'travel'; // which seed (tools/shots-seed.mjs SEEDS): travel, or games; a screen with a "seed" field runs only for that one
 const ONLY = opt('only'); // screen ids that hold this text (several, with commas)
 const OUT = opt('out');
 const ONLY_SIZE = opt('size');
@@ -79,8 +87,9 @@ const DIR = path.resolve(opt('dir') || process.env.SHOTS_DIR || path.join(root, 
 const THRESHOLD = Number(process.env.SHOTS_THRESHOLD || 0);
 const TOLERANCE = Number(process.env.SHOTS_TOLERANCE || 0);
 const JOBS = Math.max(1, Number(opt('jobs') || process.env.SHOTS_JOBS || Math.min(6, os.cpus().length + 1)));
-const SIZES = [1280, 700, 390, 260]; // 260: a narrow module window (planner-narrow-stay)
-const THEMES = ['light', 'dark'];
+const SIZES = PRODUCT ? [1440, Number(opt('size')) || 1440] : // product: 1440, or --size=<px> for another width (1280 for the site)
+   [1280, 700, 390, 260]; // 260: a narrow module window (planner-narrow-stay)
+const THEMES = PRODUCT ? ['dark', 'light'] : ['light', 'dark']; // product: dark by default, one screen also names light
 const HEIGHT = 900; // the window's height; a screen marked "full" grows to its page (up to MAX_FULL)
 const MAX_FULL = 2600;
 const SPACE_SETTLE_MS = 2500; // how long the space page is left to finish drawing before a screen's steps
@@ -314,7 +323,7 @@ class Tab {
     const s = (m, p) => cdp.send(m, p, sessionId);
     await s('Page.enable'); await s('Runtime.enable'); await s('Network.enable');
     await s('Network.setBypassServiceWorker', { bypass: true });
-    await s('Emulation.setDeviceMetricsOverride', { width: size, height: HEIGHT, deviceScaleFactor: 1, mobile: false });
+    await s('Emulation.setDeviceMetricsOverride', { width: size, height: HEIGHT, deviceScaleFactor: SCALE, mobile: false });
     await s('Emulation.setTimezoneOverride', { timezoneId: 'UTC' });
     await s('Emulation.setLocaleOverride', { locale: 'en-US' });
     await s('Emulation.setFocusEmulationEnabled', { enabled: true });
@@ -398,7 +407,7 @@ class Tab {
     if (full) {
       height = Math.min(MAX_FULL, Math.max(HEIGHT, await this.eval('Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)')));
     }
-    await s('Emulation.setDeviceMetricsOverride', { width: this.size, height, deviceScaleFactor: 1, mobile: false });
+    await s('Emulation.setDeviceMetricsOverride', { width: this.size, height, deviceScaleFactor: SCALE, mobile: false });
     await this.forceMode();
     await sleep(150);
     await this.settle();
@@ -485,6 +494,10 @@ async function runScreen(tab, screen, base, cookies, size, modes, ctx) {
       out.set(mode, await tab.shoot(Boolean(screen.full)));
       lap(`shot ${mode}`);
     }
+    if (PRODUCT) { // the product tier's own check: a page error or a console error is reported, never hidden
+      const bad = tab.cdp.events.filter((m) => m.sessionId === tab.sid && (m.method === 'Runtime.exceptionThrown' || (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error')));
+      if (bad.length) say(`WARNING ${screen.id}: ${bad.length} console or page errors (the picture is kept; look at it):`, ` ${JSON.stringify(bad.map((m) => m.params.exceptionDetails ? (m.params.exceptionDetails.exception || {}).description || m.params.exceptionDetails.text : m.params.args.map((a) => a.value || a.description))).slice(0, 700)}`);
+    }
     return out;
   } finally { await tab.close(); }
 }
@@ -492,7 +505,7 @@ async function runScreen(tab, screen, base, cookies, size, modes, ctx) {
 // ---- run ----
 async function main() {
   const list = JSON.parse(fs.readFileSync(path.join(root, 'tools', 'shots-screens.json'), 'utf8'));
-  if (!SEEDS[SEED]) { say(`--seed=${SEED}: there is no such seed (${Object.keys(SEEDS).join(', ')}).`); return 1; }
+  if (!PRODUCT && !SEEDS[SEED]) { say(`--seed=${SEED}: there is no such seed (${Object.keys(SEEDS).join(', ')}).`); return 1; }
   list.screens = list.screens.filter((s) => (s.seed || 'travel') === SEED);
   const screens = list.screens.filter((s) => !ONLY || ONLY.split(',').some((x) => s.id.includes(x)));
   if (args.includes('--list')) {
@@ -530,14 +543,14 @@ async function main() {
   const entries = [];
   const failures = [];
   try {
-    const boot = await bootSeeded(SEED, dataDir, port);
+    const boot = PRODUCT ? await bootDemo(dataDir, port) : await bootSeeded(SEED, dataDir, port);
     server = boot.server;
     const { ctx, cookies } = boot;
     browser = await launch(bin);
     const queue = [];
     screens.forEach((screen, si) => {
       const tier = (list.tiers || {})[screen.tier || 'core'] || {};
-      const sz = (screen.sizes || tier.sizes || SIZES).filter((x) => sizes.includes(x));
+      const sz = PRODUCT ? [Number(ONLY_SIZE) || 1440] : (screen.sizes || tier.sizes || SIZES).filter((x) => sizes.includes(x));
       const th = (screen.themes || tier.themes || THEMES).filter((x) => themes.includes(x));
       for (const size of sz) if (th.length) queue.push({ screen, si, size, modes: th });
     });
@@ -556,9 +569,14 @@ async function main() {
         if (Math.floor((done - modes.length) / 25) !== Math.floor(done / 25) || done === total) say(`${done}/${total} (${Math.round((Date.now() - started) / 1000)} s)`);
         if (!pngs) continue;
         for (const [mode, png] of pngs) {
-          const file = `${screen.id}-${size}-${mode}.png`;
+          const file = PRODUCT ? `${screen.id}${mode === 'light' ? '-light' : ''}.png` : `${screen.id}-${size}-${mode}.png`;
           if (tab.unstable) say(`SHIFTING ${file}: the page never held still, so two runs may differ`);
           fs.writeFileSync(path.join(outDir, file), png);
+          if (PRODUCT) { // not blank: a real screen has many distinct colours
+            const img = decodePng(png); const seen = new Set();
+            for (let i = 0; i < img.data.length; i += 4 * 97) seen.add(img.data.readUInt32BE(i));
+            if (seen.size < 40) { failures.push({ id: screen.id, size, theme: mode, error: `the picture looks blank (${seen.size} colours)` }); say(`BLANK ${file}`); }
+          }
           entries.push({ si, id: screen.id, family: screen.family || '', size, theme: mode, url: screen.url, file, sha: crypto.createHash('sha256').update(png).digest('hex').slice(0, 16) });
         }
         tab.unstable = false;
@@ -619,6 +637,27 @@ async function bootSeeded(seedName, dataDir, port, { env = {} } = {}) {
     const ctx = { trip: seeded.trip.id, second: seeded.second.id, mia: seeded.users.mia, sam: seeded.users.sam, lee: seeded.users.lee, key: seeded.key };
     const cookies = { admin: jars.admin, mia: jars.mia, sam: jars.sam, lee: jars.lee, none: [] };
     return { server, ctx, cookies };
+  } catch (e) { await stopServer(server); throw e; }
+}
+
+// The product tier: the demo space and its people, loaded from templates/demo/travel.json through the demo loader (the same
+// command as `npm run seed:demo`, minus the map file, which needs the network), on the same fixed clock as every other run.
+// The AI is off (nothing is asked of it). Answers the same { server, ctx, cookies } as bootSeeded. The people's one-time passwords
+// come from the loader and are only used to sign in here.
+async function bootDemo(dataDir, port) {
+  const server = await startServer(dataDir, port, 'product');
+  try {
+    say('loading the demo through the demo loader');
+    const r = await runSeed({ base: server.base, adminPassword: PASSWORD, today: TODAY, say: () => {}, noAi: true, demo: 'travel' });
+    const jars = {};
+    const signIn = async (login, password) => {
+      const res = await fetch(server.base + '/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login, password }) });
+      if (res.status !== 200) throw new Error(`cannot sign in as ${login}: ${res.status}`);
+      jars[login] = res.headers.getSetCookie().map((c) => { const [nv] = c.split(';'); const i = nv.indexOf('='); return { name: nv.slice(0, i), value: nv.slice(i + 1) }; });
+    };
+    await signIn('admin', PASSWORD);
+    for (const [login, password] of Object.entries(r.pass)) await signIn(login, password);
+    return { server, ctx: { trip: r.space.id, second: r.space.id, mia: r.users.mia, sam: r.users.sam, lee: r.users.lee, key: '' }, cookies: { ...jars, none: [] } };
   } catch (e) { await stopServer(server); throw e; }
 }
 
