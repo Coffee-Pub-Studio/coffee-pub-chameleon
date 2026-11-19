@@ -227,7 +227,7 @@ function cleanLayoutParts(input, { partial, icons, sharedKind, shapeOptions }) {
     }
   } else {
     const shapeKey = SHAPE_KEYS.find((k) => input[k] !== undefined);
-    if (shapeKey) return no('Only a layout for everyone is a shape; a layout of your own is saved as it is on the canvas.', 'shape');
+    if (shapeKey) return no(`Only a layout for everyone is a shape; a layout of your own is saved as it is on the ${words.word('canvas')}.`, 'shape');
   }
 
   if (!shared && (!partial || input.modules !== undefined)) {
