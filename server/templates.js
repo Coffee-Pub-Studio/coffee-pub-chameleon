@@ -57,10 +57,9 @@ const MAX_REACTIONS = 40;
 const MAX_ICON_SET = 60;
 const REACTION_ID_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 // The core call settings a template may give (decision 16). The tile layouts are the call's own (public/space.js).
-// The Default Workspace (decision 8): the Fixed Workspaces are every system layout but the Workspace itself.
+// The Default Workspace (decision 8): its layout and its tab list (the order and which tabs show; the first shown one opens first).
 // `layout` is a shape and its areas (plan-layout-picker.md, decision 12), checked by cleanShape against the template's modules.
-const WORKSPACE_KEYS = ['layout', 'show', 'opensFirst'];
-const FIXED_WORKSPACES = SYSTEM_IDS.filter((id) => id !== 'workspace');
+const WORKSPACE_KEYS = ['layout', 'tabs'];
 const MAX_STARTER_SPACES = 5;
 const STARTER_SPACE_NAME_MAX = SPACE_NAME_MAX; // what the store keeps, so a longer name is refused rather than cut
 const STARTER_SPACE_DESCRIPTION_MAX = 300;
@@ -312,7 +311,7 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
     }
   }
   if (raw.workspace !== undefined) {
-    if (!isObject(raw.workspace) || Object.keys(raw.workspace).some((k) => !WORKSPACE_KEYS.includes(k))) say('"workspace" takes only layout, show and opensFirst.');
+    if (!isObject(raw.workspace) || Object.keys(raw.workspace).some((k) => !WORKSPACE_KEYS.includes(k))) say('"workspace" takes only layout and tabs.');
     else {
       const w = raw.workspace;
       if (w.layout !== undefined) {
@@ -347,11 +346,16 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
           if (error) say(error, 'workspace');
         }
       }
-      if (w.show !== undefined) {
-        if (!Array.isArray(w.show) || w.show.some((id) => !FIXED_WORKSPACES.includes(id)) || new Set(w.show).size !== w.show.length) say(`workspace.show must be a list of Fixed Workspaces, each once: ${FIXED_WORKSPACES.join(', ')}.`);
+      if (w.tabs !== undefined) {
+        // The tab list: rows { id, show } over the layouts, each at most once, the first shown row what a new space opens first.
+        // The Workspace is always in the bar, so a row for it cannot say show false.
+        const rows = w.tabs;
+        const ids = Array.isArray(rows) ? rows.map((r) => (isObject(r) ? r.id : null)) : [];
+        const good = Array.isArray(rows) && rows.length > 0 && rows.length <= SYSTEM_IDS.length
+          && rows.every((r) => isObject(r) && Object.keys(r).every((k) => k === 'id' || k === 'show') && SYSTEM_IDS.includes(r.id) && typeof r.show === 'boolean')
+          && new Set(ids).size === ids.length && rows.some((r) => r.show) && !rows.some((r) => r.id === 'workspace' && !r.show);
+        if (!good) say(`workspace.tabs must be a list of rows { id, show }, each of ${SYSTEM_IDS.join(', ')} at most once, with at least one shown and the workspace never hidden.`, 'workspace');
       }
-      if (w.opensFirst !== undefined && !SYSTEM_IDS.includes(w.opensFirst)) say(`workspace.opensFirst must be one of ${SYSTEM_IDS.join(', ')}.`);
-      else if (w.opensFirst !== undefined && w.opensFirst !== 'workspace' && Array.isArray(w.show) && !w.show.includes(w.opensFirst)) say(`workspace.opensFirst: "${w.opensFirst}" must also be in workspace.show.`);
     }
   }
   if (raw.phases !== undefined) {
@@ -478,8 +482,7 @@ function cleanTemplate(raw, { manifests = null } = {}) {
   for (const key of CALL_KEYS) if (raw.call && raw.call[key] !== undefined) call[key] = raw.call[key];
   const workspace = {};
   if (raw.workspace?.layout) workspace.layout = { shape: raw.workspace.layout.shape, areas: [...raw.workspace.layout.areas] };
-  if (raw.workspace?.show) workspace.show = [...raw.workspace.show];
-  if (raw.workspace?.opensFirst) workspace.opensFirst = raw.workspace.opensFirst;
+  if (raw.workspace?.tabs) workspace.tabs = raw.workspace.tabs.map((r) => ({ id: r.id, show: r.show }));
   return {
     id: raw.id,
     name: raw.name.trim(),
@@ -694,5 +697,5 @@ module.exports = {
   PARTS, partFingerprints, appliedPartsChanged, appliedOnceFingerprint, wholeFingerprint, loadTemplates, problemsOf, cleanTemplate, storedFields,
   get, list, all, defaultTemplate, useLive, applyTemplate, withRequirements, turnOnModules, offerFor, applyOffer, moduleIdsOf, offers,
   bundledManifests, FIELDS, MODULE_KEYS, BUILTIN_MODULE_IDS, SETTINGS, TEMPLATES_DIR, DEFAULT_ID, CALL_POSITIONS, CALL_LAYOUTS, PHASE_MEASURES,
-  FIXED_WORKSPACES, MAX_VERSION, MAX_TEMPLATE_BYTES, MAX_STARTER_BYTES, MAX_STARTER_KEYS, MAX_REACTIONS, MAX_ICON_SET, MAX_STARTER_SPACES, STARTER_SPACE_NAME_MAX, MAX_MODULES,
+  MAX_VERSION, MAX_TEMPLATE_BYTES, MAX_STARTER_BYTES, MAX_STARTER_KEYS, MAX_REACTIONS, MAX_ICON_SET, MAX_STARTER_SPACES, STARTER_SPACE_NAME_MAX, MAX_MODULES,
 };

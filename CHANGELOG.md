@@ -4,6 +4,12 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### Templates: an ordered tab list (2026-11-19)
+
+#### Changed
+
+- **A template sets the order of a new space's tabs, and which show.** In a template's Default Workspace part (Manage and the host console) one list replaces the "workspaces a new space shows" checks and the Opens first choice: a row per tab with Show, Move up and Move down, as Set up's Layouts has them, and the first shown row marked **Opens first**. A new space starts with that order, hides the rows that are off, and opens on the first one; Set up changes it after that. The six shipped templates carry the list (Gaming opens on the Conference as before; the others show what they showed). A template stored with the old `show` or `opensFirst` is refused and left out (no migration; the product is unreleased). Checked by tools (the template, layout, pinned, template-page and host console checks, with a browser); seen live on a throwaway server; not verified with a real call, and Set up is unchanged.
+
 ### Documents: Table, a 100% zoom, up to 500%, and a text size (2026-11-19)
 
 #### Changed

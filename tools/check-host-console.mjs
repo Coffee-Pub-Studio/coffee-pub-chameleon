@@ -550,12 +550,28 @@ try {
       await tab.go('#templates/tabs-copy/workspace');
       await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area'), 'the copy reopened');
       assert.deepEqual(await tab.evaluate("[...document.querySelectorAll('#te-layout .layout-picker-board .layout-picker-area')].map((a) => a.getAttribute('aria-label'))"), ['Area 1 of 2: Vault', 'Area 2 of 2: Empty'], 'reopened as saved');
+      // The tab list (plan-template-tab-list.md): in the order a new space shows its tabs, the first shown one marked; a move keeps the
+      // focus on the pressed button and says where the row went; a hidden row and the order save and read back.
+      const tabIds = "[...document.querySelectorAll('#te-tabs [data-tab-id]')].map((r) => r.dataset.tabId + (r.querySelector('[data-tab-show]').checked ? '' : '-'))";
+      assert.deepEqual(await tab.evaluate(tabIds), ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'], 'a template with no list: the default order, all shown');
+      assert.equal(await tab.evaluate("document.querySelector('#te-tabs [data-tab-first]').closest('[data-tab-id]').dataset.tabId"), 'workspace', 'the Workspace opens first');
+      await tab.evaluate("document.querySelector('#te-tabs [data-tab-id=workspace] [data-tab-move=down]').click()");
+      assert.deepEqual([await tab.evaluate("document.getElementById('te-tabs').querySelector('[data-tab-live]').textContent"), await tab.evaluate("document.activeElement.dataset.tabMove + ':' + document.activeElement.closest('[data-tab-id]').dataset.tabId"), await tab.evaluate("document.querySelector('#te-tabs [data-tab-first]').closest('[data-tab-id]').dataset.tabId")], ['Workspace moved to position 2.', 'down:workspace', 'calendar'], 'said, the focus kept on the button, the mark follows');
+      await tab.evaluate("document.querySelector('#te-tabs [data-tab-id=calendar] [data-tab-show]').click()");
+      assert.equal(await tab.evaluate("document.querySelector('#te-tabs [data-tab-first]').closest('[data-tab-id]').dataset.tabId"), 'workspace', 'hiding the first row moves the mark to the next one shown');
+      await tab.evaluate("document.querySelector('#te-tabs [data-tab-id=calendar] [data-tab-show]').click(); document.querySelector('#te-tabs [data-tab-id=map] [data-tab-show]').click()");
+      await tab.evaluate("document.getElementById('te-save').click()");
+      await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent) && document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'the tab list saved');
+      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.workspace.tabs, [['calendar', true], ['workspace', true], ['map', false], ['conference', true], ['whiteboard', true], ['documents', true]].map(([id, show]) => ({ id, show })), 'the list as the page held it'); }
+      await tab.go('#templates/tabs-copy/workspace');
+      await tab.waitFor(`${tab.visible('#te-tabs [data-tab-id]')} && ${tabIds}.join() === 'calendar,workspace,map-,conference,whiteboard,documents'`, 'the list read back');
       // A layout refusal (plan-layout-picker.md, step 3): untick a module the layout uses and save. Before saving, the
       // Modules tab and the picker both say so (step 5); the Vault area keeps its name and Vault is no longer offered.
       // sentence with `parts: ['workspace']`, so it lands once in the Default Workspace part and badges that tab alone; the
       // status line says where, never the sentence again.
       await tab.go('#templates/tabs-copy/modules');
       await tab.waitFor(tab.visible('#te-part-modules'), 'the Modules tab of the copy');
+      await tab.waitFor("document.querySelector('#te-layout .layout-picker-board .layout-picker-area[data-area=\"1\"]') !== null", 'the editor has drawn its layout picker');
       await tab.evaluate("document.querySelector('#te-modules [data-module=vault]').click()");
       assert.equal(await tab.evaluate("document.getElementById('te-modules-layout').textContent"), 'The layout on the Default Workspace tab uses Vault. Tick it again, or take it out of the layout there.', 'said under Modules before saving');
       assert.equal(await tab.evaluate("document.querySelector('#te-layout .tp-layout-missing').textContent"), 'The layout uses Vault, which is not ticked under Modules. Tick it again, or take it out of the layout.', 'said beside the picker before saving');

@@ -2,7 +2,7 @@
   "id": "project",
   "name": "Projects",
   "description": "Run a project together: tasks, meetings, effort, a brief and a calendar.",
-  "version": 4,
+  "version": 5,
   "words": {
     "space": {
       "one": "project",
@@ -144,11 +144,14 @@
   },
   "workspace": {
     "layout": { "shape": "wide-narrow", "areas": ["schedule", "todo"] },
-    "show": [
-      "calendar",
-      "documents"
-    ],
-    "opensFirst": "workspace"
+    "tabs": [
+      { "id": "workspace", "show": true },
+      { "id": "calendar", "show": true },
+      { "id": "map", "show": false },
+      { "id": "conference", "show": false },
+      { "id": "whiteboard", "show": false },
+      { "id": "documents", "show": true }
+    ]
   },
   "phases": [
     {

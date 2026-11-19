@@ -37,15 +37,22 @@ feature after.
 
 ## Three kinds of build
 
-Thomas says which kind each piece of work is. The default is a try build; never escalate on your own.
+Thomas says which kind each piece of work is. The default is a try build; never escalate on your own,
+and never offer or recommend a production build: only Thomas calls one (Thomas, 2026-11-19).
 
 - **Try build** (the default, most of the time): Thomas wants to see an idea. One builder, one pass,
   briefed in a few lines, not a plan document. The builder runs `node --check` and the one or two
-  checks that touch its files, and verifies live only what it built. No quality-assurance, no
-  content-manager, no CHANGELOG, no plan. The one version bump: the builder bumps the patch
+  checks that touch its files (scoped checks, never the whole `npm run check`), and verifies live only
+  what it built. No quality-assurance (not even for a core change), no content-manager, no CHANGELOG,
+  no plan. The one version bump: the builder bumps the patch
   version of any module it changes (`node tools/check-module-versions.mjs --update`), nothing else, and
-  checks that `node tools/check-module-versions.mjs` prints OK. Commit and push as soon as the builder
-  reports, so Thomas is testing within the hour. Rough edges are expected; it is his test server.
+  checks that `node tools/check-module-versions.mjs` prints OK. As soon as the builder reports, you
+  push, open a pull request, and merge it (squash, with `expectedHeadSha`) when every GitHub check run
+  is green on that head; then confirm the image is published (an anonymous token, then a HEAD on
+  `/v2/drowbe/coffee-pub-chameleon/manifests/sha-<7>`; 200 means published; check the `image.yml` run
+  if not) and tell Thomas what to pull and what to test, so he is testing within the hour. Rough edges
+  are expected; it is his test server. If a check is red, find the cause; if it is red on `main` too
+  it is not the builder's: say so.
 - **Feedback build**: the idea held up and others will try it. The builder, then one short
   quality-assurance pass aimed only at "does it break what was there"; fix must-fixes only, one round.
   A CHANGELOG line. Nothing else.
@@ -53,6 +60,29 @@ Thomas says which kind each piece of work is. The default is a try build; never 
   quality-assurance with its security review, documentation, version bumps.
 
 Report in a few lines, not a page. One agent at a time for a try build; no fan-out.
+
+## Decisions stick, and when to ask
+
+Thomas's decision of 2026-11-19: he does not mind deciding; he minds deciding, seeing nothing come of it,
+and being asked a variation of the same question later. So:
+
+- When he decides something, record it in the same turn where it will be found: the plan for a
+  feature, `CLAUDE.md` or this file for a process rule. Do not leave it only in the conversation.
+- Before you ask him anything, look in the plan, this file and `CLAUDE.md` for an earlier decision.
+  Never ask a variation of a decided question; if the new case differs, say how it differs.
+- Ask only when you are blocked. For a small choice take the planner's lean, write it into the plan, and
+  say in one line that you did. Use clickable options only for a real fork, and check every fact an
+  option rests on before you offer it.
+- Do not start a plan for an idea he has already described; a try build is the first answer.
+
+## Whole experiences
+
+Thomas's decision of 2026-11-19: for a whole experience (a feature with its own pages, server side and
+checks, such as the colour picker), a dedicated session that owns it end to end ships faster than
+work relayed through you, so start one (`create_session`, from `main`, with a brief that carries this
+file's rules and the plan if there is one) and stay out of its middle. It reports to Thomas itself.
+Read its pull request before you say anything about it, and keep it merged up with `main` by a normal
+merge, never a rebase or a force-push. Small pieces stay with one builder.
 
 ## Module agents
 
@@ -82,7 +112,8 @@ you triage it.
 Thomas's decision of 2026-10-14. While he sleeps, work only from the issues he put in the "now"
 column (GitHub label `priority: now`), in priority order, bugs first. One builder at a time on any
 shared files. Anything that needs a design decision is skipped, not guessed, and noted for him.
-Every build runs `npm run check` and its own checks before it is merged.
+Every build runs its own scoped checks, and GitHub's checks must be green on the pinned head, before it is
+merged; the whole `npm run check` is for release prep only.
 - **Merge** small fixes and bugs that pass every check to main: open a PR, merge it with
   `expectedHeadSha`, wait for `image.yml`, and report what is now in `latest`.
 - **Hold** on the branch, with a short note for Thomas, anything touching the call, the column,
@@ -92,7 +123,9 @@ Every build runs `npm run check` and its own checks before it is merged.
 - Never close an issue unless its work is merged and verified.
 - Keep a running list of what was merged and what is held, for his morning summary.
 
-## The flow (production builds)
+## The flow (production builds only)
+
+Only when Thomas has called a production build. A try build skips all of this.
 
 planner (when needed) -> Thomas approves -> builders -> quality-assurance -> content-manager -> report.
 
@@ -104,8 +137,8 @@ planner (when needed) -> Thomas approves -> builders -> quality-assurance -> con
    so split it:
    - Send product-planner to research: what exists, what earlier plans decided, the conflicts, the
      options and its suggestions, and the questions only Thomas can answer.
-   - Put those options and questions to Thomas yourself, a few at a time, most important first, and
-     keep going until he has decided what matters.
+   - Put to Thomas yourself only the forks that block the plan, most important first (see "Decisions
+     stick, and when to ask": take the planner's lean for the rest and record it).
    - Send product-planner his decisions, in his words, to write `documentation/plans/plan-<name>.md`.
    - Show Thomas a short summary of the plan and wait for his approval before any building starts.
 3. **Break it down.** Tasks, the owner of each, and what depends on what. Show Thomas in a few lines;
@@ -125,7 +158,8 @@ planner (when needed) -> Thomas approves -> builders -> quality-assurance -> con
 8. **Report.** What changed and where; QA's verdict; what was verified and how (live, by a check, or
    read as code only); what wasn't and why; what is left open, including QA's proposed check cases.
    Then commit it yourself (git by explicit paths, never `git add -A`, the CHANGELOG entry in the
-   same commit); the agents are told not to commit. Don't push unless Thomas asks.
+   same commit); the agents are told not to commit. For a production build, don't push unless Thomas
+   asks (a try build is pushed and merged as its section says).
 
 ## Rules
 

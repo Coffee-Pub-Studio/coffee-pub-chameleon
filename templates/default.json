@@ -2,8 +2,18 @@
   "id": "default",
   "name": "Default",
   "description": "Every module this server has, with the usual words. Copy it to make your own.",
-  "version": 2,
+  "version": 3,
   "modules": "*",
-  "workspace": { "layout": { "shape": "one", "areas": [null] } },
+  "workspace": {
+    "layout": { "shape": "one", "areas": [null] },
+    "tabs": [
+      { "id": "workspace", "show": true },
+      { "id": "calendar", "show": true },
+      { "id": "map", "show": true },
+      { "id": "conference", "show": true },
+      { "id": "whiteboard", "show": true },
+      { "id": "documents", "show": true }
+    ]
+  },
   "call": { "joinOnEntry": false, "position": "top", "layout": "grid" }
 }

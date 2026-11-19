@@ -64,7 +64,7 @@ const PROJECT_RAW = {
   words: { space: { one: 'project', many: 'projects' } },
   modules: { travel: { name: 'Project plan', icon: 'diagram-project' }, maps: {}, budget: { name: 'Effort' }, assistant: {}, chat: {}, conference: {} },
   call: { joinOnEntry: false, position: 'left', layout: 'strip' },
-  workspace: { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] }, show: ['calendar'], opensFirst: 'workspace' },
+  workspace: { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] }, tabs: [{ id: 'workspace', show: true }, { id: 'calendar', show: true }, { id: 'map', show: false }] },
   phases: [{ id: 'start', label: 'Start' }, { id: 'build', label: 'Build', main: true }],
   phaseMeasure: 'progress',
   reactions: [{ id: 'ship', glyph: '\u{1F680}', label: 'Ship it' }],
@@ -132,7 +132,7 @@ await test('two spaces on two templates: different module sets, names, icons, re
   assert.deepEqual(lp.phases.map((x) => x.id), ['start', 'build']);
   assert.equal(lp.phaseMeasure, 'progress');
   assert.deepEqual(lp.call, { joinOnEntry: false, position: 'left', layout: 'strip' }, 'the call as stored');
-  assert.deepEqual(lp.workspace, { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] }, show: ['calendar'], opensFirst: 'workspace' }, 'the workspace as stored');
+  assert.deepEqual(lp.workspace, { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] }, tabs: [{ id: 'workspace', show: true }, { id: 'calendar', show: true }, { id: 'map', show: false }] }, 'the workspace as stored');
   assert.deepEqual([lg.call, lg.workspace.layout], [{ joinOnEntry: false, position: 'top', layout: 'grid' }, undefined], 'Gaming names no layout');
   // The answer is the reader's own: changing it changes nothing stored or read again.
   lp.modules.push('calendar');

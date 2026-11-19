@@ -26,6 +26,7 @@ const PRODUCT = 'Testname';
 process.env.PRODUCT_NAME = PRODUCT;
 const templates = require('../server/templates.js');
 const layoutShapes = require('../server/layout-shapes.js');
+const layoutIds = require('../server/layouts.js').SYSTEM_IDS;
 const templateFile = require('../server/template-file.js');
 const { buildEnvironment } = require('../server/environment.js');
 const { bundledModules } = require('../server/module-build.js');
@@ -134,7 +135,8 @@ try {
       }
     }
     assert.equal(Object.hasOwn(templates.get('learning').modules, 'whiteboard'), true, 'Education lists the Whiteboard (decision 21)');
-    assert.equal(templates.get('games').workspace.opensFirst, 'conference');
+    assert.equal(templates.get('games').workspace.tabs[0].id, 'conference', 'Gaming opens on the Conference: its first row');
+    for (const t of templates.all().values()) assert.equal(Object.keys(t.workspace).some((k) => k === 'show' || k === 'opensFirst'), false, `${t.id}: no show or opensFirst`);
   });
 
   await test('seeded result: a new space on each shipped template gets the tabs and first layout its template names (a field that does nothing fails)', () => {
@@ -142,18 +144,19 @@ try {
     env.store.templateById = (id) => templates.get(id) || null;
     for (const t of templates.all().values()) {
       const space = env.store.addSpace({ name: `On ${t.id}`, template: t.id });
-      const w = t.workspace;
-      if (w.opensFirst && w.opensFirst !== 'workspace') assert.equal(space.defaultLayout, w.opensFirst, `${t.id}: opens first on ${w.opensFirst}`);
-      else assert.equal(space.defaultLayout, undefined, `${t.id}: no first layout of its own`);
-      for (const id of w.show || []) assert.equal((space.tabs?.hide || []).includes(id), false, `${t.id}: ${id} is shown`);
+      // What each shipped template seeded before it had a tab list: the same now (the list is written out in every file).
+      const before = { games: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['whiteboard', 'documents'] }, learning: { hide: ['map', 'conference', 'whiteboard'] }, mentoring: { hide: ['map', 'conference', 'whiteboard'] }, project: { hide: ['map', 'conference', 'whiteboard'] } };
+      assert.deepEqual(space.tabs, before[t.id], `${t.id}: its tabs`);
+      assert.equal(space.defaultLayout, t.id === 'games' ? 'conference' : undefined, `${t.id}: what opens first`);
+      assert.equal(t.workspace.tabs.length, 6, `${t.id}: the list names every layout`);
     }
     const gaming = env.store.spaces.find((x) => x.template === 'games');
-    assert.deepEqual([gaming.defaultLayout, gaming.tabs], ['conference', { hide: ['whiteboard', 'documents'] }], 'Gaming opens on the Conference, which is shown');
+    assert.deepEqual([gaming.defaultLayout, gaming.tabs.hide], ['conference', ['whiteboard', 'documents']], 'Gaming opens on the Conference, which is shown');
   });
 
   await test('the Default template (decisions 3 and 33): the whole catalog as "*", no words, the core call, nothing added', () => {
     const d = templates.get('default');
-    assert.deepEqual([d.id, d.name, d.version, d.modules, d.words, d.home, d.phases, d.reactions, d.iconSet, d.starterSpaces, d.settings, d.lobby], ['default', 'Default', 2, '*', {}, null, [], [], [], [], {}, {}]);
+    assert.deepEqual([d.id, d.name, d.version, d.modules, d.words, d.home, d.phases, d.reactions, d.iconSet, d.starterSpaces, d.settings, d.lobby], ['default', 'Default', 3, '*', {}, null, [], [], [], [], {}, {}]);
     assert.deepEqual(d.call, { joinOnEntry: false, position: 'top', layout: 'grid' });
     assert.equal(templates.defaultTemplate(), d);
     assert.deepEqual(templates.moduleIdsOf(d), '*');
@@ -170,7 +173,7 @@ try {
     assert.deepEqual(t.words, { space: { one: 'trip', many: 'trips' } });
     assert.deepEqual(Object.keys(t.modules), ['travel', 'maps', 'research', 'vault', 'assistant', 'calendar', 'budget', 'polls', 'todo', 'documents', 'whiteboard', 'chat', 'conference']);
     assert.deepEqual([t.modules.travel, t.modules.vault, t.modules.maps], [{ name: 'Itinerary' }, {}, {}]);
-    assert.deepEqual([t.icons.home, t.lobby, t.spaceDefaults, t.workspace], ['suitcase-rolling', { name: 'Home base', description: 'Everyone on every trip.' }, { profile: 'participants' }, { layout: { shape: 'wide-narrow', areas: ['travel', 'vault'] } }]);
+    assert.deepEqual([t.icons.home, t.lobby, t.spaceDefaults, t.workspace], ['suitcase-rolling', { name: 'Home base', description: 'Everyone on every trip.' }, { profile: 'participants' }, { layout: { shape: 'wide-narrow', areas: ['travel', 'vault'] }, tabs: layoutIds.map((id) => ({ id, show: true })) }]);
     assert.deepEqual(t.settings, { showCalendar: true, showMap: true, calendarFeeds: true, otherCalendars: true });
     assert.deepEqual(t.phases.map((p) => [p.id, p.icon]), [['planning', 'clipboard-list'], ['booking', 'ticket'], ['buffer', 'hourglass-half'], ['pre-trip', 'suitcase-rolling'], ['trip', 'plane'], ['post-trip', 'camera']]);
     assert.equal(t.phases.find((p) => p.main).id, 'trip');
@@ -335,7 +338,7 @@ try {
     assert.deepEqual(problems(minimal({ call: { joinOnEntry: 'yes' } })), ['call.joinOnEntry must be true or false.']);
     assert.deepEqual(problems(minimal({ call: { position: 'middle' } })), ['call.position must be one of top, bottom, left, right, float, workspace, window.']);
     assert.deepEqual(problems(minimal({ call: { layout: 'mosaic' } })), ['call.layout must be one of grid, strip, focus, spotlight.']);
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: {} }, workspace: { layout: { shape: 'two-equal', areas: ['polls', null] }, show: ['calendar', 'map'], opensFirst: 'calendar' } })), []);
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: {} }, workspace: { layout: { shape: 'two-equal', areas: ['polls', null] }, tabs: [{ id: 'calendar', show: true }, { id: 'map', show: false }] } })), []);
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: ['polls'] } } })), ['The layout uses Polls, which this template doesn\'t include.'], 'an area names only this template\'s modules');
     assert.deepEqual(problems(minimal({ modules: '*', workspace: { layout: { shape: 'two-equal', areas: ['polls', 'nope'] } } })), ['The layout uses nope, which this template doesn\'t include.']);
     assert.deepEqual(problems(minimal({ modules: '*', workspace: { layout: { shape: 'two-equal', areas: ['polls', null] } } })), [], 'with "*", any module of the catalog');
@@ -344,8 +347,6 @@ try {
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'ring', areas: [] } } })), ['Pick a shape from the list.']);
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'three-equal', areas: [null] } } })), ['This shape has 3 areas.']);
     assert.deepEqual(problems(minimal({ workspace: { layout: { shape: 'one', areas: [null], widths: [100] } } })), ['A shape does not take "widths"; it is a shape and its areas.']);
-    assert.deepEqual(problems(minimal({ workspace: { show: ['calendar'], opensFirst: 'conference' } })), ['workspace.opensFirst: "conference" must also be in workspace.show.'], 'an opens-first that is not shown would do nothing');
-    assert.deepEqual(problems(minimal({ workspace: { show: ['calendar'], opensFirst: 'workspace' } })), [], 'the Workspace is always there');
     for (const id of ['assistant', 'stream']) {
       if (!templates.bundledManifests().has(id)) continue;
       assert.deepEqual(problems(minimal({ modules: { chat: {}, [id]: {} }, workspace: { layout: { shape: 'one', areas: [id] } } })).length, 1, `${id} has no place on the canvas, so no area takes it`);
@@ -369,15 +370,21 @@ try {
     // The field a layout sentence is about rides on the answer, for the page to file it.
     const withParts = problems(minimal({ workspace: { layout: { shape: 'ring', areas: [] } } }));
     assert.deepEqual([withParts.parts, Object.keys(withParts)], [['workspace'], ['0']], 'parts is not part of the list');
-    assert.deepEqual(problems(minimal({ workspace: { opensWith: ['chat'] } })), ['"workspace" takes only layout, show and opensFirst.'], 'opensWith is gone: the layout replaces it');
+    assert.deepEqual(problems(minimal({ workspace: { opensWith: ['chat'] } })), ['"workspace" takes only layout and tabs.'], 'opensWith is gone: the layout replaces it');
     // To-do in a stacked area: refused only where the Calendar is on (the template's modules; "*" counts the Calendar as on).
     const stacked = (modules) => problems(minimal({ modules, workspace: { layout: { shape: 'tall-split', areas: ['polls', 'todo', null] } } }));
     assert.deepEqual(stacked({ chat: {}, polls: {}, todo: {} }), [], 'no Calendar: To-do stacks');
     assert.deepEqual(stacked({ chat: {}, polls: {}, todo: {}, calendar: {} }), ["To-do can't share a column; put it in area 1."], 'with the Calendar: refused, named as a person reads it');
     assert.deepEqual(stacked('*'), ["To-do can't share a column; put it in area 1."], '"*" counts the Calendar as on');
-    assert.deepEqual(problems(minimal({ workspace: { show: ['workspace'] } })), ['workspace.show must be a list of Fixed Workspaces, each once: calendar, map, conference, whiteboard, documents.']);
-    assert.deepEqual(problems(minimal({ workspace: { opensFirst: 'home' } })), ['workspace.opensFirst must be one of workspace, calendar, map, conference, whiteboard, documents.']);
-    assert.deepEqual(problems(minimal({ workspace: { tabs: [] } })), ['"workspace" takes only layout, show and opensFirst.']);
+    for (const old of [{ show: ['calendar'] }, { opensFirst: 'calendar' }]) assert.deepEqual(problems(minimal({ workspace: old })), ['"workspace" takes only layout and tabs.'], 'show and opensFirst are gone');
+    const sentence = `workspace.tabs must be a list of rows { id, show }, each of ${layoutIds.join(', ')} at most once, with at least one shown and the workspace never hidden.`;
+    const row = (id, show = true) => ({ id, show });
+    assert.deepEqual(problems(minimal({ workspace: { tabs: [row('conference'), row('workspace'), row('map', false)] } })), [], 'a list in the owner\'s order, a row hidden, some layouts left out');
+    assert.deepEqual(problems(minimal({ workspace: { tabs: [row('calendar'), row('map', false)] } })), [], 'the Workspace row may be left out');
+    for (const bad of [[], 'calendar', [row('nope')], [row('calendar'), row('calendar', false)], [row('calendar', false), row('map', false)], [row('workspace', false), row('calendar')], [{ id: 'calendar' }], [{ id: 'calendar', show: 'yes' }], [{ id: 'calendar', show: true, extra: 1 }], ['calendar'], [null], Array.from({ length: 7 }, () => row('calendar'))]) {
+      assert.deepEqual(problems(minimal({ workspace: { tabs: bad } })), [sentence], JSON.stringify(bad));
+    }
+    assert.deepEqual(problems(minimal({ workspace: { tabs: [row('nope')] } })).parts, ['workspace'], 'the sentence goes under the Default Workspace');
     const phase = (id, extra = {}) => ({ id, label: id[0].toUpperCase() + id.slice(1), ...extra });
     assert.deepEqual(problems(minimal({ phases: [phase('a'), phase('a')] })), ['phases: "a" is listed twice.']);
     assert.deepEqual(problems(minimal({ phases: [phase('a', { main: true }), phase('b', { main: true })] })), ['phases: only one phase can be the main one.']);
@@ -585,13 +592,13 @@ try {
       const copy = await api('POST', '/api/environment/templates', { from: 'default', id: 'plain', name: 'Plain' });
       assert.equal(copy.status, 201, copy.text);
       const t = copy.json.template;
-      assert.deepEqual([t.id, t.name, t.version, t.source, t.editable, t.copiedFrom], ['plain', 'Plain', 1, 'own', true, { id: 'default', version: 2 }]);
+      assert.deepEqual([t.id, t.name, t.version, t.source, t.editable, t.copiedFrom], ['plain', 'Plain', 1, 'own', true, { id: 'default', version: 3 }]);
       assert.ok(t.modules && typeof t.modules === 'object' && t.modules.chat && t.modules.conference, 'chat and the conference listed by id');
       const enabled = (await api('GET', '/api/modules')).json.modules.filter((m) => m.enabled).map((m) => m.id);
       for (const id of enabled) assert.ok(id in t.modules, `${id} is listed`);
       const trip = await api('POST', '/api/environment/templates', { from: 'travel', id: 'trips', name: 'Trips' });
       assert.equal(trip.status, 201, trip.text);
-      assert.deepEqual([trip.json.template.modules.travel, trip.json.template.words, trip.json.template.workspace], [{ name: 'Itinerary' }, { space: { one: 'trip', many: 'trips' } }, { layout: { shape: 'wide-narrow', areas: ['travel', 'vault'] } }]);
+      assert.deepEqual([trip.json.template.modules.travel, trip.json.template.words, trip.json.template.workspace], [{ name: 'Itinerary' }, { space: { one: 'trip', many: 'trips' } }, { layout: { shape: 'wide-narrow', areas: ['travel', 'vault'] }, tabs: layoutIds.map((id) => ({ id, show: true })) }]);
       for (const [body, status, error] of [
         [{ from: 'travel', id: 'trips', name: 'Again' }, 409, 'There is already a template called trips.'],
         [{ from: 'travel', id: 'default', name: 'Again' }, 409, 'There is already a template called default.'],
@@ -604,7 +611,7 @@ try {
         assert.deepEqual([r.status, r.json.error], [status, error], JSON.stringify(body));
       }
       const stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8')).templates;
-      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 2 }], ['trips', 1, { id: 'travel', version: 14 }]]);
+      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 3 }], ['trips', 1, { id: 'travel', version: 15 }]]);
       for (const x of stored) assert.ok(x.createdAt && x.updatedAt, 'dated');
     });
 
@@ -658,7 +665,7 @@ try {
       assert.equal(file.status, 200, file.text);
       const imported = await api('POST', '/api/templates/import?id=from-file', file.json);
       assert.equal(imported.status, 201, imported.text);
-      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 14, null]);
+      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 15, null]);
       const theme = await api('POST', '/api/templates/import?id=themed', { ...file.json, theme: { name: 'x' } });
       assert.deepEqual([theme.status, theme.json.error.slice(0, 32)], [400, '"theme" is not a template field;']);
       const badLayout = { ...file.json, workspace: { layout: { shape: 'one', areas: ['zzz'] } } };
