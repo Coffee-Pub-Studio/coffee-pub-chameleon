@@ -661,6 +661,12 @@ try {
       assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 14, null]);
       const theme = await api('POST', '/api/templates/import?id=themed', { ...file.json, theme: { name: 'x' } });
       assert.deepEqual([theme.status, theme.json.error.slice(0, 32)], [400, '"theme" is not a template field;']);
+      const badLayout = { ...file.json, workspace: { layout: { shape: 'one', areas: ['zzz'] } } };
+      for (const url of ['/api/templates/import', '/api/templates/import?id=layoutcopy']) {
+        const refused = await api('POST', url, badLayout);
+        assert.equal(refused.status, 400, `${url}: ${refused.text}`);
+        assert.deepEqual([refused.json.problems.length, refused.json.parts.length, refused.json.parts.includes('workspace')], [refused.json.parts.length, refused.json.problems.length, true], `${url}: problems and parts line up, the layout one filed under workspace`);
+      }
       const proto = await call(server, '', 'POST', '/api/templates/import', { cookie: admin, raw: `{"format":"template","formatVersion":1,"id":"p1","name":"P","description":"P.","modules":{"chat":{}},"__proto__":{"x":1}}`, type: 'text/plain' });
       assert.deepEqual([proto.status, proto.json.error], [400, 'A template can\'t hold a key called "__proto__".']);
       for (let i = 0; i < 19; i += 1) assert.equal((await api('POST', '/api/environment/templates', { from: 'default', id: `t${i}`, name: `T ${i}` })).status, 201);
@@ -849,6 +855,11 @@ try {
     assert.equal('edited' in file.json, false);
     assert.deepEqual(file.json.words.space, { one: 'journey', many: 'journeys' });
     assert.ok('whiteboard' in file.json.modules);
+    for (const url of ['/api/host/templates/import', '/api/host/templates/import?id=layoutcopy']) {
+      const refused = await console_('POST', url, { ...file.json, workspace: { layout: { shape: 'one', areas: ['zzz'] } } });
+      assert.equal(refused.status, 400, `${url}: ${refused.text}`);
+      assert.deepEqual([refused.json.problems.length, refused.json.parts.length, refused.json.parts.includes('workspace')], [refused.json.parts.length, refused.json.problems.length, true], `${url}: parts line up`);
+    }
     const imported = await console_('POST', '/api/host/templates/import?id=from-file', file.json);
     assert.equal(imported.status, 201, imported.text);
     assert.equal(imported.json.template.id, 'from-file');

@@ -2679,12 +2679,12 @@ function readTemplateUpload(req, env, manifests) {
     if (rename) {
       read.raw.id = rename;
       const problems = templates.problemsOf(read.raw, { manifests });
-      if (problems.length) return { status: 400, error: { error: problems[0], problems } };
+      if (problems.length) return { status: 400, error: { error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) } };
     }
     if (templateFor(env, read.raw.id)) return { status: 409, error: { error: `There is already a template called ${read.raw.id}.` } };
     return read;
   } catch (err) {
-    if (err instanceof templateFile.TemplateFileError) return { status: err.status, error: { error: err.message, ...(err.problems ? { problems: err.problems } : {}) } };
+    if (err instanceof templateFile.TemplateFileError) return { status: err.status, error: { error: err.message, ...(err.problems ? { problems: err.problems } : {}), ...(err.parts ? { parts: err.parts } : {}) } };
     throw err;
   }
 }
