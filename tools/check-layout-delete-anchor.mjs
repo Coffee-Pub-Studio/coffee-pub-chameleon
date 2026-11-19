@@ -44,7 +44,7 @@ try {
     return [...(r.mine || []), ...(r.shared || [])];
   };
   for (const name of ['Whiteboard', 'Game night', 'Planning']) {
-    const r = await fetch(`${server.base}/api/spaces/${ctx.trip}/layouts`, { method: 'POST', headers: { cookie: cookieOf('admin'), 'content-type': 'application/json' }, body: JSON.stringify({ name, shared: true, modules: [{ id: 'calendar', mode: 'dock', dockW: 360 }], snap: { all: false, pitch: 130 } }) });
+    const r = await fetch(`${server.base}/api/spaces/${ctx.trip}/layouts`, { method: 'POST', headers: { cookie: cookieOf('admin'), 'content-type': 'application/json' }, body: JSON.stringify({ name, shared: true, shape: 'one', areas: [null] }) });
     assert.equal(r.status, 201, `seed ${name}`);
   }
   const start = await saved();

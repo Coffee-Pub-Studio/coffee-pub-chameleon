@@ -82,7 +82,7 @@ const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
-const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS } = require('./store');
+const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
 const phaseRule = require('../public/phases.js');
 const phaseMeasure = require('./phase-measure.js'); // a phase's Done switch and the count of the goals that name it (plan-templates-redesign.md, step 6)
@@ -6505,14 +6505,44 @@ function firstVisitFor(found) {
 // one, as its /look lists them, else the environment's), the modules' own icons, and the defaults.
 const layoutIconIds = (spaceId) => [...new Set([...store.iconIdsAt(spaceId), ...store.moduleIconIds(), ...Object.values(SYSTEM_ICONS), 'object-group'])];
 
+// What an area of a layout for everyone may name in a space (plan-layout-picker.md, step 6): { modules, names }. `modules` are
+// the ids on in the space with a place on the canvas (the template's rule for an area), which is also what decides whether
+// Calendar and To-do read as a composite; `names` is { <id>: the name this space shows } for every module installed or
+// shipped, so a sentence names a module as the space shows it. Checked when the layout is saved, never when it is read.
+function sharedShapeOptions(space) {
+  const on = modules.enabledAll()
+    .filter(({ manifest, entry }) => manifest.scope.includes('space') && manifest.surfaces?.canvas && !refusedInLobby(manifest, space.id) && modules.isOnIn(entry.id, space.id))
+    .map(({ manifest }) => manifest.id);
+  const names = Object.create(null);
+  // A name that is not a good display name (a stored one edited by hand) is not used: the manifest's own is.
+  for (const manifest of catalogManifests(currentEnvironment()).values()) {
+    const shown = shownModule(manifest, space.id).name;
+    names[manifest.id] = typeof shown === 'string' && shown.trim() && !displayNameProblem(shown.trim()) ? shown : manifest.name;
+  }
+  return { modules: on, on, names };
+}
+// Who can't open each module a layout for everyone may name here, for whoever may edit it (decisions 17 and 19):
+// { <module id>: { roles: [...] } | { off: true } }, a module everyone can open left out. It covers every module on in the
+// space, and any module a shared layout names that is off now. The roles are the environment's Roles (a moderator's own
+// grant for one space only adds permissions, so it never changes who can't open); an owner and the admin open everything.
+function sharedCantOpen(found, shared) {
+  const { modules: on } = sharedShapeOptions(found.space);
+  const named = shared.flatMap((l) => (Array.isArray(l.areas) ? l.areas : [])).filter((id) => typeof id === 'string');
+  const ids = [...new Set([...on, ...named])];
+  return whoCantOpen(ids, { manifests: Object.fromEntries(catalogManifests(currentEnvironment())), rolePermissions: store.roles(), off: ids.filter((id) => !on.includes(id)) });
+}
+// A refused layout's answer, as a template's: { error, problems, parts }.
+const layoutProblems = (out) => ({ error: out.error, problems: out.problems, parts: out.parts });
+
 app.get('/api/spaces/:id/layouts', (req, res) => {
   const found = layoutSpaceFor(req, res);
   if (!found) return;
   const me = found.who.user ? found.who.user.key : null;
   const listed = store.layouts.list(found.space.id, me);
-  // A guest is shown only the modules that are on in this space; a layout never names one they cannot use.
+  // A guest is shown only the modules that are on in this space: an area naming one that is off reads as empty, which
+  // closes up for a guest as an area they can't open does. A member's answer names it, and the page closes the area up.
   const mine = listed.mine;
-  const shared = found.who.user ? listed.shared : listed.shared.map((l) => ({ ...l, modules: l.modules.filter((m) => modules.isOnIn(m.id, found.space.id)) }));
+  const shared = found.who.user ? listed.shared : listed.shared.map((l) => ({ ...l, areas: l.areas.map((id) => (id !== null && !modules.isOnIn(id, found.space.id) ? null : id)) }));
   // defaultLayout: the id of the shared layout this space opens with on a first visit, or null (store.defaultLayoutOf).
   const fallback = store.defaultLayoutOf(found.space.id);
   // favorites: this person's favorite layouts' ids, in the order favorited (plan-favorite-layouts.md); [] for a guest.
@@ -6522,7 +6552,7 @@ app.get('/api/spaces/:id/layouts', (req, res) => {
   // last: the person's own last layout, only while it can still be opened (lastLayoutFor); left out for a guest and when none.
   const system = systemLayoutsFor(found);
   const last = lastLayoutFor(found, system);
-  res.json({ mine, shared, system, defaultLayout: fallback ? fallback.id : null, firstVisit: firstVisitFor(found), favorites, canShare: found.canShare, canSetDefault: found.canSetDefault, ...(found.canSetDefault ? { tabs: tabsOf(found.space.tabs) } : {}), ...(last ? { last } : {}) });
+  res.json({ mine, shared, system, defaultLayout: fallback ? fallback.id : null, firstVisit: firstVisitFor(found), favorites, canShare: found.canShare, canSetDefault: found.canSetDefault, ...(found.canShare ? { cantOpen: sharedCantOpen(found, shared) } : {}), ...(found.canSetDefault ? { tabs: tabsOf(found.space.tabs) } : {}), ...(last ? { last } : {}) });
 });
 
 // The layout a person last used in a space (plan-workspaces.md, decision 20): PUT { layout } writes the signed-in person's
@@ -6551,8 +6581,11 @@ app.post('/api/spaces/:id/layouts', (req, res) => {
   const found = layoutSpaceFor(req, res);
   if (!found) return;
   if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
-  const { layout, error } = cleanLayout(req.body, { icons: layoutIconIds(found.space.id) });
-  if (error) return res.status(400).json({ error });
+  // Who may share is decided before the layout is read, so a member learns nothing of the space's modules from a refusal.
+  if (isPlainBody(req.body) && req.body.shared === true && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
+  const out = cleanLayout(req.body, { icons: layoutIconIds(found.space.id), shapeOptions: sharedShapeOptions(found.space) });
+  if (out.error) return res.status(400).json(layoutProblems(out));
+  const { layout } = out;
   if (layout.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   try {
     res.status(201).json({ layout: store.layouts.add(found.space.id, found.who.user.key, layout) });
@@ -6575,9 +6608,13 @@ app.put('/api/spaces/:id/layouts/:layoutId', (req, res) => {
   if (!there) return res.status(404).json({ error: 'There is no such layout here.' });
   if (there.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   // The icon it has already is taken back unchanged (it may be one a template switched away offered); a new one is checked.
-  const { layout: patch, error } = cleanLayout(req.body, { partial: true, icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
-  if (error) return res.status(400).json({ error });
-  if (!Object.keys(patch).length) return res.status(400).json({ error: `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.` });
+  const out = cleanLayout(req.body, { partial: true, shared: there.shared, shapeOptions: there.shared ? sharedShapeOptions(found.space) : null, icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
+  if (out.error) return res.status(400).json(layoutProblems(out));
+  const patch = out.layout;
+  if (!Object.keys(patch).length) {
+    const error = there.shared ? 'Send a new name, or a shape and its areas to replace the layout with.' : `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.`;
+    return res.status(400).json({ error, problems: [error], parts: [null] });
+  }
   try {
     const layout = store.layouts.update(found.space.id, req.params.layoutId, me, patch);
     // Replacing the default layout's modules moves the space's Opens with along with it.
