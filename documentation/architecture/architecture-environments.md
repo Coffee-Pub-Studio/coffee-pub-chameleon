@@ -97,6 +97,8 @@ The "door" is one middleware, registered right after `express.json()`, before an
   The two redirects and the sign-up answer carry the port the same way (`requestPort()`): behind a proxy it
   is implicit, in local development it matters.
 
+  **The default logo** (Thomas, 2026-11-19). Where an environment shows its logo (the top bar's logo box, the sign-in pages), an environment that has not set its own shows the product's mark, `public/assets/images/brand/mark.svg` (`mark-dark.svg` on a dark page); the owner's own logo replaces it once set. The top bar used to show the environment's home icon there when no logo was set.
+
   **The settings.** `PRODUCT_DOMAIN` is a host name, lower-cased: no scheme, no port, no path. A value that is
   not a host name logs a line and is ignored (the start page stays at the base). It equal to `admin.<base>`
   stops the start. `RESERVED_SLUGS` is a comma list of names. Both are ignored without `BASE_DOMAIN`, with one

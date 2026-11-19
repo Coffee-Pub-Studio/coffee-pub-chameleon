@@ -105,7 +105,7 @@ try {
   const plain = await call('GET', 'admin', '/api/host/demos', undefined, admin);
   assert.equal(plain.status, 200, plain.text);
   const travel = plain.json.demos.find((d) => d.id === 'travel');
-  assert.deepEqual(travel.modules.map((m) => m.id).sort(), ['budget', 'calendar', 'documents', 'maps', 'polls', 'research', 'todo', 'travel']);
+  assert.deepEqual(travel.modules.map((m) => m.id).sort(), ['budget', 'calendar', 'documents', 'maps', 'polls', 'research', 'todo', 'travel', 'vault', 'whiteboard']);
   for (const d of plain.json.demos) {
     assert.ok(Array.isArray(d.modules) && d.modules.length, `${d.id} lists its modules`);
     for (const m of d.modules) {
@@ -185,7 +185,7 @@ try {
   assert.equal((await call('POST', 'eps', '/api/login', { login: 'mia', password: OWNER_PASSWORD })).status, 200, 'her old password still works');
   // Not a moderator of the real space any more, and a moderator of a demo space (the marker): the load goes through.
   assert.equal((await call('PATCH', 'eps', `/api/users/${mia.json.user.key}/spaces/${realId}`, { permissions: { moderator: false } }, epsOwner)).status, 200);
-  const marked = await call('POST', 'eps', '/api/spaces', { name: 'An older demo', description: 'Demo data from npm run seed:demo. Old.', members: [mia.json.user.key, epsKey], starter: false }, epsOwner);
+  const marked = await call('POST', 'eps', '/api/spaces', { name: 'An older demo', description: 'A demo with made-up people. Old.', members: [mia.json.user.key, epsKey], starter: false }, epsOwner);
   assert.ok(marked.status < 300, marked.text);
   assert.equal((await call('PATCH', 'eps', `/api/users/${mia.json.user.key}/spaces/${marked.json.space.id}`, { permissions: { moderator: true } }, epsOwner)).status, 200);
   const fine = await ask('eps', { demo: 'travel', modules: ['maps'] });

@@ -167,13 +167,8 @@ export async function loadBranding() {
     el.className = `${iconClasses(b.homeIcon || 'couch')} fa-fw`;
     el.dataset.iconId = b.homeIcon || 'couch';
   });
-  // The logo box: the uploaded logo when there is one, else the home icon (decision 23).
-  for (const box of qsa('.topbar .brand-logo')) {
-    const img = box.querySelector('img');
-    const icon = box.querySelector('i');
-    if (img) img.hidden = !b.hasIcon;
-    if (icon) icon.hidden = Boolean(b.hasIcon);
-  }
+  // The top bar's logo box always holds the logo image: the environment's own when it set one, else the product's mark (the
+  // img[data-brand="icon"] pass below), in the variant for the mode showing (Thomas, 2026-11-19).
   document.querySelectorAll('[data-brand="loginText"]').forEach((el) => (el.textContent = b.loginText));
   document.querySelectorAll('[data-brand="productName"]').forEach((el) => (el.textContent = product));
   document.querySelectorAll('[data-brand="version"]').forEach((el) => (el.textContent = b.version || ''));
@@ -329,14 +324,14 @@ export function renderTopbar({ location = '', adminHref = '/admin', themeSwitch:
   const guest = isGuestPage();
   const hostConsole = document.body.classList.contains('host-console');
   bar = { adminHref, withThemeSwitch, guest, hostConsole };
-  // The left zone: the logo (the uploaded one, else the chosen home icon, in one box, never both: decision 23) and the
+  // The left zone: the logo (the environment's own, else the product's mark) and the
   // environment's name, one link home; for a guest, plain text. Modules, Spaces and the anchor are tools after them.
   const tag = guest ? 'span' : 'a';
   const homeAttrs = guest ? '' : ` href="/" target="_top" title="${escapeHtml(word('home'))}"`;
   header.innerHTML = `
     <div class="nav-left brand">
       <${tag} class="brand-home" id="brand-home-link"${homeAttrs}>
-        <span class="brand-logo"><img data-brand="icon" alt="" class="icon"${initialLogo ? '' : ' hidden'}><i class="fa-solid fa-${escapeHtml(initialIcon)} fa-fw" data-icon-id="${escapeHtml(initialIcon)}" data-brand="home-icon" aria-hidden="true"${initialLogo ? ' hidden' : ''}></i></span>
+        <span class="brand-logo"><img data-brand="icon" alt="" class="icon"${initialLogo ? ' src="/img/site/icon"' : ` src="${productMarkSrc()}" data-product-mark`}></span><i data-icon-id="${escapeHtml(initialIcon)}" data-brand="home-icon" hidden></i>
         <span class="brand-name" data-brand="environmentName">${escapeHtml(initialName)}</span>
       </${tag}>
     </div>

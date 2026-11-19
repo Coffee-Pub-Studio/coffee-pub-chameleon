@@ -1312,9 +1312,8 @@ test('gone from the top bar: the clock, the lock or luggage icon beside the logo
   assert.match(brand, /id: 'admin-link'[^\n]*visible: \(\) => inMenu\(\) && offers\('manage'\)/, 'on a phone Manage is the menu\'s entry (as Set up is)');
   assert.match(brand, /id: 'manage-tool', bar: 'primary', zone: 'right', group: 'space', groupOrder: 85, order: 0, place: 'end', icon: 'gear', label: 'Manage'[^\n]*visible: \(\) => !onPhone\(\) && signedInHere\(\) && offers\('manage'\)/, 'wider than a phone Manage is a gear button in the top bar beside Set up, for those profileEntries gives Manage (owners and the admin)');
   assert.ok(!/id: 'setup'[^\n]*icon: 'gear'/.test(fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8')), 'Set up keeps its own icon, apart from Manage\'s gear');
-  assert.match(brand, /<img data-brand="icon"[^>]*><i [^>]*data-brand="home-icon"/, 'the uploaded logo and the home icon share one box');
-  assert.match(brand, /if \(img\) img\.hidden = !b\.hasIcon;/, 'the uploaded logo shows only when there is one');
-  assert.match(brand, /if \(icon\) icon\.hidden = Boolean\(b\.hasIcon\);/, 'never both');
+  assert.match(brand, /<span class="brand-logo"><img data-brand="icon"[^>]*data-product-mark[^>]*><\/span><i [^>]*data-brand="home-icon" hidden><\/i>/, 'the logo box always holds the logo image (the mark by default); the home icon is only carried, hidden');
+  assert.ok(!/if \(img\) img\.hidden = !b\.hasIcon;/.test(brand), 'the logo box is never swapped for the home icon');
   const space = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
   assert.ok(!/id="space-name"/.test(space), 'the space bar no longer names the space (decision 14)');
   assert.match(space, /anchorSegments\(/, 'the space page draws the breadcrumb with anchorSegments (crumbSegments inside)');

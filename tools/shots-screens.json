@@ -1881,6 +1881,12 @@
    "space": true,
    "steps": [
     {
+     "eval": "(()=>{const t=document.querySelector('[data-layout-tab=\"workspace\"]');if(t&&t.getAttribute('aria-current')!=='page')t.click();})()"
+    },
+    {
+     "sleep": 500
+    },
+    {
      "click": "#join-call"
     }
    ],
@@ -1901,6 +1907,12 @@
    "space": true,
    "steps": [
     {
+     "eval": "(()=>{const t=document.querySelector('[data-layout-tab=\"workspace\"]');if(t&&t.getAttribute('aria-current')!=='page')t.click();})()"
+    },
+    {
+     "sleep": 500
+    },
+    {
      "click": "button.mf-switch-btn[data-key=\"switch:view:bookings\"]"
     }
    ]
@@ -1916,7 +1928,28 @@
    "space": true,
    "steps": [
     {
+     "eval": "(()=>{const t=document.querySelector('[data-layout-tab=\"workspace\"]');if(t&&t.getAttribute('aria-current')!=='page')t.click();})()"
+    },
+    {
+     "sleep": 500
+    },
+    {
      "click": "button.mf-switch-btn[data-key=\"switch:view:decisions\"]"
+    }
+   ]
+  },
+  {
+   "id": "vault-files",
+   "family": "Product: Vault with trip files",
+   "seed": "product",
+   "as": "mia",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "tier": "product",
+   "space": true,
+   "steps": [
+    {
+     "click": "button.mf-switch-btn[data-key=\"switch:view:bookings\"]"
     }
    ]
   },
@@ -1930,6 +1963,9 @@
    "tier": "product",
    "space": true,
    "steps": [
+    {
+     "sleep": 1500
+    },
     {
      "click": "#layout-tab-calendar"
     }
@@ -1946,6 +1982,9 @@
    "space": true,
    "steps": [
     {
+     "sleep": 1500
+    },
+    {
      "click": "#layout-tabs-more"
     },
     {
@@ -1953,6 +1992,36 @@
     },
     {
      "eval": "[...document.querySelectorAll('button,a,li,div,span')].filter(e=>e.textContent.trim()==='Documents'&&e.getClientRects().length).pop().click()"
+    },
+    {
+     "sleep": 1500
+    }
+   ]
+  },
+  {
+   "id": "home-spaces",
+   "family": "Product: Home, the spaces",
+   "seed": "product",
+   "as": "lee",
+   "url": "/",
+   "wait": ".space-choice",
+   "tier": "product"
+  },
+  {
+   "id": "whiteboard-board",
+   "family": "Product: Whiteboard with a day plan",
+   "seed": "product",
+   "as": "mia",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "tier": "product",
+   "space": true,
+   "steps": [
+    {
+     "sleep": 1500
+    },
+    {
+     "click": "#layout-tab-whiteboard"
     },
     {
      "sleep": 1500

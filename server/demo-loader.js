@@ -50,10 +50,10 @@ const { word: defaultWord, format } = require('./words');
 
 const DEMO_DIR = path.join(__dirname, '..', 'templates', 'demo');
 // The first line of the demo space's description: how the loader knows a space is its own.
-const MARKER = 'Demo data from npm run seed:demo.';
+const MARKER = 'A demo with made-up people.';
 const TEMPLATE_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const MODULE_ID_RE = /^[a-z0-9-]+$/;
-const TOP_KEYS = ['template', 'label', 'name', 'description', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules'];
+const TOP_KEYS = ['template', 'label', 'name', 'description', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules', 'files'];
 
 class DemoError extends Error {}
 // The first `n` characters of a text, never cutting a character in two (an emoji is one).
@@ -62,6 +62,7 @@ const clip = (t, n) => Array.from(String(t)).slice(0, n).join('');
 const isDay = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || '') && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
 const dayPlus = (day, n) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+const { makeAsset, thumbOf } = require('./demo-assets');
 const password = () => crypto.randomBytes(12).toString('base64url');
 
 // --- the file --------------------------------------------------------------------------------------------------------
@@ -79,6 +80,11 @@ function problemsOf(raw, templateId, word = defaultWord) {
     raw.people.forEach((p, i) => { if (!isObject(p) || typeof p.login !== 'string' || typeof p.displayName !== 'string') out.push(`people[${i}] needs a login and a displayName`); });
     if (new Set(raw.people.map((p) => p && p.login)).size !== raw.people.length) out.push('"people" has the same login twice');
   }
+  if (raw.files !== undefined) {
+    if (!Array.isArray(raw.files)) out.push('"files" must be a list');
+    else raw.files.forEach((f, i) => { if (!isObject(f) || typeof f.name !== 'string' || typeof f.as !== 'string' || typeof f.art !== 'string') out.push(`files[${i}] needs a name, an art and an "as"`); });
+  }
+  if (Array.isArray(raw.people)) raw.people.forEach((p, i) => { if (isObject(p) && p.images !== undefined && !isObject(p.images)) out.push(`people[${i}].images must be a map from image slot to its art`); });
   if (!isObject(raw.modules)) out.push(`the ${word('module', { many: true })} part must be a map from ${word('module')} id to what it holds`);
   else {
     for (const [id, b] of Object.entries(raw.modules)) {
@@ -105,7 +111,8 @@ function readDemoFile(templateId, { dir = DEMO_DIR, words = defaultWord } = {}) 
 }
 const hasDemo = (templateId, opts) => Boolean(readDemoFile(templateId, opts));
 // The modules a demo file needs, by id, in the file's order: every module block but the built-in chat.
-const neededModules = (file) => Object.keys(file.modules).filter((id) => id !== 'chat');
+// The modules a demo writes into: the ones holding objects, and the Vault when the demo has files.
+const neededModules = (file) => [...Object.keys(file.modules).filter((id) => id !== 'chat'), ...(Array.isArray(file.files) && file.files.length ? ['vault'] : [])];
 // Every demo there is, by its template's id: [{ id, label, name, modules: [ids it needs] }], in the order of their ids. A file that is not valid is
 // left out (readDemoFile throws for it; the checks name it).
 function listDemos({ dir = DEMO_DIR } = {}) {
@@ -386,8 +393,8 @@ async function runDemo({ base, publicBase = '', templateId, today, session = {},
   const look = (await ok('caller', 'GET', `/api/spaces/${space.id}/look`)).look || {};
   const phaseIds = new Set((Array.isArray(look.phases) ? look.phases : []).map((p) => p.id));
   const here = await call('caller', 'GET', `/api/modules/for-space?space=${encodeURIComponent(space.id)}`);
+  const onHere = new Set(here.status === 200 && here.json && Array.isArray(here.json.modules) ? here.json.modules.map((m) => m.id) : []);
   if (here.status === 200 && here.json && Array.isArray(here.json.modules)) {
-    const onHere = new Set(here.json.modules.map((m) => m.id));
     for (const [id, b] of Object.entries(file.modules)) {
       if (id === 'chat' || off.has(id) || onHere.has(id)) continue;
       off.add(id);
@@ -406,6 +413,32 @@ async function runDemo({ base, publicBase = '', templateId, today, session = {},
   }
   if (file.budget) patch.budget = file.budget;
   if (Object.keys(patch).length) await ok('caller', 'PATCH', `/api/spaces/${space.id}`, patch);
+
+  // --- the pictures and files the demo draws for itself (server/demo-assets.js), each sent through the real route as its owner ---
+  const send = async (as, method, url, asset) => {
+    const r = await fetchImpl(base + url, { method, headers: { ...headers, cookie: jars[as], 'content-type': asset.type, accept: 'application/json' }, body: asset.bytes });
+    let json = null; try { json = await r.json(); } catch { /* none */ }
+    return { status: r.status, json };
+  };
+  for (const p of file.people) {
+    for (const [slot, spec] of Object.entries(p.images || {})) {
+      const r = await send(p.login, 'PUT', `/api/me/images/${encodeURIComponent(slot)}`, makeAsset(spec));
+      if (r.status >= 300) refused.push({ module: 'profile', key: `${p.login}:${slot}`, why: (r.json && r.json.error) || `answered ${r.status}` });
+    }
+  }
+  if (Array.isArray(file.files) && file.files.length) {
+    if (!onHere.has('vault')) skipped.push({ module: 'vault', why: `The Vault is not part of the template this demo ${word('space')} reads, so its ${file.files.length} demo files were not made.` });
+    else {
+      created.vault = 0;
+      for (const f of file.files) {
+        if (!jars[f.as]) throw new DemoError(`The demo file names "${f.as}" as a writer, who is not one of its people.`);
+        const r = await send(f.as, 'POST', `/api/modules/vault/library?space=${encodeURIComponent(space.id)}&name=${encodeURIComponent(f.name)}`, makeAsset(f));
+        if (r.status >= 300 || !r.json || !r.json.file) { refused.push({ module: 'vault', key: f.name, why: (r.json && r.json.error) || `answered ${r.status}` }); continue; }
+        created.vault += 1;
+        if (f.thumb) await send(f.as, 'PUT', `/api/modules/vault/library/${r.json.file.id}/thumb?space=${encodeURIComponent(space.id)}`, { type: 'image/png', bytes: thumbOf(f.thumb).bytes });
+      }
+    }
+  }
 
   // --- the objects, each written as the person who owns it, through the module's own route ---
   const written = {};

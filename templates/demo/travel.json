@@ -3,7 +3,7 @@
   "template": "travel",
   "label": "Travel demo",
   "name": "Demo: Portugal",
-  "description": "Portugal in ten days: Lisbon, Sintra, Porto. Reset by running it again.",
+  "description": "Portugal in ten days: Lisbon, Sintra, Porto.",
   "anchor": 45,
   "tz": "Europe/Lisbon",
   "guestLink": true,
@@ -17,9 +17,19 @@
     "post-trip": {"start":"start+10","end":"start+30"}
   },
   "people": [
-    { "login": "mia", "displayName": "Mia Alvarez", "role": "member", "moderator": true },
-    { "login": "lee", "displayName": "Lee Chen", "role": "member", "moderator": false },
-    { "login": "sam", "displayName": "Sam Okafor", "role": "member", "moderator": false }
+    {"login": "mia", "displayName": "Mia Alvarez", "role": "member", "moderator": true, "images": {"profile": {"art": "avatar", "skin": "#c98f6b", "hair": "#2b1d19", "shirt": "#0b7a84", "top": "#f6d9b8", "bottom": "#f2a48c", "style": "long"}, "background": {"art": "backdrop", "from": "#14243b", "to": "#0b7a84", "band": "#5cc8cf", "ring": "#ff8264"}}},
+    {"login": "lee", "displayName": "Lee Chen", "role": "member", "moderator": false, "images": {"profile": {"art": "avatar", "skin": "#e5c29b", "hair": "#171717", "shirt": "#f26b52", "top": "#bfe3e6", "bottom": "#7fb8c4", "style": "short"}, "background": {"art": "backdrop", "from": "#2b3a67", "to": "#8a5a83", "band": "#f4ecdd", "ring": "#f9c784"}}},
+    {"login": "sam", "displayName": "Sam Okafor", "role": "member", "moderator": false, "images": {"profile": {"art": "avatar", "skin": "#8a5a3c", "hair": "#1c1411", "shirt": "#14243b", "top": "#f7e2b0", "bottom": "#e9a56a", "style": "curly"}, "background": {"art": "backdrop", "from": "#0f3d3e", "to": "#2f6f5a", "band": "#cfe8c8", "ring": "#f4ecdd"}}}
+  ],
+  "files": [
+    {"as": "mia", "name": "Casa do Largo, booking confirmation.pdf", "art": "pdf", "title": "Booking confirmation: Casa do Largo", "lines": ["Reference: DEMO-HL-1107", "Guests: Mia Alvarez, Lee Chen, Sam Okafor", "Check in: Monday 30 November, from 3 pm", "Check out: Saturday 5 December, by 11 am", "Room: Triple, courtyard side, breakfast included", "Address: Largo do Exemplo 12, Lisbon (a made-up address)", "", "This is a sample document for the demo. It is not a real booking."]},
+    {"as": "sam", "name": "Pensao Ribeira Velha, booking confirmation.pdf", "art": "pdf", "title": "Booking confirmation: Pensao Ribeira Velha", "lines": ["Reference: DEMO-HP-2210", "Guests: Mia Alvarez, Lee Chen, Sam Okafor", "Check in: Saturday 5 December, from 2 pm", "Check out: Tuesday 8 December, by 11 am", "Room: Triple, river view", "Address: Rua de Exemplo 7, Porto (a made-up address)", "", "This is a sample document for the demo. It is not a real booking."]},
+    {"as": "lee", "name": "Flight to Lisbon, e-ticket.pdf", "art": "pdf", "title": "E-ticket: Boston to Lisbon", "lines": ["Booking code: DEMO-4821", "Passengers: Mia Alvarez, Lee Chen, Sam Okafor", "Outbound: Sunday 29 November, 7:30 pm, Boston to Lisbon", "Return: Tuesday 8 December, 1:15 pm, Porto to Boston", "Baggage: one checked bag each, one cabin bag each", "", "This is a sample document for the demo. It is not a real ticket."]},
+    {"as": "mia", "name": "Packing list.md", "art": "markdown", "lines": ["# Packing list", "", "## Each of us", "- Passport (valid past March) and a copy", "- Phone, charger and a plug adapter", "- Comfortable walking shoes", "- A light rain jacket", "", "## Shared", "- First aid kit", "- Power bank", "- Tote bag for the markets"]},
+    {"as": "lee", "name": "Route map: Lisbon, Sintra, Porto.pdf", "art": "pdf", "title": "Route map: Lisbon, Sintra, Porto", "lines": ["Ten days by train: Lisbon first, a day in Sintra, then north to Porto."], "route": {"points": [[110, 60], [70, 150], [300, 280], [360, 380]], "labels": [[110, 60, "Porto"], [70, 150, "Sintra"], [300, 280, "Lisbon"], [360, 380, "Start"]]}},
+    {"as": "sam", "name": "Lisbon rooftops.png", "art": "view", "scene": "roofs", "sky": ["#f6b48a", "#fbe3b4"], "sun": "#fff3c4", "ground": "#c4623f", "near": "#6d8fa5", "thumb": {"art": "view", "scene": "roofs", "sky": ["#f6b48a", "#fbe3b4"], "sun": "#fff3c4", "ground": "#c4623f", "near": "#6d8fa5"}},
+    {"as": "mia", "name": "Sintra hills.png", "art": "view", "scene": "hills", "sky": ["#9cc9e3", "#e8f1e2"], "sun": "#fff6d0", "ground": "#4f8a5b", "near": "#2f5e43", "thumb": {"art": "view", "scene": "hills", "sky": ["#9cc9e3", "#e8f1e2"], "sun": "#fff6d0", "ground": "#4f8a5b", "near": "#2f5e43"}},
+    {"as": "lee", "name": "Porto riverside.png", "art": "view", "scene": "river", "sky": ["#3d4f86", "#f1a77a"], "sun": "#ffe6a8", "ground": "#d9a46f", "near": "#27406b", "thumb": {"art": "view", "scene": "river", "sky": ["#3d4f86", "#f1a77a"], "sun": "#ffe6a8", "ground": "#d9a46f", "near": "#27406b"}}
   ],
   "modules": {
     "maps": {
@@ -324,6 +334,7 @@
         }
       ]
     },
+    "whiteboard": {"what":"board objects","count":["block:"],"steps":[{"as":"mia","data":{"block:main:w01":{"id":"w01","type":"text","x":40,"y":24,"z":1,"by":"@mia","at":"","w":420,"text":"Sintra day: Wednesday 2 December","size":"large"},"block:main:w02":{"id":"w02","type":"frame","x":30,"y":100,"z":0,"by":"@mia","at":"","w":330,"h":330,"title":"Morning","notes":""},"block:main:w03":{"id":"w03","type":"frame","x":390,"y":100,"z":0,"by":"@mia","at":"","w":330,"h":330,"title":"Afternoon","notes":""},"block:main:w04":{"id":"w04","type":"frame","x":750,"y":100,"z":0,"by":"@mia","at":"","w":300,"h":330,"title":"Back in Lisbon","notes":""},"block:main:w05":{"id":"w05","type":"note","x":60,"y":150,"z":2,"by":"@mia","at":"","w":140,"h":120,"text":"Train from Rossio, 9:15","fill":"blue"},"block:main:w06":{"id":"w06","type":"note","x":200,"y":260,"z":3,"by":"@mia","at":"","w":140,"h":120,"text":"Pena Palace, timed entry 11:00","fill":"gold"},"block:main:w07":{"id":"w07","type":"note","x":420,"y":150,"z":2,"by":"@mia","at":"","w":140,"h":120,"text":"Lunch in the old town","fill":"green"},"block:main:w08":{"id":"w08","type":"note","x":570,"y":260,"z":3,"by":"@mia","at":"","w":140,"h":120,"text":"Quinta da Regaleira, the well","fill":"pink"},"block:main:w09":{"id":"w09","type":"note","x":780,"y":150,"z":2,"by":"@mia","at":"","w":240,"h":100,"text":"Train back 5:35. Dinner near the hotel.","fill":"orange"},"block:main:w10":{"id":"w10","type":"rect","x":780,"y":290,"z":2,"by":"@mia","at":"","w":240,"h":110,"text":"Rain plan: Sintra National Palace","fill":"teal","ink":"ink"},"block:main:w11":{"id":"w11","type":"ellipse","x":90,"y":310,"z":2,"by":"@mia","at":"","w":110,"h":70,"text":"Start","fill":"purple"},"block:main:w12":{"id":"w12","type":"line","x":340,"y":200,"z":4,"by":"@mia","at":"","dx":70,"dy":0,"arrow":true,"stroke":"ink","weight":3},"block:main:w13":{"id":"w13","type":"line","x":710,"y":200,"z":4,"by":"@mia","at":"","dx":60,"dy":0,"arrow":true,"stroke":"ink","weight":3},"block:main:w14":{"id":"w14","type":"diamond","x":420,"y":310,"z":2,"by":"@mia","at":"","w":130,"h":90,"text":"Sunny?","fill":"gold"},"block:main:w15":{"id":"w15","type":"text","x":40,"y":460,"z":1,"by":"@mia","at":"","w":420,"text":"Budget for the day: about 120 euros each. Mia books the tickets.","size":"medium"}}}]},
     "documents": {
       "what": "documents",
       "count": ["doc:"],

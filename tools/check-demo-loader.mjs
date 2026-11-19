@@ -48,8 +48,8 @@ const loaderPath = process.env.DEMO_LOADER_UNDER_TEST ? path.resolve(process.env
 const WORDS = require(path.join(ROOT, 'server', 'words.js'));
 const { loadDemo, readDemoFile, listDemos, DemoError, MARKER, dayPlus } = require(loaderPath);
 const PASSWORD = 'testpass1234';
-const ALL = ['travel', 'maps', 'todo', 'polls', 'calendar', 'budget', 'research', 'documents'];
-const WANT = { travel: 76, maps: 37, calendar: 77, todo: 16, polls: 3, budget: 18, research: 4, documents: 2, chat: 25 };
+const ALL = ['travel', 'maps', 'todo', 'polls', 'calendar', 'budget', 'research', 'documents', 'whiteboard', 'vault'];
+const WANT = { travel: 76, maps: 37, calendar: 77, todo: 16, polls: 3, budget: 18, research: 4, whiteboard: 15, documents: 2, chat: 25, vault: 8 };
 // The other demos' counts (the Calendar's include the copies of dated planner entries, To-do tasks are not copied).
 const OTHERS = {
   games: { want: { schedule: 26, research: 8, documents: 3, todo: 9, calendar: 13, budget: 8, polls: 2, chat: 17 }, space: 'campaign', planner: ['schedule', 'Campaign'], names: { calendar: 'Sessions', todo: 'Quests', research: 'Lore', budget: 'Costs' }, measure: 'dates', phases: [] },

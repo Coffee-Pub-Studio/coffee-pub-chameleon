@@ -1230,7 +1230,7 @@
   $('details-close').addEventListener('click', () => detailsEditor.close());
 
   // ---- go -----------------------------------------------------------------------------------------------------------------------------------
-  try { const ro = new ResizeObserver(() => { if (!$('app')) { ro.disconnect(); return; } if (!state.loaded) return; if (narrow() !== renderedNarrow && state.view === 'grid') renderBody(); else fitCuts(); }).observe($('app')); } catch { /* no observer */ }
+  try { const ro = new ResizeObserver(() => { if (!$('app')) { ro.disconnect(); return; } if (!state.loaded) return; if (narrow() !== renderedNarrow && state.view === 'grid') renderBody(); else fitCuts(); }); ro.observe($('app')); } catch { /* no observer */ }
   $('details-body').addEventListener('submit', (e) => e.preventDefault());
   hydrate(root);
   await loadPeople();

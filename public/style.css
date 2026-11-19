@@ -337,6 +337,13 @@ a:hover {
   display: none;
 }
 
+/* The product's mark, the logo of an environment that set none, keeps a margin; an environment's own logo fills the box. */
+.topbar .brand .icon[data-product-mark] {
+  box-sizing: border-box;
+  padding: 7px;
+  object-fit: contain;
+}
+
 /* Home's unread count on the Home link (plan-home-lobby.md, decision 8, step 4): new messages in Home's chat while a
    space shows, on the logo's corner (the Home link at every width). space.js adds it; theme tokens only. */
 .topbar .brand-logo {
