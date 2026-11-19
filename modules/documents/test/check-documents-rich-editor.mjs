@@ -1847,7 +1847,7 @@ test('grid menu: dlRichInGrid, the menu model, the caret-cell decoration', () =>
   const one = open('| a |\n| - |\n| 1 |\n'); caretIn(one, 1, 0); assert.equal(L.dlRichGridMenu(PM, one.state()).find((x) => x.id === 'gridColDelete').disabled, true, 'last column');
   const big = open(bigGrid(200, 2)); caretIn(big, 1, 0); assert.equal(L.dlRichGridMenu(PM, big.state()).find((x) => x.id === 'gridRowAfter').disabled, true, 'row limit');
   assert.deepEqual(L.dlRichInsertItems([{ id: 'a' }, { id: 'b' }], null).map((x) => x.id), ['a', 'b'], 'out of a grid: no Grid group');
-  assert.deepEqual(L.dlRichInsertItems([{ id: 'a' }], [{ id: 'g1' }, { id: 'g2' }]).map((x) => x.heading || x.id), ['Grid', 'g1', 'g2', 'a'], 'in a grid: the Grid group first');
+  assert.deepEqual(L.dlRichInsertItems([{ id: 'a' }], [{ id: 'g1' }, { id: 'g2' }]).map((x) => x.heading || x.id), ['Table', 'g1', 'g2', 'a'], 'in a grid: the Grid group first');
   const ins = open('x\n'); assert.equal(ins.run('grid'), true); assert.equal(L.dlRichInGrid(PM, ins.state()), true, 'insert puts the caret in the grid');
   assert.deepEqual(shape(ins), [2, 3]); caretIn(ed, 0, 0);
 });

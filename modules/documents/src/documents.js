@@ -1793,7 +1793,7 @@
     const entry = (id, label, icon) => ({ id, label, icon, ...(rich && !dlRichCan(id) ? { disabled: true } : {}), onClick: () => applyFormat(id) });
     host.menu.show({
       id: 'insert', at: { x: e && Number.isFinite(e.x) ? e.x : 100000, y: 4 },
-      items: dlRichInsertItems([entry('grid', 'Grid', 'table-cells'), entry('formula', 'Formula', 'square-root-variable'), { id: 'break', label: 'Page break', icon: 'scissors', onClick: () => applyFormat('pagebreak') }], gridItems()),
+      items: dlRichInsertItems([entry('grid', 'Table', 'table-cells'), entry('formula', 'Formula', 'square-root-variable'), { id: 'break', label: 'Page break', icon: 'scissors', onClick: () => applyFormat('pagebreak') }], gridItems()),
       onClose: () => { if (ed && !ed.lost) ed.editor.focus(); }, // Escape or a press outside: the keyboard goes back to the editor
     });
   }
