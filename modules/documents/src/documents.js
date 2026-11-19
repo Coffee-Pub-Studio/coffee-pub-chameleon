@@ -430,6 +430,10 @@
           if (id === 'read') schedulePaginate();
         }
         if (narrow) sheet.style.removeProperty('--doc-zoom'); else sheet.style.setProperty('--doc-zoom', String(dlPageFit(w, pageW)));
+      } else if (view === 'fit' && !box.hidden && paper === false) { // a Fluid sheet at Fit width: the 48rem sheet scaled up to the window's width, as Paper is
+        const rem = parseFloat(getComputedStyle(doc.documentElement).fontSize) || 16;
+        sheet.style.setProperty('--doc-zoom', String(dlFluidFit(avail(box), DL_VIEW.sheetRem * rem)));
+        if (sheet.hasAttribute('data-narrow')) { sheet.removeAttribute('data-narrow'); if (id === 'read') schedulePaginate(); }
       } else {
         sheet.style.removeProperty('--doc-zoom');
         if (sheet.hasAttribute('data-narrow')) { sheet.removeAttribute('data-narrow'); if (id === 'read') schedulePaginate(); }
@@ -1716,7 +1720,7 @@
   const viewShown = () => Boolean(ed ? !ed.lost : openId);
   function zoomMenu(e) {
     if (!viewShown()) return;
-    const level = (n) => ({ id: `z${n}`, label: `${n}%`, icon: 'magnifying-glass', current: view === n, onClick: () => setView(n) });
+    const level = (n) => ({ id: `z${n}`, label: `${n}%`, icon: 'magnifying-glass', ...(n === DL_VIEW.actual ? { hint: keyHint('0') } : {}), current: view === n, onClick: () => setView(n) });
     host.menu.show({
       id: 'zoom',
       at: { x: e && Number.isFinite(e.x) ? e.x : 100000, y: 4 },
@@ -1724,9 +1728,8 @@
         { id: 'in', label: 'Zoom in', icon: 'magnifying-glass-plus', hint: keyHint('+'), onClick: () => setView(dlViewStep(view, 1)) },
         { id: 'out', label: 'Zoom out', icon: 'magnifying-glass-minus', hint: keyHint('-'), onClick: () => setView(dlViewStep(view, -1)) },
         { id: 'fit', label: 'Fit width', icon: 'expand', current: view === 'fit', onClick: () => setView('fit') },
-        { id: 'actual', label: 'Actual size', icon: 'magnifying-glass', hint: keyHint('0'), current: view === DL_VIEW.actual, onClick: () => setView(DL_VIEW.actual) },
         { heading: 'Zoom' },
-        ...DL_VIEW.levels.filter((n) => n !== DL_VIEW.actual).map(level),
+        ...DL_VIEW.levels.map(level),
       ],
     });
   }

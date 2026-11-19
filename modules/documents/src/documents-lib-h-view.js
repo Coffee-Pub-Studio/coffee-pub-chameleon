@@ -22,6 +22,8 @@ function dlViewSheet(v) {
   if (c === 'fit') return { zoom: 1, widthRem: null, maxRem: DL_VIEW.fitMaxRem };
   return { zoom: c / 100, widthRem: DL_VIEW.sheetRem, maxRem: DL_VIEW.sheetRem };
 }
+// Fit width on a Fluid sheet: the scale that makes the 48rem sheet as wide as the window, from 100% (a narrow window is not shrunk) up to 200%.
+const dlFluidFit = (avail, sheetW) => (Number.isFinite(avail) && avail > 0 && sheetW > 0 ? Math.min(2, Math.max(1, avail / sheetW)) : 1);
 // The next view for zoom in (dir 1) or zoom out (-1). Fit width counts as Actual size when stepping. Stops at the ends.
 function dlViewStep(v, dir) {
   const c = dlCleanView(v);

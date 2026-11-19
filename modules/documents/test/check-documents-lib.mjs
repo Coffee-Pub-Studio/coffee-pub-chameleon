@@ -25,7 +25,7 @@ const NAMES = ['DL', 'dlCleanText', 'dlTrimBreaks', 'dlCleanLine', 'dlCut', 'dlC
   'dlPreview', 'dlCleanPreview', 'dlThumbText', 'DL_LISTVIEWS', 'dlCleanListView', 'DL_EDITVIEWS', 'dlEditViewId', 'dlEditViewIsRich',
   'dlTagsKey', 'dlCleanTagIds', 'dlCleanTags', 'dlKnownTagIds', 'dlTagsDelta', 'dlTagsApply', 'dlTagsCommit', 'dlTagCounts', 'dlTagsMatch', 'DL_TAGS_MAX',
   'dlResyncPlan', 'dlResyncAfterHidden', 'DL_VIEW', 'dlCleanView', 'dlViewStore', 'dlViewRead', 'dlViewLabel', 'dlViewSheet', 'dlViewStep', 'dlViewKey',
-  'dlCleanLayout', 'dlCleanPageSize', 'dlCleanPageNumbers', 'dlCleanPage', 'dlSamePage', 'DL_PAGE_SIZES', 'dlPageGeometry', 'DL_PAGE_FIT_MAX', 'dlPageFit', 'DL_PAGE_FLOOR', 'dlPaperNarrow', 'dlThumbPreview', 'DL_LAYOUTS', 'dlPageMenuModel', 'dlPageBreak', 'DL_PAGE_BREAK_LINE', 'dlPageBreaks',
+  'dlCleanLayout', 'dlCleanPageSize', 'dlCleanPageNumbers', 'dlCleanPage', 'dlSamePage', 'DL_PAGE_SIZES', 'dlPageGeometry', 'DL_PAGE_FIT_MAX', 'dlPageFit', 'dlFluidFit', 'DL_PAGE_FLOOR', 'dlPaperNarrow', 'dlThumbPreview', 'DL_LAYOUTS', 'dlPageMenuModel', 'dlPageBreak', 'DL_PAGE_BREAK_LINE', 'dlPageBreaks',
   'DL_ACTIONS', 'dlTextareaEditor', 'dlStubEditor', 'dlEditorDirty', 'dlEditorSnapshot'];
 const L = new Function(`${code}\nreturn { ${NAMES.join(', ')} };`)();
 const markedLib = createRequire(import.meta.url)(path.join(src, 'documents-lib-0-marked.js'));
@@ -156,6 +156,10 @@ test('page sizes: Letter 816 by 1056, A4 794 by 1123, one inch margins; one plac
   assert.equal(L.dlPageFit(500, 816), 500 / 816); // down-scaling unchanged
   assert.equal(L.DL_PAGE_FIT_MAX, 2);
   for (const v of [0, -1, NaN, undefined]) assert.equal(L.dlPageFit(v, 816), 1);
+  assert.equal(L.dlFluidFit(1536, 768), 2); // Fluid Fit scales the 48rem sheet up to 200%
+  assert.equal(L.dlFluidFit(1152, 768), 1.5);
+  assert.equal(L.dlFluidFit(400, 768), 1); // a narrow window is not shrunk
+  for (const v of [0, -1, NaN, undefined]) assert.equal(L.dlFluidFit(v, 768), 1);
 });
 test('the narrow floor and the Paper tile preview', () => {
   assert.equal(L.DL_PAGE_FLOOR, 0.6);
