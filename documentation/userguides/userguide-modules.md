@@ -90,6 +90,22 @@ Who can: a person with the module's permission to change it (and, where the modu
 
 A module can offer settings. There are three kinds. **Environment** settings, for everyone, are chosen by an owner on the module's own page: choose **Module Configuration** on its card on the Modules tab. The same page also holds switches Chameleon draws for some modules, above the module's own settings: **Calendar sharing** for a module that offers its events to calendar apps or shows people's other calendars (the Calendar; see "Calendar sharing (owner)" in [Calendar](userguide-calendar.md)), and **Top bar**, with **Show in the top bar**, for a module that is a page of its own in the top bar (the Calendar and Maps; see "Top bar" in [Manage](userguide-environment-settings.md)). A module with none of these shows the button greyed out, with "No settings." beside it. **Space** settings, for one space, are chosen by an owner or by a member ticked as a moderator in that space, on the **Modules** tab of the space's **Set up** panel (see "Set up" in [Spaces](userguide-spaces.md)); a moderator sees only these module settings there. **Your own** settings, how a module behaves for you, are on your profile page under Module settings. Every setting has a default, so nothing needs setting. A change to the environment's or a space's settings shows in the Modules tab's recent activity.
 
+### Choosing a colour
+
+Some settings are a colour: a module's colour setting, and the colour of each row in a list setting (the Planner's marker types, Research's well-known tags). Anyone who may change the setting there can choose it: an owner on **Module Configuration** and in Manage's template pages, an owner or a moderator in a space's **Set up**, and you for your own settings on your profile.
+
+1. Choose the colour field. It shows a swatch, the colour's hex code (such as `#2f6cbf`) and an arrow. The colour picker opens under it.
+2. Choose a colour in one of these ways:
+   - Choose a swatch under **Light**, **Dark** or **Strong**, or under **Recent** for one you chose before in this browser. This chooses it and closes the picker.
+   - Drag in the large square (from grey on the left to the full colour on the right, from bright at the top to black at the bottom) and along **Hue**, then press outside the picker to keep it.
+   - Type a hex code in **Hex** and press Enter. Six hex digits, with or without the `#`; anything else shows "Type six hex digits, like #2f6cbf".
+   - Choose **Pick from the screen** (the eyedropper) and click anywhere on the screen. It shows only in browsers that have one (Chrome and Edge).
+3. Save as you would any other setting: **Save** on the setting's card, or the page's or panel's own **Save** (in **Set up** and on a template's pages). The colour is not kept until you save.
+
+Press Escape to close the picker without changing the colour. **Opacity** is shown but switched off, with "Opacity isn't kept here.": these settings keep the colour only. Every part of the picker works from the keyboard: Tab moves between its parts, and the arrow keys move the square, the sliders and the swatches.
+
+A new row in a list starts with one of the **Strong** colours, by its place in the list: red for the first row, then orange, gold, green and so on, so rows added in a run do not look alike.
+
 ## Who can use it
 
 An enabled module adds its permissions to the **Roles** tab, in a group named for the module. Untick one to take that ability from a role. Owners can always do everything, and a member marked Moderator in a space gets the Moderator role's permissions for a space module there. A module's data is stored per environment or per space, and a person only sees a space's module data if they are in that space.

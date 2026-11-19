@@ -50,7 +50,7 @@ muted borders and their colours and width for the Participant box and, separatel
 the name plate (on or off, position, box colour and opacity, text colour, size and case); a colour behind
 the Participant picture; and how a box is dimmed or tinted
 while the person is offline, in an aside away from the space the stream follows, or in a private
-conversation. These are the same for everyone. Portrait size is not here. It is a conference setting, under Call features on the Environment tab, and the participant box uses that same size. A server that had these on its Server tab (now Environment) before the
+conversation. These are the same for everyone. Each colour is chosen with the colour picker (see "Choosing a colour" in [Modules](userguide-modules.md)); its **Opacity** is switched off there, and the name plate's and the tints' opacities are settings of their own. Portrait size is not here. It is a conference setting, under Call features on the Environment tab, and the participant box uses that same size. A server that had these on its Server tab (now Environment) before the
 module arrived keeps its values: they were carried over when the module installed itself.
 
 ## Sound

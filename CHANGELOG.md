@@ -4,6 +4,26 @@ All notable changes to Coffee Pub Chameleon. Format follows Keep a Changelog, an
 
 ## [Unreleased]
 
+### The colour picker (#933, 2026-11-19)
+
+Written from the code on the branch `claude/colour-picker-933` (head `6b077d9`), read against `main`, for [plan-colour-picker](documentation/plans/plan-colour-picker.md) steps 1 to 4. The change adds `tools/check-colour-picker.mjs` (a node half and a browser half) and `tools/check-no-colour-input.mjs`, and changes `check-module-host`, `check-template-pages-b`, `check-system-css` and `check-radius`; their results are in the builders' reports and were not rerun for this entry. Not tried: a real screen reader (the accessibility tree only), a real phone, Safari and Firefox, and a real eyedropper pick in a sandboxed frame. No module changed, so no module version moved.
+
+#### Added
+
+- **A colour picker for every module and page.** `host.ui.colorPicker({ anchor | at, value, opacity, palette, recent, label, onInput })` opens it and resolves `{ color: '#rrggbb', opacity: 0..100 }` or `null`; `host.ui.colorField(input, ...)` puts its trigger on a form's input. It has a saturation and brightness area, **Hue**, **Opacity** (always shown; switched off with "Opacity isn't kept here." where only the colour is kept), **Hex**, **Pick from the screen** where the browser has an eyedropper, a default palette of 24 named colours in three groups (**Light**, **Dark**, **Strong**; Thomas's open question 1, built as proposed) or a module's own groups, and **Recent**, the last 8 colours chosen in this browser for that module. It opens from a toolbar button with `at: { x: e.x, y: 4 }` or in context at an element or a point, stays inside the module's box, works from the keyboard with screen-reader names, and has 44-pixel targets on a phone. `host.util.contrast(a, b)` and `host.util.readableOn(fill)` give the WCAG contrast ratio and the readable word colour on a fill, the same maths as the theme editor's. A module can't read the default palette yet (`host.ui.colorPalette()` waits on Thomas). See [api-module-sdk](documentation/api/api-module-sdk.md), "Choosing a colour", and [design-theme](documentation/designsystem/design-theme.md), "The colour picker".
+
+#### Changed
+
+- **The host's colour fields use the new picker, and `public/colour-pick.js` is removed** with its 16 swatches and the browser's own "Custom" colour input. A module's colour setting and a list row's colour, on Manage's Modules tab, Manage's template **Modules** page, Profile, a space's **Set up** and a module's own configuration page, open the shared picker with **Opacity** switched off; they still store `#rrggbb` only. A new list row takes the **Strong** colours in turn by its place in the list (red first). Profile and the module configuration page now load the SDK. The theme editor's colour fields are unchanged (open question 5). The Design System page's Pickers entry draws the new picker and its states, and a live one is under Live SDK pieces. See [userguide-modules](documentation/userguides/userguide-modules.md), "Choosing a colour".
+
+#### Fixed
+
+- **Popovers in a sandboxed module have their background.** Menus, the date picker and the colour picker in an uploaded module's frame had no surface, because 50 theme roles were not sent to the frame. They are now (`THEME_TOKENS` in `public/module-host.js`, held to the server's list by `check-module-host`), so popovers there look as on the page.
+- **A frame follows a theme change fully.** It now drops a theme role the page no longer sends, instead of keeping the old value.
+- **Menus on a scrolled page.** Menus, the tags picker and the colour picker no longer open off-screen on a scrolled host page or a scrolled frame.
+
+Known and left, in [known-issues](documentation/known-issues.md), "The colour picker: gaps": Recent isn't kept in a sandboxed module; the eyedropper is Chromium only; a sandboxed frame never gets the light-mode attribute; `--status-danger-text` is 4.4:1 on a dark popover; a menu in an in-page module stays open after a press outside the module; at 360 pixels the swatches are about 42 pixels wide. What is left to build is in [TODO](documentation/TODO.md).
+
 ### Whiteboard: edit a picture (2026-11-19)
 
 #### Added
