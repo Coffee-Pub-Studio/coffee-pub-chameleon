@@ -67,16 +67,16 @@ try {
     let json = null; try { json = await r.json(); } catch { /* none */ }
     return { status: r.status, json };
   };
-  // The trip's template: the owner's own copy whose layout is Calendar and an empty area, shows Calendar and Documents, opens Documents first.
+  // The trip's template: the owner's own copy whose layout is Calendar and an empty area, shows Calendar and Documents (Documents first in its tab list).
   for (const m of ['calendar', 'documents']) {
     await call('admin', 'POST', `/api/modules/bundled/${m}/install`, {});
     await call('admin', 'PATCH', `/api/modules/${m}`, { enabled: true });
   }
   assert.equal((await call('admin', 'POST', '/api/environment/templates', { from: 'default', id: 'mine', name: 'Mine' })).status, 201, 'a template of its own');
-  assert.equal((await call('admin', 'PATCH', '/api/environment/templates/mine', { workspace: { layout: { shape: 'two-equal', areas: ['calendar', null] }, show: ['calendar', 'documents'], opensFirst: 'documents' } })).status, 200, 'its Default Workspace');
+  assert.equal((await call('admin', 'PATCH', '/api/environment/templates/mine', { workspace: { layout: { shape: 'two-equal', areas: ['calendar', null] }, tabs: [{ id: 'documents', show: true }, { id: 'workspace', show: true }, { id: 'calendar', show: true }, { id: 'map', show: false }, { id: 'conference', show: false }, { id: 'whiteboard', show: false }] } })).status, 200, 'its Default Workspace');
   const tpl = await call('admin', 'PATCH', `/api/spaces/${ctx.trip}`, { template: 'mine' });
   assert.equal(tpl.status, 200, `the trip takes it (${JSON.stringify(tpl.json)})`);
-  // The seeded trip already has tabs: the template's show is its seed for a new space only, so the owner sets the bar here.
+  // The seeded trip already has tabs: the template's tab list is its seed for a new space only, so the owner sets the bar here.
   const set = await call('admin', 'PATCH', `/api/spaces/${ctx.trip}`, { tabs: { order: ['workspace', 'calendar', 'documents', 'map', 'conference', 'whiteboard'], hide: ['map', 'conference', 'whiteboard'] }, defaultLayout: 'documents' });
   assert.equal(set.status, 200, `the owner sets the bar (${JSON.stringify(set.json)})`);
 

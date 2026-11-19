@@ -2382,7 +2382,7 @@ class Store {
     if (linkIcon !== undefined && linkIcon !== null && !this.spaceIconIds(own).includes(linkIcon)) throw new StoreError(`That icon is not one this ${this.word('environment')} offers.`);
     const startsWith = profile ?? own?.spaceDefaults?.profile ?? this.data.settings.spaceDefaults?.profile; // the environment's default (a template's)
     const space = this.sanitizeSpace({ id, name: name || `New ${this.word('space')}`, description, members, profile: startsWith, link, linkIcon, createdAt: new Date().toISOString(), ...(own ? { template: own.id } : {}) });
-    // The template seeds which Fixed Workspaces the space shows and which opens first (decisions 36 and 8): the owner
+    // The template seeds the space's tab order, which Fixed Workspaces it shows and which opens first (decisions 36 and 8): the owner
     // changes them in Set up (tabs, defaultLayout). The environment's template when the space has none of its own.
     const seeded = this.workspaceSeed((own || this.environmentTemplate())?.workspace);
     if (seeded.tabs) space.tabs = seeded.tabs;
@@ -2405,15 +2405,19 @@ class Store {
     return true;
   }
 
-  // What a template's `workspace` seeds on a new space: { tabs, defaultLayout }, each null when it gives nothing. `show` names
-  // the Fixed Workspaces in the bar, so every other fixed one is hidden; `opensFirst` is the first visit's layout, taken
-  // only while it is shown (the Workspace is what no default layout means). Pure; the template is trusted as templates.js cleaned it.
+  // What a template's `workspace` seeds on a new space: { tabs, defaultLayout }, each null when it gives nothing. `tabs` is the
+  // ordered list of { id, show }: the rows are the owner's order (every layout left out follows in the default order and is
+  // hidden), a row that does not show is hidden (never the Workspace), and the first shown row is the first visit's layout
+  // (the Workspace is what no default layout means). Pure; the template is trusted as templates.js cleaned it.
   workspaceSeed(workspace) {
     const w = isPlainObject(workspace) ? workspace : {};
-    const show = Array.isArray(w.show) ? w.show.filter((id) => SYSTEM_DEFAULTS.includes(id)) : null;
-    const tabs = show ? cleanTabs({ hide: SYSTEM_DEFAULTS.filter((id) => !show.includes(id)) }).tabs : null;
-    const first = typeof w.opensFirst === 'string' && SYSTEM_DEFAULTS.includes(w.opensFirst) && (!show || show.includes(w.opensFirst)) ? w.opensFirst : null;
-    return { tabs, defaultLayout: first };
+    const rows = [];
+    for (const r of Array.isArray(w.tabs) ? w.tabs : []) if (isPlainObject(r) && LAYOUT_SYSTEM_IDS.includes(r.id) && !rows.some((x) => x.id === r.id)) rows.push({ id: r.id, show: r.show === true });
+    if (!rows.length) return { tabs: null, defaultLayout: null };
+    const listed = rows.map((r) => r.id);
+    const hide = [...rows.filter((r) => !r.show).map((r) => r.id), ...LAYOUT_SYSTEM_IDS.filter((id) => !listed.includes(id))].filter((id) => id !== 'workspace');
+    const first = rows.find((r) => r.show || r.id === 'workspace');
+    return { tabs: cleanTabs({ order: listed, hide }).tabs, defaultLayout: first && first.id !== 'workspace' ? first.id : null };
   }
 
   // What a space's Workspace starts with, from its template (the environment's when it has none of its own): the shape
