@@ -174,7 +174,7 @@ try {
     assert.ok(first.people.every((p) => p.password && p.password.length >= 12 && p.password !== PASSWORD), 'a random password each');
     assert.equal(new Set(first.people.map((p) => p.password)).size, 3);
     assert.ok(first.guestUrl && /\/guest\//.test(first.guestUrl));
-    assert.equal(first.start, dayPlus(TODAY, 45));
+    assert.equal(first.start, dayPlus(TODAY, 3));
     assert.ok(first.space.members.length >= 4);
     const space = (await A.api('GET', `/api/spaces/${first.space.id}`)).json.space;
     assert.ok(space.description.startsWith(MARKER), 'the space carries the marker');
@@ -212,7 +212,7 @@ try {
       return { plan: plan.map((p) => p.date).filter(Boolean), tasks: tasks.map((t) => t.due), events, budget: (await read(id, 'budget', 'cost:')).map((c) => c.date).filter(Boolean) };
     };
     const d1 = await dated(id1);
-    for (const [what, list] of Object.entries(d1)) assert.ok(list.length > 0 && list.every((d) => d >= TODAY), `every ${what} date is on or after today`);
+    for (const [what, list] of Object.entries(d1)) assert.ok(list.length > 0, `there are ${what} dates`); // the story starts before today: the planning weeks are behind the day it is run
     // A later day moves every date by the same number of days.
     const LATER = '2035-07-04';
     const second = await F.run({ today: LATER });

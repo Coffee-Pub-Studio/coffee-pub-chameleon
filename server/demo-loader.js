@@ -53,7 +53,7 @@ const DEMO_DIR = path.join(__dirname, '..', 'templates', 'demo');
 const MARKER = 'A demo with made-up people.';
 const TEMPLATE_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const MODULE_ID_RE = /^[a-z0-9-]+$/;
-const TOP_KEYS = ['template', 'label', 'name', 'description', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules', 'files'];
+const TOP_KEYS = ['template', 'label', 'name', 'description', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules', 'files', 'homeChat'];
 
 class DemoError extends Error {}
 // The first `n` characters of a text, never cutting a character in two (an emoji is one).
@@ -473,6 +473,13 @@ async function runDemo({ base, publicBase = '', templateId, today, session = {},
       if (r.status >= 300) refused.push({ module: 'chat', key: String(n + 1), why: (r.json && r.json.error) || `answered ${r.status}` });
       else created.chat += 1;
     }
+  }
+
+  // --- Home's own chat (the Lobby), a few friendly lines, each from its own session ---
+  for (const [n, m] of (file.homeChat || []).entries()) {
+    if (!jars[m.as]) throw new DemoError(`The demo file names "${m.as}" as a writer, who is not one of its people.`);
+    const r = await call(m.as, 'POST', '/api/spaces/lobby/chat', { text: m.text });
+    if (r.status >= 300) refused.push({ module: 'home-chat', key: String(n + 1), why: (r.json && r.json.error) || `answered ${r.status}` });
   }
 
   // --- the guest link, then what each module now holds (the server adds some objects of its own: the Calendar's twins) ---

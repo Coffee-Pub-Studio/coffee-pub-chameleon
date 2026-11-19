@@ -1881,6 +1881,15 @@
    "space": true,
    "steps": [
     {
+     "sleep": 2500
+    },
+    {
+     "eval": "__all('.module-root >>> #daystrip [data-day=\"2026-10-19\"]').forEach((c) => c.click())"
+    },
+    {
+     "sleep": 800
+    },
+    {
      "eval": "(()=>{const t=document.querySelector('[data-layout-tab=\"workspace\"]');if(t&&t.getAttribute('aria-current')!=='page')t.click();})()"
     },
     {
