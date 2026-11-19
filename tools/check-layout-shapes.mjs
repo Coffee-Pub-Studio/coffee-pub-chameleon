@@ -218,4 +218,37 @@ same(whoCantOpen(['goals', 5, null], { manifests, rolePermissions: defaults }), 
   same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar'], off: ['calendar', 'todo'] }), { todo: { off: true } }, 'both off: off');
   same(whoCantOpen(['calendar'], { manifests: mans, rolePermissions: guestCal, on: ['calendar', 'todo'] }), {}, 'the Calendar itself is its own rights');
 }
+// The same, through the page's real path rather than a model of it: the list the page is given (the modules on, readable by
+// this person, with a canvas place), composeList() and aliasesFor() over it, and placeShape() placing one area. The area is
+// open exactly when canOpenArea() says so, for every set of modules on, every set this person reads, the Map answered or not,
+// and each id (and one that is not a module).
+{
+  const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'layout-shapes-page-'));
+  fs.copyFileSync(path.join(ROOT, 'public/snap-grid.js'), path.join(dir2, 'snap-grid.mjs'));
+  fs.writeFileSync(path.join(dir2, 'layouts.mjs'), fs.readFileSync(path.join(ROOT, 'public/layouts.js'), 'utf8').replace("from '/snap-grid.js'", "from './snap-grid.mjs'"));
+  fs.copyFileSync(path.join(ROOT, 'public/composites.js'), path.join(dir2, 'composites.mjs'));
+  fs.copyFileSync(path.join(ROOT, 'public/layout-shapes.js'), path.join(dir2, 'shapes.mjs'));
+  const { placeShape } = await import(pathToFileURL(path.join(dir2, 'layouts.mjs')).href);
+  const real = await import(pathToFileURL(path.join(dir2, 'composites.mjs')).href);
+  const { shapeById: pageShape } = await import(pathToFileURL(path.join(dir2, 'shapes.mjs')).href);
+  fs.rmSync(dir2, { recursive: true, force: true });
+  const IDS = ['calendar', 'todo', 'maps', 'polls'];
+  const mans = Object.fromEntries(IDS.map((id) => [id, JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', id, 'module.json'), 'utf8'))]));
+  const subs = (a) => Array.from({ length: 1 << a.length }, (_, m) => a.filter((_, i) => m & (1 << i)));
+  let cases = 0;
+  for (const on of subs(IDS)) for (const can of subs(IDS)) for (const mapAnswered of [false, true]) for (const id of [...IDS, 'gone']) {
+    const list = IDS.filter((x) => on.includes(x) && can.includes(x)).map((x) => ({ id: x, name: x, canvas: mans[x].surfaces.canvas })).filter((m) => m.canvas);
+    const asked = real.compositesToAsk(list.map((m) => m.id)).map((c) => c.dest);
+    const answered = mapAnswered ? asked : [];
+    const available = real.composeList(list, answered);
+    const aliases = real.aliasesFor(list.map((m) => m.id), answered);
+    const readId = (x) => { const to = aliases[x]; return typeof to === 'string' ? to : Array.isArray(to) ? to[0] || x : x; };
+    const plan = placeShape({ shape: 'one', areas: [id] }, 1400, (x) => available.some((m) => m.id === readId(x)), { shape: pageShape('one'), aliases, narrow: false, chooser: false });
+    const permissions = Object.fromEntries(can.map((x) => [`module.${x}.view`, true]));
+    const got = server.canOpenArea(id, { manifests: mans, permissions, on, off: IDS.filter((x) => !on.includes(x)) });
+    if (plan.slots.some((sl) => sl.id) !== got) assert.fail(`on ${on} read ${can} map ${mapAnswered} ${id}: the page ${!got}, canOpenArea ${got}`);
+    cases += 1;
+  }
+  ok(cases > 1000, `canOpenArea equals what placeShape opens, through composeList and aliasesFor, in ${cases} cases`);
+}
 console.log(`check-layout-shapes: ${n} checks passed`);

@@ -1935,9 +1935,11 @@ function branding() {
 // the template the space reads (plan-templates-redesign.md, decision 12). Never the template's id or name, and never its
 // modules: which modules a person sees there is /api/modules/for-space's, by their permissions.
 const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), ...(p.icon ? { icon: p.icon } : {}) }));
-function lookView(spaceId) {
+// `guest`: the viewer has no account; the template's layout then reads as a guest is shown it (guestShape).
+function lookView(spaceId, guest = false) {
   const look = store.lookOf(spaceId);
-  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, inUseIcons: look.inUseIcons, workspace: look.workspace };
+  const workspace = look.workspace && look.workspace.layout ? { ...look.workspace, layout: guestShape(look.workspace.layout, guest, spaceId) } : look.workspace;
+  return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, inUseIcons: look.inUseIcons, workspace };
 }
 // The phases a space reads, for the rules that walk them (the AI's rollup, covering the main phase).
 const phasesOfSpace = (spaceId) => { const p = store.lookOf(spaceId).phases; return Array.isArray(p) ? p : []; };
@@ -4806,7 +4808,7 @@ app.get('/api/guest-link/:token', (req, res) => {
   const theSpace = store.spaceByGuestToken(req.params.token);
   if (!theSpace) return res.status(404).json({ error: `that ${word('guest')} link is off or wrong` });
   if (spaceAccess.isClosed(theSpace)) return res.status(403).json({ error: closedSentence(), closed: true });
-  res.json({ spaceId: theSpace.id, spaceName: theSpace.name, look: lookView(theSpace.id) }); // that space's words, not the environment's
+  res.json({ spaceId: theSpace.id, spaceName: theSpace.name, look: lookView(theSpace.id, true) }); // that space's words, not the environment's
 });
 // The address's new guest sessions this request would be the next of: 429 with the sentence when it is past the limit.
 function newGuestSessionRefusal(req) {
@@ -5257,7 +5259,7 @@ app.get('/api/spaces/:id/look', (req, res) => {
   const space = store.spaceById(req.params.id);
   const viewer = space && !space.isLobby && space.id !== LOBBY ? presenceViewer(req) : null;
   if (!space || !viewer || viewer.all || !spaceAccess.mayEnter(viewer, space)) return res.status(404).json({ error: spaceContext.exit(() => `no such ${word('space')}`) }); // outside the space's own words: the access key is let into the context
-  res.json({ look: lookView(space.id) });
+  res.json({ look: lookView(space.id, !currentUser(req)) });
 });
 app.get('/api/spaces', (req, res) => {
   const viewer = presenceViewer(req);
@@ -6508,7 +6510,8 @@ function firstVisitFor(found) {
   } else if (stored && store.defaultLayoutOf(space.id)) {
     layout = stored;
   }
-  return { layout, shape: store.layoutOf(space.id) };
+  // The template's shape, as this viewer is shown it: a guest's areas for modules they can't open read empty (guestShape).
+  return { layout, shape: guestShape(store.layoutOf(space.id), !found.who.user, space.id) };
 }
 // The icon ids a layout in space `spaceId` may use: the icons that space offers (its own template's additions when it has
 // one, as its /look lists them, else the environment's), the modules' own icons, and the defaults.
@@ -6554,6 +6557,19 @@ function guestShape(layout, guest, spaceId) {
   const off = Object.keys(manifests).filter((id) => !on.includes(id));
   return { ...layout, areas: layout.areas.map((id) => (id !== null && !canOpenArea(id, { manifests, permissions, on, off }) ? null : id)) };
 }
+// The names of the modules a maker's answer talks about, { <module id>: <name as the space shows it> }: every module a shared
+// layout names and every module in `cantOpen`, so a page can say "Research" for a module that is off or not installed here
+// instead of its id. The same names the refusals use (sharedShapeOptions: the space's own, else the manifest's, and clean). A
+// module the server has no manifest for has no entry. Names only, sent only to those who get `cantOpen`.
+function withNames(found, shared) {
+  const cantOpen = sharedCantOpen(found, shared);
+  return { cantOpen, names: sharedNames(found, shared, cantOpen) };
+}
+function sharedNames(found, shared, cantOpen) {
+  const { names } = sharedShapeOptions(found.space);
+  const ids = new Set([...Object.keys(cantOpen), ...shared.flatMap((l) => (Array.isArray(l.areas) ? l.areas : [])).filter((id) => typeof id === 'string')]);
+  return Object.fromEntries([...ids].filter((id) => typeof names[id] === 'string' && names[id]).map((id) => [id, names[id]]));
+}
 // A refused layout's answer, as a template's: { error, problems, parts }.
 const layoutProblems = (out) => ({ error: out.error, problems: out.problems, parts: out.parts });
 
@@ -6575,7 +6591,7 @@ app.get('/api/spaces/:id/layouts', (req, res) => {
   // last: the person's own last layout, only while it can still be opened (lastLayoutFor); left out for a guest and when none.
   const system = systemLayoutsFor(found);
   const last = lastLayoutFor(found, system);
-  res.json({ mine, shared, system, defaultLayout: fallback ? fallback.id : null, firstVisit: firstVisitFor(found), favorites, canShare: found.canShare, canSetDefault: found.canSetDefault, ...(found.canShare ? { cantOpen: sharedCantOpen(found, shared) } : {}), ...(found.canSetDefault ? { tabs: tabsOf(found.space.tabs) } : {}), ...(last ? { last } : {}) });
+  res.json({ mine, shared, system, defaultLayout: fallback ? fallback.id : null, firstVisit: firstVisitFor(found), favorites, canShare: found.canShare, canSetDefault: found.canSetDefault, ...(found.canShare ? withNames(found, shared) : {}), ...(found.canSetDefault ? { tabs: tabsOf(found.space.tabs) } : {}), ...(last ? { last } : {}) });
 });
 
 // The layout a person last used in a space (plan-workspaces.md, decision 20): PUT { layout } writes the signed-in person's
@@ -12036,7 +12052,7 @@ app.get('/api/modules/for-space', (req, res) => {
     // The built-in modules' names and icons as this environment shows them (the canvas's Conference and Chat switches).
     builtin: BUILTIN_MODULES.map((b) => ({ id: b.id, ...shownModule(b, space.id), ...(b.description ? { description: fillWords(b.description) } : {}) })),
     // What this space starts with: its template's Default Workspace layout (store.layoutOf), { shape, areas }, or null when the template names none.
-    layout: store.layoutOf(space.id),
+    layout: guestShape(store.layoutOf(space.id), !who.user, space.id),
     // The space's default layout, whole (as GET /api/spaces/:id/layouts lists it), or null: what a first visit opens,
     // with its places (plan-saved-layouts.md, decision 4).
     defaultLayout: guestShape(store.defaultLayoutOf(space.id), !who.user, space.id),
