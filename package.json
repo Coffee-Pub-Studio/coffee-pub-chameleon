@@ -18,6 +18,7 @@
     "check:forms": "node tools/check-forms-live.mjs",
     "shots": "node tools/shots.mjs",
     "shots:compare": "node tools/shots.mjs --compare",
+    "shots:product": "node tools/shots.mjs --product",
     "check:docs": "node tools/check-docs-structure.mjs",
     "docs:build": "node tools/wiki-sync.mjs build"
   },

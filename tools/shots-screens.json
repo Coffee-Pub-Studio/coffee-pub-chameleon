@@ -21,6 +21,14 @@
     "light",
     "dark"
    ]
+  },
+  "product": {
+   "sizes": [
+    1440
+   ],
+   "themes": [
+    "dark"
+   ]
   }
  },
  "screens": [
@@ -1861,6 +1869,95 @@
    "url": "/view/{mia}?s={key}&kind=character",
    "wait": "#module-frame >>> #base:not([hidden])",
    "tier": "state"
+  },
+  {
+   "id": "space-call-and-chat",
+   "family": "Product: a space with the call column (stub) and chat, light too",
+   "seed": "product",
+   "as": "mia",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "tier": "product",
+   "space": true,
+   "steps": [
+    {
+     "click": "#join-call"
+    }
+   ],
+   "call": true,
+   "themes": [
+    "dark",
+    "light"
+   ]
+  },
+  {
+   "id": "itinerary-bookings",
+   "family": "Product: Itinerary, Bookings view",
+   "seed": "product",
+   "as": "mia",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "tier": "product",
+   "space": true,
+   "steps": [
+    {
+     "click": "button.mf-switch-btn[data-key=\"switch:view:bookings\"]"
+    }
+   ]
+  },
+  {
+   "id": "itinerary-decisions",
+   "family": "Product: Itinerary, Decisions view",
+   "seed": "product",
+   "as": "mia",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "tier": "product",
+   "space": true,
+   "steps": [
+    {
+     "click": "button.mf-switch-btn[data-key=\"switch:view:decisions\"]"
+    }
+   ]
+  },
+  {
+   "id": "calendar-month-and-agenda",
+   "family": "Product: Calendar layout",
+   "seed": "product",
+   "as": "mia",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "tier": "product",
+   "space": true,
+   "steps": [
+    {
+     "click": "#layout-tab-calendar"
+    }
+   ]
+  },
+  {
+   "id": "documents-list",
+   "family": "Product: Documents layout",
+   "seed": "product",
+   "as": "mia",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "tier": "product",
+   "space": true,
+   "steps": [
+    {
+     "click": "#layout-tabs-more"
+    },
+    {
+     "sleep": 300
+    },
+    {
+     "eval": "[...document.querySelectorAll('button,a,li,div,span')].filter(e=>e.textContent.trim()==='Documents'&&e.getClientRects().length).pop().click()"
+    },
+    {
+     "sleep": 1500
+    }
+   ]
   }
  ]
 }
