@@ -60,6 +60,7 @@ decide those.
   `public/module-frame.js`, `server/`, `tools/`, the stored data format, or a manifest's
   permissions, uploads or refs) is not (Thomas, 2026-11-09). Even so, a core change in a try build gets
   no independent review: only a feedback or production build does (Thomas, 2026-11-19).
+- A change confined to one part's folder (`server/parts/<id>/` or `public/parts/<id>/`) is a part-lane change: `npm run check:part -- <id>` plus the route-table check, no whole suite and no independent review. A change touching more than one part or the base is core (Thomas, 2026-11-19).
 - `public/design-system/sources.js` holds nothing from `modules/`. The Design System pages read module
   stylesheets and icons from `/design-system/module-sources.js` at run time.
 - Be exact about verification: "verified live", "checked by a tool" and "read as code only" are
