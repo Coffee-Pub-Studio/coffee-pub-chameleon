@@ -33,6 +33,10 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import { findBrowser, launch, freePort, startServer, stopServer, Tab, sleep } from './shots.mjs';
+import { stopBrowser } from './browser-launch.mjs';
+import { PASSWORD } from './shots-seed.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -392,6 +396,632 @@ section('read as code', () => {
 say(`Node: ${n} checks${problems.length ? `, ${problems.length} failed` : ' passed'}`);
 
 // ---- 2. Chromium (step 2) ----
-// The browser half (the popover, its placing, keys, phone sizes, colorField) is added here with step 2 of the plan.
-
+// Headless Chromium on a throwaway server (one per run, stopped at the end; only what this check started is stopped). In light and
+// dark, at 1280 and at a 390 touch screen:
+//   - in a module running in the page (a shadow root made with createHost on the admin page, in a box of its own): the refusals; the
+//     popover opened under an anchor, flipped above an anchor at the box's foot, at a point, at { x: 100000, y: 4 } and { x: 50, y: 4 },
+//     always inside the box, and the same call again closing it; a swatch answers and closes; the keyboard order and each control's
+//     keys; a typed hex taken and a bad one marked; Escape; dragging (a touch drag at 390) with onInput and one answer; opacity: false
+//     (decision 11); a module palette; colorField (its trigger's name, input then change, onChange, the toggle, disabled, set, destroy);
+//     the page's own hostColour.field; 44px targets and 16px hex text at 390; the picker's words at 4.5:1 on its surface; the stronger
+//     edge on White in light and Black in dark; the accessibility tree (the dialog, the area, the sliders, Hex, each radio);
+//   - in an uploaded module in its sandboxed frame (built here at run time): the toolbar button opens the picker at { x, y: 4 } inside
+//     the frame, the same button closes it, Escape gives focus back to the toolbar button, and a colorField in a form sets its input.
+//     The popover's background in a frame is not asserted (a separate fix in module-host.js).
+//   Every answer seen is { color: #rrggbb, opacity: a whole number 0 to 100 }.
+// The ratio of an element's words to what is behind it (the backgrounds laid over each other up the tree, through a shadow root's host).
+const CONTRAST_JS = `window.__contrast = (el) => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1; const g = cv.getContext('2d', { willReadFrequently: true });
+  const rgba = (c) => { g.clearRect(0, 0, 1, 1); g.fillStyle = '#000'; g.fillStyle = c; g.fillRect(0, 0, 1, 1); const d = g.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2], d[3] / 255]; };
+  const over = (top, under) => top[3] >= 1 ? top : [0, 1, 2].map((i) => top[i] * top[3] + under[i] * (1 - top[3])).concat([1]);
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+  const layers = []; for (let n = el; n; n = n.parentElement || (n.getRootNode() && n.getRootNode().host)) { const c = rgba(getComputedStyle(n).backgroundColor); if (c[3] > 0) layers.push(c); if (c[3] >= 1) break; }
+  let bg = [255, 255, 255, 1]; for (const l of layers.reverse()) bg = over(l, bg);
+  const fg = over(rgba(getComputedStyle(el).color), bg);
+  const a = lum(fg), b = lum(bg); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}`;
+const bin = findBrowser();
+if (!bin) {
+  say('Chromium: SKIPPED, no Chromium found (set CHROME_PATH). The browser half did not run; this is not a pass.');
+} else {
+  const started = Date.now();
+  const before = { n, failed: problems.length };
+  try {
+    await browserHalf(bin);
+  } catch (e) {
+    n += 1;
+    problems.push(`browser half: ${e && (e.stack || e.message)}`);
+  }
+  say(`Chromium: ${n - before.n} checks${problems.length > before.failed ? `, ${problems.length - before.failed} failed` : ' passed'} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+}
 finish();
+
+async function browserHalf(chrome) {
+  const { buildModule } = createRequire(import.meta.url)(path.join(ROOT, 'server/module-build.js'));
+  const NAMES_ALL = PALETTE.flatMap((g) => g.colours.map((c) => c.name));
+  const HINT = 'Type six hex digits, like #2f6cbf';
+  const NOTE = 'Opacity isn\'t kept here.';
+  const answers = []; // every answer seen, for the shape check at the end
+  const note = []; // what is worth saying that is not a failure
+
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'colour-picker-'));
+  let server = null;
+  let browser = null;
+  let cdp = null;
+  let systemCss = '';
+  try {
+    server = await startServer(dataDir, await freePort(), 'colour-picker');
+    const login = await fetch(`${server.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: 'admin', password: PASSWORD }) });
+    if (login.status !== 200) throw new Error(`cannot sign in as admin: ${login.status}`);
+    const cookies = login.headers.getSetCookie().map((c) => { const [nv] = c.split(';'); const i = nv.indexOf('='); return { name: nv.slice(0, i), value: nv.slice(i + 1) }; });
+    const jar = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+
+    // The uploaded test module: a toolbar button that opens the picker at { x, y: 4 }, and a colour field in a form.
+    const modDir = path.join(dataDir, 'cpcheck-src');
+    fs.mkdirSync(path.join(modDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(modDir, 'module.json'), JSON.stringify({ id: 'cpcheck', name: 'Colour check', version: '0.0.1', icon: 'palette', scope: ['environment'], surfaces: { page: { entry: 'cpcheck.html' } } }));
+    fs.writeFileSync(path.join(modDir, 'src', 'cpcheck.html'), '<!doctype html><html><head><meta charset="utf-8"><style>/*__CSS__*/</style></head><body><form id="form"><label for="fld">Fill</label> <input id="fld" type="text" value="#2f6cbf"></form><script>/*__JS__*/</script></body></html>');
+    fs.writeFileSync(path.join(modDir, 'src', 'cpcheck.css'), 'form { padding: 80px 16px; }');
+    fs.writeFileSync(path.join(modDir, 'src', 'cpcheck.js'), `const host = window.host; window.__answers = []; window.__events = [];
+host.ready().then(() => {
+  const fld = host.root.getElementById('fld');
+  fld.addEventListener('input', () => window.__events.push('input'));
+  fld.addEventListener('change', () => window.__events.push('change'));
+  window.__field = host.ui.colorField(fld, { onChange: (a) => window.__events.push(a) });
+  host.ui.toolbarButton({ id: 'colour', label: 'Colour', icon: 'palette', onClick: (e) => {
+    window.__tbx = e.x;
+    host.ui.colorPicker({ at: { x: Number.isFinite(e.x) ? e.x : 100000, y: 4 }, value: '#c0392b' }).then((a) => window.__answers.push(a));
+  } });
+  window.__ready = true;
+});`);
+    const up = await fetch(`${server.base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', cookie: jar }, body: buildModule(modDir).zip });
+    ok(up.status === 201, `the test module was not uploaded: ${up.status} ${(await up.text()).slice(0, 200)}`);
+    const en = await fetch(`${server.base}/api/modules/cpcheck`, { method: 'PATCH', headers: { 'content-type': 'application/json', cookie: jar }, body: JSON.stringify({ enabled: true, allSpaces: true }) });
+    ok(en.status === 200, `the test module could not be turned on: ${en.status}`);
+    systemCss = await (await fetch(`${server.base}/sdk/system.css`)).text();
+
+    browser = await launch(chrome);
+    ({ cdp } = browser);
+
+    for (const [size, mode] of [[1280, 'light'], [1280, 'dark'], [390, 'light'], [390, 'dark']]) {
+      const coarse = size === 390;
+      const label = `${size}px ${mode}`;
+      const tab = new Tab(cdp, {});
+      await tab.open(size, mode, false);
+      const send = (m, p) => cdp.send(m, p, tab.sid);
+      const height = coarse ? 844 : 900;
+      if (coarse) {
+        await send('Emulation.setDeviceMetricsOverride', { width: size, height, deviceScaleFactor: 1, mobile: true });
+        await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      }
+      for (const c of cookies) await send('Network.setCookie', { ...c, url: server.base });
+      try {
+        await pageCases({ tab, send, label, coarse, size, mode, height });
+        await frameCases({ tab, send, label, coarse });
+      } catch (e) {
+        n += 1;
+        problems.push(`${label}: stopped: ${e && (e.stack || e.message)}`);
+      }
+      await tab.close();
+    }
+
+    // Every answer seen: a colour and a percent, nothing else.
+    const badShape = answers.filter((a) => a !== null && !(a && Object.keys(a).sort().join() === 'color,opacity' && /^#[0-9a-f]{6}$/.test(a.color) && Number.isInteger(a.opacity) && a.opacity >= 0 && a.opacity <= 100));
+    same(badShape, [], `every answer (${answers.filter(Boolean).length} of them) is { color: #rrggbb, opacity: 0 to 100 }`);
+    for (const line of [...new Set(note)]) say(`note: ${line}`);
+    ok(answers.filter(Boolean).length >= 20, `the browser half saw ${answers.filter(Boolean).length} answers; it should see many more`);
+  } finally {
+    if (browser) await stopBrowser(browser.child, browser.dir);
+    if (server) await stopServer(server);
+    try { fs.rmSync(dataDir, { recursive: true, force: true, maxRetries: 5 }); } catch { /* still closing */ }
+  }
+
+  // ---- the keys, the pointer and the finger ----
+  async function key(send, k, { shift = false } = {}) {
+    const codes = { Escape: 27, Enter: 13, Tab: 9, ' ': 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35, PageUp: 33, PageDown: 34 };
+    const code = k === ' ' ? 'Space' : k;
+    const base = { key: k, code, windowsVirtualKeyCode: codes[k], modifiers: shift ? 8 : 0 };
+    if (k === 'Enter' || k === ' ') await send('Input.dispatchKeyEvent', { type: 'keyDown', ...base, text: k === 'Enter' ? '\r' : ' ' });
+    else await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base });
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  }
+  async function press(send, coarse, x, y) {
+    if (coarse) {
+      await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    } else {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+    }
+    await sleep(60);
+  }
+  async function drag(send, coarse, pts) {
+    const [x0, y0] = pts[0];
+    if (coarse) {
+      await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] });
+      for (const [x, y] of pts.slice(1)) await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] });
+      await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    } else {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: x0, y: y0, button: 'none' });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x0, y: y0, button: 'left', buttons: 1, clickCount: 1 });
+      for (const [x, y] of pts.slice(1)) await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'left', buttons: 1 });
+      const [x1, y1] = pts[pts.length - 1];
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x1, y: y1, button: 'left', buttons: 0, clickCount: 1 });
+    }
+    await sleep(60);
+  }
+
+  // ---- a module in the page ----
+  async function pageCases({ tab, send, label, coarse, size, mode, height }) {
+    await send('Page.navigate', { url: `${server.base}/admin.html` });
+    let ready = false;
+    for (let i = 0; i < 100 && !ready; i += 1) { ready = await tab.eval(`document.readyState === 'complete' && typeof window.hostColour === 'object' && typeof window.createHost === 'function'`).catch(() => false); if (!ready) await sleep(100); }
+    if (!ready) throw new Error('the admin page did not load the SDK (window.hostColour, createHost)');
+    await sleep(300);
+    // The module: a shadow root in a box of its own (its rootElement), on top of the page, with the SDK's styles; the box is filled
+    // by a plain area so a press in the box outside the picker is a press in the module.
+    const box = coarse ? { L: 0, T: 40, W: size, H: height - 60 } : { L: 120, T: 90, W: 560, H: 720 };
+    await tab.eval(`(async () => {
+      const css = ${JSON.stringify(systemCss)}.replace(/:root\\s*\\{[^}]*\\}/g, '');
+      const c = document.createElement('div');
+      c.id = 'cp-box';
+      c.style.cssText = 'position:fixed;left:${box.L}px;top:${box.T}px;width:${box.W}px;height:${box.H}px;overflow:hidden;z-index:2147480000';
+      document.body.appendChild(c);
+      const R = c.attachShadow({ mode: 'open' });
+      R.innerHTML = '<style>' + css + '</style><style>.fill{position:absolute;inset:0;background:var(--surface-page)}#a{position:absolute;left:12px;top:12px}#low{position:absolute;left:12px;bottom:12px}#fl{position:absolute;right:12px;top:12px;display:flex;gap:8px;align-items:center}</style>'
+        + '<div class="fill"></div><button id="a" class="btn" type="button">Anchor</button><button id="low" class="btn" type="button">Low</button>'
+        + '<label id="fl">Row <input id="fld" type="text" value="#c0392b" aria-label="Row colour"></label>';
+      const h = createHost({ call: (m) => (m === 'hello' ? Promise.resolve({ module: { id: 'cpcheck' } }) : Promise.reject(new Error('not here'))), root: R, rootElement: c, elementAt: (p) => document.elementFromPoint(p.x, p.y), applyTheme: () => {} }).host;
+      await h.ready().catch(() => {});
+      window.__h = h; window.__R = R; window.__box = c;
+      window.__inputs = []; window.__answers = [];
+      // Opens the picker with an anchor given by its id; every answer is kept.
+      window.__pick = (o) => {
+        const opt = { ...o };
+        if (typeof opt.anchor === 'string') opt.anchor = R.getElementById(opt.anchor);
+        window.__inputs = [];
+        window.__last = undefined;
+        const p = h.ui.colorPicker({ ...opt, onInput: (a) => window.__inputs.push(a) });
+        p.then((a) => { window.__answers.push(a); window.__last = a; });
+        return 1;
+      };
+      window.__cp = () => R.querySelector('.sdk-cp') || document.querySelector('.sdk-cp');
+      window.__in = (sel) => (window.__cp() ? window.__cp().querySelector(sel) : null);
+      window.__focus = () => { const a = R.activeElement || document.activeElement; return a ? (a.getAttribute('aria-label') || (a.id ? '#' + a.id : '') || a.className) : ''; };
+      window.__rect = (e) => { const r = e.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height, x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+      return 1;
+    })()`);
+    // Every step answers within 8s, or the case stops and says which step it was.
+    const ev = (expr) => Promise.race([tab.eval(expr), sleep(8000).then(() => { throw new Error(`no answer in 8s from: ${expr.slice(0, 160)}`); })]).catch((e) => { throw new Error(`${e.message.slice(0, 300)} (at: ${expr.slice(0, 160)})`); });
+    const tick = () => sleep(30);
+    const open = () => ev(`Boolean(window.__cp())`);
+    const pick = async (o) => { await ev(`window.__pick(${o})`); await tick(); };
+    const last = async () => { await tick(); return ev('window.__last'); };
+    const pressOn = async (expr) => { const r = await ev(`window.__rect(${expr})`); await press(send, coarse, r.x, r.y); };
+    const swatch = (name, group = 'Colours') => `window.__cp().querySelector('[aria-label=${JSON.stringify(group)}] .sdk-swatch[aria-label=${JSON.stringify(name)}]')`;
+    const boxRect = await ev(`window.__rect(window.__box)`);
+    const inside = async (what) => {
+      const r = await ev(`window.__rect(window.__cp())`);
+      ok(r.l >= boxRect.l - 0.5 && r.t >= boxRect.t - 0.5 && r.r <= boxRect.r + 0.5 && r.b <= boxRect.b + 0.5, `${label}: ${what}: the picker (${Math.round(r.l)},${Math.round(r.t)} to ${Math.round(r.r)},${Math.round(r.b)}) is not inside the module's box (${boxRect.l},${boxRect.t} to ${boxRect.r},${boxRect.b})`);
+      return r;
+    };
+    const escape = async (what) => { await key(send, 'Escape'); const a = await last(); ok(a === null && !(await open()), `${label}: ${what}: Escape answered ${JSON.stringify(a)} and the picker is ${(await open()) ? 'still open' : 'closed'}; wanted null and closed`); answers.push(a); };
+
+    // --- the refusals ---
+    const refusal = (expr) => ev(`(() => { try { ${expr}; return 'no throw'; } catch (e) { return e.name + ': ' + e.message; } })()`);
+    same(await refusal(`__h.ui.colorPicker({})`), 'Error: host.ui.colorPicker needs an anchor or a point', `${label}: colorPicker with no anchor and no point`);
+    same(await refusal(`__h.ui.colorPicker()`), 'Error: host.ui.colorPicker needs an anchor or a point', `${label}: colorPicker with nothing`);
+    same(await refusal(`__h.ui.colorPicker({ at: { x: NaN, y: 4 } })`), 'Error: host.ui.colorPicker needs an anchor or a point', `${label}: colorPicker at a point that is not a number`);
+    same(await refusal(`__h.ui.colorPicker({ anchor: 'a' })`), 'Error: host.ui.colorPicker needs an anchor or a point', `${label}: colorPicker with an anchor that is not an element`);
+    same(await refusal(`__h.ui.colorPicker({ at: { x: 1, y: 1 }, palette: [{ heading: 'Inks', colours: [{ name: 'Ink', color: 'red' }] }] })`), 'TypeError: host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour', `${label}: colorPicker with a bad palette`);
+    same(await refusal(`__h.ui.colorPicker({ at: { x: 1, y: 1 }, palette: [] })`), 'TypeError: host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour', `${label}: colorPicker with an empty palette`);
+    same(await refusal(`__h.ui.colorField(document.body)`), 'Error: host.ui.colorField needs an <input>', `${label}: colorField on something that is not an input`);
+    same(await refusal(`__h.ui.colorField(null)`), 'Error: host.ui.colorField needs an <input>', `${label}: colorField on nothing`);
+    same(await refusal(`__h.ui.colorField(__R.getElementById('fld'), { palette: [{ heading: 'x', colours: [{ name: '<b>', color: '#000000' }] }] })`), 'TypeError: host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour', `${label}: colorField with a bad palette`);
+    ok(!(await open()) && (await ev(`!__R.querySelector('.sdk-picker')`)), `${label}: a refused call left a picker or a trigger behind`);
+
+    // --- where it opens ---
+    const anchorRect = await ev(`window.__rect(__R.getElementById('a'))`);
+    await pick(`{ anchor: 'a', value: '#2f6cbf' }`);
+    let r = await inside('under the anchor');
+    ok(Math.abs(r.t - (anchorRect.b + 4)) <= 1 && Math.abs(r.l - Math.max(boxRect.l + 4, anchorRect.l)) <= 1, `${label}: under the anchor the picker is at ${Math.round(r.l)},${Math.round(r.t)}; wanted ${Math.round(anchorRect.l)},${Math.round(anchorRect.b + 4)} (4px under it)`);
+    same(await ev(`[window.__cp().getAttribute('role'), window.__cp().getAttribute('aria-label')]`), ['dialog', 'Colour'], `${label}: the picker is a dialog called "Colour" when no label is given`);
+    await escape('under the anchor');
+    const lowRect = await ev(`window.__rect(__R.getElementById('low'))`);
+    await pick(`{ anchor: 'low' }`);
+    r = await inside('at an anchor at the foot of the box');
+    ok(r.b <= lowRect.t - 3, `${label}: at an anchor at the foot of the box the picker (bottom ${Math.round(r.b)}) is not flipped above it (top ${Math.round(lowRect.t)})`);
+    await escape('flipped above');
+    await pick(`{ at: { x: 40, y: 30 } }`);
+    r = await inside('at a point');
+    ok(Math.abs(r.l - Math.min(boxRect.l + 40, boxRect.r - 4 - r.w)) <= 1 && Math.abs(r.t - (boxRect.t + 30)) <= 1, `${label}: at { x: 40, y: 30 } the picker is at ${Math.round(r.l - boxRect.l)},${Math.round(r.t - boxRect.t)} in the box (clamped where it does not fit)`);
+    await escape('at a point');
+    await pick(`{ at: { x: 100000, y: 4 } }`);
+    r = await inside('at { x: 100000, y: 4 }');
+    ok(Math.abs(r.r - (boxRect.r - 4)) <= 1 && Math.abs(r.t - (boxRect.t + 4)) <= 1, `${label}: at { x: 100000, y: 4 } the picker is not at the box's top right (right ${Math.round(boxRect.r - r.r)}px in, top ${Math.round(r.t - boxRect.t)}px down; wanted 4 and 4)`);
+    await escape('at the top right');
+    await pick(`{ at: { x: 50, y: 4 } }`);
+    r = await inside('at { x: 50, y: 4 }');
+    const wantL = Math.min(boxRect.l + 50, boxRect.r - 4 - r.w);
+    ok(Math.abs(r.l - wantL) <= 1 && Math.abs(r.t - (boxRect.t + 4)) <= 1, `${label}: at { x: 50, y: 4 } the picker is at ${Math.round(r.l - boxRect.l)},${Math.round(r.t - boxRect.t)} in the box; wanted ${Math.round(wantL - boxRect.l)},4`);
+    const scroll = await ev(`(() => { const p = window.__cp(); return { sw: p.scrollWidth, cw: p.clientWidth }; })()`);
+    ok(scroll.sw <= scroll.cw + 1, `${label}: the picker scrolls sideways (${scroll.sw} in ${scroll.cw})`);
+    await escape('at { x: 50, y: 4 }');
+    // The same call again while it is open closes it, and both answer null (a toggle).
+    same(await ev(`(async () => { const a = __h.ui.colorPicker({ at: { x: 10, y: 4 } }); const b = __h.ui.colorPicker({ at: { x: 10, y: 4 } }); return [await a, await b, !window.__cp()]; })()`), [null, null, true], `${label}: the same call again while it is open closes it, both answering null`);
+
+    // --- a swatch answers and closes ---
+    await pick(`{ anchor: 'a', value: '#2f6cbf', opacity: 80 }`);
+    same(await ev('window.__focus()'), 'Blue', `${label}: focus starts on the chosen swatch`);
+    await pressOn(swatch('Teal'));
+    const teal = await last();
+    answers.push(teal);
+    same(teal, { color: '#00796b', opacity: 80 }, `${label}: a swatch answers its colour with the opacity it started at`);
+    ok(!(await open()), `${label}: a swatch did not close the picker`);
+    same(await ev('window.__answers.length'), 6, `${label}: the answers so far (5 Escapes and the swatch) each came once`);
+    // Enter on a swatch answers too.
+    await pick(`{ anchor: 'a', value: '#00796b' }`);
+    await key(send, 'ArrowRight');
+    same(await ev('window.__focus()'), 'Blue', `${label}: Right moves from Teal to Blue in the palette`);
+    await key(send, 'Enter');
+    const blue = await last();
+    answers.push(blue);
+    same(blue, { color: '#2f6cbf', opacity: 100 }, `${label}: Enter on a swatch answers its colour`);
+    same(await ev('window.__focus()'), '#a', `${label}: after a swatch, focus is back on the anchor`);
+
+    // --- the keyboard, the names and the words ---
+    await pick(`{ anchor: 'a', value: '#2F6CBF', opacity: 50, label: 'Fill colour' }`);
+    same(await ev('window.__focus()'), 'Blue', `${label}: a value in capitals starts on its swatch`);
+    same(await ev(`window.__cp().getAttribute('aria-label')`), 'Fill colour', `${label}: the dialog is named by its label`);
+    const recentNames = await ev(`[...window.__cp().querySelectorAll('[aria-label="Recent"] .sdk-swatch')].map((b) => b.getAttribute('aria-label'))`);
+    same(recentNames, ['Blue', 'Teal'], `${label}: Recent holds the colours chosen, newest first, named by their colour names`);
+    const dropper = await ev(`!window.__in('.sdk-cp-dropper').hidden`);
+    const order = ['Saturation and brightness', 'Hue', 'Opacity', 'sdk-cp-hexin', ...(dropper ? ['Pick from the screen'] : []), 'Blue', 'Blue'];
+    const seen = [];
+    await key(send, 'Tab'); // from the palette to Recent
+    seen.push(await ev(`window.__focus() + '@' + (((__R.activeElement || document.activeElement).closest('[role=radiogroup]') || { getAttribute: () => '' }).getAttribute('aria-label'))`));
+    for (let i = 0; i < order.length - 1; i += 1) { await key(send, 'Tab'); seen.push(await ev('window.__focus()')); }
+    same(seen, ['Blue@Recent', ...order.slice(0, -1)], `${label}: Tab goes from the palette to Recent, then round to the area, Hue, Opacity, Hex${dropper ? ', Pick from the screen' : ''} and the palette`);
+    await key(send, 'Tab', { shift: true });
+    same(await ev('window.__focus()'), dropper ? 'Pick from the screen' : 'sdk-cp-hexin', `${label}: Shift+Tab goes back`);
+
+    // The area: Left and Right saturation, Up and Down brightness, by 1 and with Shift by 10; Home and End the ends of saturation.
+    const area = async () => { const t = await ev(`window.__in('.sdk-cp-area').getAttribute('aria-valuetext')`); const m = /^Saturation (\d+) percent, brightness (\d+) percent$/.exec(t); return m ? [Number(m[1]), Number(m[2])] : t; };
+    await ev(`window.__in('.sdk-cp-area').focus()`);
+    const a0 = await area();
+    ok(Array.isArray(a0), `${label}: the area's aria-valuetext reads ${JSON.stringify(a0)}`);
+    const hex0 = await ev(`window.__in('.sdk-cp-hexin').value`);
+    const steps = [[['ArrowRight'], [1, 0]], [['ArrowRight', true], [10, 0]], [['ArrowLeft'], [-1, 0]], [['ArrowDown'], [0, -1]], [['ArrowDown', true], [0, -10]], [['ArrowUp'], [0, 1]]];
+    let at = a0;
+    for (const [[k, shift], [ds, dv]] of steps) {
+      await key(send, k, { shift });
+      const now = await area();
+      same(now, [at[0] + ds, at[1] + dv], `${label}: ${shift ? 'Shift+' : ''}${k} on the area`);
+      at = now;
+    }
+    ok((await ev(`window.__in('.sdk-cp-hexin').value`)) !== hex0, `${label}: the area's keys did not change the colour`);
+    await key(send, 'Home');
+    same((await area())[0], 0, `${label}: Home on the area is no saturation`);
+    await key(send, 'End');
+    same((await area())[0], 100, `${label}: End on the area is full saturation`);
+    // Hue: arrows by 1, Shift by 10, Page Up and Page Down by 10, Home and End the ends.
+    await ev(`window.__in('.sdk-cp-hue').focus()`);
+    const hueText = () => ev(`window.__in('.sdk-cp-hue').getAttribute('aria-valuetext')`);
+    for (const [k, shift, want] of [['Home', false, 0], ['ArrowRight', false, 1], ['ArrowRight', true, 11], ['PageUp', false, 21], ['ArrowUp', false, 22], ['PageDown', false, 12], ['ArrowLeft', true, 2], ['ArrowDown', false, 1], ['End', false, 359]]) {
+      await key(send, k, { shift });
+      same(await hueText(), `Hue ${want} degrees`, `${label}: ${shift ? 'Shift+' : ''}${k} on Hue`);
+    }
+    // Opacity: the same keys.
+    await ev(`window.__in('.sdk-cp-alpha').focus()`);
+    const opText = () => ev(`window.__in('.sdk-cp-alpha').getAttribute('aria-valuetext')`);
+    for (const [k, shift, want] of [['ArrowLeft', false, 49], ['ArrowLeft', true, 39], ['PageUp', false, 49], ['PageDown', false, 39], ['Home', false, 0], ['End', false, 100], ['ArrowDown', false, 99]]) {
+      await key(send, k, { shift });
+      same(await opText(), `Opacity ${want} percent`, `${label}: ${shift ? 'Shift+' : ''}${k} on Opacity`);
+    }
+    same(await ev(`[window.__in('.sdk-cp-alpha').getAttribute('aria-valuenow'), window.__in('.sdk-cp-alpha').getAttribute('aria-disabled')]`), ['99', null], `${label}: Opacity is shown, on, at 99`);
+    const inputsSoFar = await ev('window.__inputs.length');
+    ok(inputsSoFar >= 15, `${label}: onInput fired ${inputsSoFar} times for the keys; it should fire on each change`);
+    ok(await open() && (await ev('window.__last')) === undefined, `${label}: the picker answered while it was being changed`);
+    // The palette: arrows inside it, Up and Down by rows, Home and End.
+    const blueSel = swatch('Blue');
+    await ev(`${blueSel}.focus()`);
+    for (const [k, want] of [['ArrowRight', 'Purple'], ['ArrowLeft', 'Blue'], ['Home', 'White'], ['ArrowDown', 'Black'], ['ArrowDown', 'Red'], ['ArrowUp', 'Black'], ['End', 'Pink']]) {
+      await key(send, k);
+      same(await ev('window.__focus()'), want, `${label}: ${k} in the palette`);
+    }
+    // Recent: its own Tab stop, arrows inside.
+    await key(send, 'Tab');
+    same(await ev('window.__focus()'), 'Blue', `${label}: Tab from the palette goes to Recent`);
+    await key(send, 'ArrowRight');
+    same(await ev('window.__focus()'), 'Teal', `${label}: Right inside Recent`);
+
+    // The accessibility tree: the dialog, the area, the sliders, the Hex field and each radio, by name.
+    await send('Accessibility.enable');
+    const ax = (await send('Accessibility.getFullAXTree', {})).nodes.filter((x) => !x.ignored);
+    const named = (role, name) => ax.some((x) => x.role && x.role.value === role && x.name && x.name.value === name);
+    for (const [role, name] of [['dialog', 'Fill colour'], ['slider', 'Saturation and brightness'], ['slider', 'Hue'], ['slider', 'Opacity'], ['textbox', 'Hex'], ['radiogroup', 'Colours'], ['radiogroup', 'Recent'], ...NAMES_ALL.map((x) => ['radio', x])]) {
+      ok(named(role, name), `${label}: the accessibility tree has no ${role} named "${name}"`);
+    }
+    const valuetext = ax.find((x) => x.role && x.role.value === 'slider' && x.name && x.name.value === 'Hue');
+    ok(valuetext && ((valuetext.properties || []).some((p) => p.name === 'valuetext' && p.value.value === 'Hue 359 degrees') || (valuetext.value && valuetext.value.value === 'Hue 359 degrees')), `${label}: the accessibility tree does not read Hue's value as "Hue 359 degrees" (${JSON.stringify(valuetext && { value: valuetext.value, properties: valuetext.properties })})`);
+    const checked = ax.filter((x) => x.role && x.role.value === 'radio' && (x.properties || []).some((p) => p.name === 'checked' && p.value.value === 'true'));
+    ok(checked.length === 0 || checked.every((x) => x.name), `${label}: a checked radio has no name`);
+
+    // The words, on the picker's surface: Hex, the typed hex, a group's heading (4.5:1 or more).
+    await tab.eval(CONTRAST_JS);
+    const ratio = (expr) => ev(`window.__contrast(${expr})`);
+    for (const [what, expr] of [['the word Hex', `window.__in('.sdk-cp-hex-word')`], ['the hex in its field', `window.__in('.sdk-cp-hexin')`], ['a group heading', `window.__in('.sdk-cp-head')`]]) {
+      const v = await ratio(expr);
+      ok(v >= 4.5, `${label}: ${what} is ${v.toFixed(2)}:1 on the picker; wanted 4.5:1`);
+    }
+    // White on a light menu and Black on a dark one get the stronger edge; the opposite end does not. The faint ones are exactly the
+    // swatches under 3:1 against the menu's own surface, worked out here from the drawn surface with theme-colour.js's maths.
+    const faint = await ev(`[...window.__cp().querySelectorAll('[aria-label="Colours"] .sdk-cp-faint')].map((b) => b.getAttribute('aria-label'))`);
+    const surface = await ev(`(() => { const cv = document.createElement('canvas'); cv.width = cv.height = 1; const g = cv.getContext('2d', { willReadFrequently: true }); g.fillStyle = getComputedStyle(window.__cp()).backgroundColor; g.fillRect(0, 0, 1, 1); return '#' + [...g.getImageData(0, 0, 1, 1).data].slice(0, 3).map((v) => v.toString(16).padStart(2, '0')).join(''); })()`);
+    const under3 = PALETTE.flatMap((g) => g.colours).filter((c) => TC.contrast(c.color, surface) < 3).map((c) => c.name);
+    const wantFaint = mode === 'light' ? 'White' : 'Black';
+    const notFaint = mode === 'light' ? 'Black' : 'White';
+    ok(faint.includes(wantFaint) && !faint.includes(notFaint), `${label}: the swatches with the stronger edge are ${JSON.stringify(faint)}; wanted ${wantFaint} among them and not ${notFaint}`);
+    same(faint, under3, `${label}: the swatches with the stronger edge are those under 3:1 against the menu's surface (${surface})`);
+    const edges = await ev(`[${swatch(wantFaint)}, ${swatch(notFaint)}].map((b) => getComputedStyle(b, '::before').borderTopColor)`);
+    ok(edges[0] !== edges[1], `${label}: ${wantFaint}'s stronger edge is drawn the same as ${notFaint}'s (${edges[0]})`);
+    if (faint.length > 2) note.push(`${label}: ${faint.length} of 24 swatches take the stronger edge on a ${surface} menu (${faint.join(', ')})`);
+
+    // At 390 on a touch screen: 44px targets and 16px hex text.
+    if (coarse) {
+      ok(await ev(`matchMedia('(pointer: coarse)').matches`), `${label}: the page is not a touch screen`);
+      const sz = await ev(`(() => { const s = (sel) => { const e = window.__in(sel); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }; return { swatch: s('.sdk-swatch'), hue: s('.sdk-cp-hue'), alpha: s('.sdk-cp-alpha'), hex: s('.sdk-cp-hexin'), dropper: s('.sdk-cp-dropper'), area: s('.sdk-cp-area'), font: parseFloat(getComputedStyle(window.__in('.sdk-cp-hexin')).fontSize) }; })()`);
+      ok(sz.swatch[0] >= 44 && sz.swatch[1] >= 44, `${label}: a swatch is ${sz.swatch.join('x')}; wanted 44px`);
+      ok(sz.hue[1] >= 44 && sz.alpha[1] >= 44, `${label}: Hue is ${sz.hue[1]}px and Opacity ${sz.alpha[1]}px tall; wanted 44px`);
+      ok(sz.hex[1] >= 44, `${label}: the Hex field is ${sz.hex[1]}px tall; wanted 44px`);
+      ok(!sz.dropper || (sz.dropper[0] >= 44 && sz.dropper[1] >= 44), `${label}: Pick from the screen is ${sz.dropper && sz.dropper.join('x')}; wanted 44px`);
+      ok(sz.area[1] >= 150, `${label}: the area is ${sz.area[1]}px tall; wanted about 160px`);
+      ok(sz.font >= 16, `${label}: the hex text is ${sz.font}px; wanted 16px so the phone does not zoom`);
+    }
+
+    // --- a typed hex: taken, or marked with its line ---
+    const typeHex = async (text) => { await ev(`(() => { const i = window.__in('.sdk-cp-hexin'); i.focus(); i.select(); return 1; })()`); await send('Input.insertText', { text }); await tick(); };
+    await typeHex('ABCDEF');
+    same(await ev('window.__inputs.at(-1)'), { color: '#abcdef', opacity: 99 }, `${label}: a whole hex typed in capitals without # shows at once`);
+    await key(send, 'Tab');
+    same(await ev(`[window.__in('.sdk-cp-hexin').value, window.__in('.sdk-cp-hexin').getAttribute('aria-invalid'), window.__in('.sdk-cp-error').textContent]`), ['#abcdef', null, ''], `${label}: a good hex is taken and shown in lower case, with no error`);
+    await typeHex('#2f6cb');
+    await key(send, 'Tab');
+    const bad = await ev(`(() => { const i = window.__in('.sdk-cp-hexin'); const d = i.getAttribute('aria-describedby'); return [i.getAttribute('aria-invalid'), d ? (__R.getElementById(d) || document.getElementById(d)).textContent : null, getComputedStyle(window.__cp()).getPropertyValue('--cp-color').trim(), window.__inputs.at(-1).color]; })()`);
+    same(bad, ['true', HINT, '#abcdef', '#abcdef'], `${label}: a bad hex is marked aria-invalid, described by its line, and the colour does not change`);
+    const errRatio = await ratio(`window.__in('.sdk-cp-error')`);
+    ok(errRatio >= 4.5, `${label}: the hex error line is ${errRatio.toFixed(2)}:1 on the picker; wanted 4.5:1`);
+    await typeHex('2F6CBF');
+    same(await ev(`window.__in('.sdk-cp-hexin').getAttribute('aria-invalid')`), null, `${label}: a good hex typed after a bad one clears the mark`);
+    await key(send, 'Enter');
+    const typed = await last();
+    answers.push(typed);
+    same(typed, { color: '#2f6cbf', opacity: 99 }, `${label}: Enter in Hex answers the typed colour and the opacity`);
+    ok(!(await open()) && (await ev('window.__focus()')) === '#a', `${label}: after Enter in Hex the picker is closed and focus is on the anchor (${await ev('window.__focus()')})`);
+
+    // --- Escape: null, and focus back ---
+    await pick(`{ anchor: 'a', value: '#c0392b' }`);
+    await ev(`window.__in('.sdk-cp-hue').focus()`);
+    await key(send, 'ArrowRight');
+    ok((await ev('window.__inputs.length')) === 1, `${label}: one key on Hue sent ${await ev('window.__inputs.length')} onInput`);
+    await escape('after a change');
+    same(await ev('window.__focus()'), '#a', `${label}: Escape puts focus back on the anchor`);
+
+    // --- dragging: onInput while it changes, the answer once (a press in the module outside the picker) ---
+    await pick(`{ at: { x: 20, y: 60 }, value: '#2f6cbf', opacity: 70 }`);
+    const ar = await ev(`window.__rect(window.__in('.sdk-cp-area'))`);
+    const pts = [];
+    for (let i = 0; i <= 8; i += 1) pts.push([ar.l + 10 + i * (ar.w - 20) / 8, ar.t + 10 + i * (ar.h - 20) / 8]);
+    await drag(send, coarse, pts);
+    const dragged = await ev('window.__inputs.length');
+    ok(dragged >= 5, `${label}: ${coarse ? 'a touch drag' : 'a drag'} on the area sent ${dragged} onInput; wanted one for each step`);
+    ok(await open() && (await ev('window.__last')) === undefined, `${label}: dragging answered or closed the picker`);
+    const hr = await ev(`window.__rect(window.__in('.sdk-cp-hue'))`);
+    await drag(send, coarse, [[hr.l + 10, hr.y], [hr.l + hr.w / 3, hr.y], [hr.l + hr.w / 2, hr.y]]);
+    ok((await ev('window.__inputs.length')) > dragged, `${label}: dragging Hue sent no onInput`);
+    const scrolled = await ev(`document.scrollingElement.scrollTop + window.__box.scrollTop`);
+    same(scrolled, 0, `${label}: dragging scrolled the page`);
+    await sleep(50);
+    const said = await ev(`window.__in('.sdk-cp-live').textContent`);
+    ok(/^(.+, )?#[0-9a-f]{6}$/.test(said), `${label}: the live line says ${JSON.stringify(said)} once the drag ends`);
+    const lastInput = await ev('window.__inputs.at(-1)');
+    const nAnswers = await ev('window.__answers.length');
+    const cpR = await ev(`window.__rect(window.__cp())`);
+    const outX = cpR.r + 20 < boxRect.r ? cpR.r + 10 : boxRect.l + 6;
+    const outY = cpR.b + 20 < boxRect.b ? cpR.b + 10 : boxRect.b - 6;
+    await press(send, coarse, outX, outY);
+    const dropped = await last();
+    answers.push(dropped);
+    same(dropped, lastInput, `${label}: a press outside answers what is showing (the last onInput)`);
+    same(await ev('window.__answers.length'), nAnswers + 1, `${label}: the answer came once`);
+    ok(dropped && dropped.opacity === 70, `${label}: the answer kept the opacity it started at (${dropped && dropped.opacity})`);
+
+    // --- opacity: false (decision 11) ---
+    await pick(`{ at: { x: 20, y: 60 }, value: '#c0392b', opacity: false, label: 'Row colour' }`);
+    const off = await ev(`(() => { const o = window.__in('.sdk-cp-alpha'); const d = o.getAttribute('aria-describedby'); const note = d ? (__R.getElementById(d) || document.getElementById(d)) : null; return [o.getAttribute('aria-disabled'), o.getAttribute('aria-valuenow'), o.getAttribute('aria-valuetext'), o.tabIndex, note ? note.textContent : null, note ? note.getClientRects().length > 0 : false]; })()`);
+    same(off, ['true', '100', 'Opacity 100 percent', 0, NOTE, true], `${label}: with opacity: false the slider shows 100, is aria-disabled, stays in the Tab order and is described by its line`);
+    await ev(`window.__in('.sdk-cp-alpha').focus()`);
+    for (const k of ['Home', 'ArrowLeft', 'PageDown']) await key(send, k);
+    const opr = await ev(`window.__rect(window.__in('.sdk-cp-alpha'))`);
+    await drag(send, coarse, [[opr.l + opr.w / 2, opr.y], [opr.l + 4, opr.y]]);
+    same(await ev(`window.__in('.sdk-cp-alpha').getAttribute('aria-valuenow')`), '100', `${label}: the switched-off slider does not move by keys or by dragging`);
+    await ev(`window.__in('.sdk-cp-hue').focus()`);
+    await key(send, 'ArrowRight');
+    ok((await ev('window.__inputs')).every((a) => a.opacity === 100), `${label}: with opacity: false every onInput has opacity 100`);
+    const noteRatio = await ratio(`window.__in('.sdk-cp-note')`);
+    ok(noteRatio >= 4.5, `${label}: "${NOTE}" is ${noteRatio.toFixed(2)}:1 on the picker; wanted 4.5:1`);
+    const ax2 = (await send('Accessibility.getFullAXTree', {})).nodes.filter((x) => !x.ignored);
+    const opNode = ax2.find((x) => x.role && x.role.value === 'slider' && x.name && x.name.value === 'Opacity');
+    ok(opNode && (opNode.properties || []).some((p) => p.name === 'disabled' && p.value.value === true) && opNode.description && opNode.description.value === NOTE, `${label}: the accessibility tree does not read the switched-off Opacity as disabled and described by "${NOTE}"`);
+    ok(ax2.some((x) => x.role && x.role.value === 'dialog' && x.name && x.name.value === 'Row colour'), `${label}: the accessibility tree has no dialog named "Row colour"`);
+    await pressOn(swatch('Gold'));
+    const gold = await last();
+    answers.push(gold);
+    same(gold, { color: '#8a6a00', opacity: 100 }, `${label}: with opacity: false the answer's opacity is 100`);
+    await pick(`{ at: { x: 20, y: 60 }, value: '#c0392b', opacity: 0 }`);
+    await key(send, 'Escape');
+    await last();
+    await pick(`{ at: { x: 20, y: 60 }, value: '#c0392b', opacity: 37 }`);
+    await pressOn(swatch('Red'));
+    const kept = await last();
+    answers.push(kept);
+    same(kept, { color: '#c0392b', opacity: 37 }, `${label}: where opacity is kept the answer carries the percent`);
+
+    // --- a module palette ---
+    await pick(`{ at: { x: 20, y: 60 }, recent: false, palette: [{ heading: 'Inks', colours: [{ name: 'Ink', color: '#1A2B3C' }, { name: 'Paper', color: 'f5eedb' }] }] }`);
+    same(await ev(`[...window.__cp().querySelectorAll('.sdk-swatch')].map((b) => b.getAttribute('aria-label'))`), ['Ink', 'Paper'], `${label}: a module palette is drawn in place of the default, and recent: false leaves Recent out`);
+    same(await ev(`[...window.__cp().querySelectorAll('.sdk-cp-head')].map((h) => h.textContent)`), ['Inks'], `${label}: the module palette's heading is drawn`);
+    same(await ev(`window.__in('.sdk-cp-hexin').value`), '#1a2b3c', `${label}: with no value the picker starts at the palette's first colour`);
+    await pressOn(swatch('Ink'));
+    const ink = await last();
+    answers.push(ink);
+    same(ink, { color: '#1a2b3c', opacity: 100 }, `${label}: a module palette's swatch answers its colour`);
+    await pick(`{ at: { x: 20, y: 60 }, value: 'red', palette: [{ heading: 'Inks', colours: [{ name: 'Ink', color: '#1a2b3c' }] }] }`);
+    same(await ev(`[[...window.__cp().querySelectorAll('[aria-label="Recent"] .sdk-swatch')].map((b) => b.getAttribute('aria-label')).slice(0, 2), window.__in('.sdk-cp-hexin').value, window.__focus()]`), [['#c0392b', '#8a6a00'], '#1a2b3c', 'Ink'], `${label}: a value that is not #rrggbb is ignored (it starts at the palette's first colour), and Recent, newest first, names a colour the palette does not have by its hex (the answer from recent: false is not kept)`);
+    await key(send, 'Escape');
+    answers.push(await last());
+
+    // --- colorField ---
+    await ev(`(() => { const i = __R.getElementById('fld'); window.__ev = []; i.addEventListener('input', () => __ev.push('input')); i.addEventListener('change', () => __ev.push('change')); window.__f = __h.ui.colorField(i, { opacity: false, onChange: (a) => __ev.push(a) }); window.__trig = () => __R.querySelector('.sdk-picker'); return 1; })()`);
+    const trig = () => ev(`(() => { const t = window.__trig(); return t ? [t.getAttribute('aria-label'), t.getAttribute('aria-haspopup'), t.getAttribute('aria-expanded'), t.disabled, __R.getElementById('fld').hidden] : null; })()`);
+    same(await trig(), ['Row colour, Red, #c0392b. Change it', 'dialog', 'false', false, true], `${label}: the colour field's trigger is named "<label>, <name>, <hex>. Change it", has a dialog popup, and hides the input`);
+    same(await ev('window.__f.value'), '#c0392b', `${label}: the field's value`);
+    await pressOn('window.__trig()');
+    same(await ev(`[window.__trig().getAttribute('aria-expanded'), window.__cp() && window.__cp().getAttribute('aria-label'), window.__in('.sdk-cp-alpha').getAttribute('aria-disabled')]`), ['true', 'Row colour', 'true'], `${label}: the field opens its picker named by the field, with Opacity switched off`);
+    await inside('from the colour field');
+    await pressOn(swatch('Teal'));
+    same(await ev(`[__R.getElementById('fld').value, window.__ev, window.__f.value, window.__trig().getAttribute('aria-expanded'), window.__trig().getAttribute('aria-label'), window.__focus()]`),
+      ['#00796b', ['input', 'change', { color: '#00796b', opacity: 100 }], '#00796b', 'false', 'Row colour, Teal, #00796b. Change it', 'Row colour, Teal, #00796b. Change it'],
+      `${label}: a choice in the field sets the input, sends input then change, then onChange once, and focus goes back to the trigger`);
+    answers.push(...(await ev('window.__ev.filter((x) => typeof x === "object")')));
+    // Opened and closed again with nothing chosen: nothing is sent, and the trigger shows the stored colour.
+    await pressOn('window.__trig()');
+    await ev(`window.__in('.sdk-cp-hue').focus()`);
+    await key(send, 'ArrowRight');
+    await key(send, 'Escape');
+    await tick();
+    same(await ev(`[window.__ev.length, window.__trig().getAttribute('aria-label'), Boolean(window.__cp())]`), [3, 'Row colour, Teal, #00796b. Change it', false], `${label}: Escape in the field sends nothing and puts the trigger back`);
+    // The trigger again while it is open closes it (a toggle).
+    await pressOn('window.__trig()');
+    await pressOn('window.__trig()');
+    same(await ev(`[Boolean(window.__cp()), window.__trig().getAttribute('aria-expanded'), window.__ev.length]`), [false, 'false', 3], `${label}: the field's trigger pressed again closes its picker and sends nothing`);
+    same(await ev(`[window.__f.set('#ABCDEF'), window.__f.set('red'), window.__f.value, __R.getElementById('fld').value, window.__ev.length]`), [true, false, '#abcdef', '#abcdef', 3], `${label}: set() takes a hex quietly and ignores anything else`);
+    await ev(`(__R.getElementById('fld').disabled = true, 1)`);
+    await tick();
+    same(await ev(`window.__trig().disabled`), true, `${label}: the trigger follows a disabled input`);
+    same(await ev(`(async () => [await window.__f.open(), Boolean(window.__cp())])()`), [null, false], `${label}: a disabled field does not open`);
+    await ev(`(__R.getElementById('fld').disabled = false, 1)`);
+    await tick();
+    same(await ev(`window.__trig().disabled`), false, `${label}: the trigger follows the input back on`);
+    await ev('window.__f.open()');
+    await tick();
+    await ev('window.__f.destroy()');
+    await tick();
+    same(await ev(`[Boolean(window.__trig()), __R.getElementById('fld').hidden, __R.getElementById('fld').hasAttribute('tabindex'), Boolean(window.__cp())]`), [false, false, false, false], `${label}: destroy() closes the picker, takes the trigger away and puts the input back as it was`);
+    if (coarse) {
+      await ev(`(window.__f2 = __h.ui.colorField(__R.getElementById('fld')), 1)`);
+      const th = await ev(`Math.round(window.__trig().getBoundingClientRect().height)`);
+      ok(th >= 44, `${label}: the colour field's trigger is ${th}px tall; wanted 44px`);
+      await ev('window.__f2.destroy()');
+    }
+
+    answers.push(...(await ev('window.__answers')));
+    await ev(`(document.getElementById('cp-box').remove(), 1)`);
+
+    // --- the page's own field (hostColour, for the host's pages) ---
+    await ev(`(() => { const i = document.createElement('input'); i.type = 'color'; i.id = 'cp-page'; i.value = '#2f6cbf'; i.setAttribute('aria-label', 'Accent'); i.style.cssText = 'position:fixed;left:8px;top:8px'; document.body.appendChild(i); window.__pev = []; i.addEventListener('change', () => __pev.push(i.value)); window.__pf = hostColour.field(i, { onChange: (a) => __pev.push(a) }); return 1; })()`);
+    same(await ev(`document.getElementById('cp-page').previousElementSibling.getAttribute('aria-label')`), 'Accent, Blue, #2f6cbf. Change it', `${label}: hostColour.field puts the same trigger on a page's input`);
+    await ev(`document.getElementById('cp-page').previousElementSibling.click()`);
+    await tick();
+    ok(await ev(`Boolean(document.querySelector('.sdk-cp'))`), `${label}: hostColour.field's trigger opened no picker in the page`);
+    await pressOn(`document.querySelector('.sdk-cp .sdk-swatch[aria-label="Gold"]')`);
+    same(await ev('window.__pev'), ['#8a6a00', { color: '#8a6a00', opacity: 100 }], `${label}: hostColour.field sets the page's input and answers`);
+    answers.push(...(await ev('window.__pev.filter((x) => typeof x === "object")')));
+    await ev(`(window.__pf.destroy(), document.getElementById('cp-page').remove(), 1)`);
+  }
+
+  // ---- an uploaded module in its sandboxed frame ----
+  async function frameCases({ tab, send, label, coarse }) {
+    const attached = [];
+    const hook = (m) => { if (m.method === 'Target.attachedToTarget' && m.sessionId === tab.sid && m.params.targetInfo.type === 'iframe') attached.push(m.params.sessionId); };
+    cdp.listeners.push(hook);
+    try {
+      await send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+      await send('Page.navigate', { url: `${server.base}/modules/cpcheck` });
+      // The module's frame: in its own process (a sandboxed frame), or in the page's; either way it is evaluated in its own world.
+      const frameEval = async (sid, expr) => {
+        const r = await cdp.send('Runtime.evaluate', { expression: `(async () => (${expr}))()`, returnByValue: true, awaitPromise: true }, sid);
+        if (r.exceptionDetails) throw new Error(`frame error: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
+        return r.result.value;
+      };
+      let sid = null;
+      for (let i = 0; i < 150 && !sid; i += 1) {
+        for (const s of attached) if (await frameEval(s, 'window.__ready === true').catch(() => false)) sid = s;
+        if (!sid) await sleep(100);
+      }
+      if (!sid) {
+        // In the page's process: the frame's own context.
+        const ctxs = cdp.events.filter((e) => e.method === 'Runtime.executionContextCreated' && e.sessionId === tab.sid).map((e) => e.params.context.id);
+        for (const id of ctxs) {
+          const r = await send('Runtime.evaluate', { expression: 'window.__ready === true', contextId: id, returnByValue: true }).catch(() => null);
+          if (r && r.result && r.result.value === true) { sid = { context: id }; break; }
+        }
+      }
+      if (!sid) { ok(false, `${label}: the uploaded module's frame did not start`); return; }
+      const fev = typeof sid === 'string' ? (expr) => frameEval(sid, expr) : async (expr) => { const r = await send('Runtime.evaluate', { expression: `(async () => (${expr}))()`, contextId: sid.context, returnByValue: true, awaitPromise: true }); return r.result.value; };
+      if (typeof sid === 'string') await cdp.send('Runtime.enable', {}, sid).catch(() => {});
+      ok(await fev(`(() => { try { return window.origin === 'null' && window.parent !== window; } catch (e) { return false; } })()`), `${label}: the module's frame is not sandboxed (its origin is not opaque)`);
+      // The frame's place in the page, and the toolbar button.
+      const frameBox = await tab.eval(`(() => { const f = [...document.querySelectorAll('iframe')].find((x) => x.getClientRects().length && x.getBoundingClientRect().width > 100); const r = f.getBoundingClientRect(); return { l: r.left + f.clientLeft, t: r.top + f.clientTop, w: f.clientWidth, h: f.clientHeight }; })()`);
+      let btn = null;
+      for (let i = 0; i < 50 && !btn; i += 1) {
+        btn = await tab.eval(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getClientRects().length && ((x.getAttribute('aria-label') || '').trim() === 'Colour' || x.textContent.trim() === 'Colour')); if (!b) return null; b.setAttribute('data-cp-check', '1'); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, l: r.left, r: r.right }; })()`);
+        if (!btn) await sleep(100);
+      }
+      if (!btn) { ok(false, `${label}: the module's toolbar button "Colour" is not on the page`); return; }
+      await press(send, coarse, btn.x, btn.y);
+      await sleep(250);
+      const pos = await fev(`(() => { const p = document.querySelector('.sdk-cp'); if (!p) return null; const r = p.getBoundingClientRect(); const a = document.activeElement; return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight, x: window.__tbx, focus: a && a.getAttribute('aria-label') }; })()`);
+      ok(Boolean(pos), `${label}: the toolbar button opened no picker in the module's frame`);
+      if (pos) {
+        ok(pos.l >= 3.5 && pos.t >= 3.5 && pos.r <= pos.vw + 0.5 && pos.b <= pos.vh + 0.5, `${label}: from the toolbar the picker (${Math.round(pos.l)},${Math.round(pos.t)} to ${Math.round(pos.r)},${Math.round(pos.b)}) is not inside the frame (${pos.vw}x${pos.vh})`);
+        ok(Math.abs(pos.t - 4) <= 1, `${label}: from the toolbar the picker's top is ${Math.round(pos.t)}px into the frame; wanted 4`);
+        const wantL = Number.isFinite(pos.x) ? Math.max(4, Math.min(pos.x, pos.vw - pos.w - 4)) : pos.vw - pos.w - 4;
+        ok(Math.abs(pos.l - wantL) <= 1, `${label}: from the toolbar the picker is at x ${Math.round(pos.l)}; wanted ${Math.round(wantL)} (the button's x ${pos.x}, clamped)`);
+        ok(Number.isFinite(pos.x), `${label}: the toolbar event gave no x`);
+        same(pos.focus, 'Red', `${label}: in the frame focus starts on the chosen swatch`);
+        // Escape: null, and focus goes back to the toolbar button through the host.
+        await key(send, 'Escape');
+        await sleep(250);
+        same(await fev('[window.__answers.at(-1), Boolean(document.querySelector(".sdk-cp"))]'), [null, false], `${label}: Escape in the frame answers null and closes`);
+        answers.push(null);
+        same(await tab.eval(`document.activeElement && document.activeElement.getAttribute('data-cp-check')`), '1', `${label}: after Escape in the frame, focus is not back on the toolbar button`);
+        // The same toolbar button twice: the second press closes it.
+        await press(send, coarse, btn.x, btn.y);
+        await sleep(200);
+        ok(await fev('Boolean(document.querySelector(".sdk-cp"))'), `${label}: the toolbar button did not open the picker again`);
+        await press(send, coarse, btn.x, btn.y);
+        await sleep(250);
+        same(await fev('[Boolean(document.querySelector(".sdk-cp")), window.__answers.slice(-2)]'), [false, [null, null]], `${label}: the toolbar button pressed again closes the picker (both answers null)`);
+      }
+      // A colour field in the module's form.
+      const tr = await fev(`(() => { const t = document.querySelector('.sdk-picker'); const r = t.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, name: t.getAttribute('aria-label') }; })()`);
+      same(tr.name, 'Fill, Blue, #2f6cbf. Change it', `${label}: in the frame the field's trigger is named by its <label>`);
+      await press(send, coarse, frameBox.l + tr.x, frameBox.t + tr.y);
+      await sleep(200);
+      const sw = await fev(`(() => { const b = document.querySelector('.sdk-cp .sdk-swatch[aria-label="Gold"]'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+      ok(Boolean(sw), `${label}: the field's trigger opened no picker in the frame`);
+      if (sw) {
+        await press(send, coarse, frameBox.l + sw.x, frameBox.t + sw.y);
+        await sleep(200);
+        same(await fev(`[document.getElementById('fld').value, window.__events]`), ['#8a6a00', ['input', 'change', { color: '#8a6a00', opacity: 100 }]], `${label}: in the frame a choice sets the field's input, sends input then change, and onChange`);
+        answers.push({ color: '#8a6a00', opacity: 100 });
+      }
+      answers.push(...(await fev('window.__answers')));
+    } finally {
+      cdp.listeners = cdp.listeners.filter((f) => f !== hook);
+    }
+  }
+}
+
