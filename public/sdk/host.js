@@ -5649,5 +5649,5 @@
     }
     return colourPage.ui;
   };
-  global.hostColour = { field: (input, o) => colourUi().colorField(input, o), picker: (o) => colourUi().colorPicker(o) };
+  global.hostColour = { field: (input, o) => colourUi().colorField(input, o), picker: (o) => colourUi().colorPicker(o), palette: COLOUR_PALETTE }; // palette: the default, read only (frozen)
 })(window);

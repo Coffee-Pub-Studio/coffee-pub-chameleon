@@ -5,7 +5,7 @@
 // server decides who may change what; this only draws what it is given.
 import { api, escapeHtml, word, accessKeyHeaders } from '/brand.js';
 import { confirmDialog } from '/confirm.js';
-import { upgradeColourInputs } from '/colour-pick.js';
+import { colourFields } from '/colour-field.js';
 import { listControl, readList, wireList, listWords } from '/list-rows.js';
 
 // A secret setting (a key): a write-only box. It is always empty when drawn; the server never sends the value, only whether one
@@ -61,7 +61,7 @@ function control(def, draft = false) {
   if (def.type === 'file') return `${head}<select data-key="${escapeHtml(def.key)}"><option value="">None</option>${(def.available || []).map((n) => `<option value="${escapeHtml(n)}" ${n === def.value ? 'selected' : ''}>${escapeHtml(n)}</option>`).join('')}</select></label>${(def.available || []).length && !(def.skipped || []).length ? '' : `<p class="hint">${escapeHtml(fileHint(def))}</p>`}${def.upload && !draft ? uploadRow(def) : ''}`;
   if (def.type === 'url') return `${head}<input id="${id}" type="url" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="500" placeholder="https://"></label>`;
   if (def.type === 'number') return `${head}<input id="${id}" type="number" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" ${def.min !== undefined ? `min="${def.min}"` : ''} ${def.max !== undefined ? `max="${def.max}"` : ''} step="any"></label>`;
-  if (def.type === 'color') return `${head}<input id="${id}" type="color" data-key="${escapeHtml(def.key)}" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(def.value) ? def.value : '#000000')}"></label>`;
+  if (def.type === 'color') return `${head}<input id="${id}" type="text" data-colour-field data-key="${escapeHtml(def.key)}" value="${escapeHtml(/^#[0-9a-f]{6}$/i.test(def.value) ? def.value : '#000000')}"></label>`;
   return `${head}<input id="${id}" type="text" data-key="${escapeHtml(def.key)}" value="${escapeHtml(def.value)}" maxlength="${def.maxLength || 100}"></label>`;
 }
 
@@ -201,7 +201,7 @@ export async function renderModuleSettings(container, { scope, space = null, onl
     for (const el of row.querySelectorAll('input, select, textarea, button:not([data-use-template])')) el.disabled = true;
     for (const list of row.querySelectorAll('[data-list-setting]')) list.inert = true; // the icon picker is not a field: nothing in a driven list opens
   }
-  upgradeColourInputs(container); // the colour settings and the list rows' colours: the colour picker over the native input
+  colourFields(container); // the colour settings and the list rows' colours: the SDK's colour picker on each
   for (const box of container.querySelectorAll('[data-list-setting]')) wireList(box);
   for (const card of container.querySelectorAll('.module-settings-card')) {
     refresh(card);

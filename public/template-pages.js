@@ -4,7 +4,7 @@
 // lines instead of fields. Nothing here talks to the server: the page decides where the fields go.
 import { escapeHtml } from '/brand.js';
 import { listControl, readList, listClick, listWords } from '/list-rows.js';
-import { upgradeColourInputs } from '/colour-pick.js';
+import { colourFields } from '/colour-field.js';
 
 const e = escapeHtml;
 const cap = (s) => (s ? s[0].toLocaleUpperCase('en') + s.slice(1) : s);
@@ -194,7 +194,7 @@ function settingControl(def, v, set) {
   if (def.type === 'boolean') return `<label class="tp-switch"><input type="checkbox" class="sdk-switch" role="switch" data-ts-value="${key}" aria-label="${e(def.label)}"${v === true || (v === undefined && def.default === true) ? ' checked' : ''}${off}></label>`;
   if (def.type === 'choice') return `<select data-ts-value="${key}" aria-label="${e(def.label)}"${off}>${(def.options || []).map((o) => `<option value="${e(o.value)}"${(v === undefined ? def.default : v) === o.value ? ' selected' : ''}>${e(o.label)}</option>`).join('')}</select>`;
   if (def.type === 'number') return `<input type="number" data-ts-value="${key}" aria-label="${e(def.label)}" value="${e(v === undefined ? (def.default ?? '') : v)}"${def.min !== undefined ? ` min="${def.min}"` : ''}${def.max !== undefined ? ` max="${def.max}"` : ''} step="any"${off}>`;
-  if (def.type === 'color') return `<input type="color" data-ts-value="${key}" aria-label="${e(def.label)}" value="${e(/^#[0-9a-f]{6}$/i.test(v === undefined ? def.default : v) ? (v === undefined ? def.default : v) : '#000000')}"${off}>`;
+  if (def.type === 'color') return `<input type="text" data-colour-field data-ts-value="${key}" aria-label="${e(def.label)}" value="${e(/^#[0-9a-f]{6}$/i.test(v === undefined ? def.default : v) ? (v === undefined ? def.default : v) : '#000000')}"${off}>`;
   if (def.type === 'list') return `<div class="tp-list"${set ? '' : ' inert'}>${listControl({ ...def, value: Array.isArray(v) ? v : (Array.isArray(def.default) ? def.default : []) })}</div>`;
   return `<input type="text" data-ts-value="${key}" aria-label="${e(def.label)}" maxlength="${def.maxLength || 100}" value="${e(v === undefined ? (def.default ?? '') : v)}"${off}>`;
 }
@@ -310,8 +310,8 @@ export function readModuleLabels(root, t) {
   }
   return { modules };
 }
-// After a page that holds list settings is drawn: the colour pickers over the rows' colour fields.
-export const upgradeLists = (root) => upgradeColourInputs(root);
+// After a page that holds colour settings or list settings is drawn: the colour picker on each colour field.
+export const upgradeLists = (root) => colourFields(root);
 
 // Behaviour of the pages' fields in `root` (call once; the fields can be drawn again inside it).
 export function wirePages(root) {
