@@ -226,7 +226,7 @@
   function wbStripPlan(tool, def, family = null) {
     if (!tool || tool.mode || tool.id === 'eraser') return null; // the Hand and the Eraser have no strip
     if (tool.id === 'select') return { selection: true, fonts: false, line: false, present: false, colours: false };
-    return { selection: false, fonts: wbBearsWords(def), line: tool.id === 'connector' || family === 'flowchart', present: tool.id === 'frame', colours: true };
+    return { selection: false, fonts: wbBearsWords(def), line: tool.id === 'connector' || family === 'flowchart', present: tool.id === 'frame', colours: family !== 'picture' };
   }
   // What the colour strip's fonts group shows: size and horizontal align for the picked blocks whose words take markup
   // (else for the active tool's type: size and align), vertical align only where a picked block's type has it. Pure: blocks and their
@@ -434,6 +434,8 @@
     // z is kept as it is (not rounded), so a block put between two neighbours keeps its place; see wbBetween.
     const z = typeof raw.z === 'number' && Number.isFinite(raw.z) && Math.abs(raw.z) <= 1e9 ? raw.z : 0;
     const group = wbGroupOf(raw);
+    // A mark (a block type with `mark`) sitting on a picture holds that picture's id (lib-u); no other block has it.
+    const on = def.mark ? wb.id(raw.on) : null;
     return {
       ...own,
       id,
@@ -444,6 +446,7 @@
       // neither field (see "locks and groups" below).
       ...(raw.locked === true ? { locked: true } : {}),
       ...(group ? { group } : {}),
+      ...(on && on !== id ? { on } : {}),
       by: typeof raw.by === 'string' ? raw.by.slice(0, 64) : '',
       at: typeof raw.at === 'string' ? raw.at.slice(0, 40) : '',
     };

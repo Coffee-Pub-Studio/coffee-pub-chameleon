@@ -28,6 +28,18 @@ Written from the code on branch `claude/hopeful-cray-4bf2y3` and from [plan-layo
 
 Documents: [architecture-canvas](documentation/architecture/architecture-canvas.md), [architecture-environments](documentation/architecture/architecture-environments.md), [architecture-overview](documentation/architecture/architecture-overview.md), [api-modules](documentation/api/api-modules.md), [design-theme](documentation/designsystem/design-theme.md), [userguide-templates](documentation/userguides/userguide-templates.md), [userguide-spaces](documentation/userguides/userguide-spaces.md), [userguide-environment-settings](documentation/userguides/userguide-environment-settings.md). The template names Gaming, Education and Projects replaced Games, Learning and Project in the user guides.
 
+### Whiteboard: edit a picture (2026-11-19)
+
+#### Added
+
+- **Whiteboard: a Picture tool.** Crop a picture with grips, blur a part, copy or cut an area (a cut leaves a see-through hole), round its corners (shapes too), give it or any closed shape a contact or drop shadow, and draw marks on it that move, scale, copy and delete with it. **Flatten** bakes a picture and its marks into one new picture, in one undo step. Whiteboard 0.1.82. Tried in a browser with the mouse and keys and by the Whiteboard checks; not tried on a phone, a tablet, Safari or Firefox, or with a real clipboard. Blur, cut and flatten do not remove the original file (see known issues).
+
+### Whiteboard: the tool strip floats (2026-11-18)
+
+#### Changed
+
+- **Whiteboard: you can move the strip under the toolbar.** Drag its cap, the tool's icon at the left end, anywhere over the board; double-click the cap to turn the strip into a column and back. The place and the direction are kept in your browser. Whiteboard 0.1.67. Tried in a browser here with the mouse (drag, turn, turn back, no page errors) and by the Whiteboard checks; not tried on a phone or tablet, and not after a reload.
+
 ### Documents: writing together is on by default (2026-11-17)
 
 #### Changed

@@ -44,6 +44,20 @@ These are recorded for the Whiteboard up to 0.1.64 ([userguide-whiteboard](userg
 - **Find and Overview: not verified.** Find was not tried with the formatting bar's link field or a frame's title being edited (the `/` key is meant to type a slash there; this was read as code and checked by a tool on its sums, not by hand). Neither Find nor the overview was tried on a real phone, and neither in a real call.
 - **Not verified.** Right-drag with a real mouse on Windows, pasting from another program with a real clipboard (both tested only with synthetic events), wheel and trackpad zoom on a real Mac, and a screen reader. The real print dialog, Print in Safari and Firefox, and a real LiveKit call were not verified either. There is no LiveKit server in the checks, so nothing about a call applies.
 
+## Whiteboard: pictures
+
+Whiteboard 0.1.68 to 0.1.82 ([userguide-whiteboard](userguides/userguide-whiteboard.md), "Edit a picture"). Checked in a browser with the mouse and keys sent as the browser sends them, and by the module's own checks; not tried on a phone, a tablet, Safari or Firefox.
+
+- **Crop, Blur and a cut hide; they do not remove.** The picture's file is not changed, so anyone who can open the space's uploads can still reach what was hidden. A picture with something private in it is not safe to share because it is blurred or cut. Workaround: none that removes the original; **Flatten** hides it from the board for good but keeps the original (next item).
+- **Flatten keeps the original file.** It makes a new picture file with the crop, blur, holes and marks baked in, and puts it in the place of the picture. The old file stays with the space, as every picture file does: no part of the board removes one (see the Limits in the guide). It is no redaction of the original.
+- **A flatten that had to grow the picture has a square corner.** When a mark hung over the picture's edge, the new picture is bigger and its margin is see-through; the picture's corner on that side comes out square, not rounded. With nothing hanging over, the result is the same as before.
+- **Marks drawn on a picture before 0.1.80 are not on it yet.** They join it the next time they are saved (moved or changed). Until then they do not move with it.
+- **Connectors do not travel with a picture.** A connector joins blocks and follows them, but it is not a mark, so one joining a mark to something else does not scale when its picture is resized.
+- **Holes and blur need a current browser.** They are drawn with a CSS mask. An older browser may show the picture without its holes.
+- **Copy and Cut of an area were not tried with the computer's real clipboard.** What the page hands to the clipboard was checked (a picture of exactly the area); pasting it in another program, and Safari's rules for writing a picture to the clipboard, were not.
+- **A new shape does not remember the corner radius or shadow you last chose.** They are set on a picked shape.
+- **Clicking a picture that is already picked opens its description box.** That is how the board treats a second click on a block with words, and it applies to pictures. Press **Escape** or click elsewhere to close it before pressing a handle.
+
 ## Whiteboard: boards, the Eraser and unsent changes
 
 Whiteboard 0.1.50 to 0.1.63 ([userguide-whiteboard](userguides/userguide-whiteboard.md), "Boards" and "Eraser"; [architecture-whiteboard](architecture/architecture-whiteboard.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.

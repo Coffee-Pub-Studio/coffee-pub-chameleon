@@ -8,6 +8,7 @@
     edit: 'colour',
     paint: { stroke: { label: 'Line' } },
     weight: true,
+    mark: true, // travels with the picture it is drawn on (lib-u)
     create: () => ({ dx: 160, dy: 0, arrow: false, stroke: 'ink', weight: 3 }),
     clean(raw) {
       const dx = wb.num(raw.dx, WB_LIMITS.size);

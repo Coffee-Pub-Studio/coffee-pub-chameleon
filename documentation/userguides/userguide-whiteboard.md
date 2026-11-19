@@ -332,6 +332,8 @@ A swatch is hidden when the picked blocks, or the blocks the tool makes, do not 
 
 The strip lets presses through: a click on the board beside its buttons reaches the board and the blocks under it.
 
+To move the strip, drag the tool's icon at its left end (the cap); the strip stays on the board. Double-click the icon to turn the strip between a row and a column. With the icon focused (Tab), the arrow keys move the strip (Shift for bigger steps), **Enter** turns it, and **Home** puts it back under the toolbar's left end as a row. Where you leave it, and which way it lies, is your own: your browser keeps it, other people do not see it, and it is not in the board's data. Read from the code and tried in a browser with the mouse; not tried on a phone or a tablet.
+
 ## Layers
 
 Blocks lie on top of each other. Right-click a block and choose, under **Layer**: **Bring to front**, **Forward one layer**, **Back one layer** or **Send to back**. Forward and back step past the next block that overlaps it. A choice that would change nothing is greyed out.
@@ -421,12 +423,69 @@ Put a picture from your computer on the board in one of three ways:
 
 The board takes JPEG, PNG, WebP and GIF pictures (a GIF becomes a still picture of its first frame). Other files are left out with "Only pictures can go on the board." Each picture is made smaller in your browser first, to about 2000 pixels on its long edge, and is sent one at a time; a placeholder shows where it will be, and the status line says how many are on their way. Several pictures land a step apart and are picked together, and are one undo step.
 
-- A picture is a block: move it, resize it from a corner (it always keeps its shape), give it a border, layer it, copy it.
+- A picture is a block: move it, resize it from a corner (it always keeps its shape), give it a border, layer it, copy it. To crop, blur, cut, flatten or round it, see "Edit a picture".
 - Double-click it, press **Enter**, or choose **Describe** in its right-click menu, to give it a short description (one line, up to 300 characters). A screen reader reads it, and it shows as the tooltip.
 - Everyone who can see the board sees the pictures.
 - Deleting a picture block does not delete the picture's file: an undo brings it back. See "Limits".
 
 The server takes up to 30 pictures a minute from one person; each picture counts once. Past that, the board says "Adding a lot of pictures at once. The rest follow in a few seconds." and carries on.
+
+## Edit a picture
+
+Choose **Picture** in the **Tools** switch to work on a picture. Its strip shows three kinds, **Crop** (**X**), **Blur** (**J**) and **Select area** (**K**). With a picture picked in **Select**, the same three are buttons on the strip, with **Corner radius**, **Shadow** and, when there is something to bake, **Flatten**. **Escape** goes back to **Select**.
+
+Crop, blur and cuts only hide part of a picture. The file is not changed, and **Reset picture** in the picture's right-click menu brings everything back. See [known issues](../known-issues.md) about what that means for a picture with something private in it. This section was checked in a browser with a mouse and the keys; it was not tried on a phone, a tablet, Safari or Firefox.
+
+### Crop a picture
+
+1. Choose **Picture**, then **Crop** (or press **X**), and press the picture to pick it. The whole picture shows faintly, with a frame, a grid of thirds and a grip on each corner and edge.
+2. Drag a grip to move that edge or corner, in or out. Dragging out brings back what an earlier crop hid. The frame stays inside the picture and keeps a least size.
+3. Drag inside the frame to slide the picture under it.
+
+The part you keep stays the same size and in the same place on the board. Each drag is one undo step.
+
+### Blur part of a picture
+
+1. Choose **Picture**, then **Blur** (or press **J**).
+2. Drag a box over the picture. That part is blurred.
+3. To take a blurred box away, click it.
+
+A picture takes up to 12 blurred boxes.
+
+### Copy or cut part of a picture
+
+1. Choose **Picture**, then **Select area** (or press **K**).
+2. Drag the usual selection box over the picture. The area stays until you press elsewhere or choose another tool.
+3. Press **Ctrl+C** (**Cmd+C**) to put the area on your clipboard as a picture, or **Ctrl+X** (**Cmd+X**) to do that and leave a see-through hole where it was. Paste it (**Ctrl+V**) for a new picture, as with any picture.
+
+Undo fills a hole again. A picture takes up to 24 holes. Where a hole reaches the picture's edge, the border and the shadow follow the cut; a hole inside the picture has no border of its own.
+
+### Marks that travel with a picture
+
+A drawing, highlight, line, arrow, shape, note or text block that you draw or put on a picture belongs to it. Move it off the picture and it lets go; move it onto another and it joins that one. A picture's marks then go with it:
+
+- Moving the picture, by dragging it or with the arrow keys, moves its marks.
+- Resizing the picture scales each mark's place and size with it. Line widths and the size of words stay as they are.
+- Copying, cutting or duplicating the picture takes its marks, and the copies sit on the copy. Deleting the picture deletes its marks.
+- Cropping does not move them.
+
+A resize is one undo step, the picture and its marks together. Marks drawn on a picture before this was added join it the next time they are saved.
+
+### Flatten a picture
+
+**Flatten** turns a picture and what is done to it into one new picture: its crop, blur, holes and marks are baked into a see-through PNG. The picture's own border, corners and shadow stay as they were. A mark hanging over the edge makes the new picture bigger so nothing is cut off.
+
+1. Pick the picture. **Flatten** shows on its strip, or in its right-click menu, only when there is a crop, a blur, a hole or a mark to bake.
+2. Press **Flatten**. A placeholder shows while the new picture is made and sent.
+3. The new picture takes the place of the old one and its marks. One undo brings them all back.
+
+**Flatten** refuses when the picture or one of its marks is locked, and leaves everything as it was if the picture or its marks change while it works. The original picture's file is kept with the space (see [known issues](../known-issues.md)).
+
+### Corner radius and shadow
+
+With a picture picked, or a rectangle or a rounded box, press **Corner radius** and choose **None**, **Small**, **Medium**, **Large** or **Full**. A rectangle or rounded box you have not changed shows **Default**. Only pictures, rectangles and rounded boxes have a corner radius.
+
+With a picture or any closed shape picked, press **Shadow** and choose **No shadow**, **Contact shadow** or **Drop shadow**. A contact shadow is tight and sits under the bottom edge, as if the picture lay on the board. A drop shadow is wider and floats just above it. A shadow follows the border, and on a picture with holes it follows what is shown.
 
 ## Save as image and print
 
@@ -470,6 +529,7 @@ If the server asks the board to slow down, it says "Saving a lot at once. The re
 | Paint tools, flowchart shapes, connectors, tables and the timer's buttons | No | Yes |
 | Copy, paste, duplicate, undo and redo | No | Yes |
 | Add pictures | No | Yes |
+| Crop, blur, copy or cut an area, flatten, corner radius and shadow | No | Yes |
 | Save as image and print | Yes | Yes |
 | Eraser, and making, renaming, deleting and restoring boards | No | Yes |
 
@@ -488,6 +548,7 @@ Anyone who may change the board may change or delete any block on it, whoever ma
 - A block can be at most 4000 board units wide or tall.
 - The server takes up to 240 saves a minute from one person; past that the board waits and carries on.
 - Undo keeps your last 100 steps, on this page only.
+- A picture takes up to 12 blurred boxes and 24 holes.
 - **Pictures: 5 MB for each picture file**, a separate limit from the stored board data above. Your browser makes each picture smaller first (about 2000 pixels on its long edge) and the server takes a file of at most 5 MB. JPEG, PNG, WebP and GIF are accepted. The server also refuses a picture whose pixel size is very large. A space can keep at most 500 picture files. A picture's file stays when its block is deleted, and still counts toward the 500. The server takes up to 30 pictures a minute from one person.
 
 ## Keyboard shortcuts
@@ -510,6 +571,8 @@ These work while the board has the keyboard (click it, or Tab to it). Key names 
 | Rounded box, Diamond | B, D | B, D |
 | Table | G | G |
 | Frame | S | S |
+| Crop, Blur, Select area (the Picture tool) | X, J, K | X, J, K |
+| Copy or cut the selected area of a picture | Ctrl+C, Ctrl+X | Cmd+C, Cmd+X |
 | Timer | Y | Y |
 | Bold, italic, code, link (while editing words) | Ctrl+B, Ctrl+I, Ctrl+E, Ctrl+K | Cmd+B, Cmd+I, Cmd+E, Cmd+K |
 | Next cell, previous cell (editing a table cell) | Tab, Shift+Tab | Tab, Shift+Tab |

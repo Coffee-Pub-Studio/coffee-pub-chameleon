@@ -62,9 +62,12 @@
     const owner = new Map(); // content id -> { move, area } of the smallest moving frame round it
     for (const m of moves) {
       const f = byId.get(m.id);
-      if (!f || !wbIsFrame(f) || (f.locked === true && !keepLocked)) continue;
+      if (!f || (f.locked === true && !keepLocked)) continue;
+      // A frame takes the blocks inside it; a picture takes its marks (the blocks on it, lib-u).
+      const inside = wbIsFrame(f) ? wbFrameContents(f, blocks, measure) : wbIsPicture(f) ? blocks.filter((b) => b.on === f.id).map((b) => b.id) : null;
+      if (!inside) continue;
       const area = f.w * f.h;
-      for (const id of wbFrameContents(f, blocks, measure)) {
+      for (const id of inside) {
         if (moving.has(id)) continue;
         const was = owner.get(id);
         if (!was || area < was.area) owner.set(id, { move: m, area });

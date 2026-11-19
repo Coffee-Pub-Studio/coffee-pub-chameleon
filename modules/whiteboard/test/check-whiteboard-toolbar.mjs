@@ -2,8 +2,8 @@
 /*
  * check-whiteboard-toolbar.mjs -- the Whiteboard's tool switch and the kinds on the colour strip (whiteboard.js, the
  * whiteboard-lib-f-tool-*.js files).
- * Guards: the switch's order (Hand, Select, Pen, Fill, Eraser, Text, Note, Flowchart, Shape, Table, Frame), each
- * with an icon; the families (Pen, Shape, Flowchart) name kinds that are registered tools; the keys P, M, U, R, O, L, A, C, B, D,
+ * Guards: the switch's order (Hand, Select, Pen, Fill, Eraser, Text, Note, Flowchart, Shape, Table, Frame, Picture), each
+ * with an icon; the families (Pen, Shape, Flowchart, Picture) name kinds that are registered tools; the keys P, M, U, R, O, L, A, C, B, D,
  * F, G, S, H are still the keys of tools, and a key's tool is a kind of the family it should pick; no tool is left in a
  * Paint or Flowchart menu (no `group`); with Select many on, a click on a block toggles it with a mouse and a drag on the
  * board starts a rectangle that keeps what is picked. No browser, no network.
@@ -30,8 +30,8 @@ try {
 
 const switchText = (/const SWITCH = \[([\s\S]*?)\];/.exec(main) || [])[1] || '';
 const sw = [...switchText.matchAll(/\{ id: '([a-z]+)', label: '([^']+)', icon: '([a-z0-9-]+)' \}/g)].map((m) => ({ id: m[1], label: m[2], icon: m[3] }));
-check(sw.map((o) => o.id).join() === 'hand,select,pen,fill,eraser,text,note,flowchart,shape,table,frame', `the switch order is Hand, Select, Pen, Fill, Eraser, Text, Note, Flowchart, Shape, Table, Frame (found ${sw.map((o) => o.id).join()})`);
-check(sw.length === 11 && sw.every((o) => o.icon && o.label), 'every choice has an icon and a name');
+check(sw.map((o) => o.id).join() === 'hand,select,pen,fill,eraser,text,note,flowchart,shape,table,frame,picture', `the switch order is Hand, Select, Pen, Fill, Eraser, Text, Note, Flowchart, Shape, Table, Frame, Picture (found ${sw.map((o) => o.id).join()})`);
+check(sw.length === 12 && sw.every((o) => o.icon && o.label), 'every choice has an icon and a name');
 check(!/id: 'many'/.test(switchText), 'Select many is not in the tool switch (it is on the Select strip)');
 check(/'Select one at a time'/.test(main) && /'Select many'/.test(main) && /'Select all'/.test(main) && /'Clear selection'/.test(main), 'the Select strip has Single, Many, Select all, Clear selection');
 check(!/id: 'paint'|id: 'flowchart', label: 'Flowchart', icon: 'diagram-project', order/.test(main), 'no Paint or Flowchart menu button is left in the toolbar');
@@ -43,13 +43,14 @@ const families = {};
 for (const m of main.matchAll(/\{ id: '([a-z]+)', kinds: \[([^\]]*)\] \}/g)) families[m[1]] = [...m[2].matchAll(/'([a-z]+)'/g)].map((k) => k[1]);
 check(families.pen && families.pen.join() === 'pen,marker,brush,highlight', 'Pen has pen, marker, brush, highlighter');
 check(families.shape && families.shape.join() === 'rect,ellipse,line,arrow', 'Shape has rectangle, ellipse, line, arrow');
+check(families.picture && families.picture.join() === 'crop,blur,area', 'Picture has crop, blur and select area');
 check(families.flowchart && families.flowchart.join() === 'connector,rounded,diamond,pill,parallelogram', 'Flowchart has the connector and the flowchart shapes');
 
 if (tools) {
   const get = (id) => tools.get(id);
   for (const [f, kinds] of Object.entries(families)) for (const k of kinds) check(Boolean(get(k)), `${f}: kind ${k} is a registered tool`);
-  for (const o of sw) if (!['pen', 'flowchart', 'shape'].includes(o.id)) check(Boolean(get(o.id)), `${o.id} is a registered tool`);
-  const keys = { p: 'pen', m: 'marker', u: 'highlight', r: 'rect', o: 'ellipse', l: 'line', a: 'arrow', c: 'connector', b: 'rounded', d: 'diamond', f: 'fill', e: 'eraser', g: 'table', s: 'frame', h: 'hand', v: 'select', n: 'note', t: 'text' };
+  for (const o of sw) if (!['pen', 'flowchart', 'shape', 'picture'].includes(o.id)) check(Boolean(get(o.id)), `${o.id} is a registered tool`);
+  const keys = { p: 'pen', m: 'marker', u: 'highlight', r: 'rect', o: 'ellipse', l: 'line', a: 'arrow', c: 'connector', b: 'rounded', d: 'diamond', f: 'fill', e: 'eraser', g: 'table', s: 'frame', x: 'crop', j: 'blur', k: 'area', h: 'hand', v: 'select', n: 'note', t: 'text' };
   const byKey = new Map(tools.list().map((t) => [t.key, t.id]));
   for (const [k, id] of Object.entries(keys)) check(byKey.get(k) === id, `the key ${k.toUpperCase()} picks ${id}`);
   const firstFamily = (id) => Object.entries(families).find(([, kinds]) => kinds.includes(id));
