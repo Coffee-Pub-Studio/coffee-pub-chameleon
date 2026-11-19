@@ -2868,6 +2868,11 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     const got = sharedRowNotice(areas, cantOpen, opts);
     if (got !== want) fail(F, `sharedRowNotice(${JSON.stringify(areas)}, ${JSON.stringify(cantOpen)}) says ${JSON.stringify(got)}, not ${JSON.stringify(want)}`);
   }
+  // A maker's names from the server (GET .../layouts `names`, beside cantOpen; 20c9723b): a module that is off reads by its name.
+  const served = { research: 'Research' };
+  if (sharedRowNotice(['research'], { research: { off: true } }, { nameOf: (id) => served[id], space: 'trip' }) !== 'Research is off in this trip, so nobody sees it.') fail(F, 'sharedRowNotice: a module that is off reads by the name the server sends a maker');
+  // A member or a guest has no cantOpen (and so no names): nothing is said.
+  if (sharedRowNotice(['research'], null, { nameOf: (id) => served[id] }) !== '') fail(F, 'sharedRowNotice: nothing without cantOpen');
   // A name the page gives is shown as text; an id with no name is shown as the id.
   if (sharedRowNotice(['odd'], { odd: { roles: ['guest'] } }, { roleWord: () => 'guests' }) !== "Guests won't see odd.") fail(F, 'sharedRowNotice: a module with no name is named by its id');
   const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');

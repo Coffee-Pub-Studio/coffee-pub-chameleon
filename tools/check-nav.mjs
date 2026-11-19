@@ -706,6 +706,7 @@ test('the default layout (plan-saved-layouts.md, step 4): Make default in a shar
   assert.ok(!/state\.draft\.opensWith|data-opens|setSwitch/.test(settings), 'Opens with has no switches and no draft: the template decides');
 });
 
+const sharedRowLineSrc = (space) => space.slice(space.indexOf('function sharedRowLine('), space.indexOf('const moduleHere'));
 test('layouts for everyone are shapes (plan-layout-picker.md, step 6): New layout for everyone and Edit open the picker in a sheet, Save sends the shape, a refusal is filed by part, the maker\'s line on the shared row only where cantOpen came, and no free-form save for everyone', () => {
   const space = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
   const setup = fs.readFileSync(path.join(ROOT, 'public/space-setup.js'), 'utf8');
@@ -744,8 +745,12 @@ test('layouts for everyone are shapes (plan-layout-picker.md, step 6): New layou
   assert.match(sheet, /if \(here\.length\) \{ input\.focus\(\); return; \}\n[^\n]*\n\s*const said = picker\.el\.querySelector\('\.layout-picker-error'\);\n\s*if \(said && !said\.hidden\) \{ said\.tabIndex = -1; said\.focus\(\); \}/, 'a refusal about the shape or areas takes the keyboard');
   assert.match(sheet, /dlg\.querySelector\('\.layout-form-body'\)\.addEventListener\('scroll', \(\) => closeHostMenu\(\), \{ passive: true \}\);/, 'scrolling the sheet closes an open area menu');
   assert.match(sheet, /\.map\(\(a\) => \(\{ id: a, name: moduleNameHere\(a\), icon: [^\n]*\}\)\);[\s\S]*?modules,\n\s*others,/, 'a module the layout names that is not offered here is drawn by its name');
-  assert.match(space, /const moduleNameHere = \(id\) => moduleHere\(id\)\?\.name \|\| moduleCatalog\?\.get\(id\)\?\.name \|\| String\(id\);/, 'names come from the space, then the catalog; never an id made into a word');
-  assert.match(space, /api\('GET', '\/api\/modules'\)[\s\S]{0,200}m\.displayName \|\| m\.name/, 'the catalog\'s own names (an owner\'s and the admin\'s read)');
+  assert.match(space, /const moduleNameHere = \(id\) => moduleHere\(id\)\?\.name \|\| nameFromServer\(id\) \|\| String\(id\);/, 'names come from the space, then the names the server sends a maker (GET .../layouts `names`); never an id made into a word');
+  // A maker's names arrive with cantOpen and only then (server 20c9723b); a member or a guest has none and the page asks for none.
+  assert.match(space, /names: got\.cantOpen && got\.names && typeof got\.names === 'object' && !Array\.isArray\(got\.names\) \? got\.names : null,/, 'names are read only beside cantOpen');
+  assert.match(space, /const nameFromServer = \(id\) => \(layoutList\.names && Object\.prototype\.hasOwnProperty\.call\(layoutList\.names, id\)/, 'an own key only (no __proto__)');
+  assert.ok(!/api\('GET', '\/api\/modules'\)/.test(space.slice(space.indexOf('// --- the Layout menu\'s Layouts section'), space.indexOf('// Change icon (plan-layout-views.md'))), 'the Layouts section asks for no catalog: nothing beyond GET .../layouts');
+  assert.match(sharedRowLineSrc(space), /nameOf: moduleNameHere,/, 'the row\'s line names a module the same way');
   assert.ok(sheet.indexOf('const startRecord = picker.value();') > sheet.indexOf('const picker = createLayoutPicker({'), 'the start record is the picker\'s read, so an unchanged Edit sheet is not dirty');
   assert.match(sheet, /if \(!savedNow\) backToLayouts\(backTo\);/, 'Cancel and Escape put the keyboard back on the Layouts row');
   assert.match(sheet, /setTimeout\(\(\) => backToLayouts\(backTo\), 0\);/, 'and so does Save, once the list is drawn again');

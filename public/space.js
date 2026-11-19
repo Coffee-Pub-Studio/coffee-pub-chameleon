@@ -3335,21 +3335,13 @@ function sharedRowLine(l) {
   return sharedRowNotice(l.areas, layoutList.cantOpen, { nameOf: moduleNameHere, roleWord: (role) => word(role, { many: true }), space: word('space') });
 }
 // A module's name as this space shows it (the canvas's list), else its id made readable.
-// A module's name and icon for the notice and the picker: as this space shows it (the canvas's list), else, for one that
-// is off here or that this person can't open, the environment's catalog (GET /api/modules: an owner's and the admin's
-// read, loaded once below), else its id as it is. A moderator has no catalog read, so a module that is off reads as its id.
-let moduleCatalog = null; // Map id -> { name, icon } once read; null while not read
-let moduleCatalogAsked = false;
-function loadModuleCatalog() {
-  if (moduleCatalogAsked || !hasOwnerRights(me)) return;
-  moduleCatalogAsked = true;
-  api('GET', '/api/modules').then((r) => {
-    moduleCatalog = new Map((r.modules || []).filter((m) => m && typeof m.id === 'string').map((m) => [m.id, { name: m.displayName || m.name || m.id, icon: m.displayIcon || m.icon || '' }]));
-    renderLayouts(); // the rows' lines name it now
-  }).catch(() => { moduleCatalogAsked = false; });
-}
+// A module's name for the notice and the picker: as this space shows it (the canvas's list), else, for one that is off
+// here or that this person can't open, the name the server sends a layout's makers with `cantOpen` (GET .../layouts
+// `names`: every module a shared layout's areas name and every module in `cantOpen`; absent for members and guests), else
+// its id as it is (a module with no manifest). The picker cleans the names it draws (cleanText); the row sets them as text.
 const moduleHere = (id) => canvas.list().find((m) => m.id === id) || null;
-const moduleNameHere = (id) => moduleHere(id)?.name || moduleCatalog?.get(id)?.name || String(id);
+const nameFromServer = (id) => (layoutList.names && Object.prototype.hasOwnProperty.call(layoutList.names, id) && typeof layoutList.names[id] === 'string' && layoutList.names[id].trim() ? layoutList.names[id] : '');
+const moduleNameHere = (id) => moduleHere(id)?.name || nameFromServer(id) || String(id);
 // Making a shared layout the space's default is the owners' and the admin's, as Opens with is (decision 4).
 const maySetDefault = (shared) => !guestMode && shared && layoutList.canSetDefault;
 const findLayout = (id) => layoutList.shared.find((l) => l.id === id) || layoutList.mine.find((l) => l.id === id) || null;
@@ -3371,8 +3363,7 @@ async function refreshLayouts() {
   try {
     const got = await layoutRequest('GET', layoutUrl(id));
     if (ask !== layoutAsk || layoutSpaceId() !== id) return;
-    layoutList = { spaceId: id, mine: got.mine || [], shared: got.shared || [], system: Array.isArray(got.system) ? got.system : [], cantOpen: got.cantOpen && typeof got.cantOpen === 'object' && !Array.isArray(got.cantOpen) ? got.cantOpen : null, firstVisit: got.firstVisit && typeof got.firstVisit.layout === 'string' ? got.firstVisit : null, defaultLayout: got.defaultLayout || null, favorites: Array.isArray(got.favorites) ? got.favorites : [], last: typeof got.last === 'string' && got.last ? got.last : null, canShare: Boolean(got.canShare), canSetDefault: Boolean(got.canSetDefault) };
-    if (layoutList.cantOpen) loadModuleCatalog(); // the notice and the picker name a module that is off here
+    layoutList = { spaceId: id, mine: got.mine || [], shared: got.shared || [], system: Array.isArray(got.system) ? got.system : [], cantOpen: got.cantOpen && typeof got.cantOpen === 'object' && !Array.isArray(got.cantOpen) ? got.cantOpen : null, names: got.cantOpen && got.names && typeof got.names === 'object' && !Array.isArray(got.names) ? got.names : null, firstVisit: got.firstVisit && typeof got.firstVisit.layout === 'string' ? got.firstVisit : null, defaultLayout: got.defaultLayout || null, favorites: Array.isArray(got.favorites) ? got.favorites : [], last: typeof got.last === 'string' && got.last ? got.last : null, canShare: Boolean(got.canShare), canSetDefault: Boolean(got.canSetDefault) };
   } catch {
     if (ask !== layoutAsk) return;
     layoutList = { spaceId: id, mine: [], shared: [], system: [], cantOpen: null, firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
@@ -3757,7 +3748,7 @@ function openShapeSheet(layout = null) {
   // What an area names that is not offered here (off in the space, or not for this person): drawn by its name, never offered.
   const others = (editing ? editing.areas : [])
     .filter((a) => typeof a === 'string' && !modules.some((m) => m.id === a))
-    .map((a) => ({ id: a, name: moduleNameHere(a), icon: moduleCatalog?.get(a)?.icon || 'puzzle-piece' }));
+    .map((a) => ({ id: a, name: moduleNameHere(a), icon: 'puzzle-piece' }));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   let bar = null;
   const picker = createLayoutPicker({
