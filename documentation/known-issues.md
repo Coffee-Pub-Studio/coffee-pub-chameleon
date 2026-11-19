@@ -147,7 +147,7 @@ Agent access, steps 1 to 4 ([architecture-agent-access](architecture/architectur
 
 The templates redesign ([plan-templates-redesign](plans/plan-templates-redesign.md)) is merged through step 15b. These differ from the plan or are not built. Read from the code on 255fd8e3 and again on a19d7d34, 2026-11-16; none was seen in a browser.
 
-- **Some driven settings do not exist.** Budget's unit and split, To-do's owners, Documents' default editor and Maps' real and picture map switches were to be set by templates and are not built. Project's **Effort**, Learning's and Mentoring's **Time** and Games' maps are names and categories only. Workaround: none; the names and categories work.
+- **Some driven settings do not exist.** Budget's unit and split, To-do's owners, Documents' default editor and Maps' real and picture map switches were to be set by templates and are not built. Projects' **Effort**, Education's and Mentoring's **Time** and Gaming's maps are names and categories only. Workaround: none; the names and categories work.
 - **Some module words are declared and not wired.** Maps (`place`), Research (`note`) and Whiteboard (`board`) declare their labels, and their pages do not read them, so a template renaming one changes nothing there. Workaround: none.
 - **The host console does not have the Manage pages.** Its template editor is one form; it does not edit a module's settings, renamed words or starter content (they are kept as they are). Workaround: edit those in Manage on an owner's copy, or write the template file.
 - **Manage has no page for a template's call settings or starter spaces.** An owner's copy keeps those of the template it was copied from. Workaround: the host console edits them.

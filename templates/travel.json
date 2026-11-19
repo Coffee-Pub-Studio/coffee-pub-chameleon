@@ -2,7 +2,7 @@
   "id": "travel",
   "name": "Travel",
   "description": "Plan trips together: the itinerary, places, maps, research and a calendar.",
-  "version": 13,
+  "version": 14,
   "words": {
     "space": {
       "one": "trip",
@@ -34,10 +34,7 @@
     "conference": {}
   },
   "workspace": {
-    "opensWith": [
-      "travel",
-      "chat"
-    ]
+    "layout": { "shape": "wide-narrow", "areas": ["travel", "vault"] }
   },
   "phases": [
     {

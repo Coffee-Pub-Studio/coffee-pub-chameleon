@@ -28,6 +28,7 @@ const { SYSTEM_IDS } = require('./layouts');
 const { bundledModules, buildModule } = require('./module-build');
 const { cleanValue } = require('./module-settings');
 const { CALL_KEYS, CALL_POSITIONS, CALL_LAYOUTS } = require('./call-settings');
+const { cleanShape } = require('./layout-shapes');
 
 const ROOT = path.join(__dirname, '..');
 const TEMPLATES_DIR = path.join(ROOT, 'templates');
@@ -47,7 +48,6 @@ const MAX_MODULES = 60;
 // A template's version: a whole number, at most this.
 const MAX_VERSION = 1000000;
 const MAX_PHASES = 12;
-const MAX_OPENS_WITH = 20;
 const PHASE_KEYS = ['id', 'label', 'main', 'icon'];
 const PHASE_MEASURES = ['dates', 'goals', 'progress'];
 // Additions only (decision 12, corrected 2026-11-16): added on top of the environment's own lists, which a template
@@ -58,7 +58,8 @@ const MAX_ICON_SET = 60;
 const REACTION_ID_RE = /^[a-z0-9][a-z0-9-]{0,23}$/;
 // The core call settings a template may give (decision 16). The tile layouts are the call's own (public/space.js).
 // The Default Workspace (decision 8): the Fixed Workspaces are every system layout but the Workspace itself.
-const WORKSPACE_KEYS = ['opensWith', 'show', 'opensFirst'];
+// `layout` is a shape and its areas (plan-layout-picker.md, decision 12), checked by cleanShape against the template's modules.
+const WORKSPACE_KEYS = ['layout', 'show', 'opensFirst'];
 const FIXED_WORKSPACES = SYSTEM_IDS.filter((id) => id !== 'workspace');
 const MAX_STARTER_SPACES = 5;
 const STARTER_SPACE_NAME_MAX = SPACE_NAME_MAX; // what the store keeps, so a longer name is refused rather than cut
@@ -234,7 +235,9 @@ function moduleEntryProblems(id, entry, manifest, faDir, say) {
 // match.
 function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID } = {}) {
   const out = [];
-  const say = (text) => out.push(text);
+  // `part`: the template field a sentence is about when its first word does not say so (the page files it there).
+  const parts = [];
+  const say = (text, part = null) => { out.push(text); parts.push(part); };
   if (!isObject(raw)) return ['A template must be a JSON object.'];
   let size = 0;
   try { size = Buffer.byteLength(JSON.stringify(raw)); } catch { return ['A template must be plain JSON.']; }
@@ -299,7 +302,6 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
     const starterBytes = Buffer.byteLength(JSON.stringify(starterOf(raw)));
     if (starterBytes > MAX_STARTER_BYTES) say(`A template's starter content can be at most ${MAX_STARTER_BYTES / 1024} KB.`);
   }
-  const inModules = (id) => (raw.modules === '*' ? knownModule(id) : listed.has(id));
 
   if (raw.call !== undefined) {
     if (!isObject(raw.call) || Object.keys(raw.call).some((k) => !CALL_KEYS.includes(k))) say('"call" takes only joinOnEntry, position and layout.');
@@ -310,25 +312,46 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
     }
   }
   if (raw.workspace !== undefined) {
-    if (!isObject(raw.workspace) || Object.keys(raw.workspace).some((k) => !WORKSPACE_KEYS.includes(k))) say('"workspace" takes only opensWith, show and opensFirst.');
+    if (!isObject(raw.workspace) || Object.keys(raw.workspace).some((k) => !WORKSPACE_KEYS.includes(k))) say('"workspace" takes only layout, show and opensFirst.');
     else {
       const w = raw.workspace;
-      if (w.opensWith !== undefined) {
-        if (!Array.isArray(w.opensWith) || w.opensWith.length > MAX_OPENS_WITH) say(`workspace.opensWith must be a list of at most ${MAX_OPENS_WITH} module ids.`);
-        else {
-          const seen = new Set();
-          for (const id of w.opensWith) {
-            if (typeof id !== 'string') say(`workspace.opensWith: ${shown(JSON.stringify(id))} is not a module id.`);
-            else if (!inModules(id)) say(`workspace.opensWith: "${shown(id)}" is not one of this template's modules.`);
-            else if (seen.has(id)) say(`workspace.opensWith: "${id}" is listed twice.`);
-            else seen.add(id);
+      if (w.layout !== undefined) {
+        // The modules an area may name: this template's own; the Default template's "*" is the whole catalog, and then
+        // the Calendar counts as on (the conservative reading, so To-do in a stacked area is refused).
+        // Only modules with a place on the canvas can fill an area (the Assistant and the Stream have none).
+        const onCanvas = (id) => Boolean(catalog.get(id)?.surfaces?.canvas);
+        const named = (raw.modules === '*' ? [...catalog.keys()] : [...listed]).filter(onCanvas);
+        // The name a person reads in this template: its own for the module when it is a good display name, else the
+        // manifest's. A null-prototype object, so an id such as __proto__ is only ever an id.
+        const names = Object.assign(Object.create(null), Object.fromEntries([...catalog.values()].map((m) => [m.id, m.name])));
+        if (isObject(raw.modules)) {
+          for (const [id, entry] of Object.entries(raw.modules)) {
+            const own = isObject(entry) && typeof entry.name === 'string' ? entry.name.trim() : '';
+            if (own && !displayNameProblem(own)) names[id] = own;
           }
+        }
+        // Only a well-formed id is ever put in a sentence by name; anything else is quoted, plain and short.
+        const plain = (id) => String(id).replace(/[^\x20-\x7e]/g, '').slice(0, 40);
+        const nameOf = (id) => names[id] || plain(id);
+        const areas = isObject(w.layout) && Array.isArray(w.layout.areas) ? w.layout.areas : [];
+        const strings = areas.filter((id) => typeof id === 'string');
+        const unusable = [...new Set(strings.filter((id) => !named.includes(id) && !BUILTIN_MODULE_IDS.includes(id)))];
+        for (const id of unusable) {
+          if (!ID_RE.test(id)) say(`"${plain(id)}" is not a module you can use here.`, 'workspace');
+          else say(catalog.has(id) && (listed.has(id) || raw.modules === '*') ? `The layout uses ${nameOf(id)}, which can't go in an area.` : `The layout uses ${nameOf(id)}, which this template doesn't include.`, 'workspace');
+        }
+        const twice = [...new Set(strings.filter((id, i) => named.includes(id) && strings.indexOf(id) !== i))];
+        for (const id of twice) say(`${nameOf(id)} is in two areas; a module can be in one area only.`, 'workspace');
+        if (!unusable.length && !twice.length) {
+          const { error } = cleanShape(w.layout, { modules: named, on: named, names });
+          if (error) say(error, 'workspace');
         }
       }
       if (w.show !== undefined) {
         if (!Array.isArray(w.show) || w.show.some((id) => !FIXED_WORKSPACES.includes(id)) || new Set(w.show).size !== w.show.length) say(`workspace.show must be a list of Fixed Workspaces, each once: ${FIXED_WORKSPACES.join(', ')}.`);
       }
       if (w.opensFirst !== undefined && !SYSTEM_IDS.includes(w.opensFirst)) say(`workspace.opensFirst must be one of ${SYSTEM_IDS.join(', ')}.`);
+      else if (w.opensFirst !== undefined && w.opensFirst !== 'workspace' && Array.isArray(w.show) && !w.show.includes(w.opensFirst)) say(`workspace.opensFirst: "${w.opensFirst}" must also be in workspace.show.`);
     }
   }
   if (raw.phases !== undefined) {
@@ -407,6 +430,8 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
       }
     }
   }
+  // `parts` rides on the answer without being part of it: the field each sentence is about, or null (see `say`).
+  Object.defineProperty(out, 'parts', { value: parts, enumerable: false });
   return out;
 }
 
@@ -452,7 +477,7 @@ function cleanTemplate(raw, { manifests = null } = {}) {
   const call = {};
   for (const key of CALL_KEYS) if (raw.call && raw.call[key] !== undefined) call[key] = raw.call[key];
   const workspace = {};
-  if (raw.workspace?.opensWith) workspace.opensWith = [...raw.workspace.opensWith];
+  if (raw.workspace?.layout) workspace.layout = { shape: raw.workspace.layout.shape, areas: [...raw.workspace.layout.areas] };
   if (raw.workspace?.show) workspace.show = [...raw.workspace.show];
   if (raw.workspace?.opensFirst) workspace.opensFirst = raw.workspace.opensFirst;
   return {
@@ -618,7 +643,7 @@ async function applyTemplate(env, template, { allowed = () => true, modulesDir =
 //   modules: each module it lists (with what it requires) not already on in every space it may be in, with whether
 //            the plan allows it ({ id, name, allowed, why? }); the conference when listed and off
 //   lobby: the template's Lobby name and description when they differ from the Lobby's own, else null
-//   spaceDefaults: the new-space profile, and what a new space opens with, for each that differs from the environment's, else null
+//   spaceDefaults: the new-space profile, for each that differs from the environment's, else null
 function offerFor(env, template, { allowed = () => true, modulesDir = MODULES_DIR, name = (id) => id, applied = null } = {}) {
   const { store, modules } = env;
   // With fingerprints from the last time this template's once-only part was applied or passed over, a part is offered
@@ -641,7 +666,6 @@ function offerFor(env, template, { allowed = () => true, modulesDir = MODULES_DI
   const haveDefaults = store.settings.spaceDefaults;
   const defaultsOffer = {};
   if (wanted.profile && wanted.profile !== haveDefaults?.profile) defaultsOffer.profile = wanted.profile;
-  if (wanted.opensWith && JSON.stringify(wanted.opensWith) !== JSON.stringify(haveDefaults?.opensWith || [])) defaultsOffer.opensWith = wanted.opensWith;
   return {
     modules: offered,
     lobby: changed('lobby') && lobbyDiffers ? { name: template.lobby.name ?? lobby?.name ?? '', description: template.lobby.description ?? lobby?.description ?? '' } : null,

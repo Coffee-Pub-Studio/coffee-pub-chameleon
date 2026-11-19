@@ -12,7 +12,7 @@ const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 const QRCode = require('qrcode');
 const { ModuleManager, LIMITS: MODULE_LIMITS, compareVersions, oldNameIn, pendingWidensNothing } = require('./modules');
 const { buildModule, bundledModules, zipFiles } = require('./module-build');
-const { fillManifest } = require('./modules');
+const { fillManifest, permissionDefaults } = require('./modules');
 const templates = require('./templates');
 const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('./default-lists');
 const { CALL_DEFAULTS } = require('./call-settings');
@@ -43,6 +43,7 @@ const { ModuleUploads } = require('./module-uploads');
 const { inspectHead } = require('./image-clean');
 const { cleanName, nameForType, folderBytes, VISIBILITIES, PEOPLE_MAX } = require('./vault-store');
 const vaultTypes = require('./vault-types');
+const { whoCantOpen } = require('./layout-shapes');
 const { createScanner } = require('./vault-scan');
 const pdfViewer = require('./pdf-viewer');
 const { mountVaultShares } = require('./vault-share');
@@ -2415,7 +2416,7 @@ hostRouter.get('/api/host/templates', requireHostAdmin, (_req, res) => {
   const used = hostRegistry.listEnvironments();
   res.json({ templates: [...templateCatalog(null).values()].map((t) => ({ ...templateSummary(t), edited: Boolean(t.edited), update: t.update || null, usedBy: used.filter((e) => e.template === t.id).map((e) => e.slug), usedBySpaces: used.reduce((n, e) => n + spacesUsing(e.slug, t.id), 0) })) });
 });
-// One template in full, for the console's editor. An edited bundled template also carries `shipped`, for compare.
+// One template in full, for the console's editor, and `cantOpen` (who can't open each of its modules by default). An edited bundled template also carries `shipped`, for compare.
 hostRouter.get('/api/host/templates/:id', requireHostAdmin, (req, res) => {
   const t = templateFor(null, req.params.id);
   if (!t) return noSuchTemplate(res, req.params.id);
@@ -2424,7 +2425,7 @@ hostRouter.get('/api/host/templates/:id', requireHostAdmin, (req, res) => {
     const shipped = templates.get(t.id);
     if (shipped) template.shipped = { ...shipped, source: 'bundled', edited: false, hidden: false, update: null };
   }
-  res.json({ template });
+  res.json({ template, cantOpen: cantOpenFor(null, t) });
 });
 // A new host template: its fields (version, hidden and the dates are the server's). 409 when the id is taken, here or by
 // an owner's own template in any environment.
@@ -2433,7 +2434,7 @@ hostRouter.post('/api/host/templates', requireHostAdmin, templateJson, (req, res
   if (read.error) return res.status(400).json({ error: read.error });
   const raw = read.fields;
   const problems = templates.problemsOf(raw, { manifests: templates.bundledManifests() });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   const taken = templateIdTaken(raw.id);
   if (taken) return res.status(409).json({ error: taken });
   const now = new Date().toISOString();
@@ -2461,7 +2462,7 @@ hostRouter.patch('/api/host/templates/:id', requireHostAdmin, templateJson, (req
   if (changed) {
     const merged = mergeTemplate(stored, edits, t.id);
     const problems = templates.problemsOf(merged, { manifests: templates.bundledManifests() });
-    if (problems.length) return res.status(400).json({ error: problems[0], problems });
+    if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
     if ((stored.version || 1) >= templates.MAX_VERSION) return res.status(409).json({ error: VERSION_SPENT });
     next = { ...storedTemplate(templates.cleanTemplate(merged)), version: (stored.version || 1) + 1, hidden: next.hidden, createdAt: stored.createdAt, updatedAt: new Date().toISOString() };
   }
@@ -2509,7 +2510,7 @@ hostRouter.post('/api/host/templates/:id/duplicate', requireHostAdmin, templateJ
   if (unknown) return res.status(400).json({ error: `A copy takes only an id and a name; "${String(unknown).slice(0, 40)}" is not one of them.` });
   const raw = { ...copyFields(t, null), id: body.id, name: body.name };
   const problems = templates.problemsOf(raw, { manifests: templates.bundledManifests() });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   const taken = templateIdTaken(raw.id);
   if (taken) return res.status(409).json({ error: taken });
   const now = new Date().toISOString();
@@ -2629,7 +2630,7 @@ function patchBundledTemplate(t, edits, hiddenGiven, res) {
   const current = record?.template != null ? record.template : storedTemplate(shipped);
   const merged = mergeTemplate(current, edits, t.id);
   const problems = templates.problemsOf(merged, { manifests: templates.bundledManifests() });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   const clean = templates.cleanTemplate({ ...merged, version: versionNow + 1 });
   saveBundledEdit(t.id, { template: storedTemplate(clean), version: versionNow + 1, base, hidden });
   refreshTemplateLive(t.id);
@@ -2637,6 +2638,27 @@ function patchBundledTemplate(t, edits, hiddenGiven, res) {
 }
 // A template in full, for an editor or an import's answer: its fields, source, version and hidden.
 const fullTemplate = (t) => (t ? { ...t } : null);
+// Who can't open each of a template's modules, for the layout picker's notice (plan-layout-picker.md, decisions 17 and
+// 19): { <module id>: { roles: [...] } | { off: true } }, a module everyone can open left out (layout-shapes.js,
+// whoCantOpen). Only the modules an area may hold; the chat and the call are the column on the left. In the host
+// console (`env` null) the roles are the modules' own defaults; in an environment they are that environment's Roles
+// grid, and a module off or not installed there is `off`.
+function cantOpenFor(env, t) {
+  if (!t) return {};
+  const manifests = catalogManifests(env);
+  const ids = (t.modules === '*' ? [...manifests.keys()] : Object.keys(t.modules)).filter((id) => !templates.BUILTIN_MODULE_IDS.includes(id) && manifests.get(id)?.surfaces?.canvas);
+  if (env) return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions: env.store.roles(), off: ids.filter((id) => !env.modules.enabled(id)) });
+  const rolePermissions = { moderator: {}, member: {}, guest: {} };
+  for (const id of ids) {
+    const manifest = manifests.get(id);
+    for (const p of manifest?.permissions || []) {
+      const d = permissionDefaults(p.default);
+      for (const role of Object.keys(rolePermissions)) rolePermissions[role][`module.${id}.${p.key}`] = d[role];
+      if (manifest.library && vaultTypes.GUEST_LOCKED.includes(p.key)) rolePermissions.guest[`module.${id}.${p.key}`] = false;
+    }
+  }
+  return whoCantOpen(ids, { manifests: Object.fromEntries(manifests), rolePermissions, off: [] });
+}
 // Every built environment that reads template `id` (as its own, or through a space) reads its live part again.
 function refreshTemplateLive(id) {
   for (const env of environments.values()) if (env.store.templateRecord?.id === id) templates.useLive(env.store, templateFor(env, id));
@@ -2657,12 +2679,12 @@ function readTemplateUpload(req, env, manifests) {
     if (rename) {
       read.raw.id = rename;
       const problems = templates.problemsOf(read.raw, { manifests });
-      if (problems.length) return { status: 400, error: { error: problems[0], problems } };
+      if (problems.length) return { status: 400, error: { error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) } };
     }
     if (templateFor(env, read.raw.id)) return { status: 409, error: { error: `There is already a template called ${read.raw.id}.` } };
     return read;
   } catch (err) {
-    if (err instanceof templateFile.TemplateFileError) return { status: err.status, error: { error: err.message, ...(err.problems ? { problems: err.problems } : {}) } };
+    if (err instanceof templateFile.TemplateFileError) return { status: err.status, error: { error: err.message, ...(err.problems ? { problems: err.problems } : {}), ...(err.parts ? { parts: err.parts } : {}) } };
     throw err;
   }
 }
@@ -5380,8 +5402,7 @@ app.patch('/api/spaces/:id', requireUser, (req, res) => {
   if (!isOwner(req)) {
     const space = store.spaceById(req.params.id);
     if (!space || closedTo(req, space)) return res.status(entryStatus(req, space)).json(entryBody(req, space, `no such ${word('space')}`));
-    // `opensWith` is no longer anyone's to send (the template decides); a moderator's is let through to the store's own refusal.
-    const onlyTheirs = Object.keys(body).every((k) => MODERATOR_SPACE_FIELDS.includes(k) || k === 'opensWith');
+    const onlyTheirs = Object.keys(body).every((k) => MODERATOR_SPACE_FIELDS.includes(k));
     if (!moderates(currentUser(req), space) || !onlyTheirs) return res.status(403).json({ error: `${word('owner', { many: true })} only` });
   }
   const space = store.updateSpace(req.params.id, body);
@@ -6465,9 +6486,9 @@ function lastLayoutFor(found, system) {
   return store.layouts.find(found.space.id, id, found.who.user.key) ? id : null;
 }
 // What a first visit to a space shows for this viewer, resolved from the stored fields so the page does not re-derive it
-// (plan-layout-views.md, step 5): { layout: 'workspace' | another fixed layout's id | <shared layout id>, opensWith: [ids] | null }.
+// (plan-layout-views.md, step 5): { layout: 'workspace' | another fixed layout's id | <shared layout id>, shape: { shape, areas } | null }.
 // `layout` is the space's defaultLayout while it still resolves (a shared layout that exists; a fixed layout while it
-// is on here for this viewer), else 'workspace'. `opensWith` is the space's template's list (the Workspace's default content),
+// is on here for this viewer), else 'workspace'. `shape` is the space's template's layout (the Workspace's default content, workspace.layout),
 // or null when it names none (the page then opens as the product does); it is sent whatever `layout` is.
 function firstVisitFor(found) {
   const space = found.space;
@@ -6478,7 +6499,7 @@ function firstVisitFor(found) {
   } else if (stored && store.defaultLayoutOf(space.id)) {
     layout = stored;
   }
-  return { layout, opensWith: store.opensWithOf(space.id) };
+  return { layout, shape: store.layoutOf(space.id) };
 }
 // The icon ids a layout in space `spaceId` may use: the icons that space offers (its own template's additions when it has
 // one, as its /look lists them, else the environment's), the modules' own icons, and the defaults.
@@ -11910,12 +11931,12 @@ app.get('/api/modules/for-space', (req, res) => {
       .map(({ manifest, entry }) => ({ id: manifest.id, ...shownModule(manifest, space.id), color: manifest.color || null, ...(manifest.description ? { description: manifest.description } : {}), version: manifest.version, budget: manifest.budget === true, tags: manifest.tags === true, scope: manifest.scope, runMode: modules.runModeOf(entry), canvas: manifest.surfaces.canvas, commands: manifest.commands || [], permissions: manifest.permissions.map((p) => `module.${manifest.id}.${p.key}`).filter((k) => perms[k]), clear: mayClearHere(manifest, who, perms, space.id), undoSeconds: moduleHolds.seconds })),
     // The built-in modules' names and icons as this environment shows them (the canvas's Conference and Chat switches).
     builtin: BUILTIN_MODULES.map((b) => ({ id: b.id, ...shownModule(b, space.id), ...(b.description ? { description: fillWords(b.description) } : {}) })),
-    // What this space opens with: its template's Default Workspace (store.opensWithOf), or null when the template names none.
-    opensWith: store.opensWithOf(space.id),
+    // What this space starts with: its template's Default Workspace layout (store.layoutOf), { shape, areas }, or null when the template names none.
+    layout: store.layoutOf(space.id),
     // The space's default layout, whole (as GET /api/spaces/:id/layouts lists it), or null: what a first visit opens,
-    // with its places, when Opens with is the space's own list (plan-saved-layouts.md, decision 4).
+    // with its places (plan-saved-layouts.md, decision 4).
     defaultLayout: store.defaultLayoutOf(space.id),
-    // What a first visit shows for this viewer, resolved (firstVisitFor): { layout, opensWith }.
+    // What a first visit shows for this viewer, resolved (firstVisitFor): { layout, shape }.
     firstVisit: firstVisitFor({ who, space }),
   });
 });
@@ -13214,7 +13235,7 @@ app.get('/api/environment/templates/:id', requireOwner, (req, res) => {
   const env = currentEnvironment();
   const t = templateFor(env, req.params.id);
   if (!t || (t.hidden && env.store.templateRecord?.id !== t.id)) return noSuchTemplate(res, req.params.id);
-  res.json({ template: { ...fullTemplate(t), editable: t.source === 'own' } });
+  res.json({ template: { ...fullTemplate(t), editable: t.source === 'own' }, cantOpen: cantOpenFor(env, t) });
 });
 // A copy: { from, id, name }. Any template this environment may use, at version 1; the Default template's "*" is written
 // out as the modules on here now. 201 { template }; 400 with the problems; 409 for a taken id or too many.
@@ -13229,7 +13250,7 @@ app.post('/api/environment/templates', requireOwner, templateJson, (req, res) =>
   const manifests = catalogManifests(env);
   const raw = { ...copyFields(from, env), id: body.id, name: body.name };
   const problems = templates.problemsOf(raw, { manifests });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   if (templateFor(env, raw.id) || (hostRegistry && templateFor(null, raw.id))) return res.status(409).json({ error: `There is already a template called ${raw.id}.` });
   if (env.store.ownTemplates.length >= MAX_OWN_TEMPLATES) return res.status(409).json({ error: tooManyOwnTemplates() });
   const now = new Date().toISOString();
@@ -13252,7 +13273,7 @@ app.patch('/api/environment/templates/:id', requireOwner, templateJson, (req, re
   const manifests = catalogManifests(env);
   const merged = mergeTemplate(stored, read.fields, t.id);
   const problems = templates.problemsOf(merged, { manifests });
-  if (problems.length) return res.status(400).json({ error: problems[0], problems });
+  if (problems.length) return res.status(400).json({ error: problems[0], problems, ...(problems.parts ? { parts: problems.parts } : {}) });
   if ((Number.isInteger(stored.version) ? stored.version : 1) >= templates.MAX_VERSION) return res.status(409).json({ error: VERSION_SPENT });
   env.store.putOwnTemplate({ ...storedTemplate(templates.cleanTemplate(merged, { manifests })), version: (Number.isInteger(stored.version) ? stored.version : 1) + 1, createdAt: stored.createdAt || null, updatedAt: new Date().toISOString(), copiedFrom: stored.copiedFrom || null });
   if (env.store.templateRecord?.id === t.id) templates.useLive(env.store, templateFor(env, t.id));

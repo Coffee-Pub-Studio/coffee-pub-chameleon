@@ -7,7 +7,10 @@
  *   - the person's own last layout wins over the owner's default; someone with none still gets the default
  *   - a last layout the owner hid, or a saved layout that was deleted, falls back quietly to the default
  *   - a guest follows the owner's default (the Workspace when it is a tab they cannot have), has no fixed tab and writes nothing
- * The pure order (firstVisitLayout with `last`) runs in-process first. With no Chromium it says SKIPPED (set CHROME_PATH);
+ *   - nothing chosen is nothing remembered (Thomas, 2026-11-19): a new space on the Default template shows its empty area
+ *     with the chooser on every visit until the person puts a module in; then their own arrangement wins, even after
+ *     they close it (a blank canvas, not the area again); a phone shows the chat and no area
+ * The pure order (firstVisitLayout with `last`, firstVisitShape with what was placed) runs in-process first. With no Chromium it says SKIPPED (set CHROME_PATH);
  * that is not a pass.
  */
 import fs from 'node:fs';
@@ -27,9 +30,9 @@ const test = async (name, fn) => {
 {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-restore-layout-'));
   fs.copyFileSync(path.join(ROOT, 'public/opens-with.js'), path.join(dir, 'opens-with.mjs'));
-  const { firstVisitLayout } = await import(pathToFileURL(path.join(dir, 'opens-with.mjs')).href);
+  const { firstVisitLayout, firstVisitShape } = await import(pathToFileURL(path.join(dir, 'opens-with.mjs')).href);
   fs.rmSync(dir, { recursive: true, force: true });
-  const fv = (layout) => ({ layout, opensWith: null });
+  const fv = (layout) => ({ layout, shape: null });
   const cases = [
     ['no last: the owner\'s default', firstVisitLayout({ firstVisit: fv('calendar') }), 'calendar'],
     ['a last layout beats the owner\'s default', firstVisitLayout({ firstVisit: fv('conference'), last: 'calendar' }), 'calendar'],
@@ -42,6 +45,19 @@ const test = async (name, fn) => {
     ['no last, a remembered arrangement: the Workspace', firstVisitLayout({ firstVisit: fv('calendar'), remembered: ['todo'] }), 'workspace'],
   ];
   for (const [label, got, want] of cases) await test(label, () => assert.equal(got, want));
+  // The template's layout (plan-layout-picker.md, step 3; Thomas, 2026-11-19): it comes back until something is chosen.
+  const empty = { shape: 'one', areas: [null] };
+  const education = { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] };
+  const shapes = [
+    ['Default, a first visit: the empty area', firstVisitShape({ shape: empty }), empty],
+    ['Default, back with nothing chosen (the chat alone remembered): the empty area again', firstVisitShape({ shape: empty, remembered: ['chat'] }), empty],
+    ['Default, a module chosen: their own arrangement', firstVisitShape({ shape: empty, remembered: ['whiteboard'], placed: true }), null],
+    ['Default, the chosen module closed again: their own (blank) arrangement, not the area', firstVisitShape({ shape: empty, remembered: ['chat'], placed: true }), null],
+    ['a guest: the empty area every time', firstVisitShape({ shape: empty, remembered: ['whiteboard'], placed: true, guest: true }), empty],
+    ['Education, a first visit: its shape', firstVisitShape({ shape: education }), education],
+    ['Education, back after the first visit placed its modules: their own arrangement', firstVisitShape({ shape: education, remembered: ['whiteboard', 'goals', 'documents'], placed: true }), null],
+  ];
+  for (const [label, got, want] of shapes) await test(label, () => assert.deepEqual(got, want));
 }
 
 const { bootSeeded, stopServer, freePort, findBrowser, launch, Tab, sleep } = await import('./shots.mjs');
@@ -153,6 +169,47 @@ try {
     const again = await enter('mia');
     assert.equal(await shown(again), 'conference', 'the default');
     assert.equal(await puts(again), 0);
+  });
+
+  await test('nothing chosen is nothing remembered: a Default space\'s empty area comes back until a module is put in; after that, the person\'s own', async () => {
+    const made = await api('admin', 'POST', '/api/spaces', { name: 'Plain', template: 'default' });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    const plain = made.json.space.id;
+    const state = (tab) => tab.eval(`({ areas: document.querySelectorAll('.module-area').length, choices: document.querySelectorAll('.module-area .host-menu-item').length, modules: [...document.querySelectorAll('.module-docked[data-module]')].map((s) => s.dataset.module).filter((id) => id !== 'chat' && id !== 'conference'), placed: JSON.parse(localStorage.getItem(Object.keys(localStorage).find((k) => k.endsWith(${JSON.stringify(plain)})) || 'null') || '{}').__placed === true })`);
+    const tab = await open(`/#join=${plain}`, 'admin');
+    await tab.waitFor('#layout-tabs [data-layout-tab]');
+    await sleep(1500);
+    let s = await state(tab);
+    assert.equal(s.areas, 1, 'a first visit: one empty area');
+    assert.ok(s.choices > 0, 'with the chooser');
+    assert.deepEqual(s.modules, [], 'and nothing else on the canvas');
+    await reload(tab);
+    s = await state(tab);
+    assert.deepEqual([s.areas, s.modules, s.placed], [1, [], false], 'back with nothing chosen: the empty area and its chooser again');
+    await tab.eval(`document.querySelector('.module-area .host-menu-item').click()`);
+    await sleep(1200);
+    s = await state(tab);
+    assert.equal(s.areas, 0, 'the chosen module takes the area');
+    assert.equal(s.modules.length, 1);
+    assert.equal(s.placed, true, 'remembered as a choice');
+    const chosen = s.modules[0];
+    await reload(tab);
+    s = await state(tab);
+    assert.deepEqual([s.areas, s.modules], [0, [chosen]], 'after a reload: the chosen module, no chooser');
+    await tab.eval(`document.querySelector('.module-docked[data-module=${JSON.stringify(chosen)}] .mf-close-btn').click()`);
+    await sleep(800);
+    await reload(tab);
+    s = await state(tab);
+    assert.deepEqual([s.areas, s.modules], [0, []], 'closed again: their own arrangement, a blank canvas, not the area');
+    // A phone has no placeholder: a new person there gets the chat as the view, and the same on every visit.
+    const phone = await open(`/#join=${plain}`, 'admin', 390); // a browser context of its own: nothing remembered
+    await sleep(3500);
+    const p1 = await state(phone);
+    assert.deepEqual([p1.areas, p1.modules, p1.placed], [0, [], false], 'a phone: no area, no module, nothing chosen');
+    await phone.cdp.send('Page.reload', {}, phone.sid);
+    await sleep(3500);
+    const p2 = await state(phone);
+    assert.deepEqual([p2.areas, p2.modules, p2.placed], [0, [], false], 'a phone, again: the same');
   });
 
   await test('a guest follows the owner\'s default (the Workspace for a tab they cannot have), has no fixed tab, writes nothing', async () => {

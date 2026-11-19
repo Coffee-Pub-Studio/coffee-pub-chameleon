@@ -30,14 +30,14 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
 - [Agents](userguides/userguide-agents.md) -- letting Claude, or another assistant, work in some spaces through a token: adding one, the token, turning it off and what it did.
 - [Creating themes](userguides/userguide-themes.md) -- the colours, light and dark, and sharing a theme as a file.
 - [Your environment](userguides/userguide-environments.md) -- an owner's view on a hosted server: the plan, the caps, a copy, leaving.
-- [Templates](userguides/userguide-templates.md) -- the shipped templates (Default, Travel, Games, Project, Learning and Mentoring), the pages, switching a template and its starter spaces, a space's own template, and making your own.
+- [Templates](userguides/userguide-templates.md) -- the shipped templates (Default, Travel, Gaming, Projects, Education and Mentoring), the pages, switching a template and its starter spaces, a space's own template, and making your own.
 - [Chat](userguides/userguide-chat.md) -- one box with Discussion and Assistant tabs: messages, `/ai`, module commands and bringing in research.
 - [Modules](userguides/userguide-modules.md) -- adding features with a module zip.
 - [Calendar](userguides/userguide-calendar.md) -- events and reminders, for the environment and for each space.
 - [To-do](userguides/userguide-todo.md) -- a shared task list, for the environment and for each space.
 - [Polls](userguides/userguide-polls.md) -- asking a group to choose.
 - [Planner - Itinerary](userguides/userguide-planner.md) -- planning a trip day by day, with phases (the Itinerary in the Travel template).
-- [Planner - Projects](userguides/userguide-planner-projects.md) -- milestones, work with owners and dates, and what waits on what, with Export and import as a JSON file (the Project plan in the Project template).
+- [Planner - Projects](userguides/userguide-planner-projects.md) -- milestones, work with owners and dates, and what waits on what, with Export and import as a JSON file (the Project plan in the Projects template).
 - [Planner - Goals](userguides/userguide-planner-goals.md) -- goals, steps and progress, with dates optional, with Export and import as a JSON file (the Learning plan and the Development plan).
 - [Budget](userguides/userguide-budget.md) -- costs planned and paid, the space's target, the burndown and settling up.
 - [Research](userguides/userguide-research.md) -- notes, links and photos a group finds while it plans.

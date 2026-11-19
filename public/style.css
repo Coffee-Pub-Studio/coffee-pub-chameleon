@@ -5627,26 +5627,6 @@ body.chat-window {
 }
 
 
-/* Space settings' Opens with: a switch for the conference, the chat and each module on in the space (switch-list.js). */
-.opens-with-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  margin: 8px 0;
-}
-
-/* Its default layout's line, above the switches: the layout's name, then Stop using it (wraps on a narrow page). */
-.opens-with-layout {
-  margin: 8px 0;
-}
-
-.opens-with-layout-text {
-  flex: 1 1 12em;
-  min-width: 0;
-  font-weight: var(--weight-strong);
-}
-
 /* A space I may only ask to enter (request access): the state of my request and its buttons, where Join would be. Not a button by role. */
 .space-choice-ask {
   grid-area: join;
@@ -6460,6 +6440,13 @@ body.chat-window {
 .canvas > .stack-divider { display: block; position: absolute; left: 0; right: 0; margin: 0; grid-row: 1 / -1; transform: translateY(-50%); }
 .canvas > .stack-divider.stack-divider-off { pointer-events: none; }
 .canvas > .stack-group { position: absolute; inset: 0; grid-row: 1 / -1; pointer-events: none; }
+
+/* An empty area of a layout shape (plan-layout-picker.md, step 2; canvas.js, openArea): a docked column (or stack section)
+   in the module frame's docked look, holding the module chooser, the page's shared menu drawn in place (.host-menu-inline).
+   Never on a phone (canvas.js hides it there). */
+.area-chooser { display: flex; flex-direction: column; gap: var(--space-2); max-width: 420px; margin: 0 auto; }
+.area-chooser-lead { margin: 0; padding: 0 var(--space-2); color: var(--text-muted); font-size: var(--text-13); }
+.area-chooser-list:empty { display: none; }
 .canvas.resizing-stack, .canvas.resizing-stack * { cursor: row-resize !important; user-select: none; }
 .canvas.resizing-stack iframe { pointer-events: none; } /* a frame under the pointer would swallow the drag */
 
@@ -7292,6 +7279,535 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
 }
 /* action-bar:end */
 
+/* layout-picker:start -- the layout picker (public/layout-picker.js; plan-layout-picker.md, step 4): pick a shape, then
+   choose what opens in each area. Thomas's sketch: six small drawings in two rows of three, each a narrow tinted band on
+   the left (the chat and call column, which is never mapped) beside green areas numbered 1 to 3 at the shape's own
+   percentages (flex-grow carries them, so the gaps never upset the shares). Step 2 draws the chosen shape large, each
+   area a button; in a narrow place (the picker's own width, 520 px and below: a phone, a narrow editor) it is a list,
+   one row per area. The bar is the shared action bar. Colours from the tokens only. */
+.layout-picker {
+  container: layout-picker / inline-size;
+  min-width: 0;
+  color: var(--text);
+}
+
+.layout-picker-body {
+  padding: var(--space-4);
+}
+
+.layout-picker-steps {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+}
+
+.layout-picker-steps[hidden],
+.layout-picker-part[hidden],
+.layout-picker-error[hidden] {
+  display: none;
+}
+
+.layout-picker-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-1);
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: var(--text-13);
+  font-weight: var(--weight-strong);
+  cursor: pointer;
+}
+
+.layout-picker-step:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.layout-picker-step[aria-current="step"] {
+  color: var(--text);
+}
+
+.layout-picker-step:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.layout-picker-step-n {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-round);
+  font-size: var(--text-12);
+  font-weight: 700;
+}
+
+.layout-picker-step[aria-current="step"] .layout-picker-step-n {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.layout-picker-step-sep {
+  color: var(--text-dim);
+  font-size: var(--text-12);
+}
+
+.layout-picker-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-16);
+  font-weight: var(--weight-strong);
+}
+
+.layout-picker-title:focus {
+  outline: none;
+}
+
+.layout-picker-lead {
+  margin: var(--space-1) 0 var(--space-4);
+  color: var(--text-dim);
+  font-size: var(--text-13);
+}
+
+/* A drawing: the band and the view beside it. */
+.layout-picker-drawing {
+  display: flex;
+  gap: var(--space-0);
+  box-sizing: border-box;
+  aspect-ratio: 16 / 10;
+  padding: var(--space-0);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--bg);
+}
+
+.layout-picker-band {
+  flex: 0 0 14%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  box-sizing: border-box;
+  padding-top: var(--space-3);
+  border-radius: var(--radius-min);
+  background: color-mix(in srgb, var(--tint-pink) 34%, var(--bg-card));
+  color: var(--text);
+  font-size: 16px;
+}
+
+.layout-picker-shape .layout-picker-band i,
+.layout-picker-mini .layout-picker-band i {
+  display: none;
+}
+
+.layout-picker-view {
+  flex: 1 1 auto;
+  display: flex;
+  gap: var(--space-0);
+  min-width: 0;
+}
+
+.layout-picker-col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0);
+  min-width: 0;
+}
+
+.layout-picker-cell {
+  flex: 1 1 0;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  border-radius: var(--radius-min);
+  background: color-mix(in srgb, var(--tint-green) 34%, var(--bg-card));
+  color: var(--text);
+  font-size: var(--text-12);
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Step 1: the six shapes, two rows of three at any width. */
+.layout-picker-shapes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  max-width: 640px;
+}
+
+.layout-picker-shape {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-medium);
+  background: var(--bg-card);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.layout-picker-shape:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+/* Chosen: a fill (Thomas's rule: a selected state is a fill, never a border or a ring), with the check mark beside its
+   label so the colour never carries it alone. The keyboard's focus ring is the page's own, apart from this. */
+.layout-picker-shape.selected {
+  background: var(--selected-bg);
+}
+
+.layout-picker-shape-foot {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-1);
+  min-height: 20px;
+}
+
+.layout-picker-shape-word {
+  min-width: 0;
+  font-size: var(--text-13);
+  font-weight: var(--weight-strong);
+  line-height: 1.3;
+}
+
+.layout-picker-shape-check {
+  flex: none;
+  visibility: hidden;
+  color: var(--accent);
+  font-size: 16px;
+}
+
+.layout-picker-shape.selected .layout-picker-shape-check {
+  visibility: visible;
+}
+
+/* Step 2: the chosen shape, large. */
+.layout-picker-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.layout-picker-head-words {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.layout-picker-mini {
+  display: none;
+  flex: none;
+  width: 72px;
+}
+
+.layout-picker-board .layout-picker-drawing {
+  aspect-ratio: auto;
+  height: clamp(220px, 44vh, 360px);
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-large);
+}
+
+.layout-picker-board .layout-picker-band {
+  flex: 0 0 48px;
+  border-radius: var(--radius-medium);
+}
+
+.layout-picker-board .layout-picker-view,
+.layout-picker-board .layout-picker-col {
+  gap: var(--space-2);
+}
+
+.layout-picker-area,
+.layout-picker-row-main {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--tint-green) 55%, var(--bg-card));
+  border-radius: var(--radius-medium);
+  background: color-mix(in srgb, var(--tint-green) 18%, var(--bg-card));
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.layout-picker-area {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-height: 0;
+  padding: var(--space-3);
+  overflow: hidden;
+  text-align: center;
+}
+
+:is(.layout-picker-area, .layout-picker-row-main):is(:hover, [aria-expanded="true"]) {
+  background: color-mix(in srgb, var(--tint-green) 28%, var(--bg-card));
+}
+
+:is(.layout-picker-area, .layout-picker-row-main).empty {
+  border-style: dashed;
+  background: color-mix(in srgb, var(--tint-green) 7%, var(--bg-card));
+  color: var(--text-dim);
+}
+
+:is(.layout-picker-area, .layout-picker-row-main).empty:is(:hover, [aria-expanded="true"]) {
+  background: color-mix(in srgb, var(--tint-green) 16%, var(--bg-card));
+  color: var(--text);
+}
+
+.layout-picker-readonly :is(.layout-picker-area, .layout-picker-row-main) {
+  cursor: default;
+}
+
+.layout-picker-area-n {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-round);
+  background: var(--tint-green);
+  color: var(--bg-card);
+  font-size: var(--text-12);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.layout-picker-area-what {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+}
+
+.layout-picker-area-icon {
+  color: var(--tint, var(--text-dim));
+  font-size: var(--icon-24);
+}
+
+.layout-picker-area-name {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-14);
+  font-weight: var(--weight-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layout-picker-area-label {
+  display: none;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+  font-weight: var(--weight-strong);
+}
+
+.layout-picker-area-caret {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* The place for the maker's notice under an area (plan decisions 17 and 19; its words come in step 6). */
+.layout-picker-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  max-width: 100%;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+  text-align: left;
+}
+
+/* The list, one row per area, in a narrow place. */
+.layout-picker-list {
+  display: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.layout-picker-row-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+
+.layout-picker-row-main .layout-picker-area-n,
+.layout-picker-row-main .layout-picker-area-caret {
+  position: static;
+}
+
+.layout-picker-row-main .layout-picker-area-what {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "label label" "icon name";
+  align-items: center;
+  justify-items: start;
+  column-gap: var(--space-2);
+}
+
+.layout-picker-row-main .layout-picker-area-label {
+  display: block;
+  grid-area: label;
+}
+
+.layout-picker-row-main .layout-picker-area-icon {
+  grid-area: icon;
+  font-size: 16px;
+}
+
+.layout-picker-row-main .layout-picker-area-name {
+  grid-area: name;
+}
+
+.layout-picker-area .layout-picker-notice {
+  justify-content: center;
+  text-align: center;
+}
+
+.layout-picker-row-main .layout-picker-area-caret {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.layout-picker-row-main .layout-picker-notice {
+  grid-column: 2 / -1;
+  grid-row: 2;
+}
+
+/* What a change left out, and a refusal: under the shape, one line each. */
+.layout-picker-note {
+  margin: var(--space-3) 0 0;
+  color: var(--text-dim);
+  font-size: var(--text-13);
+}
+
+.layout-picker-note:empty {
+  display: none;
+}
+
+.layout-picker-error {
+  margin: var(--space-2) 0 0;
+  color: var(--danger-text);
+  font-size: var(--text-13);
+  font-weight: var(--weight-strong);
+}
+
+.layout-picker-nav {
+  margin-right: auto;
+}
+
+/* In the shared menu (drawn on the page's body): the line saying what a stacked area refuses, and where it can go. */
+.layout-picker-menu-note {
+  max-width: 260px;
+  margin: 0;
+  padding: var(--space-1) var(--space-3) var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--text-12);
+  white-space: normal;
+}
+
+@container layout-picker (max-width: 520px) {
+  .layout-picker-board {
+    display: none;
+  }
+
+  .layout-picker-list {
+    display: flex;
+  }
+
+  .layout-picker-mini {
+    display: block;
+  }
+
+  .layout-picker-shapes {
+    gap: var(--space-2);
+  }
+
+  .layout-picker-shape {
+    padding: var(--space-1);
+  }
+
+  .layout-picker-shape-word {
+    font-size: var(--text-12);
+  }
+
+  /* The two steps stay on one line: the chevron between them goes, and the words may shrink. */
+  .layout-picker-step-sep {
+    display: none;
+  }
+
+  .layout-picker-steps li {
+    min-width: 0;
+  }
+
+  .layout-picker-step {
+    max-width: 100%;
+    padding-right: var(--space-2);
+  }
+
+  .layout-picker-step-word {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .layout-picker-step {
+    min-height: 44px;
+  }
+
+  .layout-picker-row-main {
+    min-height: 56px;
+  }
+
+  .layout-picker .action-bar-buttons {
+    flex: 2 1 0;
+  }
+
+  .layout-picker-nav {
+    flex: 1 1 0;
+    margin-right: 0;
+  }
+}
+/* layout-picker:end */
+
 /* phase-sheet:start -- the timeline sheet (public/phase-sheet.js), a <dialog> in the editor window's look (host.css
    .sdk-editor: the same surface, border, radius, shadow and backdrop; a full-screen sheet at 640 px and below). The
    bar on top: the dated bands laid end to end, each as wide as it is long (flex-grow is its days; a least width,
@@ -8046,13 +8562,7 @@ h4.setup-subheading {
   text-decoration: underline;
 }
 
-.setup-opens-with {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* First visit (plan-layout-views.md, step 5): one choice, radios of one name; the Workspace's Opens with switches sit
+/* First visit (plan-layout-views.md, step 5): one choice, radios of one name; the line saying the template's layout sits
    directly under the Workspace, indented, then Calendar, Map and the shared layouts. */
 .setup-first-visit {
   margin: 6px 0 0;
@@ -8115,10 +8625,6 @@ h4.setup-subheading {
   margin: 0 0 6px 28px;
   padding-left: 10px;
   border-left: 2px solid var(--border);
-}
-
-.setup-workspace-content .opens-with-list {
-  margin: 2px 0;
 }
 
 .setup-subheading {
