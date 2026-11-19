@@ -2,7 +2,7 @@
 
 **Audience:** Thomas decides. server-development builds the server steps and every check; experience-design builds the SDK and page steps (the canvas steps on the larger model, as layout and canvas work). The project manager runs each step as a try build.
 
-**Status:** draft, 2026-11-19, by product-planner, from GitHub issue #940. Thomas: modules move in focused changes, the core does not, and he wants the core to be "a predictable, reusable framework with reusable components, almost like internal core modules". Nothing below is built. Thomas's three decisions are recorded; everything else marked "lean" is the planner's, taken so the plan is not blocked, and is his to change.
+**Status:** draft, 2026-11-19, by product-planner, from GitHub issue #940. Thomas: modules move in focused changes, the core does not, and he wants the core to be "a predictable, reusable framework with reusable components, almost like internal core modules". Nothing below is built. Thomas's seven decisions are recorded; everything else marked "lean" is the planner's, taken so the plan is not blocked, and is his to change.
 
 **What was read.** Issue #940; `CLAUDE.md`; [architecture-overview](../architecture/architecture-overview.md), [architecture-canvas](../architecture/architecture-canvas.md), [architecture-navigation](../architecture/architecture-navigation.md), [architecture-module-window](../architecture/architecture-module-window.md) (headings); [plan-module-agents](plan-module-agents.md) ("The fence", the build); [plan-colour-picker](plan-colour-picker.md); [plan-release](plan-release.md) (the freeze). In code: the section banners and route lines of `server/index.js`, its environment seam (`proxyFor`, lines 316 to 400) and `registeredPaths` (line 3699); `server/vault-share.js` (`mountVaultShares`); `tools/route-walk-preload.cjs`; `tools/check-module.mjs`; the section banners of `public/space.js`, `public/canvas.js`, `public/admin.js` and `public/module-host.js`; the page globals at the end of `public/sdk/host.js`; `public/host-menu.js`, `public/colour-field.js`, `public/nav-bar.js` (headers); the headers of `tools/check-host-menu.mjs`, `tools/check-no-colour-input.mjs` and `tools/check-nav.mjs`; a search of `public/*.js` and `public/*.html` for menus, dialogs, date and colour inputs and selects. Read as code only; nothing was run.
 
@@ -28,6 +28,10 @@ Thomas, 2026-11-19 (issue #940, through the project manager).
 1. **Fix the red checks first.** Done: PR #941, and `check-module-guards` in a follow-up. Reason: a core change needs a reliable "is this safe" signal before anything moves.
 2. **The core may change as much as needed; nothing is released.** The aim is a stable platform, and that this stall never happens again.
 3. **One plan covers the server, the pages and the SDK, built in order as small try builds, one layer at a time.** Thomas asked whether one plan or one per layer; the project manager recommended one, because the parts share a single contract and separate plans would drift.
+4. **A change confined to one part's folder gets its own lane**, the same as a module's: run only `npm run check:part -- <id>` plus the route-table check, no whole suite, no independent review. A change touching more than one part or the base is core. Written in `CLAUDE.md` Rules.
+5. **The page menu's extra fields stay page-only for now.** Switches, radios, badges and headings are drawn by the page's menu only; nothing changes in what modules can call through `host.menu.show`.
+6. **A plain native `<select>` in a host page is allowed** and is out of this plan.
+7. **`public/sdk/host.js` is not split.** It stays one file (it is put inline in a frame and the pages have no build step); its drawn pieces become the only ones instead.
 
 ## Leans taken (the planner's, not decisions)
 
@@ -129,13 +133,13 @@ Menus, pickers, dialogs, popovers, toolbars' "..." and the nav are drawn only by
 Order to convert, one try build each:
 
 1. **One page host.** `host.js` makes one page host and lends it as `window.hostPage` (`hostPage.ui`, `hostPage.menu`). `hostColour`, `hostSwitch` and `hostCurrency` become parts of it and are removed. One picker or menu open at a time on a page.
-2. **Menus, the SDK side.** The SDK menu learns what the page menu draws (`checked`, `toggle`, `radio`, `keepOpen`, `badge`, `tag`, `mark`, `more`, `heading`, `element`), page-only for now (open question 2). `check-host-menu` covers both.
+2. **Menus, the SDK side.** The SDK menu learns what the page menu draws (`checked`, `toggle`, `radio`, `keepOpen`, `badge`, `tag`, `mark`, `more`, `heading`, `element`), page-only for now (decision 5). `check-host-menu` covers both.
 3. **Menus, the page side.** `host-menu.js` becomes a short file over `hostPage.menu.show`, as `colour-field.js` is over the colour picker; the flyout copy and `menu-flyout.js` go; the `.host-menu` styles give way to the SDK's. A new check fails on `role="menu"` drawn outside the SDK.
 4. **Dates.** `hostPage.ui.datePicker` in `phase-sheet.js`, `space-setup.js` and `chat-input.js`. A check fails on `type="date"` in `public/` outside the SDK, as `check-no-colour-input` does for colour.
 5. **Dialog shells.** One shell, `public/dialog.js` (head, title, close, body, foot, Escape, focus back), used by `confirm.js`, `prompt.js`, `object-pick.js`, `template-choice.js` and `background-picker.js`. It stays a page file because the page draws these over everything, for modules too.
 6. **Anchored popovers.** The SDK's placing (under, flipped above, kept on screen, right on a scrolled page, as the colour picker's work fixed) lent as `hostPage.ui.popover(anchor, element)`, used by the bell list, Online and the call's settings popover.
 
-Not converted here: the chat's emoji picker ([plan-module-emoji](plan-module-emoji.md) step 3 already moves it onto the SDK); toolbars (a module's are drawn by the host already; the call's toolbar is the page's own, and its "..." uses the one menu after step 3); the nav (already one drawing path); native `<select>` (open question 3).
+Not converted here: the chat's emoji picker ([plan-module-emoji](plan-module-emoji.md) step 3 already moves it onto the SDK); toolbars (a module's are drawn by the host already; the call's toolbar is the page's own, and its "..." uses the one menu after step 3); the nav (already one drawing path); native `<select>` (decision 6).
 
 ### The fence check
 
@@ -181,9 +185,5 @@ Every step is one try build that leaves `main` green: its own checks pass, GitHu
 
 ## What is not decided
 
-1. **A part lane in `CLAUDE.md`.** Today any change to `server/` or `public/` is core. Should a change confined to one part's folder, with `check:part` and `check-route-table` passing, count as a lane like a module's? Thomas's rule to write; it does not block the build.
-2. **The page menu's fields for modules.** After step 30 the SDK menu can draw switches, radios, badges and headings. Lean: page-only. Offering them to modules through `host.menu.show` is an SDK change, and the freeze would stop it once it starts. Blocks nothing.
-3. **Native `<select>`.** Used in `admin.js`, `space-setup.js`, `module-settings.js`, `template-fields.js`, `template-pages.js` and `ai-sees.js`. Lean: allowed (the global form rule) and not in this plan. Blocks nothing.
-4. **`module-host.js` and the module frame.** Core for modules and 2,700 lines; not cut here. Lean: a later plan once pages are done.
-5. **Splitting `public/sdk/host.js`.** It is put inline in a frame and the pages have no build step, so it stays one file. Lean: no split; its drawn pieces become the only ones instead.
-6. **The aims** (`space.js` under 1,500 lines, `admin.js` under 500, the base under 1,000) are the planner's guess, not gates.
+1. **`module-host.js` and the module frame.** Core for modules and 2,700 lines; not cut here. Lean: a later plan once pages are done.
+2. **The aims** (`space.js` under 1,500 lines, `admin.js` under 500, the base under 1,000) are the planner's guess, not gates.
