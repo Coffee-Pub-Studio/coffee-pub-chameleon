@@ -411,6 +411,31 @@ section('read as code', () => {
   same(native, [], 'public/sdk/host.js creates no <input type="color"> (decision 6)');
 });
 
+section('the Design System keeps the same palette and icons as host.js', () => {
+  // components.js carries a copy of COLOUR_PALETTE (as CP_PALETTE) and of the three icons (CP_CHECK, CP_DROPPER, CP_CHEVRON) so the
+  // specimens draw without the SDK. Only the literals are read: each is cut out of its file and evaluated alone, never the whole file.
+  const ds = read('public/design-system/components.js');
+  const cut = (src, start, end, what) => {
+    const a = src.indexOf(start);
+    const b = a < 0 ? -1 : src.indexOf(end, a + start.length);
+    if (a < 0 || b < 0) { ok(false, `could not find ${what} to compare`); return null; }
+    return src.slice(a + start.length, b);
+  };
+  const arr = (text) => (text === null ? null : new Function(`return [${text}]`)());
+  const hostPal = arr(cut(sdk, 'const COLOUR_PALETTE = Object.freeze([', '\n  ].map(', 'COLOUR_PALETTE in public/sdk/host.js'));
+  const dsPal = arr(cut(ds, 'const CP_PALETTE = [', '\n  ];', 'CP_PALETTE in public/design-system/components.js'));
+  if (hostPal && dsPal) {
+    ok(hostPal.length === 3, `COLOUR_PALETTE in host.js reads as ${hostPal.length} groups; wanted 3`);
+    same(dsPal, hostPal, 'CP_PALETTE in public/design-system/components.js holds the same groups, names and colours as COLOUR_PALETTE in public/sdk/host.js');
+  }
+  const icon = (src, re, what) => { const m = src.match(re); if (!m) { ok(false, `could not find ${what} to compare`); return null; } return m[1]; };
+  for (const [key, cp] of [['check', 'CP_CHECK'], ['dropper', 'CP_DROPPER'], ['chevron', 'CP_CHEVRON']]) {
+    const a = icon(sdk, new RegExp(`\\n\\s+${key}: '([^'\\n]+)',?\\n`), `COLOUR_ICONS.${key} in host.js`);
+    const b = icon(ds, new RegExp(`const ${cp} = '([^'\\n]+)';`), `${cp} in components.js`);
+    ok(Boolean(a) && a === b, `${cp} in components.js is not the same string as COLOUR_ICONS.${key} in host.js`);
+  }
+});
+
 say(`Node: ${n} checks${problems.length ? `, ${problems.length} failed` : ' passed'}`);
 
 // ---- 2. Chromium (step 2) ----
@@ -509,6 +534,22 @@ host.ready().then(() => {
     };
     await upload('cpcheck');
     await upload('cppage', 'page');
+    // A third uploaded module for the scrolled-frame case: sandboxed, with a tall document and a button far down it, and `tags` on so
+    // host.tags.picker may open.
+    {
+      const id = 'cpscroll';
+      const modDir = path.join(dataDir, `${id}-src`);
+      fs.mkdirSync(path.join(modDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(modDir, 'module.json'), JSON.stringify({ id, name: 'Colour check scrolled', version: '0.0.1', icon: 'palette', scope: ['environment'], tags: true, surfaces: { page: { entry: `${id}.html` } } }));
+      fs.writeFileSync(path.join(modDir, 'src', `${id}.html`), '<!doctype html><html><head><meta charset="utf-8"><style>/*__CSS__*/</style></head><body><div id="tall"><button id="sb" type="button">Far down</button></div><script>/*__JS__*/</script></body></html>');
+      fs.writeFileSync(path.join(modDir, 'src', `${id}.css`), 'body { margin: 0; } #tall { position: relative; height: 3200px; } #sb { position: absolute; left: 40px; top: 1300px; }');
+      fs.writeFileSync(path.join(modDir, 'src', `${id}.js`), `const host = (document.currentScript && document.currentScript.host) || window.host;
+host.ready().then(() => { window.__host = host; window.__ready = true; });`);
+      const up = await fetch(`${server.base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', cookie: jar }, body: buildModule(modDir).zip });
+      ok(up.status === 201, `the test module ${id} was not uploaded: ${up.status} ${(await up.text()).slice(0, 200)}`);
+      const en = await fetch(`${server.base}/api/modules/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json', cookie: jar }, body: JSON.stringify({ enabled: true }) });
+      ok(en.status === 200, `the test module ${id} could not be turned on: ${en.status} ${(await en.text()).slice(0, 200)}`);
+    }
     systemCss = await (await fetch(`${server.base}/sdk/system.css`)).text();
 
     browser = await launch(chrome);
@@ -530,6 +571,7 @@ host.ready().then(() => {
         await pageCases({ tab, send, label, coarse, size, mode, height });
         await frameCases({ tab, send, label, coarse });
         await inPageToolbar({ tab, send, label, coarse });
+        if (size === 1280 && mode === 'light') await scrolledFrame({ tab, send, label });
       } catch (e) {
         n += 1;
         problems.push(`${label}: stopped: ${e && (e.stack || e.message)}`);
@@ -1227,6 +1269,114 @@ host.ready().then(() => {
       answers.push(await tab.eval('window.__answers.at(-1)'));
     }
     await tab.eval(`(document.getElementById('cp-host-in').remove(), 1)`);
+
+    // S1: a picker is open; a press on the page's top bar (outside the module) closes it; within 600ms a press on an anchored
+    // colorField trigger opens its picker (the outside press must not swallow the next open).
+    // S2: open the picker from a button, press its group heading ("Strong"), then Escape: focus is back on the button.
+    const TRIGGER = `(() => { let found = null; const walk = (r) => { for (const e of r.querySelectorAll('.sdk-picker')) found = found || e; for (const e of r.querySelectorAll('*')) if (e.shadowRoot) walk(e.shadowRoot); }; walk(document); return found; })()`;
+    const trig = await tab.eval(`(() => { const t = ${TRIGGER}; if (!t) return null; const r = t.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, bottom: r.bottom }; })()`);
+    const bar = await tab.eval(`(() => { const h = document.querySelector('header.topbar'); if (!h) return null; const r = h.getBoundingClientRect(); for (let x = r.left + 4; x < r.right - 4; x += 6) { const y = r.top + r.height / 2; const e = document.elementFromPoint(x, y); if (e === h) return { x, y }; } return null; })()`);
+    if (!trig) ok(false, `${label}: S1: the in-page module's colour field trigger is not on the page`);
+    else if (!bar) ok(false, `${label}: S1: found no bare spot on the page's top bar to press`);
+    else {
+      await press(send, coarse, trig.x, trig.y);
+      ok(await waitOpen(), `${label}: S1: the field's trigger opened no picker`);
+      await press(send, coarse, bar.x, bar.y); // press() waits 60ms
+      ok(!(await pickerOpen()), `${label}: S1: a press on the page's top bar left the picker open`);
+      await press(send, coarse, trig.x, trig.y); // within 600ms of the bar press
+      await sleep(100);
+      const under = await tab.eval(`(() => { const p = ${DEEP_CP}; if (!p) return null; const t = ${TRIGGER}.getBoundingClientRect(); const r = p.getBoundingClientRect(); return Math.abs(r.top - (t.bottom + 4)) <= 8 || Math.abs(t.top - r.bottom) <= 8; })()`);
+      ok(under !== null, `${label}: S1 (the page's top bar, then the field's trigger within 600ms): the trigger's press opened no picker`);
+      ok(under !== false, `${label}: S1: the picker did not open under the trigger`);
+      await key(send, 'Escape');
+      await sleep(150);
+    }
+    // S2 from the toolbar button.
+    await tab.eval(`(document.querySelector('[data-cp-check]').focus(), 1)`);
+    if (await pickerOpen()) { await key(send, 'Escape'); await sleep(100); }
+    await press(send, coarse, btn.x, btn.y);
+    if (!(await waitOpen())) ok(false, `${label}: S2: the button opened no picker`);
+    else {
+      const head = await tab.eval(`(() => { const p = ${DEEP_CP}; const h = [...p.querySelectorAll('.sdk-cp-head')].find((e) => e.textContent.trim() === 'Strong'); if (!h) return null; const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+      if (!head) ok(false, `${label}: S2: the picker has no "Strong" heading`);
+      else {
+        await press(send, coarse, head.x, head.y);
+        ok(await pickerOpen(), `${label}: S2: a press on the "Strong" heading closed the picker`);
+        await key(send, 'Escape');
+        await sleep(200);
+        ok(!(await pickerOpen()), `${label}: S2: the picker is still open after Escape`);
+        same(await onButton(), 'button (the toolbar button)', `${label}: S2: after a press on the "Strong" heading and Escape, focus is not back on the button`);
+      }
+    }
+  }
+
+  // ---- a scrolled frame: popovers open at their anchor ----
+  // The module's document is taller than its frame and is scrolled past 1000px; the anchor button is in view, near the top of the frame.
+  // Each popover (a menu, its flyout, the tag picker, an anchored colour picker) must open within 4px of where the anchor is on screen:
+  // its top 4px under the anchor's foot (or its foot 4px over the anchor's top, when it flips), measured in the frame's own viewport.
+  async function scrolledFrame({ tab, send, label }) {
+    const attached = [];
+    const hook = (m) => { if (m.method === 'Target.attachedToTarget' && m.sessionId === tab.sid && m.params.targetInfo.type === 'iframe') attached.push(m.params.sessionId); };
+    cdp.listeners.push(hook);
+    try {
+      await send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+      await send('Page.navigate', { url: `${server.base}/modules/cpscroll` });
+      let sid = null;
+      for (let i = 0; i < 150 && !sid; i += 1) {
+        for (const s of attached) {
+          const r = await cdp.send('Runtime.evaluate', { expression: 'window.__ready === true', returnByValue: true }, s).catch(() => null);
+          if (r && r.result && r.result.value === true) sid = s;
+        }
+        if (!sid) await sleep(100);
+      }
+      if (!sid) { ok(false, `${label}: scrolled frame: the module's frame did not start in its own process`); return; }
+      await cdp.send('Runtime.enable', {}, sid).catch(() => {});
+      const fev = async (expr) => {
+        const r = await cdp.send('Runtime.evaluate', { expression: `(async () => (${expr}))()`, returnByValue: true, awaitPromise: true }, sid);
+        if (r.exceptionDetails) throw new Error(`frame error: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
+        return r.result.value;
+      };
+      const until = async (expr) => { for (let i = 0; i < 40; i += 1) { if (await fev(expr).catch(() => false)) return true; await sleep(100); } return false; };
+      await fev(`(window.scrollTo(0, 1100), 1)`);
+      await sleep(200);
+      const y = await fev('window.scrollY');
+      ok(y > 1000, `${label}: scrolled frame: the frame's document is at ${y}; wanted more than 1000`);
+      // Where the popover is against the anchor (both in the frame's viewport).
+      const gap = (sel, anchorSel = '#sb') => fev(`(() => { const a = document.querySelector(${JSON.stringify(anchorSel)}).getBoundingClientRect(); const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const m = e.getBoundingClientRect(); return { anchorTop: Math.round(a.top), anchorBottom: Math.round(a.bottom), top: Math.round(m.top), bottom: Math.round(m.bottom), below: Math.round(m.top - a.bottom), above: Math.round(a.top - m.bottom) }; })()`);
+      const fits = (g) => g && (Math.abs(g.below - 4) <= 4 || Math.abs(g.above - 4) <= 4);
+      const say2 = (g) => JSON.stringify(g);
+
+      // host.menu.show, and its flyout
+      await fev(`(window.__host.menu.show({ id: 'sc-menu', anchor: document.getElementById('sb'), items: [{ id: 'a', label: 'Alpha' }, { id: 'c', label: 'Category', items: [{ id: 'x', label: 'Inner' }, { id: 'y', label: 'Inner two' }] }] }), 1)`);
+      await until(`Boolean(document.querySelector('.sdk-menu'))`);
+      let g = await gap('.sdk-menu:not(.sdk-menu-flyout)');
+      ok(fits(g), `${label}: scrolled frame: host.menu.show opened away from its anchor (scrollY ${y}): ${say2(g)}; wanted its top 4px (within 4) under the anchor`);
+      await fev(`(document.querySelector('.sdk-menu-category').click(), 1)`);
+      const flew = await until(`Boolean(document.querySelector('.sdk-menu-flyout'))`);
+      if (!flew) ok(false, `${label}: scrolled frame: the menu's category opened no flyout`);
+      else {
+        const f = await fev(`(() => { const r = document.querySelector('.sdk-menu-category').getBoundingClientRect(); const m = document.querySelector('.sdk-menu-flyout').getBoundingClientRect(); return { rowTop: Math.round(r.top), flyTop: Math.round(m.top), flyBottom: Math.round(m.bottom) }; })()`);
+        ok(f.flyBottom > 0 && f.flyTop >= 0 && Math.abs(f.flyTop - f.rowTop) <= 8, `${label}: scrolled frame: the flyout opened away from its category (scrollY ${y}): ${say2(f)}; wanted its top within 8px of the row's (a flyout lines up with its row, less the menu's padding)`);
+      }
+      await fev(`(window.__host.menu.close(), 1)`);
+
+      // host.tags.picker
+      await fev(`(window.__tp = window.__host.tags.picker(document.getElementById('sb'), {}), 1)`);
+      await until(`Boolean(document.querySelector('.sdk-tag-picker'))`);
+      g = await gap('.sdk-tag-picker');
+      ok(fits(g), `${label}: scrolled frame: host.tags.picker opened away from its anchor (scrollY ${y}): ${say2(g)}; wanted its top 4px (within 4) under the anchor`);
+      await fev(`(window.__tp.close(), 1)`);
+
+      // an anchored colour picker
+      await fev(`(window.__cpp = window.__host.ui.colorPicker({ anchor: document.getElementById('sb'), value: '#2f6cbf' }), 1)`);
+      await until(`Boolean(document.querySelector('.sdk-cp'))`);
+      g = await gap('.sdk-cp');
+      ok(fits(g), `${label}: scrolled frame: an anchored host.ui.colorPicker opened away from its anchor (scrollY ${y}): ${say2(g)}; wanted its top 4px (within 4) under the anchor`);
+      await fev(`(window.__host.ui.colorPicker({ anchor: document.getElementById('sb'), value: '#2f6cbf' }), 1)`); // the same anchor again closes it
+      answers.push(await fev('window.__cpp'));
+    } finally {
+      cdp.listeners = cdp.listeners.filter((f) => f !== hook);
+    }
   }
 
   // ---- read cases 5, 10 and 11: the phone widths ----
