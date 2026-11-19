@@ -900,9 +900,9 @@ if (answer) save(answer.color, answer.opacity); // null: nothing chosen
 - Enter in the **Hex** field answers what is shown and closes. It is always a choice, even on the colour the picker opened with.
 - A press outside the picker answers what is shown if anything changed since it opened, else `null`.
 - Escape answers `null`.
-- The same call again while it is open (the same `anchor`, or the same point) closes it and answers `null`: a second press on the same toolbar button is a toggle. A call with another anchor or point closes the first (`null`) and opens the new one.
+- The same call again while it is open (the same `anchor`, or the same point) closes it and answers `null`: a second press on the same toolbar button is a toggle. A press on the module's own toolbar or title bar closes the picker, and the same call within 600 ms after that counts as the toggle and answers `null`; a press anywhere else closes it without that rule. A call with another anchor or point closes the first (`null`) and opens the new one.
 - One picker or menu is open at a time: opening the picker closes any `host.menu.show` menu, and a menu closes the picker.
-- Focus goes back to the anchor, or for a point to what had it when the picker opened (a toolbar button, through the host in a frame). After a press outside it stays where the person pressed.
+- Focus goes back to the anchor, or for a point to what had it when the picker opened (a toolbar button, through the host in a frame). After a press outside it stays where the person pressed. A press inside the picker on a heading or a gap keeps the focus in it.
 
 **Where it opens.**
 
@@ -920,8 +920,7 @@ if (answer) save(answer.color, answer.opacity); // null: nothing chosen
 - The input stays, hidden, and holds `#rrggbb`. A choice that changes the colour sets it and fires `input`, then `change`, from it, so a form reads and saves it as before. `onChange({ color, opacity })` runs when the colour or the opacity changed; the input never holds the opacity.
 - `palette`, `opacity`, `recent` and `label` are the picker's. Pass `opacity: false` where the value keeps the colour only.
 - `value` is the colour the input holds, or `''` when it holds none (the trigger then shows the palette's first colour). `set(hex)` shows a colour without telling anyone (no events, no `onChange`) and ignores anything that is not a hex. `open()` opens the picker and returns its Promise; `close()` closes it. `destroy()` takes the trigger away and shows the input again.
-- It follows a disabled input, and a disabled fieldset around it: the trigger is disabled with it and won't open.
-- A `<label for>` that points at the input is moved to the trigger, and `destroy()` puts it back.
+- It follows a disabled input, and a disabled fieldset around it: the trigger is disabled with it and won't open.- A `<label for>` that points at the input is moved to the trigger, and `destroy()` puts it back.
 - Anything but an `<input>` throws "host.ui.colorField needs an <input>".
 
 **Keyboard and screen reader.** The picker is a dialog named by `label`. The area is one slider, "Saturation and brightness": Left and Right change the saturation, Up and Down the brightness. **Hue** and **Opacity** are sliders too. Arrows move by 1 and by 10 with Shift; on Hue and Opacity Page Up and Page Down move by 10 and Home and End go to the ends, and on the area Home and End go to the ends of the saturation. **Hex** is a text field: it takes `2f6cbf` or `#2F6CBF` and shows it lower case; a bad value is marked with "Type six hex digits, like #2f6cbf" and changes nothing. The palette and Recent are each a radio group (one Tab stop, arrows inside), each swatch named by its colour's name, or its hex. Tab goes round inside the picker. A live line says the colour once it settles ("Teal, #00796b"). A switched-off Opacity stays in the Tab order and is described by its line.
