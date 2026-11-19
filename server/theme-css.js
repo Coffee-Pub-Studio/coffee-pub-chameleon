@@ -72,4 +72,4 @@ function themeVersion(sets, defaultMode) {
   return crypto.createHash('sha256').update(themeCss(sets, defaultMode)).digest('hex').slice(0, 12);
 }
 
-module.exports = { MODES, isMode, themeCss, themeVersion, LEGACY, PICKED };
+module.exports = { MODES, isMode, themeCss, themeVersion, LEGACY, PICKED, NEUTRAL_WASH };

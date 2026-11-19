@@ -125,6 +125,14 @@
   // The same list as public/module-host.js (THEME_TOKENS): what a module's frame is given of the host's theme.
   const THEME_TOKENS = ['--bg', '--bg-section', '--bg-card', '--bg-input', '--border', '--text', '--text-dim', '--accent', '--on-accent', '--accent-hover', '--primary-hover', '--secondary', '--secondary-text', '--secondary-hover', '--header-bg', '--header-text', '--icon-hover', '--danger', '--ok', '--surface', '--surface-hover', '--shade',
     '--accent-fill', '--accent-fill-hover', '--text-on-accent', '--fill-secondary', '--fill-secondary-hover', '--text-on-secondary', '--edge-hairline', '--text-primary', '--text-muted', '--fill-hover', '--fill-selected', '--text-selected', '--focus-ring', '--status-danger-fill', '--status-danger-text', '--status-danger-on-fill',
+    '--surface-page', '--surface-panel', '--surface-card', '--surface-field', '--surface-menu', '--surface-message', '--edge-field',
+    '--surface-bar-top', '--surface-bar-nav', '--surface-bar-brand', '--surface-bar-right', '--text-bar', '--text-bar-brand', '--text-bar-right', '--icon-bar',
+    '--icon-default', '--text-accent', '--ink-neutral', '--ink-brand', '--wash-ink', '--fill-chosen', '--text-on-chosen', '--ink-chosen',
+    '--wash-selected', '--wash-today', '--wash-own', '--wash-pick', '--card-head-step',
+    '--status-ok-fill', '--status-ok-text', '--status-ok-on-fill', '--status-ok-mark', '--status-warn-fill', '--status-warn-text', '--status-warn-on-fill',
+    '--status-info-fill', '--status-info-text', '--status-info-on-fill',
+    '--mf-surface-title', '--mf-surface-toolbar', '--mf-surface-row', '--mf-surface-row-hover',
+    '--tone-gold', '--tone-blue', '--tone-green', '--tone-teal', '--tone-purple', '--tone-red', '--tone-orange', '--tone-pink',
     '--tint-gold', '--tint-blue', '--tint-green', '--tint-teal', '--tint-purple', '--tint-red', '--tint-orange', '--tint-pink'];
   let mode = 'dark';
   let width = 'fit';

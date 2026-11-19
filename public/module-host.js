@@ -24,6 +24,18 @@ const THEME_TOKENS = [
   '--accent-fill', '--accent-fill-hover', '--text-on-accent', '--fill-secondary', '--fill-secondary-hover', '--text-on-secondary',
   '--edge-hairline', '--text-primary', '--text-muted', '--fill-hover', '--fill-selected', '--text-selected', '--focus-ring',
   '--status-danger-fill', '--status-danger-text', '--status-danger-on-fill',
+  // The rest of the roles /theme.css may write (server/store.js THEME_BASE and THEME_OPTIONAL, server/theme-css.js PICKED and NEUTRAL_WASH).
+  // A frame has system.css but not style.css or /theme.css, and system.css works its other roles out from these (a menu's and a
+  // popover's surface from --surface-panel): without them those roles are invalid in a frame and a popover has no background.
+  // tools/check-module-host.mjs holds this list to those.
+  '--surface-page', '--surface-panel', '--surface-card', '--surface-field', '--surface-menu', '--surface-message', '--edge-field',
+  '--surface-bar-top', '--surface-bar-nav', '--surface-bar-brand', '--surface-bar-right', '--text-bar', '--text-bar-brand', '--text-bar-right', '--icon-bar',
+  '--icon-default', '--text-accent', '--ink-neutral', '--ink-brand', '--wash-ink', '--fill-chosen', '--text-on-chosen', '--ink-chosen',
+  '--wash-selected', '--wash-today', '--wash-own', '--wash-pick', '--card-head-step',
+  '--status-ok-fill', '--status-ok-text', '--status-ok-on-fill', '--status-ok-mark', '--status-warn-fill', '--status-warn-text', '--status-warn-on-fill',
+  '--status-info-fill', '--status-info-text', '--status-info-on-fill',
+  '--mf-surface-title', '--mf-surface-toolbar', '--mf-surface-row', '--mf-surface-row-hover',
+  '--tone-gold', '--tone-blue', '--tone-green', '--tone-teal', '--tone-purple', '--tone-red', '--tone-orange', '--tone-pink',
   // The tints (plan-chat-model.md), in the mode showing, so a module's own colour matches the host's.
   '--tint-gold', '--tint-blue', '--tint-green', '--tint-teal', '--tint-purple', '--tint-red', '--tint-orange', '--tint-pink',
 ];
