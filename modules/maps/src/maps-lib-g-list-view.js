@@ -289,8 +289,8 @@ async function runList(env) {
 
   // The pane's width, not the window's: a bundled module runs in the page, so a media query would follow the window.
   const fit = () => {
-    const w = $('list-app').clientWidth; // the list's own pane
-    if (w) $('list-app').classList.toggle('narrow', w < 720);
+    const pane = $('list-app'); // the list's own pane; gone while the markup is drawn again, when the observer still fires
+    if (pane && pane.clientWidth) pane.classList.toggle('narrow', pane.clientWidth < 720);
   };
   fit();
   new ResizeObserver(fit).observe($('list-app'));

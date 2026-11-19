@@ -846,6 +846,9 @@ body.host-console .topbar .brand-home .product-lockup {
 #space-templates-status:empty { display: none; }
 #space-templates-status:not(:empty) { margin-top: var(--space-2); }
 
+/* Manage > About > Open-source software: the status line, empty until the list fails to load, takes no room, so the panel's padding is its own. */
+#credits-status:empty { display: none; }
+
 .status.error {
   color: var(--danger-text);
 }
@@ -4947,7 +4950,7 @@ a.crumb-here:hover {
 /* A focused row scrolls clear of the sticky Save bar (WCAG 2.4.11): the page and each list keep room for it. */
 html:has(#lists-save-bar) { scroll-padding-bottom: 96px; }
 .tp-fold .fold-list { scroll-padding-bottom: 8px; }
-.save-bar { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; padding: 10px 0; background: var(--surface-panel); border-top: 1px solid var(--border); }
+.save-bar { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; padding: 12px 0; background: var(--surface-panel); border-top: 1px solid var(--border); }
 .save-bar .status:empty { display: none; }
 
 /* Member tiles on a space: click to toggle, lit while in the space (.sdk-member-toggle, system.css) */
@@ -8759,7 +8762,7 @@ h4.setup-subheading {
 /* Phases: the phase sheet's rows (phase-sheet:start above), inline, each a card as on a phone: the name, then Start and
    End side by side, the length and Skip under them. */
 .setup-phases-now {
-  margin: 0 0 6px;
+  margin: 0 0 8px;
   font-weight: var(--weight-strong);
 }
 
@@ -8805,7 +8808,7 @@ h4.setup-subheading {
 }
 
 .setup-phases-status {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-size: var(--text-13);
   font-weight: var(--weight-strong);
 }
@@ -10104,7 +10107,7 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 .guest-banner { flex: none; }
 .guest-docs { max-height: 40vh; overflow-y: auto; text-align: left; margin: 8px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-medium); background: var(--bg-card); color: var(--text); }
 .guest-docs h2 { font-size: var(--text-14); margin: 8px 0 4px; }
-#guest-unavailable { margin: 6px 0 0; padding-left: 18px; }
+#guest-unavailable { margin: 8px 0 0; padding-left: 18px; }
 #guest-leave { margin-top: 12px; }
 
 /* The environment's set on a template's Additional Reactions and Icons (the built-in lists on the console): folded, read only. */
@@ -10124,7 +10127,7 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 /* An agent's message in Chat: the word "agent" beside the name (the chip itself is .sdk-status). */
 .message-head-side > .message-agent { flex: none; min-height: 0; height: 18px; padding: 0 var(--space-2); font-size: var(--text-11); line-height: 18px; }
 .message-head-side:has(> .message-agent) > .message-name { flex: 0 0 auto; max-width: 60%; } /* the time gives way, not the name */
-.agent-token-dialog .agent-token-value { display: block; font-size: var(--text-13); padding: 10px 12px; user-select: all; }
+.agent-token-dialog .agent-token-value { display: block; font-size: var(--text-13); padding: 12px; user-select: all; }
 .agent-token-dialog .agent-token-warning { color: var(--text); }
 @media (max-width: 640px) {
   .agent-name-field { max-width: none; flex-basis: 100%; }

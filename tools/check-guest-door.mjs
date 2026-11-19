@@ -746,6 +746,8 @@ try {
     // enter), each answering the guest role's share: read-only lists, the guest's refusals ("Guests can't use AI"), or nothing.
     'GET /api/spaces/:id/tags': [200], 'GET /api/spaces/:id/layouts': [200], 'GET /api/spaces/:id/ai': [200], 'GET /api/spaces/:id/objects/check': [200],
     'GET /api/spaces/:id/look': [200], 'GET /api/spaces/:id/phases': [200], 'GET /api/spaces/:id/actions': [200], 'POST /api/objects/resolve': [200], 'POST /api/chat/citations': [200], 'GET /api/objects/kinds': [200],
+    // The welcome note (plan-entering.md, the welcome note, decision 3): a guest reads it and marks it seen, once per browser session, with nothing stored.
+    'GET /api/environment/welcome': [200], 'POST /api/environment/welcome/seen': [200],
     'GET /api/modules/nav': [200], 'GET /api/modules/widgets': [200], 'GET /api/destinations': [200], 'GET /api/modules/for-space': [200],
     'GET /api/modules/stream': [200, 0], 'GET /modules/:id': [200],
     'GET /img/:key/:slot': [200, 404], 'GET /img/space/:id': [200, 404], 'GET /img/guest/:slot': [200, 404], 'GET /img/default/:slot': [200, 404],
