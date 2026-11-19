@@ -1938,7 +1938,14 @@ const phaseView = (list) => (Array.isArray(list) ? list : []).map((p) => ({ id: 
 // `guest`: the viewer has no account; the template's layout then reads as a guest is shown it (guestShape).
 function lookView(spaceId, guest = false) {
   const look = store.lookOf(spaceId);
-  const workspace = look.workspace && look.workspace.layout ? { ...look.workspace, layout: guestShape(look.workspace.layout, guest, spaceId) } : look.workspace;
+  let workspace = look.workspace && look.workspace.layout ? { ...look.workspace, layout: guestShape(look.workspace.layout, guest, spaceId) } : look.workspace;
+  // A guest has no Fixed Workspaces at all (systemLayoutsFor answers none), so the template's `show` and `opensFirst` are
+  // not theirs to be told: show reads empty and the first visit is the Workspace. No page of a guest reads them.
+  if (guest && workspace) {
+    workspace = { ...workspace };
+    if ('show' in workspace) workspace.show = [];
+    if ('opensFirst' in workspace) workspace.opensFirst = 'workspace';
+  }
   return { words: look.words, verbs: look.verbs, phases: phaseView(look.phases), phaseMeasure: look.phaseMeasure, call: { ...CALL_DEFAULTS, ...look.call }, reactions: look.reactions, icons: look.icons, inUseIcons: look.inUseIcons, workspace };
 }
 // The phases a space reads, for the rules that walk them (the AI's rollup, covering the main phase).
