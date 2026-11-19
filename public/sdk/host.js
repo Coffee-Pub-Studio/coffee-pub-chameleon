@@ -1116,6 +1116,122 @@
   }
   // outline:end
 
+  // ---- The colour picker's pure parts (plan-colour-picker.md, step 1) -------------------------------------------------------------
+  // Cleaning a hex, hex to hue, saturation and brightness and back, the default palette, the palette check, the answer's shape and
+  // host.util.contrast / host.util.readableOn. Pure code between the markers, so tools/check-colour-picker.mjs can slice it out of
+  // this file and run it in Node. The contrast maths is theme-colour.js's (contrast, pickOn); the check holds the two equal.
+  // colour:start
+  const COLOUR_HEX = /^#[0-9a-f]{6}$/;
+  // '#2F6CBF', '2f6cbf' and ' #2f6cbf ' are '#2f6cbf'; anything else (3 or 8 digits, a name, url(), not a string) is null.
+  function colourClean(value) {
+    if (typeof value !== 'string') return null;
+    const m = /^#?([0-9a-fA-F]{6})$/.exec(value.trim());
+    return m ? `#${m[1].toLowerCase()}` : null;
+  }
+  // '#rrggbb' to { h: 0 to under 360, s: 0 to 100, v: 0 to 100 }, unrounded, so it goes back to the same hex. A grey has hue 0.
+  function colourToHsv(hex) {
+    const c = colourClean(hex);
+    if (!c) throw new TypeError('colourToHsv takes a #rrggbb colour');
+    const n = parseInt(c.slice(1), 16);
+    const r = (n >> 16) / 255;
+    const g = ((n >> 8) & 255) / 255;
+    const b = (n & 255) / 255;
+    const max = Math.max(r, g, b);
+    const d = max - Math.min(r, g, b);
+    let h = 0;
+    if (d > 0) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+      if (h < 0) h += 360;
+      if (h >= 360) h -= 360;
+    }
+    return { h, s: max === 0 ? 0 : (d / max) * 100, v: max * 100 };
+  }
+  // { h, s, v } back to '#rrggbb', lower case. The hue wraps; saturation and brightness are held to 0 to 100.
+  function colourFromHsv(hsv) {
+    const num = (x) => (typeof x === 'number' && Number.isFinite(x) ? x : 0);
+    const o = hsv || {};
+    const h = ((num(o.h) % 360) + 360) % 360;
+    const s = Math.max(0, Math.min(100, num(o.s))) / 100;
+    const v = Math.max(0, Math.min(100, num(o.v))) / 100;
+    const f = (k) => { const x = (k + h / 60) % 6; return v - v * s * Math.max(0, Math.min(x, 4 - x, 1)); };
+    return `#${[f(5), f(3), f(1)].map((x) => Math.max(0, Math.min(255, Math.round(x * 255))).toString(16).padStart(2, '0')).join('')}`;
+  }
+  // The default palette: three named groups of eight. A picked colour is data, the same in every theme, so these are not tokens.
+  // (Each colour is written as [name, hex] so that no line here reads as a stylesheet declaration.)
+  const COLOUR_PALETTE = Object.freeze([
+    ['Light', [['White', '#ffffff'], ['Cream', '#f5eedb'], ['Light grey', '#e4e6ea'], ['Light blue', '#dce9f6'],
+      ['Light green', '#ddeedd'], ['Light yellow', '#fbf4c8'], ['Light pink', '#f8e0e9'], ['Light purple', '#e8e0f5']]],
+    ['Dark', [['Black', '#000000'], ['Slate', '#2b3440'], ['Dark grey', '#34373c'], ['Navy', '#14274b'],
+      ['Forest', '#163a2b'], ['Wine', '#4a1b2b'], ['Plum', '#2f2050'], ['Brown', '#3d2b1f']]],
+    ['Strong', [['Red', '#c0392b'], ['Orange', '#b8560f'], ['Gold', '#8a6a00'], ['Green', '#2e7d32'],
+      ['Teal', '#00796b'], ['Blue', '#2f6cbf'], ['Purple', '#7c55c8'], ['Pink', '#b23f7f']]],
+  ].map(([heading, list]) => Object.freeze({ heading, colours: Object.freeze(list.map(([name, hex]) => Object.freeze({ name, color: hex }))) })));
+  // A module's own palette, checked: a fresh copy [{ heading, colours: [{ name, color }] }] with names trimmed and colours cleaned.
+  // At most 6 groups and 48 colours; every heading and name plain text (at most 40 characters, no control characters, no < or >).
+  function colourPaletteCheck(palette) {
+    const refuse = () => new TypeError('host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour');
+    const plain = (x) => {
+      if (typeof x !== 'string') return null;
+      const t = x.trim();
+      return t && t.length <= 40 && !/[\u0000-\u001f\u007f-\u009f<>]/.test(t) ? t : null;
+    };
+    if (!Array.isArray(palette) || !palette.length || palette.length > 6) throw refuse();
+    let count = 0;
+    return palette.map((group) => {
+      const heading = group && typeof group === 'object' ? plain(group.heading) : null;
+      const list = group && Array.isArray(group.colours) ? group.colours : null;
+      if (!heading || !list || !list.length) throw refuse();
+      count += list.length;
+      if (count > 48) throw refuse();
+      return {
+        heading,
+        colours: list.map((entry) => {
+          const name = entry && typeof entry === 'object' ? plain(entry.name) : null;
+          const hex = entry && typeof entry === 'object' ? colourClean(entry.color) : null;
+          if (!name || !hex) throw refuse();
+          return { name, color: hex };
+        }),
+      };
+    });
+  }
+  // An opacity as a whole percent from 0 to 100; anything that is not a number is 100.
+  function colourOpacity(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 100;
+  }
+  // The picker's answer: { color: '#rrggbb', opacity: 0 to 100 }; with keepsOpacity false the opacity is always 100.
+  function colourAnswer(color, opacity, keepsOpacity) {
+    const c = colourClean(color);
+    if (!c) throw new TypeError('host.ui.colorPicker answers a #rrggbb colour');
+    return { color: c, opacity: keepsOpacity === false ? 100 : colourOpacity(opacity) };
+  }
+  // The WCAG 2 contrast ratio of two #rrggbb colours (theme-colour.js's maths, the same constants).
+  const colourLum = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    const f = (v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(n >> 16) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255);
+  };
+  function colourContrast(a, b) {
+    const x = colourClean(a);
+    const y = colourClean(b);
+    if (!x || !y) throw new TypeError('host.util.contrast takes two #rrggbb colours');
+    const p = colourLum(x);
+    const q = colourLum(y);
+    return (Math.max(p, q) + 0.05) / (Math.min(p, q) + 0.05);
+  }
+  // White or near-black words on a fill, whichever has more contrast (white on a tie, as pickOn); ok at 4.5:1 or more.
+  function colourReadableOn(fill) {
+    const f = colourClean(fill);
+    if (!f) throw new TypeError('host.util.readableOn takes a #rrggbb colour');
+    const w = colourContrast('#ffffff', f);
+    const d = colourContrast('#0a0a0a', f);
+    const ratio = Math.max(w, d);
+    return { color: w >= d ? '#ffffff' : '#0a0a0a', ratio, ok: ratio >= 4.5 };
+  }
+  // colour:end
+
   // The words the outline says itself; the module passes its own as `labels` (it does not translate these).
   const OUTLINE_WORDS = {
     empty: 'Nothing here yet.', name: 'Outline', move: 'Move', open: 'Open', moveUp: 'Move up', moveDown: 'Move down', indent: 'Indent', outdent: 'Outdent',
@@ -2474,6 +2590,11 @@
       // The progress of each parent in a list of entries { id, parent, done }: rollup(entries) is { <parent id>: { done, total } }, counted
       // over the entries below it at any depth that have no children of their own. `rollup(entries, { done(entry) })` says what counts as done.
       rollup: outlineRollup,
+      // The WCAG 2 contrast ratio of two #rrggbb colours, a number: contrast('#ffffff', '#2f6cbf') is about 5.1. Throws for anything else.
+      contrast: colourContrast,
+      // The words to put on a fill: readableOn('#2f6cbf') is { color: '#ffffff', ratio, ok }, white or '#0a0a0a', whichever reads
+      // better, and ok at 4.5:1 or more. The same pick as the theme editor's. Throws for anything that is not #rrggbb.
+      readableOn: colourReadableOn,
       // Dates as "2026-09-24" (a local day): text from a Date, and back.
       ymd: (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
       // The phase timeline of the space this module is in (public/phases.js timelineOf, the rule the server runs; see
