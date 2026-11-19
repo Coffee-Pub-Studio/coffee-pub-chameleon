@@ -4745,6 +4745,9 @@ html[data-dialog-open] { overflow: hidden; }
   --cp-check-a: color-mix(in srgb, var(--text-primary) 16%, transparent);
   --cp-check-b: color-mix(in srgb, var(--text-primary) 4%, transparent);
   --cp-checks: repeating-conic-gradient(var(--cp-check-a) 0 25%, var(--cp-check-b) 0 50%);
+  /* The hex error line: --status-danger-text is 4.4:1 on the dark menu surface of the default theme; a step toward the text colour
+     takes it past 4.5:1 in both modes. */
+  --cp-error: color-mix(in srgb, var(--status-danger-text) 80%, var(--text-primary));
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -4878,9 +4881,14 @@ html[data-dialog-open] { overflow: hidden; }
 .sdk-cp-row .sdk-cp-dropper { width: var(--cp-ctl-h); height: var(--cp-ctl-h); }
 .sdk-cp-dropper[hidden] { display: none; }
 
-.sdk-cp .sdk-cp-error { padding-top: 0; }
+.sdk-cp .sdk-cp-error { padding-top: 0; color: var(--cp-error); }
 
 .sdk-cp-swatches { display: flex; flex-direction: column; }
+
+/* Eight cells to a row whatever the room: a cell narrows (never past its swatch) when the box is under eight 44px cells wide (a 360px
+   phone), and keeps its height, so each target stays 44px tall. */
+.sdk-cp .sdk-swatch-grid { grid-template-columns: repeat(8, minmax(var(--pk-sw), var(--pk-sw-cell))); }
+.sdk-cp .sdk-swatch { width: 100%; }
 
 .sdk-cp-head {
   padding: var(--space-1) var(--space-0) var(--space-0);

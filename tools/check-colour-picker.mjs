@@ -80,6 +80,7 @@ const finish = () => {
     process.exit(1);
   }
   say(`OK (${n} checks)`);
+  process.exit(0); // the DevTools helper's request timers would otherwise hold the process for 30s
 };
 
 const sdk = read('public/sdk/host.js');
@@ -474,12 +475,16 @@ async function browserHalf(chrome) {
     const jar = cookies.map((c) => `${c.name}=${c.value}`).join('; ');
 
     // The uploaded test module: a toolbar button that opens the picker at { x, y: 4 }, and a colour field in a form.
-    const modDir = path.join(dataDir, 'cpcheck-src');
-    fs.mkdirSync(path.join(modDir, 'src'), { recursive: true });
-    fs.writeFileSync(path.join(modDir, 'module.json'), JSON.stringify({ id: 'cpcheck', name: 'Colour check', version: '0.0.1', icon: 'palette', scope: ['environment'], surfaces: { page: { entry: 'cpcheck.html' } } }));
-    fs.writeFileSync(path.join(modDir, 'src', 'cpcheck.html'), '<!doctype html><html><head><meta charset="utf-8"><style>/*__CSS__*/</style></head><body><form id="form"><label for="fld">Fill</label> <input id="fld" type="text" value="#2f6cbf"></form><script>/*__JS__*/</script></body></html>');
-    fs.writeFileSync(path.join(modDir, 'src', 'cpcheck.css'), 'form { padding: 80px 16px; }');
-    fs.writeFileSync(path.join(modDir, 'src', 'cpcheck.js'), `const host = window.host; window.__answers = []; window.__events = [];
+    // Two uploaded test modules, the same but for where they run: cpcheck in its sandboxed frame, cppage in the page (runMode
+    // 'page', which the admin of a single-environment install may choose). Each has a toolbar button that opens the picker at
+    // { x, y: 4 }, and a colour field in a form.
+    const upload = async (id, runMode) => {
+      const modDir = path.join(dataDir, `${id}-src`);
+      fs.mkdirSync(path.join(modDir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(modDir, 'module.json'), JSON.stringify({ id, name: `Colour check ${id}`, version: '0.0.1', icon: 'palette', scope: ['environment'], surfaces: { page: { entry: `${id}.html` } } }));
+      fs.writeFileSync(path.join(modDir, 'src', `${id}.html`), '<!doctype html><html><head><meta charset="utf-8"><style>/*__CSS__*/</style></head><body><form id="form"><label for="fld">Fill</label> <input id="fld" type="text" value="#2f6cbf"></form><script>/*__JS__*/</script></body></html>');
+      fs.writeFileSync(path.join(modDir, 'src', `${id}.css`), 'form { padding: 80px 16px; }');
+      fs.writeFileSync(path.join(modDir, 'src', `${id}.js`), `const host = (document.currentScript && document.currentScript.host) || window.host; window.__answers = []; window.__events = [];
 host.ready().then(() => {
   const fld = host.root.getElementById('fld');
   fld.addEventListener('input', () => window.__events.push('input'));
@@ -491,10 +496,13 @@ host.ready().then(() => {
   } });
   window.__ready = true;
 });`);
-    const up = await fetch(`${server.base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', cookie: jar }, body: buildModule(modDir).zip });
-    ok(up.status === 201, `the test module was not uploaded: ${up.status} ${(await up.text()).slice(0, 200)}`);
-    const en = await fetch(`${server.base}/api/modules/cpcheck`, { method: 'PATCH', headers: { 'content-type': 'application/json', cookie: jar }, body: JSON.stringify({ enabled: true, allSpaces: true }) });
-    ok(en.status === 200, `the test module could not be turned on: ${en.status}`);
+      const up = await fetch(`${server.base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', cookie: jar }, body: buildModule(modDir).zip });
+      ok(up.status === 201, `the test module ${id} was not uploaded: ${up.status} ${(await up.text()).slice(0, 200)}`);
+      const en = await fetch(`${server.base}/api/modules/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json', cookie: jar }, body: JSON.stringify({ enabled: true, ...(runMode ? { runMode, acceptRisk: true } : {}) }) });
+      ok(en.status === 200, `the test module ${id} could not be turned on${runMode ? ` to run in the ${runMode}` : ''}: ${en.status} ${(await en.text()).slice(0, 200)}`);
+    };
+    await upload('cpcheck');
+    await upload('cppage', 'page');
     systemCss = await (await fetch(`${server.base}/sdk/system.css`)).text();
 
     browser = await launch(chrome);
@@ -515,9 +523,27 @@ host.ready().then(() => {
       try {
         await pageCases({ tab, send, label, coarse, size, mode, height });
         await frameCases({ tab, send, label, coarse });
+        await inPageToolbar({ tab, send, label, coarse });
       } catch (e) {
         n += 1;
         problems.push(`${label}: stopped: ${e && (e.stack || e.message)}`);
+      }
+      await tab.close();
+    }
+    // The phone widths (360, 375, 390): no sideways scroll, and at 375 the targets; at 360 a browser with no eyedropper.
+    for (const width of [360, 375, 390]) {
+      const tab = new Tab(cdp, {});
+      await tab.open(width, 'light', false);
+      const send = (m, p) => cdp.send(m, p, tab.sid);
+      await send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
+      await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      if (width === 360) await send('Page.addScriptToEvaluateOnNewDocument', { source: 'delete window.EyeDropper;' });
+      for (const c of cookies) await send('Network.setCookie', { ...c, url: server.base });
+      try {
+        await phoneCases({ tab, send, width });
+      } catch (e) {
+        n += 1;
+        problems.push(`${width}px phone: stopped: ${e && (e.stack || e.message)}`);
       }
       await tab.close();
     }
@@ -942,6 +968,103 @@ host.ready().then(() => {
       await ev('window.__f2.destroy()');
     }
 
+    // ==== The cases from step 2's independent read (QA). Each line says "read case N" so a failure can be traced to it. ====
+    // Read case 1: an empty text input. Choosing the colour the picker shows at first (the palette's first) still sets the input and
+    // sends input, change and onChange: by a swatch, and by Enter in Hex.
+    for (const how of ['a swatch', 'Enter in Hex']) {
+      await ev(`(() => { const i = document.createElement('input'); i.type = 'text'; i.id = 'empty'; i.value = ''; i.setAttribute('aria-label', 'Empty'); i.style.cssText = 'position:absolute;left:12px;top:70px'; __R.appendChild(i); window.__e1 = []; i.addEventListener('input', () => __e1.push('input')); i.addEventListener('change', () => __e1.push('change')); window.__ef = __h.ui.colorField(i, { onChange: (a) => __e1.push(a) }); return 1; })()`);
+      await ev('(window.__ef.open(), 1)');
+      await tick();
+      if (how === 'a swatch') await pressOn(swatch('White'));
+      else { await ev(`window.__in('.sdk-cp-hexin').focus()`); await key(send, 'Enter'); }
+      await tick();
+      same(await ev(`[__R.getElementById('empty').value, window.__e1]`), ['#ffffff', ['input', 'change', { color: '#ffffff', opacity: 100 }]], `${label}: read case 1: an empty input, the shown colour chosen by ${how}, sets the input and sends input, change and onChange`);
+      await ev(`(window.__ef.destroy(), __R.getElementById('empty').remove(), 1)`);
+      if (await open()) { await key(send, 'Escape'); await tick(); }
+    }
+
+    // Read case 2: two `at` opens at different points (two toolbar buttons): the second is open. The same point twice: both null.
+    same(await ev(`(async () => { const a = __h.ui.colorPicker({ at: { x: 30, y: 4 }, label: 'Fill' }); const b = __h.ui.colorPicker({ at: { x: 200, y: 4 }, label: 'Line' }); window.__two = b; const p = window.__cp(); return [await a, p ? p.getAttribute('aria-label') : 'none open']; })()`), [null, 'Line'], `${label}: read case 2: a second picker opened at another point while one is open is open (the first answers null)`);
+    if (await open()) await key(send, 'Escape');
+    answers.push(await ev('window.__two'));
+    same(await ev(`(async () => { const a = __h.ui.colorPicker({ at: { x: 30, y: 4 } }); const b = __h.ui.colorPicker({ at: { x: 30, y: 4 } }); return [await a, await b, Boolean(window.__cp())]; })()`), [null, null, false], `${label}: read case 2: the same point twice toggles, both null`);
+
+    // Read case 3: a module that opens another picker from onInput during a swatch's press: the new one stays open.
+    await ev(`(() => { window.__nest = null; window.__p3 = __h.ui.colorPicker({ anchor: __R.getElementById('a'), value: '#2f6cbf', onInput: () => { if (!window.__nest) window.__nest = __h.ui.colorPicker({ at: { x: 30, y: 30 }, label: 'Second' }); } }); return 1; })()`);
+    await tick();
+    await pressOn(swatch('Teal'));
+    await tick();
+    same(await ev(`(() => { const p = window.__cp(); return p ? p.getAttribute('aria-label') : 'none open'; })()`), 'Second', `${label}: read case 3: a picker opened from onInput during a swatch's press stays open`);
+    if (await open()) await key(send, 'Escape');
+    await tick();
+
+    // Read case 4: the picker's words at 4.5:1 (Hex, the typed hex, a heading, the note and the error line with its text showing are
+    // above); here also the Recent heading and the colour field's hex.
+    await pick(`{ anchor: 'a', value: '#2f6cbf' }`);
+    const recentHead = await ev(`(() => { const g = window.__cp().querySelector('[aria-label="Recent"] .sdk-cp-head'); return g ? window.__contrast(g) : null; })()`);
+    ok(recentHead === null || recentHead >= 4.5, `${label}: read case 4: the Recent heading is ${recentHead && recentHead.toFixed(2)}:1 on the picker; wanted 4.5:1`);
+    await key(send, 'Escape');
+    answers.push(await last());
+    await ev(`(window.__f3 = __h.ui.colorField(__R.getElementById('fld')), 1)`);
+    const trigWords = await ev(`window.__contrast(__R.querySelector('.sdk-picker .sdk-hex'))`);
+    ok(trigWords >= 4.5, `${label}: read case 4: the colour field's hex is ${trigWords.toFixed(2)}:1 on its trigger; wanted 4.5:1`);
+    await ev('(window.__f3.destroy(), 1)');
+
+    // Read case 6: no listener left on the document, the window or the module's root after 50 opens and closes (Escape, a swatch, a
+    // press outside, in turn), and no picker left in the page.
+    const listeners = async () => {
+      const out = {};
+      for (const expr of ['document', 'window', 'window.__R']) {
+        const { result } = await send('Runtime.evaluate', { expression: expr });
+        out[expr] = (await send('DOMDebugger.getEventListeners', { objectId: result.objectId })).listeners.length;
+      }
+      return out;
+    };
+    const cycle = (k) => `(async () => { for (let i = 0; i < ${k}; i += 1) { const p = __h.ui.colorPicker({ anchor: __R.getElementById('a'), value: '#2f6cbf', onInput: () => {} }); const pop = window.__cp(); if (i % 3 === 0) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); else if (i % 3 === 1) pop.querySelector('.sdk-swatch').click(); else __R.querySelector('.fill').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true })); await p; } return 1; })()`;
+    await ev(cycle(3));
+    const lBefore = await listeners();
+    await ev(cycle(50));
+    const lAfter = await listeners();
+    same(lAfter, lBefore, `${label}: read case 6: the listeners on the document, the window and the module's root after 50 opens and closes`);
+    same(await ev(`__R.querySelectorAll('.sdk-cp, [id^="sdk-cp-"]').length + document.querySelectorAll('.sdk-cp, [id^="sdk-cp-"]').length`), 0, `${label}: read case 6: no picker left in the page after 50 opens and closes`);
+
+    // Read case 8: every way it closes settles the Promise exactly once: Escape, a press outside, a swatch, Enter in Hex, the same
+    // call again (both), and a new picker (the first).
+    await ev(`(() => { window.__settled = {}; window.__track = (name, p) => { __settled[name] = 0; p.then(() => { __settled[name] += 1; }, () => { __settled[name] += 100; }); }; return 1; })()`);
+    const track = (name, o) => ev(`(__track(${JSON.stringify(name)}, __h.ui.colorPicker(${o})), 1)`);
+    await track('Escape', `{ anchor: __R.getElementById('a') }`);
+    await key(send, 'Escape');
+    await track('a press outside', `{ at: { x: 20, y: 60 } }`);
+    await tick();
+    await press(send, coarse, boxRect.r - 6, boxRect.b - 6);
+    await track('a swatch', `{ anchor: __R.getElementById('a') }`);
+    await tick();
+    await pressOn(swatch('Gold'));
+    await track('Enter in Hex', `{ anchor: __R.getElementById('a') }`);
+    await ev(`window.__in('.sdk-cp-hexin').focus()`);
+    await key(send, 'Enter');
+    await track('the same call again (first)', `{ anchor: __R.getElementById('a') }`);
+    await track('the same call again (second)', `{ anchor: __R.getElementById('a') }`);
+    await track('a new picker (first)', `{ anchor: __R.getElementById('a') }`);
+    await track('a new picker (second)', `{ anchor: __R.getElementById('low') }`);
+    await key(send, 'Escape');
+    await sleep(100);
+    if (await open()) { await key(send, 'Escape'); await tick(); }
+    const settled = await ev('window.__settled');
+    same(Object.entries(settled).filter(([, v]) => v !== 1).map(([k, v]) => `${k}: ${v}`), [], `${label}: read case 8: each way of closing settles its Promise exactly once`);
+
+    // Read case 9: a palette name or heading with each refused kind of character is refused with the sentence; a tampered Recent in
+    // storage shows only clean hexes.
+    const REFUSE = 'TypeError: host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour';
+    const refusedNames = await ev(`(() => { const out = []; for (const [what, s] of ${JSON.stringify([['a zero-width space', 'a​b'], ['only zero-width joiners', '‍‍'], ['a left-to-right mark', 'a‎b'], ['a soft hyphen', 'a­b'], ['a right-to-left override', 'a‮b'], ['a right-to-left isolate', 'a⁧b'], ['U+2028', 'a b'], ['U+2029', 'a b'], ['a delete character', 'a\u007fb'], ['U+0085', 'a\u0085b'], ['a lone surrogate', 'ab\ud800c'], ['no letter or digit', '---'], ['<', 'a<b'], ['>', 'a>b'], ['a control character', 'a\nb'], ['41 characters', 'n'.repeat(41)]])}) { for (const where of ['name', 'heading']) { const pal = where === 'name' ? [{ heading: 'Inks', colours: [{ name: s, color: '#1a2b3c' }] }] : [{ heading: s, colours: [{ name: 'Ink', color: '#1a2b3c' }] }]; let got; try { __h.ui.colorPicker({ at: { x: 1, y: 1 }, palette: pal }); got = 'opened'; document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); } catch (e) { got = e.name + ': ' + e.message; } out.push([where + ' with ' + what, got]); } } return out; })()`);
+    same(refusedNames.filter(([, got]) => got !== REFUSE).map(([what, got]) => `${what}: ${got}`), [], `${label}: read case 9: a palette name or heading with each refused kind of character is refused with the sentence`);
+    await tick();
+    const tampered = await ev(`(() => { const k = 'app:colour:cpcheck'; const was = localStorage.getItem(k); localStorage.setItem(k, JSON.stringify(['url(x)', '#000000;background:red', 7, null, {}, 'javascript:1', '#ABCDEF', '#abcdef', ' 00796b '])); __h.ui.colorPicker({ at: { x: 10, y: 10 } }); const out = [...window.__cp().querySelectorAll('[aria-label="Recent"] .sdk-swatch')].map((b) => [b.dataset.color, b.style.getPropertyValue('--sw')]); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); if (was === null) localStorage.removeItem(k); else localStorage.setItem(k, was); return out; })()`);
+    same(tampered, [['#abcdef', '#abcdef'], ['#00796b', '#00796b']], `${label}: read case 9: a tampered Recent in storage shows only clean hexes, once each`);
+    await tick();
+
+    // Read case 10 (no eyedropper in the browser) is tried on the 360px phone below, with window.EyeDropper deleted before the page loads.
+
     answers.push(...(await ev('window.__answers')));
     await ev(`(document.getElementById('cp-box').remove(), 1)`);
 
@@ -955,6 +1078,74 @@ host.ready().then(() => {
     same(await ev('window.__pev'), ['#8a6a00', { color: '#8a6a00', opacity: 100 }], `${label}: hostColour.field sets the page's input and answers`);
     answers.push(...(await ev('window.__pev.filter((x) => typeof x === "object")')));
     await ev(`(window.__pf.destroy(), document.getElementById('cp-page').remove(), 1)`);
+  }
+
+  // ---- read case 7: a module running in the page, opened from its toolbar ----
+  // Escape gives focus back somewhere useful (the toolbar button), not to the page's body. If this cannot be done in the picker it
+  // becomes a known gap: the failure line names it "read case 7 (in-page toolbar focus)" so it can be marked as such.
+  async function inPageToolbar({ tab, send, label, coarse }) {
+    await send('Page.navigate', { url: `${server.base}/modules/cppage` });
+    let ready = false;
+    for (let i = 0; i < 150 && !ready; i += 1) { ready = await tab.eval('window.__ready === true').catch(() => false); if (!ready) await sleep(100); }
+    if (!ready) { ok(false, `${label}: read case 7: the in-page test module did not start`); return; }
+    const DEEP_CP = `(() => { let found = null; const walk = (r) => { for (const e of r.querySelectorAll('.sdk-cp')) found = found || e; for (const e of r.querySelectorAll('*')) if (e.shadowRoot) walk(e.shadowRoot); }; walk(document); return found; })()`;
+    ok(await tab.eval(`(() => { const p = [...document.querySelectorAll('*')].find((e) => e.shadowRoot && e.shadowRoot.getElementById('fld')); return Boolean(p) && !document.querySelector('iframe[src*="cppage"]'); })()`), `${label}: read case 7: the test module does not run in the page (no shadow root holds its field)`);
+    let btn = null;
+    for (let i = 0; i < 50 && !btn; i += 1) {
+      btn = await tab.eval(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getClientRects().length && ((x.getAttribute('aria-label') || '').trim() === 'Colour' || x.textContent.trim() === 'Colour')); if (!b) return null; b.setAttribute('data-cp-check', '1'); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+      if (!btn) await sleep(100);
+    }
+    if (!btn) { ok(false, `${label}: read case 7: the in-page module's toolbar button "Colour" is not on the page`); return; }
+    await press(send, coarse, btn.x, btn.y);
+    let opened = false;
+    for (let i = 0; i < 40 && !opened; i += 1) { opened = await tab.eval(`Boolean(${DEEP_CP})`); if (!opened) await sleep(100); }
+    ok(opened, `${label}: read case 7: the in-page module's toolbar button opened no picker`);
+    if (!opened) return;
+    const pos = await tab.eval(`(() => { const p = ${DEEP_CP}; const box = p.getRootNode().host; const r = p.getBoundingClientRect(); const b = box.getBoundingClientRect(); return { inside: r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5, top: r.top - b.top }; })()`);
+    ok(pos.inside && Math.abs(pos.top - 4) <= 1, `${label}: read case 7: from the in-page toolbar the picker is not inside the module's box at y 4 (${JSON.stringify(pos)})`);
+    await key(send, 'Escape');
+    await sleep(200);
+    const focus = await tab.eval(`(() => { const a = document.activeElement; return a ? a.tagName.toLowerCase() + (a.getAttribute('data-cp-check') ? ' (the toolbar button)' : '') : 'nothing'; })()`);
+    same(await tab.eval('window.__answers'), [null], `${label}: read case 7: Escape from the in-page toolbar answers null`);
+    ok(focus !== 'body' && focus !== 'nothing', `${label}: read case 7 (in-page toolbar focus): after Escape focus is on ${focus}; wanted it not on the page's body (the toolbar button)`);
+    answers.push(null);
+  }
+
+  // ---- read cases 5, 10 and 11: the phone widths ----
+  async function phoneCases({ tab, send, width }) {
+    const label = `${width}px phone`;
+    await send('Page.navigate', { url: `${server.base}/admin.html` });
+    let ready = false;
+    for (let i = 0; i < 100 && !ready; i += 1) { ready = await tab.eval(`document.readyState === 'complete' && typeof window.hostColour === 'object'`).catch(() => false); if (!ready) await sleep(100); }
+    if (!ready) throw new Error('the admin page did not load the SDK');
+    await sleep(200);
+    await tab.eval(`(() => { const box = document.createElement('div'); box.id = 'cp-phone'; box.style.cssText = 'position:fixed;left:8px;top:8px;z-index:2147480000'; box.innerHTML = '<label>Fill <input id="cp-ph" type="text" value="#2f6cbf"></label>'; document.body.appendChild(box); window.__pf = hostColour.field(document.getElementById('cp-ph')); return 1; })()`);
+    for (const [how, o] of [['at { x: 0, y: 4 }', `{ at: { x: 0, y: 4 } }`], ['at { x: 100000, y: 4 }', `{ at: { x: 100000, y: 4 } }`], ['under the field', `{ anchor: document.querySelector('#cp-phone .sdk-picker') }`]]) {
+      const m = await tab.eval(`(() => { window.__pp = hostColour.picker(${o}); const p = document.querySelector('.sdk-cp'); const r = p.getBoundingClientRect(); const out = { sw: p.scrollWidth, cw: p.clientWidth, l: r.left, r: r.right, vw: document.documentElement.clientWidth }; return out; })()`);
+      ok(m.sw <= m.cw, `${label}: read case 5: ${how} the picker scrolls sideways (scrollWidth ${m.sw}, clientWidth ${m.cw})`);
+      ok(m.l >= 0 && m.r <= m.vw + 0.5, `${label}: read case 5: ${how} the picker (${Math.round(m.l)} to ${Math.round(m.r)}) is not inside the ${m.vw}px screen`);
+      await key(send, 'Escape');
+      answers.push(await tab.eval('window.__pp'));
+    }
+    await tab.eval(`(window.__pp = hostColour.picker({ at: { x: 0, y: 4 } }), 1)`);
+    if (width === 360) {
+      // Read case 10: no eyedropper in this browser (window.EyeDropper deleted before the page loaded): no button, and Tab skips it.
+      const d = await tab.eval(`(() => { const b = document.querySelector('.sdk-cp-dropper'); document.querySelector('.sdk-cp-hexin').focus(); return [typeof window.EyeDropper, b.hidden, b.getClientRects().length]; })()`);
+      await key(send, 'Tab');
+      d.push(await tab.eval(`document.activeElement.getAttribute('role')`));
+      same(d, ['undefined', true, 0, 'radio'], `${label}: read case 10: with no window.EyeDropper the button is hidden and Tab goes from Hex to the palette`);
+    }
+    if (width === 375) {
+      // Read case 11: check-phone-targets does not open the picker, so its targets are measured here.
+      const sz = await tab.eval(`(() => { const p = document.querySelector('.sdk-cp'); const s = (sel) => { const e = p.querySelector(sel); if (!e || e.hidden) return null; const r = e.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; }; const t = document.querySelector('#cp-phone .sdk-picker').getBoundingClientRect(); return { swatches: [...p.querySelectorAll('.sdk-swatch')].map((b) => { const r = b.getBoundingClientRect(); return Math.min(Math.round(r.width), Math.round(r.height)); }), hue: s('.sdk-cp-hue'), alpha: s('.sdk-cp-alpha'), hex: s('.sdk-cp-hexin'), dropper: s('.sdk-cp-dropper'), font: parseFloat(getComputedStyle(p.querySelector('.sdk-cp-hexin')).fontSize), trigger: Math.round(t.height) }; })()`);
+      ok(Math.min(...sz.swatches) >= 44, `${label}: read case 11: the smallest swatch is ${Math.min(...sz.swatches)}px; wanted 44px`);
+      ok(sz.hue[1] >= 44 && sz.alpha[1] >= 44 && sz.hex[1] >= 44, `${label}: read case 11: Hue ${sz.hue[1]}px, Opacity ${sz.alpha[1]}px and Hex ${sz.hex[1]}px tall; wanted 44px`);
+      ok(!sz.dropper || (sz.dropper[0] >= 44 && sz.dropper[1] >= 44), `${label}: read case 11: Pick from the screen is ${sz.dropper && sz.dropper.join('x')}; wanted 44px`);
+      ok(sz.font >= 16, `${label}: read case 11: the hex text is ${sz.font}px; wanted 16px`);
+      ok(sz.trigger >= 44, `${label}: read case 11: the colour field's trigger is ${sz.trigger}px tall; wanted 44px`);
+    }
+    await key(send, 'Escape');
+    answers.push(await tab.eval('window.__pp'));
   }
 
   // ---- an uploaded module in its sandboxed frame ----
@@ -1003,7 +1194,10 @@ host.ready().then(() => {
       await press(send, coarse, btn.x, btn.y);
       await until(PICKER);
       const pos = await fev(`(() => { const p = document.querySelector('.sdk-cp'); if (!p) return null; const r = p.getBoundingClientRect(); const a = document.activeElement; return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, vw: document.documentElement.clientWidth, vh: document.documentElement.clientHeight, x: window.__tbx, focus: a && a.getAttribute('aria-label') }; })()`);
-      ok(Boolean(pos), `${label}: the toolbar button opened no picker in the module's frame`);
+      if (!pos) {
+        const why = await tab.eval(`(() => { const e = document.elementFromPoint(${btn.x}, ${btn.y}); return e ? e.tagName.toLowerCase() + '.' + String(e.className).slice(0, 60) + ' "' + (e.getAttribute('aria-label') || e.textContent || '').trim().slice(0, 30) + '"' : 'nothing'; })()`);
+        ok(false, `${label}: the toolbar button opened no picker in the module's frame (the press at ${Math.round(btn.x)},${Math.round(btn.y)} landed on ${why}; the module saw x ${JSON.stringify(await fev('window.__tbx'))})`);
+      }
       if (pos) {
         ok(pos.l >= 3.5 && pos.t >= 3.5 && pos.r <= pos.vw + 0.5 && pos.b <= pos.vh + 0.5, `${label}: from the toolbar the picker (${Math.round(pos.l)},${Math.round(pos.t)} to ${Math.round(pos.r)},${Math.round(pos.b)}) is not inside the frame (${pos.vw}x${pos.vh})`);
         ok(Math.abs(pos.t - 4) <= 1, `${label}: from the toolbar the picker's top is ${Math.round(pos.t)}px into the frame; wanted 4`);
