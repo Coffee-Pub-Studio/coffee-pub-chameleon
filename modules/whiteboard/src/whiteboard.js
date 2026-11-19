@@ -156,9 +156,10 @@
   // do not add up their rounding; they are saved with the picture, in the same turn, so the resize is one undo step.
   let markBase = null; // { id, box, marks: Map(mark id -> block) }
   let flushingMarks = false;
+  let restoring = false; // undo or redo is putting blocks back: a mark keeps the `on` it had, even before its picture is back
   function persist(b, how) {
     let own = b;
-    if (wbIsMark(b)) {
+    if (wbIsMark(b) && !restoring) {
       const on = wbAttachment(b, live(), heightOf);
       own = { ...b };
       if (on) own.on = on; else delete own.on;
@@ -1552,6 +1553,7 @@
   let cropButton = null;
   let blurButton = null;
   let areaButton = null;
+  let flattenButton = null;
   let valignBox = null;
   let autoButton = null;
   let tableButton = null;
@@ -1659,7 +1661,10 @@
     areaButton = pressButton('Select area', 'expand', () => setTool('area', 'picture'));
     areaButton.removeAttribute('aria-pressed');
     areaButton.dataset.tip = withKey('Select area', 'K');
-    pictureBox.append(cropButton, blurButton, areaButton, radiusButton, shadowButton);
+    flattenButton = pressButton('Flatten', 'stamp', () => { const one1 = picturesPicked(); if (one1.length === 1) flatten(one1[0].id); });
+    flattenButton.removeAttribute('aria-pressed');
+    flattenButton.dataset.tip = 'Flatten: bake the crop, blur, holes and marks into one picture';
+    pictureBox.append(cropButton, blurButton, areaButton, radiusButton, shadowButton, flattenButton);
     for (const field of ['style', 'head']) {
       const box = pairBox(field === 'style' ? 'Line style' : 'Arrowheads');
       for (const c of LINE_STRIP[field]) {
@@ -1890,7 +1895,8 @@
     cropButton.hidden = !pics.length || family === 'picture';
     blurButton.hidden = !pics.length || family === 'picture';
     areaButton.hidden = !pics.length || family === 'picture';
-    pictureBox.hidden = !(radList.length || shList.length || !cropButton.hidden);
+    flattenButton.hidden = !(pics.length === 1 && flattenable(pics[0]));
+    pictureBox.hidden = !(radList.length || shList.length || !cropButton.hidden || !flattenButton.hidden);
     if (!pictureBox.hidden) {
       const rad = radList.length ? sameOf(radList, radiusOf) : 0;
       const sh = shList.length ? sameOf(shList, (b) => b.shadow || 'none') : 'none';
@@ -2022,7 +2028,10 @@
     // missing (no key: the usual), put back with commitBoard.
     const isBoard = (id) => id === WB_BOARD_STEP;
     const boardy = (b) => Boolean(b && b.type === 'board');
-    const r = wbApplyChanges(list, {
+    restoring = true;
+    let r;
+    try {
+      r = wbApplyChanges(list, {
       get: (id) => (isBoard(id) ? boardSettings : board.get(id)),
       remove: (id) => { if (!isBoard(id)) remove(id); },
       put: (b) => (boardy(b) ? commitBoard(b) : commit(b, 'now')),
@@ -2036,7 +2045,8 @@
       pointsAt: (b) => { const def = blockTypes.get(b.type); return Boolean(def && def.refs); },
       missing: (b) => !boardy(b) && missingRefs(b).length > 0,
       isBoard,
-    });
+      });
+    } finally { restoring = false; }
     select(r.touched.filter((id) => board.has(id)));
     return r;
   }
@@ -2461,6 +2471,7 @@
     onPlaced(job, file) {
       renderer.pending(job.id, null);
       updateStatus();
+      if (job.flatten) return placeFlattened(job, file);
       if (!policy.canCreate()) return false;
       // The upload may finish after a switch of board: the picture is for the board it was started on (lib-s wbLateHome).
       const home = job.batch && job.batch.home;
@@ -2494,6 +2505,7 @@
     },
     onFailed(job, err) {
       renderer.pending(job.id, null);
+      if (job.flatten) flattening.delete(job.flatten.id);
       note(err && err.status === 403 ? 'You may not add pictures to this whiteboard.' : `The picture was not added. ${sentence(err && err.message)}`.trim());
       updateStatus();
     },
@@ -2507,6 +2519,69 @@
     if (!list.length) return;
     // The pictures added together share a batch, so they are picked together as they arrive.
     pictures.add(list, at || renderer.center(), { batch: { tag: `pictures:${host.util.id()}`, made: [], picked: [...sel], home: { board: session.id, epoch: session.epoch } } });
+  }
+  // Flatten (the Picture tool): the picture as it is shown (its crop, blur and holes) and its marks become ONE new picture, which takes
+  // their place. The exporter draws them to a see-through PNG (the picture's own border, corners and shadow left out: they stay the block's
+  // own), and that goes up as any picture does; when its upload is in, the new block is put on the board and the picture and its marks are
+  // taken off it, in one turn, so one undo brings them all back. The original upload is kept, as every upload is (see lib-i): it is no
+  // redaction of the original file, only of what the board shows.
+  const flattening = new Set(); // ids of pictures being flattened
+  const pictureOf = (id) => { const b = board.get(id); return b && b.type === 'image' && !drafts.has(id) ? b : null; };
+  function flattenable(b) {
+    return Boolean(b && b.type === 'image' && pictures && policy.canEdit && !presenting && !flattening.has(b.id) && wbNeedsFlatten(b, wbFlattenPlan(b, live(), heightOf)));
+  }
+  async function flatten(id) {
+    const b = pictureOf(id);
+    if (!b || !pictures || !policy.canEdit || presenting || flattening.has(id)) return;
+    if (b.locked || !policy.canChange(b)) { lockedNote(1, 1); return; }
+    const plan = wbFlattenPlan(b, live(), heightOf);
+    if (!wbNeedsFlatten(b, plan)) { note('There is nothing to flatten: this picture has no crop, blur, holes or marks.'); return; }
+    if (plan.marks.some((m) => m.locked === true)) { note('A mark on this picture is locked. Unlock it, then flatten.'); return; }
+    const el = renderer.element(id);
+    if (!el) return;
+    flattening.add(id);
+    try {
+      // The picture's own pixels per board unit (at most 2000 pixels on the long edge, which the upload keeps to anyway).
+      let scale = 1;
+      try {
+        const bitmap = await createImageBitmap(await pictureBlob(b.upload, false));
+        scale = (bitmap.width * blockTypes.get('image').cropOf(b).w) / plan.content.w;
+        if (bitmap.close) bitmap.close();
+      } catch { /* drawn at the board's own scale */ }
+      scale = Math.max(0.25, Math.min(Math.max(scale, 0.25), 2000 / Math.max(plan.extent.w, plan.extent.h)));
+      const size = wbExportSize(plan.extent, scale);
+      const items = [{ block: b, el }, ...plan.marks.map((m) => ({ block: m, el: renderer.element(m.id) })).filter((x) => x.el)];
+      const blob = await exporter.png(items, plan.extent, size, { background: '', flat: true });
+      const file = new File([blob], 'flattened.png', { type: 'image/png' });
+      const snap = [b, ...plan.marks].map((x) => JSON.parse(JSON.stringify(x)));
+      pictures.add([file], { x: plan.box.x + plan.box.w / 2, y: plan.box.y + plan.box.h / 2 }, {
+        batch: { tag: `flatten:${host.util.id()}`, made: [], picked: [...sel], home: { board: session.id, epoch: session.epoch } },
+        flatten: { id, marks: plan.marks.map((m) => m.id), box: plan.box, snap },
+      });
+      note('Flattening the picture...');
+    } catch (err) {
+      flattening.delete(id);
+      note(`The picture could not be flattened. ${sentence(err && err.message)}`.trim());
+    }
+  }
+  // The flattened picture's upload is in: it takes the place of the picture and its marks, as they were when it was drawn.
+  function placeFlattened(job, file) {
+    const f = job.flatten;
+    flattening.delete(f.id);
+    const changed = f.snap.some((s) => { const now = board.get(s.id); return !now || !sameBlock(s, now); });
+    if (changed) { note('The picture or its marks changed while it was being flattened, so nothing was replaced.'); return false; }
+    if (!policy.canCreate() || presenting) return false;
+    if (wbLateHome(job.batch && job.batch.home, session) !== 'here') { note('You changed board while a picture was being flattened. It was not replaced.'); return false; }
+    const old = board.get(f.id);
+    const def = blockTypes.get('image');
+    const next = wbClean({ ...def.create(), id: job.id, type: 'image', x: f.box.x, y: f.box.y, w: f.box.w, h: f.box.h, upload: file.id, z: old.z, alt: old.alt, stroke: old.stroke, weight: old.weight, radius: old.radius, shadow: old.shadow });
+    if (!next) return false;
+    if (history && job.batch) history.tag(job.batch.tag, { join: true });
+    commit(next, 'now');
+    for (const id of [f.id, ...f.marks]) if (board.has(id)) remove(id, { force: true });
+    select([next.id]);
+    note('Flattened. The original picture file is still kept with the space.');
+    return true;
   }
   // The computer's own file chooser, for "Add a picture" (touch and the keyboard too).
   $('picker').accept = WB_PICTURE_ACCEPT;
@@ -3927,6 +4002,7 @@
       at,
       items: [
         ...(def && def.edit === 'text' ? [{ id: 'edit', label: def.editLabel || 'Edit', icon: 'pen', hint: keyHint('Enter'), onClick: () => edit(single.id) }] : []),
+        ...(single && flattenable(single) ? [{ id: 'flatten', label: 'Flatten', icon: 'stamp', onClick: () => flatten(single.id) }] : []),
         // The block type's own entries (a note's Add pointer, Remove pointer): each one save of the fields it names.
         ...(cell ? cellRows(single, cell) : def && def.actions ? def.actions(single).map((a) => ({ id: a.id, label: a.label, icon: a.icon, onClick: () => ctx.change(single.id, a.fields, { save: 'now' }) })) : []),
         ...(list.length ? [{ id: 'colour', label: 'Colour', icon: 'palette', onClick: () => { setTimeout(() => colourMenu({ at }), 0); } }] : []),

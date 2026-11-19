@@ -136,7 +136,7 @@
     // The SVG with the blocks' copies in it, showing `extent`. items: [{ block, el }] bottom to top. live: for print (it
     // stays in the page); scale: the picture's pixels per board unit; background: what its page is filled with (the
     // board's background as a CSS colour of theme tokens, for print; '' : nothing, the paper).
-    async function scene(items, extent, { live = false, scale = 1, background = '' } = {}) {
+    async function scene(items, extent, { live = false, scale = 1, background = '', flat = false } = {}) {
       const svg = document.createElementNS(SVG, 'svg');
       svg.setAttribute('viewBox', `${extent.x} ${extent.y} ${extent.w} ${extent.h}`);
       const fo = document.createElementNS(SVG, 'foreignObject');
@@ -156,6 +156,7 @@
       const ctx = {
         live,
         scale,
+        flat, // a picture's own look (border, corners, shadow) left out: Flatten bakes the picture and its marks, not its frame
         async picture(upload, thumb) {
           try { return await dataUrl(await picture(upload, thumb)); } catch { /* the whole picture, then none */ }
           if (!thumb) return null;
@@ -259,9 +260,9 @@
     // The picture as a PNG Blob. items: [{ block, el }] bottom to top; extent on the board; size from wbExportSize;
     // background: a colour the canvas is filled with first (read from the page), or '' for see-through. step(words) hears
     // how far it is.
-    async function png(items, extent, size, { background = '', step = () => {} } = {}) {
+    async function png(items, extent, size, { background = '', step = () => {}, flat = false } = {}) {
       step('Getting the pictures ready');
-      const { svg, page } = await scene(items, extent, { scale: size.scale });
+      const { svg, page } = await scene(items, extent, { scale: size.scale, flat });
       step('Drawing the board');
       const css = rules();
       tokens(page, css);

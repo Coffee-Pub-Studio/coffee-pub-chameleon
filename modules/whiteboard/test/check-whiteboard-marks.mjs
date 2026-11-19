@@ -7,7 +7,8 @@
  * a picture that moves takes its marks (and a locked picture, or a locked mark, takes none), and not those already moving; a resize
  * scales each mark's place and size by the picture's change and leaves line widths and words' sizes alone, for drawings, lines, notes
  * with a pointer, shapes and text; a copy of a picture and its marks puts the copies' marks on the copy, and a copy of a mark alone is on
- * none; deleting a picture deletes its marks. No browser, no network.
+ * none; deleting a picture deletes its marks; Flatten's plan takes the picture inside its border and the marks on it (one that hangs over the
+ * edge makes the new picture bigger, so nothing is cut off), bottom to top, and says when there is nothing to bake. No browser, no network.
  * Usage: node modules/whiteboard/test/check-whiteboard-marks.mjs [path to the module's src folder]. Exits 1 on any failure.
  */
 import fs from 'node:fs';
@@ -23,13 +24,13 @@ const check = (ok, what) => { if (ok) passed += 1; else fails.push(what); };
 let lib;
 try {
   const parts = fs.readdirSync(src).filter((f) => /^whiteboard-lib-[a-z]-.*\.js$/.test(f)).sort().map((f) => fs.readFileSync(path.join(src, f), 'utf8'));
-  lib = new Function('window', 'document', `${parts.join('\n')}\nreturn { blockTypes, wbClean, wbIsMark, wbAttachment, wbScaleMark, wbFrameFollow, wbCopies, wbDeleteSet, wbRect };`)({ devicePixelRatio: 1 }, undefined);
+  lib = new Function('window', 'document', `${parts.join('\n')}\nreturn { blockTypes, wbClean, wbIsMark, wbAttachment, wbScaleMark, wbFrameFollow, wbCopies, wbDeleteSet, wbRect, wbFlattenPlan, wbNeedsFlatten };`)({ devicePixelRatio: 1 }, undefined);
 } catch (err) {
   fails.push(`the libs do not load: ${err.message}`);
 }
 
 if (lib) {
-  const { blockTypes, wbClean, wbIsMark, wbAttachment, wbScaleMark, wbFrameFollow, wbCopies, wbDeleteSet } = lib;
+  const { blockTypes, wbClean, wbIsMark, wbAttachment, wbScaleMark, wbFrameFollow, wbCopies, wbDeleteSet, wbFlattenPlan, wbNeedsFlatten } = lib;
   const up = 'a'.repeat(24);
   const pic = (o = {}) => ({ id: 'pic', type: 'image', x: 100, y: 100, z: 1, w: 400, h: 200, upload: up, ...o });
   const rect = (o = {}) => ({ id: 'r1', type: 'rect', x: 150, y: 150, z: 5, w: 100, h: 50, text: '', stroke: 'ink', fill: 'gold', ink: 'ink', weight: 3, size: 'medium', align: 'center', ...o });
@@ -92,6 +93,26 @@ if (lib) {
   const copyOfMark = copies.find((c) => c.type === 'rect');
   check(copyOfMark.on === copyOfPic.id && copyOfPic.id !== 'pic', 'a copy of a picture and its marks has the marks on the copy');
   check(wbCopies([rect({ on: 'pic' })], { newId: () => 'c9' })[0].on === undefined, 'a copy of a mark without its picture is on none');
+
+  // What Flatten bakes.
+  const framed = pic({ stroke: 'ink', weight: 10 });
+  const plain = wbFlattenPlan(pic({ stroke: 'none', weight: 2 }), [pic({ stroke: 'none' })]);
+  check(same(plain.content, { x: 100, y: 100, w: 400, h: 200 }) && same(plain.extent, plain.content) && same(plain.box, plain.content) && plain.marks.length === 0, 'a picture with no border and no marks flattens to its own box');
+  const withBorder = wbFlattenPlan(framed, [framed]);
+  check(same(withBorder.content, { x: 110, y: 110, w: 380, h: 180 }) && same(withBorder.extent, withBorder.content) && same(withBorder.box, { x: 100, y: 100, w: 400, h: 200 }), 'with a border the picture is drawn inside it, and the new block keeps the old box');
+  const inside = rect({ on: 'pic', x: 150, y: 150, w: 100, h: 50 });
+  const inPlan = wbFlattenPlan(framed, [framed, inside, rect({ id: 'free', x: 150, y: 150 })]);
+  check(inPlan.marks.length === 1 && inPlan.marks[0].id === 'r1', 'only the marks on the picture are baked');
+  check(same(inPlan.box, withBorder.box), 'marks inside the picture change nothing about its box');
+  const over = rect({ on: 'pic', x: 450, y: 150, w: 100, h: 50 });
+  const overPlan = wbFlattenPlan(framed, [framed, over]);
+  check(overPlan.extent.x === 110 && overPlan.extent.x + overPlan.extent.w === 550, 'a mark hanging over the picture\'s edge is baked whole: the picture grows to hold it');
+  check(overPlan.box.x === 100 && overPlan.box.w === overPlan.extent.w + 20, 'the new block is that, with the border round it');
+  const order = wbFlattenPlan(framed, [framed, rect({ id: 'top', on: 'pic', z: 9 }), rect({ id: 'low', on: 'pic', z: 2 })]);
+  check(order.marks.map((m) => m.id).join() === 'low,top', 'the marks are drawn bottom to top');
+  check(!wbNeedsFlatten(framed, wbFlattenPlan(framed, [framed])), 'a picture with nothing done to it has nothing to flatten');
+  check(wbNeedsFlatten(pic({ crop: { x: 0, y: 0, w: 0.5, h: 0.5 } }), wbFlattenPlan(pic(), [pic()])) && wbNeedsFlatten(pic({ blur: [{ x: 0, y: 0, w: 0.2, h: 0.2 }] }), wbFlattenPlan(pic(), [pic()])) && wbNeedsFlatten(pic({ cut: [{ x: 0, y: 0, w: 0.2, h: 0.2 }] }), wbFlattenPlan(pic(), [pic()])), 'a crop, a blur or a hole is something to flatten');
+  check(wbNeedsFlatten(framed, inPlan), 'a mark on it is something to flatten');
 
   // Delete.
   const refsOf = (b) => { const d = blockTypes.get(b.type); const own = d && d.refs ? d.refs(b) : []; return b.on ? [...own, b.on] : own; };

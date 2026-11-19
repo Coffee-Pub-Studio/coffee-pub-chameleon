@@ -292,6 +292,18 @@
       // pixels), so the picture holds it; one that cannot be read is drawn as "Picture not found". Printed, as it is shown.
       async exported(b, el, ctx) {
         if (ctx.live) return;
+        // The faint whole picture of a crop being adjusted is never part of a picture.
+        delete el.dataset.cropping;
+        // Flat (Flatten): the picture alone, as it is drawn inside its border: no border colour (its width stays, so the picture is where it
+        // was), no corners, no shadow and no outline; the page's Flatten saves what is drawn as the new picture, and the block keeps its own look.
+        if (ctx.flat) {
+          for (const k of ['shadow', 'holes', 'outline']) delete el.dataset[k];
+          el.style.borderColor = 'transparent';
+          el.style.removeProperty('border-radius');
+          const wrap = el.querySelector('.wb-pic');
+          if (wrap) wrap.style.removeProperty('border-radius');
+          for (const n of el.querySelectorAll('.wb-outline')) n.remove();
+        }
         const img = el.querySelector('.wb-picture');
         if (!img) return;
         const c = cropOf(b);

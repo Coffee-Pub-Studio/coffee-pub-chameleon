@@ -50,3 +50,29 @@
     if (typeof b.w === 'number') return { x, y, w: b.w * f.sx };
     return { x, y };
   }
+
+  // What Flatten bakes into one picture (the Picture tool's Flatten): the picture as it is shown (its crop, its blurred boxes, its holes) and
+  // its marks, drawn as one new picture, in place of the picture and the marks. Pure: the picture and the blocks in, the plan out:
+  //   marks    the marks on it, bottom to top
+  //   content  the part of the board its picture fills inside its border: { x, y, w, h }
+  //   extent   what the new picture shows: that, and any part of a mark that hangs over its edge (so nothing is cut off)
+  //   box      the new picture's block: the extent and the border's width round it, so a picture with nothing hanging over keeps its box
+  // wbNeedsFlatten(pic, plan): whether there is anything to bake (a crop, a blur, a hole or a mark).
+  function wbFlattenPlan(pic, blocks, measure = () => 0) {
+    const t = pic.stroke === 'none' ? 0 : Math.max(0, pic.weight || 0);
+    const marks = blocks.filter((m) => m.on === pic.id && wbIsMark(m)).sort((a, b) => a.z - b.z || (a.id < b.id ? -1 : 1));
+    const content = { x: pic.x + t, y: pic.y + t, w: Math.max(1, pic.w - 2 * t), h: Math.max(1, pic.h - 2 * t) };
+    let x0 = content.x; let y0 = content.y; let x1 = content.x + content.w; let y1 = content.y + content.h;
+    for (const m of marks) {
+      const r = wbRect(m, measure);
+      if (!r) continue;
+      x0 = Math.min(x0, r.x0); y0 = Math.min(y0, r.y0); x1 = Math.max(x1, r.x1); y1 = Math.max(y1, r.y1);
+    }
+    const r1 = (n) => Math.round(n * 10) / 10;
+    const extent = { x: r1(Math.floor(x0 * 10) / 10), y: r1(Math.floor(y0 * 10) / 10), w: 0, h: 0 };
+    extent.w = r1(Math.ceil(x1 * 10) / 10 - extent.x);
+    extent.h = r1(Math.ceil(y1 * 10) / 10 - extent.y);
+    const box = { x: r1(extent.x - t), y: r1(extent.y - t), w: r1(extent.w + 2 * t), h: r1(extent.h + 2 * t) };
+    return { t, marks, content, extent, box };
+  }
+  const wbNeedsFlatten = (pic, plan) => Boolean(pic.crop || (pic.blur && pic.blur.length) || (pic.cut && pic.cut.length) || (plan && plan.marks.length));
