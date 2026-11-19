@@ -5,8 +5,9 @@
 //
 // In order:
 //   1. the person's remembered arrangement for this space (`__open`), if they have been in it before; never for a guest;
-//   2. the template's layout (workspace.layout, a shape and its areas): firstVisitShape() answers it, and the canvas
-//      places it through its own loader (canvas.loadLayout), so it is only the starting arrangement (decision 6);
+//   2. the template's layout (workspace.layout, a shape and its areas): firstVisitShape() answers it, and restore()
+//      places it with the canvas's own shape loader (loadShape, the one canvas.loadLayout uses for a shape), so it is
+//      only the starting arrangement (decision 6);
 //   3. with no layout: the chat and every module on in the space, without the conference; for a guest, the
 //      conference and the chat (whatOpens).
 //
@@ -87,14 +88,32 @@ export function shouldAutoJoin({ setting = false, inCall = false, canJoin = fals
 // under (To-do under the Calendar where the Calendar is on). `canOpen(id)`: whether the module is on here; an area whose
 // module is not closes up (decision 13), and the line says so. `space` and `module` are the words a person reads for
 // a space and a module (the page's word()); the defaults are for node.
-// "Whiteboard opens on the left, with Goals above Documents on the right."
+// "Whiteboard opens on the left, with Goals above Documents on the right." Each shape's words take its areas' names, null
+// for an area left empty; two or three empty areas are counted ("two empty areas"), never listed one by one.
+const EMPTY = 'an empty area';
+const or = (name) => name || EMPTY;
 const SHAPE_WORDS = {
-  one: (a) => `${a[0]} fills the Workspace.`,
-  'two-equal': (a) => `${a[0]} and ${a[1]} open side by side, the same width.`,
-  'wide-narrow': (a) => `${a[0]} opens wide, with ${a[1]} narrow beside it.`,
-  'three-equal': (a) => `${a[0]}, ${a[1]} and ${a[2]} open side by side, the same width.`,
-  'tall-split': (a) => `${a[0]} opens on the left, with ${a[1]} above ${a[2]} on the right.`,
-  'wide-split': (a) => `${a[0]} opens wide, with ${a[1]} above ${a[2]} narrow beside it.`,
+  one: ([a]) => `${or(a)} fills the Workspace.`,
+  'two-equal': ([a, b]) => (!a && !b ? 'Two empty areas open side by side, the same width.' : `${or(a)} and ${or(b)} open side by side, the same width.`),
+  'wide-narrow': ([a, b]) => (!a && !b ? 'Two empty areas open, one wide and one narrow beside it.' : `${or(a)} opens wide, with ${or(b)} narrow beside it.`),
+  'three-equal': (areas) => {
+    const named = areas.filter(Boolean);
+    if (!named.length) return 'Three empty areas open side by side, the same width.';
+    if (named.length === 1) {
+      const at = areas.findIndex(Boolean);
+      return at === 1 ? `${named[0]} opens in the middle, with an empty area on each side, all the same width.`
+        : `${named[0]} opens on the ${at === 0 ? 'left' : 'right'}, with two empty areas beside it, all the same width.`;
+    }
+    return `${or(areas[0])}, ${or(areas[1])} and ${or(areas[2])} open side by side, the same width.`;
+  },
+  'tall-split': ([a, b, c]) => {
+    if (!b && !c) return a ? `${a} opens on the left, with two empty areas above each other on the right.` : 'Three empty areas open: one on the left, and two above each other on the right.';
+    return `${or(a)} opens on the left, with ${or(b)} above ${or(c)} on the right.`;
+  },
+  'wide-split': ([a, b, c]) => {
+    if (!b && !c) return a ? `${a} opens wide, with two empty areas above each other narrow beside it.` : 'Three empty areas open: one wide, and two above each other narrow beside it.';
+    return `${or(a)} opens wide, with ${or(b)} above ${or(c)} narrow beside it.`;
+  },
 };
 const andList = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '');
 const upFirst = (text) => (text ? text[0].toUpperCase() + text.slice(1) : text);
@@ -103,13 +122,13 @@ export function layoutLine({ layout = null, modules = [], canOpen = () => true, 
   if (!words || !Array.isArray(layout.areas)) {
     const names = [...new Set(whatOpens({ modules, canOpen }).map(groupOf))].map(nameOf);
     if (!names.length) return 'Nothing opens.';
-    return `${andList(names)} ${names.length > 1 ? 'open' : 'opens'}.`;
+    return upFirst(`${andList(names)} ${names.length > 1 ? 'open' : 'opens'}.`);
   }
   const areas = layout.areas.map((id) => (typeof id === 'string' && id ? id : null));
   if (layout.shape === 'one' && !areas[0]) return `One empty area opens, for each person to choose a ${module}.`;
   const off = [];
   const named = areas.map((id) => {
-    if (!id) return 'an empty area';
+    if (!id) return null;
     if (!canOpen(id)) off.push(nameOf(id));
     return nameOf(groupOf(id));
   });

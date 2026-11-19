@@ -647,7 +647,7 @@ export function createSpaceSetup(deps) {
         <fieldset class="setup-first-visit" id="setup-first-visit" aria-labelledby="setup-first-visit-heading" aria-describedby="setup-first-visit-hint">
           <div class="setup-workspace-content">
             <p class="setup-subheading" id="setup-opens-with-label">In the Workspace, a new person sees these open</p>
-            <p class="setup-opens-with-read" id="setup-opens-with" aria-labelledby="setup-opens-with-label" aria-describedby="setup-opens-with-hint"></p>
+            <p class="setup-opens-with-read" id="setup-opens-with"></p>
             <p class="hint" id="setup-opens-with-hint">This comes from the ${esc(spaceWord())}'s template.</p>
           </div>
           <div class="setup-first-layouts" id="setup-first-visit-layouts"></div>

@@ -5627,26 +5627,6 @@ body.chat-window {
 }
 
 
-/* Space settings' Opens with: a switch for the conference, the chat and each module on in the space (switch-list.js). */
-.opens-with-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  margin: 8px 0;
-}
-
-/* Its default layout's line, above the switches: the layout's name, then Stop using it (wraps on a narrow page). */
-.opens-with-layout {
-  margin: 8px 0;
-}
-
-.opens-with-layout-text {
-  flex: 1 1 12em;
-  min-width: 0;
-  font-weight: var(--weight-strong);
-}
-
 /* A space I may only ask to enter (request access): the state of my request and its buttons, where Join would be. Not a button by role. */
 .space-choice-ask {
   grid-area: join;
@@ -8053,13 +8033,7 @@ h4.setup-subheading {
   text-decoration: underline;
 }
 
-.setup-opens-with {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* First visit (plan-layout-views.md, step 5): one choice, radios of one name; the Workspace's Opens with switches sit
+/* First visit (plan-layout-views.md, step 5): one choice, radios of one name; the line saying the template's layout sits
    directly under the Workspace, indented, then Calendar, Map and the shared layouts. */
 .setup-first-visit {
   margin: 6px 0 0;
@@ -8122,10 +8096,6 @@ h4.setup-subheading {
   margin: 0 0 6px 28px;
   padding-left: 10px;
   border-left: 2px solid var(--border);
-}
-
-.setup-workspace-content .opens-with-list {
-  margin: 2px 0;
 }
 
 .setup-subheading {
