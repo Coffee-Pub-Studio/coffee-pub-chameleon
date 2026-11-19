@@ -69,6 +69,11 @@ decide those.
   (one short QA pass for regressions, must-fixes only, a CHANGELOG line) and a **production build**
   (the full flow: plan, QA, docs, version bumps). Never treat a try build as production, and never
   offer or recommend a production build: only Thomas calls one (Thomas, 2026-11-19).
+- Core stability: the core may change as much as needed before release, because the product must stand on a stable
+  platform. A core change must leave `main` with every check green, and a check red on `main` is fixed before more
+  core work builds on it (Thomas, 2026-11-19).
+- Core is built as predictable parts with a contract (route parts, shared SDK drawn pieces). New core work follows
+  that, and a fix to something drawn goes into the shared SDK piece once, not per page (Thomas, 2026-11-19).
 - Decisions stick. When Thomas decides something, record it in the same turn where it will be found: a
   plan for a feature, this file or `.claude/agents/project-manager.md` for a process rule. Before asking
   him anything, look there for an earlier decision, and never ask a variation of one he has made. Ask only
