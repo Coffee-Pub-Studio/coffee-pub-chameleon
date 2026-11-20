@@ -1,4 +1,4 @@
-// The demo seeder: `npm run seed:demo`. Fills a running local server, through its own API, with ONE space named "Demo: Portugal":
+// The demo seeder: `npm run seed:demo`. Fills a running local server, through its own API, with ONE space named "Demo (Travel): Portugal":
 // a full trip (Lisbon, Sintra, Porto; ten days starting about 45 days after the day it is run) with every module holding data,
 // so a person can look at a real-feeling space. Run it in a second window against the server you already have running.
 //

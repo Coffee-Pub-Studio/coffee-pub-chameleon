@@ -413,7 +413,7 @@ try {
         await pickDemo('games');
         assert.equal(await add(), 'Added the Games demo.');
         const lines = await tab.evaluate("[...document.querySelectorAll('#env-demo-report > p')].map((p) => p.textContent)");
-        assert.ok(lines.some((l) => l.startsWith('Space: Demo: The Salt Crown')), lines.join(' | '));
+        assert.ok(lines.some((l) => l.startsWith('Space: Demo (Gaming): The Salt Crown')), lines.join(' | '));
         assert.ok(!lines.some((l) => l.startsWith('Skipped ')), 'a skipped sentence stands alone, with no prefix');
         assert.ok(await tab.evaluate(`document.getElementById('env-demo-report').textContent.includes('shown once')`), 'the one-time passwords report is shown');
         await tab.shot(`demo-added-${width}`);

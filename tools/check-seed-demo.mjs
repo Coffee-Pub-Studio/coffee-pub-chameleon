@@ -198,7 +198,7 @@ try {
   assert.deepEqual(g2.counts, { schedule: 26, research: 8, documents: 3, todo: 9, calendar: 13, budget: 8, polls: 2, chat: 17 }, 'the games counts');
   assert.deepEqual(g2.skipped, [], 'nothing skipped: the seeder turned every module on');
   const after = (await api('GET', '/api/spaces')).json.spaces;
-  assert.equal(after.filter((s) => s.name === 'Demo: The Salt Crown').length, 1, 'one games demo space');
+  assert.equal(after.filter((s) => s.name === 'Demo (Gaming): The Salt Crown').length, 1, 'one games demo space');
   assert.ok(after.some((s) => s.id === second.space.id), 'the travel demo is still there beside it');
   assert.equal((await api('GET', `/api/spaces/${g2.space.id}`)).json.space.template, 'games', 'the games demo reads the games template');
   assert.equal(((await api('GET', '/api/settings')).json.settings.template || {}).id, 'travel', 'the environment kept its own template');

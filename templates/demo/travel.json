@@ -2,7 +2,8 @@
   "_about": "The demo of the travel template: one space, three people, every module filled. Read by server/demo-loader.js, which writes it through the real module routes. Dates are offsets, never absolute: \"today+N\" is N days after the day the loader runs, \"start+N\" is N days after the trip start (today plus \"anchor\" days); a time follows as \"T09:30\", a trailing \"Z\" gives a full timestamp (\"start+1T19:00Z\"), and \"ms:\" in front gives a number of milliseconds (\"ms:today-40T10:00\", \"ms:now\"). \"@login\" is that person's key (in a value or a key), \"{space}\" the space id, \"{base}\" the server address. \"as\" is the person whose session writes a step (default: the first moderator); \"count\" lists the key prefixes the report counts and \"what\" names them in the sentence that says a module was skipped. A phase is named by its id in the template. Nothing here is an absolute date, so the demo stays ahead of the day on every run.",
   "template": "travel",
   "label": "Travel demo",
-  "name": "Demo: Portugal",
+  "name": "Demo (Travel): Portugal",
+  "icon": "suitcase-rolling",
   "description": "Portugal in ten days: Lisbon, Sintra, Porto.",
   "anchor": 3,
   "tz": "Europe/Lisbon",
@@ -17,9 +18,9 @@
     "post-trip": {"start":"start+10","end":"start+30"}
   },
   "people": [
-    {"login": "mia", "displayName": "Mia Alvarez", "role": "member", "moderator": true, "images": {"profile": {"art": "avatar", "skin": "#c98f6b", "hair": "#2b1d19", "shirt": "#0b7a84", "top": "#f6d9b8", "bottom": "#f2a48c", "style": "long"}, "background": {"art": "backdrop", "from": "#14243b", "to": "#0b7a84", "band": "#5cc8cf", "ring": "#ff8264"}}},
-    {"login": "lee", "displayName": "Lee Chen", "role": "member", "moderator": false, "images": {"profile": {"art": "avatar", "skin": "#e5c29b", "hair": "#171717", "shirt": "#f26b52", "top": "#bfe3e6", "bottom": "#7fb8c4", "style": "short"}, "background": {"art": "backdrop", "from": "#2b3a67", "to": "#8a5a83", "band": "#f4ecdd", "ring": "#f9c784"}}},
-    {"login": "sam", "displayName": "Sam Okafor", "role": "member", "moderator": false, "images": {"profile": {"art": "avatar", "skin": "#8a5a3c", "hair": "#1c1411", "shirt": "#14243b", "top": "#f7e2b0", "bottom": "#e9a56a", "style": "curly"}, "background": {"art": "backdrop", "from": "#0f3d3e", "to": "#2f6f5a", "band": "#cfe8c8", "ring": "#f4ecdd"}}}
+    {"cast":"mia","moderator":true},
+    {"cast":"lee","moderator":false},
+    {"cast":"sam","moderator":false}
   ],
   "homeChat": [
     { "as": "mia", "text": "Morning, both. The Portugal trip is almost here." },
