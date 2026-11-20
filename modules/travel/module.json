@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.9",
+  "version": "0.16.10",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -75,7 +75,13 @@
       {
         "name": "addStop",
         "label": "Add it to the trip",
-        "description": "Add a stop to the itinerary. time: start as HH:MM, 24-hour, like 14:30. minutes: how long, or endTime as HH:MM. cost: estimated cost as a number in the trip's currency, like 120.50.",
+        "description": "Add a stop to the itinerary.",
+        "inputHints": {
+          "time": "Start time as HH:MM, 24-hour, for example 14:30.",
+          "minutes": "How long it lasts, in whole minutes, from 1 to 10080; use this or endTime, not both.",
+          "endTime": "End time as HH:MM, which needs a start time; use this or minutes, not both.",
+          "cost": "The estimated cost, a number from 0 in the trip's currency, for example 120.50."
+        },
         "effect": "write",
         "input": {
           "title": "string",
@@ -101,7 +107,13 @@
       {
         "name": "acceptSuggestion",
         "label": "Add it to the trip, properly typed",
-        "description": "Add a journey, stay or stop by kind. time: start as HH:MM, 24-hour, like 14:30 (a flight's departure). minutes: how long. cost: estimated cost, a number, like 120.50. reference: confirmation number.",
+        "description": "Add a journey, stay or stop by kind.",
+        "inputHints": {
+          "time": "Start time as HH:MM, 24-hour, for example 14:30; a flight's departure.",
+          "minutes": "How long it lasts, in whole minutes, from 1 to 10080; a stay has no length.",
+          "cost": "The estimated cost, a number from 0 in the trip's currency, for example 120.50.",
+          "reference": "The confirmation number."
+        },
         "effect": "write",
         "input": {
           "title": "string",
