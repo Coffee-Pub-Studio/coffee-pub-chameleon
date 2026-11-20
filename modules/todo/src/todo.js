@@ -466,13 +466,18 @@
   const whereOf = (x) => placeOpts(x.scope, x.spaceId);
 
 
+  // Tick a task done or open it again: the one way it is stored, for a person's tick and for the setTaskDone action below.
+  async function writeDone(x, done) {
+    const t = { ...x.t, done, doneAt: done ? Date.now() : null };
+    await put(x, t);
+    applyReminder(t, whereOf(x)).catch(() => {});
+    return t;
+  }
   async function tick(key, done) {
     const x = tasks.get(key);
     if (!x || !writable(x)) return;
-    const t = { ...x.t, done, doneAt: done ? Date.now() : null };
     try {
-      await put(x, t);
-      applyReminder(t, whereOf(x)).catch(() => {});
+      const t = await writeDone(x, done);
       if (done) showUndo(`Done: ${t.title.length > 40 ? `${t.title.slice(0, 40)}...` : t.title}`, () => tick(key, false));
     } catch (err) {
       showNote(err.status === 409 ? 'Someone changed that task first. It has been refreshed.' : err.message);
@@ -1048,6 +1053,13 @@
         const t = { ...x.t, due: input.date, remind: x.t.remind };
         await put(x, t);
         applyReminder(t, whereOf(x)).catch(() => {});
+        render();
+        return { ref: myRef(x.id, x.spaceId) };
+      },
+      setTaskDone: async (input) => {
+        const x = ownTask(input.task);
+        if (typeof input.done !== 'boolean') throw new Error('Say whether the task is done with true or false.');
+        await writeDone(x, input.done);
         render();
         return { ref: myRef(x.id, x.spaceId) };
       },
