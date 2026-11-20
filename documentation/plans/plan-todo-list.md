@@ -4,9 +4,13 @@
 (the destination, the setting, the panel rule, the templates and the checks) and experience-design builds To-do's side
 (the main part, its settings and the pages). content-manager documents after.
 
-**Status:** Draft for Thomas, 2026-11-12, by product-planner. Nothing is built. Thomas decided the shape on 2026-11-12 (a real To-do destination, plus a
+**Status:** Draft for Thomas, 2026-11-12, by product-planner. Updated 2026-11-20: partly built. Thomas decided the shape on 2026-11-12 (a real To-do destination, plus a
 "show in the calendar" module setting that decides the Calendar's panel) and answered questions 1 and 2 the same day
 (decisions 2 and 3 below). Questions 3, 4 and 5 are still open.
+
+**Built (merged on `main`, 2026-11-20).** #957: To-do is its own module window again; `dest:calendar` in `public/composites.js` has parts `['calendar']` only; the Calendar's To-do panel still follows the `inCalendar` setting; To-do can sit in a stacked area (layout shapes 5 and 6) with the Calendar on or off, and only Calendar and Maps are refused there. #958: Mentoring opens `wide-split` with `["documents", "todo", "goals"]` and Travel opens `wide-split` with `["travel", "vault", "todo"]` (see [plan-layout-picker](plan-layout-picker.md), decision 24).
+
+**Not built.** The `/todo` destination page, the top-bar entry and `showTodo` (medium).
 
 ## The brief
 
