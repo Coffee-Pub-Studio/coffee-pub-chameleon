@@ -11,7 +11,7 @@ It can:
 - Read the objects of the spaces it is a member of (the plan, the to-dos, the notes) as a member does.
 - Read the public messages in the Chat of those spaces, always. It never sees a private message.
 - Post a plain-text message in Chat, only while you have turned on **Post in Chat** for it (see below).
-- Ask a module to add or change something, when the module offers that as a change it can make. In Planner - Projects: add a milestone, a piece of work or a note, tick a milestone or work done, and change an entry's title, days or notes.
+- Ask a module to add or change something, when the module offers that as a change it can make. In Planner - Projects: add a milestone, a piece of work or a note, tick a milestone or work done, and change an entry's title, days or notes. In the To-do: mark a task done or open it again.
 
 It can't:
 
@@ -40,7 +40,7 @@ Turning the switch off again makes every agent's token stop working at once. The
 2. Type a name, or keep **Claude**, and choose **Add**. The name can't end in "(agent)" or have "carried out by" in it.
 3. The agent's page opens. Its row in the list reads "Claude (agent)", with "no sign-in" in place of a login.
 
-Everywhere a name shows, the agent's has "(agent)" after it, so it can't be taken for a person, even if you name it after one.
+An agent shows a default bot image where a person would show initials, unless you set an image for it. Everywhere a name shows, the agent's has "(agent)" after it, so it can't be taken for a person, even if you name it after one.
 
 ## Add it to a space
 
@@ -78,7 +78,7 @@ Anything people write in Chat, guests included, can reach the assistant that rea
 
 ## Connect Claude
 
-A token does nothing until the assistant has it. [Connecting Claude](userguide-connecting-claude.md) says how to give it to Claude Code, how to check it works, what to ask, and what is and isn't known about the Claude apps.
+A token does nothing until the assistant has it. [Connecting Claude](userguide-connecting-claude.md) says how to give it to Claude Code or a Claude app, how to check it works and what to ask. The agent's page and the window that shows the token once both carry a **Connect Claude** panel with the command filled in, five steps, a first thing to say and a live status ("Not connected yet", then "Claude connected").
 
 ## Revoke a token
 
@@ -99,6 +99,7 @@ Under **Turn off or delete**, choose **Delete** and type the agent's name to con
 At the bottom of the agent's page, **What it did** lists what the agent has done, newest first, in plain words, each with the time and the address it came from:
 
 - "Ask for add milestone in <space>": it asked a module for a change.
+- "Connected through MCP (4 messages)": Claude opened a connection; its opening messages are folded into this one line.
 - "Read <module name> data in <space>" (the module as your environment names it), "Searched objects", "Listed what it can ask for", "Checked on a request": it read.
 - "Read Chat in <space>": it read the Chat. "Posted in Chat in <space>": it wrote a message. "Refused post in <space>": it tried to post and the server said no (for example **Post in Chat** is off). The log never shows what was written or read.
 - "Over its limit": it did more than it may in a minute or a day.

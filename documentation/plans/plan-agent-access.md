@@ -176,6 +176,22 @@ Thomas answered the three questions decision 13 raised on 2026-11-16, when he ap
 18. **Post in Chat stops posting only.** The agent's Planner work and other actions are unaffected.
 19. **The agent may read Chat** in the spaces it belongs to. The draft suggested keeping it out; see Divergences.
 
+Decided later (Thomas, 2026-11-20):
+
+20. **The agent may see member names, and the person key an action takes, in the spaces it belongs to, and nothing
+    more about them.** No logins, email, roles beyond what the key needs, or private fields. Reason: Budget's "Paid by"
+    and the owners of work in Planner, Goals and Maps take a person key, and Claude could not learn keys, so those inputs
+    were unusable. Thomas answered "yes it may" to "Should Claude be able to see member names and keys in the spaces the
+    agent is in? (names only, nothing private)". Shape (the planner's lean, taken): a narrowed agent read of a space's
+    members, `{ members: [{ key, name }] }`, counted as one read, only for the agent's own spaces, and an MCP tool
+    `list_members`.
+
+Context from the audit of agent actions (2026-11-20): agent actions are thinner than the modules' own forms. Calendar had
+a date only; To-do had no reminder, edit or done; Itinerary had no time or cost; Budget has no split; Polls, Documents,
+Whiteboard and Vault have no agent action. The fixes are small module-lane builds, each module's action brought to what a
+person can enter, with delete staying off (decision 7). Already changed: the host's input cap per action went from 10 to
+20, and `list_actions` now shows each action's description and per-input hints.
+
 ## The first version
 
 - An agent account per environment, made on Manage > Users by an owner or the admin, added to spaces through Set up.
@@ -219,7 +235,7 @@ finished command and `.mcp.json` with the server's own address and the token fil
 one-time token window; afterwards the panel shows a placeholder. The "Agents are off on this server" hint names
 `AGENT_TOKENS`. Thomas will open the Claude apps' "Add custom connector" form and report what fields it shows.
 
-Open until his test: whether the Claude apps' connector form takes a bearer token or header. If it does, the apps use
+Proven (Thomas, 2026-11-20): the Claude apps' connector form takes a request header. With Authentication set to No sign-in and the header `Authorization: Bearer <token>`, Claude in an app used the tools against his server. OAuth is therefore not needed for the apps and stays unbuilt. (Before his test the question was: whether the form takes a bearer token or header.) If it does, the apps use
 the token as is. If it does not, OAuth on the server (people sign in; no token or terminal) becomes the next piece. It
 needs OAuth 2.1 with PKCE, protected-resource and authorization-server metadata, client registration or client ID
 metadata, and a consent page: a plan, a dedicated session and a security read.

@@ -8150,7 +8150,10 @@ app.get('/api/spaces/:id/actions', (req, res) => {
         moduleName: shown.name || manifest.name,
         name: a.name,
         label: a.label,
+        // What it does and what each input wants, when the manifest says, for a person or an AI client choosing.
+        ...(a.description ? { description: a.description } : {}),
         input: a.input,
+        ...(a.inputHints ? { hints: a.inputHints } : {}),
         local: Boolean(a.local),
         // Only the caller's own page of the module carries it out (what it makes is theirs), when they next open it.
         ...(a.askerOnly ? { askerOnly: true } : {}),

@@ -138,7 +138,7 @@ const TOOLS = [
   {
     name: 'list_actions',
     title: 'What I can ask for',
-    description: 'The changes you may ask the modules in a space for (ask_for_change), each with its action name and the input it takes.',
+    description: 'The changes you may ask the modules in a space for (ask_for_change), each with its action name, label, description and the input it takes, and hints saying what to put in an input. Read an action\'s description and hints before you call ask_for_change.',
     inputSchema: object({ space: SPACE }, ['space']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/actions` }),
@@ -146,7 +146,7 @@ const TOOLS = [
   {
     name: 'ask_for_change',
     title: 'Ask a module for a change',
-    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }. Nothing changes at once: the request waits (up to seven days) until a person who may change that module has it open in that space, and their page carries it out under the module\'s own rules. Answers the request\'s id; read how it went with request_status. Counts as a write.',
+    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }. Nothing changes at once: the request waits (up to seven days) until a person who may change that module has it open in that space, and their page carries it out under the module\'s own rules. Read the action\'s description and hints in list_actions first. Answers the request\'s id; read how it went with request_status. Counts as a write.',
     inputSchema: object({
       space: SPACE,
       action: { type: 'string', minLength: 3, maxLength: 100, description: '<module>:<name>, from list_actions.' },

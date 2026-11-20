@@ -565,7 +565,7 @@
           const date = input.date && isYmd(input.date) ? input.date : null;
           const item = input.ref
             ? await addLink(input.ref, date, input.title)
-            : await addItem({ kind: 'stop', title: input.title, date, notes: input.notes || '' });
+            : await addItem(withDetails(input, { kind: 'stop', title: input.title, date, notes: input.notes || '' }));
           return { ref: host.objects.make('plan', item.id) };
         },
         addToDay: async (input) => {
@@ -607,11 +607,46 @@
       else if (STAY_TYPES.includes(kindWord)) { fields.kind = 'stay'; fields.type = kindWord; }
       else if (STOP_TYPES.includes(kindWord)) { fields.kind = 'stop'; fields.type = kindWord; }
       else fields.kind = 'stop';
-      return fields;
+      return withDetails(input, fields);
+    }
+    // The optional details a flat request may carry, as the form's own fields (the same ones objectFields fills): `time` (HH:MM,
+    // 24-hour; a flight's departure, a stay's check-in), `minutes` or `endTime` (how long; a stay and a note have no length),
+    // `cost` (what the form calls Estimated, so Budget reads it as it reads one typed in), `reference` (the confirmation number).
+    // Each is refused in plain words when it cannot be used. Without any of them the fields come back as they were.
+    function withDetails(input, fields) {
+      const given = (name) => input[name] !== undefined && input[name] !== null && input[name] !== '';
+      if (!['time', 'minutes', 'endTime', 'cost', 'reference'].some(given)) return fields;
+      const out = { ...fields };
+            if (given('time')) {
+        if (!isTime(input.time)) throw new Error('The time must be a clock time as HH:MM, 24-hour, like 14:30.');
+        out.time = input.time;
+      }
+      if (given('minutes') && given('endTime')) throw new Error('Give how long it takes or when it ends, not both.');
+      if (given('minutes') || given('endTime')) {
+        if (fields.kind === 'stay') throw new Error('A stay has no length, so leave out minutes and the end time.');
+        if (given('minutes')) {
+          if (!Number.isInteger(input.minutes) || input.minutes < 1 || input.minutes > MAX_MINUTES) throw new Error(`Minutes must be a whole number from 1 to ${MAX_MINUTES}.`);
+          out.minutes = input.minutes;
+        } else {
+          if (!isTime(input.endTime)) throw new Error('The end time must be a clock time as HH:MM, 24-hour, like 16:00.');
+          if (!isTime(out.time)) throw new Error('An end time needs a start time too.');
+          const long = lengthBetween(out.time, input.endTime);
+          if (!long) throw new Error('The end time must be different from the start time.');
+          out.minutes = long;
+        }
+      }
+      if (given('cost')) {
+        if (typeof input.cost !== 'number' || !Number.isFinite(input.cost) || input.cost < 0 || input.cost > 1e9) throw new Error('The cost must be a number, zero or more, like 120.50.');
+        out.estimate = input.cost > 0 ? input.cost : null;
+      }
+      if (given('reference')) {
+        out.confirm = clip(host.util.plain(String(input.reference), { line: true }), 60);
+      }
+      return out;
     }
 
     return {
-      refreshSummaries: () => resolveSummaries(true), refreshPhases, load, list, onLine, atJoint, sortable, days, byDay, dayOf, jointOf, summaries, suggest, provide, onFromText, onSaid, saveTrip, redateCopies, coverDay, bands, phased, addItem, updateItem, removeItem, removeFile, addRoundTrip, returnFor, outboundFor, extraReturns, removeLeg, applyChanges, moveTo, moveToJoint, previewMove, moveDays, previewClear, clearDay: clearDayOf, nudgeItem, addLink, fromSuggestion, fromObject,
+      refreshSummaries: () => resolveSummaries(true), refreshPhases, load, list, onLine, atJoint, sortable, days, byDay, dayOf, jointOf, summaries, suggest, provide, onFromText, onSaid, saveTrip, redateCopies, coverDay, bands, phased, addItem, updateItem, removeItem, removeFile, addRoundTrip, returnFor, outboundFor, extraReturns, removeLeg, applyChanges, moveTo, moveToJoint, previewMove, moveDays, previewClear, clearDay: clearDayOf, nudgeItem, addLink, fromSuggestion, fromObject, withDetails,
       get trip() { return withDates(trip); },
       get suggestions() { return suggested; },
       get waiting() { return waiting; },

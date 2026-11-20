@@ -221,6 +221,18 @@ try {
     assert.match(listed.description, /Paid by/);
   });
 
+  await test('list_actions carries each action\'s label and description, and says to read them', async () => {
+    const list = result(await tool(server, 'list_actions', { space: S1 }, T), 'list_actions');
+    const create = list.json.actions.find((x) => x.action === 'todo:createTask');
+    assert.equal(create.label, 'Add a task');
+    assert.equal(create.description, 'Add a new task.');
+    assert.equal(typeof create.input, 'object', 'the existing fields stay');
+    for (const x of list.json.actions) assert.ok(x.description === undefined || typeof x.description === 'string');
+    const tools = (await rpc(server, 'tools/list', {}, T)).json.result.tools;
+    assert.match(tools.find((t) => t.name === 'list_actions').description, /description and hints before you call ask_for_change/);
+    assert.match(tools.find((t) => t.name === 'ask_for_change').description, /description and hints in list_actions/);
+  });
+
   await test('a tool call counts once, as its route, and is logged as that route', async () => {
     const before = await used();
     result(await tool(server, 'read_chat', { space: S1 }, T), 'read_chat');

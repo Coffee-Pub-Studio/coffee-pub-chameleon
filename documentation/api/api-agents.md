@@ -112,7 +112,7 @@ What an agent may ask for is an action that is `effect: "write"` in its module's
 | 400, 403 | the module's sentence | `input` fails the action's declared shape (a field missing, an object of the wrong kind). |
 | 429 | `too many requests in a minute, slow down` | The action route's own limit. |
 
-The bundled actions an agent can use today are those marked `write` in `modules/*/module.json`; the Planner - Projects ones are `addMilestone`, `addWork`, `addNote`, `setDone` and `updateEntry` (below).
+The bundled actions an agent can use today are those marked `write` in `modules/*/module.json`; the Planner - Projects ones are `addMilestone`, `addWork`, `addNote`, `setDone` and `updateEntry` (below). The To-do module's `setTaskDone` marks a task done or opens it again; like any action it waits for a person with To-do open (#966).
 
 **`GET /api/spaces/:id/action/:requestId`** tells the agent how its own request went, for ten minutes after it finished:
 
