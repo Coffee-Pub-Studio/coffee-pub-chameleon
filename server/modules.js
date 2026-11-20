@@ -41,7 +41,7 @@ function manifestTexts(m) {
     for (const o of d.options || []) { at(o, 'label'); at(o, 'help'); }
   }
   for (const e of m.events?.publishes || []) at(e, 'label');
-  for (const a of m.actions?.provides || []) { at(a, 'label'); at(a, 'description'); }
+  for (const a of m.actions?.provides || []) { at(a, 'label'); at(a, 'description'); for (const k of Object.keys(a.inputHints || {})) at(a.inputHints, k); }
   for (const k of m.refs?.produces || []) at(k, 'name');
   return out;
 }
@@ -53,6 +53,9 @@ function fillManifest(manifest, resolved) {
   return copy;
 }
 
+// Most inputs one action may declare. The Calendar's createEvent takes ten and an Itinerary suggestion more; the cleaner keeps
+// the first this many and says in the log which it dropped.
+const MAX_ACTION_INPUTS = 20;
 const MB = 1024 * 1024;
 const LIMITS = {
   zipBytes: 10 * MB, // the upload itself
@@ -526,12 +529,27 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
     if (!EVENT_NAME_RE.test(name)) throw new ModuleError(`module.json: action name "${name}" must be letters and digits, starting with a lowercase letter`);
     if (actions.provides.some((x) => x.name === name)) throw new ModuleError(`module.json: action "${name}" is listed twice`);
     const input = {};
-    for (const [field, type] of Object.entries(p.input && typeof p.input === 'object' ? p.input : {}).slice(0, 10)) {
+    const declared = Object.entries(p.input && typeof p.input === 'object' ? p.input : {});
+    if (declared.length > MAX_ACTION_INPUTS) console.warn(`module.json: action "${name}" declares more than ${MAX_ACTION_INPUTS} inputs; left out: ${declared.slice(MAX_ACTION_INPUTS).map(([f]) => f).join(', ')}`);
+    for (const [field, type] of declared.slice(0, MAX_ACTION_INPUTS)) {
       const base = typeof type === 'string' ? type.replace(/\?$/, '') : '';
       // A pointer field may say which kind of item it takes: "ref" (any) or "ref:module:kind".
       const plain = /^ref:[a-z][a-z0-9-]{1,31}:[a-z][a-z0-9-]{0,31}$/.test(base) ? 'ref' : base;
       if (!FIELD_RE.test(field) || !INPUT_TYPES.includes(plain)) throw new ModuleError(`module.json: action "${name}" input "${field}" must be one of ${INPUT_TYPES.join(', ')} (add ? for optional)`);
       input[field] = type;
+    }
+    // `inputHints`: one short plain sentence per declared input saying what to put in it ("Start time as HH:MM, 24-hour"),
+    // shown to an AI client beside the action. A hint for an input the action does not declare is dropped.
+    let inputHints = null;
+    if (p.inputHints !== undefined) {
+      if (!p.inputHints || typeof p.inputHints !== 'object' || Array.isArray(p.inputHints)) throw new ModuleError(`module.json: action "${name}" inputHints must be an object of input name to a short sentence`);
+      for (const [field, hint] of Object.entries(p.inputHints)) {
+        if (!Object.prototype.hasOwnProperty.call(input, field)) continue;
+        const h = typeof hint === 'string' ? hint.replace(/[\s\p{Cc}]+/gu, ' ').trim() : '';
+        if (!h) throw new ModuleError(`module.json: action "${name}" hint for "${field}" must be a short sentence.`);
+        if ([...h].length > 200) throw new ModuleError(`module.json: action "${name}" hint for "${field}" is at most 200 characters.`);
+        (inputHints = inputHints || {})[field] = h;
+      }
     }
     // An `object` input and `takes` go together: the bus checks the object's kind against `takes`.
     const objectFields = Object.entries(input).filter(([, type]) => type.replace(/\?$/, '') === 'object').map(([field]) => field);
@@ -554,7 +572,7 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
     if (p.askerOnly && p.local === true) throw new ModuleError(`module.json: action "${name}" is local, which is already for the asker only`);
     // What the AI is told of it and what it changes (server/action-catalog.js): `description`, `effect` and `ai`.
     const told = cleanActionAi(p, name, p.local === true, (message) => { throw new ModuleError(message); });
-    actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...told });
+    actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...told });
   }
   for (const c of Array.isArray(rawActions?.uses) ? rawActions.uses.slice(0, 20) : []) {
     if (typeof c !== 'string' || (c !== '*' && !BUS_USE_RE.test(c))) throw new ModuleError(`module.json: actions.uses "${c}" must be "*" or look like "module:action"`);
