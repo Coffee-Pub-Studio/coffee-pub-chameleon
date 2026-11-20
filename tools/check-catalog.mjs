@@ -75,7 +75,7 @@ await test('the bundled catalog is the actions on objects that already exist, as
   }
   // Every other action is left out, each for its reason.
   const why = Object.fromEntries(catalog.leftOut.map((x) => [`${x.module}:${x.action}`, x.why]));
-  for (const id of ['todo:createTask', 'travel:addStop', 'travel:acceptSuggestion', 'maps:addPlace', 'calendar:createEvent', 'research:saveNote', 'research:saveLink', 'budget:addCost']) assert.equal(why[id], 'new-object', id);
+  for (const id of ['todo:createTask', 'travel:addStop', 'travel:acceptSuggestion', 'maps:addPlace', 'calendar:createEvent', 'research:saveNote', 'research:saveLink', 'budget:addCost', 'polls:createPoll']) assert.equal(why[id], 'new-object', id);
   assert.equal(why['research:savePhoto'], 'asker-only');
   for (const id of ['maps:showOnMap', 'maps:sharePlace', 'todo:addTask', 'assistant:askAssistant']) assert.equal(why[id], 'local', id);
 });
