@@ -106,6 +106,8 @@ await test('the set-up column is plan-agent-matrix.md\'s: three rows, all off, a
     'GET /api/agent/me': 'always', 'GET /api/agent/templates': 'always', 'GET /api/agent/icons': 'always', 'GET /api/agent/asks/:id': 'always',
     'POST /api/agent/spaces': 'agentMakeSpaces', 'PATCH /api/agent/spaces/:id': 'agentChangeSpaces',
     'GET /api/agent/people': 'agentAskPeople', 'POST /api/agent/spaces/:id/asks': 'agentAskPeople',
+    // The MCP door (plan-admin-agent.md, step 3): its tool calls come back as the routes above and need what they need.
+    'POST /mcp': 'always', 'GET /mcp': 'always',
   });
   // An ask names a space it made (the gate's madeParam), as a change does.
   assert.equal(AGENT_ROUTES.find((e) => e.kind === 'setup' && e.path === '/api/agent/spaces/:id/asks').place, 'madeParam');

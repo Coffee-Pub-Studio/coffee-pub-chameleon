@@ -3,6 +3,12 @@
 // the Streamable HTTP transport, stateless, hand-written (JSON-RPC 2.0, no dependency). `POST /mcp` takes one message;
 // `GET /mcp` is 405, since the server sends no stream of its own.
 //
+// Each kind of agent has its own tool set (plan-admin-agent.md, step 3): the ordinary agent's TOOLS, and the set-up
+// agent's SETUP_TOOLS, which make and name spaces and ask an owner about people. A token is listed, and may call, only
+// its own kind's tools; another kind's tool is an unknown tool. Both go through the same gate: the set-up agent's tools
+// wrap the routes on its own list (server/agent-routes.js, kind setup), so its narrowing, its column, its daily caps,
+// the owner's log and the bell line are those routes' own.
+//
 // It adds no power. Its only credential is the agent's token, read by the agent gate (server/index.js, agentGate) as on
 // every other route, and each tool is a thin wrapper over one route on the gate's list. A tool call is run as that route's
 // own request, sent back through the whole app (dispatch, below): the gate, the narrowing to the agent's spaces, the
@@ -15,6 +21,7 @@
 // mount() registers the routes.
 const http = require('node:http');
 const { Duplex } = require('node:stream');
+const { SETUP_LIMITS, SETUP_ASKS, SETUP_ASK_DAYS } = require('./agent-routes');
 
 // The protocol versions spoken, newest first. initialize answers the client's own when it is one of these, else the newest.
 const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
@@ -180,19 +187,117 @@ const TOOLS = [
     plan: (a) => ({ method: 'POST', path: `/api/spaces/${seg(a.space)}/chat`, body: { text: a.text } }),
   },
 ];
-const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
-// What tools/list answers: everything but plan.
-const TOOL_LIST = TOOLS.map(({ plan, ...shown }) => shown);
+
+// The set-up agent's tools (plan-admin-agent.md, "MCP"): each wraps one route of its own list. What goes in a route's
+// body is checked by the route (`routeChecks`), so a refusal is the route's own sentence in the environment's words; the
+// tool checks only that no other argument is sent and the space or ask id that fills a path. A name or description longer
+// than the route keeps is cut by the route, as it is for a direct call, so the schema says so rather than refusing.
+const ASK_ID = { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}$', description: 'The ask id ask_owner gave.' };
+const SPACE_NAME = { type: 'string', description: 'The name, up to 60 characters (longer is cut).' };
+const SPACE_DESCRIPTION = { type: 'string', description: 'A short description, up to 300 characters (longer is cut).' };
+const SPACE_ICON = { type: 'string', description: 'An icon id, from list_icons.' };
+const body = (a, keys) => Object.fromEntries(keys.filter((k) => a[k] !== undefined).map((k) => [k, a[k]]));
+
+const SETUP_TOOLS = [
+  {
+    name: 'me',
+    title: 'Who I am',
+    description: 'Your set-up agent account: your name, kind (setup), the spaces you made and may still change (id and name), your permissions (agentMakeSpaces: make_space may run; agentChangeSpaces: change_space may run; agentAskPeople: list_people and ask_owner may run), when your token ends, your limits with what you have used today, and your asks waiting for an owner. Call this first.',
+    inputSchema: object({}),
+    annotations: READ_ONLY,
+    plan: () => ({ method: 'GET', path: '/api/agent/me' }),
+  },
+  {
+    name: 'list_templates',
+    title: 'Templates',
+    description: 'The templates you may make a space from, each with its id and name. A template decides which modules a space has.',
+    inputSchema: object({}),
+    annotations: READ_ONLY,
+    plan: () => ({ method: 'GET', path: '/api/agent/templates' }),
+  },
+  {
+    name: 'list_icons',
+    title: 'Icons',
+    description: 'The icon ids a space may have, for make_space and change_space.',
+    inputSchema: object({}),
+    annotations: READ_ONLY,
+    plan: () => ({ method: 'GET', path: '/api/agent/icons' }),
+  },
+  {
+    name: 'list_people',
+    title: 'The members',
+    description: 'The members of this environment, each with their name and key, for ask_owner. Never a guest, an agent, an owner or the admin. Works only when permissions in me includes agentAskPeople.',
+    inputSchema: object({}),
+    annotations: READ_ONLY,
+    plan: () => ({ method: 'GET', path: '/api/agent/people' }),
+  },
+  {
+    name: 'make_space',
+    title: 'Make a space',
+    description: `Make a space from a template, with a name and, if you like, a description and an icon. It shows as made by you until an owner keeps it, and you join it. At most ${SETUP_LIMITS.made} a day. Works only when permissions in me includes agentMakeSpaces. Answers the new space's id and name. Counts as a write.`,
+    inputSchema: object({ name: SPACE_NAME, template: { type: 'string', description: 'A template id, from list_templates.' }, description: SPACE_DESCRIPTION, icon: SPACE_ICON }, ['name', 'template']),
+    routeChecks: ['name', 'template', 'description', 'icon'],
+    annotations: WRITES,
+    plan: (a) => ({ method: 'POST', path: '/api/agent/spaces', body: body(a, ['name', 'template', 'description', 'icon']) }),
+  },
+  {
+    name: 'change_space',
+    title: 'Change a space',
+    description: `Rename a space you made, or change its description or its icon; send at least one. Only the spaces me lists. At most ${SETUP_LIMITS.changes} changes a day. Works only when permissions in me includes agentChangeSpaces. Counts as a write.`,
+    inputSchema: object({ space: SPACE, name: SPACE_NAME, description: SPACE_DESCRIPTION, icon: SPACE_ICON }, ['space']),
+    routeChecks: ['name', 'description', 'icon'],
+    annotations: WRITES,
+    plan: (a) => ({ method: 'PATCH', path: `/api/agent/spaces/${seg(a.space)}`, body: body(a, ['name', 'description', 'icon']) }),
+  },
+  {
+    name: 'ask_owner',
+    title: 'Ask an owner about a person',
+    description: `Ask an owner to add a member to a space you made (add), take one off (remove), or tick or untick one as its moderator (moderator, with on). Nothing changes until an owner says yes; the owners are told. An ask waits up to ${SETUP_ASK_DAYS} days, then expires, and at most ${SETUP_LIMITS.waiting} wait at once. Answers the ask's id; read how it went with ask_status. Works only when permissions in me includes agentAskPeople. Counts as a write.`,
+    inputSchema: object({
+      space: SPACE,
+      ask: { type: 'string', enum: [...SETUP_ASKS], description: 'add, remove or moderator.' },
+      person: { type: 'string', description: 'A member\'s key, from list_people.' },
+      on: { type: 'boolean', description: 'With moderator only: true to tick them, false to untick them.' },
+    }, ['space', 'ask', 'person']),
+    routeChecks: ['ask', 'person', 'on'],
+    annotations: WRITES,
+    plan: (a) => ({ method: 'POST', path: `/api/agent/spaces/${seg(a.space)}/asks`, body: body(a, ['ask', 'person', 'on']) }),
+  },
+  {
+    name: 'ask_status',
+    title: 'How an ask went',
+    description: 'How one of your asks from ask_owner went: waiting, approved, declined or expired.',
+    inputSchema: object({ id: ASK_ID }, ['id']),
+    annotations: READ_ONLY,
+    plan: (a) => ({ method: 'GET', path: `/api/agent/asks/${seg(a.id)}` }),
+  },
+];
+
+// Each kind's tools, by name, and what tools/list answers for it: everything but plan and routeChecks.
+const listed = (tools) => tools.map(({ plan, routeChecks, ...shown }) => shown);
+const TOOLSETS = {
+  agent: { byName: new Map(TOOLS.map((t) => [t.name, t])), list: listed(TOOLS) },
+  setup: { byName: new Map(SETUP_TOOLS.map((t) => [t.name, t])), list: listed(SETUP_TOOLS) },
+};
+const TOOL_LIST = TOOLSETS.agent.list;
+const SETUP_TOOL_LIST = TOOLSETS.setup.list;
+
+// What initialize tells each kind.
+const INSTRUCTIONS = {
+  agent: 'You are an agent: an account a person made for you. Call me first to learn your spaces. You read what a member reads in your own spaces, ask modules for changes that wait for a person, and post in Chat only when allowed. Every call counts against your limits and is in your owner\'s log.',
+  setup: 'You are a set-up agent: an account a person made for you. Call me first. You make spaces from a template, name them and change the ones you made, and ask an owner to add or take off a member or tick a moderator; nothing about people happens until an owner says yes. You read nothing in a space. Every call counts against your limits and is in your owner\'s log.',
+};
 
 // The arguments against a tool's schema (the few keywords the schemas above use): null when they fit, else one sentence.
-function checkArgs(schema, args) {
+// The keys in routeChecks are left to the route the tool wraps (only an unknown argument is refused here for them).
+function checkArgs(schema, args, routeChecks = []) {
   if (args === undefined) args = {};
   if (!args || typeof args !== 'object' || Array.isArray(args)) return 'arguments is an object.';
   for (const key of Object.keys(args)) if (!Object.hasOwn(schema.properties, key)) return `${key} is not an argument of this tool.`;
-  for (const key of schema.required) if (args[key] === undefined) return `${key} is needed.`;
+  for (const key of schema.required) if (args[key] === undefined && !routeChecks.includes(key)) return `${key} is needed.`;
   for (const [key, rule] of Object.entries(schema.properties)) {
     const v = args[key];
-    if (v === undefined) continue;
+    if (v === undefined || routeChecks.includes(key)) continue;
     if (rule.type === 'string') {
       if (typeof v !== 'string') return `${key} is text.`;
       if (rule.minLength !== undefined && v.length < rule.minLength) return `${key} is empty.`;
@@ -201,6 +306,8 @@ function checkArgs(schema, args) {
       if (rule.pattern && !new RegExp(rule.pattern).test(v)) return `${key} is not an id this server uses.`;
     } else if (rule.type === 'integer') {
       if (!Number.isSafeInteger(v) || (rule.minimum !== undefined && v < rule.minimum)) return `${key} is a whole number of ${rule.minimum ?? 0} or more.`;
+    } else if (rule.type === 'boolean') {
+      if (typeof v !== 'boolean') return `${key} is true or false.`;
     } else if (rule.type === 'object') {
       if (!v || typeof v !== 'object' || Array.isArray(v)) return `${key} is an object.`;
     } else if (rule.type === 'array') {
@@ -236,8 +343,10 @@ function toolResult(answer) {
 //   ownOrigin(req) this server's origin as the request reached it, to refuse a page of another site (DNS rebinding)
 //   personOf(req)  the signed-in person, to tell a person's refusal (403) from nobody's (401)
 //   serverInfo     { name, version }
+//   kindOf(req)    the kind of the agent the gate let on: `agent` or `setup`, which picks its tool set
 function createMcp(base) {
-  const { app, enabled, ownOrigin, personOf, serverInfo } = base;
+  const { app, enabled, ownOrigin, personOf, serverInfo, kindOf } = base;
+  const toolsOf = (req) => TOOLSETS[kindOf(req)] || TOOLSETS.agent;
 
   // A refusal of the HTTP request itself, before any message is read: an Origin of another site, or a protocol version
   // it does not speak. null when there is none.
@@ -258,8 +367,8 @@ function createMcp(base) {
     if (!msg || typeof msg !== 'object' || Array.isArray(msg) || msg.jsonrpc !== '2.0' || msg.method !== 'tools/call' || !validId(msg.id)) return null;
     const params = msg.params;
     if (!params || typeof params !== 'object' || typeof params.name !== 'string') return null;
-    const tool = TOOL_BY_NAME.get(params.name);
-    if (!tool || checkArgs(tool.inputSchema, params.arguments)) return null;
+    const tool = toolsOf(req).byName.get(params.name);
+    if (!tool || checkArgs(tool.inputSchema, params.arguments, tool.routeChecks)) return null;
     return { id: msg.id, tool: tool.name, plan: tool.plan(params.arguments || {}) };
   }
 
@@ -370,18 +479,19 @@ function createMcp(base) {
           protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: serverInfo.name, version: serverInfo.version },
-          instructions: 'You are an agent: an account a person made for you. Call me first to learn your spaces. You read what a member reads in your own spaces, ask modules for changes that wait for a person, and post in Chat only when allowed. Every call counts against your limits and is in your owner\'s log.',
+          instructions: INSTRUCTIONS[kindOf(req)] || INSTRUCTIONS.agent,
         }));
       }
       case 'ping':
         return send(res, 200, rpcResult(msg.id, {}));
       case 'tools/list':
-        return send(res, 200, rpcResult(msg.id, { tools: TOOL_LIST }));
+        return send(res, 200, rpcResult(msg.id, { tools: toolsOf(req).list }));
       case 'tools/call': {
-        const tool = typeof params.name === 'string' ? TOOL_BY_NAME.get(params.name) : null;
+        // Another kind's tool is no tool of this token's.
+        const tool = typeof params.name === 'string' ? toolsOf(req).byName.get(params.name) : null;
         if (!tool) return send(res, 200, rpcError(msg.id, INVALID_PARAMS, `There is no tool named ${typeof params.name === 'string' ? params.name.slice(0, 60) : 'that'}.`));
         // Arguments that do not fit: a tool's error the model can correct (counted as one read by the gate).
-        return send(res, 200, rpcResult(msg.id, textResult(checkArgs(tool.inputSchema, params.arguments) || 'Those arguments do not fit this tool.', true)));
+        return send(res, 200, rpcResult(msg.id, textResult(checkArgs(tool.inputSchema, params.arguments, tool.routeChecks) || 'Those arguments do not fit this tool.', true)));
       }
       default:
         return send(res, 200, rpcError(msg.id, METHOD_NOT_FOUND, 'There is no such method.'));
@@ -410,4 +520,4 @@ function createMcp(base) {
   return { toolCallOf, mount };
 }
 
-module.exports = { createMcp, PROTOCOL_VERSIONS, TOOLS: TOOL_LIST, checkArgs };
+module.exports = { createMcp, PROTOCOL_VERSIONS, TOOLS: TOOL_LIST, SETUP_TOOLS: SETUP_TOOL_LIST, checkArgs };
