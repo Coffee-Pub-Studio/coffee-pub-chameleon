@@ -470,7 +470,7 @@ try {
       await tab.go('#templates/travel/workspace');
       await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area'), 'the layout picker in the editor');
       assert.deepEqual(await tab.evaluate(`({ areas: [...document.querySelectorAll('#te-layout .layout-picker-board .layout-picker-area')].map((a) => a.getAttribute('aria-label')), notices: [...document.querySelectorAll('#te-layout .layout-picker-board .layout-picker-notice')].map((n) => n.textContent), bar: document.querySelectorAll('#te-layout .action-bar').length, remove: Boolean(document.querySelector('#te-layout [data-layout-remove]')), held: document.getElementById('te-layout').dataset.twLayout, list: document.querySelectorAll('#te-part-workspace .opens-row, #te-part-workspace [data-opens]').length })`),
-        { areas: ['Area 1 of 2: Itinerary', 'Area 2 of 2: Vault'], notices: ["Guests can't open this by default."], bar: 0, remove: true, held: '{"shape":"wide-narrow","areas":["travel","vault"]}', list: 0 }, 'the picker, with the notice by default and no bar of its own');
+        { areas: ['Area 1 of 3: Itinerary', 'Area 2 of 3: Vault', 'Area 3 of 3: To-do'], notices: ["Guests can't open this by default."], bar: 0, remove: true, held: '{"shape":"wide-split","areas":["travel","vault","todo"]}', list: 0 }, 'the picker, with the notice by default and no bar of its own');
       await tab.go('#templates/default/workspace');
       await tab.waitFor(`${tab.visible('#template-editor-view')} && document.getElementById('template-editor-title').textContent === 'The Default template'`, 'the Default template, read only');
       assert.equal(await tab.evaluate(`document.getElementById('te-save').hidden && document.querySelectorAll('#template-editor .hc-part input:not(:disabled)').length === 0`), true, 'the Default template shows no way to save');
@@ -530,7 +530,7 @@ try {
       await tab.evaluate("document.getElementById('te-save').click()");
       await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent)", 'Add a reaction and Save template is accepted');
       await tab.waitFor("document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'after a save the focus is on the saved template in the list');
-      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.reactions.map((r) => [r.id, r.glyph, r.label]), [['party-time', '\u{1F389}', 'Party Time']], got.text); assert.deepEqual(got.json.template.workspace.layout, { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'saving never loses the layout'); }
+      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.reactions.map((r) => [r.id, r.glyph, r.label]), [['party-time', '\u{1F389}', 'Party Time']], got.text); assert.deepEqual(got.json.template.workspace.layout, { shape: 'wide-split', areas: ['travel', 'vault', 'todo'] }, 'saving never loses the layout'); }
       // A layout changed in the picker (step 5): another shape, Vault moved into area 1, saved with the form's Save and read
       // back from the server and in the editor.
       await tab.go('#templates/tabs-copy/workspace');
@@ -657,7 +657,7 @@ try {
       await tab.go('#templates/travel/workspace');
       await tab.waitFor(tab.visible('#te-layout .layout-picker-row-main'), 'the layout list at 390');
       assert.deepEqual(await tab.evaluate("({ board: [...document.querySelectorAll('#te-layout .layout-picker-board .layout-picker-area')].filter((a) => a.getClientRects().length).length, rows: [...document.querySelectorAll('#te-layout .layout-picker-row-main')].filter((r) => r.getClientRects().length).map((r) => [r.getAttribute('aria-label'), r.getBoundingClientRect().height >= 44]) })"),
-        { board: 0, rows: [['Area 1 of 2: Itinerary', true], ['Area 2 of 2: Vault', true]] }, 'one row per area at 390');
+        { board: 0, rows: [['Area 1 of 3: Itinerary', true], ['Area 2 of 3: Vault', true], ['Area 3 of 3: To-do', true]] }, 'one row per area at 390');
       assert.equal(await tab.evaluate("(() => { const s = document.getElementById('te-jump'); return s.scrollWidth > s.clientWidth && getComputedStyle(s).overflowX === 'auto'; })()"), true, 'the strip scrolls inside itself');
       await tab.shot('template-editor');
     } finally { await tab.close(); }

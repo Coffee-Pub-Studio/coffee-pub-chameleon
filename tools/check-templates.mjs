@@ -122,9 +122,9 @@ try {
     const want = {
       default: { shape: 'one', areas: [null] },
       learning: { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] },
-      mentoring: { shape: 'wide-narrow', areas: ['documents', 'goals'] },
+      mentoring: { shape: 'wide-split', areas: ['documents', 'todo', 'goals'] },
       project: { shape: 'wide-narrow', areas: ['schedule', 'todo'] },
-      travel: { shape: 'wide-narrow', areas: ['travel', 'vault'] },
+      travel: { shape: 'wide-split', areas: ['travel', 'vault', 'todo'] },
     };
     for (const t of templates.all().values()) {
       assert.deepEqual(t.workspace.layout, want[t.id], `${t.id}: its layout (Gaming names none)`);
@@ -173,7 +173,7 @@ try {
     assert.deepEqual(t.words, { space: { one: 'trip', many: 'trips' } });
     assert.deepEqual(Object.keys(t.modules), ['travel', 'maps', 'research', 'vault', 'assistant', 'calendar', 'budget', 'polls', 'todo', 'documents', 'whiteboard', 'chat', 'conference']);
     assert.deepEqual([t.modules.travel, t.modules.vault, t.modules.maps], [{ name: 'Itinerary' }, {}, {}]);
-    assert.deepEqual([t.icons.home, t.lobby, t.spaceDefaults, t.workspace], ['suitcase-rolling', { name: 'Home base', description: 'Everyone on every trip.' }, { profile: 'participants' }, { layout: { shape: 'wide-narrow', areas: ['travel', 'vault'] }, tabs: layoutIds.map((id) => ({ id, show: true })) }]);
+    assert.deepEqual([t.icons.home, t.lobby, t.spaceDefaults, t.workspace], ['suitcase-rolling', { name: 'Home base', description: 'Everyone on every trip.' }, { profile: 'participants' }, { layout: { shape: 'wide-split', areas: ['travel', 'vault', 'todo'] }, tabs: layoutIds.map((id) => ({ id, show: true })) }]);
     assert.deepEqual(t.settings, { showCalendar: true, showMap: true, calendarFeeds: true, otherCalendars: true });
     assert.deepEqual(t.phases.map((p) => [p.id, p.icon]), [['planning', 'clipboard-list'], ['booking', 'ticket'], ['buffer', 'hourglass-half'], ['pre-trip', 'suitcase-rolling'], ['trip', 'plane'], ['post-trip', 'camera']]);
     assert.equal(t.phases.find((p) => p.main).id, 'trip');
@@ -201,7 +201,7 @@ try {
     assert.deepEqual([gs.name, gs.settings.datesRequired, gs.settings.dependencies, gs.labels.milestone.one, gs.labels.work.one, gs.labels.tag.one, gs.settings.tags.length > 0], ['Campaign', false, false, 'session', 'scene', 'story thread', true]);
     for (const [id, name] of [['learning', 'Learning plan'], ['mentoring', 'Development plan']]) {
       const l = templates.get(id);
-      assert.deepEqual([l.modules.goals.name, l.modules.goals.settings, l.workspace.layout], [name, { dates: 'optional', progressBy: 'steps' }, { learning: { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, mentoring: { shape: 'wide-narrow', areas: ['documents', 'goals'] } }[id]], id);
+      assert.deepEqual([l.modules.goals.name, l.modules.goals.settings, l.workspace.layout], [name, { dates: 'optional', progressBy: 'steps' }, { learning: { shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, mentoring: { shape: 'wide-split', areas: ['documents', 'todo', 'goals'] } }[id]], id);
     }
     assert.deepEqual(templates.get('mentoring').modules.goals.labels, { owner: { one: 'mentee', many: 'mentees' } });
     assert.deepEqual([p.words.space.one, p.icons.home, p.modules.budget.name, p.modules.todo.settings, p.phases.map((x) => x.id), p.phaseMeasure], ['project', 'diagram-project', 'Effort', { inCalendar: true }, ['start', 'build', 'wrap'], 'dates']);
@@ -598,7 +598,7 @@ try {
       for (const id of enabled) assert.ok(id in t.modules, `${id} is listed`);
       const trip = await api('POST', '/api/environment/templates', { from: 'travel', id: 'trips', name: 'Trips' });
       assert.equal(trip.status, 201, trip.text);
-      assert.deepEqual([trip.json.template.modules.travel, trip.json.template.words, trip.json.template.workspace], [{ name: 'Itinerary' }, { space: { one: 'trip', many: 'trips' } }, { layout: { shape: 'wide-narrow', areas: ['travel', 'vault'] }, tabs: layoutIds.map((id) => ({ id, show: true })) }]);
+      assert.deepEqual([trip.json.template.modules.travel, trip.json.template.words, trip.json.template.workspace], [{ name: 'Itinerary' }, { space: { one: 'trip', many: 'trips' } }, { layout: { shape: 'wide-split', areas: ['travel', 'vault', 'todo'] }, tabs: layoutIds.map((id) => ({ id, show: true })) }]);
       for (const [body, status, error] of [
         [{ from: 'travel', id: 'trips', name: 'Again' }, 409, 'There is already a template called trips.'],
         [{ from: 'travel', id: 'default', name: 'Again' }, 409, 'There is already a template called default.'],
@@ -611,7 +611,7 @@ try {
         assert.deepEqual([r.status, r.json.error], [status, error], JSON.stringify(body));
       }
       const stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8')).templates;
-      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 3 }], ['trips', 1, { id: 'travel', version: 15 }]]);
+      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 3 }], ['trips', 1, { id: 'travel', version: 16 }]]);
       for (const x of stored) assert.ok(x.createdAt && x.updatedAt, 'dated');
     });
 
@@ -665,7 +665,7 @@ try {
       assert.equal(file.status, 200, file.text);
       const imported = await api('POST', '/api/templates/import?id=from-file', file.json);
       assert.equal(imported.status, 201, imported.text);
-      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 15, null]);
+      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 16, null]);
       const theme = await api('POST', '/api/templates/import?id=themed', { ...file.json, theme: { name: 'x' } });
       assert.deepEqual([theme.status, theme.json.error.slice(0, 32)], [400, '"theme" is not a template field;']);
       const badLayout = { ...file.json, workspace: { layout: { shape: 'one', areas: ['zzz'] } } };
