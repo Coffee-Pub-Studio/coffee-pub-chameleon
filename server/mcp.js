@@ -128,6 +128,14 @@ const TOOLS = [
     plan: (a) => ({ method: 'POST', path: '/api/objects/resolve', body: { from: a.from, refs: a.refs } }),
   },
   {
+    name: 'list_members',
+    title: 'The people in a space',
+    description: 'The people in a space: their name and the key that actions such as Paid by and owners take.',
+    inputSchema: object({ space: SPACE }, ['space']),
+    annotations: READ_ONLY,
+    plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/members` }),
+  },
+  {
     name: 'list_actions',
     title: 'What I can ask for',
     description: 'The changes you may ask the modules in a space for (ask_for_change), each with its action name and the input it takes.',

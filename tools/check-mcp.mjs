@@ -33,7 +33,7 @@ const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
 const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const ONLY_AGENTS = "This is for an agent's token only.";
-const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'resolve_objects', 'list_actions', 'ask_for_change', 'request_status', 'read_chat', 'post_chat'];
+const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'read_chat', 'post_chat'];
 const LIVEKIT = { LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret' };
 
 let n = 0;
@@ -205,6 +205,22 @@ try {
     assert.equal(result(await rpc(server, 'tools/call', { name: 'me' }, T), 'me without arguments').isError, false);
   });
 
+  await test('tools/call list_members answers what GET /api/spaces/:id/members does, as one read', async () => {
+    const before = await used();
+    const out = result(await tool(server, 'list_members', { space: S1 }, T), 'list_members');
+    assert.equal(out.isError, false, out.text);
+    const direct = await call(server, 'GET', `/api/spaces/${S1}/members`, T);
+    assert.deepEqual(out.json, direct.json);
+    assert.deepEqual(Object.keys(out.json), ['members']);
+    for (const m of out.json.members) assert.deepEqual(Object.keys(m).sort(), ['key', 'name']);
+    assert.ok(out.json.members.some((m) => m.key === A.key && m.name === 'Claude (agent)'), 'the agent as Name (agent)');
+    assert.ok(out.json.members.some((m) => m.key === mia.key && m.name === 'Mia'), 'a person');
+    const after = await used();
+    assert.equal(after.reads.usedToday, before.reads.usedToday + 3, 'the tool read, the direct read and the me');
+    const listed = (await rpc(server, 'tools/list', {}, T)).json.result.tools.find((t) => t.name === 'list_members');
+    assert.match(listed.description, /Paid by/);
+  });
+
   await test('a tool call counts once, as its route, and is logged as that route', async () => {
     const before = await used();
     result(await tool(server, 'read_chat', { space: S1 }, T), 'read_chat');
@@ -247,6 +263,7 @@ try {
     for (const [name, args] of [
       ['read_chat', { space: S2 }],
       ['list_actions', { space: S2 }],
+      ['list_members', { space: S2 }],
       ['read_data', { space: S2, module: 'todo' }],
       ['read_context', { space: S2, module: 'todo' }],
       ['search_objects', { space: S2, from: 'todo' }],
