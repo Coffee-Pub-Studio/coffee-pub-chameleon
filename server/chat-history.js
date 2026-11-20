@@ -382,6 +382,12 @@ class ChatHistory {
     this.flush();
   }
 
+  // Whether anything was ever posted in the space that is still kept, public or private, or its chat was deleted for
+  // everyone (plan-admin-agent.md: an undo of a made space only while nobody has written in it).
+  holdsAny(spaceId) {
+    return Boolean((this.spaces[spaceId] || []).length || this.cleared[spaceId]);
+  }
+
   forgetSpace(spaceId) {
     const changed = Boolean(this.spaces[spaceId] || this.cleared[spaceId]);
     delete this.spaces[spaceId];

@@ -599,13 +599,13 @@ async function main() {
       }))()`);
       expect(g.heads.join() === 'Owner,Moderator,Member,Guest,Agent,Set-up agent', `the columns are ${g.heads.join(', ')}`);
       expect(g.rows.every((r) => r.cells === 7), 'a row is not seven cells wide');
-      for (const key of ['agentMakeSpaces', 'agentChangeSpaces']) {
+      for (const key of ['agentMakeSpaces', 'agentChangeSpaces', 'agentAskPeople']) {
         const row = g.rows.find((r) => r.key === key);
         expect(row && row.boxes.join() === 'false,false,false,false,false,true', `the ${key} row's boxes are ${row && row.boxes}`);
       }
       const members = g.rows.find((r) => r.key === 'agentMembers');
       expect(members && members.boxes.join() === 'false,false,false,false,true,false', `the agentMembers row's boxes are ${members && members.boxes}`);
-      expect(g.rows.filter((r) => r.key && !['agentMakeSpaces', 'agentChangeSpaces'].includes(r.key)).every((r) => !r.boxes[5]), 'a box under Set-up agent on a row it can never have');
+      expect(g.rows.filter((r) => r.key && !['agentMakeSpaces', 'agentChangeSpaces', 'agentAskPeople'].includes(r.key)).every((r) => !r.boxes[5]), 'a box under Set-up agent on a row it can never have');
       await press(t, '#roles-table input[data-role="setup"][data-perm="agentMakeSpaces"]');
       await sleep(500);
       expect((await call('admin', 'GET', '/api/roles', undefined, setup)).json.roles.setup.agentMakeSpaces === true, 'a tick in the Set-up agent column did not save');

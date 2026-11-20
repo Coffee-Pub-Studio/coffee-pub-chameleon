@@ -10,6 +10,8 @@
 //   attention.json, facts.json            what is asking for attention, what each module reported
 //   tags.json                             the space's tags (server/tags.js)
 //   access.json                           requests to enter it and the approvals for guests (server/access-requests.js)
+//   agent-setup.json                      set-up agents' asks about people in it and the undo records of their changes
+//                                         to it (server/setup-records.js)
 //   modules/settings.json                 module settings for the space
 //   modules/<module>/data/space-<id>.json         every module's records scoped to it
 //   modules/<module>/uploads/space-<id>/          every module's files scoped to it (and their thumbnails)
@@ -47,6 +49,7 @@ function eraseSpace(env, id) {
     ['facts', () => { env.facts.forgetSpace(id); return 0; }],
     ['tags', () => env.tags.forgetSpace(id)],
     ['access requests', () => env.accessRequests.forgetSpace(id)],
+    ["set-up agents' asks and changes", () => env.setupRecords.forgetSpace(id)],
     ['activity', () => {
       const scope = `space:${id}`;
       let n = 0;

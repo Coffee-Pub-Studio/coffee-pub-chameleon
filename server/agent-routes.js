@@ -40,14 +40,19 @@ const AGENT_ROUTES = Object.freeze([
   { kind: 'agent', method: 'post', path: '/api/spaces/:id/chat', counts: 'write', place: 'spaceParam', needs: 'chat' },
   { kind: 'agent', method: 'post', path: '/mcp', counts: 'mcp', place: 'none', needs: 'always' },
   { kind: 'agent', method: 'get', path: '/mcp', counts: 'read', place: 'none', needs: 'always' },
-  // The set-up agent (plan-admin-agent.md, step 1): its own reads, and making and changing the spaces it made. It reads no
-  // module data and no Chat, and nothing in a space. Each route is its own (never PATCH /api/spaces/:id opened to an
-  // agent) and takes a fixed body. The people read, the asks and MCP come in later steps of that plan.
+  // The set-up agent (plan-admin-agent.md, steps 1 and 2): its own reads, making and changing the spaces it made, the
+  // environment's members, and asking an owner about people in a space it made. It reads no module data and no Chat, and
+  // nothing in a space. Each route is its own (never PATCH /api/spaces/:id opened to an agent) and takes a fixed body.
+  // Anything about people waits for an owner's yes whatever the column says: the box lets it ask, never do. MCP comes in
+  // that plan's step 3.
   { kind: 'setup', method: 'get', path: '/api/agent/me', counts: 'read', place: 'none', needs: 'always' },
   { kind: 'setup', method: 'get', path: '/api/agent/templates', counts: 'read', place: 'none', needs: 'always' },
   { kind: 'setup', method: 'get', path: '/api/agent/icons', counts: 'read', place: 'none', needs: 'always' },
   { kind: 'setup', method: 'post', path: '/api/agent/spaces', counts: 'write', place: 'none', needs: 'agentMakeSpaces' },
   { kind: 'setup', method: 'patch', path: '/api/agent/spaces/:id', counts: 'write', place: 'madeParam', needs: 'agentChangeSpaces' },
+  { kind: 'setup', method: 'get', path: '/api/agent/people', counts: 'read', place: 'none', needs: 'agentAskPeople' },
+  { kind: 'setup', method: 'post', path: '/api/agent/spaces/:id/asks', counts: 'write', place: 'madeParam', needs: 'agentAskPeople' },
+  { kind: 'setup', method: 'get', path: '/api/agent/asks/:id', counts: 'read', place: 'none', needs: 'always' },
 ].map((entry) => Object.freeze(entry)));
 
 // The rows of the Roles grid only an agent column has (the "Agents" group); people's columns show no box on them, and
@@ -56,6 +61,7 @@ const AGENT_ONLY_PERMISSIONS = Object.freeze([
   Object.freeze({ key: 'agentMembers', label: 'See who is in {a space}', group: 'Agents', agentOnly: true, column: 'agent' }),
   Object.freeze({ key: 'agentMakeSpaces', label: 'Make {spaces}', group: 'Agents', agentOnly: true, column: 'setup' }),
   Object.freeze({ key: 'agentChangeSpaces', label: 'Rename and change {spaces}', group: 'Agents', agentOnly: true, column: 'setup' }),
+  Object.freeze({ key: 'agentAskPeople', label: 'Ask to add people', group: 'Agents', agentOnly: true, column: 'setup' }),
 ]);
 
 // The built-in rows the Agent column may ever tick. Every other built-in row is never an agent's (the call, pictures,
@@ -70,15 +76,24 @@ const AGENT_DEFAULTS = Object.freeze({ chatRead: true, chat: false, agentMembers
 // The rows the set-up agent's column may ever tick: only its own. Every other row, built-in or a module's, is never the
 // set-up agent's (it reads nothing in a space). They start off (plan-agent-matrix.md, decision 5): nothing it can do
 // until an owner ticks something.
-const SETUP_BUILT_IN = Object.freeze(['agentMakeSpaces', 'agentChangeSpaces']);
-const SETUP_DEFAULTS = Object.freeze({ agentMakeSpaces: false, agentChangeSpaces: false });
+const SETUP_BUILT_IN = Object.freeze(['agentMakeSpaces', 'agentChangeSpaces', 'agentAskPeople']);
+const SETUP_DEFAULTS = Object.freeze({ agentMakeSpaces: false, agentChangeSpaces: false, agentAskPeople: false });
 
 // What a set-up agent may do in a day, on top of the agent limits (plan-admin-agent.md, "Limits"): spaces made, and changes
-// to the spaces it made (a rename, a description, an icon; one call is one change).
-const SETUP_LIMITS = Object.freeze({ made: 5, changes: 30 });
+// to the spaces it made (a rename, a description, an icon; one call is one change), and its asks waiting at once.
+const SETUP_LIMITS = Object.freeze({ made: 5, changes: 30, waiting: 10 });
 
-// The words a log line keeps for a set-up change (server/agent-log.js `change`): never a name or a description.
+// What a set-up agent may ask an owner about a person in a space it made (plan-admin-agent.md, "What it may do"): add them,
+// take them off, tick or untick them as the space's moderator. An ask waits SETUP_ASK_DAYS for an answer, then expires; an
+// owner may undo a direct change (making, renaming, a description, an icon) for SETUP_UNDO_DAYS.
+const SETUP_ASKS = Object.freeze(['add', 'remove', 'moderator']);
+const SETUP_ASK_DAYS = 7;
+const SETUP_UNDO_DAYS = 7;
+
+// The words a log line keeps for a set-up change (server/agent-log.js `change`): never a name or a description. An ask is
+// `ask:<what>`, alone on its line.
 const SETUP_CHANGES = Object.freeze(['made', 'renamed', 'described', 'icon']);
+const SETUP_ASK_CHANGES = Object.freeze(SETUP_ASKS.map((a) => `ask:${a}`));
 
 const KINDS = ['agent', 'setup'];
 const METHODS = ['get', 'post', 'patch'];
@@ -144,4 +159,4 @@ function assertAgentRoutes(list = AGENT_ROUTES) {
 
 assertAgentRoutes();
 
-module.exports = { AGENT_ROUTES, AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, SETUP_BUILT_IN, SETUP_DEFAULTS, SETUP_LIMITS, SETUP_CHANGES, agentMayAsk, agentModuleKeys, agentRouteProblems, assertAgentRoutes };
+module.exports = { AGENT_ROUTES, AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, SETUP_BUILT_IN, SETUP_DEFAULTS, SETUP_LIMITS, SETUP_CHANGES, SETUP_ASK_CHANGES, SETUP_ASKS, SETUP_ASK_DAYS, SETUP_UNDO_DAYS, agentMayAsk, agentModuleKeys, agentRouteProblems, assertAgentRoutes };
