@@ -604,6 +604,24 @@ test('takes: kinds from the catalogue, "*" with except, "text", "as", a permissi
   refuse(one([{ kinds: ['*', 'note'], except: ['note'], as: 'a note' }]), 'module.json: action "take" takes both lists and leaves out "note"');
   refuse(one([{ kinds: ['note'], as: 'a note', permission: 'nope' }]), 'module.json: action "take" takes permission "nope" must name one of the module\'s own permissions');
   refuse(one([{ kinds: ['note'], as: 'a note' }], { title: 'string' }), 'module.json: action "take" takes objects, so it needs an input of type "object"');
+  {
+    const many = Object.fromEntries(Array.from({ length: 21 }, (_, n) => [`f${n + 1}`, 'string?']));
+    const warned = [];
+    const was = console.warn;
+    console.warn = (m) => warned.push(String(m));
+    try { assert.deepEqual(Object.keys(make([{ name: 'many', input: many }]).actions.provides[0].input), Object.keys(many).slice(0, 20), '20 inputs kept, the 21st dropped'); } finally { console.warn = was; }
+    assert.equal(warned.length, 1);
+    assert.match(warned[0], /action "many".*left out: f21$/, 'the dropped name is reported');
+  }
+  // inputHints: a plain sentence per declared input; a hint for an undeclared input is dropped; a long one is refused.
+  const hinted = (hints, extra = {}) => make([{ name: 'hint', label: 'Hint', description: 'Do it.', input: { time: 'string?', repeat: 'string?' }, inputHints: hints, ...extra }]).actions.provides[0];
+  assert.deepEqual(hinted({ time: ' Start time as HH:MM,\n24-hour. ', nothing: 'dropped' }).inputHints, { time: 'Start time as HH:MM, 24-hour.' }, 'cleaned, and an undeclared name dropped');
+  assert.equal('inputHints' in hinted({ nothing: 'dropped' }), false, 'only undeclared names: no hints');
+  assert.equal('inputHints' in hinted(undefined), false, 'no hints, none kept');
+  refuse([{ name: 'hint', input: { time: 'string?' }, inputHints: { time: 'x'.repeat(201) } }], 'module.json: action "hint" hint for "time" is at most 200 characters.');
+  refuse([{ name: 'hint', input: { time: 'string?' }, inputHints: { time: '' } }], 'module.json: action "hint" hint for "time" must be a short sentence.');
+  refuse([{ name: 'hint', input: { time: 'string?' }, inputHints: ['time'] }], 'module.json: action "hint" inputHints must be an object of input name to a short sentence');
+  assert.equal(make([{ name: 'plain', input: { title: 'string' } }]).actions.provides[0].description, undefined, 'an action without a description still cleans');
   refuse([{ name: 'take', input: { thing: 'object?' } }], 'module.json: action "take" input "thing" is an object, so the action needs "takes"');
   refuse(one([{ kinds: ['note'], as: 'a note' }], { a: 'object', b: 'object?' }), 'module.json: action "take" can have only one input of type "object"');
   // Event data has no object type.
