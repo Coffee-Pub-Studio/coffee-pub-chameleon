@@ -151,7 +151,7 @@ const notAModule = (id) => (hasText(id) ? `"${plainId(id)}" is not ${words.word(
 
 // The check of a shared layout's shape (decision 5), pure: `input` is { shape, areas } as a request sends them. `options`
 // is { modules, on, names }: the ids an area may name (the modules on in the space with a place on the canvas), the ids
-// that are on (decides whether Calendar and To-do read as a composite; layout-shapes.js), and { <id>: <name as the space
+// that are on (decides whether the Calendar reads as a composite; layout-shapes.js), and { <id>: <name as the space
 // shows it> } for every module installed. Left out, any well-formed id passes. Answers { shape: { shape, areas } }, or
 // { problems: [sentence...], parts: ['shape' | 'areas', ...] }, one plain sentence each: an id that is not text-safe is
 // quoted plain and short, a module is named as the space shows it, and a module listed twice is named once.
@@ -406,8 +406,7 @@ class LayoutError extends Error {
 // survive a roll back), else dropped.
 const storedLayout = (l) => isObject(l) && typeof l.id === 'string' && l.id && typeof l.name === 'string' && Array.isArray(l.modules);
 const storedList = (list) => (Array.isArray(list) ? list.filter(storedLayout) : []);
-// A shared layout as read from the file: a valid shape and its areas (cleanShape with no module list; `on: []` so a To-do in
-// a stacked area saved while the Calendar was off is kept). A free-form one (modules, from before shared layouts were
+// A shared layout as read from the file: a valid shape and its areas (cleanShape with no module list; `on: []` so the shape rules read nothing as a composite). A free-form one (modules, from before shared layouts were
 // shapes) is dropped, as is anything else that is not a shape; the file is not rewritten until the next save.
 // Any free-form key present (modules, snap, arrange, whatever its value) drops the entry, and only the shape's own fields are kept.
 const storedShared = (l) => isObject(l) && typeof l.id === 'string' && l.id && typeof l.name === 'string' && !FREE_FORM_KEYS.some((k) => k in l)

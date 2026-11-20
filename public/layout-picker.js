@@ -7,7 +7,7 @@
 //   2. Choose modules: the chosen shape drawn large, each area a button ("Area 2 of 3: To-do") that opens the page's
 //      shared menu (host-menu.js, openHostMenu) with Empty first, then what that area may hold. What an area may hold
 //      is layouts.js's areaMayHold, the one rule the canvas's chooser uses too: never the chat or the call, and in a
-//      stacked area no composite (Calendar, Maps, and To-do where the Calendar is on: `parts`, decision 8). A module
+//      stacked area no composite (Calendar and Maps: `parts`, decision 8). A module
 //      already in another area moves, emptying its old area, so a module is never in two areas. An area may stay empty
 //      (decision 3). In a narrow place (a phone, a narrow editor) step 2 is a list, one row per area.
 // The bar is the shared action bar (action-bar.js): Save and Cancel, with Back (or Choose modules) beside them.
@@ -28,7 +28,7 @@
 //              template's module that is no longer ticked, while the layout still names it; template-layout.js).
 //   parts      the ids that read as a composite where the layout is used (composites.js's aliasesFor; canvas.js's
 //              compositePartsHere). Left out, it is worked out from `modules` (partsFor), as the shape check reads a
-//              template: To-do counts while the Calendar is among them.
+//              template: the Calendar counts while it is among them.
 //   cantOpen   { <module id>: { roles: ['moderator' | 'member' | 'guest', ...] } | { off: true } }: who can't open each
 //              module (server/layout-shapes.js's whoCantOpen; plan, "Telling the maker"). An area whose module is in it
 //              gets the maker's notice under it, in noticeWords' words, read with the area. A module not in it gets none.
@@ -88,8 +88,8 @@ export function cleanText(text) {
 // An area number of `shape` (from 1), or 0.
 const areaOf = (shape, area) => (Number.isInteger(area) && area >= 1 && area <= shapeAreas(shape) ? area : 0);
 
-// The ids that read as a composite given the ids on (composites.js's aliasesFor): Calendar and To-do while the Calendar
-// is among them; Maps only where the Map answered (`shown`), though areaMayHold refuses Maps in a stacked area anyway.
+// The ids that read as a composite given the ids on (composites.js's aliasesFor): the Calendar while it
+// is among them (To-do is always its own module); Maps only where the Map answered (`shown`), though areaMayHold refuses Maps in a stacked area anyway.
 export function partsFor(ids, shown = []) {
   const aliases = aliasesFor(Array.isArray(ids) ? ids : [], Array.isArray(shown) ? shown : []);
   return Object.keys(aliases).filter((id) => typeof aliases[id] === 'string' && aliases[id].startsWith('dest:'));

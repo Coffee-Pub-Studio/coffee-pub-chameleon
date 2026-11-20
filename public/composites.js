@@ -5,7 +5,7 @@
 //
 // Pure: no document, no storage, no imports, so tools/check-canvas.mjs runs it in node. canvas.js reads the table;
 // opens-with.js and layouts.js take the `aliases` map this file builds and read a stored list through it, so a
-// remembered list, an Opens with or a saved layout naming `calendar`, `todo` or `maps` opens the composite,
+// remembered list, an Opens with or a saved layout naming `calendar` or `maps` opens the composite,
 // and nothing stored is rewritten.
 //
 // A composite: { id, dest, path, main, parts, width, height, ask? }. `main` is the module whose name, icon and tint the
@@ -15,7 +15,7 @@
 // /api/destinations/<dest>?space=<id>: the Map needs a map file, server/destinations.js `needsFile`), and the composite
 // is on only where that answered. The callers below take the dest ids that answered as `shown`.
 export const COMPOSITES = Object.freeze([
-  Object.freeze({ id: 'dest:calendar', dest: 'calendar', path: '/calendar', main: 'calendar', parts: Object.freeze(['calendar', 'todo']), width: 760, height: 600 }),
+  Object.freeze({ id: 'dest:calendar', dest: 'calendar', path: '/calendar', main: 'calendar', parts: Object.freeze(['calendar']), width: 760, height: 600 }),
   Object.freeze({ id: 'dest:map', dest: 'map', path: '/map', main: 'maps', parts: Object.freeze(['maps']), width: 760, height: 600, ask: true }),
 ]);
 
@@ -40,7 +40,7 @@ export function compositesOn(ids, shown = []) {
 
 // The aliases a stored list is read through, given the ids on in a space: each part of a composite that is on reads
 // as the composite; a composite that is off reads as whichever of its parts are on (so a remembered `dest:calendar`
-// still opens the To-do's own list where the Calendar went off, and a remembered `dest:map` opens Maps as
+// still opens the Calendar's module where it is on, and a remembered `dest:map` opens Maps as
 // it is where there is no map file). { <stored id>: <id> | [<ids>] }.
 export function aliasesFor(ids, shown = []) {
   const on = new Set(Array.isArray(ids) ? ids : []);

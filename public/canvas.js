@@ -2453,7 +2453,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
       canOpen: canOpenHere,
       guest,
       column: columnMode(),
-      aliases, // a stored `calendar` or `todo` opens the composite while the Calendar is on here (composites.js)
+      aliases, // a stored `calendar` opens the composite while the Calendar is on here (composites.js)
     });
     const want = [...lead, ...opens.filter((id) => !lead.includes(id))];
     for (const id of want) {
@@ -2736,7 +2736,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     clearAreas(); // a shape's empty areas are not part of any other layout
     const narrow = isNarrow();
     const area = canvasArea();
-    const plan = placeLayout(layout, area, canOpenHere, aliases); // a stored `calendar` or `todo` places the composite
+    const plan = placeLayout(layout, area, canOpenHere, aliases); // a stored `calendar` places the composite
     const named = new Set(plan.modules.map((p) => p.id));
     const keepCall = (p) => p.id === 'conference' && p.kind === 'builtin' && Boolean(p.def?.inCall?.());
     suspended = true;
@@ -3202,7 +3202,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     // Whether the canvas is narrow (640 px and below): the Layout panel's Layouts section is not drawn then.
     isNarrow,
     // `mode` (a module's own window asking to come back as a column or floating) is remembered. A module id that reads
-    // as the composite here (`todo` while the Calendar is on) opens the composite.
+    // as the composite here (the Calendar's module while it is on) opens the composite.
     open: (id, mode) => {
       const m = available.find((x) => x.id === readId(id));
       if (!m) return;
