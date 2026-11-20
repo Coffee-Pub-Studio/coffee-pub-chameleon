@@ -352,6 +352,31 @@ function listModel(geo, LIB_TYPES, word) {
     return p;
   }
 
+  // What `updatePlace` asks: the stored place `p` with the fields given changed (the others stay), or an Error saying what is wrong.
+  // Nothing is saved here. A new type moves the category with it unless the request names one; the caller redraws the icon (lookOf).
+  function placeChanged(p, input, by, people) {
+    const i = input || {};
+    const has = (x) => x !== undefined && x !== null;
+    const fields = ['title', 'type', 'category', 'status', 'address', 'notes', 'owners'].filter((k) => has(i[k]));
+    if (!fields.length) throw new Error('Say what to change: a title, a type, a status, an address, notes or who.');
+    for (const k of ['title', 'address', 'notes', 'category']) if (has(i[k]) && typeof i[k] !== 'string') throw new Error(`The ${k} must be text.`);
+    const next = { ...p, by: by || p.by };
+    if (has(i.title)) { next.title = geo.oneLine(i.title, 120); if (!next.title) throw new Error('A place needs a name.'); }
+    if (has(i.address)) next.address = geo.oneLine(i.address, 200);
+    if (has(i.notes)) next.notes = i.notes;
+    if (has(i.status)) next.status = statusFromRequest(i.status);
+    if (has(i.owners)) next.owners = ownersFromRequest(i.owners, people);
+    if (has(i.type)) {
+      const type = typeFromRequest(i.type);
+      next.type = type.id;
+      if (!has(i.category)) next.category = type.category;
+    }
+    if (has(i.category)) next.category = newCategoryId(i.category.trim());
+    const out = cleanPlace(p.id, placeValue(next));
+    if (!out) throw new Error('That is not a place.');
+    return { ...out, id: p.id };
+  }
+
   // The places of a space, kept live, and what other modules may ask of them. `host` is the SDK.
   // `opts.scope` says whose they are: 'space' (this space's, the default), 'environment' (everyone's) or 'person' (the signed-in person's own, private).
   // `opts.space` names one of the viewer's spaces from the environment page (the Map destination's panel): scope 'space'
@@ -559,5 +584,5 @@ function listModel(geo, LIB_TYPES, word) {
     if (v.searchProvider === 'custom') return typeof v.search === 'string' && /^https?:\/\//i.test(v.search);
     return typeof v.searchProvider === 'string' && v.searchProvider !== '' && v.searchProvider !== 'none';
   }
-  return { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, statusFromRequest, typeFromRequest, ownersFromRequest, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, createPlaces, movePlace, createBookmarks, readEntry, searchOn };
+  return { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, statusFromRequest, typeFromRequest, ownersFromRequest, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, placeChanged, createPlaces, movePlace, createBookmarks, readEntry, searchOn };
 }

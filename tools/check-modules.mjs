@@ -605,6 +605,21 @@ test('takes: kinds from the catalogue, "*" with except, "text", "as", a permissi
   refuse(one([{ kinds: ['note'], as: 'a note', permission: 'nope' }]), 'module.json: action "take" takes permission "nope" must name one of the module\'s own permissions');
   refuse(one([{ kinds: ['note'], as: 'a note' }], { title: 'string' }), 'module.json: action "take" takes objects, so it needs an input of type "object"');
   {
+    // The cap on a module's actions: 16 are kept (12 certainly), the 17th is left out and named in one warning.
+    const acts = (n) => Array.from({ length: n }, (_, i) => ({ name: `act${i + 1}`, input: { title: 'string?' } }));
+    const run = (n) => { const warned = []; const was = console.warn; console.warn = (m) => warned.push(String(m)); try { return { names: make(acts(n)).actions.provides.map((a) => a.name), warned }; } finally { console.warn = was; } };
+    const twelve = run(12);
+    assert.deepEqual(twelve.names, acts(12).map((a) => a.name), '12 actions all kept');
+    assert.equal(twelve.warned.length, 0, 'no warning at 12');
+    const sixteen = run(16);
+    assert.equal(sixteen.names.length, 16);
+    assert.equal(sixteen.warned.length, 0, 'no warning at the cap');
+    const seventeen = run(17);
+    assert.deepEqual(seventeen.names, acts(16).map((a) => a.name), '16 kept, the 17th dropped');
+    assert.equal(seventeen.warned.length, 1);
+    assert.match(seventeen.warned[0], /declares more than 16 actions; left out: act17$/, 'the dropped action is named');
+  }
+  {
     const many = Object.fromEntries(Array.from({ length: 21 }, (_, n) => [`f${n + 1}`, 'string?']));
     const warned = [];
     const was = console.warn;
