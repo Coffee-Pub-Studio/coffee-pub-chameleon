@@ -10136,6 +10136,11 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 .message-head-side:has(> .message-agent) > .message-name { flex: 0 0 auto; max-width: 60%; } /* the time gives way, not the name */
 .agent-token-dialog .agent-token-value { display: block; font-size: var(--text-13); padding: 12px; user-select: all; }
 .agent-token-dialog .agent-token-warning { color: var(--text); }
+.agent-connect { margin-top: 16px; }
+.agent-connect-title { margin: 0 0 8px; font-size: var(--text-14); }
+.agent-copy { margin-top: 8px; }
+.agent-copy + .hint { margin-top: 8px; }
+.agent-copy .agent-copy-text { display: block; font-size: var(--text-13); padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
 @media (max-width: 640px) {
   .agent-name-field { max-width: none; flex-basis: 100%; }
   .agent-token-dialog .row .btn { --btn-h: 44px; }

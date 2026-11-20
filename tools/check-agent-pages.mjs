@@ -107,7 +107,7 @@ async function main() {
       await go(tab, '/admin#users');
       await tab.waitFor('#agents-off-server:not([hidden])').catch(() => {});
       expect(!(await hiddenOf(tab, '#agents-off-server')), 'the server variable is off and the page does not say so');
-      expect((await text(tab, '#agents-off-server')) === 'Agents are off on this server. The person who runs the server turns them on.', `the off-server sentence is "${await text(tab, '#agents-off-server')}"`);
+      expect((await text(tab, '#agents-off-server')) === 'Agents are off on this server. The person who runs the server sets AGENT_TOKENS=true and restarts it.', `the off-server sentence is "${await text(tab, '#agents-off-server')}"`);
       expect(await hiddenOf(tab, '#agents-on-server') && await hiddenOf(tab, '#add-agent-toggle'), 'the server variable is off and the page still offers the switch or "Add an agent"');
       expect(tab.problems.length === 0, `server variable off: ${tab.problems.join('; ')}`);
       await tab.close();
