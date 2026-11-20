@@ -76,6 +76,10 @@ Its messages show the agent's name and a small **agent** mark, so nobody takes t
 
 Anything people write in Chat, guests included, can reach the assistant that reads it. Someone could write words meant to steer it. Nothing on the server stops that. What stops the harm is that it can only write through a module's own rules, or in a labelled message, within its limits, and everything it does is in its log. Add an agent only to spaces whose Chat you are happy for it to read.
 
+## Connect Claude
+
+A token does nothing until the assistant has it. [Connecting Claude](userguide-connecting-claude.md) says how to give it to Claude Code, how to check it works, what to ask, and what is and isn't known about the Claude apps.
+
 ## Revoke a token
 
 On the agent's page, under **Token**, choose **Revoke** and confirm **Revoke**. The token stops working at once. The agent stays, and you can make a new token.
@@ -119,4 +123,5 @@ On the agent's page, change the name and choose **Save name**.
 - A member can't see agents' tokens or logs, and an agent's token can't reach Manage.
 - The change an agent asks for appears when someone with the right opens the module, not before. If a plan looks unchanged, open it.
 - What the assistant does with what it reads is up to it. Anything people write in a space can end up in front of it, so make an agent a member only of spaces whose content you are happy for it to read.
+- Next, [Connecting Claude](userguide-connecting-claude.md).
 - The routes are in the [Agents API](../api/api-agents.md); how it is built is in [Agent access architecture](../architecture/architecture-agent-access.md).

@@ -202,6 +202,68 @@ When the page saves what the request asks for, the SDK sends the asker with the 
 
 `DELETE` on data and `POST /api/bus/actions/complete` never name an asker. `for` raises no right: the carrier's own rights decide the write. What it changes is the record: the activity list (`GET /api/modules/activity`, owners) gives `askerName`, `askerAgent`, `carrierName` and `byName` ("Claude (agent), carried out by Thomas's page"), and a Calendar copy made from the write fills `{by}` with the asker's name. A hint that is not honest leaves one line a minute for each person in the activity list.
 
+## Part 4. The MCP endpoint
+
+`/mcp` is a remote MCP server (Model Context Protocol) for the agent's token: a tool-using client such as Claude Code connects once and gets the routes of Part 1 as tools. It adds no power. Its only credential is the agent's token, read by the same gate, and each tool is a thin wrapper of one route on the gate's list. For the owner's steps see [Connecting Claude](../userguides/userguide-connecting-claude.md). The code is `server/mcp.js`; it is on only while `AGENT_TOKENS` is on (off, `/mcp` is an unknown path).
+
+### Transport
+
+- **Stateless Streamable HTTP, JSON-RPC 2.0.** `POST /mcp` takes one message with `Content-Type: application/json` and answers plain JSON, never an event stream. There is no session and no `Mcp-Session-Id`. A notification (a message with no `id`) or a client's response is answered 202 with no body.
+- **`GET /mcp`** answers 405 `This server sends no stream. Send each message with POST.` with `Allow: POST`.
+- **Versions.** `2025-11-25`, `2025-06-18` and `2025-03-26`. `initialize` answers the client's own version when it is one of these, else the newest. An `MCP-Protocol-Version` header, when sent, must be one of them.
+- **Methods.** `initialize`, `ping`, `tools/list` and `tools/call`. Any other method answers 200 with error -32601. The server offers tools only (`listChanged: false`); no resources, prompts or streams.
+- **Credentials.** `Authorization: Bearer agt_...`, as in Part 1, and nothing else. A person's session is 403 `This is for an agent's token only.`; no token is 401 with `WWW-Authenticate: Bearer`; a token that is not good is the gate's 401 (Part 1, "Sign-in").
+- **Origin.** A request with an `Origin` that is not this server's own origin is refused (403), to stop a page of another site reaching a server on a private network. A client that is not a browser sends none.
+
+### The tools
+
+All arguments are strict: an argument the tool doesn't list is an error. `space` is a space id from `me`; `module` and `from` are module ids.
+
+| Tool | Arguments | Wraps | Counts as |
+|---|---|---|---|
+| `me` | none | `GET /api/agent/me` | read |
+| `read_context` | `space`, `module` | `GET /api/modules/:id/context?scope=space` | read |
+| `read_data` | `space`, `module`, `key?`, `prefix?` | `GET /api/modules/:id/data/:key` with `key`, else `GET /api/modules/:id/data` | read |
+| `search_objects` | `space`, `from`, `q?`, `kind?`, `has?` (`place` or `amount`) | `GET /api/objects/search` | read |
+| `object_links` | `ref`, `from`, `dir?` (`to`, the default, or `from`) | `GET /api/objects/links` | read |
+| `object_kinds` | `from` | `GET /api/objects/kinds` | read |
+| `resolve_objects` | `refs` (1 to 50), `from` | `POST /api/objects/resolve` | read |
+| `list_actions` | `space` | `GET /api/spaces/:id/actions` | read |
+| `ask_for_change` | `space`, `action`, `input?` | `POST /api/spaces/:id/action` | write; waits for a person |
+| `request_status` | `space`, `request` (a whole number) | `GET /api/spaces/:id/action/:requestId` | read |
+| `read_chat` | `space`, `before?` | `GET /api/spaces/:id/chat` | read |
+| `post_chat` | `space`, `text` | `POST /api/spaces/:id/chat` | write; needs **Post in Chat** |
+
+`tools/list` gives each tool's `name`, `title`, `description`, `inputSchema` and `annotations` (`readOnlyHint` true for the reads). Each wrapped route answers as in Part 1, with the same narrowing and refusals.
+
+### How a tool call runs
+
+A `tools/call` is run as one request to the wrapped route, sent through the app's own stack in the same process with the agent's `Authorization` header (never a cookie) and the headers that say where it came from, so the gate, the narrowing to the agent's spaces, the limits and the log apply exactly as to a direct call. A wrapped route has 30 seconds.
+
+### Results and errors
+
+A tool's answer is `result.content[0].text`: the route's JSON on success. A route that refuses is `isError: true` with the route's own sentence; a 429 adds ` Try again in N seconds.`. A route's answer over 1 MB is a tool error: `That answer is too big to send. Ask for less: one key, a prefix or an older page.` Arguments that don't fit the schema are an `isError` result with one sentence (`space is needed.`, `key is not an argument of this tool.`).
+
+| HTTP | Code | Message | When |
+|---|---|---|---|
+| 400 | -32700 | `That is not JSON.` | The body can't be read as JSON. |
+| 400 | -32700 | `Send one JSON-RPC message as application/json.` | The content type is not JSON. |
+| 400 | -32600 | `Send one message at a time.` | The body is an array (a batch). |
+| 400 | -32600 | `That is not a JSON-RPC 2.0 message.` | Not an object with `jsonrpc: "2.0"`, or a message with neither method nor result. |
+| 400 | -32600 | `id is a number, or text of at most 200 characters.` | The `id` is another type or too long. |
+| 400 | -32600 | `This server speaks MCP 2025-11-25, 2025-06-18 or 2025-03-26.` | An unsupported `MCP-Protocol-Version`. |
+| 413 | -32600 | `The message is over 64 KB.` | The body is too large. |
+| 403 | none (`{ "error" }`) | `This request came from another site, so it was refused.` | A foreign `Origin`. |
+| 200 | -32601 | `There is no such method.` | An unknown method. |
+| 200 | -32602 | `There is no tool named <name>.` | An unknown tool. |
+| 200 | -32603 | `server error` | The wrapped route threw or did not answer in 30 seconds. |
+
+### Limits and log
+
+A tool call costs one read or one write, as its tool column says, counted and logged by the gate as the wrapped route (so a log line reads `/api/spaces/:id/chat`, not `/mcp`). The `tools/call` message itself is let on uncounted, so a call is never counted twice. Every other message on `/mcp` costs one read and is logged with route `/mcp`: `initialize`, `ping`, `tools/list`, a notification, an unknown tool, arguments that don't fit, bad JSON and `GET /mcp`. The limits are those of Part 1.
+
 ## Checked
 
-`tools/check-agent-tokens.mjs`, `tools/check-agent-asker.mjs`, `tools/check-agent-pages.mjs`, `tools/check-agent-chat.mjs` and `tools/check-agent-chat-page.mjs` (see [the architecture](../architecture/architecture-agent-access.md), "Checks"). The Chat section was written from `server/index.js`, `server/chat-history.js` and `server/agent-log.js` on `4fb7b467`, read as code; the Chat checks did not run in the container used (the server would not start there: a template names Font Awesome icons that the installed set lacks), so none of it is seen to pass here. The earlier parts were checked on `67998604` (`check-agent-tokens`, 33 passed; `check-agent-asker`, 12 passed); `check-agent-pages` did not run to the end then either. A real call from a cloud session through a proxy to a hosted server was not tried, and the plan says so too.
+`tools/check-agent-tokens.mjs`, `tools/check-agent-asker.mjs`, `tools/check-agent-pages.mjs`, `tools/check-agent-chat.mjs` and `tools/check-agent-chat-page.mjs`, and for Part 4 `tools/check-mcp.mjs` (see [the architecture](../architecture/architecture-agent-access.md), "Checks"). The Chat section was written from `server/index.js`, `server/chat-history.js` and `server/agent-log.js` on `4fb7b467`, read as code; the Chat checks did not run in the container used (the server would not start there: a template names Font Awesome icons that the installed set lacks), so none of it is seen to pass here. The earlier parts were checked on `67998604` (`check-agent-tokens`, 33 passed; `check-agent-asker`, 12 passed); `check-agent-pages` did not run to the end then either. A real call from a cloud session through a proxy to a hosted server was not tried, and the plan says so too.
+
+Part 4 was written from `server/mcp.js` and the header of `tools/check-mcp.mjs`, read as code. `check-mcp` was not run for this page. No real MCP client (Claude Code or an app) was connected to a server.

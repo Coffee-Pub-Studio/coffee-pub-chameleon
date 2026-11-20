@@ -28,6 +28,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
 - [Manage](userguides/userguide-environment-settings.md) -- every tab of the Manage page, where an environment is set up.
 - [The welcome note](userguides/userguide-welcome-note.md) -- a short text an owner writes for people to read at their first sign-in, and how to read it again.
 - [Agents](userguides/userguide-agents.md) -- letting Claude, or another assistant, work in some spaces through a token: adding one, the token, turning it off and what it did.
+- [Connecting Claude](userguides/userguide-connecting-claude.md) -- giving an agent's token to Claude Code: the command, checking it, what to ask, the limits and what is not yet tried for the Claude apps.
 - [Creating themes](userguides/userguide-themes.md) -- the colours, light and dark, and sharing a theme as a file.
 - [Your environment](userguides/userguide-environments.md) -- an owner's view on a hosted server: the plan, the caps, a copy, leaving.
 - [Templates](userguides/userguide-templates.md) -- the shipped templates (Default, Travel, Gaming, Projects, Education and Mentoring), the pages, switching a template and its starter spaces, a space's own template, and making your own.
