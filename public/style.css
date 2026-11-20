@@ -4953,7 +4953,7 @@ a.crumb-here:hover {
 .tp-fold > summary { font-weight: 600; color: var(--text); }
 .tp-fold .fold-list { max-height: 70vh; overflow-y: auto; margin: 8px 0; padding-right: 4px; }
 .tp-fold .fold-list .reaction-row { padding: 2px 0; }
-.tp-fold .fold-list .reaction-row .btn { min-width: 44px; padding-left: 0; padding-right: 0; justify-content: center; }
+.tp-fold .fold-list .reaction-row .btn { min-width: 44px; --btn-pad-x: 0; }
 /* A focused row scrolls clear of the sticky Save bar (WCAG 2.4.11): the page and each list keep room for it. */
 html:has(#lists-save-bar) { scroll-padding-bottom: 96px; }
 .tp-fold .fold-list { scroll-padding-bottom: 8px; }
