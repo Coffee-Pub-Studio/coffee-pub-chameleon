@@ -84,7 +84,7 @@
       {
         "name": "createTask",
         "label": "Add a task",
-        "description": "Add a new task, with a reminder at 9:00 on its due date if remind is true.",
+        "description": "Add a new task.",
         "effect": "write",
         "input": {
           "title": "string",
