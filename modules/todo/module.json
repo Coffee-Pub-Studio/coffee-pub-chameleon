@@ -118,6 +118,16 @@
         }
       },
       {
+        "name": "setTaskDone",
+        "label": "Tick this task off",
+        "description": "Mark a to-do task done, or open it again.",
+        "effect": "write",
+        "input": {
+          "task": "ref:todo:task",
+          "done": "boolean"
+        }
+      },
+      {
         "name": "addTask",
         "label": "Add a task",
         "local": true,
