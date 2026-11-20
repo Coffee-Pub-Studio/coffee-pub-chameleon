@@ -56,6 +56,8 @@ function fillManifest(manifest, resolved) {
 // Most inputs one action may declare. The Calendar's createEvent takes ten and an Itinerary suggestion more; the cleaner keeps
 // the first this many and says in the log which it dropped.
 const MAX_ACTION_INPUTS = 20;
+// The most actions one module declares; one more is left out of the manifest, with a warning naming it.
+const MAX_MODULE_ACTIONS = 16;
 const MB = 1024 * 1024;
 const LIMITS = {
   zipBytes: 10 * MB, // the upload itself
@@ -524,7 +526,9 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
     if (!events.subscribes.includes(c)) events.subscribes.push(c);
   }
   const actions = { provides: [], uses: [] };
-  for (const p of Array.isArray(rawActions?.provides) ? rawActions.provides.slice(0, 10) : []) {
+  const declaredActions = Array.isArray(rawActions?.provides) ? rawActions.provides : [];
+  if (declaredActions.length > MAX_MODULE_ACTIONS) console.warn(`module.json: module "${id}" declares more than ${MAX_MODULE_ACTIONS} actions; left out: ${declaredActions.slice(MAX_MODULE_ACTIONS).map((a) => (typeof a?.name === 'string' ? a.name.trim() : '')).join(', ')}`);
+  for (const p of declaredActions.slice(0, MAX_MODULE_ACTIONS)) {
     const name = typeof p?.name === 'string' ? p.name.trim() : '';
     if (!EVENT_NAME_RE.test(name)) throw new ModuleError(`module.json: action name "${name}" must be letters and digits, starting with a lowercase letter`);
     if (actions.provides.some((x) => x.name === name)) throw new ModuleError(`module.json: action "${name}" is listed twice`);

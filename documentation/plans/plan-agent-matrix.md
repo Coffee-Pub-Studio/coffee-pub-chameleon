@@ -1,15 +1,15 @@
 # Agent Matrix Plan
 
-**Audience:** Thomas decides how the Roles matrix shows and sets what an agent may do (Decisions, and the open questions
-at the end). server-development builds the gate's list, the Agent column's permissions and the checks (`server/`,
+**Audience:** Thomas decided how the Roles matrix shows and sets what an agent may do (Decisions). server-development builds the gate's list, the Agent column's permissions and the checks (`server/`,
 `tools/`); experience-design builds the Roles grid's new columns and the change to the agent's page; quality-assurance
 reads the server half as a security change; content-manager documents.
 
-**Status:** draft, 2026-11-20. Nothing is built. Thomas, 2026-11-20: the Roles matrix gets an Agent column, "a far more
+**Status:** approved, 2026-11-20. Nothing is built. Thomas, 2026-11-20: the Roles matrix gets an Agent column, "a far more
 transparent way to see access rights", and he asked: "Is there any way the matrix could drive the fixed list? Would
-that be better?" This plan answers that question and proposes the shape; Thomas approves it and names the kind of build.
-It changes decisions 4, 13 and 17 of [plan-agent-access](plan-agent-access.md) and adds to
-[plan-admin-agent](plan-admin-agent.md) (approved, not built).
+that be better?" This plan answers that. He then answered the four open questions by clickable options and said "take
+the leans", so each is recorded below as a decision. Thomas names the kind of build. It changes decisions 4, 13 and 17 of
+[plan-agent-access](plan-agent-access.md) (dated notes added there) and adds to [plan-admin-agent](plan-admin-agent.md)
+(approved, not built).
 
 ## What it is today
 
@@ -65,9 +65,33 @@ Three corrections to the shape first proposed, found in the code:
 
 ## Decisions
 
-1. **The Roles matrix gets an Agent column** (Thomas, 2026-11-20), "a far more transparent way to see access rights".
+1. **The Roles matrix gets an Agent column** (Thomas, 2026-11-20), "a far more transparent way to see access rights". The
+   matrix chooses within a ceiling the code holds: it can switch an agent's routes off and never add one (see "Can the
+   matrix drive the fixed list?"). Reason: each route needs code a tick cannot write (its place check, fixed body and log
+   line), and one source for both the grid and the gate means the grid cannot show a right the gate does not grant.
+2. **Post in Chat becomes one choice for all the environment's agents** (Thomas, 2026-11-20). It is a
+   row in the Agent column, worded **Send chat messages**. `chatPost` per agent is removed. Turn off and Revoke stay per
+   agent. Reason: agents are few, and one place to look is the point of the column.
+3. **The set-up agent gets its own column, shown only when `AGENT_SETUP` is on** (Thomas, 2026-11-20).
+   Reason: the two kinds share no tickable row (the set-up agent reads nothing in a space; the ordinary agent sets up
+   nothing), so one column would be mostly empty boxes meaning different things for each kind.
+4. **What an agent can never do appears as one plain sentence under the grid, not as greyed rows** (Thomas, 2026-11-20). This replaces the earlier idea of greyed ceiling cells. Delete, roles, tokens, billing and the rest
+   of the ceiling are not permissions anyone ticks, and rows for them would show a member as unable to delete their own
+   work. The sentence is under the grid, once.
+5. **Defaults are as agents work today** (Thomas, 2026-11-20): read Chat on, see members on, each module
+   row at its member default, **Send chat messages** off, the set-up rows off. Reason: nothing an agent can do changes
+   until an owner ticks something, and no agent already working stops.
 
-Everything below is the proposed shape, for Thomas to approve.
+Small choices taken at the planner's lean, as the rule for small choices allows (Thomas can change them):
+
+6. **A row an agent can never have shows no box in its column** (for example the call, pictures, mute, kick, AI), and
+   `PATCH` on it is refused. Reason: decision 4 drops greyed cells, and a blank cell is the least to draw.
+7. **The ceiling belongs to a row, not a route.** A route not on the list is already never reachable. What needs the mark
+   is a permission: which rows the Agent column may ever tick.
+8. **A route names a key, `module` or `always`.** `GET /api/modules/:id/data` serves every module, so the permission it
+   needs is that module's own, known only once the request names the module.
+9. **For an agent, the action route and the actions list ask the module's own permission, not `chat` or `chatRead`**
+   (people are unchanged). Reason: **Send chat messages** must stop posting only, as decision 18 of plan-agent-access says.
 
 ## The contract
 
@@ -100,7 +124,7 @@ Everything below is the proposed shape, for Thomas to approve.
 
 ### The columns (server)
 
-- **Two new columns, `agent` and `setup`** (the lean on question 2), stored as `settings.roles.agent` and
+- **Two new columns, `agent` and `setup`** (decision 3), stored as `settings.roles.agent` and
   `settings.roles.setup` like the others. `store.spacePermissions` gives an agent its kind's column instead of the
   member column, with no moderator overlay, the same in every one of its spaces. The account stays role `member`; nothing
   else about it changes.
@@ -109,13 +133,13 @@ Everything below is the proposed shape, for Thomas to approve.
   or `access.write` guard, or a permission an action's `takes` names), worked out from the manifests. Every other row is
   never: the call, pictures, reactions, screen share, asides, private calls, mute, kick, guest links, tags, AI, the
   images, and a library's "See every file". For `setup`: only the three set-up rows. The never cells are refused on
-  `PATCH` (400 "An agent can never have "<label>".") and greyed on the page.
+  `PATCH` (400 "An agent can never have "<label>".") and show no box on the page (decision 6).
 - **Agent-only rows**, in a group "Agents": "See who is in {a space}" (`agentMembers`), and for the set-up agent "Make
   {spaces}" (`agentMakeSpaces`), "Rename and change {spaces}" (`agentChangeSpaces`), "Ask to add people"
   (`agentAskPeople`). People's columns show no box on them. A yes from an owner is still needed for every ask about
   people, whatever the box says (plan-admin-agent, decision 5).
-- **Defaults** (the lean on question 4): the Agent column starts as an agent is today. `chatRead` on, `chat` off (Post in
-  Chat is off for a new agent today), `agentMembers` on, each module row its member default. The three set-up rows start
+- **Defaults** (decision 5): the Agent column starts as an agent is today. `chatRead` on, `chat` off (Post in
+  Chat is off for a new agent today; the row reads **Send chat messages**), `agentMembers` on, each module row its member default. The three set-up rows start
   off. Nothing an agent can do changes until an owner ticks something.
 - **`GET /api/roles`** gains `columns` (the four, then `agent` when `AGENT_TOKENS` is on, then `setup` when `AGENT_SETUP` is
   on) and `never: { guest: [keys], agent: [keys], setup: [keys] }`. Rows carry `agentOnly: true` for the new group.
@@ -132,9 +156,10 @@ Everything below is the proposed shape, for Thomas to approve.
 ### The pages (experience-design)
 
 - **Manage > Roles:** the columns `GET /api/roles` names, headed by the environment's words for agent and set-up agent. A
-  never cell is a greyed box with its reason, as the Owner and guest ones are: "An agent can never do this." The "Agents"
-  group's rows have boxes only under the agent columns. Beneath the grid, one plain sentence of what an agent never does
-  (the lean on question 3): "An agent never deletes or clears anything, changes roles, makes tokens or other agents,
+  row the column can never have shows no box (decision 6); the Owner's and guest's greyed cells are unchanged. The
+  agent column's `chat` row reads **Send chat messages**. The "Agents" group's rows have boxes only under the agent
+  columns. Beneath the grid, one plain sentence of what an agent never does
+  (decision 4): "An agent never deletes or clears anything, changes roles, makes tokens or other agents,
   changes this {environment}'s settings, plans or billing, works outside its own {spaces}, goes past its limits, or
   becomes a {moderator}, {owner} or admin." At 390 wide the grid scrolls inside its own box; the page does not.
 - **The agent's page:** the Post in Chat switch goes; in its place, "What agents may do is set on Roles." with a link to
@@ -149,7 +174,7 @@ All core (`server/`, `public/admin.js`, `public/agent-page.js`, `tools/`). Thoma
    `PATCH /api/roles`; the action route and actions list asking the module for an agent; Post in Chat removed; `me`'s
    `permissions`; MCP descriptions. New `tools/check-agent-matrix.mjs`; `check-agent-chat`, `check-mcp`,
    `check-environment-export` and `check-agent-tokens` updated.
-2. **The grid and the agent's page** (experience-design). The columns, greyed cells, the "Agents" group, the sentence, the
+2. **The grid and the agent's page** (experience-design). The columns, the boxless never cells, the "Agents" group, the sentence, the
    page's change; `tools/check-agent-pages.mjs` updated.
 3. **The set-up column**, built inside plan-admin-agent's step 1 (server-development), so `SETUP_ROUTES` are born as
    entries of this list with their `needs`. If that step lands before this one, step 1 here moves them in.
@@ -173,27 +198,15 @@ Checked by a tool on throwaway servers:
 - **`check-mcp`:** `me` carries `permissions` and no `chatPost`; a tool whose route needs an unticked row returns the
   gate's 403 as a tool error.
 - **`check-environment-export`:** no `chatPost` in a copy; the agent column in `settings.roles` survives a copy and restore.
-- **`check-agent-pages`** (headless Chromium): the columns shown and hidden with the server variable, greyed cells and
-  their reasons, a tick saved and kept after a reload, the sentence, the agent's page without the switch, 390 wide.
+- **`check-agent-pages`** (headless Chromium): the columns shown and hidden with the server variable, boxless never cells, a tick saved and kept after a reload, the sentence, the agent's page without the switch, 390 wide.
 - **`check-route-table`:** run as a neighbour; no route is added or removed here, so `tools/route-table.json` does not
   change (plan-admin-agent's routes change it in its own step).
 
 Not checkable here: a real Claude client reading `me`'s `permissions` and choosing not to call what it lacks. No step needs
 a LiveKit call: agents never join the call, and the conference row is never theirs.
 
-## Open questions
+## What is not decided
 
-Each has a lean. Questions 1 and 4 block step 1; 2 blocks step 3; 3 blocks step 2.
-
-1. **Post in Chat becomes one choice for all the environment's agents.** Today it is per agent; a column is per
-   environment. Lean: accept it. Agents are few, Turn off and Revoke stay per agent, and one place to look is the point
-   of the column.
-2. **One column for both kinds, or a Set-up agent column of its own?** Lean: its own. The two kinds share no tickable row
-   (the set-up agent reads nothing in a space; the ordinary agent sets up nothing), so one column would be mostly greyed
-   boxes that mean different things for each kind. The Set-up agent column shows only when `AGENT_SETUP` is on.
-3. **The never list: greyed rows or a sentence?** Lean: a sentence beneath the grid. Delete, roles, tokens, billing and
-   the rest are not permissions anyone ticks, so rows for them would show a member as unable to delete their own work.
-   The never cells that are real rows (the call, mute, kick, AI and so on) are greyed in the Agent column.
-4. **Defaults: as an agent is today, or everything off?** Lean: as today (read Chat, see members, module rows at their
-   member default; posting and set-up rows off). Everything off would stop every agent already working until an owner
-   ticks.
+Nothing blocks the build. Thomas names the kind of build (try, feedback or production). Not decided: the Send chat messages
+row's exact words in the environment templates, and how the set-up column is headed (the template's word for the set-up
+agent); both follow the existing agent words unless Thomas says otherwise.

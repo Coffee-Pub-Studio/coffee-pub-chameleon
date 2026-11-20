@@ -2835,7 +2835,7 @@ function demoRunRequest(req) {
   // The loader asks this server from this server (loopbackFetch): the connection's own address, never a header's.
   return ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
 }
-const DEMO_STANDIN_LOGIN = 'host-demo';
+const DEMO_STANDIN_LOGIN = demoLoader.STANDIN_LOGIN; // the loader gives only this account the host's pictures
 // fetch cannot set the Host header, and the environment is chosen by it: so the loader's requests go through node's http.
 function loopbackFetch(url, { method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolve, reject) => {

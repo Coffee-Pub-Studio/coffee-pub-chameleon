@@ -31,6 +31,10 @@
  *      or a member) is refused in one sentence before anything is made, its password and role untouched; a demo person
  *      (marked `demo: true` when the load made it, kept in the stored record) that was later made an owner is refused too; a
  *      second load still resets the marked people; `publicBase` is the address the chat links and the guest link use.
+ *  (l) the host's pictures: the stand-in with no picture gets the cast file's host profile and background (and the cast has no host
+ *      login or account); a caller who has a picture keeps it and gets only the other; a picture that cannot be sent is a
+ *      `skipped` sentence, never a thrown error. Only the host-demo stand-in (hostAdmin) is given them: a real caller's are
+ *      untouched; removing the stand-in removes its picture files.
  * No LiveKit and no browser are needed.
  */
 import assert from 'node:assert/strict';
@@ -540,6 +544,70 @@ try {
     assert.equal((await H.api('GET', '/api/users')).json.users.find((u) => u.key === rosa.key).displayName, 'Rosa Linden', 'the name is the cast\'s again');
     assert.equal((await H.api('GET', '/api/spaces')).json.spaces.length, spaces.length, 'no space was made or removed');
     assert.equal((await H.api('GET', '/api/users')).json.users.find((u) => u.key === real.key).displayName, 'Ines Real', 'a real person is not touched');
+  });
+
+  // ---- (l) the host's pictures: only the host-demo stand-in gets them ----
+  await step('(l) the stand-in gets the host\'s pictures, keeps its own, a real caller is untouched, a failure is reported', async () => {
+    // A throwaway data folder with the stand-in already in it (the host console makes it the same way: hostAdmin, no password).
+    const { Store } = require(path.join(ROOT, 'server', 'store.js'));
+    const auth = require(path.join(ROOT, 'server', 'auth.js'));
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-loader-'));
+    const seed = new Store(dataDir);
+    const standIn = seed.addUser({ login: 'host-demo', displayName: 'Host (demo)', role: 'admin', passwordHash: null, hostAdmin: true });
+    const cookie = `${auth.COOKIE}=${auth.issueSession(seed.sessionSecret, standIn)}`;
+    const L = await boot({ DATA_DIR: dataDir });
+    await L.api('PATCH', '/api/settings', { template: 'travel' });
+    await L.api('PATCH', '/api/settings', { showCalendar: true, showMap: true });
+    await modulesOn(L, ALL);
+    const get = (url) => fetch(L.base + url, { headers: { cookie } });
+    const meNow = async () => (await (await get('/api/me')).json()).user;
+    const pics = (u) => ({ profile: u.images.profile, background: u.images.background });
+    assert.equal((await meNow()).login, 'host-demo');
+    assert.deepEqual(pics(await meNow()), { profile: false, background: false }, 'the stand-in starts with no picture');
+    const people = async () => (await L.api('GET', '/api/users')).json.users;
+    const when = (how) => async (url, init) => (String(url).includes('/api/me/images/') && init.method === 'PUT' && init.headers.cookie === cookie ? how() : fetch(url, init));
+    const mine = (r) => r.skipped.filter((x) => x.module === 'profile');
+    // A send that cannot reach the server, and one the server refuses: reported, never thrown, nothing set.
+    const down = await L.run({ session: { cookie }, fetchImpl: when(() => { throw new Error('down'); }) });
+    assert.equal(mine(down).length, 2, 'both pictures are reported');
+    assert.match(mine(down)[0].why, /^The profile picture for the host could not be set \(no server answered at /);
+    const denied = await L.run({ session: { cookie }, fetchImpl: when(() => new Response(JSON.stringify({ error: 'your role can\'t change that image' }), { status: 403 })) });
+    assert.equal(mine(denied)[0].why, 'The profile picture for the host could not be set (your role can\'t change that image).');
+    assert.deepEqual(pics(await meNow()), { profile: false, background: false }, 'nothing was set');
+    // A normal load gives both; the name is not changed; the host is no cast person and no new account is made for it.
+    const first = await L.run({ session: { cookie } });
+    assert.deepEqual(mine(first), []);
+    assert.deepEqual(pics(await meNow()), { profile: true, background: true }, 'the stand-in has both pictures');
+    assert.equal((await meNow()).displayName, 'Host (demo)');
+    assert.equal((await get(`/img/${standIn.key}/profile`)).headers.get('content-type'), 'image/png', 'the portrait is a drawn picture, not initials');
+    assert.equal((await people()).filter((u) => u.login === 'host-demo').length, 1, 'one stand-in');
+    assert.equal(Object.keys(readCast()).includes('host'), false, 'the host is not in the cast');
+    assert.equal(Object.keys(readCast()).includes('host-demo'), false);
+    // A picture it has is kept: drop the background, set another profile picture, load again.
+    assert.equal((await fetch(`${L.base}/api/me/images/background`, { method: 'DELETE', headers: { cookie } })).status, 200);
+    const other = require(path.join(ROOT, 'server', 'demo-assets.js')).makeAsset({ art: 'avatar', skin: '#000000', hair: '#000000', shirt: '#000000', top: '#000000', bottom: '#000000' });
+    assert.equal((await fetch(`${L.base}/api/me/images/profile`, { method: 'PUT', headers: { cookie, 'content-type': other.type }, body: other.bytes })).status, 200);
+    const bytes = async () => Buffer.from(await (await get(`/img/${standIn.key}/profile`)).arrayBuffer());
+    const before = await bytes();
+    await L.run({ session: { cookie } });
+    assert.deepEqual(pics(await meNow()), { profile: true, background: true }, 'the missing one came back');
+    assert.ok((await bytes()).equals(before), 'its own profile picture was not replaced');
+    // A real owner or admin as the caller (no stand-in login, no hostAdmin) is never given a picture.
+    const R = await travelServer();
+    const realBefore = pics((await R.api('GET', '/api/me')).json.user);
+    assert.deepEqual(realBefore, { profile: false, background: false });
+    const real = await R.run();
+    assert.deepEqual(mine(real), [], 'nothing reported either');
+    assert.deepEqual(pics((await R.api('GET', '/api/me')).json.user), realBefore, 'the real admin\'s pictures are untouched');
+    // The account's pictures go with it when it is removed (a failed run takes the stand-in away): no stale files.
+    const imagesOf = path.join(dataDir, 'images', standIn.key);
+    assert.ok(fs.existsSync(imagesOf), 'its pictures are stored under its key');
+    const gone = new Promise((r) => L.child.once('exit', r));
+    L.child.kill('SIGTERM');
+    await Promise.race([gone, new Promise((r) => setTimeout(r, 8000))]);
+    const again = new Store(dataDir);
+    again.removeUser(standIn.key);
+    assert.equal(fs.existsSync(imagesOf), false, 'removing the stand-in removes its picture files');
   });
 
   // ---- (g) a template with no demo ----

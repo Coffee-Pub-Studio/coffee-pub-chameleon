@@ -58,6 +58,45 @@ function listModel(geo, LIB_TYPES, word) {
     { id: 'favorite', label: 'Favorite', icon: 'star' },
   ];
   const statusOf = (id) => STATUSES.find((s) => s.id === id) || null;
+  const STATUS_SENTENCE = `The status is ${STATUSES.slice(0, -1).map((s) => s.id).join(', ')} or ${STATUSES[STATUSES.length - 1].id}; leave it out for none.`;
+  // The status a request names: an id or its words ("Want to go"), any case. Answers the id, '' for none (empty text), or
+  // throws one plain sentence. Not text, or not one of the four, is refused: nothing is guessed.
+  function statusFromRequest(value) {
+    if (typeof value !== 'string') throw new Error(STATUS_SENTENCE);
+    const v = value.trim().toLowerCase();
+    if (!v) return '';
+    const hit = STATUSES.find((s) => s.id === v || s.label.toLowerCase() === v);
+    if (!hit) throw new Error(STATUS_SENTENCE);
+    return hit.id;
+  }
+  // The type a request names: its id or its name, any case. Throws one plain sentence when it is not in the library.
+  function typeFromRequest(value) {
+    const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    const hit = v ? TYPES.find((t) => t.id === v || String(t.label).toLowerCase() === v) : null;
+    if (!hit) throw new Error('That type is not in the list. Use a type id such as cafe, museum or hotel.');
+    return hit;
+  }
+  // The people keys an `owners` request names: a list, or one text split at commas, of keys or names as list_members shows them,
+  // any case. A key wins over a name; each person once. `people` are { key, name }. Answers the keys, or throws one plain
+  // sentence: a name two people share, or a person who is not here, is refused and nothing is guessed.
+  function ownersFromRequest(value, people) {
+    const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : null;
+    if (!list || list.some((x) => typeof x !== 'string')) throw new Error('Name the people as a list, separated by commas.');
+    const folk = (Array.isArray(people) ? people : []).filter((p) => p && typeof p.key === 'string' && p.key);
+    const owners = [];
+    for (const item of list) {
+      const name = item.trim();
+      if (!name) continue;
+      const low = name.toLowerCase();
+      let hit = folk.filter((p) => p.key === name);
+      if (!hit.length) hit = folk.filter((p) => p.key.toLowerCase() === low);
+      if (!hit.length) hit = folk.filter((p) => typeof p.name === 'string' && p.name.trim().toLowerCase() === low);
+      if (hit.length > 1) throw new Error(`Two people are called ${name}; use the key.`);
+      if (!hit.length) throw new Error(`That person is not in this ${word('space')}. Use list_members to see who is.`);
+      if (!owners.includes(hit[0].key)) owners.push(hit[0].key);
+    }
+    return owners;
+  }
 
   // The eight theme tints, in the order the phases take them (public/phases.js): a category with the automatic colour takes the one
   // at its place in the owner's list, round again after the eighth. A place's own colour is one of these names.
@@ -290,7 +329,8 @@ function listModel(geo, LIB_TYPES, word) {
   });
 
   // What another module asks for through `addPlace`: a checked place, or an Error saying what is wrong.
-  function placeFromRequest(input, by) {
+  // `people` (optional) are the people of the space, for `owners`.
+  function placeFromRequest(input, by, people) {
     const i = input || {};
     const title = geo.oneLine(i.title, 120);
     if (!title) throw new Error('a place needs a name');
@@ -303,11 +343,38 @@ function listModel(geo, LIB_TYPES, word) {
       point = { lat, lng };
     }
     // The old category ids are read as the new ones; a type (when it is in the library) gives the category when none is asked, and its icon.
-    const type = typeOf(i.type);
+    const type = has(i.type) ? typeFromRequest(i.type) : null;
+    const status = has(i.status) ? statusFromRequest(i.status) : '';
+    const owners = has(i.owners) ? ownersFromRequest(i.owners, people) : [];
     const category = has(i.category) ? newCategoryId(i.category) : type ? type.category : i.category;
-    const p = cleanPlace('new', { title, category, type: type ? type.id : '', icon: type ? type.icon : '', address: i.address, point, notes: i.notes, owners: [], by, ref: i.ref });
+    const p = cleanPlace('new', { title, category, type: type ? type.id : '', icon: type ? type.icon : '', status, address: i.address, point, notes: i.notes, owners, by, ref: i.ref });
     if (!p) throw new Error('that is not a place');
     return p;
+  }
+
+  // What `updatePlace` asks: the stored place `p` with the fields given changed (the others stay), or an Error saying what is wrong.
+  // Nothing is saved here. A new type moves the category with it unless the request names one; the caller redraws the icon (lookOf).
+  function placeChanged(p, input, by, people) {
+    const i = input || {};
+    const has = (x) => x !== undefined && x !== null;
+    const fields = ['title', 'type', 'category', 'status', 'address', 'notes', 'owners'].filter((k) => has(i[k]));
+    if (!fields.length) throw new Error('Say what to change: a title, a type, a status, an address, notes or who.');
+    for (const k of ['title', 'address', 'notes', 'category']) if (has(i[k]) && typeof i[k] !== 'string') throw new Error(`The ${k} must be text.`);
+    const next = { ...p, by: by || p.by };
+    if (has(i.title)) { next.title = geo.oneLine(i.title, 120); if (!next.title) throw new Error('A place needs a name.'); }
+    if (has(i.address)) next.address = geo.oneLine(i.address, 200);
+    if (has(i.notes)) next.notes = i.notes;
+    if (has(i.status)) next.status = statusFromRequest(i.status);
+    if (has(i.owners)) next.owners = ownersFromRequest(i.owners, people);
+    if (has(i.type)) {
+      const type = typeFromRequest(i.type);
+      next.type = type.id;
+      if (!has(i.category)) next.category = type.category;
+    }
+    if (has(i.category)) next.category = newCategoryId(i.category.trim());
+    const out = cleanPlace(p.id, placeValue(next));
+    if (!out) throw new Error('That is not a place.');
+    return { ...out, id: p.id };
   }
 
   // The places of a space, kept live, and what other modules may ask of them. `host` is the SDK.
@@ -517,5 +584,5 @@ function listModel(geo, LIB_TYPES, word) {
     if (v.searchProvider === 'custom') return typeof v.search === 'string' && /^https?:\/\//i.test(v.search);
     return typeof v.searchProvider === 'string' && v.searchProvider !== '' && v.searchProvider !== 'none';
   }
-  return { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, createPlaces, movePlace, createBookmarks, readEntry, searchOn };
+  return { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, statusFromRequest, typeFromRequest, ownersFromRequest, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, placeChanged, createPlaces, movePlace, createBookmarks, readEntry, searchOn };
 }

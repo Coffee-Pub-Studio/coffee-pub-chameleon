@@ -69,7 +69,7 @@ async function runList(env) {
   const asPart = Boolean(info.context.destination && info.context.destination.part);
 
   const geo = host.util.geo;
-  const { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, createPlaces, movePlace, createBookmarks, readEntry, searchOn } = listModel(geo, LIB_TYPES, word);
+  const { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, placeChanged, createPlaces, movePlace, createBookmarks, readEntry, searchOn } = listModel(geo, LIB_TYPES, word);
 
   const canEdit = host.can('edit');
   // An invented world drawn from a picture (the environment's picture map): there is no real-world position, so nothing here
@@ -1648,7 +1648,7 @@ async function runList(env) {
     if (!writable(to)) throw new Error(REFUSED);
     if (to === 'global' && target.marks.some((sp) => !canMark(sp))) throw new Error(REFUSED);
     await ensureLoaded(to);
-    const place = placeFromRequest(input, me);
+    const place = placeFromRequest(input, me, state.people);
     place.spaces = target.marks;
     place.icon = lookOf(place, cats).icon;
     const done = await stores[to].save(place);
@@ -1692,6 +1692,16 @@ async function runList(env) {
         if (!writable(w)) throw new Error(REFUSED);
         const place = await stores[w].setPoint(p.id, { lat: input.lat, lng: input.lng });
         return { ref: placeRef(w, place.id) };
+      };
+      // Change a place's title, type, category, status, address, notes or who it is for: only the fields given change.
+      handlers.updatePlace = async (input, ctx) => {
+        const { w, p } = await placeOfRef(input && input.place);
+        if (!writable(w)) throw new Error(REFUSED);
+        if (w === 'my' && !ownRequest(ctx)) throw new Error('only that person can change their own list');
+        const place = placeChanged(p, input, info.user.key || (ctx && ctx.by) || '', state.people);
+        if (!place.iconOwn) place.icon = lookOf(place, cats).icon;
+        const done = await stores[w].save(place, stores[w].versionOf(p.id));
+        return { ref: placeRef(w, done.id) };
       };
     }
     host.actions.provide(handlers);

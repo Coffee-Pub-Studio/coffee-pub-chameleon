@@ -35,6 +35,101 @@
     }
   },
   {
+    "name": "maps__updatePlace",
+    "module": "maps",
+    "action": "updatePlace",
+    "label": "Change this place",
+    "description": "Change a saved place's title, type, category, status, address, notes or who it is for.",
+    "effect": "write",
+    "input": {
+      "place": "ref:maps:place",
+      "title": "string?",
+      "type": "string?",
+      "category": "string?",
+      "status": "string?",
+      "address": "string?",
+      "notes": "text?",
+      "owners": "text?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "place": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a place shown in this question."
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "type": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "category": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "address": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "owners": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "place",
+        "title",
+        "type",
+        "category",
+        "status",
+        "address",
+        "notes",
+        "owners"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "schedule__setDone",
     "module": "schedule",
     "action": "setDone",

@@ -312,7 +312,7 @@ await test('old category ids are read as the new ones, and a stored list is kept
   // a type gives the category when none is asked, and its icon
   const t = lib.placeFromRequest({ title: 'x', type: 'cafe' }, 'u');
   assert.deepEqual([t.type, t.category, t.icon], ['cafe', 'food', 'mug-hot']);
-  assert.equal(lib.placeFromRequest({ title: 'x', type: 'nope' }, 'u').type, '');
+  assert.throws(() => lib.placeFromRequest({ title: 'x', type: 'nope' }, 'u'), /not in the list/); // refused, not dropped (modules/maps/test/check-maps-agent-status.mjs)
   // an old stored place is not rewritten, and is found in the new list...
   const old = lib.cleanPlace('a', { title: 'x', category: 'eat' });
   assert.equal(old.category, 'eat');

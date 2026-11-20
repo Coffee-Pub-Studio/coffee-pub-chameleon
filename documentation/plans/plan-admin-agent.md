@@ -10,8 +10,6 @@ spaces to an admin agent (does not exist yet)." Then, on the seven open question
 below; the contract follows them. This makes the set-up agent an exception to [plan-agent-access](plan-agent-access.md)
 decisions 4 and 5 (a dated note is on both). Thomas names the kind of build.
 
-See also [plan-agent-matrix](plan-agent-matrix.md) (draft, 2026-11-20): the Roles matrix's agent columns, and `SETUP_ROUTES` as entries of one list.
-
 ## Decisions
 
 Thomas, 2026-11-20, taking the product-planner's leans on all seven questions the draft held.
