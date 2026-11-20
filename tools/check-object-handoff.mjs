@@ -200,7 +200,7 @@ await test('the bundled Research, To-do, Calendar and Polls declare what they ta
   assert.throws(() => withAction({ askerOnly: true, local: true }), { message: 'module.json: action "make" is local, which is already for the asker only' });
   const todo = await bundled('todo');
   assert.deepEqual(providesOf(todo, 'createTask').takes, [{ kinds: ['task', '*', 'text'], as: 'a task' }]);
-  assert.deepEqual(providesOf(todo, 'createTask').input, { title: 'string', notes: 'text?', ref: 'ref?', due: 'date?', object: 'object?' });
+  assert.deepEqual(providesOf(todo, 'createTask').input, { title: 'string', notes: 'text?', ref: 'ref?', due: 'date?', remind: 'boolean?', object: 'object?' });
   const calendar = await bundled('calendar');
   assert.deepEqual(providesOf(calendar, 'createEvent').takes, [{ kinds: ['event', '*', 'text'], except: TRAVEL_KINDS.slice(), as: 'an event' }], 'events by name, and any other object or words, never a travel kind');
   assert.deepEqual(providesOf(calendar, 'createEvent').input, { title: 'string', date: 'date?', ref: 'ref?', object: 'object?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?' });
