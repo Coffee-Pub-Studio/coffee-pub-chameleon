@@ -172,6 +172,36 @@
     }
   },
   {
+    "name": "todo__setTaskDone",
+    "module": "todo",
+    "action": "setTaskDone",
+    "label": "Tick this task off",
+    "description": "Mark a to-do task done, or open it again.",
+    "effect": "write",
+    "input": {
+      "task": "ref:todo:task",
+      "done": "boolean"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a task shown in this question."
+        },
+        "done": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "task",
+        "done"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "todo__setTaskDue",
     "module": "todo",
     "action": "setTaskDue",
