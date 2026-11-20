@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.8",
+  "version": "0.16.9",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -75,13 +75,17 @@
       {
         "name": "addStop",
         "label": "Add it to the trip",
-        "description": "Add a new stop to the trip's itinerary.",
+        "description": "Add a stop to the itinerary. time: start as HH:MM, 24-hour, like 14:30. minutes: how long, or endTime as HH:MM. cost: estimated cost as a number in the trip's currency, like 120.50.",
         "effect": "write",
         "input": {
           "title": "string",
           "date": "date?",
           "notes": "text?",
-          "ref": "ref?"
+          "ref": "ref?",
+          "time": "string?",
+          "minutes": "number?",
+          "endTime": "string?",
+          "cost": "number?"
         }
       },
       {
@@ -97,7 +101,7 @@
       {
         "name": "acceptSuggestion",
         "label": "Add it to the trip, properly typed",
-        "description": "Add a new journey, stay or stop to the trip's itinerary, typed by its kind.",
+        "description": "Add a journey, stay or stop by kind. time: start as HH:MM, 24-hour, like 14:30 (a flight's departure). minutes: how long. cost: estimated cost, a number, like 120.50. reference: confirmation number.",
         "effect": "write",
         "input": {
           "title": "string",
@@ -105,7 +109,11 @@
           "content": "text?",
           "place": "string?",
           "date": "date?",
-          "object": "object?"
+          "object": "object?",
+          "time": "string?",
+          "minutes": "number?",
+          "cost": "number?",
+          "reference": "string?"
         },
         "takes": [
           { "kinds": ["flight", "train", "bus", "ferry", "car"], "as": "{kind}" },
