@@ -13,6 +13,9 @@ see "Left to build" and "Built differently than planned". He answered all 16 que
 question 13 on Chat did not) and the three Chat questions they raised (decisions 17 to 19); see Divergences. The
 documentation of steps 1 to 4 is [architecture-agent-access](../architecture/architecture-agent-access.md),
 [api-agents](../api/api-agents.md) and [userguide-agents](../userguides/userguide-agents.md).
+MCP (Thomas, 2026-11-20): the full MCP server is now being built; the endpoint is a branch
+(`claude/mcp-endpoint`) held for Thomas's morning because it touches auth, and the "connecting Claude" guide in step 7
+follows the build. See "The MCP server".
 Drafted 2026-11-15. Thomas wants Claude (an AI
 coding and project assistant running in a cloud session, not the app's own AI Assistant module) to work with a space:
 read its objects (the project plan in Planner - Projects, `schedule`, above all) and add, tick and update milestones,
@@ -183,11 +186,28 @@ Thomas answered the three questions decision 13 raised on 2026-11-16, when he ap
 - The Planner's `setDone` and `updateEntry`, and the asker carried through the bus.
 - Limits a minute and a day, and the log on the agent's page.
 
-What waits for the MCP server and plan-ai-integration's later steps: the `/mcp` endpoint and OAuth, personal tokens for
+What waits for plan-ai-integration's later steps (the `/mcp` endpoint is now being built, see "The MCP server"): OAuth, personal tokens for
 people, the AI inbox (approval), environment-level data, deleting, raw data writes, an `agent` role on the Roles tab,
 and other modules' tick actions beyond the Planner.
 
-## The contract
+## The MCP server
+
+Thomas, 2026-11-20: Claude must connect easily, not by hand-written HTTP. He chose MCP; the guide for the bare
+token-and-routes path was not what he asked for.
+
+Shape (taken by the project manager as the planner's lean, a small choice that was not asked):
+
+- A remote MCP server (Streamable HTTP, stateless) at `POST /mcp`.
+- It uses the existing agent tokens as `Authorization: Bearer`, through the same gate, limits, log and narrowing.
+- Its tools are thin wrappers of the agent's existing routes and give no new power.
+- A static bearer token first. It works for Claude Code, the Agent SDK and the Claude API. OAuth is built only if the
+  Claude apps' custom connectors will not accept a static bearer token.
+
+Facts checked against the Claude and MCP docs on 2026-11-20: Claude Code accepts a static `Authorization` header and
+does not fall back to OAuth. Claude app connectors reach the server from Anthropic's cloud, so the server must be
+public on port 443. Whether the connector form accepts a custom `Authorization` header is not confirmed by the docs.
+
+Status: the endpoint is on branch `claude/mcp-endpoint`, held for Thomas's morning because it touches auth.
 
 ### The agent account (server)
 
