@@ -3672,6 +3672,7 @@ const AGENT_ROUTES = [
   ['get', '/api/objects/links', 'read', 'linkRef'],
   ['get', '/api/objects/kinds', 'read', 'none'],
   ['post', '/api/objects/resolve', 'read', 'resolveRefs'],
+  ['get', '/api/spaces/:id/members', 'read', 'spaceParam'],
   ['get', '/api/spaces/:id/actions', 'read', 'spaceParam'],
   ['post', '/api/spaces/:id/action', 'write', 'spaceParam'],
   ['get', '/api/spaces/:id/action/:requestId', 'read', 'spaceParam'],
@@ -5716,6 +5717,22 @@ app.get('/api/agent/me', (req, res) => {
       writes: { perMinute: AGENT_LIMITS.write.perMinute, perDay: AGENT_LIMITS.write.perDay, usedToday: used.write },
     },
   });
+});
+// GET /api/spaces/:id/members (an agent's token only; Thomas, 2026-11-20): the people of one of the agent's own spaces, so it can
+// fill what takes a person's key (Paid by, an owner of work). Exactly { members: [{ key, name }] }, in the space's own order,
+// the name as people read it ("(agent)" after an agent account's). Nothing else of a person is told. The gate has already
+// answered 404 for any space the agent is not in (agentAt.spaceParam); the lookup is made again here so the route never
+// answers for another.
+app.get('/api/spaces/:id/members', (req, res) => {
+  if (!req.agent) return currentUser(req) ? res.status(403).json({ error: "This is for an agent's token only." }) : res.status(401).json({ error: 'sign in first' });
+  const space = agentSpaceOf(req.agent.user, req.params.id);
+  if (!space) return res.status(404).json({ error: `no such ${word('space')}` });
+  const members = [];
+  for (const key of space.members) {
+    const person = store.userByKey(key);
+    if (person) members.push({ key: person.key, name: person.agent ? `${person.displayName} (agent)` : person.displayName });
+  }
+  res.set('Cache-Control', 'no-store').json({ members });
 });
 // The MCP door for agents (server/mcp.js): POST /mcp and GET /mcp (405), through the agent gate like every route above.
 mcp.mount();

@@ -173,7 +173,7 @@ function writtenRoutes() {
 const GATE_LIST = new Set([
   'GET /api/agent/me', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
   'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'POST /api/objects/resolve',
-  'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
+  'GET /api/spaces/:id/members', 'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
   // Chat (step 5): reading and posting; tools/check-agent-chat.mjs checks them.
   'GET /api/spaces/:id/chat', 'POST /api/spaces/:id/chat',
   // The MCP door (server/mcp.js): tools/check-mcp.mjs checks it.
@@ -379,6 +379,44 @@ try {
     ok(await call(server, 'GET', `/api/spaces/${S1}/action/${ownRequest}`, A()), 'its own request');
     // A trailing slash and another case read as the app's routes read them.
     ok(await call(server, 'GET', '/API/Agent/Me/', A()), 'the path as the router reads it');
+  });
+
+  await test('GET /api/spaces/:id/members tells an agent the people of its own space: key and name only', async () => {
+    const counter = await agentOf('Counter');
+    const space = (await call(server, 'GET', `/api/spaces/${S1}`, { cookie: admin })).json.space;
+    const nameOf = async (key) => {
+      const u = (await call(server, 'GET', `/api/users/${key}`, { cookie: admin })).json.user;
+      return u.agent ? `${u.displayName} (agent)` : u.displayName;
+    };
+    const expected = [];
+    for (const key of space.members) expected.push({ key, name: await nameOf(key) });
+    const before = (await call(server, 'GET', '/api/agent/me', { token: counter.token })).json.limits;
+    const got = await call(server, 'GET', `/api/spaces/${S1}/members`, { token: counter.token });
+    ok(got, 'members');
+    assert.deepEqual(Object.keys(got.json), ['members'], 'only members');
+    assert.deepEqual(got.json.members, expected, 'the space\'s own order, key and name');
+    for (const m of got.json.members) assert.deepEqual(Object.keys(m).sort(), ['key', 'name'], 'exactly key and name');
+    assert.ok(got.json.members.some((m) => m.key === mia.key && m.name === 'mia'), 'a person by their name');
+    assert.ok(got.json.members.some((m) => m.key === counter.key && m.name === 'Counter (agent)'), 'an agent as Name (agent)');
+    const after = (await call(server, 'GET', '/api/agent/me', { token: counter.token })).json.limits;
+    assert.equal(after.reads.usedToday, before.reads.usedToday + 2, 'one read for members, one for the second me');
+    assert.equal(after.writes.usedToday, before.writes.usedToday);
+    const lines = fs.readFileSync(path.join(single, 'agent-log', counter.key, `${dayToday()}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const line = lines.find((l) => l.route === '/api/spaces/:id/members');
+    assert.ok(line, 'logged as its route');
+    assert.deepEqual([line.method, line.kind, line.space, line.status], ['GET', 'read', S1, 200]);
+    const raw = JSON.stringify(got.json);
+    for (const leak of ['login', 'email', 'role', 'hash', 'token', 'link']) assert.ok(!raw.toLowerCase().includes(`"${leak}`), `no ${leak}`);
+  });
+
+  await test('members: another space, the Lobby and an unknown space are 404; a person is refused', async () => {
+    for (const id of [S2, 'lobby', 'zzzz9999']) {
+      const r = await call(server, 'GET', `/api/spaces/${id}/members`, await P());
+      assert.equal(r.status, 404, `members of ${id}: ${r.status}`);
+      assert.match(r.json.error, /^no such /);
+    }
+    refused(await call(server, 'GET', `/api/spaces/${S1}/members`, { cookie: admin }), 403, "This is for an agent's token only.", 'a person');
+    refused(await call(server, 'POST', `/api/spaces/${S1}/members`, await P()), 403, CANT, 'POST is not on the list');
   });
 
   await test('local, asker-only, destructive and ai:false actions are refused', async () => {
