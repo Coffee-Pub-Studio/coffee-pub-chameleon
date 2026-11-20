@@ -219,7 +219,7 @@ finished command and `.mcp.json` with the server's own address and the token fil
 one-time token window; afterwards the panel shows a placeholder. The "Agents are off on this server" hint names
 `AGENT_TOKENS`. Thomas will open the Claude apps' "Add custom connector" form and report what fields it shows.
 
-Open until his test: whether the Claude apps' connector form takes a bearer token or header. If it does, the apps use
+Proven (Thomas, 2026-11-20): the Claude apps' connector form takes a request header. With Authentication set to No sign-in and the header `Authorization: Bearer <token>`, Claude in an app used the tools against his server. OAuth is therefore not needed for the apps and stays unbuilt. (Before his test the question was: whether the form takes a bearer token or header.) If it does, the apps use
 the token as is. If it does not, OAuth on the server (people sign in; no token or terminal) becomes the next piece. It
 needs OAuth 2.1 with PKCE, protected-resource and authorization-server metadata, client registration or client ID
 metadata, and a consent page: a plan, a dedicated session and a security read.
