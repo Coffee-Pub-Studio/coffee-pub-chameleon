@@ -145,7 +145,7 @@ try {
     for (const t of templates.all().values()) {
       const space = env.store.addSpace({ name: `On ${t.id}`, template: t.id });
       // What each shipped template seeded before it had a tab list: the same now (the list is written out in every file).
-      const before = { games: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['whiteboard', 'documents'] }, learning: { hide: ['map', 'conference', 'whiteboard'] }, mentoring: { hide: ['map', 'conference', 'whiteboard'] }, project: { hide: ['map', 'conference', 'whiteboard'] } };
+      const before = { games: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['whiteboard', 'documents'] }, learning: { hide: ['map', 'whiteboard'] }, mentoring: { hide: ['map', 'whiteboard'] }, project: { hide: ['map', 'whiteboard'] } };
       assert.deepEqual(space.tabs, before[t.id], `${t.id}: its tabs`);
       assert.equal(space.defaultLayout, t.id === 'games' ? 'conference' : undefined, `${t.id}: what opens first`);
       assert.equal(t.workspace.tabs.length, 6, `${t.id}: the list names every layout`);

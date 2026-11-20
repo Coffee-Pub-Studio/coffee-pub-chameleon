@@ -1587,7 +1587,7 @@ try {
   assert.equal((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: pat4 })).json.look.workspace.layout.areas[0], 'schedule', 'and in the look');
   // The template's Fixed Workspaces (`tabs`) are not a guest's: they have none, so their look lists the Workspace alone. A member's and a maker's look keep what the template says.
   const memberLook = (await call('GET', `/api/spaces/${proj.id}/look`, { cookie: pat4 })).json.look.workspace;
-  const projectTabs = SYSTEM_IDS.map((id) => ({ id, show: ['workspace', 'calendar', 'documents'].includes(id) }));
+  const projectTabs = SYSTEM_IDS.map((id) => ({ id, show: ['workspace', 'calendar', 'conference', 'documents'].includes(id) }));
   assert.deepEqual(memberLook.tabs, projectTabs, 'a member: as the template says');
   assert.deepEqual((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: owner2 })).json.look.workspace.tabs, projectTabs, 'a maker: as the template says');
   const linkLook = (await call('GET', `/api/guest-link/${encodeURIComponent(projGuest)}`)).json.look.workspace;

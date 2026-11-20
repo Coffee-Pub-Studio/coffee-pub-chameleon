@@ -2,7 +2,7 @@
   "id": "project",
   "name": "Projects",
   "description": "Run a project together: tasks, meetings, effort, a brief and a calendar.",
-  "version": 5,
+  "version": 6,
   "words": {
     "space": {
       "one": "project",
@@ -148,7 +148,7 @@
       { "id": "workspace", "show": true },
       { "id": "calendar", "show": true },
       { "id": "map", "show": false },
-      { "id": "conference", "show": false },
+      { "id": "conference", "show": true },
       { "id": "whiteboard", "show": false },
       { "id": "documents", "show": true }
     ]

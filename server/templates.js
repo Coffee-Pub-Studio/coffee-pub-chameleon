@@ -483,6 +483,8 @@ function cleanTemplate(raw, { manifests = null } = {}) {
   const workspace = {};
   if (raw.workspace?.layout) workspace.layout = { shape: raw.workspace.layout.shape, areas: [...raw.workspace.layout.areas] };
   if (raw.workspace?.tabs) workspace.tabs = raw.workspace.tabs.map((r) => ({ id: r.id, show: r.show }));
+  // Conference is a workspace tab wherever the template offers it (Thomas, 2026-11-19): a list that leaves it out gets it last, shown.
+  if (workspace.tabs && offers(raw, 'conference') && !workspace.tabs.some((r) => r.id === 'conference')) workspace.tabs.push({ id: 'conference', show: true });
   return {
     id: raw.id,
     name: raw.name.trim(),
