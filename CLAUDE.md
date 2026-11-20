@@ -126,6 +126,8 @@ Roles:
 - Guest, `guest`: very limited rights.
 - Agent, `agent`: an account for software such as Claude, a member narrowed by a fixed gate; shows as "Claude (agent)"
   (`documentation/plans/plan-agent-access.md`, decision 16). Never a moderator, owner or admin.
+- Set-up agent, `setup`: a kind of agent that makes and names spaces, a member narrowed by a gate; shows as "Claude
+  (set-up agent)" (`documentation/plans/plan-admin-agent.md`, decision 2). Never an owner or admin.
 
 ## Agents
 
