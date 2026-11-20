@@ -59,7 +59,7 @@ fs.rmSync(tmp, { recursive: true, force: true });
 
 eq(SHAPES.map((s) => s.id), SERVER_SHAPES.map((s) => s.id), 'the page and the server list the same shapes');
 for (const s of SHAPES) ok(P.SHAPE_LABELS[s.id] && P.SHAPE_ABOUT[s.id], `${s.id}: no label or description`);
-eq(P.partsFor(['calendar', 'todo', 'goals']).sort(), ['calendar', 'todo'], 'partsFor with the Calendar on');
+eq(P.partsFor(['calendar', 'todo', 'goals']).sort(), ['calendar'], 'partsFor with the Calendar on (To-do is never one)');
 eq(P.partsFor(['todo', 'goals', 'maps']), [], 'partsFor with the Calendar off (and no Map answered)');
 eq(P.partsFor(['maps'], ['map']), ['maps'], 'partsFor with the Map shown');
 
@@ -69,7 +69,7 @@ const holder = (shape, parts) => (a, id) => areaMayHold(shape, a, id, { parts })
   const tall = shapeById('tall-split');
   const withCal = holder(tall, P.partsFor(IDS));
   eq(P.carryAreas(['goals', 'calendar', 'documents'], tall, withCal), { areas: ['calendar', 'goals', 'documents'], dropped: [] }, 'carryAreas swaps a Calendar from a stacked area into area 1');
-  eq(P.carryAreas(['calendar', 'maps', 'todo'], tall, withCal), { areas: ['calendar', null, null], dropped: [{ id: 'maps', why: 'stack' }, { id: 'todo', why: 'stack' }] }, 'carryAreas drops what can\'t share a column when area 1 is taken');
+  eq(P.carryAreas(['calendar', 'maps', 'todo'], tall, withCal), { areas: ['calendar', null, 'todo'], dropped: [{ id: 'maps', why: 'stack' }] }, 'carryAreas drops what can\'t share a column when area 1 is taken, and keeps To-do');
   const noCal = holder(tall, P.partsFor(IDS.filter((x) => x !== 'calendar')));
   eq(P.carryAreas(['goals', 'todo', null], tall, noCal).areas, ['goals', 'todo', null], 'carryAreas keeps To-do in a stacked area while the Calendar is off');
   const two = shapeById('two-equal');
@@ -218,20 +218,20 @@ const holder = (shape, parts) => (a, id) => areaMayHold(shape, a, id, { parts })
       }
     }
     ok(compared > 1000 && !wrong.length, `layoutRecord and cleanShape disagree on ${wrong.length} of ${compared}: ${wrong.slice(0, 3).join('; ')}`);
-    eq(T.layoutRecord({ shape: 'tall-split', areas: ['goals', 'todo', null] }), null, 'told nothing, To-do in a stacked area is refused (as the server reads it)');
-    eq(T.layoutRecord({ shape: 'tall-split', areas: ['goals', 'todo', null] }, { parts: [] }), { shape: 'tall-split', areas: ['goals', 'todo', null] }, 'with the Calendar off, To-do may share a column');
+    eq(T.layoutRecord({ shape: 'tall-split', areas: ['goals', 'maps', null] }), null, 'told nothing, Maps in a stacked area is refused (as the server reads it)');
+    eq(T.layoutRecord({ shape: 'tall-split', areas: ['goals', 'todo', null] }, { parts: ['calendar'] }), { shape: 'tall-split', areas: ['goals', 'todo', null] }, 'To-do may share a column, the Calendar on or off');
     eq(T.layoutRecord({ shape: 'one', areas: ['chat'] }, { parts: [] }), null, 'the chat is never in an area');
   }
-  // What moved when the Calendar was ticked under a stacked To-do (decision 25), and nothing when it was unticked again.
+  // What moved when a composite turned on under a stacked part of it (decision 25; no module is such a part now, so a made-up one stands in), and nothing when it was off again. (decision 25), and nothing when it was unticked again.
   {
     const def = shapeById('tall-split');
-    const names = { todo: 'To-do', travel: 'Itinerary', vault: 'Vault', calendar: 'Calendar' };
-    const on = ['todo'];
-    const before = { shape: 'tall-split', areas: ['travel', 'vault', 'todo'] };
+    const names = { extra: 'Extra', travel: 'Itinerary', vault: 'Vault', calendar: 'Calendar' };
+    const on = ['extra'];
+    const before = { shape: 'tall-split', areas: ['travel', 'vault', 'extra'] };
     const carried = P.carryAreas(before.areas, def, (area, id) => areaMayHold(def, area, id, { parts: on }));
-    eq(carried.areas, ['todo', 'vault', 'travel'], 'the Calendar on: To-do swaps into area 1');
+    eq(carried.areas, ['extra', 'vault', 'travel'], 'the Calendar on: Extra swaps into area 1');
     eq(T.movedNote(before, { shape: 'tall-split', areas: carried.areas }, { nameOf: (id) => names[id], parts: on, mayHold: (area, id) => areaMayHold(def, area, id, { parts: on }) }),
-      "To-do moved to area 1: while Calendar is on, it can't share a column. Itinerary moved to area 3 to free area 1.", 'what moved, said');
+      "Extra moved to area 1: it can't share a column. Itinerary moved to area 3 to free area 1.", 'what moved, said');
     const back = P.carryAreas(before.areas, def, (area, id) => areaMayHold(def, area, id, { parts: [] }));
     eq(back.areas, before.areas, 'the Calendar off again: from the person\'s arrangement, it is back as it was');
     eq(T.movedNote(before, { shape: 'tall-split', areas: back.areas }, { parts: [] }), '', 'nothing moved, nothing said');
@@ -405,13 +405,13 @@ else {
       await key('Tab');
       ok((await active()) === 'Area 3 of 3: Empty', `${mode}: Tab from area 2 should reach area 3 (${await active()})`);
 
-      // --- the menu: what each area offers (Calendar on: To-do refused in the stack) ---
+      // --- the menu: what each area offers (Calendar on: Calendar and Maps refused in the stack, To-do offered) ---
       await key('Enter');
       let labels = await menuLabels();
       ok(labels[0] === 'Empty', `${mode}: the menu should start with Empty (${labels.join(', ')})`);
-      eq(labels.slice(1), ['Whiteboard', 'Goals', 'Documents', 'Vault'], `${mode}: a stacked area with the Calendar on offers`);
+      eq(labels.slice(1), ['Whiteboard', 'Goals', 'Documents', 'To-do', 'Vault'], `${mode}: a stacked area with the Calendar on offers`);
       ok(/can't share a column; they can go in area 1\./.test(await ev("document.querySelector('.layout-picker-menu-note')?.textContent || ''")), `${mode}: the stacked area's menu does not say what can't go there`);
-      ok(await ev("document.querySelector('body > .host-menu').getAttribute('role') === 'menu' && document.querySelectorAll('body > .host-menu [role=\"menuitemradio\"]').length === 5"), `${mode}: the menu is not a menu of radio rows`);
+      ok(await ev("document.querySelector('body > .host-menu').getAttribute('role') === 'menu' && document.querySelectorAll('body > .host-menu [role=\"menuitemradio\"]').length === 6"), `${mode}: the menu is not a menu of radio rows`);
       await key('ArrowDown'); await key('ArrowDown'); await key('Enter'); // Goals
       eq(await value(), { shape: 'wide-split', areas: [null, null, 'goals'] }, `${mode}: a pick by the keyboard`);
       ok((await active()) === 'Area 3 of 3: Goals', `${mode}: after a pick the keyboard should stay on the area (${await active()})`);
@@ -457,7 +457,7 @@ else {
       await ev("document.querySelector('.action-bar-discard').click()");
       ok(await ev('window.__cancelled === true'), `${mode}: Discard did not cancel`);
 
-      // --- To-do in a stacked area where the Calendar is off ---
+      // --- To-do in a stacked area where the Calendar is off (the same as with it on) ---
       const noCal = MODS.filter((m) => m.id !== 'calendar');
       await open({ width: 1280, mode, mods: noCal, opts: { record: { shape: 'tall-split', areas: ['whiteboard', null, null] } } });
       await ev("document.querySelector('.layout-picker-board [data-area=\"2\"]').click()");
@@ -537,7 +537,7 @@ else {
       ok(!phone.overflow, `${mode} 390: the page scrolls sideways`);
       await ev("document.querySelector('.layout-picker-row-main[data-area=\"3\"]').focus()");
       await key('Enter');
-      eq((await menuLabels()).slice(1), ['Whiteboard', 'Goals', 'Documents', 'Vault'], `${mode} 390: a row's menu offers what its area may hold`);
+      eq((await menuLabels()).slice(1), ['Whiteboard', 'Goals', 'Documents', 'To-do', 'Vault'], `${mode} 390: a row's menu offers what its area may hold`);
       await key('ArrowDown'); await key('Enter');
       eq(await save(MODS.map((m) => m.id)), { shape: 'wide-split', areas: ['calendar', 'goals', 'whiteboard'] }, `${mode} 390: a row's pick is saved`);
       await ev("document.querySelector('.layout-picker-nav').click()");
@@ -564,16 +564,16 @@ else {
         ok(seen.includes(want), `the Design System page does not show the notice "${want}" (it shows ${JSON.stringify(seen)})`);
       }
     }
-    // A template's layout read in that the page's rule refuses (To-do stacked while the Calendar is on): the editor still
-    // shows a layout, the person's arrangement is kept, and what it would send is a whole record (the picker moved To-do).
+    // A template's layout read in that the page's rule refuses (Maps stacked): the editor still
+    // shows a layout, the person's arrangement is kept, and what it would send is a whole record (the picker moved Maps).
     {
       await open({ width: 1280, mode: 'light', opts: {} });
       const got = await ev(`import('/template-layout.js').then((m) => { const h = document.getElementById('here'); h.replaceChildren();
-        const part = m.mountTemplateLayout(h, { record: { shape: 'tall-split', areas: ['whiteboard', 'todo', 'documents'] }, modules: ${JSON.stringify(MODS)}, parts: ['calendar', 'todo'], word: (k) => k });
+        const part = m.mountTemplateLayout(h, { record: { shape: 'tall-split', areas: ['whiteboard', 'maps', 'documents'] }, modules: ${JSON.stringify(MODS)}, parts: ['calendar', 'maps'], word: (k) => k });
         return JSON.stringify({ shown: !!h.querySelector('.layout-picker [data-part="2"]:not([hidden])'), none: !!h.querySelector('.tp-layout-words'), value: part.value(), arrangement: part.arrangement() }); })`).then(JSON.parse);
       ok(got.shown && !got.none, `a refused template record still shows the picker on its areas: ${JSON.stringify(got)}`);
-      ok(got.value !== null && got.value.shape === 'tall-split' && got.value.areas.includes('todo'), `a refused template record still has a value (the picker moved To-do), not null: ${JSON.stringify(got.value)}`);
-      eq(got.arrangement, { shape: 'tall-split', areas: ['whiteboard', 'todo', 'documents'] }, 'the arrangement read in is kept');
+      ok(got.value !== null && got.value.shape === 'tall-split' && got.value.areas.includes('maps'), `a refused template record still has a value (the picker moved Maps), not null: ${JSON.stringify(got.value)}`);
+      eq(got.arrangement, { shape: 'tall-split', areas: ['whiteboard', 'maps', 'documents'] }, 'the arrangement read in is kept');
     }
     ok(!errors.length, `the page threw: ${errors.join(' | ')}`);
   } catch (err) {

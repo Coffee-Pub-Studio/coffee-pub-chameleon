@@ -20,7 +20,7 @@
 // hold them (a phone opens them as tabs; nothing a person stored changes).
 export const COLUMN_IDS = Object.freeze(['conference', 'chat']);
 // `aliases` (composites.js's aliasesFor; plan-calendar-todo.md and plan-map-places.md, step 3): a stored id read as
-// another, or as a list of others ({ calendar: 'dest:calendar', todo: 'dest:calendar' } while the Calendar is on in the
+// another, or as a list of others ({ calendar: 'dest:calendar' } while the Calendar is on in the
 // space; { maps: 'dest:map' } while the space's Map is shown), each once, in the first place it is
 // named. The lists themselves are never rewritten.
 export function readAliased(list, aliases = {}) {
@@ -91,7 +91,7 @@ export function shouldAutoJoin({ setting = false, inCall = false, canJoin = fals
 // What Set up says a new person sees open, read only, in plain words (plan-layout-picker.md, step 3): the template's
 // layout (`layout`, { shape, areas }) as its shape and the modules in it, else, with none, what the product opens (the
 // chat and the modules on here). `nameOf(id)` is the name a person reads; `groupOf(id)` the id whose name an id sits
-// under (To-do under the Calendar where the Calendar is on). `canOpen(id)`: whether the module is on here; an area whose
+// under (a part of a composite under its main). `canOpen(id)`: whether the module is on here; an area whose
 // module is not closes up (decision 13), and the line says so. `space` is the word a person reads for a space (the
 // page's word()); the default is for node. The line never needs the word for a module, so no article ever goes wrong.
 // "Whiteboard opens on the left, with Goals above Documents on the right." Each shape's words take its areas' names, null

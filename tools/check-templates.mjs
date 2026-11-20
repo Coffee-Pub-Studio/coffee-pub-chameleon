@@ -355,7 +355,7 @@ try {
     assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { name: 'Votes' } }, workspace: { layout: { shape: 'one', areas: ['todo'] } } })), ['The layout uses To-do, which this template doesn\'t include.']);
     assert.deepEqual(problems(minimal({ modules: { chat: {}, polls: { name: 'Votes' } }, workspace: { layout: { shape: 'two-equal', areas: ['polls', 'polls'] } } })), ['Votes is in two areas; a module can be in one area only.']);
     assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { name: 'Quests' } }, workspace: { layout: { shape: 'one', areas: ['polls'] } } })), ['The layout uses Polls, which this template doesn\'t include.'], 'a module left out of the template');
-    assert.deepEqual(problems(minimal({ modules: { chat: {}, todo: { name: 'Quests' }, calendar: {} }, workspace: { layout: { shape: 'tall-split', areas: [null, 'todo', null] } } })), ['Quests can\'t share a column; put it in area 1.'], 'the template\'s own name for a module');
+    assert.deepEqual(problems(minimal({ modules: { chat: {}, maps: { name: 'Atlas' }, calendar: {} }, workspace: { layout: { shape: 'tall-split', areas: [null, 'maps', null] } } })), ['Atlas can\'t share a column; put it in area 1.'], 'the template\'s own name for a module');
     // Odd ids in an area: one plain line each, never the id raw and never JavaScript's own text.
     for (const id of ['__proto__', 'constructor', 'toString', '', 'a\nb', '\u202eevil', '<img src=x onerror=1>', 'x'.repeat(80)]) {
       const got = problems(minimal({ workspace: { layout: { shape: 'one', areas: [id] } } }));
@@ -371,11 +371,11 @@ try {
     const withParts = problems(minimal({ workspace: { layout: { shape: 'ring', areas: [] } } }));
     assert.deepEqual([withParts.parts, Object.keys(withParts)], [['workspace'], ['0']], 'parts is not part of the list');
     assert.deepEqual(problems(minimal({ workspace: { opensWith: ['chat'] } })), ['"workspace" takes only layout and tabs.'], 'opensWith is gone: the layout replaces it');
-    // To-do in a stacked area: refused only where the Calendar is on (the template's modules; "*" counts the Calendar as on).
+    // To-do in a stacked area: always allowed, the Calendar on or not (it has its own window).
     const stacked = (modules) => problems(minimal({ modules, workspace: { layout: { shape: 'tall-split', areas: ['polls', 'todo', null] } } }));
     assert.deepEqual(stacked({ chat: {}, polls: {}, todo: {} }), [], 'no Calendar: To-do stacks');
-    assert.deepEqual(stacked({ chat: {}, polls: {}, todo: {}, calendar: {} }), ["To-do can't share a column; put it in area 1."], 'with the Calendar: refused, named as a person reads it');
-    assert.deepEqual(stacked('*'), ["To-do can't share a column; put it in area 1."], '"*" counts the Calendar as on');
+    assert.deepEqual(stacked({ chat: {}, polls: {}, todo: {}, calendar: {} }), [], 'with the Calendar: To-do stacks too');
+    assert.deepEqual(stacked('*'), [], '"*" counts the Calendar as on, and To-do still stacks');
     for (const old of [{ show: ['calendar'] }, { opensFirst: 'calendar' }]) assert.deepEqual(problems(minimal({ workspace: old })), ['"workspace" takes only layout and tabs.'], 'show and opensFirst are gone');
     const sentence = `workspace.tabs must be a list of rows { id, show }, each of ${layoutIds.join(', ')} at most once, with at least one shown and the workspace never hidden.`;
     const row = (id, show = true) => ({ id, show });

@@ -73,25 +73,23 @@ const refused = (input, pattern, label, options) => {
   assert.deepEqual(placed.left, [], 'and names neither as left out');
   assert.ok(cleanLayout(good()).layout, 'the server still accepts a layout naming them');
   n += 1;
-  // The composite (plan-calendar-todo.md, step 3; public/composites.js's aliasesFor): a stored `calendar` or `todo` is
-  // placed as `dest:calendar`, once, with the first one's mode and places; the layout itself is not rewritten, and
-  // where the Calendar is off a stored `dest:calendar` places the To-do alone. The page saves a composite under its
-  // main module's id, so the server's store (module ids only) takes it.
-  const on = { calendar: 'dest:calendar', todo: 'dest:calendar' };
+  // The composite (plan-calendar-todo.md, step 3; public/composites.js's aliasesFor): a stored `calendar` is placed as
+  // `dest:calendar`, once, with its mode and places; the layout itself is not rewritten, and where the Calendar is off a
+  // stored `dest:calendar` places nothing. To-do is never part of it: it places as its own module. The page saves a
+  // composite under its main module's id, so the server's store (module ids only) takes it.
+  const on = { calendar: 'dest:calendar' };
   const old = { modules: [{ id: 'todo', mode: 'float', box: { x: 0.1, y: 0.1, w: 0.4, h: 0.5 } }, { id: 'notes', mode: 'dock', dockW: 300 }, { id: 'calendar', mode: 'dock', dockW: 360 }], snap: { all: false, pitch: 130 } };
   const before = JSON.stringify(old);
   const read = placeLayout(old, area, () => true, on);
-  assert.deepEqual(read.modules.map((m) => [m.id, m.mode]), [['dest:calendar', 'float'], ['notes', 'dock']], 'placeLayout() reads todo and calendar as one composite, where the first is named, with its mode');
-  assert.deepEqual(read.left, [], 'and leaves nothing out for it');
+  assert.deepEqual(read.modules.map((m) => [m.id, m.mode]), [['todo', 'float'], ['notes', 'dock'], ['dest:calendar', 'dock']], 'placeLayout() places the To-do as itself and the Calendar as the composite');
+  assert.deepEqual(read.left, [], 'and leaves nothing out');
   assert.equal(JSON.stringify(old), before, 'the stored layout is not rewritten');
-  const off = placeLayout(old, area, (id) => id !== 'calendar', { 'dest:calendar': ['todo'] });
-  assert.deepEqual([off.modules.map((m) => m.id), off.left], [['todo', 'notes'], ['calendar']], 'with no aliases for them the parts place as themselves, canOpen deciding');
-  const kept = placeLayout({ modules: [{ id: 'dest:calendar', mode: 'dock' }, { id: 'notes', mode: 'dock' }] }, area, () => true, { 'dest:calendar': ['todo'] });
-  assert.deepEqual(kept.modules.map((m) => m.id), ['todo', 'notes'], 'a stored dest:calendar places the To-do alone where the Calendar is off');
+  const off = placeLayout(old, area, (id) => id !== 'calendar', { 'dest:calendar': [] });
+  assert.deepEqual([off.modules.map((m) => m.id), off.left], [['todo', 'notes'], ['calendar']], 'with the Calendar off the To-do still places, canOpen deciding');
   const none = placeLayout({ modules: [{ id: 'dest:calendar', mode: 'dock' }] }, area, () => true, { 'dest:calendar': [] });
-  assert.deepEqual([none.modules, none.left], [[], []], 'and nothing, not left out, where neither is on');
+  assert.deepEqual([none.modules, none.left], [[], []], 'and nothing, not left out, where the Calendar is off');
   const saved2 = layoutOf([{ id: 'calendar', mode: 'dock', order: 1, width: 360 }, { id: 'todo', mode: 'float', order: 2, box: { x: 10, y: 10, w: 300, h: 300 } }], area, {}, on);
-  assert.deepEqual(saved2.modules.map((m) => m.id), ['dest:calendar'], 'layoutOf() through the aliases saves the composite once');
+  assert.deepEqual(saved2.modules.map((m) => m.id), ['dest:calendar', 'todo'], 'layoutOf() through the aliases saves the composite once and the To-do as itself');
   assert.ok(!cleanLayout({ modules: [{ id: 'dest:calendar', mode: 'dock' }], snap: { all: false, pitch: 130 } }).layout, 'the server\'s store takes module ids only, so the page saves a composite under its main\'s id');
   // The Map (plan-map-places.md, step 3): a stored `maps` places `dest:map` once while the space's Map is
   // shown; with no map file (no aliases for it) it places as itself, and a stored `dest:map` places Maps.
@@ -205,7 +203,7 @@ const refused = (input, pattern, label, options) => {
   assert.ok(cleanLayout(sh('two-equal', ['anything', null])).layout, 'with no module list given');
   // The shape rules reach the layout: To-do stacks while the Calendar is off in the space, and not once it is on.
   assert.ok(cleanLayout(sh('tall-split', ['polls', 'todo', 'notes']), offCalendar).layout, 'To-do in a stacked area where the Calendar is off');
-  sharedRefused(sh('tall-split', ['polls', 'todo', 'notes']), /^To-do can't share a column; put it in area 1\.$/, 'To-do in a stacked area, Calendar on');
+  assert.ok(cleanLayout(sh('tall-split', ['polls', 'todo', 'notes']), opts).layout, 'To-do in a stacked area where the Calendar is on: it has its own window');
   sharedRefused(sh('wide-split', ['polls', 'calendar', null]), /^Calendar can't share a column; put it in area 1\.$/, 'Calendar in a stacked area');
   sharedRefused(sh('nine', [null]), /^Pick a shape from the list\.$/, 'an unknown shape');
   sharedRefused({ name: 'x', shared: true, areas: [null] }, /^Pick a shape from the list\.$/, 'no shape');
@@ -1368,8 +1366,8 @@ try {
   const split = (await expect('moderator saves a shape with an empty area', 201, 'POST', LC, { cookie: sam2, body: { name: 'Split', shape: 'wide-split', areas: ['calendar', 'polls', null], icon: 'couch', shared: true } })).json.layout;
   assert.deepEqual([split.shape, split.areas, split.icon, split.by], ['wide-split', ['calendar', 'polls', null], 'couch', samUser.key]);
   assert.deepEqual(readJson(path.join(dataDir, 'layouts.json')).spaces[camp.id].shared.find((l) => l.id === split.id), split, 'stored as answered');
-  // To-do stacks while the Calendar is off in the space and is refused there once the Calendar is on: the rule reads the space.
-  await refusedShape('To-do in a stacked area, Calendar on', { shape: 'tall-split', areas: ['polls', 'todo', null] }, "To-do can't share a column; put it in area 1.");
+  // To-do stacks whether the Calendar is on or off: it has its own window. The Calendar never stacks.
+  await expect('To-do in a stacked area, Calendar on', 201, 'POST', LC, { cookie: owner2, body: { name: 'Todo stacked', shape: 'tall-split', areas: ['polls', 'todo', null], shared: true } });
   await refusedShape('Calendar in a stacked area', { shape: 'tall-split', areas: ['polls', 'calendar', null] }, "Calendar can't share a column; put it in area 1.");
   await expect('To-do in area 1 beside the Calendar', 201, 'POST', LC, { cookie: owner2, body: { name: 'Todo one', shape: 'two-equal', areas: ['todo', 'calendar'], shared: true } });
   // The refusals, each one plain sentence, 400.
@@ -1435,7 +1433,7 @@ try {
   await membersOff('polls', false);
   for (const [label, cookie] of [['owner', owner2], ['moderator', sam2]]) {
     seen2 = await sharedOf(cookie);
-    assert.ok(!('todo' in seen2.cantOpen), `${label}: with the Calendar on To-do is the Calendar, which guests read, so it shuts nobody out (a notice that said otherwise was false)`);
+    assert.deepEqual(seen2.cantOpen.todo, { roles: ['guest'] }, `${label}: with the Calendar on To-do is still its own module, so guests who can't read it are listed`);
     assert.deepEqual(seen2.cantOpen.polls, { roles: ['member', 'guest'] }, `${label}: Polls closes for members and guests, in role order`);
     assert.ok(!('calendar' in seen2.cantOpen), `${label}: a module everyone can open is not listed`);
     assert.ok(Object.values(seen2.cantOpen).every((v) => (v.roles && !v.roles.includes('owner') && !v.roles.includes('admin')) || v.off === true), `${label}: only roles that can lack it, or off`);
@@ -1445,13 +1443,13 @@ try {
     assert.ok(!JSON.stringify(got).includes('"roles"'), `${label}: nothing of it anywhere in the answer`);
   }
   // What each person sees for a To-do area, a module they can't read and a module that is off (the four cases):
-  //   Calendar on, guests read it but not To-do: the area opens the Calendar for them. Nobody is told it closes; the guest keeps the id.
-  //   Calendar off: To-do is its own. Makers are told guests can't open it; a guest's area reads empty, a member's keeps the id.
+  //   guests read the Calendar but not To-do, Calendar on or off: To-do is its own module. Makers are told guests can't open it;
+  //   a guest's To-do area reads empty, a member's keeps the id.
   //   a module a guest can't read (Polls): a guest's area reads empty, a member's answer keeps the id, makers see the roles.
   //   a module off: makers see { off: true }; a guest's area reads empty, a member's keeps the id.
   const todoOne = (await sharedOf(owner2)).shared.find((l) => l.name === 'Todo one');
   const guestAreas = async (l) => (await call('GET', `${LC}${campGuest}`)).json.shared.find((x) => x.id === l.id).areas;
-  assert.deepEqual(await guestAreas(todoOne), ['todo', 'calendar'], 'Calendar on: a guest who reads the Calendar keeps the To-do area');
+  assert.deepEqual(await guestAreas(todoOne), [null, 'calendar'], 'Calendar on: a guest who reads the Calendar but not To-do has an empty To-do area');
   assert.deepEqual(await guestAreas(duo), ['calendar', null, null], 'Polls unreadable for guests: a guest is not told its id');
   assert.deepEqual((await sharedOf(pat3)).shared.find((x) => x.id === duo.id).areas, ['calendar', null, 'polls'], 'a member keeps the id (unchanged)');
   await expect('Calendar off', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: false } });
@@ -1461,7 +1459,7 @@ try {
   assert.deepEqual(await guestAreas(todoOne), [null, null], 'Calendar off: a guest\'s To-do area reads empty');
   assert.deepEqual((await sharedOf(pat3)).shared.find((x) => x.id === todoOne.id).areas, ['todo', 'calendar'], 'and a member keeps the ids');
   await expect('Calendar on again', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: true, allSpaces: true } });
-  assert.ok(!('todo' in (await sharedOf(sam2)).cantOpen), 'back on, To-do is the Calendar again');
+  assert.deepEqual((await sharedOf(sam2)).cantOpen.todo, { roles: ['guest'] }, 'back on, To-do is still its own');
   // A module a layout names that is off: still listed, unchanged, and marked off for those who may edit; a guest's area reads empty.
   await expect('turn Polls off', 200, 'PATCH', '/api/modules/polls', { cookie: owner2, body: { enabled: false } });
   seen2 = await sharedOf(owner2);

@@ -110,11 +110,11 @@ bad({ shape: 'one', areas: ['dest:calendar'] }, null, 'a composite id outside a 
 bad({ shape: 'two-equal', areas: ['unknown', null] }, null, 'a module outside the list', { modules: MODS });
 good({ shape: 'two-equal', areas: ['unknown', null] }, 'no list given: any well-formed id passes');
 for (const shape of ['tall-split', 'wide-split']) {
-  for (const id of ['calendar', 'todo', 'maps']) {
+  for (const id of ['calendar', 'maps']) {
     for (const at of [1, 2]) {
       const areas = [null, null, null];
       areas[at] = id;
-      bad({ shape, areas }, `${id === 'todo' ? 'To-do' : id[0].toUpperCase() + id.slice(1)} can't share a column; put it in area 1.`, `${shape}: ${id} in area ${at + 1}`);
+      bad({ shape, areas }, `${id[0].toUpperCase() + id.slice(1)} can't share a column; put it in area 1.`, `${shape}: ${id} in area ${at + 1}`);
     }
   }
 }
@@ -124,7 +124,7 @@ good({ shape: 'tall-split', areas: ['documents', 'goals', 'schedule'] }, 'ordina
 bad({ shape: 'tall-split', areas: [null, 'dest:calendar', null] }, '"dest:calendar" is not a module you can use here.', 'a composite id is not a module id');
 bad({ shape: 'tall-split', areas: [null, 'calendar', null] }, "Chameleon Calendar can't share a column; put it in area 1.", 'the module name as a person reads it', { names: { calendar: 'Chameleon Calendar' } });
 bad({ shape: 'tall-split', areas: [null, 'calendar', null] }, '"calendar" is not a module you can use here.', 'a module not allowed here gets that sentence, not the stack one', { modules: ['documents'] });
-bad({ shape: 'tall-split', areas: [null, 'todo', null] }, "To-do can't share a column; put it in area 1.", 'To-do reads To-do when no names map is passed');
+good({ shape: 'tall-split', areas: [null, 'todo', null] }, 'To-do has its own window: it stacks, the Calendar on or off');
 bad({ shape: 'one', areas: [null], ['x'.repeat(80)]: 1 }, null, 'a long unknown key');
 ok(!cleanShape({ shape: 'one', areas: [null], ['x'.repeat(80)]: 1 }).error.includes('x'.repeat(41)), 'an unknown key is cut to 40 characters');
 for (const options of [null, undefined, 5, 'x', [], {}]) { let r; try { r = cleanShape({ shape: 'one', areas: ['documents'] }, options); } catch (e) { r = { threw: e.message }; } ok(r.shape && !r.threw, `cleanShape takes options ${JSON.stringify(options)}`); }
@@ -133,7 +133,7 @@ good({ shape: 'one', areas: ['documents'] }, 'modules null means any', { modules
 bad({ shape: 'one', areas: ['documents'] }, null, 'an empty modules list allows none', { modules: [] });
 ok(cleanShape({ shape: 'one', areas: [null] }, { modules: [], names: null }).shape, 'an empty area needs no module');
 
-// To-do and Calendar read as a composite only where the Calendar is on. Checked against the real aliasesFor() of
+// The Calendar reads as a composite only where it is on; To-do never does (it has its own window). Checked against the real aliasesFor() of
 // public/composites.js, not assumed: an id is refused in a stacked area exactly when the page folds it into a dest:*
 // composite (Maps with the Map answering, as the server cannot know that it does not).
 const ALL = ['calendar', 'todo', 'maps', 'documents', 'goals', 'whiteboard', 'travel', 'vault', 'schedule'];
@@ -150,10 +150,8 @@ const ON = ['calendar', 'goals', 'todo', 'documents', 'whiteboard', 'travel', 'v
 const OFF = ON.filter((id) => id !== 'calendar');
 for (const areas of [['goals', 'todo', 'documents'], ['documents', 'todo', 'goals'], ['travel', 'vault', 'todo']]) {
   const withCalendar = cleanShape({ shape: 'tall-split', areas }, { modules: ON });
-  ok(withCalendar.error === "To-do can't share a column; put it in area 1.", `${areas}: refused with the Calendar on (${withCalendar.error})`);
+  ok(withCalendar.shape, `${areas}: To-do stacks with the Calendar on (${withCalendar.error})`);
   ok(cleanShape({ shape: 'tall-split', areas }, { modules: OFF }).shape, `${areas}: accepted with the Calendar off`);
-  ok(cleanShape({ shape: 'tall-split', areas }, { modules: OFF, on: ON }).error, `${areas}: \`on\` wins over \`modules\``);
-  ok(cleanShape({ shape: 'tall-split', areas }, { modules: ON, on: OFF }).shape, `${areas}: \`on\` wins over \`modules\`, off`);
 }
 good({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, 'whiteboard, goals, documents stack with the Calendar on', { modules: ON });
 good({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }, 'and with it off', { modules: OFF });
@@ -206,16 +204,14 @@ same(whoCantOpen(['goals', 5, null], { manifests, rolePermissions: defaults }), 
     }
   }
   ok(cases > 300, `canOpenArea equals the page's reading in ${cases} cases`);
-  // The notice: To-do beside the Calendar is the Calendar's rights. A guest who reads the Calendar but not To-do opens it.
+  // The notice: To-do is its own rights, whether or not the Calendar is on.
   const mans = { calendar: { id: 'calendar', access: { read: 'view' } }, todo: { id: 'todo', access: { read: 'view' } } };
   const rp = (g) => ({ moderator: { 'module.calendar.view': true, 'module.todo.view': true }, member: { 'module.calendar.view': true, 'module.todo.view': true }, guest: g });
   const guestCal = rp({ 'module.calendar.view': true });
-  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar', 'todo'] }), {}, 'Calendar on, guests read it but not To-do: nobody is shut out of the To-do area');
-  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['todo'] }), { todo: { roles: ['guest'] } }, 'Calendar off: To-do is its own, guests can\'t open it');
-  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: rp({ 'module.todo.view': true }), on: ['calendar', 'todo'] }), {}, 'guests read To-do but not the Calendar: the composite is off for them, the To-do opens');
-  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: rp({}), on: ['calendar', 'todo'] }), { todo: { roles: ['guest'] } }, 'guests read neither');
-  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar'], off: ['todo'] }), {}, 'To-do off with the Calendar on still opens the Calendar');
-  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar'], off: ['calendar', 'todo'] }), { todo: { off: true } }, 'both off: off');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar', 'todo'] }), { todo: { roles: ['guest'] } }, 'Calendar on, guests read it but not To-do: they can\'t open the To-do area');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['todo'] }), { todo: { roles: ['guest'] } }, 'Calendar off: the same');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: rp({ 'module.todo.view': true }), on: ['calendar', 'todo'] }), {}, 'guests read To-do but not the Calendar: the To-do opens');
+  same(whoCantOpen(['todo'], { manifests: mans, rolePermissions: guestCal, on: ['calendar'], off: ['todo'] }), { todo: { off: true } }, 'To-do off with the Calendar on: off, the Calendar does not stand in');
   same(whoCantOpen(['calendar'], { manifests: mans, rolePermissions: guestCal, on: ['calendar', 'todo'] }), {}, 'the Calendar itself is its own rights');
 }
 // The same, through the page's real path rather than a model of it: the list the page is given (the modules on, readable by

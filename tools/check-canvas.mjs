@@ -142,16 +142,16 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
       { modules: ['todo'], guest: true, column: true }, []],
     ['without the column (a phone) the lists hold them as before',
       { remembered: ['todo', 'conference', 'chat'], modules: ['todo'] }, ['todo', 'conference', 'chat']],
-    // The composite (plan-calendar-todo.md, step 3; public/composites.js): a stored `calendar` or `todo` reads as
-    // `dest:calendar` while the Calendar is on in the space, once, where the first is named; the list is not rewritten.
-    ['the composite: a remembered list naming calendar and todo opens the composite once, in the first\'s place',
-      { remembered: ['todo', 'notes', 'calendar'], modules: ['calendar', 'todo', 'notes'], aliases: { calendar: 'dest:calendar', todo: 'dest:calendar' } }, ['dest:calendar', 'notes']],
-    ['the composite off (the Calendar off here): a remembered dest:calendar opens the To-do\'s own list',
-      { remembered: ['dest:calendar', 'notes'], modules: ['todo', 'notes'], aliases: { 'dest:calendar': ['todo'] } }, ['todo', 'notes']],
+    // The composite (plan-calendar-todo.md, step 3; public/composites.js): a stored `calendar` reads as
+    // `dest:calendar` while the Calendar is on in the space; `todo` is its own module; the list is not rewritten.
+    ['the composite: a remembered list naming calendar opens the composite, and todo opens as itself',
+      { remembered: ['todo', 'notes', 'calendar'], modules: ['calendar', 'todo', 'notes'], aliases: { calendar: 'dest:calendar' } }, ['todo', 'notes', 'dest:calendar']],
+    ['the composite off (the Calendar off here): a remembered dest:calendar opens nothing, the To-do stays its own',
+      { remembered: ['dest:calendar', 'todo', 'notes'], modules: ['todo', 'notes'], aliases: { 'dest:calendar': [] } }, ['todo', 'notes']],
     ['the composite off, the To-do off too: a remembered dest:calendar opens nothing',
       { remembered: ['dest:calendar', 'notes'], modules: ['notes'], aliases: { 'dest:calendar': [] } }, ['notes']],
     ['nothing set with the composite: the chat, the composite in the Calendar\'s place, the rest',
-      { modules: ['calendar', 'todo', 'notes'], aliases: { calendar: 'dest:calendar', todo: 'dest:calendar' } }, ['chat', 'dest:calendar', 'notes']],
+      { modules: ['calendar', 'todo', 'notes'], aliases: { calendar: 'dest:calendar' } }, ['chat', 'dest:calendar', 'todo', 'notes']],
   ];
   for (const [name, input, want] of cases) {
     try {
@@ -181,7 +181,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
         ['the Default template: one empty area', line({ shape: 'one', areas: [null] }), 'One empty area opens. Each person chooses what goes in it.'],
         ['one module', line({ shape: 'one', areas: ['polls'] }), 'Polls fills the Workspace.'],
         ['two equal, one empty', line({ shape: 'two-equal', areas: ['calendar', null] }), 'Calendar and an empty area open side by side, the same width. Each person chooses what goes in the empty area.'],
-        ['Projects: wide and narrow, To-do under the Calendar where it is on', line({ shape: 'wide-narrow', areas: ['schedule', 'todo'] }, { groupOf: (id) => ({ todo: 'calendar' })[id] || id }), 'Project plan opens wide, with Calendar narrow beside it.'],
+        ['Projects: wide and narrow, To-do narrow beside the Project plan', line({ shape: 'wide-narrow', areas: ['schedule', 'todo'] }), 'Project plan opens wide, with To-do narrow beside it.'],
         ['three equal', line({ shape: 'three-equal', areas: ['goals', null, 'polls'] }), 'Goals, an empty area and Polls open side by side, the same width. Each person chooses what goes in the empty area.'],
         ['Education: tall and split', line({ shape: 'tall-split', areas: ['whiteboard', 'goals', 'documents'] }), 'Whiteboard opens on the left, with Goals above Documents on the right.'],
         ['wide and split, two empty around one module: counted, not named one by one', line({ shape: 'wide-split', areas: [null, 'goals', null] }), 'Goals opens narrow on the right, at the top. The other two areas are empty. Each person chooses what goes in the empty areas.'],
@@ -240,7 +240,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
           return seen;
         })(), []],
         ['a template\'s word for a module changes nothing (no article to get wrong)', layoutLine({ layout: { shape: 'two-equal', areas: ['goals', null] }, nameOf, module: 'activity' }), 'Goals and an empty area open side by side, the same width. Each person chooses what goes in the empty area.'],
-        ['no layout, each name once: To-do under Calendar', line(null, { modules: ['maps', 'calendar', 'todo'], groupOf: (id) => ({ todo: 'calendar' })[id] || id }), 'Chat, maps and Calendar open.'],
+        ['no layout, each name once: To-do is its own', line(null, { modules: ['maps', 'calendar', 'todo'] }), 'Chat, maps, Calendar and To-do open.'],
       ];
     })(),
     // The template's layout on a first visit (plan-layout-picker.md, decision 2): only with no remembered arrangement here,
@@ -939,8 +939,10 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   // Read through the composites' aliases: `calendar` opens the Calendar's composite in area 1; one that reads as a
   // composite can't be a stack's section, and a module twice (two parts of one composite) is placed once.
   const al = aliasesFor(['calendar', 'todo', 'documents'], []);
-  const cal = place('two-equal', ['calendar', 'todo'], 1200, { aliases: al });
-  if (cal.slots.map((x) => x.id).join() !== 'dest:calendar' || cal.closed.join() !== '2' || cal.left.length) fail(F, `the Calendar's two parts are one composite, placed once: ${JSON.stringify(cal)}`);
+  const cal = place('two-equal', ['calendar', 'calendar'], 1200, { aliases: al });
+  if (cal.slots.map((x) => x.id).join() !== 'dest:calendar' || cal.closed.join() !== '2' || cal.left.length) fail(F, `a module named twice is placed once: ${JSON.stringify(cal)}`);
+  const calTodo = place('two-equal', ['calendar', 'todo'], 1200, { aliases: al });
+  if (calTodo.slots.map((x) => x.id).join() !== 'dest:calendar,todo' || calTodo.folded.length) fail(F, `the Calendar and the To-do are two windows side by side: ${JSON.stringify(calTodo)}`);
   const stackedCal = place('tall-split', ['documents', 'calendar', null], 1200, { aliases: al });
   if (stackedCal.slots.some((x) => x.id === 'dest:calendar') || !stackedCal.closed.includes(2)) fail(F, 'a composite never goes into a stack');
   if (place('one', ['chat'], 1200).slots.length || place('one', ['chat'], 1200).left.length) fail(F, 'the chat or the call in an area is never placed and never "left out" (they are the column on the left)');
@@ -953,28 +955,24 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   placeShape(rec, 1200, () => true, { shape: shapeById('wide-split') });
   if (JSON.stringify(rec) !== kept) fail(F, 'placeShape() must not change the record');
   // What an empty area's chooser offers (decision 8): anything in an area of its own; in a stacked area not Calendar,
-  // To-do, Maps nor a composite. Never the chat or the call.
+  // Maps nor a composite. Never the chat or the call.
   const ts = shapeById('tall-split');
-  for (const a of [2, 3]) for (const id of ['calendar', 'todo', 'maps', 'dest:calendar', 'dest:map']) if (areaMayHold(ts, a, id, { parts })) fail(F, `a stacked area must not offer ${id}`);
+  for (const a of [2, 3]) for (const id of ['calendar', 'maps', 'dest:calendar', 'dest:map']) if (areaMayHold(ts, a, id, { parts })) fail(F, `a stacked area must not offer ${id}`);
   for (const id of ['calendar', 'todo', 'maps', 'dest:calendar', 'documents']) if (!areaMayHold(ts, 1, id, { parts })) fail(F, `area 1 of tall-split offers ${id}`);
   if (!areaMayHold(ts, 2, 'documents', { parts }) || areaMayHold(shapeById('one'), 1, 'chat', { parts }) || areaMayHold(ts, 1, 'conference', { parts })) fail(F, 'a stacked area offers an ordinary module; no area offers the chat or the call');
   if (!areaMayHold(shapeById('three-equal'), 3, 'dest:map', { parts })) fail(F, 'a column of its own may hold a composite');
-  // To-do reads as the Calendar only where the Calendar is on (aliasesFor): refused in a stacked area there, allowed where it is off.
+  // To-do never reads as the Calendar (it has its own window): allowed in a stacked area with the Calendar on or off.
   const partsOf = (al) => Object.keys(al).filter((id) => typeof al[id] === 'string' && al[id].startsWith('dest:'));
   const calOn = partsOf(aliasesFor(['calendar', 'todo', 'maps'], []));
   const calOff = partsOf(aliasesFor(['todo', 'maps'], []));
-  if (areaMayHold(ts, 2, 'todo', { parts: calOn }) || !areaMayHold(ts, 2, 'todo', { parts: calOff })) fail(F, `To-do in a stacked area: refused while the Calendar is on (${calOn}), offered while it is off (${calOff})`);
-  const todoOff = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: aliasesFor(['todo', 'documents', 'goals'], []), mayHold: (a, id) => areaMayHold(ts, a, id, { parts: calOff }) });
-  if (todoOff.slots.map((x) => x.id).join() !== 'documents,todo,goals' || todoOff.closed.length) fail(F, `with the Calendar off To-do is placed in a stack: ${JSON.stringify(todoOff.slots)}`);
-  const todoOn = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: al, mayHold: (a, id) => areaMayHold(ts, a, id, { parts: calOn }) });
-  if (todoOn.closed.join() !== '2' || todoOn.left.length) fail(F, `with the Calendar on To-do (the Calendar) closes up in a stacked area, not "left out": ${JSON.stringify(todoOn)}`);
-  // ... and it is named (Thomas, 2026-11-19): "To-do is part of the Calendar here, so it was left out."
-  if (JSON.stringify(todoOn.folded) !== JSON.stringify([{ id: 'todo', into: 'dest:calendar' }])) fail(F, `To-do closed up as part of the Calendar is reported as folded: ${JSON.stringify(todoOn.folded)}`);
-  if (JSON.stringify(place('two-equal', ['calendar', 'todo'], 1200, { aliases: al }).folded) !== JSON.stringify([{ id: 'todo', into: 'dest:calendar' }])) fail(F, 'To-do beside the Calendar (the same composite twice) is reported as folded');
-  if (todoOff.folded.length || place('one', ['todo'], 1200, { aliases: al }).folded.length) fail(F, 'nothing is folded where To-do is placed (the Calendar off, or To-do opening the Calendar in area 1)');
+  if (!areaMayHold(ts, 2, 'todo', { parts: calOn }) || !areaMayHold(ts, 2, 'todo', { parts: calOff })) fail(F, `To-do in a stacked area: offered while the Calendar is on (${calOn}) and off (${calOff})`);
+  for (const [label, a2, parts2] of [['on', al, calOn], ['off', aliasesFor(['todo', 'documents', 'goals'], []), calOff]]) {
+    const t = place('tall-split', ['documents', 'todo', 'goals'], 1200, { aliases: a2, mayHold: (a, id) => areaMayHold(ts, a, id, { parts: parts2 }) });
+    if (t.slots.map((x) => x.id).join() !== 'documents,todo,goals' || t.closed.length || t.folded.length) fail(F, `with the Calendar ${label} To-do is placed in a stack: ${JSON.stringify(t)}`);
+  }
+  if (place('one', ['todo'], 1200, { aliases: al }).slots[0]?.id !== 'todo') fail(F, 'a layout naming To-do opens To-do, not the Calendar');
   const nm = (id) => ({ todo: 'To-do', 'dest:calendar': 'Calendar', polls: 'Polls' }[id] || id);
-  if (partOfNote(todoOn.folded, nm) !== 'To-do is part of the Calendar here, so it was left out.') fail(F, `the To-do note: ${partOfNote(todoOn.folded, nm)}`);
-  if (partOfNote([{ id: 'todo', into: 'dest:calendar' }, { id: 'polls', into: 'dest:calendar' }], nm) !== 'To-do and Polls are part of the Calendar here, so they were left out.' || partOfNote([]) !== '') fail(F, 'the note for several, and none for none');
+  if (partOfNote([{ id: 'polls', into: 'dest:calendar' }], nm) !== 'Polls is part of the Calendar here, so it was left out.' || partOfNote([{ id: 'todo', into: 'dest:calendar' }, { id: 'polls', into: 'dest:calendar' }], nm) !== 'To-do and Polls are part of the Calendar here, so they were left out.' || partOfNote([]) !== '') fail(F, 'the note for one, several, and none for none');
   // Maps and Calendar are refused in a stacked area whatever is on, with and without the space's map file (the Map composite
   // asks for one; a QA read caught Maps offered where there was none).
   for (const shown of [[], ['map']]) for (const on of [['calendar', 'todo', 'maps'], ['todo', 'maps']]) {
@@ -1110,9 +1108,9 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
 }
 
 // Composites on the Workspace (public/composites.js; plan-calendar-todo.md step 3, reused by plan-map-places.md step 3):
-// one module, `dest:calendar`, in the Calendar's place while the Calendar is on in a space, the To-do's own surface left
-// out there; a stored `calendar` or `todo` reads as the composite and is never written back; where the Calendar is off,
-// a stored `dest:calendar` reads as the To-do alone, so nobody loses their list. The Map (`dest:map`) the same, in
+// one module, `dest:calendar`, in the Calendar's place while the Calendar is on in a space; a stored `calendar` reads as
+// the composite and is never written back; where the Calendar is off, a stored `dest:calendar` reads as nothing. To-do is
+// never part of it: it keeps its own module window (plan-todo-list.md), the Calendar's To-do panel being the `inCalendar` setting. The Map (`dest:map`) the same, in
 // Maps' place, Places left out, while the space's Map is shown (Maps on there and a map file).
 {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-check-'));
@@ -1124,12 +1122,12 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   const src = fs.readFileSync(path.join(ROOT, F), 'utf8');
   if (/\bimport\b|\bdocument\.\w|\bwindow\.\w|localStorage/.test(src)) fail(F, 'composites.js must stay pure: no imports, no DOM, no storage');
   const cal = COMPOSITES.find((c) => c.id === 'dest:calendar');
-  if (!cal || cal.main !== 'calendar' || cal.path !== '/calendar' || [...cal.parts].join() !== 'calendar,todo') fail(F, 'dest:calendar holds /calendar, its main the Calendar, its parts the Calendar and the To-do');
+  if (!cal || cal.main !== 'calendar' || cal.path !== '/calendar' || [...cal.parts].join() !== 'calendar') fail(F, 'dest:calendar holds /calendar, its main the Calendar, its one part the Calendar (the To-do keeps its own window)');
   if (!isCompositeId('dest:calendar') || isCompositeId('calendar')) fail(F, 'a composite id starts with dest:');
   assert.deepEqual(compositesOn(['todo', 'notes']).map((c) => c.id), [], 'the composite is off where the Calendar is off, whatever the To-do does');
   assert.deepEqual(compositesOn(['calendar']).map((c) => c.id), ['dest:calendar'], 'the composite is on where the Calendar is on, the To-do off or not');
-  assert.deepEqual(aliasesFor(['calendar', 'todo']), { calendar: 'dest:calendar', todo: 'dest:calendar', 'dest:map': [] }, 'on: both parts read as the composite');
-  assert.deepEqual(aliasesFor(['todo']), { 'dest:calendar': ['todo'], 'dest:map': [] }, 'off: the composite reads as the parts on');
+  assert.deepEqual(aliasesFor(['calendar', 'todo']), { calendar: 'dest:calendar', 'dest:map': [] }, 'on: the Calendar reads as the composite, the To-do as itself');
+  assert.deepEqual(aliasesFor(['todo']), { 'dest:calendar': [], 'dest:map': [] }, 'off: the composite reads as nothing, the To-do is untouched');
   assert.deepEqual(aliasesFor([]), { 'dest:calendar': [], 'dest:map': [] }, 'off, nothing on: the composite reads as nothing');
   // The Map (plan-map-places.md step 3): the same table row, `dest:map` for `/map`, its main Maps, its one part Maps (Places folded
   // into Maps; the composite stays with one part this build, plan-places-and-maps.md question 3); Maps on in the space is not enough, the page asks the destination for the space first (a map file,
@@ -1152,32 +1150,31 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   assert.deepEqual(mapShown.map((m) => m.id), ['travel', 'dest:map'], 'the Show list: one Map in Maps\' place');
   if (mapShown[1].name !== 'Maps' || mapShown[1].icon !== 'map-location-dot' || mapShown[1].color !== 'pink' || mapShown[1].composite?.path !== '/map') fail(F, 'the Map composite reads as Maps: its name, icon and colour, its page /map');
   assert.deepEqual(composeList(mapList).map((m) => m.id), ['travel', 'maps'], 'with no map file the Show list keeps Maps as it is');
-  // Opens with, grouped as the canvas groups (Set up's First visit): Calendar carries To-do.
-  assert.deepEqual(groupedParts(['chat', 'maps', 'calendar', 'todo']), ['todo'], 'no row for To-do while Calendar has one');
-  assert.deepEqual(groupedParts(['todo']), [], 'with no Calendar row the part keeps its own');
+  // Opens with, grouped as the canvas groups (Set up's First visit): no module is a part of the Calendar any more.
+  assert.deepEqual(groupedParts(['chat', 'maps', 'calendar', 'todo']), [], 'To-do keeps its own row beside Calendar');
   assert.equal(switchOn(['maps'], 'maps'), true, 'a stored maps shows the Maps row on');
-  assert.equal(switchOn(['todo'], 'calendar'), true, 'a list with only todo shows Calendar on');
+  assert.equal(switchOn(['todo'], 'calendar'), false, 'a list with only todo leaves Calendar off');
   assert.equal(switchOn(['chat'], 'maps'), false, 'and off when none is named');
-  assert.equal(groupOf('maps'), 'maps'); assert.equal(groupOf('todo'), 'calendar'); assert.equal(groupOf('chat'), 'chat');
+  assert.equal(groupOf('maps'), 'maps'); assert.equal(groupOf('todo'), 'todo'); assert.equal(groupOf('chat'), 'chat');
   assert.deepEqual(setSwitch(['chat', 'maps', 'todo'], 'maps', false), ['chat', 'todo'], 'turning Maps off removes the main');
   assert.equal(setSwitch(['maps'], 'maps', false), null, 'and an empty list is null');
   assert.deepEqual(setSwitch(['chat'], 'maps', true), ['chat', 'maps'], 'turning Maps on stores the main id');
-  assert.deepEqual(setSwitch(['todo', 'chat'], 'calendar', false), ['chat'], 'turning Calendar off clears a lone todo');
+  assert.deepEqual(setSwitch(['todo', 'chat'], 'calendar', false), ['todo', 'chat'], 'turning Calendar off leaves the To-do');
   assert.deepEqual(setSwitch(['chat'], 'chat', false), null);
   const before = Object.freeze(['maps']);
   setSwitch(before, 'maps', false);
   assert.deepEqual([...before], ['maps'], 'the list given is never changed');
   const stored = Object.freeze(['todo', 'chat', 'calendar', 'notes']);
-  assert.deepEqual(readAs(stored, aliasesFor(['calendar', 'todo', 'notes'])), ['dest:calendar', 'chat', 'notes'], 'a stored list reads with the composite once, in the first part\'s place');
+  assert.deepEqual(readAs(stored, aliasesFor(['calendar', 'todo', 'notes'])), ['todo', 'chat', 'dest:calendar', 'notes'], 'a stored list reads the Calendar as the composite and the To-do as itself');
   assert.deepEqual([...stored], ['todo', 'chat', 'calendar', 'notes'], 'and is never written back');
-  assert.deepEqual(readAs(['dest:calendar', 'notes'], aliasesFor(['todo', 'notes'])), ['todo', 'notes'], 'a stored composite reads as the To-do where the Calendar is off');
+  assert.deepEqual(readAs(['dest:calendar', 'notes'], aliasesFor(['todo', 'notes'])), ['notes'], 'a stored composite reads as nothing where the Calendar is off');
   const list = [{ id: 'notes', name: 'Notes', icon: 'note' }, { id: 'todo', name: 'To-do', icon: 'check', color: 'green' }, { id: 'calendar', name: 'Calendar', icon: 'calendar', color: 'red', version: '1.25.0', scope: ['space'] }];
   const shown = composeList(list);
-  assert.deepEqual(shown.map((m) => m.id), ['notes', 'dest:calendar'], 'the Show list: the composite in the Calendar\'s place, the To-do left out');
-  const c = shown[1];
+  assert.deepEqual(shown.map((m) => m.id), ['notes', 'todo', 'dest:calendar'], 'the Show list: the composite in the Calendar\'s place, the To-do kept');
+  const c = shown[2];
   if (c.name !== 'Calendar' || c.icon !== 'calendar' || c.color !== 'red' || !c.composite || c.composite.id !== 'dest:calendar') fail(F, 'the composite reads as the Calendar: its name, icon and colour');
   if (!c.canvas || c.canvas.entry !== null || !c.canvas.mode.includes('dock') || !c.canvas.mode.includes('float')) fail(F, 'the composite docks and floats, and has no module entry of its own');
-  assert.deepEqual(composeList([list[0], list[1]]).map((m) => m.id), ['notes', 'todo'], 'with the Calendar off the To-do keeps its own surface');
+  assert.deepEqual(composeList([list[0], list[1]]).map((m) => m.id), ['notes', 'todo'], 'with the Calendar off the To-do is the same');
   // The pop-out of a part goes to the destination's page for the space (public/module.js); the canvas builds the
   // composite's frame from the same table and never writes `calendar` or `todo` into a remembered list.
   const moduleJs = fs.readFileSync(path.join(ROOT, 'public/module.js'), 'utf8');

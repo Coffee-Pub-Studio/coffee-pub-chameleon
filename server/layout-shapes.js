@@ -40,13 +40,13 @@ const COLUMN_IDS = Object.freeze(['chat', 'conference']);
 // What can't share a column in a stacked area: the composites (public/composites.js) and what stands in for them.
 // This is wider than stackable() in server/layouts.js, which refuses only the conference, Chat and `dest:*` ids, because
 // a shape names modules, and a module reads as a composite while the composite is on:
-//   calendar, todo  fold into dest:calendar only where the Calendar is on (compositesOn needs `calendar` among the ids
-//                   on; the To-do's `inCalendar` is not read there). With the Calendar off, To-do is an ordinary module.
+//   calendar        folds into dest:calendar only where the Calendar is on. To-do is always an ordinary module with its own
+//                   window (plan-todo-list.md); the Calendar's To-do panel is the `inCalendar` setting, not a fold.
 //   maps            is a composite only where the Map answered (`ask: true` there: it needs a map file), which the server
 //                   does not know here, so Maps is always refused in a stacked area.
 // The Calendar's own id is always refused: naming it means it is on. `on` (cleanShape) says which modules are on.
 // tools/check-layout-shapes.mjs checks this against aliasesFor() in public/composites.js.
-const COMPOSITE_PARTS = Object.freeze(['calendar', 'todo', 'maps']);
+const COMPOSITE_PARTS = Object.freeze(['calendar', 'maps']);
 const ALWAYS_COMPOSITE = Object.freeze(['calendar', 'maps']);
 // The name a person reads when the caller passes none; a module's own name (its manifest's) is better.
 const FALLBACK_NAMES = Object.freeze({ todo: 'To-do' });
@@ -95,10 +95,9 @@ function cleanShape(input, options) {
 
 // The composites (public/composites.js COMPOSITES, which tools/check-layout-shapes.mjs checks this against with aliasesFor):
 // while a composite's `main` is on, each of its other `parts` opens as the composite, which is the main's page. So a layout
-// naming `todo` where the Calendar is on opens the Calendar for anyone who can read the Calendar, and the To-do's own
-// read permission does not matter to them. The Map's composite has only its main, so it changes nothing here.
+// naming `calendar` opens the Calendar. To-do has no composite: it opens as itself under its own read permission. The Map's composite has only its main, so it changes nothing here.
 const COMPOSITES = Object.freeze([
-  Object.freeze({ main: 'calendar', parts: Object.freeze(['calendar', 'todo']) }),
+  Object.freeze({ main: 'calendar', parts: Object.freeze(['calendar']) }),
   Object.freeze({ main: 'maps', parts: Object.freeze(['maps']) }),
 ]);
 // The main module `id` folds into while it is on, or null. `on` lists the ids on in the place (not known: nothing folds).
@@ -130,8 +129,7 @@ function canOpenArea(id, { manifests, permissions, on = null, off = [] } = {}) {
 // are off in the place asked about; `on` the ids that are on there (it decides which modules fold into a composite, see
 // canOpenArea; left out, none do). A module everyone can open is not in the answer. A module that is off or not
 // installed, and not opened through a composite by anyone, answers { off: true }. Otherwise { roles: [...] }, the roles
-// that can't open it, in the order moderator, member, guest. What a role opens is what the page opens for it: a To-do
-// that folds into the Calendar is the Calendar's rights. An owner and the admin open everything, so they are never
+// that can't open it, in the order moderator, member, guest. What a role opens is what the page opens for it: the Calendar's rights are the Calendar's. An owner and the admin open everything, so they are never
 // listed. A moderator's own grant for one space only adds to a role's permissions (store.spacePermissions merges in the
 // Moderator role's ticks that are on), so it can never take a read away; there is no list of people.
 const ROLES_LISTED = Object.freeze(['moderator', 'member', 'guest']);

@@ -42,7 +42,7 @@ function areasOf(value) {
 // null. Besides the form (areasOf), each area must be able to hold its module by the picker's own rule (layouts.js's
 // areaMayHold, the one the canvas uses): never the chat or the call, and in a stacked area no Calendar or Maps, nor an
 // id in `parts` (To-do while the Calendar is on: partsFor of the template's modules, as the server's `on`). Without
-// `parts`, To-do counts as part of the Calendar, as the server reads a layout it is not told about. Whether a module is
+// `parts`, the Calendar counts as a composite, as the server reads a layout it is not told about. Whether a module is
 // one of the template's is left to the server (it says so in one sentence, and the page says it first: missingNote).
 export function layoutRecord(value, { parts = ['todo'] } = {}) {
   const r = areasOf(value);
@@ -101,20 +101,19 @@ export function usesNote(names, { where = 'the Default Workspace tab' } = {}) {
 // What moved when the template's modules changed under the layout (plan decision 25: modules move, they are not dropped,
 // and a short line says what moved): `before` is the arrangement the person made, `after` the one the picker now holds.
 // A module that could no longer stay in its area says why; one moved out of the way says which area it freed.
-//   "To-do moved to area 1: while Calendar is on, it can't share a column. Itinerary moved to area 3 to free area 1."
-// `mayHold(area, id)` is the rule now; `parts` the ids that read as a composite now. '' when nothing moved.
-export function movedNote(before, after, { nameOf = (id) => id, mayHold = () => true, parts = [] } = {}) {
+//   "Maps moved to area 1: it can't share a column. Itinerary moved to area 3 to free area 1."
+// `mayHold(area, id)` is the rule now. '' when nothing moved.
+export function movedNote(before, after, { nameOf = (id) => id, mayHold = () => true } = {}) {
   const b = areasOf(before);
   const a = areasOf(after);
   if (!b || !a) return '';
   const name = (id) => cleanText(nameOf(id)) || id;
-  const calendar = name('calendar');
   const pushed = [];
   const shifted = [];
   a.areas.forEach((id, i) => {
     const was = id ? b.areas.indexOf(id) : -1;
     if (was < 0 || was === i) return;
-    if (!mayHold(was + 1, id)) pushed.push(`${name(id)} moved to area ${i + 1}: ${id === 'todo' && Array.isArray(parts) && parts.includes('todo') ? `while ${calendar} is on, it` : 'it'} can't share a column.`);
+    if (!mayHold(was + 1, id)) pushed.push(`${name(id)} moved to area ${i + 1}: it can't share a column.`);
     else shifted.push(`${name(id)} moved to area ${i + 1} to free area ${was + 1}.`);
   });
   return [...pushed, ...shifted].join(' ');
@@ -272,7 +271,7 @@ export function mountTemplateLayout(holder, {
       picker = null;
       const fresh = makePicker(base, step);
       const def = base ? shapeById(base.shape) : null;
-      moved = def ? movedNote(base, fresh.value(), { nameOf, parts: partsNow(), mayHold: (area, id) => areaMayHold(def, area, id, { parts: partsNow() }) }) : '';
+      moved = def ? movedNote(base, fresh.value(), { nameOf, mayHold: (area, id) => areaMayHold(def, area, id, { parts: partsNow() }) }) : '';
       holder.insertBefore(fresh.el, noteEl.nextSibling);
       keep();
       drawNote();

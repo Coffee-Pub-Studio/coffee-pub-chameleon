@@ -34,7 +34,7 @@ export const STACK = Object.freeze({ max: LAYOUT_LIMITS.stackMax, titleH: 36, co
 export const COLUMN_IDS = Object.freeze(['conference', 'chat']);
 const inColumn = (id) => COLUMN_IDS.includes(id);
 // `aliases` (composites.js's aliasesFor; plan-calendar-todo.md and plan-map-places.md, step 3): a module id in a stored
-// layout read as another ({ calendar: 'dest:calendar', todo: 'dest:calendar' } while the Calendar is on in the space;
+// layout read as another ({ calendar: 'dest:calendar' } while the Calendar is on in the space;
 // { maps: 'dest:map' } while the space's Map is shown), or as a list of others.
 // A layout naming both parts places the composite once, where the first is named; the layout itself is never rewritten.
 const aliasOf = (id, aliases) => (aliases && Object.prototype.hasOwnProperty.call(aliases, id) ? aliases[id] : id);
@@ -472,7 +472,7 @@ export function placeShape(record, width, canOpen = () => true, { shape = null, 
 }
 
 // The one line a load says about a module it left out because it is part of a composite here, as leftOutNote() says one
-// that isn't on: "To-do is part of the Calendar here, so it was left out." `list` is placeShape()'s `folded`; `nameOf(id)`
+// that isn't on: "Polls is part of the Calendar here, so it was left out." `list` is placeShape()'s `folded`; `nameOf(id)`
 // gives a module's name and a composite's (its main module's). '' when there is none.
 export function partOfNote(list, nameOf = (id) => id) {
   const byInto = new Map();
