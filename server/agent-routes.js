@@ -43,8 +43,9 @@ const AGENT_ROUTES = Object.freeze([
   // The set-up agent (plan-admin-agent.md, steps 1 and 2): its own reads, making and changing the spaces it made, the
   // environment's members, and asking an owner about people in a space it made. It reads no module data and no Chat, and
   // nothing in a space. Each route is its own (never PATCH /api/spaces/:id opened to an agent) and takes a fixed body.
-  // Anything about people waits for an owner's yes whatever the column says: the box lets it ask, never do. MCP comes in
-  // that plan's step 3.
+  // Anything about people waits for an owner's yes whatever the column says: the box lets it ask, never do. Its MCP door
+  // (that plan's step 3) is the same /mcp, which lists it only its own tools (server/mcp.js, SETUP_TOOLS); each tool call
+  // comes back through the gate as one of the routes above.
   { kind: 'setup', method: 'get', path: '/api/agent/me', counts: 'read', place: 'none', needs: 'always' },
   { kind: 'setup', method: 'get', path: '/api/agent/templates', counts: 'read', place: 'none', needs: 'always' },
   { kind: 'setup', method: 'get', path: '/api/agent/icons', counts: 'read', place: 'none', needs: 'always' },
@@ -53,6 +54,8 @@ const AGENT_ROUTES = Object.freeze([
   { kind: 'setup', method: 'get', path: '/api/agent/people', counts: 'read', place: 'none', needs: 'agentAskPeople' },
   { kind: 'setup', method: 'post', path: '/api/agent/spaces/:id/asks', counts: 'write', place: 'madeParam', needs: 'agentAskPeople' },
   { kind: 'setup', method: 'get', path: '/api/agent/asks/:id', counts: 'read', place: 'none', needs: 'always' },
+  { kind: 'setup', method: 'post', path: '/mcp', counts: 'mcp', place: 'none', needs: 'always' },
+  { kind: 'setup', method: 'get', path: '/mcp', counts: 'read', place: 'none', needs: 'always' },
 ].map((entry) => Object.freeze(entry)));
 
 // The rows of the Roles grid only an agent column has (the "Agents" group); people's columns show no box on them, and

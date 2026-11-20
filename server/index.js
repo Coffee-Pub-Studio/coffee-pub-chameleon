@@ -3687,13 +3687,15 @@ const agentLogSpace = {
 // the Roles grid's Agent column (store.roleSet('agent')); `module` is left to the route's own check, which reads that
 // column; `always` passes. The MCP door (server/mcp.js): a tool call on POST /mcp is let on uncounted and comes back
 // through this gate as the route it wraps, counted, logged and needing what that route needs; every other message on it is
-// a read (counts 'mcp', below). GET /mcp is its 405.
+// a read (counts 'mcp', below). GET /mcp is its 405. Both kinds of agent have the door; each is listed, and may call,
+// only its own kind's tools, which wrap routes on its own kind's list.
 const mcp = createMcp({
   app,
   enabled: agentTokensOn,
   ownOrigin: (req) => baseUrl(req),
   personOf: (req) => currentUser(req),
   serverInfo: { name: PRODUCT_NAME, version: VERSION },
+  kindOf: (req) => agentKindOf(req.agent.user), // each kind its own tools (plan-admin-agent.md, step 3)
 });
 // The list matched by Express's own router, so a path reads exactly as the app's routes read it (any case, a trailing
 // slash, the same parameters): each match notes its rule and leaves the router at once. One router per kind of agent: a

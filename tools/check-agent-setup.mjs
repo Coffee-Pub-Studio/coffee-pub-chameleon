@@ -29,7 +29,7 @@
  *   - undo, by an owner only: a change puts back the earlier values (not one changed again since), a made space is deleted
  *     only while nobody else has written in it and no Keep; past 7 days it is gone; the agent can't undo;
  *   - the log: an ask's line carries `ask:<what>` and the space, never the person, and is not a change against the cap.
- * Not here: the MCP tools (that plan's step 3); a real Claude client; the bell seen by a person.
+ * Not here: the MCP tools (that plan's step 3, tools/check-mcp.mjs); a real Claude client; the bell seen by a person.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -49,7 +49,8 @@ const CANT_BE = "An agent can't be that.";
 const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const SETUP_LIST = new Set(AGENT_ROUTES.filter((e) => e.kind === 'setup').map((e) => `${e.method.toUpperCase()} ${e.path}`));
-const SETUP_OWN = [...SETUP_LIST].filter((r) => r !== 'GET /api/agent/me'); // the routes only the set-up agent has
+// The routes only the set-up agent has: not its me, nor the MCP door both kinds have (check-mcp.mjs checks its tools).
+const SETUP_OWN = [...SETUP_LIST].filter((r) => r !== 'GET /api/agent/me' && !r.endsWith(' /mcp'));
 
 let n = 0;
 let failed = 0;
@@ -294,7 +295,7 @@ try {
     for (const [method, url, body] of [
       ['GET', `/api/spaces/${made.id}/chat`], ['POST', `/api/spaces/${made.id}/chat`, { text: 'hi' }], ['GET', `/api/spaces/${made.id}/members`],
       ['GET', `/api/spaces/${made.id}/actions`], ['POST', `/api/spaces/${made.id}/action`, { action: 'x:y', input: {} }],
-      ['GET', `/api/modules/todo/data?scope=space&space=${made.id}`], ['GET', '/api/objects/kinds'], ['POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'initialize' }],
+      ['GET', `/api/modules/todo/data?scope=space&space=${made.id}`], ['GET', '/api/objects/kinds'],
       ['PATCH', `/api/spaces/${made.id}`, { name: 'x' }], ['DELETE', `/api/spaces/${made.id}`], ['POST', '/api/spaces', { name: 'x' }],
       ['GET', `/api/spaces/${made.id}`], ['PUT', `/api/spaces/${made.id}/image`], ['GET', '/api/users'], ['PATCH', '/api/settings', { setupAgents: true }],
       ['PATCH', `/api/users/${mia.key}/spaces/${made.id}`, { permissions: { moderator: true } }], ['POST', `/api/users/${S.user.key}/token`],

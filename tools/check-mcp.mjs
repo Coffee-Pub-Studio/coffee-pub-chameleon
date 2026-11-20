@@ -17,6 +17,17 @@
  *     a batch, the wrong content type, an unknown MCP-Protocol-Version, another site's Origin and a body over 64 KB refused;
  *   - with AGENT_TOKENS off, /mcp answers as any unknown path did before;
  *   - hosted (BASE_DOMAIN): a tool call runs in the environment it was sent to; a token of one is 401 at another.
+ * The set-up agent's tools (plan-admin-agent.md, step 3), on a server with AGENT_SETUP:
+ *   - its token lists exactly its own tools (me, list_templates, list_icons, list_people, make_space, change_space,
+ *     ask_owner, ask_status), and initialize tells it what it is; an ordinary agent's token lists none of them;
+ *   - each tool answers what its route answers, counts as that route (a read, or a write for make_space, change_space and
+ *     ask_owner) and is logged as it, with the space and the change, never a name or a description;
+ *   - an unticked row of its column is the gate's 403 as a tool error; the route's own sentences come back as tool errors
+ *     (an unknown template, a person who is not a member, a bad ask, a space it did not make, nothing to change);
+ *   - ask_owner changes nothing and raises one bell line for an owner; ask_status reads it;
+ *   - an ordinary agent can't call them, and a set-up agent can't call a module or Chat tool (both -32602, nothing done);
+ *   - the daily cap of spaces made is the route's 429 sentence as a tool error; Set-up agents off is 401;
+ *   - hosted: a set-up agent's token of one environment is 401 at another.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -35,6 +46,8 @@ const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const ONLY_AGENTS = "This is for an agent's token only.";
 const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'read_chat', 'post_chat'];
+const SETUP_TOOL_NAMES = ['me', 'list_templates', 'list_icons', 'list_people', 'make_space', 'change_space', 'ask_owner', 'ask_status'];
+const CANT = "An agent can't do that.";
 const LIVEKIT = { LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret' };
 
 let n = 0;
@@ -455,9 +468,189 @@ try {
     await off.stop();
   });
 
+  // --- the set-up agent's tools (plan-admin-agent.md, step 3) --------------------------------------------------------
+  const setupDir = path.join(base, 'setup');
+  const setupServer = await startServer(setupDir, { ...onEnv, AGENT_SETUP: 'true' });
+  {
+    const server = setupServer;
+    const admin = await signIn(server, 'admin', 'admin-password-1');
+    ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: true, setupAgents: true } }), 'Agents and Set-up agents on');
+    ok(await call(server, 'POST', '/api/users', { cookie: admin, body: { login: 'olga', displayName: 'Olga', password: 'olga-password-1', role: 'owner' } }), 'an owner', 201);
+    const olga = await signIn(server, 'olga', 'olga-password-1');
+    const olgaKey = (await call(server, 'GET', '/api/users', { cookie: admin })).json.users.find((u) => u.login === 'olga').key;
+    const mia = (await call(server, 'POST', '/api/users', { cookie: admin, body: { login: 'mia', displayName: 'Mia', password: 'mia-password-1', role: 'member' } })).json.user;
+    const tom = (await call(server, 'POST', '/api/users', { cookie: admin, body: { login: 'tom', displayName: 'Tom', password: 'tom-password-1', role: 'member' } })).json.user;
+    const madeAgent = async (body) => {
+      const user = (await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true, ...body } })).json.user;
+      const token = (await call(server, 'POST', `/api/users/${user.key}/token`, { cookie: admin })).json.token;
+      return { key: user.key, token, T: { token } };
+    };
+    const S = await madeAgent({ kind: 'setup', displayName: 'Builder' });
+    const theirs = (await call(server, 'POST', '/api/spaces', { cookie: admin, body: { name: 'Theirs', members: [mia.key] } })).json.space.id;
+    const O = await madeAgent({ displayName: 'Reader' });
+    const sp = (await call(server, 'GET', `/api/spaces/${theirs}`, { cookie: admin })).json.space;
+    ok(await call(server, 'PATCH', `/api/spaces/${theirs}`, { cookie: admin, body: { members: [...sp.members, O.key] } }), 'the ordinary agent joins');
+    const column = (body) => call(server, 'PATCH', '/api/roles/setup', { cookie: admin, body });
+    const usedBy = async (who) => (await call(server, 'GET', '/api/agent/me', who.T)).json.limits;
+    let made = null;
+    let template = null;
+
+    await test('set-up agent: tools/list is exactly its own tools; initialize says what it is', async () => {
+      const r = await rpc(server, 'tools/list', {}, S.T);
+      ok(r, 'tools/list');
+      const tools = r.json.result.tools;
+      assert.deepEqual(tools.map((t) => t.name), SETUP_TOOL_NAMES);
+      for (const t of tools) {
+        assert.equal(t.inputSchema.type, 'object', `${t.name}: inputSchema`);
+        assert.equal(t.inputSchema.additionalProperties, false, `${t.name}: no other argument`);
+        for (const k of t.inputSchema.required) assert.ok(Object.hasOwn(t.inputSchema.properties, k), `${t.name}: ${k} is a property`);
+        assert.ok(t.description.length > 20 && t.description.length < 600, `${t.name}: a short description`);
+        assert.equal('plan' in t, false);
+        assert.equal('routeChecks' in t, false);
+        const words = [t.title, t.description, ...Object.values(t.inputSchema.properties).map((p) => p.description)].join(' ').toLowerCase();
+        for (const old of ['room', 'table', 'stage', 'pane', 'tenant', 'item', 'card']) assert.doesNotMatch(words, new RegExp(`\\b${old}s?\\b`), `${t.name} says ${old}`);
+      }
+      for (const name of ['make_space', 'change_space', 'ask_owner']) assert.equal(tools.find((t) => t.name === name).annotations.readOnlyHint, false, `${name} writes`);
+      assert.match(tools.find((t) => t.name === 'ask_owner').description, /until an owner says yes/);
+      assert.deepEqual(tools.find((t) => t.name === 'ask_owner').inputSchema.properties.ask.enum, ['add', 'remove', 'moderator']);
+      const init = await rpc(server, 'initialize', { protocolVersion: '2025-06-18' }, S.T);
+      assert.match(init.json.result.instructions, /^You are a set-up agent/);
+      assert.match((await rpc(server, 'initialize', { protocolVersion: '2025-06-18' }, O.T)).json.result.instructions, /^You are an agent/);
+      const theirTools = (await rpc(server, 'tools/list', {}, O.T)).json.result.tools.map((t) => t.name);
+      assert.deepEqual(theirTools, TOOL_NAMES, 'the ordinary agent\'s tools are unchanged');
+      for (const name of SETUP_TOOL_NAMES.filter((x) => x !== 'me')) assert.ok(!theirTools.includes(name), `the ordinary agent is not listed ${name}`);
+    });
+
+    await test('set-up agent: an unticked row is the gate\'s 403 as a tool error; the reads go', async () => {
+      for (const [name, args] of [['make_space', { name: 'Nope', template: 'x' }], ['list_people', {}], ['ask_owner', { space: theirs, ask: 'add', person: mia.key }]]) {
+        const out = result(await tool(server, name, args, S.T), name);
+        assert.deepEqual([out.isError, out.text], [true, name === 'ask_owner' ? 'no such space' : CANT], `${name}: ${out.text}`);
+      }
+      const me = result(await tool(server, 'me', {}, S.T), 'me');
+      assert.deepEqual([me.json.kind, me.json.spaces, me.json.permissions, me.json.asks], ['setup', [], [], []]);
+      const direct = (await call(server, 'GET', '/api/agent/me', S.T)).json;
+      assert.equal(direct.limits.reads.usedToday, me.json.limits.reads.usedToday + 1, 'me counted as one read');
+      const { limits: _a, ...meRest } = me.json;
+      const { limits: _b, ...directRest } = direct;
+      assert.deepEqual(meRest, directRest, 'me is GET /api/agent/me');
+      const templates = result(await tool(server, 'list_templates', {}, S.T), 'list_templates');
+      assert.deepEqual(templates.json, (await call(server, 'GET', '/api/agent/templates', S.T)).json);
+      template = templates.json.templates[0].id;
+      const icons = result(await tool(server, 'list_icons', {}, S.T), 'list_icons');
+      assert.ok(Array.isArray(icons.json.icons) && icons.json.icons.length > 0, 'icons');
+      assert.ok(!(await call(server, 'GET', '/api/spaces', { cookie: admin })).json.spaces.some((x) => x.name === 'Nope'), 'nothing made');
+      ok(await column({ agentMakeSpaces: true, agentChangeSpaces: true, agentAskPeople: true }), 'all three ticked');
+    });
+
+    await test('set-up agent: each tool does what its route does, counted and logged as that route', async () => {
+      let before = await usedBy(S);
+      const out = result(await tool(server, 'make_space', { name: 'Lisbon Secret 7731', template, description: 'Hidden words 4410' }, S.T), 'make_space');
+      assert.equal(out.isError, false, out.text);
+      made = out.json.space;
+      assert.equal(made.name, 'Lisbon Secret 7731');
+      const space = (await call(server, 'GET', `/api/spaces/${made.id}`, { cookie: admin })).json.space;
+      assert.equal(space.madeBy, S.key, 'marked as made by it');
+      assert.ok(space.members.includes(S.key), 'it joins');
+      let after = await usedBy(S);
+      assert.deepEqual([after.writes.usedToday, after.made.usedToday], [before.writes.usedToday + 1, before.made.usedToday + 1], 'one write, one made');
+
+      const icon = result(await tool(server, 'list_icons', {}, S.T), 'icons').json.icons[0];
+      const changed = result(await tool(server, 'change_space', { space: made.id, name: 'Lisbon Secret 7732', icon }, S.T), 'change_space');
+      assert.equal(changed.isError, false, changed.text);
+      assert.deepEqual([changed.json.space.name, changed.json.space.icon], ['Lisbon Secret 7732', icon]);
+      before = after;
+      after = await usedBy(S);
+      assert.deepEqual([after.writes.usedToday, after.changes.usedToday], [before.writes.usedToday + 1, before.changes.usedToday + 1], 'one write, one change');
+
+      const people = result(await tool(server, 'list_people', {}, S.T), 'list_people');
+      assert.deepEqual(people.json, (await call(server, 'GET', '/api/agent/people', S.T)).json);
+      assert.deepEqual(people.json.people.map((p) => p.name).sort(), ['Mia', 'Tom'], 'members only');
+
+      const asked = result(await tool(server, 'ask_owner', { space: made.id, ask: 'add', person: mia.key }, S.T), 'ask_owner');
+      assert.equal(asked.isError, false, asked.text);
+      assert.equal(asked.json.ask.state, 'waiting');
+      assert.ok(!(await call(server, 'GET', `/api/spaces/${made.id}`, { cookie: admin })).json.space.members.includes(mia.key), 'nothing changes yet');
+      const bell = (await call(server, 'GET', '/api/notifications', { cookie: olga })).json.notifications;
+      assert.equal(bell.filter((x) => x.title === 'Builder (set-up agent) asks to add Mia to Lisbon Secret 7732.').length, 1, `one bell line for an owner: ${JSON.stringify(bell.map((x) => x.title))}`);
+      const status = result(await tool(server, 'ask_status', { id: asked.json.ask.id }, S.T), 'ask_status');
+      assert.deepEqual(status.json, (await call(server, 'GET', `/api/agent/asks/${asked.json.ask.id}`, S.T)).json);
+      assert.deepEqual([status.json.ask.state, status.json.ask.person, status.json.ask.space], ['waiting', mia.key, made.id]);
+      const mod = result(await tool(server, 'ask_owner', { space: made.id, ask: 'moderator', person: mia.key, on: true }, S.T), 'ask_owner moderator');
+      assert.deepEqual([mod.isError, mod.text], [true, 'They are not in this space.'], 'the route\'s own check');
+      const me = result(await tool(server, 'me', {}, S.T), 'me');
+      assert.deepEqual(me.json.spaces, [{ id: made.id, name: 'Lisbon Secret 7732' }]);
+      assert.deepEqual(me.json.asks.map((a) => a.id), [asked.json.ask.id]);
+
+      const lines = logLines(setupDir, S.key);
+      const ofRoute = (route, method) => lines.filter((l) => l.route === route && l.method === method && l.status < 300);
+      assert.deepEqual(ofRoute('/api/agent/spaces', 'POST').map((l) => [l.kind, l.change, l.space]), [['write', 'made', made.id]]);
+      assert.deepEqual(ofRoute('/api/agent/spaces/:id', 'PATCH').map((l) => [l.kind, l.change, l.space]), [['write', 'renamed,icon', made.id]]);
+      assert.deepEqual(ofRoute('/api/agent/spaces/:id/asks', 'POST').map((l) => [l.kind, l.change, l.space]), [['write', 'ask:add', made.id]]);
+      for (const route of ['/api/agent/templates', '/api/agent/icons', '/api/agent/people', '/api/agent/asks/:id', '/api/agent/me']) assert.ok(ofRoute(route, 'GET').every((l) => l.kind === 'read') && ofRoute(route, 'GET').length > 0, `${route} logged as a read`);
+      assert.ok(!lines.some((l) => l.route === '/mcp' && l.status === 200 && l.kind === 'write'), 'no tool call logged twice');
+      const raw = fs.readFileSync(path.join(setupDir, 'agent-log', S.key, `${dayToday()}.jsonl`), 'utf8');
+      for (const words of ['Lisbon Secret', 'Hidden words', 'Mia', S.token, 'tools/call']) assert.ok(!raw.includes(words), `"${words.slice(0, 20)}" is not in the log`);
+    });
+
+    await test('set-up agent: the route\'s sentences come back as tool errors', async () => {
+      for (const [name, args, sentence] of [
+        ['make_space', { name: 'X', template: 'no-such-template' }, 'That template is not one this environment offers.'],
+        ['make_space', { name: 'X', template, icon: 'no-such-icon' }, 'That icon is not one this environment offers.'],
+        ['make_space', { name: 42, template }, 'name is text.'],
+        ['make_space', { template }, 'A space needs a name.'],
+        ['make_space', { name: 'X', template, members: [mia.key] }, 'members is not an argument of this tool.'],
+        ['change_space', { space: made.id }, 'Send at least one of name, description or icon.'],
+        ['change_space', { space: theirs, name: 'Mine now' }, 'no such space'],
+        ['change_space', { space: 'a/b', name: 'x' }, 'space is not an id this server uses.'],
+        ['ask_owner', { space: made.id, ask: 'promote', person: tom.key }, 'ask is one of: add, remove, moderator.'],
+        ['ask_owner', { space: made.id, ask: 'add', person: 42 }, "person is a person's key, from the people list."],
+        ['ask_owner', { space: made.id, ask: 'add', person: olgaKey }, 'An agent can only ask to add a member of this environment.'],
+        ['ask_owner', { space: made.id, ask: 'add', person: O.key }, 'An agent can only ask to add a member of this environment.'],
+        ['ask_owner', { space: made.id, ask: 'moderator', person: tom.key, on: 'yes' }, 'on is true or false: tick or untick them as moderator.'],
+        ['ask_owner', { space: theirs, ask: 'add', person: tom.key }, 'no such space'],
+        ['ask_status', { id: 'nosuchask1' }, 'No such ask.'],
+      ]) {
+        const out = result(await tool(server, name, args, S.T), `${name} ${JSON.stringify(args)}`);
+        assert.deepEqual([out.isError, out.text], [true, sentence], `${name} ${JSON.stringify(args)}`);
+      }
+      assert.equal((await call(server, 'GET', `/api/spaces/${theirs}`, { cookie: admin })).json.space.name, 'Theirs', 'a space it did not make is untouched');
+    });
+
+    await test('an ordinary agent can\'t call the set-up tools, nor a set-up agent a module or Chat tool', async () => {
+      const spaces = (await call(server, 'GET', '/api/spaces', { cookie: admin })).json.spaces.length;
+      for (const [name, args] of [['make_space', { name: 'Sneaky', template }], ['change_space', { space: theirs, name: 'Sneaky' }], ['list_people', {}], ['list_templates', {}], ['ask_owner', { space: theirs, ask: 'add', person: tom.key }], ['ask_status', { id: 'abc' }]]) {
+        rpcError(await tool(server, name, args, O.T), 200, -32602, `the ordinary agent: ${name}`);
+      }
+      for (const [name, args] of [['read_chat', { space: made.id }], ['post_chat', { space: made.id, text: 'hi' }], ['read_data', { space: made.id, module: 'todo' }], ['list_actions', { space: made.id }], ['ask_for_change', { space: made.id, action: 'todo:createTask', input: { title: 'x' } }], ['list_members', { space: made.id }], ['read_context', { space: made.id, module: 'todo' }], ['search_objects', { space: made.id, from: 'todo' }], ['object_kinds', { from: 'todo' }]]) {
+        rpcError(await tool(server, name, args, S.T), 200, -32602, `the set-up agent: ${name}`);
+      }
+      assert.equal((await call(server, 'GET', '/api/spaces', { cookie: admin })).json.spaces.length, spaces, 'no space made');
+      assert.ok(!(await call(server, 'GET', `/api/spaces/${made.id}/chat`, { cookie: admin })).json.messages.some((m) => m.text === 'hi'), 'nothing posted');
+      assert.equal(result(await tool(server, 'list_members', { space: theirs }, O.T), 'the ordinary agent still has its own').isError, false);
+    });
+
+    await test('set-up agent: the daily cap is the route\'s 429 as a tool error; Set-up agents off is 401', async () => {
+      const C = await madeAgent({ kind: 'setup', displayName: 'Capped' });
+      for (let i = 0; i < 5; i += 1) assert.equal(result(await tool(server, 'make_space', { name: `Cap ${i}`, template }, C.T), `make ${i}`).isError, false);
+      const over = result(await tool(server, 'make_space', { name: 'One more', template }, C.T), 'the sixth');
+      assert.equal(over.isError, true);
+      assert.match(over.text, /^This agent has made as many spaces as it may today\. Try again in \d+ seconds?\.$/);
+      assert.equal(logLines(setupDir, C.key).filter((l) => l.route === '/api/agent/spaces' && l.status === 429).length, 1, 'the 429 logged as the route');
+      ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { setupAgents: false } }), 'Set-up agents off');
+      for (const r of [await tool(server, 'me', {}, S.T), await rpc(server, 'tools/list', {}, S.T)]) {
+        assert.equal(r.status, 401);
+        assert.equal(r.json.error, INVALID);
+        assert.equal(r.headers['www-authenticate'], 'Bearer');
+      }
+      assert.equal(result(await tool(server, 'me', {}, O.T), 'the ordinary agent is unchanged').isError, false);
+      ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { setupAgents: true } }), 'Set-up agents on again');
+    });
+  }
+  await setupServer.stop();
+
   // --- hosted: each environment its own ------------------------------------------------------------------------------
   await test('hosted: a tool call runs in the environment it was sent to; a token of one is 401 at another', async () => {
-    const hosted = await startServer(path.join(base, 'hosted'), { BASE_DOMAIN: 'localhost', ADMIN_LOGIN: 'boss', ADMIN_PASSWORD: 'host-password-1', AGENT_TOKENS: 'true' });
+    const hosted = await startServer(path.join(base, 'hosted'), { BASE_DOMAIN: 'localhost', ADMIN_LOGIN: 'boss', ADMIN_PASSWORD: 'host-password-1', AGENT_TOKENS: 'true', AGENT_SETUP: 'true' });
     const host = await signIn(hosted, 'boss', 'host-password-1', 'admin');
     for (const slug of ['acme', 'beta']) ok(await call(hosted, 'POST', '/api/host/environments', { host: 'admin', cookie: host, body: { slug, name: slug, owner: { login: 'owner', password: 'owner-password-1' } } }), `${slug} made`, 201);
     const acme = await signIn(hosted, 'owner', 'owner-password-1', 'acme');
@@ -473,6 +666,17 @@ try {
     const there = await tool(hosted, 'read_chat', { space }, { host: 'beta', token });
     assert.equal(there.status, 401);
     assert.equal(there.json.error, INVALID);
+    // A set-up agent's token of acme is 401 at beta too, and its tools run at acme.
+    ok(await call(hosted, 'PATCH', '/api/settings', { host: 'acme', cookie: acme, body: { setupAgents: true } }), 'acme Set-up agents on');
+    ok(await call(hosted, 'PATCH', '/api/settings', { host: 'beta', cookie: beta, body: { setupAgents: true } }), 'beta Set-up agents on');
+    const setup = (await call(hosted, 'POST', '/api/users', { host: 'acme', cookie: acme, body: { agent: true, kind: 'setup' } })).json.user;
+    const setupToken = (await call(hosted, 'POST', `/api/users/${setup.key}/token`, { host: 'acme', cookie: acme })).json.token;
+    assert.deepEqual((await rpc(hosted, 'tools/list', {}, { host: 'acme', token: setupToken })).json.result.tools.map((t) => t.name), SETUP_TOOL_NAMES);
+    assert.equal(result(await tool(hosted, 'me', {}, { host: 'acme', token: setupToken }), 'set-up me at acme').json.kind, 'setup');
+    for (const r of [await tool(hosted, 'list_templates', {}, { host: 'beta', token: setupToken }), await rpc(hosted, 'tools/list', {}, { host: 'beta', token: setupToken })]) {
+      assert.equal(r.status, 401, 'a set-up token of acme at beta');
+      assert.equal(r.json.error, INVALID);
+    }
     assert.equal((await call(hosted, 'POST', '/mcp', { host: 'admin', token, body: { jsonrpc: '2.0', id: 1, method: 'ping' } })).json?.jsonrpc, undefined, 'the host console has no /mcp');
     await hosted.stop();
   });
