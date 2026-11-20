@@ -2874,6 +2874,10 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     // The modules the host ticked: a list of ids, each one this demo names and this server ships, checked before anything is made.
     const ticked = (req.body || {}).modules;
     if (ticked !== undefined && (!Array.isArray(ticked) || ticked.length > 50 || ticked.some((id) => typeof id !== 'string'))) throw new HostError(`Name the ${envWord('module', { many: true })} to turn on as a list of their ids.`, 400);
+    // `updatePeople: true` re-applies the cast's names and pictures to the demo accounts already here and makes no space.
+    const updatePeople = (req.body || {}).updatePeople;
+    if (updatePeople !== undefined && typeof updatePeople !== 'boolean') throw new HostError('updatePeople must be true or false.', 400);
+    if (updatePeople === true && ticked !== undefined && ticked.length) throw new HostError(`Updating the demo people turns no ${envWord('module', { many: true })} on.`, 400);
     const turnOn = [...new Set(ticked || [])];
     const envShown = (id) => env.store.moduleDisplay(id).name || bundledModules(BUNDLED_DIR).find((m) => m.id === id)?.name || id;
     const needed = new Set(demoLoader.neededModules(demoLoader.readDemoFile(usedTemplate)));
@@ -2886,7 +2890,7 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
     }
     // One of each demo: a marked space with this demo's name is this demo, already there. Another demo may sit beside it.
     const demoFile = demoLoader.listDemos().find((d) => d.id === usedTemplate) || { label: 'demo', name: demoLoader.readDemoFile(usedTemplate).name };
-    if (env.store.spaces.some((sp) => sp.name === demoFile.name && String(sp.description || '').startsWith(demoLoader.MARKER))) throw new HostError(`The ${demoFile.label} is already there. Delete its ${envWord('space')}, then add it again.`, 409);
+    if (updatePeople !== true && env.store.spaces.some((sp) => sp.name === demoFile.name && String(sp.description || '').startsWith(demoLoader.MARKER))) throw new HostError(`The ${demoFile.label} is already there. Delete its ${envWord('space')}, then add it again.`, 409);
     // The demo run's own stand-in, never the host admin's login (an ordinary account may have that name): fixed login, no password.
     let user = env.store.userByLogin(DEMO_STANDIN_LOGIN);
     if (user && (!user.hostAdmin || user.passwordHash)) throw new HostError(`A person called "${DEMO_STANDIN_LOGIN}" already has an account in this ${envWord('environment')}, so the demo cannot be added. Rename or remove that account first.`, 409);
@@ -2910,6 +2914,7 @@ hostRouter.post('/api/host/environments/:slug/demo', requireHostAdmin, async (re
         fetchImpl: loopbackFetch,
         words: envWord,
         turnOn,
+        updatePeople: updatePeople === true,
         // The console's own path to turning modules on (a template's confirm: templates.turnOnModules, one at a time per environment).
         turnOnModules: async (ids) => (await templateTurn(env, () => templates.turnOnModules(env, ids, templateOptions(env, slug)))).map((m) => ({ ...m, name: templateOptions(env, slug).name(m.id) })),
         // The stored moderator ticks of a login on every space there is, member or not (the API lists only a person's present spaces).

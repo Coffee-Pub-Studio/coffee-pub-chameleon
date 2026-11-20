@@ -1,0 +1,143 @@
+{
+ "_about": "The one cast of demo people every demo uses (server/demo-loader.js, readDemoFile). A demo's people list names them: { \"cast\": \"<login>\", \"moderator\": true }. The same login, name and pictures everywhere, so a second demo reuses the first one's accounts. Pictures are drawn by server/demo-assets.js; nobody here is real.",
+ "people": [
+  {
+   "login": "mia",
+   "displayName": "Mia Alvarez",
+   "role": "member",
+   "images": {
+    "profile": {
+     "art": "avatar",
+     "skin": "#c98f6b",
+     "hair": "#2b1d19",
+     "shirt": "#0b7a84",
+     "top": "#f6d9b8",
+     "bottom": "#f2a48c",
+     "style": "long"
+    },
+    "background": {
+     "art": "backdrop",
+     "from": "#14243b",
+     "to": "#0b7a84",
+     "band": "#5cc8cf",
+     "ring": "#ff8264"
+    }
+   }
+  },
+  {
+   "login": "lee",
+   "displayName": "Lee Chen",
+   "role": "member",
+   "images": {
+    "profile": {
+     "art": "avatar",
+     "skin": "#e5c29b",
+     "hair": "#171717",
+     "shirt": "#f26b52",
+     "top": "#bfe3e6",
+     "bottom": "#7fb8c4",
+     "style": "short"
+    },
+    "background": {
+     "art": "backdrop",
+     "from": "#2b3a67",
+     "to": "#8a5a83",
+     "band": "#f4ecdd",
+     "ring": "#f9c784"
+    }
+   }
+  },
+  {
+   "login": "sam",
+   "displayName": "Sam Okafor",
+   "role": "member",
+   "images": {
+    "profile": {
+     "art": "avatar",
+     "skin": "#8a5a3c",
+     "hair": "#1c1411",
+     "shirt": "#14243b",
+     "top": "#f7e2b0",
+     "bottom": "#e9a56a",
+     "style": "curly"
+    },
+    "background": {
+     "art": "backdrop",
+     "from": "#0f3d3e",
+     "to": "#2f6f5a",
+     "band": "#cfe8c8",
+     "ring": "#f4ecdd"
+    }
+   }
+  },
+  {
+   "login": "noa",
+   "displayName": "Noa Brandt",
+   "role": "member",
+   "images": {
+    "profile": {
+     "art": "avatar",
+     "skin": "#f0c9a4",
+     "hair": "#6b3f2a",
+     "shirt": "#5a4a9a",
+     "top": "#d9e6f7",
+     "bottom": "#a9c2e8",
+     "style": "short"
+    },
+    "background": {
+     "art": "backdrop",
+     "from": "#1f2a44",
+     "to": "#4a5f9a",
+     "band": "#9fb4e8",
+     "ring": "#ffd37a"
+    }
+   }
+  },
+  {
+   "login": "rosa",
+   "displayName": "Rosa Linden",
+   "role": "member",
+   "images": {
+    "profile": {
+     "art": "avatar",
+     "skin": "#b9774f",
+     "hair": "#3a2418",
+     "shirt": "#c4553a",
+     "top": "#fbe3c4",
+     "bottom": "#f0b48a",
+     "style": "curly"
+    },
+    "background": {
+     "art": "backdrop",
+     "from": "#4a1f2a",
+     "to": "#b4533c",
+     "band": "#f6c28b",
+     "ring": "#fff1d0"
+    }
+   }
+  },
+  {
+   "login": "omar",
+   "displayName": "Omar Haddad",
+   "role": "member",
+   "images": {
+    "profile": {
+     "art": "avatar",
+     "skin": "#a56b45",
+     "hair": "#22170f",
+     "shirt": "#2f6b4f",
+     "top": "#d8ecd9",
+     "bottom": "#9ccfb0",
+     "style": "short"
+    },
+    "background": {
+     "art": "backdrop",
+     "from": "#16352e",
+     "to": "#3f8a6a",
+     "band": "#bfe6c8",
+     "ring": "#f2d27a"
+    }
+   }
+  }
+ ]
+}

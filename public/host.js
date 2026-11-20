@@ -927,27 +927,25 @@ async function refreshDemoOffer(slug) {
 }
 $('env-demo-select').addEventListener('change', renderDemoModules);
 // Demo space: one request that can take a while; the report is written with textContent, the passwords shown once.
-$('env-demo-add').addEventListener('click', async () => {
-  const b = $('env-demo-add');
+async function runDemoRequest(b, body, busy, done) {
   const box = $('env-demo-report');
   box.hidden = true;
   box.replaceChildren();
-  b.disabled = true;
+  for (const x of [$('env-demo-add'), $('env-demo-update')]) x.disabled = true;
   b.setAttribute('aria-busy', 'true');
-  say($('env-demo-status'), 'Adding the demo space. This can take a minute.');
+  say($('env-demo-status'), busy);
   try {
-    const r = await api('POST', `/api/host/environments/${encodeURIComponent(page.slug)}/demo`, { demo: $('env-demo-select').value, modules: [...$('env-demo-modules').querySelectorAll('input:checked')].map((i) => i.value) });
+    const r = await api('POST', `/api/host/environments/${encodeURIComponent(page.slug)}/demo`, body);
     const line = (text) => { const p = document.createElement('p'); p.textContent = text; box.append(p); };
     if (r.demo === false) { say($('env-demo-status'), r.message || 'There is no demo for this template.', true); return; }
     const picked = demos.find((d) => d.id === $('env-demo-select').value);
-    say($('env-demo-status'), r.fellBack ? 'Added the demo space. This template has no demo of its own, so the travel demo was used.' : `Added the ${picked ? picked.label : 'demo'}.`);
-    line(`Space: ${r.space ? r.space.name : ''}`);
-    const made = Object.entries(r.created || {}).map(([id, n]) => `${id} ${n}`).join(', ');
-    line(`Made: ${made || 'nothing'}.`);
+    say($('env-demo-status'), done(r, picked));
+    if (r.space) line(`Space: ${r.space.name}`);
+    if (!r.updated) line(`Made: ${Object.entries(r.created || {}).map(([id, n]) => `${id} ${n}`).join(', ') || 'nothing'}.`);
     for (const s of r.skipped || []) line(s.why);
     for (const s of r.refused || []) line(`Refused ${s.module}${s.key ? ` (${s.key})` : ''}: ${s.why}`);
     if ((r.people || []).length) {
-      line('People made. These passwords are shown once; copy them now.');
+      line(r.updated ? 'People updated. Their passwords were changed. They are shown once; copy them now.' : 'People made. These passwords are shown once; copy them now.');
       const ul = document.createElement('ul');
       for (const p of r.people) { const li = document.createElement('li'); li.textContent = `${p.displayName} (${p.login}): ${p.password}`; ul.append(li); }
       box.append(ul);
@@ -958,12 +956,20 @@ $('env-demo-add').addEventListener('click', async () => {
   } catch (err) {
     say($('env-demo-status'), err.message, true);
   } finally {
-    b.disabled = false;
+    for (const x of [$('env-demo-add'), $('env-demo-update')]) x.disabled = false;
     b.removeAttribute('aria-busy');
     refreshDemoOffer(page.slug);
     b.focus();
   }
-});
+}
+$('env-demo-add').addEventListener('click', () => runDemoRequest($('env-demo-add'),
+  { demo: $('env-demo-select').value, modules: [...$('env-demo-modules').querySelectorAll('input:checked')].map((i) => i.value) },
+  'Adding the demo space. This can take a minute.',
+  (r, picked) => (r.fellBack ? 'Added the demo space. This template has no demo of its own, so the travel demo was used.' : `Added the ${picked ? picked.label : 'demo'}.`)));
+// Update the demo people: the cast's current names and pictures for the demo accounts already here; no space is made.
+$('env-demo-update').addEventListener('click', () => runDemoRequest($('env-demo-update'), { updatePeople: true },
+  'Updating the demo people.',
+  (r) => ((r.people || []).length ? `Updated ${r.people.length} demo ${r.people.length === 1 ? 'person' : 'people'}.` : 'There are no demo people here to update.')));
 
 // Backups: a download, and a restore from a zip, asked first since it replaces all its data.
 $('env-backup').addEventListener('click', () => backupEnvironment(page.slug, $('env-backup'), $('env-status')));

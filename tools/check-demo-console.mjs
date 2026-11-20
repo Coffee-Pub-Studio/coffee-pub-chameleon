@@ -131,7 +131,7 @@ try {
   assert.equal(games.status, 200, games.text);
   assert.equal(games.json.usedTemplate, 'games');
   assert.equal(games.json.fellBack, false);
-  assert.equal(games.json.space.name, 'Demo: The Salt Crown');
+  assert.equal(games.json.space.name, 'Demo (Gaming): The Salt Crown');
   assert.equal(games.json.space.template, 'games', 'the games demo reads the games template in a travel environment');
   // This travel environment's template offer was never applied, so it has no modules on: each is skipped in a sentence.
   // (Which modules a new hosted environment has on is the environment's own; Planner - Projects is never among a travel one's.)
@@ -145,7 +145,17 @@ try {
   assert.equal(gamesAgain.json.error, 'The Games demo is already there. Delete its trip, then add it again.');
   const both = (await call('GET', 'alpha', '/api/spaces', undefined, owner)).json.spaces;
   assert.equal(both.filter((x) => x.name === demoName).length, 1, 'the travel demo is still there, once');
-  assert.equal(both.filter((x) => x.name === 'Demo: The Salt Crown').length, 1, 'beside one games demo');
+  assert.equal(both.filter((x) => x.name === 'Demo (Gaming): The Salt Crown').length, 1, 'beside one games demo');
+  // Update the demo people: the cast accounts already there get their current names and pictures; no space, no module.
+  const badUpdate = await call('POST', 'admin', url('alpha'), { updatePeople: 'yes' }, admin);
+  assert.equal(badUpdate.status, 400);
+  assert.equal(badUpdate.json.error, 'updatePeople must be true or false.');
+  const upd = await call('POST', 'admin', url('alpha'), { updatePeople: true }, admin);
+  assert.equal(upd.status, 200, upd.text);
+  assert.equal(upd.json.updated, true);
+  assert.equal(upd.json.space, null, 'no space is made');
+  assert.deepEqual(upd.json.people.map((p) => p.login).sort(), ['lee', 'mia', 'omar', 'rosa', 'sam'], 'the cast of the two demos that are there');
+  assert.equal((await call('GET', 'alpha', '/api/spaces', undefined, owner)).json.spaces.length, both.length, 'and no space came or went');
   // A games environment whose owner turned on the modules it has gets its own demo with no body, its planner filled.
   const deltaOwner = await ownerOf('delta');
   const deltaMods = (await call('GET', 'delta', '/api/modules', undefined, deltaOwner)).json.modules.map((m) => m.id);
@@ -180,7 +190,7 @@ try {
   assert.equal(takeover.status, 409, takeover.text);
   assert.equal(takeover.json.error, 'An account called "noa" already exists and was not made by a demo, so it is left alone. Rename or remove it first.');
   assert.equal((await call('POST', 'eps', '/api/login', { login: 'noa', password: OWNER_PASSWORD })).status, 200, 'her password still works');
-  assert.ok(!(await call('GET', 'eps', '/api/spaces', undefined, epsOwner)).json.spaces.some((x) => x.name === 'Demo: Linden Bakery website'), 'no demo space was made');
+  assert.ok(!(await call('GET', 'eps', '/api/spaces', undefined, epsOwner)).json.spaces.some((x) => x.name === 'Demo (Projects): Linden Bakery website'), 'no demo space was made');
   assert.ok(!(await call('GET', 'eps', '/api/users', undefined, epsOwner)).json.users.some((u) => u.login === 'host-demo'), 'a refused load leaves no stand-in behind (nor in the Lobby)');
   // A forged forwarded host and a port that is not digits never reach the links: they stay on <slug>.<base domain>.
   const evilHost = await call('POST', 'admin', url('zeta'), { demo: 'mentoring' }, { ...admin, 'x-forwarded-host': 'evil.example:9999' });

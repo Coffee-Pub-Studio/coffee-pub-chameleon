@@ -46,7 +46,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const loaderPath = process.env.DEMO_LOADER_UNDER_TEST ? path.resolve(process.env.DEMO_LOADER_UNDER_TEST) : path.join(ROOT, 'server', 'demo-loader.js');
 const WORDS = require(path.join(ROOT, 'server', 'words.js'));
-const { loadDemo, readDemoFile, listDemos, DemoError, MARKER, dayPlus } = require(loaderPath);
+const { loadDemo, readDemoFile, readCast, listDemos, DemoError, MARKER, dayPlus } = require(loaderPath);
 const PASSWORD = 'testpass1234';
 const ALL = ['travel', 'maps', 'todo', 'polls', 'calendar', 'budget', 'research', 'documents', 'whiteboard', 'vault'];
 const WANT = { travel: 76, maps: 37, calendar: 77, todo: 16, polls: 3, budget: 18, research: 4, whiteboard: 15, documents: 2, chat: 25, vault: 8 };
@@ -94,7 +94,8 @@ const stopAll = async () => {
 const modulesOn = async (s, ids) => { for (const id of ids) { await s.api('POST', `/api/modules/bundled/${id}/install`); await s.api('PATCH', `/api/modules/${id}`, { enabled: true }); } };
 // Everything environment-wide a person could set: the settings (template included), the modules and the place search.
 const snapshot = async (s) => JSON.stringify({
-  settings: (await s.api('GET', '/api/settings')).json.settings,
+  // Without `inUseIcons`: what the spaces' own icons add to the list, drawn for them, not a setting anyone changed.
+  settings: (({ inUseIcons, ...rest }) => rest)((await s.api('GET', '/api/settings')).json.settings),
   modules: (await s.api('GET', '/api/modules')).json.modules.map((m) => ({ id: m.id, enabled: m.enabled, version: m.version })),
   moduleSettings: (await s.api('GET', '/api/module-settings/environment')).json,
 });
@@ -127,20 +128,36 @@ try {
     const dir = path.join(ROOT, 'templates', 'demo');
     const files = fs.readdirSync(dir);
     assert.ok(files.includes('travel.json'));
-    for (const f of files) {
+    assert.ok(files.includes('cast') && fs.statSync(path.join(dir, 'cast')).isDirectory(), 'the shared cast sits in templates/demo/cast');
+    const demoFiles = files.filter((f) => f !== 'cast');
+    for (const f of demoFiles) {
       assert.ok(f.endsWith('.json') && fs.existsSync(path.join(ROOT, 'templates', f)), `${f} is named like a bundled template`);
       const raw = fs.readFileSync(path.join(dir, f), 'utf8');
       assert.ok(!/"password"|"pass"|passwd/i.test(raw), `${f} holds no password`);
       assert.ok(readDemoFile(f.slice(0, -5)), `${f} is a valid demo file`);
     }
+    assert.ok(!/"password"|"pass"|passwd/i.test(fs.readFileSync(path.join(dir, 'cast', 'people.json'), 'utf8')), 'the cast holds no password');
     const shipped = fs.readdirSync(path.join(ROOT, 'templates')).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).filter((id) => id !== 'default').sort();
-    assert.deepEqual(files.map((f) => f.slice(0, -5)).sort(), shipped, 'every shipped template but Default has a demo');
+    assert.deepEqual(demoFiles.map((f) => f.slice(0, -5)).sort(), shipped, 'every shipped template but Default has a demo');
     assert.deepEqual(listDemos().map((d) => [d.id, d.label]), [['games', 'Games demo'], ['learning', 'Learning demo'], ['mentoring', 'Mentoring demo'], ['project', 'Project demo'], ['travel', 'Travel demo']], 'each demo has its plain name');
     const names = listDemos().map((d) => d.name);
     assert.equal(new Set(names).size, names.length, 'each demo space has a name of its own');
-    for (const n of names) assert.ok(n.startsWith('Demo: ') && n.length <= 40, `${n} is a demo name of 40 characters or fewer`);
-    const logins = listDemos().flatMap((d) => readDemoFile(d.id).people.map((x) => `${x.login}|${x.displayName}`));
-    assert.equal(new Set(logins.map((l) => l.split('|')[0])).size, logins.length, 'no two demos share a login (each may sit beside the others)');
+    // "Demo (<the template's own name>): <title>", so the type shows; and the icon is the template's own home icon.
+    for (const d of listDemos()) {
+      const tpl = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', `${d.id}.json`), 'utf8'));
+      assert.ok(d.name.startsWith(`Demo (${tpl.name}): `) && d.name.length <= 40, `${d.name} reads "Demo (${tpl.name}): ..." in 40 characters or fewer`);
+      assert.equal(d.icon, tpl.icons.home, `${d.id}: the space icon is the template's home icon`);
+    }
+    // One cast: every demo person is a cast member, the same everywhere, with a profile picture and a background.
+    const cast = readCast();
+    for (const c of Object.values(cast)) assert.ok(c.images && c.images.profile && c.images.background, `${c.login} has a portrait and a background`);
+    const seen = new Map();
+    for (const d of listDemos()) for (const x of readDemoFile(d.id).people) {
+      assert.deepEqual(x.login && { login: x.login, displayName: x.displayName, images: x.images }, { login: cast[x.login]?.login, displayName: cast[x.login]?.displayName, images: cast[x.login]?.images }, `${d.id}: ${x.login} is the cast's`);
+      seen.set(x.login, (seen.get(x.login) || 0) + 1);
+    }
+    assert.ok([...seen.values()].some((c) => c > 1), 'the same people appear in more than one demo');
+    assert.ok(Object.keys(cast).every((l) => seen.has(l)), 'every cast member is in a demo');
     assert.equal(readDemoFile('default'), null, 'the Default template has no demo');
     assert.equal(readDemoFile('../server/index'), null, 'an id cannot reach another folder');
   });
@@ -231,7 +248,7 @@ try {
     const old = await fetch(`${A.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: 'mia', password: oldPass }) });
     assert.equal(old.status === 200, false, 'the old password no longer signs in');
     const spaces = (await A.api('GET', '/api/spaces')).json.spaces;
-    assert.equal(spaces.filter((s) => s.name === 'Demo: Portugal').length, 1, 'exactly one demo space');
+    assert.equal(spaces.filter((s) => s.name === 'Demo (Travel): Portugal').length, 1, 'exactly one demo space');
     assert.ok(spaces.some((s) => s.id === other.id), 'the other space is still there');
     assert.equal((await A.api('GET', `/api/modules/todo/data/task:keep?scope=space&space=${other.id}`)).json.item.value.title, 'Keep me', 'and its data');
     const users = (await A.api('GET', '/api/users')).json.users;
@@ -272,7 +289,7 @@ try {
   await step('(f) an unknown date base is refused before anything is made; a missing phase is reported', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-files-'));
     try {
-      const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'demo', 'travel.json'), 'utf8'));
+      const raw = readDemoFile('travel');
       const bad = structuredClone(raw); bad.modules.todo.steps[0].data['task:dm01'].due = 'tomorrow+1';
       fs.writeFileSync(path.join(dir, 'travel.json'), JSON.stringify(bad));
       const spacesBefore = (await E.api('GET', '/api/spaces')).json.spaces.map((s) => s.id).join();
@@ -298,7 +315,7 @@ try {
     const words = (key, opts) => (key === 'environment' ? WORDS.format({ ...set, environment: { one: 'campaign', many: 'campaigns', a: 'a campaign' } }, key, opts) : WORDS.format(set, key, opts));
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-files-'));
     try {
-      const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'demo', 'travel.json'), 'utf8'));
+      const raw = readDemoFile('travel');
       raw.modules = { budget: raw.modules.budget }; raw.phases = { voyage: { start: 'today+1' } };
       fs.writeFileSync(path.join(dir, 'travel.json'), JSON.stringify(raw));
       assert.equal((await E.api('PATCH', '/api/modules/budget', { enabled: false })).status, 200);
@@ -389,32 +406,32 @@ try {
     const signIn = async (login, password) => (await fetch(`${K.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login, password }) })).status;
     assert.equal(await signIn('noa', 'noa-password-12'), 200, 'her password still works');
     assert.equal((await K.api('GET', '/api/users')).json.users.find((u) => u.key === noa.key).role, 'owner', 'and she is still an owner');
-    assert.equal((await K.api('POST', '/api/users', { login: 'ren', displayName: 'Ren Calloway', role: 'member', password: 'ren-password-12' })).status, 201);
-    await rejects(K.run({ templateId: 'games' }), /^An account called "ren" already exists and was not made by a demo/, 'a real member named like a demo person');
-    assert.equal(await signIn('ren', 'ren-password-12'), 200, 'his password still works');
+    assert.equal((await K.api('POST', '/api/users', { login: 'omar', displayName: 'Omar Haddad', role: 'member', password: 'omar-password-12' })).status, 201);
+    await rejects(K.run({ templateId: 'games' }), /^An account called "omar" already exists and was not made by a demo/, 'a real member named like a demo person');
+    assert.equal(await signIn('omar', 'omar-password-12'), 200, 'his password still works');
     // A demo load marks the people it makes, the mark is kept, and a second load resets only them.
-    const first = await K.run({ templateId: 'learning' });
+    const first = await K.run({ templateId: 'travel' });
     const users = (await K.api('GET', '/api/users')).json.users;
     for (const p of first.people) assert.equal(users.find((u) => u.login === p.login).demo, true, `${p.login} is marked as a demo person`);
     assert.ok(!users.find((u) => u.login === 'noa').demo && !users.find((u) => u.login === 'admin').demo, 'nobody else is');
     const records = fs.readdirSync(K.dataDir, { recursive: true }).filter((f) => f.endsWith('.json')).flatMap((f) => { try { const j = JSON.parse(fs.readFileSync(path.join(K.dataDir, f), 'utf8')); return Array.isArray(j.users) ? j.users : []; } catch { return []; } });
-    assert.equal(records.find((u) => u.login === 'marta')?.demo, true, 'the mark is in the stored record');
+    assert.equal(records.find((u) => u.login === 'mia')?.demo, true, 'the mark is in the stored record');
     assert.equal(records.find((u) => u.login === 'noa')?.demo, undefined, 'and not on the real account');
-    const again = await K.run({ templateId: 'learning' });
+    const again = await K.run({ templateId: 'travel' });
     assert.notEqual(again.people[0].password, first.people[0].password, 'a marked demo person is given a new password');
-    assert.equal(await signIn('marta', first.people[0].password) === 200, false, 'the old one stops working');
+    assert.equal(await signIn('mia', first.people[0].password) === 200, false, 'the old one stops working');
     // A marked demo person later made an owner is no longer the demo's to reset.
-    const marta = (await K.api('GET', '/api/users')).json.users.find((u) => u.login === 'marta');
-    assert.equal((await K.api('PATCH', `/api/users/${marta.key}`, { role: 'owner' })).status, 200);
-    await rejects(K.run({ templateId: 'learning' }), /^An account called "marta" is an owner here, not a demo member, so it is left alone\. Rename or remove it first\.$/, 'a demo person made an owner');
-    assert.equal(await signIn('marta', again.people[0].password), 200, 'her password was not changed');
+    const mia = (await K.api('GET', '/api/users')).json.users.find((u) => u.login === 'mia');
+    assert.equal((await K.api('PATCH', `/api/users/${mia.key}`, { role: 'owner' })).status, 200);
+    await rejects(K.run({ templateId: 'travel' }), /^An account called "mia" is an owner here, not a demo member, so it is left alone\. Rename or remove it first\.$/, 'a demo person made an owner');
+    assert.equal(await signIn('mia', again.people[0].password), 200, 'her password was not changed');
     // The mark is never changed afterwards: PATCH with `demo` answers 400 and leaves it.
     for (const v of [false, true]) {
-      const r = await K.api('PATCH', `/api/users/${marta.key}`, { demo: v });
+      const r = await K.api('PATCH', `/api/users/${mia.key}`, { demo: v });
       assert.equal(r.status, 400, `PATCH demo ${v}`);
       assert.equal(r.json.error, "demo can't be changed here");
     }
-    assert.equal((await K.api('GET', '/api/users')).json.users.find((u) => u.key === marta.key).demo, true, 'the mark is unchanged');
+    assert.equal((await K.api('GET', '/api/users')).json.users.find((u) => u.key === mia.key).demo, true, 'the mark is unchanged');
     // `demo` on POST /api/users is true or false only.
     assert.equal((await K.api('POST', '/api/users', { login: 'odd', displayName: 'Odd', password: 'odd-password-12', demo: 'yes' })).status, 400);
   });
@@ -442,7 +459,7 @@ try {
   await step('(k) a file naming a writer who is not one of its people is refused before anything is made', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-files-'));
     try {
-      const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'demo', 'travel.json'), 'utf8'));
+      const raw = readDemoFile('travel');
       raw.modules.chat.messages[3].as = 'nobody';
       fs.writeFileSync(path.join(dir, 'travel.json'), JSON.stringify(raw));
       const before = JSON.stringify((await E.api('GET', '/api/users')).json.users.map((u) => u.login));
@@ -466,15 +483,15 @@ try {
   await D.api('PATCH', '/api/settings', { template: 'travel' });
   await modulesOn(D, ALL);
   await step('(d) a space with the demo\'s name and no marker is refused', async () => {
-    const mine = (await D.api('POST', '/api/spaces', { name: 'Demo: Portugal', description: 'My own trip.', members: [] })).json.space;
+    const mine = (await D.api('POST', '/api/spaces', { name: 'Demo (Travel): Portugal', description: 'My own trip.', members: [] })).json.space;
     const usersBefore = JSON.stringify((await D.api('GET', '/api/users')).json.users.map((u) => u.login));
     const spacesBefore = (await D.api('GET', '/api/spaces')).json.spaces.map((s) => s.id);
-    await rejects(D.run(), /A trip called "Demo: Portugal" exists but is not the demo \(its description lacks the marker\), so it is left alone\./, 'no marker (the travel environment\'s own word for a space)');
+    await rejects(D.run(), /A trip called "Demo \(Travel\): Portugal" exists but is not the demo \(its description lacks the marker\), so it is left alone\./, 'no marker (the travel environment\'s own word for a space)');
     const spaces = (await D.api('GET', '/api/spaces')).json.spaces;
     assert.deepEqual(spaces.map((s) => s.id), spacesBefore, 'nothing was made or removed');
     assert.ok(spaces.some((s) => s.id === mine.id), 'the space is still there');
     assert.equal(JSON.stringify((await D.api('GET', '/api/users')).json.users.map((u) => u.login)), usersBefore, 'and no person was made or changed');
-    await rejects(D.run({ words: (key, opts) => WORDS.format(WORDS.resolve({ space: { one: 'journey', many: 'journeys' } }, null), key, opts) }), /^A journey called "Demo: Portugal" exists but is not the demo/, 'the refusal uses the words function');
+    await rejects(D.run({ words: (key, opts) => WORDS.format(WORDS.resolve({ space: { one: 'journey', many: 'journeys' } }, null), key, opts) }), /^A journey called "Demo \(Travel\): Portugal" exists but is not the demo/, 'the refusal uses the words function');
     await D.api('DELETE', `/api/spaces/${mine.id}`);
   });
   await step('(d) a person with a demo login and another name is refused', async () => {
@@ -488,6 +505,41 @@ try {
     // Her own password still works: it was not changed.
     const r = await fetch(`${D.base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: 'lee', password: 'lee-password-1' }) });
     assert.equal(r.status, 200, 'its password was not changed');
+  });
+
+  // ---- (h) one cast: a second demo reuses the first one's accounts; the icon; update the demo people ----
+  const H = await boot();
+  await step('(h) two demos share one cast, each space has its icon, and the cast can be updated', async () => {
+    await modulesOn(H, (await H.api('GET', '/api/modules')).json.bundled.map((b) => b.id));
+    const first = await H.run({ templateId: 'project' });
+    const second = await H.run({ templateId: 'games' });
+    const users = (await H.api('GET', '/api/users')).json.users;
+    const demoUsers = users.filter((u) => u.demo === true);
+    assert.deepEqual(demoUsers.map((u) => u.login).sort(), ['lee', 'mia', 'noa', 'omar', 'rosa', 'sam'], 'one cast, no duplicates');
+    assert.equal(new Set(users.map((u) => u.login)).size, users.length, 'no login twice');
+    const both = first.people.map((p) => p.key).filter((k) => second.people.some((q) => q.key === k));
+    assert.ok(both.length >= 2, `the second demo reused ${both.length} accounts of the first`);
+    const spaces = (await H.api('GET', '/api/spaces')).json.spaces;
+    for (const [r, icon, name] of [[first, 'diagram-project', 'Demo (Projects): Linden Bakery website'], [second, 'dice-d20', 'Demo (Gaming): The Salt Crown']]) {
+      const sp = (await H.api('GET', `/api/spaces/${r.space.id}`)).json.space;
+      assert.equal(sp.name, name);
+      assert.equal(sp.linkIcon, icon, `${name} has its icon`);
+      assert.ok(spaces.some((x) => x.id === r.space.id));
+    }
+    // Every demo person has a portrait and a background (GET /api/users: images[slot] is true when it is set).
+    for (const u of users.filter((x) => x.demo === true)) assert.ok(u.images && u.images.profile && u.images.background, `${u.login} has a portrait and a background`);
+    assert.equal(users.filter((x) => x.demo === true).length, 6, 'six people in all');
+    // Update: a demo account that kept an old name gets the cast's name again; a real person with a cast login is left alone.
+    const rosa = users.find((u) => u.login === 'rosa');
+    assert.equal((await H.api('PATCH', `/api/users/${rosa.key}`, { displayName: 'Old Name' })).status, 200);
+    const real = (await H.api('POST', '/api/users', { login: 'ines', displayName: 'Ines Real', role: 'member', password: 'ines-password-1' })).json.user;
+    const updated = await H.run({ updatePeople: true });
+    assert.equal(updated.updated, true);
+    assert.equal(updated.space, null, 'no space is made');
+    assert.deepEqual(updated.people.map((p) => p.login).sort(), ['lee', 'mia', 'noa', 'omar', 'rosa', 'sam'], 'every cast account that is here');
+    assert.equal((await H.api('GET', '/api/users')).json.users.find((u) => u.key === rosa.key).displayName, 'Rosa Linden', 'the name is the cast\'s again');
+    assert.equal((await H.api('GET', '/api/spaces')).json.spaces.length, spaces.length, 'no space was made or removed');
+    assert.equal((await H.api('GET', '/api/users')).json.users.find((u) => u.key === real.key).displayName, 'Ines Real', 'a real person is not touched');
   });
 
   // ---- (g) a template with no demo ----

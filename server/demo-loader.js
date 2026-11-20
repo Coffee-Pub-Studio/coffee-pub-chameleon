@@ -20,7 +20,11 @@
 //   template, label (the plain name a list shows: "Travel demo"), name, description, anchor (days after today that the story's
 //   first day, "start", falls on), tz,
 //   guestLink (make the guest link), budget ({ amount, currency }), phases ({ "<phase id>": { start, end } }),
-//   people ([{ login, displayName, role, moderator }]), modules ({ "<module id>": block }).
+//   icon (the space's icon: the template's own home icon), people ([{ cast, moderator }]), modules ({ "<module id>": block }).
+// THE CAST. Every demo uses the same people, drawn from templates/demo/cast/people.json ({ login, displayName, role, images }).
+// A demo's `people` entry names one: { "cast": "mia", "moderator": true }; readDemoFile fills in the rest, so the same login,
+// name and pictures appear in every demo and a second demo finds the first one's accounts and reuses them. (An entry with its
+// own login and displayName still works, for a file that wants a person of its own.) `title` is "Demo (<template name>): <title>".
 // A module block is { as?, tz?, what?, count?: [key prefixes], steps: [{ as?, data: { "<key>": <value> } }] } (or
 // { as?, data } for one step); the values are in that module's own format, and each step is written in order by the
 // person it names (`as`, else the block's, else the first moderator). The built-in "chat" block is { messages: [{ as,
@@ -53,7 +57,7 @@ const DEMO_DIR = path.join(__dirname, '..', 'templates', 'demo');
 const MARKER = 'A demo with made-up people.';
 const TEMPLATE_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const MODULE_ID_RE = /^[a-z0-9-]+$/;
-const TOP_KEYS = ['template', 'label', 'name', 'description', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules', 'files', 'homeChat'];
+const TOP_KEYS = ['template', 'label', 'name', 'description', 'icon', 'anchor', 'tz', 'guestLink', 'budget', 'phases', 'people', 'modules', 'files', 'homeChat'];
 
 class DemoError extends Error {}
 // The first `n` characters of a text, never cutting a character in two (an emoji is one).
@@ -74,6 +78,7 @@ function problemsOf(raw, templateId, word = defaultWord) {
   if (typeof raw.name !== 'string' || !raw.name.trim()) out.push('"name" must be text');
   if (raw.label !== undefined && (typeof raw.label !== 'string' || !raw.label.trim() || raw.label.length > 40)) out.push('"label" must be text of 40 characters or fewer');
   if (typeof raw.description !== 'string') out.push('"description" must be text');
+  if (raw.icon !== undefined && (typeof raw.icon !== 'string' || !/^[a-z0-9-]{1,40}$/.test(raw.icon))) out.push('"icon" must be an icon id (lower-case letters, digits and hyphens)');
   if (!Number.isInteger(raw.anchor) || raw.anchor < 0) out.push('"anchor" must be a whole number of days, 0 or more');
   if (!Array.isArray(raw.people) || !raw.people.length) out.push('"people" must be a list of people');
   else {
@@ -98,6 +103,19 @@ function problemsOf(raw, templateId, word = defaultWord) {
   return out;
 }
 
+// The cast: { "<login>": { login, displayName, role, images } }. `dir` is the demo folder (the cast is dir/cast/people.json).
+function readCast({ dir = DEMO_DIR } = {}) {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(path.join(dir, 'cast', 'people.json'), 'utf8')); } catch (e) { throw new DemoError(`The demo cast is not readable (${e.message}).`); }
+  if (!isObject(raw) || !Array.isArray(raw.people)) throw new DemoError('The demo cast must be a map with a list of people.');
+  const out = {};
+  for (const p of raw.people) {
+    if (!isObject(p) || typeof p.login !== 'string' || typeof p.displayName !== 'string' || out[p.login]) throw new DemoError('The demo cast needs each person once, with a login and a displayName.');
+    out[p.login] = p;
+  }
+  return out;
+}
+
 // The demo file of a template, parsed and checked; null when the template has none (or its id cannot name a file).
 function readDemoFile(templateId, { dir = DEMO_DIR, words = defaultWord } = {}) {
   if (typeof templateId !== 'string' || !TEMPLATE_ID_RE.test(templateId)) return null;
@@ -105,7 +123,18 @@ function readDemoFile(templateId, { dir = DEMO_DIR, words = defaultWord } = {}) 
   if (!fs.existsSync(file)) return null;
   let raw;
   try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { throw new DemoError(`The demo file for ${templateId} is not valid JSON (${e.message}).`); }
-  const problems = problemsOf(raw, templateId, words);
+  // A person named from the cast ({ cast: "mia", moderator }) takes the cast's login, name, role and pictures.
+  const castProblems = [];
+  if (isObject(raw) && Array.isArray(raw.people) && raw.people.some((p) => isObject(p) && p.cast !== undefined)) {
+    const cast = readCast({ dir });
+    raw.people = raw.people.map((p, i) => {
+      if (!isObject(p) || p.cast === undefined) return p;
+      const { cast: id, ...mine } = p;
+      if (typeof id !== 'string' || !cast[id]) { castProblems.push(`people[${i}] names "${clip(id, 40)}", who is not in the cast`); return p; }
+      return { ...cast[id], ...mine };
+    });
+  }
+  const problems = [...castProblems, ...problemsOf(raw, templateId, words)];
   if (problems.length) throw new DemoError(`The demo file for ${templateId} is not valid: ${problems.join('; ')}.`);
   return raw;
 }
@@ -123,7 +152,7 @@ function listDemos({ dir = DEMO_DIR } = {}) {
     const id = f.slice(0, -5);
     let file = null;
     try { file = readDemoFile(id, { dir }); } catch { file = null; }
-    if (file) out.push({ id, label: file.label || `${id[0].toUpperCase()}${id.slice(1)} demo`, name: file.name, modules: neededModules(file) });
+    if (file) out.push({ id, label: file.label || `${id[0].toUpperCase()}${id.slice(1)} demo`, name: file.name, ...(file.icon ? { icon: file.icon } : {}), modules: neededModules(file) });
   }
   return out;
 }
@@ -177,7 +206,7 @@ async function loadDemo(args) {
     throw err;
   }
 }
-async function runDemo({ base, publicBase = '', templateId, today, session = {}, headers = {}, say = () => {}, fetchImpl = fetch, dir = DEMO_DIR, now = Date.now(), words = null, turnOn = [], turnOnModules = null, moderatesOf = null, beforeChanges = null }, state) {
+async function runDemo({ base, publicBase = '', templateId, today, session = {}, headers = {}, say = () => {}, fetchImpl = fetch, dir = DEMO_DIR, now = Date.now(), words = null, turnOn = [], turnOnModules = null, moderatesOf = null, beforeChanges = null, updatePeople = false }, state) {
   base = String(base || '').replace(/\/+$/, '');
   // The address people use (the environment's own), for the links the demo writes ({base}) and the guest link; `base` is
   // only where the loader's own requests go (the loopback, when the server calls itself). The same when none is given.
@@ -267,6 +296,33 @@ async function runDemo({ base, publicBase = '', templateId, today, session = {},
 
   // --- what is already there, and what must be left alone: all checked before anything is changed ---
   const existing = (await ok('caller', 'GET', '/api/users')).users || [];
+  const send = async (as, method, url, asset) => {
+    const r = await fetchImpl(base + url, { method, headers: { ...headers, cookie: jars[as], 'content-type': asset.type, accept: 'application/json' }, body: asset.bytes });
+    let json = null; try { json = await r.json(); } catch { /* none */ }
+    return { status: r.status, json };
+  };
+  // UPDATE THE PEOPLE: re-apply the cast's names and pictures to the cast accounts this environment already has, and nothing
+  // else (no space, no module, no data). Only an account a demo load made (`demo: true`, a plain member, no two-step sign-in)
+  // is touched; a real person who has a cast login is named in `skipped` and left alone. Their passwords are changed, as
+  // an import changes them, to sign in and send the pictures, and are returned once.
+  if (updatePeople) {
+    const skipped = []; const refused = []; const people = [];
+    for (const c of Object.values(readCast({ dir }))) {
+      const found = existing.find((u) => u.login === c.login);
+      if (!found) continue;
+      if (found.demo !== true || found.hostAdmin || found.role !== (c.role || 'member')) { skipped.push({ module: 'people', why: `The account "${c.login}" was not made by a demo, so it was left alone.` }); continue; }
+      if (found.mfaEnrolled) { skipped.push({ module: 'people', why: `The demo person "${c.login}" has two-step sign-in on, so they were not updated.` }); continue; }
+      const pass = password();
+      await ok('caller', 'PATCH', `/api/users/${found.key}`, { password: pass, displayName: c.displayName });
+      await signIn(c.login, c.login, pass);
+      for (const [slot, spec] of Object.entries(c.images || {})) {
+        const r = await send(c.login, 'PUT', `/api/me/images/${encodeURIComponent(slot)}`, makeAsset(spec));
+        if (r.status >= 300) refused.push({ module: 'profile', key: `${c.login}:${slot}`, why: (r.json && r.json.error) || `answered ${r.status}` });
+      }
+      people.push({ login: c.login, displayName: c.displayName, key: found.key, password: pass });
+    }
+    return { demo: true, updated: true, space: null, start, created: {}, skipped, refused, people, guestUrl: '', turnedOn: [] };
+  }
   // Only an account a demo load made (`demo: true`, set when it was made), with the file's name and role, is a demo person and
   // may be given a new password. A real person who happens to have the same login and name is never taken over.
   for (const p of file.people) {
@@ -386,6 +442,11 @@ async function runDemo({ base, publicBase = '', templateId, today, session = {},
   }
   // starter: false: a demo load writes its own data, never the template's starter content.
   if (!space) space = (await ok('caller', 'POST', '/api/spaces', { name: file.name, description, members, starter: false })).space;
+  // The space's icon (its launch link's icon, the one rule every list reads): the demo's own, from what the space's template offers.
+  if (file.icon) {
+    const r = await call('caller', 'PATCH', `/api/spaces/${space.id}`, { linkIcon: file.icon });
+    if (r.status >= 300) skipped.push({ module: 'icon', why: `The demo ${word('space')} could not take the icon ${file.icon} (${(r.json && r.json.error) || `answered ${r.status}`}), so it shows the usual one.` });
+  }
   for (const p of file.people.filter((x) => x.moderator)) await ok('caller', 'PATCH', `/api/users/${keys[p.login]}/spaces/${space.id}`, { permissions: { moderator: true } });
   const ctx = { today, start, keys, space: space.id, base: shown, now };
 
@@ -415,11 +476,6 @@ async function runDemo({ base, publicBase = '', templateId, today, session = {},
   if (Object.keys(patch).length) await ok('caller', 'PATCH', `/api/spaces/${space.id}`, patch);
 
   // --- the pictures and files the demo draws for itself (server/demo-assets.js), each sent through the real route as its owner ---
-  const send = async (as, method, url, asset) => {
-    const r = await fetchImpl(base + url, { method, headers: { ...headers, cookie: jars[as], 'content-type': asset.type, accept: 'application/json' }, body: asset.bytes });
-    let json = null; try { json = await r.json(); } catch { /* none */ }
-    return { status: r.status, json };
-  };
   for (const p of file.people) {
     for (const [slot, spec] of Object.entries(p.images || {})) {
       const r = await send(p.login, 'PUT', `/api/me/images/${encodeURIComponent(slot)}`, makeAsset(spec));
@@ -501,4 +557,4 @@ async function runDemo({ base, publicBase = '', templateId, today, session = {},
   return { demo: true, space, start, created, skipped, refused, people, guestUrl, turnedOn };
 }
 
-module.exports = { loadDemo, neededModules, readDemoFile, hasDemo, listDemos, problemsOf, resolveString, resolveValue, DemoError, MARKER, DEMO_DIR, dayPlus };
+module.exports = { loadDemo, neededModules, readDemoFile, readCast, hasDemo, listDemos, problemsOf, resolveString, resolveValue, DemoError, MARKER, DEMO_DIR, dayPlus };
