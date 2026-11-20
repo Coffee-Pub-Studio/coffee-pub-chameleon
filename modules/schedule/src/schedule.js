@@ -693,11 +693,19 @@
     if (problem) throw new Error(problem);
     // Who added it is the asker's key (a person's key, so "Added by" finds the name), else the signed-in person's.
     const by = scAddedBy(ctx, info.user.key);
+    // Owners (work only) are checked before anything is made; a person is named by key or by name.
+    let owners = null;
+    if (kind === 'work' && input && input.owners !== undefined && input.owners !== null) {
+      const r = scOwnersFor(input.owners, state.people, { space: word('space') });
+      if (r.problem) throw new Error(r.problem);
+      owners = r.owners;
+    }
     let e;
     if (obj) {
       takePhases();
       e = scFromObject(kind, input, obj, { entries: list(), phases: state.phases, by }).entry;
     } else e = scFromAction(kind, input, by);
+    if (owners && owners.length) e = { ...e, owners: scKeys(owners) };
     const saved = await saveEntry({ ...e, id: host.util.id(), order: orderAtEnd(e.parent) });
     return { ref: pointer(saved.id) };
   }
@@ -724,7 +732,7 @@
     return { ref: pointer(out.entry.id) };
   }
   const setDone = (input) => changeEntry(input, (e) => scSetDone(e, input.done, { label: (k) => kindWord(k) }));
-  const updateEntry = (input) => changeEntry(input, (e) => scUpdate(e, input, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) }));
+  const updateEntry = (input) => changeEntry(input, (e) => scUpdate(e, input, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k), people: state.people, space: word('space') }));
   if (host.actions && host.actions.provide) {
     host.actions.provide({
       setDone,

@@ -830,7 +830,14 @@
       addGoal: async (input) => {
         const o = obj(input);
         const raw = o ? L.fromObject('goal', o, { phases: phases() }) : { title: input.title, why: input.why, date: input.date };
-        const id = await add('goal', { ...raw, date: raw.date || input.date });
+        // Owners are checked before anything is made; a person is named by key or by name (the form's own owners: a list of keys).
+        let owners;
+        if (input.owners !== undefined && input.owners !== null) {
+          const r = L.ownersFor(input.owners, people, host.util.word('space'));
+          if (r.problem) throw new Error(r.problem);
+          owners = r.owners;
+        }
+        const id = await add('goal', { ...raw, date: raw.date || input.date, ...(owners && owners.length ? { owners } : {}) });
         render();
         return { ref: host.objects.make('plan', id) };
       },

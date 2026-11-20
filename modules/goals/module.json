@@ -1,7 +1,7 @@
 {
   "id": "goals",
   "name": "Planner - Goals",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "icon": "bullseye",
   "color": "green",
   "description": "Plan goals together: each goal with its steps and how far along it is, dates optional.",
@@ -67,10 +67,16 @@
         "label": "Add it as a goal",
         "description": "Add a new goal to the plan.",
         "effect": "write",
+        "inputHints": {
+          "owners": "Who owns it: keys or names as list_members shows them, separated by commas.",
+          "date": "The target day, as YYYY-MM-DD.",
+          "object": "A full description to add instead of the flat fields; its own words, day and phase are used."
+        },
         "input": {
           "title": "string",
           "why": "text?",
           "date": "date?",
+          "owners": "text?",
           "object": "object?"
         },
         "takes": [
@@ -82,6 +88,11 @@
         "label": "Add a step to the goal",
         "description": "Add a new step under a goal of the plan.",
         "effect": "write",
+        "inputHints": {
+          "goal": "The goal it goes under, as a pointer; needed unless the description names the goal.",
+          "date": "The day, as YYYY-MM-DD.",
+          "object": "A full description to add instead of the flat fields; details.under names the goal by title."
+        },
         "input": {
           "goal": "ref:goals:plan?",
           "title": "string",
@@ -97,6 +108,10 @@
         "label": "Add it as a note to the plan",
         "description": "Add a note to the plan, under a goal if one is given.",
         "effect": "write",
+        "inputHints": {
+          "goal": "The goal to put it under, as a pointer; leave it out for a note on the plan itself.",
+          "object": "A full description to add instead of the flat fields; its own words are used."
+        },
         "input": {
           "title": "string",
           "text": "text?",
