@@ -120,7 +120,8 @@ for (const k of ['time', 'minutes', 'endTime', 'cost']) assert.ok(act('addStop')
 for (const k of ['time', 'minutes', 'cost', 'reference']) assert.ok(act('acceptSuggestion').input[k], `acceptSuggestion ${k}`);
 for (const name of ['addStop', 'acceptSuggestion']) {
   assert.ok(Object.keys(act(name).input).length <= 10, `${name} has at most 10 inputs`);
-  assert.match(act(name).description, /HH:MM, 24-hour/);
+  assert.match(act(name).inputHints.time, /HH:MM, 24-hour/);
+  for (const k of Object.keys(act(name).inputHints)) assert.ok(act(name).input[k], `${name} hint ${k} is a declared input`);
 }
 for (const k of ['title', 'date', 'notes', 'ref']) assert.ok(act('addStop').input[k], `addStop keeps ${k}`);
 for (const k of ['title', 'kind', 'content', 'place', 'date', 'object']) assert.ok(act('acceptSuggestion').input[k], `acceptSuggestion keeps ${k}`);
