@@ -25,7 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { stopBrowser } from './browser-launch.mjs';
 import { findBrowser, launch, freePort, startServer, stopServer, Tab, sleep } from './shots.mjs';
-import { PASSWORD } from './shots-seed.mjs';
+import { PASSWORD, TODAY } from './shots-seed.mjs';
 
 const say = (...a) => console.log('check-agent-pages:', ...a);
 const failures = [];
@@ -34,6 +34,7 @@ const shotsArg = process.argv.find((a) => a.startsWith('--shots='));
 const SHOTS = shotsArg ? path.resolve(shotsArg.slice('--shots='.length)) : '';
 const HOSTILE = '<img src=x onerror=window.__pwn=1>';
 const WARNING = 'This is shown once. If you lose it, make a new one; the old one then stops working.';
+const NEVER_NOTE = 'A token that never expires works until you revoke it. Keep it private, and revoke it if it leaks.';
 const SPACE_NAME = 'Paris <b>trip</b>';
 
 const jarOf = (res) => res.headers.getSetCookie().map((c) => { const [nv] = c.split(';'); const i = nv.indexOf('='); return { name: nv.slice(0, i), value: nv.slice(i + 1) }; });
@@ -44,7 +45,7 @@ async function main() {
   if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
   const dirs = [];
   const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pages-')); dirs.push(d); return d; };
-  let server = null; let plain = null; let browser = null;
+  let server = null; let plain = null; let browser = null; let exp = null;
   try {
     plain = await startServer(tmp(), await freePort(), 'first', { AGENT_TOKENS: '' });
     const dataDir = tmp();
@@ -207,6 +208,17 @@ async function main() {
       expect(await waitText(tab, '[data-agent-spaces]', `In 1 space: ${SPACE_NAME}`, 16000), 'the page did not follow the agent being added to a space');
     }
     await shot(tab, 'agent-page-empty-1280-dark');
+    // How long should it work: the five words in order, 30 days first; the note shows only for Never expires; the page sends the choice.
+    {
+      const pick = (v) => tab.eval(`(() => { const s = document.querySelector('[data-agent-lifetime]'); s.value = ${JSON.stringify(v)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      const choice = await tab.eval(`(() => { const s = document.querySelector('[data-agent-lifetime]'); return { label: s.closest('label').firstChild.textContent, value: s.value, options: [...s.options].map((o) => o.value + '|' + o.textContent) }; })()`);
+      expect(choice.label === 'How long should it work?' && choice.value === '30d' && choice.options.join(',') === '30d|30 days (recommended),60d|60 days,90d|90 days,1y|1 year,never|Never expires', `the lifetime choice is ${JSON.stringify(choice)}`);
+      expect(await hiddenOf(tab, '[data-agent-never]'), 'the never-expires note shows with 30 days chosen');
+      await pick('never');
+      expect(!(await hiddenOf(tab, '[data-agent-never]')) && await text(tab, '[data-agent-never]') === NEVER_NOTE, `the never-expires note reads "${await text(tab, '[data-agent-never]')}"`);
+      await pick('1y');
+      expect(await hiddenOf(tab, '[data-agent-never]'), 'the never-expires note stays after another choice');
+    }
     await press(tab, '[data-agent="make"]');
     expect(await waitDialog(tab, true), 'Make token showed no dialog');
     const made = await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog[open]'); if (!d) return null; return { token: d.querySelector('.agent-token-value').textContent, warning: d.querySelector('.agent-token-warning').textContent, copy: !!d.querySelector('[data-agent="copy"]'), title: d.querySelector('.sdk-dialog-title').textContent, focus: document.activeElement && document.activeElement.textContent }; })()`);
@@ -214,6 +226,9 @@ async function main() {
     expect(made && made.warning === WARNING, `the warning reads "${made && made.warning}"`);
     expect(made && made.copy && made.title === 'Token for Claude (agent)', `the dialog's title is "${made && made.title}" or Copy is missing`);
     const token = made ? made.token : '';
+    expect(await tab.eval(`[...document.querySelectorAll('dialog.agent-token-dialog p.hint')].some((e) => /^Works for 1 year, until [A-Z][a-z]{2} \\d{1,2}, \\d{4}\\. Keep it as a secret, never in a chat\\.$/.test(e.textContent))`), 'the token window does not say "Works for 1 year, until <date>."');
+    expect(await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog'); const end = [...d.querySelectorAll('p.hint')].find((e) => e.textContent.startsWith('Works for')); return !!end && !!(end.compareDocumentPosition(d.querySelector('.agent-connect')) & Node.DOCUMENT_POSITION_FOLLOWING); })()`), 'the end is not above the Connect Claude steps');
+    expect((await call('admin', 'GET', `/api/users/${agent.key}/token`)).json.token.lifetime === '1y', 'the page did not send the chosen lifetime (expires) with the request');
     {
       const guide = await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog[open]'); const t = (sel) => [...d.querySelectorAll(sel)].map((e) => e.textContent); return { origin: location.origin, live: d.querySelector('[data-agent-connected]').textContent, steps: t('.agent-steps > li').length, command: t('.agent-copy-text')[0], first: t('.agent-copy-text')[1], link: d.querySelector('a[href]').href, file: d.querySelector('details.agent-file') && !d.querySelector('details.agent-file').open, tries: t('.agent-try li'), apps: t('.agent-steps > li').slice(5), copies: t('.agent-copy-text'), hint: t('p.hint').filter((x) => x.startsWith('Tested in the Claude app')) }; })()`);
       expect(guide.copies[2] === `${guide.origin}/mcp` && guide.copies[3] === `Bearer ${token}`, `the Claude apps block's address or header value is "${guide.copies[2]}" / "${guide.copies[3]}"`);
@@ -237,7 +252,8 @@ async function main() {
     expect(await text(tab, '[data-agent="make"]') === 'Make a new token' && !(await hiddenOf(tab, '[data-agent="revoke"]')), 'after a token is made the page does not offer a new one and Revoke');
     expect(/^Claude connected, /.test(await text(tab, '[data-agent-connected]')) && (await tab.eval(`document.querySelector('[data-agent-connect] .agent-copy-text').textContent`)).includes('agt_YOUR_TOKEN'), 'the page does not show "Claude connected" and the command with the placeholder');
     expect(await tab.eval(`(() => { const c = [...document.querySelectorAll('[data-agent-connect] .agent-copy-text')].map((e) => e.textContent); return c.includes('Bearer agt_YOUR_TOKEN') && !c.some((x) => x.includes(${JSON.stringify(token)})); })()`), 'the page does not show the header value with the placeholder only');
-    expect(/^The token works until /.test(await text(tab, '[data-agent-token-state]')), `the token state reads "${await text(tab, '[data-agent-token-state]')}"`);
+    expect(/^Works for 1 year, until [A-Z][a-z]{2} \d{1,2}, \d{4}\.$/.test(await text(tab, '[data-agent-token-state]')), `the token state reads "${await text(tab, '[data-agent-token-state]')}"`);
+    expect(await tab.eval(`document.querySelector('[data-agent-lifetime]').value`) === '30d', 'the choice remembered the last lifetime');
     await go(tab, `/admin#agent/${agent.key}`);
     await tab.waitFor('[data-agent="make"]');
     expect(!(await tab.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(token)}) || document.body.innerText.includes(${JSON.stringify(token)})`)), 'the token is on the page after a reload');
@@ -457,6 +473,81 @@ async function main() {
     expect((await call('admin', 'GET', `/api/users/${agent.key}`)).status === 404, 'Delete did not delete the agent on the server');
     expect(tab.problems.length === 0, `Manage: ${tab.problems.join('; ')}`);
     await tab.close();
+
+    // How long a token lasts, (the page counts days by its own clock, frozen by tools/shots.mjs): the default,
+    // Never expires (no date, never "NaN"), the warning inside 7 days, and the line once it has ended (stored tokens, the server restarted).
+    {
+      const dir = tmp(); const port = await freePort();
+      const env = { AGENT_TOKENS: 'true' };
+      const NOW = Date.parse(`${TODAY}T12:00:00.000Z`); // the page's clock, frozen (tools/shots.mjs)
+      exp = await startServer(dir, port, 'first', env);
+      await signIn('admin', exp);
+      expect((await call('admin', 'PATCH', '/api/settings', { agents: true }, exp)).status === 200, 'could not turn Agents on for the lifetime block');
+      const ag = (await call('admin', 'POST', '/api/users', { agent: true }, exp)).json.user;
+      const page = `/admin#agent/${ag.key}`;
+      const stored = () => call('admin', 'GET', `/api/users/${ag.key}/token`, undefined, exp);
+      const DATE = '[A-Z][a-z]{2} \\d{1,2}, \\d{4}';
+      const state = async (t) => ({ line: await text(t, '[data-agent-token-state]'), warn: await text(t, '[data-agent-ending]'), warnHidden: await hiddenOf(t, '[data-agent-ending]'), used: await text(t, '[data-agent-used]'), make: await text(t, '[data-agent="make"]') });
+      let t = await open(1280, 'dark', 'admin', exp);
+      await go(t, page);
+      await t.waitFor('[data-agent="make"]');
+      // Never expires.
+      await t.eval(`(() => { const s = document.querySelector('[data-agent-lifetime]'); s.value = 'never'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await shot(t, 'agent-page-make-token-never-1280-dark');
+      await press(t, '[data-agent="make"]');
+      expect(await waitDialog(t, true), 'Make token (never) showed no dialog');
+      expect(await t.eval(`[...document.querySelectorAll('dialog.agent-token-dialog p.hint')].some((e) => e.textContent === 'Never expires. Keep it as a secret, never in a chat.')`), 'the token window does not say "Never expires."');
+      expect(!(await t.eval(`document.querySelector('dialog.agent-token-dialog').textContent.includes('NaN') || document.querySelector('dialog.agent-token-dialog').textContent.includes('Invalid')`)), 'a never-expires window shows NaN or an invalid date');
+      const never = (await stored()).json.token;
+      expect(never.lifetime === 'never' && never.expiresAt === null, `the page did not send expires: never (stored ${JSON.stringify(never)})`);
+      await press(t, '[data-agent="token-done"]');
+      expect(await waitDialog(t, false), 'Done did not close the window (never)');
+      let st = await state(t);
+      expect(st.line === 'Never expires.' && st.warnHidden && st.used === 'Not used yet.' && st.make === 'Make a new token', `a never-expiring token reads ${JSON.stringify(st)}`);
+      // The default: 30 days.
+      await press(t, '[data-agent="make"]');
+      expect(await waitDialog(t, true), 'Make token (default) showed no dialog');
+      const secret = await t.eval(`document.querySelector('dialog.agent-token-dialog .agent-token-value').textContent`);
+      const hintRe = `^Works for 30 days, until ${DATE}\\. Keep`;
+      expect(await t.eval(`[...document.querySelectorAll('dialog.agent-token-dialog p.hint')].some((e) => new RegExp(${JSON.stringify(hintRe)}).test(e.textContent))`), 'the default token window does not say "Works for 30 days, until <date>."');
+      expect((await stored()).json.token.lifetime === '30d', 'the default was not 30 days');
+      await press(t, '[data-agent="token-done"]');
+      expect(await waitDialog(t, false), 'Done did not close the window (30 days)');
+      expect(!(await t.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(secret)}) || document.body.innerText.includes(${JSON.stringify(secret)})`)), 'the 30-day token is on the page after Done');
+      st = await state(t);
+      expect(new RegExp(`^Works for 30 days, until ${DATE}\\.$`).test(st.line) && st.warnHidden && !/NaN|Invalid/.test(st.line), `a 30-day token reads ${JSON.stringify(st)}`);
+      await t.close();
+      // Stored tokens with an end in 3 days, then one that has passed.
+      const restartWith = async (createdAt, expiresAt) => {
+        await stopServer(exp);
+        const file = path.join(dir, 'tokens.json');
+        const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        data.tokens = data.tokens.map((x) => ({ ...x, lifetime: '30d', createdAt, expiresAt }));
+        fs.writeFileSync(file, JSON.stringify(data));
+        exp = await startServer(dir, port, 'second', env);
+        await signIn('admin', exp);
+      };
+      const DAY = 86400000;
+      await restartWith(new Date(NOW - 27 * DAY).toISOString(), new Date(NOW + 3 * DAY - 3600000).toISOString());
+      t = await open(1280, 'dark', 'admin', exp);
+      await go(t, page);
+      await t.waitFor('[data-agent="make"]');
+      st = await state(t);
+      expect(st.warn === 'This token ends in 3 days. Make a new token before then, and update Claude with it.' && !st.warnHidden && st.make === 'Make a new token', `a token ending in 3 days reads ${JSON.stringify(st)}`);
+      expect(new RegExp(`^Works for 30 days, until ${DATE}\\.$`).test(st.line), `the near-end line reads "${st.line}"`);
+      expect(await t.eval(`(() => { const w = document.querySelector('[data-agent-ending]'); const b = document.querySelector('[data-agent="make"]'); return w.closest('.panel') === b.closest('.panel') && !!(w.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); })()`), 'the warning is not in the Token section above the Make a new token button');
+      await shot(t, 'agent-page-token-ends-soon-1280-dark');
+      await t.close();
+      await restartWith(new Date(NOW - 30 * DAY).toISOString(), new Date(NOW - 3600000).toISOString());
+      t = await open(1280, 'dark', 'admin', exp);
+      await go(t, page);
+      await t.waitFor('[data-agent="make"]');
+      st = await state(t);
+      expect(st.warn === 'This token has ended. Make a new token.' && !st.warnHidden && st.make === 'Make a new token' && /^The token ended /.test(st.line), `an ended token reads ${JSON.stringify(st)}`);
+      await shot(t, 'agent-page-token-ended-1280-dark');
+      expect(t.problems.length === 0, `lifetime block: ${t.problems.join('; ')}`);
+      await t.close();
+    }
     // An address that names no agent opens the list.
     {
       const t = await open(1280, 'dark', 'admin');
@@ -472,6 +563,7 @@ async function main() {
     if (browser) await stopBrowser(browser.child, browser.dir);
     await stopServer(server);
     await stopServer(plain);
+    await stopServer(exp);
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
   }
   if (failures.length) { for (const f of failures) console.error('check-agent-pages: ' + f); return 1; }
