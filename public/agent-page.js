@@ -135,6 +135,18 @@ const make = (tag, cls, text) => {
   return el;
 };
 
+// A hint with "Roles" as a link to Manage > Roles (/admin#roles). It opens in a new tab: the guide is also in the token
+// window, and leaving that page would lose the token, which is shown once.
+const rolesHint = (before, after) => {
+  const p = make('p', 'hint', before);
+  const a = make('a', '', 'Roles');
+  a.href = '/admin#roles';
+  a.target = '_blank';
+  a.rel = 'noopener';
+  p.append(a, after);
+  return p;
+};
+
 // Connect Claude Code: the command and the .mcp.json form, with this server's address (the page's own origin, right in every
 // environment). `token` is the real one in the token window and a placeholder on the agent's page. Text only.
 const PLACEHOLDER_TOKEN = 'agt_YOUR_TOKEN';
@@ -250,7 +262,7 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
     make('h4', 'agent-connect-sub', 'What to try next'),
     next,
     make('p', 'hint', 'A change waits until a person who can change that module has it open.'),
-    make('p', 'hint', 'To let Claude write in Chat, tick Send chat messages for agents on Roles.'),
+    rolesHint('To let Claude write in Chat, tick Send chat messages for agents on ', '.'),
     make('h4', 'agent-connect-sub', 'Claude apps'),
     apps,
     make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),

@@ -443,33 +443,42 @@ async function loadUsers() {
 
 // --- roles ---------------------------------------------------------------------
 // A grid: one row per permission, one column per role. Owner is always all
-// on and disabled; the other three save the moment a box is clicked.
+// on and disabled; the others save the moment a box is clicked.
 
-const ROLE_COLUMNS = ['owner', 'moderator', 'member', 'guest'];
+// The columns are the server's (GET /api/roles, `columns`): the four, then the agent's while AGENT_TOKENS is on. A cell the
+// column can never have shows no box (plan-agent-matrix.md, decision 6), and an agent-only row ("Agents") has a box only in
+// the agent column.
+const AGENT_COLUMN = 'agent';
+const roleHeading = (role) => (role === AGENT_COLUMN ? 'Agent' : word(role, { cap: true }));
 
-function renderRoles({ permissions, roles }) {
-  const label = (role) => word(role, { cap: true });
-  const rows = ['<thead><tr><th scope="col"><span class="visually-hidden">What they can do</span></th>' + ROLE_COLUMNS.map((role) => `<th scope="col" class="is-center">${escapeHtml(label(role))}</th>`).join('') + '</tr></thead><tbody>'];
+function renderRoles({ permissions, roles, columns = ['owner', 'moderator', 'member', 'guest'], never = {} }) {
+  const label = roleHeading;
+  const neverOf = (role) => new Set(never[role] || []);
+  const nevers = Object.fromEntries(columns.map((role) => [role, neverOf(role)]));
+  const hasAgent = columns.includes(AGENT_COLUMN);
+  const rows = ['<thead><tr><th scope="col"><span class="visually-hidden">What they can do</span></th>' + columns.map((role) => `<th scope="col" class="is-center">${escapeHtml(label(role))}</th>`).join('') + '</tr></thead><tbody>'];
   let group = null;
   for (const p of permissions) {
-    if (p.agentOnly) continue; // the Agent column's own rows; the grid draws that column in plan-agent-matrix's step 2
+    if (p.agentOnly && !hasAgent) continue;
     if (p.group !== group) {
       group = p.group;
-      rows.push(`<tr class="sdk-table-group"><th scope="colgroup" colspan="${ROLE_COLUMNS.length + 1}">${escapeHtml(group)}</th></tr>`);
+      rows.push(`<tr class="sdk-table-group"><th scope="colgroup" colspan="${columns.length + 1}">${escapeHtml(group)}</th></tr>`);
     }
     // A library's "See every file" (plan-vault-privacy.md): the one row that says what it does, and a guest can never have it.
     const seesAll = /^module\.[a-z0-9-]+\.see_all$/.test(p.key);
     const about = seesAll ? `Lets this role open files that were not shared with them. Off by default for ${word('moderator', { many: true })}; ${word('owner', { many: true })} always can.` : '';
-    rows.push(`<tr><th scope="row">${escapeHtml(p.label)}${about ? `<span class="sdk-table-sub">${escapeHtml(about)}</span>` : ''}</th>` + ROLE_COLUMNS.map((role) => {
-      const noGuestAi = role === 'guest' && p.key === 'useAi'; // the server refuses guests whatever the box says
-      const noGuestFiles = role === 'guest' && seesAll;
-      const locked = role === 'owner' || noGuestAi || noGuestFiles;
-      const why = noGuestAi ? `${word('guest', { many: true, cap: true })} can never use AI` : noGuestFiles ? `${word('guest', { many: true, cap: true })} can never do this` : `${word('owner', { many: true, cap: true })} can always do this`;
-      return `<td class="is-center"><input type="checkbox" data-role="${role}" data-perm="${p.key}" ${(roles[role] || {})[p.key] && !noGuestAi && !noGuestFiles ? 'checked' : ''} ${locked ? `disabled title="${escapeHtml(why)}"` : ''} ${seesAll && !locked ? `title="${escapeHtml(about)}"` : ''} aria-label="${escapeHtml(p.label)}, ${escapeHtml(label(role))}"></td>`;
+    rows.push(`<tr><th scope="row">${escapeHtml(p.label)}${about ? `<span class="sdk-table-sub">${escapeHtml(about)}</span>` : ''}</th>` + columns.map((role) => {
+      if (p.agentOnly && role !== AGENT_COLUMN) return '<td class="is-center"></td>'; // an agent-only row: no box for people
+      if (role === AGENT_COLUMN && nevers[role].has(p.key)) return '<td class="is-center"></td>'; // never the agent's: nothing drawn, the cell kept
+      const guestLocked = role === 'guest' && nevers.guest.has(p.key); // the server refuses guests whatever the box says
+      const locked = role === 'owner' || guestLocked;
+      const why = guestLocked ? `${word('guest', { many: true, cap: true })} can never do this` : `${word('owner', { many: true, cap: true })} can always do this`;
+      return `<td class="is-center"><input type="checkbox" data-role="${role}" data-perm="${p.key}" ${(roles[role] || {})[p.key] && !guestLocked ? 'checked' : ''} ${locked ? `disabled title="${escapeHtml(why)}"` : ''} ${seesAll && !locked ? `title="${escapeHtml(about)}"` : ''} aria-label="${escapeHtml(p.label)}, ${escapeHtml(label(role))}"></td>`;
     }).join('') + '</tr>');
   }
   rows.push('</tbody>');
   $('roles-table').innerHTML = rows.join('');
+  $('roles-agent-never').hidden = !hasAgent; // what an agent can never do, once, under the grid
 }
 async function loadRoles() {
   renderRoles(await api('GET', '/api/roles'));
