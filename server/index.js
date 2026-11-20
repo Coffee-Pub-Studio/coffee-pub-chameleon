@@ -80,7 +80,7 @@ const { ModuleHooks, HOST_SOURCE } = require('./module-hooks');
 const moduleNotices = require('./module-notices');
 const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
-const { tokenView } = require('./tokens');
+const { tokenView, LIFETIMES, DEFAULT_LIFETIME: DEFAULT_TOKEN_LIFETIME } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
 const { createMcp } = require('./mcp');
 const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
@@ -5657,22 +5657,28 @@ function addAgent(req, res) {
   const user = store.addAgent({ displayName: body.displayName });
   return res.status(201).json({ user: publicUser(req, user) });
 }
-// GET: { token: { id, createdAt, expiresAt, lastUsedAt, lastAddress } } or { token: null }. Never the token or its hash.
+// GET: { token: { id, createdAt, lifetime, expiresAt (null for never), lastUsedAt, lastAddress } } or { token: null }. Never the token or its hash.
 app.get('/api/users/:key/token', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
   res.set('Cache-Control', 'no-store').json({ token: tokenView(currentEnvironment().tokens.of(agent.key)) });
 });
-// POST: a new token, shown this once: 201 { token, expiresAt }. Any earlier token of the agent ends.
+// POST { expires? }: a new token, shown this once: 201 { token, lifetime, expiresAt }. `expires` is one of the LIFETIMES
+// words (30d when absent); expiresAt is null for "never". Any earlier token of the agent ends.
 app.post('/api/users/:key/token', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
+  const body = req.body === undefined || req.body === null ? {} : req.body;
+  if (typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'Send an object, like { "expires": "90d" }.' });
+  if (Object.keys(body).some((k) => k !== 'expires')) return res.status(400).json({ error: 'Only expires can be sent.' });
+  const lifetime = body.expires === undefined ? DEFAULT_TOKEN_LIFETIME : body.expires;
+  if (typeof lifetime !== 'string' || !Object.hasOwn(LIFETIMES, lifetime)) return res.status(400).json({ error: `expires is one of: ${Object.keys(LIFETIMES).join(', ')}.` });
   const refused = agentsRefusal();
   if (refused) return res.status(403).json({ error: refused });
   if (agent.off) return res.status(409).json({ error: 'This agent is turned off. Turn it on first.' });
-  const { token, record } = currentEnvironment().tokens.make(agent.key, 'agent');
+  const { token, record } = currentEnvironment().tokens.make(agent.key, 'agent', lifetime);
   endAgentAsks(); // what the earlier token asked for ends with it
-  res.status(201).set('Cache-Control', 'no-store').json({ token, expiresAt: record.expiresAt });
+  res.status(201).set('Cache-Control', 'no-store').json({ token, lifetime: record.lifetime, expiresAt: record.expiresAt });
 });
 // DELETE: revokes it at once: { ok: true, revoked } (false when it had none).
 app.delete('/api/users/:key/token', requireOwner, (req, res) => {
