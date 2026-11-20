@@ -1648,7 +1648,7 @@ async function runList(env) {
     if (!writable(to)) throw new Error(REFUSED);
     if (to === 'global' && target.marks.some((sp) => !canMark(sp))) throw new Error(REFUSED);
     await ensureLoaded(to);
-    const place = placeFromRequest(input, me);
+    const place = placeFromRequest(input, me, state.people);
     place.spaces = target.marks;
     place.icon = lookOf(place, cats).icon;
     const done = await stores[to].save(place);
