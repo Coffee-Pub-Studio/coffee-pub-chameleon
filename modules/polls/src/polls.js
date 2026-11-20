@@ -859,6 +859,25 @@
         openEditor(pollFromObject(input.object, host.util));
         return {};
       },
+      // An agent's request (or another module's): a poll as the form would save it, within the form's own limits (pollFromRequest in
+      // polls-lib.js). This open page carries it out, so the poll is the person's whose page it is. There is no voting action.
+      createPoll: async (input) => {
+        if (!canCreate) throw new Error('this person cannot start a poll here');
+        const made = pollFromRequest(input);
+        let closesAt = made.closesAt;
+        if (closesAt === null && prefs.closeAfterDays > 0) {
+          const d = new Date(Date.now() + prefs.closeAfterDays * 24 * 60 * 60 * 1000);
+          closesAt = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0).getTime();
+        }
+        const p = {
+          id: newId(), question: made.question, options: made.options.map((text, i) => ({ id: 'o' + (i + 1), text })),
+          multi: made.multi, addable: Boolean(prefs.addableByDefault), closed: false, closesAt, createdAt: Date.now(), by: info.user.name, byKey: me,
+        };
+        const saved = await host.storage.set('poll:' + p.id, p);
+        rememberPoll('own', { key: 'poll:' + p.id, value: p, version: saved.version });
+        render();
+        return { ref: host.objects.make('poll', p.id) };
+      },
       addPoll: async (input) => {
         if (!canCreate) throw new Error('this person cannot start a poll here');
         const parsed = input.text && host.util.parseWhen ? host.util.parseWhen(input.text) : { title: input.text || '' };

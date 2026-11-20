@@ -1,7 +1,7 @@
 {
   "id": "polls",
   "name": "Polls",
-  "version": "1.15.30",
+  "version": "1.15.31",
   "icon": "square-poll-vertical",
   "color": "purple",
   "description": "Quick polls and votes for the whole {environment} and for each {space}, with live results.",
@@ -164,6 +164,23 @@
         "takes": [
           { "kinds": ["poll", "text"], "as": "a poll", "permission": "create" }
         ]
+      },
+      {
+        "name": "createPoll",
+        "label": "Start a poll",
+        "description": "Start a new poll with a question and two or more choices.",
+        "effect": "write",
+        "input": {
+          "question": "string",
+          "options": "text",
+          "multiple": "boolean?",
+          "closes": "string?"
+        },
+        "inputHints": {
+          "options": "The choices, two to 20, each up to 100 letters, separated by commas. No two the same.",
+          "multiple": "True lets people choose more than one answer. Leave out for one answer.",
+          "closes": "When voting ends: a day as YYYY-MM-DD (closes at noon) or YYYY-MM-DDTHH:MM. Must be in the future."
+        }
       },
       {
         "name": "addPoll",
