@@ -7,6 +7,7 @@
 import { confirmDialog } from '/confirm.js';
 
 const MAX_NAME = 40;
+const POLL_MS = 10000; // how often the live "Claude connected" line asks while it is on screen
 // The agent's name as a person reads it, with the mark that it is not a person.
 export const agentName = (user) => `${String((user && (user.displayName || user.key)) || 'Agent')} (agent)`;
 
@@ -91,6 +92,22 @@ export function logLine(entry, { spaceName = () => '', moduleName: lookup = () =
   return { text, note: false, detail, message };
 }
 
+// The log's lines as the page shows them (newest first): a run of /mcp handshake lines (initialize, tools/list, a ping, the client's
+// GET) from one address, each within a minute of the one before, is one line with a count, carrying the time of the newest. Tool
+// calls have their own routes and are never folded in. Only the display is grouped; the log keeps every entry.
+const FOLD_MS = 60000;
+// `carry` is the last run of the page before (Show older): a run that goes on over the page's edge is the same run.
+export function foldLines(entries, carry = null) {
+  const out = carry ? [carry] : [];
+  for (const entry of entries) {
+    const last = out[out.length - 1];
+    const mcp = (e) => e && e.route === '/mcp' && e.kind !== null && e.kind !== undefined;
+    if (last && mcp(entry) && mcp(last.last) && (last.last.address || '') === (entry.address || '') && Math.abs(Date.parse(last.last.at) - Date.parse(entry.at)) <= FOLD_MS) { last.count += 1; last.last = entry; continue; }
+    out.push({ entry, last: entry, count: 1 });
+  }
+  return out;
+}
+
 const make = (tag, cls, text) => {
   const el = document.createElement(tag);
   if (cls) el.className = cls;
@@ -133,8 +150,89 @@ function copyBlock(label, text, copyLabel = 'Copy') {
   return wrap;
 }
 
+// How long ago, in plain words: "just now", "2 minutes ago", "3 hours ago", "4 days ago".
+export function agoText(iso, now = Date.now()) {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const s = Math.max(0, Math.round((now - t) / 1000));
+  const n = (v, unit) => `${v} ${unit}${v === 1 ? '' : 's'} ago`;
+  if (s < 60) return 'just now';
+  if (s < 3600) return n(Math.floor(s / 60), 'minute');
+  if (s < 86400) return n(Math.floor(s / 3600), 'hour');
+  return n(Math.floor(s / 86400), 'day');
+}
+// What the live line says, from the token's last use (null when there is no token or it was never used). Says only what is known.
+export const connectedText = (lastUsedAt, now = Date.now()) => {
+  const ago = lastUsedAt ? agoText(lastUsedAt, now) : '';
+  return ago ? `Claude connected, ${ago}` : 'Not connected yet';
+};
+
+export const FIRST_QUESTION = 'Use the chameleon tools. Which spaces can you see, and what is in the to-do list?';
+export const CLAUDE_DOCS = 'https://code.claude.com/docs';
+
+// The guided flow: purpose, what you need, numbered steps, the first question, what to try next. `token` is the real one in the
+// token window and a placeholder on the agent's page (`note` then says why). Returns { el, setUsed(lastUsedAt) } for the live line.
+// Text only; the token is only ever put in as textContent.
+function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 'space', spaceName = '', spaceWords = (n) => (n === 1 ? 'space' : 'spaces') }) {
+  const el = make('div', 'agent-connect');
+  const live = make('p', 'agent-connected');
+  live.setAttribute('role', 'status');
+  live.dataset.agentConnected = '';
+  const chip = make('span', 'sdk-status');
+  live.append(chip);
+  const setUsed = (lastUsedAt) => {
+    chip.textContent = connectedText(lastUsedAt);
+    chip.dataset.tone = lastUsedAt && agoText(lastUsedAt) ? 'ok' : '';
+  };
+  setUsed(null);
+  // Where the agent is a member: only what the spaces list says.
+  const where = make('p', 'agent-connected');
+  where.setAttribute('role', 'status');
+  where.dataset.agentSpaces = '';
+  const setSpaces = (names) => {
+    if (!Array.isArray(names)) { where.textContent = ''; return; } // not known yet: says nothing
+    const list = names;
+    where.textContent = !list.length ? `Not in any ${spaceWord} yet. Add it under ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}'s Set up, then Members.`
+      : list.length === 1 ? `In 1 ${spaceWords(1)}: ${list[0]}` : `In ${list.length} ${spaceWords(list.length)}`;
+  };
+  setSpaces(null);
+  const need = make('p', 'hint', 'You need Claude Code, a program you run in a terminal on your own computer. ');
+  const link = make('a', '', 'About Claude Code');
+  link.href = CLAUDE_DOCS;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  need.append(link);
+  const steps = make('ol', 'agent-steps');
+  const step = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); steps.append(li); return li; };
+  step(`Add this agent to ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}.`, make('p', 'hint', `An agent only works in ${spaceWords(2)} it belongs to. Open the ${spaceWord}'s Set up, then Members, switch on "${agentLabel}", and Save.`), where);
+  step('Copy the command.', copyBlock('Command', connectCommand(location.origin, token)), ...(note ? [make('p', 'hint', note)] : []));
+  step('Open a terminal on your computer, paste it and press Enter.');
+  const three = step('Start Claude Code by typing ');
+  three.querySelector('span').after(make('code', '', 'claude'));
+  step('Ask it the first question below.');
+  const next = make('ul', 'agent-try');
+  for (const line of [`Summarise the chat in ${spaceName || `the ${spaceWord}`}.`, 'What is due this week?', 'Ask the Planner to add a milestone.']) next.append(make('li', '', line));
+  const file = make('details', 'agent-file');
+  file.append(make('summary', '', 'Use a project file instead'), make('p', 'hint', 'Save this as .mcp.json in the folder you work in, then start Claude Code there. Or add --scope user to the command to use it in every folder.'), copyBlock('.mcp.json', connectJson(location.origin, token)));
+  el.append(
+    make('h3', 'agent-connect-title', 'Connect Claude'),
+    make('p', 'hint', 'Let Claude read and help in the spaces this agent is in: the plan, the to-dos and the chat.'),
+    need, live, steps,
+    make('h4', 'agent-connect-sub', 'What to say first'),
+    copyBlock('First question', FIRST_QUESTION),
+    make('h4', 'agent-connect-sub', 'What to try next'),
+    next,
+    make('p', 'hint', 'A change waits until a person who can change that module has it open.'),
+    make('p', 'hint', 'To let Claude write in Chat, switch on Post in Chat for this agent.'),
+    make('p', 'hint', 'Claude apps (web, desktop, mobile): not yet tested with a token.'),
+    file,
+  );
+  return { el, setUsed, setSpaces };
+}
+
 // The token, once: a dialog with the token in a box, Copy and the plain warning. The only place the token is ever on a page.
-export function showToken({ token, expiresAt, agent, hour12 = true }) {
+// `poll()` (optional) answers the token's record again ({ lastUsedAt }); it is asked every few seconds while the window is open.
+export function showToken({ token, expiresAt, agent, hour12 = true, poll = null, spaceWord, spaceName, spaceWords }) {
   return new Promise((resolve) => {
     const opener = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
     const dlg = make('dialog', 'sdk-dialog sdk-dialog-confirm agent-token-dialog');
@@ -156,14 +254,8 @@ export function showToken({ token, expiresAt, agent, hour12 = true }) {
     status.setAttribute('role', 'status');
     row.append(copy, status);
     const ends = make('p', 'hint', `It works until ${dayText(expiresAt) || 'its end'}. Keep it as a secret, never in a chat.`);
-    const origin = location.origin;
-    const connect = make('div', 'agent-connect');
-    connect.append(
-      make('h3', 'agent-connect-title', 'Connect Claude Code'),
-      make('p', 'hint', 'Run this in a terminal on your computer, in the folder you work in. Add --scope user to use it in every folder. It contains the token, so keep it private.'),
-      copyBlock('Command', connectCommand(origin, token)),
-      copyBlock('Or in a .mcp.json file', connectJson(origin, token)),
-    );
+    const guide = connectGuide({ token, agentLabel: agentName(agent), spaceWord, spaceName, spaceWords });
+    const connect = guide.el;
     body.append(warning, box, row, ends, connect);
     const foot = make('div', 'sdk-dialog-foot');
     const done = make('button', 'btn btn-primary', 'Done');
@@ -173,7 +265,12 @@ export function showToken({ token, expiresAt, agent, hour12 = true }) {
     dlg.append(head, body, foot);
     const root = document.documentElement;
     const was = root.style.overflow;
+    let timer = null;
+    const refresh = async () => { try { const t = poll && await poll(); if (dlg.isConnected && t) { guide.setUsed(t.lastUsedAt || null); guide.setSpaces(t.spaceNames); } } catch { /* the line keeps what it said */ } };
+    if (poll) refresh();
+    if (poll) timer = setInterval(() => { if (!document.hidden) refresh(); }, POLL_MS);
     const close = () => {
+      clearInterval(timer);
       if (dlg.open) dlg.close();
       root.style.overflow = was;
       dlg.remove();
@@ -210,6 +307,14 @@ export function mountAgentPage(ctx) {
   let agent = null;
   let oldest = null; // the `at` of the oldest line shown, for the next page
   let token = null; // GET /api/users/:key/token's answer
+  let lastRun = null; // the last run of lines shown (see foldLines)
+  let guide = null; // the Connect Claude block drawn by paint(), for its live line
+  let timer = null;
+  const tokenUrl = () => `/api/users/${encodeURIComponent(agent.key)}/token`;
+  const spaceHint = () => { const first = ctx.spaces()[0]; return { spaceWord: ctx.word('space'), spaceName: first ? first.name : '', spaceWords: (n) => ctx.word('space', { many: n !== 1 }), agentLabel: agentName(agent) }; };
+  // The names of the spaces the agent is a member of (the Lobby is never one), from the spaces list.
+  const memberOf = async () => ((await ctx.api('GET', '/api/spaces')).spaces || []).filter((r) => !r.isLobby && Array.isArray(r.members) && r.members.includes(agent.key)).map((r) => r.name);
+  const useNow = async () => ({ ...(await ctx.api('GET', tokenUrl())).token, spaceNames: await memberOf() });
 
   const spaceName = (id) => { const s = ctx.spaces().find((r) => r.id === id); return s ? s.name : ''; };
   const speak = (text, error = false) => ctx.say($('[data-agent-status]'), text, error);
@@ -237,12 +342,10 @@ export function mountAgentPage(ctx) {
     $('[data-agent="make"]').textContent = token ? 'Make a new token' : 'Make token';
     $('[data-agent="make"]').classList.toggle('btn-primary', !token);
     const connect = $('[data-agent-connect]');
-    connect.replaceChildren(
-      make('h3', 'agent-connect-title', 'Connect Claude'),
-      copyBlock('Claude Code, with your token in place of agt_YOUR_TOKEN', connectCommand(location.origin, PLACEHOLDER_TOKEN)),
-      make('p', 'hint', 'The token is shown once when you make it.'),
-      make('p', 'hint', `Claude apps: Add custom connector, address ${location.origin}/mcp. Not yet tested with a token.`),
-    );
+    guide = connectGuide({ token: PLACEHOLDER_TOKEN, note: `Your token goes where it says ${PLACEHOLDER_TOKEN}. It is shown once, when you make it. To get one, use "${token ? 'Make a new token' : 'Make token'}" above.`, ...spaceHint() });
+    connect.replaceChildren(guide.el);
+    guide.setUsed(token ? token.lastUsedAt || null : null);
+    memberOf().then((names) => { if (guide && agent) guide.setSpaces(names); }).catch(() => {});
     $('[data-agent="revoke"]').hidden = !token;
     $('[data-agent-make-hint]').textContent = token ? 'A new token ends the old one.' : `Claude uses the token to work in the ${ctx.word('space', { many: true })} you add it to.`;
   }
@@ -250,6 +353,29 @@ export function mountAgentPage(ctx) {
   async function loadToken() {
     try { token = (await ctx.api('GET', `/api/users/${encodeURIComponent(agent.key)}/token`)).token; } catch (err) { token = null; speak(err.message, true); }
   }
+
+  // The live line and the "Last used" line, from the token's record. Light: no redraw of the page.
+  async function refreshUse() {
+    if (!agent) return;
+    const key = agent.key;
+    try {
+      const t = (await ctx.api('GET', tokenUrl())).token;
+      const names = await memberOf();
+      if (!agent || agent.key !== key) return;
+      if (guide) guide.setSpaces(names);
+      if (!t) return;
+      token = t;
+      if (guide) guide.setUsed(t.lastUsedAt || null);
+      $('[data-agent-used]').textContent = t.lastUsedAt ? `Last used ${whenText(t.lastUsedAt, ctx.hour12())}${t.lastAddress ? ` from ${t.lastAddress}` : ''}` : 'Not used yet.';
+    } catch { /* the line keeps what it said */ }
+  }
+  const stopPolling = () => { clearInterval(timer); timer = null; document.removeEventListener('visibilitychange', onVisible); };
+  const startPolling = () => {
+    stopPolling();
+    timer = setInterval(() => { if (!document.hidden) refreshUse(); }, POLL_MS);
+    document.addEventListener('visibilitychange', onVisible);
+  };
+  function onVisible() { if (!document.hidden && agent) refreshUse(); }
 
   async function loadLog(more) {
     const list = $('[data-agent-log]');
@@ -264,13 +390,20 @@ export function mountAgentPage(ctx) {
     if (!agent || agent.key !== key) return;
     $('[data-agent-log-status]').textContent = '';
     if (!more) { list.replaceChildren(); oldest = null; }
-    for (const entry of answer.entries) {
+    if (!more) lastRun = null;
+    for (const run of foldLines(answer.entries, more ? lastRun : null)) {
+      const { entry, last, count } = run;
       const line = logLine(entry, { spaceName, moduleName: ctx.moduleName, hour12: ctx.hour12(), word: ctx.word });
-      const li = make('li', `agent-log-line${line.note ? ' is-note' : ''}`);
-      li.append(make('span', 'agent-log-what', line.text), make('span', 'agent-log-detail', line.detail));
-      if (line.message) li.append(make('span', 'agent-log-detail', line.message));
-      list.append(li);
-      oldest = entry.at;
+      if (count > 1) line.text = `${line.text} (${count} messages)`;
+      if (run.li) run.li.querySelector('.agent-log-what').textContent = line.text; // a run that went on over the page's edge
+      else {
+        run.li = make('li', `agent-log-line${line.note ? ' is-note' : ''}`);
+        run.li.append(make('span', 'agent-log-what', line.text), make('span', 'agent-log-detail', line.detail));
+        if (line.message) run.li.append(make('span', 'agent-log-detail', line.message));
+        list.append(run.li);
+      }
+      oldest = last.at;
+      lastRun = run;
     }
     $('[data-agent-log-empty]').hidden = list.children.length > 0;
     $('[data-agent="older"]').hidden = answer.more !== true;
@@ -282,7 +415,10 @@ export function mountAgentPage(ctx) {
       const made = await ctx.api('POST', `/api/users/${encodeURIComponent(agent.key)}/token`);
       await loadToken();
       paint();
-      await showToken({ token: made.token, expiresAt: made.expiresAt, agent, hour12: ctx.hour12() });
+      await showToken({ token: made.token, expiresAt: made.expiresAt, agent, hour12: ctx.hour12(), poll: useNow, ...spaceHint() });
+      await loadToken();
+      paint();
+      loadLog(false);
     } catch (err) {
       speak(err.message, true);
     } finally {
@@ -362,8 +498,9 @@ export function mountAgentPage(ctx) {
       paint();
       await loadToken();
       paint();
+      startPolling();
       await loadLog(false);
     },
-    close() { agent = null; token = null; },
+    close() { stopPolling(); agent = null; token = null; guide = null; },
   };
 }

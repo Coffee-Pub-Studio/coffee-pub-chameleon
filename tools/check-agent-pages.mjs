@@ -169,6 +169,9 @@ async function main() {
     expect(SCHEDULE_NAME, 'the schedule module has no name in GET /api/modules');
     const lines = [];
     const at = (n) => new Date(Date.UTC(2026, 9, 14, 8, 0, 0) + n * 1000).toISOString();
+    // A client's health check: four /mcp handshake lines in one minute from one address (one displayed line), then a tool call after them (its own line).
+    for (let i = 0; i < 4; i++) lines.push({ at: at(-10 + i), agent: agent.key, token: 'tok1', method: i === 3 ? 'GET' : 'POST', route: '/mcp', space: null, module: null, action: null, request: null, message: null, status: i === 3 ? 405 : 200, address: '203.0.113.9', kind: 'read' });
+    lines.push({ at: at(-6), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/objects/search', space: null, module: null, action: null, request: null, message: null, status: 200, address: '203.0.113.9', kind: 'read' });
     for (let i = 0; i < 120; i++) lines.push({ at: at(i), agent: agent.key, token: 'tok1', method: 'GET', route: '/api/modules/:id/data', space: space.id, action: null, request: null, message: null, status: 200, address: '203.0.113.9', kind: 'read', module: 'schedule' });
     lines.push({ at: at(200), agent: agent.key, token: 'tok1', method: 'POST', route: '/api/spaces/:id/action', space: space.id, module: 'schedule', action: 'schedule:addMilestone', request: 7, message: null, status: 202, address: '203.0.113.9', kind: 'write' });
     lines.push({ at: at(201), agent: agent.key, token: 'tok1', method: 'GET', route: HOSTILE, space: null, module: HOSTILE, action: HOSTILE, request: null, message: '<b>hi</b>', status: 200, address: HOSTILE, kind: 'read' });
@@ -193,6 +196,16 @@ async function main() {
     await tab.waitFor('[data-agent="make"]');
     expect(await text(tab, '[data-agent-token-state]') === 'No token yet.', `with no token the page says "${await text(tab, '[data-agent-token-state]')}"`);
     expect(await text(tab, '[data-agent="make"]') === 'Make token' && await hiddenOf(tab, '[data-agent="revoke"]'), 'Make token / Revoke are not as they are before a token');
+    {
+      // In no space, then in one: the page's line follows the space's members within the refresh window.
+      await call('admin', 'PATCH', `/api/spaces/${space.id}`, { members: ['mia'] });
+      await go(tab, `/admin#agent/${agent.key}`);
+      await tab.waitFor('[data-agent="make"]');
+      expect(await waitText(tab, '[data-agent-spaces]', "Not in any space yet. Add it under a space's Set up, then Members."), `the page says "${await text(tab, '[data-agent-spaces]')}" for an agent in no space`);
+      await shot(tab, 'agent-page-no-space-1280-dark');
+      await call('admin', 'PATCH', `/api/spaces/${space.id}`, { members: ['mia', agent.key] });
+      expect(await waitText(tab, '[data-agent-spaces]', `In 1 space: ${SPACE_NAME}`, 16000), 'the page did not follow the agent being added to a space');
+    }
     await shot(tab, 'agent-page-empty-1280-dark');
     await press(tab, '[data-agent="make"]');
     expect(await waitDialog(tab, true), 'Make token showed no dialog');
@@ -201,7 +214,15 @@ async function main() {
     expect(made && made.warning === WARNING, `the warning reads "${made && made.warning}"`);
     expect(made && made.copy && made.title === 'Token for Claude (agent)', `the dialog's title is "${made && made.title}" or Copy is missing`);
     const token = made ? made.token : '';
+    {
+      const guide = await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog[open]'); const t = (sel) => [...d.querySelectorAll(sel)].map((e) => e.textContent); return { live: d.querySelector('[data-agent-connected]').textContent, steps: t('.agent-steps > li').length, command: t('.agent-copy-text')[0], first: t('.agent-copy-text')[1], link: d.querySelector('a[href]').href, file: d.querySelector('details.agent-file') && !d.querySelector('details.agent-file').open, tries: t('.agent-try li') }; })()`);
+      expect(guide.live === 'Not connected yet', `the window's live line reads "${guide.live}" before any use`);
+      expect(guide.steps === 5 && guide.command.includes(token) && guide.first === 'Use the chameleon tools. Which spaces can you see, and what is in the to-do list?', 'the window does not show the five steps, the command with the token and the first question');
+      expect(guide.link === 'https://code.claude.com/docs' && guide.file && guide.tries.length === 3, 'the Claude Code link, the closed project-file disclosure or the three things to try are not as written');
+    }
+    expect(await waitText(tab, 'dialog.agent-token-dialog [data-agent-spaces]', `In 1 space: ${SPACE_NAME}`), 'the window does not say which space the agent is in');
     expect((await call('x', 'GET', '/api/agent/me', undefined, server, token)).status === 200, 'the token shown does not work');
+    expect(await waitText(tab, 'dialog.agent-token-dialog [data-agent-connected]', 'Claude connected, ', 16000), 'the live line in the window did not flip to "Claude connected" within the refresh window');
     await shot(tab, 'token-dialog-1280-dark', false);
     await tab.switchMode('light'); await tab.settle();
     await shot(tab, 'token-dialog-1280-light', false);
@@ -210,6 +231,7 @@ async function main() {
     expect(await waitDialog(tab, false), 'Done did not close the token dialog');
     expect(!(await tab.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(token)}) || document.body.innerText.includes(${JSON.stringify(token)})`)), 'the token is still on the page after Done');
     expect(await text(tab, '[data-agent="make"]') === 'Make a new token' && !(await hiddenOf(tab, '[data-agent="revoke"]')), 'after a token is made the page does not offer a new one and Revoke');
+    expect(/^Claude connected, /.test(await text(tab, '[data-agent-connected]')) && (await tab.eval(`document.querySelector('[data-agent-connect] .agent-copy-text').textContent`)).includes('agt_YOUR_TOKEN'), 'the page does not show "Claude connected" and the command with the placeholder');
     expect(/^The token works until /.test(await text(tab, '[data-agent-token-state]')), `the token state reads "${await text(tab, '[data-agent-token-state]')}"`);
     await go(tab, `/admin#agent/${agent.key}`);
     await tab.waitFor('[data-agent="make"]');
@@ -255,7 +277,14 @@ async function main() {
     await sleep(800);
     expect(await tab.eval(`document.querySelectorAll('[data-agent-log] li').length`) > 100, 'Show older did not add older lines');
     expect(await tab.eval(`(() => { const items = [...document.querySelectorAll('[data-agent-log] li .agent-log-what')].map((e) => e.textContent); return items.filter((w) => w === 'Read ${SCHEDULE_NAME} data in ${SPACE_NAME}').length; })()`) >= 20, 'the older page is not the older lines');
+    for (let i = 0; i < 5 && !(await hiddenOf(tab, '[data-agent="older"]')); i++) { await press(tab, '[data-agent="older"]'); await sleep(800); }
     expect(await hiddenOf(tab, '[data-agent="older"]'), 'Show older stays after the last page');
+    {
+      const whats = await tab.eval(`[...document.querySelectorAll('[data-agent-log] li .agent-log-what')].map((e) => e.textContent)`);
+      const at = whats.indexOf('Connected through MCP (4 messages)');
+      expect(at >= 1 && whats.filter((w) => /^Connected through MCP/.test(w)).length === 1, `four /mcp lines are not one line "Connected through MCP (4 messages)" (${whats.filter((w) => /MCP/.test(w)).join(' | ')})`);
+      expect(/^Searched /.test(whats[at - 1]), `the tool call after the /mcp lines is "${whats[at - 1]}", not its own line`);
+    }
 
     // Post in Chat: off by default; the switch is saved on the server, and a refusal shows the server's sentence and puts it back.
     {

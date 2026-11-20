@@ -10138,6 +10138,15 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 .agent-token-dialog .agent-token-warning { color: var(--text); }
 .agent-connect { margin-top: 16px; }
 .agent-connect-title { margin: 0 0 8px; font-size: var(--text-14); }
+.agent-connect-sub { margin: 16px 0 0; font-size: var(--text-13); }
+.agent-connected { margin: 12px 0 0; }
+.agent-steps { margin: 12px 0 0; padding-left: 24px; }
+.agent-steps > li { margin-top: 8px; overflow-wrap: anywhere; }
+.agent-try { margin: 8px 0 0; padding-left: 24px; }
+.agent-try + .hint { margin-top: 8px; }
+.agent-file { margin-top: 16px; }
+.agent-file summary { cursor: pointer; width: fit-content; min-height: var(--space-6); color: var(--text-link, var(--accent)); font-size: var(--text-13); }
+.agent-file summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .agent-copy { margin-top: 8px; }
 .agent-copy + .hint { margin-top: 8px; }
 .agent-copy .agent-copy-text { display: block; font-size: var(--text-13); padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
