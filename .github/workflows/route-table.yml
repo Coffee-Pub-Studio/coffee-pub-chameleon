@@ -1,0 +1,32 @@
+name: Route table
+
+# The route table check (tools/check-route-table.mjs): the server's routes, in mount order, against tools/route-table.json.
+# It starts the server only to read its routes; no LiveKit server, no browser, no network. A change that adds, removes,
+# renames or moves a route updates the file in the same pull request (node tools/check-route-table.mjs --update).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: route-table-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  route-table:
+    name: Route table
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node tools/check-route-table.mjs
