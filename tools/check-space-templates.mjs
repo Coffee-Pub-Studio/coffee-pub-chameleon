@@ -215,10 +215,10 @@ await test('a new space starts from its template, else the environment; later ch
   assert.equal(g.profile, 'characters', "games has no profile of its own: the environment's");
   const t = store.addSpace({ name: 'T', template: 'travel' });
   assert.equal(t.profile, 'participants');
-  assert.deepEqual(store.layoutOf(t.id), { shape: 'wide-narrow', areas: ['travel', 'vault'] }, "the travel template's layout, read live");
+  assert.deepEqual(store.layoutOf(t.id), { shape: 'wide-split', areas: ['travel', 'vault', 'todo'] }, "the travel template's layout, read live");
   const plain = store.addSpace({ name: 'P' });
   assert.equal(plain.profile, 'characters');
-  assert.deepEqual(store.layoutOf(plain.id), { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'no template of its own: the environment\'s, read live');
+  assert.deepEqual(store.layoutOf(plain.id), { shape: 'wide-split', areas: ['travel', 'vault', 'todo'] }, 'no template of its own: the environment\'s, read live');
   const picked = store.addSpace({ name: 'Q', template: 'travel', profile: 'roleplaying' });
   assert.equal(picked.profile, 'roleplaying', 'a profile given wins');
   // A change of template touches only the key.
