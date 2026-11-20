@@ -98,6 +98,41 @@ const make = (tag, cls, text) => {
   return el;
 };
 
+// Connect Claude Code: the command and the .mcp.json form, with this server's address (the page's own origin, right in every
+// environment). `token` is the real one in the token window and a placeholder on the agent's page. Text only.
+const PLACEHOLDER_TOKEN = 'agt_YOUR_TOKEN';
+export const connectCommand = (origin, token) => `claude mcp add --transport http chameleon ${origin}/mcp --header "Authorization: Bearer ${token}"`;
+export const connectJson = (origin, token) => JSON.stringify({ mcpServers: { chameleon: { type: 'http', url: `${origin}/mcp`, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
+
+// A line of text to copy: a label, the text in a box and a Copy button of its own.
+function copyBlock(label, text, copyLabel = 'Copy') {
+  const wrap = make('div', 'agent-copy');
+  const name = make('p', 'hint', label);
+  const box = make('code', 'key agent-copy-text', text);
+  box.tabIndex = 0;
+  const row = make('div', 'row');
+  const btn = make('button', 'btn btn-small', copyLabel);
+  btn.type = 'button';
+  const status = make('span', 'status');
+  status.setAttribute('role', 'status');
+  row.append(btn, status);
+  btn.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      status.textContent = 'Copied';
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(box);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      status.textContent = 'Select and copy it by hand';
+    }
+  });
+  wrap.append(name, box, row);
+  return wrap;
+}
+
 // The token, once: a dialog with the token in a box, Copy and the plain warning. The only place the token is ever on a page.
 export function showToken({ token, expiresAt, agent, hour12 = true }) {
   return new Promise((resolve) => {
@@ -121,7 +156,15 @@ export function showToken({ token, expiresAt, agent, hour12 = true }) {
     status.setAttribute('role', 'status');
     row.append(copy, status);
     const ends = make('p', 'hint', `It works until ${dayText(expiresAt) || 'its end'}. Keep it as a secret, never in a chat.`);
-    body.append(warning, box, row, ends);
+    const origin = location.origin;
+    const connect = make('div', 'agent-connect');
+    connect.append(
+      make('h3', 'agent-connect-title', 'Connect Claude Code'),
+      make('p', 'hint', 'Run this in a terminal on your computer, in the folder you work in. Add --scope user to use it in every folder. It contains the token, so keep it private.'),
+      copyBlock('Command', connectCommand(origin, token)),
+      copyBlock('Or in a .mcp.json file', connectJson(origin, token)),
+    );
+    body.append(warning, box, row, ends, connect);
     const foot = make('div', 'sdk-dialog-foot');
     const done = make('button', 'btn btn-primary', 'Done');
     done.type = 'button';
@@ -193,6 +236,13 @@ export function mountAgentPage(ctx) {
       : 'Not used yet.';
     $('[data-agent="make"]').textContent = token ? 'Make a new token' : 'Make token';
     $('[data-agent="make"]').classList.toggle('btn-primary', !token);
+    const connect = $('[data-agent-connect]');
+    connect.replaceChildren(
+      make('h3', 'agent-connect-title', 'Connect Claude'),
+      copyBlock('Claude Code, with your token in place of agt_YOUR_TOKEN', connectCommand(location.origin, PLACEHOLDER_TOKEN)),
+      make('p', 'hint', 'The token is shown once when you make it.'),
+      make('p', 'hint', `Claude apps: Add custom connector, address ${location.origin}/mcp. Not yet tested with a token.`),
+    );
     $('[data-agent="revoke"]').hidden = !token;
     $('[data-agent-make-hint]').textContent = token ? 'A new token ends the old one.' : `Claude uses the token to work in the ${ctx.word('space', { many: true })} you add it to.`;
   }

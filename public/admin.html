@@ -57,6 +57,7 @@
             <button class="btn btn-danger btn-small" type="button" data-agent="revoke" hidden>Revoke</button>
           </div>
           <p class="hint" data-agent-make-hint></p>
+          <div data-agent-connect></div>
         </div>
         <div class="panel">
           <h2>Chat</h2>
@@ -124,7 +125,7 @@
       <!-- Agents (plan-agent-access.md): the server's variable AGENT_TOKENS makes them available; this switch is each environment's own. -->
       <div class="panel" id="agents-section">
         <h2>Agents</h2>
-        <p class="hint" id="agents-off-server" hidden>Agents are off on this server. The person who runs the server turns them on.</p>
+        <p class="hint" id="agents-off-server" hidden>Agents are off on this server. The person who runs the server sets AGENT_TOKENS=true and restarts it.</p>
         <div id="agents-on-server" hidden>
           <label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label" data-fill>Let this {environment} have agents</span></span><input type="checkbox" class="sdk-switch" role="switch" id="set-agents"></label>
           <p class="hint" data-fill>An agent is Claude, or another assistant, working in your {spaces} through a token. Turn this off and every agent's token stops working. Saved as you switch.</p>

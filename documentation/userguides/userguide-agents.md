@@ -29,7 +29,7 @@ It makes no change by itself the moment it asks. A request waits until a person 
 
 Two things have to be on, and only one is yours.
 
-1. **The server.** The person who runs the server sets `AGENT_TOKENS` to `true` and recreates the container (see the [Settings reference](userguide-settings-reference.md), "Agents"). Until then **Manage**, **Users**, **Agents** says "Agents are off on this server. The person who runs the server turns them on." and offers nothing.
+1. **The server.** The person who runs the server sets `AGENT_TOKENS` to `true` and recreates the container (see the [Settings reference](userguide-settings-reference.md), "Agents"). Until then **Manage**, **Users**, **Agents** says "Agents are off on this server. The person who runs the server sets AGENT_TOKENS=true and restarts it." and offers nothing.
 2. **Your environment.** Open **Manage**, then **Users**. In the **Agents** section, switch on **Let this environment have agents** (the words follow your template). It saves as you switch it.
 
 Turning the switch off again makes every agent's token stop working at once. The agents and their log stay, and you can switch it on again.
