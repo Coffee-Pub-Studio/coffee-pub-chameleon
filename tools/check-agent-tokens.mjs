@@ -580,7 +580,7 @@ try {
     }
     refused(await call(server, 'POST', path_, { cookie: admin, body: { expires: '30d', extra: 1 } }), 400, 'Only expires can be sent.', 'another key');
     refused(await call(server, 'POST', path_, { cookie: admin, body: { days: 30 } }), 400, 'Only expires can be sent.', 'another key alone');
-    refused(await call(server, 'POST', path_, { cookie: admin, body: ['30d'] }), 400, 'Send an object, like { "expires": "90d" }.', 'an array');
+    refused(await call(server, 'POST', path_, { cookie: admin, body: ['30d'] }), 400, 'Send only expires, like { "expires": "90d" }.', 'an array');
     refused(await call(server, 'POST', path_, { cookie: admin, raw: Buffer.from('"90d"') }), 400, null, 'a string');
     ok(await call(server, 'GET', '/api/agent/me', { token: lastGood }), 'the refusals ended nothing');
     const never = await call(server, 'POST', path_, { cookie: admin, body: { expires: 'never' } });

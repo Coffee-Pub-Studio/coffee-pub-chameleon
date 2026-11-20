@@ -5669,7 +5669,7 @@ app.post('/api/users/:key/token', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
   const body = req.body === undefined || req.body === null ? {} : req.body;
-  if (typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'Send an object, like { "expires": "90d" }.' });
+  if (typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'Send only expires, like { "expires": "90d" }.' });
   if (Object.keys(body).some((k) => k !== 'expires')) return res.status(400).json({ error: 'Only expires can be sent.' });
   const lifetime = body.expires === undefined ? DEFAULT_TOKEN_LIFETIME : body.expires;
   if (typeof lifetime !== 'string' || !Object.hasOwn(LIFETIMES, lifetime)) return res.status(400).json({ error: `expires is one of: ${Object.keys(LIFETIMES).join(', ')}.` });
