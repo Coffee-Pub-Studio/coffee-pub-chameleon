@@ -12,6 +12,9 @@
  *     its limit or a refused token, paged with Show older);
  *   - no Post in Chat switch: the agent's page says what agents may do is set on Roles (plan-agent-matrix.md); What it did
  *     reads the Chat lines (Read Chat, Posted in Chat, Refused post);
+ *   - the Roles grid (plan-agent-matrix.md, step 2): the Agent column only when the server's `columns` has it; a cell on the server's
+ *     `never.agent` list has no box (and is kept aligned); the Agents row has a box only under Agent; the sentence of what an agent
+ *     never does is under the grid; a tick saves as it is clicked and is kept; the links to Roles resolve; 1280 and 390 wide;
  *   - a member has no Manage page and the server refuses them the agent's token and log (403);
  *   - a script-looking name, route, action, address, message and space name is drawn as text: no element is made, nothing runs;
  *   - a space's Set up, Members: the agent is there as "<name> (agent)" with no moderator tick, and adds like a member;
@@ -311,6 +314,99 @@ async function main() {
     {
       expect(!(await tab.eval(`!!document.querySelector('[data-agent-chat-post]')`)), 'the Post in Chat switch is still on the agent page');
       expect((await tab.eval(`document.querySelector('#agent-page').textContent`)).includes('What agents may do is set on Roles.'), 'the agent page does not say what agents may do is set on Roles');
+    }
+    // The Roles grid (plan-agent-matrix.md, step 2): its columns are the server's, the Agent column only when it names one, a
+    // cell an agent can never have shows no box, the Agents row has a box only under Agent, the sentence under the grid, a tick
+    // saves as it is clicked, the links to Roles resolve, and it works at 390 and 1280.
+    {
+      const grid = (t) => t.eval(`(() => {
+        const heads = [...document.querySelectorAll('#roles-table thead th')].slice(1).map((h) => h.textContent.trim());
+        const rows = [...document.querySelectorAll('#roles-table tbody tr:not(.sdk-table-group)')].map((tr) => ({ cells: tr.children.length, perm: (tr.querySelector('input') || {}).dataset ? tr.querySelector('input').dataset.perm : null, label: tr.children[0].textContent, boxes: [...tr.querySelectorAll('td')].map((td) => !!td.querySelector('input')) }));
+        const groups = [...document.querySelectorAll('#roles-table .sdk-table-group')].map((g) => g.textContent.trim());
+        const s = document.getElementById('roles-agent-never');
+        return { heads, rows, groups, sentence: s.textContent, sentenceShown: !s.hidden && s.getClientRects().length > 0 };
+      })()`);
+      // Without the Agent column: four columns, no Agents group, no sentence.
+      {
+        const t = await open(1280, 'dark', 'admin', plain);
+        await go(t, '/admin#roles');
+        await t.waitFor('#roles-table tbody tr');
+        const g = await grid(t);
+        expect(g.heads.length === 4 && !g.heads.includes('Agent'), `AGENT_TOKENS off: the columns are ${g.heads.join(', ')}`);
+        expect(!g.groups.includes('Agents') && !g.sentenceShown, 'AGENT_TOKENS off: the grid shows the Agents group or the agent sentence');
+        expect(t.problems.length === 0, `roles grid, agents off: ${t.problems.join('; ')}`);
+        await t.close();
+      }
+      const roles = (await call('admin', 'GET', '/api/roles')).json;
+      expect(roles.columns.join() === 'owner,moderator,member,guest,agent', `the server's columns are ${roles.columns}`);
+      const neverAgent = new Set(roles.never.agent);
+      const SENTENCE = "An agent never deletes or erases anything, changes roles, makes tokens or other agents, changes this environment's settings or billing, uses the host console, works outside its own spaces, or becomes a moderator, owner or admin.";
+      for (const [width, mode] of [[1280, 'dark'], [390, 'dark']]) {
+        const t = await open(width, mode, 'admin');
+        await go(t, '/admin#roles');
+        await t.waitFor('#roles-table tbody tr');
+        const g = await grid(t);
+        expect(g.heads.join() === 'Owner,Moderator,Member,Guest,Agent', `at ${width}: the columns are ${g.heads.join(', ')}`);
+        expect(g.rows.length > 5 && g.rows.every((r) => r.cells === 6 && r.boxes.length === 5), `at ${width}: a row is not six cells wide (the cells are not aligned)`);
+        // A never cell has no box, and every other cell of the Agent column has one.
+        const bad = g.rows.filter((r) => r.perm !== null || r.boxes.some(Boolean)).filter((r) => {
+          const key = r.perm; const agentBox = r.boxes[4];
+          return key && (neverAgent.has(key) ? agentBox : !agentBox);
+        });
+        expect(bad.length === 0, `at ${width}: the Agent column's boxes are not the server's never list (${bad.map((r) => r.label).join(', ')})`);
+        const neverRows = roles.permissions.filter((p) => neverAgent.has(p.key) && !p.agentOnly);
+        expect(neverRows.length > 3, 'the server lists too few never rows for the Agent column');
+        const drawn = await t.eval(`(() => { const out = {}; for (const b of document.querySelectorAll('#roles-table input[data-role="agent"]')) out[b.dataset.perm] = true; return out; })()`);
+        expect(!Object.keys(drawn).some((k) => neverAgent.has(k)), `at ${width}: a box is drawn on a never cell`);
+        expect(await t.eval(`[...document.querySelectorAll('#roles-table td:last-child')].every((td) => !td.querySelector('.is-disabled, [disabled], .sdk-table-dim') && (td.textContent.trim() === ''))`), `at ${width}: a never cell holds a dash, a label or a greyed box`);
+        // The Agents group: its row has a box under Agent only.
+        const agentRows = roles.permissions.filter((p) => p.agentOnly);
+        expect(g.groups.includes('Agents') && agentRows.length >= 1, `at ${width}: the Agents group is not drawn`);
+        for (const p of agentRows) {
+          const row = g.rows.find((r) => r.perm === p.key);
+          expect(row && row.boxes.join() === 'false,false,false,false,true', `at ${width}: the "${p.label}" row's boxes are ${row && row.boxes} (only the Agent column has one)`);
+        }
+        expect(g.sentenceShown && g.sentence.trim() === SENTENCE, `at ${width}: the sentence under the grid reads "${g.sentence.trim()}"`);
+        expect(await t.eval(`(() => { const s = document.getElementById('roles-agent-never'); const w = document.querySelector('.sdk-table-wrap'); return !!(w.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING) && s.closest('#tab-roles') !== null; })()`), `at ${width}: the sentence is not under the grid`);
+        expect(!/\b(items?|rooms?|tables?|stages?|panes?|tenants?)\b/i.test(g.sentence), `at ${width}: the sentence uses an old word`);
+        expect(await wide(t) <= 0, `at ${width}: the Roles page scrolls sideways`);
+        if (width === 390) expect(await t.eval(`(() => { const w = document.querySelector('#tab-roles .sdk-table-wrap'); return w.scrollWidth >= w.clientWidth && w.clientWidth <= window.innerWidth; })()`), 'at 390: the grid does not stay inside its own box');
+        await shot(t, `roles-agent-${width}-${mode}`);
+        if (width === 1280) {
+          // A tick saves as it is clicked, and is kept after a reload.
+          const before = (await call('admin', 'GET', '/api/roles')).json.roles.agent['chat'] === true;
+          await press(t, '#roles-table input[data-role="agent"][data-perm="chat"]');
+          await sleep(500);
+          const after = (await call('admin', 'GET', '/api/roles')).json.roles.agent['chat'] === true;
+          expect(before !== after, 'a tick in the Agent column did not save on the server');
+          await go(t, '/admin#roles');
+          await t.waitFor('#roles-table tbody tr');
+          expect(await t.eval(`document.querySelector('#roles-table input[data-role="agent"][data-perm="chat"]').checked`) === after, 'the Agent column tick is not kept after a reload');
+          if (before === after) say('note: chat tick unchanged');
+          await call('admin', 'PATCH', '/api/roles/agent', { chat: before }); // back to how it was
+        }
+        expect(t.problems.length === 0, `roles grid at ${width}: ${t.problems.join('; ')}`);
+        await t.close();
+      }
+      // The links to Roles: the admin Chat panel's, from the agent's page, goes to the Roles tab; the connect guide's resolves.
+      {
+        const t = await open(1280, 'dark', 'admin');
+        await go(t, `/admin#agent/${agent.key}`);
+        await t.waitFor('#agent-page:not([hidden])');
+        const href = await t.eval(`(document.querySelector('#agent-page [data-agent-roles-link]') || {}).getAttribute ? document.querySelector('#agent-page [data-agent-roles-link]').getAttribute('href') : null`);
+        expect(href === '#roles' && (await text(t, '#agent-page')).includes('What agents may do is set on Roles.'), `the Chat panel's Roles link is ${href}`);
+        await press(t, '#agent-page [data-agent-roles-link]');
+        await t.waitFor('#tab-roles:not([hidden])').catch(() => {});
+        expect(await t.eval(`location.hash`) === '#roles' && !(await hiddenOf(t, '#tab-roles')) && await hiddenOf(t, '#agent-page'), 'the Chat panel link does not open Manage > Roles');
+        await go(t, `/admin#agent/${agent.key}`);
+        await t.waitFor('[data-agent-connect] a');
+        const guideLink = await t.eval(`(() => { const a = [...document.querySelectorAll('#agent-page [data-agent-connect] a')].find((x) => x.textContent === 'Roles'); return a ? { href: a.getAttribute('href'), target: a.target, rel: a.rel } : null; })()`);
+        expect(guideLink && guideLink.href === '/admin#roles' && guideLink.target === '_blank' && /noopener/.test(guideLink.rel), `the guide's Roles link is ${JSON.stringify(guideLink)}`);
+        const page = await fetch(server.base + '/admin', { headers: { cookie: jars[`${server.base}|admin`].map((c) => `${c.name}=${c.value}`).join('; ') } });
+        expect(page.status === 200 && (await page.text()).includes('data-tab="roles"'), 'the address /admin#roles has no Roles tab to open');
+        expect(t.problems.length === 0, `Roles links: ${t.problems.join('; ')}`);
+        await t.close();
+      }
     }
     // Revoke.
     await press(tab, '[data-agent="revoke"]');
