@@ -622,12 +622,12 @@ try {
       await tab.evaluate("document.querySelector('#te-modules [data-module=calendar]').click()");
       {
         const got = await tab.evaluate("({ held: document.getElementById('te-layout').dataset.twLayout, note: document.querySelector('#te-layout .tp-layout-missing').textContent })");
-        assert.equal(got.held, '{"shape":"tall-split","areas":["todo","vault","travel"]}', 'the Calendar ticked: To-do into area 1, Itinerary down');
-        assert.match(got.note, /^To-do moved to area 1: while .+ is on, it can't share a column\. Itinerary moved to area 3 to free area 1\.$/, 'what moved, said beside the picker');
+        assert.equal(got.held, '{"shape":"tall-split","areas":["travel","vault","todo"]}', 'the Calendar ticked: To-do stays its own area, nothing moves');
+        assert.equal(got.note, '', 'and nothing is said beside the picker');
       }
       await tab.evaluate("document.querySelector('#te-modules [data-module=calendar]').click()");
       assert.deepEqual(await tab.evaluate("({ held: document.getElementById('te-layout').dataset.twLayout, note: document.querySelector('#te-layout .tp-layout-missing').textContent })"),
-        { held: '{"shape":"tall-split","areas":["travel","vault","todo"]}', note: '' }, 'the Calendar unticked again: the person\'s arrangement is back');
+        { held: '{"shape":"tall-split","areas":["travel","vault","todo"]}', note: '' }, 'the Calendar unticked again: the same arrangement');
       // The canvas field (GET /api/host/settings): a module with no place on the canvas is never offered in an area.
       await tab.evaluate("document.querySelector('#te-tab-workspace').click()");
       await tab.waitFor(tab.visible('#te-layout .layout-picker-board .layout-picker-area[data-area=\"2\"]'), 'the Calendar copy\'s areas');
