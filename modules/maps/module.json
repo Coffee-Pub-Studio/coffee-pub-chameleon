@@ -1,7 +1,7 @@
 {
   "id": "maps",
   "name": "Maps",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "content": "flush",
   "icon": "map-location-dot",
   "color": "pink",
@@ -245,9 +245,21 @@
           "lng": "number?",
           "address": "string?",
           "category": "string?",
+          "type": "string?",
+          "status": "string?",
+          "owners": "text?",
           "notes": "text?",
           "ref": "ref?",
           "in": "string?"
+        },
+        "inputHints": {
+          "type": "A place type id such as cafe, museum or hotel; it sets the category if none is given. An unknown type is refused.",
+          "category": "A category id such as food, stay, sights or nature. Leave out to use the type's category.",
+          "status": "want (want to visit), booked, visited or favorite. Leave out for none.",
+          "owners": "Whose it is: keys or names as list_members shows them, separated by commas. Leave out for nobody.",
+          "lat": "Latitude, from -90 to 90. Give it with lng.",
+          "lng": "Longitude, from -180 to 180. Give it with lat.",
+          "in": "Where it is kept: environment, space or person, separated by spaces. Leave out for everyone and this space."
         }
       },
       {
