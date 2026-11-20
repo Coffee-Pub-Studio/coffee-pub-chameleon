@@ -1,7 +1,7 @@
 {
   "id": "budget",
   "name": "Budget",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "icon": "wallet",
   "color": "gold",
   "description": "What your {space} spends: costs planned and paid, a target, and who owes whom.",
@@ -65,6 +65,15 @@
         "name": "addCost",
         "label": "Add it as a cost",
         "description": "Add a new cost to the budget, planned or paid.",
+        "inputHints": {
+          "payer": "Who paid: a person's key, or their name exactly as list_members shows it. Leave out if nobody has paid.",
+          "sharedBy": "Who shares the cost: keys or names from list_members, separated by commas. Leave out for nobody.",
+          "planned": "The amount expected, above zero, in the space's own currency. No currency symbol.",
+          "actual": "The amount paid, above zero, in the space's own currency. No currency symbol.",
+          "amount": "One amount in the space's own currency: paid if payer is given, else planned.",
+          "category": "The id of a category in this budget, such as travel. Anything else counts as other.",
+          "date": "The day of the cost as YYYY-MM-DD, such as 2026-10-14."
+        },
         "effect": "write",
         "input": {
           "title": "string",
@@ -73,6 +82,7 @@
           "actual": "number?",
           "category": "string?",
           "payer": "string?",
+          "sharedBy": "string?",
           "date": "date?",
           "notes": "text?",
           "ref": "ref?"

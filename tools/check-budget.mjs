@@ -52,7 +52,7 @@ test('addCost, the cost kind and the categories setting', () => {
   const m = cleanManifest(raw, new Set(['module.json', 'canvas.html']));
   const add = m.actions.provides.find((a) => a.name === 'addCost');
   assert.ok(add && !add.local, 'addCost is an ordinary action other modules may ask for');
-  assert.deepEqual(add.input, { title: 'string', amount: 'number?', planned: 'number?', actual: 'number?', category: 'string?', payer: 'string?', date: 'date?', notes: 'text?', ref: 'ref?' });
+  assert.deepEqual(add.input, { title: 'string', amount: 'number?', planned: 'number?', actual: 'number?', category: 'string?', payer: 'string?', sharedBy: 'string?', date: 'date?', notes: 'text?', ref: 'ref?' });
   const cost = m.refs.produces.find((k) => k.kind === 'cost');
   assert.ok(cost && cost.open, 'a cost can be opened');
   assert.equal(cost.key, 'cost:{id}');

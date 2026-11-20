@@ -99,8 +99,20 @@
   };
   const amountOf = (c) => (c.actual ? c.actual : c.planned ? c.planned : 0);
 
-  // What another module asks for through `addCost`: a checked cost, or an Error saying what is wrong. `people` are the keys
-  // of the people in the space. `amount` alone is what was paid when the request names who paid, else what is planned.
+  // The key of the person a request names: their key, else their name as list_members shows it (any case). `people` are
+  // { key, name } (a plain key counts as a person with no name). Two people with one name are refused, an unknown one too.
+  function personKey(value, people) {
+    const v = String(value).trim();
+    const list = (people || []).map((p) => (typeof p === 'string' ? { key: p, name: '' } : p));
+    if (list.some((p) => p.key === v)) return v;
+    const named = list.filter((p) => p.name && p.name.trim().toLowerCase() === v.toLowerCase());
+    if (named.length > 1) throw new Error(`Two people are called ${named[0].name}; use the key.`);
+    if (!named.length) throw new Error(`That person is not in this ${word('space')}. Use list_members to see who is.`);
+    return named[0].key;
+  }
+  // What another module asks for through `addCost`: a checked cost, or an Error saying what is wrong. `people` are the
+  // people in the space ({ key, name }, or just their keys). `payer` is one person; `sharedBy` is a list of people, or one
+  // string with their keys or names split by commas. Nobody named in `sharedBy`: nobody shares it (the form's default). `amount` alone is what was paid when the request names who paid, else what is planned.
   function costFromRequest(input, by, people) {
     const i = input || {};
     const title = oneLine(i.title, 120);
@@ -109,12 +121,13 @@
     for (const k of ['amount', 'planned', 'actual']) if (has(i[k]) && cleanAmount(i[k]) === null) throw new Error(`the ${k} must be an amount above zero`);
     let planned = cleanAmount(i.planned);
     let actual = cleanAmount(i.actual);
-    const payer = has(i.payer) ? String(i.payer) : '';
-    if (payer && !(people || []).includes(payer)) throw new Error(`that person is not in this ${word('space')}`);
+    const payer = has(i.payer) ? personKey(i.payer, people) : '';
+    const named = Array.isArray(i.sharedBy) ? i.sharedBy : has(i.sharedBy) ? String(i.sharedBy).split(',') : [];
+    const sharedBy = named.filter((x) => has(x) && String(x).trim()).map((x) => personKey(x, people));
     const amount = cleanAmount(i.amount);
     if (amount !== null && planned === null && actual === null) { if (payer) actual = amount; else planned = amount; }
     if (has(i.date) && !isDay(i.date)) throw new Error('the date must be a day, such as 2026-10-14');
-    const c = cleanCost('new', { title, category: i.category, planned, actual, paidBy: payer, date: i.date, notes: i.notes, by, ref: i.ref });
+    const c = cleanCost('new', { title, category: i.category, planned, actual, paidBy: payer, sharedBy, date: i.date, notes: i.notes, by, ref: i.ref });
     if (!c) throw new Error('that is not a cost');
     return c;
   }
