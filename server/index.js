@@ -5796,7 +5796,8 @@ app.get('/api/users/:key/changes', requireOwner, (req, res) => {
       undoable: !why, ...(why ? { why } : {}),
     };
   });
-  res.set('Cache-Control', 'no-store').json({ changes, days: SETUP_UNDO_DAYS });
+  const used = currentEnvironment().agentLog.usedToday(agent.key); // what it has left today, for its page
+  res.set('Cache-Control', 'no-store').json({ changes, days: SETUP_UNDO_DAYS, limits: { made: { perDay: SETUP_LIMITS.made, usedToday: used.made }, changes: { perDay: SETUP_LIMITS.changes, usedToday: used.changes } } });
 });
 // POST /api/users/:key/changes/:id/undo: an owner undoes one of the agent's changes. A made space is deleted, with everything
 // kept for it (as Set up's Delete), only when setupUndoProblem allows; a change puts back the earlier values of the fields that

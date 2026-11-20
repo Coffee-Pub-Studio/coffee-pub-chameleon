@@ -69,6 +69,8 @@ const READS = {
 };
 // What a set-up agent's change to a space it made reads like (the log's `change`, never a name or a description).
 const CHANGE_WORDS = { renamed: 'Renamed', described: 'Changed the description of', icon: 'Changed the icon of' };
+// What a set-up agent's ask about a person reads like (the log's `change`, never the person's name).
+const ASK_WORDS = { 'ask:add': () => 'Asked to add a person to', 'ask:remove': () => 'Asked to take a person off', 'ask:moderator': (w) => `Asked to change ${w('moderator', { a: true })} of` };
 // Chat lines depend on the method (GET reads, POST posts), so they are told apart in logLine, not in READS.
 const CHAT_ROUTE = '/api/spaces/:id/chat';
 // The methods the gate lets through on each route; any other method on it was refused. A read route is GET (HEAD too); the
@@ -112,6 +114,7 @@ export function logLine(entry, { spaceName = () => '', moduleName: lookup = () =
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 403) text = `Refused post${where}`;
   else if (e.route === '/api/spaces/:id/action') text = `Ask for ${actionWords(e.action)}${where}`;
   else if (e.route === '/api/agent/spaces' && e.change === 'made' && status === 200) text = e.space ? `Made the ${word('space')} ${spaceName(e.space) || 'that is gone'}` : `Made ${word('space', { a: true })}`;
+  else if (e.route === '/api/agent/spaces/:id/asks' && ASK_WORDS[e.change] && status === 202) text = `${ASK_WORDS[e.change](word)} ${e.space && spaceName(e.space) ? `the ${word('space')} ${spaceName(e.space)}` : word('space', { a: true })}`;
   else if (e.route === '/api/agent/spaces/:id' && typeof e.change === 'string' && status === 200) {
     const done = e.change.split(',').map((c) => CHANGE_WORDS[c]).filter(Boolean);
     const named = e.space && spaceName(e.space) ? `the ${word('space')} ${spaceName(e.space)}` : word('space', { a: true });
@@ -217,12 +220,13 @@ export const connectedText = (lastUsedAt, now = Date.now()) => {
 };
 
 export const FIRST_QUESTION = 'Use the chameleon tools. Which spaces can you see, and what is in the to-do list?';
+export const setupFirstQuestion = (spaceWord) => `Use the chameleon tools. Which templates can you use to make ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}?`;
 export const CLAUDE_DOCS = 'https://code.claude.com/docs';
 
 // The guided flow: purpose, what you need, numbered steps, the first question, what to try next. `token` is the real one in the
 // token window and a placeholder on the agent's page (`note` then says why). Returns { el, setUsed(lastUsedAt) } for the live line.
 // Text only; the token is only ever put in as textContent.
-function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 'space', spaceName = '', spaceWords = (n) => (n === 1 ? 'space' : 'spaces') }) {
+function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agent)', spaceWord = 'space', spaceName = '', spaceWords = (n) => (n === 1 ? 'space' : 'spaces'), setup = false }) {
   const el = make('div', 'agent-connect');
   const live = make('p', 'agent-connected');
   live.setAttribute('role', 'status');
@@ -241,6 +245,7 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
   const setSpaces = (names) => {
     if (!Array.isArray(names)) { where.textContent = ''; return; } // not known yet: says nothing
     const list = names;
+    if (setup) { where.textContent = !list.length ? `It has not made ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord} yet.` : list.length === 1 ? `In 1 ${spaceWords(1)}: ${list[0]}` : `In ${list.length} ${spaceWords(list.length)}`; return; }
     where.textContent = !list.length ? `Not in any ${spaceWord} yet. Add it under ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}'s Set up, then Members.`
       : list.length === 1 ? `In 1 ${spaceWords(1)}: ${list[0]}` : `In ${list.length} ${spaceWords(list.length)}`;
   };
@@ -253,14 +258,15 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
   need.append(link);
   const steps = make('ol', 'agent-steps');
   const step = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); steps.append(li); return li; };
-  step(`Add this agent to ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}.`, make('p', 'hint', `An agent only works in ${spaceWords(2)} it belongs to. Open the ${spaceWord}'s Set up, then Members, switch on "${agentLabel}", and Save.`), where);
+  if (!setup) step(`Add this agent to ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}.`, make('p', 'hint', `An agent only works in ${spaceWords(2)} it belongs to. Open the ${spaceWord}'s Set up, then Members, switch on "${agentLabel}", and Save.`), where);
   step('Copy the command.', copyBlock('Command', connectCommand(location.origin, token)), ...(note ? [make('p', 'hint', note)] : []));
   step('Open a terminal on your computer, paste it and press Enter.');
   const three = step('Start Claude Code by typing ');
   three.querySelector('span').after(make('code', '', 'claude'));
   step('Ask it the first question below.');
   const next = make('ul', 'agent-try');
-  for (const line of [`Summarise the chat in ${spaceName || `the ${spaceWord}`}.`, 'What is due this week?', 'Ask the Planner to add a milestone.']) next.append(make('li', '', line));
+  const tries = setup ? [`Make ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord} for a trip to Lisbon.`, `Rename the ${spaceWord} you made.`, `Ask to add Ana to the ${spaceWord} you made.`] : [`Summarise the chat in ${spaceName || `the ${spaceWord}`}.`, 'What is due this week?', 'Ask the Planner to add a milestone.'];
+  for (const line of tries) next.append(make('li', '', line));
   const file = make('details', 'agent-file');
   file.append(make('summary', '', 'Use a project file instead'), make('p', 'hint', 'Save this as .mcp.json in the folder you work in, then start Claude Code there. Or add --scope user to the command to use it in every folder.'), copyBlock('.mcp.json', connectJson(location.origin, token)));
   const apps = make('ol', 'agent-steps');
@@ -270,16 +276,20 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
   appStep('Under Authentication, choose No sign-in.');
   appStep('Under Request headers, choose Add header. Name: Authorization. Value: Bearer then a space then the token.', copyBlock('Header value', `Bearer ${token}`));
   appStep('Save, then start a new chat and turn the connector on for that chat. Ask: "Use the chameleon tools. Which spaces can you see?"');
+  const moderatorWord = word('moderator', { a: true });
+  const setupIntro = `Let Claude set up ${spaceWords(2)}: make one, and change its name, description and icon. It needs only this connection, and it can't read what is inside a ${spaceWord}. Adding or taking off a person, or making someone ${moderatorWord}, waits for your yes.`;
   el.append(
     make('h3', 'agent-connect-title', 'Connect Claude'),
-    make('p', 'hint', 'Let Claude read and help in the spaces this agent is in: the plan, the to-dos and the chat.'),
+    make('p', 'hint', setup ? setupIntro : 'Let Claude read and help in the spaces this agent is in: the plan, the to-dos and the chat.'),
     need, live, steps,
     make('h4', 'agent-connect-sub', 'What to say first'),
-    copyBlock('First question', FIRST_QUESTION),
+    copyBlock('First question', setup ? setupFirstQuestion(spaceWord) : FIRST_QUESTION),
     make('h4', 'agent-connect-sub', 'What to try next'),
     next,
-    make('p', 'hint', 'A change waits until a person who can change that module has it open.'),
-    rolesHint('To let Claude write in Chat, tick Send chat messages for agents on ', '.'),
+    ...(setup ? [rolesHint('What it may do is set on ', ', in the Set-up agent column.')] : [
+      make('p', 'hint', 'A change waits until a person who can change that module has it open.'),
+      rolesHint('To let Claude write in Chat, tick Send chat messages for agents on ', '.'),
+    ]),
     make('h4', 'agent-connect-sub', 'Claude apps'),
     apps,
     make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),
@@ -290,7 +300,7 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
 
 // The token, once: a dialog with the token in a box, Copy and the plain warning. The only place the token is ever on a page.
 // `poll()` (optional) answers the token's record again ({ lastUsedAt }); it is asked every few seconds while the window is open.
-export function showToken({ token, lifetime, expiresAt, agent, hour12 = true, poll = null, spaceWord, spaceName, spaceWords }) {
+export function showToken({ token, lifetime, expiresAt, agent, hour12 = true, poll = null, spaceWord, spaceName, spaceWords, word }) {
   return new Promise((resolve) => {
     const opener = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
     const dlg = make('dialog', 'sdk-dialog sdk-dialog-confirm agent-token-dialog');
@@ -312,7 +322,7 @@ export function showToken({ token, lifetime, expiresAt, agent, hour12 = true, po
     status.setAttribute('role', 'status');
     row.append(copy, status);
     const ends = make('p', 'hint', `${lifetimeText(lifetime, expiresAt)} Keep it as a secret, never in a chat.`.trim());
-    const guide = connectGuide({ token, agentLabel: agentName(agent), spaceWord, spaceName, spaceWords });
+    const guide = connectGuide({ token, agentLabel: agentName(agent), spaceWord, spaceName, spaceWords, setup: agent && agent.kind === 'setup', word });
     const connect = guide.el;
     body.append(warning, box, row, ends, connect);
     const foot = make('div', 'sdk-dialog-foot');
@@ -358,6 +368,20 @@ export function showToken({ token, lifetime, expiresAt, agent, hour12 = true, po
   });
 }
 
+// What one change of a set-up agent's reads like on its page (GET /api/users/:key/changes), matching the log: no person's name,
+// only the space's. `word` is the page's word(). A space that has since gone has no name.
+export function changeText(c, word = (w) => w) {
+  const x = c && typeof c === 'object' ? c : {};
+  const name = x.space && typeof x.space.name === 'string' && x.space.name ? x.space.name : '';
+  if (x.change === 'made') return name ? `Made the ${word('space')} ${name}` : `Made ${word('space', { a: true })}`;
+  const fields = Object.keys(x.after || {});
+  const named = name ? `the ${word('space')} ${name}` : word('space', { a: true });
+  if (fields.length === 1) return `${{ name: 'Renamed', description: 'Changed the description of', icon: 'Changed the icon of' }[fields[0]] || 'Changed'} ${named}`;
+  return `Changed ${named}`;
+}
+// What it has left of a daily limit, in plain words: "Spaces it can still make today: 3 of 5".
+export const leftText = (label, limit) => (limit && Number.isInteger(limit.perDay) ? `${label}: ${Math.max(0, limit.perDay - (limit.usedToday || 0))} of ${limit.perDay}` : '');
+
 // Wires #agent-page. `ctx`: { api, say(el, text, error), spaces() (the spaces as the page knows them), hour12(), word, onChanged(user)
 // (a name or the switch changed), onDeleted(key) }. Returns { open(user), close() }.
 export function mountAgentPage(ctx) {
@@ -368,8 +392,9 @@ export function mountAgentPage(ctx) {
   let lastRun = null; // the last run of lines shown (see foldLines)
   let guide = null; // the Connect Claude block drawn by paint(), for its live line
   let timer = null;
+  let changeLimits = null; // the daily limits the changes route carries
   const tokenUrl = () => `/api/users/${encodeURIComponent(agent.key)}/token`;
-  const spaceHint = () => { const first = ctx.spaces()[0]; return { spaceWord: ctx.word('space'), spaceName: first ? first.name : '', spaceWords: (n) => ctx.word('space', { many: n !== 1 }), agentLabel: agentName(agent) }; };
+  const spaceHint = () => { const first = ctx.spaces()[0]; return { spaceWord: ctx.word('space'), spaceName: first ? first.name : '', spaceWords: (n) => ctx.word('space', { many: n !== 1 }), agentLabel: agentName(agent), setup: agent.kind === 'setup', word: ctx.word }; };
   // The names of the spaces the agent is a member of (the Lobby is never one), from the spaces list.
   const memberOf = async () => ((await ctx.api('GET', '/api/spaces')).spaces || []).filter((r) => !r.isLobby && Array.isArray(r.members) && r.members.includes(agent.key)).map((r) => r.name);
   const useNow = async () => ({ ...(await ctx.api('GET', tokenUrl())).token, spaceNames: await memberOf() });
@@ -379,6 +404,9 @@ export function mountAgentPage(ctx) {
 
   function paint() {
     $('[data-agent-title]').textContent = agentName(agent);
+    const setup = agent.kind === 'setup';
+    for (const panel of document.querySelectorAll('#agent-page [data-agent-setup]')) panel.hidden = !setup;
+    for (const panel of document.querySelectorAll('#agent-page [data-agent-ordinary]')) panel.hidden = setup;
     const name = $('[data-agent-name]');
     if (document.activeElement !== name) name.value = agent.displayName || '';
     const off = agent.off === true;
@@ -425,6 +453,7 @@ export function mountAgentPage(ctx) {
       if (!t) return;
       token = t;
       if (guide) guide.setUsed(t.lastUsedAt || null);
+      if (agent.kind === 'setup' && !document.querySelector('dialog[open]')) { loadAsks(); loadChanges(); } // a new ask shows without a reload
       $('[data-agent-used]').textContent = t.lastUsedAt ? `Last used ${whenText(t.lastUsedAt, ctx.hour12())}${t.lastAddress ? ` from ${t.lastAddress}` : ''}` : 'Not used yet.';
     } catch { /* the line keeps what it said */ }
   }
@@ -435,6 +464,120 @@ export function mountAgentPage(ctx) {
     document.addEventListener('visibilitychange', onVisible);
   };
   function onVisible() { if (!document.hidden && agent) refreshUse(); }
+
+  const setupUrl = (what) => `/api/users/${encodeURIComponent(agent.key)}/${what}`;
+  const WHEN_NOTE = (iso) => { const t = whenText(iso, ctx.hour12()); return t ? `Runs out ${t}` : ''; };
+
+  // Waiting for you: the asks still waiting, each with Approve and Decline. A 409 comes back as a plain sentence, shown under the
+  // list; the list is then drawn again from the server, so what ran out is gone.
+  async function loadAsks() {
+    if (!agent || agent.kind !== 'setup') return;
+    const key = agent.key;
+    let answer;
+    try { answer = await ctx.api('GET', setupUrl('asks')); } catch (err) { $('[data-agent-asks-status]').textContent = err.message; return; }
+    if (!agent || agent.key !== key) return;
+    const list = $('[data-agent-asks]');
+    const waiting = (answer.asks || []).filter((a) => a.state === 'waiting');
+    list.replaceChildren();
+    for (const a of waiting) {
+      const li = make('li', 'agent-ask');
+      li.dataset.agentAsk = a.id;
+      const what = make('span', 'agent-ask-what');
+      what.append(make('span', '', String(a.text || '')), make('span', 'agent-ask-when', [a.at ? `Asked ${agoText(a.at)}` : '', a.expiresAt ? WHEN_NOTE(a.expiresAt) : ''].filter(Boolean).join(' · ')));
+      const buttons = make('span', 'agent-ask-buttons');
+      for (const [decision, label, cls] of [['approve', 'Approve', 'btn btn-primary btn-small'], ['decline', 'Decline', 'btn btn-small']]) {
+        const b = make('button', cls, label);
+        b.type = 'button';
+        b.dataset.agentAnswer = decision;
+        b.dataset.ask = a.id;
+        buttons.append(b);
+      }
+      li.append(what, buttons);
+      list.append(li);
+    }
+    $('[data-agent-asks-empty]').hidden = waiting.length > 0;
+    if (changeLimits) paintLimits(waiting.length);
+    else limitsWaiting = waiting.length;
+  }
+  let limitsWaiting = 0;
+
+  // The changes it made in the last days, each with Undo: disabled, with the server's `why`, when it can't be undone now.
+  async function loadChanges() {
+    if (!agent || agent.kind !== 'setup') return;
+    const key = agent.key;
+    let answer;
+    try { answer = await ctx.api('GET', setupUrl('changes')); } catch (err) { $('[data-agent-changes-status]').textContent = err.message; return; }
+    if (!agent || agent.key !== key) return;
+    changeLimits = answer.limits || null;
+    const list = $('[data-agent-changes]');
+    list.replaceChildren();
+    const days = Number.isInteger(answer.days) ? answer.days : 7;
+    $('[data-agent-changes-hint]').textContent = `A change can be undone for ${days} days. Undoing a change puts back what was there.`;
+    for (const c of answer.changes || []) {
+      const li = make('li', `agent-change${c.undone ? ' is-undone' : ''}`);
+      li.dataset.agentChange = c.id;
+      const what = make('span', 'agent-change-what');
+      const when = [whenText(c.at, ctx.hour12()), c.undone ? `Undone${c.undoneAt ? ` ${agoText(c.undoneAt)}` : ''}` : ''].filter(Boolean).join(' · ');
+      what.append(make('span', 'agent-change-text', changeText(c, ctx.word)), make('span', 'agent-change-when', when));
+      if (!c.undone && !c.undoable && c.why) { const why = make('span', 'agent-change-when', c.why); why.dataset.agentWhy = ''; what.append(why); }
+      li.append(what);
+      if (!c.undone) {
+        const buttons = make('span', 'agent-change-buttons');
+        const b = make('button', 'btn btn-small', 'Undo');
+        b.type = 'button';
+        b.dataset.agentUndo = c.id;
+        b.dataset.made = c.change === 'made' ? '1' : '';
+        b.disabled = !c.undoable;
+        if (!c.undoable && c.why) b.title = c.why;
+        buttons.append(b);
+        li.append(buttons);
+      }
+      list.append(li);
+    }
+    $('[data-agent-changes-empty]').hidden = list.children.length > 0;
+    paintLimits(limitsWaiting);
+  }
+
+  // What it has left today: its spaces, its changes and the asks it can have waiting at once.
+  function paintLimits(waiting) {
+    limitsWaiting = waiting;
+    const list = $('[data-agent-limits]');
+    if (!list) return;
+    const lines = [
+      leftText(`${ctx.word('space', { many: true, cap: true })} it can still make today`, changeLimits && changeLimits.made),
+      leftText('Changes it can still make today', changeLimits && changeLimits.changes),
+      `Waiting for you: ${waiting}`,
+    ].filter(Boolean);
+    list.replaceChildren(...lines.map((t) => make('li', '', t)));
+  }
+
+  async function answerAsk(id, decision) {
+    const status = $('[data-agent-asks-status]');
+    status.textContent = '';
+    for (const b of document.querySelectorAll(`#agent-page [data-ask="${CSS.escape(id)}"]`)) b.disabled = true;
+    try {
+      await ctx.api('POST', setupUrl(`asks/${encodeURIComponent(id)}`), { decision });
+      ctx.say(status, decision === 'approve' ? 'Approved' : 'Declined');
+    } catch (err) {
+      ctx.say(status, err.message, true); // the server's plain sentence (409: answered, run out or not possible)
+    }
+    await loadAsks();
+    await loadChanges();
+  }
+
+  async function undoChange(id, made) {
+    const status = $('[data-agent-changes-status]');
+    status.textContent = '';
+    if (made && !await confirmDialog({ title: `Remove this ${ctx.word('space')}?`, message: 'Everything in it goes.', action: 'Remove', kind: 'final' })) return;
+    try {
+      await ctx.api('POST', setupUrl(`changes/${encodeURIComponent(id)}/undo`));
+      ctx.say(status, 'Undone');
+    } catch (err) {
+      ctx.say(status, err.message, true);
+    }
+    await loadChanges();
+    loadLog(false);
+  }
 
   async function loadLog(more) {
     const list = $('[data-agent-log]');
@@ -490,6 +633,12 @@ export function mountAgentPage(ctx) {
     }
   }
 
+  document.querySelector('#agent-page').addEventListener('click', (event) => {
+    const answer = event.target.closest('[data-agent-answer]');
+    if (answer && agent) { answerAsk(answer.dataset.ask, answer.dataset.agentAnswer); return; }
+    const undo = event.target.closest('[data-agent-undo]');
+    if (undo && agent && !undo.disabled) undoChange(undo.dataset.agentUndo, undo.dataset.made === '1');
+  });
   document.querySelector('#agent-page').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-agent]');
     if (!button || !agent) return;
@@ -543,11 +692,16 @@ export function mountAgentPage(ctx) {
       $('[data-agent-log-empty]').hidden = true;
       speak('');
       paint();
+      changeLimits = null;
+      limitsWaiting = 0;
+      for (const sel of ['[data-agent-asks]', '[data-agent-changes]', '[data-agent-limits]']) $(sel).replaceChildren();
+      $('[data-agent-asks-status]').textContent = '';
+      $('[data-agent-changes-status]').textContent = '';
       await loadToken();
       paint();
       startPolling();
-      await loadLog(false);
+      await Promise.all([loadLog(false), loadAsks(), loadChanges()]);
     },
-    close() { stopPolling(); agent = null; token = null; guide = null; },
+    close() { stopPolling(); agent = null; token = null; guide = null; changeLimits = null; },
   };
 }

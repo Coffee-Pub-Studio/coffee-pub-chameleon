@@ -11,6 +11,7 @@ import { confirmDialog } from '/confirm.js';
 import { fileText } from '/file-text.js';
 import { rowTabs } from '/page-tabs.js';
 import { mountAgentPage, agentName } from '/agent-page.js';
+import { drawMadeMark } from '/made-mark.js';
 import { moduleConfigMarkup, drawModuleConfig } from '/module-config.js';
 import { nav } from '/nav-bar.js';
 import { mountAiForm } from '/ai-form.js';
@@ -536,6 +537,12 @@ function fillSpaceRow(row, space, index) {
   edit.hidden = space.isLobby;
   edit.href = setupHref(space.id);
   row.classList.toggle('lobby', space.isLobby);
+  // "Made by Claude (set-up agent)" and Keep, until an owner chooses Keep.
+  drawMadeMark(row.querySelector('[data-made]'), space, {
+    api, word,
+    onKept: () => { delete space.madeBy; fillSpaceRow(row, space, index); say($('spaces-status'), 'Kept'); },
+    onError: (text) => say($('spaces-status'), text, true),
+  });
   // The Lobby always sits first and isn't reorderable; among the rest, hide
   // whichever arrow would be a no-op at that end of the list.
   row.querySelector('[data-action="space-up"]').hidden = space.isLobby || index <= 1;

@@ -18,6 +18,11 @@
  *   - set-up agents (plan-admin-agent.md, step 1): the Set-up agents switch only with AGENT_SETUP, the kind offered only while it
  *     is on, a set-up agent made from the page and shown as "Claude (set-up agent)", and the grid's Set-up agent column (its two
  *     rows boxed only there, every other cell of it boxless, a tick saved);
+ *   - the set-up agent's page (plan-admin-agent.md, step 4): Waiting for you with Approve and Decline (a 409's plain sentence, the list
+ *     drawn again), Undo on each change (off with the server's reason; a made space asks "Remove this space?" first, Cancel keeps
+ *     it), What it did in plain words with no person's name, the connect guide for a set-up agent, what it has left today, the bell
+ *     line's address opening the right agent, and no such lists on an ordinary agent's page; "Made by Claude (set-up agent)" with Keep
+ *     on Manage's spaces list and on Home (owners and the admin only, one question, Keep does not enter the space); 1280 and 390 wide;
  *   - a member has no Manage page and the server refuses them the agent's token and log (403);
  *   - a script-looking name, route, action, address, message and space name is drawn as text: no element is made, nothing runs;
  *   - a space's Set up, Members: the agent is there as "<name> (agent)" with no moderator tick, and adds like a member;
@@ -687,6 +692,186 @@ async function main() {
       await shot(t, 'agent-page-token-ended-1280-dark');
       expect(t.problems.length === 0, `lifetime block: ${t.problems.join('; ')}`);
       await t.close();
+    }
+    // The set-up agent's page (plan-admin-agent.md, step 4): Waiting for you (Approve, Decline, a 409's sentence), Undo on each change
+    // (disabled with its reason; a made space asks first), What it did, the connect guide, what it has left today, and the mark
+    // "Made by Claude (set-up agent)" with Keep on Manage's spaces list and on Home. Run on the throwaway server with AGENT_SETUP.
+    {
+      const MARK = 'Made by Claude (set-up agent)';
+      const adm = async (method, url, body) => call('admin', method, url, body, setup);
+      expect((await adm('PATCH', '/api/roles/setup', { agentMakeSpaces: true, agentChangeSpaces: true, agentAskPeople: true })).status === 200, 'could not tick the set-up agent rows');
+      expect((await adm('POST', '/api/users', { login: 'olga', displayName: 'Olga', role: 'owner', password: PASSWORD })).status === 201, 'could not make the owner (set-up block)');
+      expect((await adm('POST', '/api/users', { login: 'mia', displayName: 'Mia', role: 'member', password: PASSWORD })).status === 201, 'could not make the member (set-up block)');
+      await signIn('olga', setup); await signIn('mia', setup);
+      const users = (await adm('GET', '/api/users')).json.users;
+      const mia = users.find((u) => u.login === 'mia');
+      const agent = users.find((u) => u.agent && u.kind === 'setup');
+      expect((await adm('PATCH', `/api/users/${agent.key}`, { displayName: 'Builder' })).status === 200, 'could not name the set-up agent');
+      const other = (await adm('POST', '/api/users', { agent: true, kind: 'setup', displayName: 'Other' })).json.user;
+      const token = (await adm('POST', `/api/users/${agent.key}/token`)).json.token;
+      const bot = (method, url, body) => call('__none', method, url, body, setup, token);
+      const template = (await bot('GET', '/api/agent/templates')).json.templates[0].id;
+      const icons = (await bot('GET', '/api/agent/icons')).json.icons;
+      const make = async (name) => { const r = await bot('POST', '/api/agent/spaces', { name, template }); expect(r.status === 200, `the agent could not make ${name}: ${r.status}`); return r.json.space; };
+      const lisbon = await make('Lisbon');
+      const porto = await make(`Porto ${HOSTILE}`);
+      const quiet = await make('Quiet');
+      expect((await bot('PATCH', `/api/agent/spaces/${lisbon.id}`, { name: 'Lisbon 2027' })).status === 200, 'the agent could not rename');
+      expect((await bot('PATCH', `/api/agent/spaces/${quiet.id}`, { icon: icons[1] })).status === 200, 'the agent could not change an icon');
+      const askAdd = await bot('POST', `/api/agent/spaces/${lisbon.id}/asks`, { ask: 'add', person: mia.key });
+      expect(askAdd.status === 202, `the ask was ${askAdd.status}`);
+      const asksUrl = `/api/users/${agent.key}/asks`;
+      const page = `/admin#agent/${agent.key}`;
+      const listed = async () => (await adm('GET', asksUrl)).json.asks;
+      const t = await open(1280, 'dark', 'admin', setup);
+      await go(t, page);
+      await t.waitFor('[data-agent-ask]');
+      expect(await waitText(t, '[data-agent-title]', 'Builder (set-up agent)'), `the page is titled ${await text(t, '[data-agent-title]')}`);
+      const view = await t.eval(`(() => {
+        const vis = (sel) => { const e = document.querySelector(sel); return !!e && !e.hidden && e.getClientRects().length > 0; };
+        const panel = (title) => [...document.querySelectorAll('#agent-page .panel')].find((p) => (p.querySelector('h2') || {}).textContent === title);
+        const shown = (title) => { const p = panel(title); return !!p && !p.hidden && p.getClientRects().length > 0; };
+        return {
+          waiting: shown('Waiting for you'), undo: shown('Changes you can undo'), can: shown('What it can do'), chat: shown('Chat'),
+          asks: [...document.querySelectorAll('[data-agent-ask]')].map((li) => ({ text: li.querySelector('.agent-ask-what > span').textContent, buttons: [...li.querySelectorAll('button')].map((b) => b.textContent) })),
+          changes: [...document.querySelectorAll('[data-agent-change]')].map((li) => ({ text: li.querySelector('.agent-change-text').textContent, undo: !!li.querySelector('[data-agent-undo]') && !li.querySelector('[data-agent-undo]').disabled })),
+          limits: [...document.querySelectorAll('[data-agent-limits] li')].map((l) => l.textContent),
+          log: [...document.querySelectorAll('[data-agent-log] .agent-log-what')].map((l) => l.textContent),
+          connect: document.querySelector('[data-agent-connect]').textContent,
+          steps: document.querySelectorAll('[data-agent-connect] .agent-steps')[0].children.length,
+        };
+      })()`);
+      expect(view.waiting && view.undo && view.can && !view.chat, `the set-up agent's panels are ${JSON.stringify({ w: view.waiting, u: view.undo, c: view.can, chat: view.chat })}`);
+      expect(view.asks.length === 1 && view.asks[0].buttons.join() === 'Approve,Decline', `waiting reads ${JSON.stringify(view.asks)}`);
+      expect(view.asks[0].text === (await listed())[0].text && /asks to add Mia to Lisbon 2027\./.test(view.asks[0].text), `the ask reads "${view.asks[0].text}"`);
+      expect(view.changes.length === 5 && view.changes.every((c) => c.undo), `the changes are ${JSON.stringify(view.changes)}`);
+      expect(view.changes.some((c) => c.text === 'Renamed the space Lisbon 2027') && view.changes.some((c) => c.text === 'Changed the icon of the space Quiet') && view.changes.some((c) => c.text === 'Made the space Quiet'), `the changes read ${JSON.stringify(view.changes.map((c) => c.text))}`);
+      expect(view.limits.join('|') === 'Spaces it can still make today: 2 of 5|Changes it can still make today: 28 of 30|Waiting for you: 1', `the limits read ${view.limits.join('|')}`);
+      expect(view.log.includes('Asked to add a person to the space Lisbon 2027') && view.log.includes('Renamed the space Lisbon 2027') && view.log.includes('Made the space Quiet'), `What it did reads ${JSON.stringify(view.log)}`);
+      expect(!view.log.some((l) => /Mia/.test(l)) && !view.changes.some((c) => /Mia/.test(c.text)), 'a person is named in What it did or in the changes');
+      expect(view.steps === 4 && !/Add this agent to a space/.test(view.connect) && /waits for your yes/.test(view.connect) && /can't read what is inside/.test(view.connect) && /Set-up agent column/.test(view.connect), `the connect guide reads wrong (${view.steps} steps)`);
+      expect(await pwn(t) === 0 && !(await t.eval(`!!document.querySelector('#agent-page img[src="x"]')`)), 'a script-looking space name ran or became an element');
+      expect(await wide(t) <= 0, `the set-up agent's page scrolls sideways at 1280 (${await wide(t)})`);
+      await shot(t, 'setup-agent-page-1280-dark');
+      // Another agent's bell line opens its own page.
+      await signIn('olga', setup);
+      const bell = (await call('olga', 'GET', '/api/notifications', undefined, setup)).json.notifications.find((x) => /asks to add Mia to Lisbon 2027/.test(x.title));
+      expect(bell && bell.href === page, `the bell line opens ${bell && bell.href}`);
+      await go(t, `/admin#agent/${other.key}`);
+      expect(await waitText(t, '[data-agent-title]', 'Other (set-up agent)'), 'the other set-up agent\'s page did not open');
+      expect((await t.eval(`document.querySelectorAll('[data-agent-ask]').length`)) === 0 && !(await hiddenOf(t, '[data-agent-asks-empty]')), 'another agent shows this one\'s asks');
+      await go(t, bell.href);
+      expect(await waitText(t, '[data-agent-title]', 'Builder (set-up agent)') && await t.eval(`document.querySelectorAll('[data-agent-ask]').length`) === 1, 'the bell line did not open the right agent with its ask');
+      // An ordinary agent's page has none of this.
+      const ord = (await adm('POST', '/api/users', { agent: true, displayName: 'Reader' })).json.user;
+      await go(t, `/admin#agent/${ord.key}`);
+      expect(await waitText(t, '[data-agent-title]', 'Reader (agent)') && await hiddenOf(t, '[data-agent-asks]') && await hiddenOf(t, '[data-agent-changes]') && !(await hiddenOf(t, '[data-agent-connect]')), 'the ordinary agent\'s page shows the set-up agent\'s lists');
+      expect(/Add this agent to a space/.test(await text(t, '[data-agent-connect]')), 'the ordinary agent\'s guide lost its first step');
+      await go(t, page);
+      await t.waitFor('[data-agent-ask]');
+      // A 409: the owner answered elsewhere; the page's Decline gets the server's sentence, and the list is drawn again.
+      expect((await adm('POST', `${asksUrl}/${askAdd.json.ask.id}`, { decision: 'approve' })).status === 200, 'could not approve by the API');
+      await press(t, '[data-agent-answer="decline"]');
+      expect(await waitText(t, '[data-agent-asks-status]', '.'), 'a 409 said nothing');
+      const sentence = (await adm('POST', `${asksUrl}/${askAdd.json.ask.id}`, { decision: 'decline' }));
+      expect(sentence.status === 409 && (await text(t, '[data-agent-asks-status]')) === sentence.json.error, `the 409 reads "${await text(t, '[data-agent-asks-status]')}" and the server says "${sentence.json.error}"`);
+      expect(await t.eval(`document.querySelectorAll('[data-agent-ask]').length`) === 0 && !(await hiddenOf(t, '[data-agent-asks-empty]')), 'the answered ask is still listed');
+      // Approve works: a moderator tick for Mia, now a member of Lisbon.
+      const mod = await bot('POST', `/api/agent/spaces/${lisbon.id}/asks`, { ask: 'moderator', person: mia.key, on: true });
+      expect(mod.status === 202, `the moderator ask was ${mod.status}`);
+      await go(t, page);
+      await t.waitFor('[data-agent-ask]');
+      expect(/moderator/i.test(await text(t, '[data-agent-ask] .agent-ask-what')), 'the moderator ask does not read as one');
+      await press(t, '[data-agent-answer="approve"]');
+      expect(await waitText(t, '[data-agent-asks-status]', 'Approved'), `Approve said "${await text(t, '[data-agent-asks-status]')}"`);
+      expect((await listed()).find((a) => a.id === mod.json.ask.id).state === 'approved' && await t.eval(`document.querySelectorAll('[data-agent-ask]').length`) === 0, 'Approve did not end the ask');
+      // Undo: a rename puts the name back, with no question; a made space asks first, and Cancel keeps it.
+      const spaceStatus = async (id) => (await adm('GET', `/api/spaces/${id}`)).status;
+      const nameOf = async (id) => ((await adm('GET', `/api/spaces/${id}`)).json.space || {}).name;
+      const undoIdOf = (what) => t.eval(`(() => { const li = [...document.querySelectorAll('[data-agent-change]')].find((x) => x.querySelector('.agent-change-text').textContent === ${JSON.stringify(what)}); const b = li && li.querySelector('[data-agent-undo]'); return b ? b.dataset.agentUndo : ''; })()`);
+      const renameId = await undoIdOf('Renamed the space Lisbon 2027');
+      expect(renameId !== '', 'the rename has no Undo');
+      await press(t, `[data-agent-undo="${renameId}"]`);
+      expect(await waitText(t, '[data-agent-changes-status]', 'Undone'), `Undo said "${await text(t, '[data-agent-changes-status]')}"`);
+      expect(await nameOf(lisbon.id) === 'Lisbon', `the name after Undo is ${await nameOf(lisbon.id)}`);
+      expect(await t.eval(`(() => { const li = [...document.querySelectorAll('[data-agent-change]')].find((x) => x.textContent.includes('Renamed')); return !!li && li.classList.contains('is-undone') && !li.querySelector('[data-agent-undo]') && /Undone/.test(li.textContent); })()`), 'an undone change still offers Undo');
+      const quietId = await undoIdOf('Made the space Quiet');
+      await press(t, `[data-agent-undo="${quietId}"]`);
+      expect(await waitDialog(t, true), 'undoing a made space asked nothing');
+      const ask = await t.eval(`(() => { const d = document.querySelector('dialog[open]'); return d.textContent; })()`);
+      expect(/Remove this space\?/.test(ask) && /Everything in it goes\./.test(ask), `the question reads "${ask}"`);
+      await t.click('dialog[open] button', 'Cancel');
+      expect(await waitDialog(t, false) && await spaceStatus(quiet.id) === 200, 'Cancel did not keep the space');
+      await press(t, `[data-agent-undo="${quietId}"]`);
+      expect(await waitDialog(t, true), 'the question did not come again');
+      await t.click('dialog[open] button', 'Remove');
+      expect(await waitDialog(t, false), 'Remove did not close the question');
+      for (let i = 0; i < 40 && await spaceStatus(quiet.id) !== 404; i += 1) await sleep(100);
+      expect(await spaceStatus(quiet.id) === 404, 'Remove did not erase the space');
+      const quietListed = () => t.eval(`[...document.querySelectorAll('.agent-change-text')].some((x) => x.textContent.includes('Quiet'))`);
+      for (let i = 0; i < 40 && await quietListed(); i += 1) await sleep(100);
+      expect(!(await quietListed()), 'the erased space\'s changes are still listed');
+      // The mark and Keep on Manage's list.
+      await go(t, '/admin#spaces');
+      await t.waitFor(`#spaces [data-space="${porto.id}"] [data-made-keep]`);
+      const mark = await t.eval(`(() => ({ lisbon: (document.querySelector('#spaces [data-space="${lisbon.id}"] .made-mark') || {}).textContent, porto: (document.querySelector('#spaces [data-space="${porto.id}"] .made-mark') || {}).textContent, lobby: !!document.querySelector('#spaces .lobby .made-mark') }))()`);
+      expect(mark.lisbon === MARK && mark.porto === MARK && !mark.lobby, `the marks read ${JSON.stringify(mark)}`);
+      expect(await pwn(t) === 0 && !(await t.eval(`!!document.querySelector('#spaces img[src="x"]')`)), 'a script-looking space name ran on Manage\'s list');
+      await shot(t, 'setup-agent-mark-manage-1280-dark');
+      await press(t, `[data-made-keep="${porto.id}"]`);
+      expect(await waitDialog(t, true), 'Keep asked nothing');
+      expect(/^Keep "Porto/.test(await t.eval(`document.querySelector('dialog[open] .sdk-dialog-title').textContent`)) && /Claude can no longer change it/.test(await t.eval(`document.querySelector('dialog[open]').textContent`)), 'the Keep question reads wrong');
+      await t.click('dialog[open] button', 'Cancel');
+      expect(await waitDialog(t, false) && !(await hiddenOf(t, `#spaces [data-space="${porto.id}"] .made-mark`)), 'Cancel on Keep removed the mark');
+      await press(t, `[data-made-keep="${porto.id}"]`);
+      await waitDialog(t, true);
+      await t.click('dialog[open] button', 'Keep');
+      expect(await waitDialog(t, false), 'Keep did not close its question');
+      for (let i = 0; i < 40 && !(await hiddenOf(t, `#spaces [data-space="${porto.id}"] [data-made]`)); i += 1) await sleep(100);
+      expect(await hiddenOf(t, `#spaces [data-space="${porto.id}"] [data-made]`) && !(await hiddenOf(t, `#spaces [data-space="${lisbon.id}"] [data-made]`)), 'Keep did not clear the mark on Porto alone');
+      expect(!('madeBy' in (await adm('GET', `/api/spaces/${porto.id}`)).json.space) && 'madeBy' in (await adm('GET', `/api/spaces/${lisbon.id}`)).json.space, 'the server did not clear madeBy on Porto alone');
+      // After Keep, Undo of that made space is off, with the server's reason.
+      await go(t, page);
+      await t.waitFor('[data-agent-change]');
+      const kept = await t.eval(`(() => { const li = [...document.querySelectorAll('[data-agent-change]')].find((x) => x.querySelector('.agent-change-text').textContent.startsWith('Made the space Porto')); const b = li && li.querySelector('[data-agent-undo]'); return li ? { disabled: !!b && b.disabled, why: (li.querySelector('[data-agent-why]') || {}).textContent || '' } : null; })()`);
+      expect(kept && kept.disabled && kept.why === 'An owner chose Keep for this space, so it stays.', `a kept space's Undo reads ${JSON.stringify(kept)}`);
+      // The mark on Home: owners see it and Keep; a member does not. Keep there does not enter the space.
+      const mHome = await open(1280, 'dark', 'mia', setup);
+      await go(mHome, '/');
+      await mHome.waitFor(`.space-choice[data-space="${lisbon.id}"]`);
+      expect(await hiddenOf(mHome, `.space-choice[data-space="${lisbon.id}"] [data-made]`) && !(await mHome.eval(`document.body.textContent.includes(${JSON.stringify(MARK)})`)), 'a member sees the mark on Home');
+      await mHome.close();
+      const home = await open(1280, 'dark', 'admin', setup);
+      await go(home, '/');
+      await home.waitFor(`.space-choice[data-space="${lisbon.id}"] [data-made-keep]`);
+      expect(await text(home, `.space-choice[data-space="${lisbon.id}"] .made-mark`) === MARK, 'Home does not show the mark to the admin');
+      await shot(home, 'setup-agent-mark-home-1280-dark', false);
+      await press(home, `[data-made-keep="${lisbon.id}"]`);
+      expect(await waitDialog(home, true), 'Keep on Home asked nothing');
+      await home.click('dialog[open] button', 'Keep');
+      for (let i = 0; i < 50 && !(await hiddenOf(home, `.space-choice[data-space="${lisbon.id}"] [data-made]`)); i += 1) await sleep(100);
+      expect(await hiddenOf(home, `.space-choice[data-space="${lisbon.id}"] [data-made]`) && !(await home.eval(`document.body.classList.contains('in-space')`)), 'Keep on Home did not clear the mark, or entered the space');
+      expect(!('madeBy' in (await adm('GET', `/api/spaces/${lisbon.id}`)).json.space), 'the server did not clear madeBy for Lisbon');
+      expect(home.problems.length === 0, `Home: ${home.problems.join('; ')}`);
+      await home.close();
+      // 390 wide: a waiting ask and an undoable change.
+      const faro = await make('Faro');
+      expect((await bot('POST', `/api/agent/spaces/${faro.id}/asks`, { ask: 'add', person: mia.key })).status === 202, 'could not make the 390 ask');
+      await t.close();
+      const ph = await open(390, 'dark', 'admin', setup);
+      await go(ph, page);
+      await ph.waitFor('[data-agent-ask]');
+      await ph.waitFor('[data-agent-undo]:not([disabled])');
+      expect(await wide(ph) <= 0, `the set-up agent's page scrolls sideways at 390 (${await wide(ph)})`);
+      for (const sel of ['[data-agent-answer="approve"]', '[data-agent-answer="decline"]', '[data-agent-undo]:not([disabled])']) expect(await hit(ph, sel) >= 44, `${sel} is ${await hit(ph, sel)} px tall at 390`);
+      await shot(ph, 'setup-agent-page-390-dark');
+      await go(ph, '/admin#spaces');
+      await ph.waitFor(`#spaces [data-space="${faro.id}"] [data-made-keep]`);
+      expect(await wide(ph) <= 0 && await hit(ph, `[data-made-keep="${faro.id}"]`) >= 44, `Manage's list at 390: ${await wide(ph)} wide, Keep ${await hit(ph, `[data-made-keep="${faro.id}"]`)} px`);
+      await shot(ph, 'setup-agent-mark-manage-390-dark');
+      expect(ph.problems.length === 0, `390: ${ph.problems.join('; ')}`);
+      await ph.close();
+      expect(t.problems.length === 0, `set-up agent's page: ${t.problems.join('; ')}`);
     }
     // An address that names no agent opens the list.
     {
