@@ -82,7 +82,8 @@ const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView, LIFETIMES, DEFAULT_LIFETIME: DEFAULT_TOKEN_LIFETIME } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
-const { AGENT_ROUTES, SETUP_LIMITS, agentMayAsk } = require('./agent-routes');
+const { AGENT_ROUTES, SETUP_LIMITS, SETUP_ASKS, SETUP_ASK_DAYS, SETUP_UNDO_DAYS, agentMayAsk } = require('./agent-routes');
+const { SetupError, writtenByOthers } = require('./setup-records');
 const { createMcp } = require('./mcp');
 const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
@@ -5466,6 +5467,7 @@ app.patch('/api/spaces/:id', requireUser, (req, res) => {
   }
   const space = store.updateSpace(req.params.id, body);
   if (body.members !== undefined) endAgentAsks(); // an agent taken off the members: its waiting requests here end
+  if (body.members !== undefined || body.madeBy !== undefined) tidySetupAsks(); // a set-up agent's asks end with its reach (Keep, taken off)
   liveAccessChanged(); // guests turned off, say: their live streams end now
   res.json({ space: answeredSpace(req, space) });
 });
@@ -5616,7 +5618,7 @@ app.patch('/api/users/:key', requireOwner, (req, res) => {
   }
   let user = store.updateUser(req.params.key, patch);
   if (off !== undefined) user = store.setAgentOff(req.params.key, off);
-  if (off === true) endAgentAsks(); // what it asked for and no page carried out yet is dropped
+  if (off === true) { endAgentAsks(); tidySetupAsks(); } // what it asked for and no page carried out yet is dropped; a set-up agent's asks end
   liveAccessChanged(); // a role changed, or a new password signed them out everywhere: their streams ask again now
   res.json({ user: publicUser(req, user) });
 });
@@ -5626,6 +5628,7 @@ app.delete('/api/users/:key', requireOwner, (req, res) => {
   store.removeUser(req.params.key);
   currentEnvironment().tokens.revoke(req.params.key); // an agent's token goes with it; its objects and messages keep their `by`
   endAgentAsks(); // and what it asked for that no page carried out yet
+  currentEnvironment().setupRecords.forgetAgent(req.params.key); // a set-up agent's asks and undo records go with it
   attention.forgetPerson(req.params.key);
   liveAccessChanged(); // their streams end now
   res.json({ ok: true });
@@ -5696,6 +5699,7 @@ app.post('/api/users/:key/token', requireOwner, (req, res) => {
   if (agent.off) return res.status(409).json({ error: 'This agent is turned off. Turn it on first.' });
   const { token, record } = currentEnvironment().tokens.make(agent.key, 'agent', lifetime);
   endAgentAsks(); // what the earlier token asked for ends with it
+  setupRecordsHere().expire((a) => a.agent === agent.key); // a set-up agent's waiting asks too
   res.status(201).set('Cache-Control', 'no-store').json({ token, lifetime: record.lifetime, expiresAt: record.expiresAt });
 });
 // DELETE: revokes it at once: { ok: true, revoked } (false when it had none).
@@ -5704,6 +5708,7 @@ app.delete('/api/users/:key/token', requireOwner, (req, res) => {
   if (!agent) return;
   const revoked = currentEnvironment().tokens.revoke(agent.key, 'agent');
   endAgentAsks(); // what it asked for that no page carried out yet ends with the token
+  setupRecordsHere().expire((a) => a.agent === agent.key); // a set-up agent's waiting asks too
   res.set('Cache-Control', 'no-store').json({ ok: true, revoked });
 });
 // What the agent did: the last 100 lines of its log, newest first, before `before` (a time) when given:
@@ -5718,11 +5723,116 @@ app.get('/api/users/:key/agent-log', requireOwner, (req, res) => {
   }
   res.set('Cache-Control', 'no-store').json(currentEnvironment().agentLog.entriesOf(agent.key, { before }));
 });
+// A set-up agent's asks and changes, for owners and the admin (plan-admin-agent.md, step 2; the routes the agent uses and
+// the rules are with its own routes, below). An ordinary agent has none: its lists are empty and an answer to one is 404.
+// GET /api/users/:key/asks: { asks: [{ id, ask, person: { key, name }, space: { id, name }, on?, state, at, expiresAt,
+// decidedAt?, decidedBy?, text }] }, newest first, answered ones for 30 days.
+app.get('/api/users/:key/asks', requireOwner, (req, res) => {
+  const agent = agentNamed(req, res);
+  if (!agent) return;
+  tidySetupAsks();
+  res.set('Cache-Control', 'no-store').json({ asks: setupRecordsHere().asksOf(agent.key).map(askForOwner) });
+});
+// POST /api/users/:key/asks/:id { decision: "approve" | "decline" }: an owner's answer. Approving does what it asks, as this
+// owner, in the same step. The same answer twice changes nothing; the other answer, or an ask that is over, is 409. An ask
+// that can no longer be done as it stands ends (expired) with a 409 saying why. { ok, changed, ask }.
+app.post('/api/users/:key/asks/:id', requireOwner, (req, res) => {
+  const agent = agentNamed(req, res);
+  if (!agent) return;
+  const decision = req.body?.decision;
+  if (decision !== 'approve' && decision !== 'decline') return res.status(400).json({ error: 'decision is approve or decline.' });
+  const records = setupRecordsHere();
+  tidySetupAsks();
+  const id = String(req.params.id);
+  let result;
+  try {
+    result = records.decide(id, agent.key, decision, currentUser(req).key, (a) => {
+      const space = store.spaceById(a.space);
+      const problem = space ? setupAskProblem(a, space) : `That ${word('space')} is gone.`;
+      if (problem) {
+        records.expire((x) => x.id === a.id);
+        throw new SetupError(problem, 409);
+      }
+      // The store calls a person's Set up runs: the members list, taking one off, the moderator tick.
+      if (a.ask === 'add') store.updateSpace(space.id, { members: [...space.members, a.person] });
+      else if (a.ask === 'remove') { store.removeMember(space.id, a.person); endAgentAsks(); }
+      else store.setSpacePrefs(a.person, space.id, { permissions: { moderator: a.on } });
+    });
+  } catch (err) {
+    if (err instanceof SetupError) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
+  if (result.changed && decision === 'approve') liveAccessChanged();
+  res.json({ ok: true, changed: result.changed, ask: askForOwner(result.ask) });
+});
+// Why a change can't be undone now, in one sentence, or null. A made space: only while it is still marked as the agent's
+// (no Keep) and nobody but the agent has written in it. A rename, a description or an icon: only the fields that still hold
+// what the change set (a later change by anyone is never undone by it).
+function setupUndoProblem(c) {
+  if (c.undoneAt) return 'That was undone already.';
+  const space = store.spaceById(c.space);
+  if (!space) return `That ${word('space')} is gone.`;
+  if (c.change === 'made') {
+    if (space.madeBy !== c.agent) return `${word('owner', { a: true, cap: true })} chose Keep for this ${word('space')}, so it stays.`;
+    if (writtenByOthers(currentEnvironment(), space.id, c.agent)) return `Someone has written in this ${word('space')}, so undo would lose their work. Delete it in Set up if it should go.`;
+    return null;
+  }
+  return Object.keys(c.after).some((k) => (space[k] ?? '') === c.after[k]) ? null : 'That has been changed again since, so there is nothing to undo.';
+}
+const SETUP_FIELD_OUT = { name: 'name', description: 'description', linkIcon: 'icon' };
+const fieldsOut = (f) => Object.fromEntries(Object.entries(f || {}).map(([k, v]) => [SETUP_FIELD_OUT[k], v]));
+// GET /api/users/:key/changes: { changes: [{ id, change: "made" | "changed", space: { id, name }, at, before?, after?,
+// undone, undoneAt?, undoable, why? }] }, newest first, for SETUP_UNDO_DAYS. `before` and `after` name the fields (name,
+// description, icon) a change set; `why` says in one sentence why one can't be undone now.
+app.get('/api/users/:key/changes', requireOwner, (req, res) => {
+  const agent = agentNamed(req, res);
+  if (!agent) return;
+  const changes = setupRecordsHere().changesOf(agent.key).map((c) => {
+    const why = setupUndoProblem(c);
+    return {
+      id: c.id, change: c.change, space: { id: c.space, name: store.spaceById(c.space)?.name ?? null }, at: isoOf(c.at),
+      ...(c.change === 'changed' ? { before: fieldsOut(c.before), after: fieldsOut(c.after) } : {}),
+      undone: Boolean(c.undoneAt), ...(c.undoneAt ? { undoneAt: isoOf(c.undoneAt) } : {}),
+      undoable: !why, ...(why ? { why } : {}),
+    };
+  });
+  res.set('Cache-Control', 'no-store').json({ changes, days: SETUP_UNDO_DAYS });
+});
+// POST /api/users/:key/changes/:id/undo: an owner undoes one of the agent's changes. A made space is deleted, with everything
+// kept for it (as Set up's Delete), only when setupUndoProblem allows; a change puts back the earlier values of the fields that
+// still hold what it set. 404 for no such change or one past its days; 409 with the reason it can't be undone now.
+// { ok: true, change: "made" | "changed", space: { id, name } | null }.
+app.post('/api/users/:key/changes/:id/undo', requireOwner, (req, res) => {
+  const agent = agentNamed(req, res);
+  if (!agent) return;
+  const env = currentEnvironment();
+  let after = null;
+  try {
+    const done = env.setupRecords.undo(String(req.params.id), agent.key, currentUser(req).key, (c) => {
+      const problem = setupUndoProblem(c);
+      if (problem) throw new SetupError(problem, 409);
+      if (c.change === 'made') {
+        eraseSpace(env, c.space); // everything kept for it, its asks and changes too (server/space-erase.js)
+        moduleLive.forgetSpace(c.space);
+        return;
+      }
+      const space = store.spaceById(c.space);
+      const patch = Object.fromEntries(Object.keys(c.after).filter((k) => (space[k] ?? '') === c.after[k]).map((k) => [k, c.before[k] ?? '']));
+      after = store.updateSpace(space.id, patch);
+    });
+    liveAccessChanged();
+    res.json({ ok: true, change: done.change, space: after ? { id: after.id, name: after.name } : null });
+  } catch (err) {
+    if (err instanceof SetupError) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
+});
 // The agent's own view of itself, through its token only: who it is, when its token ends, its spaces, its limits with what
 // it has used today, and `permissions`: the keys ticked in the Agent column that a route on the gate's list needs (so a
 // client can tell what it may call; a module's own rows are not here, the actions list's `may` says those).
 // `kind`: `agent` or `setup` (plan-admin-agent.md). A set-up agent's `spaces` are the ones it made and may still change, and
-// its limits carry the day's caps on making and changing them.
+// its limits carry the day's caps on making and changing them and on its asks waiting at once; `asks` are its asks waiting
+// for an owner's answer (plan-admin-agent.md, step 2).
 const routeKeysOf = (kind) => [...new Set(AGENT_ROUTES.filter((r) => r.kind === kind && r.needs !== 'module' && r.needs !== 'always').map((r) => r.needs))];
 const AGENT_ROUTE_KEYS = { agent: routeKeysOf('agent'), setup: routeKeysOf('setup') };
 const agentPermissions = (kind) => { const set = store.roleSet(kind); return AGENT_ROUTE_KEYS[kind].filter((k) => set[k]); };
@@ -5731,6 +5841,7 @@ app.get('/api/agent/me', (req, res) => {
   const agent = req.agent.user;
   const kind = agentKindOf(agent);
   const used = currentEnvironment().agentLog.usedToday(agent.key);
+  const waiting = kind === 'setup' ? setupWaitingOf(agent) : [];
   res.json({
     agent: { key: agent.key, name: agent.displayName },
     kind,
@@ -5743,8 +5854,10 @@ app.get('/api/agent/me', (req, res) => {
       ...(kind === 'setup' ? {
         made: { perDay: SETUP_LIMITS.made, usedToday: used.made },
         changes: { perDay: SETUP_LIMITS.changes, usedToday: used.changes },
+        asks: { waitingAtOnce: SETUP_LIMITS.waiting, waiting: waiting.length },
       } : {}),
     },
+    ...(kind === 'setup' ? { asks: waiting.map(askForAgent) } : {}),
   });
 });
 // GET /api/spaces/:id/members (an agent's token only; Thomas, 2026-11-20): the people of one of the agent's own spaces, so it can
@@ -5833,6 +5946,7 @@ app.post('/api/agent/spaces', (req, res) => {
   // Its template's starter content, once, as a person's Set up writes it: by the agent, with the template's rights (the
   // set-up agent's own column holds no module row).
   fillStarter(made, agent, { templateRights: true });
+  currentEnvironment().setupRecords.noteChange({ agent: agent.key, space: made.id, change: 'made' }); // an owner may undo it
   res.json({ space: { id: made.id, name: made.name } });
 });
 // PATCH /api/agent/spaces/:id { name?, description?, icon? }: a change to a space the agent made, only these three.
@@ -5854,10 +5968,129 @@ app.patch('/api/agent/spaces/:id', (req, res) => {
   if (body.name !== undefined) patch.name = body.name;
   if (body.description !== undefined) patch.description = body.description;
   if (body.icon !== undefined) patch.linkIcon = body.icon;
+  const before = Object.fromEntries(Object.keys(patch).map((k) => [k, space[k] ?? '']));
   const changed = store.updateSpace(space.id, patch);
   log.spent(agent.key, 'changes');
   res.locals.agentLog = { change: sent.map((k) => SETUP_CHANGE_WORDS[k]).join(',') };
+  // The fields' earlier values, for an owner's undo (plan-admin-agent.md, "Undo, by a person"); never in the log.
+  const after = Object.fromEntries(Object.keys(patch).map((k) => [k, changed[k] ?? '']));
+  currentEnvironment().setupRecords.noteChange({ agent: agent.key, space: space.id, change: 'changed', before, after });
   res.json({ space: { id: changed.id, name: changed.name, description: changed.description, icon: changed.linkIcon } });
+});
+
+// --- asks about people, and an owner's answer and undo (documentation/plans/plan-admin-agent.md, step 2) --------------
+// A set-up agent sees the environment's members (never a guest, an agent, an owner or the admin; decision 4) and asks an
+// owner to add one to a space it made, take one off, or tick or untick one as its moderator. Nothing about people happens
+// until an owner or the admin approves (decision 5), whatever the Roles grid's "Ask to add people" box says: the box lets
+// it ask, never do. An ask waits SETUP_ASK_DAYS, at most SETUP_LIMITS.waiting at once for each agent, and ends at once when
+// a kill switch is used (Turn off, Revoke or a new token, Set-up agents or Agents off, AGENT_SETUP off), the agent is
+// deleted, or the space stops being one it made (Keep, taken off its members, deleted). Approving runs the store call a
+// person's Set up runs, as that owner. The agent's own direct changes (making a space, renaming it, its description, its
+// icon) keep their earlier values for SETUP_UNDO_DAYS (server/setup-records.js) so an owner can undo them; the agent itself
+// never undoes or deletes (plan-agent-access.md, decision 7).
+const setupRecordsHere = () => currentEnvironment().setupRecords;
+// The environment's member accounts a set-up agent may name (decision 4): role member, a person, not the host admin's stand-in.
+const setupPersonOf = (key) => {
+  const u = typeof key === 'string' ? store.userByKey(key) : null;
+  return u && u.role === 'member' && !u.agent && !u.hostAdmin ? u : null;
+};
+// Whether an ask may still be answered: its agent is here, a set-up agent, not turned off, the switches are on, and the
+// space is still one it made (agentMadeOf).
+const setupAskLive = (a) => {
+  const agent = store.userByKey(a.agent);
+  return Boolean(agent && agent.agent && agent.kind === 'setup' && !agent.off && store.settings.agents === true && setupAgentsOn() && agentMadeOf(agent, a.space));
+};
+// Ends the waiting asks that can no longer be answered (a kill switch, a space it no longer made). Read before every look.
+const tidySetupAsks = () => setupRecordsHere().expire((a) => !setupAskLive(a));
+const setupWaitingOf = (agent) => { tidySetupAsks(); return setupRecordsHere().waitingOf(agent.key); };
+// Why an ask can't be asked or done as it stands, in one sentence, or null. The same rule when the agent asks and when an
+// owner approves (then the ask ends with the sentence).
+function setupAskProblem({ ask, person, on }, space) {
+  const who = setupPersonOf(person);
+  if (!who) return ask === 'add' ? `An agent can only ask to add ${word('member', { a: true })} of this ${word('environment')}.` : `An agent can only ask about ${word('member', { a: true })} of this ${word('environment')}.`;
+  const inIt = space.members.includes(who.key);
+  if (ask === 'add' && inIt) return `They are in this ${word('space')} already.`;
+  if (ask !== 'add' && !inIt) return `They are not in this ${word('space')}.`;
+  if (ask === 'moderator') {
+    const is = Boolean(who.spaces?.[space.id]?.permissions?.moderator);
+    if (on && is) return `They are its ${word('moderator')} already.`;
+    if (!on && !is) return `They are not its ${word('moderator')}.`;
+  }
+  return null;
+}
+// The ask as a person reads it: "Claude (set-up agent) asks to add Ana to Lisbon 2027."
+function setupAskText(a) {
+  const agent = store.userByKey(a.agent);
+  const asker = agent ? `${plainName(agent.displayName)}${agentMark(agent)}` : `A set-up agent`;
+  const name = plainName(store.userByKey(a.person)?.displayName || 'someone');
+  const space = store.spaceById(a.space)?.name || `${word('space', { a: true })} that is gone`;
+  if (a.ask === 'add') return `${asker} asks to add ${name} to ${space}.`;
+  if (a.ask === 'remove') return `${asker} asks to take ${name} off ${space}.`;
+  return a.on ? `${asker} asks to make ${name} ${word('moderator', { a: true })} of ${space}.` : `${asker} asks to stop ${name} being ${word('moderator', { a: true })} of ${space}.`;
+}
+const isoOf = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
+// What the agent reads of its own ask: keys and ids only.
+const askForAgent = (a) => ({ id: a.id, ask: a.ask, person: a.person, space: a.space, ...(a.ask === 'moderator' ? { on: a.on } : {}), state: a.state, at: isoOf(a.at), ...(a.decidedAt ? { decidedAt: isoOf(a.decidedAt) } : {}) });
+// What an owner reads of one: with the names, and the sentence.
+const askForOwner = (a) => ({
+  ...askForAgent(a),
+  person: { key: a.person, name: store.userByKey(a.person)?.displayName ?? null },
+  space: { id: a.space, name: store.spaceById(a.space)?.name ?? null },
+  text: setupAskText(a),
+  expiresAt: isoOf(setupRecordsHere().endsAt(a)),
+  ...(a.decidedBy ? { decidedBy: { key: a.decidedBy, name: store.userByKey(a.decidedBy)?.displayName ?? null } } : {}),
+});
+function tellOwnersOfAsk(a) {
+  try {
+    const owners = store.users.filter((u) => hasOwnerRights(u)).map((u) => u.key);
+    moduleHooks.announce(owners, { title: setupAskText(a), body: "Approve or decline it on the agent's page.", href: `/admin#agent/${encodeURIComponent(a.agent)}` });
+  } catch (err) { console.warn('could not tell the owners of a set-up agent\'s ask:', err.message); }
+}
+// GET /api/agent/people: { people: [{ key, name }] }, the environment's member accounts, by name. Nothing else of a person.
+app.get('/api/agent/people', (req, res) => {
+  if (!setupAgentOf(req, res)) return;
+  const people = store.users.filter((u) => setupPersonOf(u.key)).map((u) => ({ key: u.key, name: u.displayName }))
+    .sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+  res.set('Cache-Control', 'no-store').json({ people });
+});
+// POST /api/agent/spaces/:id/asks { ask: "add" | "remove" | "moderator", person, on? }: asks an owner. 202
+// { ask: { id, state: "waiting" } }; the owners get one bell line. `on` (true or false) goes with "moderator" only.
+app.post('/api/agent/spaces/:id/asks', (req, res) => {
+  const agent = setupAgentOf(req, res);
+  if (!agent) return;
+  const space = agentMadeOf(agent, req.params.id);
+  if (!space) return res.status(404).json({ error: `no such ${word('space')}` });
+  const body = req.body;
+  if (!req.is('application/json') || !body || typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'Send { ask, person, on } as JSON.' });
+  if (Object.keys(body).some((k) => !['ask', 'person', 'on'].includes(k))) return res.status(400).json({ error: 'Only ask, person, on can be sent.' });
+  if (!SETUP_ASKS.includes(body.ask)) return res.status(400).json({ error: `ask is one of: ${SETUP_ASKS.join(', ')}.` });
+  if (typeof body.person !== 'string') return res.status(400).json({ error: "person is a person's key, from the people list." });
+  if (body.ask === 'moderator' && typeof body.on !== 'boolean') return res.status(400).json({ error: `on is true or false: tick or untick them as ${word('moderator')}.` });
+  if (body.ask !== 'moderator' && body.on !== undefined) return res.status(400).json({ error: `on goes only with the ask that ticks or unticks ${word('moderator', { a: true })}.` });
+  const problem = setupAskProblem(body, space);
+  if (problem) return res.status(setupPersonOf(body.person) ? 409 : 400).json({ error: problem });
+  tidySetupAsks();
+  let made;
+  try {
+    made = setupRecordsHere().addAsk({ agent: agent.key, space: space.id, ask: body.ask, person: body.person, on: body.on }, SETUP_LIMITS.waiting);
+  } catch (err) {
+    if (!(err instanceof SetupError)) throw err;
+    if (err.retrySeconds) res.set('Retry-After', String(err.retrySeconds));
+    return res.status(err.status).json({ error: err.message });
+  }
+  res.locals.agentLog = { change: `ask:${made.ask}` };
+  tellOwnersOfAsk(made);
+  res.status(202).json({ ask: { id: made.id, state: 'waiting' } });
+});
+// GET /api/agent/asks/:id: { ask: { id, ask, person, space, on?, state, at, decidedAt? } }, one of its own asks; state is
+// waiting, approved, declined or expired. Another agent's ask, or none, is 404.
+app.get('/api/agent/asks/:id', (req, res) => {
+  const agent = setupAgentOf(req, res);
+  if (!agent) return;
+  tidySetupAsks();
+  const a = setupRecordsHere().ask(String(req.params.id));
+  if (!a || a.agent !== agent.key) return res.status(404).json({ error: 'No such ask.' });
+  res.set('Cache-Control', 'no-store').json({ ask: askForAgent(a) });
 });
 
 // The MCP door for agents (server/mcp.js): POST /mcp and GET /mcp (405), through the agent gate like every route above.
@@ -5888,6 +6121,7 @@ app.patch('/api/users/:key/spaces/:spaceId', requireOwner, (req, res) => {
 app.delete('/api/spaces/:id/members/:key', requireOwner, (req, res) => {
   store.removeMember(req.params.id, req.params.key);
   endAgentAsks(); // an agent's waiting requests in this space end with its membership
+  tidySetupAsks(); // a set-up agent's asks there too
   liveAccessChanged(); // their streams there end now
   res.json({ user: publicUser(req, store.userByKey(req.params.key)) });
 });
@@ -13488,6 +13722,7 @@ app.patch('/api/settings', requireOwner, settingsJson, async (req, res) => {
   }
   if (template === undefined || Object.keys(rest).length) watchTheme(() => store.updateSettings(rest));
   if (rest.agents === false) endAgentAsks(); // Agents off: every agent's waiting requests end
+  if (rest.agents === false || rest.setupAgents === false) tidySetupAsks(); // and every set-up agent's waiting asks
   // A module frame's inline icons are cached by id (iconSvg); a new icon list may give an id other classes.
   if (rest.icons !== undefined || rest.resetLists !== undefined) iconSvgs.clear();
   if (template === undefined) return res.json({ settings: ownerSettings() });

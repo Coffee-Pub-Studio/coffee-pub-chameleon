@@ -63,6 +63,9 @@ const READS = {
   '/api/agent/icons': () => 'Read the icons it may use',
   '/api/agent/spaces': (w) => `Made ${w('space', { a: true })}`,
   '/api/agent/spaces/:id': (w) => `Changed ${w('space', { a: true })}`,
+  '/api/agent/people': (w) => `Read the ${w('member', { many: true })} it may ask about`,
+  '/api/agent/spaces/:id/asks': () => 'Asked about a person',
+  '/api/agent/asks/:id': () => 'Checked on an ask',
 };
 // What a set-up agent's change to a space it made reads like (the log's `change`, never a name or a description).
 const CHANGE_WORDS = { renamed: 'Renamed', described: 'Changed the description of', icon: 'Changed the icon of' };
@@ -70,7 +73,7 @@ const CHANGE_WORDS = { renamed: 'Renamed', described: 'Changed the description o
 const CHAT_ROUTE = '/api/spaces/:id/chat';
 // The methods the gate lets through on each route; any other method on it was refused. A read route is GET (HEAD too); the
 // action and objects/resolve routes are POST; Chat is GET or POST.
-const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'], '/mcp': ['GET', 'POST'], '/api/agent/spaces': ['POST'], '/api/agent/spaces/:id': ['PATCH'] };
+const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'], '/mcp': ['GET', 'POST'], '/api/agent/spaces': ['POST'], '/api/agent/spaces/:id': ['PATCH'], '/api/agent/spaces/:id/asks': ['POST'] };
 const methodFits = (route, method) => (ROUTE_METHODS[route] || ['GET', 'HEAD']).includes(String(method || '').toUpperCase());
 const known = (route) => typeof route === 'string' && Object.hasOwn(READS, route);
 // "addMilestone" -> "add milestone"; the module's id before the colon is left out.

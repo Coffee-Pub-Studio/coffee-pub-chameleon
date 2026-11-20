@@ -48,6 +48,7 @@ const accessRequestsLib = require('./access-requests');
 const guestDoorLib = require('./guest-door');
 const { Tokens } = require('./tokens');
 const { AgentLog } = require('./agent-log');
+const { SetupRecords } = require('./setup-records');
 const { agentModuleKeys } = require('./agent-routes');
 
 // The same read-access guard index.js's route handlers use (its own moduleCan), needed here only for
@@ -151,6 +152,8 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   // (the agent-log/ folder), so a token made here is never found in another environment.
   const tokens = new Tokens(dataDir);
   const agentLog = new AgentLog(dataDir);
+  // Set-up agents' asks about people and the undo records of their changes (plan-admin-agent.md, step 2; agent-setup.json).
+  const setupRecords = new SetupRecords(dataDir, { log });
 
   if (admin) {
     const login = admin.login || 'admin';
@@ -332,7 +335,7 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
     store, modules, moduleData, moduleHolds, moduleHooks, chatHistory, attention, facts, tags, moduleLinks, moduleBus, moduleSettings, ai, moduleUploads, vault,
     geocodeCache, regionCutJobs, moduleLimits, limiter, live, liveEvents, moduleLive, invites, inviteEvents, themeEvents, moduleEvents, chatPictures, chatPosts, chatPreviewsAsked, iconSvgs,
     moduleActivity, noteActivity, saveActivity, externalCalendars, guestAgreements, accessRequests, accessAddresses, guestRegister, guestLimits, newGuestSessions,
-    tokens, agentLog,
+    tokens, agentLog, setupRecords,
   };
 }
 

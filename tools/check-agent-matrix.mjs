@@ -97,6 +97,20 @@ await test('every row an agent column may tick is needed by some entry of its ki
   assert.deepEqual(AGENT_BUILT_IN.filter((k) => SETUP_BUILT_IN.includes(k)), [], 'the two kinds share no tickable row (plan-agent-matrix.md, decision 3)');
 });
 
+await test('the set-up column is plan-agent-matrix.md\'s: three rows, all off, and what each set-up route needs', () => {
+  assert.deepEqual([...SETUP_BUILT_IN], ['agentMakeSpaces', 'agentChangeSpaces', 'agentAskPeople']);
+  assert.deepEqual({ ...routes.SETUP_DEFAULTS }, { agentMakeSpaces: false, agentChangeSpaces: false, agentAskPeople: false }, 'nothing until an owner ticks it (decision 5)');
+  assert.equal(AGENT_ONLY_PERMISSIONS.find((p) => p.key === 'agentAskPeople')?.label, 'Ask to add people');
+  const needs = Object.fromEntries(AGENT_ROUTES.filter((e) => e.kind === 'setup').map((e) => [`${e.method.toUpperCase()} ${e.path}`, e.needs]));
+  assert.deepEqual(needs, {
+    'GET /api/agent/me': 'always', 'GET /api/agent/templates': 'always', 'GET /api/agent/icons': 'always', 'GET /api/agent/asks/:id': 'always',
+    'POST /api/agent/spaces': 'agentMakeSpaces', 'PATCH /api/agent/spaces/:id': 'agentChangeSpaces',
+    'GET /api/agent/people': 'agentAskPeople', 'POST /api/agent/spaces/:id/asks': 'agentAskPeople',
+  });
+  // An ask names a space it made (the gate's madeParam), as a change does.
+  assert.equal(AGENT_ROUTES.find((e) => e.kind === 'setup' && e.path === '/api/agent/spaces/:id/asks').place, 'madeParam');
+});
+
 await test('every entry is a route the app registers (tools/route-table.json)', () => {
   const mounted = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools', 'route-table.json'), 'utf8'));
   const registered = new Set(mounted.rows.filter((r) => r.kind === 'route').map((r) => `${r.method} ${r.path}`));

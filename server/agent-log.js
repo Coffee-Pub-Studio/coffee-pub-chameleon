@@ -14,7 +14,8 @@
 //   kind    "read" or "write", what the call counted against; null for a line that counted against nothing;
 //   message a Chat post's message id, or how many messages a Chat read carried (a number); else null. Never text.
 //   change  a set-up agent's change (plan-admin-agent.md, "The log"): "made", or what a change to a space it made touched,
-//           of "renamed", "described" and "icon", joined by commas ("renamed,icon"); else null. Never a name or a description.
+//           of "renamed", "described" and "icon", joined by commas ("renamed,icon"), or an ask about a person ("ask:add",
+//           "ask:remove", "ask:moderator", alone); else null. Never a name, a description or who the ask is about.
 // Never a request's body, a chat message's text or an object's content. A day's file older than 30 days is deleted on
 // start and once a day after; nothing is ever rewritten.
 //
@@ -36,7 +37,7 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { deepFreeze } = require('./deep-freeze');
-const { SETUP_CHANGES } = require('./agent-routes');
+const { SETUP_CHANGES, SETUP_ASK_CHANGES } = require('./agent-routes');
 
 const AGENT_LIMITS = deepFreeze({
   read: { perMinute: 60, perDay: 3000 },
@@ -56,6 +57,7 @@ const MODULE_RE = /^[a-z0-9-]{1,40}$/;
 // A `change` as it may be written: "made", or one or more of the other change words, each once, joined by commas.
 const cleanChange = (v) => {
   if (typeof v !== 'string' || !v || v.length > 60) return null;
+  if (SETUP_ASK_CHANGES.includes(v)) return v; // an ask, alone on its line
   const parts = v.split(',');
   if (parts.some((p) => !SETUP_CHANGES.includes(p)) || new Set(parts).size !== parts.length) return null;
   if (parts.includes('made') && parts.length > 1) return null;
@@ -228,7 +230,8 @@ class AgentLog {
         if (dayOf(Date.parse(l.at)) !== this.today) continue;
         if (KINDS.includes(l.kind) && l.status !== 429) c[l.kind] += 1;
         const change = cleanChange(l.change);
-        if (change && l.status === 200) c[change === 'made' ? 'made' : 'changes'] += 1;
+        // An ask is not a change: it changes nothing until an owner says yes, and its own cap is the asks waiting.
+        if (change && l.status === 200 && !SETUP_ASK_CHANGES.includes(change)) c[change === 'made' ? 'made' : 'changes'] += 1;
       }
     }
     this.counts.set(agent, c);

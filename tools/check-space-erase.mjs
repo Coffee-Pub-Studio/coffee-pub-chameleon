@@ -2,7 +2,7 @@
 /*
  * check-space-erase.mjs -- deleting a space deletes everything kept for it (GitHub #337), and who may set one up (#285).
  * Part 1 builds an environment, fills one space with module data, uploads, links, requests, schedules, notifications,
- * settings, chat, facts, tags and attention (and a second space that must be left whole), deletes the first through
+ * settings, chat, facts, tags, attention and a set-up agent's asks and changes (and a second space that must be left whole), deletes the first through
  * server/space-erase.js and asserts no file under the data folder names it any more. A step that cannot finish refuses
  * with 500 and leaves the space in place. Part 2 runs a throwaway server: DELETE /api/spaces/:id, and the setup rule --
  * owners and the admin set up any space, a moderator only the spaces they belong to, a member never.
@@ -74,6 +74,9 @@ function leftovers(dir, id) {
     env.chatHistory.add(id, { by: bo.key, who: 'Bo', text: 'a private word', visibility: 'private' });
     assert.ok(env.facts.set(id, MOD, [{ id: 'f', icon: 'star', text: 'a fact' }]));
     env.tags.add(id, 'planning', 'blue', ann.key);
+    // A set-up agent's ask about a person in it and the undo record of a change to it (server/setup-records.js).
+    env.setupRecords.addAsk({ agent: ann.key, space: id, ask: 'add', person: bo.key }, 10);
+    env.setupRecords.noteChange({ agent: ann.key, space: id, change: 'changed', before: { name: 'Old' }, after: { name: 'New' } });
     env.attention.set(id, bo.key, MOD, { count: 2, text: 'look' });
     env.noteActivity(MOD, 'saved a', ann.key, `space:${id}`);
     env.invites.set(`${id}-i`, { id: `${id}-i`, from: ann.key, to: bo.key, spaceId: id, at: Date.now() });

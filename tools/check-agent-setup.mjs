@@ -7,8 +7,8 @@
  *     PATCH /api/roles/setup is 404 without it;
  *   - the account: kind "setup", a member and never anything more, its kind never changes, made only by an owner or the
  *     admin, a name can't end in "(set-up agent)";
- *   - the column: only "Make {spaces}" and "Rename and change {spaces}", both off by default; a never row is 400; the rows
- *     are refused on every other column;
+ *   - the column: only "Make {spaces}", "Rename and change {spaces}" and "Ask to add people", all off by default; a never
+ *     row is 400; the rows are refused on every other column;
  *   - the gate walked from the route table: the set-up agent reaches only its own routes (every other route and mount is
  *     403 "An agent can't do that.", Chat, module data and /api/spaces/:id/members among them), and an ordinary agent gets
  *     403 on every one of the set-up agent's;
@@ -18,7 +18,18 @@
  *   - the daily caps (5 spaces, 30 changes) answer 429 and survive a restart (read back from the log);
  *   - the log: one line a call with `space` and `change`, never a name or a description;
  *   - hosted: a set-up agent's token of one environment is 401 at another.
- * Not here: asks, undo and the MCP tools (that plan's steps 2 and 3); a real Claude client.
+ * Step 2 (asks and undo):
+ *   - the people list: the environment's members only (never a guest, an agent, an owner or the admin), only with "Ask to
+ *     add people" ticked;
+ *   - asks: bodies checked, a person outside the list refused, a space it did not make 404; an ask changes nothing until an
+ *     owner approves, the owners get one bell line, the status reads waiting, approved, declined or expired; approving does
+ *     it (add, take off, the moderator tick), declining does not; the same answer twice changes nothing, the other is 409;
+ *     a member, the agent itself and an ordinary agent can't answer;
+ *   - the waiting cap of 10 (429 with Retry-After), 7-day expiry read back after a restart, Turn off and Keep end them;
+ *   - undo, by an owner only: a change puts back the earlier values (not one changed again since), a made space is deleted
+ *     only while nobody else has written in it and no Keep; past 7 days it is gone; the agent can't undo;
+ *   - the log: an ask's line carries `ask:<what>` and the space, never the person, and is not a change against the cap.
+ * Not here: the MCP tools (that plan's step 3); a real Claude client; the bell seen by a person.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -172,15 +183,15 @@ try {
     assert.deepEqual([listed.kind, listed.role, listed.agent], ['setup', 'member', true]);
   });
 
-  await test('the column: shown with AGENT_SETUP, only its two rows, both off; never rows are 400; its rows are no one else\'s', async () => {
+  await test('the column: shown with AGENT_SETUP, only its three rows, all off; never rows are 400; its rows are no one else\'s', async () => {
     const roles = (await call(server, 'GET', '/api/roles', { cookie: admin })).json;
     assert.deepEqual(roles.columns, ['owner', 'moderator', 'member', 'guest', 'agent', 'setup']);
     const rows = roles.permissions.filter((p) => p.column === 'setup');
-    assert.deepEqual(rows.map((p) => p.key), ['agentMakeSpaces', 'agentChangeSpaces']);
-    assert.deepEqual(rows.map((p) => p.label), ['Make spaces', 'Rename and change spaces']);
+    assert.deepEqual(rows.map((p) => p.key), ['agentMakeSpaces', 'agentChangeSpaces', 'agentAskPeople']);
+    assert.deepEqual(rows.map((p) => p.label), ['Make spaces', 'Rename and change spaces', 'Ask to add people']);
     assert.ok(rows.every((p) => p.agentOnly === true && p.group === 'Agents'));
     const keys = roles.permissions.map((p) => p.key);
-    assert.deepEqual(keys.filter((k) => !roles.never.setup.includes(k)).sort(), ['agentChangeSpaces', 'agentMakeSpaces']);
+    assert.deepEqual(keys.filter((k) => !roles.never.setup.includes(k)).sort(), ['agentAskPeople', 'agentChangeSpaces', 'agentMakeSpaces']);
     assert.ok(roles.never.agent.includes('agentMakeSpaces') && roles.never.agent.includes('agentChangeSpaces'), 'never the ordinary agent\'s');
     assert.ok(Object.values(roles.roles.setup).every((v) => v === false), 'everything off by default');
     refused(await column({ chatRead: true }), 400, 'A set-up agent can never have "Open and read the chat".', 'Chat');
@@ -341,7 +352,231 @@ try {
     for (const words of ['Lisbon', 'secret plan', 'Spring', 'Mine']) assert.ok(!text.includes(words), `"${words}" is not in the log`);
   });
 
-  await test('Set-up agents off: the set-up agent\'s token is 401 and none can be made; an ordinary agent is unchanged', async () => {
+  // --- step 2: the people list, asks and undo -------------------------------------------------------------------------
+  const olgaKey = (await call(server, 'GET', '/api/users', { cookie: admin })).json.users.find((u) => u.login === 'olga').key;
+  const adminKey = (await call(server, 'GET', '/api/users', { cookie: admin })).json.users.find((u) => u.role === 'admin').key;
+  const ask = (who, spaceId, body) => call(server, 'POST', `/api/agent/spaces/${spaceId}/asks`, { ...who.T, body });
+  const answer = (who, id, decision, cookie = olga) => call(server, 'POST', `/api/users/${who.user.key}/asks/${id}`, { cookie, body: { decision } });
+  const spaceOf = async (id) => (await call(server, 'GET', `/api/spaces/${id}`, { cookie: admin })).json?.space;
+  const madeBy = async (who, name) => (await call(server, 'POST', '/api/agent/spaces', { ...who.T, body: { name, template: templateId } })).json.space;
+  const A = await setupOf('Asker');
+  let porto = null;
+
+  await test('the people list: only with Ask to add people ticked; the members, never an owner, the admin or an agent', async () => {
+    refused(await call(server, 'GET', '/api/agent/people', A.T), 403, CANT, 'unticked');
+    porto = await madeBy(A, 'Porto');
+    refused(await ask(A, porto.id, { ask: 'add', person: mia.key }), 403, CANT, 'an ask, unticked');
+    ok(await column({ agentAskPeople: true }), 'ticked');
+    assert.deepEqual((await call(server, 'GET', '/api/agent/me', A.T)).json.permissions, ['agentMakeSpaces', 'agentChangeSpaces', 'agentAskPeople']);
+    const r = await call(server, 'GET', '/api/agent/people', A.T);
+    ok(r, 'people');
+    const users = (await call(server, 'GET', '/api/users', { cookie: admin })).json.users;
+    const members = users.filter((u) => u.role === 'member' && !u.agent).map((u) => u.key).sort();
+    assert.deepEqual(r.json.people.map((p) => p.key).sort(), members, 'every member account, nothing else');
+    assert.ok(r.json.people.every((p) => Object.keys(p).sort().join() === 'key,name'), 'only key and name');
+    for (const key of [olgaKey, adminKey, S.user.key, O.user.key, A.user.key]) assert.ok(!r.json.people.some((p) => p.key === key), `${key} is not listed`);
+    assert.deepEqual(r.json.people.find((p) => p.key === mia.key), { key: mia.key, name: 'Mia' });
+  });
+
+  await test('asking: bodies checked, only members of the environment, only spaces it made', async () => {
+    const R = await setupOf('Refused');
+    const mine = await madeBy(R, 'Refusals');
+    const P = (body, extra = {}) => call(server, 'POST', `/api/agent/spaces/${mine.id}/asks`, { ...R.T, body, ...extra });
+    const NOT_MEMBER = 'An agent can only ask to add a member of this environment.';
+    refused(await P({ ask: 'add', person: olgaKey }), 400, NOT_MEMBER, 'an owner');
+    refused(await P({ ask: 'add', person: adminKey }), 400, NOT_MEMBER, 'the admin');
+    refused(await P({ ask: 'add', person: O.user.key }), 400, NOT_MEMBER, 'an agent');
+    refused(await P({ ask: 'add', person: R.user.key }), 400, NOT_MEMBER, 'itself');
+    refused(await P({ ask: 'add', person: 'zzzz9999' }), 400, NOT_MEMBER, 'nobody');
+    refused(await P({ ask: 'remove', person: olgaKey }), 400, 'An agent can only ask about a member of this environment.', 'taking an owner off');
+    refused(await P({ ask: 'invite', person: mia.key }), 400, 'ask is one of: add, remove, moderator.', 'another ask');
+    refused(await P({ ask: 'add', person: 7 }), 400, "person is a person's key, from the people list.", 'a number');
+    refused(await P({ ask: 'add', person: mia.key, on: true }), 400, 'on goes only with the ask that ticks or unticks a moderator.', 'on with add');
+    refused(await P({ ask: 'moderator', person: mia.key }), 400, 'on is true or false: tick or untick them as moderator.', 'moderator without on');
+    refused(await P({ ask: 'add', person: mia.key, role: 'owner' }), 400, 'Only ask, person, on can be sent.', 'another key');
+    refused(await P(null, { raw: Buffer.from('ask=add'), headers: { 'content-type': 'application/x-www-form-urlencoded' } }), 400, 'Send { ask, person, on } as JSON.', 'not JSON');
+    refused(await P({ ask: 'remove', person: mia.key }), 409, 'They are not in this space.', 'taking off someone not in it');
+    refused(await P({ ask: 'moderator', person: mia.key, on: true }), 409, 'They are not in this space.', 'ticking someone not in it');
+    const camp = (await call(server, 'GET', '/api/spaces', { cookie: admin })).json.spaces.find((x) => x.name === 'Camp');
+    refused(await call(server, 'POST', `/api/agent/spaces/${camp.id}/asks`, { ...R.T, body: { ask: 'add', person: mia.key } }), 404, 'no such space', 'a space a person made');
+    refused(await call(server, 'POST', '/api/agent/spaces/lobby/asks', { ...R.T, body: { ask: 'add', person: mia.key } }), 404, 'no such space', 'the Lobby');
+    refused(await call(server, 'POST', `/api/agent/spaces/${porto.id}/asks`, { ...R.T, body: { ask: 'add', person: mia.key } }), 404, 'no such space', 'another set-up agent\'s space');
+    assert.equal((await call(server, 'GET', `/api/users/${R.user.key}/asks`, { cookie: admin })).json.asks.length, 0, 'nothing refused was kept');
+  });
+
+  let addId = null;
+  await test('an ask changes nothing until an owner approves; the owners get one bell line; approving adds them', async () => {
+    const r = await ask(A, porto.id, { ask: 'add', person: mia.key });
+    ok(r, 'asked', 202);
+    assert.deepEqual(Object.keys(r.json.ask).sort(), ['id', 'state']);
+    assert.equal(r.json.ask.state, 'waiting');
+    addId = r.json.ask.id;
+    assert.deepEqual((await spaceOf(porto.id)).members, [A.user.key], 'nobody added yet');
+    refused(await ask(A, porto.id, { ask: 'add', person: mia.key }), 409, 'This agent has asked that already. Wait for an answer.', 'the same again');
+    const status = await call(server, 'GET', `/api/agent/asks/${addId}`, A.T);
+    ok(status, 'its status');
+    assert.deepEqual([status.json.ask.state, status.json.ask.ask, status.json.ask.person, status.json.ask.space], ['waiting', 'add', mia.key, porto.id]);
+    refused(await call(server, 'GET', `/api/agent/asks/${addId}`, S.T), 404, 'No such ask.', 'another agent\'s ask');
+    refused(await call(server, 'GET', '/api/agent/asks/0000000000000000', A.T), 404, 'No such ask.', 'no such ask');
+    const me = (await call(server, 'GET', '/api/agent/me', A.T)).json;
+    assert.deepEqual(me.asks.map((a) => a.id), [addId], 'me lists it');
+    assert.deepEqual(me.limits.asks, { waitingAtOnce: 10, waiting: 1 });
+    const text = 'Asker (set-up agent) asks to add Mia to Porto.';
+    const bell = (await call(server, 'GET', '/api/notifications', { cookie: olga })).json.notifications;
+    assert.equal(bell.filter((x) => x.title === text).length, 1, 'one bell line for an owner');
+    assert.ok(bell.find((x) => x.title === text).href === `/admin#agent/${A.user.key}`, 'it opens the agent\'s page');
+    assert.ok(!(await call(server, 'GET', '/api/notifications', { cookie: miaC })).json.notifications.some((x) => x.title === text), 'not to a member');
+    const listed = (await call(server, 'GET', `/api/users/${A.user.key}/asks`, { cookie: olga })).json.asks;
+    assert.deepEqual([listed[0].text, listed[0].person.name, listed[0].space.name, listed[0].state], [text, 'Mia', 'Porto', 'waiting']);
+    // Who can't answer: a member, the agent itself, an ordinary agent, nobody.
+    refused(await answer(A, addId, 'approve', miaC), 403, null, 'a member');
+    refused(await call(server, 'POST', `/api/users/${A.user.key}/asks/${addId}`, { ...A.T, body: { decision: 'approve' } }), 403, CANT, 'the agent itself');
+    refused(await call(server, 'POST', `/api/users/${A.user.key}/asks/${addId}`, { ...O.T, body: { decision: 'approve' } }), 403, CANT, 'an ordinary agent');
+    refused(await call(server, 'POST', `/api/users/${A.user.key}/asks/${addId}`, { body: { decision: 'approve' } }), 401, null, 'nobody');
+    refused(await answer(A, addId, 'yes'), 400, 'decision is approve or decline.', 'another word');
+    refused(await answer(S, addId, 'approve'), 404, 'No such ask.', 'under another agent');
+    assert.deepEqual((await spaceOf(porto.id)).members, [A.user.key], 'still nobody added');
+    const yes = await answer(A, addId, 'approve');
+    ok(yes, 'approved');
+    assert.deepEqual([yes.json.changed, yes.json.ask.state, yes.json.ask.decidedBy.key], [true, 'approved', olgaKey]);
+    assert.deepEqual((await spaceOf(porto.id)).members.sort(), [A.user.key, mia.key].sort(), 'Mia is in');
+    const again = await answer(A, addId, 'approve');
+    ok(again, 'the same answer again');
+    assert.equal(again.json.changed, false);
+    refused(await answer(A, addId, 'decline'), 409, 'That ask was answered already.', 'the other answer');
+    assert.equal((await call(server, 'GET', `/api/agent/asks/${addId}`, A.T)).json.ask.state, 'approved');
+    assert.deepEqual((await call(server, 'GET', '/api/agent/me', A.T)).json.asks, [], 'nothing waiting');
+  });
+
+  await test('the moderator tick and taking off: approve does it, decline does not', async () => {
+    const tick = (await ask(A, porto.id, { ask: 'moderator', person: mia.key, on: true })).json.ask.id;
+    const flag = async () => (await call(server, 'GET', `/api/users/${mia.key}`, { cookie: admin })).json.user.spaces[porto.id].permissions.moderator;
+    assert.equal(await flag(), false, 'not yet');
+    ok(await answer(A, tick, 'approve'), 'approved');
+    assert.equal(await flag(), true, 'Mia moderates Porto');
+    refused(await ask(A, porto.id, { ask: 'moderator', person: mia.key, on: true }), 409, 'They are its moderator already.', 'ticked already');
+    const off = (await ask(A, porto.id, { ask: 'remove', person: mia.key })).json.ask.id;
+    const no = await answer(A, off, 'decline');
+    ok(no, 'declined');
+    assert.equal(no.json.ask.state, 'declined');
+    assert.ok((await spaceOf(porto.id)).members.includes(mia.key), 'declining leaves her in');
+    refused(await answer(A, off, 'approve'), 409, 'That ask was answered already.', 'approve after decline');
+    assert.equal((await call(server, 'GET', `/api/agent/asks/${off}`, A.T)).json.ask.state, 'declined');
+    const untick = (await ask(A, porto.id, { ask: 'moderator', person: mia.key, on: false })).json.ask.id;
+    ok(await answer(A, untick, 'approve', admin), 'the admin approves');
+    assert.equal(await flag(), false, 'unticked');
+    const out = (await ask(A, porto.id, { ask: 'remove', person: mia.key })).json.ask.id;
+    ok(await answer(A, out, 'approve'), 'approved');
+    assert.ok(!(await spaceOf(porto.id)).members.includes(mia.key), 'taken off');
+  });
+
+  let C = null;
+  let capFirst = null;
+  await test('the waiting cap: 10 at once, then 429 with Retry-After', async () => {
+    C = await setupOf('Capper');
+    const capSpace = await madeBy(C, 'Lots');
+    const keys = [];
+    for (let i = 0; i < SETUP_LIMITS.waiting + 1; i += 1) {
+      keys.push((await call(server, 'POST', '/api/users', { cookie: admin, body: { login: `cap${i}`, displayName: `Cap ${i}`, password: 'cap-password-1', role: 'member' } })).json.user.key);
+    }
+    for (let i = 0; i < SETUP_LIMITS.waiting; i += 1) {
+      const r = await ask(C, capSpace.id, { ask: 'add', person: keys[i] });
+      ok(r, `ask ${i + 1}`, 202);
+      if (i === 0) capFirst = r.json.ask.id;
+    }
+    const over = await ask(C, capSpace.id, { ask: 'add', person: keys[SETUP_LIMITS.waiting] });
+    refused(over, 429, OVER, 'the eleventh');
+    assert.ok(Number(over.headers['retry-after']) > 6 * 86400, 'Retry-After: until the oldest runs out');
+    assert.equal((await call(server, 'GET', '/api/agent/me', C.T)).json.limits.asks.waiting, SETUP_LIMITS.waiting);
+    ok(await answer(C, capFirst, 'decline'), 'one answered');
+    ok(await ask(C, capSpace.id, { ask: 'add', person: keys[SETUP_LIMITS.waiting] }), 'a place free again', 202);
+  });
+
+  await test('Turn off and Keep end its waiting asks; an ended ask can\'t be approved', async () => {
+    const T = await setupOf('Stopper');
+    const lake = await madeBy(T, 'Lake');
+    const first = (await ask(T, lake.id, { ask: 'add', person: mia.key })).json.ask.id;
+    ok(await call(server, 'PATCH', `/api/users/${T.user.key}`, { cookie: admin, body: { off: true } }), 'turned off');
+    assert.equal((await call(server, 'GET', `/api/users/${T.user.key}/asks`, { cookie: olga })).json.asks[0].state, 'expired');
+    ok(await call(server, 'PATCH', `/api/users/${T.user.key}`, { cookie: admin, body: { off: false } }), 'on again');
+    refused(await answer(T, first, 'approve'), 409, 'That ask has run out.', 'still ended');
+    assert.ok(!(await spaceOf(lake.id)).members.includes(mia.key), 'nobody added');
+    const token = (await call(server, 'POST', `/api/users/${T.user.key}/token`, { cookie: admin })).json.token;
+    const second = (await call(server, 'POST', `/api/agent/spaces/${lake.id}/asks`, { token, body: { ask: 'add', person: mia.key } })).json.ask.id;
+    ok(await call(server, 'PATCH', `/api/spaces/${lake.id}`, { cookie: admin, body: { madeBy: null } }), 'Keep');
+    assert.equal((await call(server, 'GET', `/api/agent/asks/${second}`, { token })).json.ask.state, 'expired', 'Keep ended it');
+    refused(await answer(T, second, 'approve'), 409, 'That ask has run out.', 'after Keep');
+  });
+
+  let U = null;
+  const undoRefs = {};
+  await test('undo, by an owner: a change puts back the earlier values; not one changed again since; never twice', async () => {
+    U = await setupOf('Undoer');
+    const icons = (await call(server, 'GET', '/api/agent/icons', U.T)).json.icons;
+    const sp = await madeBy(U, 'Rome');
+    ok(await call(server, 'PATCH', `/api/agent/spaces/${sp.id}`, { ...U.T, body: { name: 'Rome 2027', description: 'Spring', icon: icons[2] } }), 'changed');
+    const listed = (await call(server, 'GET', `/api/users/${U.user.key}/changes`, { cookie: olga })).json;
+    assert.equal(listed.days, 7);
+    const [change, made] = listed.changes;
+    assert.deepEqual([change.change, made.change], ['changed', 'made']);
+    assert.deepEqual(change.before.name, 'Rome');
+    assert.deepEqual(change.after, { name: 'Rome 2027', description: 'Spring', icon: icons[2] });
+    assert.deepEqual([change.undoable, made.undoable], [true, true], 'both can be undone');
+    // Who can't undo: a member, the agent itself (no route of its own does), an ordinary agent.
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/${change.id}/undo`, { cookie: miaC }), 403, null, 'a member');
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/${change.id}/undo`, U.T), 403, CANT, 'the agent itself');
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/${made.id}/undo`, U.T), 403, CANT, 'the agent itself, its space');
+    refused(await call(server, 'DELETE', `/api/spaces/${sp.id}`, U.T), 403, CANT, 'the agent deleting');
+    const r = await call(server, 'POST', `/api/users/${U.user.key}/changes/${change.id}/undo`, { cookie: olga });
+    ok(r, 'undone');
+    const back = await spaceOf(sp.id);
+    assert.deepEqual([back.name, back.description, back.linkIcon], ['Rome', '', change.before.icon], 'the earlier name, description and icon');
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/${change.id}/undo`, { cookie: olga }), 409, 'That was undone already.', 'twice');
+    // A rename a person changed again since is not undone over their change.
+    ok(await call(server, 'PATCH', `/api/agent/spaces/${sp.id}`, { ...U.T, body: { name: 'Roma' } }), 'renamed again');
+    const rename = (await call(server, 'GET', `/api/users/${U.user.key}/changes`, { cookie: olga })).json.changes[0];
+    ok(await call(server, 'PATCH', `/api/spaces/${sp.id}`, { cookie: admin, body: { name: 'Rome by Olga' } }), 'a person renames it');
+    const after = (await call(server, 'GET', `/api/users/${U.user.key}/changes`, { cookie: olga })).json.changes[0];
+    assert.deepEqual([after.undoable, after.why], [false, 'That has been changed again since, so there is nothing to undo.']);
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/${rename.id}/undo`, { cookie: olga }), 409, 'That has been changed again since, so there is nothing to undo.', 'over a person\'s change');
+    assert.equal((await spaceOf(sp.id)).name, 'Rome by Olga');
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/0000000000000000/undo`, { cookie: olga }), 404, 'No such change. A change can be undone for 7 days.', 'no such change');
+    undoRefs.rome = sp.id;
+  });
+
+  await test('undo of a made space: deleted while untouched; refused once someone wrote in it, or after Keep', async () => {
+    const quiet = await madeBy(U, 'Quiet');
+    const busy = await madeBy(U, 'Busy');
+    const kept = await madeBy(U, 'Kept one');
+    const changes = (await call(server, 'GET', `/api/users/${U.user.key}/changes`, { cookie: olga })).json.changes;
+    const of = (id) => changes.find((c) => c.change === 'made' && c.space.id === id);
+    ok(await call(server, 'POST', `/api/spaces/${busy.id}/chat`, { cookie: admin, body: { text: 'Our plans' } }), 'someone writes in Busy');
+    ok(await call(server, 'PATCH', `/api/spaces/${kept.id}`, { cookie: admin, body: { madeBy: null } }), 'Keep');
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/${of(busy.id).id}/undo`, { cookie: olga }), 409, 'Someone has written in this space, so undo would lose their work. Delete it in Set up if it should go.', 'written in');
+    assert.ok(await spaceOf(busy.id), 'Busy is still there');
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/${of(kept.id).id}/undo`, { cookie: olga }), 409, 'An owner chose Keep for this space, so it stays.', 'after Keep');
+    const r = await call(server, 'POST', `/api/users/${U.user.key}/changes/${of(quiet.id).id}/undo`, { cookie: olga });
+    ok(r, 'undone');
+    assert.deepEqual([r.json.change, r.json.space], ['made', null]);
+    refused(await call(server, 'GET', `/api/spaces/${quiet.id}`, { cookie: admin }), 404, null, 'Quiet is gone');
+    assert.ok(!(await call(server, 'GET', `/api/users/${U.user.key}/changes`, { cookie: olga })).json.changes.some((c) => c.space.id === quiet.id), 'its records went with it');
+  });
+
+  await test('the log: an ask is ask:<what> with the space, never the person; it is not a change against the cap', async () => {
+    const lines = await waitLines(single, A.user.key, 1);
+    const asks = lines.filter((l) => l.route === '/api/agent/spaces/:id/asks' && l.status === 202);
+    assert.deepEqual(asks.map((l) => l.change), ['ask:add', 'ask:moderator', 'ask:remove', 'ask:moderator', 'ask:remove']);
+    assert.ok(asks.every((l) => l.space === porto.id && l.kind === 'write'), 'the space, counted as a write');
+    assert.ok(lines.filter((l) => l.status !== 200 && l.status !== 202).every((l) => l.change === null), 'a refused call names no change');
+    const text = fs.readFileSync(path.join(single, 'agent-log', A.user.key, `${dayToday()}.jsonl`), 'utf8');
+    for (const words of [mia.key, 'Mia', 'Porto']) assert.ok(!text.includes(words), `"${words}" is not in the log`);
+    assert.equal((await call(server, 'GET', '/api/agent/me', A.T)).json.limits.changes.usedToday, 0, 'asks are not changes');
+    const stored = fs.readFileSync(path.join(single, 'agent-setup.json'), 'utf8');
+    assert.ok(!stored.includes('Mia'), 'the asks file keeps keys, never a person\'s name');
+    assert.equal(fs.statSync(path.join(single, 'agent-setup.json')).mode & 0o777, 0o600, 'private to the server');
+  });
+
+  await test('Set-up agents off: the set-up agent\'s token is 401 and none can be made, its asks end; an ordinary agent is unchanged', async () => {
     ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { setupAgents: false } }), 'off');
     refused(await call(server, 'GET', '/api/agent/me', S.T), 401, INVALID, 'its token');
     refused(await call(server, 'POST', '/api/agent/spaces', { ...S.T, body: { name: 'X', template: templateId } }), 401, INVALID, 'making');
@@ -349,7 +584,10 @@ try {
     refused(await call(server, 'POST', `/api/users/${S.user.key}/token`, { cookie: admin }), 403, 'Set-up agents are off in this environment. Turn on Set-up agents in Manage first.', 'a new token');
     ok(await call(server, 'GET', '/api/agent/me', O.T), 'the ordinary agent');
     ok(await call(server, 'GET', `/api/users/${S.user.key}/agent-log`, { cookie: admin }), 'its log is still read');
+    const capAsks = (await call(server, 'GET', `/api/users/${C.user.key}/asks`, { cookie: admin })).json.asks;
+    assert.ok(capAsks.length >= SETUP_LIMITS.waiting && capAsks.every((x) => x.state !== 'waiting'), 'every waiting ask ended');
     ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { setupAgents: true } }), 'on again');
+    assert.ok((await call(server, 'GET', `/api/users/${C.user.key}/asks`, { cookie: admin })).json.asks.every((x) => x.state !== 'waiting'), 'and stay ended');
     ok(await call(server, 'GET', '/api/agent/me', S.T), 'its token works again');
   });
 
@@ -378,6 +616,34 @@ try {
     me = (await call(server, 'GET', '/api/agent/me', S.T)).json;
     assert.deepEqual([me.limits.made.usedToday, me.limits.changes.usedToday], [SETUP_LIMITS.made, SETUP_LIMITS.changes], 'after a restart');
     refused(await call(server, 'POST', '/api/agent/spaces', { ...S.T, body: { name: 'One more', template: templateId } }), 429, 'This agent has made as many spaces as it may today.', 'still over');
+  });
+  // Seven days on: an ask still waiting expires, and a change can no longer be undone. Aged in the file, read on a restart.
+  await test('7 days: a waiting ask expires (read back after a restart) and frees its place; a change is no longer undoable', async () => {
+    // Set-up agents off (above) ended every ask then waiting, as a kill switch does: a fresh one to age.
+    const W = await setupOf('Waiter');
+    const pond = await madeBy(W, 'Pond');
+    ok(await ask(W, pond.id, { ask: 'add', person: mia.key }), 'asked', 202);
+    await server.stop();
+    const file = path.join(single, 'agent-setup.json');
+    const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const old = Date.now() - 8 * 86400000;
+    const waiting = stored.asks.find((a) => a.agent === W.user.key && a.state === 'waiting');
+    waiting.at = old;
+    const aged = stored.changes.find((c) => c.agent === U.user.key && c.space === undoRefs.rome && c.change === 'made');
+    aged.at = old;
+    fs.writeFileSync(file, JSON.stringify(stored));
+    server = await startServer(single, ON);
+    const owner = await signIn(server, 'olga', 'olga-password-1');
+    const status = await call(server, 'GET', `/api/agent/asks/${waiting.id}`, W.T);
+    ok(status, 'its status');
+    assert.equal(status.json.ask.state, 'expired');
+    refused(await call(server, 'POST', `/api/users/${W.user.key}/asks/${waiting.id}`, { cookie: owner, body: { decision: 'approve' } }), 409, 'That ask has run out.', 'approving it');
+    assert.equal((await call(server, 'GET', '/api/agent/me', W.T)).json.limits.asks.waiting, 0, 'its place is free');
+    assert.ok(!(await call(server, 'GET', `/api/spaces/${pond.id}`, { cookie: owner })).json.space.members.includes(mia.key), 'nobody added');
+    const changes = (await call(server, 'GET', `/api/users/${U.user.key}/changes`, { cookie: owner })).json.changes;
+    assert.ok(!changes.some((c) => c.id === aged.id), 'not listed after 7 days');
+    refused(await call(server, 'POST', `/api/users/${U.user.key}/changes/${aged.id}/undo`, { cookie: owner }), 404, 'No such change. A change can be undone for 7 days.', 'undo after 7 days');
+    assert.ok(!fs.readFileSync(file, 'utf8').includes(aged.id), 'the record is dropped');
   });
   await server.stop();
 
@@ -429,6 +695,10 @@ try {
     refused(await call(server, 'GET', '/api/agent/me', { host: 'beta', token: t }), 401, INVALID, 'at beta');
     refused(await call(server, 'POST', '/api/agent/spaces', { host: 'beta', token: t, body: { name: 'Beta trip', template: tpl } }), 401, INVALID, 'making at beta');
     assert.ok(!(await call(server, 'GET', '/api/spaces', { host: 'beta', cookie: beta })).json.spaces.some((s) => s.name === 'Beta trip'), 'nothing made at beta');
+    // Its asks and changes are acme's: beta's owner finds no such agent, and beta keeps no file of them.
+    ok(await call(server, 'GET', `/api/users/${a.key}/changes`, { host: 'acme', cookie: acme }), 'acme reads its changes');
+    refused(await call(server, 'GET', `/api/users/${a.key}/changes`, { host: 'beta', cookie: beta }), 404, 'no such user', 'beta reads them');
+    refused(await call(server, 'GET', `/api/users/${a.key}/asks`, { host: 'beta', cookie: beta }), 404, 'no such user', 'beta reads its asks');
   });
   await server.stop();
 } catch (err) {
