@@ -7,7 +7,8 @@
 //
 // A token is its kind's prefix and 32 random bytes in base64url, given out once (make) and never kept: only its SHA-256
 // is stored (a token this random gains nothing from a slow hash). A record is
-// { id, kind, user, hash, createdAt, expiresAt, lastUsedAt, lastAddress }; `id` is random and names the token in the
+// { id, kind, user, hash, createdAt, lifetime, expiresAt, lastUsedAt, lastAddress }; `lifetime` is the owner's choice (a
+// key of LIFETIMES) and `expiresAt` its end, null for "never"; `id` is random and names the token in the
 // agent's log, never the token itself. One live token per person and kind: making a new one ends the old.
 // The file is never in an owner's copy of the environment (server/environment-export.js), so a restore of one leaves
 // every agent without a token.
@@ -18,6 +19,9 @@ const crypto = require('crypto');
 const net = require('net');
 
 const TOKEN_DAYS = 30;
+// How long an owner may let a token last, by the word they choose: days, or null for no end. 30d is the default.
+const LIFETIMES = Object.freeze({ '30d': 30, '60d': 60, '90d': 90, '1y': 365, never: null });
+const DEFAULT_LIFETIME = '30d';
 // Each kind's prefix. Anything after it is exactly 43 base64url characters (32 bytes), checked before it is hashed.
 const PREFIXES = Object.freeze({ agent: 'agt_' });
 const KINDS = Object.keys(PREFIXES);
@@ -37,7 +41,7 @@ const hashOf = (token) => crypto.createHash('sha256').update(token).digest('hex'
 // What an owner is told of a token: never the token or its hash.
 function tokenView(record) {
   if (!record) return null;
-  return { id: record.id, createdAt: record.createdAt, expiresAt: record.expiresAt, lastUsedAt: record.lastUsedAt || null, lastAddress: record.lastAddress || null };
+  return { id: record.id, createdAt: record.createdAt, lifetime: record.lifetime, expiresAt: record.expiresAt, lastUsedAt: record.lastUsedAt || null, lastAddress: record.lastAddress || null };
 }
 
 class Tokens {
@@ -61,16 +65,25 @@ class Tokens {
     const out = [];
     for (const t of list) {
       if (!t || typeof t !== 'object' || !KINDS.includes(t.kind) || !ID_RE.test(String(t.id)) || !KEY_RE.test(String(t.user)) || !HASH_RE.test(String(t.hash))) continue;
-      if (!isTime(t.createdAt) || !isTime(t.expiresAt)) continue;
-      // A token lives TOKEN_DAYS at most from when it was made, and is not made in the future: a record that says otherwise
-      // was not written here (a hand-made file) and is not read.
-      const life = Date.parse(t.expiresAt) - Date.parse(t.createdAt);
-      if (!(life > 0 && life <= TOKEN_DAYS * 86400000) || Date.parse(t.createdAt) > this.now() + 5 * 60000) continue;
+      // A record from before the owner could choose has no lifetime: it was made for 30 days.
+      const lifetime = t.lifetime === undefined ? DEFAULT_LIFETIME : t.lifetime;
+      if (typeof lifetime !== 'string' || !Object.hasOwn(LIFETIMES, lifetime) || !isTime(t.createdAt)) continue;
+      const days = LIFETIMES[lifetime];
+      // A token lives its chosen lifetime at most from when it was made, and is not made in the future: a record that says
+      // otherwise was not written here (a hand-made file) and is not read. "never" has no end, so no expiresAt at all.
+      if (Date.parse(t.createdAt) > this.now() + 5 * 60000) continue;
+      if (days === null) {
+        if (t.expiresAt !== null) continue;
+      } else {
+        if (!isTime(t.expiresAt)) continue;
+        const life = Date.parse(t.expiresAt) - Date.parse(t.createdAt);
+        if (!(life > 0 && life <= days * 86400000)) continue;
+      }
       const one = `${t.kind}|${t.user}`;
       if (seen.has(one)) continue; // one live token per person and kind, whatever the file says
       seen.add(one);
       out.push({
-        id: t.id, kind: t.kind, user: t.user, hash: t.hash, createdAt: t.createdAt, expiresAt: t.expiresAt,
+        id: t.id, kind: t.kind, user: t.user, hash: t.hash, createdAt: t.createdAt, lifetime, expiresAt: t.expiresAt,
         lastUsedAt: isTime(t.lastUsedAt) ? t.lastUsedAt : null,
         lastAddress: addressOf(t.lastAddress),
       });
@@ -88,7 +101,9 @@ class Tokens {
   }
 
   // A new token for `user` of `kind`, ending any earlier one: { token, record }. The token is in the answer only.
-  make(user, kind = 'agent') {
+  // `lifetime` is a key of LIFETIMES (the route checks the owner's word first).
+  make(user, kind = 'agent', lifetime = DEFAULT_LIFETIME) {
+    if (!Object.hasOwn(LIFETIMES, lifetime)) throw new Error(`unknown token lifetime ${lifetime}`);
     if (!KINDS.includes(kind)) throw new Error(`unknown token kind ${kind}`);
     if (!KEY_RE.test(String(user))) throw new Error('a token is made for an account key');
     const token = `${PREFIXES[kind]}${crypto.randomBytes(32).toString('base64url')}`;
@@ -99,7 +114,8 @@ class Tokens {
       user,
       hash: hashOf(token),
       createdAt: new Date(at).toISOString(),
-      expiresAt: new Date(at + TOKEN_DAYS * 86400000).toISOString(),
+      lifetime,
+      expiresAt: LIFETIMES[lifetime] === null ? null : new Date(at + LIFETIMES[lifetime] * 86400000).toISOString(),
       lastUsedAt: null,
       lastAddress: null,
     };
@@ -124,9 +140,9 @@ class Tokens {
     return found;
   }
 
-  // Whether a record has not reached its end.
+  // Whether a record has not reached its end: one with no end (expiresAt null) never does.
   live(record) {
-    return Date.parse(record.expiresAt) > this.now();
+    return record.expiresAt === null || Date.parse(record.expiresAt) > this.now();
   }
 
   // The token `user` holds of `kind` (live or past its end), or null.
@@ -165,4 +181,4 @@ class Tokens {
   }
 }
 
-module.exports = { Tokens, tokenView, TOKEN_DAYS, PREFIXES };
+module.exports = { Tokens, tokenView, TOKEN_DAYS, LIFETIMES, DEFAULT_LIFETIME, PREFIXES };

@@ -23,7 +23,8 @@
  *     read it through GET /api/users/:key/agent-log;
  *   - hosted (BASE_DOMAIN): a token of one environment is 401 at another; the console and the product host answer as before;
  *     an owner's copy restored with a tokens.json or an agent-log/ of its own keeps neither, so a planted token is 401;
- *   - a tokens.json record that lives longer than 30 days, or is made in the future, is not read;
+ *   - the owner chooses a token's life (POST { expires }: 30d, 60d, 90d, 1y, never; none is 30d; anything else 400); never has
+ *     expiresAt null and works for years; a record that lives longer than its chosen life, or is made in the future, is not read;
  *   - calls answered 429 (or 401 for a token the agent no longer may use) leave at most one line a minute in its log;
  *   - tokens.json is written at most once a minute for uses, whatever address each call comes from, and never for a 429;
  *     an address is kept (tokens.json, the log) only when it is an IP address;
@@ -172,7 +173,7 @@ function writtenRoutes() {
 const GATE_LIST = new Set([
   'GET /api/agent/me', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
   'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'POST /api/objects/resolve',
-  'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
+  'GET /api/spaces/:id/members', 'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
   // Chat (step 5): reading and posting; tools/check-agent-chat.mjs checks them.
   'GET /api/spaces/:id/chat', 'POST /api/spaces/:id/chat',
   // The MCP door (server/mcp.js): tools/check-mcp.mjs checks it.
@@ -314,9 +315,11 @@ try {
     assert.equal(made.headers['cache-control'], 'no-store');
     const days = (Date.parse(made.json.expiresAt) - Date.now()) / 86400000;
     assert.ok(days > 29.9 && days <= 30, `30 days (${days})`);
+    assert.equal(made.json.lifetime, '30d', 'no body is 30d');
     const view = await call(server, 'GET', `/api/users/${agent.key}/token`, { cookie: admin });
     ok(view, 'its view');
-    assert.deepEqual(Object.keys(view.json.token).sort(), ['createdAt', 'expiresAt', 'id', 'lastAddress', 'lastUsedAt']);
+    assert.equal(view.json.token.lifetime, '30d');
+    assert.deepEqual(Object.keys(view.json.token).sort(), ['createdAt', 'expiresAt', 'id', 'lastAddress', 'lastUsedAt', 'lifetime']);
     const file = JSON.parse(fs.readFileSync(path.join(single, 'tokens.json'), 'utf8'));
     assert.equal(file.tokens.length, 1);
     assert.equal(file.tokens[0].hash, sha256(tokenA));
@@ -376,6 +379,44 @@ try {
     ok(await call(server, 'GET', `/api/spaces/${S1}/action/${ownRequest}`, A()), 'its own request');
     // A trailing slash and another case read as the app's routes read them.
     ok(await call(server, 'GET', '/API/Agent/Me/', A()), 'the path as the router reads it');
+  });
+
+  await test('GET /api/spaces/:id/members tells an agent the people of its own space: key and name only', async () => {
+    const counter = await agentOf('Counter');
+    const space = (await call(server, 'GET', `/api/spaces/${S1}`, { cookie: admin })).json.space;
+    const nameOf = async (key) => {
+      const u = (await call(server, 'GET', `/api/users/${key}`, { cookie: admin })).json.user;
+      return u.agent ? `${u.displayName} (agent)` : u.displayName;
+    };
+    const expected = [];
+    for (const key of space.members) expected.push({ key, name: await nameOf(key) });
+    const before = (await call(server, 'GET', '/api/agent/me', { token: counter.token })).json.limits;
+    const got = await call(server, 'GET', `/api/spaces/${S1}/members`, { token: counter.token });
+    ok(got, 'members');
+    assert.deepEqual(Object.keys(got.json), ['members'], 'only members');
+    assert.deepEqual(got.json.members, expected, 'the space\'s own order, key and name');
+    for (const m of got.json.members) assert.deepEqual(Object.keys(m).sort(), ['key', 'name'], 'exactly key and name');
+    assert.ok(got.json.members.some((m) => m.key === mia.key && m.name === 'mia'), 'a person by their name');
+    assert.ok(got.json.members.some((m) => m.key === counter.key && m.name === 'Counter (agent)'), 'an agent as Name (agent)');
+    const after = (await call(server, 'GET', '/api/agent/me', { token: counter.token })).json.limits;
+    assert.equal(after.reads.usedToday, before.reads.usedToday + 2, 'one read for members, one for the second me');
+    assert.equal(after.writes.usedToday, before.writes.usedToday);
+    const lines = fs.readFileSync(path.join(single, 'agent-log', counter.key, `${dayToday()}.jsonl`), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+    const line = lines.find((l) => l.route === '/api/spaces/:id/members');
+    assert.ok(line, 'logged as its route');
+    assert.deepEqual([line.method, line.kind, line.space, line.status], ['GET', 'read', S1, 200]);
+    const raw = JSON.stringify(got.json);
+    for (const leak of ['login', 'email', 'role', 'hash', 'token', 'link']) assert.ok(!raw.toLowerCase().includes(`"${leak}`), `no ${leak}`);
+  });
+
+  await test('members: another space, the Lobby and an unknown space are 404; a person is refused', async () => {
+    for (const id of [S2, 'lobby', 'zzzz9999']) {
+      const r = await call(server, 'GET', `/api/spaces/${id}/members`, await P());
+      assert.equal(r.status, 404, `members of ${id}: ${r.status}`);
+      assert.match(r.json.error, /^no such /);
+    }
+    refused(await call(server, 'GET', `/api/spaces/${S1}/members`, { cookie: admin }), 403, "This is for an agent's token only.", 'a person');
+    refused(await call(server, 'POST', `/api/spaces/${S1}/members`, await P()), 403, CANT, 'POST is not on the list');
   });
 
   await test('local, asker-only, destructive and ai:false actions are refused', async () => {
@@ -538,6 +579,80 @@ try {
     assert.ok(seen.lastUsedAt === null, 'not used yet');
     ok(await call(server, 'GET', '/api/agent/me', A()), 'used');
     assert.ok((await call(server, 'GET', `/api/users/${agent.key}/token`, { cookie: admin })).json.token.lastUsedAt, 'its last use is shown');
+  });
+
+  let neverAgent = null;
+  let neverToken = null;
+  await test('the owner chooses how long a token lasts: 30d, 60d, 90d, 1y or never', async () => {
+    const one = await agentOf('Lifetimes');
+    const path_ = `/api/users/${one.key}/token`;
+    const sentence = 'expires is one of: 30d, 60d, 90d, 1y, never.';
+    const keys = (r) => Object.keys(r.json).sort();
+    const aheadDays = (r) => (Date.parse(r.json.expiresAt) - Date.now()) / 86400000;
+    const near = (d, want) => assert.ok(Math.abs(d - want) < 0.01, `${want} days (${d})`);
+    const plain = await call(server, 'POST', path_, { cookie: admin });
+    ok(plain, 'no body', 201);
+    allTokens.push(plain.json.token);
+    assert.deepEqual([plain.json.lifetime, keys(plain)], ['30d', ['expiresAt', 'lifetime', 'token']]);
+    near(aheadDays(plain), 30);
+    let lastGood = null;
+    const empty = await call(server, 'POST', path_, { cookie: admin, body: {} });
+    ok(empty, 'an empty body', 201);
+    allTokens.push(empty.json.token);
+    assert.equal(empty.json.lifetime, '30d');
+    for (const [word, days] of [['30d', 30], ['60d', 60], ['90d', 90], ['1y', 365]]) {
+      const r = await call(server, 'POST', path_, { cookie: admin, body: { expires: word } });
+      ok(r, word, 201);
+      allTokens.push(r.json.token);
+      lastGood = r.json.token;
+      assert.equal(r.json.lifetime, word);
+      near(aheadDays(r), days);
+      const view = (await call(server, 'GET', path_, { cookie: admin })).json.token;
+      assert.deepEqual([view.lifetime, view.expiresAt], [word, r.json.expiresAt]);
+      ok(await call(server, 'GET', '/api/agent/me', { token: r.json.token }), `${word} works`);
+      const me = await call(server, 'GET', '/api/agent/me', { token: r.json.token });
+      assert.equal(me.json.expiresAt, r.json.expiresAt);
+    }
+    for (const bad of ['7d', '30D', '', 'forever', 30, null, true, ['30d'], {}]) {
+      refused(await call(server, 'POST', path_, { cookie: admin, body: { expires: bad } }), 400, sentence, `expires ${JSON.stringify(bad)}`);
+    }
+    refused(await call(server, 'POST', path_, { cookie: admin, body: { expires: '30d', extra: 1 } }), 400, 'Only expires can be sent.', 'another key');
+    refused(await call(server, 'POST', path_, { cookie: admin, body: { days: 30 } }), 400, 'Only expires can be sent.', 'another key alone');
+    refused(await call(server, 'POST', path_, { cookie: admin, body: ['30d'] }), 400, 'Send only expires, like { "expires": "90d" }.', 'an array');
+    refused(await call(server, 'POST', path_, { cookie: admin, raw: Buffer.from('"90d"') }), 400, null, 'a string');
+    ok(await call(server, 'GET', '/api/agent/me', { token: lastGood }), 'the refusals ended nothing');
+    const never = await call(server, 'POST', path_, { cookie: admin, body: { expires: 'never' } });
+    ok(never, 'never', 201);
+    allTokens.push(never.json.token);
+    assert.deepEqual([never.json.lifetime, never.json.expiresAt, keys(never)], ['never', null, ['expiresAt', 'lifetime', 'token']]);
+    assert.ok(!never.text.includes(sha256(never.json.token)), 'no hash in the answer');
+    refused(await call(server, 'GET', '/api/agent/me', { token: lastGood }), 401, INVALID, 'a new token ends the old');
+    const me = await call(server, 'GET', '/api/agent/me', { token: never.json.token });
+    ok(me, 'a never token works');
+    assert.equal(me.json.expiresAt, null);
+    const view = await call(server, 'GET', path_, { cookie: admin });
+    assert.deepEqual([view.json.token.lifetime, view.json.token.expiresAt], ['never', null]);
+    assert.ok(!view.text.includes(sha256(never.json.token)) && !view.text.includes('hash'), 'no hash in the view');
+    const stored = JSON.parse(fs.readFileSync(path.join(single, 'tokens.json'), 'utf8')).tokens.find((t) => t.user === one.key);
+    assert.deepEqual([stored.lifetime, stored.expiresAt, stored.hash], ['never', null, sha256(never.json.token)]);
+    // Revoke ends it at once; Agents off and turned off end its use as for any token.
+    const second = await call(server, 'POST', path_, { cookie: admin, body: { expires: 'never' } });
+    ok(second, 'never again', 201);
+    allTokens.push(second.json.token);
+    ok(await call(server, 'DELETE', path_, { cookie: admin }), 'revoke');
+    refused(await call(server, 'GET', '/api/agent/me', { token: second.json.token }), 401, INVALID, 'a revoked never token');
+    const third = await call(server, 'POST', path_, { cookie: admin, body: { expires: 'never' } });
+    allTokens.push(third.json.token);
+    ok(await call(server, 'PATCH', `/api/users/${one.key}`, { cookie: admin, body: { off: true } }), 'turned off');
+    refused(await call(server, 'GET', '/api/agent/me', { token: third.json.token }), 401, INVALID, 'a never token of an agent turned off');
+    ok(await call(server, 'PATCH', `/api/users/${one.key}`, { cookie: admin, body: { off: false } }), 'on again');
+    ok(await call(server, 'GET', '/api/agent/me', { token: third.json.token }), 'works again');
+    // Kept for after a restart, made years old below: a never token has no end.
+    neverAgent = one.key;
+    neverToken = third.json.token;
+    // Only an owner or the admin makes one: the agent's own token may not.
+    refused(await call(server, 'POST', path_, { token: neverToken, body: { expires: 'never' } }), 403, CANT, 'an agent making a token');
+    refused(await call(server, 'POST', path_, { body: { expires: 'never' } }), 401, null, 'nobody');
   });
 
   await test('the log: one line a call, a route pattern, no token and no content', async () => {
@@ -768,6 +883,10 @@ try {
     const long = data.tokens.find((t) => t.user === daily.key);
     long.createdAt = new Date().toISOString();
     long.expiresAt = new Date(Date.now() + 31 * 86400000).toISOString();
+    // A never token made two years ago.
+    const old = data.tokens.find((t) => t.user === neverAgent);
+    old.createdAt = new Date(Date.now() - 730 * 86400000).toISOString();
+    assert.equal(old.expiresAt, null);
     fs.writeFileSync(file, JSON.stringify(data));
   }
   server = await startServer(single, onEnv);
@@ -778,6 +897,13 @@ try {
     assert.equal(lineCount(file) - before, 1, 'one line for 30 refusals');
     const note = JSON.parse(fs.readFileSync(file, 'utf8').trim().split('\n').pop());
     assert.deepEqual([note.status, note.kind, note.route], [401, null, '/api/agent/me']);
+  });
+  await test('a never token made two years ago still works, and answers expiresAt null', async () => {
+    const me = await call(server, 'GET', '/api/agent/me', { token: neverToken });
+    ok(me, 'two years on');
+    assert.equal(me.json.expiresAt, null);
+    const view = (await call(server, 'GET', `/api/users/${neverAgent}/token`, { cookie: await signIn(server, 'admin', 'admin-password-1') })).json.token;
+    assert.deepEqual([view.lifetime, view.expiresAt], ['never', null]);
   });
   await test('a tokens.json record that lives more than 30 days is not read', async () => {
     refused(await call(server, 'GET', '/api/agent/me', { token: daily.token }), 401, INVALID, 'a 31-day record');

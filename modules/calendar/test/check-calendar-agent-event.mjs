@@ -81,6 +81,8 @@ test('the manifest declares the inputs, the old ones unchanged', () => {
   assert.deepEqual(a.input, { title: 'string', date: 'date?', ref: 'ref?', object: 'object?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?' });
   assert.ok(Object.keys(a.input).length <= 10, 'the host reads at most ten inputs');
   assert.deepEqual(a.needs, ['date']);
-  assert.ok(a.description.length <= 200 && /HH:MM/.test(a.description) && /all day/.test(a.description));
+  assert.ok(a.description.length <= 200 && /[.]$/.test(a.description));
+  assert.deepEqual(Object.keys(a.inputHints).sort(), Object.keys(a.input).filter((k) => k !== 'ref' && k !== 'object').sort());
+  assert.ok(/HH:MM/.test(a.inputHints.time) && /all-day/.test(a.inputHints.time));
 });
 if (!process.exitCode) console.log(`check-calendar-agent-event: OK (${n} tests)`);
