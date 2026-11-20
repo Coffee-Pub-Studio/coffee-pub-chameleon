@@ -23,6 +23,25 @@ const dayText = (iso) => {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
+// How long a token works, and its end, in plain words. `expiresAt` is null for a token that never expires.
+const LIFETIME_WORDS = { '30d': '30 days', '60d': '60 days', '90d': '90 days', '1y': '1 year' };
+export const lifetimeText = (lifetime, expiresAt) => {
+  if (lifetime === 'never' || expiresAt === null || expiresAt === undefined) return 'Never expires.';
+  const day = dayText(expiresAt);
+  const span = LIFETIME_WORDS[lifetime];
+  return span && day ? `Works for ${span}, until ${day}.` : day ? `Works until ${day}.` : span ? `Works for ${span}.` : '';
+};
+// The warning before a token runs out (7 days) and after it has: '' when there is none (no token, or one that never expires).
+export const endingText = (expiresAt, now = Date.now()) => {
+  if (expiresAt === null || expiresAt === undefined) return '';
+  const end = Date.parse(expiresAt);
+  if (Number.isNaN(end)) return '';
+  if (end <= now) return 'This token has ended. Make a new token.';
+  const days = Math.ceil((end - now) / 86400000);
+  if (days > 7) return '';
+  return `This token ends in ${days === 1 ? '1 day' : `${days} days`}. Make a new token before then, and update Claude with it.`;
+};
+
 // What each of the gate's routes reads like in the log (the route is the gate's pattern, as the server writes it). `w` is the
 // page's word(): a module, an object and a space read as this environment's own words.
 const READS = {
@@ -241,7 +260,7 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
 
 // The token, once: a dialog with the token in a box, Copy and the plain warning. The only place the token is ever on a page.
 // `poll()` (optional) answers the token's record again ({ lastUsedAt }); it is asked every few seconds while the window is open.
-export function showToken({ token, expiresAt, agent, hour12 = true, poll = null, spaceWord, spaceName, spaceWords }) {
+export function showToken({ token, lifetime, expiresAt, agent, hour12 = true, poll = null, spaceWord, spaceName, spaceWords }) {
   return new Promise((resolve) => {
     const opener = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
     const dlg = make('dialog', 'sdk-dialog sdk-dialog-confirm agent-token-dialog');
@@ -262,7 +281,7 @@ export function showToken({ token, expiresAt, agent, hour12 = true, poll = null,
     const status = make('span', 'status');
     status.setAttribute('role', 'status');
     row.append(copy, status);
-    const ends = make('p', 'hint', `It works until ${dayText(expiresAt) || 'its end'}. Keep it as a secret, never in a chat.`);
+    const ends = make('p', 'hint', `${lifetimeText(lifetime, expiresAt)} Keep it as a secret, never in a chat.`.trim());
     const guide = connectGuide({ token, agentLabel: agentName(agent), spaceWord, spaceName, spaceWords });
     const connect = guide.el;
     body.append(warning, box, row, ends, connect);
@@ -341,10 +360,13 @@ export function mountAgentPage(ctx) {
     $('[data-agent-off-hint]').textContent = off
       ? 'It is off. Its token does nothing until you turn it on.'
       : 'Turning it off stops its token working at once. You can turn it on again.';
-    const live = token && Date.parse(token.expiresAt) > Date.now();
+    const ending = token ? endingText(token.expiresAt) : '';
     const post = $('[data-agent-chat-post]');
     post.checked = agent.chatPost === true;
-    $('[data-agent-token-state]').textContent = !token ? 'No token yet.' : live ? `The token works until ${dayText(token.expiresAt)}.` : `The token ended ${dayText(token.expiresAt)}.`;
+    $('[data-agent-token-state]').textContent = !token ? 'No token yet.' : ending === 'This token has ended. Make a new token.' ? `The token ended ${dayText(token.expiresAt)}.` : lifetimeText(token.lifetime, token.expiresAt);
+    const warn = $('[data-agent-ending]');
+    warn.textContent = ending;
+    warn.hidden = !ending;
     $('[data-agent-used]').textContent = !token ? '' : token.lastUsedAt
       ? `Last used ${whenText(token.lastUsedAt, ctx.hour12())}${token.lastAddress ? ` from ${token.lastAddress}` : ''}`
       : 'Not used yet.';
@@ -418,13 +440,18 @@ export function mountAgentPage(ctx) {
     $('[data-agent="older"]').hidden = answer.more !== true;
   }
 
+  // The choice remembers nothing: 30 days each time.
+  const resetLifetime = () => { $('[data-agent-lifetime]').value = '30d'; $('[data-agent-never]').hidden = true; };
+  $('[data-agent-lifetime]').addEventListener('change', (event) => { $('[data-agent-never]').hidden = event.target.value !== 'never'; });
+
   async function make_() {
     $('[data-agent="make"]').disabled = true;
     try {
-      const made = await ctx.api('POST', `/api/users/${encodeURIComponent(agent.key)}/token`);
+      const made = await ctx.api('POST', `/api/users/${encodeURIComponent(agent.key)}/token`, { expires: $('[data-agent-lifetime]').value });
+      resetLifetime();
       await loadToken();
       paint();
-      await showToken({ token: made.token, expiresAt: made.expiresAt, agent, hour12: ctx.hour12(), poll: useNow, ...spaceHint() });
+      await showToken({ token: made.token, lifetime: made.lifetime, expiresAt: made.expiresAt, agent, hour12: ctx.hour12(), poll: useNow, ...spaceHint() });
       await loadToken();
       paint();
       loadLog(false);
@@ -497,6 +524,7 @@ export function mountAgentPage(ctx) {
 
   return {
     async open(user) {
+      resetLifetime();
       agent = { ...user };
       token = null;
       oldest = null;

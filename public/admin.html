@@ -52,6 +52,11 @@
           <h2>Token</h2>
           <p data-agent-token-state></p>
           <p class="hint" data-agent-used></p>
+          <p class="status error" data-agent-ending hidden></p>
+          <div class="fields">
+            <label>How long should it work?<select data-agent-lifetime><option value="30d" selected>30 days (recommended)</option><option value="60d">60 days</option><option value="90d">90 days</option><option value="1y">1 year</option><option value="never">Never expires</option></select></label>
+          </div>
+          <p class="hint" data-agent-never hidden>A token that never expires works until you revoke it. Keep it private, and revoke it if it leaks.</p>
           <div class="row">
             <button class="btn btn-primary btn-small" type="button" data-agent="make">Make token</button>
             <button class="btn btn-danger btn-small" type="button" data-agent="revoke" hidden>Revoke</button>
