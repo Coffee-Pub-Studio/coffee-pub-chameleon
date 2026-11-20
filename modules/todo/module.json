@@ -84,13 +84,14 @@
       {
         "name": "createTask",
         "label": "Add a task",
-        "description": "Add a new task.",
+        "description": "Add a new task. With remind true (and a due date) the people are reminded at 9:00 that day.",
         "effect": "write",
         "input": {
           "title": "string",
           "notes": "text?",
           "ref": "ref?",
           "due": "date?",
+          "remind": "boolean?",
           "object": "object?"
         },
         "takes": [
@@ -115,6 +116,18 @@
         "input": {
           "task": "ref:todo:task",
           "date": "date"
+        }
+      },
+      {
+        "name": "updateTask",
+        "label": "Change this task",
+        "description": "Change a to-do task's title, notes or reminder.",
+        "effect": "write",
+        "input": {
+          "task": "ref:todo:task",
+          "title": "string?",
+          "notes": "text?",
+          "remind": "boolean?"
         }
       },
       {
