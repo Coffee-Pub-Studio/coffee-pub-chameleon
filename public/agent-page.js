@@ -214,6 +214,13 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
   for (const line of [`Summarise the chat in ${spaceName || `the ${spaceWord}`}.`, 'What is due this week?', 'Ask the Planner to add a milestone.']) next.append(make('li', '', line));
   const file = make('details', 'agent-file');
   file.append(make('summary', '', 'Use a project file instead'), make('p', 'hint', 'Save this as .mcp.json in the folder you work in, then start Claude Code there. Or add --scope user to the command to use it in every folder.'), copyBlock('.mcp.json', connectJson(location.origin, token)));
+  const apps = make('ol', 'agent-steps');
+  const appStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); apps.append(li); };
+  appStep('Open the Claude app: Customize, then Connectors, then Add custom connector.');
+  appStep('Name it, and use this address:', copyBlock('Address', `${location.origin}/mcp`));
+  appStep('Under Authentication, choose No sign-in.');
+  appStep('Under Request headers, choose Add header. Name: Authorization. Value: Bearer then a space then the token.', copyBlock('Header value', `Bearer ${token}`));
+  appStep('Save, then start a new chat and turn the connector on for that chat. Ask: "Use the chameleon tools. Which spaces can you see?"');
   el.append(
     make('h3', 'agent-connect-title', 'Connect Claude'),
     make('p', 'hint', 'Let Claude read and help in the spaces this agent is in: the plan, the to-dos and the chat.'),
@@ -224,7 +231,9 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
     next,
     make('p', 'hint', 'A change waits until a person who can change that module has it open.'),
     make('p', 'hint', 'To let Claude write in Chat, switch on Post in Chat for this agent.'),
-    make('p', 'hint', 'Claude apps (web, desktop, mobile): not yet tested with a token.'),
+    make('h4', 'agent-connect-sub', 'Claude apps'),
+    apps,
+    make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),
     file,
   );
   return { el, setUsed, setSpaces };
