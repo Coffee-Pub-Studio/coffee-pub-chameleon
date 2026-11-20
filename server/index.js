@@ -82,6 +82,7 @@ const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
+const { createMcp } = require('./mcp');
 const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
 const phaseRule = require('../public/phases.js');
@@ -3676,7 +3677,18 @@ const AGENT_ROUTES = [
   ['get', '/api/spaces/:id/action/:requestId', 'read', 'spaceParam'],
   ['get', '/api/spaces/:id/chat', 'read', 'spaceParam'],
   ['post', '/api/spaces/:id/chat', 'write', 'spaceParam'],
+  // The MCP door (server/mcp.js): a tool call is let on uncounted and comes back through this gate as the route it wraps,
+  // counted and logged as that route; every other message on it is a read (kind 'mcp', below). GET is its 405.
+  ['post', '/mcp', 'mcp', 'none'],
+  ['get', '/mcp', 'read', 'none'],
 ];
+const mcp = createMcp({
+  app,
+  enabled: agentTokensOn,
+  ownOrigin: (req) => baseUrl(req),
+  personOf: (req) => currentUser(req),
+  serverInfo: { name: PRODUCT_NAME, version: VERSION },
+});
 // The list matched by Express's own router, so a path reads exactly as the app's routes read it (any case, a trailing
 // slash, the same parameters): each match notes its rule and leaves the router at once.
 const agentRoutes = express.Router();
@@ -3755,6 +3767,17 @@ function agentGate(req, res, next) {
   match(req, res, (err) => {
     if (err) return next(err);
     const rule = req.agent.rule;
+    // POST /mcp: one well-formed tool call goes on uncounted and unlogged, because server/mcp.js sends it back through this
+    // gate as exactly one request of the route it wraps, which is counted and logged as that route. Anything else on it
+    // (initialize, tools/list, a bad message, a body that could not be read) is a read like any other call.
+    if (rule && rule.kind === 'mcp') {
+      const call = req.bodyError ? null : mcp.toolCallOf(req);
+      if (call) {
+        req.agent.mcpCall = call;
+        return next();
+      }
+      rule.kind = 'read';
+    }
     const kind = rule ? rule.kind : 'read';
     const line = () => ({ agent: agent.key, token: record.id, method: req.method, ...agentLogRoute(req, res, env), space: rule ? rule.space : null, status: res.statusCode, address });
     // Counted first, so a refused call costs as much as any other: hammering the gate is bounded by the same limits. A call
@@ -5685,6 +5708,8 @@ app.get('/api/agent/me', (req, res) => {
     },
   });
 });
+// The MCP door for agents (server/mcp.js): POST /mcp and GET /mcp (405), through the agent gate like every route above.
+mcp.mount();
 
 app.put('/api/users/:key/images/:slot', requireOwner, rawImage, checkStorageCap, (req, res) => {
   store.setImage(req.params.key, LEGACY_SLOTS[req.params.slot] || req.params.slot, req.body, req.get('content-type'));

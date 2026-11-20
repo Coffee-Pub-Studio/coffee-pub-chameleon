@@ -35,12 +35,13 @@ const READS = {
   '/api/objects/resolve': (w) => `Looked up ${w('object', { many: true })}`,
   '/api/spaces/:id/actions': () => 'Listed what it can ask for',
   '/api/spaces/:id/action/:requestId': () => 'Checked on a request',
+  '/mcp': () => 'Connected through MCP', // initialize, tools/list, ping and a client's GET that answers 405
 };
 // Chat lines depend on the method (GET reads, POST posts), so they are told apart in logLine, not in READS.
 const CHAT_ROUTE = '/api/spaces/:id/chat';
 // The methods the gate lets through on each route; any other method on it was refused. A read route is GET (HEAD too); the
 // action and objects/resolve routes are POST; Chat is GET or POST.
-const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'] };
+const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'], '/mcp': ['GET', 'POST'] };
 const methodFits = (route, method) => (ROUTE_METHODS[route] || ['GET', 'HEAD']).includes(String(method || '').toUpperCase());
 const known = (route) => typeof route === 'string' && Object.hasOwn(READS, route);
 // "addMilestone" -> "add milestone"; the module's id before the colon is left out.
@@ -80,7 +81,8 @@ export function logLine(entry, { spaceName = () => '', moduleName: lookup = () =
   else if (e.route === '/api/spaces/:id/action') text = `Ask for ${actionWords(e.action)}${where}`;
   else if (known(e.route)) text = `${READS[e.route](word, moduleName(e.module, lookup))}${where}`;
   else { refused = true; text = `Refused: ${`${String(e.method || '')} ${String(e.route || '')}`.trim()}`; } // a route off the gate's list: the server writes its fixed shape
-  if (status !== null && status >= 400) parts.push(refused ? String(status) : `didn't work (${status})`);
+  const mcpGet405 = e.route === '/mcp' && e.method === 'GET' && status === 405; // a client's GET the endpoint answers 405: normal, not a failure
+  if (status !== null && status >= 400 && !mcpGet405) parts.push(refused ? String(status) : `didn't work (${status})`);
   const detail = parts.filter(Boolean).join(' · ');
   // The server writes a read's count as a number and a post's id as a string; only the count is shown.
   let message = typeof e.message === 'string' && e.message ? e.message : '';

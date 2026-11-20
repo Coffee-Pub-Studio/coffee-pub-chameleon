@@ -175,6 +175,8 @@ const GATE_LIST = new Set([
   'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
   // Chat (step 5): reading and posting; tools/check-agent-chat.mjs checks them.
   'GET /api/spaces/:id/chat', 'POST /api/spaces/:id/chat',
+  // The MCP door (server/mcp.js): tools/check-mcp.mjs checks it.
+  'GET /mcp', 'POST /mcp',
 ]);
 
 // The only route registered ahead of the agent gate (before the door), so before any session or token is read: the same
