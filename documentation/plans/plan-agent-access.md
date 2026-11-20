@@ -139,9 +139,13 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
    no Lobby unless added.
 4. **Rights: a member's rights, narrowed by a fixed gate.** The Roles tab's member permissions apply, and the gate's
    list of routes narrows them. Never a moderator, owner or admin. No new role to explain.
+   Note (2026-11-20): the set-up agent, a second kind that makes and names spaces, is the exception to this decision;
+   see [plan-admin-agent](plan-admin-agent.md), decisions 1 and 5.
 5. **What it can change: actions only.** The action route, with each module's own checks, and only actions that are
    `write`, not `destructive`, not `local` and not `askerOnly`. No raw data writes, so the modules' own rules always
    hold.
+   Note (2026-11-20): the set-up agent changes spaces through its own short list of routes, not module actions;
+   see [plan-admin-agent](plan-admin-agent.md), decisions 3 and 5.
 6. **Approval: direct, labelled and logged.** The request goes on the bus at once and is carried out when someone with
    write access next opens the module. This runs the real project in the app without a click per change.
 7. **Deleting and clearing: never.** No `destructive` action, no data `DELETE`, no Clear, no restore, no deleting a
