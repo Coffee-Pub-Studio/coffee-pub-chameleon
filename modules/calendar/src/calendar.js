@@ -1110,22 +1110,12 @@
       start = s.toISOString();
       // Its length stays the original's: the end moves with the start.
       end = base.end ? new Date(Date.parse(base.end) + (s.getTime() - Date.parse(base.start))).toISOString() : null;
-    } else if (allDay) {
-      // An all-day event's end is its last day.
-      if (endDate && endDate < date) return showError('The end is before the start.');
-      if (endDate && endDate > date) end = endDate;
     } else {
-      const time = $('f-time').value || '19:00';
-      const s = new Date(`${date}T${time}`);
-      if (Number.isNaN(s.getTime())) return showError('That time is not valid.');
-      start = s.toISOString();
-      // An end date, an end time, or both. Missing one takes the start's.
-      if (endDate || $('f-end').value) {
-        const t = new Date(`${endDate || date}T${$('f-end').value || time}`);
-        if (Number.isNaN(t.getTime())) return showError('That end is not valid.');
-        if (t < s) return showError('The end is before the start.');
-        if (t > s) end = t.toISOString();
-      }
+      // When it starts and ends is one rule (eventSpan), shared with createEvent's own fields.
+      const span = eventSpan({ date, time: $('f-time').value, endDate, endTime: $('f-end').value, allDay });
+      if (span.error) return showError(span.error);
+      start = span.start;
+      end = span.end;
     }
     const remind = $('f-remind').value === '' ? null : Number($('f-remind').value);
     let repeat = null;
@@ -1351,9 +1341,13 @@
   async function createEventOn(title, date, ref, fields) {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const when = fields ? { allDay: fields.allDay, start: fields.start, end: fields.end || null, desc: fields.desc || '' } : { allDay: true, start: date, end: null, desc: '' };
-    const ev = { id, title: String(title).slice(0, 120), ...when, remind: null, repeat: null, by: info.user.name };
+    const ev = { id, title: String(title).slice(0, 120), ...when, remind: fields && fields.remind !== undefined ? fields.remind : null, repeat: fields && fields.repeat ? fields.repeat : null, by: info.user.name };
     const saved = await host.storage.set('event:' + id, ev, {});
     remember('here', { key: 'event:' + id, value: ev, version: saved.version });
+    // A reminder is set as the form sets it; if it cannot be, the event stays and the asker is told.
+    if (ev.remind !== null) {
+      try { await applyReminder(id, ev, {}); } catch (err) { render(); throw new Error('The event was added, but its reminder could not be set.'); }
+    }
     const made = host.objects.make('event', id);
     // Made from an object dropped or handed over: point at it, so the link shows from both ends.
     if (ref && host.objects.setLinks) host.objects.setLinks(made, [ref]).catch(() => {});
@@ -1419,7 +1413,10 @@
           return createEventOn(made.title || input.title, made.allDay ? made.start : null, input.ref, made);
         }
         if (!input.date) throw new Error('that needs a day to go on the calendar');
-        return createEventOn(input.title, input.date, input.ref);
+        // The times, end, repeat and reminder the add-event form has, read in the zone of this page (the person carrying it out).
+        const made = eventFromInput(input);
+        if (made.error) throw new Error(made.error);
+        return createEventOn(made.title, made.start, input.ref, made);
       },
       addEvent: async (input) => {
         if (!canAdd()) throw new Error('this person cannot add events here');

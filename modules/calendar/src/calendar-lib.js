@@ -251,3 +251,55 @@
     if (desc.length + suffix.length > OBJECT_DESC_MAX) desc = `${desc.slice(0, Math.max(0, OBJECT_DESC_MAX - suffix.length - 1))}…`;
     return { title, allDay, start: startValue, end, desc: (desc + suffix).trim().slice(0, OBJECT_DESC_MAX) };
   }
+
+  // --- an event as the form makes it ---------------------------------------------------------------------------------------
+  // The one rule for when an event starts and ends, used by the add-event form (save) and by createEvent's own fields, so an
+  // event made either way is stored alike. `date` is the first day; `time` and `endTime` are "HH:MM"; `endDate` a day. An
+  // all-day event's end is its last day (kept only when after the first); a timed one is stored as instants, read in this
+  // browser's time zone, a blank start time taking 19:00 and a blank end part taking the start's. Answers
+  // { allDay, start, end } or { error } with the sentence the form shows.
+  function eventSpan({ date, time, endDate, endTime, allDay }) {
+    if (allDay) {
+      if (endDate && endDate < date) return { error: 'The end is before the start.' };
+      return { allDay: true, start: date, end: endDate && endDate > date ? endDate : null };
+    }
+    const at = time || '19:00';
+    const s = new Date(`${date}T${at}`);
+    if (Number.isNaN(s.getTime())) return { error: 'That time is not valid.' };
+    let end = null;
+    if (endDate || endTime) {
+      const t = new Date(`${endDate || date}T${endTime || at}`);
+      if (Number.isNaN(t.getTime())) return { error: 'That end is not valid.' };
+      if (t < s) return { error: 'The end is before the start.' };
+      if (t > s) end = t.toISOString();
+    }
+    return { allDay: false, start: s.toISOString(), end };
+  }
+
+  // What createEvent is asked for, without an `object`: { title, date, time, endTime, endDate, allDay, repeat, remind }, the
+  // choices the form offers. No time (and allDay not false) is an all-day event on `date`, as it always was. Answers the event
+  // as stored, { title, allDay, start, end, desc, remind, repeat }, or { error } with one plain sentence for whoever asked.
+  const EVENT_REPEATS = ['day', 'week', '2weeks', 'month', 'year'];
+  const EVENT_REMINDS = [0, 15, 60, 1440];
+  function eventFromInput(input) {
+    const i = input && typeof input === 'object' ? input : {};
+    const given = (v) => v !== undefined && v !== null && v !== '';
+    const clock = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const title = typeof i.title === 'string' ? i.title.replace(/\p{Cc}/gu, ' ').trim().slice(0, OBJECT_TITLE_MAX) : '';
+    if (!title) return { error: 'An event needs a title.' };
+    if (!isObjectDay(i.date)) return { error: 'Say the date as YYYY-MM-DD, for example 2026-11-20.' };
+    if (given(i.time) && !(typeof i.time === 'string' && clock.test(i.time))) return { error: 'Say the time as HH:MM, for example 10:00.' };
+    if (given(i.endTime) && !(typeof i.endTime === 'string' && clock.test(i.endTime))) return { error: 'Say the end time as HH:MM, for example 11:30.' };
+    if (given(i.endDate) && !isObjectDay(i.endDate)) return { error: 'Say the end date as YYYY-MM-DD, for example 2026-11-21.' };
+    if (given(i.allDay) && typeof i.allDay !== 'boolean') return { error: 'Say allDay as true or false.' };
+    const time = given(i.time) ? i.time : null;
+    const endTime = given(i.endTime) ? i.endTime : null;
+    if (i.allDay === true && (time || endTime)) return { error: 'An all-day event has no times. Leave allDay out, or leave the times out.' };
+    if (endTime && !time) return { error: 'Give the start time too (time), as HH:MM.' };
+    if (i.allDay === false && !time) return { error: 'An event that is not all day needs a start time (time), as HH:MM.' };
+    const span = eventSpan({ date: i.date, time, endDate: given(i.endDate) ? i.endDate : null, endTime, allDay: !time });
+    if (span.error) return span;
+    if (given(i.repeat) && !EVENT_REPEATS.includes(i.repeat)) return { error: `Say repeat as ${EVENT_REPEATS.join(', ')}.` };
+    if (given(i.remind) && !EVENT_REMINDS.includes(i.remind)) return { error: 'Say remind as the minutes before it starts: 0, 15, 60 or 1440.' };
+    return { title, ...span, desc: '', remind: given(i.remind) ? i.remind : null, repeat: given(i.repeat) ? { every: i.repeat, until: null } : null };
+  }
