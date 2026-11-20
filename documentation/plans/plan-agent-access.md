@@ -207,7 +207,22 @@ Facts checked against the Claude and MCP docs on 2026-11-20: Claude Code accepts
 does not fall back to OAuth. Claude app connectors reach the server from Anthropic's cloud, so the server must be
 public on port 443. Whether the connector form accepts a custom `Authorization` header is not confirmed by the docs.
 
-Status: the endpoint is on branch `claude/mcp-endpoint`, held for Thomas's morning because it touches auth.
+Status (Thomas, 2026-11-20): the endpoint (#961) is merged. Thomas proved it end to end from Claude Code on his PC:
+`claude mcp add --transport http ... --header "Authorization: Bearer ..."`, then `claude mcp list` showed Connected.
+
+His verdict (Thomas, 2026-11-20): connecting is too hard for ordinary users. It takes six steps: the server setting,
+Agents on, add an agent, add it to a space, make a token, and a terminal command with the server address and token
+typed by hand.
+
+Decision (Thomas, 2026-11-20; he chose the recommended option): a "Connect Claude" panel on the agent's page shows the
+finished command and `.mcp.json` with the server's own address and the token filled in. The token shows only in the
+one-time token window; afterwards the panel shows a placeholder. The "Agents are off on this server" hint names
+`AGENT_TOKENS`. Thomas will open the Claude apps' "Add custom connector" form and report what fields it shows.
+
+Open until his test: whether the Claude apps' connector form takes a bearer token or header. If it does, the apps use
+the token as is. If it does not, OAuth on the server (people sign in; no token or terminal) becomes the next piece. It
+needs OAuth 2.1 with PKCE, protected-resource and authorization-server metadata, client registration or client ID
+metadata, and a consent page: a plan, a dedicated session and a security read.
 
 ### The agent account (server)
 
