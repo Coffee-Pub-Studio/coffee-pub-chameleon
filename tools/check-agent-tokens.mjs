@@ -263,6 +263,25 @@ try {
     assert.ok(S1 && S2);
   });
 
+  await test('an agent with no picture shows the agent image, not initials; a set picture wins; a person keeps initials', async () => {
+    const img = (key, q = '') => call(server, 'GET', `/img/${key}/profile${q}`, { cookie: admin });
+    const bot = await img(agent.key);
+    ok(bot, 'the agent picture');
+    assert.match(bot.headers['content-type'], /^image\/svg\+xml/);
+    assert.ok(bot.text.startsWith('<svg') && bot.text.includes('aria-label="Agent"'), 'the agent image');
+    const person = await img(mia.key);
+    ok(person, 'the initials');
+    assert.ok(person.text.startsWith('<svg') && !person.text.includes('aria-label="Agent"'), 'a person keeps initials');
+    assert.equal((await img(agent.key, '?fallback=none')).status, 404, 'fallback=none');
+    assert.equal((await call(server, 'GET', `/img/${agent.key}/player`, { cookie: admin })).status, 404, 'other slots');
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    ok(await call(server, 'PUT', `/api/users/${agent.key}/images/profile`, { cookie: admin, raw: png, headers: { 'content-type': 'image/png' } }), 'a picture for the agent');
+    const own = await img(agent.key);
+    assert.match(own.headers['content-type'], /^image\/png/, 'the set picture wins');
+    ok(await call(server, 'DELETE', `/api/users/${agent.key}/images/profile`, { cookie: admin }), 'removed');
+    assert.ok((await img(agent.key)).text.includes('aria-label="Agent"'), 'back to the agent image');
+  });
+
   await test('an agent can\'t be made an owner, the admin or a moderator, or given a password, a link or two-step sign-in', async () => {
     refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { role: 'owner' } }), 400, CANT_BE, 'owner');
     refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { role: 'admin' } }), 400, CANT_BE, 'admin');
