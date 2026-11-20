@@ -132,7 +132,7 @@ await test('two spaces on two templates: different module sets, names, icons, re
   assert.deepEqual(lp.phases.map((x) => x.id), ['start', 'build']);
   assert.equal(lp.phaseMeasure, 'progress');
   assert.deepEqual(lp.call, { joinOnEntry: false, position: 'left', layout: 'strip' }, 'the call as stored');
-  assert.deepEqual(lp.workspace, { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] }, tabs: [{ id: 'workspace', show: true }, { id: 'calendar', show: true }, { id: 'map', show: false }] }, 'the workspace as stored');
+  assert.deepEqual(lp.workspace, { layout: { shape: 'wide-narrow', areas: ['travel', 'maps'] }, tabs: [{ id: 'workspace', show: true }, { id: 'calendar', show: true }, { id: 'map', show: false }, { id: 'conference', show: true }] }, 'the workspace as stored');
   assert.deepEqual([lg.call, lg.workspace.layout], [{ joinOnEntry: false, position: 'top', layout: 'grid' }, undefined], 'Gaming names no layout');
   // The answer is the reader's own: changing it changes nothing stored or read again.
   lp.modules.push('calendar');
