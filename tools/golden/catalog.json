@@ -234,6 +234,59 @@
     }
   },
   {
+    "name": "todo__updateTask",
+    "module": "todo",
+    "action": "updateTask",
+    "label": "Change this task",
+    "description": "Change a to-do task's title, notes or reminder.",
+    "effect": "write",
+    "input": {
+      "task": "ref:todo:task",
+      "title": "string?",
+      "notes": "text?",
+      "remind": "boolean?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a task shown in this question."
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "remind": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "task",
+        "title",
+        "notes",
+        "remind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "travel__addToDay",
     "module": "travel",
     "action": "addToDay",

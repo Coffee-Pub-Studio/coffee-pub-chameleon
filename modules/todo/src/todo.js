@@ -1033,11 +1033,16 @@
         const made = input.object && typeof input.object === 'object' ? taskFromObject(input.object, host.util) : null;
         const title = (made && made.title) || String(input.title || '').trim();
         if (!title) throw new Error('a task needs a title');
+        const wantsDue = input.due || (made && made.due) || null;
+        if (input.remind !== undefined && input.remind !== null && typeof input.remind !== 'boolean') throw new Error('Say whether to remind with true or false.');
+        if (input.remind === true && !wantsDue) throw new Error('A reminder needs a due date.');
         const t = {
           id: newId(), title, notes: made ? made.notes : input.notes || '', due: input.due || (made && made.due) || null, remind: false, done: false, doneAt: null,
           createdAt: Date.now(), by: (meta && meta.by) || 'someone', links: input.ref && linkable(input.ref) ? [input.ref] : [], autoDone: false,
         };
-        await put(null, t);
+        t.remind = input.remind === true; // the form's own rule: a reminder only with a due date, checked above
+        const saved = await put(null, t);
+        if (t.remind) applyReminder(t, saved.where).catch(() => {});
         render();
         resolveLinks();
         return { ref: myRef(t.id) };
@@ -1051,6 +1056,31 @@
       setTaskDue: async (input) => {
         const x = ownTask(input.task);
         const t = { ...x.t, due: input.date, remind: x.t.remind };
+        await put(x, t);
+        applyReminder(t, whereOf(x)).catch(() => {});
+        render();
+        return { ref: myRef(x.id, x.spaceId) };
+      },
+      // Change a task's title, notes or reminder, with the edit form's limits (200 and 1000 letters) and its reminder code.
+      updateTask: async (input) => {
+        const x = ownTask(input.task);
+        const has = (k) => input[k] !== undefined && input[k] !== null;
+        if (!has('title') && !has('notes') && !has('remind')) throw new Error('Say what to change: title, notes or remind.');
+        const t = { ...x.t };
+        if (has('title')) {
+          t.title = String(input.title).trim();
+          if (!t.title) throw new Error('A task needs a name.');
+          if (t.title.length > 200) throw new Error('A title can be 200 letters at most.');
+        }
+        if (has('notes')) {
+          t.notes = String(input.notes).trim();
+          if (t.notes.length > 1000) throw new Error('Notes can be 1000 letters at most.');
+        }
+        if (has('remind')) {
+          if (typeof input.remind !== 'boolean') throw new Error('Say whether to remind with true or false.');
+          if (input.remind && !t.due) throw new Error('A reminder needs a due date.');
+          t.remind = input.remind;
+        }
         await put(x, t);
         applyReminder(t, whereOf(x)).catch(() => {});
         render();
