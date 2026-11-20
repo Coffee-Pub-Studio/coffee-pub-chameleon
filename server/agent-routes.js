@@ -11,12 +11,13 @@
 //     tool calls come back through the gate as the route they wrap and need what that route needs).
 //
 // Each entry: { kind, method, path, counts, place, needs }.
-//   kind:   `agent`, the ordinary agent. (The set-up agent of plan-admin-agent joins this list as `setup`.)
-//   method: the Express method, lower case (get, post).
+//   kind:   `agent`, the ordinary agent, or `setup`, the set-up agent (documentation/plans/plan-admin-agent.md). A token
+//           reaches only its own kind's entries: each kind gets 403 on the other's routes.
+//   method: the Express method, lower case (get, post, patch).
 //   path:   the route as the app registers it.
 //   counts: what a call costs against the agent's limits: `read`, `write`, or `mcp` (POST /mcp, see server/index.js).
 //   place:  the gate's check of the place a call names (agentAt in server/index.js): none, spaceParam, spaceScope, linkRef,
-//           resolveRefs.
+//           resolveRefs, madeParam (a space the set-up agent made, plan-admin-agent decision 3).
 //   needs:  a permission key, `module` or `always`. An entry without one stops the server at start.
 //
 // Not on it: GET /api/spaces/:id (Set up's read, which answers a member "owners only"), and every other chat route (the
@@ -39,11 +40,22 @@ const AGENT_ROUTES = Object.freeze([
   { kind: 'agent', method: 'post', path: '/api/spaces/:id/chat', counts: 'write', place: 'spaceParam', needs: 'chat' },
   { kind: 'agent', method: 'post', path: '/mcp', counts: 'mcp', place: 'none', needs: 'always' },
   { kind: 'agent', method: 'get', path: '/mcp', counts: 'read', place: 'none', needs: 'always' },
+  // The set-up agent (plan-admin-agent.md, step 1): its own reads, and making and changing the spaces it made. It reads no
+  // module data and no Chat, and nothing in a space. Each route is its own (never PATCH /api/spaces/:id opened to an
+  // agent) and takes a fixed body. The people read, the asks and MCP come in later steps of that plan.
+  { kind: 'setup', method: 'get', path: '/api/agent/me', counts: 'read', place: 'none', needs: 'always' },
+  { kind: 'setup', method: 'get', path: '/api/agent/templates', counts: 'read', place: 'none', needs: 'always' },
+  { kind: 'setup', method: 'get', path: '/api/agent/icons', counts: 'read', place: 'none', needs: 'always' },
+  { kind: 'setup', method: 'post', path: '/api/agent/spaces', counts: 'write', place: 'none', needs: 'agentMakeSpaces' },
+  { kind: 'setup', method: 'patch', path: '/api/agent/spaces/:id', counts: 'write', place: 'madeParam', needs: 'agentChangeSpaces' },
 ].map((entry) => Object.freeze(entry)));
 
-// The rows of the Roles grid only an agent column has (the "Agents" group); people's columns show no box on them.
+// The rows of the Roles grid only an agent column has (the "Agents" group); people's columns show no box on them, and
+// `column` names the one agent column that has a box on it.
 const AGENT_ONLY_PERMISSIONS = Object.freeze([
-  Object.freeze({ key: 'agentMembers', label: 'See who is in {a space}', group: 'Agents', agentOnly: true }),
+  Object.freeze({ key: 'agentMembers', label: 'See who is in {a space}', group: 'Agents', agentOnly: true, column: 'agent' }),
+  Object.freeze({ key: 'agentMakeSpaces', label: 'Make {spaces}', group: 'Agents', agentOnly: true, column: 'setup' }),
+  Object.freeze({ key: 'agentChangeSpaces', label: 'Rename and change {spaces}', group: 'Agents', agentOnly: true, column: 'setup' }),
 ]);
 
 // The built-in rows the Agent column may ever tick. Every other built-in row is never an agent's (the call, pictures,
@@ -55,10 +67,25 @@ const AGENT_BUILT_IN = Object.freeze(['chatRead', 'chat', 'agentMembers']);
 // start at their member default (store.roleSetRaw).
 const AGENT_DEFAULTS = Object.freeze({ chatRead: true, chat: false, agentMembers: true });
 
-const KINDS = ['agent'];
-const METHODS = ['get', 'post'];
+// The rows the set-up agent's column may ever tick: only its own. Every other row, built-in or a module's, is never the
+// set-up agent's (it reads nothing in a space). They start off (plan-agent-matrix.md, decision 5): nothing it can do
+// until an owner ticks something.
+const SETUP_BUILT_IN = Object.freeze(['agentMakeSpaces', 'agentChangeSpaces']);
+const SETUP_DEFAULTS = Object.freeze({ agentMakeSpaces: false, agentChangeSpaces: false });
+
+// What a set-up agent may do in a day, on top of the agent limits (plan-admin-agent.md, "Limits"): spaces made, and changes
+// to the spaces it made (a rename, a description, an icon; one call is one change).
+const SETUP_LIMITS = Object.freeze({ made: 5, changes: 30 });
+
+// The words a log line keeps for a set-up change (server/agent-log.js `change`): never a name or a description.
+const SETUP_CHANGES = Object.freeze(['made', 'renamed', 'described', 'icon']);
+
+const KINDS = ['agent', 'setup'];
+const METHODS = ['get', 'post', 'patch'];
 const COUNTS = ['read', 'write', 'mcp'];
-const PLACES = ['none', 'spaceParam', 'spaceScope', 'linkRef', 'resolveRefs'];
+const PLACES = ['none', 'spaceParam', 'spaceScope', 'linkRef', 'resolveRefs', 'madeParam'];
+// The built-in rows each kind's column may tick.
+const TICKABLE = Object.freeze({ agent: AGENT_BUILT_IN, setup: SETUP_BUILT_IN });
 
 // What an agent may ask a module for through the action route (plan-agent-access.md, decision 5): a `write`, never local,
 // asker-only, destructive, without an effect, or kept from AI (`ai: false`). The actions list shows an agent only these.
@@ -91,13 +118,17 @@ function agentRouteProblems(list = AGENT_ROUTES) {
   for (const [i, e] of list.entries()) {
     const name = e && typeof e === 'object' ? `${String(e.method || '?').toUpperCase()} ${e.path || '?'}` : `entry ${i}`;
     if (!e || typeof e !== 'object') { problems.push(`${name} is not an entry`); continue; }
-    if (!KINDS.includes(e.kind)) problems.push(`${name} has no kind (agent)`);
-    if (!METHODS.includes(e.method)) problems.push(`${name} has a method other than get or post`);
+    if (!KINDS.includes(e.kind)) problems.push(`${name} has no kind (agent or setup)`);
+    if (!METHODS.includes(e.method)) problems.push(`${name} has a method other than get, post or patch`);
     if (typeof e.path !== 'string' || !e.path.startsWith('/')) problems.push(`${name} has no path`);
     if (!COUNTS.includes(e.counts)) problems.push(`${name} has no counts (read, write or mcp)`);
     if (!PLACES.includes(e.place)) problems.push(`${name} has no place check`);
     if (e.needs === undefined || e.needs === null || e.needs === '') problems.push(`${name} has no needs`);
-    else if (e.needs !== 'module' && e.needs !== 'always' && !AGENT_BUILT_IN.includes(e.needs)) problems.push(`${name} needs "${e.needs}", which is not a row the agent column may tick`);
+    else if (e.needs !== 'module' && e.needs !== 'always' && !(TICKABLE[e.kind] || []).includes(e.needs)) problems.push(`${name} needs "${e.needs}", which is not a row the ${e.kind === 'setup' ? 'set-up agent' : 'agent'} column may tick`);
+    // The set-up agent reads no module data: a `module` entry is never its own.
+    if (e.kind === 'setup' && e.needs === 'module') problems.push(`${name} needs ${JSON.stringify(e.needs)}, which the set-up agent never has`);
+    // madeParam is the set-up agent's alone; the ordinary agent sets up nothing.
+    if (e.kind !== 'setup' && e.place === 'madeParam') problems.push(`${name} checks for a space the agent made, which only a set-up agent does`);
     const id = `${e.kind} ${e.method} ${e.path}`;
     if (seen.has(id)) problems.push(`${name} is on the list twice`);
     seen.add(id);
@@ -113,4 +144,4 @@ function assertAgentRoutes(list = AGENT_ROUTES) {
 
 assertAgentRoutes();
 
-module.exports = { AGENT_ROUTES, AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, agentMayAsk, agentModuleKeys, agentRouteProblems, assertAgentRoutes };
+module.exports = { AGENT_ROUTES, AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, SETUP_BUILT_IN, SETUP_DEFAULTS, SETUP_LIMITS, SETUP_CHANGES, agentMayAsk, agentModuleKeys, agentRouteProblems, assertAgentRoutes };

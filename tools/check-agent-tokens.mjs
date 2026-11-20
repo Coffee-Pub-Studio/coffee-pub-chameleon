@@ -700,11 +700,12 @@ try {
       seen = lines().length;
       return lines()[seen - 1];
     };
-    const fields = ['at', 'token', 'method', 'route', 'space', 'module', 'action', 'request', 'message', 'status', 'address', 'kind', 'agent'].sort();
+    // `change`: a set-up agent's change (plan-admin-agent.md); null on every ordinary agent's line.
+    const fields = ['at', 'token', 'method', 'route', 'space', 'module', 'action', 'request', 'message', 'status', 'address', 'kind', 'change', 'agent'].sort();
     ok(await call(server, 'GET', `/api/modules/todo/data?scope=space&space=${S1}`, T), 'data read');
     { const l = await last();
       assert.deepEqual(Object.keys(l).sort(), fields, 'the line\'s fields');
-      assert.deepEqual([l.route, l.module, l.kind], ['/api/modules/:id/data', 'todo', 'read']); }
+      assert.deepEqual([l.route, l.module, l.kind, l.change], ['/api/modules/:id/data', 'todo', 'read', null]); }
     ok(await call(server, 'GET', `/api/modules/todo/data/task:t1?scope=space&space=${S1}`, T), 'data read of a key');
     assert.equal((await last()).module, 'todo');
     ok(await call(server, 'GET', `/api/modules/todo/context?scope=space&space=${S1}`, T), 'context');

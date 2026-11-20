@@ -99,6 +99,8 @@
         <h2>New agent</h2>
         <div class="fields">
           <label>Name<input id="new-agent-name" type="text" maxlength="40" value="Claude" autocomplete="off"></label>
+          <!-- The kind (plan-admin-agent.md): shown only while Set-up agents are on here. -->
+          <label id="new-agent-kind-field" data-fill hidden>What it does<select id="new-agent-kind"><option value="" selected>Works in {spaces}</option><option value="setup">Sets up {spaces}</option></select></label>
         </div>
         <p class="hint" data-fill>An agent is not a person. It can't sign in; it works through a token you make for it, in the {spaces} you add it to.</p>
         <div class="row">
@@ -134,6 +136,12 @@
           <label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label" data-fill>Let this {environment} have agents</span></span><input type="checkbox" class="sdk-switch" role="switch" id="set-agents"></label>
           <p class="hint" data-fill>An agent is Claude, or another assistant, working in your {spaces} through a token. Turn this off and every agent's token stops working. Saved as you switch.</p>
           <span class="status" id="agents-status" role="status"></span>
+          <!-- Set-up agents (plan-admin-agent.md, decision 7): only while the server's AGENT_SETUP is on too. -->
+          <div id="setup-agents-on-server" hidden>
+            <label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label" data-fill>Let this {environment} have set-up agents</span></span><input type="checkbox" class="sdk-switch" role="switch" id="set-setup-agents"></label>
+            <p class="hint" data-fill>A set-up agent makes {spaces} from a template and names them. It reads nothing in a {space}, and changes only the {spaces} it made. Turn this off and every set-up agent's token stops working. Saved as you switch.</p>
+            <span class="status" id="setup-agents-status" role="status"></span>
+          </div>
         </div>
       </div>
 

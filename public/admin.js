@@ -448,18 +448,22 @@ async function loadUsers() {
 // The columns are the server's (GET /api/roles, `columns`): the four, then the agent's while AGENT_TOKENS is on. A cell the
 // column can never have shows no box (plan-agent-matrix.md, decision 6), and an agent-only row ("Agents") has a box only in
 // the agent column.
+// The set-up agent's column (plan-agent-matrix.md, decision 3) follows the Agent column while the server's AGENT_SETUP is on.
 const AGENT_COLUMN = 'agent';
-const roleHeading = (role) => (role === AGENT_COLUMN ? 'Agent' : word(role, { cap: true }));
+const SETUP_COLUMN = 'setup';
+const AGENT_COLUMNS = [AGENT_COLUMN, SETUP_COLUMN];
+const roleHeading = (role) => (role === AGENT_COLUMN ? 'Agent' : role === SETUP_COLUMN ? 'Set-up agent' : word(role, { cap: true }));
 
 function renderRoles({ permissions, roles, columns = ['owner', 'moderator', 'member', 'guest'], never = {} }) {
   const label = roleHeading;
   const neverOf = (role) => new Set(never[role] || []);
   const nevers = Object.fromEntries(columns.map((role) => [role, neverOf(role)]));
   const hasAgent = columns.includes(AGENT_COLUMN);
+  const rowColumn = (p) => p.column || AGENT_COLUMN; // the one agent column with a box on an agent-only row
   const rows = ['<thead><tr><th scope="col"><span class="visually-hidden">What they can do</span></th>' + columns.map((role) => `<th scope="col" class="is-center">${escapeHtml(label(role))}</th>`).join('') + '</tr></thead><tbody>'];
   let group = null;
   for (const p of permissions) {
-    if (p.agentOnly && !hasAgent) continue;
+    if (p.agentOnly && !columns.includes(rowColumn(p))) continue;
     if (p.group !== group) {
       group = p.group;
       rows.push(`<tr class="sdk-table-group"><th scope="colgroup" colspan="${columns.length + 1}">${escapeHtml(group)}</th></tr>`);
@@ -468,8 +472,8 @@ function renderRoles({ permissions, roles, columns = ['owner', 'moderator', 'mem
     const seesAll = /^module\.[a-z0-9-]+\.see_all$/.test(p.key);
     const about = seesAll ? `Lets this role open files that were not shared with them. Off by default for ${word('moderator', { many: true })}; ${word('owner', { many: true })} always can.` : '';
     rows.push(`<tr><th scope="row">${escapeHtml(p.label)}${about ? `<span class="sdk-table-sub">${escapeHtml(about)}</span>` : ''}</th>` + columns.map((role) => {
-      if (p.agentOnly && role !== AGENT_COLUMN) return '<td class="is-center"></td>'; // an agent-only row: no box for people
-      if (role === AGENT_COLUMN && nevers[role].has(p.key)) return '<td class="is-center"></td>'; // never the agent's: nothing drawn, the cell kept
+      if (p.agentOnly && role !== rowColumn(p)) return '<td class="is-center"></td>'; // an agent-only row: a box only in its own agent column
+      if (AGENT_COLUMNS.includes(role) && nevers[role].has(p.key)) return '<td class="is-center"></td>'; // never this agent column's: nothing drawn, the cell kept
       const guestLocked = role === 'guest' && nevers.guest.has(p.key); // the server refuses guests whatever the box says
       const locked = role === 'owner' || guestLocked;
       const why = guestLocked ? `${word('guest', { many: true, cap: true })} can never do this` : `${word('owner', { many: true, cap: true })} can always do this`;
@@ -646,12 +650,29 @@ $('add-user').addEventListener('submit', async (event) => {
 function paintAgents(settings) {
   agentsServer = settings.agentTokens === true;
   agentsOn = agentsServer && settings.agents === true;
+  if (settings.agentSetup !== undefined) setupServer = agentsServer && settings.agentSetup === true;
+  if (settings.setupAgents !== undefined) setupOn = setupServer && settings.setupAgents === true;
   $('agents-off-server').hidden = agentsServer;
   $('agents-on-server').hidden = !agentsServer;
   $('set-agents').checked = agentsOn;
   $('add-agent-toggle').hidden = !agentsOn;
   if (!agentsOn) $('add-agent').hidden = true;
+  // Set-up agents (plan-admin-agent.md): the switch while the server has them; the kind to choose while they are on here.
+  $('setup-agents-on-server').hidden = !setupServer;
+  $('set-setup-agents').checked = setupOn;
+  $('new-agent-kind-field').hidden = !setupOn;
+  if (!setupOn) $('new-agent-kind').value = '';
 }
+let setupServer = false; // settings.agentSetup: the server's AGENT_SETUP (with AGENT_TOKENS)
+let setupOn = false; // settings.setupAgents: this environment's own switch
+$('set-setup-agents').addEventListener('change', async (e) => {
+  const box = e.target;
+  box.disabled = true;
+  if (await saveSettings({ setupAgents: box.checked }, $('setup-agents-status'))) paintAgents({ agentTokens: agentsServer, agents: agentsOn, setupAgents: box.checked });
+  else box.checked = !box.checked; // refused: as it was
+  box.disabled = false;
+  box.focus();
+});
 $('set-agents').addEventListener('change', async (e) => {
   const box = e.target;
   box.disabled = true;
@@ -674,7 +695,8 @@ $('add-agent').addEventListener('submit', async (event) => {
   event.preventDefault();
   $('add-agent-error').hidden = true;
   try {
-    const { user } = await api('POST', '/api/users', { agent: true, displayName: $('new-agent-name').value.trim() || 'Claude' });
+    const kind = setupOn && $('new-agent-kind').value === 'setup' ? { kind: 'setup' } : {};
+    const { user } = await api('POST', '/api/users', { agent: true, displayName: $('new-agent-name').value.trim() || 'Claude', ...kind });
     users.push({ ...user, online: null });
     renderUsers();
     $('add-agent').reset();

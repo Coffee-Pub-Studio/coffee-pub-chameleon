@@ -8,8 +8,9 @@ import { confirmDialog } from '/confirm.js';
 
 const MAX_NAME = 40;
 const POLL_MS = 10000; // how often the live "Claude connected" line asks while it is on screen
-// The agent's name as a person reads it, with the mark that it is not a person.
-export const agentName = (user) => `${String((user && (user.displayName || user.key)) || 'Agent')} (agent)`;
+// The agent's name as a person reads it, with the mark that it is not a person: "(set-up agent)" for the set-up kind
+// (plan-admin-agent.md, decision 2), else "(agent)".
+export const agentName = (user) => `${String((user && (user.displayName || user.key)) || 'Agent')} ${user && user.kind === 'setup' ? '(set-up agent)' : '(agent)'}`;
 
 // A time as the page shows it: "Nov 16, 3:40 PM", the year only when it is not this one.
 export function whenText(iso, hour12 = true) {
@@ -57,12 +58,19 @@ const READS = {
   '/api/spaces/:id/actions': () => 'Listed what it can ask for',
   '/api/spaces/:id/action/:requestId': () => 'Checked on a request',
   '/mcp': () => 'Connected through MCP', // initialize, tools/list, ping and a client's GET that answers 405
+  // The set-up agent's (plan-admin-agent.md). Making and changing a space are worded by their `change` in logLine.
+  '/api/agent/templates': () => 'Read the templates it may use',
+  '/api/agent/icons': () => 'Read the icons it may use',
+  '/api/agent/spaces': (w) => `Made ${w('space', { a: true })}`,
+  '/api/agent/spaces/:id': (w) => `Changed ${w('space', { a: true })}`,
 };
+// What a set-up agent's change to a space it made reads like (the log's `change`, never a name or a description).
+const CHANGE_WORDS = { renamed: 'Renamed', described: 'Changed the description of', icon: 'Changed the icon of' };
 // Chat lines depend on the method (GET reads, POST posts), so they are told apart in logLine, not in READS.
 const CHAT_ROUTE = '/api/spaces/:id/chat';
 // The methods the gate lets through on each route; any other method on it was refused. A read route is GET (HEAD too); the
 // action and objects/resolve routes are POST; Chat is GET or POST.
-const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'], '/mcp': ['GET', 'POST'] };
+const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'], '/mcp': ['GET', 'POST'], '/api/agent/spaces': ['POST'], '/api/agent/spaces/:id': ['PATCH'] };
 const methodFits = (route, method) => (ROUTE_METHODS[route] || ['GET', 'HEAD']).includes(String(method || '').toUpperCase());
 const known = (route) => typeof route === 'string' && Object.hasOwn(READS, route);
 // "addMilestone" -> "add milestone"; the module's id before the colon is left out.
@@ -100,6 +108,12 @@ export function logLine(entry, { spaceName = () => '', moduleName: lookup = () =
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 200) text = `Posted in Chat${where}`;
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 403) text = `Refused post${where}`;
   else if (e.route === '/api/spaces/:id/action') text = `Ask for ${actionWords(e.action)}${where}`;
+  else if (e.route === '/api/agent/spaces' && e.change === 'made' && status === 200) text = e.space ? `Made the ${word('space')} ${spaceName(e.space) || 'that is gone'}` : `Made ${word('space', { a: true })}`;
+  else if (e.route === '/api/agent/spaces/:id' && typeof e.change === 'string' && status === 200) {
+    const done = e.change.split(',').map((c) => CHANGE_WORDS[c]).filter(Boolean);
+    const named = e.space && spaceName(e.space) ? `the ${word('space')} ${spaceName(e.space)}` : word('space', { a: true });
+    text = done.length === 1 ? `${done[0]} ${named}` : `Changed ${named}`;
+  }
   else if (known(e.route)) text = `${READS[e.route](word, moduleName(e.module, lookup))}${where}`;
   else { refused = true; text = `Refused: ${`${String(e.method || '')} ${String(e.route || '')}`.trim()}`; } // a route off the gate's list: the server writes its fixed shape
   const mcpGet405 = e.route === '/mcp' && e.method === 'GET' && status === 405; // a client's GET the endpoint answers 405: normal, not a failure

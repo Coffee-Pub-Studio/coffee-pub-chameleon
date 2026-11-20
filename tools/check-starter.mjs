@@ -33,7 +33,8 @@
  *     written as the owner who confirmed; a repeat is 409 and makes none; a member is refused (403).
  *
  * Also: a starter space name over the store's limit (40) is refused; a restore whose template record says it was never
- * applied makes no starter spaces; every addSpace caller is POST /api/spaces or makeStarterSpaces (a source scan).
+ * applied makes no starter spaces; every addSpace caller is POST /api/spaces, POST /api/agent/spaces (the set-up agent's,
+ * which fills the starter content too) or makeStarterSpaces (a source scan).
  *
  * Part 3, hosted (BASE_DOMAIN): a host template with starter spaces; an environment made from it gets them once, made by
  * its owner (a member of each), each recorded as using that template, so a switch of the environment's template leaves
@@ -183,7 +184,7 @@ await test('Store#claimStarter: once; never the Lobby or an unknown id; kept, ne
 
 // Every place that makes a space: POST /api/spaces (which gives it its starter content) and makeStarterSpaces (a template's
 // starter spaces). Anything else would be a space made outside the starter rules, so a new caller must be added here on purpose.
-await test('source scan: every addSpace caller is POST /api/spaces or makeStarterSpaces', async () => {
+await test('source scan: every addSpace caller is POST /api/spaces, POST /api/agent/spaces or makeStarterSpaces', async () => {
   const dir = path.join(ROOT, 'server');
   const found = [];
   for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.js'))) {
@@ -195,8 +196,13 @@ await test('source scan: every addSpace caller is POST /api/spaces or makeStarte
       found.push(`${file}: ${lines[j].slice(0, 60)}`);
     });
   }
-  assert.equal(found.length, 2, `two callers: ${found.join(' | ')}`);
+  // The third: the set-up agent's own route (plan-admin-agent.md), which fills the starter content as POST /api/spaces does.
+  assert.equal(found.length, 3, `three callers: ${found.join(' | ')}`);
   assert.ok(found.some((f) => /^index\.js: app\.post\('\/api\/spaces',/.test(f)), found.join(' | '));
+  assert.ok(found.some((f) => /^index\.js: app\.post\('\/api\/agent\/spaces',/.test(f)), found.join(' | '));
+  const src = fs.readFileSync(path.join(dir, 'index.js'), 'utf8');
+  const route = src.slice(src.indexOf("app.post('/api/agent/spaces',"), src.indexOf("app.patch('/api/agent/spaces/:id',"));
+  assert.match(route, /fillStarter\(made, agent, \{ templateRights: true \}\)/, 'the set-up agent\'s route fills the starter content');
   assert.ok(found.some((f) => /^index\.js: function makeStarterSpaces\(/.test(f)), found.join(' | '));
 });
 
@@ -228,12 +234,13 @@ function startServer(dataDir, env = {}) {
   });
 }
 // `host`: an environment's slug on a hosted server, or null for a single install.
-function call(server, host, method, urlPath, { body, cookie, zip } = {}) {
+function call(server, host, method, urlPath, { body, cookie, zip, token } = {}) {
   const payload = zip || (body === undefined ? null : Buffer.from(typeof body === 'string' ? body : JSON.stringify(body)));
   const name = host ? `${host}.localhost:${server.port}` : `127.0.0.1:${server.port}`;
   const headers = { host: name, accept: 'application/json', origin: `http://${name}` };
   if (payload) { headers['content-type'] = zip ? 'application/zip' : 'application/json'; headers['content-length'] = payload.length; }
   if (cookie) headers.cookie = cookie;
+  if (token) headers.authorization = `Bearer ${token}`;
   return new Promise((resolve, reject) => {
     const req = http.request({ host: '127.0.0.1', port: server.port, method, path: urlPath, headers }, (res) => {
       const chunks = [];
@@ -273,7 +280,8 @@ const BRIEF = { 'note:brief': { title: 'Project brief', text: '# Goal' }, 'note:
 
 const servers = [];
 try {
-  const server = await startServer(path.join(tmp, 'single'), { ADMIN_PASSWORD: 'admin-password-1' });
+  // With set-up agents on (plan-admin-agent.md), so one can make a space here too.
+  const server = await startServer(path.join(tmp, 'single'), { ADMIN_PASSWORD: 'admin-password-1', AGENT_TOKENS: 'true', AGENT_SETUP: 'true' });
   servers.push(server);
   const login = async (who, password) => {
     const r = await call(server, null, 'POST', '/api/login', { body: { login: who, password } });
@@ -305,6 +313,19 @@ try {
     return r.json.items;
   };
   const dataDir = path.join(tmp, 'single', 'modules', 'notes', 'data');
+
+  await test('a space a set-up agent makes on the template gets its starter content, as the agent, though its column has no module row', async () => {
+    assert.equal((await admin('PATCH', '/api/settings', { agents: true, setupAgents: true })).status, 200);
+    assert.equal((await admin('PATCH', '/api/roles/setup', { agentMakeSpaces: true })).status, 200);
+    const agent = (await admin('POST', '/api/users', { agent: true, kind: 'setup' })).json.user;
+    const token = (await admin('POST', `/api/users/${agent.key}/token`)).json.token;
+    const r = await call(server, null, 'POST', '/api/agent/spaces', { token, body: { name: 'Made by an agent', template: 'proj' } });
+    assert.equal(r.status, 200, r.text);
+    const items = await dataOf(owner.as, 'notes', r.json.space.id);
+    assert.deepEqual(items.map((i) => i.key), ['note:brief', 'note:log']);
+    for (const i of items) assert.deepEqual([i.by, i.value.byKey], [agent.key, agent.key], 'written as the agent');
+    assert.equal((await call(server, null, 'GET', `/api/modules/notes/data?scope=space&space=${r.json.space.id}`, { token })).status, 403, 'which still reads none of it');
+  });
 
   await test('a space made on the template gets its starter content once, as the person who made it', async () => {
     const r = await owner.as('POST', '/api/spaces', { name: 'Alpha', template: 'proj', members: [mia.key] });

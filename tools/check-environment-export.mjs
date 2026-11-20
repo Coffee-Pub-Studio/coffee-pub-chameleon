@@ -56,7 +56,7 @@ function seededApp(secrets = strong) {
       publishedCalendarFeed: feed(),
       welcomeNote: { text: 'Welcome to **us**.', updatedAt: '2026-01-02T00:00:00.000Z', by: 'ownerkey' },
       // The Roles grid's Agent column (plan-agent-matrix.md) beside a person's column: both kept in a copy.
-      roles: { member: { chat: false }, agent: { chat: true, agentMembers: false } },
+      roles: { member: { chat: false }, agent: { chat: true, agentMembers: false }, setup: { agentMakeSpaces: true } },
     },
     users: [
       {
@@ -78,7 +78,8 @@ function seededApp(secrets = strong) {
       { key: 'demoper1', login: 'mia', displayName: 'Mia Alvarez', role: 'member', passwordHash: null, demo: true, createdAt: '2026-01-01T00:00:00.000Z' },
       // An agent account, turned off (plan-agent-access.md): the marks are kept in a copy; its token (tokens.json) is not. A
       // `chatPost` left from before the Agent column (plan-agent-matrix.md) is dropped when the record is read.
-      { key: 'agentkey', login: 'agent-agentkey', displayName: 'Claude', role: 'member', passwordHash: null, agent: true, off: true, chatPost: true, createdAt: '2026-01-01T00:00:00.000Z' },
+      // A set-up agent (plan-admin-agent.md): its kind is kept in a copy too.
+      { key: 'agentkey', login: 'agent-agentkey', displayName: 'Claude', role: 'member', passwordHash: null, agent: true, kind: 'setup', off: true, chatPost: true, createdAt: '2026-01-01T00:00:00.000Z' },
     ],
     spaces: [
       { id: 'lobby', name: 'Lobby', members: ['ownerkey'], createdAt: '2026-01-01T00:00:00.000Z' },
@@ -86,7 +87,7 @@ function seededApp(secrets = strong) {
         id: 'trip01', name: 'Trip', description: 'A trip', members: ['ownerkey'], createdAt: '2026-01-01T00:00:00.000Z', profile: 'characters',
         link: 'https://example.com/', linkIcon: 'link', guestToken: token(20), allowGuests: true, entry: 'accounts', requestAccess: true, closed: true, defaultLayout: 'lay01', tabs: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['map'] },
         aiOff: true, template: 'games', aiSees: { chat: true }, publishCalendar: false, guestsSeeHidden: true, call: { position: 'left' }, phases: { main: { start: '2026-02-01', end: '2026-02-05' } }, phaseDone: { main: true },
-        budget: { amount: 1200, currency: 'EUR' }, starterDone: true,
+        budget: { amount: 1200, currency: 'EUR' }, starterDone: true, madeBy: 'agentkey', // the set-up agent's mark (plan-admin-agent.md)
       },
     ],
     asides: [{ id: 'asid01', members: ['ownerkey'], origin: 'trip01', private: true, createdAt: '2026-01-01T00:00:00.000Z' }],
@@ -171,10 +172,12 @@ test('the copy carries only allowed fields, keeps each of them as it is, and non
   const back = loadStore(copy).store.data;
   assert.deepEqual(back.users.map((u) => [u.key, u.login, u.role, u.themeMode, u.passwordHash, u.linkToken, u.mfa]), [['ownerkey', 'owner', 'owner', 'light', null, null, null], ['bosskey1', 'boss', 'admin', undefined, null, null, null], ['newowner', 'newowner', 'owner', undefined, null, null, null], ['demoper1', 'mia', 'member', undefined, null, null, null], ['agentkey', 'agent-agentkey', 'member', undefined, null, null, null]]);
   assert.equal(back.users.find((u) => u.key === 'demoper1').demo, true, 'a demo person stays marked in the copy');
-  assert.deepEqual(['agent', 'off', 'chatPost'].map((f) => back.users.find((u) => u.key === 'agentkey')[f]), [true, true, undefined], 'an agent stays an agent and turned off in the copy, with no chatPost');
+  assert.deepEqual(['agent', 'kind', 'off', 'chatPost'].map((f) => back.users.find((u) => u.key === 'agentkey')[f]), [true, 'setup', true, undefined], 'an agent stays an agent of its kind and turned off in the copy, with no chatPost');
+  assert.equal(back.spaces.find((x) => x.id === 'trip01').madeBy, 'agentkey', 'the set-up agent\'s mark survives a copy');
   assert.ok(copy.users.every((u) => !('chatPost' in u)), 'no chatPost in the copy');
-  assert.deepEqual(copy.settings.roles, { member: { chat: false }, agent: { chat: true, agentMembers: false } }, 'the agent column is in the copy');
-  assert.deepEqual(back.settings.roles.agent, { chat: true, agentMembers: false }, 'and survives a restore of it');
+  assert.deepEqual(copy.settings.roles, { member: { chat: false }, agent: { chat: true, agentMembers: false }, setup: { agentMakeSpaces: true } }, 'the agent columns are in the copy');
+  assert.deepEqual(back.settings.roles.agent, { chat: true, agentMembers: false }, 'and survive a restore of it');
+  assert.deepEqual(back.settings.roles.setup, { agentMakeSpaces: true }, 'the set-up column too');
   assert.ok(back.users.every((u) => !('firstPassword' in u)), 'a restored copy carries no first-password link');
   assert.deepEqual(back.spaces.map((s) => ({ ...s, guestToken: undefined })), data.spaces.map((s) => ({ ...s, guestToken: undefined })));
 });

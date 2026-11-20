@@ -13,6 +13,8 @@
 //           colon), only when it is a safe id (^[a-z0-9-]{1,40}$) that is an installed module's; else null;
 //   kind    "read" or "write", what the call counted against; null for a line that counted against nothing;
 //   message a Chat post's message id, or how many messages a Chat read carried (a number); else null. Never text.
+//   change  a set-up agent's change (plan-admin-agent.md, "The log"): "made", or what a change to a space it made touched,
+//           of "renamed", "described" and "icon", joined by commas ("renamed,icon"); else null. Never a name or a description.
 // Never a request's body, a chat message's text or an object's content. A day's file older than 30 days is deleted on
 // start and once a day after; nothing is ever rewritten.
 //
@@ -25,11 +27,16 @@
 // memory only (a restart clears them, which costs at most one more minute's worth). The day's counts are read back from
 // the agent's file for the day the first time it calls that day, so a restart does not reset them: every line with a
 // kind counts, except a 429.
+//
+// A set-up agent's daily caps (SETUP_LIMITS in server/agent-routes.js: spaces made, and changes to them) are counted the same
+// way: from the lines of the day with a `change` and status 200, read back from the file the first time it is asked that
+// day, so a restart does not reset them either.
 
 const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { deepFreeze } = require('./deep-freeze');
+const { SETUP_CHANGES } = require('./agent-routes');
 
 const AGENT_LIMITS = deepFreeze({
   read: { perMinute: 60, perDay: 3000 },
@@ -46,6 +53,14 @@ const KEY_RE = /^[a-z0-9]{4,16}$/;
 const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 const MESSAGE_ID_RE = /^[a-f0-9]{12}$/;
 const MODULE_RE = /^[a-z0-9-]{1,40}$/;
+// A `change` as it may be written: "made", or one or more of the other change words, each once, joined by commas.
+const cleanChange = (v) => {
+  if (typeof v !== 'string' || !v || v.length > 60) return null;
+  const parts = v.split(',');
+  if (parts.some((p) => !SETUP_CHANGES.includes(p)) || new Set(parts).size !== parts.length) return null;
+  if (parts.includes('made') && parts.length > 1) return null;
+  return v;
+};
 // What a refused call's route may keep of a path: only the fixed words of the app's own registered routes (routeTrie), and
 // each only where a registered route has it (its position). Any other segment (an id, a key, a token, anything a client
 // chose) becomes ":x".
@@ -207,10 +222,13 @@ class AgentLog {
   countsOf(agent) {
     let c = this.counts.get(agent);
     if (c) return c;
-    c = { read: 0, write: 0 };
+    c = { read: 0, write: 0, made: 0, changes: 0 };
     if (KEY_RE.test(String(agent))) {
       for (const l of this.readFile(this.fileOf(agent, this.today))) {
-        if (KINDS.includes(l.kind) && l.status !== 429 && dayOf(Date.parse(l.at)) === this.today) c[l.kind] += 1;
+        if (dayOf(Date.parse(l.at)) !== this.today) continue;
+        if (KINDS.includes(l.kind) && l.status !== 429) c[l.kind] += 1;
+        const change = cleanChange(l.change);
+        if (change && l.status === 200) c[change === 'made' ? 'made' : 'changes'] += 1;
       }
     }
     this.counts.set(agent, c);
@@ -239,11 +257,26 @@ class AgentLog {
     return { ok: true };
   }
 
-  // What `agent` has used today: { read, write }.
+  // What `agent` has used today: { read, write, made, changes }.
   usedToday(agent) {
     this.roll(this.now());
     const c = this.countsOf(agent);
-    return { read: c.read, write: c.write };
+    return { read: c.read, write: c.write, made: c.made, changes: c.changes };
+  }
+
+  // A set-up agent's daily cap (`what`: made or changes, at most `cap` a day): { ok: true } while it has room, else
+  // { ok: false, retrySeconds } until the next (UTC) day. Asked before the change; `spent` counts one once it is made.
+  roomFor(agent, what, cap) {
+    const now = this.now();
+    this.roll(now);
+    if (this.countsOf(agent)[what] < cap) return { ok: true };
+    const midnight = Date.parse(`${this.today}T00:00:00.000Z`) + 86400000;
+    return { ok: false, retrySeconds: Math.max(1, Math.ceil((midnight - now) / 1000)) };
+  }
+
+  spent(agent, what) {
+    this.roll(this.now());
+    this.countsOf(agent)[what] += 1;
   }
 
   // Writes one line. Only the fields named here, each a short plain value, ever reach the file.
@@ -269,6 +302,7 @@ class AgentLog {
       status: Number.isInteger(entry.status) ? entry.status : null,
       address: typeof entry.address === 'string' && net.isIP(entry.address) ? entry.address : null, // an IP address, never free text
       kind: KINDS.includes(entry.kind) ? entry.kind : null,
+      change: cleanChange(entry.change),
     };
     if (!line.agent || !KEY_RE.test(line.agent)) return;
     try {
