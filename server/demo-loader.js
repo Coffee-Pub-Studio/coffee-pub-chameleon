@@ -44,6 +44,9 @@
 // THE API: loadDemo({ base, publicBase?, templateId, today, session, headers?, say?, fetchImpl? }) -> report (below). `publicBase`
 // is the address people use, for {base} in the file and the guest link (default: `base`). `session` is an
 // owner's or admin's { cookie } (the request's own, when called from inside the server) or { login, password }.
+// The host's own pictures: when the caller is the demo run's stand-in (STANDIN_LOGIN, hostAdmin), a profile picture and a call
+// background drawn for the host (cast/people.json, "host") are sent as the caller to any slot it has not set; one it has is kept,
+// and a failure is a `skipped` sentence. A real owner or admin as caller is never given a picture.
 // `headers` are added to every request (a hosted environment's Host header). The passwords of the demo people are random
 // on every run and are only returned (report.people), never stored or printed here.
 
@@ -101,6 +104,16 @@ function problemsOf(raw, templateId, word = defaultWord) {
     }
   }
   return out;
+}
+
+// The host's pictures (cast/people.json, "host": { images }): for the account that loads the demo, never a cast person. {} when none.
+// The login of the account the host console makes to run a demo as (server/index.js); the only caller given the host's pictures.
+const STANDIN_LOGIN = 'host-demo';
+
+function readHostImages({ dir = DEMO_DIR } = {}) {
+  let raw;
+  try { raw = JSON.parse(fs.readFileSync(path.join(dir, 'cast', 'people.json'), 'utf8')); } catch { return {}; }
+  return isObject(raw) && isObject(raw.host) && isObject(raw.host.images) ? raw.host.images : {};
 }
 
 // The cast: { "<login>": { login, displayName, role, images } }. `dir` is the demo folder (the cast is dir/cast/people.json).
@@ -554,7 +567,24 @@ async function runDemo({ base, publicBase = '', templateId, today, session = {},
     for (const pre of prefixes) total += (((await ok('caller', 'GET', `/api/modules/${encodeURIComponent(id)}/data?scope=space&space=${space.id}&prefix=${encodeURIComponent(pre)}`)).items) || []).length;
     created[id] = total;
   }
+
+  // --- the host's own pictures: only for the demo run's stand-in, and only the slots it has none in ---
+  // A real owner or admin who runs a demo keeps their own pictures untouched: the stand-in is told apart by its fixed login and
+  // hostAdmin flag, which no ordinary account carries (the host console refuses a run when an ordinary one has that login).
+  // `me` was read before anything changed; its images say which slots are set. A picture that is there is never replaced.
+  if (me.json.user.login === STANDIN_LOGIN && me.json.user.hostAdmin === true) {
+    const mine = isObject(me.json.user.images) ? me.json.user.images : {};
+    for (const [slot, spec] of Object.entries(readHostImages({ dir }))) {
+      if (mine[slot]) continue;
+      try {
+        const r = await send('caller', 'PUT', `/api/me/images/${encodeURIComponent(slot)}`, makeAsset(spec));
+        if (r.status >= 300) skipped.push({ module: 'profile', why: `The ${slot} picture for the host could not be set (${(r.json && r.json.error) || `answered ${r.status}`}).` });
+      } catch {
+        skipped.push({ module: 'profile', why: `The ${slot} picture for the host could not be set (no server answered at ${base}).` });
+      }
+    }
+  }
   return { demo: true, space, start, created, skipped, refused, people, guestUrl, turnedOn };
 }
 
-module.exports = { loadDemo, neededModules, readDemoFile, readCast, hasDemo, listDemos, problemsOf, resolveString, resolveValue, DemoError, MARKER, DEMO_DIR, dayPlus };
+module.exports = { loadDemo, neededModules, readDemoFile, readCast, hasDemo, listDemos, problemsOf, resolveString, resolveValue, DemoError, MARKER, DEMO_DIR, STANDIN_LOGIN, dayPlus };

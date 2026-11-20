@@ -1,5 +1,25 @@
 {
- "_about": "The one cast of demo people every demo uses (server/demo-loader.js, readDemoFile). A demo's people list names them: { \"cast\": \"<login>\", \"moderator\": true }. The same login, name and pictures everywhere, so a second demo reuses the first one's accounts. Pictures are drawn by server/demo-assets.js; nobody here is real.",
+ "_about": "The one cast of demo people every demo uses (server/demo-loader.js, readDemoFile). A demo's people list names them: { \"cast\": \"<login>\", \"moderator\": true }. The same login, name and pictures everywhere, so a second demo reuses the first one's accounts. Pictures are drawn by server/demo-assets.js; nobody here is real. \"host\" is a picture and a background for the person who loads the demo, given only when that account has none: not a cast person, with no login and no account.",
+ "host": {
+  "images": {
+   "profile": {
+    "art": "avatar",
+    "skin": "#d9a679",
+    "hair": "#6b4a2f",
+    "shirt": "#c99a2e",
+    "top": "#f6e7c1",
+    "bottom": "#e0c27a",
+    "style": "short"
+   },
+   "background": {
+    "art": "backdrop",
+    "from": "#3a2a10",
+    "to": "#b8862b",
+    "band": "#f6e7c1",
+    "ring": "#6aa7d9"
+   }
+  }
+ },
  "people": [
   {
    "login": "mia",
