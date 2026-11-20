@@ -139,6 +139,8 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
    no Lobby unless added.
 4. **Rights: a member's rights, narrowed by a fixed gate.** The Roles tab's member permissions apply, and the gate's
    list of routes narrows them. Never a moderator, owner or admin. No new role to explain.
+   Note (2026-11-20): the agent's rights come from its own Agent column on the Roles grid, no longer the member column,
+   still inside the gate's list; see [plan-agent-matrix](plan-agent-matrix.md) (approved, not built).
    Note (2026-11-20): the set-up agent, a second kind that makes and names spaces, is the exception to this decision;
    see [plan-admin-agent](plan-admin-agent.md), decisions 1 and 5.
 5. **What it can change: actions only.** The action route, with each module's own checks, and only actions that are
@@ -168,6 +170,8 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
 13. **Chat: the agent may post in Chat.** Labelled "Claude (agent)", only in spaces it belongs to, under the normal
     `chat` permission, and the owner can take its Chat right away. Thomas chose this over the lean (no posting); see
     Divergences for what it adds.
+    Note (2026-11-20): posting becomes one **Send chat messages** row in the Agent column for all the environment's agents,
+    not a choice per agent; see [plan-agent-matrix](plan-agent-matrix.md) (approved, not built).
 14. **The wait for an open page: accepted.** The change lands when someone with write access next opens the module;
     Claude reads the request's status and says what is still waiting. Modules keep running no server code.
 15. **The limits: 60 reads and 20 writes a minute, 3,000 reads and 300 writes a day,** per agent. A Chat post counts as
@@ -177,6 +181,8 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
 Thomas answered the three questions decision 13 raised on 2026-11-16, when he approved the plan:
 
 17. **Post in Chat is off for a new agent** until the owner turns it on. (The draft suggested on; see Divergences.)
+    Note (2026-11-20): it stays off by default, now as the Agent column's **Send chat messages** row, per environment and
+    not per agent; see [plan-agent-matrix](plan-agent-matrix.md).
 18. **Post in Chat stops posting only.** The agent's Planner work and other actions are unaffected.
 19. **The agent may read Chat** in the spaces it belongs to. The draft suggested keeping it out; see Divergences.
 
