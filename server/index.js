@@ -4084,6 +4084,8 @@ app.get('/admin', (req, res) => {
 // where the default is the mark as a real .ico -- pages set their own <link rel="icon"> (see brand.js), but plenty of
 // browsers and tools still fetch that path directly (bookmarks, tab previews, before any page JS has run).
 const BRAND_DIR = path.join(publicDir, 'assets', 'images', 'brand');
+// The helper-bot picture an agent shows when nobody has set one for it (GET /img/:key/profile).
+const AGENT_IMAGE_FILE = path.join(BRAND_DIR, 'agent.svg');
 function brandIconFile(reqPath) { return path.join(BRAND_DIR, reqPath === '/favicon.ico' ? 'favicon.ico' : 'favicon.svg'); }
 function siteIcon(req, res) {
   // No environment at the product host (the start page): the bundled default, same as any environment
@@ -4174,6 +4176,7 @@ app.get('/img/:key/:slot', (req, res) => {
   const resolved = store.effectiveImage(user.key, slot, spaceId);
   if (resolved) return sendImage(res, resolved.file);
   if (slot !== 'profile' || req.query.fallback === 'none') return res.status(404).end();
+  if (user.agent === true) return res.set('Cache-Control', 'no-cache').type('image/svg+xml').sendFile(AGENT_IMAGE_FILE);
   res.set('Cache-Control', 'no-cache').type('image/svg+xml').send(initialsSvg(user.displayName, currentUser(req)));
 });
 

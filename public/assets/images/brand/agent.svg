@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="Agent">
+<rect width="96" height="96" rx="12" fill="#14243B"/>
+<line x1="48" y1="21" x2="48" y2="31" stroke="#F4EDE0" stroke-width="4" stroke-linecap="round"/>
+<circle cx="48" cy="18" r="5" fill="#F26B52"/>
+<rect x="19" y="31" width="58" height="42" rx="14" fill="#F4EDE0"/>
+<rect x="12" y="44" width="7" height="16" rx="3.5" fill="#0B7A84"/>
+<rect x="77" y="44" width="7" height="16" rx="3.5" fill="#0B7A84"/>
+<circle cx="37" cy="50" r="6.5" fill="#0B7A84"/>
+<circle cx="59" cy="50" r="6.5" fill="#0B7A84"/>
+<path d="M36 62q12 8 24 0" fill="none" stroke="#F26B52" stroke-width="4" stroke-linecap="round"/>
+</svg>
