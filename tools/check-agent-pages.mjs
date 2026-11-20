@@ -10,8 +10,8 @@
  *     a reload it is on no page, and the server never tells it again), Revoke, Turn off and Turn on (a token can't be made while it
  *     is off, the server's sentence is read), Delete (typed confirm) and What it did (the log in plain words, notes for a line over
  *     its limit or a refused token, paged with Show older);
- *   - Post in Chat: a switch on the agent's page, off at first, saved on the server (kept after a reload), and a refusal shows the
- *     server's sentence and puts the switch back; What it did reads the Chat lines (Read Chat, Posted in Chat, Refused post);
+ *   - no Post in Chat switch: the agent's page says what agents may do is set on Roles (plan-agent-matrix.md); What it did
+ *     reads the Chat lines (Read Chat, Posted in Chat, Refused post);
  *   - a member has no Manage page and the server refuses them the agent's token and log (403);
  *   - a script-looking name, route, action, address, message and space name is drawn as text: no element is made, nothing runs;
  *   - a space's Set up, Members: the agent is there as "<name> (agent)" with no moderator tick, and adds like a member;
@@ -307,28 +307,10 @@ async function main() {
       expect(/^Searched /.test(whats[at - 1]), `the tool call after the /mcp lines is "${whats[at - 1]}", not its own line`);
     }
 
-    // Post in Chat: off by default; the switch is saved on the server, and a refusal shows the server's sentence and puts it back.
+    // Post in Chat is gone (plan-agent-matrix.md): Send chat messages is a row of the Roles grid's Agent column, and the page says so.
     {
-      const sw = '[data-agent-chat-post]';
-      expect(await tab.eval(`(() => { const e = document.querySelector(${JSON.stringify(sw)}); return !!e && e.getAttribute('role') === 'switch' && !e.checked; })()`), 'Post in Chat is not a switch that starts off');
-      expect(/^Post in Chat/.test(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).closest('.sdk-choice-row').textContent`)), 'the switch is not labelled "Post in Chat"');
-      expect((await tab.eval(`document.querySelector(${JSON.stringify(sw)}).closest('.sdk-choice-row').parentElement.textContent`)).includes('Reading Chat is always on for it. Turning this off stops posting only.'), 'the plain hint is missing');
-      await press(tab, sw);
-      await sleep(500);
-      expect((await call('admin', 'GET', `/api/users/${agent.key}`)).json.user.chatPost === true, 'the switch did not turn posting on on the server');
-      expect(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).checked`), 'the switch is not on after it was saved');
-      await shot(tab, 'agent-chat-switch-on-1280-dark', false);
-      await go(tab, `/admin#agent/${agent.key}`);
-      await tab.waitFor(sw);
-      expect(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).checked`), 'after a reload the switch is not on');
-      await press(tab, sw);
-      await sleep(500);
-      expect((await call('admin', 'GET', `/api/users/${agent.key}`)).json.user.chatPost === false && !(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).checked`)), 'turning the switch off did not save');
-      expect((await call('admin', 'PATCH', '/api/settings', { agents: false })).status === 200, 'could not turn Agents off for the refusal');
-      await press(tab, sw);
-      expect(await waitText(tab, '[data-agent-status]', 'Agents are off in this'), `a refused switch said "${await text(tab, '[data-agent-status]')}"`);
-      expect(!(await tab.eval(`document.querySelector(${JSON.stringify(sw)}).checked`)), 'a refused switch stayed on');
-      expect((await call('admin', 'PATCH', '/api/settings', { agents: true })).status === 200, 'could not turn Agents back on');
+      expect(!(await tab.eval(`!!document.querySelector('[data-agent-chat-post]')`)), 'the Post in Chat switch is still on the agent page');
+      expect((await tab.eval(`document.querySelector('#agent-page').textContent`)).includes('What agents may do is set on Roles.'), 'the agent page does not say what agents may do is set on Roles');
     }
     // Revoke.
     await press(tab, '[data-agent="revoke"]');
@@ -430,7 +412,6 @@ async function main() {
       await t.waitFor('[data-agent="make"]');
       await sleep(400);
       expect(await wide(t) <= 1, '390: the agent page scrolls sideways');
-      expect(await hit(t, '[data-agent-chat-post]') >= 43.5 || await hit(t, '[data-agent-chat-post]') > 0, '390: the Post in Chat switch has no size');
       for (const sel of ['[data-agent="make"]', '[data-agent="off"]', '[data-agent="delete"]', '[data-agent="rename"]']) expect(await hit(t, sel) >= 43.5, `390: ${sel} is ${await hit(t, sel)} px tall (44 is the least)`);
       await shot(t, 'agent-page-390-dark');
       await t.switchMode('light'); await t.settle();

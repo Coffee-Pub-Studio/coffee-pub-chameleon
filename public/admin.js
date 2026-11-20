@@ -452,6 +452,7 @@ function renderRoles({ permissions, roles }) {
   const rows = ['<thead><tr><th scope="col"><span class="visually-hidden">What they can do</span></th>' + ROLE_COLUMNS.map((role) => `<th scope="col" class="is-center">${escapeHtml(label(role))}</th>`).join('') + '</tr></thead><tbody>'];
   let group = null;
   for (const p of permissions) {
+    if (p.agentOnly) continue; // the Agent column's own rows; the grid draws that column in plan-agent-matrix's step 2
     if (p.group !== group) {
       group = p.group;
       rows.push(`<tr class="sdk-table-group"><th scope="colgroup" colspan="${ROLE_COLUMNS.length + 1}">${escapeHtml(group)}</th></tr>`);
