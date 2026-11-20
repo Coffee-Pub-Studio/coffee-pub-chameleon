@@ -195,7 +195,7 @@ test('the manifest declares both, as writes that name a plan entry', () => {
     assert.ok(!by[n].local && !by[n].askerOnly && by[n].ai !== false, n);
   }
   assert.deepEqual(by.setDone.input, { ref: 'ref:schedule:plan', done: 'boolean' });
-  assert.deepEqual(by.updateEntry.input, { ref: 'ref:schedule:plan', title: 'string?', date: 'date?', start: 'date?', end: 'date?', notes: 'text?' });
+  assert.deepEqual(by.updateEntry.input, { ref: 'ref:schedule:plan', title: 'string?', date: 'date?', start: 'date?', end: 'date?', owners: 'text?', notes: 'text?' });
   assert.ok(['addMilestone', 'addWork', 'addNote'].every((n) => by[n]), 'the adds are still there');
 });
 

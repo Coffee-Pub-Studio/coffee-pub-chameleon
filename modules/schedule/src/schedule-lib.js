@@ -328,6 +328,30 @@ function scAddedBy(ctx, userKey) {
   return (k && k.length <= 200 ? k : '') || (typeof userKey === 'string' ? userKey : '');
 }
 
+// The people keys an `owners` input names: a list (or one text, split at commas) of keys or display names as list_members shows
+// them, ignoring case and spaces. A key wins over a name. Each person once. `people`: [{ key, name }]; `o.space`: the space word.
+// Answers { owners, problem }: a name two people share, or a person who is not here, is refused with one sentence and nothing is guessed.
+function scOwnersFor(value, people, o) {
+  const space = (o && o.space) || 'space';
+  const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : null;
+  if (!list) return { owners: null, problem: 'Name the people as a list, separated by commas.' };
+  const folk = (Array.isArray(people) ? people : []).filter((p) => p && typeof p.key === 'string' && p.key);
+  const owners = [];
+  for (const item of list) {
+    if (typeof item !== 'string') return { owners: null, problem: 'Name the people as a list, separated by commas.' };
+    const name = item.trim();
+    if (!name) continue;
+    const low = name.toLowerCase();
+    let hit = folk.filter((p) => p.key === name);
+    if (!hit.length) hit = folk.filter((p) => p.key.toLowerCase() === low);
+    if (!hit.length) hit = folk.filter((p) => typeof p.name === 'string' && p.name.trim().toLowerCase() === low);
+    if (hit.length > 1) return { owners: null, problem: `Two people are called ${name}; use the key.` };
+    if (!hit.length) return { owners: null, problem: `That person is not in this ${space}. Use list_members to see who is.` };
+    if (!owners.includes(hit[0].key)) owners.push(hit[0].key);
+  }
+  return { owners, problem: '' };
+}
+
 // --- the actions on an entry that is there (setDone, updateEntry) ------------------------------------------------------------------
 // Each answers { entry, problem }: the entry as it would be saved (from the one stored, `e`, as scClean made it), or the one plain
 // sentence it is refused with. Nothing is saved here. They check what the editor and the done tick check (scProblem and the
@@ -354,9 +378,16 @@ function scUpdate(e, input, o) {
   const no = (problem) => ({ entry: null, problem });
   if (!e) return no('That is not there.');
   const given = (k) => i[k] !== undefined && i[k] !== null;
-  const fields = ['title', 'date', 'start', 'end', 'notes'].filter(given);
+  const fields = ['title', 'date', 'start', 'end', 'notes', 'owners'].filter(given);
   if (!fields.length) return no('Say what to change: a title, a day, notes.');
   for (const k of ['title', 'date', 'start', 'end', 'notes']) if (given(k) && typeof i[k] !== 'string') return no(`The ${k} must be text.`);
+  let owners = null;
+  if (given('owners')) {
+    if (e.kind !== 'work') return no(`Only ${label('work')} says who is doing it.`);
+    const r = scOwnersFor(i.owners, o && o.people, o);
+    if (r.problem) return no(r.problem);
+    owners = r.owners;
+  }
   if (e.kind === 'note' && fields.some((k) => ['date', 'start', 'end'].includes(k))) return no(`A ${label('note')} has no day.`);
   if (e.kind === 'milestone' && (given('start') || given('end'))) return no(`The ${label('milestone')} has a day, not a start and an end.`);
   if (e.kind === 'work' && given('date')) return no(`The ${label('work')} has a start and an end, not a day.`);
@@ -372,6 +403,7 @@ function scUpdate(e, input, o) {
     if ([...notes].length > SC_NOTES_MAX) return no(`The notes are at most ${SC_NOTES_MAX} characters.`);
     if (notes) raw.notes = notes; else delete raw.notes;
   }
+  if (owners) { if (owners.length) raw.owners = owners; else delete raw.owners; }
   const first = e.kind === 'milestone' ? 'date' : 'start';
   const days = { start: e.start || '', end: e.end || '' };
   if (given(first)) days.start = i[first].trim();

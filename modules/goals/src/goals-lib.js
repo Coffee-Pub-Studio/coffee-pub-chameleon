@@ -268,5 +268,30 @@ const GoalsLib = (() => {
     return out;
   }
 
-  return { KINDS, goalFor, phaseFor, fromObject, cleanLinks, readEntry, compare, treeOf, goalState, goalPatch, entryPatch, isOwnRef, childIndex, outlineEntries, moveProblem, valueOf, stored };
+  // The people keys an `owners` input names: a list (or one text, split at commas) of keys or display names as list_members shows
+  // them, ignoring case and spaces. A key wins over a name. Each person once. `people`: [{ key, name }]; `space`: the space word.
+  // Answers { owners, problem }: a name two people share, or a person who is not here, is refused with one sentence and nothing is guessed.
+  function ownersFor(value, people, space) {
+    const where = space || 'space';
+    const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : null;
+    const bad = { owners: null, problem: 'Name the people as a list, separated by commas.' };
+    if (!list) return bad;
+    const folk = (Array.isArray(people) ? people : []).filter((p) => p && typeof p.key === 'string' && p.key);
+    const owners = [];
+    for (const item of list) {
+      if (typeof item !== 'string') return bad;
+      const name = item.trim();
+      if (!name) continue;
+      const low = name.toLowerCase();
+      let hit = folk.filter((p) => p.key === name);
+      if (!hit.length) hit = folk.filter((p) => p.key.toLowerCase() === low);
+      if (!hit.length) hit = folk.filter((p) => typeof p.name === 'string' && p.name.trim().toLowerCase() === low);
+      if (hit.length > 1) return { owners: null, problem: `Two people are called ${name}; use the key.` };
+      if (!hit.length) return { owners: null, problem: `That person is not in this ${where}. Use list_members to see who is.` };
+      if (!owners.includes(hit[0].key)) owners.push(hit[0].key);
+    }
+    return { owners: owners.slice(0, MAX_OWNERS), problem: '' };
+  }
+
+  return { KINDS, ownersFor, goalFor, phaseFor, fromObject, cleanLinks, readEntry, compare, treeOf, goalState, goalPatch, entryPatch, isOwnRef, childIndex, outlineEntries, moveProblem, valueOf, stored };
 })();

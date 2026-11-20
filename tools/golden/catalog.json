@@ -69,7 +69,7 @@
     "module": "schedule",
     "action": "updateEntry",
     "label": "Change it on the plan",
-    "description": "Change a plan entry's title, day, start, end or notes; only the fields given change.",
+    "description": "Change a plan entry's title, day, start, end, who is doing it or notes; only the fields given change.",
     "effect": "write",
     "input": {
       "ref": "ref:schedule:plan",
@@ -77,6 +77,7 @@
       "date": "date?",
       "start": "date?",
       "end": "date?",
+      "owners": "text?",
       "notes": "text?"
     },
     "schema": {
@@ -119,6 +120,14 @@
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "description": "A date, YYYY-MM-DD."
         },
+        "owners": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
         "notes": {
           "type": [
             "string",
@@ -134,6 +143,7 @@
         "date",
         "start",
         "end",
+        "owners",
         "notes"
       ],
       "additionalProperties": false
