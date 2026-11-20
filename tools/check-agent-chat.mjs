@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /*
- * check-agent-chat.mjs -- an agent in Chat (documentation/plans/plan-agent-access.md, step 5: decisions 13 and 17 to 19),
- * against real servers on throwaway DATA_DIRs:
- *   - Post in Chat (`chatPost` on the agent's record) is off for a new agent: a post is 403 "This agent can't post in
- *     Chat."; the owner turns it on and off (PATCH /api/users/:key { chatPost }); a member can't; a person can't have it
- *     (400 "Only an agent can have that."); turning it on needs AGENT_TOKENS and Agents, turning it off never does;
- *     GET /api/agent/me and the user answer carry it;
+ * check-agent-chat.mjs -- an agent in Chat (documentation/plans/plan-agent-access.md, step 5: decisions 13 and 17 to 19, as
+ * changed by plan-agent-matrix.md), against real servers on throwaway DATA_DIRs:
+ *   - Send chat messages (`chat` in the Roles grid's Agent column, settings.roles.agent) is off for a new environment: a
+ *     post is 403 "An agent can't do that." from the gate; an owner ticks it (PATCH /api/roles/agent { chat }), a member
+ *     and the agent can't; GET /api/agent/me's `permissions` says so; `chatPost` is gone: sent to PATCH /api/users it does
+ *     nothing, and one in app.json is dropped;
  *   - a post lands as an ordinary public message with `agent: true`, set from the account and never from the name or the
  *     request: an agent renamed like a person is still labelled, a person named like the agent (or sending `agent: true`)
  *     is not, and a hand-made chat.json can't label a person's message; the live stream carries the flag;
@@ -13,11 +13,12 @@
  *   - a post is a write in the agent's budget (20 a minute), and a read reply a read;
  *   - the log: a post's line keeps its message id, a read's how many messages it carried, never any text;
  *   - reading: public messages only (a private one never), newest first, 100 a reply, older ones by `before`; works with
- *     Post in Chat off; a space it is not in (and the Lobby) is 404; without `chatRead` 403, without `chat` a post is 403;
+ *     Send chat messages off; a space it is not in (and the Lobby) is 404; without the Agent column's `chatRead` a read is
+ *     403, without its `chat` a post is 403, and the member column no longer changes either;
  *   - no live stream, no deleting, hiding, pictures, Keep, previews or private messages: 403;
- *   - Post in Chat off stops posting only: its action requests still go;
- *   - hosted: a token of acme can't post at beta (401); an owner's copy keeps `chatPost` on the agent, a restore keeps
- *     it, and a person given `chatPost` in a hand-made copy does not keep it.
+ *   - Send chat messages off stops posting only: its action requests still go;
+ *   - hosted: a token of acme can't post at beta (401); an owner's copy carries no `chatPost` and keeps the Agent column
+ *     (settings.roles.agent), a restore keeps it, and a `chatPost` in a hand-made copy is dropped.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -35,7 +36,6 @@ const { buildModule, zipFiles } = require(path.join(ROOT, 'server', 'module-buil
 const { readZip } = require(path.join(ROOT, 'server', 'modules.js'));
 
 const CANT = "An agent can't do that.";
-const CANT_POST = "This agent can't post in Chat.";
 const OVER = 'The agent has done as much as it may for now.';
 const INVALID = 'That agent token is not valid.';
 
@@ -170,49 +170,42 @@ try {
   const miaC = await signIn(server, 'mia', 'mia-password-1');
   const claudeC = await signIn(server, 'claude', 'claude-password-1');
   const chat = (id = S1) => `/api/spaces/${id}/chat`;
-  // Another agent in Camp, Post in Chat on, with its own token.
+  // Another agent in Camp, with its own token (Send chat messages is the Agent column's, the same for every agent).
   const poster = async (name) => {
     const w = (await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true, displayName: name } })).json.user;
     const sp = (await call(server, 'GET', `/api/spaces/${S1}`, { cookie: admin })).json.space;
     ok(await call(server, 'PATCH', `/api/spaces/${S1}`, { cookie: admin, body: { members: [...sp.members, w.key] } }), `${name} joins`);
-    ok(await call(server, 'PATCH', `/api/users/${w.key}`, { cookie: admin, body: { chatPost: true } }), `${name} may post`);
     return { key: w.key, token: (await call(server, 'POST', `/api/users/${w.key}/token`, { cookie: admin })).json.token };
   };
+  const agentColumn = (body, cookie = admin) => call(server, 'PATCH', '/api/roles/agent', { cookie, body });
 
-  await test('Post in Chat is off for a new agent: a post is 403, reading works', async () => {
-    assert.equal(agent.chatPost, false, 'the user answer');
+  await test('Send chat messages is off for a new environment\'s agents: a post is 403, reading works', async () => {
+    assert.ok(!('chatPost' in agent), 'the user answer has no chatPost');
     const me = await call(server, 'GET', '/api/agent/me', A);
     ok(me, 'me');
-    assert.equal(me.json.chatPost, false);
-    const stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8')).users.find((u) => u.key === agent.key);
-    assert.ok(!('chatPost' in stored), 'nothing stored while off');
-    refused(await call(server, 'POST', chat(), { ...A, body: { text: 'Hello' } }), 403, CANT_POST, 'a post');
+    assert.ok(!('chatPost' in me.json), 'me has no chatPost');
+    assert.deepEqual(me.json.permissions, ['agentMembers', 'chatRead'], 'me says it may read Chat and see members, not post');
+    refused(await call(server, 'POST', chat(), { ...A, body: { text: 'Hello' } }), 403, CANT, 'a post');
     const read = await call(server, 'GET', chat(), A);
-    ok(read, 'a read with Post in Chat off');
+    ok(read, 'a read with Send chat messages off');
     assert.deepEqual(read.json, { messages: [], more: false });
   });
 
-  await test('only an owner turns it on and off; a person can\'t have it', async () => {
-    refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: miaC, body: { chatPost: true } }), 403, null, 'a member');
-    refused(await call(server, 'PATCH', `/api/users/${mia.key}`, { cookie: admin, body: { chatPost: true } }), 400, 'Only an agent can have that.', 'a person');
-    refused(await call(server, 'PATCH', `/api/users/${mia.key}`, { cookie: admin, body: { chatPost: false } }), 400, 'Only an agent can have that.', 'a person, off');
-    refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { chatPost: 'yes' } }), 400, 'chatPost is true or false', 'not a boolean');
-    refused(await call(server, 'PATCH', `/api/users/${agent.key}`, { ...A, body: { chatPost: true } }), 403, CANT, 'the agent itself');
-    refused(await call(server, 'PATCH', '/api/users/nobody99', { cookie: admin, body: { chatPost: true } }), 404, 'no such user', 'no such account');
-    assert.ok(!('chatPost' in (await call(server, 'GET', `/api/users/${mia.key}`, { cookie: admin })).json.user), 'a person\'s answer has no chatPost');
-    // Agents off: it can't be turned on, and can always be turned off.
-    ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: false } }), 'Agents off');
-    const offHere = await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { chatPost: true } });
-    assert.equal(offHere.status, 403);
-    assert.match(offHere.json.error, /^Agents are off in this .+\. Turn on Agents in Manage first\.$/);
-    ok(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { chatPost: false } }), 'off always goes');
-    ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: true } }), 'Agents on');
-    const on = await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { chatPost: true } });
-    ok(on, 'on');
-    assert.equal(on.json.user.chatPost, true);
-    assert.equal((await call(server, 'GET', '/api/agent/me', A)).json.chatPost, true, 'me says so');
-    const stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8')).users.find((u) => u.key === agent.key);
-    assert.equal(stored.chatPost, true, 'stored on the agent');
+  await test('only an owner ticks Send chat messages for agents; chatPost does nothing', async () => {
+    refused(await agentColumn({ chat: true }, miaC), 403, null, 'a member');
+    refused(await call(server, 'PATCH', '/api/roles/agent', { ...A, body: { chat: true } }), 403, CANT, 'the agent itself');
+    ok(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { chatPost: true } }), 'chatPost sent to an agent');
+    ok(await call(server, 'PATCH', `/api/users/${mia.key}`, { cookie: admin, body: { chatPost: true } }), 'chatPost sent to a person');
+    let stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8'));
+    assert.ok(stored.users.every((u) => !('chatPost' in u)), 'nothing stored');
+    assert.ok(!('chatPost' in (await call(server, 'GET', `/api/users/${agent.key}`, { cookie: admin })).json.user), 'no chatPost in the answer');
+    refused(await call(server, 'POST', chat(), { ...A, body: { text: 'Hello' } }), 403, CANT, 'still no post');
+    const on = await agentColumn({ chat: true });
+    ok(on, 'ticked');
+    assert.equal(on.json.roles.agent.chat, true);
+    assert.deepEqual((await call(server, 'GET', '/api/agent/me', A)).json.permissions, ['agentMembers', 'chatRead', 'chat'], 'me says so');
+    stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8'));
+    assert.equal(stored.settings.roles.agent.chat, true, 'stored in the agent column');
   });
 
   let posted = null;
@@ -305,12 +298,13 @@ try {
     assert.ok(!(await call(server, 'GET', chat(), { cookie: miaC })).json.messages.some((m) => m.text === 'one too many'), 'not posted');
   });
 
-  await test('Post in Chat off stops posting only: action requests still go', async () => {
-    ok(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { chatPost: false } }), 'off');
-    refused(await call(server, 'POST', chat(), { ...A, body: { text: 'no' } }), 403, CANT_POST, 'a post');
+  await test('Send chat messages off stops posting only: action requests still go', async () => {
+    ok(await agentColumn({ chat: false }), 'off');
+    refused(await call(server, 'POST', chat(), { ...A, body: { text: 'no' } }), 403, CANT, 'a post');
     ok(await call(server, 'POST', `/api/spaces/${S1}/action`, { ...A, body: { action: 'todo:createTask', input: { title: 'Still works' } } }), 'an action');
+    ok(await call(server, 'GET', `/api/spaces/${S1}/actions`, A), 'the actions list');
     ok(await call(server, 'GET', chat(), A), 'a read');
-    ok(await call(server, 'PATCH', `/api/users/${agent.key}`, { cookie: admin, body: { chatPost: true } }), 'on again');
+    ok(await agentColumn({ chat: true }), 'on again');
   });
 
   await test('a space it is not in, the Lobby and an unknown one are 404, for reading and posting', async () => {
@@ -348,13 +342,20 @@ try {
     assert.ok(!(await call(server, 'GET', chat(), { cookie: miaC })).json.messages.some((m) => m.text === 'hello' || m.text === 'text=hello'), 'nothing posted');
   });
 
-  await test('without chatRead a read is 403; without chat a post is 403', async () => {
-    ok(await call(server, 'PATCH', '/api/roles/member', { cookie: admin, body: { chat: false } }), 'members lose chat');
-    refused(await call(server, 'POST', chat(), { ...A, body: { text: 'hi' } }), 403, 'your role cannot do that', 'a post');
+  await test('the member column no longer changes an agent; without the agent column\'s chatRead a read is 403, without chat a post', async () => {
+    ok(await call(server, 'PATCH', '/api/roles/member', { cookie: admin, body: { chat: false, chatRead: false } }), 'members lose chat and chatRead');
+    ok(await call(server, 'GET', chat(), A), 'the agent still reads');
+    ok(await call(server, 'POST', chat(), { ...A, body: { text: 'still here' } }), 'and posts');
+    refused(await call(server, 'POST', chat(), { cookie: miaC, body: { text: 'hi' } }), 403, 'your role cannot do that', 'a member\'s post');
+    ok(await call(server, 'PATCH', '/api/roles/member', { cookie: admin, body: { chat: true, chatRead: true } }), 'members back');
+    ok(await agentColumn({ chat: false }), 'agents lose chat');
+    refused(await call(server, 'POST', chat(), { ...A, body: { text: 'hi' } }), 403, CANT, 'a post');
     ok(await call(server, 'GET', chat(), A), 'reading still goes');
-    ok(await call(server, 'PATCH', '/api/roles/member', { cookie: admin, body: { chatRead: false } }), 'members lose chatRead');
-    refused(await call(server, 'GET', chat(), A), 403, 'your role cannot do that', 'a read');
-    ok(await call(server, 'PATCH', '/api/roles/member', { cookie: admin, body: { chat: true, chatRead: true } }), 'back');
+    ok(await agentColumn({ chatRead: false }), 'agents lose chatRead');
+    refused(await call(server, 'GET', chat(), A), 403, CANT, 'a read');
+    ok(await call(server, 'GET', `/api/spaces/${S1}/actions`, A), 'the actions list still goes');
+    assert.deepEqual((await call(server, 'GET', '/api/agent/me', A)).json.permissions, ['agentMembers'], 'me says so');
+    ok(await agentColumn({ chat: true, chatRead: true }), 'back');
     ok(await call(server, 'GET', chat(), A), 'a read again');
   });
 
@@ -420,17 +421,20 @@ try {
     assert.equal(theirs.find((m) => m.id === guestForged)?.agent, undefined, 'nor in the agent\'s read');
   });
 
-  await test('chatPost survives a restart; a person given chatPost in app.json does not keep it', async () => {
-    assert.equal((await call(server, 'GET', '/api/agent/me', A)).json.chatPost, true);
+  await test('the agent column survives a restart; a chatPost in app.json is dropped', async () => {
+    assert.ok((await call(server, 'GET', '/api/agent/me', A)).json.permissions.includes('chat'));
     await server.stop();
     const file = path.join(single, 'app.json');
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     data.users.find((u) => u.key === mia.key).chatPost = true;
+    data.users.find((u) => u.key === agent.key).chatPost = false;
     fs.writeFileSync(file, JSON.stringify(data));
     server = await startServer(single, onEnv);
     admin = await signIn(server, 'admin', 'admin-password-1');
     assert.ok(!('chatPost' in (await call(server, 'GET', `/api/users/${mia.key}`, { cookie: admin })).json.user), 'not on a person');
-    assert.equal((await call(server, 'GET', `/api/users/${agent.key}`, { cookie: admin })).json.user.chatPost, true, 'kept on the agent');
+    assert.ok(!('chatPost' in (await call(server, 'GET', `/api/users/${agent.key}`, { cookie: admin })).json.user), 'not on the agent');
+    assert.ok((await call(server, 'GET', '/api/agent/me', A)).json.permissions.includes('chat'), 'the column is kept');
+    ok(await call(server, 'POST', chat(), { ...A, body: { text: 'after the restart' } }), 'it posts');
   });
   await server.stop();
 
@@ -448,7 +452,9 @@ try {
   await test('hosted: a token of acme can\'t read or post at beta', async () => {
     for (const [slug, cookie] of [['acme', acme], ['beta', beta]]) ok(await call(server, 'PATCH', '/api/settings', { host: slug, cookie, body: { agents: true } }), `${slug} Agents on`);
     hostedAgent = (await call(server, 'POST', '/api/users', { host: 'acme', cookie: acme, body: { agent: true } })).json.user;
-    ok(await call(server, 'PATCH', `/api/users/${hostedAgent.key}`, { host: 'acme', cookie: acme, body: { chatPost: true } }), 'Post in Chat on');
+    ok(await call(server, 'PATCH', '/api/roles/agent', { host: 'acme', cookie: acme, body: { chat: true } }), 'Send chat messages on at acme');
+    const betaRoles = (await call(server, 'GET', '/api/roles', { host: 'beta', cookie: beta })).json.roles;
+    assert.equal(betaRoles.agent.chat, false, 'not at beta');
     const space = (await call(server, 'POST', '/api/spaces', { host: 'acme', cookie: acme, body: { name: 'Plans', members: [hostedAgent.key] } })).json.space.id;
     const betaSpace = (await call(server, 'POST', '/api/spaces', { host: 'beta', cookie: beta, body: { name: 'Plans' } })).json.space.id;
     const t = (await call(server, 'POST', `/api/users/${hostedAgent.key}/token`, { host: 'acme', cookie: acme })).json.token;
@@ -461,14 +467,16 @@ try {
     }
     assert.ok(!(await call(server, 'GET', chat(betaSpace), { host: 'beta', cookie: beta })).json.messages.length, 'beta\'s chat is empty');
   });
-  await test('an owner\'s copy keeps chatPost on the agent; a restore keeps it, and drops it from a person', async () => {
+  await test('an owner\'s copy has no chatPost and keeps the agent column; a restore keeps it, and drops a hand-made chatPost', async () => {
     const zipped = await call(server, 'GET', '/api/environment/export', { host: 'acme', cookie: acme });
     ok(zipped, 'the copy');
     const files = await readZip(zipped.buf);
     const app = JSON.parse(files.get('app.json').toString('utf8'));
-    assert.equal(app.users.find((u) => u.key === hostedAgent.key).chatPost, true, 'in the copy');
+    assert.ok(app.users.every((u) => !('chatPost' in u)), 'no chatPost in the copy');
+    assert.equal(app.settings.roles.agent.chat, true, 'the agent column in the copy');
     const owner = app.users.find((u) => u.login === 'owner');
-    owner.chatPost = true; // a hand-made copy gives a person the switch
+    owner.chatPost = true; // a hand-made copy gives a person the old field
+    app.users.find((u) => u.key === hostedAgent.key).chatPost = true;
     // An owner's copy carries no password; this one is given the owner's back, so the owner can sign in after the restore.
     owner.passwordHash = JSON.parse(fs.readFileSync(path.join(hosted, 'environments', 'acme', 'app.json'), 'utf8')).users.find((u) => u.login === 'owner').passwordHash;
     files.set('app.json', Buffer.from(JSON.stringify(app)));
@@ -476,8 +484,9 @@ try {
     ok(restored, 'the restore');
     const again = await signIn(server, 'owner', 'owner-password-1', 'acme');
     const users = (await call(server, 'GET', '/api/users', { host: 'acme', cookie: again })).json.users;
-    assert.equal(users.find((u) => u.key === hostedAgent.key).chatPost, true, 'kept on the agent');
+    assert.ok(!('chatPost' in users.find((u) => u.key === hostedAgent.key)), 'not on the agent');
     assert.ok(!('chatPost' in users.find((u) => u.login === 'owner')), 'not on a person');
+    assert.equal((await call(server, 'GET', '/api/roles', { host: 'acme', cookie: again })).json.roles.agent.chat, true, 'the agent column kept');
   });
   await server.stop();
 

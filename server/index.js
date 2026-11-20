@@ -82,6 +82,7 @@ const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView, LIFETIMES, DEFAULT_LIFETIME: DEFAULT_TOKEN_LIFETIME } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
+const { AGENT_ROUTES, agentMayAsk } = require('./agent-routes');
 const { createMcp } = require('./mcp');
 const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
@@ -767,6 +768,8 @@ function environmentFor(slug) {
   env.store.moduleIconIds = () => [...installedIcons(), ...BUILTIN_MODULES.map((b) => b.icon)];
   // With no call service nobody has the conference, whatever the roles say (store.roleSet).
   env.store.callService = HAS_CALL_SERVICE;
+  // The Roles grid's Agent column is shown, and can be ticked, only while the server has agents (AGENT_TOKENS).
+  env.store.agentColumn = agentTokensOn;
   // Whether a system layout (calendar, map, conference, whiteboard, documents) is on in a space, whoever asks: its destination
   // resolves there (module on in the space, map file present); the conference while the server has a call service and the
   // environment's switch is on; Whiteboards and Documents while their module is on in the space. A space's defaultLayout
@@ -1820,8 +1823,7 @@ function publicUser(req, u, opts = {}) {
     hasPassword: !!u.passwordHash,
     ...(u.demo ? { demo: true } : {}), // a demo person, made by a demo load (server/demo-loader.js)
     // An agent account (plan-agent-access.md): the pages add "(agent)" after its name; `off` while its owner turned it off.
-    // `chatPost`: its owner's Post in Chat (step 5), false for a new agent.
-    ...(u.agent ? { agent: true, off: u.off === true, chatPost: u.chatPost === true } : {}),
+    ...(u.agent ? { agent: true, off: u.off === true } : {}),
     mfaEnrolled: Boolean(u.mfa), // the only mfa field a person other than the account itself ever sees
     // The personal link only for those maySeeLink allows; left out entirely for anyone else.
     ...(maySeeLink(req, u, opts) ? { link: u.linkToken ? `${baseUrl(req)}/j/${u.linkToken}` : null } : {}),
@@ -3609,9 +3611,6 @@ const AGENT_TOKEN_INVALID = 'That agent token is not valid.';
 const AGENT_CANT = "An agent can't do that.";
 const AGENT_CANT_ASK = "An agent can't ask for that.";
 const AGENT_OVER = 'The agent has done as much as it may for now.';
-// What an agent may ask a module for through the action route (decision 5): a `write`, never local, asker-only,
-// destructive, without an effect, or kept from AI (`ai: false`). The actions list shows an agent only these.
-const agentMayAsk = (def) => Boolean(def) && !def.local && !def.askerOnly && def.effect === 'write' && def.ai !== false;
 // The spaces an agent works in: those it is a member of and may enter (a space closed for set up is not one); never by an
 // owner's rights, which it never has. Never the Lobby: the Lobby holds every account and nobody is added to it, so an
 // agent is in it only by being an account, never by an owner's choice.
@@ -3658,31 +3657,12 @@ const agentLogSpace = {
   spaceScope: (req) => req.query.space,
   linkRef: (req) => { try { return JSON.parse(String(req.query.ref || '')).space; } catch { return null; } },
 };
-// The gate's list: method, route (as the app registers it), what it counts as, and its check.
-// Not on it: GET /api/spaces/:id, Set up's read, which answers a member "owners only" whatever it is asked; and every
-// other chat route (the live stream, deleting, hiding or changing a message, pictures, Keep, link previews, private
-// messages, commands and /ai). Chat (step 5): reading public messages, a bounded page (agentReadsChat), and posting
-// plain text while the owner's Post in Chat is on (agentChatText); a post is a write, a reply a read.
-const AGENT_ROUTES = [
-  ['get', '/api/agent/me', 'read', 'none'],
-  ['get', '/api/modules/:id/context', 'read', 'spaceScope'],
-  ['get', '/api/modules/:id/data', 'read', 'spaceScope'],
-  ['get', '/api/modules/:id/data/:key', 'read', 'spaceScope'],
-  ['get', '/api/objects/search', 'read', 'spaceScope'],
-  ['get', '/api/objects/links', 'read', 'linkRef'],
-  ['get', '/api/objects/kinds', 'read', 'none'],
-  ['post', '/api/objects/resolve', 'read', 'resolveRefs'],
-  ['get', '/api/spaces/:id/members', 'read', 'spaceParam'],
-  ['get', '/api/spaces/:id/actions', 'read', 'spaceParam'],
-  ['post', '/api/spaces/:id/action', 'write', 'spaceParam'],
-  ['get', '/api/spaces/:id/action/:requestId', 'read', 'spaceParam'],
-  ['get', '/api/spaces/:id/chat', 'read', 'spaceParam'],
-  ['post', '/api/spaces/:id/chat', 'write', 'spaceParam'],
-  // The MCP door (server/mcp.js): a tool call is let on uncounted and comes back through this gate as the route it wraps,
-  // counted and logged as that route; every other message on it is a read (kind 'mcp', below). GET is its 405.
-  ['post', '/mcp', 'mcp', 'none'],
-  ['get', '/mcp', 'read', 'none'],
-];
+// The gate's list is server/agent-routes.js (AGENT_ROUTES): every route an agent may reach, with what it counts as, its
+// place check and the permission it `needs` (documentation/plans/plan-agent-matrix.md). A key it needs must be ticked in
+// the Roles grid's Agent column (store.roleSet('agent')); `module` is left to the route's own check, which reads that
+// column; `always` passes. The MCP door (server/mcp.js): a tool call on POST /mcp is let on uncounted and comes back
+// through this gate as the route it wraps, counted, logged and needing what that route needs; every other message on it is
+// a read (counts 'mcp', below). GET /mcp is its 405.
 const mcp = createMcp({
   app,
   enabled: agentTokensOn,
@@ -3693,14 +3673,18 @@ const mcp = createMcp({
 // The list matched by Express's own router, so a path reads exactly as the app's routes read it (any case, a trailing
 // slash, the same parameters): each match notes its rule and leaves the router at once.
 const agentRoutes = express.Router();
-for (const [method, pattern, kind, at] of AGENT_ROUTES) {
+for (const { kind: who, method, path: pattern, counts: kind, place: at, needs } of AGENT_ROUTES) {
+  if (who !== 'agent') continue;
   agentRoutes[method](pattern, (req, _res, next) => {
     const agent = req.agent.user;
     const named = agentLogSpace[at] ? agentLogSpace[at](req) : null;
-    req.agent.rule = { pattern, kind, refusal: agentAt[at](req, agent), space: typeof named === 'string' && agentSpaceOf(agent, named) ? named : null };
+    req.agent.rule = { pattern, kind, needs, refusal: agentAt[at](req, agent), space: typeof named === 'string' && agentSpaceOf(agent, named) ? named : null };
     next('router');
   });
 }
+// Whether what a route on the list needs holds for the agent: a key ticked in the Agent column; `module` and `always` pass
+// here (a module's own permission is the route's to check, against the same column).
+const agentNeedHolds = (needs) => needs === 'always' || needs === 'module' || Boolean(store.roleSet('agent')[needs]);
 // The agent's token from the Authorization header, or null when the request carries none (then this is not the gate's).
 function agentBearer(req) {
   const header = req.get('authorization') || '';
@@ -3721,7 +3705,7 @@ const registeredPaths = (router, out = []) => {
   }
   return out;
 };
-const AGENT_GATE_PATTERNS = AGENT_ROUTES.map((r) => r[1]);
+const AGENT_GATE_PATTERNS = [...new Set(AGENT_ROUTES.map((r) => r.path))];
 let agentLogRouteFailed = false;
 function agentLogRoute(req, res, env) {
   // Runs inside a response's finish/close handler, where a throw would end the process: whatever goes wrong, the line is
@@ -3802,6 +3786,7 @@ function agentGate(req, res, next) {
     if (req.bodyError) return next(req.bodyError); // a body that could not be read: counted and logged, then answered as before
     if (!rule) return res.status(403).json({ error: AGENT_CANT });
     if (rule.refusal) return res.status(rule.refusal.status).json({ error: rule.refusal.error });
+    if (!agentNeedHolds(rule.needs)) return res.status(403).json({ error: AGENT_CANT });
     return next();
   });
 }
@@ -5580,16 +5565,6 @@ app.patch('/api/users/:key', requireOwner, (req, res) => {
     if (target && !target.agent) return res.status(400).json({ error: 'Only an agent can be turned off.' });
     if (typeof off !== 'boolean') return res.status(400).json({ error: 'off is true or false' });
   }
-  // `chatPost` is an agent's Post in Chat (plan-agent-access.md, decisions 13, 17, 18): a person never has it. Turning it
-  // on needs AGENT_TOKENS and the Agents switch, as making a token does; turning it off always goes through.
-  const { chatPost } = req.body || {};
-  if (chatPost !== undefined) {
-    const target = store.userByKey(req.params.key);
-    if (target && !target.agent) return res.status(400).json({ error: 'Only an agent can have that.' });
-    if (typeof chatPost !== 'boolean') return res.status(400).json({ error: 'chatPost is true or false' });
-    const refused = chatPost ? agentsRefusal() : null;
-    if (refused) return res.status(403).json({ error: refused });
-  }
   if (password !== undefined && store.userByKey(req.params.key)?.hostAdmin) {
     throw new StoreError('this account signs in through the host console; its password cannot be changed here');
   }
@@ -5605,7 +5580,6 @@ app.patch('/api/users/:key', requireOwner, (req, res) => {
   }
   let user = store.updateUser(req.params.key, patch);
   if (off !== undefined) user = store.setAgentOff(req.params.key, off);
-  if (chatPost !== undefined) user = store.setAgentChatPost(req.params.key, chatPost);
   if (off === true) endAgentAsks(); // what it asked for and no page carried out yet is dropped
   liveAccessChanged(); // a role changed, or a new password signed them out everywhere: their streams ask again now
   res.json({ user: publicUser(req, user) });
@@ -5701,15 +5675,18 @@ app.get('/api/users/:key/agent-log', requireOwner, (req, res) => {
   }
   res.set('Cache-Control', 'no-store').json(currentEnvironment().agentLog.entriesOf(agent.key, { before }));
 });
-// The agent's own view of itself, through its token only: who it is, when its token ends, its spaces, and its limits
-// with what it has used today.
+// The agent's own view of itself, through its token only: who it is, when its token ends, its spaces, its limits with what
+// it has used today, and `permissions`: the keys ticked in the Agent column that a route on the gate's list needs (so a
+// client can tell what it may call; a module's own rows are not here, the actions list's `may` says those).
+const AGENT_ROUTE_KEYS = [...new Set(AGENT_ROUTES.filter((r) => r.kind === 'agent' && r.needs !== 'module' && r.needs !== 'always').map((r) => r.needs))];
+const agentPermissions = () => { const set = store.roleSet('agent'); return AGENT_ROUTE_KEYS.filter((k) => set[k]); };
 app.get('/api/agent/me', (req, res) => {
   if (!req.agent) return currentUser(req) ? res.status(403).json({ error: "This is for an agent's token only." }) : res.status(401).json({ error: 'sign in first' });
   const agent = req.agent.user;
   const used = currentEnvironment().agentLog.usedToday(agent.key);
   res.json({
     agent: { key: agent.key, name: agent.displayName },
-    chatPost: agent.chatPost === true, // its owner's Post in Chat (plan-agent-access.md, decision 17: off for a new agent)
+    permissions: agentPermissions(),
     expiresAt: req.agent.token.expiresAt,
     spaces: agentSpaces(agent).map((r) => ({ id: r.id, name: r.name })),
     limits: {
@@ -7453,14 +7430,11 @@ function chatPostLimited(key) {
   return false;
 }
 
-// An agent's post (plan-agent-access.md, "Chat posting"): the gate has checked the space is one of its own and counted
-// the call as a write; `chat` is the member role's, as for anyone. Only while its owner's Post in Chat is on (off for a
-// new agent). { text } only, plain text, cleaned as a person's message is, and refused rather than cut when it is
-// longer than a person may send. Answers null after refusing, else the cleaned text.
-const AGENT_CANT_POST = "This agent can't post in Chat.";
+// An agent's post (plan-agent-access.md, "Chat posting"): the gate has checked the space is one of its own, that the
+// Agent column has Send chat messages (`chat`) ticked, and counted the call as a write; the chat's own check asks the same
+// column. { text } only, plain text, cleaned as a person's message is, and refused rather than cut when it is longer than
+// a person may send. Answers null after refusing, else the cleaned text.
 function agentChatText(req, res) {
-  const agent = store.userByKey(req.agent.user.key);
-  if (!agent || agent.chatPost !== true) return void res.status(403).json({ error: AGENT_CANT_POST });
   const body = req.body;
   // No JSON body: none sent, or another type (a form, say), which nothing here parses.
   if (body === undefined || !req.is('application/json')) return void res.status(400).json({ error: 'An agent sends { text } as JSON.' });
@@ -8130,8 +8104,10 @@ app.post('/api/spaces/:id/command', (req, res) => {
 });
 
 // Actions placed modules offer in this space, so Chat can Keep and route without naming a module.
+// For an agent the list asks no chat permission, only each module's own read (plan-agent-matrix.md, decision 9), so the
+// Agent column's Send chat messages and read Chat rows stop posting and reading only; a person still needs chatRead.
 app.get('/api/spaces/:id/actions', (req, res) => {
-  const found = chatSpaceFor(req, res, 'chatRead');
+  const found = chatSpaceFor(req, res, req.agent ? null : 'chatRead');
   if (!found) return;
   const who = found.who;
   const space = found.space;
@@ -8177,8 +8153,10 @@ app.get('/api/spaces/:id/actions', (req, res) => {
   res.json({ actions });
 });
 
+// For an agent the route asks no chat permission, only the module's own read and write (plan-agent-matrix.md, decision 9);
+// a person still needs chat.
 app.post('/api/spaces/:id/action', (req, res) => {
-  const found = chatSpaceFor(req, res, 'chat');
+  const found = chatSpaceFor(req, res, req.agent ? null : 'chat');
   if (!found) return;
   const [providerId, name] = String(req.body?.action || '').split(':');
   if (!providerId || !name) return res.status(400).json({ error: `that ${word('module')} does not offer that action` });
@@ -8251,8 +8229,10 @@ app.post('/api/spaces/:id/action', (req, res) => {
 // characters, for BUS_LIMITS.resultMs after it finished.
 const ACTION_NOTE_MAX = 300;
 const oneLineNote = (v) => (typeof v === 'string' ? v.replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, ACTION_NOTE_MAX) : '');
+// For an agent no chat permission is asked (plan-agent-matrix.md, decision 9): only its own request, in a module whose read
+// the Agent column still has; a person still needs chatRead.
 app.get('/api/spaces/:id/action/:requestId', (req, res) => {
-  const found = chatSpaceFor(req, res, 'chatRead');
+  const found = chatSpaceFor(req, res, req.agent ? null : 'chatRead');
   if (!found) return;
   const { who, space } = found;
   if (!who.user) return res.status(403).json({ error: `${word('guest', { many: true, cap: true })} can't see how a request went` });
@@ -8262,6 +8242,10 @@ app.get('/api/spaces/:id/action/:requestId', (req, res) => {
   if (!request || request.by !== who.user.key || request.scopeKey !== scopeKeyOf('space', { spaceId: space.id })
     || (request.status === 'done' && now - (request.doneAt || request.at) > BUS_LIMITS.resultMs)) {
     return res.status(404).json({ error: 'no such request' });
+  }
+  if (req.agent) {
+    const provider = modules.enabled(request.provider);
+    if (!provider || !moduleCan(provider.manifest, modulePerms(who, space.id), 'read')) return res.status(404).json({ error: 'no such request' });
   }
   const status = moduleBus.statusOf(request);
   const out = { id: request.id, status };
@@ -13303,7 +13287,10 @@ app.get('/api/modules/:id/events', (req, res) => {
   }));
 });
 
-app.get('/api/roles', requireOwner, (_req, res) => res.json({ permissions: store.allPermissions(), roles: store.roles() }));
+// `columns`: the grid's columns in order (the four, then `agent` while AGENT_TOKENS is on); `never`: for each column that
+// has them, the rows it can never have (a guest's locked ones; every row the Agent column may not tick), which PATCH
+// refuses (plan-agent-matrix.md, decisions 4 and 6). Agent-only rows carry `agentOnly: true`.
+app.get('/api/roles', requireOwner, (_req, res) => res.json({ permissions: store.allPermissions(), roles: store.roles(), columns: store.roleColumns(), never: store.neverRows() }));
 app.patch('/api/roles/:role', requireOwner, (req, res) => {
   const roles = store.setRolePermissions(req.params.role, req.body || {});
   liveAccessChanged(); // a role lost a module's read, say: its streams ask again now

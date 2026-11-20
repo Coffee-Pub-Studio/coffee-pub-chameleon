@@ -26,6 +26,7 @@ const { applyCallPatch, resolveCall } = require('./call-settings');
 const { cleanAgreed, hasAgreed } = require('./agreements');
 const welcomeNoteLib = require('./welcome-note');
 const { endsWithGuestMark, endsWithAgentMark, hasCarriedWords } = require('./guest-door');
+const { AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS } = require('./agent-routes');
 
 // Image slots. Participant: what the video box shows when the camera is
 // off, plus optional overlays drawn on top while they talk, are muted, are
@@ -1065,8 +1066,7 @@ class Store {
       linkToken: !u.hostAdmin && !agent && typeof u.linkToken === 'string' && u.linkToken ? u.linkToken : null,
       mfa: u.hostAdmin || agent ? null : sanitizeMfa(u.mfa),
       // An agent account, and whether its owner turned it off (its token answers 401 while it is); left off for a person.
-      // `chatPost` is its owner's Post in Chat, kept only while on (off for a new agent); never on a person.
-      ...(agent ? { agent: true, ...(u.off === true ? { off: true } : {}), ...(u.chatPost === true ? { chatPost: true } : {}) } : {}),
+      ...(agent ? { agent: true, ...(u.off === true ? { off: true } : {}) } : {}),
       images,
       spaces,
       player: {}, // borders and the plate are server-wide now; older per-user values are dropped
@@ -2095,19 +2095,6 @@ class Store {
     return user;
   }
 
-  // An agent's Post in Chat (plan-agent-access.md, decision 17): on lets it post in the Chat of its spaces, off (as for a
-  // new agent) stops that and nothing else. Only an agent.
-  setAgentChatPost(key, on) {
-    const user = this.userByKey(key);
-    if (!user) throw new StoreError('no such user', 404);
-    if (!user.agent) throw new StoreError('Only an agent can have that.');
-    if (typeof on !== 'boolean') throw new StoreError('chatPost is true or false');
-    if (on) user.chatPost = true;
-    else delete user.chatPost;
-    this.save();
-    return user;
-  }
-
   updateUser(key, patch) {
     const user = this.userByKey(key);
     if (!user) throw new StoreError('no such user', 404);
@@ -2880,12 +2867,43 @@ class Store {
   guestLocked = () => [];
   // Whether the server has a call service (LiveKit keys set); the server sets it. Without one nobody has the conference.
   callService = true;
+  // Whether the Roles grid shows the Agent column (the server's AGENT_TOKENS); the server sets it
+  // (documentation/plans/plan-agent-matrix.md). An agent account always reads the agent column, shown or not.
+  agentColumn = false;
+  // The module rows the Agent column may tick (server/agent-routes.js, agentModuleKeys, over the enabled modules); the
+  // server sets this once modules are loaded.
+  agentModuleKeys = () => [];
 
   // Every permission the Roles grid knows: the built-in ones, then the modules'.
   // The built-in labels and groups name levels by {space}-style placeholders, filled with this environment's words.
+  // With the Agent column shown, the agent-only rows ("Agents", agentOnly: true) close the built-in ones.
   allPermissions() {
     const resolved = this.resolvedWords();
-    return [...ROLE_PERMISSIONS.map((p) => ({ ...p, label: words.fill(p.label, resolved), group: words.fill(p.group, resolved) })), ...this.extraPermissions()];
+    const fill = (p) => ({ ...p, label: words.fill(p.label, resolved), group: words.fill(p.group, resolved) });
+    return [...ROLE_PERMISSIONS.map(fill), ...(this.agentColumn ? AGENT_ONLY_PERMISSIONS.map(fill) : []), ...this.extraPermissions()];
+  }
+
+  // The rows the Agent column may ever tick: its built-in ones and the module rows that guard what an agent can reach.
+  agentTickable() {
+    return [...AGENT_BUILT_IN, ...this.agentModuleKeys()];
+  }
+
+  // The rows each column can never have (GET /api/roles, `never`): a guest's locked ones, and, while the Agent column is
+  // shown, every row it may not tick.
+  neverRows() {
+    const keys = this.allPermissions().map((p) => p.key);
+    const guestLocked = new Set(this.guestLocked());
+    const out = { guest: keys.filter((k) => guestLocked.has(k)) };
+    if (this.agentColumn) {
+      const tickable = new Set(this.agentTickable());
+      out.agent = keys.filter((k) => !tickable.has(k));
+    }
+    return out;
+  }
+
+  // The columns of the Roles grid, in order: the four, then the agent's while AGENT_TOKENS is on.
+  roleColumns() {
+    return ['owner', ...EDITABLE_ROLES, ...(this.agentColumn ? ['agent'] : [])];
   }
 
   roleSet(role) {
@@ -2896,6 +2914,7 @@ class Store {
 
   roleSetRaw(role) {
     const extras = this.extraPermissions();
+    if (role === 'agent') return this.agentSetRaw(extras);
     if (OWNER_RIGHTS.includes(role)) return Object.fromEntries([...ROLE_PERMISSIONS, ...extras].map((p) => [p.key, true]));
     const defaultsFor = EDITABLE_ROLES.includes(role) ? role : 'member';
     const base = { ...ROLE_DEFAULTS[defaultsFor], ...Object.fromEntries(extras.map((p) => [p.key, Boolean(p.defaults?.[defaultsFor])])) };
@@ -2905,13 +2924,33 @@ class Store {
     return set;
   }
 
+  // The Agent column (documentation/plans/plan-agent-matrix.md): every row it can never have is off; the rows it may tick
+  // start as agents worked before the column (decision 5: read Chat and see members on, Send chat messages off, each module
+  // row at its member default) and then whatever an owner ticked. Never the member column's ticks.
+  agentSetRaw(extras = this.extraPermissions()) {
+    const tickable = new Set(this.agentTickable());
+    const set = Object.fromEntries([...ROLE_PERMISSIONS, ...AGENT_ONLY_PERMISSIONS].map((p) => [p.key, tickable.has(p.key) && AGENT_DEFAULTS[p.key] === true]));
+    for (const p of extras) set[p.key] = tickable.has(p.key) && Boolean(p.defaults?.member);
+    for (const [k, v] of Object.entries(this.data.settings.roles?.agent || {})) if (tickable.has(k) && k in set) set[k] = Boolean(v);
+    return set;
+  }
+
   roles() {
-    return Object.fromEntries(['owner', ...EDITABLE_ROLES].map((r) => [r, this.roleSetRaw(r)]));
+    return Object.fromEntries(this.roleColumns().map((r) => [r, this.roleSetRaw(r)]));
   }
 
   setRolePermissions(role, patch) {
     if (OWNER_RIGHTS.includes(role)) throw new StoreError(`the ${this.word('owner')} has every permission, so that role can't be changed`);
-    if (!EDITABLE_ROLES.includes(role)) throw new StoreError('no such role', 404);
+    if (!this.roleColumns().includes(role)) throw new StoreError('no such role', 404);
+    const resolved = this.resolvedWords();
+    if (role === 'agent') {
+      const tickable = new Set(this.agentTickable());
+      const asked = this.allPermissions().find((p) => !tickable.has(p.key) && patch?.[p.key] !== undefined);
+      if (asked) throw new StoreError(`An agent can never have "${words.fill(asked.label, resolved)}".`);
+    } else {
+      const agentOnly = AGENT_ONLY_PERMISSIONS.find((p) => patch?.[p.key] !== undefined);
+      if (agentOnly) throw new StoreError(`Only an agent can have "${words.fill(agentOnly.label, resolved)}".`);
+    }
     if (role === 'guest') {
       const locked = new Set(this.guestLocked());
       const asked = this.allPermissions().find((p) => locked.has(p.key) && patch?.[p.key] === true);
@@ -2945,6 +2984,8 @@ class Store {
     const user = this.userByKey(key);
     if (!user) return this.roleSet('guest');
     if (hasOwnerRights(user)) return this.roleSet('owner');
+    // An agent reads the Agent column, the same in every one of its spaces and never with a moderator's overlay.
+    if (user.agent) return this.roleSet('agent');
     const set = this.roleSet(user.role);
     const flags = cleanSpacePermissions(user.spaces?.[spaceId]?.permissions);
     if (flags.moderator) Object.assign(set, Object.fromEntries(Object.entries(this.roleSet('moderator')).filter(([, v]) => v)));

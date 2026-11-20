@@ -55,7 +55,7 @@ async function main() {
     const claude = await call('admin', 'POST', '/api/users', { login: 'claude', displayName: 'Claude', role: 'member', password: PASSWORD });
     expect(claude.status === 201, 'could not make the person named Claude');
     const agent = (await call('admin', 'POST', '/api/users', { agent: true, displayName: 'Claude' })).json.user;
-    expect((await call('admin', 'PATCH', `/api/users/${agent.key}`, { chatPost: true })).status === 200, 'could not let the agent post');
+    expect((await call('admin', 'PATCH', '/api/roles/agent', { chat: true })).status === 200, 'could not let agents post');
     const space = (await call('admin', 'POST', '/api/spaces', { name: 'Camp', description: '', members: [claude.json.user.key, agent.key] })).json.space;
     const token = (await call('admin', 'POST', `/api/users/${agent.key}/token`)).json.token;
     await signIn('claude');

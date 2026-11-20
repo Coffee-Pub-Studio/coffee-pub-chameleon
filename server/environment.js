@@ -48,6 +48,7 @@ const accessRequestsLib = require('./access-requests');
 const guestDoorLib = require('./guest-door');
 const { Tokens } = require('./tokens');
 const { AgentLog } = require('./agent-log');
+const { agentModuleKeys } = require('./agent-routes');
 
 // The same read-access guard index.js's route handlers use (its own moduleCan), needed here only for
 // ModuleHooks' resolveRecipients. Duplicated rather than shared, since it is three lines and pure, and this file
@@ -90,6 +91,8 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   // The permissions guests never have, whatever is stored for them: a library module's (server/vault-types.js) and changing the
   // space's tags (server/tags.js).
   store.guestLocked = () => [...modules.enabledAll().filter(({ manifest }) => manifest.library).flatMap(({ manifest }) => GUEST_LOCKED.map((k) => `module.${manifest.id}.${k}`)), 'manageTags'];
+  // The module rows the Roles grid's Agent column may tick: those guarding what an agent can reach (server/agent-routes.js).
+  store.agentModuleKeys = () => modules.enabledAll().flatMap(({ manifest }) => agentModuleKeys(manifest));
   // A manifest's text in this environment's words, and a module's display name and icon (server/store.js).
   modules.wordsOf = () => store.resolvedWords();
   modules.beforeOff = (id) => { for (const m of [id, ...modules.dependentsOf(id)]) moduleHolds.expireModule(m); };

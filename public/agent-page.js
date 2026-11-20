@@ -53,6 +53,7 @@ const READS = {
   '/api/objects/links': (w) => `Read what ${w('object', { a: true })} links to`,
   '/api/objects/kinds': (w) => `Read the kinds of ${w('object')}`,
   '/api/objects/resolve': (w) => `Looked up ${w('object', { many: true })}`,
+  '/api/spaces/:id/members': (w) => `Read who is in ${w('space', { a: true })}`,
   '/api/spaces/:id/actions': () => 'Listed what it can ask for',
   '/api/spaces/:id/action/:requestId': () => 'Checked on a request',
   '/mcp': () => 'Connected through MCP', // initialize, tools/list, ping and a client's GET that answers 405
@@ -249,7 +250,7 @@ function connectGuide({ token, note, agentLabel = 'Claude (agent)', spaceWord = 
     make('h4', 'agent-connect-sub', 'What to try next'),
     next,
     make('p', 'hint', 'A change waits until a person who can change that module has it open.'),
-    make('p', 'hint', 'To let Claude write in Chat, switch on Post in Chat for this agent.'),
+    make('p', 'hint', 'To let Claude write in Chat, tick Send chat messages for agents on Roles.'),
     make('h4', 'agent-connect-sub', 'Claude apps'),
     apps,
     make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),
@@ -361,8 +362,6 @@ export function mountAgentPage(ctx) {
       ? 'It is off. Its token does nothing until you turn it on.'
       : 'Turning it off stops its token working at once. You can turn it on again.';
     const ending = token ? endingText(token.expiresAt) : '';
-    const post = $('[data-agent-chat-post]');
-    post.checked = agent.chatPost === true;
     $('[data-agent-token-state]').textContent = !token ? 'No token yet.' : ending === 'This token has ended. Make a new token.' ? `The token ended ${dayText(token.expiresAt)}.` : lifetimeText(token.lifetime, token.expiresAt);
     const warn = $('[data-agent-ending]');
     warn.textContent = ending;
@@ -462,24 +461,6 @@ export function mountAgentPage(ctx) {
     }
   }
 
-  // Post in Chat: the switch says what the server will hold; a refusal shows the server's sentence and the switch goes back.
-  $('[data-agent-chat-post]').addEventListener('change', async (event) => {
-    const box = event.target;
-    if (!agent) return;
-    const want = box.checked;
-    box.disabled = true;
-    try {
-      const { user } = await ctx.api('PATCH', `/api/users/${encodeURIComponent(agent.key)}`, { chatPost: want });
-      agent = { ...agent, ...user };
-      ctx.onChanged(agent);
-      speak(agent.chatPost ? 'It can post in Chat' : 'It can no longer post in Chat');
-    } catch (err) {
-      speak(err.message, true);
-    } finally {
-      box.checked = agent ? agent.chatPost === true : false;
-      box.disabled = false;
-    }
-  });
   document.querySelector('#agent-page').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-agent]');
     if (!button || !agent) return;

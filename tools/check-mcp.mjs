@@ -5,7 +5,8 @@
  *   - initialize negotiates 2025-03-26, 2025-06-18 and 2025-11-25 (an unknown version gets the newest), with no session;
  *     notifications/initialized is 202; ping; tools/list has every tool, each with an object inputSchema and words in
  *     the product's names;
- *   - tools/call me answers what GET /api/agent/me answers; a tool call counts once, as the route it wraps (a read, or a
+ *   - tools/call me answers what GET /api/agent/me answers, `permissions` and no `chatPost`; a tool whose route needs an
+ *     unticked row of the Agent column is the gate's 403 as a tool error; a tool call counts once, as the route it wraps (a read, or a
  *     write for ask_for_change and post_chat), and is logged as that route, with the address the call came from; every
  *     other message on /mcp is one read, logged as /mcp;
  *   - a space the agent is not in is refused (the route's own 404 sentence, as a tool error), and so are bad arguments;
@@ -193,7 +194,8 @@ try {
     }
     assert.equal(tools.find((t) => t.name === 'ask_for_change').annotations.readOnlyHint, false);
     assert.match(tools.find((t) => t.name === 'ask_for_change').description, /waits/, 'ask_for_change says it waits for a person');
-    assert.match(tools.find((t) => t.name === 'post_chat').description, /Post in Chat/, 'post_chat says it needs Post in Chat');
+    assert.match(tools.find((t) => t.name === 'post_chat').description, /permissions in me includes chat/, 'post_chat says it needs chat in me\'s permissions');
+    assert.match(tools.find((t) => t.name === 'me').description, /permissions/, 'me says it carries permissions');
   });
 
   await test('tools/call me answers what GET /api/agent/me does', async () => {
@@ -201,7 +203,8 @@ try {
     assert.equal(me.isError, false);
     assert.equal(me.json.agent.key, A.key);
     assert.deepEqual(me.json.spaces, [{ id: S1, name: 'Camp' }]);
-    assert.equal(me.json.chatPost, false);
+    assert.ok(!('chatPost' in me.json), 'no chatPost');
+    assert.deepEqual(me.json.permissions, ['agentMembers', 'chatRead'], 'the Agent column\'s defaults');
     assert.equal(result(await rpc(server, 'tools/call', { name: 'me' }, T), 'me without arguments').isError, false);
   });
 
@@ -219,6 +222,20 @@ try {
     assert.equal(after.reads.usedToday, before.reads.usedToday + 3, 'the tool read, the direct read and the me');
     const listed = (await rpc(server, 'tools/list', {}, T)).json.result.tools.find((t) => t.name === 'list_members');
     assert.match(listed.description, /Paid by/);
+  });
+
+  await test('a tool whose route needs an unticked row of the Agent column is the gate\'s 403, as a tool error', async () => {
+    const CANT = "An agent can't do that.";
+    const column = (body) => call(server, 'PATCH', '/api/roles/agent', { cookie: admin, body });
+    ok(await column({ agentMembers: false, chatRead: false }), 'agents lose members and chatRead');
+    for (const [name, args] of [['list_members', { space: S1 }], ['read_chat', { space: S1 }], ['post_chat', { space: S1, text: 'hi' }]]) {
+      const out = result(await tool(server, name, args, T), name);
+      assert.deepEqual([out.isError, out.text], [true, CANT], `${name}: ${out.text}`);
+    }
+    assert.deepEqual(result(await tool(server, 'me', {}, T), 'me').json.permissions, [], 'me says none');
+    assert.equal(result(await tool(server, 'list_actions', { space: S1 }, T), 'list_actions').isError, false, 'list_actions still goes');
+    ok(await column({ agentMembers: true, chatRead: true }), 'back');
+    assert.equal(result(await tool(server, 'list_members', { space: S1 }, T), 'list_members again').isError, false);
   });
 
   await test('list_actions carries each action\'s label and description, and says to read them', async () => {
@@ -329,7 +346,7 @@ try {
 
   await test('20 writes a minute through MCP, then the gate\'s 429, every one logged', async () => {
     const W = await makeAgent('Writer', [S1]);
-    ok(await call(server, 'PATCH', `/api/users/${W.key}`, { cookie: admin, body: { chatPost: true } }), 'Post in Chat on');
+    ok(await call(server, 'PATCH', '/api/roles/agent', { cookie: admin, body: { chat: true } }), 'Send chat messages on for agents');
     for (let i = 0; i < 20; i += 1) {
       const out = i % 2
         ? result(await tool(server, 'post_chat', { space: S1, text: `Marker text 8812 number ${i}` }, { token: W.token }), `post ${i}`)

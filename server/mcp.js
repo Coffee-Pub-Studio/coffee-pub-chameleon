@@ -61,7 +61,7 @@ const TOOLS = [
   {
     name: 'me',
     title: 'Who I am',
-    description: 'Your agent account: your name, your spaces (id and name), whether you may post in Chat, when your token ends, and your limits with what you have used today. Call this first: the other tools need a space id from here.',
+    description: 'Your agent account: your name, your spaces (id and name), your permissions (chatRead: read_chat may run; chat: post_chat may run; agentMembers: list_members may run), when your token ends, and your limits with what you have used today. Call this first: the other tools need a space id from here.',
     inputSchema: object({}),
     annotations: READ_ONLY,
     plan: () => ({ method: 'GET', path: '/api/agent/me' }),
@@ -174,7 +174,7 @@ const TOOLS = [
   {
     name: 'post_chat',
     title: 'Post in Chat',
-    description: 'Post a message in a space\'s Chat, at most 1,000 characters, shown with your name and an agent mark. Works only when the owner has turned on Post in Chat for you (me says chatPost). Counts as a write.',
+    description: 'Post a message in a space\'s Chat, at most 1,000 characters, shown with your name and an agent mark. Works only when permissions in me includes chat (Send chat messages, set on Roles). Counts as a write.',
     inputSchema: object({ space: SPACE, text: { type: 'string', description: 'The message.' } }, ['space', 'text']),
     annotations: WRITES,
     plan: (a) => ({ method: 'POST', path: `/api/spaces/${seg(a.space)}/chat`, body: { text: a.text } }),
