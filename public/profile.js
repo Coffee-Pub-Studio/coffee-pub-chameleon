@@ -131,6 +131,7 @@ function render() {
     $('cp-agc').checked = cp.agc;
     $('cp-talk-mode').value = cp.ptt ? 'ptt' : 'open';
     $('cp-quality').value = String(cp.quality);
+    $('cp-screen-quality').value = cp.screenQuality;
     $('cp-mirror').checked = cp.mirror;
     $('cp-background').value = cp.background;
     $('cp-master-volume').value = String(cp.masterVolume);
@@ -460,6 +461,7 @@ for (const id of ['noise', 'echo', 'agc', 'mirror']) {
 }
 $('cp-talk-mode').addEventListener('change', (e) => patchCallPrefs({ ptt: e.target.value === 'ptt' }));
 $('cp-quality').addEventListener('change', (e) => patchCallPrefs({ quality: Number(e.target.value) }));
+$('cp-screen-quality').addEventListener('change', (e) => patchCallPrefs({ screenQuality: e.target.value }));
 $('cp-background').addEventListener('change', (e) => patchCallPrefs({ background: e.target.value }));
 $('cp-master-volume').addEventListener('input', (e) => {
   $('cp-volume-value').textContent = `${e.target.value}%`;

@@ -275,13 +275,15 @@ const TEMPLATE_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 // stays in the browser's own localStorage) so they follow the account
 // wherever it signs in, not just the browser that last set them.
 const QUALITY_OPTIONS = [360, 540, 720, 1080];
+// Screen share quality: capture size and frames per second (public/space.js SCREEN_QUALITIES holds what each one asks for).
+const SCREEN_QUALITY_OPTIONS = ['720p5', '720p15', '1080p15', '1080p30'];
 const BACKGROUND_MODES = ['none', 'blur', 'image'];
 // "Mod+KeyD" style strings (see public/hotkeys.js): Mod is Cmd on a Mac,
 // Ctrl elsewhere, same as Google Meet's own mute/camera shortcuts.
 const HOTKEY_RE = /^(?:(?:Mod|Ctrl|Meta|Alt|Shift)\+){0,4}[A-Za-z0-9]{1,20}$/;
 const DEFAULT_CALL_PREFS = {
   gain: 100, gate: 0, noise: true, echo: true, agc: true, ptt: false,
-  quality: 720, mirror: true, background: 'none', masterVolume: 100,
+  quality: 720, screenQuality: '1080p15', mirror: true, background: 'none', masterVolume: 100,
   pttKey: 'Space', muteKey: 'Mod+KeyD', camKey: 'Mod+KeyE',
 };
 deepFreeze(DEFAULT_CALL_PREFS);
@@ -1116,6 +1118,7 @@ class Store {
       // same default the cap itself defaults to, which is a no-op clamp.
       c.quality = Math.min(Number(p.quality), this.data?.settings?.maxQuality || 720);
     }
+    if (p.screenQuality !== undefined && SCREEN_QUALITY_OPTIONS.includes(p.screenQuality)) c.screenQuality = p.screenQuality;
     if (p.mirror !== undefined) c.mirror = Boolean(p.mirror);
     if (p.background !== undefined && BACKGROUND_MODES.includes(p.background)) c.background = p.background;
     if (p.masterVolume !== undefined) { const n = Math.round(Number(p.masterVolume)); if (Number.isFinite(n)) c.masterVolume = Math.max(0, Math.min(100, n)); }
@@ -3267,7 +3270,7 @@ module.exports = {
   SPACE_NAME_MAX,
   Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS,
   LEGACY_SLOTS, ROLES, ASSIGNABLE_ROLES, hasOwnerRights, ROLE_PERMISSIONS, IMAGE_TYPES, MAX_IMAGE_BYTES, DEFAULT_BORDER_COLOR, LOBBY, randomToken, cleanText, cleanLogin,
-  sanitizeMfa, CURRENCIES, QUALITY_OPTIONS, LANGUAGES, BUILTIN_THEME_IDS: BUILTIN_THEMES.map((t) => t.id), displayNameProblem,
+  sanitizeMfa, CURRENCIES, QUALITY_OPTIONS, SCREEN_QUALITY_OPTIONS, LANGUAGES, BUILTIN_THEME_IDS: BUILTIN_THEMES.map((t) => t.id), displayNameProblem,
   THEME_BASE, THEME_OPTIONAL, DEFAULT_THEME, cleanColor, cleanAuthor, cleanReactions, cleanThemeName, MAX_THEMES,
   DEFAULT_HOME_ICON, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, DEFAULT_SETTINGS,
 };

@@ -1172,7 +1172,7 @@ function removeScreenTile(identity) {
 const DEFAULT_PREFS = {
   layout: 'grid', order: [], pinned: null, follow: true,
   micId: '', camId: '', gain: 100, gate: 0, noise: true, echo: true, agc: true, ptt: false,
-  quality: 720, mirror: true, background: 'none', volumes: {}, popout: null, deafened: false,
+  quality: 720, screenQuality: '1080p15', mirror: true, background: 'none', volumes: {}, popout: null, deafened: false,
   chatWidth: 320, stripHeight: 168, speakerId: '', masterVolume: 100, // chatWidth is the column's width too (the splitter)
   homeChatWidth: 360, // Home's chat column (plan-home-lobby.md, step 3), its own width
   // The call's sizes: callSideWidth, its width beside the chat (Left and Right); conferenceChatHeight, the chat's height on the
@@ -6984,12 +6984,24 @@ async function setCameraEnabledWithRetry(enabled) {
   }
 }
 
+// What each screen share quality asks for. Sizes, frame rates and bitrates are LiveKit's ScreenSharePresets
+// (livekit-client 2.22.3): h720fps5 800 kbps, h720fps15 1.5 Mbps, h1080fps15 2.5 Mbps, h1080fps30 5 Mbps.
+const SCREEN_QUALITIES = {
+  '720p5': { width: 1280, height: 720, fps: 5, bitrate: 800000 },
+  '720p15': { width: 1280, height: 720, fps: 15, bitrate: 1500000 },
+  '1080p15': { width: 1920, height: 1080, fps: 15, bitrate: 2500000 },
+  '1080p30': { width: 1920, height: 1080, fps: 30, bitrate: 5000000 },
+};
+
 // Desktop sharing: LiveKit's own screen-share track (getDisplayMedia under
 // the hood), published and rendered as its own tile -- see screenTileFor.
 async function toggleScreenShare() {
   if (!inCall) return;
   try {
-    await call.localParticipant.setScreenShareEnabled(!call.localParticipant.isScreenShareEnabled, { audio: true });
+    const starting = !call.localParticipant.isScreenShareEnabled;
+    const q = SCREEN_QUALITIES[prefs.screenQuality] || SCREEN_QUALITIES['1080p15'];
+    await call.localParticipant.setScreenShareEnabled(starting, starting ? { audio: true, resolution: { width: q.width, height: q.height, frameRate: q.fps } } : { audio: true },
+      starting ? { screenShareEncoding: { maxBitrate: q.bitrate, maxFramerate: q.fps } } : undefined);
   } catch (err) {
     // cancelling the browser's own share picker throws too -- not a real error
     if (err?.name !== 'NotAllowedError') setStatus(`screen share: ${err.message}`, true);
@@ -7101,6 +7113,11 @@ for (const id of ['noise', 'echo', 'agc']) {
   });
 }
 $('talk-mode').addEventListener('change', (e) => setPushToTalk(e.target.value === 'ptt'));
+$('screen-quality').addEventListener('change', (e) => {
+  prefs.screenQuality = e.target.value; // used the next time you share; a share already running keeps its quality
+  savePrefs();
+  syncCallPrefs({ screenQuality: prefs.screenQuality });
+});
 $('quality').addEventListener('change', async (e) => {
   prefs.quality = Number(e.target.value);
   savePrefs();
@@ -8691,6 +8708,7 @@ function populateCallSettingsUI() {
   $('agc').checked = prefs.agc;
   $('talk-mode').value = prefs.ptt ? 'ptt' : 'open';
   $('quality').value = String(prefs.quality);
+  $('screen-quality').value = prefs.screenQuality;
   $('mirror').checked = prefs.mirror;
   $('background-mode').value = prefs.background;
   $('master-volume').value = String(prefs.masterVolume);
