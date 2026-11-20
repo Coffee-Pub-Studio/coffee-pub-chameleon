@@ -1,7 +1,7 @@
 {
   "id": "calendar",
   "name": "Calendar",
-  "version": "1.24.43",
+  "version": "1.24.44",
   "icon": "calendar-days",
   "color": "red",
   "description": "Sessions and events for the whole {environment} and for each {space}, with reminders.",
@@ -111,13 +111,19 @@
       {
         "name": "createEvent",
         "label": "Add it to the calendar",
-        "description": "Add a new event to the calendar.",
+        "description": "Add an event on date (YYYY-MM-DD) at time (HH:MM, 24-hour; none is all day) with optional endTime, endDate, allDay, repeat (day, week, 2weeks, month, year) and remind (0, 15, 60, 1440 minutes before).",
         "effect": "write",
         "input": {
           "title": "string",
           "date": "date?",
           "ref": "ref?",
-          "object": "object?"
+          "object": "object?",
+          "time": "string?",
+          "endTime": "string?",
+          "endDate": "date?",
+          "allDay": "boolean?",
+          "repeat": "string?",
+          "remind": "number?"
         },
         "needs": ["date"],
         "takes": [
