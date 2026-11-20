@@ -10150,7 +10150,22 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 .agent-copy { margin-top: 8px; }
 .agent-copy + .hint { margin-top: 8px; }
 .agent-copy .agent-copy-text { display: block; font-size: var(--text-13); padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: all; }
+/* A set-up agent's page: what waits for an owner, what can be undone, what it has left today (agent-page.js). */
+.agent-asks, .agent-changes, .agent-limits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.agent-limits { margin-top: 8px; color: var(--text-muted); font-size: var(--text-13); }
+.agent-ask, .agent-change { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+.agent-ask:first-child, .agent-change:first-child { border-top: 0; }
+.agent-ask-what, .agent-change-what { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.agent-ask-when, .agent-change-when { color: var(--text-dim); font-size: var(--text-12); }
+.agent-ask-buttons, .agent-change-buttons { display: flex; flex: none; gap: 8px; }
+.agent-change.is-undone .agent-change-what > :first-child { color: var(--text-muted); }
+/* The mark on a space a set-up agent made, with its Keep button (made-mark.js): on Manage's list and on Home. */
+.made-mark-box { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.made-mark-box[hidden] { display: none; }
 @media (max-width: 640px) {
   .agent-name-field { max-width: none; flex-basis: 100%; }
   .agent-token-dialog .row .btn { --btn-h: 44px; }
+  .agent-ask, .agent-change { flex-direction: column; align-items: stretch; }
+  .agent-ask-buttons .btn, .agent-change-buttons .btn, .made-mark-box .btn { --btn-h: 44px; }
+  .agent-ask-buttons .btn { flex: 1 1 0; }
 }

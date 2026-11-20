@@ -518,6 +518,9 @@ try {
     ok(await call(server, 'PATCH', `/api/agent/spaces/${sp.id}`, { ...U.T, body: { name: 'Rome 2027', description: 'Spring', icon: icons[2] } }), 'changed');
     const listed = (await call(server, 'GET', `/api/users/${U.user.key}/changes`, { cookie: olga })).json;
     assert.equal(listed.days, 7);
+    assert.deepEqual(Object.keys(listed.limits).sort(), ['changes', 'made'], 'the changes list carries what it has left today');
+    assert.deepEqual([listed.limits.made.perDay, listed.limits.changes.perDay], [5, 30]);
+    assert.ok(listed.limits.made.usedToday >= 1 && listed.limits.changes.usedToday >= 1, 'and what it used');
     const [change, made] = listed.changes;
     assert.deepEqual([change.change, made.change], ['changed', 'made']);
     assert.deepEqual(change.before.name, 'Rome');

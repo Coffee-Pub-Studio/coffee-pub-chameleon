@@ -48,6 +48,12 @@
           </div>
           <p class="status" data-agent-status role="status"></p>
         </div>
+        <div class="panel" data-agent-setup data-agent-asks-panel hidden>
+          <h2>Waiting for you</h2>
+          <p class="hint" data-agent-asks-empty hidden>Nothing is waiting for you.</p>
+          <ul class="agent-asks" data-agent-asks aria-label="Waiting for you"></ul>
+          <p class="status" data-agent-asks-status role="status"></p>
+        </div>
         <div class="panel">
           <h2>Token</h2>
           <p data-agent-token-state></p>
@@ -64,9 +70,21 @@
           <p class="hint" data-agent-make-hint></p>
           <div data-agent-connect></div>
         </div>
-        <div class="panel">
+        <div class="panel" data-agent-ordinary>
           <h2>Chat</h2>
           <p class="hint">What agents may do is set on <a href="#roles" data-agent-roles-link>Roles</a>.</p>
+        </div>
+        <div class="panel" data-agent-setup hidden>
+          <h2>What it can do</h2>
+          <p class="hint" data-fill>It makes {spaces}, and renames them, changes their description and their icon. It reads nothing inside {a space}. Adding or taking off a person, or making someone {a moderator}, waits for your yes. What it may do is set on <a href="#roles" data-agent-roles-link>Roles</a>.</p>
+          <ul class="agent-limits" data-agent-limits aria-label="What it has left today"></ul>
+        </div>
+        <div class="panel" data-agent-setup data-agent-changes-panel hidden>
+          <h2>Changes you can undo</h2>
+          <p class="hint" data-agent-changes-hint></p>
+          <p class="hint" data-agent-changes-empty hidden>It has changed nothing yet.</p>
+          <ul class="agent-changes" data-agent-changes aria-label="Changes you can undo, newest first"></ul>
+          <p class="status" data-agent-changes-status role="status"></p>
         </div>
         <div class="panel">
           <h2>Turn off or delete</h2>
@@ -923,6 +941,7 @@
       <div class="user-title">
         <strong data-name></strong>
         <span class="meta" data-meta></span>
+        <span class="made-mark-box" data-made hidden></span>
       </div>
       <button class="btn btn-small" data-action="space-up" type="button" data-tip="Move earlier" aria-label="Move earlier">&uarr;</button>
       <button class="btn btn-small" data-action="space-down" type="button" data-tip="Move later" aria-label="Move later">&darr;</button>

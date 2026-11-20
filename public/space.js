@@ -21,6 +21,7 @@ import { attachChatInput, viewOf, discussionWord, placeAbove, stripSummaryMarker
 import { openHostMenu, openConfirmMenu, closeHostMenu, setGuestPass } from '/module-host.js';
 import { confirmDialog } from '/confirm.js';
 import { welcomeOnArrival } from '/welcome-note.js';
+import { drawMadeMark } from '/made-mark.js';
 import { foldCallToolbar, callTitle, callTime, callDuration } from '/call-toolbar.js';
 
 // Elements by id, wherever the canvas currently lives (the page or the pop-out
@@ -563,6 +564,13 @@ function renderSpaces() {
       link.querySelector('i').className = `${iconClasses(r.linkIcon || 'link')} fa-fw`;
     }
     card.querySelector('.space-choice-name').textContent = spaceDisplayName(r);
+    // "Made by Claude (set-up agent)" and Keep, for owners and the admin, until Keep (plan-admin-agent.md).
+    drawMadeMark(card.querySelector('[data-made]'), r, {
+      show: hasOwnerRights(me) && !r.isAside,
+      api, word,
+      onKept: () => { delete r.madeBy; renderSpaces(); loadPresence(); },
+      onError: (text) => { $('join-error').textContent = text; $('join-error').hidden = false; },
+    });
     card.querySelector('.space-choice-desc').textContent = r.description;
     card.querySelector('.space-choice-desc').hidden = !r.description || r.isAside;
     const img = card.querySelector('.space-choice-image');
