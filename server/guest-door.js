@@ -126,10 +126,13 @@ const endsWithGuestMark = (name, word) => markPattern(word).test(seen(name).trim
 // The words a person's name may not carry, so nobody's name reads as an agent's or as the activity list's own sentence
 // (plan-agent-access.md): the agent mark "(agent)" on its end, and ", carried out by". Read as a person sees it, with
 // lookalike letters folded (Cyrillic 'а' for 'a') and any whitespace as one space.
-const agentMarkAtEnd = /\(\s*agent\s*\)\s*$/u;
+// "(set-up agent)" too, the set-up agent's mark (plan-admin-agent.md, decision 2).
+const agentMarkAtEnd = /\(\s*(?:set\s*-?\s*up\s+)?agent\s*\)\s*$/u;
+const setupMarkAtEnd = /\(\s*set\s*-?\s*up\s+agent\s*\)\s*$/u;
 const carriedWords = /carried\s+out\s+by/u;
 const sees = (name) => nameSkeleton(seen(name).replace(/\s+/gu, ' '));
 const endsWithAgentMark = (name) => agentMarkAtEnd.test(sees(name).trim());
+const endsWithSetupMark = (name) => setupMarkAtEnd.test(sees(name).trim());
 const hasCarriedWords = (name) => carriedWords.test(sees(name));
 // The typed name without any guest mark on its end (in any bracket form: the mark holds no other bracket, so the last
 // opening one starts it).
@@ -145,4 +148,4 @@ function stripGuestMark(typed, word) {
 // The name as kept and shown everywhere: the typed name and the mark once.
 const markedGuestName = (typed, word) => `${stripGuestMark(typed, word)} ${guestMark(word)}`;
 
-module.exports = { endsWithAgentMark, hasCarriedWords, endsWithGuestMark, stripGuestMark, markedGuestName, guestMark, nameSkeleton, mixesScripts, COOKIE, ACTIVE_MS, WINDOW_MS, GUEST_ID_RE, readLimits, issue, read, GuestRegister, NewSessionLimiter, nameKey };
+module.exports = { endsWithAgentMark, endsWithSetupMark, hasCarriedWords, endsWithGuestMark, stripGuestMark, markedGuestName, guestMark, nameSkeleton, mixesScripts, COOKIE, ACTIVE_MS, WINDOW_MS, GUEST_ID_RE, readLimits, issue, read, GuestRegister, NewSessionLimiter, nameKey };

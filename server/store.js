@@ -25,8 +25,8 @@ const aiPolicy = require('./ai-policy');
 const { applyCallPatch, resolveCall } = require('./call-settings');
 const { cleanAgreed, hasAgreed } = require('./agreements');
 const welcomeNoteLib = require('./welcome-note');
-const { endsWithGuestMark, endsWithAgentMark, hasCarriedWords } = require('./guest-door');
-const { AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS } = require('./agent-routes');
+const { endsWithGuestMark, endsWithAgentMark, endsWithSetupMark, hasCarriedWords } = require('./guest-door');
+const { AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, SETUP_BUILT_IN, SETUP_DEFAULTS } = require('./agent-routes');
 
 // Image slots. Participant: what the video box shows when the camera is
 // off, plus optional overlays drawn on top while they talk, are muted, are
@@ -316,6 +316,10 @@ const DEFAULT_SETTINGS = {
   // Agents (plan-agent-access.md, decision 11): the owner's switch. Off by default; it does anything only while the server's
   // AGENT_TOKENS is on. Off, every agent token here answers 401 and no agent or token can be made.
   agents: false,
+  // Set-up agents (plan-admin-agent.md, decision 7): the owner's switch for the set-up kind. Off by default; it does anything
+  // only while the server's AGENT_SETUP (and AGENT_TOKENS) is on. Off, every set-up agent's token here answers 401 and no
+  // set-up agent can be made.
+  setupAgents: false,
   // Call features, on by default -- an admin can turn any of these off
   // server-wide. maxQuality caps the "Quality" picker (see QUALITY_OPTIONS)
   // rather than adding a new tier of its own.
@@ -931,6 +935,9 @@ class Store {
       // a button next to Join and in the in-call toolbar. null when unset.
       link: cleanSpaceLink(r.link),
       linkIcon: typeof r.linkIcon === 'string' && /^[a-z0-9-]{1,40}$/.test(r.linkIcon) ? r.linkIcon : DEFAULT_SPACE_LINK_ICON,
+      // The set-up agent that made it (plan-admin-agent.md, "Marked"): its key, until an owner chooses Keep. Only a space it
+      // made is one it may change. Never the Lobby; absent for a space a person made.
+      ...(id !== LOBBY && typeof r.madeBy === 'string' && /^[a-z0-9]{4,16}$/.test(r.madeBy) ? { madeBy: r.madeBy } : {}),
       // A standing door code: anyone with this space's guest link joins it
       // with just a name, no account. null while off. See enableGuestLink.
       guestToken: typeof r.guestToken === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(r.guestToken) ? r.guestToken : null,
@@ -1066,7 +1073,9 @@ class Store {
       linkToken: !u.hostAdmin && !agent && typeof u.linkToken === 'string' && u.linkToken ? u.linkToken : null,
       mfa: u.hostAdmin || agent ? null : sanitizeMfa(u.mfa),
       // An agent account, and whether its owner turned it off (its token answers 401 while it is); left off for a person.
-      ...(agent ? { agent: true, ...(u.off === true ? { off: true } : {}) } : {}),
+      // `kind: "setup"` marks a set-up agent (plan-admin-agent.md, decision 1), chosen when it is made and never changed;
+      // absent for the ordinary agent and for every person.
+      ...(agent ? { agent: true, ...(u.kind === 'setup' ? { kind: 'setup' } : {}), ...(u.off === true ? { off: true } : {}) } : {}),
       images,
       spaces,
       player: {}, // borders and the plate are server-wide now; older per-user values are dropped
@@ -1633,6 +1642,10 @@ class Store {
       if (typeof patch.agents !== 'boolean') throw new StoreError('agents is true or false');
       s.agents = patch.agents;
     }
+    if (patch.setupAgents !== undefined) {
+      if (typeof patch.setupAgents !== 'boolean') throw new StoreError('setupAgents is true or false');
+      s.setupAgents = patch.setupAgents;
+    }
     if (patch.maxQuality !== undefined && QUALITY_OPTIONS.includes(Number(patch.maxQuality))) s.maxQuality = Number(patch.maxQuality);
     if (patch.allowScreenShare !== undefined) s.allowScreenShare = Boolean(patch.allowScreenShare);
     if (patch.allowAsides !== undefined) s.allowAsides = Boolean(patch.allowAsides);
@@ -2041,6 +2054,7 @@ class Store {
   checkDisplayName(displayName) {
     if (typeof displayName === 'string' && endsWithGuestMark(cleanDisplayName(displayName), this.word('guest'))) throw new StoreError(`A name can't end in (${this.word('guest')}).`);
     // Nor in "(agent)", which only an agent's account is shown with, nor with the activity list's own words in it.
+    if (typeof displayName === 'string' && endsWithSetupMark(cleanDisplayName(displayName))) throw new StoreError("A name can't end in (set-up agent).");
     if (typeof displayName === 'string' && endsWithAgentMark(cleanDisplayName(displayName))) throw new StoreError("A name can't end in (agent).");
     if (typeof displayName === 'string' && hasCarriedWords(cleanDisplayName(displayName))) throw new StoreError("A name can't have \"carried out by\" in it.");
   }
@@ -2070,13 +2084,15 @@ class Store {
 
   // A new agent account (plan-agent-access.md, decision 1): a member with no password, personal link or second factor, named
   // `displayName` (default "Claude"). Its login is made here and is never one anybody can sign in with: no door accepts
-  // an agent. It is in no space until an owner adds it to one.
-  addAgent({ displayName } = {}) {
+  // an agent. It is in no space until an owner adds it to one. `kind: 'setup'` makes a set-up agent (plan-admin-agent.md),
+  // which is in no space until it makes one; the kind never changes.
+  addAgent({ displayName, kind } = {}) {
     if (displayName !== undefined && displayName !== null && typeof displayName !== 'string') throw new StoreError("An agent's name is text.");
+    if (kind !== undefined && kind !== 'setup') throw new StoreError(`kind is setup, or left out for an agent that works in ${this.word('space', { many: true })}.`);
     const name = cleanDisplayName(displayName || '') || 'Claude';
     this.checkDisplayName(name);
     const key = this.newKey();
-    const user = this.sanitizeUser({ key, login: `agent-${key}`, displayName: name, role: 'member', agent: true, images: {}, createdAt: new Date().toISOString() });
+    const user = this.sanitizeUser({ key, login: `agent-${key}`, displayName: name, role: 'member', agent: true, ...(kind === 'setup' ? { kind } : {}), images: {}, createdAt: new Date().toISOString() });
     if (this.userByLogin(user.login)) throw new StoreError('that username is taken');
     this.data.users.push(user);
     this.save();
@@ -2362,7 +2378,8 @@ class Store {
   // people lists; never twice, and the Lobby (made by the store itself) is not made here. The host admin's stand-in
   // (hostAdmin: true) does not join what it makes (GitHub #334): it manages everything without being a member, and it can
   // still be added on purpose.
-  addSpace({ name, description, members, profile, link, linkIcon, creator, template }) {
+  // `madeBy`: a set-up agent's key when one made it (plan-admin-agent.md), kept on the space until an owner chooses Keep.
+  addSpace({ name, description, members, profile, link, linkIcon, creator, template, madeBy }) {
     let id;
     do id = randomKey();
     while (this.idTaken(id));
@@ -2371,7 +2388,7 @@ class Store {
     // Its link icon, checked as updateSpace checks one: from what the environment or the space's own template offers.
     if (linkIcon !== undefined && linkIcon !== null && !this.spaceIconIds(own).includes(linkIcon)) throw new StoreError(`That icon is not one this ${this.word('environment')} offers.`);
     const startsWith = profile ?? own?.spaceDefaults?.profile ?? this.data.settings.spaceDefaults?.profile; // the environment's default (a template's)
-    const space = this.sanitizeSpace({ id, name: name || `New ${this.word('space')}`, description, members, profile: startsWith, link, linkIcon, createdAt: new Date().toISOString(), ...(own ? { template: own.id } : {}) });
+    const space = this.sanitizeSpace({ id, name: name || `New ${this.word('space')}`, description, members, profile: startsWith, link, linkIcon, createdAt: new Date().toISOString(), ...(own ? { template: own.id } : {}), ...(madeBy ? { madeBy } : {}) });
     // The template seeds the space's tab order, which Fixed Workspaces it shows and which opens first (decisions 36 and 8): the owner
     // changes them in Set up (tabs, defaultLayout). The environment's template when the space has none of its own.
     const seeded = this.workspaceSeed((own || this.environmentTemplate())?.workspace);
@@ -2486,6 +2503,12 @@ class Store {
     const draft = { ...space };
     if (patch.name !== undefined) draft.name = cleanText(patch.name, SPACE_NAME_MAX) || draft.name;
     if (patch.description !== undefined) draft.description = String(patch.description ?? '').trim().slice(0, 300);
+    // Keep (plan-admin-agent.md, "Marked"): `madeBy: null` clears the set-up agent's mark, and with it the agent's reach over
+    // the space. Nothing else is taken: the mark is only ever set by the agent's own route.
+    if (patch.madeBy !== undefined) {
+      if (patch.madeBy !== null) throw new StoreError('madeBy can only be cleared, with null.');
+      delete draft.madeBy;
+    }
     // The space's own template (plan-space-templates.md): an id, or null to read the environment's again. Changes the live part
     // only: nothing else on the record is touched. Who may send it is the route's to decide (owners and the admin).
     if (patch.template !== undefined) {
@@ -2643,6 +2666,7 @@ class Store {
       }
     }
     Object.assign(space, draft);
+    if (!('madeBy' in draft)) delete space.madeBy;
     if (!('budget' in draft)) delete space.budget;
     if (!('defaultLayout' in draft)) delete space.defaultLayout;
     if (!('tabs' in draft)) delete space.tabs;
@@ -2870,6 +2894,9 @@ class Store {
   // Whether the Roles grid shows the Agent column (the server's AGENT_TOKENS); the server sets it
   // (documentation/plans/plan-agent-matrix.md). An agent account always reads the agent column, shown or not.
   agentColumn = false;
+  // Whether the Roles grid shows the set-up agent's column (the server's AGENT_SETUP, on top of AGENT_TOKENS;
+  // plan-agent-matrix.md, decision 3). A set-up agent always reads its own column, shown or not.
+  setupColumn = false;
   // The module rows the Agent column may tick (server/agent-routes.js, agentModuleKeys, over the enabled modules); the
   // server sets this once modules are loaded.
   agentModuleKeys = () => [];
@@ -2880,7 +2907,8 @@ class Store {
   allPermissions() {
     const resolved = this.resolvedWords();
     const fill = (p) => ({ ...p, label: words.fill(p.label, resolved), group: words.fill(p.group, resolved) });
-    return [...ROLE_PERMISSIONS.map(fill), ...(this.agentColumn ? AGENT_ONLY_PERMISSIONS.map(fill) : []), ...this.extraPermissions()];
+    const agentRows = AGENT_ONLY_PERMISSIONS.filter((p) => (p.column === 'setup' ? this.setupColumn : this.agentColumn));
+    return [...ROLE_PERMISSIONS.map(fill), ...agentRows.map(fill), ...this.extraPermissions()];
   }
 
   // The rows the Agent column may ever tick: its built-in ones and the module rows that guard what an agent can reach.
@@ -2898,12 +2926,17 @@ class Store {
       const tickable = new Set(this.agentTickable());
       out.agent = keys.filter((k) => !tickable.has(k));
     }
+    if (this.setupColumn) {
+      const tickable = new Set(SETUP_BUILT_IN);
+      out.setup = keys.filter((k) => !tickable.has(k));
+    }
     return out;
   }
 
-  // The columns of the Roles grid, in order: the four, then the agent's while AGENT_TOKENS is on.
+  // The columns of the Roles grid, in order: the four, then the agent's while AGENT_TOKENS is on, then the set-up agent's
+  // while AGENT_SETUP is on too.
   roleColumns() {
-    return ['owner', ...EDITABLE_ROLES, ...(this.agentColumn ? ['agent'] : [])];
+    return ['owner', ...EDITABLE_ROLES, ...(this.agentColumn ? ['agent'] : []), ...(this.setupColumn ? ['setup'] : [])];
   }
 
   roleSet(role) {
@@ -2915,6 +2948,7 @@ class Store {
   roleSetRaw(role) {
     const extras = this.extraPermissions();
     if (role === 'agent') return this.agentSetRaw(extras);
+    if (role === 'setup') return this.setupSetRaw(extras);
     if (OWNER_RIGHTS.includes(role)) return Object.fromEntries([...ROLE_PERMISSIONS, ...extras].map((p) => [p.key, true]));
     const defaultsFor = EDITABLE_ROLES.includes(role) ? role : 'member';
     const base = { ...ROLE_DEFAULTS[defaultsFor], ...Object.fromEntries(extras.map((p) => [p.key, Boolean(p.defaults?.[defaultsFor])])) };
@@ -2935,6 +2969,16 @@ class Store {
     return set;
   }
 
+  // The set-up agent's column (plan-agent-matrix.md, "The columns"): only its own rows may be ticked, and they start off
+  // (decision 5); every other row, built-in or a module's, is off whatever is stored. Never anyone else's ticks.
+  setupSetRaw(extras = this.extraPermissions()) {
+    const tickable = new Set(SETUP_BUILT_IN);
+    const set = Object.fromEntries([...ROLE_PERMISSIONS, ...AGENT_ONLY_PERMISSIONS].map((p) => [p.key, tickable.has(p.key) && SETUP_DEFAULTS[p.key] === true]));
+    for (const p of extras) set[p.key] = false;
+    for (const [k, v] of Object.entries(this.data.settings.roles?.setup || {})) if (tickable.has(k) && k in set) set[k] = Boolean(v);
+    return set;
+  }
+
   roles() {
     return Object.fromEntries(this.roleColumns().map((r) => [r, this.roleSetRaw(r)]));
   }
@@ -2943,10 +2987,10 @@ class Store {
     if (OWNER_RIGHTS.includes(role)) throw new StoreError(`the ${this.word('owner')} has every permission, so that role can't be changed`);
     if (!this.roleColumns().includes(role)) throw new StoreError('no such role', 404);
     const resolved = this.resolvedWords();
-    if (role === 'agent') {
-      const tickable = new Set(this.agentTickable());
+    if (role === 'agent' || role === 'setup') {
+      const tickable = new Set(role === 'setup' ? SETUP_BUILT_IN : this.agentTickable());
       const asked = this.allPermissions().find((p) => !tickable.has(p.key) && patch?.[p.key] !== undefined);
-      if (asked) throw new StoreError(`An agent can never have "${words.fill(asked.label, resolved)}".`);
+      if (asked) throw new StoreError(`${role === 'setup' ? 'A set-up agent' : 'An agent'} can never have "${words.fill(asked.label, resolved)}".`);
     } else {
       const agentOnly = AGENT_ONLY_PERMISSIONS.find((p) => patch?.[p.key] !== undefined);
       if (agentOnly) throw new StoreError(`Only an agent can have "${words.fill(agentOnly.label, resolved)}".`);
@@ -2984,8 +3028,9 @@ class Store {
     const user = this.userByKey(key);
     if (!user) return this.roleSet('guest');
     if (hasOwnerRights(user)) return this.roleSet('owner');
-    // An agent reads the Agent column, the same in every one of its spaces and never with a moderator's overlay.
-    if (user.agent) return this.roleSet('agent');
+    // An agent reads its kind's column (the Agent column, or the set-up agent's), the same in every one of its spaces and
+    // never with a moderator's overlay.
+    if (user.agent) return this.roleSet(user.kind === 'setup' ? 'setup' : 'agent');
     const set = this.roleSet(user.role);
     const flags = cleanSpacePermissions(user.spaces?.[spaceId]?.permissions);
     if (flags.moderator) Object.assign(set, Object.fromEntries(Object.entries(this.roleSet('moderator')).filter(([, v]) => v)));

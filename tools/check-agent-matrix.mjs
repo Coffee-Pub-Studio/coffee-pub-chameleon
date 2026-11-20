@@ -4,8 +4,9 @@
  * "Verify").
  *
  * Without a server (the list, server/agent-routes.js, read as code):
- *   - every entry has a kind, a method, a path, counts, a place check and a `needs` of a permission key, `module` or
- *     `always`; a list with an entry missing `needs` is refused, naming the entry (the server stops at start);
+ *   - every entry has a kind (agent, or setup for the set-up agent of plan-admin-agent.md), a method, a path, counts, a
+ *     place check and a `needs` of a permission key of its kind's column, `module` (never the set-up agent's) or `always`;
+ *     a list with an entry missing `needs`, or crossing the kinds, is refused, naming the entry (the server stops at start);
  *   - every key an entry needs is a row its kind's column may tick, and every built-in row that column may tick is needed by
  *     some entry (module rows by a `module` entry);
  *   - every entry's method and path is in tools/route-table.json;
@@ -34,7 +35,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
 const routes = require(path.join(ROOT, 'server', 'agent-routes.js'));
-const { AGENT_ROUTES, AGENT_BUILT_IN, AGENT_ONLY_PERMISSIONS, agentRouteProblems, assertAgentRoutes } = routes;
+const { AGENT_ROUTES, AGENT_BUILT_IN, SETUP_BUILT_IN, AGENT_ONLY_PERMISSIONS, agentRouteProblems, assertAgentRoutes } = routes;
+// The built-in rows each kind's column may tick (the set-up agent's: plan-admin-agent.md; its live cases are in
+// tools/check-agent-setup.mjs).
+const TICKABLE = { agent: AGENT_BUILT_IN, setup: SETUP_BUILT_IN };
 
 const CANT = "An agent can't do that.";
 
@@ -54,10 +58,11 @@ const test = async (name, fn) => {
 await test('every entry has a kind, counts, a place and a needs of a key, module or always', () => {
   assert.deepEqual(agentRouteProblems(), [], 'the list is sound');
   for (const e of AGENT_ROUTES) {
-    assert.ok(['agent'].includes(e.kind), `${e.method} ${e.path}: kind`);
+    assert.ok(['agent', 'setup'].includes(e.kind), `${e.method} ${e.path}: kind`);
     assert.ok(['read', 'write', 'mcp'].includes(e.counts), `${e.method} ${e.path}: counts`);
     assert.ok(typeof e.place === 'string' && e.place, `${e.method} ${e.path}: place`);
-    assert.ok(e.needs === 'module' || e.needs === 'always' || AGENT_BUILT_IN.includes(e.needs), `${e.method} ${e.path}: needs "${e.needs}"`);
+    assert.ok(e.needs === 'module' || e.needs === 'always' || TICKABLE[e.kind].includes(e.needs), `${e.method} ${e.path}: needs "${e.needs}"`);
+    if (e.kind === 'setup') assert.notEqual(e.needs, 'module', `${e.method} ${e.path}: a set-up agent reads no module`);
   }
 });
 
@@ -68,13 +73,28 @@ await test('an entry without needs, or needing a row the column can never tick, 
   assert.throws(() => assertAgentRoutes(never), /needs "conference", which is not a row the agent column may tick/);
   const twice = [...AGENT_ROUTES, AGENT_ROUTES[0]];
   assert.throws(() => assertAgentRoutes(twice), /on the list twice/);
+  // A kind's key on the other kind's entry, a module read for the set-up agent, a made-space check for the ordinary agent.
+  const crossed = [...AGENT_ROUTES, { kind: 'agent', method: 'post', path: '/api/x', counts: 'write', place: 'none', needs: 'agentMakeSpaces' }];
+  assert.throws(() => assertAgentRoutes(crossed), /needs "agentMakeSpaces", which is not a row the agent column may tick/);
+  const setupReads = [...AGENT_ROUTES, { kind: 'setup', method: 'get', path: '/api/modules/:id/data', counts: 'read', place: 'spaceScope', needs: 'module' }];
+  assert.throws(() => assertAgentRoutes(setupReads), /which the set-up agent never has/);
+  const setupChat = [...AGENT_ROUTES, { kind: 'setup', method: 'get', path: '/api/spaces/:id/chat', counts: 'read', place: 'spaceParam', needs: 'chatRead' }];
+  assert.throws(() => assertAgentRoutes(setupChat), /needs "chatRead", which is not a row the set-up agent column may tick/);
+  const made = [...AGENT_ROUTES, { kind: 'agent', method: 'get', path: '/api/y/:id', counts: 'read', place: 'madeParam', needs: 'always' }];
+  assert.throws(() => assertAgentRoutes(made), /only a set-up agent does/);
 });
 
-await test('every row the Agent column may tick is needed by some entry; module rows by a module entry', () => {
-  const needed = new Set(AGENT_ROUTES.map((e) => e.needs));
-  for (const key of AGENT_BUILT_IN) assert.ok(needed.has(key), `${key} is tickable but no route needs it`);
-  assert.ok(needed.has('module'), 'no entry leaves a module\'s own row to the route');
-  for (const p of AGENT_ONLY_PERMISSIONS) assert.ok(AGENT_BUILT_IN.includes(p.key) && p.agentOnly === true, `${p.key}: an agent-only row the column may tick`);
+await test('every row an agent column may tick is needed by some entry of its kind; module rows by a module entry', () => {
+  for (const kind of ['agent', 'setup']) {
+    const needed = new Set(AGENT_ROUTES.filter((e) => e.kind === kind).map((e) => e.needs));
+    for (const key of TICKABLE[kind]) assert.ok(needed.has(key), `${key} is tickable in the ${kind} column but no route of that kind needs it`);
+  }
+  assert.ok(AGENT_ROUTES.some((e) => e.kind === 'agent' && e.needs === 'module'), 'no entry leaves a module\'s own row to the route');
+  for (const p of AGENT_ONLY_PERMISSIONS) {
+    assert.ok(p.agentOnly === true && ['agent', 'setup'].includes(p.column), `${p.key}: an agent-only row naming its column`);
+    assert.ok(TICKABLE[p.column].includes(p.key), `${p.key}: a row its column may tick`);
+  }
+  assert.deepEqual(AGENT_BUILT_IN.filter((k) => SETUP_BUILT_IN.includes(k)), [], 'the two kinds share no tickable row (plan-agent-matrix.md, decision 3)');
 });
 
 await test('every entry is a route the app registers (tools/route-table.json)', () => {

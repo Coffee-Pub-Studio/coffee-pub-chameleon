@@ -15,6 +15,9 @@
  *   - the Roles grid (plan-agent-matrix.md, step 2): the Agent column only when the server's `columns` has it; a cell on the server's
  *     `never.agent` list has no box (and is kept aligned); the Agents row has a box only under Agent; the sentence of what an agent
  *     never does is under the grid; a tick saves as it is clicked and is kept; the links to Roles resolve; 1280 and 390 wide;
+ *   - set-up agents (plan-admin-agent.md, step 1): the Set-up agents switch only with AGENT_SETUP, the kind offered only while it
+ *     is on, a set-up agent made from the page and shown as "Claude (set-up agent)", and the grid's Set-up agent column (its two
+ *     rows boxed only there, every other cell of it boxless, a tick saved);
  *   - a member has no Manage page and the server refuses them the agent's token and log (403);
  *   - a script-looking name, route, action, address, message and space name is drawn as text: no element is made, nothing runs;
  *   - a space's Set up, Members: the agent is there as "<name> (agent)" with no moderator tick, and adds like a member;
@@ -48,7 +51,7 @@ async function main() {
   if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
   const dirs = [];
   const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pages-')); dirs.push(d); return d; };
-  let server = null; let plain = null; let browser = null; let exp = null;
+  let server = null; let plain = null; let browser = null; let exp = null; let setup = null;
   try {
     plain = await startServer(tmp(), await freePort(), 'first', { AGENT_TOKENS: '' });
     const dataDir = tmp();
@@ -551,6 +554,66 @@ async function main() {
     expect(tab.problems.length === 0, `Manage: ${tab.problems.join('; ')}`);
     await tab.close();
 
+    // Set-up agents (plan-admin-agent.md, step 1): the switch only with the server's AGENT_SETUP, the kind to choose only while
+    // it is on here, the account shown as "(set-up agent)", and the Roles grid's Set-up agent column (plan-agent-matrix.md,
+    // decision 3): headed in plain words, its two rows boxed only there, every other cell of it boxless.
+    {
+      const t0 = await open(1280, 'dark', 'admin');
+      await go(t0, '/admin#users');
+      await t0.waitFor('#agents-on-server:not([hidden])');
+      expect(await hiddenOf(t0, '#setup-agents-on-server'), 'without AGENT_SETUP the Set-up agents switch shows');
+      expect(t0.problems.length === 0, `users, no AGENT_SETUP: ${t0.problems.join('; ')}`);
+      await t0.close();
+      const dir = tmp(); const port = await freePort();
+      setup = await startServer(dir, port, 'first', { AGENT_TOKENS: 'true', AGENT_SETUP: 'true' });
+      await signIn('admin', setup);
+      expect((await call('admin', 'PATCH', '/api/settings', { agents: true }, setup)).status === 200, 'could not turn Agents on for the set-up block');
+      const t = await open(1280, 'dark', 'admin', setup);
+      await go(t, '/admin#users');
+      await t.waitFor('#setup-agents-on-server:not([hidden])');
+      expect(!(await t.eval(`document.getElementById('set-setup-agents').checked`)), 'Set-up agents start on');
+      await press(t, '#add-agent-toggle');
+      expect(await hiddenOf(t, '#new-agent-kind-field'), 'the kind shows while Set-up agents are off');
+      await press(t, '#set-setup-agents');
+      await sleep(600);
+      expect((await call('admin', 'GET', '/api/settings', undefined, setup)).json.settings.setupAgents === true, 'the switch did not save');
+      expect(!(await hiddenOf(t, '#new-agent-kind-field')), 'the kind does not show once Set-up agents are on');
+      const kinds = await t.eval(`[...document.querySelectorAll('#new-agent-kind option')].map((o) => o.textContent)`);
+      expect(kinds.join() === 'Works in spaces,Sets up spaces', `the kinds read ${kinds}`);
+      await t.eval(`document.getElementById('new-agent-kind').value = 'setup'`);
+      await press(t, '#add-agent button[type="submit"]');
+      await t.waitFor('#agent-page:not([hidden])');
+      const made = (await call('admin', 'GET', '/api/users', undefined, setup)).json.users.find((u) => u.agent);
+      expect(made && made.kind === 'setup', `the page made ${made && made.kind}`);
+      expect(await waitText(t, '[data-agent-title]', 'Claude (set-up agent)'), `its page is titled ${await text(t, '[data-agent-title]')}`);
+      await go(t, '/admin#users');
+      await t.waitFor('#users .user-card');
+      expect((await text(t, `#users .user-card[data-key="${made.key}"] [data-name]`)) === 'Claude (set-up agent)', 'its row does not read Claude (set-up agent)');
+      const roles = (await call('admin', 'GET', '/api/roles', undefined, setup)).json;
+      expect(roles.columns.join() === 'owner,moderator,member,guest,agent,setup', `the server's columns are ${roles.columns}`);
+      await go(t, '/admin#roles');
+      await t.waitFor('#roles-table tbody tr');
+      const g = await t.eval(`(() => ({
+        heads: [...document.querySelectorAll('#roles-table thead th')].slice(1).map((h) => h.textContent.trim()),
+        rows: [...document.querySelectorAll('#roles-table tbody tr:not(.sdk-table-group)')].map((tr) => ({ key: (tr.querySelector('input') || { dataset: {} }).dataset.perm || null, cells: tr.children.length, boxes: [...tr.querySelectorAll('td')].map((td) => !!td.querySelector('input')) })),
+      }))()`);
+      expect(g.heads.join() === 'Owner,Moderator,Member,Guest,Agent,Set-up agent', `the columns are ${g.heads.join(', ')}`);
+      expect(g.rows.every((r) => r.cells === 7), 'a row is not seven cells wide');
+      for (const key of ['agentMakeSpaces', 'agentChangeSpaces']) {
+        const row = g.rows.find((r) => r.key === key);
+        expect(row && row.boxes.join() === 'false,false,false,false,false,true', `the ${key} row's boxes are ${row && row.boxes}`);
+      }
+      const members = g.rows.find((r) => r.key === 'agentMembers');
+      expect(members && members.boxes.join() === 'false,false,false,false,true,false', `the agentMembers row's boxes are ${members && members.boxes}`);
+      expect(g.rows.filter((r) => r.key && !['agentMakeSpaces', 'agentChangeSpaces'].includes(r.key)).every((r) => !r.boxes[5]), 'a box under Set-up agent on a row it can never have');
+      await press(t, '#roles-table input[data-role="setup"][data-perm="agentMakeSpaces"]');
+      await sleep(500);
+      expect((await call('admin', 'GET', '/api/roles', undefined, setup)).json.roles.setup.agentMakeSpaces === true, 'a tick in the Set-up agent column did not save');
+      await shot(t, 'roles-setup-agent-1280-dark');
+      expect(t.problems.length === 0, `set-up agents: ${t.problems.join('; ')}`);
+      await t.close();
+    }
+
     // How long a token lasts, (the page counts days by its own clock, frozen by tools/shots.mjs): the default,
     // Never expires (no date, never "NaN"), the warning inside 7 days, and the line once it has ended (stored tokens, the server restarted).
     {
@@ -641,6 +704,7 @@ async function main() {
     await stopServer(server);
     await stopServer(plain);
     await stopServer(exp);
+    await stopServer(setup);
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
   }
   if (failures.length) { for (const f of failures) console.error('check-agent-pages: ' + f); return 1; }

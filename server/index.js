@@ -82,7 +82,7 @@ const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView, LIFETIMES, DEFAULT_LIFETIME: DEFAULT_TOKEN_LIFETIME } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
-const { AGENT_ROUTES, agentMayAsk } = require('./agent-routes');
+const { AGENT_ROUTES, SETUP_LIMITS, agentMayAsk } = require('./agent-routes');
 const { createMcp } = require('./mcp');
 const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
@@ -235,6 +235,9 @@ const {
   // agents on (Manage, Agents) and make agent accounts with a token. Off unless 'true': a server without it behaves
   // exactly as before, and an agent's token is read as any other unknown bearer value.
   AGENT_TOKENS = '',
+  // Set-up agents (documentation/plans/plan-admin-agent.md, decision 7): AGENT_SETUP=true, on top of AGENT_TOKENS=true, lets
+  // each environment's owner turn on Set-up agents and make set-up agents, which make and name spaces. Off unless 'true'.
+  AGENT_SETUP = '',
 } = process.env;
 // The product's own name -- configuration, never code: PRODUCT_NAME, or the default when it is unset, empty or only
 // spaces. One rule, productName() in server/product-name.js, for everything the server answers and says.
@@ -289,6 +292,10 @@ if (templateId && !BASE_DOMAIN && !templates.get(templateId)) {
 const mfaOffered = ENABLE_MFA !== 'false';
 const agentTokensOn = String(AGENT_TOKENS).trim() === 'true';
 if (!agentTokensOn && !['', 'false'].includes(String(AGENT_TOKENS).trim())) console.warn(`AGENT_TOKENS=${String(AGENT_TOKENS).trim().slice(0, 40)} is not true or false: agents stay off.`);
+const agentSetupAsked = String(AGENT_SETUP).trim() === 'true';
+const setupOn = agentTokensOn && agentSetupAsked;
+if (!agentSetupAsked && !['', 'false'].includes(String(AGENT_SETUP).trim())) console.warn(`AGENT_SETUP=${String(AGENT_SETUP).trim().slice(0, 40)} is not true or false: set-up agents stay off.`);
+if (agentSetupAsked && !agentTokensOn) console.warn('AGENT_SETUP=true needs AGENT_TOKENS=true too: set-up agents stay off.');
 const adminMfaLockoutBypass = ADMIN_MFA_LOCKOUT_BYPASS === 'true';
 const hostMfaRequired = HOST_MFA_REQUIRED === 'true' || HOST_MFA === 'required';
 // BILLING_CHECKOUT_<PLAN ID>, e.g. BILLING_CHECKOUT_PRO for the plan "pro"; none set means that plan is not
@@ -770,6 +777,8 @@ function environmentFor(slug) {
   env.store.callService = HAS_CALL_SERVICE;
   // The Roles grid's Agent column is shown, and can be ticked, only while the server has agents (AGENT_TOKENS).
   env.store.agentColumn = agentTokensOn;
+  // The set-up agent's column only while the server has set-up agents too (AGENT_SETUP; plan-agent-matrix.md, decision 3).
+  env.store.setupColumn = setupOn;
   // Whether a system layout (calendar, map, conference, whiteboard, documents) is on in a space, whoever asks: its destination
   // resolves there (module on in the space, map file present); the conference while the server has a call service and the
   // environment's switch is on; Whiteboards and Documents while their module is on in the space. A space's defaultLayout
@@ -1823,7 +1832,8 @@ function publicUser(req, u, opts = {}) {
     hasPassword: !!u.passwordHash,
     ...(u.demo ? { demo: true } : {}), // a demo person, made by a demo load (server/demo-loader.js)
     // An agent account (plan-agent-access.md): the pages add "(agent)" after its name; `off` while its owner turned it off.
-    ...(u.agent ? { agent: true, off: u.off === true } : {}),
+    // `kind: "setup"` for a set-up agent (plan-admin-agent.md): the pages show "(set-up agent)" instead.
+    ...(u.agent ? { agent: true, off: u.off === true, ...(u.kind === 'setup' ? { kind: 'setup' } : {}) } : {}),
     mfaEnrolled: Boolean(u.mfa), // the only mfa field a person other than the account itself ever sees
     // The personal link only for those maySeeLink allows; left out entirely for anyone else.
     ...(maySeeLink(req, u, opts) ? { link: u.linkToken ? `${baseUrl(req)}/j/${u.linkToken}` : null } : {}),
@@ -3607,6 +3617,9 @@ if (BASE_DOMAIN) {
 // and a day), then checked for its place: a space the agent is not in is the unknown space's 404; a scope other than
 // `space` is 403. Each call is written to the agent's log with no content (the agent-log/ folder, server/agent-log.js).
 const AGENT_TOKEN_PREFIX = 'agt_';
+// The mark after an agent account's name, as people read it: " (agent)", or " (set-up agent)" for the set-up kind
+// (plan-admin-agent.md, decision 2).
+const agentMark = (u) => (u && u.kind === 'setup' ? ' (set-up agent)' : ' (agent)');
 const AGENT_TOKEN_INVALID = 'That agent token is not valid.';
 const AGENT_CANT = "An agent can't do that.";
 const AGENT_CANT_ASK = "An agent can't ask for that.";
@@ -3621,6 +3634,14 @@ const agentSpaceOf = (agent, id) => {
   return agentWorksIn(agent, space) ? space : null;
 };
 const agentSpaces = (agent) => store.spaces.filter((r) => agentWorksIn(agent, r));
+// A space a set-up agent made and may still change (plan-admin-agent.md, decision 3): marked with its key (until an owner
+// chooses Keep) and with the agent still one of its members. Never the Lobby, never a space a person made.
+const agentMadeOf = (agent, id) => {
+  if (typeof id !== 'string' || !agent || agent.kind !== 'setup') return null;
+  const space = store.spaceById(id);
+  return space && space.id !== LOBBY && space.madeBy === agent.key && space.members.includes(agent.key) ? space : null;
+};
+const agentMadeSpaces = (agent) => store.spaces.filter((r) => agentMadeOf(agent, r.id));
 // Whether a pointer is into one of the agent's spaces.
 const agentSeesRef = (agent, ref) => Boolean(ref) && typeof ref === 'object' && ref.scope === 'space' && Boolean(agentSpaceOf(agent, ref.space));
 // A route's own check of the place a call names: null to let it on, else { status, error } (and the space it named, for
@@ -3629,6 +3650,8 @@ const agentNoSuchSpace = () => ({ status: 404, error: `no such ${word('space')}`
 const agentAt = {
   none: () => null,
   spaceParam: (req, agent) => (agentSpaceOf(agent, req.params.id) ? null : agentNoSuchSpace()),
+  // A set-up agent's change: the space must be one it made (agentMadeOf); any other is the unknown space's 404.
+  madeParam: (req, agent) => (agentMadeOf(agent, req.params.id) ? null : agentNoSuchSpace()),
   spaceScope: (req, agent) => {
     if (req.query.scope !== 'space') return { status: 403, error: AGENT_CANT };
     return agentSpaceOf(agent, req.query.space) ? null : agentNoSuchSpace();
@@ -3654,6 +3677,7 @@ const agentAt = {
 // The space a call names, for the log: only one of the agent's own, never whatever was sent.
 const agentLogSpace = {
   spaceParam: (req) => req.params.id,
+  madeParam: (req) => req.params.id,
   spaceScope: (req) => req.query.space,
   linkRef: (req) => { try { return JSON.parse(String(req.query.ref || '')).space; } catch { return null; } },
 };
@@ -3671,20 +3695,25 @@ const mcp = createMcp({
   serverInfo: { name: PRODUCT_NAME, version: VERSION },
 });
 // The list matched by Express's own router, so a path reads exactly as the app's routes read it (any case, a trailing
-// slash, the same parameters): each match notes its rule and leaves the router at once.
-const agentRoutes = express.Router();
+// slash, the same parameters): each match notes its rule and leaves the router at once. One router per kind of agent: a
+// token reaches only its own kind's entries (the set-up agent's are plan-admin-agent.md's), and the other's are 403.
+const agentRoutes = { agent: express.Router(), setup: express.Router() };
+const agentKindOf = (agent) => (agent.kind === 'setup' ? 'setup' : 'agent');
 for (const { kind: who, method, path: pattern, counts: kind, place: at, needs } of AGENT_ROUTES) {
-  if (who !== 'agent') continue;
-  agentRoutes[method](pattern, (req, _res, next) => {
+  agentRoutes[who][method](pattern, (req, _res, next) => {
     const agent = req.agent.user;
     const named = agentLogSpace[at] ? agentLogSpace[at](req) : null;
-    req.agent.rule = { pattern, kind, needs, refusal: agentAt[at](req, agent), space: typeof named === 'string' && agentSpaceOf(agent, named) ? named : null };
+    const ours = typeof named === 'string' && (at === 'madeParam' ? agentMadeOf(agent, named) : agentSpaceOf(agent, named));
+    req.agent.rule = { pattern, kind, needs, refusal: agentAt[at](req, agent), space: ours ? named : null };
     next('router');
   });
 }
-// Whether what a route on the list needs holds for the agent: a key ticked in the Agent column; `module` and `always` pass
-// here (a module's own permission is the route's to check, against the same column).
-const agentNeedHolds = (needs) => needs === 'always' || needs === 'module' || Boolean(store.roleSet('agent')[needs]);
+// Whether what a route on the list needs holds for the agent: a key ticked in its kind's column (the Agent column, or the
+// set-up agent's); `module` and `always` pass here (a module's own permission is the route's to check, against the same
+// column).
+const agentNeedHolds = (needs, column) => needs === 'always' || needs === 'module' || Boolean(store.roleSet(column)[needs]);
+// Whether the set-up kind may work here: the server's AGENT_SETUP and the environment's Set-up agents switch.
+const setupAgentsOn = () => setupOn && store.settings.setupAgents === true;
 // The agent's token from the Authorization header, or null when the request carries none (then this is not the gate's).
 function agentBearer(req) {
   const header = req.get('authorization') || '';
@@ -3738,17 +3767,19 @@ function agentGate(req, res, next) {
   res.set('Cache-Control', 'no-store');
   const record = env.tokens.find(token, 'agent', { evenExpired: true });
   const agent = record ? store.userByKey(record.user) : null;
-  if (!record || !agent || !agent.agent || agent.off || store.settings.agents !== true || !env.tokens.live(record)) {
-    // A token that is an agent's but no longer good (past its end, the agent turned off, Agents off) is noted in that
-    // agent's log, at most once a minute; an unknown one names nobody and is not.
+  if (!record || !agent || !agent.agent || agent.off || store.settings.agents !== true || !env.tokens.live(record) || (agent.kind === 'setup' && !setupAgentsOn())) {
+    // A token that is an agent's but no longer good (past its end, the agent turned off, Agents off, or for a set-up agent
+    // AGENT_SETUP or Set-up agents off) is noted in that agent's log, at most once a minute; an unknown one names nobody
+    // and is not.
     if (record && agent && agent.agent) env.agentLog.note({ agent: agent.key, token: record.id, method: req.method, ...agentLogRoute(req, res, env), status: 401, address });
     return res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: AGENT_TOKEN_INVALID });
   }
   req._user = agent;
   req.agent = { user: agent, token: record, rule: null };
-  // Only GET, HEAD and POST are on the list; anything else is refused without asking the router (which would answer an
-  // OPTIONS itself).
-  const match = ['GET', 'HEAD', 'POST'].includes(req.method) ? agentRoutes : (_req, _res, done) => done();
+  // Only GET, HEAD, POST and (for the set-up agent) PATCH are on the list; anything else is refused without asking the
+  // router (which would answer an OPTIONS itself). Each kind is matched against its own entries only.
+  const column = agentKindOf(agent);
+  const match = ['GET', 'HEAD', 'POST', 'PATCH'].includes(req.method) ? agentRoutes[column] : (_req, _res, done) => done();
   match(req, res, (err) => {
     if (err) return next(err);
     const rule = req.agent.rule;
@@ -3779,14 +3810,16 @@ function agentGate(req, res, next) {
       if (logged) return;
       logged = true;
       const extra = res.locals.agentLog || {};
-      env.agentLog.write({ ...line(), action: extra.action, request: extra.request, message: extra.message, status: res.statusCode, kind });
+      // The space a set-up agent just made is named by the route (extra.space), and kept only when it is one it made.
+      const space = (rule && rule.space) || (typeof extra.space === 'string' && agentMadeOf(agent, extra.space) ? extra.space : null);
+      env.agentLog.write({ ...line(), space, action: extra.action, request: extra.request, message: extra.message, change: extra.change, status: res.statusCode, kind });
     };
     res.once('finish', writeLine);
     res.once('close', writeLine);
     if (req.bodyError) return next(req.bodyError); // a body that could not be read: counted and logged, then answered as before
     if (!rule) return res.status(403).json({ error: AGENT_CANT });
     if (rule.refusal) return res.status(rule.refusal.status).json({ error: rule.refusal.error });
-    if (!agentNeedHolds(rule.needs)) return res.status(403).json({ error: AGENT_CANT });
+    if (!agentNeedHolds(rule.needs, column)) return res.status(403).json({ error: AGENT_CANT });
     return next();
   });
 }
@@ -5544,7 +5577,8 @@ app.get('/api/users/:key', requireOwner, (req, res) => {
 });
 
 app.post('/api/users', requireOwner, (req, res) => {
-  // `agent: true` makes an agent account instead (plan-agent-access.md): { agent: true, displayName? } and nothing else.
+  // `agent: true` makes an agent account instead (plan-agent-access.md): { agent: true, displayName?, kind? } and nothing else
+  // (`kind: "setup"` for a set-up agent, plan-admin-agent.md).
   if ((req.body || {}).agent !== undefined) return addAgent(req, res);
   if (refuseOverMembers(res)) return;
   const { login, displayName, role, password, passwordless, demo } = req.body || {};
@@ -5559,6 +5593,8 @@ app.patch('/api/users/:key', requireOwner, (req, res) => {
   const { login, displayName, role, password, player, off } = req.body || {};
   // The demo mark is set only when a demo load makes the account (POST /api/users), never changed afterwards.
   if ((req.body || {}).demo !== undefined) return res.status(400).json({ error: "demo can't be changed here" });
+  // An agent's kind is chosen when it is made and never changes (plan-admin-agent.md, decision 1); nobody else has one.
+  if ((req.body || {}).kind !== undefined) return res.status(400).json({ error: "An agent's kind is chosen when it is made and can't change." });
   // `off` turns an agent off or on again (plan-agent-access.md): checked before anything changes.
   if (off !== undefined) {
     const target = store.userByKey(req.params.key);
@@ -5614,6 +5650,11 @@ app.delete('/api/users/:key/link', requireOwner, (req, res) => {
 const AGENTS_OFF_SERVER = 'Agents are off on this server.';
 const agentsOffHere = () => `Agents are off in this ${word('environment')}. Turn on Agents in Manage first.`;
 const agentsRefusal = () => (!agentTokensOn ? AGENTS_OFF_SERVER : store.settings.agents !== true ? agentsOffHere() : null);
+// Set-up agents (plan-admin-agent.md, decision 7): AGENT_SETUP on the server, and the owner's Set-up agents switch, on top of
+// everything agents need. Asked of making a set-up agent and its token; never of reading, revoking, turning off or deleting.
+const SETUP_OFF_SERVER = 'Set-up agents are off on this server.';
+const setupOffHere = () => `Set-up agents are off in this ${word('environment')}. Turn on Set-up agents in Manage first.`;
+const setupRefusal = () => agentsRefusal() || (!setupOn ? SETUP_OFF_SERVER : store.settings.setupAgents !== true ? setupOffHere() : null);
 // The agent `:key` names, or null after answering: 404 for no such account, 400 for a person.
 function agentNamed(req, res) {
   const user = store.userByKey(req.params.key);
@@ -5621,15 +5662,17 @@ function agentNamed(req, res) {
   if (!user.agent) return void res.status(400).json({ error: 'That account is not an agent.' });
   return user;
 }
-// POST /api/users { agent: true, displayName? }: a new agent account, a member in no space, 201 { user }.
+// POST /api/users { agent: true, displayName?, kind? }: a new agent account, a member in no space, 201 { user }. `kind: "setup"`
+// makes a set-up agent (plan-admin-agent.md), which needs AGENT_SETUP and Set-up agents too.
 function addAgent(req, res) {
   const body = req.body || {};
   if (body.agent !== true) return res.status(400).json({ error: 'agent must be true.' });
-  const refused = agentsRefusal();
+  if (body.kind !== undefined && body.kind !== 'setup') return res.status(400).json({ error: `kind is setup, or left out for an agent that works in ${word('space', { many: true })}.` });
+  const refused = body.kind === 'setup' ? setupRefusal() : agentsRefusal();
   if (refused) return res.status(403).json({ error: refused });
-  if (Object.keys(body).some((k) => k !== 'agent' && k !== 'displayName')) return res.status(400).json({ error: AGENT_CANT_BE });
+  if (Object.keys(body).some((k) => k !== 'agent' && k !== 'displayName' && k !== 'kind')) return res.status(400).json({ error: AGENT_CANT_BE });
   if (refuseOverMembers(res)) return undefined;
-  const user = store.addAgent({ displayName: body.displayName });
+  const user = store.addAgent({ displayName: body.displayName, ...(body.kind === 'setup' ? { kind: 'setup' } : {}) });
   return res.status(201).json({ user: publicUser(req, user) });
 }
 // GET: { token: { id, createdAt, lifetime, expiresAt (null for never), lastUsedAt, lastAddress } } or { token: null }. Never the token or its hash.
@@ -5648,7 +5691,7 @@ app.post('/api/users/:key/token', requireOwner, (req, res) => {
   if (Object.keys(body).some((k) => k !== 'expires')) return res.status(400).json({ error: 'Only expires can be sent.' });
   const lifetime = body.expires === undefined ? DEFAULT_TOKEN_LIFETIME : body.expires;
   if (typeof lifetime !== 'string' || !Object.hasOwn(LIFETIMES, lifetime)) return res.status(400).json({ error: `expires is one of: ${Object.keys(LIFETIMES).join(', ')}.` });
-  const refused = agentsRefusal();
+  const refused = agent.kind === 'setup' ? setupRefusal() : agentsRefusal();
   if (refused) return res.status(403).json({ error: refused });
   if (agent.off) return res.status(409).json({ error: 'This agent is turned off. Turn it on first.' });
   const { token, record } = currentEnvironment().tokens.make(agent.key, 'agent', lifetime);
@@ -5678,20 +5721,29 @@ app.get('/api/users/:key/agent-log', requireOwner, (req, res) => {
 // The agent's own view of itself, through its token only: who it is, when its token ends, its spaces, its limits with what
 // it has used today, and `permissions`: the keys ticked in the Agent column that a route on the gate's list needs (so a
 // client can tell what it may call; a module's own rows are not here, the actions list's `may` says those).
-const AGENT_ROUTE_KEYS = [...new Set(AGENT_ROUTES.filter((r) => r.kind === 'agent' && r.needs !== 'module' && r.needs !== 'always').map((r) => r.needs))];
-const agentPermissions = () => { const set = store.roleSet('agent'); return AGENT_ROUTE_KEYS.filter((k) => set[k]); };
+// `kind`: `agent` or `setup` (plan-admin-agent.md). A set-up agent's `spaces` are the ones it made and may still change, and
+// its limits carry the day's caps on making and changing them.
+const routeKeysOf = (kind) => [...new Set(AGENT_ROUTES.filter((r) => r.kind === kind && r.needs !== 'module' && r.needs !== 'always').map((r) => r.needs))];
+const AGENT_ROUTE_KEYS = { agent: routeKeysOf('agent'), setup: routeKeysOf('setup') };
+const agentPermissions = (kind) => { const set = store.roleSet(kind); return AGENT_ROUTE_KEYS[kind].filter((k) => set[k]); };
 app.get('/api/agent/me', (req, res) => {
   if (!req.agent) return currentUser(req) ? res.status(403).json({ error: "This is for an agent's token only." }) : res.status(401).json({ error: 'sign in first' });
   const agent = req.agent.user;
+  const kind = agentKindOf(agent);
   const used = currentEnvironment().agentLog.usedToday(agent.key);
   res.json({
     agent: { key: agent.key, name: agent.displayName },
-    permissions: agentPermissions(),
+    kind,
+    permissions: agentPermissions(kind),
     expiresAt: req.agent.token.expiresAt,
-    spaces: agentSpaces(agent).map((r) => ({ id: r.id, name: r.name })),
+    spaces: (kind === 'setup' ? agentMadeSpaces(agent) : agentSpaces(agent)).map((r) => ({ id: r.id, name: r.name })),
     limits: {
       reads: { perMinute: AGENT_LIMITS.read.perMinute, perDay: AGENT_LIMITS.read.perDay, usedToday: used.read },
       writes: { perMinute: AGENT_LIMITS.write.perMinute, perDay: AGENT_LIMITS.write.perDay, usedToday: used.write },
+      ...(kind === 'setup' ? {
+        made: { perDay: SETUP_LIMITS.made, usedToday: used.made },
+        changes: { perDay: SETUP_LIMITS.changes, usedToday: used.changes },
+      } : {}),
     },
   });
 });
@@ -5707,10 +5759,107 @@ app.get('/api/spaces/:id/members', (req, res) => {
   const members = [];
   for (const key of space.members) {
     const person = store.userByKey(key);
-    if (person) members.push({ key: person.key, name: person.agent ? `${person.displayName} (agent)` : person.displayName });
+    if (person) members.push({ key: person.key, name: person.agent ? `${person.displayName}${agentMark(person)}` : person.displayName });
   }
   res.set('Cache-Control', 'no-store').json({ members });
 });
+// --- the set-up agent's own routes (documentation/plans/plan-admin-agent.md, step 1) ---------------------------------
+// A set-up agent (kind "setup") makes spaces from a template and renames them, changes their description and their icon,
+// only for spaces it made (agentMadeOf). These are its own routes, never PATCH /api/spaces/:id opened to an agent: each
+// takes a fixed body and refuses any other key, so a field added to the owners' routes can never reach an agent. The gate
+// has already let only a set-up agent's token on (server/agent-routes.js, kind setup), counted the call as a write, and,
+// for a change, answered 404 for a space it did not make; each route asks again so it never answers for anyone else. On top
+// of the agent limits: SETUP_LIMITS a day (spaces made, changes), counted from its log so a restart keeps them.
+const SETUP_ONLY = "This is for a set-up agent's token only.";
+const setupAgentOf = (req, res) => {
+  if (!req.agent) return void (currentUser(req) ? res.status(403).json({ error: SETUP_ONLY }) : res.status(401).json({ error: 'sign in first' }));
+  if (req.agent.user.kind !== 'setup') return void res.status(403).json({ error: AGENT_CANT });
+  return req.agent.user;
+};
+// The body of a set-up call: a JSON object with only the keys named. null after answering 400.
+function setupBody(req, res, keys) {
+  const body = req.body;
+  const shape = `{ ${keys.join(', ')} }`;
+  if (!req.is('application/json') || !body || typeof body !== 'object' || Array.isArray(body)) return void res.status(400).json({ error: `Send ${shape} as JSON.` });
+  const other = Object.keys(body).find((k) => !keys.includes(k));
+  if (other !== undefined) return void res.status(400).json({ error: `Only ${keys.join(', ')} can be sent.` });
+  for (const k of ['name', 'description', 'icon', 'template']) {
+    if (body[k] !== undefined && typeof body[k] !== 'string') return void res.status(400).json({ error: `${k} is text.` });
+  }
+  if (body.name !== undefined && !cleanText(body.name, 60)) return void res.status(400).json({ error: `A ${word('space')} needs a name.` });
+  return body;
+}
+// The templates a set-up agent may make a space from: those the environment offers (every one not hidden) while spaces may
+// have a template of their own, else the environment's own (the space then reads the environment's).
+function setupTemplates() {
+  const env = currentEnvironment();
+  if (store.spaceTemplatesOn()) return templateChoices(env).map(({ id, name }) => ({ id, name }));
+  const own = store.environmentTemplate() || templateFor(env, templates.DEFAULT_ID);
+  return own ? [{ id: own.id, name: own.name }] : [];
+}
+const setupOver = (res, retrySeconds, error) => res.status(429).set('Retry-After', String(retrySeconds)).json({ error });
+// GET /api/agent/templates: { templates: [{ id, name }] }.
+app.get('/api/agent/templates', (req, res) => {
+  if (!setupAgentOf(req, res)) return;
+  res.set('Cache-Control', 'no-store').json({ templates: setupTemplates() });
+});
+// GET /api/agent/icons: { icons: [id] }, the icons a space may have (what the environment offers).
+app.get('/api/agent/icons', (req, res) => {
+  if (!setupAgentOf(req, res)) return;
+  res.set('Cache-Control', 'no-store').json({ icons: store.spaceIconIds(null) });
+});
+// POST /api/agent/spaces { name, template, description?, icon? }: a new space from a template the environment offers, with
+// the template's modules and starter content, marked `madeBy` the agent, which joins its members. 200 { space: { id, name } }.
+app.post('/api/agent/spaces', (req, res) => {
+  const agent = setupAgentOf(req, res);
+  if (!agent) return;
+  const body = setupBody(req, res, ['name', 'template', 'description', 'icon']);
+  if (!body) return;
+  if (body.name === undefined) return res.status(400).json({ error: `A ${word('space')} needs a name.` });
+  if (!setupTemplates().some((t) => t.id === body.template)) return res.status(400).json({ error: `That template is not one this ${word('environment')} offers.` });
+  const log = currentEnvironment().agentLog;
+  const room = log.roomFor(agent.key, 'made', SETUP_LIMITS.made);
+  if (!room.ok) return setupOver(res, room.retrySeconds, `This agent has made as many ${word('space', { many: true })} as it may today.`);
+  const made = store.addSpace({
+    name: body.name,
+    description: body.description,
+    ...(body.icon !== undefined ? { linkIcon: body.icon } : {}),
+    ...(store.spaceTemplatesOn() ? { template: body.template } : {}),
+    creator: agent.key,
+    madeBy: agent.key,
+  });
+  log.spent(agent.key, 'made');
+  res.locals.agentLog = { space: made.id, change: 'made' };
+  // Its template's starter content, once, as a person's Set up writes it: by the agent, with the template's rights (the
+  // set-up agent's own column holds no module row).
+  fillStarter(made, agent, { templateRights: true });
+  res.json({ space: { id: made.id, name: made.name } });
+});
+// PATCH /api/agent/spaces/:id { name?, description?, icon? }: a change to a space the agent made, only these three.
+// 200 { space: { id, name, description, icon } }.
+const SETUP_CHANGE_WORDS = { name: 'renamed', description: 'described', icon: 'icon' };
+app.patch('/api/agent/spaces/:id', (req, res) => {
+  const agent = setupAgentOf(req, res);
+  if (!agent) return;
+  const space = agentMadeOf(agent, req.params.id);
+  if (!space) return res.status(404).json({ error: `no such ${word('space')}` });
+  const body = setupBody(req, res, ['name', 'description', 'icon']);
+  if (!body) return;
+  const sent = Object.keys(SETUP_CHANGE_WORDS).filter((k) => body[k] !== undefined);
+  if (!sent.length) return res.status(400).json({ error: 'Send at least one of name, description or icon.' });
+  const log = currentEnvironment().agentLog;
+  const room = log.roomFor(agent.key, 'changes', SETUP_LIMITS.changes);
+  if (!room.ok) return setupOver(res, room.retrySeconds, AGENT_OVER);
+  const patch = {};
+  if (body.name !== undefined) patch.name = body.name;
+  if (body.description !== undefined) patch.description = body.description;
+  if (body.icon !== undefined) patch.linkIcon = body.icon;
+  const changed = store.updateSpace(space.id, patch);
+  log.spent(agent.key, 'changes');
+  res.locals.agentLog = { change: sent.map((k) => SETUP_CHANGE_WORDS[k]).join(',') };
+  res.json({ space: { id: changed.id, name: changed.name, description: changed.description, icon: changed.linkIcon } });
+});
+
 // The MCP door for agents (server/mcp.js): POST /mcp and GET /mcp (405), through the agent gate like every route above.
 mcp.mount();
 
@@ -6058,6 +6207,7 @@ const scopeKeyOf = (scope, { spaceId = null, userKey = null } = {}) => (scope ==
 
 function modulePerms(who, spaceId) {
   if (who.keyed) return {};
+  if (who.templateRights) return store.roleSet('owner'); // a template's starter content only (fillStarter)
   return who.user ? store.spacePermissions(who.user.key, spaceId) : store.roleSet('guest');
 }
 
@@ -10173,7 +10323,7 @@ function plainName(name) {
 function activityNames(a) {
   const named = (key) => {
     const u = store.userByKey(key);
-    if (u) return `${plainName(u.displayName)}${u.agent ? ' (agent)' : ''}`;
+    if (u) return `${plainName(u.displayName)}${u.agent ? agentMark(u) : ''}`;
     return key === 'guest' ? word('guest', { a: true }) : 'someone';
   };
   const askerName = named(a.by);
@@ -12326,7 +12476,9 @@ function copyRemoveRefusal(ctx, key, copies = copySight(ctx.who)) {
 // now, the creator's write permission, the guards, the key rule and the caps, and never over a value already there
 // (expected 0). With `skip`, only claimed. A write that fails is skipped and logged; nothing is thrown. Answers
 // { done: false } for a space claimed before, else { done: true, written, skipped: [{ module, key?, why }] }.
-function fillStarter(space, creator, { skip = false, where = '' } = {}) {
+// `templateRights`: the content is the template's, written with an owner's module rights though `by` the creator (a set-up
+// agent, whose own column holds no module row; plan-admin-agent.md, "starter content as usual").
+function fillStarter(space, creator, { skip = false, where = '', templateRights = false } = {}) {
   if (!space || !store.claimStarter(space.id)) return { done: false };
   const out = { done: true, written: 0, skipped: [] };
   if (skip) return out;
@@ -12341,7 +12493,7 @@ function fillStarter(space, creator, { skip = false, where = '' } = {}) {
     if (!creator) out.skipped.push({ module: block.module, why: `nobody made the ${word('space')}` });
     else if (!found || !found.manifest.scope.includes('space')) out.skipped.push({ module: block.module, why: found ? `does not work in a ${word('space')}` : 'is not on' });
     else {
-      const at = moduleAccessAt(found, { user: creator, guestSpace: null }, 'space', space, 'own');
+      const at = moduleAccessAt(found, { user: creator, guestSpace: null, ...(templateRights ? { templateRights: true } : {}) }, 'space', space, 'own');
       if (at.error) out.skipped.push({ module: block.module, why: at.error });
       else ctx = at.ctx;
     }
@@ -13287,9 +13439,10 @@ app.get('/api/modules/:id/events', (req, res) => {
   }));
 });
 
-// `columns`: the grid's columns in order (the four, then `agent` while AGENT_TOKENS is on); `never`: for each column that
-// has them, the rows it can never have (a guest's locked ones; every row the Agent column may not tick), which PATCH
-// refuses (plan-agent-matrix.md, decisions 4 and 6). Agent-only rows carry `agentOnly: true`.
+// `columns`: the grid's columns in order (the four, then `agent` while AGENT_TOKENS is on, then `setup` while AGENT_SETUP is
+// on too); `never`: for each column that has them, the rows it can never have (a guest's locked ones; every row an agent
+// column may not tick), which PATCH refuses (plan-agent-matrix.md, decisions 3, 4 and 6). Agent-only rows carry
+// `agentOnly: true` and `column`, the one agent column with a box on them.
 app.get('/api/roles', requireOwner, (_req, res) => res.json({ permissions: store.allPermissions(), roles: store.roles(), columns: store.roleColumns(), never: store.neverRows() }));
 app.patch('/api/roles/:role', requireOwner, (req, res) => {
   const roles = store.setRolePermissions(req.params.role, req.body || {});
@@ -13316,7 +13469,7 @@ app.get('/api/currencies', requireUser, (_req, res) => res.json({ currencies: cu
 // calendarFeeds until an owner sets it); `publishedCalendarFeed`: { on, made, readAt }, the published calendar's one
 // address as it stands (plan-space-calendars.md, section 2), never its hash. `topBarReasons`: { calendar, map }, why
 // each cannot show whatever its switch (one sentence), or null.
-const ownerSettings = () => ({ ...branding(), guestDoorHost: hostGuestDoorOn(), guestDoorOpen: guestDoorHasOpenSpace(), guestHours: currentEnvironment().guestLimits.hours, ownWords: store.ownWords(), ownHomeIcon: store.settings.homeIcon || null, ownReactions: store.settings.reactions, ownIcons: store.settings.icons, builtIn: { reactions: DEFAULT_REACTION_LIST, icons: DEFAULT_ICON_LIST }, template: templateView(store, currentEnvironment()), templateWords: store.templateWordsView(), templateHomeIcon: store.templateHomeIcon || null, spaceDefaults: store.settings.spaceDefaults || null, showCalendar: store.settings.showCalendar === true, showMap: store.settings.showMap === true, calendarFeeds: store.settings.calendarFeeds === true, otherCalendars: store.otherCalendarsOn(), publishedCalendar: store.settings.publishedCalendar === true, publishedCalendarFeed: feedView(store.publishedCalendarFeed), topBarReasons: destinationReasons(), agentTokens: agentTokensOn, agents: store.settings.agents === true });
+const ownerSettings = () => ({ ...branding(), guestDoorHost: hostGuestDoorOn(), guestDoorOpen: guestDoorHasOpenSpace(), guestHours: currentEnvironment().guestLimits.hours, ownWords: store.ownWords(), ownHomeIcon: store.settings.homeIcon || null, ownReactions: store.settings.reactions, ownIcons: store.settings.icons, builtIn: { reactions: DEFAULT_REACTION_LIST, icons: DEFAULT_ICON_LIST }, template: templateView(store, currentEnvironment()), templateWords: store.templateWordsView(), templateHomeIcon: store.templateHomeIcon || null, spaceDefaults: store.settings.spaceDefaults || null, showCalendar: store.settings.showCalendar === true, showMap: store.settings.showMap === true, calendarFeeds: store.settings.calendarFeeds === true, otherCalendars: store.otherCalendarsOn(), publishedCalendar: store.settings.publishedCalendar === true, publishedCalendarFeed: feedView(store.publishedCalendarFeed), topBarReasons: destinationReasons(), agentTokens: agentTokensOn, agents: store.settings.agents === true, agentSetup: setupOn, setupAgents: store.settings.setupAgents === true });
 app.get('/api/settings', requireOwner, (_req, res) => res.json({ settings: ownerSettings(), streamKey: store.streamKey }));
 // `template` (an id) switches the environment's template (the switching addendum): taken out of the body before the
 // settings; an unknown one refuses the whole change. With it, the answer also carries `template` and `offer`.
@@ -13327,6 +13480,8 @@ app.patch('/api/settings', requireOwner, settingsJson, async (req, res) => {
   if (rest.conferenceEnabled === true && store.settings.conferenceEnabled === false && !HAS_CALL_SERVICE) return res.status(503).json({ error: NO_CALL_SERVICE });
   // The Agents switch turns on only while the server's AGENT_TOKENS is on (plan-agent-access.md); off always goes through.
   if (rest.agents === true && store.settings.agents !== true && !agentTokensOn) return res.status(403).json({ error: AGENTS_OFF_SERVER });
+  // Set-up agents turn on only while the server's AGENT_SETUP (and AGENT_TOKENS) is on (plan-admin-agent.md, decision 7).
+  if (rest.setupAgents === true && store.settings.setupAgents !== true && !setupOn) return res.status(403).json({ error: SETUP_OFF_SERVER });
   if (template !== undefined) {
     const problem = templateSwitchProblem(currentEnvironment(), template);
     if (problem) return res.status(400).json({ error: problem });

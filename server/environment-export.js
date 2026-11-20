@@ -45,14 +45,14 @@ const APP_LEFT_OUT = ['secrets', 'invites'];
 // A person (Store#sanitizeUser). `demo` marks a demo person (server/demo-loader.js): kept, so a demo load in the copy may
 // give them new passwords.
 // `agent` and `off` mark an agent account and whether it is turned off
-// (plan-agent-access.md): kept, its token is not (tokens.json).
-const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'agent', 'off', 'createdAt'];
+// (plan-agent-access.md), and `kind` a set-up agent (plan-admin-agent.md): kept, its token is not (tokens.json).
+const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'agent', 'kind', 'off', 'createdAt'];
 const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed', 'welcomeSeen'];
 // A person's own record for one space (user.spaces[<space id>]).
 const USER_SPACE_FIELDS = ['images', 'useDefaultImages', 'permissions', 'joined'];
 const USER_SPACE_LEFT_OUT = ['calendarFeed'];
-// A space (Store#sanitizeSpace).
-const SPACE_FIELDS = ['id', 'name', 'description', 'members', 'createdAt', 'profile', 'link', 'linkIcon', 'allowGuests', 'entry', 'requestAccess', 'closed', 'defaultLayout', 'tabs', 'aiOff', 'aiSees', 'publishCalendar', 'guestsSeeHidden', 'call', 'phases', 'phaseDone', 'budget', 'template', 'starterDone'];
+// A space (Store#sanitizeSpace). `madeBy`: the set-up agent that made it, until an owner chose Keep (plan-admin-agent.md).
+const SPACE_FIELDS = ['id', 'name', 'description', 'members', 'createdAt', 'madeBy', 'profile', 'link', 'linkIcon', 'allowGuests', 'entry', 'requestAccess', 'closed', 'defaultLayout', 'tabs', 'aiOff', 'aiSees', 'publishCalendar', 'guestsSeeHidden', 'call', 'phases', 'phaseDone', 'budget', 'template', 'starterDone'];
 const SPACE_LEFT_OUT = ['guestToken'];
 // An aside (Store#sanitizeAside).
 const ASIDE_FIELDS = ['id', 'members', 'origin', 'private', 'createdAt'];
