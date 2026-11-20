@@ -2,7 +2,7 @@
 
 **Audience:** an owner or the admin who has made an agent and a token and wants Claude to use them. You don't need to be a developer, but you will type a few lines in a terminal.
 
-A token on its own does nothing. Claude has to be told where the server is and given the token. Chameleon has an address for this, `/mcp`, that Claude Code (and other tools that speak MCP) can connect to. Once connected, Claude gets a short list of tools: look at the spaces, read a module's objects, read Chat, ask a module for a change and, if you allow it, post in Chat. It can do nothing an agent can't do; see [Agents](userguide-agents.md), "What an agent can and can't do".
+A token on its own does nothing. Claude has to be told where the server is and given the token. Chameleon has an address for this, `/mcp`, that Claude Code, the Claude apps (and other tools that speak MCP) can connect to. Once connected, Claude gets a short list of tools: look at the spaces, read a module's objects, read Chat, ask a module for a change and, if you allow it, post in Chat. It can do nothing an agent can't do; see [Agents](userguide-agents.md), "What an agent can and can't do".
 
 ## What you need first
 
@@ -13,9 +13,27 @@ All of this is in [Agents](userguide-agents.md). Check each one before you conne
 3. You have added an agent, and added it to the spaces it should work in (the space's **Set up**, then **Members**).
 4. You have made a token on the agent's page. It is shown once. Keep it where you can paste it.
 
-Claude must also be able to reach the server's address over the internet or your network. For Claude Code on your own computer, any address your computer can open will do.
+Claude must also be able to reach the server's address. For Claude Code on your own computer, any address your computer can open will do. The Claude apps need a server that is public on port 443.
+
+## The Connect Claude panel
+
+You don't have to build the command yourself. Chameleon draws a **Connect Claude** panel in two places: in the window that shows the token once, and on the agent's page. It has the server's own address in it. In the token window it also has the token; on the agent's page afterwards it shows a placeholder where the token goes, because the token is never shown again.
+
+The panel walks you through it:
+
+- A line saying what it is for, and **You need Claude Code**.
+- Five numbered steps: add the agent to a space, copy the command, open a terminal, type `claude`, and ask the first question.
+- **What to say first**, with a **Copy** button. It holds: "Use the chameleon tools. Which spaces can you see, and what is in the to-do list?"
+- **What to try next**, a few more things to ask.
+- A live status that reads "Not connected yet" and then "Claude connected, <time ago>" once Claude has used the token.
+- A space line that reads "Not in any space yet..." until you add the agent to a space, then "In 1 space: <name>".
+- **Use a project file instead**, which shows the `.mcp.json` form (below).
+
+The panel is the easy way to use Claude Code. The numbered steps below do the same by hand.
 
 ## Connect Claude Code
+
+Claude Code worked against a real server, proven by Thomas on 2026-11-20: after the command below, `claude mcp list` showed `chameleon` as Connected.
 
 Put the token in an environment variable, so it isn't typed into the command or saved in a file you might share. Name it `CHAMELEON_TOKEN`. Don't use a name Claude Code treats as its own credential, such as `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN`.
 
@@ -24,7 +42,8 @@ Put the token in an environment variable, so it isn't typed into the command or 
 
    `claude mcp add --transport http chameleon https://YOUR-SERVER/mcp --header "Authorization: Bearer $CHAMELEON_TOKEN"`
 
-3. Start Claude Code in the usual way.
+3. Check it: `claude mcp list` should show `chameleon` as Connected.
+4. Start Claude Code in the usual way, with `claude`.
 
 The command stores the header with the token's value in Claude Code's own settings on your computer. If you would rather keep the token out of that file, add the server to a `.mcp.json` file in your project instead, which reads the variable each time:
 
@@ -44,7 +63,7 @@ The variable must be set in the terminal where you start Claude Code. Don't comm
 
 ## Check that it worked
 
-Ask Claude: "Run the `me` tool." It should answer with the agent's name and the spaces it is a member of. If it names the spaces you added it to, you are connected.
+The panel's live status turns to "Claude connected" once Claude has used the token. You can also ask Claude: "Run the `me` tool." It should answer with the agent's name and the spaces it is a member of. If it names the spaces you added it to, you are connected.
 
 If it names no spaces, the agent hasn't been added to any. Add it (see above) and ask again.
 
@@ -84,13 +103,27 @@ To stop Claude at once, on the agent's page choose **Revoke** under **Token**. Y
 
 ## The Claude apps (web, desktop, phone)
 
-Not yet tested. What is known comes from Anthropic's documentation, read on 2026-11-20, and has not been tried on a real connection:
+The Claude apps work. Thomas proved it in a Claude app on 2026-11-20 against his own server: Claude used the Chameleon tools to read to-dos and add a calendar event. The steps below are the ones he used.
 
-- The apps' custom connectors connect from Anthropic's cloud, not from your computer. So your server must be reachable from the internet on port 443 (HTTPS). A server that is only on your own network can't be reached that way.
-- Anthropic's help article says connectors can use a static token. It is not confirmed that the connector form accepts a custom `Authorization: Bearer` header, which is how Chameleon wants the token.
-- If the form doesn't accept one, the apps would need OAuth sign-in. Chameleon does not have that yet.
+The apps connect from Anthropic's cloud, not from your computer. So your server must be reachable from the internet on port 443 (HTTPS). A server that is only on your own network can't be reached this way.
 
-So don't count on the apps working. Use Claude Code until this is tried.
+The apps have no sign-in with Chameleon (OAuth sign-in is not built). They use the token as a header instead.
+
+1. Make a token for the agent and add the agent to a space (see [Agents](userguide-agents.md)). Copy the token.
+2. In the Claude app, open **Customize**, then **Connectors**, and choose **Add custom connector**.
+3. For the address, enter `https://YOUR-SERVER/mcp`.
+4. For **Authentication**, choose **No sign-in**. Don't choose **Sign in now**. The form may mark **Sign in now** as "Detected", because the server's refusal says it wants a Bearer token. Chameleon has no sign-in page, so that choice can't work.
+5. Open **Request headers** and choose **Add header**. For the name, type `Authorization`. For the value, type the word `Bearer`, a space, and then the token, for example `Bearer agt_...`.
+6. Save the connector.
+7. Start a new chat and turn the connector on for it. Then ask, for example: "Use the chameleon tools. Which spaces can you see, and what is in the to-do list?"
+
+The value must start with `Bearer` and a space. With the token alone, the app shows "Connection issue: Couldn't connect to the server."
+
+A connector is read when a chat starts, so turn it on in a new chat, not one that was already open.
+
+### Claude in the cloud
+
+A Claude Code session that runs in the cloud does not see a `claude mcp add` you made on your own computer. Connectors are read when a session starts. To use Chameleon from a cloud session, add it as a connector in your Claude account as above, then start a new session.
 
 ## Other ways in
 
@@ -108,4 +141,6 @@ For the exact fields, follow Anthropic's documentation. The messages the server 
 - **`me` names no spaces.** The agent isn't a member of any. Add it.
 - **"This request came from another site, so it was refused."** The request carried an `Origin` for a different site. Claude Code doesn't send one; a browser page does.
 - **A change was asked for and nothing happened.** It is waiting for someone to open the module; see "Reading and writing".
-- **The Claude apps can't connect.** See the section above: the server must be public, and the apps may not be able to send this token at all.
+- **The Claude app says "Connection issue: Couldn't connect to the server."** The header value most likely lacks the word `Bearer` and a space before the token. Edit the header so it reads `Bearer agt_...`. Also check that the server is public on port 443.
+- **The form marks "Sign in now" as "Detected".** That is expected: the server's refusal names Bearer. Choose **No sign-in** and add the header instead; see "The Claude apps".
+- **A cloud Claude Code session can't see Chameleon.** A `claude mcp add` on your computer isn't seen by a cloud session. Add a connector in your account and start a new session.
