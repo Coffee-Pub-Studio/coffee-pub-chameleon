@@ -1302,6 +1302,9 @@ async function updateBundled(env) {
   const where = BASE_DOMAIN && env.slug ? `[${env.slug}] ` : '';
   // A rename the installed versions already declare and that has not run here (data restored from a backup, say) runs
   // first, before any update is read from disk.
+  // A bundled module this deployment no longer ships (folded into another) is dropped, not listed or run. Shipped means
+  // its folder is there, so a module whose manifest is broken is not mistaken for a retired one.
+  for (const id of env.modules.dropRetired((m) => fs.existsSync(path.join(BUNDLED_DIR, m)))) console.log(`${where}Dropped "${id}": this server no longer ships it.`);
   for (const id of Object.keys(env.modules.registry.modules)) syncStoredKeys(env, id);
   for (const bundled of requirementsFirst(bundledModules(BUNDLED_DIR))) {
     const entry = env.modules.registry.modules[bundled.id];

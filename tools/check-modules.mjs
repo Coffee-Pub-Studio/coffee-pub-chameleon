@@ -293,6 +293,29 @@ test('a refused module update changes nothing, including the modules that need i
   }
 });
 
+// A bundled module the server no longer ships (Places, folded into Maps) is dropped from the list at start; an uploaded
+// module with the same id, and every module still shipped, stay.
+test('a leftover bundled copy of a retired module is not listed, an upload is kept', () => {
+  const entry = (id, source) => ({ id, versions: ['1.0.0'], version: '1.0.0', enabled: true, allSpaces: false, spaces: [], approved: { permissions: [], hooks: [], refs: [], events: [], actions: [] }, source });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-modules-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'modules'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'modules', 'registry.json'), JSON.stringify({ modules: { places: entry('places', 'bundled'), maps: entry('maps', 'bundled'), mine: entry('mine', 'upload') }, autoInstalled: [] }));
+    fs.mkdirSync(path.join(dir, 'modules', 'places', 'versions', '1.0.0'), { recursive: true });
+    const mm = new ModuleManager(dir);
+    const shipped = new Set(fs.readdirSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'modules')));
+    assert.ok(!shipped.has('places') && shipped.has('maps'), 'the repo ships maps and not places');
+    assert.deepEqual(mm.dropRetired((id) => shipped.has(id)), ['places']);
+    assert.deepEqual(Object.keys(mm.registry.modules).sort(), ['maps', 'mine']);
+    assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(dir, 'modules', 'registry.json'), 'utf8')).modules).sort(), ['maps', 'mine'], 'and not on disk');
+    // A real upload under the retired id is not a leftover copy.
+    mm.registry.modules.places = entry('places', 'upload');
+    assert.deepEqual(mm.dropRetired((id) => shipped.has(id)), []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // An installed module whose stored manifest uses an old name (plan-names step 5c): kept and shown, but it can't run,
 // can't be turned on, and no version of it in the old names can be rolled back to. The registry keeps the owner's
 // choice, so a fixed version runs again as it was.

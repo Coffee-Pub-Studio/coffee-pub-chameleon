@@ -1667,6 +1667,19 @@ class ModuleManager {
     return out;
   }
 
+  // Drops the modules installed from this deployment's bundled copy (source "bundled") that it no longer ships, as
+  // `isShipped(id)` says: a module folded into another (Places into Maps) leaves nothing behind in Modules. Their data
+  // files stay on the disk. An uploaded module is never touched, whatever its id. Returns the ids dropped.
+  dropRetired(isShipped) {
+    const gone = [];
+    for (const [id, entry] of Object.entries(this.registry.modules)) {
+      if (!entry || entry.source !== 'bundled' || isShipped(id)) continue;
+      this.uninstall(id, { keepData: true });
+      gone.push(id);
+    }
+    return gone;
+  }
+
   uninstall(id, { keepData = true } = {}) {
     this.get(id);
     // What needed it goes off with it, including one kept from running only because this one was outdated.
