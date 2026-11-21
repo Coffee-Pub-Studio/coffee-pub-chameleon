@@ -235,4 +235,41 @@ function readAnswer(value, rawText, count, max = MAX_SUMMARIES) {
   return { text: inText.text, summaries, used, ...(cut || inText.cut ? { cut: true } : {}) };
 }
 
-module.exports = { MAX_SUMMARIES, MAX_TAGS, MAX_ANSWER_CHARS, cleanSummary, looksLikeObjects, jsonEnd, salvage, parseSummaries, parseTags, citedItems, dropNulls, readAnswer, salvageStructured };
+// An extract answer (extract@1): `{ objects, unread }`, from structured output or from text (the JSON object alone, inside a
+// fence, or the first JSON object in the text). Answers { read, objects, unread, cut }: `read` false when no such object is
+// there at all; `objects` as written, each with its nulls taken out (the server checks and cleans them, server/ai-extract.js);
+// `unread` the model's own sentences, each one short line, at most MAX_UNREAD. An answer that stopped in the middle keeps the
+// objects that closed and is `cut`. A bare list of objects is read as `objects`.
+const MAX_UNREAD = 10;
+function readExtract(answer) {
+  const cutByLength = Boolean(answer && answer.finish === 'length');
+  const text = String((answer && answer.text) || '').trim();
+  const asDoc = (v) => (Array.isArray(v) ? { objects: v, unread: [] } : v && typeof v === 'object' && Array.isArray(v.objects) ? v : null);
+  let doc = asDoc(answer && answer.structured);
+  let cut = false;
+  const tryParse = (t) => { try { return asDoc(JSON.parse(t)); } catch { return null; } };
+  if (!doc && text) doc = tryParse(text);
+  if (!doc && text) {
+    const fenced = /```[a-z]*[ \t]*\n([\s\S]*?)\n?```/i.exec(text);
+    if (fenced) doc = tryParse(fenced[1]);
+  }
+  if (!doc && text) {
+    const at = text.search(/\{\s*"objects"\s*:/);
+    const end = at >= 0 ? jsonEnd(text, at) : -1;
+    if (end > 0) doc = tryParse(text.slice(at, end));
+  }
+  if (!doc && text) {
+    const o = /"objects"\s*:\s*\[/.exec(text);
+    if (o) { doc = { objects: salvage(text.slice(o.index + o[0].length - 1)), unread: [] }; cut = true; }
+  }
+  if (!doc) return { read: false, objects: [], unread: [], cut: cutByLength };
+  const objects = doc.objects.map((o) => (o && typeof o === 'object' && !Array.isArray(o) ? dropNulls(o) : o));
+  const unread = [];
+  for (const u of Array.isArray(doc.unread) ? doc.unread : []) {
+    const line = typeof u === 'string' ? oneLine(u.replace(/<[^>]{0,200}>/g, ' '), 200) : '';
+    if (line && !unread.includes(line) && unread.length < MAX_UNREAD) unread.push(line);
+  }
+  return { read: true, objects, unread, cut: cut || cutByLength };
+}
+
+module.exports = { readExtract, MAX_UNREAD, MAX_SUMMARIES, MAX_TAGS, MAX_ANSWER_CHARS, cleanSummary, looksLikeObjects, jsonEnd, salvage, parseSummaries, parseTags, citedItems, dropNulls, readAnswer, salvageStructured };

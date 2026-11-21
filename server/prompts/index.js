@@ -7,8 +7,8 @@
 // version and the one before it; AI_PROMPT_VERSIONS (ask@1,tags@1) pins a template to a kept version, for rollback.
 'use strict';
 
-const { checkInputs, cleanData, cleanQuestion, cleanAttachedText, cleanAttachedLabel, InputError, MIN_QUESTION, MAX_QUESTION, MAX_MATERIAL, MAX_TURNS, MAX_ATTACHED, MAX_ATTACHED_LABEL } = require('./inputs');
-const { parseSummaries, parseTags, citedItems, readAnswer, MAX_SUMMARIES, MAX_ANSWER_CHARS } = require('./parse');
+const { checkInputs, cleanData, cleanQuestion, cleanAttachedText, cleanAttachedLabel, InputError, MIN_QUESTION, MAX_QUESTION, MAX_MATERIAL, MAX_TURNS, MAX_ATTACHED, MAX_ATTACHED_LABEL, MAX_PASTED, MAX_REPAIR_ANSWER, MAX_REPAIR_PROBLEMS } = require('./inputs');
+const { parseSummaries, parseTags, citedItems, readAnswer, readExtract, MAX_SUMMARIES, MAX_ANSWER_CHARS } = require('./parse');
 
 // Each template's kept versions, newest first: the current one and, once there is one, the one before it.
 const KEPT = {
@@ -16,9 +16,11 @@ const KEPT = {
   summarise: [require('./summarise').template],
   tags: [require('./tags').template],
   paste: [require('./paste').template],
+  extract: [require('./extract').template],
 };
 const IDS = Object.keys(KEPT);
-// The templates a model may be asked through (paste is for a person to copy).
+// The templates a module may ask for by name (POST /api/modules/:id/ai's `task`; paste is for a person to copy, and extract has
+// its own route, POST /api/spaces/:id/ai/extract).
 const TASKS = ['ask', 'summarise', 'tags'];
 
 const nameOf = (t) => `${t.id}@${t.version}`;
@@ -61,7 +63,7 @@ const allTemplates = () => IDS.flatMap((id) => KEPT[id]);
 
 // A template's messages for the providers: [{ role: 'system' | 'user' | 'assistant', content }], instructions in the one system
 // message, then the data document as one user message holding JSON, then the history as alternating user and assistant
-// messages, then the question as the last user message. `structured`: the provider takes the output contract's schema, so
+// messages, then the question as the last user message, then what the template adds after it (`t.after`: extract's repair). `structured`: the provider takes the output contract's schema, so
 // the system part says so and `schema` comes with it. `tools`: the read tools are offered with it (a template that takes them,
 // `t.tools`, says so in its system part; one that doesn't renders as without). Answers
 // { name, messages, schema, maxTokens, structured, tools }.
@@ -76,6 +78,7 @@ function render(t, inputs, { structured = false, tools = false } = {}) {
     messages.push({ role: 'assistant', content: turn.answer });
   }
   if (inputs.question !== undefined) messages.push({ role: 'user', content: inputs.question });
+  if (typeof t.after === 'function') messages.push(...t.after(inputs));
   return { name: nameOf(t), messages, schema: structured ? t.schema(inputs) : null, maxTokens: t.budget.answer, structured, tools: withTools };
 }
 
@@ -87,12 +90,13 @@ function numbered(inputs) {
 }
 
 // An answer read against its template. `answer`: { text, structured?, finish } from an adapter. For ask and summarise:
-// { text, summaries, used, cut }; for tags: { tags, cut }. A structured answer is read as JSON; a text answer (or a structured
+// { text, summaries, used, cut }; for tags: { tags, cut }; for extract: { read, objects, unread, cut } (readExtract). A structured answer is read as JSON; a text answer (or a structured
 // one that does not read) by prompt-then-parse. `cut`: the provider stopped for length, or the answer stops mid-object.
 // `count`: how many numbers were given out, when the read tools gave out more than the inputs hold (server/ai-tools.js).
 function parse(t, answer, inputs, { count: given } = {}) {
   const finish = answer && answer.finish;
   const cutByLength = finish === 'length';
+  if (t.output === 'extract') return readExtract(answer);
   if (t.output === 'tags') {
     const s = answer && answer.structured;
     const tags = parseTags(s && Array.isArray(s.tags) ? s.tags : (answer && answer.text) || '');
@@ -135,5 +139,5 @@ function pasteText(inputs, { product }) {
 
 module.exports = {
   IDS, TASKS, KEPT, nameOf, template, allTemplates, render, parse, pasteText, pinsFrom, setPins, numbered,
-  cleanQuestion, cleanAttachedText, cleanAttachedLabel, InputError, MIN_QUESTION, MAX_QUESTION, MAX_MATERIAL, MAX_TURNS, MAX_ATTACHED, MAX_ATTACHED_LABEL, MAX_SUMMARIES,
+  cleanQuestion, cleanAttachedText, cleanAttachedLabel, InputError, MIN_QUESTION, MAX_QUESTION, MAX_MATERIAL, MAX_TURNS, MAX_ATTACHED, MAX_ATTACHED_LABEL, MAX_SUMMARIES, MAX_PASTED, MAX_REPAIR_ANSWER, MAX_REPAIR_PROBLEMS,
 };

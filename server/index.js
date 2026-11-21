@@ -60,8 +60,9 @@ const { findLink, readFields, CHAT_LINK_LIMITS } = require('./chat-links');
 const objectSync = require('./object-sync');
 const ics = require('./ics');
 const prompts = require('./prompts');
-const { createAiPolicy } = require('./ai-policy');
-const { createContextBuilder } = require('./ai-context');
+const { createAiPolicy, cleanAnswerObject, cleanAnswerText } = require('./ai-policy');
+const { createContextBuilder, todayIn: aiTodayIn } = require('./ai-context');
+const { reviewExtract } = require('./ai-extract');
 const { createAiTools } = require('./ai-tools');
 // AI_PROMPT_VERSIONS (rollback pins) and AI_LOG_PROMPTS (full prompts in the log), said once at start (plan-ai-integration.md,
 // decision 14). Full prompts are never logged on a hosted install (BASE_DOMAIN): server/ai.js ignores the variable there.
@@ -2124,7 +2125,10 @@ const TEMPLATE_ROUTE = /^\/api\/(host\/templates|environment\/templates|template
 // server/store.js), about 95 KB as JSON: that route reads its own body with settingsJson, after requireOwner, so only an
 // owner's request is ever read to that size.
 const SETTINGS_ROUTE = /^\/api\/settings\/?$/i;
-const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && !(req.method === 'PATCH' && SETTINGS_ROUTE.test(req.path)) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
+// Bookings read out of pasted text (POST /api/spaces/:id/ai/extract) take up to 30,000 characters, more than 64 KB once written
+// as JSON in some scripts: that route reads its own body with extractJson, after the sign-in check.
+const EXTRACT_ROUTE = /^\/api\/spaces\/[^/]+\/ai\/extract\/?$/i;
+const jsonBody = express.json({ limit: '64kb', type: (req) => !(req.method === 'PUT' && MODULE_FILE_UPLOAD.test(req.path)) && !LIBRARY_ROUTE.test(req.path) && !TEMPLATE_ROUTE.test(req.path) && !(req.method === 'PATCH' && SETTINGS_ROUTE.test(req.path)) && !(req.method === 'POST' && EXTRACT_ROUTE.test(req.path)) && Boolean(req.is('application/json')), verify: (req, _res, buf) => { req.rawBody = buf; } });
 // A body that can't be read (not JSON, too big) sent with an agent's token is held (req.bodyError) and answered only once
 // the agent gate has counted and logged the call, so an agent can't call past its limits or its log with bad bodies
 // (plan-agent-access.md). Every other request is answered here, as before. Nothing reads a held body: the gate, the host
@@ -2160,6 +2164,8 @@ const templateFileText = express.text({ type: () => true, limit: templateFile.MA
 const templateJson = express.json({ limit: templates.MAX_TEMPLATE_BYTES, verify: (req, _res, buf) => { req.rawBody = buf; } });
 // The environment's settings as JSON (PATCH /api/settings only; see SETTINGS_ROUTE): room for both lists at their caps.
 const settingsJson = express.json({ limit: '256kb', verify: (req, _res, buf) => { req.rawBody = buf; } });
+// Pasted text for bookings (POST /api/spaces/:id/ai/extract only; see EXTRACT_ROUTE): 30,000 characters at most, as JSON.
+const extractJson = express.json({ limit: '256kb' });
 // A theme file's text (POST /api/themes/import). Its own 16 KB limit: a JSON body is parsed
 // by the app's own parser (64 KB) and measured by the route by the bytes received; any other type is read as text up
 // to the limit (a bigger one, and one the app's parser can't read, get the same sentence -- see the error handler).
@@ -8537,7 +8543,7 @@ const aiRefsOf = (raw) => (Array.isArray(raw) ? raw.slice(0, prompts.MAX_MATERIA
 const aiPointers = (numbers, numbered) => [...new Set((numbers || []).map((n) => numbered[n - 1]).filter(Boolean))];
 const aiSummaries = (summaries, numbered) => (summaries || []).map((c) => ({ ...c, sources: aiPointers(c.sources, numbered) }));
 // What a template is called in the activity list, in plain words.
-const AI_TASK_WORDS = { ask: 'a question', summarise: 'a summary', tags: 'tags' };
+const AI_TASK_WORDS = { ask: 'a question', summarise: 'a summary', tags: 'tags', extract: 'bookings from pasted text' };
 function countAiCall() {
   if (BASE_DOMAIN && hostRegistry) {
     const slug = currentEnvironment().slug;
@@ -8607,6 +8613,109 @@ app.post('/api/spaces/:id/ai', async (req, res) => {
     // Failed before the service did any work, or on this server's side (not an AiError): it does not count. A question that
     // failed after a round was billed (`paid`) used the service, so it counts against the month's calls, once; a plain 400 on
     // the first round, with nothing billed, is not a call.
+    if (!(err instanceof AiError) || err.refund) aiPolicy.giveBack(who);
+    else if (err.paid) countAiCall();
+    sendAiError(err, res);
+  }
+});
+
+// Bookings read out of pasted text (plan-assistant-reboot.md, step 2: extract@1). One call to the environment's AI service with no
+// tools and no history, checked on the server (server/ai-extract.js), with at most one repair. Nothing of the text is kept: not
+// in Chat's history, not in the call record (counts only), not in a log line. Body:
+//   text   the pasted text, up to 30,000 characters (cleaned and redacted as attached words are, then counted)
+//   trip   optional { name, first, last, timeZone, currency }: the trip the caller is reading for (its first and last day as
+//          YYYY-MM-DD, an IANA zone, a three-letter code); the name defaults to the space's
+//   tz     the asker's time zone, for today
+//   kinds  optional: the kinds to read, narrowing those the environment's modules take (as the ask's are)
+//   from   optional: the module asking (host.ai.extract): placed in this space, with the approved `ai` hook; its gate is then a
+//          module's ask's (its write access), else Chat's ask's
+// Answers { objects, notes, unread, dropped, cut, tokens, prompt }: `objects` in the objects format, `notes` one list of
+// sentences per object (what its row says), `unread` the sentences for what could not be read (the model's and the server's),
+// `dropped` how many objects were left out. No booking at all is a 422 with its sentence, never an empty answer.
+const EXTRACT_TOO_LONG = `That text is longer than ${prompts.MAX_PASTED.toLocaleString('en-US')} characters; paste one email at a time.`;
+const EXTRACT_NONE = 'There is no booking in this text.';
+const tripDay = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+const isZone = (v) => { try { new Intl.DateTimeFormat('en-US', { timeZone: v }); return true; } catch { return false; } };
+// The trip as sent, checked: { trip } or { error }.
+function extractTripOf(raw, space) {
+  if (raw !== undefined && raw !== null && (typeof raw !== 'object' || Array.isArray(raw))) return { error: `The ${word('space')} must be sent as its name, days, time zone and currency.` };
+  const r = raw || {};
+  const trip = { name: oneLineText(r.name, 120) || space.name };
+  for (const [key, said] of [['first', 'first day'], ['last', 'last day']]) {
+    if (r[key] === undefined || r[key] === null || r[key] === '') continue;
+    if (!tripDay(r[key])) return { error: `The ${word('space')}'s ${said} must be a date written YYYY-MM-DD.` };
+    trip[key] = r[key];
+  }
+  if (trip.first && trip.last && trip.first > trip.last) return { error: `The ${word('space')}'s last day is before its first day.` };
+  if (r.timeZone !== undefined && r.timeZone !== null && r.timeZone !== '') {
+    if (typeof r.timeZone !== 'string' || r.timeZone.length > 64 || !isZone(r.timeZone)) return { error: `The ${word('space')}'s time zone is not one this server knows.` };
+    trip.timeZone = r.timeZone;
+  }
+  if (r.currency !== undefined && r.currency !== null && r.currency !== '') {
+    if (typeof r.currency !== 'string' || !/^[A-Za-z]{3}$/.test(r.currency.trim())) return { error: `The ${word('space')}'s currency must be a three-letter code, such as EUR.` };
+    trip.currency = r.currency.trim().toUpperCase();
+  }
+  return { trip };
+}
+const oneLineText = (v, n) => (typeof v === 'string' ? [...v.replace(/\p{Cc}/gu, ' ').replace(/\s+/g, ' ').trim()].slice(0, n).join('') : '');
+app.post('/api/spaces/:id/ai/extract', (req, res, next) => {
+  // Only a signed-in request is read at this size.
+  const who = moduleViewer(req);
+  if (!who || who.keyed) return res.status(401).json({ error: 'Sign in first.' });
+  extractJson(req, res, next);
+}, async (req, res) => {
+  const who = moduleViewer(req);
+  const space = store.spaceById(req.params.id);
+  if (!space || closedTo(req, space)) return res.status(entryStatus(req, space)).json(entryBody(req, space, `No such ${word('space')}.`));
+  const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+  // The module asking, when it is one: placed and readable here, with the `ai` hook; its write access is its door.
+  let door = null;
+  if (body.from !== undefined) {
+    let place;
+    try { place = busPlace(who, String(body.from), 'space', space.id, 'read'); } catch (err) {
+      if (!err.status) throw err;
+      return res.status(err.status).json({ error: err.message });
+    }
+    if (!place.found.manifest.hooks.ai) return res.status(403).json({ error: `this ${word('module')} did not ask for the ai hook` });
+    door = { module: place.found.manifest.id, write: moduleCan(place.found.manifest, place.perms, 'write') };
+  }
+  const purpose = door ? 'module' : 'chat';
+  const allowed = door ? aiPolicy.check(who, space, 'module', { write: door.write }) : aiPolicy.check(who, space, 'chat');
+  if (!allowed.ok) return refuseAi(res, allowed, { who, space, purpose });
+  if (typeof body.text !== 'string') return res.status(400).json({ error: 'Paste the text to read.' });
+  // Cleaned and redacted before it is counted, as attached words are: taking a secret out can make the text longer.
+  const text = aiPolicy.redact(prompts.cleanAttachedText(body.text), aiPolicy.secrets()).trim();
+  if (!text) return res.status(400).json({ error: 'Paste the text to read.' });
+  if ([...text].length > prompts.MAX_PASTED) return res.status(413).json({ error: EXTRACT_TOO_LONG });
+  const tripRead = extractTripOf(body.trip, space);
+  if (tripRead.error) return res.status(400).json({ error: tripRead.error });
+  const offered = promptKinds();
+  let kinds = offered;
+  if (body.kinds !== undefined) {
+    if (!Array.isArray(body.kinds) || body.kinds.length > 50 || body.kinds.some((k) => typeof k !== 'string')) return res.status(400).json({ error: 'The kinds must be a list of kinds.' });
+    const unknown = body.kinds.find((k) => !objectFormat.KINDS.includes(k));
+    if (unknown !== undefined) return res.status(400).json({ error: `${oneLineText(unknown, 30) || 'That'} is not a kind this server knows.` });
+    kinds = offered.filter((k) => body.kinds.includes(k));
+  }
+  if (!kinds.length) return res.status(400).json({ error: `No ${word('module')} here can keep bookings.` });
+  const turn = aiPolicy.takeTurn(who);
+  if (!turn.ok) return refuseAi(res, turn, { who, space, purpose });
+  const me = who.user.key;
+  const today = aiTodayIn(body.tz, ics.serverZone());
+  const trip = tripRead.trip;
+  const inputs = { text, trip, today, kinds, words: aiWords() };
+  const use = { purpose, person: me, space: space.id, environment: currentEnvironment().slug || undefined, counts: { characters: [...text].length } };
+  try {
+    const out = await ai.extract(inputs, use, { review: (read) => reviewExtract(read, { text, trip, today: today.date, kinds, words: aiWords() }) });
+    countAiCall();
+    const secrets = aiPolicy.secrets();
+    const r = out.review;
+    const objects = r.objects.map((o) => cleanAnswerObject(o, secrets));
+    noteActivity(door ? door.module : 'chat', `asked the AI (${AI_TASK_WORDS.extract}, ${out.tokens} tokens)`, me, space.id);
+    const unread = [...out.unread.map((u) => cleanAnswerText(u, secrets)), ...r.reasons];
+    if (!objects.length && !r.dropped) return res.status(422).json({ error: EXTRACT_NONE, unread, tokens: out.tokens, prompt: out.prompt });
+    res.json({ objects, notes: r.notes, unread, dropped: r.dropped, cut: out.cut, tokens: out.tokens, prompt: out.prompt });
+  } catch (err) {
     if (!(err instanceof AiError) || err.refund) aiPolicy.giveBack(who);
     else if (err.paid) countAiCall();
     sendAiError(err, res);
@@ -14294,6 +14403,7 @@ app.use((err, _req, res, _next) => {
   }
   if (err.type === 'entity.too.large') {
     if (/^\/api\/(modules\/[^/]+|spaces\/[^/]+)\/objects\/check$/.test(_req.path)) return res.status(413).json({ error: 'that is over 256 KB; bring it in in parts' });
+    if (EXTRACT_ROUTE.test(_req.path)) return res.status(413).json({ error: EXTRACT_TOO_LONG });
     if (/^\/api\/modules\/[^/]+\/uploads/.test(_req.path)) return res.status(413).json({ error: 'that file is over the size limit' });
     if (/^\/api\/spaces\/[^/]+\/chat\/pictures$/.test(_req.path)) return res.status(413).json({ error: `that picture is over ${chatPictureMaxSaid}` });
     if (/^\/api\/(spaces\/[^/]+\/(action|command)|bus\/.+)$/.test(_req.path)) return res.status(413).json({ error: 'that request is over 64 KB' });

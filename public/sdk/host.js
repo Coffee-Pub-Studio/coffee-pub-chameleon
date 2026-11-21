@@ -4037,6 +4037,17 @@
         if (o && o.items !== undefined) return Promise.reject(Object.assign(new Error('host.ai.ask: "items" is an old name; use objects'), { status: 400 }));
         return call('ai.ask', { task: o && o.task, question: o && o.question, objects: o && o.objects });
       },
+      // Bookings read out of pasted text (a confirmation email, a ticket), in a space only: `extract({ text, trip, kinds })`.
+      // `text` up to 30,000 characters; `trip` optional { name, first, last, timeZone, currency } (days as YYYY-MM-DD, an IANA
+      // zone, a three-letter code); `kinds` optional, narrowing the kinds read. Answers { objects, notes, unread, dropped, cut,
+      // tokens }: `objects` in the objects format (hand each to an action that takes it), `notes[i]` the sentences object i's row
+      // should show, `unread` what could not be read, `dropped` how many were left out. Nothing is written and the text is not
+      // kept; show the person the result before anything is added. No booking in the text rejects with status 422.
+      extract: (o) => {
+        const t = o && typeof o === 'object' ? o : {};
+        if (typeof t.text !== 'string') return Promise.reject(Object.assign(new Error('host.ai.extract: text must be a string'), { status: 400 }));
+        return call('ai.extract', { text: t.text, trip: t.trip, kinds: t.kinds });
+      },
     },
 
     // The person's own other calendars (declare the `external` hook; the admin approves it like the others). Each person
