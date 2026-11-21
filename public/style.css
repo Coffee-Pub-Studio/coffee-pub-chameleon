@@ -10169,3 +10169,20 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
   .agent-ask-buttons .btn, .agent-change-buttons .btn, .made-mark-box .btn { --btn-h: 44px; }
   .agent-ask-buttons .btn { flex: 1 1 0; }
 }
+
+/* The approval page for an app asking to connect (connect-app.html, connect-app.js). One panel; the form is the page's fields. */
+.connect-app .connect-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.connect-app .connect-form[hidden], .connect-app [hidden] { display: none; }
+.connect-app .connect-spaces { margin: 0; padding: 0; border: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.connect-app .connect-spaces legend { padding: 0 0 var(--label-gap); color: var(--text-muted); font-size: var(--label-size); font-weight: var(--weight-medium); }
+.connect-app #connect-spaces { display: flex; flex-direction: column; max-height: 240px; overflow-y: auto; }
+.connect-app .connect-buttons { gap: var(--space-2); }
+.connect-app .sdk-choice-label { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .connect-app select, .connect-app input:not([type="checkbox"]) { min-height: 44px; }
+  .connect-app .sdk-choice-row { min-height: 44px; }
+  .connect-app .connect-buttons { flex-direction: column; align-items: stretch; }
+  .connect-app .connect-buttons .btn { --btn-h: 44px; width: 100%; }
+}
+.agent-signin { margin-top: 12px; }
+.agent-signin > p:first-child { margin: 0; }

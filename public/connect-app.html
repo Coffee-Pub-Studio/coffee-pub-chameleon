@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0e1a2b">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:">
+  <link rel="icon" href="/img/site/icon">
+  <title>Connect an app</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/theme-head.js"></script>
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/sdk/system.css">
+</head>
+<body data-brand="background">
+  <!-- The approval page for an app asking to connect (connect-app.js; documentation/plans/plan-mcp-oauth.md). One panel,
+       drawn by the script from GET /api/oauth/requests/:id: the form for someone who may allow, or one plain sentence. -->
+  <main class="panel narrow login connect-app" id="connect">
+    <div class="brand big"><img data-brand="icon" alt="" class="icon"><span data-brand="environmentName">Coffee Pub</span></div>
+    <h1 id="connect-title">Connect an app</h1>
+    <p id="connect-lead"></p>
+    <p class="hint" id="connect-fact"></p>
+    <form id="connect-form" class="connect-form" hidden>
+      <label>Connect as<select id="connect-agent"></select></label>
+      <p class="hint" id="connect-agent-note" hidden></p>
+      <label id="connect-name-field">Name<input id="connect-name" type="text" maxlength="40" autocomplete="off"></label>
+      <label id="connect-kind-field" hidden>What it does<select id="connect-kind"></select></label>
+      <fieldset class="connect-spaces" id="connect-spaces-field">
+        <legend>Works in</legend>
+        <div id="connect-spaces"></div>
+        <p class="hint" id="connect-spaces-note"></p>
+      </fieldset>
+      <label>How long should it work?<select id="connect-lifetime"></select></label>
+      <p class="hint" id="connect-never" hidden>A connection that never expires works until you end it. End it on the agent's page if you no longer need it.</p>
+      <p class="hint" id="connect-can"></p>
+      <div class="row connect-buttons">
+        <button class="btn btn-primary" type="submit" id="connect-allow">Allow</button>
+        <button class="btn" type="button" id="connect-deny">Don't allow</button>
+      </div>
+    </form>
+    <div class="row connect-buttons" id="connect-back-row" hidden>
+      <button class="btn" type="button" id="connect-back">Back</button>
+    </div>
+    <p class="status error" id="connect-error" role="alert" hidden></p>
+    <span class="version" data-brand="version"></span>
+  </main>
+  <script type="module" src="/connect-app.js"></script>
+</body>
+</html>

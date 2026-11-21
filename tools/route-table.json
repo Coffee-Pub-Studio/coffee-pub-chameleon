@@ -47,6 +47,7 @@
   {"kind":"route","method":"GET","path":"/profile","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/me","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/profile/:key","name":null,"part":null},
+  {"kind":"route","method":"GET","path":"/connect-app","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/admin","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/img/site/icon","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/favicon.ico","name":null,"part":null},
