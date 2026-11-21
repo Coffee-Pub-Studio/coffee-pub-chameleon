@@ -9,7 +9,7 @@
  *     a list with an entry missing `needs`, or crossing the kinds, is refused, naming the entry (the server stops at start);
  *   - every key an entry needs is a row its kind's column may tick, and every built-in row that column may tick is needed by
  *     some entry (module rows by a `module` entry);
- *   - every entry's method and path is in tools/route-table.json;
+ *   - every entry's method and path is in tools/route-table.json, and none is a sign-in route (server/oauth.js);
  *   - the agent's page's own copy of the list (ROUTE_METHODS and READS in public/agent-page.js) agrees with it.
  * Live, on throwaway servers:
  *   - with AGENT_TOKENS on, GET /api/roles has `columns` (the four, then agent), `never` (guest, agent) and the "Agents"
@@ -117,6 +117,12 @@ await test('every entry is a route the app registers (tools/route-table.json)', 
   const mounted = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools', 'route-table.json'), 'utf8'));
   const registered = new Set(mounted.rows.filter((r) => r.kind === 'route').map((r) => `${r.method} ${r.path}`));
   for (const e of AGENT_ROUTES) assert.ok(registered.has(`${e.method.toUpperCase()} ${e.path}`), `${e.method.toUpperCase()} ${e.path} is not in the route table`);
+});
+
+// The sign-in server's routes (server/oauth.js, plan-mcp-oauth.md) are never an agent's: an app gets its token there, and the
+// approval page is a person's. An access token reaches only /mcp and the routes its tool calls wrap (tools/check-oauth.mjs).
+await test('no sign-in route is on the list', () => {
+  for (const e of AGENT_ROUTES) assert.ok(!/^\/(oauth|\.well-known|api\/oauth)(\/|$)/.test(e.path), `${e.method.toUpperCase()} ${e.path} is a sign-in route`);
 });
 
 await test('the agent page\'s ROUTE_METHODS and READS agree with the list', () => {

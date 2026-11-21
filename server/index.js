@@ -84,7 +84,8 @@ const { tokenView, LIFETIMES, DEFAULT_LIFETIME: DEFAULT_TOKEN_LIFETIME } = requi
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
 const { AGENT_ROUTES, SETUP_LIMITS, SETUP_ASKS, SETUP_ASK_DAYS, SETUP_UNDO_DAYS, agentMayAsk } = require('./agent-routes');
 const { SetupError, writtenByOthers } = require('./setup-records');
-const { createMcp } = require('./mcp');
+const { createMcp, isMcpPath, isToolCall } = require('./mcp');
+const { createOauth } = require('./oauth');
 const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
 // The phase timeline rule (plan-one-bar.md, step 1), the one copy the pages use too.
 const phaseRule = require('../public/phases.js');
@@ -3621,6 +3622,10 @@ if (BASE_DOMAIN) {
 // and a day), then checked for its place: a space the agent is not in is the unknown space's 404; a scope other than
 // `space` is 403. Each call is written to the agent's log with no content (the agent-log/ folder, server/agent-log.js).
 const AGENT_TOKEN_PREFIX = 'agt_';
+// A sign-in connection's access token (server/oauth.js, plan-mcp-oauth.md): read by this gate as an agent's token, with the
+// same narrowing, limits and log, but only on /mcp and on the tool calls server/mcp.js sends back through the app
+// (isToolCall, marked in process), and only at the address it was issued for. Anywhere else it is the same 401.
+const ACCESS_TOKEN_PREFIX = 'oat_';
 // The mark after an agent account's name, as people read it: " (agent)", or " (set-up agent)" for the set-up kind
 // (plan-admin-agent.md, decision 2).
 const agentMark = (u) => (u && u.kind === 'setup' ? ' (set-up agent)' : ' (agent)');
@@ -3707,9 +3712,28 @@ const agentLogSpace = {
 // through this gate as the route it wraps, counted, logged and needing what that route needs; every other message on it is
 // a read (counts 'mcp', below). GET /mcp is its 405. Both kinds of agent have the door; each is listed, and may call,
 // only its own kind's tools, which wrap routes on its own kind's list.
+// The sign-in server (server/oauth.js): each environment its own issuer at its own address. Its routes are mounted after
+// the agreement gate (oauth.mount, below); the 401 on /mcp names its metadata (challenge).
+const oauth = createOauth({
+  app,
+  enabled: agentTokensOn,
+  envOf: () => envContext.getStore() || null,
+  origin: (req) => baseUrl(req),
+  personOf: (req) => currentUser(req),
+  sessionOf: (req) => auth.sessionToken(req),
+  mayApprove: (user) => hasOwnerRights(user) && !user.agent,
+  environmentName: () => store.settings.environmentName || `this ${word('environment')}`,
+  onlyOwners: (name) => `Only ${word('owner', { a: true })} can connect an app to ${name}.`,
+  facts: (req, user) => connectFacts(req, user),
+  approve: (req, user, body, appFacts) => approveConnection(req, user, body, appFacts),
+  usable: (connection) => connectionUsable(connection),
+  reused: (connection) => endConnection(connection, { reused: true }),
+});
+const mcpChallenge = (req) => oauth.challenge(req);
 const mcp = createMcp({
   app,
   enabled: agentTokensOn,
+  challenge: mcpChallenge,
   ownOrigin: (req) => baseUrl(req),
   personOf: (req) => currentUser(req),
   serverInfo: { name: PRODUCT_NAME, version: VERSION },
@@ -3737,11 +3761,32 @@ const agentNeedHolds = (needs, column) => needs === 'always' || needs === 'modul
 // Whether the set-up kind may work here: the server's AGENT_SETUP and the environment's Set-up agents switch.
 const setupAgentsOn = () => setupOn && store.settings.setupAgents === true;
 // The agent's token from the Authorization header, or null when the request carries none (then this is not the gate's).
+// A sign-in access token (oat_) is read here too.
 function agentBearer(req) {
   const header = req.get('authorization') || '';
   if (!header.toLowerCase().startsWith('bearer ')) return null;
   const value = header.slice(7).trim();
-  return value.startsWith(AGENT_TOKEN_PREFIX) ? value : null;
+  return value.startsWith(AGENT_TOKEN_PREFIX) || value.startsWith(ACCESS_TOKEN_PREFIX) ? value : null;
+}
+// The way in a bearer value stands for, for the gate: { record, agent, why } where `record` is the agent's token record or,
+// for an access token, its connection (the way in the log, the limits and Revoke name), and `why` is the console line's
+// reason when it may not be used here (null when it may, as far as the token goes; the agent's own state is the gate's).
+function wayInFor(req, env, token) {
+  if (!token.startsWith(ACCESS_TOKEN_PREFIX)) {
+    const record = env.tokens.find(token, 'agent', { evenExpired: true });
+    return { record, agent: record ? store.userByKey(record.user) : null, why: null };
+  }
+  const access = env.tokens.find(token, 'access', { evenExpired: true });
+  const connection = access ? env.tokens.connectionOf(access) : null;
+  if (!access) return { record: null, agent: null, why: null };
+  if (!connection) return { record: null, agent: null, why: 'sign-in connection has ended' };
+  const agent = store.userByKey(connection.user);
+  let why = null;
+  if (!env.tokens.live(connection)) why = 'sign-in connection has reached its end';
+  else if (!env.tokens.live(access)) why = 'sign-in access token has expired (the app should refresh it)';
+  else if (access.resource !== oauth.resourceOf(req)) why = 'sign-in access token was issued at another address';
+  else if (!isMcpPath(req.path) && !isToolCall(req)) why = 'sign-in access token used away from /mcp';
+  return { record: connection, agent, why };
 }
 // What a log line says of the route and the module, the same in every kind of line (a call let on, refused, a 401 or a 429):
 // the gate's own pattern whenever the path is one of its routes (any method), else the path's fixed shape (refusedRoute,
@@ -3787,21 +3832,21 @@ function agentGate(req, res, next) {
   const address = net.isIP(req.ip || '') ? req.ip : null; // an IP address, never the free text a client sent
   req._user = null; // whatever else the request carries (a cookie session) is never read now
   res.set('Cache-Control', 'no-store');
-  const record = env.tokens.find(token, 'agent', { evenExpired: true });
-  const agent = record ? store.userByKey(record.user) : null;
-  if (!record || !agent || !agent.agent || agent.off || store.settings.agents !== true || !env.tokens.live(record) || (agent.kind === 'setup' && !setupAgentsOn())) {
+  const { record, agent, why: tokenWhy } = wayInFor(req, env, token);
+  if (!record || tokenWhy || !agent || !agent.agent || agent.off || store.settings.agents !== true || !env.tokens.live(record) || (agent.kind === 'setup' && !setupAgentsOn())) {
     // A token that is an agent's but no longer good (past its end, the agent turned off, Agents off, or for a set-up agent
     // AGENT_SETUP or Set-up agents off) is noted in that agent's log, at most once a minute; an unknown one names nobody
     // and is not.
     if (record && agent && agent.agent) env.agentLog.note({ agent: agent.key, token: record.id, method: req.method, ...agentLogRoute(req, res, env), status: 401, address });
     // The console line (server/mcp.js) names the reason; the answer, and the agent's log, say no more than before.
     let why = 'token is not known or has expired or was turned off';
-    if (record && agent && agent.agent && !agent.off && env.tokens.live(record)) {
+    if (tokenWhy) why = tokenWhy;
+    else if (record && agent && agent.agent && !agent.off && env.tokens.live(record)) {
       if (store.settings.agents !== true) why = 'agents are off in this environment';
       else if (agent.kind === 'setup' && !setupAgentsOn()) why = 'set-up agents are off';
     }
     mcp.refused(req, why);
-    return res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: AGENT_TOKEN_INVALID });
+    return res.status(401).set('WWW-Authenticate', isMcpPath(req.path) ? mcpChallenge(req) : 'Bearer').json({ error: AGENT_TOKEN_INVALID });
   }
   req._user = agent;
   req.agent = { user: agent, token: record, rule: null };
@@ -3913,6 +3958,9 @@ function agreementGate(req, res, next) {
   return res.status(403).json({ error: AGREE_FIRST, agreementRequired: true });
 }
 app.use(agreementGate);
+// The sign-in server's routes (server/oauth.js): its metadata, registration, authorize and token for the apps, and the
+// approval page's request routes for a signed-in person (past the agreement gate above).
+oauth.mount();
 
 app.get('/api/product', productInfo);
 app.get('/api/product/environment', productEnvironment);
@@ -5706,11 +5754,117 @@ function addAgent(req, res) {
   const user = store.addAgent({ displayName: body.displayName, ...(body.kind === 'setup' ? { kind: 'setup' } : {}) });
   return res.status(201).json({ user: publicUser(req, user) });
 }
-// GET: { token: { id, createdAt, lifetime, expiresAt (null for never), lastUsedAt, lastAddress } } or { token: null }. Never the token or its hash.
+// --- sign-in connections (server/oauth.js, plan-mcp-oauth.md) ------------------------------------------------------
+// An app's connection is one more way to hand an agent its credential: one way in per agent (decision 5), so making a
+// connection ends the agent's pasted token and any earlier connection, and making a token ends its connection.
+// What the owner's agent page reads of a connection: never a token or a hash.
+function connectionView(c) {
+  if (!c) return null;
+  const by = store.userByKey(c.allowedBy);
+  let returnsTo = c.returnsTo;
+  try { returnsTo = new URL(c.returnsTo).host.replace(/:\d+$/, ''); } catch { /* kept as it was given */ }
+  return { id: c.id, app: c.app, returnsTo, allowedBy: { key: c.allowedBy, name: by ? by.displayName : 'someone' }, allowedAt: c.createdAt, lifetime: c.lifetime, expiresAt: c.expiresAt, lastUsedAt: c.lastUsedAt || null, lastAddress: c.lastAddress || null };
+}
+// One line in the agent's log for a connection's start or end (server/agent-log.js `event`): the app's name and who did it,
+// never a token or a code.
+function connectionLine(env, connection, event, by) {
+  env.agentLog.write({ agent: connection.user, token: connection.id, event, app: connection.app, by: by || null, kind: null });
+}
+// Ends a connection (Revoke, a new token, a new connection, or `reused`: an old code or refresh token used again), with its
+// line; what the agent asked for through it ends too.
+function endConnection(connection, { by = null, reused = false } = {}) {
+  const env = currentEnvironment();
+  if (!connection || !env.tokens.endConnection(connection.id)) return;
+  connectionLine(env, connection, reused ? 'reused' : 'ended', by);
+  endAgentAsks();
+  setupRecordsHere().expire((a) => a.agent === connection.user);
+}
+// Whether a connection's agent may work now, so a token is worth issuing: the gate's own checks of the agent.
+function connectionUsable(connection) {
+  const env = currentEnvironment();
+  const agent = connection ? store.userByKey(connection.user) : null;
+  return Boolean(agent && agent.agent && !agent.off && env.tokens.live(connection) && agentTokensOn && store.settings.agents === true && (agent.kind !== 'setup' || setupAgentsOn()));
+}
+// What the approval page offers an owner: whether agents are on, the kinds of agent it may make, the agents it may pick (each
+// with whether it has a pasted token or a connection), the spaces it may tick (never the Lobby) and the lifetimes.
+function connectFacts(_req, _user) {
+  const setup = setupAgentsOn();
+  const tokens = currentEnvironment().tokens;
+  return {
+    agentsOn: store.settings.agents === true,
+    kinds: setup ? ['agent', 'setup'] : ['agent'],
+    agents: store.users.filter((u) => u.agent && !u.off && (u.kind !== 'setup' || setup)).map((u) => ({ key: u.key, name: u.displayName, kind: agentKindOf(u), hasToken: Boolean(tokens.of(u.key, 'agent')), connected: Boolean(tokens.of(u.key, 'connection')) })),
+    spaces: store.spaces.filter((r) => !r.isLobby).map((r) => ({ id: r.id, name: r.name })),
+    lifetimes: Object.keys(LIFETIMES),
+    defaultLifetime: DEFAULT_TOKEN_LIFETIME,
+  };
+}
+// Allow on the approval page: { agent: "new" | <key>, name?, kind?, spaces: [ids], expires? }. Makes or picks the agent, adds
+// it to the spaces ticked (as Set up does), ends its other way in and makes the connection: { connection }, or
+// { status, error }.
+const SPACES_FIELD = 'spaces'; // the body's field, named in its refusals as it is sent
+const CONNECT_FIELDS = ['agent', 'name', 'kind', SPACES_FIELD, 'expires'];
+function approveConnection(req, user, body, appFacts) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { status: 400, error: `Send agent, ${SPACES_FIELD} and expires as JSON, like { "agent": "new", "expires": "30d" }.` };
+  if (Object.keys(body).some((k) => !CONNECT_FIELDS.includes(k))) return { status: 400, error: `Send only agent, name, kind, ${SPACES_FIELD}, expires and form.` };
+  const off = agentsRefusal();
+  if (off) return { status: 403, error: off };
+  const lifetime = body.expires === undefined ? DEFAULT_TOKEN_LIFETIME : body.expires;
+  if (typeof lifetime !== 'string' || !Object.hasOwn(LIFETIMES, lifetime)) return { status: 400, error: `expires is one of: ${Object.keys(LIFETIMES).join(', ')}.` };
+  const spaceIds = body.spaces === undefined ? [] : body.spaces;
+  if (!Array.isArray(spaceIds) || spaceIds.length > 500 || spaceIds.some((id) => typeof id !== 'string')) return { status: 400, error: `${SPACES_FIELD} is a list of ${word('space')} ids.` };
+  const spaces = [];
+  for (const id of new Set(spaceIds)) {
+    const space = store.spaceById(id);
+    if (!space || space.isLobby || space.id === LOBBY) return { status: 404, error: `no such ${word('space')}` };
+    spaces.push(space);
+  }
+  let agent;
+  if (body.agent === 'new') {
+    const kind = body.kind === undefined ? 'agent' : body.kind;
+    if (kind !== 'agent' && kind !== 'setup') return { status: 400, error: `kind is agent, or setup for an agent that makes and names ${word('space', { many: true })}.` };
+    if (kind === 'setup') { const no = setupRefusal(); if (no) return { status: 403, error: no }; }
+    if (body.name !== undefined && typeof body.name !== 'string') return { status: 400, error: "An agent's name is text." };
+    if (kind === 'setup' && spaces.length) return { status: 400, error: `A set-up agent works only in the ${word('space', { many: true })} it makes, so it takes none.` };
+    const cap = planCap('members');
+    if (cap !== null && store.users.length >= cap) return { status: 403, error: `This ${word('environment')} is at its limit of ${cap} ${word('member', { many: true })}.` };
+    try {
+      agent = store.addAgent({ displayName: (typeof body.name === 'string' && body.name.trim()) || appFacts.name, ...(kind === 'setup' ? { kind: 'setup' } : {}) });
+    } catch (err) {
+      if (err instanceof StoreError) return { status: err.status || 400, error: err.message };
+      throw err;
+    }
+  } else {
+    if (typeof body.agent !== 'string') return { status: 400, error: 'agent is "new", or the key of one of the agents here.' };
+    if (body.kind !== undefined || body.name !== undefined) return { status: 400, error: "An existing agent keeps its name and kind." };
+    agent = store.userByKey(body.agent);
+    if (!agent) return { status: 404, error: 'no such user' };
+    if (!agent.agent) return { status: 400, error: 'That account is not an agent.' };
+    if (agent.off) return { status: 409, error: 'This agent is turned off. Turn it on first.' };
+    if (agent.kind === 'setup') {
+      const no = setupRefusal();
+      if (no) return { status: 403, error: no };
+      if (spaces.length) return { status: 400, error: `A set-up agent works only in the ${word('space', { many: true })} it makes, so it takes none.` };
+    }
+  }
+  for (const space of spaces) if (!space.members.includes(agent.key)) store.updateSpace(space.id, { members: [...space.members, agent.key] });
+  const env = currentEnvironment();
+  const before = env.tokens.wayInOf(agent.key);
+  const connection = env.tokens.connect(agent.key, { client: appFacts.client, app: appFacts.name, returnsTo: appFacts.returnsTo, resource: appFacts.resource, scope: appFacts.scope, allowedBy: user.key, lifetime });
+  if (before && before.kind === 'connection') connectionLine(env, before, 'ended', user.key);
+  connectionLine(env, connection, 'connected', user.key);
+  endAgentAsks(); // what the earlier token or connection asked for ends with it
+  setupRecordsHere().expire((a) => a.agent === agent.key);
+  if (spaces.length) liveAccessChanged();
+  return { connection };
+}
+// GET: { token: { id, createdAt, lifetime, expiresAt (null for never), lastUsedAt, lastAddress } } or { token: null }, and
+// `connection` (connectionView) or null: the agent has at most one of the two. Never a token or its hash.
 app.get('/api/users/:key/token', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
-  res.set('Cache-Control', 'no-store').json({ token: tokenView(currentEnvironment().tokens.of(agent.key)) });
+  const tokens = currentEnvironment().tokens;
+  res.set('Cache-Control', 'no-store').json({ token: tokenView(tokens.of(agent.key, 'agent')), connection: connectionView(tokens.of(agent.key, 'connection')) });
 });
 // POST { expires? }: a new token, shown this once: 201 { token, lifetime, expiresAt }. `expires` is one of the LIFETIMES
 // words (30d when absent); expiresAt is null for "never". Any earlier token of the agent ends.
@@ -5725,22 +5879,27 @@ app.post('/api/users/:key/token', requireOwner, (req, res) => {
   const refused = agent.kind === 'setup' ? setupRefusal() : agentsRefusal();
   if (refused) return res.status(403).json({ error: refused });
   if (agent.off) return res.status(409).json({ error: 'This agent is turned off. Turn it on first.' });
+  const ended = currentEnvironment().tokens.of(agent.key, 'connection'); // a pasted token ends its connection (one way in)
   const { token, record } = currentEnvironment().tokens.make(agent.key, 'agent', lifetime);
+  if (ended) connectionLine(currentEnvironment(), ended, 'ended', currentUser(req).key);
   endAgentAsks(); // what the earlier token asked for ends with it
   setupRecordsHere().expire((a) => a.agent === agent.key); // a set-up agent's waiting asks too
   res.status(201).set('Cache-Control', 'no-store').json({ token, lifetime: record.lifetime, expiresAt: record.expiresAt });
 });
-// DELETE: revokes it at once: { ok: true, revoked } (false when it had none).
+// DELETE: revokes whichever it has, its token or its connection, at once: { ok: true, revoked } (false when it had none).
 app.delete('/api/users/:key/token', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
-  const revoked = currentEnvironment().tokens.revoke(agent.key, 'agent');
+  const ended = currentEnvironment().tokens.of(agent.key, 'connection');
+  const revoked = currentEnvironment().tokens.revoke(agent.key);
+  if (ended) connectionLine(currentEnvironment(), ended, 'ended', currentUser(req).key);
   endAgentAsks(); // what it asked for that no page carried out yet ends with the token
   setupRecordsHere().expire((a) => a.agent === agent.key); // a set-up agent's waiting asks too
   res.set('Cache-Control', 'no-store').json({ ok: true, revoked });
 });
 // What the agent did: the last 100 lines of its log, newest first, before `before` (a time) when given:
-// { entries: [{ at, token, method, route, space, action, request, message, status, address, kind }], more }.
+// { entries: [{ at, token, method, route, space, action, request, message, status, address, kind, change, event, app, by }],
+// more }; `event` (connected, ended, reused), `app` and `by` ({ key, name }) only on a sign-in connection's lines.
 app.get('/api/users/:key/agent-log', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
@@ -5749,7 +5908,10 @@ app.get('/api/users/:key/agent-log', requireOwner, (req, res) => {
     before = typeof req.query.before === 'string' && req.query.before.length <= 40 ? Date.parse(req.query.before) : NaN;
     if (!Number.isFinite(before)) return res.status(400).json({ error: 'before is a time, like 2026-11-16T10:00:00Z.' });
   }
-  res.set('Cache-Control', 'no-store').json(currentEnvironment().agentLog.entriesOf(agent.key, { before }));
+  // A sign-in connection's line names who allowed or ended it: { key, name } (the name as it is now).
+  const page = currentEnvironment().agentLog.entriesOf(agent.key, { before });
+  const named = (e) => (typeof e.by === 'string' ? { ...e, by: { key: e.by, name: store.userByKey(e.by)?.displayName || 'someone' } } : e);
+  res.set('Cache-Control', 'no-store').json({ ...page, entries: page.entries.map(named) });
 });
 // A set-up agent's asks and changes, for owners and the admin (plan-admin-agent.md, step 2; the routes the agent uses and
 // the rules are with its own routes, below). An ordinary agent has none: its lists are empty and an answer to one is 404.
@@ -10230,7 +10392,7 @@ function agentAskStands(a, { standing = false } = {}) {
   const agent = store.userByKey(a.by);
   if (!agent || !agent.agent || agent.off) return false;
   const tokens = currentEnvironment().tokens;
-  const token = tokens.of(agent.key, 'agent');
+  const token = tokens.wayInOf(agent.key); // its pasted token or its connection: an ask carries the way in's id
   if (!token || !tokens.live(token) || typeof a.agentToken !== 'string' || token.id !== a.agentToken) return false;
   const spaceId = a.space || (typeof a.scopeKey === 'string' && a.scopeKey.startsWith('space:') ? a.scopeKey.slice(6) : null);
   const space = spaceId ? store.spaceById(spaceId) : null;
