@@ -171,6 +171,14 @@ const rolesHint = (before, after) => {
 // environment). `token` is the real one in the token window and a placeholder on the agent's page. Text only.
 const PLACEHOLDER_TOKEN = 'agt_YOUR_TOKEN';
 export const connectCommand = (origin, token) => `claude mcp add --transport http chameleon ${origin}/mcp --header "Authorization: Bearer ${token}"`;
+// Another app with a form for a Streamable HTTP MCP server and a "Bearer token env var" field: the field takes the NAME of a variable
+// that holds the token. The three commands set it on the person's computer; `token` is real only in the token window.
+export const ENV_VAR_NAME = 'CHAMELEON_TOKEN';
+export const envCommands = (token, name = ENV_VAR_NAME) => ({
+  windows: `setx ${name} "${token}"`,
+  macos: `echo 'export ${name}="${token}"' >> ~/.zshrc`,
+  linux: `echo 'export ${name}="${token}"' >> ~/.bashrc`,
+});
 export const connectJson = (origin, token) => JSON.stringify({ mcpServers: { chameleon: { type: 'http', url: `${origin}/mcp`, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
 
 // A line of text to copy: a label, the text in a box and a Copy button of its own.
@@ -276,6 +284,17 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   appStep('Under Authentication, choose No sign-in.');
   appStep('Under Request headers, choose Add header. Name: Authorization. Value: Bearer then a space then the token.', copyBlock('Header value', `Bearer ${token}`));
   appStep('Save, then start a new chat and turn the connector on for that chat. Ask: "Use the chameleon tools. Which spaces can you see?"');
+  const envs = make('ol', 'agent-steps');
+  envs.dataset.agentEnv = '';
+  const envStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); envs.append(li); };
+  const cmds = envCommands(token);
+  envStep('In the app, open the form for a new MCP server that uses a web address (Streamable HTTP). Name it anything, for example chameleon.');
+  envStep('URL: use this address.', copyBlock('Address', `${location.origin}/mcp`));
+  envStep('Bearer token env var: type the name of a variable, not the token.', copyBlock('Variable name', ENV_VAR_NAME));
+  envStep('Leave Headers and Headers from environment variables empty.');
+  envStep('On your computer, set that variable to the token. Pick your system, paste it in a terminal and press Enter.',
+    copyBlock('Windows (PowerShell)', cmds.windows), copyBlock('macOS (Terminal)', cmds.macos), copyBlock('Linux (shell)', cmds.linux));
+  envStep('Quit the app and open it again, because it reads variables only when it starts. Then save the server and ask the first question above.');
   const moderatorWord = word('moderator', { a: true });
   const setupIntro = `Let Claude set up ${spaceWords(2)}: make one, and change its name, description and icon. It needs only this connection, and it can't read what is inside a ${spaceWord}. Adding or taking off a person, or making someone ${moderatorWord}, waits for your yes.`;
   el.append(
@@ -294,6 +313,10 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
     apps,
     make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),
     file,
+    make('h4', 'agent-connect-sub', 'An app with environment-variable fields'),
+    make('p', 'hint', 'Some apps, such as Codex, have a form for an MCP server with a "Bearer token env var" field. This is not tested here. It does not apply to the web connectors of other chat apps, which have no place for a token.'),
+    envs,
+    make('p', 'hint', 'Less safe: instead of the variable, add a header under Headers. Name: Authorization. Value: Bearer then a space then the token (the Header value above). The token is then saved in that app\'s settings file.'),
   );
   return { el, setUsed, setSpaces };
 }

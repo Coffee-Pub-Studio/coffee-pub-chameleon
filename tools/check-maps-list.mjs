@@ -806,7 +806,7 @@ test('one page holds the list and the map: no id twice, the list mounted once, a
   assert.match(script, /const activeNow = \(\) => \(modeNow\(\) === 'map' \? 'map' : 'list'\);/);
   // The local actions between them are plain calls here; the ones other modules may ask still go to the host.
   assert.match(script, /if \(LOCAL\[name\]\) registry\.set\(name, fn\);\s*if \(!LOCAL\[name\] \|\| name === 'showOnMap'\) rest\[name\] = fn;/);
-  assert.match(script, /if \(name === 'pickPoint'\) show\('map'\);/, 'picking a spot brings the map up while narrow');
+  assert.match(script, /if \(name === 'pickPoint' \|\| name === 'showResult'\) show\('map'\);/, 'picking a spot, or showing a search result, brings the map up while narrow');
   assert.match(script, /if \(\(name === 'pickPoint' && !result\.ok\) \|\| name === 'positionPicked'\) show\('list'\);/, 'the dialog comes back to the list');
   // The map draws the "add here" tools in the window too, since the list is there to answer.
   assert.match(script, /if \(!part && !env\.withList\) return;/);

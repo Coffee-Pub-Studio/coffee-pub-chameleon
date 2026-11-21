@@ -1,7 +1,7 @@
 {
   "id": "maps",
   "name": "Maps",
-  "version": "0.10.7",
+  "version": "0.10.9",
   "content": "flush",
   "icon": "map-location-dot",
   "color": "pink",
@@ -366,6 +366,20 @@
         }
       },
       {
+        "name": "showResult",
+        "label": "Show a search result on the map",
+        "local": true,
+        "input": {
+          "lat": "number",
+          "lng": "number",
+          "title": "string?",
+          "address": "string?",
+          "key": "string?",
+          "page": "string?",
+          "pageUntil": "number?"
+        }
+      },
+      {
         "name": "showOnMap",
         "label": "Show on the map",
         "local": true,
@@ -394,6 +408,7 @@
           "subtitle": "address",
           "place": "point",
           "category": "category",
+          "type": "type",
           "icon": "icon",
           "visit": "status",
           "color": "color",

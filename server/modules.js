@@ -88,7 +88,7 @@ function cleanHooks(raw) {
 // `doneAt`: a time (milliseconds) after which the summary's `done` is true whatever the `done` field says (a poll that
 // closes by its time). `phase`: the id of the template phase an entry names (a planner's; a phase measured by goals is done when every
 // entry that names it is done); `progress`: how far along it is, a whole number from 0 to 100.
-const SUMMARY_FIELDS = ['title', 'subtitle', 'when', 'end', 'allDay', 'done', 'doneAt', 'place', 'category', 'text', 'amount', 'planned', 'paidBy', 'sharedBy', 'icon', 'visit', 'color', 'spaces', 'phase', 'progress'];
+const SUMMARY_FIELDS = ['title', 'subtitle', 'when', 'end', 'allDay', 'done', 'doneAt', 'place', 'category', 'type', 'text', 'amount', 'planned', 'paidBy', 'sharedBy', 'icon', 'visit', 'color', 'spaces', 'phase', 'progress'];
 const REF_KIND_RE = /^[a-z][a-z0-9-]{0,23}$/;
 const REF_CONSUME_RE = /^[a-z][a-z0-9-]{1,31}:[a-z][a-z0-9-]{0,23}$/;
 const SCOPES = ['environment', 'space', 'person'];
@@ -1665,6 +1665,19 @@ class ModuleManager {
       for (const d of (m && m.settings) || []) if ((d.type === 'file' || d.type === 'files') && d.folder) out.add(d.folder);
     }
     return out;
+  }
+
+  // Drops the modules installed from this deployment's bundled copy (source "bundled") that it no longer ships, as
+  // `isShipped(id)` says: a module folded into another (Places into Maps) leaves nothing behind in Modules. Their data
+  // files stay on the disk. An uploaded module is never touched, whatever its id. Returns the ids dropped.
+  dropRetired(isShipped) {
+    const gone = [];
+    for (const [id, entry] of Object.entries(this.registry.modules)) {
+      if (!entry || entry.source !== 'bundled' || isShipped(id)) continue;
+      this.uninstall(id, { keepData: true });
+      gone.push(id);
+    }
+    return gone;
   }
 
   uninstall(id, { keepData = true } = {}) {
