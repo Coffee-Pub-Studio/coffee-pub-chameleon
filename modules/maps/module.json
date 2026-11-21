@@ -1,7 +1,7 @@
 {
   "id": "maps",
   "name": "Maps",
-  "version": "0.10.8",
+  "version": "0.10.9",
   "content": "flush",
   "icon": "map-location-dot",
   "color": "pink",
@@ -361,6 +361,20 @@
         "label": "Pick a spot on the map",
         "local": true,
         "input": {
+          "page": "string?",
+          "pageUntil": "number?"
+        }
+      },
+      {
+        "name": "showResult",
+        "label": "Show a search result on the map",
+        "local": true,
+        "input": {
+          "lat": "number",
+          "lng": "number",
+          "title": "string?",
+          "address": "string?",
+          "key": "string?",
           "page": "string?",
           "pageUntil": "number?"
         }
