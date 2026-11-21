@@ -3644,7 +3644,21 @@ const agentMadeOf = (agent, id) => {
 };
 const agentMadeSpaces = (agent) => store.spaces.filter((r) => agentMadeOf(agent, r.id));
 // Whether a pointer is into one of the agent's spaces.
-const agentSeesRef = (agent, ref) => Boolean(ref) && typeof ref === 'object' && ref.scope === 'space' && Boolean(agentSpaceOf(agent, ref.space));
+// A pointer into one of its spaces, or one to an environment-scope object marked for one of its spaces (a place kept for
+// "everyone and this space": its home is the environment, its marks are the spaces it shows in). Never a person's own
+// object, never an environment object marked for none of its spaces.
+const agentSeesRef = (agent, ref) => {
+  if (!ref || typeof ref !== 'object') return false;
+  if (ref.scope === 'space') return Boolean(agentSpaceOf(agent, ref.space));
+  return ref.scope === 'environment' && agentMarkedFor(agent, ref);
+};
+function agentMarkedFor(agent, ref) {
+  if (typeof ref.module !== 'string' || typeof ref.kind !== 'string' || !REF_ID_RE.test(String(ref.id ?? ''))) return false;
+  const produce = modules.enabled(ref.module)?.manifest.refs.produces.find((p) => p.kind === ref.kind);
+  if (!produce || !produce.summary.spaces) return false;
+  const marks = moduleData.get(ref.module, 'environment', produce.key.replace('{id}', String(ref.id)))?.value?.[produce.summary.spaces];
+  return Array.isArray(marks) && marks.some((id) => typeof id === 'string' && agentSpaceOf(agent, id));
+}
 // A route's own check of the place a call names: null to let it on, else { status, error } (and the space it named, for
 // the log, as `space` when it is the agent's).
 const agentNoSuchSpace = () => ({ status: 404, error: `no such ${word('space')}` });
@@ -3662,15 +3676,16 @@ const agentAt = {
   linkRef: (req, agent) => {
     let ref;
     try { ref = JSON.parse(String(req.query.ref || '')); } catch { return null; }
-    if (!ref || typeof ref !== 'object' || ref.scope !== 'space') return { status: 403, error: AGENT_CANT };
-    return agentSpaceOf(agent, ref.space) ? null : agentNoSuchSpace();
+    if (!ref || typeof ref !== 'object') return { status: 403, error: AGENT_CANT };
+    if (ref.scope === 'space') return agentSpaceOf(agent, ref.space) ? null : agentNoSuchSpace();
+    return agentSeesRef(agent, ref) ? null : { status: 403, error: AGENT_CANT };
   },
   // POST /api/objects/resolve: every pointer (of the 50 the route reads) into one of its spaces.
   resolveRefs: (req, agent) => {
     const refs = Array.isArray(req.body?.refs) ? req.body.refs.slice(0, 50) : [];
     for (const ref of refs) {
-      if (!ref || typeof ref !== 'object' || ref.scope !== 'space') return { status: 403, error: AGENT_CANT };
-      if (!agentSpaceOf(agent, ref.space)) return agentNoSuchSpace();
+      if (!ref || typeof ref !== 'object') return { status: 403, error: AGENT_CANT };
+      if (ref.scope === 'space') { if (!agentSpaceOf(agent, ref.space)) return agentNoSuchSpace(); } else if (!agentSeesRef(agent, ref)) return { status: 403, error: AGENT_CANT };
     }
     return null;
   },
@@ -9383,6 +9398,9 @@ function objectSummary({ manifest, produce, ref, hide }, id, value, withText = f
   // `doneAt` (a time in milliseconds): done once it has passed, whatever the stored flag says (a poll closed by its time).
   const doneAt = field('doneAt');
   if (typeof doneAt === 'number' && Number.isFinite(doneAt) && Date.now() >= doneAt) summary.done = true;
+  // `type`: a finer label than the category (a place's "cafe" or "hotel"), the same shape.
+  const typeLabel = text(field('type'));
+  if (typeof typeLabel === 'string' && /^[A-Za-z0-9-]{1,30}$/.test(typeLabel)) summary.type = typeLabel.toLowerCase();
   // A short label a module may give its items to group or colour them ("eat", "stay"): lower case letters, digits and dashes.
   const category = text(field('category'));
   // A producer may give plain words for its categories (`categoryNames`, by the stored category, else by the stored kind).
@@ -9719,6 +9737,10 @@ app.get('/api/objects/search', (req, res) => {
   const places = scope === 'spaces'
     ? store.spaces.filter((r) => userIsIn(who.user, r)).map((r) => ({ scope: 'space', space: r.id }))
     : [{ scope, space: req.query.space }];
+  // An agent asking about its space also sees the environment's objects marked for that space (a place kept for "everyone and
+  // this space"), and the kinds of the module it names (`from` is who it speaks as, not a link it is making); never a person's
+  // own list, and never an environment object marked for none of its spaces.
+  if (req.agent && scope === 'space') places.push({ scope: 'environment', markedFor: String(req.query.space) });
   const summaries = [];
   const pool = [];
   const pairs = moduleLinks.pairIndex();
@@ -9745,10 +9767,11 @@ app.get('/api/objects/search', (req, res) => {
     }
   };
   for (const where of places) {
-    for (const k of consumableKinds(from)) {
+    const own = req.agent ? modules.enabled(from).manifest.refs.produces.map((p) => ({ module: from, kind: p.kind, own: true })) : [];
+    for (const k of [...consumableKinds(from), ...own]) {
       let at;
       try {
-        at = refScope(who, { provider: k.module, kind: k.kind, scope: where.scope, space: where.space, from });
+        at = refScope(who, { provider: k.module, kind: k.kind, scope: where.scope, space: where.space, from, skipConsumer: k.own === true });
       } catch (err) {
         if (has === 'amount' && err.unseen) countWithheld(k, where);
         continue; // not on for this scope, or not for this viewer
@@ -9759,6 +9782,7 @@ app.get('/api/objects/search', (req, res) => {
         const summary = markPair(objectSummary(at, item.key.slice(prefix.length), item.value), pairs);
         if (summary.copy && copies.hidesOriginal(summary.twinOf)) continue;
         const fits = !(inSpace && !(summary.spaces || []).includes(inSpace.id))
+          && !(where.markedFor && !(summary.spaces || []).includes(where.markedFor))
           && !(onlyKind && summary.ref.kind !== onlyKind)
           && !(has === 'place' && !summary.place)
           && !(has === 'amount' && !isPriced(summary))

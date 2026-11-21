@@ -1,7 +1,7 @@
 {
   "id": "maps",
   "name": "Maps",
-  "version": "0.10.7",
+  "version": "0.10.8",
   "content": "flush",
   "icon": "map-location-dot",
   "color": "pink",
@@ -394,6 +394,7 @@
           "subtitle": "address",
           "place": "point",
           "category": "category",
+          "type": "type",
           "icon": "icon",
           "visit": "status",
           "color": "color",
