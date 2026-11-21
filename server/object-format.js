@@ -42,7 +42,12 @@ const HANDOFF_KINDS = Object.freeze(['image']);
 //   minutes   a whole number 1 to 10080                                flag    true or false
 //   options   2 to 10 strings of up to 80, duplicates dropped          upload  a file id (handoffs only)
 //   day       YYYY-MM-DD, a year from 1900 to 2200 (the planners' days); a time after it is dropped
+//   money     a number from 0 to 1,000,000,000, kept to the cent; a plain decimal string ("412.80") is read as its number
+//   currency  a three-letter code (EUR), upper-cased                  names   1 to 20 names of up to 80, duplicates dropped
 const MAX_MINUTES = 10080;
+const MAX_COST = 1e9;
+const MAX_NAMES = 20;
+const MAX_NAME = 80;
 const MAX_POINT_NAME = 120;
 const MAX_OPTION = 80;
 const MIN_OPTIONS = 2;
@@ -56,21 +61,24 @@ const DAY_YEAR_MAX = 2200;
 // means nothing to the module. Cut at the longest title the format keeps.
 const UNDER = `text:${MAX_TITLE}`;
 const STOP_DETAILS = { starts: 'when', ends: 'when', minutes: 'minutes', address: 'text:200' };
+// What a booking cost and who it is for, on every travel kind: journeys, stays, meals and visits (plan-assistant-reboot.md,
+// decision 3). `cost` in `currency`; `travellers` by name, as written.
+const BOOKING_DETAILS = Object.freeze({ cost: 'money', currency: 'currency', travellers: 'names' });
 const DETAILS = deepFreeze({
-  flight: { airline: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', terminal: 'text:30', gate: 'text:30', seat: 'text:30', class: 'text:30', reference: 'text:60' },
-  train: { operator: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', platform: 'text:30', carriage: 'text:30', seat: 'text:30', class: 'text:30', reference: 'text:60' },
-  bus: { operator: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', seat: 'text:30', reference: 'text:60' },
-  ferry: { operator: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', cabin: 'text:30', seat: 'text:30', reference: 'text:60' },
-  car: { company: 'text:60', from: 'point', to: 'point', departs: 'when', arrives: 'when', class: 'text:30', reference: 'text:60' },
-  hotel: { address: 'text:200', checkIn: 'when', checkOut: 'when', roomType: 'text:60', guests: 'count:99', reference: 'text:60' },
-  restaurant: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60' },
-  cafe: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60' },
-  bar: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60' },
-  sight: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60' },
-  museum: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60' },
-  attraction: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60' },
-  tour: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60' },
-  show: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60' },
+  flight: { airline: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', terminal: 'text:30', gate: 'text:30', seat: 'text:30', class: 'text:30', reference: 'text:60', ...BOOKING_DETAILS },
+  train: { operator: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', platform: 'text:30', carriage: 'text:30', seat: 'text:30', class: 'text:30', reference: 'text:60', ...BOOKING_DETAILS },
+  bus: { operator: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', seat: 'text:30', reference: 'text:60', ...BOOKING_DETAILS },
+  ferry: { operator: 'text:60', number: 'text:20', from: 'point', to: 'point', departs: 'when', arrives: 'when', minutes: 'minutes', cabin: 'text:30', seat: 'text:30', reference: 'text:60', ...BOOKING_DETAILS },
+  car: { company: 'text:60', from: 'point', to: 'point', departs: 'when', arrives: 'when', class: 'text:30', reference: 'text:60', ...BOOKING_DETAILS },
+  hotel: { address: 'text:200', checkIn: 'when', checkOut: 'when', roomType: 'text:60', guests: 'count:99', reference: 'text:60', ...BOOKING_DETAILS },
+  restaurant: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60', ...BOOKING_DETAILS },
+  cafe: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60', ...BOOKING_DETAILS },
+  bar: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60', ...BOOKING_DETAILS },
+  sight: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60', ...BOOKING_DETAILS },
+  museum: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60', ...BOOKING_DETAILS },
+  attraction: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60', ...BOOKING_DETAILS },
+  tour: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60', ...BOOKING_DETAILS },
+  show: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60', ...BOOKING_DETAILS },
   event: { starts: 'when', ends: 'when', allDay: 'flag', address: 'text:200' },
   task: { due: 'when' },
   poll: { options: 'options', closes: 'when', multiple: 'flag' },
@@ -237,6 +245,20 @@ function cleanValue(type, v) {
     case 'minutes': return wholeIn(1, MAX_MINUTES);
     case 'flag': return typeof v === 'boolean' ? v : undefined;
     case 'upload': return typeof v === 'string' && UPLOAD_ID.test(v) ? v : undefined;
+    case 'money': {
+      const n = typeof v === 'string' && /^\d{1,10}(\.\d{1,2})?$/.test(v.trim()) ? Number(v.trim()) : v;
+      return typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= MAX_COST ? Math.round(n * 100) / 100 : undefined;
+    }
+    case 'currency': return typeof v === 'string' && /^[A-Za-z]{3}$/.test(v.trim()) ? v.trim().toUpperCase() : undefined;
+    case 'names': {
+      const out = [];
+      for (const o of Array.isArray(v) ? v : typeof v === 'string' ? [v] : []) {
+        if (typeof o !== 'string') continue;
+        const name = detailText(o, MAX_NAME);
+        if (name && !out.includes(name) && out.length < MAX_NAMES) out.push(name);
+      }
+      return out.length ? out : undefined;
+    }
     case 'options': {
       if (!Array.isArray(v)) return undefined;
       const out = [];
@@ -397,6 +419,9 @@ function valueSchema(type) {
     case 'flag': return { type: 'boolean' };
     case 'options': return { type: 'array', minItems: MIN_OPTIONS, maxItems: MAX_OPTIONS, items: { type: 'string', minLength: 1, maxLength: MAX_OPTION } };
     case 'upload': return { type: 'string', pattern: UPLOAD_ID.source };
+    case 'money': return { type: 'number', minimum: 0, maximum: MAX_COST };
+    case 'currency': return { type: 'string', pattern: '^[A-Z]{3}$' };
+    case 'names': return { type: 'array', minItems: 1, maxItems: MAX_NAMES, items: { type: 'string', minLength: 1, maxLength: MAX_NAME } };
     default: throw new Error(`no schema for ${type}`);
   }
 }
@@ -624,6 +649,7 @@ module.exports = {
   HANDOFF_KINDS,
   TAKE_WORDS,
   DETAILS,
+  BOOKING_DETAILS,
   BASES,
   FormatError,
   cleanObject,

@@ -1946,7 +1946,7 @@
               ? plan.addLink(await sharedRef(ref), place)
               : plan.addItem(ctx.summary.details
                 // An object with details (plan-object-handoff.md): its fields filled, on the day it was dropped on.
-                ? plan.fromObject({ ...ctx.summary, content: ctx.summary.content || ctx.summary.text }, place)
+                ? plan.fromObject({ ...ctx.summary, content: ctx.summary.content || ctx.summary.text }, place, await plan.bookingContext())
                 : plan.fromSuggestion({ title: ctx.summary.title, kind: ctx.summary.kind, content: ctx.summary.text, place: ctx.summary.place && ctx.summary.place.name, ...place }))),
           }];
           if (ref && ref.scope === 'person') {

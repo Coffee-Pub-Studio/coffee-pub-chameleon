@@ -32,315 +32,929 @@
         "objects": {
           "type": "array",
           "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "icon",
-              "kind",
-              "title",
-              "content",
-              "date",
-              "tags",
-              "place",
-              "links",
-              "basis",
-              "sources",
-              "details"
-            ],
-            "properties": {
-              "icon": {
-                "type": "string",
-                "enum": [
-                  "note",
-                  "lightbulb",
-                  "location-dot",
-                  "calendar-days",
-                  "link",
-                  "star",
-                  "bed",
-                  "hotel",
-                  "utensils",
-                  "ticket",
-                  "train",
-                  "plane",
-                  "car",
-                  "ship",
-                  "bus",
-                  "camera",
-                  "circle-info",
-                  "mug-hot",
-                  "landmark",
-                  "mountain",
-                  "umbrella-beach",
-                  "sun",
-                  "moon",
-                  "bell",
-                  "clock",
-                  "wallet",
-                  "triangle-exclamation",
-                  "circle-check",
-                  "heart",
-                  "users",
-                  "bag-shopping",
-                  "music",
-                  "map",
-                  "suitcase",
-                  "hourglass-half",
-                  "flag",
-                  "magnifying-glass",
-                  "list-check",
-                  "scale-balanced",
-                  "coins"
-                ]
-              },
-              "kind": {
-                "anyOf": [
-                  {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "icon",
+                  "kind",
+                  "title",
+                  "content",
+                  "date",
+                  "tags",
+                  "place",
+                  "links",
+                  "basis",
+                  "sources",
+                  "details"
+                ],
+                "properties": {
+                  "icon": {
+                    "$ref": "#/$defs/icon"
+                  },
+                  "kind": {
                     "type": "string",
                     "enum": [
-                      "event",
-                      "task",
-                      "note",
-                      "milestone",
-                      "work",
-                      "goal",
+                      "event"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "place": {
+                    "$ref": "#/$defs/place"
+                  },
+                  "links": {
+                    "$ref": "#/$defs/links"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "items",
+                      "both"
+                    ]
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "starts",
+                          "ends",
+                          "allDay",
+                          "address"
+                        ],
+                        "properties": {
+                          "starts": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "ends": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "allDay": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "address": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "icon",
+                  "kind",
+                  "title",
+                  "content",
+                  "date",
+                  "tags",
+                  "place",
+                  "links",
+                  "basis",
+                  "sources",
+                  "details"
+                ],
+                "properties": {
+                  "icon": {
+                    "$ref": "#/$defs/icon"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "task"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "place": {
+                    "$ref": "#/$defs/place"
+                  },
+                  "links": {
+                    "$ref": "#/$defs/links"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "items",
+                      "both"
+                    ]
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "due"
+                        ],
+                        "properties": {
+                          "due": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "icon",
+                  "kind",
+                  "title",
+                  "content",
+                  "date",
+                  "tags",
+                  "place",
+                  "links",
+                  "basis",
+                  "sources"
+                ],
+                "properties": {
+                  "icon": {
+                    "$ref": "#/$defs/icon"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "note"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "place": {
+                    "$ref": "#/$defs/place"
+                  },
+                  "links": {
+                    "$ref": "#/$defs/links"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "items",
+                      "both"
+                    ]
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "icon",
+                  "kind",
+                  "title",
+                  "content",
+                  "date",
+                  "tags",
+                  "place",
+                  "links",
+                  "basis",
+                  "sources",
+                  "details"
+                ],
+                "properties": {
+                  "icon": {
+                    "$ref": "#/$defs/icon"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "milestone"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "place": {
+                    "$ref": "#/$defs/place"
+                  },
+                  "links": {
+                    "$ref": "#/$defs/links"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "items",
+                      "both"
+                    ]
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "start",
+                          "done",
+                          "phase",
+                          "under"
+                        ],
+                        "properties": {
+                          "start": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "done": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "phase": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "under": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "icon",
+                  "kind",
+                  "title",
+                  "content",
+                  "date",
+                  "tags",
+                  "place",
+                  "links",
+                  "basis",
+                  "sources",
+                  "details"
+                ],
+                "properties": {
+                  "icon": {
+                    "$ref": "#/$defs/icon"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "work"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "place": {
+                    "$ref": "#/$defs/place"
+                  },
+                  "links": {
+                    "$ref": "#/$defs/links"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "items",
+                      "both"
+                    ]
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "start",
+                          "end",
+                          "done",
+                          "phase",
+                          "under"
+                        ],
+                        "properties": {
+                          "start": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "end": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "done": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "phase": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "under": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "icon",
+                  "kind",
+                  "title",
+                  "content",
+                  "date",
+                  "tags",
+                  "place",
+                  "links",
+                  "basis",
+                  "sources",
+                  "details"
+                ],
+                "properties": {
+                  "icon": {
+                    "$ref": "#/$defs/icon"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "goal"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "place": {
+                    "$ref": "#/$defs/place"
+                  },
+                  "links": {
+                    "$ref": "#/$defs/links"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "items",
+                      "both"
+                    ]
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  },
+                  "details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "why",
+                          "date",
+                          "phase"
+                        ],
+                        "properties": {
+                          "why": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "date": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "phase": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "icon",
+                  "kind",
+                  "title",
+                  "content",
+                  "date",
+                  "tags",
+                  "place",
+                  "links",
+                  "basis",
+                  "sources",
+                  "details"
+                ],
+                "properties": {
+                  "icon": {
+                    "$ref": "#/$defs/icon"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
                       "step"
                     ]
                   },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "title": {
-                "type": "string"
-              },
-              "content": {
-                "anyOf": [
-                  {
+                  "title": {
                     "type": "string"
                   },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "date": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "tags": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "place": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "name"
-                    ],
-                    "properties": {
-                      "name": {
+                  "content": {
+                    "anyOf": [
+                      {
                         "type": "string"
+                      },
+                      {
+                        "type": "null"
                       }
+                    ]
+                  },
+                  "date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
                     }
                   },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "links": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "title",
-                    "url"
-                  ],
-                  "properties": {
-                    "title": {
-                      "type": "string"
-                    },
-                    "url": {
-                      "type": "string"
+                  "place": {
+                    "$ref": "#/$defs/place"
+                  },
+                  "links": {
+                    "$ref": "#/$defs/links"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "items",
+                      "both"
+                    ]
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
                     }
+                  },
+                  "details": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "date",
+                          "done",
+                          "under"
+                        ],
+                        "properties": {
+                          "date": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "done": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "under": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               },
-              "basis": {
-                "type": "string",
-                "enum": [
-                  "general",
-                  "items",
-                  "both"
-                ]
-              },
-              "sources": {
-                "type": "array",
-                "items": {
-                  "type": "integer"
-                }
-              },
-              "details": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "starts",
-                      "ends",
-                      "allDay",
-                      "address",
-                      "due",
-                      "start",
-                      "done",
-                      "phase",
-                      "under",
-                      "end",
-                      "why",
-                      "date"
-                    ],
-                    "properties": {
-                      "starts": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "icon",
+                  "kind",
+                  "title",
+                  "content",
+                  "date",
+                  "tags",
+                  "place",
+                  "links",
+                  "basis",
+                  "sources"
+                ],
+                "properties": {
+                  "icon": {
+                    "$ref": "#/$defs/icon"
+                  },
+                  "kind": {
+                    "type": "null"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "anyOf": [
+                      {
+                        "type": "string"
                       },
-                      "ends": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "allDay": {
-                        "anyOf": [
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "address": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "due": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "start": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "done": {
-                        "anyOf": [
-                          {
-                            "type": "boolean"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "phase": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "under": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "end": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "why": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
-                      },
-                      "date": {
-                        "anyOf": [
-                          {
-                            "type": "string"
-                          },
-                          {
-                            "type": "null"
-                          }
-                        ]
+                      {
+                        "type": "null"
                       }
+                    ]
+                  },
+                  "date": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
                     }
                   },
-                  {
-                    "type": "null"
+                  "place": {
+                    "$ref": "#/$defs/place"
+                  },
+                  "links": {
+                    "$ref": "#/$defs/links"
+                  },
+                  "basis": {
+                    "type": "string",
+                    "enum": [
+                      "general",
+                      "items",
+                      "both"
+                    ]
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
                   }
-                ]
+                }
               }
-            }
+            ]
           },
           "description": "The things in the answer worth keeping; empty when there are none."
         },
@@ -350,6 +964,91 @@
             "type": "integer"
           },
           "description": "The numbers \"n\" in the data that the answer drew on."
+        }
+      },
+      "$defs": {
+        "icon": {
+          "type": "string",
+          "enum": [
+            "note",
+            "lightbulb",
+            "location-dot",
+            "calendar-days",
+            "link",
+            "star",
+            "bed",
+            "hotel",
+            "utensils",
+            "ticket",
+            "train",
+            "plane",
+            "car",
+            "ship",
+            "bus",
+            "camera",
+            "circle-info",
+            "mug-hot",
+            "landmark",
+            "mountain",
+            "umbrella-beach",
+            "sun",
+            "moon",
+            "bell",
+            "clock",
+            "wallet",
+            "triangle-exclamation",
+            "circle-check",
+            "heart",
+            "users",
+            "bag-shopping",
+            "music",
+            "map",
+            "suitcase",
+            "hourglass-half",
+            "flag",
+            "magnifying-glass",
+            "list-check",
+            "scale-balanced",
+            "coins"
+          ]
+        },
+        "place": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "title",
+              "url"
+            ],
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          }
         }
       }
     }

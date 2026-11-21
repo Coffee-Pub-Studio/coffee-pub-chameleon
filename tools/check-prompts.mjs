@@ -792,10 +792,12 @@ try {
 
   await test('server: asks at once can\'t pass the allowance together; each ask\'s own estimate counts', async () => {
     try {
-      // The estimate of one ask like these: its prompt (about four characters to a token) plus the answer's budget.
+      // The estimate of one ask like these: its prompt and the tools it is offered, with the answer's schema (about four
+      // characters to a token), plus the answer's budget.
       fakeA.clear();
       await ask('kim', 'how big is one?');
-      const estimate = Math.ceil(fakeA.last().body.messages.reduce((n, m) => n + m.content.length, 0) / 4) + ASK.budget.answer;
+      const sent = fakeA.last().body;
+      const estimate = Math.ceil((sent.messages.reduce((n, m) => n + m.content.length, 0) + JSON.stringify(sent.tools || []).length) / 4) + ASK.budget.answer;
       const used = (await call('GET', '/api/ai', { cookie: owner })).json.usage.tokens;
       // Enough left for one and a half: the first fits, the others would pass the cap with theirs.
       await call('PUT', '/api/ai', { cookie: owner, body: { monthlyTokens: used + Math.floor(estimate * 1.5) } });

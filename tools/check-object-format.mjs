@@ -22,7 +22,7 @@ const {
 const KINDS_BEFORE_PLANS = KINDS.filter((k) => !PLAN_KINDS.includes(k));
 const { MAX_SUMMARIES, parseSummaries } = require('../server/prompts/parse.js');
 const prompts = require('../server/prompts');
-const { fencedRule } = require('../server/prompts/object-rule.js');
+const { fencedRule, answerSchema } = require('../server/prompts/object-rule.js');
 const { productName } = require('../server/product-name.js');
 // The objects rule as the paste template writes it, and the copied instructions (server/prompts/paste.js).
 const objectRule = ({ fence, noun, max, kinds }) => fencedRule({ fence, noun, max, kinds });
@@ -391,6 +391,9 @@ const GOOD = {
   options: [['Yes', 'No', 'Yes', ' ', 3], ['Yes', 'No']],
   upload: ['0123456789abcdef01234567', '0123456789abcdef01234567'],
   day: ['2026-11-14T09:30', '2026-11-14'],
+  money: [412.805, 412.81],
+  currency: [' eur ', 'EUR'],
+  names: [['Ana **Lima**', ' ', 'Ana Lima', 7, 'Ben'], ['Ana Lima', 'Ben']],
 };
 // Values of the wrong type or out of range, per value type: each dropped on its own.
 const BAD = {
@@ -403,6 +406,9 @@ const BAD = {
   options: ['Yes, No', ['Only one'], [1, 2], []],
   upload: ['../etc/passwd', 'ABCDEF0123456789ABCDEF01', '0123', 7],
   day: ['2026-02-30', '1899-12-31', '2201-01-01', '0999-01-01', '12:50', '2026-11-14T24:00', 'next week', 20261114, ''],
+  money: [-1, 1e9 + 1, Number.NaN, Infinity, '12,50', '€12', '1e3', true, null, ''],
+  currency: ['EU', 'EURO', 'E1R', '€', 978, ''],
+  names: [[], [' ', 5], {}, 7, ''],
 };
 
 test('the catalogue: 23 kinds, image for handoffs only, every field typed', () => {
@@ -412,23 +418,27 @@ test('the catalogue: 23 kinds, image for handoffs only, every field typed', () =
   assert.deepEqual(HANDOFF_KINDS, ['image']);
   assert.deepEqual(Object.keys(DETAILS), [...KINDS, ...HANDOFF_KINDS]);
   const stop = 'starts ends minutes address';
+  // A booking's cost and who it is for, on every travel kind (plan-assistant-reboot.md, decision 3).
+  const booking = 'cost currency travellers';
   const want = {
-    flight: 'airline number from to departs arrives minutes terminal gate seat class reference',
-    train: 'operator number from to departs arrives minutes platform carriage seat class reference',
-    bus: 'operator number from to departs arrives minutes seat reference',
-    ferry: 'operator number from to departs arrives minutes cabin seat reference',
-    car: 'company from to departs arrives class reference',
-    hotel: 'address checkIn checkOut roomType guests reference',
-    restaurant: `${stop} partySize name reference`, cafe: `${stop} partySize name reference`, bar: `${stop} partySize name reference`,
-    sight: `${stop} tickets reference`, museum: `${stop} tickets reference`, attraction: `${stop} tickets reference`, tour: `${stop} tickets reference`, show: `${stop} tickets reference`,
+    flight: `airline number from to departs arrives minutes terminal gate seat class reference ${booking}`,
+    train: `operator number from to departs arrives minutes platform carriage seat class reference ${booking}`,
+    bus: `operator number from to departs arrives minutes seat reference ${booking}`,
+    ferry: `operator number from to departs arrives minutes cabin seat reference ${booking}`,
+    car: `company from to departs arrives class reference ${booking}`,
+    hotel: `address checkIn checkOut roomType guests reference ${booking}`,
+    restaurant: `${stop} partySize name reference ${booking}`, cafe: `${stop} partySize name reference ${booking}`, bar: `${stop} partySize name reference ${booking}`,
+    sight: `${stop} tickets reference ${booking}`, museum: `${stop} tickets reference ${booking}`, attraction: `${stop} tickets reference ${booking}`, tour: `${stop} tickets reference ${booking}`, show: `${stop} tickets reference ${booking}`,
     event: 'starts ends allDay address', task: 'due', poll: 'options closes multiple', note: '', link: '', image: 'upload name',
     milestone: 'start done phase under', work: 'start end done phase under', goal: 'why date phase', step: 'date done under',
   };
   for (const [kind, fields] of Object.entries(want)) assert.deepEqual(Object.keys(DETAILS[kind]), fields.split(' ').filter(Boolean), kind);
-  for (const fields of Object.values(DETAILS)) for (const type of Object.values(fields)) assert.match(type, /^(when|day|point|text:\d+|count:\d+|minutes|flag|options|upload)$/, type);
+  for (const fields of Object.values(DETAILS)) for (const type of Object.values(fields)) assert.match(type, /^(when|day|point|text:\d+|count:\d+|minutes|flag|options|upload|money|currency|names)$/, type);
   assert.equal(DETAILS.flight.reference, 'text:60');
   assert.equal(DETAILS.hotel.guests, 'count:99');
   assert.equal(DETAILS.show.tickets, 'count:999');
+  assert.deepEqual([DETAILS.hotel.cost, DETAILS.hotel.currency, DETAILS.hotel.travellers], ['money', 'currency', 'names']);
+  for (const kind of ['event', 'task', 'poll', 'note', 'link', ...PLAN_KINDS, ...HANDOFF_KINDS]) assert.ok(!('cost' in DETAILS[kind]), `${kind} is no booking`);
   assert.deepEqual([DETAILS.goal.why, DETAILS.milestone.phase, DETAILS.step.under], ['text:2000', 'text:40', 'text:80'], 'under is cut at the longest title kept');
   assert.ok(Object.isFrozen(DETAILS) && Object.isFrozen(DETAILS.flight) && Object.isFrozen(DETAILS.work) && Object.isFrozen(TRAVEL_KINDS) && Object.isFrozen(PLAN_KINDS));
 });
@@ -679,6 +689,9 @@ test('the schema\'s details match the catalogue', () => {
       if (base === 'minutes') assert.deepEqual([p.type, p.minimum, p.maximum], ['integer', 1, 10080]);
       if (base === 'flag') assert.equal(p.type, 'boolean');
       if (base === 'options') assert.deepEqual([p.minItems, p.maxItems, p.items.maxLength], [2, 10, 80]);
+      if (base === 'money') assert.deepEqual([p.type, p.minimum, p.maximum], ['number', 0, 1e9]);
+      if (base === 'currency') assert.deepEqual(p, { type: 'string', pattern: '^[A-Z]{3}$' });
+      if (base === 'names') assert.deepEqual([p.minItems, p.maxItems, p.items.maxLength], [1, 20, 80]);
       if (base === 'when') {
         for (const v of ['2026-11-14T12:50', '2026-11-14', '12:50', '23:59', '2026-12-31T00:00']) assert.match(v, new RegExp(p.pattern), v);
         for (const v of ['2026-13-01', '2026-11-32', '24:00', '12:60', '2026-11-14T12:50Z', '9:05']) assert.doesNotMatch(v, new RegExp(p.pattern), v);
@@ -702,6 +715,47 @@ test('the schema\'s details match the catalogue', () => {
     if (p.maxLength) assert.ok(v.length <= p.maxLength, name);
     if (p.oneOf) assert.match(v.code, new RegExp(p.oneOf[1].properties.code.pattern), name);
   }
+});
+
+test('a booking\'s cost, currency and travellers: read, kept to the cent, and dropped on their own', () => {
+  const hotel = cleanObject({ kind: 'hotel', title: 'Hotel Lisboa', details: { checkIn: '2026-11-10', cost: '412.80', currency: 'eur', travellers: ['Ana Lima', 'Ana Lima', 'Ben'] } }, { imported: true });
+  assert.deepEqual(hotel.details, { checkIn: '2026-11-10', cost: 412.8, currency: 'EUR', travellers: ['Ana Lima', 'Ben'] }, 'a plain decimal string is its number; the code upper-cased; a name once');
+  assert.deepEqual(cleanDetails('flight', { cost: 0 }), { cost: 0 }, 'a cost of nothing is kept');
+  assert.deepEqual(cleanDetails('flight', { travellers: 'Ana Lima' }), { travellers: ['Ana Lima'] }, 'one name as a string');
+  assert.equal(cleanDetails('flight', { travellers: Array.from({ length: 30 }, (_, i) => `P${i}`) }).travellers.length, 20);
+  assert.equal(cleanDetails('event', { cost: 10, currency: 'EUR' }), null, 'an event is no booking');
+  assert.equal(cleanObject({ kind: 'museum', title: 'Tiles', details: { cost: 12 } }, { imported: true }).details.cost, 12, 'a cost alone is details enough');
+});
+
+test('the structured output: one shape per kind, joined with anyOf, each with only its own kind\'s details', () => {
+  const kinds = [...TRAVEL_KINDS, 'event', 'task', 'poll', 'note', 'link'];
+  const s = answerSchema(kinds);
+  const shapes = s.properties.objects.items.anyOf;
+  const kindsOf = (shape) => (shape.properties.kind.enum || [null]);
+  assert.deepEqual(shapes.flatMap(kindsOf), [...kinds, null], 'every kind once, in the catalogue\'s order, then an object with no kind');
+  assert.deepEqual(shapes.map(kindsOf).filter((g) => g.length > 1), [['restaurant', 'cafe', 'bar'], ['sight', 'museum', 'attraction', 'tour', 'show'], ['note', 'link']], 'kinds with the same details share one shape');
+  for (const shape of shapes) {
+    assert.equal(shape.additionalProperties, false);
+    assert.deepEqual(shape.required, Object.keys(shape.properties), 'strict: every property required');
+    const kind = kindsOf(shape)[0];
+    const fields = kind ? Object.keys(DETAILS[kind]) : [];
+    if (!fields.length) { assert.ok(!('details' in shape.properties), `${kind}: no details`); continue; }
+    const details = shape.properties.details.anyOf[0];
+    assert.deepEqual(details.required, fields, `${kind}: its own fields, and no other kind's`);
+    assert.deepEqual(Object.keys(details.properties), fields);
+  }
+  const flight = shapes.find((x) => kindsOf(x)[0] === 'flight').properties.details.anyOf[0].properties;
+  assert.deepEqual([flight.cost, flight.currency, flight.travellers, flight.from], [{ anyOf: [{ type: 'number' }, { type: 'null' }] }, { anyOf: [{ type: 'string' }, { type: 'null' }] }, { anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }] }, { anyOf: [{ $ref: '#/$defs/point' }, { type: 'null' }] }]);
+  assert.deepEqual(Object.keys(s.$defs), ['icon', 'place', 'links', 'point'], 'what every shape shares is written once');
+  assert.ok(!('point' in answerSchema(['task']).$defs), 'no point with no kind that has one');
+  // No kind listed: one shape, with no kind and no details.
+  const plain = answerSchema([]).properties.objects.items;
+  assert.ok(!plain.anyOf && !('kind' in plain.properties) && !('details' in plain.properties));
+  // A structured answer in that shape reads back with only what was known.
+  const raw = { icon: 'plane', kind: 'flight', title: 'TP 1234', content: null, date: '2026-11-10', tags: [], place: null, links: [], basis: 'general', sources: [], details: Object.fromEntries(Object.keys(DETAILS.flight).map((k) => [k, null])) };
+  raw.details.number = 'TP 1234'; raw.details.cost = 212.4; raw.details.currency = 'EUR'; raw.details.travellers = ['Ana Lima'];
+  const read = parseSummaries('```objects\n' + JSON.stringify([raw]) + '\n```', 0);
+  assert.deepEqual(read.summaries[0].details, { number: 'TP 1234', cost: 212.4, currency: 'EUR', travellers: ['Ana Lima'] });
 });
 
 test('old files, pastes and stored AI answers read exactly as before details', () => {

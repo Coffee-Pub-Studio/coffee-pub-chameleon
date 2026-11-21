@@ -23,7 +23,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const PRODUCT = 'Testname';
 process.env.PRODUCT_NAME = PRODUCT;
-const { KINDS: EVERY_KIND, TRAVEL_KINDS, PLAN_KINDS, DETAILS, cleanHandoff, takersOf, kindsTaken } = require('../server/object-format.js');
+const { KINDS: EVERY_KIND, TRAVEL_KINDS, PLAN_KINDS, DETAILS, BOOKING_DETAILS, cleanHandoff, takersOf, kindsTaken } = require('../server/object-format.js');
 // Every kind but the plan kinds, which the bundled-like stand-ins and the bundled modules below do not take (yet): their own
 // stand-ins (`projects`, `goalPlans`) do.
 const KINDS = EVERY_KIND.filter((k) => !PLAN_KINDS.includes(k));
@@ -111,17 +111,25 @@ await test('the copied instructions for different sets of modules: each kind wit
   assert.ok(!every.includes('image'), 'a picture is never asked of an AI');
   assert.match(every, /\n- hotel \(any stay: hotel, rental, hostel\): address, checkIn/);
   assert.match(every, /Leave out tags, place and links when you have nothing for them, and content when "details" says it all\. Add no fields other than these\./);
-  // Every field of every listed kind is named on its line.
+  // Every field of every listed kind is named on its line; a booking's own fields once, on the line after the last booking's.
+  const bookingLine = '- every booking (flight to show) also takes: cost (a number, no currency sign), currency (three letters, such as EUR), travellers (names as written)';
+  assert.ok(every.includes(`\n- sight, museum, attraction, tour, show: starts, ends, minutes, address, tickets, reference\n${bookingLine}\n`), 'the booking line after the visits');
   for (const kind of KINDS) {
     const line = every.split('\n').find((l) => l.startsWith('- ') && l.slice(2).split(/ \(|:/)[0].split(/, | and /).includes(kind));
     assert.ok(line, kind);
-    for (const field of Object.keys(DETAILS[kind])) assert.ok(new RegExp(`[:,] ${field === 'to' ? '(?:from and )?to' : field}\\b`).test(line), `${kind}.${field}`);
+    for (const field of Object.keys(DETAILS[kind])) {
+      if (Object.hasOwn(BOOKING_DETAILS, field)) { assert.ok(!new RegExp(`[:,] ${field}\\b`).test(line), `${kind}.${field} is on the booking line only`); continue; }
+      assert.ok(new RegExp(`[:,] ${field === 'to' ? '(?:from and )?to' : field}\\b`).test(line), `${kind}.${field}`);
+    }
   }
+  assert.ok(instructions('object', { kinds: ['hotel', 'task'] }).includes('\n- hotel also takes: cost ('), 'one booking kind is named');
+  assert.ok(!instructions('object', { kinds: ['event', 'task'] }).includes('also takes'), 'no booking, no booking line');
   const before = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/fixtures/object-format/before-details.json'), 'utf8'));
   assert.equal(every, before.prompts.instructionsEveryKind);
   // The size the plan expects: about 1,500 characters over the instructions before details (1,895 with "Testname"),
-  // plus room for the travel-kind sentence (a booking keeps its own kind rather than "event") Thomas asked for on 2026-10-04.
-  assert.ok(every.length - 1895 < 2100, `the full instructions are ${every.length} characters, ${2100 - (every.length - 1895)} under the budget of 2100 over the 1,895 before details`);
+  // plus room for the travel-kind sentence (a booking keeps its own kind rather than "event") Thomas asked for on 2026-10-04,
+  // and for a booking's cost, currency and travellers (plan-assistant-reboot.md, decision 3: about 220 more).
+  assert.ok(every.length - 1895 < 2320, `the full instructions are ${every.length} characters, ${2320 - (every.length - 1895)} under the budget of 2320 over the 1,895 before details`);
   const travelOnly = instructions('object');
   // To-do off: no task line, no task in the kinds.
   const noTodo = instructions('object', { kinds: kindsTaken([planner, calendar, research, polls]) });

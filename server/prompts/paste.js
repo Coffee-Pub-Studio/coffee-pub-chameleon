@@ -1,5 +1,6 @@
-// paste@1: the instructions a person copies into any AI (Chat's "Copy the prompt", GET /api/objects/format), in the person's
-// voice, never sent to the in-app model. Version 1 is the text the copied instructions had before the registry, word for word.
+// paste@2: the instructions a person copies into any AI (Chat's "Copy instructions for another AI", GET /api/objects/format), in
+// the person's voice, never sent to the in-app model. Version 2 (plan-assistant-reboot.md, step 1) adds a booking's cost, currency
+// and travellers to the example and the details lines; it replaces version 1, which the shared catalogue can no longer render.
 'use strict';
 
 const { fencedRule } = require('./object-rule');
@@ -7,7 +8,7 @@ const { FENCE, FILE_SUFFIX, MAX_IMPORT_OBJECTS } = require('../object-format');
 
 const template = {
   id: 'paste',
-  version: 1,
+  version: 2,
   inputs: ['kinds', 'words'],
   output: null,
   // `product`: PRODUCT_NAME, read by the caller (it is not a template's word).

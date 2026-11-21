@@ -578,7 +578,7 @@
         // unrecognised or missing kind is an ordinary stop, the same as addStop. Found by name and input shape, never by
         // whoever asks for it.
         // With `object` (plan-object-handoff.md): the whole object, its details in the plan's own fields (fromObject).
-        acceptSuggestion: async (input) => addHandedIn(input.object ? fromObject(input.object) : fromSuggestion(input)),
+        acceptSuggestion: async (input) => addHandedIn(input.object ? fromObject(input.object, undefined, await bookingContext()) : fromSuggestion(input)),
         addFromText: async (input) => {
           if (!composeFromText) throw new Error('Planner - Itinerary is not open');
           composeFromText(String(input.text || ''));
@@ -592,8 +592,19 @@
     let tell = null;
     function onSaid(fn) { tell = fn; }
     // The item an object of the objects format becomes (objectFields in travel-lib-object.js), with host.util's plain text and
-    // local times. `place` ({ date } or { after }): the Planner's own drop, whose day wins over the object's.
-    const fromObject = (object, place) => objectFields(object, host.util, place);
+    // local times. `place` ({ date } or { after }): the Planner's own drop, whose day wins over the object's. `booking`
+    // (bookingContext's answer): where a booking's cost and travellers go.
+    const fromObject = (object, place, booking) => objectFields(object, host.util, place, booking);
+    // The trip's currency (the budget's in Set up, else the one stored on the plan, else the server's) and the space's people,
+    // for a booking's cost and travellers (plan-assistant-reboot.md, decision 3).
+    async function bookingContext() {
+      const sp = typeof host.space === 'function' ? host.space() : null;
+      const budget = sp && sp.budget && typeof sp.budget.currency === 'string' ? sp.budget.currency.trim().toUpperCase() : '';
+      const locale = typeof host.locale === 'function' ? (host.locale() || {}).currency : '';
+      let people = [];
+      try { people = typeof host.people === 'function' ? await host.people() : []; } catch (err) { people = []; }
+      return { currency: budget || (trip && trip.currency) || (typeof locale === 'string' ? locale : '') || '', people: Array.isArray(people) ? people : [] };
+    }
     // The item a suggestion becomes ({ title, kind?, content?, place?, date? }, an AI's summary or a summary dropped here):
     // the right kind when `kind` is one of the everyday words a journey, a stay or a stop already knows, else a stop.
     function fromSuggestion(input) {
@@ -646,7 +657,7 @@
     }
 
     return {
-      refreshSummaries: () => resolveSummaries(true), refreshPhases, load, list, onLine, atJoint, sortable, days, byDay, dayOf, jointOf, summaries, suggest, provide, onFromText, onSaid, saveTrip, redateCopies, coverDay, bands, phased, addItem, updateItem, removeItem, removeFile, addRoundTrip, returnFor, outboundFor, extraReturns, removeLeg, applyChanges, moveTo, moveToJoint, previewMove, moveDays, previewClear, clearDay: clearDayOf, nudgeItem, addLink, fromSuggestion, fromObject, withDetails,
+      refreshSummaries: () => resolveSummaries(true), refreshPhases, load, list, onLine, atJoint, sortable, days, byDay, dayOf, jointOf, summaries, suggest, provide, onFromText, onSaid, saveTrip, redateCopies, coverDay, bands, phased, addItem, updateItem, removeItem, removeFile, addRoundTrip, returnFor, outboundFor, extraReturns, removeLeg, applyChanges, moveTo, moveToJoint, previewMove, moveDays, previewClear, clearDay: clearDayOf, nudgeItem, addLink, fromSuggestion, fromObject, bookingContext, withDetails,
       get trip() { return withDates(trip); },
       get suggestions() { return suggested; },
       get waiting() { return waiting; },

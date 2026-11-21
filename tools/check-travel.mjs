@@ -1514,6 +1514,31 @@ test('fromObject: each kind\'s details in the plan\'s own fields, and what has n
   assert.deepEqual(lib.objectFields(SOUTHWEST, util, { after: '' }).after, '');
 });
 
+test('fromObject: a booking\'s cost is the Estimated in the trip\'s currency, else a notes line; travellers who are people are its people', () => {
+  const people = [{ key: 'ana', name: 'Ana Lima' }, { key: 'ben', name: 'Ben' }];
+  const booking = { currency: 'eur', people };
+  const at = (details, b = booking) => lib.cleanItem({ ...lib.objectFields({ kind: 'hotel', title: 'Inn', date: '2026-10-01', details }, util, undefined, b), id: 'x' });
+  const same = at({ cost: 412.8, currency: 'EUR', travellers: ['Ana Lima', 'Ben'] });
+  assert.deepEqual([same.estimate, same.cost, same.owners, same.notes], [412.8, null, ['ana', 'ben'], ''], 'the trip\'s currency: its Estimated, as the form\'s; both names are people');
+  const none = at({ cost: 120 });
+  assert.deepEqual([none.estimate, none.notes], [120, ''], 'no currency named: the trip\'s');
+  const other = at({ cost: 412.8, currency: 'USD', travellers: ['Ana Lima', 'Cleo Park'] });
+  assert.deepEqual([other.estimate, other.owners, other.notes], [null, ['ana'], 'Cost: 412.80 USD\nTravellers: Cleo Park'], 'another currency and a name that is no one\'s: notes lines');
+  assert.equal(at({ cost: 300, currency: 'GBP' }).notes, 'Cost: 300 GBP');
+  assert.deepEqual([at({ cost: 0, currency: 'EUR' }).estimate, at({ cost: 0, currency: 'EUR' }).notes], [null, ''], 'nothing to pay: no Estimated');
+  assert.equal(at({ currency: 'USD', roomType: 'Double' }).notes, '', 'a currency with no cost says nothing');
+  assert.deepEqual(at({ travellers: ['ana lima'] }).owners, [], 'only an exact name');
+  assert.equal(at({ travellers: ['ana lima'] }).notes, 'Travellers: ana lima');
+  // Without the trip's currency and people (a check, a page that gives none): a named currency is a line, and so is every name.
+  const bare = at({ cost: 50, currency: 'EUR', travellers: ['Ana Lima'] }, null);
+  assert.deepEqual([bare.estimate, bare.owners, bare.notes], [null, [], 'Cost: 50 EUR\nTravellers: Ana Lima']);
+  // On a journey and a stop too, before the other fields' lines.
+  const flight = lib.cleanItem({ ...lib.objectFields({ kind: 'flight', title: 'TP 1', details: { cabin: 'x', cost: 99.5, currency: 'EUR', travellers: ['Ben'] } }, util, undefined, booking), id: 'f' });
+  assert.deepEqual([flight.estimate, flight.owners], [99.5, ['ben']]);
+  const dinner = lib.cleanItem({ ...lib.objectFields({ kind: 'restaurant', title: 'Ramiro', details: { cost: 80, currency: 'JPY', partySize: 2 } }, util, undefined, booking), id: 'r' });
+  assert.deepEqual([dinner.estimate, dinner.partySize, dinner.notes], [null, 2, 'Cost: 80 JPY']);
+});
+
 test('a relative arrival: kept while there is no day, dated on one', () => {
   assert.equal(lib.relativeArrives('2026-11-12', '2026-11-13T06:30'), '06:30+1');
   assert.equal(lib.relativeArrives('2026-11-14', '2026-11-13T13:00'), '13:00-1');
