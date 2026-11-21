@@ -339,6 +339,50 @@ try {
     assert.equal(search.isError, false, search.text);
   });
 
+  await test('an agent finds a saved place by name, with its pointer; never a person\'s own list or another space\'s', async () => {
+    const C = { token: (await makeAgent('Finder', [S1])).token }; // its own limits, so the other tests' counts stay as they were
+    ok(await call(server, 'POST', '/api/modules', { cookie: admin, raw: buildModule(path.join(ROOT, 'modules', 'maps')).zip, headers: { 'content-type': 'application/zip' } }), 'Maps installs', 201);
+    ok(await call(server, 'PATCH', '/api/modules/maps', { cookie: admin, body: { enabled: true } }), 'Maps is on');
+    const put = async (id, title, where, marks = where.startsWith('scope=environment') ? [S1] : []) => ok(await call(server, 'PUT', `/api/modules/maps/data/place:${id}?${where}`, { cookie: admin, body: { value: { id, title, category: 'food', type: 'winery', status: 'want', ...(marks.length ? { spaces: marks } : {}) } } }), `place ${id}`);
+    await put('p1', 'Napa winery', 'scope=environment');
+    await put('p2', 'Napa lodge', `scope=space&space=${S1}`);
+    await put('p3', 'Napa secret', 'scope=person');
+    await put('p4', 'Napa elsewhere', 'scope=environment', []);
+    ok(await call(server, 'PUT', '/api/modules/maps/data/place:p5?scope=environment', { cookie: admin, body: { value: { id: 'p5', title: 'Napa for the other space', spaces: [S2] } } }), 'place p5');
+    const found = result(await tool(server, 'search_objects', { space: S1, from: 'maps', kind: 'place', q: 'napa' }, C), 'search for a place');
+    assert.equal(found.isError, false, found.text);
+    assert.deepEqual(found.json.summaries.map((x) => x.title).sort(), ['Napa lodge', 'Napa winery'], 'this space\'s and the everyone place marked for it; not the person\'s, not an unmarked one, not another space\'s');
+    const winery = found.json.summaries.find((x) => x.title === 'Napa winery');
+    assert.deepEqual([winery.visit, winery.type, winery.category, winery.kind], ['want', 'winery', 'food', 'place']);
+    assert.deepEqual(winery.ref, { module: 'maps', kind: 'place', id: 'p1', scope: 'environment' });
+    assert.deepEqual(found.json.summaries.find((x) => x.title === 'Napa lodge').ref, { module: 'maps', kind: 'place', id: 'p2', scope: 'space', space: S1 });
+    // Another module's name as `from` finds them too once it may link to places.
+    const bySpace = result(await tool(server, 'search_objects', { space: S1, from: 'maps', q: 'secret' }, C), 'the person\'s own');
+    assert.deepEqual(bySpace.json.summaries, []);
+    // The pointers resolve, and updatePlace takes them as its place.
+    const resolved = result(await tool(server, 'resolve_objects', { from: 'maps', refs: found.json.summaries.map((x) => x.ref) }, C), 'resolve');
+    assert.deepEqual(resolved.json.summaries.map((x) => x.title).sort(), ['Napa lodge', 'Napa winery']);
+    for (const x of found.json.summaries) {
+      const asked = result(await tool(server, 'ask_for_change', { space: S1, action: 'maps:updatePlace', input: { place: x.ref, status: 'booked' } }, C), `updatePlace ${x.ref.id}`);
+      assert.equal(asked.isError, false, asked.text);
+      assert.equal(asked.json.status, 'pending');
+    }
+    // What is not for this agent's spaces is refused as before.
+    for (const ref of [{ module: 'maps', kind: 'place', id: 'p3', scope: 'person' }, { module: 'maps', kind: 'place', id: 'p4', scope: 'environment' }, { module: 'maps', kind: 'place', id: 'p5', scope: 'environment' }]) {
+      const out = result(await tool(server, 'resolve_objects', { from: 'maps', refs: [ref] }, C), `resolve ${ref.id}`);
+      assert.deepEqual([out.isError, out.text], [true, "An agent can't do that."], ref.id);
+      const change = result(await tool(server, 'ask_for_change', { space: S1, action: 'maps:updatePlace', input: { place: ref, status: 'booked' } }, C), `change ${ref.id}`);
+      assert.deepEqual([change.isError, change.text], [true, "An agent can't do that."], `change ${ref.id}`);
+    }
+    // An agent of another space sees none of them.
+    const B = await makeAgent('Other', [S2]);
+    assert.deepEqual(result(await tool(server, 'search_objects', { space: S2, from: 'maps', kind: 'place', q: 'napa' }, { token: B.token }), 'other agent').json.summaries.map((x) => x.title), ['Napa for the other space']);
+    const there = result(await tool(server, 'search_objects', { space: S1, from: 'maps', kind: 'place' }, { token: B.token }), 'other agent, our space');
+    assert.deepEqual([there.isError, there.text], [true, 'no such space']);
+    const own = result(await tool(server, 'resolve_objects', { from: 'maps', refs: [winery.ref] }, { token: B.token }), 'other agent resolves');
+    assert.deepEqual([own.isError, own.text], [true, "An agent can't do that."]);
+  });
+
   await test('bad arguments are a tool error, and still a read', async () => {
     const before = await used();
     for (const [name, args, sentence] of [
