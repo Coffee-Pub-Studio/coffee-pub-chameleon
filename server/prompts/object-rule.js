@@ -4,14 +4,14 @@
 // this rule describes. The paste template and the in-app templates share these lines so they cannot drift.
 'use strict';
 
-const { KINDS, TRAVEL_KINDS, PLAN_KINDS, DETAILS, ICONS, BASES } = require('../object-format');
+const { KINDS, TRAVEL_KINDS, PLAN_KINDS, DETAILS, BOOKING_DETAILS, ICONS, BASES } = require('../object-format');
 
 const listWords = (list, last = 'or') => (list.length < 2 ? list.join('') : `${list.slice(0, -1).join(', ')} ${last} ${list[list.length - 1]}`);
 
 // The example. Every value is a placeholder in <angle brackets>, never a real-looking one: a model that copies the
 // example writes an object whose title is still a placeholder, and the reader drops it (isPlaceholder, in cleanObject).
 // A flight's when flights are taken, else a plain object.
-const FLIGHT_EXAMPLE = '{"icon":"plane","kind":"flight","title":"<title>","content":"<notes; plain prose, or simple Markdown>","date":"<YYYY-MM-DD>","details":{"airline":"<airline>","number":"<number>","from":{"code":"<code>","name":"<name>"},"to":{"code":"<code>","name":"<name>"},"departs":"<YYYY-MM-DDTHH:MM>","arrives":"<YYYY-MM-DDTHH:MM>","reference":"<reference>"},"tags":["<tag>"],"place":{"name":"<name>"},"links":[{"title":"<title>","url":"<url>"}]}';
+const FLIGHT_EXAMPLE = '{"icon":"plane","kind":"flight","title":"<title>","content":"<notes; plain prose, or simple Markdown>","date":"<YYYY-MM-DD>","details":{"airline":"<airline>","number":"<number>","from":{"code":"<code>","name":"<name>"},"to":{"code":"<code>","name":"<name>"},"departs":"<YYYY-MM-DDTHH:MM>","arrives":"<YYYY-MM-DDTHH:MM>","reference":"<reference>","cost":"<number>","currency":"<code>","travellers":["<name>"]},"tags":["<tag>"],"place":{"name":"<name>"},"links":[{"title":"<title>","url":"<url>"}]}';
 function promptExample(kinds, withProvenance) {
   const example = kinds.includes('flight')
     ? FLIGHT_EXAMPLE
@@ -27,7 +27,10 @@ const FIELD_NOTES = {
   'goal.why': 'why it matters', 'goal.date': 'the day it is due', 'goal.phase': "the phase's name",
   'step.date': 'the day it is due', 'step.under': "its goal's title",
 };
-const TYPE_NOTES = { flag: 'true or false', options: '2 to 10 short answers' };
+const TYPE_NOTES = { flag: 'true or false', options: '2 to 10 short answers', money: 'a number, no currency sign', currency: 'three letters, such as EUR', names: 'names as written' };
+const BOOKING_FIELDS = Object.keys(BOOKING_DETAILS);
+// A kind that takes a booking's fields (cost, currency, travellers): they are said once, on a line of their own.
+const isBooking = (kind) => BOOKING_FIELDS.every((name) => Object.hasOwn(DETAILS[kind], name));
 const KIND_NOTES = { hotel: 'any stay: hotel, rental, hostel' };
 
 // A plan kind as the prompt's sentences say it, and one small example of each (placeholders only, as above).
@@ -51,10 +54,12 @@ function planLines(listed, noun) {
   return lines;
 }
 
-// One line per kind, or per run of kinds with the same fields ("restaurant, cafe, bar: ..."), for the kinds listed.
+// One line per kind, or per run of kinds with the same fields ("restaurant, cafe, bar: ..."), for the kinds listed. A
+// booking's own fields (cost, currency, travellers) are left off each kind's line and said once, after the last booking's.
 function detailsLines(kinds) {
   const lines = [];
   let pointsSaid = false;
+  const ownFields = (k) => Object.entries(DETAILS[k]).filter(([name]) => !(isBooking(k) && BOOKING_FIELDS.includes(name)));
   const empty = kinds.filter((k) => !Object.keys(DETAILS[k]).length);
   const groups = [];
   for (const k of kinds.filter((x) => Object.keys(DETAILS[x]).length)) {
@@ -62,8 +67,9 @@ function detailsLines(kinds) {
     if (last && JSON.stringify(DETAILS[last[0]]) === JSON.stringify(DETAILS[k])) last.push(k);
     else groups.push([k]);
   }
+  const bookings = kinds.filter(isBooking);
   for (const group of groups) {
-    const fields = DETAILS[group[0]];
+    const fields = Object.fromEntries(ownFields(group[0]));
     const both = fields.from === 'point' && fields.to === 'point';
     const words = [];
     let merged = false;
@@ -78,6 +84,10 @@ function detailsLines(kinds) {
       }
     }
     lines.push(`- ${group.map((k) => (KIND_NOTES[k] ? `${k} (${KIND_NOTES[k]})` : k)).join(', ')}: ${words.join(', ')}`);
+    if (bookings.length && group.includes(bookings[bookings.length - 1])) {
+      const which = bookings.length === 1 ? bookings[0] : `every booking (${bookings[0]} to ${bookings[bookings.length - 1]})`;
+      lines.push(`- ${which} also takes: ${BOOKING_FIELDS.map((name) => `${name} (${TYPE_NOTES[BOOKING_DETAILS[name]]})`).join(', ')}`);
+    }
   }
   if (empty.length) {
     const link = empty.includes('link');
@@ -153,54 +163,83 @@ function answerRule({ fence, noun, max, kinds = TRAVEL_KINDS, numbers }) {
 // --- the output contract as a JSON schema (structured output) ---------------------------------------------------------
 // Written to the strictest form the providers take (OpenAI's strict mode): every object closed, every property
 // required, an unknown value given as null. The reader drops the nulls and checks each object with cleanObject, so the
-// schema describes what to write and never decides what is kept.
+// schema describes what to write and never decides what is kept. One shape per kind, joined with anyOf on "kind"
+// (plan-assistant-reboot.md, decision 2): each carries only its own kind's details, so an object is never written with
+// every other kind's fields as null. An object with no kind is its own shape, with no details.
+// What every shape shares is written once, in $defs (OBJECT_DEFS), and pointed at.
 const nullable = (schema) => ({ anyOf: [schema, { type: 'null' }] });
+const ref = (name) => ({ $ref: `#/$defs/${name}` });
+const OBJECT_DEFS = () => ({
+  icon: { type: 'string', enum: ICONS.slice() },
+  place: nullable({ type: 'object', additionalProperties: false, required: ['name'], properties: { name: { type: 'string' } } }),
+  links: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'url'], properties: { title: { type: 'string' }, url: { type: 'string' } } } },
+  point: { type: 'object', additionalProperties: false, required: ['code', 'name'], properties: { code: nullable({ type: 'string' }), name: nullable({ type: 'string' }) } },
+});
 function valueSchema(type) {
   switch (type.split(':')[0]) {
     case 'when': return { type: 'string' };
-    case 'point': return { type: 'object', additionalProperties: false, required: ['code', 'name'], properties: { code: nullable({ type: 'string' }), name: nullable({ type: 'string' }) } };
+    case 'point': return ref('point');
     case 'count': case 'minutes': return { type: 'integer' };
+    case 'money': return { type: 'number' };
     case 'flag': return { type: 'boolean' };
-    case 'options': return { type: 'array', items: { type: 'string' } };
+    case 'options': case 'names': return { type: 'array', items: { type: 'string' } };
     default: return { type: 'string' };
   }
 }
-// One details object holding every field of the kinds listed (a field two kinds share has one type).
-function detailsSchema(kinds) {
-  const fields = {};
-  for (const k of kinds) for (const [name, type] of Object.entries(DETAILS[k])) if (!fields[name]) fields[name] = nullable(valueSchema(type));
-  const names = Object.keys(fields);
-  return names.length ? nullable({ type: 'object', additionalProperties: false, required: names, properties: fields }) : null;
+// One kind's details: its own fields only, each one null when it is not known. Null for a kind with none.
+function detailsSchema(kind) {
+  const fields = Object.entries(DETAILS[kind]);
+  if (!fields.length) return null;
+  return nullable({ type: 'object', additionalProperties: false, required: fields.map(([name]) => name), properties: Object.fromEntries(fields.map(([name, type]) => [name, nullable(valueSchema(type))])) });
 }
-function objectSchema(kinds) {
-  const listed = listedKinds(kinds);
+// The shape of an object of the kinds in `group` (which share their details; none: an object with no kind), with the fields
+// every object has.
+function kindSchema(group, withKind) {
+  const kind = group.length ? group[0] : null;
   const properties = {
-    icon: { type: 'string', enum: ICONS.slice() },
-    ...(listed.length ? { kind: nullable({ type: 'string', enum: listed }) } : {}),
+    icon: ref('icon'),
+    ...(withKind ? { kind: kind ? { type: 'string', enum: group.slice() } : { type: 'null' } } : {}),
     title: { type: 'string' },
     content: nullable({ type: 'string' }),
     date: nullable({ type: 'string' }),
     tags: { type: 'array', items: { type: 'string' } },
-    place: nullable({ type: 'object', additionalProperties: false, required: ['name'], properties: { name: { type: 'string' } } }),
-    links: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'url'], properties: { title: { type: 'string' }, url: { type: 'string' } } } },
+    place: ref('place'),
+    links: ref('links'),
     basis: { type: 'string', enum: BASES.slice() },
     sources: { type: 'array', items: { type: 'integer' } },
   };
-  const details = detailsSchema(listed);
+  const details = kind ? detailsSchema(kind) : null;
   if (details) properties.details = details;
   return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
 }
-// `{ answer, objects, used }` for ask and summarise.
+// One object of any kind listed: one shape per kind (kinds with the same details share one: restaurant, cafe and bar), then
+// the one with no kind; a single shape when no kind is listed.
+function objectSchema(kinds) {
+  const listed = listedKinds(kinds);
+  if (!listed.length) return kindSchema([], false);
+  const groups = [];
+  for (const k of listed) {
+    const same = groups.find((g) => JSON.stringify(DETAILS[g[0]]) === JSON.stringify(DETAILS[k]));
+    if (same) same.push(k);
+    else groups.push([k]);
+  }
+  return { anyOf: [...groups.map((g) => kindSchema(g, true)), kindSchema([], true)] };
+}
+// `{ answer, objects, used }` for ask and summarise. The shapes' shared parts are its $defs.
 function answerSchema(kinds) {
+  const items = objectSchema(kinds);
+  const defs = OBJECT_DEFS();
+  if (!JSON.stringify(items).includes('"#/$defs/point"')) delete defs.point; // no kind listed has a from or a to
   return {
     type: 'object',
     additionalProperties: false,
     required: ['answer', 'objects', 'used'],
     properties: {
       answer: { type: 'string', description: 'The answer, in Markdown.' },
-      objects: { type: 'array', items: objectSchema(kinds), description: 'The things in the answer worth keeping; empty when there are none.' },
+      objects: { type: 'array', items, description: 'The things in the answer worth keeping; empty when there are none.' },
       used: { type: 'array', items: { type: 'integer' }, description: 'The numbers "n" in the data that the answer drew on.' },
     },
+    $defs: defs,
   };
 }
 // `{ tags }` for tags.

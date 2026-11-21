@@ -113,6 +113,32 @@ await refused(() => addStop({ title: 'x', time: '10:00', endTime: '9am' }), 'HH:
 await refused(() => acceptSuggestion({ title: 'x', kind: 'hotel', minutes: 30 }), 'no length');
 assert.equal(plan.list().length, before);
 
+// an object's booking details (plan-assistant-reboot.md, decision 3): the trip's currency (the budget's, else the plan's, else
+// the server's) and the space's people, read when it is handed in
+{
+  const g = fakeHost();
+  let budget = null;
+  g.host.space = () => (budget ? { budget: { currency: budget } } : null);
+  g.host.locale = () => ({ currency: 'USD' });
+  g.host.people = async () => [{ key: 'ana', name: 'Ana Lima' }, { key: 'ben', name: 'Ben' }];
+  const p2 = lib.createPlan(g.host);
+  await p2.load();
+  await p2.saveTrip({ title: 'Lisbon', start: '2026-10-01', end: '2026-10-03' });
+  p2.provide();
+  const hand = (title, details) => g.provided.acceptSuggestion({ title, object: { kind: 'hotel', title, date: '2026-10-01', details } });
+  const got = (title) => p2.list().find((i) => i.title === title);
+  await hand('In dollars', { cost: 412.8, currency: 'USD', travellers: ['Ana Lima', 'Cleo Park'] });
+  assert.deepEqual([got('In dollars').estimate, got('In dollars').owners, got('In dollars').notes], [412.8, ['ana'], 'Travellers: Cleo Park'], 'the server\'s currency when the trip names none');
+  budget = 'eur';
+  await hand('In euros', { cost: 99, currency: 'EUR', travellers: ['Ben'] });
+  await hand('Still dollars', { cost: 50, currency: 'USD' });
+  assert.deepEqual([got('In euros').estimate, got('In euros').owners], [99, ['ben']], 'the budget\'s currency');
+  assert.deepEqual([got('Still dollars').estimate, got('Still dollars').notes], [null, 'Cost: 50 USD']);
+  g.host.people = async () => { throw new Error('offline'); };
+  await hand('No people', { travellers: ['Ben'] });
+  assert.deepEqual([got('No people').owners, got('No people').notes], [[], 'Travellers: Ben'], 'the people unknown: a notes line');
+}
+
 // the manifest declares the inputs, within the host's ten-field limit
 const manifest = JSON.parse(read('../module.json'));
 const act = (name) => manifest.actions.provides.find((a) => a.name === name);

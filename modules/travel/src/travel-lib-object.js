@@ -11,6 +11,7 @@
     platform: 'Platform', carriage: 'Coach', cabin: 'Cabin', address: 'Address', checkIn: 'Check in', checkOut: 'Check out',
     roomType: 'Room', guests: 'People', starts: 'Starts', ends: 'Ends', partySize: 'Party size', name: 'Booking name',
     tickets: 'Tickets', allDay: 'All day', due: 'Due', options: 'Options', closes: 'Closes', multiple: 'More than one answer',
+    cost: 'Cost', currency: 'Currency', travellers: 'Travellers',
   };
   const CAR_WORDS = { from: 'Pick up', to: 'Drop off', departs: 'Pick up', arrives: 'Drop off' };
   const OBJECT_JOURNEYS = ['flight', 'train', 'bus', 'ferry'];
@@ -31,7 +32,11 @@
   // The title and every details field become plain text; the content stays as written, since the plan draws Notes as
   // Markdown. A details field the plan has no field for goes into the notes as a "Label: value" line after the content, so
   // nothing is lost; then the links, and "External source" for an import, as Chat's Keep wrote them before.
-  function objectFields(object, util, place) {
+  // `booking` ({ currency, people }: the trip's currency code and the space's people as [{ key, name }]) places a booking's
+  // cost and travellers (plan-assistant-reboot.md, decision 3): the cost is the Estimated when its currency is the trip's
+  // (or it names none), else a notes line ("Cost: 412.80 EUR"); a traveller whose name is exactly a person's becomes one of
+  // the people it is for, any other a notes line. Without `booking` a cost in a named currency is a notes line too.
+  function objectFields(object, util, place, booking) {
     const o = object && typeof object === 'object' ? object : {};
     const line = (v, n) => clip(util.plain(typeof v === 'number' ? String(v) : typeof v === 'string' ? v : '', { line: true }), n);
     const title = line(o.title, 120);
@@ -133,6 +138,35 @@
     } else {
       fields.kind = 'stop';
     }
+    // A booking's cost and who it is for, on any kind: what has no place goes first among the notes lines.
+    const bookingLines = [];
+    const tripCurrency = booking && typeof booking.currency === 'string' ? booking.currency.trim().toUpperCase() : '';
+    const currency = has('currency') && typeof details.currency === 'string' && /^[A-Za-z]{3}$/.test(details.currency.trim()) ? details.currency.trim().toUpperCase() : '';
+    if (has('cost') && typeof details.cost === 'number' && Number.isFinite(details.cost) && details.cost >= 0 && details.cost <= 1e9) {
+      const cost = Math.round(details.cost * 100) / 100;
+      if (!currency || currency === tripCurrency) {
+        fields.estimate = cost > 0 ? cost : null;
+        take('cost');
+        if (currency) take('currency');
+      } else {
+        bookingLines.push(`Cost: ${Number.isInteger(cost) ? cost : cost.toFixed(2)} ${currency}`);
+        take('cost');
+        take('currency');
+      }
+    } else if (currency) take('currency'); // a currency with no cost says nothing
+    if (has('travellers') && Array.isArray(details.travellers)) {
+      const names = take('travellers').filter((n) => typeof n === 'string').map((n) => line(n, 80)).filter(Boolean);
+      const people = booking && Array.isArray(booking.people) ? booking.people.filter((p) => p && typeof p.key === 'string' && typeof p.name === 'string') : [];
+      const owners = [];
+      const others = [];
+      for (const name of names) {
+        const person = people.find((p) => p.name.trim() === name);
+        if (person) { if (!owners.includes(person.key)) owners.push(person.key); } else if (!others.includes(name)) others.push(name);
+      }
+      if (owners.length) fields.owners = owners.slice(0, 20);
+      if (others.length) bookingLines.push(`Travellers: ${others.join(', ')}`);
+    }
+
     // Its day and time: from the details, which win over the object's own date; the drop's place wins over both.
     fields.date = (start && start.date) || day;
     fields.time = (start && start.time) || null;
@@ -155,7 +189,7 @@
       if (v && typeof v === 'object') return pointText({ code: typeof v.code === 'string' ? v.code : '', name: typeof v.name === 'string' ? v.name : '' });
       return '';
     };
-    const rest = [];
+    const rest = bookingLines.map((l) => line(l, 300));
     for (const [name, v] of Object.entries(details)) {
       if (used.has(name) || name === 'upload') continue;
       const value = line(shown(name, v), 300);
