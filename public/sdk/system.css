@@ -6165,6 +6165,12 @@ progress.sdk-progress::-moz-progress-bar { background: var(--pg-fill); border-ra
 @media (pointer: coarse) { .mf-search-input { font-size: var(--text-16); line-height: normal; } }
 .mf-search-input::-webkit-search-cancel-button { appearance: none; }
 .mf-search .mf-search-close { width: calc(var(--mf-ctl-h) - 6px); height: calc(var(--mf-ctl-h) - 6px); }
+/* The clear (x) at the field's end, only while there is text (the [hidden] rule must win over the button's own display). On a phone it is the
+   44 px target: the field is --mf-hit tall, so the button fills it and takes the edge's pixel back. */
+.mf-search .mf-search-clear { flex: none; width: calc(var(--mf-ctl-h) - 6px); height: calc(var(--mf-ctl-h) - 6px); color: var(--text-muted); }
+.mf-search .mf-search-clear:hover { color: var(--text-primary); }
+.mf-search .mf-search-clear[hidden] { display: none; }
+:root[data-phone] .mf-search .mf-search-clear { width: var(--mf-hit); height: var(--mf-hit); margin: -1px -1px -1px 0; }
 
 /* Filter chips: the small corner (no pills), smaller than the buttons; off is an outline with a plus, on is the selected fill with a tick. */
 .mf-chips { display: flex; flex: none; align-items: center; gap: var(--space-1); }

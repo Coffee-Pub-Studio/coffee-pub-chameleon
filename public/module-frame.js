@@ -414,13 +414,19 @@ export function createModuleFrame(opts = {}) {
       const form = el('form', 'mf-search', { role: 'search' });
       const input = el('input', 'mf-search-input', { type: 'search', autocomplete: 'off', enterkeyhint: 'search', maxlength: '200' });
       input.dataset.key = key;
-      form.append(icon('magnifying-glass', 'mf-search-glyph'), input);
-      k = { form, input, given: null, it };
+      // The clear (x): there only while the field has text; it empties the field, tells the module as typing would, and keeps the keyboard in the field.
+      const clear = button('mf-icon-btn mf-search-clear', { label: 'Clear', iconName: 'xmark', words: false });
+      clear.hidden = true;
+      form.append(icon('magnifying-glass', 'mf-search-glyph'), input, clear);
+      k = { form, input, clear, given: null, it };
+      const syncClear = () => { clear.hidden = !input.value; };
+      k.syncClear = syncClear;
+      clear.addEventListener('click', () => { input.value = ''; k.it.value = ''; syncClear(); fire({ id: k.it.id, value: '' }); input.focus(); });
       form.addEventListener('submit', (e) => { e.preventDefault(); fire({ id: k.it.id, value: input.value, submit: true }); });
-      input.addEventListener('input', () => { k.it.value = input.value; fire({ id: k.it.id, value: input.value }); });
+      input.addEventListener('input', () => { k.it.value = input.value; syncClear(); fire({ id: k.it.id, value: input.value }); });
       input.addEventListener('keydown', (e) => {
         if (e.key !== 'Escape') return;
-        if (input.value) { input.value = ''; k.it.value = ''; fire({ id: k.it.id, value: '' }); e.preventDefault(); e.stopPropagation(); return; }
+        if (input.value) { input.value = ''; k.it.value = ''; syncClear(); fire({ id: k.it.id, value: '' }); e.preventDefault(); e.stopPropagation(); return; }
         if (searching) { e.preventDefault(); stopSearching(); }
       });
       // Folded: a magnifier that opens the field over the whole row, with a button to close it again.
@@ -438,6 +444,7 @@ export function createModuleFrame(opts = {}) {
     k.open.dataset.tip = it.label || 'Search';
     const value = it.value || '';
     if (k.given !== value) { k.given = value; if (k.input.value !== value) k.input.value = value; }
+    k.syncClear();
     return [k.form, k.open];
   }
   function chipsMenu(it, b) {

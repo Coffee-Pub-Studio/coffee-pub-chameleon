@@ -7,6 +7,9 @@
 //      backlinks once the Itinerary has been open (GET /api/objects/links), so Places can say "Used by" and warn before a delete.
 //   4. A member whose role may not edit places is not shown the "+" on the Map page (it did nothing, silently).
 //   5. The search field's words fit its field: short enough to be read whole.
+//   5b. The search's clear (x), a shared piece of the module frame: it is there only while the field has text, empties the field and
+//      leaves the focus in it, can be reached with the Tab key, and is a 44 px target at 390 px. And the field's words follow the panel's
+//      settings: switching the place search on in Maps' settings changes "Filter places" to "Find a place" with no reload.
 //   6. The window (plan-places-and-maps.md, J2). With no map file the list is Maps' main view, with a short notice that a map needs a
 //      file, and a place can be added with no map (no position, or one typed). With a map file the list sits beside the map when the
 //      window is wide, and a List | Map switch shows one at a time when it is narrow. The list is there once.
@@ -33,6 +36,7 @@ function emptyMap() {
 }
 
 const ROOTS = `const roots = []; (function walk(r) { roots.push(r); for (const x of r.querySelectorAll('*')) if (x.shadowRoot) walk(x.shadowRoot); })(document);`;
+const CLEAR = `(() => { ${ROOTS} for (const r of roots) for (const f of r.querySelectorAll('.mf-search')) { if (!f.getClientRects().length) continue; const i = f.querySelector('input'); const x = f.querySelector('button[aria-label="Clear"]'); const b = x && x.getBoundingClientRect(); return { value: i.value, shown: Boolean(x && x.getClientRects().length), w: b ? Math.round(b.width) : 0, h: b ? Math.round(b.height) : 0, tip: x ? x.dataset.tip : null, title: x ? x.hasAttribute('title') : false, focusInField: r.activeElement === i }; } return null; })()`;
 // The open dialog's box (the editor window), searched through every shadow root.
 const DIALOG = `(() => { ${ROOTS} for (const r of roots) for (const d of r.querySelectorAll('dialog')) if (d.open) { const b = d.getBoundingClientRect(); return { id: d.id, w: Math.round(b.width), h: Math.round(b.height) }; } return null; })()`;
 const PLUS = `(() => { ${ROOTS} for (const r of roots) for (const b of r.querySelectorAll('button[aria-label="Add a place"]')) if (b.getClientRects().length) return true; return false; })()`;
@@ -104,6 +108,47 @@ async function main() {
         else if (f.placeholder.length > 22) failures.push(`the search field says "${f.placeholder}" in ${f.width}px: too long to be read whole`);
         say(`search field: "${f && f.placeholder}" in ${f && f.width}px`);
       } finally { await v.done(); }
+    }
+
+    // 5b. The clear (x) at 1280 and 390, and the words after the setting changes.
+    for (const size of [1280, 390]) {
+      const v = await open(browser, S, size, 'mia', url, wait);
+      try {
+        const none = await v.tab.eval(CLEAR);
+        if (!none) { failures.push(`the Map page at ${size}px: no search field for the clear`); continue; }
+        if (none.shown) failures.push(`the clear (x) is shown at ${size}px with an empty field`);
+        await v.tab.typeInto('.mf-search input', 'par');
+        await sleep(300);
+        const withText = await v.tab.eval(CLEAR);
+        if (!withText || !withText.shown) { failures.push(`the clear (x) is not shown at ${size}px while the field has text`); continue; }
+        if (withText.title || withText.tip !== 'Clear') failures.push(`the clear (x) has no tooltip "Clear" (or carries a title) at ${size}px: ${JSON.stringify(withText)}`);
+        if (size === 390 && (withText.w < 44 || withText.h < 44)) failures.push(`the clear (x) is ${withText.w}x${withText.h} at 390px (44 px is the least)`);
+        say(`clear at ${size}px: ${withText.w}x${withText.h}`);
+        if (process.env.SEARCH_SHOT) fs.writeFileSync(`${process.env.SEARCH_SHOT}-${size}.png`, await v.tab.shoot(false));
+        await v.tab.click('.mf-search button[aria-label="Clear"]');
+        await sleep(300);
+        const cleared = await v.tab.eval(CLEAR);
+        if (!cleared || cleared.value !== '' || cleared.shown) failures.push(`the clear (x) did not empty the field and go away at ${size}px: ${JSON.stringify(cleared)}`);
+        else if (!cleared.focusInField) failures.push(`the clear (x) did not put the focus back in the field at ${size}px`);
+        // Keyboard: Tab from the field reaches the clear (x), and Enter on it clears.
+        await v.tab.typeInto('.mf-search input', 'rom');
+        await v.tab.key('Tab');
+        const onClear = await v.tab.eval(`(() => { ${ROOTS} for (const r of roots) { const a = r.activeElement; if (a && a.getAttribute && a.getAttribute('aria-label') === 'Clear' && a.closest('.mf-search')) return true; } return false; })()`);
+        if (!onClear) failures.push(`the Tab key does not reach the clear (x) from the field at ${size}px`);
+      } finally { await v.done(); }
+    }
+    {
+      const v = await open(browser, S, 1280, 'mia', url, wait);
+      try {
+        const before = await v.tab.eval(FIELD);
+        const on = await api('PUT', '/api/modules/maps/settings/environment', { values: { searchProvider: 'photon' } });
+        if (on.status !== 200) failures.push(`the place search could not be switched on: ${on.status} ${JSON.stringify(on.json)}`);
+        let after = null;
+        for (let i = 0; i < 40; i += 1) { await sleep(250); after = await v.tab.eval(FIELD); if (after && after.placeholder !== (before && before.placeholder)) break; }
+        say(`search words: "${before && before.placeholder}" then "${after && after.placeholder}" (no reload)`);
+        if (!before || before.placeholder !== 'Filter places') failures.push(`the search says "${before && before.placeholder}" before the place search is on`);
+        if (!after || after.placeholder !== 'Find a place') failures.push(`after the place search is switched on the field still says "${after && after.placeholder}" without a reload`);
+      } finally { await v.done(); await api('PUT', '/api/modules/maps/settings/environment', { values: { searchProvider: 'none' } }); }
     }
 
     // 3. The Itinerary records what its cards point at. The seed's plan card a11 points at the place p1.
