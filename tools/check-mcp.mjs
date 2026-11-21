@@ -11,7 +11,7 @@
  *     other message on /mcp is one read, logged as /mcp;
  *   - a space the agent is not in is refused (the route's own 404 sentence, as a tool error), and so are bad arguments;
  *   - 20 writes a minute, then the gate's 429 sentence as a tool error, every write in the log, no text in it;
- *   - a revoked token, and Agents turned off, are 401 with WWW-Authenticate: Bearer; a person's session (a cookie) is
+ *   - a revoked token, and Agents turned off, are 401 with WWW-Authenticate: Bearer and the sign-in server's resource_metadata; a person's session (a cookie) is
  *     refused, nobody is 401, and a token in the query string is not read;
  *   - GET /mcp is 405 (Allow: POST); an unknown method -32601, an unknown tool -32602, bad JSON -32700 (counted and logged),
  *     a batch, the wrong content type, an unknown MCP-Protocol-Version, another site's Origin and a body over 64 KB refused;
@@ -48,6 +48,8 @@ const ONLY_AGENTS = "This is for an agent's token only.";
 const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'read_chat', 'post_chat'];
 const SETUP_TOOL_NAMES = ['me', 'list_templates', 'list_icons', 'list_people', 'make_space', 'change_space', 'ask_owner', 'ask_status'];
 const CANT = "An agent can't do that.";
+// The 401 on /mcp names the sign-in server's metadata (server/oauth.js, plan-mcp-oauth.md); a REST route's 401 does not.
+const CHALLENGE = /^Bearer resource_metadata="http:\/\/127\.0\.0\.1:\d+\/\.well-known\/oauth-protected-resource\/mcp", scope="agent"$/;
 const LIVEKIT = { LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret' };
 
 let n = 0;
@@ -429,7 +431,7 @@ try {
     for (const r of [await tool(server, 'me', {}, { token: R.token }), await rpc(server, 'initialize', { protocolVersion: '2025-06-18' }, { token: R.token }), await call(server, 'GET', '/mcp', { token: R.token })]) {
       assert.equal(r.status, 401);
       assert.equal(r.json.error, INVALID);
-      assert.equal(r.headers['www-authenticate'], 'Bearer');
+      assert.match(r.headers['www-authenticate'], CHALLENGE);
     }
     const O = await makeAgent('Off', [S1]);
     ok(await call(server, 'PATCH', `/api/users/${O.key}`, { cookie: admin, body: { off: true } }), 'turned off');
@@ -438,7 +440,7 @@ try {
     const r = await tool(server, 'me', {}, T);
     assert.equal(r.status, 401);
     assert.equal(r.json.error, INVALID);
-    assert.equal(r.headers['www-authenticate'], 'Bearer');
+    assert.match(r.headers['www-authenticate'], CHALLENGE);
     ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: true } }), 'Agents on again');
     assert.equal(result(await tool(server, 'me', {}, T), 'back').isError, false);
   });
@@ -454,7 +456,7 @@ try {
     const none = await tool(server, 'me', {});
     assert.equal(none.status, 401);
     assert.equal(none.json.error, ONLY_AGENTS);
-    assert.equal(none.headers['www-authenticate'], 'Bearer');
+    assert.match(none.headers['www-authenticate'], CHALLENGE);
     const query = await call(server, 'POST', `/mcp?token=${A.token}&access_token=${A.token}`, { body: { jsonrpc: '2.0', id: 1, method: 'ping' } });
     assert.equal(query.status, 401, 'a token in the query string');
     const form = await call(server, 'POST', '/mcp', { raw: Buffer.from(`token=${A.token}`), headers: { 'content-type': 'application/x-www-form-urlencoded' } });
@@ -731,7 +733,7 @@ try {
       for (const r of [await tool(server, 'me', {}, S.T), await rpc(server, 'tools/list', {}, S.T)]) {
         assert.equal(r.status, 401);
         assert.equal(r.json.error, INVALID);
-        assert.equal(r.headers['www-authenticate'], 'Bearer');
+        assert.match(r.headers['www-authenticate'], CHALLENGE);
       }
       assert.equal(result(await tool(server, 'me', {}, O.T), 'the ordinary agent is unchanged').isError, false);
       ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { setupAgents: true } }), 'Set-up agents on again');

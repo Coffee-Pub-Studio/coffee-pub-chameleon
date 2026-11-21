@@ -32,6 +32,12 @@ const MAX_ID_LENGTH = 200;
 const DISPATCH_MS = 30000;
 // The path as the router matches it (any case, one trailing slash).
 const MCP_PATH = /^\/mcp\/?$/i;
+const isMcpPath = (p) => MCP_PATH.test(String(p || ''));
+// The requests this door itself sends back through the app for a tool call (dispatch, below), marked in this process and
+// never by anything a client can send: a sign-in connection's access token (plan-mcp-oauth.md) is accepted only on /mcp
+// and on these.
+const TOOL_CALLS = new WeakSet();
+const isToolCall = (req) => TOOL_CALLS.has(req);
 
 const ONLY_AGENTS = "This is for an agent's token only.";
 const OTHER_SITE = 'This request came from another site, so it was refused.';
@@ -345,9 +351,11 @@ function toolResult(answer) {
 //   serverInfo     { name, version }
 //   kindOf(req)    the kind of the agent the gate let on: `agent` or `setup`, which picks its tool set
 //   envName()      the environment's slug for the console line, or 'single' (optional)
+//   challenge(req) the WWW-Authenticate value of a 401 here (the sign-in server's resource_metadata; optional, else Bearer)
 function createMcp(base) {
   const { app, enabled, ownOrigin, personOf, serverInfo, kindOf } = base;
   const envName = base.envName || (() => 'single');
+  const challenge = base.challenge || (() => 'Bearer');
 
   // --- the console line (Thomas, 2026-11-21) -------------------------------------------------------------------------
   // One line when a request to POST /mcp is turned away or fails before a tool runs, saying why in plain words, so an
@@ -447,6 +455,7 @@ function createMcp(base) {
       Object.defineProperty(socket, 'remoteAddress', { value: outer.socket?.remoteAddress });
       Object.defineProperty(socket, 'encrypted', { value: Boolean(outer.socket?.encrypted) });
       const req = new http.IncomingMessage(socket);
+      TOOL_CALLS.add(req);
       req.method = plan.method;
       req.url = plan.path;
       req.httpVersionMajor = 1;
@@ -503,7 +512,7 @@ function createMcp(base) {
   // Not an agent: a signed-in person is 403, nobody 401 (with the challenge an MCP client looks for).
   function refuseNonAgent(req, res) {
     if (personOf(req)) return send(res, 403, { error: ONLY_AGENTS });
-    return res.status(401).set('WWW-Authenticate', 'Bearer').set('Cache-Control', 'no-store').json({ error: ONLY_AGENTS });
+    return res.status(401).set('WWW-Authenticate', challenge(req)).set('Cache-Control', 'no-store').json({ error: ONLY_AGENTS });
   }
 
   async function post(req, res, next) {
@@ -600,4 +609,4 @@ function createMcp(base) {
   return { toolCallOf, mount, refused, refusedAnonymous };
 }
 
-module.exports = { createMcp, PROTOCOL_VERSIONS, TOOLS: TOOL_LIST, SETUP_TOOLS: SETUP_TOOL_LIST, checkArgs };
+module.exports = { createMcp, PROTOCOL_VERSIONS, TOOLS: TOOL_LIST, SETUP_TOOLS: SETUP_TOOL_LIST, checkArgs, isMcpPath, isToolCall };

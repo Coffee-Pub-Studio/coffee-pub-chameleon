@@ -16,6 +16,10 @@
 //   change  a set-up agent's change (plan-admin-agent.md, "The log"): "made", or what a change to a space it made touched,
 //           of "renamed", "described" and "icon", joined by commas ("renamed,icon"), or an ask about a person ("ask:add",
 //           "ask:remove", "ask:moderator", alone); else null. Never a name, a description or who the ask is about.
+//   event   a sign-in connection's start or end (server/oauth.js, plan-mcp-oauth.md): "connected" (an owner allowed an app),
+//           "ended" (an owner revoked it, made a token, or connected the agent again) or "reused" (an old code or refresh
+//           token was used again, so it ended); on no other line. With it, `app` (the name the app gave, plain text, at most 60
+//           characters) and `by` (the key of the person who allowed or ended it; null for "reused"). Never a token or a code.
 // Never a request's body, a chat message's text or an object's content. A day's file older than 30 days is deleted on
 // start and once a day after; nothing is ever rewritten.
 //
@@ -54,6 +58,8 @@ const KEY_RE = /^[a-z0-9]{4,16}$/;
 const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 const MESSAGE_ID_RE = /^[a-f0-9]{12}$/;
 const MODULE_RE = /^[a-z0-9-]{1,40}$/;
+// A sign-in connection's lines (`event`).
+const EVENTS = ['connected', 'ended', 'reused'];
 // A `change` as it may be written: "made", or one or more of the other change words, each once, joined by commas.
 const cleanChange = (v) => {
   if (typeof v !== 'string' || !v || v.length > 60) return null;
@@ -306,6 +312,8 @@ class AgentLog {
       address: typeof entry.address === 'string' && net.isIP(entry.address) ? entry.address : null, // an IP address, never free text
       kind: KINDS.includes(entry.kind) ? entry.kind : null,
       change: cleanChange(entry.change),
+      // Only on a connection's own line, so every other line keeps its fields.
+      ...(EVENTS.includes(entry.event) ? { event: entry.event, app: text(entry.app, 60), by: typeof entry.by === 'string' && KEY_RE.test(entry.by) ? entry.by : null } : {}),
     };
     if (!line.agent || !KEY_RE.test(line.agent)) return;
     try {
@@ -345,4 +353,4 @@ class AgentLog {
   }
 }
 
-module.exports = { AgentLog, AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule };
+module.exports = { AgentLog, AGENT_LIMITS, EVENTS, routeTrie, refusedRoute, matchRoute, safeModule };

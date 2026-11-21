@@ -321,6 +321,7 @@ try {
     ok(view, 'its view');
     assert.equal(view.json.token.lifetime, '30d');
     assert.deepEqual(Object.keys(view.json.token).sort(), ['createdAt', 'expiresAt', 'id', 'lastAddress', 'lastUsedAt', 'lifetime']);
+    assert.equal(view.json.connection, null, 'a pasted token, no sign-in connection (server/oauth.js; check-oauth covers one)');
     const file = JSON.parse(fs.readFileSync(path.join(single, 'tokens.json'), 'utf8'));
     assert.equal(file.tokens.length, 1);
     assert.equal(file.tokens[0].hash, sha256(tokenA));
