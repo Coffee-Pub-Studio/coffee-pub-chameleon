@@ -288,7 +288,8 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   envs.dataset.agentEnv = '';
   const envStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); envs.append(li); };
   const cmds = envCommands(token);
-  envStep('In the app, open the form for a new MCP server that uses a web address (Streamable HTTP). Name it anything, for example chameleon.');
+  envStep('Open Connect to a custom MCP, and type Chameleon (or the server\'s name) in Name.');
+  envStep('Under Type, choose Streamable HTTP, not STDIO.');
   envStep('URL: use this address.', copyBlock('Address', `${location.origin}/mcp`));
   envStep('Bearer token env var: type the name of a variable, not the token.', copyBlock('Variable name', ENV_VAR_NAME));
   envStep('Leave Headers and Headers from environment variables empty.');
@@ -313,8 +314,8 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
     apps,
     make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),
     file,
-    make('h4', 'agent-connect-sub', 'An app with environment-variable fields'),
-    make('p', 'hint', 'Some apps, such as Codex, have a form for an MCP server with a "Bearer token env var" field. This is not tested here. It does not apply to the web connectors of other chat apps, which have no place for a token.'),
+    make('h4', 'agent-connect-sub', 'ChatGPT or Codex (an app with environment-variable fields)'),
+    make('p', 'hint', 'This is for ChatGPT or Codex (the OpenAI app), on the form titled Connect to a custom MCP. It was set up from that form as shown and is not tested end to end. It does not apply to the web connectors of other chat apps, which have no place for a token.'),
     envs,
     make('p', 'hint', 'Less safe: instead of the variable, add a header under Headers. Name: Authorization. Value: Bearer then a space then the token (the Header value above). The token is then saved in that app\'s settings file.'),
   );

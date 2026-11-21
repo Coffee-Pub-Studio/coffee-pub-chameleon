@@ -52,7 +52,7 @@ const jarOf = (res) => res.headers.getSetCookie().map((c) => { const [nv] = c.sp
 
 // The env-var choice in the connect guide (root = 'dialog.agent-token-dialog' or '#agent-page'): its heading, address, variable name,
 // the three commands and the steps. `token` is what must be in the commands (the real token or the placeholder).
-const ENV_HEAD = 'An app with environment-variable fields';
+const ENV_HEAD = 'ChatGPT or Codex (an app with environment-variable fields)';
 async function envChoice(t, root, token, origin, label) {
   const v = await t.eval(`(() => { const r = document.querySelector(${JSON.stringify(root)}); const h = [...r.querySelectorAll('h4')].find((e) => e.textContent === ${JSON.stringify(ENV_HEAD)}); const ol = r.querySelector('[data-agent-env]'); if (!h || !ol) return null; const c = [...ol.querySelectorAll('.agent-copy-text')].map((e) => e.textContent); const lab = [...ol.querySelectorAll('.agent-copy > p.hint')].map((e) => e.textContent); const box = ol.getBoundingClientRect(); const btns = [...ol.querySelectorAll('button')].map((b) => b.getBoundingClientRect().height); return { c, lab, steps: [...ol.children].map((e) => e.firstChild.textContent), right: box.right, width: window.innerWidth, sideways: document.documentElement.scrollWidth - window.innerWidth, wrap: [...ol.querySelectorAll('.agent-copy-text')].every((e) => e.getBoundingClientRect().right <= window.innerWidth + 1), btns: btns.length }; })()`);
   expect(!!v, `${label}: the environment-variable choice is missing`);
@@ -60,7 +60,7 @@ async function envChoice(t, root, token, origin, label) {
   expect(v.c.length === 5 && v.c[0] === `${origin}/mcp` && v.c[1] === 'CHAMELEON_TOKEN', `${label}: the address or the variable name is wrong (${JSON.stringify(v.c.slice(0, 2))})`);
   expect(v.c[2] === `setx CHAMELEON_TOKEN "${token}"` && v.c[3] === `echo 'export CHAMELEON_TOKEN="${token}"' >> ~/.zshrc` && v.c[4] === `echo 'export CHAMELEON_TOKEN="${token}"' >> ~/.bashrc`, `${label}: the three system commands are wrong (${JSON.stringify(v.c.slice(2))})`);
   expect(v.lab.join('|') === 'Address|Variable name|Windows (PowerShell)|macOS (Terminal)|Linux (shell)', `${label}: the labels are ${v.lab.join('|')}`);
-  expect(v.steps.length === 6 && /^Bearer token env var: type the name of a variable, not the token\./.test(v.steps[2]) && /^Leave Headers and Headers from environment variables empty\./.test(v.steps[3]) && /^Quit the app and open it again/.test(v.steps[5]), `${label}: the steps are not as written`);
+  expect(v.steps.length === 7 && /^Open Connect to a custom MCP, and type Chameleon \(or the server's name\) in Name\./.test(v.steps[0]) && /^Under Type, choose Streamable HTTP, not STDIO\./.test(v.steps[1]) && /^Bearer token env var: type the name of a variable, not the token\./.test(v.steps[3]) && /^Leave Headers and Headers from environment variables empty\./.test(v.steps[4]) && /^Quit the app and open it again/.test(v.steps[6]), `${label}: the steps are not as written`);
   expect(v.sideways <= 1 && v.wrap && v.right <= v.width + 1, `${label}: the choice runs outside the window (${JSON.stringify({ s: v.sideways, r: v.right, w: v.width })})`);
 }
 
