@@ -66,6 +66,8 @@ const LOG_DAYS = 30;
 // The longest answer text, with its cut-off note, that is returned and kept: what a stored AI message may hold.
 const MAX_ANSWER_TEXT = CHAT_LIMITS.MAX_AI_TEXT;
 const NO_ANSWER = 'The AI Assistant gave no answer.';
+// An extraction whose answer did not read, even after the one repair.
+const EXTRACT_UNREADABLE = "The AI Assistant's answer could not be read, so nothing was added. Try again.";
 
 // An answer's text cut to fit MAX_ANSWER_TEXT, never in the middle of a {{summary:N}} place or a surrogate pair. `cut`: the
 // answer was cut (here, by the provider or mid-object); the page says so from it, so no note is added to the text.
@@ -89,7 +91,8 @@ const fingerprint = (c) => crypto.createHash('sha256').update(`${c.provider}|${c
 // Slice 2 adds, for a question with the read tools: `tools` (on, off, or refused by a compatible service), `rounds`, `toolCalls`
 // (counts per tool name), `looked` ({ found, read }: counts) and `stop` (answer, limit or text; unfinished, time or allowance
 // for an error). Never a tool's input or its result.
-const LOG_FIELDS = ['at', 'environment', 'space', 'person', 'purpose', 'template', 'provider', 'model', 'mode', 'tokensIn', 'tokensOut', 'finish', 'ms', 'outcome', 'reason', 'error', 'cut', 'sent', 'leftOut', 'tools', 'rounds', 'toolCalls', 'looked', 'stop'];
+// An extraction (extract@1) adds `objects` and `dropped`: how many objects were kept and left out, counts only.
+const LOG_FIELDS = ['at', 'environment', 'space', 'person', 'purpose', 'template', 'provider', 'model', 'mode', 'tokensIn', 'tokensOut', 'finish', 'ms', 'outcome', 'reason', 'error', 'cut', 'sent', 'leftOut', 'tools', 'rounds', 'toolCalls', 'looked', 'stop', 'objects', 'dropped'];
 // An organisation-level Anthropic key needs an anthropic-workspace-id header naming the workspace (an id, not a
 // secret -- fine to show on a page). Other providers ignore it.
 const WORKSPACE_RE = /^[A-Za-z0-9_-]{1,100}$/;
@@ -663,6 +666,82 @@ class Ai {
     return toolbox ? { ...answer, numbered: toolbox.numbered.slice() } : answer;
   }
 
+  // Bookings read out of pasted text (extract@1, plan-assistant-reboot.md): one structured-output call with no tools and no
+  // history, and at most one repair. `inputs`: the template's (text, trip, today, kinds, words). `review(read)`: the server's
+  // checks of a read answer (server/ai-extract.js reviewExtract), answering at least { readable, problems }; when it finds
+  // problems the model is asked once more with them listed, and the second answer is used when it reads (else the first).
+  // Counted as one call; every round's tokens count. One record for the whole extraction: `rounds`, the characters sent
+  // (`sent.characters`), how many objects were kept and dropped; never the text, the answer or an object.
+  // Answers { review, unread, cut, tokens, prompt, mode, rounds }. Throws AiError as run does; 502 when no answer reads.
+  async extract(inputs, use = {}, { review }) {
+    const t = prompts.template('extract');
+    const name = prompts.nameOf(t);
+    const started = Date.now();
+    const base = { purpose: use.purpose, environment: use.environment, space: use.space, person: use.person, template: name, sent: use.counts };
+    const refused = (err, reason) => { this.log({ ...base, outcome: 'refused', reason }); return err; };
+    if (this.moduleOn() && this.effective().keyUnreadable) throw refused(new AiError(KEY_UNREADABLE, 503, { refund: true }), 'not-set-up');
+    if (!this.ready()) throw refused(new AiError('AI is not set up here.', 503, { refund: true }), 'not-set-up');
+    if (this.overCap()) throw refused(new AiError(OVER_CAP, 429, { refund: true }), 'allowance');
+    const c = this.effective();
+    const guard = this.config.source === 'custom' && c.provider === 'compatible' ? this.guard() : null;
+    const logPrompts = Boolean(this.env && this.env.AI_LOG_PROMPTS === '1' && !this.hosted);
+    const usage = { task: t.id, template: name, person: use.person, space: use.space };
+    const record = { ...base, provider: c.provider, model: c.model };
+    const spent = { in: 0, out: 0 };
+    let rounds = 0;
+    // One ask: rendered, sent, counted (the first as the call, a repair's tokens on it).
+    const ask = async (attempt) => {
+      const structuredRendered = prompts.render(t, attempt, { structured: true });
+      const textRendered = prompts.render(t, attempt, { structured: false });
+      const mode = this.modeFor(c);
+      // Full prompts only on purpose, never on a hosted install (they hold the pasted text: plan-assistant-reboot.md, "Privacy").
+      if (logPrompts) console.log(`[ai] prompt ${name} (${mode}): ${JSON.stringify((mode === 'structured' ? structuredRendered : textRendered).messages)}`);
+      const estimate = Math.ceil(textRendered.messages.reduce((n, m) => n + m.content.length, 0) / 4) + t.budget.answer;
+      if (this.overCap(estimate)) {
+        if (!rounds) throw refused(new AiError(OVER_CAP, 429, { refund: true }), 'allowance');
+        return null; // the allowance ran out before the repair: the first answer stands
+      }
+      const release = this.reserve(estimate);
+      let out;
+      try {
+        out = await complete(c, { structuredRendered, textRendered, mode }, { hosts: this.hosts, guard });
+      } catch (err) {
+        release();
+        if (err instanceof AiError && err.tokens > 0) { this.record(usage, err.tokens, { call: !rounds }); err.paid = true; }
+        if (rounds) { err.paid = true; return { failed: err }; } // a failed repair: the first answer stands
+        this.log({ ...record, outcome: 'error', error: (err instanceof AiError && err.kind) || 'error', ms: Date.now() - started, tokensIn: (err && err.tokens) || 0 });
+        throw err;
+      }
+      release();
+      if (out.schemaRefused && c.provider === 'compatible') { this.config.schemaRefused = fingerprint(c); try { this.saveConfig(); } catch { /* remembered for this run */ } }
+      else if (out.mode === 'structured' && this.config.schemaRefused) { delete this.config.schemaRefused; try { this.saveConfig(); } catch { /* forgotten for this run */ } }
+      this.record(usage, out.tokens.in + out.tokens.out, { call: !rounds });
+      spent.in += out.tokens.in;
+      spent.out += out.tokens.out;
+      rounds += 1;
+      return out;
+    };
+    const first = await ask(inputs);
+    const firstRead = prompts.parse(t, first, inputs);
+    let chosen = { out: first, read: firstRead, review: review(firstRead) };
+    if (chosen.review.problems && chosen.review.problems.length) {
+      const answer = [...String(first.text || '')].slice(0, prompts.MAX_REPAIR_ANSWER).join('');
+      const second = await ask({ ...inputs, repair: { answer, problems: chosen.review.problems.slice(0, prompts.MAX_REPAIR_PROBLEMS) } });
+      if (second && !second.failed) {
+        const secondRead = prompts.parse(t, second, inputs);
+        const secondReview = review(secondRead);
+        if (secondReview.readable || !chosen.review.readable) chosen = { out: second, read: secondRead, review: secondReview };
+      }
+    }
+    const done = { ...record, model: chosen.out.model || c.model, mode: chosen.out.mode, finish: chosen.out.finish, tokensIn: spent.in, tokensOut: spent.out, ms: Date.now() - started, rounds };
+    if (!chosen.review.readable) {
+      this.log({ ...done, outcome: 'error', error: 'unreadable' });
+      throw Object.assign(new AiError(EXTRACT_UNREADABLE, 502, { tokens: 0, kind: 'unreadable' }), { paid: true });
+    }
+    this.log({ ...done, outcome: 'answered', cut: chosen.read.cut || undefined, objects: chosen.review.objects.length, dropped: chosen.review.dropped });
+    return { review: chosen.review, unread: chosen.read.unread, cut: Boolean(chosen.read.cut), tokens: spent.in + spent.out, prompt: name, mode: chosen.out.mode, rounds };
+  }
+
   // The models a service offers, from its own list, for the admin's choice: [{ id, name }]. Uses the typed key
   // when given, otherwise the saved one on this environment's own custom slot (never the managed key -- the
   // host lists the managed service's own models itself, via listModelsFor directly). The saved key is tried only at the service
@@ -701,4 +780,4 @@ class Ai {
   }
 
 }
-module.exports = { Ai, AiError, OVER_CAP, MAX_ANSWER_TEXT, NO_ANSWER, fitAnswer, sealKey, openKey, KEY_UNREADABLE, applyAiFields, applyManagedFields, managedOffer, listModelsFor, PROVIDERS, MANAGED_PROVIDERS, DEFAULT_MODELS, HOSTS, TASKS, MAX_ITEMS, LOG_FIELDS };
+module.exports = { Ai, AiError, OVER_CAP, MAX_ANSWER_TEXT, NO_ANSWER, EXTRACT_UNREADABLE, fitAnswer, sealKey, openKey, KEY_UNREADABLE, applyAiFields, applyManagedFields, managedOffer, listModelsFor, PROVIDERS, MANAGED_PROVIDERS, DEFAULT_MODELS, HOSTS, TASKS, MAX_ITEMS, LOG_FIELDS };

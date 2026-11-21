@@ -194,7 +194,7 @@ function detailsSchema(kind) {
 }
 // The shape of an object of the kinds in `group` (which share their details; none: an object with no kind), with the fields
 // every object has.
-function kindSchema(group, withKind) {
+function kindSchema(group, withKind, provenance = true) {
   const kind = group.length ? group[0] : null;
   const properties = {
     icon: ref('icon'),
@@ -205,31 +205,36 @@ function kindSchema(group, withKind) {
     tags: { type: 'array', items: { type: 'string' } },
     place: ref('place'),
     links: ref('links'),
-    basis: { type: 'string', enum: BASES.slice() },
-    sources: { type: 'array', items: { type: 'integer' } },
+    ...(provenance ? { basis: { type: 'string', enum: BASES.slice() }, sources: { type: 'array', items: { type: 'integer' } } } : {}),
   };
   const details = kind ? detailsSchema(kind) : null;
   if (details) properties.details = details;
   return { type: 'object', additionalProperties: false, required: Object.keys(properties), properties };
 }
 // One object of any kind listed: one shape per kind (kinds with the same details share one: restaurant, cafe and bar), then
-// the one with no kind; a single shape when no kind is listed.
-function objectSchema(kinds) {
+// the one with no kind; a single shape when no kind is listed. `provenance: false` leaves out "basis" and "sources" (an object
+// read out of pasted text has neither: extract@1).
+function objectSchema(kinds, { provenance = true } = {}) {
   const listed = listedKinds(kinds);
-  if (!listed.length) return kindSchema([], false);
+  if (!listed.length) return kindSchema([], false, provenance);
   const groups = [];
   for (const k of listed) {
     const same = groups.find((g) => JSON.stringify(DETAILS[g[0]]) === JSON.stringify(DETAILS[k]));
     if (same) same.push(k);
     else groups.push([k]);
   }
-  return { anyOf: [...groups.map((g) => kindSchema(g, true)), kindSchema([], true)] };
+  return { anyOf: [...groups.map((g) => kindSchema(g, true, provenance)), kindSchema([], true, provenance)] };
+}
+// The shared parts an object schema points at, without the point when no kind listed has a from or a to.
+function defsFor(items) {
+  const defs = OBJECT_DEFS();
+  if (!JSON.stringify(items).includes('"#/$defs/point"')) delete defs.point;
+  return defs;
 }
 // `{ answer, objects, used }` for ask and summarise. The shapes' shared parts are its $defs.
 function answerSchema(kinds) {
   const items = objectSchema(kinds);
-  const defs = OBJECT_DEFS();
-  if (!JSON.stringify(items).includes('"#/$defs/point"')) delete defs.point; // no kind listed has a from or a to
+  const defs = defsFor(items);
   return {
     type: 'object',
     additionalProperties: false,
@@ -242,7 +247,22 @@ function answerSchema(kinds) {
     $defs: defs,
   };
 }
+// `{ objects, unread }` for extract (plan-assistant-reboot.md, "How extraction works"): the bookings read out of pasted text, one
+// shape per kind and no provenance, and the plain sentences saying what in the text could not be read.
+function extractSchema(kinds) {
+  const items = objectSchema(kinds, { provenance: false });
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['objects', 'unread'],
+    properties: {
+      objects: { type: 'array', items, description: 'One for each booking in the pasted text; empty when there is none.' },
+      unread: { type: 'array', items: { type: 'string' }, description: 'Short sentences saying what in the text could not be read; empty when everything was.' },
+    },
+    $defs: defsFor(items),
+  };
+}
 // `{ tags }` for tags.
 const TAGS_SCHEMA = Object.freeze({ type: 'object', additionalProperties: false, required: ['tags'], properties: { tags: { type: 'array', items: { type: 'string' } } } });
 
-module.exports = { listWords, promptExample, detailsLines, fieldLines, fencedRule, answerRule, answerSchema, objectSchema, TAGS_SCHEMA, listedKinds };
+module.exports = { listWords, promptExample, detailsLines, fieldLines, fencedRule, answerRule, answerSchema, extractSchema, objectSchema, TAGS_SCHEMA, listedKinds };

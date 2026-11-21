@@ -1869,6 +1869,13 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     async 'ai.ask'({ task, question, objects }) {
       return api('POST', url('/ai', scopeOf()), { task: String(task ?? ''), question: String(question ?? '').slice(0, 1000), objects: Array.isArray(objects) ? objects.slice(0, 12) : [], tz: browserZone() });
     },
+    // Bookings read out of pasted text, in this frame's space only, as the person and as this module (its `ai` hook and write
+    // access are checked by the server).
+    async 'ai.extract'({ text, trip, kinds }) {
+      if (scope !== 'space' || !spaceId) throw Object.assign(new Error(`This works inside ${word('space', { a: true })}.`), { status: 400 });
+      const t = trip && typeof trip === 'object' && !Array.isArray(trip) ? trip : undefined;
+      return api('POST', `/api/spaces/${encodeURIComponent(spaceId)}/ai/extract`, { text: String(text ?? '').slice(0, 40000), ...(t ? { trip: { name: t.name, first: t.first, last: t.last, timeZone: t.timeZone, currency: t.currency } } : {}), ...(Array.isArray(kinds) ? { kinds: kinds.slice(0, 50) } : {}), tz: browserZone(), from: module.id });
+    },
     // The signed-in person's own other calendars (a module that declares the `external` hook), read only: their events
     // between `from` and `to` (YYYY-MM-DD or ISO times), with the calendars they come from. A guest gets none.
     async 'external.events'({ from, to }) {

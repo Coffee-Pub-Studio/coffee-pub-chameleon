@@ -13,6 +13,13 @@ const MAX_TURNS = 6;
 // label that names where they came from (plan-ai-pictures.md, decision 10).
 const MAX_ATTACHED = 8000;
 const MAX_ATTACHED_LABEL = 60;
+// Pasted text read for bookings (extract@1, plan-assistant-reboot.md): the ask's question limit does not apply to it.
+const MAX_PASTED = 30000;
+// The trip's fields an extraction is told (each optional but the name), and the repair's limits.
+const TRIP_KEYS = ['name', 'first', 'last', 'timeZone', 'currency'];
+const MAX_REPAIR_ANSWER = 20000;
+const MAX_REPAIR_PROBLEMS = 20;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
 // The template's words a prompt uses (server/words.js's, for this environment).
 const WORD_KEYS = ['object', 'objects', 'space'];
 
@@ -64,6 +71,24 @@ const CHECKS = {
     if (!v || typeof v !== 'object' || !isText(v.label) || !v.label || !isText(v.text) || !v.text) throw new InputError('attached must be null or { label, text }');
     if ([...v.label].length > MAX_ATTACHED_LABEL || [...v.text].length > MAX_ATTACHED) throw new InputError(`attached is at most ${MAX_ATTACHED} characters, its label ${MAX_ATTACHED_LABEL}`);
   },
+  text(v) {
+    if (!isText(v) || !v.trim()) throw new InputError('text must be a non-empty string');
+    if ([...v].length > MAX_PASTED) throw new InputError(`text is at most ${MAX_PASTED} characters`);
+  },
+  trip(v) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new InputError('trip must be {}');
+    for (const k of Object.keys(v)) if (!TRIP_KEYS.includes(k)) throw new InputError(`trip has no ${k}`);
+    if (!isText(v.name) || !v.name) throw new InputError('trip needs a name');
+    for (const k of ['first', 'last']) if (v[k] !== undefined && !(isText(v[k]) && DAY.test(v[k]))) throw new InputError(`trip.${k} is YYYY-MM-DD`);
+    for (const k of ['timeZone', 'currency']) if (!optionalText(v[k])) throw new InputError(`trip.${k} must be a string`);
+  },
+  today(v) {
+    if (!v || typeof v !== 'object' || !isText(v.date) || !DAY.test(v.date) || !optionalText(v.weekday) || !optionalText(v.timeZone)) throw new InputError('today is { date, weekday?, timeZone? }');
+  },
+  repair(v) {
+    if (!v || typeof v !== 'object' || !isText(v.answer) || [...v.answer].length > MAX_REPAIR_ANSWER) throw new InputError(`repair.answer is a string of up to ${MAX_REPAIR_ANSWER} characters`);
+    if (!Array.isArray(v.problems) || !v.problems.length || v.problems.length > MAX_REPAIR_PROBLEMS || v.problems.some((p) => !isText(p) || !p)) throw new InputError(`repair.problems is a list of 1 to ${MAX_REPAIR_PROBLEMS} sentences`);
+  },
   kinds(v) {
     if (!Array.isArray(v) || v.some((k) => !KINDS.includes(k))) throw new InputError('kinds must be a list of known kinds');
   },
@@ -93,4 +118,4 @@ function cleanData(v) {
   return v;
 }
 
-module.exports = { InputError, checkInputs, cleanQuestion, cleanData, cleanAttachedText, cleanAttachedLabel, MIN_QUESTION, MAX_QUESTION, MAX_MATERIAL, MAX_TURNS, MAX_ATTACHED, MAX_ATTACHED_LABEL };
+module.exports = { InputError, checkInputs, cleanQuestion, cleanData, cleanAttachedText, cleanAttachedLabel, MIN_QUESTION, MAX_QUESTION, MAX_MATERIAL, MAX_TURNS, MAX_ATTACHED, MAX_ATTACHED_LABEL, MAX_PASTED, MAX_REPAIR_ANSWER, MAX_REPAIR_PROBLEMS };

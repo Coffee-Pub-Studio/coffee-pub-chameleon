@@ -227,6 +227,7 @@
   {"kind":"route","method":"POST","path":"/api/spaces/:id/chat/:messageId/keep","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/spaces/:id/ai","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/spaces/:id/ai","name":null,"part":null},
+  {"kind":"route","method":"POST","path":"/api/spaces/:id/ai/extract","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/spaces/:id/objects/check","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/spaces/:id/command","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/spaces/:id/actions","name":null,"part":null},

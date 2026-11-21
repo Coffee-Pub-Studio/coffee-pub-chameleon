@@ -34,11 +34,12 @@ import { fileURLToPath } from 'node:url';
 
 const ANSWER = 'A short answer.';
 
-// What a structured answer holds for a schema: tags, or { answer, objects, used }.
+// What a structured answer holds for a schema: tags, { objects, unread } (extract), or { answer, objects, used }.
 function structuredFor(schema, scripted) {
   if (scripted && scripted.json !== undefined) return scripted.json;
   const props = (schema && schema.properties) || {};
   if (props.tags) return { tags: ['old town', 'food'] };
+  if (props.unread) return { objects: [], unread: [] }; // extract@1: no booking, unless one is scripted
   return { answer: scripted && typeof scripted.text === 'string' ? scripted.text : ANSWER, objects: [], used: [] };
 }
 
