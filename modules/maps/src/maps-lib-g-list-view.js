@@ -544,12 +544,16 @@ async function runList(env) {
   // filter.
   function syncToolbar(empty, chips, all = 0) {
     const items = [];
-    if (!asPart && !empty) items.push({ type: 'search', id: 'search', value: state.filter, placeholder: 'Filter places', label: 'Filter places' });
+    // On its own the field filters the saved places as it is typed; with a place search on, Enter also searches outside them.
+    if (!asPart && !empty) items.push({ type: 'search', id: 'search', value: state.filter, placeholder: state.search ? 'Find a place' : 'Filter places', label: 'Find a place' });
     if (chips.length) items.push({ type: 'chips', id: 'category', label: 'Category', single: true, value: state.cat || 'all', options: [{ id: 'all', label: 'Every category', count: all }, ...chips] });
     host.toolbar.set(items).catch(() => {});
   }
   host.on('toolbar', (e) => {
     if (e.id === 'search' && !asPart && typeof e.value === 'string') {
+      const q = e.value.trim();
+      if (e.submit && state.search && q.length >= 2) showFound(q, sharedSearch(q));
+      if (!q) closeFound();
       if (e.value === state.filter) return;
       state.filter = e.value;
       render();
@@ -1372,6 +1376,7 @@ async function runList(env) {
       }
       // In a space, a click on a place with a position shows it on the map when something offers that; otherwise it opens
       // the place. (On the environment page that would wait for a map page that is not open.)
+      if (p && p.point && showAction && inSpace) { state.selected = rowKey(w, p.id); markSelected(false); }
       if (p && p.point && showAction && inSpace) return void host.actions.request(showAction.action, { ref: placeRef(w, p.id) }).catch(() => openEditor(w, p.id));
       openEditor(w, rowEl.dataset.id);
     }
@@ -1491,6 +1496,13 @@ async function runList(env) {
     };
     look();
   }
+  // Enter in the page's search with no place search chosen: the field only filters the saved places, and this says so.
+  function noSearchNote(query) {
+    const st = clone('tpl-found-state');
+    fill(st, { text: `This only filters your saved places. To search outside them, choose a place search in ${info.module.name} settings (Manage, ${word('module', { many: true, cap: true })}).` });
+    $('found').replaceChildren(foundHead('Filtering for', query, true), st);
+    hide($('found'), false);
+  }
   async function showFound(query, promise) {
     const mine = ++searchToken;
     searching(query);
@@ -1549,15 +1561,33 @@ async function runList(env) {
     const row = t ? findCategory(cats, t.category) : null;
     openEditor(null, null, { title: h.title, address: h.sub, point: { lat: h.lat, lng: h.lng }, origin: h.key, ...(t ? { type: t.id, category: row ? row.id : 'other' } : {}) });
   }
+  // A click on a result shows it on the map (pan, zoom, a pin); Save is its own button and the only thing that opens the dialog.
+  // With no map beside (a list alone) there is nothing to show, so the row does nothing.
+  async function previewFound(i, row) {
+    const h = hits[i];
+    if (!h || row.dataset.dup) return;
+    for (const r of $('found').querySelectorAll('.found-row')) { r.classList.toggle('on', r === row); r.setAttribute('aria-selected', String(r === row)); }
+    try {
+      const list = await host.actions.list({ self: true });
+      const a = list.find((x) => x.name === 'showResult' && x.open === true);
+      if (!a) return;
+      const out = await host.actions.request(a.action, { lat: h.lat, lng: h.lng, title: h.title, address: h.sub || '', key: h.key || '' }, { wait: true, here: true });
+      if (out.status === 'done' && out.result && out.result.ok === false) throw new Error(out.result.error);
+    } catch (err) {
+      say(`The map could not show it: ${(err && err.message) || err}`);
+    }
+  }
   $('found').addEventListener('click', (ev) => {
     const row = ev.target.closest('.found-row');
     if (ev.target.closest('[data-action="close-found"]')) return closeFound();
-    if (row) saveFound(Number(row.dataset.i), row);
+    if (!row) return;
+    if (ev.target.closest('[data-action="save-found"]') || row.dataset.dup) saveFound(Number(row.dataset.i), row);
+    else previewFound(Number(row.dataset.i), row);
   });
   $('found').addEventListener('keydown', (ev) => {
     const row = ev.target.closest && ev.target.closest('.found-row');
     if (!row) return;
-    if (ev.key === 'Enter') { ev.preventDefault(); saveFound(Number(row.dataset.i), row); }
+    if (ev.key === 'Enter' && ev.target === row) { ev.preventDefault(); if (row.dataset.dup) saveFound(Number(row.dataset.i), row); else previewFound(Number(row.dataset.i), row); }
     else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
       ev.preventDefault();
       const next = ev.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling;
@@ -1777,6 +1807,7 @@ async function runList(env) {
     else if (find !== lastFind) {
       lastFind = find;
       if (entry && entry.find && state.search) partFind(text);
+      else if (entry && entry.find && !onPicture()) noSearchNote(text);
     }
     state.mapOn = st.mapOn === true;
     const ref = st.selected && typeof st.selected === 'object' ? st.selected : null;

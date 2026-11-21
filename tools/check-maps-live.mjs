@@ -10,6 +10,10 @@
 //   6. The window (plan-places-and-maps.md, J2). With no map file the list is Maps' main view, with a short notice that a map needs a
 //      file, and a place can be added with no map (no position, or one typed). With a map file the list sits beside the map when the
 //      window is wide, and a List | Map switch shows one at a time when it is narrow. The list is there once.
+//   7. The map and its search (GitHub #998): a saved place that has a position has a pin on the map (the host's objects search leaves a
+//      module's own kind out, so the map reads its own places from storage); a click on a saved place in the list selects it and its
+//      pin and callout show; with a place search switched on while the page is open (no refresh) Enter finds places, a click on a
+//      result shows it on the map (a pin and a callout with Save) and opens no dialog, and Save, its own button, opens the dialog.
 // Usage: node tools/check-maps-live.mjs. With no Chromium it says SKIPPED and exits 0 (a skip, never a pass).
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,7 +31,7 @@ function emptyMap() {
   head.write('PMTiles', 0, 'ascii'); head.writeUInt8(3, 7);
   head.writeBigUInt64LE(127n, 8); head.writeBigUInt64LE(BigInt(dir.length), 16);
   head.writeBigUInt64LE(BigInt(127 + dir.length), 56);
-  head.writeUInt8(1, 97); head.writeUInt8(2, 98); head.writeUInt8(1, 99); head.writeUInt8(0, 100); head.writeUInt8(6, 101);
+  head.writeUInt8(2, 97); head.writeUInt8(2, 98); head.writeUInt8(1, 99); head.writeUInt8(0, 100); head.writeUInt8(6, 101);
   [-10, 36, 0, 42].forEach((d, i) => head.writeInt32LE(Math.round(d * 1e7), 102 + i * 4));
   return Buffer.concat([head, dir]);
 }
@@ -37,6 +41,9 @@ const ROOTS = `const roots = []; (function walk(r) { roots.push(r); for (const x
 const DIALOG = `(() => { ${ROOTS} for (const r of roots) for (const d of r.querySelectorAll('dialog')) if (d.open) { const b = d.getBoundingClientRect(); return { id: d.id, w: Math.round(b.width), h: Math.round(b.height) }; } return null; })()`;
 const PLUS = `(() => { ${ROOTS} for (const r of roots) for (const b of r.querySelectorAll('button[aria-label="Add a place"]')) if (b.getClientRects().length) return true; return false; })()`;
 const WIN = `(() => { const r = document.getElementById('module-frame') && document.getElementById('module-frame').shadowRoot; if (!r) return null; const q = (s) => r.querySelector(s); const box = (e) => { if (!e || !e.getClientRects().length) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x), w: Math.round(b.width), h: Math.round(b.height) }; }; const win = q('#window'); if (!win) return null; return { mode: win.dataset.mode, list: box(q('#list-view')), map: box(q('#map-view')), lists: r.querySelectorAll('#list-app').length, rows: r.querySelectorAll('.place-row').length, nopos: [...r.querySelectorAll('.place-row .nopos')].filter((e) => e.getClientRects().length).length, pinned: [...r.querySelectorAll('.place-row .pinned')].filter((e) => e.getClientRects().length).length, notice: box(q('#list-nomap')) ? q('#list-nomap').textContent.trim().replace(/\\s+/g, ' ') : '', switches: [...document.querySelectorAll('.mf-switch-btn')].map((b) => b.textContent.trim()) }; })()`;
+const PINS = `(() => { ${ROOTS} const out = []; for (const r of roots) for (const p of r.querySelectorAll('.pin')) out.push({ name: p.getAttribute('aria-label') || '', cls: p.className, shown: p.getClientRects().length > 0 }); return out; })()`;
+const CALLOUT = `(() => { ${ROOTS} for (const r of roots) for (const h of r.querySelectorAll('#callout .callout h3')) if (h.getClientRects().length) { const box = h.closest('.callout'); return { title: h.textContent.trim(), save: [...box.querySelectorAll('[data-action="save-result"]')].some((b) => b.getClientRects().length) }; } return null; })()`;
+const ROWS = `(() => { ${ROOTS} const out = { on: [], found: 0 }; for (const r of roots) { for (const e of r.querySelectorAll('.place-row.on .title')) out.on.push(e.textContent.trim()); out.found += r.querySelectorAll('.found-row').length; } return out; })()`;
 const FIELD = `(() => { ${ROOTS} for (const r of roots) for (const i of r.querySelectorAll('.mf-search input')) if (i.getClientRects().length) return { placeholder: i.placeholder, width: Math.round(i.getBoundingClientRect().width) }; return null; })()`;
 
 async function open(browser, S, size, as, url, wait) {
@@ -104,6 +111,66 @@ async function main() {
         else if (f.placeholder.length > 22) failures.push(`the search field says "${f.placeholder}" in ${f.width}px: too long to be read whole`);
         say(`search field: "${f && f.placeholder}" in ${f && f.width}px`);
       } finally { await v.done(); }
+    }
+
+
+    // 7. The map and its search (#998). Everyone's place, marked for the space, stored the way addPlace stores it; and six saved
+    // search results, so the server's own collection answers (it asks outside only when it has fewer than five).
+    {
+      const napa = { title: 'TEST (Claude): Napa winery', category: 'other', status: 'want', address: '', notes: '', owners: [], by: 'Claude', point: { lat: 38.2975, lng: -122.2869 }, spaces: [S.ctx.trip] };
+      const put = await api('PUT', `/api/modules/maps/data/${encodeURIComponent('place:napa')}?scope=environment`, { value: napa }, 'admin');
+      if (put.status !== 200) throw new Error(`the Napa place could not be stored: ${put.status}`);
+      const records = [1, 2, 3, 4, 5, 6].map((n) => ({ key: `p:38.3,-122.3:${n}`, osmType: '', osmId: 0, name: `Napa Cafe ${n}`, address: 'Napa, California', lat: 38.3 + n / 1000, lng: -122.3, category: 'amenity:cafe', firstSeen: '2026-11-01T00:00:00Z', lastSeen: '2026-11-01T00:00:00Z', seen: 1, used: false }));
+      fs.writeFileSync(path.join(dataDir, 'modules', 'maps', 'geocode.json'), JSON.stringify({ places: records }));
+      const v = await open(browser, S, 1280, 'mia', url, wait);
+      try {
+        // The pin of a saved place that has a position.
+        let pins = [];
+        for (let i = 0; i < 20; i += 1) { pins = await v.tab.eval(PINS); if (pins.some((p) => /Napa winery/.test(p.name))) break; await sleep(300); }
+        if (!pins.some((p) => /Napa winery/.test(p.name) && p.shown)) failures.push(`the saved place with a position has no pin on the map (pins: ${JSON.stringify(pins.map((p) => p.name))})`);
+        say(`pins on the map: ${pins.map((p) => p.name).join(' | ')}`);
+        // A click on a saved place in the list selects it: its row is marked, its pin and callout show, and no dialog opens.
+        await v.tab.click('.dest-part-root >>> .place-row', 'Napa winery');
+        let c = null;
+        for (let i = 0; i < 20 && !c; i += 1) { await sleep(250); c = await v.tab.eval(CALLOUT); }
+        const rows = await v.tab.eval(ROWS);
+        if (!c || !/Napa winery/.test(c.title)) failures.push(`a click on a saved place in the list shows no callout for it (${JSON.stringify(c)})`);
+        if (!rows.on.some((t) => /Napa winery/.test(t))) failures.push(`a click on a saved place does not mark its row (${JSON.stringify(rows.on)})`);
+        if (await v.tab.eval(DIALOG)) failures.push('a click on a saved place opened the dialog');
+        const sel = (await v.tab.eval(PINS)).filter((p) => /\bselected\b/.test(p.cls));
+        if (!sel.some((p) => /Napa winery/.test(p.name))) failures.push(`the selected place's pin is not marked (${JSON.stringify(sel.map((p) => p.name))})`);
+        say(`saved place clicked: callout "${c && c.title}", rows on ${JSON.stringify(rows.on)}, selected pins ${sel.length}`);
+        await v.tab.key('Escape');
+
+        // A place search switched on while the page is open: Enter finds places with no refresh.
+        const on = await api('PUT', '/api/modules/maps/settings/environment', { values: { map: ['empty.pmtiles'], searchProvider: 'photon', saveResults: true } });
+        if (on.status !== 200) throw new Error(`the place search could not be set: ${on.status}`);
+        await sleep(1500);
+        await v.tab.typeInto('.mf-search-input', 'Napa Cafe');
+        // Enter in the field is the form's submit (a key press without text does not submit one in headless Chromium).
+        await v.tab.eval(`(() => { ${ROOTS} document.querySelector('.mf-search').requestSubmit(); return true; })()`);
+        let found = 0;
+        for (let i = 0; i < 30 && !found; i += 1) { await sleep(300); found = (await v.tab.eval(ROWS)).found; }
+        if (!found) failures.push('with a place search switched on while the page was open, Enter found nothing until a refresh');
+        say(`place search switched on without a refresh: ${found} results`);
+        if (found) {
+          // A click on a result shows it (pin and callout with Save) and opens no dialog.
+          await v.tab.click('.dest-part-root >>> .found-row .title', 'Napa Cafe');
+          let r = null;
+          for (let i = 0; i < 20 && !(r && /Napa Cafe/.test(r.title)); i += 1) { await sleep(250); r = await v.tab.eval(CALLOUT); }
+          if (!r || !/Napa Cafe/.test(r.title)) failures.push(`a click on a search result shows no callout for it (${JSON.stringify(r)})`);
+          else if (!r.save) failures.push('the result\'s callout has no Save button');
+          if (await v.tab.eval(DIALOG)) failures.push('a click on a search result opened the edit dialog');
+          const cand = (await v.tab.eval(PINS)).filter((p) => /\bcandidate\b/.test(p.cls) && /\bselected\b/.test(p.cls));
+          if (!cand.length) failures.push('a click on a search result shows no pin for it');
+          say(`search result clicked: callout "${r && r.title}", Save ${r && r.save}, selected result pins ${cand.length}`);
+          // Save is its own button.
+          await v.tab.click('.dest-part-root >>> .found-row [data-action="save-found"]');
+          let box = null;
+          for (let i = 0; i < 20 && !box; i += 1) { await sleep(250); box = await v.tab.eval(DIALOG); }
+          if (!box) failures.push('Save on a search result opened no dialog');
+        }
+      } finally { await v.done(); await api('PUT', '/api/modules/maps/settings/environment', { values: { map: ['empty.pmtiles'] } }); }
     }
 
     // 3. The Itinerary records what its cards point at. The seed's plan card a11 points at the place p1.

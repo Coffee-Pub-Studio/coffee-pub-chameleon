@@ -268,7 +268,8 @@ test('every fixed zoom is capped at the map\'s maximum', () => {
   assert.ok((page.match(/cap\(Math\.max\(state\.map\.getZoom\(\), \d+\)\)/g) || []).length >= 3);
   // A cluster, a pasted position, a search result, the first view: never a bare number.
   assert.doesNotMatch(page, /maxZoom: \d/, 'a fitBounds maxZoom is capped');
-  assert.equal((page.match(/zoom: cap\(15\)/g) || []).length, 3, 'a pasted position (field and page) and a search result are capped');
+  assert.equal((page.match(/zoom: cap\(15\)/g) || []).length, 2, 'a pasted position (field and page) is capped');
+  assert.match(page, /zoom: cap\(Math\.max\(state\.map\.getZoom\(\), 15\)\)/, 'a search result shown on the map is capped too');
   assert.deepEqual(page.match(/\bzoom: \d+/g), ['zoom: 2'], 'only the world map\'s opening zoom is a bare number');
   assert.match(page, /zoom: limit\(Math\.max\(0, Number\(v\.zoom\)\)\)/, 'a remembered view is capped at the maximum too');
 });
@@ -490,7 +491,7 @@ test('every pin and cluster has its own name and keeps the keyboard where it was
   assert.match(page, /state\.spread && g\.points\.every\(\(x\) => state\.spread\.has\(x\.id\)\)/);
   // Search results: brought into view together, near ones clustered.
   assert.match(page, /function fitCandidates\(\)/);
-  assert.match(page, /for \(const g of clusterPoints\(state\.candidates,/);
+  assert.match(page, /for \(const g of clusterPoints\(state\.candidates\.filter\(\(c\) => !same\(c\)\),/);
   // Zoomed out only the selected pin and the one pointed at show a name (the stylesheet), so names do not pile up.
   assert.match(page, /labelZoom: 14/);
   assert.match(read('maps.css'), /\.pin\.lowzoom:not\(\.selected\):not\(:hover\):not\(:focus-visible\) \.pin-label \{ display: none; \}/);
@@ -551,6 +552,57 @@ test('Maps owns the places: its manifest declares what Places declared, and noth
   });
   const found = ['modules', 'server', 'public', 'templates', 'tools'].flatMap(walk).filter((rel) => bad.test(fs.readFileSync(path.join(root, rel), 'utf8')));
   assert.deepEqual(found, [], 'files that still name Places as a module');
+});
+
+// GitHub #998: a saved place has a pin; a result is shown, not opened; a saved place in the list is selected.
+test('a saved place that has a position is drawn: the map reads its own places from storage, not through the objects search', () => {
+  const page = read('maps.js');
+  // The host's objects search leaves a module's own kind out (server consumableKinds), so Maps reads its own places itself.
+  assert.match(page, /async function ownPlaces\(where\) \{[\s\S]*?host\.storage\.list\('place:', where\)/);
+  assert.match(page, /const here = both\(.*ownPlaces\(inSpace \? \{ scope: 'space', space: info\.context\.spaceId \} : \{ scope: 'spaces' \}\)\);/);
+  assert.match(page, /ownPlaces\(\{ scope: 'environment' \}\)\.then\(\(list\) => list\.filter\(\(c\) => markedFor\(c, spaceId\)\)\)/, 'the environment\'s places marked for the space are always read');
+  assert.match(page, /both\(host\.objects\.search\('', \{ scope, has: 'place' \}\)\.catch\(\(\) => \[\]\), ownPlaces\(\{ scope \}\)\)/, 'Mine and the environment\'s own are read from storage too');
+  assert.match(page, /place: p\.point,/, 'the summary\'s place is the stored point (lat, lng, in that order)');
+  assert.match(page, /host\.on\('change', \(e\) => \{ if \(String\(e\.key\)\.startsWith\('place:'\)\) placesChanged\(\); \}\);/, 'a saved place appears without a refresh');
+  // An environment place marked for the space (what addPlace stores by default) is shown in full with the page's default filter in a space.
+  const summary = { ref: { scope: 'environment' }, spaces: ['s1'], category: 'other', visit: 'want' };
+  assert.equal(lib.showHow(summary, { mine: true, environment: false, spaces: new Set(['s1']) }, 's1'), 'full');
+  assert.equal(lib.showHow({ ref: { scope: 'environment' }, spaces: [] }, { mine: true, environment: false, spaces: new Set(['s1']) }, 's1'), '', 'the environment\'s other places stay off until the filter turns them on');
+  assert.deepEqual(lib.boundsOf([{ lat: 38.2975, lng: -122.2869 }]), [[-122.2869, 38.2975], [-122.2869, 38.2975]], 'the map takes [lng, lat]');
+});
+
+test('a click on a search result shows it on the map (pan, zoom, pin, callout with Save) and opens no dialog', () => {
+  const page = read('maps.js');
+  assert.match(page, /function showResult\(r\) \{[\s\S]*?state\.preview = r;[\s\S]*?state\.map\.easeTo\(\{ center: \[r\.lng, r\.lat\], zoom: cap\(Math\.max\(state\.map\.getZoom\(\), 15\)\)/);
+  assert.match(page, /else showResult\(\{ lat: h\.lat, lng: h\.lng, title: h\.title, sub: h\.sub, key: h\.key \}\);/, 'a result in the map\'s own list');
+  assert.match(page, /pin\.addEventListener\('click', \(e\) => \{ e\.stopPropagation\(\); showResult\(\{ lat: cand\.lat/, 'a result\'s pin on the map');
+  assert.doesNotMatch(page.match(/function pickHit\(i\) \{[\s\S]*?\n  \}/)[0], /draftAt/, 'picking a result does not open the dialog');
+  assert.match(page, /a === 'save-result' && state\.preview && state\.adder\) \{[\s\S]*?draftAt\(r\.lat, r\.lng/, 'Save is its own button, and opens the dialog');
+  assert.match(page, /showResult: async \(input\) => \{[\s\S]*?showResult\(\{ lat, lng,/, 'the list asks the map to show a result');
+  const html = read('maps.html');
+  assert.match(html, /<template id="tpl-callout-result">[\s\S]*?data-action="save-result"/);
+  const list = read('maps-lib-g-list-view.js');
+  assert.match(list, /if \(ev\.target\.closest\('\[data-action="save-found"\]'\) \|\| row\.dataset\.dup\) saveFound\(Number\(row\.dataset\.i\), row\);\s*else previewFound\(Number\(row\.dataset\.i\), row\);/, 'in the list the row shows, the Save button saves');
+  assert.match(list, /x\.name === 'showResult' && x\.open === true/);
+  const manifest = JSON.parse(fs.readFileSync(new URL('../modules/maps/module.json', import.meta.url), 'utf8'));
+  const action = manifest.actions.provides.find((a) => a.name === 'showResult');
+  assert.ok(action && action.local === true && action.input.lat === 'number' && action.input.lng === 'number' && action.input.page === 'string?' && action.input.pageUntil === 'number?', 'the manifest declares showResult as a local action with the host\'s page fields');
+});
+
+test('a click on a saved place in the list selects it, marks it and the map flies to it', () => {
+  const list = read('maps-lib-g-list-view.js');
+  assert.match(list, /if \(p && p\.point\) return selectPlace\(w, p\.id\);/, 'beside the map a placed place is selected, not opened');
+  assert.match(list, /host\.destination\.set\(\{ selected: ref \}\)/);
+  assert.match(list, /state\.selected = rowKey\(w, p\.id\); markSelected\(false\); \}/, 'in a window the row is marked too');
+  const page = read('maps.js');
+  assert.match(page, /function select\(id, o\) \{[\s\S]*?state\.map\.easeTo\(\{ center: \[c\.place\.lng, c\.place\.lat\]/);
+});
+
+test('the field says what it does: Find a place with a place search on, and a note when Enter has nothing to search', () => {
+  const list = read('maps-lib-g-list-view.js');
+  assert.match(list, /placeholder: state\.search \? 'Find a place' : 'Filter places', label: 'Find a place'/);
+  assert.match(list, /if \(e\.submit && state\.search && q\.length >= 2\) showFound\(q, sharedSearch\(q\)\);/, 'Enter searches outside the saved places once a place search is on, with no refresh');
+  assert.match(list, /else if \(entry && entry\.find && !onPicture\(\)\) noSearchNote\(text\);/);
 });
 
 console.log(`check-maps: OK (${n} checks)`);
