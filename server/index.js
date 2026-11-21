@@ -2143,7 +2143,7 @@ const page = (name) => path.join(publicDir, name);
 // Pages the static files never serve by their file name: only their own route sends them, with that route's headers
 // (the first-password page: GET /login/first-password, on a hosted install only -- plan-first-password.md; the start page: the product host's /). Matched as
 // the static files would find them: decoded, with ./, ../ and doubled slashes resolved, and in any case.
-const ROUTE_ONLY_FILES = new Set(['login-first-password.html', 'start.html']);
+const ROUTE_ONLY_FILES = new Set(['login-first-password.html', 'start.html', 'connect-app.html']);
 function routeOnlyFile(reqPath) {
   let decoded;
   try { decoded = decodeURIComponent(reqPath); } catch { return false; } // the static files refuse it themselves
@@ -4165,6 +4165,16 @@ app.get('/profile/:key', (req, res) => {
   if (!currentUser(req)) return res.redirect(`/login?next=/profile/${encodeURIComponent(req.params.key)}`);
   if (!isOwner(req)) return res.status(403).send(`${word('owner', { many: true, cap: true })} only.`);
   res.sendFile(page('profile.html'));
+});
+
+// The approval page for an app asking to connect (public/connect-app.html; plan-mcp-oauth.md): only where the sign-in server
+// works (AGENT_TOKENS on, an environment), else an unknown path. Signed out goes to sign in and comes back here. Never framed,
+// never cached; the page reads GET /api/oauth/requests/:id and answers with Allow or Don't allow.
+app.get('/connect-app', (req, res, next) => {
+  if (!agentTokensOn || !envContext.getStore()) return next();
+  res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', ...NOT_FRAMED });
+  if (!currentUser(req)) return res.redirect(`/login?next=${encodeURIComponent(auth.safeNext(req.originalUrl))}`);
+  return res.sendFile(page('connect-app.html'));
 });
 
 app.get('/admin', (req, res) => {

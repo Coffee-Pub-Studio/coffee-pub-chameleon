@@ -32,6 +32,21 @@ export const lifetimeText = (lifetime, expiresAt) => {
   const span = LIFETIME_WORDS[lifetime];
   return span && day ? `Works for ${span}, until ${day}.` : day ? `Works until ${day}.` : span ? `Works for ${span}.` : '';
 };
+// A sign-in connection (GET /api/users/:key/token's `connection`) in plain words: who it is, who allowed it, when, and where it goes back to.
+export const connectionText = (c) => {
+  const by = c.allowedBy && c.allowedBy.name ? c.allowedBy.name : 'someone';
+  const day = dayText(c.allowedAt);
+  return `Connected by sign-in: ${c.app}, allowed by ${by}${day ? ` on ${day}` : ''}. Goes back to ${c.returnsTo}.`;
+};
+// The warning before a connection runs out or after it has: '' when there is none.
+export const connectionEndingText = (expiresAt, now = Date.now()) => {
+  if (expiresAt === null || expiresAt === undefined) return '';
+  const end = Date.parse(expiresAt);
+  if (Number.isNaN(end)) return '';
+  if (end <= now) return 'This connection has ended. Connect again from the app.';
+  const days = Math.ceil((end - now) / 86400000);
+  return days > 7 ? '' : `This connection ends in ${days === 1 ? '1 day' : `${days} days`}. Connect again from the app before then.`;
+};
 // The warning before a token runs out (7 days) and after it has: '' when there is none (no token, or one that never expires).
 export const endingText = (expiresAt, now = Date.now()) => {
   if (expiresAt === null || expiresAt === undefined) return '';
@@ -100,6 +115,15 @@ export function logLine(entry, { spaceName = () => '', moduleName: lookup = () =
   const status = Number.isInteger(e.status) ? e.status : null;
   const parts = [whenText(e.at, hour12)];
   if (e.address) parts.push(String(e.address));
+  if (e.event === 'connected' || e.event === 'ended' || e.event === 'reused') {
+    // A sign-in connection's start or end (plan-mcp-oauth.md): the app's name and who did it, never a token.
+    const app = typeof e.app === 'string' && e.app ? e.app : 'an app';
+    const by = e.by && typeof e.by === 'object' && e.by.name ? String(e.by.name) : '';
+    const said = e.event === 'connected' ? `Connected by sign-in: ${app}${by ? `, allowed by ${by}` : ''}`
+      : e.event === 'ended' ? `Connection ended${by ? ` by ${by}` : ''}`
+        : 'Connection ended: an old key was used again';
+    return { text: said, note: false, detail: parts.filter(Boolean).join(' · '), message: '' };
+  }
   if (e.kind === null || e.kind === undefined) {
     // A note: the agent went over its limit, or its token was refused.
     const text = status === 429 ? 'Over its limit' : status === 401 ? 'Token refused' : 'Note';
@@ -306,9 +330,20 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   saferStep('Quit the app and open it again, because it reads variables only when it starts. Then save the server.');
   const moderatorWord = word('moderator', { a: true });
   const setupIntro = `Let Claude set up ${spaceWords(2)}: make one, and change its name, description and icon. It needs only this connection, and it can't read what is inside a ${spaceWord}. Adding or taking off a person, or making someone ${moderatorWord}, waits for your yes.`;
+  // An app that can sign in needs only the server's address; the approval page makes or picks the agent (plan-mcp-oauth.md).
+  const signIn = make('div', 'agent-signin');
+  signIn.dataset.agentSignin = '';
+  signIn.append(
+    make('p', '', 'Using an app that can sign in? Give it this address:'),
+    copyBlock('Address', `${location.origin}/mcp`),
+    make('p', 'hint', 'An app that offers sign-in needs only that. You allow it on a page here, so there is no token to copy.'),
+  );
   el.append(
     make('h3', 'agent-connect-title', 'Connect Claude'),
     make('p', 'hint', setup ? setupIntro : 'Let Claude read and help in the spaces this agent is in: the plan, the to-dos and the chat.'),
+    signIn,
+    make('h4', 'agent-connect-sub', 'Claude Code and scripts'),
+    make('p', 'hint', 'These use a pasted token. Follow the steps below.'),
     need, live, steps,
     make('h4', 'agent-connect-sub', 'What to say first'),
     copyBlock('First question', setup ? setupFirstQuestion(spaceWord) : FIRST_QUESTION),
@@ -422,7 +457,8 @@ export function mountAgentPage(ctx) {
   const $ = (sel) => document.querySelector(`#agent-page ${sel}`);
   let agent = null;
   let oldest = null; // the `at` of the oldest line shown, for the next page
-  let token = null; // GET /api/users/:key/token's answer
+  let token = null; // GET /api/users/:key/token's answer: the pasted token
+  let connection = null; // and its sign-in connection (one way in per agent: at most one of the two)
   let lastRun = null; // the last run of lines shown (see foldLines)
   let guide = null; // the Connect Claude block drawn by paint(), for its live line
   let timer = null;
@@ -452,27 +488,37 @@ export function mountAgentPage(ctx) {
     $('[data-agent-off-hint]').textContent = off
       ? 'It is off. Its token does nothing until you turn it on.'
       : 'Turning it off stops its token working at once. You can turn it on again.';
-    const ending = token ? endingText(token.expiresAt) : '';
-    $('[data-agent-token-state]').textContent = !token ? 'No token yet.' : ending === 'This token has ended. Make a new token.' ? `The token ended ${dayText(token.expiresAt)}.` : lifetimeText(token.lifetime, token.expiresAt);
+    const wayIn = connection || token;
+    const ending = connection ? connectionEndingText(connection.expiresAt) : token ? endingText(token.expiresAt) : '';
+    const ended = ending === 'This token has ended. Make a new token.' || (connection && ending === 'This connection has ended. Connect again from the app.');
+    $('[data-agent-token-state]').textContent = connection ? connectionText(connection) : !token ? 'No token yet.' : ended ? `The token ended ${dayText(token.expiresAt)}.` : lifetimeText(token.lifetime, token.expiresAt);
+    const life = $('[data-agent-connection-life]');
+    life.textContent = connection ? (ended ? `The connection ended ${dayText(connection.expiresAt)}.` : lifetimeText(connection.lifetime, connection.expiresAt)) : '';
+    life.hidden = !connection;
     const warn = $('[data-agent-ending]');
     warn.textContent = ending;
     warn.hidden = !ending;
-    $('[data-agent-used]').textContent = !token ? '' : token.lastUsedAt
-      ? `Last used ${whenText(token.lastUsedAt, ctx.hour12())}${token.lastAddress ? ` from ${token.lastAddress}` : ''}`
+    $('[data-agent-used]').textContent = !wayIn ? '' : wayIn.lastUsedAt
+      ? `Last used ${whenText(wayIn.lastUsedAt, ctx.hour12())}${wayIn.lastAddress ? ` from ${wayIn.lastAddress}` : ''}`
       : 'Not used yet.';
     $('[data-agent="make"]').textContent = token ? 'Make a new token' : 'Make token';
-    $('[data-agent="make"]').classList.toggle('btn-primary', !token);
+    $('[data-agent="make"]').classList.toggle('btn-primary', !wayIn);
     const connect = $('[data-agent-connect]');
     guide = connectGuide({ token: PLACEHOLDER_TOKEN, note: `Your token goes where it says ${PLACEHOLDER_TOKEN}. It is shown once, when you make it. To get one, use "${token ? 'Make a new token' : 'Make token'}" above.`, ...spaceHint() });
     connect.replaceChildren(guide.el);
-    guide.setUsed(token ? token.lastUsedAt || null : null);
+    guide.setUsed(wayIn ? wayIn.lastUsedAt || null : null);
     memberOf().then((names) => { if (guide && agent) guide.setSpaces(names); }).catch(() => {});
-    $('[data-agent="revoke"]').hidden = !token;
-    $('[data-agent-make-hint]').textContent = token ? 'A new token ends the old one.' : `Claude uses the token to work in the ${ctx.word('space', { many: true })} you add it to.`;
+    $('[data-agent="revoke"]').hidden = !wayIn;
+    $('[data-agent="revoke"]').textContent = connection ? 'End connection' : 'Revoke';
+    $('[data-agent-make-hint]').textContent = connection ? 'A token ends the connection.' : token ? 'A new token ends the old one.' : `Claude uses the token to work in the ${ctx.word('space', { many: true })} you add it to.`;
   }
 
   async function loadToken() {
-    try { token = (await ctx.api('GET', `/api/users/${encodeURIComponent(agent.key)}/token`)).token; } catch (err) { token = null; speak(err.message, true); }
+    try {
+      const got = await ctx.api('GET', `/api/users/${encodeURIComponent(agent.key)}/token`);
+      token = got.token;
+      connection = got.connection || null;
+    } catch (err) { token = null; connection = null; speak(err.message, true); }
   }
 
   // The live line and the "Last used" line, from the token's record. Light: no redraw of the page.
@@ -480,12 +526,14 @@ export function mountAgentPage(ctx) {
     if (!agent) return;
     const key = agent.key;
     try {
-      const t = (await ctx.api('GET', tokenUrl())).token;
+      const got = await ctx.api('GET', tokenUrl());
+      const t = got.connection || got.token;
       const names = await memberOf();
       if (!agent || agent.key !== key) return;
       if (guide) guide.setSpaces(names);
       if (!t) return;
-      token = t;
+      token = got.token;
+      connection = got.connection || null;
       if (guide) guide.setUsed(t.lastUsedAt || null);
       if (agent.kind === 'setup' && !document.querySelector('dialog[open]')) { loadAsks(); loadChanges(); } // a new ask shows without a reload
       $('[data-agent-used]').textContent = t.lastUsedAt ? `Last used ${whenText(t.lastUsedAt, ctx.hour12())}${t.lastAddress ? ` from ${t.lastAddress}` : ''}` : 'Not used yet.';
@@ -680,11 +728,16 @@ export function mountAgentPage(ctx) {
     try {
       if (what === 'make') await make_();
       else if (what === 'revoke') {
-        if (!await confirmDialog({ title: `Revoke the token of ${agentName(agent)}?`, message: 'It stops working at once. You can make a new one.', action: 'Revoke', kind: 'destructive' })) return;
+        const ending = Boolean(connection);
+        if (!await confirmDialog(ending
+          ? { title: `End the connection of ${agentName(agent)}?`, message: `It stops working at once. ${connection.app} can connect again from its own sign-in.`, action: 'End connection', kind: 'destructive' }
+          : { title: `Revoke the token of ${agentName(agent)}?`, message: 'It stops working at once. You can make a new one.', action: 'Revoke', kind: 'destructive' })) return;
         await ctx.api('DELETE', `/api/users/${encodeURIComponent(agent.key)}/token`);
         token = null;
+        connection = null;
         paint();
-        speak('Token revoked');
+        speak(ending ? 'Connection ended' : 'Token revoked');
+        loadLog(false);
       } else if (what === 'off') {
         const { user } = await ctx.api('PATCH', `/api/users/${encodeURIComponent(agent.key)}`, { off: agent.off !== true });
         agent = { ...agent, ...user };
@@ -720,6 +773,7 @@ export function mountAgentPage(ctx) {
       resetLifetime();
       agent = { ...user };
       token = null;
+      connection = null;
       oldest = null;
       $('[data-agent-log]').replaceChildren();
       $('[data-agent="older"]').hidden = true;
@@ -736,6 +790,6 @@ export function mountAgentPage(ctx) {
       startPolling();
       await Promise.all([loadLog(false), loadAsks(), loadChanges()]);
     },
-    close() { stopPolling(); agent = null; token = null; guide = null; changeLimits = null; },
+    close() { stopPolling(); agent = null; token = null; connection = null; guide = null; changeLimits = null; },
   };
 }
