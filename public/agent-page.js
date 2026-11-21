@@ -317,8 +317,17 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   envStep('Leave Bearer token env var empty.');
   envStep('Under Headers, choose Add header. Key: Authorization. Value: Bearer then a space then the token.', copyBlock('Header value', `Bearer ${token}`));
   envStep('Leave Headers from environment variables empty.');
-  envStep('Save the server.');
+  envStep('Save the server, then select Restart.');
+  envStep('In a Codex conversation type /mcp: Chameleon should be listed and Enabled.');
   envStep('Start a new Codex conversation and ask the first question above.');
+  const codexIn = make('ol', 'agent-steps');
+  codexIn.dataset.agentCodexSignin = '';
+  const inStep = (text) => { const li = make('li'); li.append(make('span', '', text)); codexIn.append(li); };
+  inStep('Add the server with only the address (the URL above): Settings, MCP servers, Add server, Streamable HTTP. Leave Bearer token env var and Headers empty.');
+  inStep('Save, then select Restart.');
+  inStep('Select Authenticate next to Chameleon in the server list. A Chameleon page opens: choose the agent and Allow.');
+  inStep('In a Codex conversation type /mcp: Chameleon should be listed and Enabled.');
+  inStep('Start a new Codex conversation and ask the first question above.');
   const safer = make('ol', 'agent-steps');
   safer.dataset.agentEnvSafer = '';
   const saferStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); safer.append(li); };
@@ -358,7 +367,10 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
     make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),
     file,
     make('h4', 'agent-connect-sub', 'Codex (an app with environment-variable fields)'),
-    make('p', 'hint', "This is for the form titled Connect to a custom MCP in the OpenAI app, which sets up servers for Codex. It was set up from that form as shown and is not tested end to end. A server added here shows in Codex, not in an ordinary ChatGPT chat; ChatGPT's own custom servers (Settings, Plugins) are a different setup that has no place for a token header here."),
+    make('p', 'hint', "Codex is the OpenAI app that sets up servers in a form titled Connect to a custom MCP. A server added there shows in Codex, not in an ordinary ChatGPT chat. ChatGPT's own chat (Plugins) takes custom servers only on some plans, Business and Enterprise, and needs sign-in, not a token; Codex works on other plans. This worked in a test on 21 November 2026 with a token header. Signing in from this app has not been tested yet."),
+    make('h4', 'agent-connect-sub', 'Sign in (first choice)'),
+    codexIn,
+    make('h4', 'agent-connect-sub', "If it can't sign in, use a token"),
     envs,
     make('h4', 'agent-connect-sub', 'Safer, needs a terminal'),
     make('p', 'hint', "Use these steps instead of the header steps above (same form, same Name, Type and URL). The token stays out of the app's settings file."),
