@@ -1,0 +1,72 @@
+{
+  "note": "A National Rail style e-ticket order: outward and return as two journeys, a collection reference, one price in pounds.",
+  "mark": "written",
+  "kind": "train",
+  "trip": {
+    "name": "London",
+    "first": "2027-03-26",
+    "last": "2027-03-28",
+    "timeZone": "Europe/London",
+    "currency": "GBP"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Thank you for your order\nOrder number: 20938471\nTicket collection reference: 4WQ8RN2T\n\nBooked by: Callum Whitfield (1 adult)\n\nJOURNEY 1 - OUTWARD\nManchester Piccadilly to London Euston\nFriday 26 March 2027\nDepart 09:23   Arrive 11:31\nOperator: Westmark Trains\nTicket: Advance Single, Standard Class, Coach C, Seat 41\n\nJOURNEY 2 - RETURN\nLondon Euston to Manchester Piccadilly\nSunday 28 March 2027\nDepart 17:03   Arrive 19:12\nOperator: Westmark Trains\nTicket: Advance Single, Standard Class, Coach F, Seat 12\n\nTotal: £68.50\nYour tickets are in the attached PDF. You can also collect them from any station ticket machine with your collection reference and the card you paid with.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Manchester Piccadilly to London Euston",
+      "basis": "imported",
+      "kind": "train",
+      "date": "2027-03-26",
+      "details": {
+        "operator": "Westmark Trains",
+        "from": {
+          "name": "Manchester Piccadilly"
+        },
+        "to": {
+          "name": "London Euston"
+        },
+        "departs": "2027-03-26T09:23",
+        "arrives": "2027-03-26T11:31",
+        "carriage": "C",
+        "seat": "41",
+        "class": "Standard Class",
+        "reference": "4WQ8RN2T",
+        "cost": 68.5,
+        "currency": "GBP",
+        "travellers": [
+          "Callum Whitfield"
+        ]
+      }
+    },
+    {
+      "icon": "note",
+      "title": "London Euston to Manchester Piccadilly",
+      "basis": "imported",
+      "kind": "train",
+      "date": "2027-03-28",
+      "details": {
+        "operator": "Westmark Trains",
+        "from": {
+          "name": "London Euston"
+        },
+        "to": {
+          "name": "Manchester Piccadilly"
+        },
+        "departs": "2027-03-28T17:03",
+        "arrives": "2027-03-28T19:12",
+        "carriage": "F",
+        "seat": "12",
+        "class": "Standard Class",
+        "reference": "4WQ8RN2T",
+        "travellers": [
+          "Callum Whitfield"
+        ]
+      }
+    }
+  ]
+}

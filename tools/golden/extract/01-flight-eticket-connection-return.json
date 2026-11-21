@@ -1,0 +1,188 @@
+{
+  "note": "Airline e-ticket receipt: a connection out (two flights) and a return, two passengers, one fare for all.",
+  "mark": "written",
+  "kind": "flight",
+  "trip": {
+    "name": "Lisbon in March",
+    "first": "2027-03-14",
+    "last": "2027-03-21",
+    "timeZone": "Europe/Lisbon",
+    "currency": "GBP"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Aurelia Airways | E-ticket receipt\nBooking reference: M4TQ8Z\nIssued: 02 Nov 2026\n\nPASSENGERS\n1. MR TOMAS HARGREAVE\n2. MRS ELENA HARGREAVE\nE-ticket numbers: 891-2204417731, 891-2204417732\n\nITINERARY\nOUTBOUND - Sunday 14 March 2027\nAU 2218   Manchester (MAN) 06:40  ->  Frankfurt (FRA) 09:30    Economy Light\nAU 7406   Frankfurt (FRA) 11:05   ->  Lisbon (LIS) 13:35       Economy Light\nConnection time in Frankfurt: 1h 35m\n\nRETURN - Sunday 21 March 2027\nAU 7411   Lisbon (LIS) 14:20      ->  Manchester (MAN) 17:05   Economy Light\n\nFARE\nTotal fare paid: GBP 486.20 (taxes and carrier charges included)\nForm of payment: card ending 0000\n\nBaggage: 1 cabin bag per passenger. Checked bags can be added at manage.aurelia-air.example.\nAll times are local times at the airport shown.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "AU 2218 Manchester to Frankfurt",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-03-14",
+      "details": {
+        "airline": "Aurelia Airways",
+        "number": "AU 2218",
+        "from": {
+          "code": "MAN",
+          "name": "Manchester"
+        },
+        "to": {
+          "code": "FRA",
+          "name": "Frankfurt"
+        },
+        "departs": "2027-03-14T06:40",
+        "arrives": "2027-03-14T09:30",
+        "class": "Economy Light",
+        "reference": "M4TQ8Z",
+        "cost": 486.2,
+        "currency": "GBP",
+        "travellers": [
+          "Tomas Hargreave",
+          "Elena Hargreave"
+        ],
+        "minutes": 110
+      }
+    },
+    {
+      "icon": "note",
+      "title": "AU 7406 Frankfurt to Lisbon",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-03-14",
+      "details": {
+        "airline": "Aurelia Airways",
+        "number": "AU 7406",
+        "from": {
+          "code": "FRA",
+          "name": "Frankfurt"
+        },
+        "to": {
+          "code": "LIS",
+          "name": "Lisbon"
+        },
+        "departs": "2027-03-14T11:05",
+        "arrives": "2027-03-14T13:35",
+        "class": "Economy Light",
+        "reference": "M4TQ8Z",
+        "travellers": [
+          "Tomas Hargreave",
+          "Elena Hargreave"
+        ],
+        "minutes": 210
+      }
+    },
+    {
+      "icon": "note",
+      "title": "AU 7411 Lisbon to Manchester",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-03-21",
+      "details": {
+        "airline": "Aurelia Airways",
+        "number": "AU 7411",
+        "from": {
+          "code": "LIS",
+          "name": "Lisbon"
+        },
+        "to": {
+          "code": "MAN",
+          "name": "Manchester"
+        },
+        "departs": "2027-03-21T14:20",
+        "arrives": "2027-03-21T17:05",
+        "class": "Economy Light",
+        "reference": "M4TQ8Z",
+        "travellers": [
+          "Tomas Hargreave",
+          "Elena Hargreave"
+        ],
+        "minutes": 165
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "flight",
+        "title": "AU 2218 Manchester to Frankfurt",
+        "date": "2027-03-14",
+        "details": {
+          "airline": "Aurelia Airways",
+          "number": "AU 2218",
+          "from": {
+            "code": "MAN",
+            "name": "Manchester"
+          },
+          "to": {
+            "code": "FRA",
+            "name": "Frankfurt"
+          },
+          "departs": "2027-03-14T06:40",
+          "arrives": "2027-03-14T09:30",
+          "class": "Economy Light",
+          "reference": "M4TQ8Z",
+          "cost": 486.2,
+          "currency": "GBP",
+          "travellers": [
+            "Tomas Hargreave",
+            "Elena Hargreave"
+          ]
+        }
+      },
+      {
+        "kind": "flight",
+        "title": "AU 7406 Frankfurt to Lisbon",
+        "date": "2027-03-14",
+        "details": {
+          "airline": "Aurelia Airways",
+          "number": "AU 7406",
+          "from": {
+            "code": "FRA",
+            "name": "Frankfurt"
+          },
+          "to": {
+            "code": "LIS",
+            "name": "Lisbon"
+          },
+          "departs": "2027-03-14T11:05",
+          "arrives": "2027-03-14T13:35",
+          "class": "Economy Light",
+          "reference": "M4TQ8Z",
+          "travellers": [
+            "Tomas Hargreave",
+            "Elena Hargreave"
+          ]
+        }
+      },
+      {
+        "kind": "flight",
+        "title": "AU 7411 Lisbon to Manchester",
+        "date": "2027-03-21",
+        "details": {
+          "airline": "Aurelia Airways",
+          "number": "AU 7411",
+          "from": {
+            "code": "LIS",
+            "name": "Lisbon"
+          },
+          "to": {
+            "code": "MAN",
+            "name": "Manchester"
+          },
+          "departs": "2027-03-21T14:20",
+          "arrives": "2027-03-21T17:05",
+          "class": "Economy Light",
+          "reference": "M4TQ8Z",
+          "travellers": [
+            "Tomas Hargreave",
+            "Elena Hargreave"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "note": "A booking email buried in marketing: hotel offer with a promo code, fares-from prices, check-in times and app links around one flight.",
+  "mark": "written",
+  "kind": "flight",
+  "trip": {
+    "name": "Edinburgh",
+    "first": "2027-03-13",
+    "last": "2027-03-16",
+    "timeZone": "Europe/London",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "COASTAL WINGS  |  Fly the coast. Feel the difference.\n\n*** SPRING SALE: fares from EUR 19 until 30 April 2027. Book now! ***\n\nYour booking is confirmed, Siobhan!\n\nBooking reference: CW8R2D\nFlight CW 3310 - Saturday 13 March 2027\nDublin (DUB) 13:35  >  Edinburgh (EDI) 14:55\nFare: Smart Saver\n\nPassenger: Siobhan Brennan\nPayment received: EUR 74.98\n\nOnline check-in opens on 11 March 2027 at 09:00 and closes 2 hours before departure.\n\nDON'T FORGET YOUR HOTEL!\nSave 20% on hotels in Edinburgh with code SPRING20. Offer valid for stays up to 1 June 2027. Prices from EUR 55 per night.\n\nDownload our app: https://coastal-wings.example/app\nFollow us for more deals. Unsubscribe | Privacy | Terms\nCoastal Wings Ltd, registered in Ireland. Fares and conditions apply.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "CW 3310 Dublin to Edinburgh",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-03-13",
+      "details": {
+        "airline": "Coastal Wings",
+        "number": "CW 3310",
+        "from": {
+          "code": "DUB",
+          "name": "Dublin"
+        },
+        "to": {
+          "code": "EDI",
+          "name": "Edinburgh"
+        },
+        "departs": "2027-03-13T13:35",
+        "arrives": "2027-03-13T14:55",
+        "class": "Smart Saver",
+        "reference": "CW8R2D",
+        "cost": 74.98,
+        "currency": "EUR",
+        "travellers": [
+          "Siobhan Brennan"
+        ],
+        "minutes": 80
+      }
+    }
+  ]
+}

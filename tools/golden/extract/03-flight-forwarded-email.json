@@ -1,0 +1,80 @@
+{
+  "note": "A forwarded email: the sender's note, headers, a signature, a legal footer and a quoted reply around one flight.",
+  "mark": "written",
+  "kind": "flight",
+  "trip": {
+    "name": "Porto",
+    "first": "2027-04-07",
+    "last": "2027-04-11",
+    "timeZone": "Europe/Lisbon",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Hey! Here is my flight for Porto. Can you book the same one? -P\n\nSent from my phone\n\n---------- Forwarded message ---------\nFrom: Skyline Reservations <no-reply@booking.skyline-air.example>\nDate: Tue, 3 Nov 2026 at 21:14\nSubject: Your booking SK6WNC is confirmed - Rome to Porto\nTo: Priya Venkataraman <priya.v@mailbox.example>\n\nHi Priya,\n\nYou're all set. Your flight details are below.\n\nBooking number: SK6WNC\nSK 1893 | Wed 7 Apr 2027\nRome Fiumicino (FCO) 10:15 -> Porto (OPO) 12:30\nFare type: Standard\nBaggage: 1 cabin bag + 1 checked bag (23 kg)\n\nPassenger: Priya Venkataraman\nAmount charged: EUR 187.40\n\nNeed to change something? Manage your booking: https://skyline-air.example/manage\n\nSkyline Air Reservations Team\nThis email and any attachments are confidential and intended only for the person named above.\n\n> On Tue, Nov 3, 2026 at 21:20, Dad wrote:\n> Nice! Send me the dates please.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "SK 1893 Rome to Porto",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-04-07",
+      "details": {
+        "airline": "Skyline Air",
+        "number": "SK 1893",
+        "from": {
+          "code": "FCO",
+          "name": "Rome Fiumicino"
+        },
+        "to": {
+          "code": "OPO",
+          "name": "Porto"
+        },
+        "departs": "2027-04-07T10:15",
+        "arrives": "2027-04-07T12:30",
+        "class": "Standard",
+        "reference": "SK6WNC",
+        "cost": 187.4,
+        "currency": "EUR",
+        "travellers": [
+          "Priya Venkataraman"
+        ],
+        "minutes": 195
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "flight",
+        "title": "SK 1893 Rome to Porto",
+        "date": "2027-04-07",
+        "details": {
+          "airline": "Skyline Air",
+          "number": "SK 1893",
+          "from": {
+            "code": "FCO",
+            "name": "Rome Fiumicino"
+          },
+          "to": {
+            "code": "OPO",
+            "name": "Porto"
+          },
+          "departs": "2027-04-07T10:15",
+          "arrives": "2027-04-07T12:30",
+          "class": "Standard",
+          "reference": "SK6WNC",
+          "cost": 187.4,
+          "currency": "EUR",
+          "travellers": [
+            "Priya Venkataraman"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

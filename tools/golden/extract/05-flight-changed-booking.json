@@ -1,0 +1,74 @@
+{
+  "note": "A schedule-change email: the new times are the flight; the old times are history and must not be read.",
+  "mark": "written",
+  "kind": "flight",
+  "trip": {
+    "name": "Vienna",
+    "first": "2027-05-10",
+    "last": "2027-05-14",
+    "timeZone": "Europe/Vienna",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "IMPORTANT: your flight time has changed\n\nBooking reference: LV3H8P\n\nDear Mr Reichmann,\n\nWe have changed the schedule of your flight. Please check the new times.\n\nFlight AJ 640, Monday 10 May 2027\nZurich (ZRH) to Vienna (VIE)\n\nNew departure: 14:05\nNew arrival: 15:35\n\nPrevious departure: 12:40\nPrevious arrival: 14:10\n\nIf the new time does not suit you, you can rebook free of charge or ask for a refund within 14 days.\n\nAlpenjet Customer Care\n\nPassenger: Jonas Reichmann",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "AJ 640 Zurich to Vienna",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-05-10",
+      "details": {
+        "airline": "Alpenjet",
+        "number": "AJ 640",
+        "from": {
+          "code": "ZRH",
+          "name": "Zurich"
+        },
+        "to": {
+          "code": "VIE",
+          "name": "Vienna"
+        },
+        "departs": "2027-05-10T14:05",
+        "arrives": "2027-05-10T15:35",
+        "reference": "LV3H8P",
+        "travellers": [
+          "Jonas Reichmann"
+        ],
+        "minutes": 90
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "flight",
+        "title": "AJ 640 Zurich to Vienna",
+        "date": "2027-05-10",
+        "details": {
+          "airline": "Alpenjet",
+          "number": "AJ 640",
+          "from": {
+            "code": "ZRH",
+            "name": "Zurich"
+          },
+          "to": {
+            "code": "VIE",
+            "name": "Vienna"
+          },
+          "departs": "2027-05-10T14:05",
+          "arrives": "2027-05-10T15:35",
+          "reference": "LV3H8P",
+          "travellers": [
+            "Jonas Reichmann"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

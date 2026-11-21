@@ -1,0 +1,165 @@
+{
+  "note": "A travel agent's itinerary: two flights and a hotel in one paste, one total for the whole trip (it goes on the first booking), a thousands comma.",
+  "mark": "written",
+  "kind": "multi",
+  "trip": {
+    "name": "Rome",
+    "first": "2027-05-11",
+    "last": "2027-05-14",
+    "timeZone": "Europe/Rome",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "HARBOUR & VINE TRAVEL - YOUR ITINERARY\nPrepared for: Beatriz Nogueira and Samuel Okafor\nAgent reference: HV-2027-0338\n\n1. FLIGHT - Tue 11 May 2027\nAlpenjet AJ 305, Zurich (ZRH) 07:30 - Rome Fiumicino (FCO) 09:05\nAirline booking code: JT5N7C\n\n2. HOTEL - 11 to 14 May 2027\nAlbergo Tre Cipressi, Via dei Cipressi 21, 00184 Roma\nCheck-in from 15:00, check-out by 11:00. 1 double room, breakfast included.\nHotel confirmation: TC-93021\n\n3. FLIGHT - Fri 14 May 2027\nAlpenjet AJ 308, Rome Fiumicino (FCO) 18:40 - Zurich (ZRH) 20:15\nAirline booking code: JT5N7C\n\nTotal price for the whole itinerary: EUR 1,184.00\n\nThank you for travelling with Harbour & Vine. Our office is open Monday to Friday.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "AJ 305 Zurich to Rome",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-05-11",
+      "details": {
+        "airline": "Alpenjet",
+        "number": "AJ 305",
+        "from": {
+          "code": "ZRH",
+          "name": "Zurich"
+        },
+        "to": {
+          "code": "FCO",
+          "name": "Rome Fiumicino"
+        },
+        "departs": "2027-05-11T07:30",
+        "arrives": "2027-05-11T09:05",
+        "reference": "JT5N7C",
+        "cost": 1184,
+        "currency": "EUR",
+        "travellers": [
+          "Beatriz Nogueira",
+          "Samuel Okafor"
+        ],
+        "minutes": 95
+      }
+    },
+    {
+      "icon": "note",
+      "title": "Albergo Tre Cipressi",
+      "basis": "imported",
+      "kind": "hotel",
+      "date": "2027-05-11",
+      "details": {
+        "address": "Via dei Cipressi 21, 00184 Roma",
+        "checkIn": "2027-05-11T15:00",
+        "checkOut": "2027-05-14T11:00",
+        "roomType": "Double room",
+        "reference": "TC-93021",
+        "travellers": [
+          "Beatriz Nogueira",
+          "Samuel Okafor"
+        ]
+      }
+    },
+    {
+      "icon": "note",
+      "title": "AJ 308 Rome to Zurich",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-05-14",
+      "details": {
+        "airline": "Alpenjet",
+        "number": "AJ 308",
+        "from": {
+          "code": "FCO",
+          "name": "Rome Fiumicino"
+        },
+        "to": {
+          "code": "ZRH",
+          "name": "Zurich"
+        },
+        "departs": "2027-05-14T18:40",
+        "arrives": "2027-05-14T20:15",
+        "reference": "JT5N7C",
+        "travellers": [
+          "Beatriz Nogueira",
+          "Samuel Okafor"
+        ],
+        "minutes": 95
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "flight",
+        "title": "AJ 305 Zurich to Rome",
+        "date": "2027-05-11",
+        "details": {
+          "airline": "Alpenjet",
+          "number": "AJ 305",
+          "from": {
+            "code": "ZRH",
+            "name": "Zurich"
+          },
+          "to": {
+            "code": "FCO",
+            "name": "Rome Fiumicino"
+          },
+          "departs": "2027-05-11T07:30",
+          "arrives": "2027-05-11T09:05",
+          "reference": "JT5N7C",
+          "cost": 1184,
+          "currency": "EUR",
+          "travellers": [
+            "Beatriz Nogueira",
+            "Samuel Okafor"
+          ]
+        }
+      },
+      {
+        "kind": "hotel",
+        "title": "Albergo Tre Cipressi",
+        "date": "2027-05-11",
+        "details": {
+          "address": "Via dei Cipressi 21, 00184 Roma",
+          "checkIn": "2027-05-11T15:00",
+          "checkOut": "2027-05-14T11:00",
+          "roomType": "Double room",
+          "reference": "TC-93021",
+          "travellers": [
+            "Beatriz Nogueira",
+            "Samuel Okafor"
+          ]
+        }
+      },
+      {
+        "kind": "flight",
+        "title": "AJ 308 Rome to Zurich",
+        "date": "2027-05-14",
+        "details": {
+          "airline": "Alpenjet",
+          "number": "AJ 308",
+          "from": {
+            "code": "FCO",
+            "name": "Rome Fiumicino"
+          },
+          "to": {
+            "code": "ZRH",
+            "name": "Zurich"
+          },
+          "departs": "2027-05-14T18:40",
+          "arrives": "2027-05-14T20:15",
+          "reference": "JT5N7C",
+          "travellers": [
+            "Beatriz Nogueira",
+            "Samuel Okafor"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

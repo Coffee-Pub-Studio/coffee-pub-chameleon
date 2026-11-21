@@ -1,0 +1,23 @@
+{
+  "note": "No booking at all: a newsletter and an enquiry receipt, full of dates and prices. Nothing is to be read as a booking.",
+  "mark": "written",
+  "kind": "none",
+  "trip": {
+    "name": "Lisbon",
+    "first": "2027-03-14",
+    "last": "2027-03-21",
+    "timeZone": "Europe/Lisbon",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Spring in Portugal: our newsletter\n\nHello traveller,\n\nFlights to Lisbon from EUR 59 return, travel between 1 March and 30 June 2027. Seats are limited.\n\nThank you for your enquiry (ref. ENQ-55120). This is not a booking. One of our advisers will write to you within 2 working days about hotels in Lisbon for 14-21 March 2027.\n\nTop 3 spring events: the Flower Festival on 20 March at 11:00, the Tile Fair on 27 March, and the Night Market every Friday at 19:00.\n\nYou are receiving this because you signed up at newsletter.holidaylane.example. Unsubscribe at any time.",
+  "expected": [],
+  "standIn": {
+    "objects": [],
+    "unread": []
+  }
+}
