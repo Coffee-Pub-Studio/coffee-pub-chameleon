@@ -783,6 +783,79 @@ export function questionTooLong(question) {
   const n = [...String(question || '')].length;
   return n > ASK_MAX ? `A question is at most ${ASK_MAX.toLocaleString('en-US')} characters; this one is ${n.toLocaleString('en-US')}.` : '';
 }
+// --- Read it as bookings (plan-assistant-reboot.md, step 5) -------------------------------------------------------------
+// Text longer than a question is never cut: the box offers to read it as bookings (POST /api/spaces/:id/ai/extract, which
+// takes up to READ_MAX characters). Characters as the server counts them.
+export const READ_MAX = 30000;
+// Where a line goes by `view` (routeLine); `show` once it would ask the AI with more than a question holds. `n` counts the words
+// that would be asked (after /ai). A pasted import answer and a command are not this.
+export function longPaste(text, view) {
+  const route = routeLine(text, view);
+  const n = [...String(route.line || '')].length;
+  const over = n > READ_MAX;
+  return { show: route.run === 'ai' && n > ASK_MAX, n, over, text: route.line, count: `${n.toLocaleString('en-US')} of ${READ_MAX.toLocaleString('en-US')}` };
+}
+const READ_ICONS = { flight: 'plane', train: 'train', bus: 'bus', ferry: 'ferry', car: 'car', hotel: 'bed', restaurant: 'utensils', event: 'location-dot', note: 'note-sticky', place: 'location-dot', task: 'list-check' };
+const READ_JOURNEYS = ['flight', 'train', 'bus', 'ferry', 'car'];
+// A point of a journey ({ code, name } or a string) as one line: "Lisbon (LIS)".
+function readPoint(p) {
+  if (typeof p === 'string') return p.trim();
+  if (!p || typeof p !== 'object') return '';
+  const name = typeof p.name === 'string' ? p.name.trim() : '';
+  const code = typeof p.code === 'string' ? p.code.trim() : '';
+  return name && code ? `${name} (${code})` : name || code;
+}
+// A local "2027-03-14T07:05" (or a day alone) in words: "Sun, Mar 14, 7:05 AM". `fmt` is { day(ymd), time(hhmm) }.
+function readWhen(value, fallbackDay, fmt) {
+  const v = typeof value === 'string' ? value.trim() : '';
+  const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(v);
+  const day = m ? m[1] : /^\d{4}-\d{2}-\d{2}$/.test(fallbackDay || '') ? fallbackDay : '';
+  const time = m ? m[2] || '' : /^\d{2}:\d{2}$/.test(v) ? v : '';
+  return [day ? fmt.day(day) : '', time ? fmt.time(time) : ''].filter(Boolean).join(', ');
+}
+// The preview's rows, one per object of the answer, in its order: { index, object, checked, done, icon, kind, title, when,
+// route { from, to } | null, reference, cost, travellers, notes: [sentence] }. `fmt` is { day, time, money(n, code) }.
+export function readRows(answer, fmt) {
+  const a = answer && typeof answer === 'object' ? answer : {};
+  const objects = Array.isArray(a.objects) ? a.objects : [];
+  return objects.map((object, index) => {
+    const o = object && typeof object === 'object' ? object : {};
+    const d = o.details && typeof o.details === 'object' && !Array.isArray(o.details) ? o.details : {};
+    const kind = typeof o.kind === 'string' ? o.kind : '';
+    const journey = READ_JOURNEYS.includes(kind);
+    const first = readWhen(kind === 'hotel' ? d.checkIn : journey ? d.departs : d.starts, o.date, fmt);
+    const last = readWhen(kind === 'hotel' ? d.checkOut : journey ? d.arrives : d.ends, '', fmt);
+    const from = journey ? readPoint(d.from) : '';
+    const to = journey ? readPoint(d.to) : '';
+    const code = typeof d.currency === 'string' && /^[A-Za-z]{3}$/.test(d.currency.trim()) ? d.currency.trim().toUpperCase() : '';
+    const n = Array.isArray(a.notes) ? a.notes[index] : null;
+    const notes = (Array.isArray(n) ? n : typeof n === 'string' ? [n] : []).filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim());
+    return {
+      index,
+      object: o,
+      checked: true,
+      done: false,
+      icon: READ_ICONS[kind] || 'location-dot',
+      kind: kind === 'hotel' ? 'Stay' : kind ? kind[0].toUpperCase() + kind.slice(1) : 'Booking',
+      title: typeof o.title === 'string' ? o.title.trim() : '',
+      when: [first, last && (kind === 'hotel' || journey) ? `to ${last}` : ''].filter(Boolean).join(' '),
+      route: from || to ? { from, to } : null,
+      reference: typeof d.reference === 'string' ? d.reference.trim() : '',
+      cost: typeof d.cost === 'number' && Number.isFinite(d.cost) ? fmt.money(d.cost, code) : '',
+      travellers: Array.isArray(d.travellers) ? d.travellers.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim()).join(', ') : '',
+      notes,
+    };
+  });
+}
+// The rows that go on: ticked and not added already, in the order shown.
+export const readChosen = (rows) => (Array.isArray(rows) ? rows : []).filter((r) => r && r.checked && !r.done);
+// "3 bookings found." and the lines after it, for the top of the preview.
+export function readSummary(rows, { cut = false, dropped = 0 } = {}) {
+  const n = (c, one, many) => `${c} ${c === 1 ? one : many}`;
+  const open = rows.filter((r) => !r.done).length;
+  const ticked = readChosen(rows).length;
+  return [`${n(rows.length, 'booking', 'bookings')} found.`, open ? `${ticked} ticked. Nothing is added until you press Add to the trip.` : 'All are added.', cut ? 'The answer was cut short, so some bookings may be missing.' : '', dropped ? `${n(dropped, 'booking', 'bookings')} could not be used.` : ''].filter(Boolean).join(' ');
+}
 // The browser's time zone (IANA), sent with every ask so "today" is the asker's today.
 export function askZone() {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { return ''; }
@@ -1088,6 +1161,7 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
   let lastAttachAt = -1e9;
   if (input()) for (const type of ['input', 'keydown']) input().addEventListener(type, () => { lastTypedAt = performance.now(); });
   let lastActions = [];
+  let reading = null; // { stop() } while a read as bookings is on its way
 
   function spaceId() {
     const s = getSpace();
@@ -1229,6 +1303,7 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     paintModeTools();
     syncEmpty();
     paintAiState();
+    paintLong();
     if (view === 'assistant' && id && !isHome()) checkAi();
     if (list) list.scrollTop = list.scrollHeight;
   }
@@ -2490,6 +2565,208 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     return true;
   }
 
+  // --- Read it as bookings (plan-assistant-reboot.md, step 5) ---
+  // Under the box, while the Assistant's text is longer than a question: the notice, the count and the button. The text is never
+  // cut; a normal question shows none of it.
+  function paintLong() {
+    const wrap = $('chat-long');
+    if (!wrap) return;
+    const long = longPaste(input() ? input().value : '', view);
+    const show = long.show && Boolean(spaceId()) && !isGuest();
+    wrap.hidden = !show;
+    if (!show) return;
+    $('chat-long-count').textContent = long.count;
+    $('chat-long-count').classList.toggle('error', long.over);
+    $('chat-long-count').setAttribute('aria-label', long.over ? `${long.count}: too long` : long.count);
+    $('chat-long-read').disabled = long.over || Boolean(reading);
+    $('chat-long-over').hidden = !long.over;
+  }
+  if (input()) input().addEventListener('input', paintLong);
+
+  const readFmt = {
+    day: (ymd) => new Date(`${ymd}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+    time: (hm) => new Date(`2000-01-01T${hm}:00`).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+    money: (v, code) => {
+      try { return code ? new Intl.NumberFormat('en-US', { style: 'currency', currency: code }).format(v) : v.toLocaleString('en-US'); } catch { return `${v} ${code}`.trim(); }
+    },
+  };
+
+  // A card in the Assistant, the person's own and stored nowhere (as an import's is).
+  function readCard(body, icon = 'file-import') {
+    const el = frameMessage({ name: 'Bookings', at: new Date(), visibility: 'private', kind: 'ai', icon, body, entry: { who: 'Bookings', text: '', at: new Date(), chat: false } });
+    el.classList.add('chat-read-msg');
+    $('messages').appendChild(el);
+    $('messages').scrollTop = $('messages').scrollHeight;
+    return el;
+  }
+  const readLines = (list, lines, cls = '') => {
+    const ul = document.createElement('ul');
+    ul.className = `chat-read-lines ${cls}`.trim();
+    for (const l of lines) { const li = document.createElement('li'); li.textContent = l; ul.appendChild(li); }
+    list.appendChild(ul);
+  };
+  const readButton = (label, cls, onClick) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `btn btn-small ${cls}`.trim();
+    b.textContent = label;
+    b.addEventListener('click', onClick);
+    return b;
+  };
+
+  async function readAsBookings() {
+    if (reading) return false;
+    const long = longPaste(input().value, view);
+    const id = spaceId();
+    if (!id || !long.show || long.over) { paintLong(); return false; }
+    setNote('');
+    const text = long.text;
+    const ctl = new AbortController();
+    const wait = document.createElement('div');
+    wait.className = 'message-body text chat-read-wait';
+    wait.setAttribute('role', 'status');
+    const spin = document.createElement('span');
+    spin.className = 'sdk-spinner sdk-spinner-sm';
+    spin.setAttribute('aria-hidden', 'true');
+    const said = document.createElement('span');
+    said.textContent = ' Reading for bookings...';
+    const cancel = readButton('Cancel', 'btn-quiet', () => ctl.abort());
+    wait.append(spin, said, cancel);
+    const card = readCard(wait);
+    reading = { stop: () => ctl.abort() };
+    paintLong();
+    try {
+      const answer = await api('POST', `/api/spaces/${encodeURIComponent(id)}/ai/extract`, { text, tz: askZone() }, undefined, ctl.signal);
+      card.remove();
+      reading = null;
+      drawRead(answer, text);
+      return true;
+    } catch (err) {
+      reading = null;
+      if (ctl.signal.aborted) {
+        card.remove();
+        setNote('Cancelled. Your text is still in the box.');
+      } else {
+        const body = document.createElement('div');
+        body.className = 'message-body text chat-read-problem';
+        body.setAttribute('role', 'alert');
+        const p = document.createElement('p');
+        p.textContent = `${whyAiFailed(err)} Your text is still in the box.`;
+        body.appendChild(p);
+        if (Array.isArray(err.unread) && err.unread.length) readLines(body, err.unread, 'chat-read-unread');
+        body.appendChild(readButton('Close', 'btn-quiet', () => card.remove()));
+        card.querySelector('.message-body').replaceWith(body);
+      }
+      return false;
+    } finally {
+      paintLong();
+    }
+  }
+
+  // The preview: the unread lines above, a row per booking with a tick, nothing written until Add to the trip.
+  function drawRead(answer, text) {
+    const rows = readRows(answer, readFmt);
+    const unread = Array.isArray(answer && answer.unread) ? answer.unread.filter((u) => typeof u === 'string' && u.trim()) : [];
+    const body = document.createElement('div');
+    body.className = 'message-body text chat-read';
+    const summary = document.createElement('p');
+    summary.className = 'chat-read-summary';
+    summary.setAttribute('role', 'status');
+    body.appendChild(summary);
+    if (unread.length) {
+      const head = document.createElement('p');
+      head.className = 'chat-read-head';
+      head.textContent = 'Could not read:';
+      body.appendChild(head);
+      readLines(body, unread, 'chat-read-unread');
+    }
+    const list = document.createElement('ul');
+    list.className = 'chat-read-rows';
+    const goButton = readButton('Add to the trip', 'btn-primary', () => add());
+    const closeButton = readButton('Cancel', 'btn-quiet', () => card.remove());
+    const refresh = () => {
+      summary.textContent = readSummary(rows, { cut: Boolean(answer && answer.cut), dropped: Number(answer && answer.dropped) || 0 });
+      goButton.disabled = !readChosen(rows).length;
+    };
+    for (const r of rows) {
+      const li = document.createElement('li');
+      li.className = 'chat-read-row';
+      const label = document.createElement('label');
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = true;
+      box.setAttribute('aria-label', `Add ${r.title || r.kind}`);
+      box.addEventListener('change', () => { r.checked = box.checked; refresh(); });
+      const icon = document.createElement('i');
+      icon.className = `fa-solid fa-${/^[a-z0-9-]{1,30}$/.test(r.icon) ? r.icon : 'location-dot'} fa-fw chat-read-icon`;
+      icon.setAttribute('aria-hidden', 'true');
+      const main = document.createElement('span');
+      main.className = 'chat-read-main';
+      const add1 = (cls, t) => { if (!t) return; const e = document.createElement('span'); e.className = cls; e.textContent = t; main.appendChild(e); };
+      add1('chat-read-title', `${r.kind}: ${r.title || 'No title'}`);
+      add1('chat-read-when', r.when);
+      add1('chat-read-route', r.route ? [r.route.from, r.route.to].filter(Boolean).join(' to ') : '');
+      add1('chat-read-ref', r.reference ? `Reference ${r.reference}` : '');
+      add1('chat-read-cost', r.cost);
+      add1('chat-read-who', r.travellers ? `For ${r.travellers}` : '');
+      for (const n of r.notes) add1('chat-read-note', n);
+      const state = document.createElement('span');
+      state.className = 'chat-read-state';
+      label.append(box, icon, main, state);
+      li.appendChild(label);
+      r.box = box;
+      r.state = state;
+      list.appendChild(li);
+    }
+    body.appendChild(list);
+    const foot = document.createElement('div');
+    foot.className = 'chat-import-foot';
+    foot.append(goButton, closeButton);
+    body.appendChild(foot);
+    const card = readCard(body);
+    refresh();
+    goButton.focus();
+
+    // Each ticked row goes to the place the existing import path picks for it (drawObject's default, as Keep ticked does); one
+    // that has none there, or needs a form or a closed module, is handed to the import preview to place by hand.
+    async function add() {
+      const chosen = readChosen(rows);
+      if (!chosen.length) return;
+      goButton.disabled = true;
+      await refreshActions();
+      const views = chosen.map((r) => {
+        const view = drawObject({ ...r.object, basis: 'imported' }, '', { pick: 'choose', askDay: false });
+        const target = view.target();
+        return { r, view, target, kind: r.object.kind, open: Boolean(target && target.local && canvas.isOpen(target.module)) };
+      });
+      const split = splitTicked(views);
+      const sent = [];
+      for (const v of split.going) {
+        const going = await v.view.send(v.target, { quiet: true });
+        if (going) sent.push({ v, outcome: going.outcome });
+      }
+      const outcomes = await Promise.all(sent.map((x) => x.outcome));
+      sent.forEach((x, i) => {
+        if (outcomes[i] && ['kept', 'sent', 'queued', 'adding'].includes(outcomes[i].result)) { x.v.r.done = true; x.v.r.box.disabled = true; x.v.r.state.textContent = 'Added'; }
+      });
+      if (outcomes.length) setNote(outcomesWords(outcomes));
+      const left = views.filter((v) => !v.r.done);
+      if (left.length) {
+        const words = leftOutWords(split, { one: word('object'), many: word('object', { many: true }) });
+        await showImport({ objects: left.map((v) => v.r.object) });
+        if (words) setNote(words);
+      }
+      if (rows.some((r) => r.done) && input().value.trim() === text.trim()) {
+        input().value = '';
+        resizeChatInput();
+        resetHint();
+        paintLong();
+      }
+      refresh();
+    }
+  }
+  $('chat-long-read')?.addEventListener('click', () => { readAsBookings(); });
+
   async function postCheck(body, type) {
     const id = spaceId();
     if (!id) throw new Error(`Bring research in from ${word('space', { a: true })}.`);
@@ -2648,6 +2925,9 @@ export function attachChatInput({ $, api, word, openObject = null, getSpace, get
     hidePicker,
     // A pasted answer sent from the box (routeLine 'import'): true when its objects are shown.
     importText: (text) => checkObjects(text),
+    // Read it as bookings: the notice under the box, and the read itself (a click on its button).
+    paintLong,
+    readAsBookings,
     // Words typed in the Assistant: asked of the AI. True when the answer came.
     // The Assistant is showing and an object waits to go with the next question: an empty box may send (routeLine).
     canAskEmpty: () => view === 'assistant' && (aiContext.length > 0 || aiWords !== null) && performance.now() - lastAttachAt >= 400, // an Enter just after an attach is not a Send

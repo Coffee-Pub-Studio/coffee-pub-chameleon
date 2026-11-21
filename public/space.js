@@ -873,6 +873,7 @@ let pipWindow = null;
 // The call on the left (In a call and its time, or empty; a problem replaces it), the latest notice on the right (an error, the
 // AI's state, what a command did). Notices that used to sit in the message list or in the call's status come here.
 let chatStream = ''; // the live stream's state ('live', 'reconnecting', 'paused', 'link-off' for a guest, or '')
+let chatLongFn = null; // chat-input.js's notice for a long paste, once attached
 let chatNoteFn = null; // chat-input.js's note, once attached
 let chatNoteTimer = null;
 // The left side says only what the person needs: "In a call" with the call's time while in one, nothing otherwise, and a
@@ -7292,6 +7293,7 @@ const chatInput = attachChatInput({
 });
 chatViews = chatInput;
 chatNoteFn = (text, error) => chatInput.note(text, error);
+chatLongFn = () => chatInput.paintLong();
 paintChatConn();
 document.addEventListener('chat-tools-changed', () => fitChatChrome());
 askInChat = (input) => chatInput.askAbout(input);
@@ -7304,6 +7306,9 @@ $('chat-form').addEventListener('submit', async (event) => {
   // Where the line goes: a command runs in the Assistant, switching there from the Discussion, in either view; in the
   // Assistant a pasted import answer is brought in and any other words ask the AI; in the Discussion words are a
   // message for everyone.
+  // The box no longer cuts a long paste; a message over the limit says so and stays in the box.
+  const long = [...text].length;
+  if (long > 1000 && chatInput.view() === 'discussion' && !text.startsWith('/')) { chatNotice(`A message is at most 1,000 characters; this one is ${long.toLocaleString('en-US')}.`, true); return; }
   const route = chatInput.routeLine(text);
   if (route.run === 'import') {
     if (await chatInput.importText(route.line)) {
@@ -7352,6 +7357,7 @@ function resizeChatInput() {
   const el = $('chat-input');
   el.style.height = 'auto';
   el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+  if (chatLongFn) chatLongFn();
 }
 $('chat-input').addEventListener('input', resizeChatInput);
 
