@@ -927,12 +927,13 @@
     category('eat', 'Eat and drink', 'utensils', STOP_TILES.filter((t) => EAT.includes(t)));
     category('see', 'See and do', 'binoculars', STOP_TILES.filter((t) => !EAT.includes(t)));
     kinds.push({ id: 'note', label: 'Add a note', icon: 'note-sticky' });
+    kinds.push({ id: 'paste', label: 'Paste a booking', icon: 'paste', tip: 'Paste a confirmation email or booking details' });
     return kinds;
   }
   function openAddMenu(button, place, { gap } = {}) {
     const onLine = place.after !== undefined;
     const items = [];
-    const withTile = (tile) => openEditor('item', null, { ...place, tile }, button);
+    const withTile = (tile) => (tile === 'paste' ? openPaste(button) : openEditor('item', null, { ...place, tile }, button));
     const category = (id, label, icon, rows) => { if (rows.length) items.push({ id, label, icon, items: rows }); }; // a flyout of the day menu (addKinds has its own)
     for (const k of addKinds()) {
       items.push(k.items ? { ...k, items: k.items.map((r) => ({ ...r, onClick: () => withTile(r.id) })) } : { ...k, onClick: () => withTile(k.id) });
@@ -1054,6 +1055,196 @@
       $('day-error').hidden = false;
       $('day-go').disabled = false;
     }
+  });
+
+
+  // --- Paste a booking (plan-assistant-reboot.md, step 4) ---------------------------------------------------------------------
+  // A confirmation email or booking details in a box, "Read it" asks the AI service (host.ai.extract), and the bookings it found
+  // are shown as a list first: a tick and an Edit on each row, nothing written until "Add to the trip". The pure parts (the rows,
+  // the count, the words) are travel-lib-paste.js; each ticked row goes on through plan.addObject, the path acceptSuggestion's
+  // `object` takes. The text is sent only when the person presses Read it and is kept nowhere here.
+  let paste = null; // { phase: 'input' | 'reading' | 'preview' | 'done', rows, token, ids, booking, from } while the sheet is open
+  const pasteEditor = host.ui.editor($('paste-dialog'), {
+    size: 'large',
+    // Text typed and not read, or bookings shown and ticked but not added: closing asks "Discard your changes?".
+    isDirty: () => Boolean(paste && ((paste.phase === 'input' && $('paste-text') && $('paste-text').value.trim()) || (paste.phase === 'preview' && pasteChosen(paste.rows).length))),
+    onClose: () => { $('paste-dialog').replaceChildren(); paste = null; },
+  });
+  // What the sheet shows in each phase: which parts, and the words of the two buttons.
+  function pastePhase(phase) {
+    paste.phase = phase;
+    $('paste-form').dataset.state = phase;
+    hide($('paste-input'), phase !== 'input');
+    hide($('paste-reading'), phase !== 'reading');
+    hide($('paste-result'), phase !== 'preview');
+    hide($('paste-done'), phase !== 'done');
+    hide($('paste-see'), phase !== 'done' || !paste.ids.length);
+    hide($('paste-go'), phase === 'reading' || phase === 'done');
+    $('paste-go').textContent = phase === 'preview' ? 'Add to the trip' : 'Read it';
+    $('paste-cancel').textContent = phase === 'done' ? 'Close' : 'Cancel';
+    pasteRefresh();
+  }
+  // The count and the Read it button (input), the summary and the Add to the trip button (preview).
+  function pasteRefresh() {
+    if (!paste) return;
+    if (paste.phase === 'input') {
+      const c = pasteCount($('paste-text').value);
+      $('paste-count').textContent = c.text;
+      $('paste-text').setAttribute('aria-invalid', c.over ? 'true' : 'false');
+      $('paste-go').disabled = c.empty || c.over;
+    } else if (paste.phase === 'preview') {
+      const chosen = pasteChosen(paste.rows).length;
+      const open = paste.rows.filter((r) => !r.done).length;
+      $('paste-go').disabled = !chosen;
+      $('paste-summary').textContent = [`${words(paste.rows.length, 'booking', 'bookings')} found.`, open ? `${chosen} ticked. Nothing is added until you press Add to the trip.` : 'All are added.', paste.cut ? 'The answer was cut short, so some bookings may be missing.' : '', paste.dropped ? `${words(paste.dropped, 'booking', 'bookings')} could not be used.` : ''].filter(Boolean).join(' ');
+    }
+  }
+  const pasteProblem = (err) => {
+    const said = err ? pasteError(err) : null;
+    hide($('paste-problem'), !said);
+    $('paste-error').textContent = said ? said.text : '';
+    const list = $('paste-error-unread');
+    list.replaceChildren(...(said ? said.unread : []).map((t) => { const li = document.createElement('li'); li.textContent = t; return li; }));
+    hide(list, !said || !said.unread.length);
+  };
+  // A list of sentences ("what could not be read"), shown above the bookings.
+  function pasteLines(list, lines) {
+    list.replaceChildren(...lines.map((t) => { const li = document.createElement('li'); li.textContent = t; return li; }));
+    hide(list, !lines.length);
+  }
+  function pasteDrawRow(r) {
+    const li = r.el || clone('tpl-paste-row');
+    r.el = li;
+    fill(li, { title: r.title, kind: r.kind, when: r.when, route: r.route ? [r.route.from, r.route.to].filter(Boolean).join(' to ') : '', reference: r.reference, cost: r.cost, travellers: r.travellers ? `For ${r.travellers}` : '', notes: r.notes.join('\n') });
+    setIcon(li.querySelector('.paste-icon [data-icon]'), r.icon);
+    hide(slot(li, 'added'), !r.done);
+    const box = li.querySelector('input');
+    box.checked = r.checked && !r.done;
+    box.disabled = r.done;
+    box.setAttribute('aria-label', `Add ${r.title}`);
+    li.querySelector('[data-action="paste-edit"]').disabled = r.done;
+    li.querySelector('[data-action="paste-edit"]').setAttribute('aria-label', `Edit ${r.title}`);
+    if (r.done) li.dataset.done = ''; else delete li.dataset.done;
+    return li;
+  }
+  function pasteDrawRows() {
+    $('paste-rows').replaceChildren(...paste.rows.map(pasteDrawRow));
+    hydrate($('paste-rows'));
+  }
+  // The trip, as the server reads it: first and last day, its time zone and currency (what lets it work out a year not written).
+  async function pasteTrip() {
+    const days = plan.days();
+    const t = plan.trip || {};
+    const ctx = await plan.bookingContext();
+    return { ...(days.length ? { first: days[0], last: days[days.length - 1] } : {}), ...(t.tz ? { timeZone: t.tz } : {}), ...(ctx.currency ? { currency: ctx.currency } : {}) };
+  }
+  function openPaste(from) {
+    if (!canEdit) return;
+    paste = { phase: 'input', rows: [], token: 0, ids: [], booking: null, from: from || null, cut: false, dropped: 0 };
+    $('paste-dialog').replaceChildren(clone('tpl-paste'));
+    hydrate($('paste-dialog'));
+    pastePhase('input');
+    pasteEditor.open({ focus: $('paste-text'), returnTo: () => (from && from.isConnected ? from : null) });
+  }
+  async function pasteRead() {
+    const p = paste;
+    const text = $('paste-text').value;
+    const c = pasteCount(text);
+    if (!p || c.empty || c.over) return;
+    pasteProblem(null);
+    pastePhase('reading');
+    const token = ++p.token;
+    try {
+      const trip = await pasteTrip();
+      const answer = await host.ai.extract({ text, trip });
+      if (paste !== p || p.token !== token) return; // closed, or Cancel was pressed: the answer is not used
+      const booking = await plan.bookingContext();
+      const rows = pasteRows(answer, { day: dayShort, time: tt, money: (n, code) => host.util.money(n, code || booking.currency || host.locale().currency) });
+      const unread = Array.isArray(answer.unread) ? answer.unread.filter((u) => typeof u === 'string' && u.trim()) : [];
+      if (!rows.length) throw Object.assign(new Error('There is no booking in this text.'), { status: 422, unread });
+      Object.assign(p, { rows, booking, cut: Boolean(answer.cut), dropped: Number(answer.dropped) || 0 });
+      pasteLines($('paste-unread'), unread);
+      pasteDrawRows();
+      pastePhase('preview');
+      $('paste-rows').querySelector('input').focus();
+    } catch (err) {
+      if (paste !== p || p.token !== token) return;
+      pasteProblem(err); // the server's sentence, with the unread lines; the text stays in the box
+      pastePhase('input');
+      $('paste-text').focus();
+    }
+  }
+  async function pasteAdd() {
+    const p = paste;
+    const chosen = p ? pasteChosen(p.rows) : [];
+    if (!p || p.phase !== 'preview' || !chosen.length) return;
+    $('paste-go').disabled = true;
+    pasteProblem(null);
+    let added = 0;
+    const failed = [];
+    for (const r of chosen) {
+      try {
+        const out = await plan.addObject(r.object);
+        r.done = true;
+        r.checked = false;
+        added += 1;
+        if (out && out.ref && out.ref.id) p.ids.push(out.ref.id);
+      } catch (err) { failed.push(`${r.title}: ${err.message}`); }
+    }
+    if (paste !== p) return;
+    if (!failed.length) {
+      $('paste-done').textContent = pasteAdded(added, 0);
+      return pastePhase('done');
+    }
+    pasteDrawRows();
+    pasteProblem({ message: pasteAdded(added, failed.length), unread: failed });
+    pasteRefresh();
+  }
+  // Edit: the Itinerary's own form, filled in with what was read; the row is marked added once it is saved there.
+  function pasteEdit(r, button) {
+    const p = paste;
+    if (!p) return;
+    pasteProblem(null);
+    let fields;
+    try { fields = objectFields(r.object, host.util, undefined, p.booking); } catch (err) { return pasteProblem({ message: `${r.title || 'That booking'} ${err.message}.`, unread: [] }); }
+    openEditor('item', null, { date: fields.date || null }, button, fields);
+    if (!state.editing) return;
+    state.editing.onAdded = (added) => {
+      if (paste !== p) return;
+      r.done = true;
+      r.checked = false;
+      if (added && added.id) p.ids.push(added.id);
+      pasteDrawRow(r);
+      hydrate(r.el);
+      pasteRefresh();
+    };
+  }
+  $('paste-dialog').addEventListener('input', (e) => { if (e.target.id === 'paste-text') pasteRefresh(); });
+  $('paste-dialog').addEventListener('change', (e) => {
+    const li = e.target.closest && e.target.closest('.paste-row');
+    const r = paste && li ? paste.rows.find((x) => x.el === li) : null;
+    if (r && e.target.type === 'checkbox') { r.checked = e.target.checked; pasteRefresh(); }
+  });
+  $('paste-dialog').addEventListener('click', (e) => {
+    if (!paste) return;
+    if (e.target.closest('#paste-cancel')) {
+      if (paste.phase === 'reading') { paste.token += 1; pastePhase('input'); $('paste-text').focus(); } else pasteEditor.cancel();
+      return;
+    }
+    if (e.target.closest('#paste-see')) {
+      const id = paste.ids[0];
+      pasteEditor.close();
+      state.focusAfterRedraw = { id, until: Date.now() + 2000 };
+      setTimeout(() => { const row = root.querySelector(`.row[data-id="${CSS.escape(id)}"]`); if (row) row.scrollIntoView({ block: 'center' }); refocusNewRow(); }, 150);
+      return;
+    }
+    const edit = e.target.closest('[data-action="paste-edit"]');
+    if (edit) { const r = paste.rows.find((x) => x.el === edit.closest('.paste-row')); if (r) pasteEdit(r, edit); }
+  });
+  $('paste-dialog').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!paste || $('paste-go').disabled) return;
+    if (paste.phase === 'input') pasteRead(); else if (paste.phase === 'preview') pasteAdd();
   });
 
   // The button (and its small form) to add days before the first day or after the last.
@@ -2433,10 +2624,11 @@
 
   // `place` for a new item: `{ date }` a day, `{ after }` a joint on the line; none is the head of the line. `from` is the control
   // that opened the form (focus goes back to it on close).
-  function openEditor(mode, item, place, from) {
+  function openEditor(mode, item, place, from, draft) {
     if (!canEdit) return;
+    const src = item || draft || null; // `draft`: fields to fill a new object with (the paste sheet's Edit); nothing is saved until Save
     const isLink = Boolean(item && item.kind === 'link');
-    state.editing = { mode, id: item ? item.id : null, place: place || null, version: item ? plan.versionOf(item.id) : null, tile: 'sight', isLink, unplaced: Boolean(item && item.kind === 'block' && !item.date), checkOut: item && (item.kind === 'stay' || item.mode === 'car') ? item.checkOut || '' : undefined, files: item && item.files ? [...item.files] : [] };
+    state.editing = { mode, id: item ? item.id : null, place: place || null, version: item ? plan.versionOf(item.id) : null, tile: 'sight', isLink, unplaced: Boolean(item && item.kind === 'block' && !item.date), checkOut: src && (src.kind === 'stay' || src.mode === 'car') ? src.checkOut || '' : undefined, files: item && item.files ? [...item.files] : [] };
     state.editingFrom = { el: from || null, id: item ? item.id : null, date: place && place.date ? place.date : null };
     // The plan's own form is the medium window; an item's the large one (the SDK sets the size once, so it is switched here).
     $('editor').classList.toggle('sdk-editor-large', mode !== 'trip');
@@ -2460,7 +2652,7 @@
       hide($('f-delete'), !item);
       // The kind: an existing object's own, the one the day's "..." or a joint's + chose, else the last kind chosen in this
       // browser (the picker remembers), else Sight. Where is set first, since it decides a marker's block or lane.
-      const preset = item ? tileOf(item) || 'sight' : place && place.tile;
+      const preset = src ? tileOf(src) || 'sight' : place && place.tile;
       // The times follow the environment's clock (12 or 24 hours), not the browser's own; the stored value stays "HH:MM".
       for (const tid of ['f-time', 'f-endTime', 'f-checkOutTime', 'f-arrival-time', 'f-back-time', 'f-back-endTime', 'f-back-arrival-time']) if ($(tid)) host.ui.timeField($(tid));
       dayField($('f-date'));
@@ -2480,7 +2672,7 @@
       // A marker follows Where: a day stores block, a joint lane. An existing marker keeps its kind until Where changes.
       $('f-date').addEventListener('change', () => { const ed = state.editing; if (!ed || !ed.tile) return; const want = tileAt(kindOf(ed.tile), $('f-date').value); if (want !== ed.tile) applyType(want); });
       checkoutOptions();
-      const v = item || {};
+      const v = src || {};
       setVal('f-checkOutTime', v.checkOutTime);
       $('f-time').value = v.time || '';
       setLength('f-hours', 'f-minutes', v.minutes);
@@ -2490,14 +2682,14 @@
       state.editing.dayWas = parsePlace($('f-date').value).date; // a change of day moves the ticket's arrival along
       hide($('f-pinned-row'), !isLink);
       if ($('f-pinned')) $('f-pinned').checked = Boolean(v.pinned);
-      $('f-title').value = item ? item.title : '';
+      $('f-title').value = src ? src.title : '';
       for (const f of ['operator', 'number', 'fromCode', 'toCode', 'from', 'to', 'pickup', 'dropoff', 'terminal', 'platform', 'carriage', 'seat', 'roomType', 'partySize', 'reservationName', 'admissionCount', 'guests']) setVal(`f-${f}`, v[f]);
       setVal('f-travelClass', v.travelClass);
       setVal('f-gate', v.gate);
       setVal('f-gate-show', v.gate);
       setVal('f-address', v.address);
       setVal('f-address-stop', v.address);
-      placeFieldInit(item);
+      placeFieldInit(src);
       setVal('f-confirm', v.confirm);
       $('f-notes').value = v.notes || '';
       $('f-cost').value = v.cost || '';
@@ -2518,7 +2710,7 @@
     hydrate($('editor'));
     editorOpened();
     // A new object with no kind chosen for it starts in the kind field, so typing starts the search.
-    editor.open({ focus: mode !== 'trip' && !item && !(place && place.tile) && kindField ? kindField.input : $('f-title'), returnTo: editorReturn });
+    editor.open({ focus: mode !== 'trip' && !src && !(place && place.tile) && kindField ? kindField.input : $('f-title'), returnTo: editorReturn });
   }
   function fillPhaseSelect(item) {
     const select = $('f-phase');
@@ -3008,6 +3200,7 @@
         // A new object: focus goes to its row once the plan redraws (the bar's button that opened the form is the host's,
         // and may be drawn again by then).
         const added = round ? (await plan.addRoundTrip(fields, back)).out : await plan.addItem(fields);
+        if (ed.onAdded) { try { ed.onAdded(added); } catch (err) { console.error(err); } }
         if (state.editingFrom && added && added.id) { state.editingFrom.id = added.id; state.focusAfterRedraw = { id: added.id, until: Date.now() + 2000 }; }
         // The kind it was saved with is recent, also when the bar, the day's "..." or a joint's + chose it.
         if (kindField) kindField.remember(kindOf(ed.tile));
@@ -3202,6 +3395,7 @@
   };
   const addFromBar = (tile) => {
     if (!canEdit) return;
+    if (tile === 'paste') return openPaste();
     const day = defaultDay();
     openEditor('item', null, day ? { date: day, tile } : { tile });
   };

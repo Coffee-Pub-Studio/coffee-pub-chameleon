@@ -4042,7 +4042,7 @@
       // zone, a three-letter code); `kinds` optional, narrowing the kinds read. Answers { objects, notes, unread, dropped, cut,
       // tokens }: `objects` in the objects format (hand each to an action that takes it), `notes[i]` the sentences object i's row
       // should show, `unread` what could not be read, `dropped` how many were left out. Nothing is written and the text is not
-      // kept; show the person the result before anything is added. No booking in the text rejects with status 422.
+      // kept; show the person the result before anything is added. No booking in the text rejects with status 422, the error's `unread` holding the sentences it could not read.
       extract: (o) => {
         const t = o && typeof o === 'object' ? o : {};
         if (typeof t.text !== 'string') return Promise.reject(Object.assign(new Error('host.ai.extract: text must be a string'), { status: 400 }));
@@ -5653,6 +5653,7 @@
           err.status = m.error.status;
           err.current = m.error.current;
           if (m.error.retryAfter) err.retryAfter = m.error.retryAfter; // a 429's Retry-After, in seconds
+          if (Array.isArray(m.error.unread)) err.unread = m.error.unread; // host.ai.extract's 422: the sentences it could not read
           p.reject(err);
         } else {
           p.resolve(m.result);

@@ -1663,6 +1663,7 @@ export async function api(method, url, body, contentType, signal) {
     err.serverSaid = typeof data.error === 'string' && data.error !== ''; // the server's own sentence, not "HTTP 500"
     if (res.status === 429) err.retryAfter = Number(res.headers.get('Retry-After')) || 0; // seconds the server asks to wait
     err.current = data.current; // set on a 409 from the module data store
+    if (Array.isArray(data.unread)) err.unread = data.unread.filter((u) => typeof u === 'string').slice(0, 20); // what a read could not understand (host.ai.extract's 422)
     if (Array.isArray(data.problems)) err.problems = data.problems; // every problem with a template, not only the first
     if (Array.isArray(data.parts)) err.parts = data.parts; // beside it: the template field each problem is about, or null
     throw err;

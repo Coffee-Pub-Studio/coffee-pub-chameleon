@@ -386,7 +386,7 @@ try {
   };
   const login = async (name, password) => (await call('POST', '/api/login', { body: { login: name, password } })).json.token;
   const owner = await login('admin', 'testpass1234');
-  for (const id of ['assistant', 'travel', 'research']) {
+  for (const id of ['assistant', 'travel', 'research', 'vault']) {
     assert.equal((await call('POST', `/api/modules/bundled/${id}/install`, { cookie: owner, body: {} })).status, 201, id);
     assert.equal((await call('PATCH', `/api/modules/${id}`, { cookie: owner, body: { enabled: true, allSpaces: true } })).status, 200, id);
   }
@@ -472,7 +472,7 @@ try {
     refused(await extract('rae', { text: 'x', kinds: 'flight' }), 400, 'The kinds must be a list of kinds.', 'kinds not a list');
     refused(await extract('rae', { text: 'x', kinds: ['spaceship'] }), 400, 'spaceship is not a kind this server knows.', 'an unknown kind');
     refused(await extract('rae', { text: 'x', kinds: ['poll'] }), 400, 'No module here can keep bookings.', 'no kind taken here');
-    refused(await extract('rae', { text: 'x', from: 'travel' }), 403, 'this module did not ask for the ai hook', 'a module without the ai hook');
+    refused(await extract('rae', { text: 'x', from: 'vault' }), 403, 'this module did not ask for the ai hook', 'a module without the ai hook');
     refused(await extract('rae', { text: 'x', from: 'nosuchmodule' }), 404, 'no such module', 'no such module');
     // None of those used a turn: six real asks still go through for rae.
   });

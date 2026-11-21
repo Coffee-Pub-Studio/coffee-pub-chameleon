@@ -578,7 +578,7 @@
         // unrecognised or missing kind is an ordinary stop, the same as addStop. Found by name and input shape, never by
         // whoever asks for it.
         // With `object` (plan-object-handoff.md): the whole object, its details in the plan's own fields (fromObject).
-        acceptSuggestion: async (input) => addHandedIn(input.object ? fromObject(input.object, undefined, await bookingContext()) : fromSuggestion(input)),
+        acceptSuggestion: async (input) => (input.object ? addObject(input.object) : addHandedIn(fromSuggestion(input))),
         addFromText: async (input) => {
           if (!composeFromText) throw new Error('Planner - Itinerary is not open');
           composeFromText(String(input.text || ''));
@@ -591,6 +591,9 @@
     // Who hears what an object handed in needs said (the page's note).
     let tell = null;
     function onSaid(fn) { tell = fn; }
+    // An object of the objects format put on the trip: the one path acceptSuggestion's `object` and the paste sheet's Add to the
+    // trip share, so the cost, the currency and the travellers land as plan-assistant-reboot.md, decision 3, built them.
+    async function addObject(object) { return addHandedIn(fromObject(object, undefined, await bookingContext())); }
     // The item an object of the objects format becomes (objectFields in travel-lib-object.js), with host.util's plain text and
     // local times. `place` ({ date } or { after }): the Planner's own drop, whose day wins over the object's. `booking`
     // (bookingContext's answer): where a booking's cost and travellers go.
@@ -657,7 +660,7 @@
     }
 
     return {
-      refreshSummaries: () => resolveSummaries(true), refreshPhases, load, list, onLine, atJoint, sortable, days, byDay, dayOf, jointOf, summaries, suggest, provide, onFromText, onSaid, saveTrip, redateCopies, coverDay, bands, phased, addItem, updateItem, removeItem, removeFile, addRoundTrip, returnFor, outboundFor, extraReturns, removeLeg, applyChanges, moveTo, moveToJoint, previewMove, moveDays, previewClear, clearDay: clearDayOf, nudgeItem, addLink, fromSuggestion, fromObject, bookingContext, withDetails,
+      refreshSummaries: () => resolveSummaries(true), refreshPhases, load, list, onLine, atJoint, sortable, days, byDay, dayOf, jointOf, summaries, suggest, provide, onFromText, onSaid, saveTrip, redateCopies, coverDay, bands, phased, addItem, updateItem, removeItem, removeFile, addRoundTrip, returnFor, outboundFor, extraReturns, removeLeg, applyChanges, moveTo, moveToJoint, previewMove, moveDays, previewClear, clearDay: clearDayOf, nudgeItem, addLink, fromSuggestion, fromObject, addObject, bookingContext, withDetails,
       get trip() { return withDates(trip); },
       get suggestions() { return suggested; },
       get waiting() { return waiting; },

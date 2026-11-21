@@ -2481,7 +2481,7 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     try {
       reply(m.id, { result: await handler(m.params || {}) });
     } catch (err) {
-      reply(m.id, { error: { message: err.message, status: err.status, current: err.current, retryAfter: err.retryAfter } });
+      reply(m.id, { error: { message: err.message, status: err.status, current: err.current, retryAfter: err.retryAfter, unread: err.unread } });
     }
   }
   // A frame's messages arrive in the window it lives in, which is not this one

@@ -1884,7 +1884,7 @@ test('the form standard (the Planner pilot): the forms are .sdk-form, every day 
   const css = read('travel.css') + read('travel-lib-editor.css');
   for (const id of ['form', 'day-form']) assert.ok(html.includes(`<form class="sdk-form" id="${id}">`), `${id} is a form of the standard`);
   for (const old of ['editor-card', 'editor-row', 'editor-buttons', 'editor-people', 'when-pick', 'when-btns', 'when-list', 'when-clear', 'when-phase', 'class="timing', 'class="pairing', 'fieldgroup', 'lenmode', 'dur-head', 'class="hm"', 'endbox', 'class="fl"', 'class="check"']) assert.ok(!html.includes(old), `the old ${old} is gone from the markup`);
-  assert.equal((html.match(/<div class="sdk-editor-actions">/g) || []).length, 3, 'the item, plan and day forms\' button rows stick to the bottom');
+  assert.equal((html.match(/<div class="sdk-editor-actions">/g) || []).length, 4, 'the item, plan, day and paste forms\' button rows stick to the bottom');
   // Every day is a date field with host.ui.datePicker: the list (days by phase, the spots between days) and, where there is no day, its first entry.
   for (const pre of ['f-', 'f-back-']) {
     assert.match(html, new RegExp(`<select id="${pre}arrival-day" name="[a-zA-Z]+" hidden></select><input id="${pre}arrival-day-input" type="date"[^>]*><span class="sdk-hint" id="${pre}arrival-day-phase" role="status"></span>`), 'the arrival day: the hidden select keeps the value, a date field, its hint slot says the weekday and "Same day" or "The next day"');
@@ -1959,7 +1959,7 @@ test('the editor window: the form is the SDK\'s dialog, sized to what it edits, 
   const js = read('travel.js');
   const css = read('travel.css');
   assert.ok(html.includes('<dialog id="editor" class="sdk-editor"></dialog>'), 'the editor is the SDK\'s dialog, filled on each open');
-  assert.equal((html.match(/<div class="sdk-editor-actions">/g) || []).length, 3, 'the item, plan and day forms\' button rows stick to the bottom');
+  assert.equal((html.match(/<div class="sdk-editor-actions">/g) || []).length, 4, 'the item, plan, day and paste forms\' button rows stick to the bottom');
   assert.ok(js.includes("const editor = host.ui.editor($('editor'), {") && js.includes("size: 'large',"), 'opened through host.ui.editor, large');
   assert.ok(js.includes("$('editor').classList.toggle('sdk-editor-large', mode !== 'trip');"), 'the plan\'s own form is medium');
   assert.ok(js.includes('isDirty: editorDirty,') && /editor\.open\(\{ focus: [^\n]*kindField\.input : \$\('f-title'\), returnTo: editorReturn \}\);/.test(js), 'the question after typing; focus starts in the kind field for a new object, else the title, and goes back on close');
@@ -2029,7 +2029,7 @@ test('a day that follows another until one is chosen: the arrival day and the ch
   assert.ok(js.includes("setVal('f-checkout', followDay(date, car && ed.checkOut === undefined ? '' : ed.checkOut, 1));"));
   assert.ok(js.includes("if (e.target.id === 'f-checkout' && state.editing) state.editing.checkOut = e.target.value;"));
   assert.ok(js.includes("if (e.target.id === 'f-date') checkoutOptions();"));
-  assert.ok(js.includes("checkOut: item && (item.kind === 'stay' || item.mode === 'car') ? item.checkOut || '' : undefined"), 'an existing stay keeps its own check-out, or its none');
+  assert.ok(js.includes("checkOut: src && (src.kind === 'stay' || src.mode === 'car') ? src.checkOut || '' : undefined"), 'an existing stay keeps its own check-out, or its none');
   assert.ok(!js.includes('checkoutMin'), 'the old min on a date input is gone');
   assert.ok(js.includes("`${dayShort(value)} · ${n} night${n === 1 ? '' : 's'}`"), 'each day says how many nights');
 });
