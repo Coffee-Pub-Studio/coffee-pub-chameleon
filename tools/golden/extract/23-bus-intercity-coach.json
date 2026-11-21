@@ -1,0 +1,75 @@
+{
+  "note": "An intercity coach ticket in English: station names, a service number, one seat.",
+  "mark": "written",
+  "kind": "bus",
+  "trip": {
+    "name": "Porto",
+    "first": "2027-04-09",
+    "last": "2027-04-12",
+    "timeZone": "Europe/Lisbon",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "GreenArrow Coaches - your ticket\n\nBooking: GA3847T\nPassenger: Isabel Costa\nService GA 210\nLisboa Sete Rios -> Porto Campanha\nSaturday 10 April 2027\nDeparture 09:30   Arrival 13:15\nSeat 17\n\nPaid: EUR 14.99\n\nBe at the bay 15 minutes before departure. One bag in the hold is included.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "GA 210 Lisbon to Porto",
+      "basis": "imported",
+      "kind": "bus",
+      "date": "2027-04-10",
+      "details": {
+        "operator": "GreenArrow Coaches",
+        "number": "GA 210",
+        "from": {
+          "name": "Lisboa Sete Rios"
+        },
+        "to": {
+          "name": "Porto Campanha"
+        },
+        "departs": "2027-04-10T09:30",
+        "arrives": "2027-04-10T13:15",
+        "seat": "17",
+        "reference": "GA3847T",
+        "cost": 14.99,
+        "currency": "EUR",
+        "travellers": [
+          "Isabel Costa"
+        ]
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "bus",
+        "title": "GA 210 Lisbon to Porto",
+        "date": "2027-04-10",
+        "details": {
+          "operator": "GreenArrow Coaches",
+          "number": "GA 210",
+          "from": {
+            "name": "Lisboa Sete Rios"
+          },
+          "to": {
+            "name": "Porto Campanha"
+          },
+          "departs": "2027-04-10T09:30",
+          "arrives": "2027-04-10T13:15",
+          "seat": "17",
+          "reference": "GA3847T",
+          "cost": 14.99,
+          "currency": "EUR",
+          "travellers": [
+            "Isabel Costa"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

@@ -19,7 +19,7 @@
  *     kinds, a module without the ai hook), an agent refused, and the text kept nowhere: not in Chat, the call records, the
  *     usage, the server's output or any file under DATA_DIR.
  *   - The golden set (step 3): every sample in tools/golden/extract/ is well formed, and one with a stand-in answer reads back as
- *     its expected objects. The folder may be empty until step 3 adds samples.
+ *     its expected objects. tools/golden/extract/real/ holds the real anonymised ones, and may be empty.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -355,6 +355,7 @@ await test('the golden set: every sample is well formed, and a stand-in answer r
   assert.throws(() => checkSamples(dir), /mark is written or real-anonymised/);
   // The committed set (tools/golden/extract/, step 3).
   checkSamples(path.join(ROOT, 'tools', 'golden', 'extract'));
+  checkSamples(path.join(ROOT, 'tools', 'golden', 'extract', 'real')); // Thomas's anonymised ones, when there are any
 });
 
 // --- through a throwaway server --------------------------------------------------------------------------------------------

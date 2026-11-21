@@ -1,0 +1,63 @@
+{
+  "note": "A booking-site hotel confirmation: address, check-in and check-out windows, room, guests and a total with a city-tax distractor.",
+  "mark": "written",
+  "kind": "hotel",
+  "trip": {
+    "name": "London",
+    "first": "2027-03-14",
+    "last": "2027-03-18",
+    "timeZone": "Europe/London",
+    "currency": "GBP"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "StayNest | Booking confirmed\n\nHi Lena, your booking is confirmed.\nConfirmation number: 5530-817-204\n\nHotel Alder & Finch\n27 Marsden Row, London SE1 7PZ, United Kingdom\n\nCheck-in: Sunday, 14 March 2027 (from 15:00)\nCheck-out: Thursday, 18 March 2027 (until 11:00)\n4 nights, 1 room\n\nSuperior Double Room - 2 adults\nGuest name: Lena Fischer\n\nPrice: GBP 612.00 (including VAT)\nCity tax of GBP 8.40 is payable at the property.\nFree cancellation until 11 March 2027.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Hotel Alder & Finch",
+      "basis": "imported",
+      "kind": "hotel",
+      "date": "2027-03-14",
+      "details": {
+        "address": "27 Marsden Row, London SE1 7PZ, United Kingdom",
+        "checkIn": "2027-03-14T15:00",
+        "checkOut": "2027-03-18T11:00",
+        "roomType": "Superior Double Room",
+        "guests": 2,
+        "reference": "5530-817-204",
+        "cost": 612,
+        "currency": "GBP",
+        "travellers": [
+          "Lena Fischer"
+        ]
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "hotel",
+        "title": "Hotel Alder & Finch",
+        "date": "2027-03-14",
+        "details": {
+          "address": "27 Marsden Row, London SE1 7PZ, United Kingdom",
+          "checkIn": "2027-03-14T15:00",
+          "checkOut": "2027-03-18T11:00",
+          "roomType": "Superior Double Room",
+          "guests": 2,
+          "reference": "5530-817-204",
+          "cost": 612,
+          "currency": "GBP",
+          "travellers": [
+            "Lena Fischer"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

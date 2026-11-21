@@ -1,0 +1,51 @@
+{
+  "note": "A restaurant reservation: party size, the name it is under, a reference and a no-show deposit that is not the price.",
+  "mark": "written",
+  "kind": "restaurant",
+  "trip": {
+    "name": "Bristol",
+    "first": "2027-03-19",
+    "last": "2027-03-21",
+    "timeZone": "Europe/London",
+    "currency": "GBP"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Reservation confirmed\nThe Copper Heron\n\nHi Oskar, your table is booked.\n\nDate: Saturday 20 March 2027\nTime: 19:45\nParty size: 4 people\nName on the booking: Lindqvist\nBooking ref: CH-882041\nAddress: 3 Tannery Lane, Bristol BS1 4XX\n\nPlease note: a deposit of GBP 10 per person is charged if you do not attend. Tables are held for 15 minutes.\nNeed to cancel? Reply to this email.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "The Copper Heron",
+      "basis": "imported",
+      "kind": "restaurant",
+      "date": "2027-03-20",
+      "details": {
+        "starts": "2027-03-20T19:45",
+        "address": "3 Tannery Lane, Bristol BS1 4XX",
+        "partySize": 4,
+        "name": "Lindqvist",
+        "reference": "CH-882041"
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "restaurant",
+        "title": "The Copper Heron",
+        "date": "2027-03-20",
+        "details": {
+          "starts": "2027-03-20T19:45",
+          "address": "3 Tannery Lane, Bristol BS1 4XX",
+          "partySize": 4,
+          "name": "Lindqvist",
+          "reference": "CH-882041"
+        }
+      }
+    ],
+    "unread": []
+  }
+}

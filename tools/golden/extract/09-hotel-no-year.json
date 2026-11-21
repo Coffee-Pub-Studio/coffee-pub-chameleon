@@ -1,0 +1,59 @@
+{
+  "note": "A stay written without a year (\"Fri 19 March\"): the trip decides the year. The stand-in writes 0000, as the prompt says.",
+  "mark": "written",
+  "kind": "hotel",
+  "trip": {
+    "name": "Lisbon",
+    "first": "2027-03-19",
+    "last": "2027-03-22",
+    "timeZone": "Europe/Lisbon",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Casa Verbena - Lisbon\nYour reservation is confirmed.\n\nReservation CV88213\nGuest: Nadia Haddad (2 guests)\n\nArrival: Fri 19 March, from 15:00\nDeparture: Mon 22 March, by 11:00\n1 room, 3 nights\n\nTotal EUR 288.00\nWe look forward to welcoming you!",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Casa Verbena",
+      "basis": "imported",
+      "kind": "hotel",
+      "date": "2027-03-19",
+      "details": {
+        "checkIn": "2027-03-19T15:00",
+        "checkOut": "2027-03-22T11:00",
+        "guests": 2,
+        "reference": "CV88213",
+        "cost": 288,
+        "currency": "EUR",
+        "travellers": [
+          "Nadia Haddad"
+        ]
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "hotel",
+        "title": "Casa Verbena",
+        "date": "0000-03-19",
+        "details": {
+          "checkIn": "0000-03-19T15:00",
+          "checkOut": "0000-03-22T11:00",
+          "guests": 2,
+          "reference": "CV88213",
+          "cost": 288,
+          "currency": "EUR",
+          "travellers": [
+            "Nadia Haddad"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

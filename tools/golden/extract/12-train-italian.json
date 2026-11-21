@@ -1,0 +1,47 @@
+{
+  "note": "Italian: \"ore 09:15\", a long date (\"sabato 20 marzo 2027\"), carriage and seat, a decimal comma and the euro after the number.",
+  "mark": "written",
+  "kind": "train",
+  "trip": {
+    "name": "Firenze",
+    "first": "2027-03-20",
+    "last": "2027-03-23",
+    "timeZone": "Europe/Rome",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Conferma di acquisto - Biglietto elettronico\n\nCodice prenotazione: ZB84KD\nPasseggero: Giulia Moretti\n\nTreno 9532 Lungomare Express\nRoma Termini -> Firenze S. M. Novella\nData: sabato 20 marzo 2027\nPartenza: ore 09:15 - Arrivo: ore 10:50\nCarrozza 6, posto 12A\nClasse: Standard\n\nPrezzo totale: 29,90 €\n\nPresentarsi in stazione almeno 10 minuti prima della partenza. Il biglietto e valido solo per il treno indicato.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Lungomare Express 9532 Roma a Firenze",
+      "basis": "imported",
+      "kind": "train",
+      "date": "2027-03-20",
+      "details": {
+        "number": "9532",
+        "from": {
+          "name": "Roma Termini"
+        },
+        "to": {
+          "name": "Firenze S. M. Novella"
+        },
+        "departs": "2027-03-20T09:15",
+        "arrives": "2027-03-20T10:50",
+        "carriage": "6",
+        "seat": "12A",
+        "class": "Standard",
+        "reference": "ZB84KD",
+        "cost": 29.9,
+        "currency": "EUR",
+        "travellers": [
+          "Giulia Moretti"
+        ]
+      }
+    }
+  ]
+}

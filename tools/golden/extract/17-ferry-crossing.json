@@ -1,0 +1,75 @@
+{
+  "note": "A short ferry crossing: a sailing number, local arrival time in the other country, two foot passengers, a price in pounds.",
+  "mark": "written",
+  "kind": "ferry",
+  "trip": {
+    "name": "Normandy",
+    "first": "2027-04-24",
+    "last": "2027-04-28",
+    "timeZone": "Europe/Paris",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Northsea Crossings - Booking confirmation\nBooking: NSC-9Q4TLP\n\nSailing NS2105\nDover -> Calais\nSaturday 24 April 2027\nDeparts 07:30 (UK time)\nArrives 10:00 (France time)\n\n2 foot passengers: Dev Anand Rao, Maya Rao\nTotal paid: GBP 42.00\n\nCheck-in closes 45 minutes before departure. Bring photo ID for every passenger.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "NS2105 Dover to Calais",
+      "basis": "imported",
+      "kind": "ferry",
+      "date": "2027-04-24",
+      "details": {
+        "operator": "Northsea Crossings",
+        "number": "NS2105",
+        "from": {
+          "name": "Dover"
+        },
+        "to": {
+          "name": "Calais"
+        },
+        "departs": "2027-04-24T07:30",
+        "arrives": "2027-04-24T10:00",
+        "reference": "NSC-9Q4TLP",
+        "cost": 42,
+        "currency": "GBP",
+        "travellers": [
+          "Dev Anand Rao",
+          "Maya Rao"
+        ]
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "ferry",
+        "title": "NS2105 Dover to Calais",
+        "date": "2027-04-24",
+        "details": {
+          "operator": "Northsea Crossings",
+          "number": "NS2105",
+          "from": {
+            "name": "Dover"
+          },
+          "to": {
+            "name": "Calais"
+          },
+          "departs": "2027-04-24T07:30",
+          "arrives": "2027-04-24T10:00",
+          "reference": "NSC-9Q4TLP",
+          "cost": 42,
+          "currency": "GBP",
+          "travellers": [
+            "Dev Anand Rao",
+            "Maya Rao"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

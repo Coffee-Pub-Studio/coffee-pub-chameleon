@@ -1,0 +1,52 @@
+{
+  "note": "US layout: \"Sat, Apr 3, 2027\", 12-hour times with AM, a terminal and gate, two passengers, a price in dollars.",
+  "mark": "written",
+  "kind": "flight",
+  "trip": {
+    "name": "Toronto",
+    "first": "2027-04-03",
+    "last": "2027-04-07",
+    "timeZone": "America/Toronto",
+    "currency": "CAD"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Lakeshore Air\nTrip confirmation\n\nConfirmation: 7HQMXD\n\nPassengers\nGrace Okonjo\nDaniel Okonjo\n\nLA 88\nSat, Apr 3, 2027\nChicago O'Hare (ORD)  7:15 AM   Terminal 3, Gate K12\nToronto Pearson (YYZ)  9:48 AM\n\nFare class: Main Cabin\nTotal: USD 311.20\n\nRewards members earn 2,500 bonus miles on this trip.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "LA 88 Chicago to Toronto",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-04-03",
+      "details": {
+        "airline": "Lakeshore Air",
+        "number": "LA 88",
+        "from": {
+          "code": "ORD",
+          "name": "Chicago O'Hare"
+        },
+        "to": {
+          "code": "YYZ",
+          "name": "Toronto Pearson"
+        },
+        "departs": "2027-04-03T07:15",
+        "arrives": "2027-04-03T09:48",
+        "terminal": "3",
+        "gate": "K12",
+        "class": "Main Cabin",
+        "reference": "7HQMXD",
+        "cost": 311.2,
+        "currency": "USD",
+        "travellers": [
+          "Grace Okonjo",
+          "Daniel Okonjo"
+        ],
+        "minutes": 93
+      }
+    }
+  ]
+}

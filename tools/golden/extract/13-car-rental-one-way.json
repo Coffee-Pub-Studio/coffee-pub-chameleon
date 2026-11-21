@@ -1,0 +1,73 @@
+{
+  "note": "A one-way car hire: two places, two times, a car group and one total that includes a fee.",
+  "mark": "written",
+  "kind": "car",
+  "trip": {
+    "name": "Algarve",
+    "first": "2027-04-02",
+    "last": "2027-04-06",
+    "timeZone": "Europe/Lisbon",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Your car hire is confirmed\n\nBrightway Car Hire\nReservation number: BW-4471902\n\nPICK-UP\nFriday 2 April 2027 at 10:30\nLisbon Airport, Arrivals Hall, Rental Desk 4\n\nDROP-OFF\nTuesday 6 April 2027 at 17:00\nFaro Airport, Car Return\n\nCar group: Compact (Skoda Fabia or similar), manual\nDriver: Henrik Sørensen\n\nRental total: EUR 214.55 including one-way fee\nInsurance: basic cover included. Fuel policy: full to full.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Brightway Car Hire Lisbon to Faro",
+      "basis": "imported",
+      "kind": "car",
+      "date": "2027-04-02",
+      "details": {
+        "company": "Brightway Car Hire",
+        "from": {
+          "name": "Lisbon Airport"
+        },
+        "to": {
+          "name": "Faro Airport"
+        },
+        "departs": "2027-04-02T10:30",
+        "arrives": "2027-04-06T17:00",
+        "class": "Compact",
+        "reference": "BW-4471902",
+        "cost": 214.55,
+        "currency": "EUR",
+        "travellers": [
+          "Henrik Sørensen"
+        ]
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "car",
+        "title": "Brightway Car Hire Lisbon to Faro",
+        "date": "2027-04-02",
+        "details": {
+          "company": "Brightway Car Hire",
+          "from": {
+            "name": "Lisbon Airport"
+          },
+          "to": {
+            "name": "Faro Airport"
+          },
+          "departs": "2027-04-02T10:30",
+          "arrives": "2027-04-06T17:00",
+          "class": "Compact",
+          "reference": "BW-4471902",
+          "cost": 214.55,
+          "currency": "EUR",
+          "travellers": [
+            "Henrik Sørensen"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

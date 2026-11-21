@@ -1,0 +1,61 @@
+{
+  "note": "A modified reservation: new dates and a new total; the cancelled dates and the old total are history.",
+  "mark": "written",
+  "kind": "hotel",
+  "trip": {
+    "name": "Salzburg",
+    "first": "2027-06-04",
+    "last": "2027-06-07",
+    "timeZone": "Europe/Vienna",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Your reservation has been updated\n\nGasthof Linden, Salzburg\nReservation number: GL-27743\n\nDear Mr Alvarez,\n\nAs requested we have changed your stay. This is the new booking:\n\nNew check-in: Friday, 4 June 2027, from 15:00\nNew check-out: Monday, 7 June 2027, until 11:00\nRoom: Comfort Double, 2 guests\nGuest: Mateo Alvarez\nNew total: EUR 540.00\n\nPrevious dates (cancelled): 3 June - 6 June 2027\nPrevious total: EUR 450.00\n\nWe look forward to seeing you.\nThe Gasthof Linden team",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Gasthof Linden",
+      "basis": "imported",
+      "kind": "hotel",
+      "date": "2027-06-04",
+      "details": {
+        "checkIn": "2027-06-04T15:00",
+        "checkOut": "2027-06-07T11:00",
+        "roomType": "Comfort Double",
+        "guests": 2,
+        "reference": "GL-27743",
+        "cost": 540,
+        "currency": "EUR",
+        "travellers": [
+          "Mateo Alvarez"
+        ]
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "hotel",
+        "title": "Gasthof Linden",
+        "date": "2027-06-04",
+        "details": {
+          "checkIn": "2027-06-04T15:00",
+          "checkOut": "2027-06-07T11:00",
+          "roomType": "Comfort Double",
+          "guests": 2,
+          "reference": "GL-27743",
+          "cost": 540,
+          "currency": "EUR",
+          "travellers": [
+            "Mateo Alvarez"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

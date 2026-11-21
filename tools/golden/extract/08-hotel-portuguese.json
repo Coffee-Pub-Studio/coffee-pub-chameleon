@@ -1,0 +1,40 @@
+{
+  "note": "Portuguese: dates as \"7 de abril de 2027\", \"a partir das 14:00\", a decimal comma and a euro sign after the number.",
+  "mark": "written",
+  "kind": "hotel",
+  "trip": {
+    "name": "Porto",
+    "first": "2027-04-07",
+    "last": "2027-04-11",
+    "timeZone": "Europe/Lisbon",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Confirmação de reserva\n\nOlá Rui Matos Carvalho,\nA sua reserva na Pousada do Cais Velho está confirmada.\n\nNúmero da reserva: PCV-20418\nMorada: Rua do Cais Velho 14, 4050-123 Porto, Portugal\n\nEntrada: quarta-feira, 7 de abril de 2027, a partir das 14:00\nSaída: sábado, 10 de abril de 2027, até às 12:00\n3 noites - 1 quarto - 2 adultos\nQuarto duplo com vista para o rio\n\nValor total: 396,00 € (IVA incluído)\nPagamento no hotel. Cancelamento gratuito até 3 dias antes da chegada.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Pousada do Cais Velho",
+      "basis": "imported",
+      "kind": "hotel",
+      "date": "2027-04-07",
+      "details": {
+        "address": "Rua do Cais Velho 14, 4050-123 Porto, Portugal",
+        "checkIn": "2027-04-07T14:00",
+        "checkOut": "2027-04-10T12:00",
+        "roomType": "Quarto duplo com vista para o rio",
+        "guests": 2,
+        "reference": "PCV-20418",
+        "cost": 396,
+        "currency": "EUR",
+        "travellers": [
+          "Rui Matos Carvalho"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,76 @@
+{
+  "note": "Spanish: a return with long dates (\"17 de abril de 2027\") and a decimal comma in the price.",
+  "mark": "written",
+  "kind": "flight",
+  "trip": {
+    "name": "Sevilla",
+    "first": "2027-04-17",
+    "last": "2027-04-21",
+    "timeZone": "Europe/Madrid",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Confirmación de reserva\n\nCódigo de reserva: R2VD5N\n\nEstimada Carmen Ortuño Vidal:\nSu reserva ha sido confirmada. Estos son los datos de su viaje.\n\nVUELO DE IDA\nCA 5120 - Barcelona (BCN) - Sevilla (SVQ)\nSalida: sábado, 17 de abril de 2027, 08:50\nLlegada: sábado, 17 de abril de 2027, 10:25\n\nVUELO DE VUELTA\nCA 5123 - Sevilla (SVQ) - Barcelona (BCN)\nSalida: miércoles, 21 de abril de 2027, 19:40\nLlegada: miércoles, 21 de abril de 2027, 21:15\n\nPasajeros: Carmen Ortuño Vidal, Hugo Ferrer Ortuño\nImporte total: 238,40 EUR (IVA incluido)\n\nVuelos Costa Azul le desea un buen viaje.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "CA 5120 Barcelona a Sevilla",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-04-17",
+      "details": {
+        "airline": "Vuelos Costa Azul",
+        "number": "CA 5120",
+        "from": {
+          "code": "BCN",
+          "name": "Barcelona"
+        },
+        "to": {
+          "code": "SVQ",
+          "name": "Sevilla"
+        },
+        "departs": "2027-04-17T08:50",
+        "arrives": "2027-04-17T10:25",
+        "reference": "R2VD5N",
+        "cost": 238.4,
+        "currency": "EUR",
+        "travellers": [
+          "Carmen Ortuño Vidal",
+          "Hugo Ferrer Ortuño"
+        ],
+        "minutes": 95
+      }
+    },
+    {
+      "icon": "note",
+      "title": "CA 5123 Sevilla a Barcelona",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-04-21",
+      "details": {
+        "airline": "Vuelos Costa Azul",
+        "number": "CA 5123",
+        "from": {
+          "code": "SVQ",
+          "name": "Sevilla"
+        },
+        "to": {
+          "code": "BCN",
+          "name": "Barcelona"
+        },
+        "departs": "2027-04-21T19:40",
+        "arrives": "2027-04-21T21:15",
+        "reference": "R2VD5N",
+        "travellers": [
+          "Carmen Ortuño Vidal",
+          "Hugo Ferrer Ortuño"
+        ],
+        "minutes": 95
+      }
+    }
+  ]
+}

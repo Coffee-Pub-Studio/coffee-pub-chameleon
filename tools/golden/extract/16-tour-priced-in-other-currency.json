@@ -1,0 +1,37 @@
+{
+  "note": "A walking tour booked in euros for a trip kept in crowns: the currency is the one printed, not the trip's.",
+  "mark": "written",
+  "kind": "tour",
+  "trip": {
+    "name": "Prague",
+    "first": "2027-04-11",
+    "last": "2027-04-14",
+    "timeZone": "Europe/Prague",
+    "currency": "CZK"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Prague Lantern Walks - booking receipt\n\nBooking ID: LW-61177\nTour: Old Town by Lantern Light (2 hours, English)\nDate: Monday 12 April 2027\nMeeting time: 18:30\nMeeting point: by the clock tower on the Old Town Square\nGuests: 3\nPrice: EUR 45.00 (3 x EUR 15.00), paid online\nLead guest: Amara Nwosu\n\nPlease arrive 10 minutes early. Tours run in light rain.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Old Town by Lantern Light",
+      "basis": "imported",
+      "kind": "tour",
+      "date": "2027-04-12",
+      "details": {
+        "starts": "2027-04-12T18:30",
+        "tickets": 3,
+        "reference": "LW-61177",
+        "cost": 45,
+        "currency": "EUR",
+        "travellers": [
+          "Amara Nwosu"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "note": "A museum e-ticket: timed entry, three tickets of two kinds, a price in kronor.",
+  "mark": "written",
+  "kind": "museum",
+  "trip": {
+    "name": "Gothenburg",
+    "first": "2027-04-02",
+    "last": "2027-04-05",
+    "timeZone": "Europe/Stockholm",
+    "currency": "SEK"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Harbourside Maritime Museum\nYOUR TICKETS\n\nOrder #HMM-30417\nVisitor: Elin Bergstrom\n\nDate: Saturday 3 April 2027\nTimed entry: 11:00\n2 x Adult (SEK 180)\n1 x Child (SEK 180)\nTotal: 3 tickets, SEK 540\n\nValid for one entry at the time shown. The museum closes at 17:00. Please show the QR code at the entrance.\nTerms: tickets are not refundable.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Harbourside Maritime Museum",
+      "basis": "imported",
+      "kind": "museum",
+      "date": "2027-04-03",
+      "details": {
+        "starts": "2027-04-03T11:00",
+        "tickets": 3,
+        "reference": "HMM-30417",
+        "cost": 540,
+        "currency": "SEK",
+        "travellers": [
+          "Elin Bergstrom"
+        ]
+      }
+    }
+  ]
+}

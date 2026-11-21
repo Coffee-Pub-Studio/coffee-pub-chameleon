@@ -1,0 +1,82 @@
+{
+  "note": "A plain one-way booking email from a low-cost airline, with a seat and the price.",
+  "mark": "written",
+  "kind": "flight",
+  "trip": {
+    "name": "Madrid",
+    "first": "2027-03-19",
+    "last": "2027-03-23",
+    "timeZone": "Europe/Madrid",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "Your trip is confirmed\n\nHi Marta,\n\nThank you for booking with Nordwind Air. Here are your flight details.\n\nConfirmation code: P9LK3W\n\nFlight NW 412\nDeparts: Fri 19 Mar 2027, 18:25 - Amsterdam Schiphol (AMS)\nArrives: Fri 19 Mar 2027, 20:55 - Madrid Barajas (MAD)\nCabin: Economy Basic\nSeat: 23A\n\nPassenger: Marta Okonkwo-Reyes\nTotal paid: EUR 129.00\n\nThank you for flying with us.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "NW 412 Amsterdam to Madrid",
+      "basis": "imported",
+      "kind": "flight",
+      "date": "2027-03-19",
+      "details": {
+        "airline": "Nordwind Air",
+        "number": "NW 412",
+        "from": {
+          "code": "AMS",
+          "name": "Amsterdam Schiphol"
+        },
+        "to": {
+          "code": "MAD",
+          "name": "Madrid Barajas"
+        },
+        "departs": "2027-03-19T18:25",
+        "arrives": "2027-03-19T20:55",
+        "seat": "23A",
+        "class": "Economy Basic",
+        "reference": "P9LK3W",
+        "cost": 129,
+        "currency": "EUR",
+        "travellers": [
+          "Marta Okonkwo-Reyes"
+        ],
+        "minutes": 150
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "flight",
+        "title": "NW 412 Amsterdam to Madrid",
+        "date": "2027-03-19",
+        "details": {
+          "airline": "Nordwind Air",
+          "number": "NW 412",
+          "from": {
+            "code": "AMS",
+            "name": "Amsterdam Schiphol"
+          },
+          "to": {
+            "code": "MAD",
+            "name": "Madrid Barajas"
+          },
+          "departs": "2027-03-19T18:25",
+          "arrives": "2027-03-19T20:55",
+          "seat": "23A",
+          "class": "Economy Basic",
+          "reference": "P9LK3W",
+          "cost": 129,
+          "currency": "EUR",
+          "travellers": [
+            "Marta Okonkwo-Reyes"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

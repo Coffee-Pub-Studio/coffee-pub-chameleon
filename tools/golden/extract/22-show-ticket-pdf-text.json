@@ -1,0 +1,37 @@
+{
+  "note": "Text copied out of a PDF ticket: broken lines, page markers, door times and a booking fee inside the total.",
+  "mark": "written",
+  "kind": "show",
+  "trip": {
+    "name": "London",
+    "first": "2027-03-22",
+    "last": "2027-03-25",
+    "timeZone": "Europe/London",
+    "currency": "GBP"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "THE LANTERN THEATRE\nE-TICKET                                  Page 1 of 2\n\nAN EVENING OF\nQUIET THINGS\n\nTUE 23 MAR 2027\n19:30\nDoors open 18:45\n\nSTALLS  Row F  Seats 11, 12\n2 tickets\n\nTicket ref: LT/55-20931\nCustomer: Daniela Rossi\n\n2 x GBP 39.00           78.00\nBooking fee              6.00\nTOTAL PAID              GBP 84.00\n\nLatecomers will not be admitted until a suitable break.\nPhotography is not permitted.\nPage 2 of 2   Terms and conditions apply.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "An Evening of Quiet Things",
+      "basis": "imported",
+      "kind": "show",
+      "date": "2027-03-23",
+      "details": {
+        "starts": "2027-03-23T19:30",
+        "tickets": 2,
+        "reference": "LT/55-20931",
+        "cost": 84,
+        "currency": "GBP",
+        "travellers": [
+          "Daniela Rossi"
+        ]
+      }
+    }
+  ]
+}

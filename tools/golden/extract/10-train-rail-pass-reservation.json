@@ -1,0 +1,77 @@
+{
+  "note": "A rail-pass seat reservation (Eurail style): the pass is not the price; the reservation fee is.",
+  "mark": "written",
+  "kind": "train",
+  "trip": {
+    "name": "Milan",
+    "first": "2027-04-08",
+    "last": "2027-04-12",
+    "timeZone": "Europe/Rome",
+    "currency": "EUR"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "RAIL PASS SEAT RESERVATION\nReservation no. TR-5C9V2K\n\nPass: Global Pass, 2nd class, 2 travellers\nTrain 9249 Transalpine Express\nParis Gare de Lyon   dep 08:19   Thu 08 Apr 2027\nMilano Centrale      arr 15:40   Thu 08 Apr 2027\nCoach 14   Seats 51, 52\n\nTravellers: Yusuf Demir, Aylin Demir\nReservation fee: EUR 20.00 (EUR 10.00 per person)\n\nThis reservation is only valid together with a pass. Keep your pass and passport with you.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "Transalpine Express 9249 Paris to Milan",
+      "basis": "imported",
+      "kind": "train",
+      "date": "2027-04-08",
+      "details": {
+        "number": "9249",
+        "from": {
+          "name": "Paris Gare de Lyon"
+        },
+        "to": {
+          "name": "Milano Centrale"
+        },
+        "departs": "2027-04-08T08:19",
+        "arrives": "2027-04-08T15:40",
+        "carriage": "14",
+        "seat": "51, 52",
+        "reference": "TR-5C9V2K",
+        "cost": 20,
+        "currency": "EUR",
+        "travellers": [
+          "Yusuf Demir",
+          "Aylin Demir"
+        ]
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "train",
+        "title": "Transalpine Express 9249 Paris to Milan",
+        "date": "2027-04-08",
+        "details": {
+          "number": "9249",
+          "from": {
+            "name": "Paris Gare de Lyon"
+          },
+          "to": {
+            "name": "Milano Centrale"
+          },
+          "departs": "2027-04-08T08:19",
+          "arrives": "2027-04-08T15:40",
+          "carriage": "14",
+          "seat": "51, 52",
+          "reference": "TR-5C9V2K",
+          "cost": 20,
+          "currency": "EUR",
+          "travellers": [
+            "Yusuf Demir",
+            "Aylin Demir"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}

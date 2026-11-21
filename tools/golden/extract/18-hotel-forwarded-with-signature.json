@@ -1,0 +1,63 @@
+{
+  "note": "A hotel confirmation forwarded by its guest, with the hotel's own signature block and a footer.",
+  "mark": "written",
+  "kind": "hotel",
+  "trip": {
+    "name": "Bath",
+    "first": "2027-05-02",
+    "last": "2027-05-05",
+    "timeZone": "Europe/London",
+    "currency": "GBP"
+  },
+  "today": {
+    "date": "2026-11-21",
+    "weekday": "Saturday",
+    "timeZone": "Europe/London"
+  },
+  "text": "From: Wen Zhao <wen.zhao@mailbox.example>\nTo: Sam Zhao <sam.zhao@mailbox.example>\nSent: Mon, 9 Nov 2026 10:02\nSubject: Fwd: Booking confirmation LI-00419 - The Larkspur Inn\n\nForwarding this to you so you have the dates. -W\n\nBegin forwarded message:\n\nFrom: Reservations <reservations@larkspurinn.example>\nDate: 8 Nov 2026 at 16:40\nSubject: Booking confirmation LI-00419 - The Larkspur Inn\n\nDear Wen,\n\nWe are delighted to confirm your stay at The Larkspur Inn, 8 Orchard Close, Bath BA1 2QQ.\n\nGuest: Wen Zhao\nArrival: 2 May 2027 (check-in from 14:00)\nDeparture: 5 May 2027 (check-out by 10:30)\nRoom: Garden Twin, 2 guests\nBooking number: LI-00419\nTotal for stay: GBP 447.00\nBreakfast is included.\n\nWarm regards,\n\nRosalind Penhaligon\nReservations Manager\nThe Larkspur Inn | 8 Orchard Close, Bath\n\nThe information in this message is confidential. If you are not the intended recipient, please delete it.",
+  "expected": [
+    {
+      "icon": "note",
+      "title": "The Larkspur Inn",
+      "basis": "imported",
+      "kind": "hotel",
+      "date": "2027-05-02",
+      "details": {
+        "address": "8 Orchard Close, Bath BA1 2QQ",
+        "checkIn": "2027-05-02T14:00",
+        "checkOut": "2027-05-05T10:30",
+        "roomType": "Garden Twin",
+        "guests": 2,
+        "reference": "LI-00419",
+        "cost": 447,
+        "currency": "GBP",
+        "travellers": [
+          "Wen Zhao"
+        ]
+      }
+    }
+  ],
+  "standIn": {
+    "objects": [
+      {
+        "kind": "hotel",
+        "title": "The Larkspur Inn",
+        "date": "2027-05-02",
+        "details": {
+          "address": "8 Orchard Close, Bath BA1 2QQ",
+          "checkIn": "2027-05-02T14:00",
+          "checkOut": "2027-05-05T10:30",
+          "roomType": "Garden Twin",
+          "guests": 2,
+          "reference": "LI-00419",
+          "cost": 447,
+          "currency": "GBP",
+          "travellers": [
+            "Wen Zhao"
+          ]
+        }
+      }
+    ],
+    "unread": []
+  }
+}
