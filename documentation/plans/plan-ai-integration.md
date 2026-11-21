@@ -1005,6 +1005,8 @@ in the list above; he may overrule any of them.
 17. **Where outside apps' writes wait (M).** server-development and experience-design, following open question 1.
 18. **OAuth for connectors (L).** server-development: authorization code with PKCE, client registration, metadata.
     experience-design: the consent page. Security review by quality-assurance.
+    Note (2026-11-21): for agents this is now [plan-mcp-oauth](plan-mcp-oauth.md), approved, where the app becomes an agent
+    and not a person. Personal tokens for people stay open here.
 19. **The paste flow from the catalog (S).** server-development: the `paste` template and the schema from the catalog.
 20. **Token activity on the page (S).** experience-design: the person's own records per token on Profile, the owner's
     on Manage.
@@ -1090,7 +1092,8 @@ Numbers 1 to 11 are from the first draft; 12 onward are new with slice 1.
    both, a person's own winning. Lean: (a) now. Blocks nothing now.
 3. **Auth for outside clients.** (a) Personal tokens first, OAuth after; (b) OAuth from the start; (c) tokens only.
    Lean: (a). Blocks step 15. *For agents, answered by [plan-agent-access](plan-agent-access.md) (2026-11-16): an agent
-   token, no OAuth.* Personal tokens are still open here.
+   token, no OAuth.* Personal tokens are still open here. Note (2026-11-21): OAuth for agents is now planned and approved in
+   [plan-mcp-oauth](plan-mcp-oauth.md); the question stays open for personal tokens.
 4. **How far a token may go.** (a) Read only in the first build; (b) read and propose; (c) read, propose and act
    without a confirmation for some actions. Lean: (b), with (c) never for `destructive`. Blocks step 15.
 5. **Who may connect an outside AI.** (a) Anyone signed in, not a guest; (b) a new role permission ("Connect an AI
