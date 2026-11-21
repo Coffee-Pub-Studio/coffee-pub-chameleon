@@ -8,6 +8,8 @@
 /* the tasks */
 /* the row, its tick, the open button and the group headers are the Cards family of system.css */
 .task { align-items: flex-start; }
+/* A phone's row is 44px tall at least: its one line sits in the middle of that (a row's padding), not at the top with the room under it. */
+@media (max-width: 640px) { .task { padding-block: calc((44px - 2px - 20px) / 2); } }
 .task .links { position: relative; z-index: 1; }
 .task .text { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .task .text small { display: block; margin-top: 2px; color: var(--text-muted); font-size: var(--text-12); }

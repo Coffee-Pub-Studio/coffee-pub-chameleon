@@ -292,7 +292,9 @@ const SYMMETRY = String.raw`((families) => {
         const b = R(el);
         const inner = { top: b.top + parseFloat(cs.borderTopWidth), bottom: b.bottom - parseFloat(cs.borderBottomWidth), left: b.left + parseFloat(cs.borderLeftWidth), right: b.right - parseFloat(cs.borderRightWidth) };
         const parts = [];
-        for (const k of kids) parts.push(R(k));
+        // A row's tick has a hit area taller than the row's line, drawn past it by negative top and bottom margins (public/sdk/system.css
+        // .sdk-row-tick): it is held to its place in the flow, its box less that overhang, for what it is the hit area is not seen.
+        for (const k of kids) { const b = R(k); const m = k.matches('.sdk-row-tick') ? getComputedStyle(k) : null; parts.push(m ? { top: b.top - Math.min(0, parseFloat(m.marginTop) || 0), bottom: b.bottom + Math.min(0, parseFloat(m.marginBottom) || 0), left: b.left, right: b.right } : b); }
         // A bare text's range is its glyphs' box; its line box is that plus half the leading above and below (CSS puts it so).
         const lh = parseFloat(cs.lineHeight);
         for (const n of el.childNodes) if (n.nodeType === 3 && n.textContent.trim()) { const rg = document.createRange(); rg.selectNodeContents(n); for (const x of rg.getClientRects()) { const half = lh > x.height ? (lh - x.height) / 2 : 0; parts.push({ top: x.top - half, bottom: x.bottom + half, left: x.left, right: x.right }); } }
