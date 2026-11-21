@@ -1,11 +1,13 @@
 # Assistant Reboot Plan
 
-**Audience:** Thomas decides how a pasted booking becomes part of a trip (the open questions at the end). server-development
+**Audience:** Thomas decides how a pasted booking becomes part of a trip. server-development
 builds the extraction route, the format fields, the checks and the agent tool; experience-design builds the Itinerary's
 paste sheet, its preview and the Assistant view's paste; quality-assurance reviews the route as an AI and privacy change;
 content-manager documents.
 
-**Status:** draft for Thomas, 2026-11-21, by product-planner. Nothing decided yet. From Thomas, 2026-11-21: "the other
+**Status:** approved by Thomas, 2026-11-21: "Yes, take the leans". Steps 1 to 5 are approved for build; steps 6 and 7
+are planned and not yet approved. Nothing is built. Eight decisions, below; what he has not supplied yet is under "What
+is not decided". Drafted the same day by product-planner. The request, from Thomas, 2026-11-21: "the other
 route we need to work on is our internal assistant. It needs a reboot. We need to be able to say: here is the text from
 my flight confirmation email, please pull this into the trip. Or here are my hotel details, add it to the trip. We have a
 barely higher success rate using our prompt in ChatGPT and having it build the import object than our own tool."
@@ -94,62 +96,49 @@ answer by hand. No real model has been scored on either (`architecture-ai`, "Not
 8. **Where I do it:** in the Itinerary (a **Paste a booking** entry in its add menu), in the Assistant view (pasting long
    text offers **Read it as bookings**), and an agent like Claude or Codex can do the same over MCP.
 
-## Options
+## Decisions
 
-### 1. Who does the extraction
+Thomas, 2026-11-21, taking the leans ("Yes, take the leans"), with his own answer on the sample emails (decision 8).
 
-- **A. Agents only.** Publish the schema and instructions over MCP, and drop the in-app model call for bookings. Costs
-  little to build. Rules out every person without an agent, and the managed AI offer the host already sells; and an
-  agent's write needs no yes, so the preview story fails for it unless that is changed.
-- **B. In-app only, rebuilt.** A dedicated extraction call with its own template. Fixes what Thomas measures, for
-  everyone with AI on. Agents keep guessing the object's shape.
-- **C. Both, on one contract.** One extraction template and one schema; the in-app route uses it, and an MCP tool hands
-  the same schema and instructions to an agent, which extracts itself and calls `acceptSuggestion` as today. Costs B plus
-  one small read tool.
+1. **Both ways in, on one contract.** One extraction template and one schema. The in-app route uses them first, and an
+   MCP tool later hands the same schema and instructions to an agent, which extracts the bookings itself and calls
+   `acceptSuggestion` as today. Reason: the in-app route is what fixes the success rate for everyone with AI on, and the
+   agent tool is cheap once the schema exists and stops agents writing objects from the action's hints. Dropping the
+   in-app call (agents only) would leave out everyone without an agent and the host's managed AI offer.
+2. **One schema per kind,** joined with `anyOf` on `kind`, in place of one merged `details` for every kind. Each object
+   carries only its own fields. Reason: the merged shape writes about 40 nulls per object and fills the answer's room. A
+   compatible service that refuses the schema falls back to prompt-then-parse, as plan-ai-integration's decision 13 says.
+3. **Cost, currency and travellers join the objects format.** `cost` (a number), `currency` (a three-letter code) and
+   `travellers` (names) in `details` on journeys, stays, meals and visits. The Itinerary takes the cost as its Estimated
+   when the currency is the trip's, else as a notes line ("Cost: 412.80 EUR"); travellers become the object's people when
+   a name matches a member exactly, else a notes line. Reason: a booking's price is what Budget needs, and the Itinerary
+   already has the fields; today both flows lose them.
+4. **An agent's import over MCP lands as plan-agent-access decided:** it goes through without waiting for a person,
+   labelled and logged. The preview with **Add**, **Edit** and **Cancel** is for a person's own pastes. Reason: it is
+   already decided and logged there, and waiting would reopen plan-agent-access.
+5. **The general `ask` stays** beside the new route. Reason: it answers questions; extraction is a different job.
+6. **One model for now:** extraction uses the model the owner chose for the AI service. Decided again after the first
+   real-model run. Reason: the run shows whether a smaller or a separate model is needed before a setting is added.
+7. **Update comes after steps 1 to 4.** Reason: first show that the success rate is fixed, then change bookings already
+   on the trip.
+8. **The golden set mixes real and written samples.** Thomas, 2026-11-21: "I only have a couple". The set is built from
+   the couple of real confirmation emails he supplies, anonymised, plus samples written from scratch in the style of real
+   confirmations, to reach 24. Each sample is marked `real-anonymised` or `written`, so the scoring reports the two apart.
+   The real-model run is still started by Thomas. Reason: real emails carry the noise that breaks extraction, and there
+   are too few of them to fill the set alone.
 
-Lean (a suggestion): **C, in that order.** B is what fixes the success rate; the agent tool is cheap once the schema
-exists, and it stops agents writing objects from hints.
-
-### 2. The object's shape for the model
-
-- **A. One merged `details`** (today). Simple; heavy and wrong-kind fields invite noise.
-- **B. One schema per kind,** joined with `anyOf` on `kind`. Each object carries only its own fields. OpenAI's strict mode
-  and Anthropic's tool input both take `anyOf`; a compatible service may not, and falls back to text as today
-  (decision 13 of plan-ai-integration).
-
-Lean: **B.**
-
-### 3. Cost and passengers in the format
-
-- **A. Add to `details`:** `cost` (a number), `currency` (a three-letter code) and `travellers` (names) on journeys,
-  stays, meals and visits. The Itinerary takes the cost as its Estimated when the currency is the trip's, else as a notes
-  line ("Cost: 412.80 EUR"); travellers become the object's people when a name matches a member exactly, else a notes line.
-- **B. Leave them out;** they stay in the notes as the model writes them.
-
-Lean: **A.** A booking's price is what Budget needs, and the Itinerary already has the fields.
-
-### 4. Agents and the preview
-
-Plan-agent-access decided that an agent's changes go through without a yes. The brief here says "never silent writes".
-
-- **A. Keep the agent decision:** the person's own pastes always preview; an agent's `acceptSuggestion` lands as it does
-  now, labelled and logged.
-- **B. An agent's import waits as a preview** in the Itinerary for a person to Add or Cancel.
-
-Lean: **A**, because it is already decided and logged; B would reopen plan-agent-access. Open question 1.
-
-## How extraction works (the proposal)
+## How extraction works
 
 - **One call, no tools, no history, no answer prose.** A new template `extract@1` in `server/prompts/`, task `extract`,
   structured output against `{ objects: [...], unread: [sentences] }` with the per-kind schema. Prompt-then-parse for a
   service with no structured output, as today.
 - **What the model is given,** as data, never as instructions: the pasted text (up to 30,000 characters, the label
   "pasted text"); the trip's name, first and last day, time zone and currency, passed by the Itinerary; today in the
-  asker's time zone. Not the members' names unless What AI may see allows them (decision 8).
+  asker's time zone. Not the members' names unless What AI may see allows them (plan-ai-integration's decision 8).
 - **What it is told:** one object per booking, a return its own object; copy dates, times, numbers and names exactly as
   written; times in the local time where they happen, as printed; a field not in the text is left out, never guessed; a
-  year not written is left out. Four short examples, from anonymised real emails (one flight with a return, a hotel, a
-  train, a restaurant), with every value realistic but fake.
+  year not written is left out. Four short examples (one flight with a return, a hotel, a train, a
+  restaurant), drawn from the golden set (decision 8), with every value realistic but fake.
 - **Checked on the server,** after `cleanObject`:
   - every reference, flight or train number and time must appear in the pasted text (spaces and case ignored); one that
     does not is dropped and said ("The confirmation number was not in the text, so it is left blank");
@@ -170,9 +159,9 @@ Lean: **A**, because it is already decided and logged; B would reopen plan-agent
 ## Privacy
 
 - The pasted text goes only to the environment's AI service (the owner's provider setting, or the host's managed offer),
-  only when the person presses **Read it**. It needs **Use AI** and the space's AI switch (decision 1); a guest can't.
+  only when the person presses **Read it**. It needs **Use AI** and the space's AI switch (plan-ai-integration's decision 1); a guest can't.
 - The text is **not kept**: not in Chat's history (unlike an `ask`, whose question is stored as a private message), not
-  in the call record (records hold no content, decision 15). Only the objects the person adds are kept, in the Itinerary.
+  in the call record (records hold no content, plan-ai-integration's decision 15). Only the objects the person adds are kept, in the Itinerary.
 - `AI_LOG_PROMPTS` would print the text to the server's log; it is off by default and refused on a hosted install, and
   the user guide says so.
 - Secrets in the text are redacted as today (`aiPolicy.redact`). Names, addresses and confirmation numbers are not: they
@@ -182,37 +171,41 @@ Lean: **A**, because it is already decided and logged; B would reopen plan-agent
 
 - One call: roughly 1,500 tokens of instructions and examples, 1,000 to 8,000 for the email, about 150 for each object
   written. A repair is a second call. Counted as one turn and one call against the monthly cap; every token counts against
-  the allowance (as decision 20).
+  the allowance (as plan-ai-integration's decision 20).
 - At most 30,000 characters in and 20 objects out per paste.
-- The model is whichever the owner chose; the evaluation below shows whether a smaller model is good enough (open
-  question 3).
+- The model is the one the owner chose (decision 6); the first real-model run shows whether a smaller or a separate one
+  is needed.
 
 ## Evaluation
 
-- **A golden set** in `tools/golden/extract/`: 24 anonymised confirmation texts, each with its expected objects. At
+- **A golden set** in `tools/golden/extract/`: 24 confirmation texts, each with its expected objects (decision 8). At
   least: 6 flights (one-way, return, a connection, a red-eye across midnight, a schedule change, two passengers), 4
   hotels (one a rental), 3 trains, 3 restaurants, 3 tickets (show, museum, tour), 2 car hires, 2 forwarded emails with
-  headers and quoted replies, and 1 travel agent's full itinerary. Real emails, with names, numbers and addresses
-  replaced by fake ones of the same shape.
+  headers and quoted replies, and 1 travel agent's full itinerary. The couple of real emails Thomas supplies are
+  anonymised (names, numbers and addresses replaced by fake ones of the same shape) and marked `real-anonymised`; the
+  rest are written from scratch in the style of real confirmations (headers, footers, advertising, quoted replies) and
+  marked `written`. The mark is a field in each sample's expected file.
 - **A check with a stand-in model,** `tools/check-ai-extract.mjs`: the rendered prompt against golden files, the schema,
   each server check above (the not-in-the-text rule, the year, the airport zones), the repair path (the stand-in answers
   badly once), the refusals, that nothing is stored, and the Itinerary's mapping of cost and travellers. Runs with
   `npm run check`.
 - **A real-model run Thomas starts,** `tools/eval-extract.mjs` (not part of `npm run check`): each sample through the
   configured service, scored per field. A right value scores 1, a blank where one was expected 0, an invented value
-  minus 1. It prints a list by kind and field, the total, the tokens used, and optionally the same samples through
-  `paste@1` for a fair comparison.
+  minus 1. It prints a list by kind and field, the total, the tokens used, and the `real-anonymised` and `written`
+  samples' scores apart; optionally the same samples through `paste@1` for a fair comparison.
 
 ## Left to build, in order
 
-Steps 1 to 4 are the smallest reboot that should fix the success rate; 5 to 7 follow.
+Steps 1 to 4 are the smallest reboot that should fix the success rate. Steps 1 to 5 are approved (Thomas, 2026-11-21);
+6 and 7 are planned and wait for his go-ahead, 7 after steps 1 to 4 (decision 7).
 
 1. **The format fields and the per-kind schema** (core, server-development). `cost`, `currency`, `travellers` in
    `DETAILS`; `objectSchema` per kind; `paste@2` with the same fields, so the copied prompt gains them too.
 2. **The extraction route** (core, server-development). `extract@1`, `POST /api/spaces/:id/ai/extract` with `{ text,
    trip, tz }`, answering `{ objects, matches, unread, cut, tokens }`; the server checks, the repair, the refusals, no
    storage; `host.ai.extract({ text, trip })` in the SDK.
-3. **The golden set and its check** (core, server-development, with Thomas supplying real emails to anonymise).
+3. **The golden set and its check** (core, server-development). The written samples and the stand-in check can be built
+   at once; the couple of real emails are added and anonymised when Thomas supplies them.
 4. **The Itinerary's paste sheet** (module lane, experience-design, Itinerary patch bump). **Paste a booking**, a text
    box, **Read it**, the preview with **Add**, **Edit** and **Cancel**; cost and travellers mapped.
 5. **The Assistant view** (core, experience-design, `public/chat-input.js`). Pasting text longer than a question offers
@@ -232,16 +225,10 @@ Steps 1 to 4 are the smallest reboot that should fix the success rate; 5 to 7 fo
 - **Not checkable here:** whether a real model extracts well. That is `tools/eval-extract.mjs`, run by Thomas with a
   provider key and a spending limit (about US$5 for 24 samples twice). Nothing here needs a LiveKit call.
 
-## Open questions
+## What is not decided
 
-1. **Agents and the preview.** Should an agent's import wait as a preview for a person, or land as plan-agent-access
-   decided? Lean: land as decided; the preview is for a person's own pastes. Does not block steps 1 to 5.
-2. **Cost, currency and travellers in the format** (option 3). Lean: add them. Blocks step 1.
-3. **Which model.** Should extraction use the owner's chosen model, or may the owner pick a separate one for it? Lean: the
-   same model for now; decide after the first real-model run. Does not block.
-4. **The golden emails.** Will Thomas supply 20 to 30 real confirmation emails to anonymise, or should they be written
-   from scratch? Lean: real ones, anonymised; written ones miss the noise that breaks extraction. Blocks step 3's quality
-   run, not its structure check.
-5. **Update in the first reboot or after.** Lean: after steps 1 to 4 show the success rate is fixed. Does not block.
-6. **The Assistant view's general `ask`.** Keep it as it is beside the new route? Lean: yes; it answers questions, and
-   extraction is a different job.
+- **The couple of real emails.** Thomas has not supplied them yet. Until he does, the golden set holds only `written`
+  samples; the stand-in check does not need the real ones, but the real-model run's `real-anonymised` score does.
+- **The real-model run.** Thomas starts it, with a provider key and a spending limit; not yet run.
+- **Which model after the first run** (decision 6): decided again once the run's scores are in.
+- **Steps 6 and 7:** planned here, not yet approved for build.
