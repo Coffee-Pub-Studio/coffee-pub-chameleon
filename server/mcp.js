@@ -344,8 +344,74 @@ function toolResult(answer) {
 //   personOf(req)  the signed-in person, to tell a person's refusal (403) from nobody's (401)
 //   serverInfo     { name, version }
 //   kindOf(req)    the kind of the agent the gate let on: `agent` or `setup`, which picks its tool set
+//   envName()      the environment's slug for the console line, or 'single' (optional)
 function createMcp(base) {
   const { app, enabled, ownOrigin, personOf, serverInfo, kindOf } = base;
+  const envName = base.envName || (() => 'single');
+
+  // --- the console line (Thomas, 2026-11-21) -------------------------------------------------------------------------
+  // One line when a request to POST /mcp is turned away or fails before a tool runs, saying why in plain words, so an
+  // owner can read `docker logs` when a client does not connect. Never a header value or any part of a token: the line
+  // holds the reason, the client's own name and version (from initialize) and User-Agent (cut, control characters
+  // removed) and the environment. Each reason for each client is written at most once a minute (and the whole door at
+  // most LINE_CEILING a minute), so a loop can't flood the log. The first success of each client for each agent is one
+  // line an hour. It changes no answer.
+  const tidy = (v, max) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').trim().slice(0, max) : '');
+  const clientOf = (req) => {
+    const m = req.body;
+    const info = m && typeof m === 'object' && !Array.isArray(m) && m.method === 'initialize' && m.params && typeof m.params === 'object' ? m.params.clientInfo : null;
+    const name = info && typeof info === 'object' ? tidy(info.name, 60) : '';
+    const version = info && typeof info === 'object' ? tidy(info.version, 60) : '';
+    return { name, version, agent: tidy(req.get('user-agent'), 80) };
+  };
+  const described = (c) => `client ${[c.name, c.version].filter(Boolean).join(' ') || 'unknown'}, User-Agent ${c.agent || 'none'}, environment ${tidy(String(envName()), 60) || 'single'}`;
+  const LINE_WINDOW = 60000;
+  const LINE_CEILING = 60;
+  const lastLine = new Map();
+  let windowStart = 0;
+  let windowCount = 0;
+  // Whether a line for this key may be written now (and notes that it is).
+  function mayWrite(key, spanMs, ceiling) {
+    const now = Date.now();
+    const before = lastLine.get(key);
+    if (before !== undefined && now - before < spanMs) return false;
+    if (ceiling) {
+      if (now - windowStart >= LINE_WINDOW) { windowStart = now; windowCount = 0; }
+      if (windowCount >= LINE_CEILING) return false;
+      windowCount += 1;
+    }
+    if (lastLine.size >= 1000) {
+      for (const [k, at] of lastLine) if (now - at >= 3600000) lastLine.delete(k);
+      if (lastLine.size >= 1000) lastLine.clear();
+    }
+    lastLine.set(key, now);
+    return true;
+  }
+  const isPost = (req) => req.method === 'POST' && MCP_PATH.test(req.path);
+  function refused(req, reason) {
+    try {
+      if (!isPost(req)) return;
+      const c = clientOf(req);
+      if (!mayWrite(`${reason}|${c.name}|${c.version}|${c.agent}`, LINE_WINDOW, true)) return;
+      console.warn(`MCP: POST /mcp refused: ${reason} (${described(c)}).`);
+    } catch { /* a log line never changes an answer */ }
+  }
+  // The reason for a request with no agent's token on it.
+  function refusedAnonymous(req) {
+    const header = req.get('authorization') || '';
+    if (!header.trim()) return refused(req, 'no Authorization header');
+    if (!/^bearer\s/i.test(header)) return refused(req, 'Authorization is not a Bearer token');
+    return refused(req, 'token is not known or has expired or was turned off');
+  }
+  function connected(req) {
+    try {
+      if (!req.agent) return;
+      const c = clientOf(req);
+      const key = tidy(String(req.agent.user && req.agent.user.key), 80);
+      if (!mayWrite(`ok|${key}|${c.name}|${c.version}|${c.agent}`, 3600000, false)) return;
+      console.log(`MCP client ${[c.name, c.version].filter(Boolean).join(' ') || 'unknown'} connected as an agent (agent key ${key}; User-Agent ${c.agent || 'none'}; environment ${tidy(String(envName()), 60) || 'single'}).`);
+    } catch { /* a log line never changes an answer */ }
+  }
   const toolsOf = (req) => TOOLSETS[kindOf(req)] || TOOLSETS.agent;
 
   // A refusal of the HTTP request itself, before any message is read: an Origin of another site, or a protocol version
@@ -445,6 +511,7 @@ function createMcp(base) {
     if (!req.agent) return refuseNonAgent(req, res);
     const call = req.agent.mcpCall;
     if (call) {
+      connected(req);
       // Let on uncounted by the gate: exactly one request, which the gate counts and logs as its route.
       let answer;
       try {
@@ -456,21 +523,32 @@ function createMcp(base) {
       return send(res, 200, rpcResult(call.id, toolResult(answer)));
     }
     const problem = headerProblem(req);
-    if (problem) return send(res, problem.status, problem.body);
-    if (!req.is('application/json')) return send(res, 400, rpcError(null, PARSE_ERROR, 'Send one JSON-RPC message as application/json.'));
+    if (problem) {
+      const version = req.get('mcp-protocol-version');
+      if (problem.status === 400 && version !== undefined) refused(req, `unsupported protocol version ${tidy(version, 40)}`);
+      return send(res, problem.status, problem.body);
+    }
+    if (!req.is('application/json')) {
+      refused(req, 'wrong Content-Type');
+      return send(res, 400, rpcError(null, PARSE_ERROR, 'Send one JSON-RPC message as application/json.'));
+    }
     const msg = req.body;
-    if (Array.isArray(msg)) return send(res, 400, rpcError(null, INVALID_REQUEST, 'Send one message at a time.'));
-    if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return send(res, 400, rpcError(msg?.id, INVALID_REQUEST, 'That is not a JSON-RPC 2.0 message.'));
+    const notRpc = 'body is not valid JSON-RPC';
+    if (Array.isArray(msg)) { refused(req, notRpc); return send(res, 400, rpcError(null, INVALID_REQUEST, 'Send one message at a time.')); }
+    if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') { refused(req, notRpc); return send(res, 400, rpcError(msg?.id, INVALID_REQUEST, 'That is not a JSON-RPC 2.0 message.')); }
     // A notification or a client's response: nothing to answer.
     if (!('id' in msg)) {
-      if (typeof msg.method !== 'string') return send(res, 400, rpcError(null, INVALID_REQUEST, 'That is not a JSON-RPC 2.0 message.'));
+      if (typeof msg.method !== 'string') { refused(req, notRpc); return send(res, 400, rpcError(null, INVALID_REQUEST, 'That is not a JSON-RPC 2.0 message.')); }
+      connected(req);
       return res.status(202).set('Cache-Control', 'no-store').end();
     }
     if (typeof msg.method !== 'string') {
       if ('result' in msg || 'error' in msg) return res.status(202).set('Cache-Control', 'no-store').end();
+      refused(req, notRpc);
       return send(res, 400, rpcError(msg.id, INVALID_REQUEST, 'That is not a JSON-RPC 2.0 message.'));
     }
-    if (!validId(msg.id)) return send(res, 400, rpcError(null, INVALID_REQUEST, `id is a number, or text of at most ${MAX_ID_LENGTH} characters.`));
+    if (!validId(msg.id)) { refused(req, notRpc); return send(res, 400, rpcError(null, INVALID_REQUEST, `id is a number, or text of at most ${MAX_ID_LENGTH} characters.`)); }
+    connected(req);
     const params = msg.params && typeof msg.params === 'object' && !Array.isArray(msg.params) ? msg.params : {};
     switch (msg.method) {
       case 'initialize': {
@@ -503,6 +581,7 @@ function createMcp(base) {
   // Mounted without a path, so it never rewrites req.url: the gate's log line reads the path when the answer is sent.
   function mcpBodyError(err, req, res, next) {
     if (!enabled || !req.agent || req.method !== 'POST' || !MCP_PATH.test(req.path)) return next(err);
+    refused(req, err.type === 'entity.too.large' ? 'body is over the size limit' : 'body is not valid JSON-RPC');
     if (err.type === 'entity.too.large') return send(res, 413, rpcError(null, INVALID_REQUEST, `The message is over ${Math.round((Number(err.limit) || 65536) / 1024)} KB.`));
     return send(res, 400, rpcError(null, PARSE_ERROR, 'That is not JSON.'));
   }
@@ -512,12 +591,13 @@ function createMcp(base) {
     app.get('/mcp', (req, res, next) => {
       if (!enabled) return next();
       if (!req.agent) return refuseNonAgent(req, res);
+      if (mayWrite(`get|${clientOf(req).agent}`, LINE_WINDOW, true)) console.warn(`MCP: GET /mcp answered 405 (no stream) (${described(clientOf(req))}).`);
       return res.status(405).set('Allow', 'POST').set('Cache-Control', 'no-store').json({ error: NO_STREAM });
     });
     app.use(mcpBodyError);
   }
 
-  return { toolCallOf, mount };
+  return { toolCallOf, mount, refused, refusedAnonymous };
 }
 
 module.exports = { createMcp, PROTOCOL_VERSIONS, TOOLS: TOOL_LIST, SETUP_TOOLS: SETUP_TOOL_LIST, checkArgs };
