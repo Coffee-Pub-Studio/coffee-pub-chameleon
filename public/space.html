@@ -409,9 +409,18 @@
       <p class="chat-ai-state" id="chat-ai-state" role="status" hidden></p>
       <div class="chat-ai-context" id="chat-ai-context" aria-label="Going with your next question" hidden></div>
       <form id="chat-form">
-        <textarea id="chat-input" maxlength="1000" placeholder="Send a message or type / for commands" rows="1" enterkeyhint="send"></textarea>
+        <textarea id="chat-input" placeholder="Send a message or type / for commands" rows="1" enterkeyhint="send"></textarea>
         <input type="file" id="chat-file" accept="image/*" hidden>
       </form>
+      <!-- Under the box while the Assistant's text is longer than a question (chat-input.js, paintLong): never cut, offered as bookings. -->
+      <div class="chat-long" id="chat-long" hidden>
+        <p class="chat-long-text" id="chat-long-text">This is long. Read it as bookings, or shorten it to ask a question.</p>
+        <p class="chat-long-over" id="chat-long-over" hidden>Over 30,000: read one email at a time.</p>
+        <div class="chat-long-row">
+          <button type="button" class="btn btn-small btn-primary" id="chat-long-read">Read it as bookings</button>
+          <span class="chat-long-count" id="chat-long-count"></span>
+        </div>
+      </div>
       <!-- The Chat column's status bar, the module frame's (.mf-status): the connection at the start, the latest notice at
            the end. Always there, one line; each part is a polite live region so a change is read out once. -->
       <div class="mf-status chat-status" id="chat-status" role="region" aria-label="Chat status">

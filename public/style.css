@@ -3648,6 +3648,129 @@ a.crumb-here:hover {
   font-size: 0.85em;
 }
 
+/* Read it as bookings (chat-input.js, paintLong and drawRead): the notice under the box while the Assistant's text is longer than
+   a question, and the preview of what was read. Nothing is added until Add to the trip. */
+.chat-long {
+  padding: var(--space-2) var(--space-3) 0;
+  font-size: var(--text-13);
+}
+
+.chat-long[hidden],
+.chat-long [hidden] {
+  display: none;
+}
+
+.chat-long p {
+  margin: 0 0 var(--space-1);
+  color: var(--text-muted);
+}
+
+.chat-long .chat-long-over,
+.chat-long-count.error {
+  color: var(--danger-text);
+}
+
+.chat-long-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-long-count {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.chat-read-wait {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-read p,
+.chat-read-problem p {
+  margin: 0 0 var(--space-2);
+}
+
+.chat-read-head {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.chat-read-lines,
+.chat-read-rows {
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.chat-read-unread li {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+
+.chat-read-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-medium);
+  background: var(--bg-card);
+  margin-bottom: var(--space-2);
+}
+
+.chat-read-row label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2);
+  cursor: pointer;
+}
+
+.chat-read-row input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+}
+
+.chat-read-icon {
+  flex: none;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+}
+
+.chat-read-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+  font-size: var(--text-13);
+}
+
+.chat-read-title {
+  font-weight: var(--weight-strong);
+  color: var(--text);
+}
+
+.chat-read-when,
+.chat-read-route,
+.chat-read-ref,
+.chat-read-cost,
+.chat-read-who,
+.chat-read-note,
+.chat-read-state {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.chat-read-note {
+  font-style: italic;
+}
+
 /* Chat's status area: the module frame's status bar (.mf-status) under the composer. Its notice shows an error in the error
    text colour (a fill-free state). */
 .chat-status .error {
