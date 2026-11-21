@@ -3714,6 +3714,7 @@ const mcp = createMcp({
   personOf: (req) => currentUser(req),
   serverInfo: { name: PRODUCT_NAME, version: VERSION },
   kindOf: (req) => agentKindOf(req.agent.user), // each kind its own tools (plan-admin-agent.md, step 3)
+  envName: () => envContext.getStore()?.slug || 'single', // for the console line on a refusal
 });
 // The list matched by Express's own router, so a path reads exactly as the app's routes read it (any case, a trailing
 // slash, the same parameters): each match notes its rule and leaves the router at once. One router per kind of agent: a
@@ -3782,7 +3783,7 @@ function agentGate(req, res, next) {
   const env = envContext.getStore();
   if (!agentTokensOn || !env) return next(); // the switch is off, or no environment (the product host)
   const token = agentBearer(req);
-  if (token === null) return next();
+  if (token === null) { mcp.refusedAnonymous(req); return next(); } // POST /mcp with no agent's token: one console line (server/mcp.js)
   const address = net.isIP(req.ip || '') ? req.ip : null; // an IP address, never the free text a client sent
   req._user = null; // whatever else the request carries (a cookie session) is never read now
   res.set('Cache-Control', 'no-store');
@@ -3793,6 +3794,13 @@ function agentGate(req, res, next) {
     // AGENT_SETUP or Set-up agents off) is noted in that agent's log, at most once a minute; an unknown one names nobody
     // and is not.
     if (record && agent && agent.agent) env.agentLog.note({ agent: agent.key, token: record.id, method: req.method, ...agentLogRoute(req, res, env), status: 401, address });
+    // The console line (server/mcp.js) names the reason; the answer, and the agent's log, say no more than before.
+    let why = 'token is not known or has expired or was turned off';
+    if (record && agent && agent.agent && !agent.off && env.tokens.live(record)) {
+      if (store.settings.agents !== true) why = 'agents are off in this environment';
+      else if (agent.kind === 'setup' && !setupAgentsOn()) why = 'set-up agents are off';
+    }
+    mcp.refused(req, why);
     return res.status(401).set('WWW-Authenticate', 'Bearer').json({ error: AGENT_TOKEN_INVALID });
   }
   req._user = agent;

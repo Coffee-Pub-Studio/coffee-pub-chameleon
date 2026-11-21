@@ -495,6 +495,53 @@ try {
     rpcError(big, 413, -32600, 'a body over 64 KB');
   });
 
+  await test('the console says why a request to /mcp was turned away, once a minute, never with the token', async () => {
+    const L = await makeAgent('Logger', [S1]);
+    const ua = { 'user-agent': 'mcp-log-check/1 (flood)' };
+    const mark = server.out.length;
+    const lines = () => server.out.slice(mark).split('\n').filter((l) => l.startsWith('MCP'));
+    const ping = { jsonrpc: '2.0', id: 1, method: 'ping' };
+    const bad = `${L.token.slice(0, -1)}${L.token.endsWith('x') ? 'y' : 'x'}`;
+    const flood = [];
+    for (let i = 0; i < 5; i += 1) flood.push((await call(server, 'POST', '/mcp', { body: ping, headers: ua })).status);
+    assert.deepEqual(flood, [401, 401, 401, 401, 401]);
+    const scheme = await call(server, 'POST', '/mcp', { body: ping, headers: { ...ua, authorization: 'Basic dXNlcjpwYXNz' } });
+    assert.equal(scheme.status, 401);
+    assert.equal((await call(server, 'POST', '/mcp', { body: ping, token: bad, headers: ua })).status, 401);
+    assert.equal((await call(server, 'POST', '/mcp', { body: ping, token: bad, headers: ua })).status, 401);
+    // With a good token: a wrong content type, an unknown protocol version, a body that is not JSON-RPC.
+    assert.equal((await call(server, 'POST', '/mcp', { token: L.token, raw: Buffer.from('x'), headers: { ...ua, 'content-type': 'text/plain' } })).status, 400);
+    assert.equal((await call(server, 'POST', '/mcp', { token: L.token, body: ping, headers: { ...ua, 'mcp-protocol-version': '1999-01-01' } })).status, 400);
+    assert.equal((await call(server, 'POST', '/mcp', { token: L.token, body: { hello: 1 }, headers: ua })).status, 400);
+    assert.equal((await call(server, 'POST', '/mcp', { token: L.token, raw: Buffer.from('{nope'), headers: ua })).status, 400);
+    assert.equal((await call(server, 'GET', '/mcp', { token: L.token, headers: ua })).status, 405);
+    assert.equal((await call(server, 'GET', '/mcp', { token: L.token, headers: ua })).status, 405);
+    const refusals = lines().filter((l) => l.includes('refused') || l.includes('405'));
+    const one = (reason) => {
+      const hit = refusals.filter((l) => l.includes(reason));
+      assert.equal(hit.length, 1, `one line for "${reason}", got ${hit.length}:\n${refusals.join('\n')}`);
+      return hit[0];
+    };
+    assert.match(one('no Authorization header'), /^MCP: POST \/mcp refused: no Authorization header \(client unknown, User-Agent mcp-log-check\/1 \(flood\), environment single\)\.$/);
+    one('Authorization is not a Bearer token');
+    one('token is not known or has expired or was turned off');
+    one('wrong Content-Type');
+    assert.match(one('unsupported protocol version 1999-01-01'), /environment single/);
+    one('body is not valid JSON-RPC');
+    one('GET /mcp answered 405 (no stream)');
+    assert.equal(refusals.length, 7, `seven lines in all:\n${refusals.join('\n')}`);
+    // A success note once an hour per client, with the agent's key.
+    const hello = { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'logcheck\u001b[0m', version: '9.9' } };
+    ok(await rpc(server, 'initialize', hello, { token: L.token, headers: ua }), 'initialize');
+    ok(await rpc(server, 'initialize', hello, { token: L.token, headers: ua }), 'initialize again');
+    const notes = lines().filter((l) => l.includes('connected as an agent'));
+    assert.equal(notes.length, 1, `one success note:\n${notes.join('\n')}`);
+    assert.match(notes[0], new RegExp(`^MCP client logcheck.\\[0m 9\\.9 connected as an agent \\(agent key ${L.key};`));
+    const all = server.out.slice(mark);
+    assert.ok(!all.includes(L.token) && !all.includes(bad) && !all.includes('dXNlcjpwYXNz'), 'no token or header value in the output');
+    assert.ok(!/[\u0000-\u0008\u001b]/.test(all), 'no control characters');
+  });
+
   await server.stop();
 
   // --- AGENT_TOKENS off: /mcp is an unknown path, as before ----------------------------------------------------------
