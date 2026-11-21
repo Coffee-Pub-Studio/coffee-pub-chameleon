@@ -1,17 +1,44 @@
 # MCP Sign-in Plan
 
 **Audience:** Thomas decides how an app such as ChatGPT, the Claude apps or Codex connects to Chameleon without a
-pasted token (Open questions). server-development builds the sign-in server half (`server/`, `tools/`, larger model,
+pasted token (Decisions). server-development builds the sign-in server half (`server/`, `tools/`, larger model,
 security); experience-design builds the approval page and the agent page changes; quality-assurance reads the server
 half as a security change; content-manager documents.
 
-**Status:** draft, 2026-11-21, for Thomas to decide; nothing decided, nothing built. Thomas, 2026-11-21, after setting
-up the Codex app (a form with the address, "Bearer token env var" and Headers) and ChatGPT: a pasted token is too hard
-for most users ("the variable route will not work for most users"; earlier, "this is going to be too hard for users").
-ChatGPT's own custom servers (Settings, Plugins) offer sign-in or none, and no token header as far as he knows
-(unverified). This reopens [plan-agent-access](plan-agent-access.md), "The MCP server", which said on 2026-11-20 that
-OAuth "is not needed for the apps and stays unbuilt", and step 18 of [plan-ai-integration](plan-ai-integration.md)
-(OAuth for connectors), which assumed a person's own token rather than an agent.
+**Status:** approved, 2026-11-21. Thomas, 2026-11-21, answered by clickable options: "Yes, take the leans on all eight
+questions" (the eight decisions below), and chose a try build for the sign-in server. Nothing else is decided. Not
+built. The request came from Thomas, 2026-11-21, after setting up the Codex app (a form with the address, "Bearer token
+env var" and Headers) and ChatGPT: a pasted token is too hard for most users ("the variable route will not work for most
+users"; earlier, "this is going to be too hard for users"). ChatGPT's own custom servers (Settings, Plugins) offer
+sign-in or none, and no token header as far as he knows (unverified). This reopens
+[plan-agent-access](plan-agent-access.md), "The MCP server", which said on 2026-11-20 that OAuth "is not needed for the
+apps and stays unbuilt", and step 18 of [plan-ai-integration](plan-ai-integration.md) (OAuth for connectors), which
+assumed a person's own token rather than an agent.
+
+**Build kind:** a try build (Thomas, 2026-11-21) for step 1, the sign-in server: one builder, one pass, its own checks,
+no independent review, no QA, docs or CHANGELOG. The kind of build for the other steps is not named.
+
+## Decisions
+
+Thomas, 2026-11-21, taking the planner's leans on all eight questions ("Yes, take the leans on all eight questions").
+
+1. **Who the app becomes: both, a new agent by default, an existing agent choosable on the approval page.** One screen
+   for a new user, and the existing agent kept for someone who set one up. Not the approving person (a personal token):
+   that would give an app a person's whole rights, which plan-agent-access decision 1 rules against.
+2. **Its switch: wherever agents are on (`AGENT_TOKENS` and the owner's **Agents** switch), no variable of its own.**
+   The registration route is harmless until an owner allows, and one more variable is one more step, which is what this
+   plan removes.
+3. **A single install's address: the request's address, each token bound to the address it was issued at.** A token
+   issued at one name is refused at another. No `PUBLIC_URL` variable.
+4. **Tokens: 1-hour access tokens with rotated refresh tokens.** The apps expect it, and a token copied out of an app's
+   logs lasts an hour.
+5. **One way in per agent: a pasted token or one connection, each ending the other.** Plan-agent-access decision 10
+   stands as it is.
+6. **Return addresses: any `https` address and loopback, shown on the page, no allow-list.** The person sees the host
+   before allowing.
+7. **Client ID metadata documents: later, not in the first build.** Dynamic registration first; added as step 5 when an
+   app needs it.
+8. **No turning Agents on from the approval page.** The page says how; the switch stays a deliberate act in Manage.
 
 ## Why
 
@@ -96,10 +123,10 @@ account.
   as one token is today.
 - **How long** (decision 10, and the owner's lifetime choice now built): the page offers the same choice as **Make
   token**, 30 days by default. That is the life of the connection (the grant). Access tokens are short (1 hour) and
-  are renewed with the refresh token until the connection ends (open question 4).
+  are renewed with the refresh token until the connection ends (decision 4).
 - **One way in per agent** (decision 10, "one live token per agent"): an agent has either a pasted token or one
   sign-in connection. Approving a connection for an agent ends its pasted token and any earlier connection; making a
-  pasted token ends its connection (open question 5).
+  pasted token ends its connection (decision 5).
 - **Revoke and Turn off** end the connection at once: every access and refresh token is looked up on every call, so
   nothing lives on in the app. **Agents** off, `AGENT_TOKENS` off and, for a set-up agent, `AGENT_SETUP` or **Set-up
   agents** off, stop it as they stop a pasted token.
@@ -123,8 +150,8 @@ checked against the spec when built.
 | Authorization code flow with PKCE, S256 only | Must | Yes |
 | Resource indicators (RFC 8707): `resource` on the authorize and token requests, the token bound to it | Clients must send; server must check the audience | Yes. A request without `resource` is read as this environment's `/mcp`, the only resource there is |
 | Dynamic client registration (RFC 7591) | 2025-06-18 should; 2025-11-25 may, as the fallback | Yes: the way Claude and ChatGPT have registered so far (unverified for today) |
-| Client ID metadata documents (the client's `client_id` is an https address of its own description) | 2025-11-25 should, the new default | No, a later step (open question 7) |
-| Refresh tokens, rotated on each use | OAuth 2.1: rotated or bound for a public client | Yes (open question 4) |
+| Client ID metadata documents (the client's `client_id` is an https address of its own description) | 2025-11-25 should, the new default | No, a later step (decision 7) |
+| Refresh tokens, rotated on each use | OAuth 2.1: rotated or bound for a public client | Yes (decision 4) |
 | `iss` on the redirect back (RFC 9207) | Recommended | Yes, cheap |
 | Token revocation endpoint (RFC 7009), introspection, OpenID Connect, scopes for step-up | Optional | No |
 | CORS for browser clients | Not for the cloud apps | No |
@@ -140,11 +167,11 @@ connections and refresh tokens in `tokens.json` as new kinds. Authorization requ
 
 **When it is on.** Only where an agent token works today: `AGENT_TOKENS` on and an environment (never the product host
 or the host console). Off, every route below is 404 and the 401 on `/mcp` is as today. Whether it also needs its own
-variable is open question 2. The **Agents** switch off: the metadata still answers, the approval page says agents are
+variable is decision 2. The **Agents** switch off: the metadata still answers, the approval page says agents are
 off, and no token is issued.
 
 **The address.** The issuer is the environment's own origin, `https://<slug>.<BASE_DOMAIN>` on a hosted server; the
-resource is that origin plus `/mcp`. On a single install, the address is open question 3.
+resource is that origin plus `/mcp`. On a single install, the address is decision 3.
 
 **Routes.**
 
@@ -283,7 +310,7 @@ plan.
 
 ## Left to build, in order
 
-Each step is core except where said. Thomas names the kind of build.
+Each step is core except where said. Step 1 is a try build (Thomas, 2026-11-21); the kind for the others is not named.
 
 1. **The sign-in server (server-development, larger model; security).** `server/oauth.js`, the two token kinds, the
    metadata, register, authorize, the request routes, token, the gate and the 401 change, the agent page's
@@ -323,31 +350,11 @@ Each step is core except where said. Thomas names the kind of build.
 token methods they use, whether they send `resource`, how they refresh; their redirect addresses; whether ChatGPT's
 form takes a header; a cloud app reaching a home server through its proxy. No step needs a LiveKit call.
 
-## Open questions
+## What is not decided
 
-1. **Who the app becomes.** (a) The page makes a new agent, named after the app; (b) the page picks an agent the owner
-   made first; (c) both, new by default; (d) the approving person (a personal token). Lean: (c). It is one screen for
-   a new user and keeps the existing agent for someone who set one up; (d) gives an app a person's whole rights, which
-   decision 1 and plan-ai-integration's open questions 4 and 5 rule against. Blocks step 1.
-2. **Its switch.** (a) On wherever agents are on (`AGENT_TOKENS` and **Agents**); (b) its own server variable on top.
-   Lean: (a). The registration route is harmless until an owner allows, and one more variable is one more step, which is
-   what this plan removes. Blocks step 1.
-3. **A single install's address.** (a) The request's address, as the Connect Claude panel uses today; (b) a new
-   `PUBLIC_URL` variable, sign-in off without it. Lean: (a), with tokens bound to the address they were issued at, so a
-   token issued at one name is refused at another. (b) is safer against a misconfigured proxy but adds a step. Small;
-   blocks step 1 only as a choice of code.
-4. **Refresh tokens.** (a) 1-hour access tokens and rotated refresh tokens; (b) one access token for the whole chosen
-   life, no refresh. Lean: (a): the apps expect it, and a token copied out of an app's logs lasts an hour. (b) is less to
-   build and is what the pasted token already is.
-5. **One way in per agent.** (a) A pasted token or one connection, each ending the other; (b) both at once. Lean: (a),
-   decision 10 as it stands. (b) needs decision 10 changed.
-6. **Which return addresses.** (a) Any `https` address and loopback, shown on the page; (b) a server variable listing
-   allowed hosts. Lean: (a), since the person sees the host before allowing. (b) could be added later without changing
-   anything else.
-7. **Client ID metadata documents in the first build.** Lean: no, dynamic registration first, since the apps used it;
-   added as step 5 when an app needs it.
-8. **Turning Agents on from the approval page.** Lean: no. The page says how; the switch stays a deliberate act in
-   Manage.
+Nothing beyond the eight decisions above. The route names, the approval page's path and the token prefixes are the
+planner's draft, which server-development and experience-design may name. The kind of build for steps 2 to 5 is not
+named. What the real apps send (Verify, "Not checkable here") may change the draft and comes back to Thomas.
 
-When Thomas decides, [plan-agent-access](plan-agent-access.md) "The MCP server" and decision 10, and plan-ai-integration
-step 18 and open question 3, need a dated note pointing here, and the plan goes into `TODO.md` under Planned.
+The earlier notes on [plan-agent-access](plan-agent-access.md) ("The MCP server") and plan-ai-integration (step 18 and
+decision 3) are now written, each pointing here.

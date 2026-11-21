@@ -255,6 +255,10 @@ the token as is. If it does not, OAuth on the server (people sign in; no token o
 needs OAuth 2.1 with PKCE, protected-resource and authorization-server metadata, client registration or client ID
 metadata, and a consent page: a plan, a dedicated session and a security read.
 
+Note (2026-11-21): this is reopened. Thomas found a pasted token too hard for most users and for ChatGPT, so OAuth is now
+planned and approved in [plan-mcp-oauth](plan-mcp-oauth.md) (an approved connection hands an agent its credential; decision
+10 stands, one way in per agent). "Stays unbuilt" above no longer holds.
+
 ### The agent account (server)
 
 - A user record with `agent: true`, `role: "member"`, a display name (default "Claude"), no `passwordHash`, no
