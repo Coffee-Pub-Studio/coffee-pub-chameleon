@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.11",
+  "version": "0.16.12",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -65,6 +65,9 @@
     "flight"
   ],
   "budget": true,
+  "hooks": {
+    "ai": "optional"
+  },
   "events": {
     "subscribes": [
       "*"

@@ -35,6 +35,9 @@
        tpl-day-dialog in it on each open. -->
   <dialog id="day-dialog" class="sdk-editor"></dialog>
 
+  <!-- the paste sheet: "Paste a booking" (host.ui.editor, large). The script puts a clone of tpl-paste in it on each open. -->
+  <dialog id="paste-dialog" class="sdk-editor"></dialog>
+
   <!-- "Pick a date..." at the end of Move to another day: a date field under the item's button, Move or Enter picks -->
   <form id="date-pop" class="sdk-popover date-pop" role="dialog" aria-label="Move to a date" hidden>
     <label class="sdk-field"><span class="sdk-label">Move to</span><input id="date-pop-input" type="date" required></label>
@@ -307,6 +310,27 @@
     <p class="sdk-form-error" id="day-error" role="alert" hidden></p>
     <div class="sdk-editor-actions"><button class="btn" type="button" id="day-cancel"></button><button class="btn btn-primary" type="submit" id="day-go"></button></div>
   </form></template>
+<template id="tpl-paste"><form class="sdk-form paste" id="paste-form" data-state="input" novalidate>
+    <h3 id="paste-title">Paste a booking</h3>
+    <div id="paste-input">
+      <div class="sdk-field sdk-full"><label class="sdk-label" for="paste-text">Paste a confirmation email or booking details</label><textarea id="paste-text" name="text" rows="10" autocomplete="off" spellcheck="false" aria-describedby="paste-count paste-privacy"></textarea><span class="sdk-hint" id="paste-count" aria-live="polite"></span></div>
+      <p class="paste-privacy" id="paste-privacy">The text goes only to the AI service the <span data-word="owner"></span> set up. It is not kept.</p>
+    </div>
+    <div class="paste-reading" id="paste-reading" role="status" aria-live="polite" hidden><span class="sdk-spinner" aria-hidden="true"></span><span>Reading your text. This can take a little while.</span></div>
+    <div id="paste-result" hidden>
+      <ul class="paste-unread" id="paste-unread" hidden></ul>
+      <p class="paste-summary" id="paste-summary" role="status" aria-live="polite"></p>
+      <ul class="paste-rows" id="paste-rows"></ul>
+    </div>
+    <div class="paste-problem" id="paste-problem" role="alert" hidden><p class="sdk-form-error" id="paste-error"></p><ul class="paste-unread" id="paste-error-unread" hidden></ul></div>
+    <p class="sdk-form-error ok" id="paste-done" role="status" hidden></p>
+    <div class="sdk-editor-actions">
+      <button class="btn btn-quiet" type="button" id="paste-cancel">Cancel</button>
+      <button class="btn" type="button" id="paste-see" hidden>See them</button>
+      <button class="btn btn-primary" type="submit" id="paste-go">Read it</button>
+    </div>
+  </form></template>
+<template id="tpl-paste-row"><li class="paste-row"><label class="sdk-choice-row paste-pick"><input type="checkbox" checked><span class="paste-icon"><span class="ic" data-icon=""></span></span><span class="paste-main"><span class="paste-head"><b class="paste-title" data-slot="title"></b><span class="sdk-chip-tag" data-tone="custom" data-slot="kind"></span><span class="sdk-chip-tag" data-tone="ok" data-slot="added" hidden>Added</span></span><span class="paste-line" data-slot="when"></span><span class="paste-line" data-slot="route"></span><span class="paste-chips"><span class="code" data-slot="reference"></span><span class="sdk-chip-tag" data-tone="custom" data-slot="cost"></span><span class="sdk-chip-tag" data-tone="custom" data-slot="travellers"></span></span><span class="paste-notes" data-slot="notes"></span></span></label><button class="btn btn-small paste-edit" type="button" data-action="paste-edit">Edit</button></li></template>
 <template id="tpl-lookup-choice"><li><button class="lookup-choice" type="button"><b data-slot="line"></b><span data-slot="when"></span></button></li></template>
 
 <script>
