@@ -22,7 +22,7 @@
 // window on the Workspace holds the parts' "+" and icons and the status bar; the toolbar row is this page's, the first
 // thing in it.
 import { loadBranding, api, wireOverlayBack, renderTopbar, word, withinSpacePage } from '/brand.js';
-import { mountModule, createDestination, askCanvasToOpen, sameSiteOpener, createFrameBands } from '/module-host.js';
+import { mountModule, createDestination, askCanvasToOpen, sameSiteOpener, createFrameBands, joinStream } from '/module-host.js';
 import { createModuleFrame } from '/module-frame.js';
 import { hashPanel } from '/primary-nav.js';
 import { dropRepeatedAdds } from '/module-chrome.js';
@@ -143,6 +143,7 @@ let markerKinds = []; // the kinds of markers the calendar has shown: [{ id, lab
 const markersOff = new Set(); // kinds of markers the filter has off
 let find = 0;
 let searchText = ''; // what is typed in the row's search (the map)
+let searchStream = null; // the event stream that says the panel's settings changed (loadSearchWords)
 let searchWords = ''; // its placeholder: the filter's words, or the place search's once that is set up
 let filterShown = false; // the filter is in the row (a destination with one; in a space only once there is a kind to switch)
 let page = null; // the page's frame (createModuleFrame): its title bar, its one row, the parts, its status bar
@@ -354,15 +355,24 @@ function webglWorks() {
 // time); Escape clears it. A pasted position or map link is the parts' to read from `q`. Its words say whether Enter finds
 // new places too: only with a place search set up (the panel's own settings).
 async function loadSearchWords(dest) {
-  searchWords = kind.search.filterOnly;
   const panelPart = (dest.panels || [])[0];
-  if (!panelPart) return;
+  if (!panelPart) { searchWords = kind.search.filterOnly; return; }
+  if (!searchStream) {
+    // The panel's settings change in Manage (a place search switched on or off): the words are read again, no refresh needed.
+    searchStream = joinStream(spaceId || null, guestToken, (type, data) => {
+      if (type === 'settings' && data && data.module === panelPart.module.id) loadSearchWords(dest);
+    });
+  }
+  let words = kind.search.filterOnly;
   try {
     const values = (await api('GET', withGuest(`/api/modules/${encodeURIComponent(panelPart.module.id)}/settings/values?${placeQuery()}`))).values || {};
-    if (kind.searchSetUp(values)) { searchWords = kind.search.placeholder; drawRow(); }
+    if (kind.searchSetUp(values)) words = kind.search.placeholder;
   } catch {
     // the filter's words, then
   }
+  if (words === searchWords) return;
+  searchWords = words;
+  drawRow();
 }
 
 function mountPart(part, container, key) {

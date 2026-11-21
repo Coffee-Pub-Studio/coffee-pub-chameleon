@@ -398,6 +398,18 @@ test('a toolbar redraw puts focus back on the same control', () => {
   assert.match(frameJs, /const kept = new Map\(\);/);
   assert.match(frameJs, /let k = kept\.get\(key\);\s*\n\s*if \(!k\) \{\s*\n\s*const form = el\('form', 'mf-search'/, 'the search is made once');
   assert.match(frameJs, /if \(k\.given !== value\) \{ k\.given = value; if \(k\.input\.value !== value\) k\.input\.value = value; \}/, 'the module\'s value only when it changed what it said, never under the person\'s typing');
+  // The clear (x): one shared piece for every module's search; shown only with text, fires as typing does, keeps the field focused.
+  const search = frameJs.slice(frameJs.indexOf('  function drawSearch('), frameJs.indexOf('  function chipsMenu('));
+  assert.match(search, /button\('mf-icon-btn mf-search-clear', \{ label: 'Clear', iconName: 'xmark', words: false \}\)/, 'the clear is a button named Clear, its tooltip the same');
+  assert.match(search, /clear\.hidden = true;/, 'the clear starts hidden');
+  assert.match(search, /syncClear = \(\) => \{ clear\.hidden = !input\.value; \}/, 'the clear shows only while the field has text');
+  assert.match(search, /clear\.addEventListener\('click', \(\) => \{ input\.value = ''; k\.it\.value = ''; syncClear\(\); fire\(\{ id: k\.it\.id, value: '' \}\); input\.focus\(\); \}\);/, 'the clear empties the field, fires {id, value: ""} as typing does, and returns the focus to the field');
+  assert.match(search, /input\.addEventListener\('input', \(\) => \{ k\.it\.value = input\.value; syncClear\(\);/, 'typing shows or hides the clear');
+  assert.ok(/k\.syncClear\(\);\s*\n\s*return \[k\.form/.test(search), 'a value the module gives shows or hides it too');
+  assert.ok(!/title/.test(search.slice(search.indexOf('mf-search-clear'), search.indexOf('mf-search-clear') + 400)), 'a tooltip is data-tip, never title');
+  const css = read('public/sdk/system.css');
+  assert.match(css, /:root\[data-phone\] \.mf-search \.mf-search-clear \{ width: var\(--mf-hit\); height: var\(--mf-hit\);/, 'the clear is 44 px on a phone');
+  assert.match(css, /\.mf-search \.mf-search-clear\[hidden\] \{ display: none; \}/, 'hidden wins over the button display');
   assert.match(frameJs, /parts\.forEach\(\(p, at\) => \{ if \(toolbar\.childNodes\[at\] !== p\) toolbar\.insertBefore\(p, toolbar\.childNodes\[at\] \|\| null\); \}\);/, 'a kept element is not moved when it is already in place (moving a focused field would blur it)');
 });
 
