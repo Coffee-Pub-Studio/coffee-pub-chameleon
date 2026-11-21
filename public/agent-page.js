@@ -287,14 +287,23 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   const envs = make('ol', 'agent-steps');
   envs.dataset.agentEnv = '';
   const envStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); envs.append(li); };
-  const cmds = envCommands(token);
-  envStep('In the app, open the form for a new MCP server that uses a web address (Streamable HTTP). Name it anything, for example chameleon.');
+  envStep('Open Connect to a custom MCP, and type Chameleon (or the server\'s name) in Name.');
+  envStep('Under Type, choose Streamable HTTP, not STDIO.');
   envStep('URL: use this address.', copyBlock('Address', `${location.origin}/mcp`));
-  envStep('Bearer token env var: type the name of a variable, not the token.', copyBlock('Variable name', ENV_VAR_NAME));
-  envStep('Leave Headers and Headers from environment variables empty.');
-  envStep('On your computer, set that variable to the token. Pick your system, paste it in a terminal and press Enter.',
+  envStep('Leave Bearer token env var empty.');
+  envStep('Under Headers, choose Add header. Key: Authorization. Value: Bearer then a space then the token.', copyBlock('Header value', `Bearer ${token}`));
+  envStep('Leave Headers from environment variables empty.');
+  envStep('Save the server.');
+  envStep('Start a new Codex conversation and ask the first question above.');
+  const safer = make('ol', 'agent-steps');
+  safer.dataset.agentEnvSafer = '';
+  const saferStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); safer.append(li); };
+  const cmds = envCommands(token);
+  saferStep('Bearer token env var: type the name of a variable, not the token.', copyBlock('Variable name', ENV_VAR_NAME));
+  saferStep('Leave Headers empty.');
+  saferStep('On your computer, set that variable to the token. Pick your system, paste it in a terminal and press Enter.',
     copyBlock('Windows (PowerShell)', cmds.windows), copyBlock('macOS (Terminal)', cmds.macos), copyBlock('Linux (shell)', cmds.linux));
-  envStep('Quit the app and open it again, because it reads variables only when it starts. Then save the server and ask the first question above.');
+  saferStep('Quit the app and open it again, because it reads variables only when it starts. Then save the server.');
   const moderatorWord = word('moderator', { a: true });
   const setupIntro = `Let Claude set up ${spaceWords(2)}: make one, and change its name, description and icon. It needs only this connection, and it can't read what is inside a ${spaceWord}. Adding or taking off a person, or making someone ${moderatorWord}, waits for your yes.`;
   el.append(
@@ -313,10 +322,12 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
     apps,
     make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),
     file,
-    make('h4', 'agent-connect-sub', 'An app with environment-variable fields'),
-    make('p', 'hint', 'Some apps, such as Codex, have a form for an MCP server with a "Bearer token env var" field. This is not tested here. It does not apply to the web connectors of other chat apps, which have no place for a token.'),
+    make('h4', 'agent-connect-sub', 'Codex (an app with environment-variable fields)'),
+    make('p', 'hint', "This is for the form titled Connect to a custom MCP in the OpenAI app, which sets up servers for Codex. It was set up from that form as shown and is not tested end to end. A server added here shows in Codex, not in an ordinary ChatGPT chat; ChatGPT's own custom servers (Settings, Plugins) are a different setup that has no place for a token header here."),
     envs,
-    make('p', 'hint', 'Less safe: instead of the variable, add a header under Headers. Name: Authorization. Value: Bearer then a space then the token (the Header value above). The token is then saved in that app\'s settings file.'),
+    make('h4', 'agent-connect-sub', 'Safer, needs a terminal'),
+    make('p', 'hint', "Use these steps instead of the header steps above (same form, same Name, Type and URL). The token stays out of the app's settings file."),
+    safer,
   );
   return { el, setUsed, setSpaces };
 }
