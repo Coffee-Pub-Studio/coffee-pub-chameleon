@@ -468,6 +468,7 @@ A drawing, highlight, line, arrow, shape, note or text block that you draw or pu
 - Resizing the picture scales each mark's place and size with it. Line widths and the size of words stay as they are.
 - Copying, cutting or duplicating the picture takes its marks, and the copies sit on the copy. Deleting the picture deletes its marks.
 - Cropping does not move them.
+- A connector between two marks follows them whenever they move or scale, stays joined to each, and is copied and deleted with them. A connector from a mark to a block that is not on the picture follows its mark and stays joined to that block; a copy of the picture leaves it with the original, and deleting the picture deletes it.
 
 A resize is one undo step, the picture and its marks together. Marks drawn on a picture before this was added join it the next time they are saved.
 
