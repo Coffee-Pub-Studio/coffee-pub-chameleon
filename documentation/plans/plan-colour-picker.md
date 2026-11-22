@@ -66,6 +66,11 @@ Thomas, 2026-11-19 ("merge when green").
 16. **`host.html` does not load the SDK, and `module-config.html` does,** as built. Reason: the host console draws no colour field there.
 17. **`host.ui.colorPalette()` is not built now.** A module does not read the default palette for the time being.
 
+Thomas, 2026-11-22 (the Whiteboard, #544).
+
+18. **The Whiteboard's colour menus drop their preset groups.** Seeing Whiteboard 0.1.83's fill menu, Thomas said: "we do not need all of the legacy choices. This is no longer 'custom' color... it is just 'Color'." So Light, Dark, Tinted and the named tinted rows go. Each menu has one "Colour" row that opens the picker, and keeps None, Default and Pattern where they belong. The word is "Colour", the product's spelling wherever a person reads it; Thomas wrote "Color", and if he meant the US spelling it is a one-word change. Saved boards with fixed or tinted ids still draw as before. Reason: the picker (decision 5) replaces the old palettes, so the menus need no copy of them.
+19. **The fill pattern (#544) is None, Dots, Stripes, Grid and Crosshatch,** drawn faintly in the fill's readable words colour. Thomas asked for the fill pattern on 2026-11-22. The project manager chose this set as its lean, pending his view; it stands unless he says otherwise.
+
 **What decision 5 lets the plan drop.**
 
 - **Keeping `colour-pick.js`'s exports.** The first draft kept `upgradeColourInputs` and `colourPicker` so their users would not change. Now `colour-pick.js` is removed, and `module-settings.js`, `list-rows.js` and `template-pages.js` call the SDK's colour field directly. `tools/check-template-pages-b.mjs`, which stubs the old import line, changes with them.
@@ -292,7 +297,7 @@ In step 3, a new list row takes the Strong group's colours in turn, Red first (d
 
 **What changed from the first draft.** The first draft's step 5 (the host button's rectangle) is gone (decision 1). Step 3 now removes `colour-pick.js` and `list-rows.js`'s own colours instead of keeping their exports, so it is M, not S to M, and touches two more checks (decision 5). Step 1 carries the new default palette and its contrast figures. Nothing carries an `id` through the answer. After decisions 8 to 11: step 2 builds both calls and the always-shown slider with its switched-off state; step 3 passes `opacity: false` on the host's colour-only fields; and the steps have latest start dates (below), not a condition.
 
-**The Whiteboard (#544) is a module-lane follow-up after step 2 is merged,** with its own version bump, not part of this build. With decision 5 it may drop its fixed colour ids, its `--wb-fixed-*` properties and the raw-colour allowance they need, store `#rrggbb` (and an opacity for fills) from the picker, open the picker from its toolbar and in context (decision 1), use `host.util.readableOn` for words on a fill (decision 3), and reset its test boards. Whether it keeps a theme-following Tinted group in its own menus is #544's question, not this plan's.
+**The Whiteboard (#544) is a module-lane follow-up after step 2 is merged,** with its own version bump, not part of this build. With decision 5 it may drop its fixed colour ids, its `--wb-fixed-*` properties and the raw-colour allowance they need, store `#rrggbb` (and an opacity for fills) from the picker, open the picker from its toolbar and in context (decision 1), use `host.util.readableOn` for words on a fill (decision 3), and reset its test boards. Whether it keeps a theme-following Tinted group in its own menus is #544's question, not this plan's. Built so far: Whiteboard 0.1.83 (#1024) has the picker in its colour menus, fill transparency, a grid colour and patterns, and the 2026-11-22 change (decision 18) leaves one Colour row and no preset groups.
 
 **Agents and the kind of build.** Thomas names the kind of build. This plan assumes a production build: each step gets its independent read (steps 1, 2 and 3 are core), a QA pass and its documentation before it is committed (`CLAUDE.md`). quality-assurance reads and tries each step without changing code.
 

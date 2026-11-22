@@ -102,19 +102,14 @@
     else if (kind === 'crosshatch') p.append(line(-1, 11, 11, -1), line(-6, 6, 6, -6), line(4, 16, 16, 4), line(-1, -1, 11, 11), line(-6, 4, 6, 16), line(4, -6, 16, 6));
     return p;
   }
-  // A block's colour menus (fill, border, words, line) offer the same groups as the background menu: the role's own rows
-  // (`specials`, opaque entries the page builds: Default, None...), Light colours and Dark colours (fixed: the same in both
-  // modes), Tinted colours (follow the theme), then the Custom row (opens the host's colour picker). Returns the entries in order:
-  // { kind: 'special', row }, { kind: 'heading', label }, { kind: 'fixed', id, label }, { kind: 'tint', id, label }, { kind: 'custom', label }.
+  // A colour menu (a block's fill, border, words or line; new blocks'; the Fill tool's; the board's background): the role's own
+  // rows (`specials`, opaque entries the page builds: Default, None...), then the one Colour row, which opens the host's colour
+  // picker (#544). There are no preset rows: the fixed and tinted ids (WB_FIXED_BACKGROUNDS, WB_PALETTE) are still drawn where a
+  // saved board holds them, and the Colour row shows such a colour as the colour it draws as. Returns the entries in order:
+  // { kind: 'special', row }, then { kind: 'colour', label: 'Colour' }.
   function wbColourMenuModel(specials) {
     const out = (specials || []).map((row) => ({ kind: 'special', row }));
-    for (const family of ['light', 'dark']) {
-      out.push({ kind: 'heading', label: family === 'light' ? 'Light colours' : 'Dark colours' });
-      for (const f of WB_FIXED_BACKGROUNDS) if (f.family === family) out.push({ kind: 'fixed', id: f.id, label: f.label });
-    }
-    out.push({ kind: 'heading', label: 'Tinted colours' });
-    for (const c of WB_PALETTE) out.push({ kind: 'tint', id: c.id, label: c.label });
-    out.push({ kind: 'custom', label: 'Custom colour…' });
+    out.push({ kind: 'colour', label: 'Colour' });
     return out;
   }
   // The settings' key is wbSettingsPrefix(<board>) + WB_BOARD_ID (lib-s).
