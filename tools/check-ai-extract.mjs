@@ -193,13 +193,13 @@ await test('what does not read is dropped or blanked, said, and listed for the r
   assert.equal(r.dropped, 4);
   assert.deepEqual(r.reasons, [
     'A booking was left out: it has no title.',
-    '"Moon" was left out: its kind "spaceship" is not one of flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, sight, museum, attraction, tour, show.',
+    '"Moon" was left out: its kind "spaceship" is not one of flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show.',
     'A booking was left out: it is not an object.',
     '"No details" was left out: nothing in it could be read.',
   ]);
   assert.deepEqual(r.problems, [
     'Object 1: it has no title.',
-    'Object 2: its kind "spaceship" is not one of flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, sight, museum, attraction, tour, show.',
+    'Object 2: its kind "spaceship" is not one of flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show.',
     'Object 3: it is not an object.',
     'Object 4: it has neither "content" nor any "details" field in the shape asked for.',
     'Object 5: "checkIn" is not in the shape asked for.',

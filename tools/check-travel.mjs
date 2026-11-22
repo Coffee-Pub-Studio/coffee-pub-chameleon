@@ -13,7 +13,7 @@ const src = read('travel-lib.js') + '\n' + read('travel-lib-object.js') + '\n' +
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parseYmd = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
-const names = ['followDay', 'arrivalDays', 'arrivalParts', 'arrivalJoin', 'checkoutDays', 'STOP_TILES', 'KICKERS', 'BADGES', 'bookings', 'balances', 'summaryWhen', 'TRIP_KEY', 'PLAN_PREFIX', 'OLD_PLAN_PREFIX', 'MOVED_KEY', 'planIdOf', 'createPlan', 'cleanTrip', 'tripSpan', 'mainBand', 'currentBand', 'cleanItem', 'coverTrip', 'coverDaysOf', 'tripDays', 'planDays', 'dayLabel', 'daysUntil', 'sortDay', 'itemsByDay', 'orderBetween', 'renumber', 'placeUntimed', 'nudge', 'gapMinutes', 'gapText', 'stayNights', 'MODES', 'STOP_TYPES', 'STAY_TYPES', 'TRAVEL_MODES', 'jointOrder', 'lineOf', 'joints', 'sortLine', 'placeFields', 'tripBounds', 'tileOf', 'fromTile', 'cardOf', 'TILES', 'TURNS', 'kindOf', 'tileAt', 'LEG_ICONS', 'JOURNEY_TILES', 'KICKERS', 'BADGES', 'splitMinutes', 'joinMinutes', 'legsOf', 'returnOf', 'outboundOf', 'returnBefore', 'costItems', 'MAX_MINUTES', 'arrivalOf', 'laterText', 'phaseOf', 'planName', 'createdDay', 'fitsPlan', 'objectFields', 'minutesBetween', 'arrivalFits', 'shiftArrives', 'relativeArrives', 'datedArrives', 'flightNumberOf', 'flightObject', 'lookupFill', 'numberToSave', 'lookupApply', 'shiftDays', 'clearDay', 'phaseOnDay', 'stripFacts', 'lengthBetween', 'endOf'];
+const names = ['followDay', 'arrivalDays', 'arrivalParts', 'arrivalJoin', 'checkoutDays', 'STOP_TILES', 'KICKERS', 'BADGES', 'bookings', 'balances', 'summaryWhen', 'TRIP_KEY', 'PLAN_PREFIX', 'OLD_PLAN_PREFIX', 'MOVED_KEY', 'planIdOf', 'createPlan', 'cleanTrip', 'tripSpan', 'mainBand', 'currentBand', 'cleanItem', 'coverTrip', 'coverDaysOf', 'tripDays', 'planDays', 'dayLabel', 'daysUntil', 'sortDay', 'itemsByDay', 'orderBetween', 'renumber', 'placeUntimed', 'nudge', 'gapMinutes', 'gapText', 'stayNights', 'MODES', 'STOP_TYPES', 'STAY_TYPES', 'TRAVEL_MODES', 'jointOrder', 'lineOf', 'joints', 'sortLine', 'placeFields', 'tripBounds', 'tileOf', 'fromTile', 'cardOf', 'ACCEPT_KINDS', 'TILES', 'TURNS', 'kindOf', 'tileAt', 'LEG_ICONS', 'JOURNEY_TILES', 'KICKERS', 'BADGES', 'splitMinutes', 'joinMinutes', 'legsOf', 'returnOf', 'outboundOf', 'returnBefore', 'costItems', 'MAX_MINUTES', 'arrivalOf', 'laterText', 'phaseOf', 'planName', 'createdDay', 'fitsPlan', 'objectFields', 'minutesBetween', 'arrivalFits', 'shiftArrives', 'relativeArrives', 'datedArrives', 'flightNumberOf', 'flightObject', 'lookupFill', 'numberToSave', 'lookupApply', 'shiftDays', 'clearDay', 'phaseOnDay', 'stripFacts', 'lengthBetween', 'endOf'];
 const lib = new Function('ymd', 'parseYmd', `${src}\nreturn { ${names.join(', ')} };`)(ymd, parseYmd);
 // The phase timeline rule (public/phases.js), which the SDK gives a module as host.util.phaseTimeline (plan-one-bar.md step 2).
 const Phases = new Function('module', fs.readFileSync(new URL('../public/phases.js', import.meta.url), 'utf8') + '\nreturn module.exports;')({ exports: {} });
@@ -509,8 +509,11 @@ const run = async () => {
   const plain = plan.list().find((i) => i.title === 'A surprise');
   assert.equal(plain.kind, 'stop');
   assert.equal(plain.type, null);
-  await f.provided.acceptSuggestion({ title: 'Something odd', kind: 'nonsense' });
-  assert.equal(plan.list().find((i) => i.title === 'Something odd').kind, 'stop');
+  await assert.rejects(() => f.provided.acceptSuggestion({ title: 'Something odd', kind: 'nonsense' }), { message: 'That kind is not one the itinerary takes. Use flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show, event or note.' });
+  assert.equal(plan.list().some((i) => i.title === 'Something odd'), false);
+  await f.provided.acceptSuggestion({ title: 'Tasting at Castello', kind: 'winery', date: '2026-10-01' });
+  const winery = plan.list().find((i) => i.title === 'Tasting at Castello');
+  assert.deepEqual([winery.kind, winery.type], ['stop', 'winery']);
   const ev = { ref: { module: 'calendar', kind: 'event', id: 'e1', scope: 'space', space: 'lobby' }, module: { id: 'calendar' }, title: 'Train', when: '2026-10-03' };
   const g = fakeHost({ summaries: [ev], search: [ev, { ...ev, ref: { ...ev.ref, id: 'e2' }, when: '2026-12-25' }, { ...ev, ref: { ...ev.ref, id: 'e3' }, module: { id: 'travel' } }, { ...ev, ref: { ...ev.ref, id: 'e4' }, copy: true, twinOf: { module: 'travel', kind: 'plan', id: 'p1', scope: 'space', space: 'lobby' } }] });
   const plan2 = lib.createPlan(g.t);
@@ -1493,7 +1496,9 @@ test('fromObject: each kind\'s details in the plan\'s own fields, and what has n
   assert.deepEqual([badOut.date, badOut.checkOut, badOut.notes], ['2026-10-05', null, 'Check out: 2026-10-03']);
   const dinner = at({ kind: 'restaurant', title: 'Ramiro', details: { starts: '2026-10-02T20:00', ends: '2026-10-02T22:15', address: 'Av. Almirante Reis', partySize: 4, name: 'Thomas', reference: 'T4' } });
   assert.deepEqual([dinner.kind, dinner.type, dinner.category, dinner.time, dinner.minutes, dinner.address, dinner.partySize, dinner.reservationName, dinner.confirm], ['stop', 'restaurant', 'eat', '20:00', 135, 'Av. Almirante Reis', 4, 'Thomas', 'T4']);
-  for (const kind of ['cafe', 'bar']) assert.equal(at({ kind, title: 'x', details: { partySize: 2 } }).partySize, 2, kind);
+  for (const kind of ['cafe', 'bar', 'winery']) assert.equal(at({ kind, title: 'x', details: { partySize: 2 } }).partySize, 2, kind);
+  assert.deepEqual([at({ kind: 'winery', title: 'x' }).type, at({ kind: 'winery', title: 'x' }).category], ['winery', 'eat']);
+  assert.deepEqual([lib.fromTile('winery').category, lib.cardOf({ kind: 'stop', type: 'winery' }).template, lib.BADGES.winery], ['eat', 'meal', 'wine-glass']);
   for (const kind of ['sight', 'museum', 'attraction', 'tour', 'show']) {
     const visit = at({ kind, title: 'x', details: { starts: '10:00', minutes: 90, tickets: 3, reference: 'V1', address: 'Here' }, date: '2026-10-03' });
     assert.deepEqual([visit.type, visit.category, visit.date, visit.time, visit.minutes, visit.admissionCount, visit.confirm, visit.address], [kind, 'do', '2026-10-03', '10:00', 90, 3, 'V1', 'Here'], kind);
@@ -1768,7 +1773,7 @@ test('the page: the ticket\'s arrival field, and objects dated outside the plan 
   const manifest = JSON.parse(fs.readFileSync(new URL('../modules/travel/module.json', import.meta.url), 'utf8'));
   const accept = manifest.actions.provides.find((a) => a.name === 'acceptSuggestion');
   assert.equal(accept.input.object, 'object?', 'older callers still send the flat fields');
-  assert.deepEqual(accept.takes.flatMap((e) => e.kinds).sort(), ['attraction', 'bar', 'bus', 'cafe', 'car', 'event', 'ferry', 'flight', 'hotel', 'museum', 'note', 'restaurant', 'show', 'sight', 'tour', 'train']);
+  assert.deepEqual(accept.takes.flatMap((e) => e.kinds).sort(), ['attraction', 'bar', 'bus', 'cafe', 'car', 'event', 'ferry', 'flight', 'hotel', 'museum', 'note', 'restaurant', 'show', 'sight', 'tour', 'train', 'winery']);
 });
 
 
@@ -1904,7 +1909,7 @@ test('the form standard (the Planner pilot): the forms are .sdk-form, every day 
   assert.ok(html.includes('<input id="f-lookup-date" type="date" aria-labelledby="f-lookup-date-label">'), 'the lookup\'s day is a field like the rest');
   // No Length | End time switch: a start and an end time, the length under the end; a flight keeps its flight time.
   assert.ok(!html.includes('data-lenmode') && !js.includes("querySelector('.lm')") && !js.includes("closest('.lm')"), 'the Length | End time switch is gone');
-  assert.ok(html.includes('id="f-end-field" data-types="block car taxi rideshare shuttle restaurant cafe bar sight museum attraction tour show"') && html.includes('id="f-length-field" role="group" aria-labelledby="f-minutes-label" data-types="block flight'), 'an end time for a stop, a car, a ride or a marker; the flight time field stays for the length');
+  assert.ok(html.includes('id="f-end-field" data-types="block car taxi rideshare shuttle restaurant cafe bar winery sight museum attraction tour show"') && html.includes('id="f-length-field" role="group" aria-labelledby="f-minutes-label" data-types="block flight'), 'an end time for a stop, a car, a ride or a marker; the flight time field stays for the length');
   assert.ok(js.includes('len.hidden = !tick || none;') && js.includes('end.hidden = tick || none;'), 'a flight, train, ferry or bus keeps its flight time and its ticket\'s arrival; the others show the end');
   assert.ok(js.includes("[lengthText(len), laterNote(e ? e.days : 0)].filter(Boolean).join(' · ')"), 'the length is said under the end time');
   // The time column reads from, to, (length): the end on its own line with an arrow, the length last in brackets.
@@ -2036,7 +2041,7 @@ test('a day that follows another until one is chosen: the arrival day and the ch
 
 test('Attraction is a kind of stop beside Sight, Museum, Tour and Show (#246), and stored kinds keep working', () => {
   assert.ok(lib.STOP_TYPES.includes('attraction') && lib.STOP_TILES.includes('attraction') && lib.TILES.includes('attraction'));
-  assert.deepEqual(lib.STOP_TILES, ['restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show']);
+  assert.deepEqual(lib.STOP_TILES, ['restaurant', 'cafe', 'bar', 'winery', 'sight', 'museum', 'attraction', 'tour', 'show']);
   const it = (o) => lib.cleanItem({ id: 'x', title: 't', ...o });
   assert.equal(it({ kind: 'stop', type: 'attraction' }).type, 'attraction');
   assert.equal(lib.tileOf(it({ kind: 'stop', type: 'attraction' })), 'attraction');
@@ -2067,7 +2072,7 @@ test('Attraction is a kind of stop beside Sight, Museum, Tour and Show (#246), a
   assert.ok(addMenu.includes("label: KICKERS[t], icon: BADGES[t]") && addMenu.includes("tip: `Add ${/^[aeiou]/i"), 'a kind row reads short ("Flight"), its tip keeps "Add a flight"');
   assert.ok(js.includes('host.add.set(canEdit ? addKinds()') && !/markers?/.test(js.slice(js.indexOf('function addKinds('), js.indexOf('function openAddMenu('))), 'the titlebar + uses the same kinds, no markers');
   assert.ok(addMenu.includes("label: t.label, tip: `Mark the day: ") && addMenu.includes("label: t.label,\n      tip: onLine ?"), 'marker rows read short, tips keep the full wording');
-  assert.ok(addMenu.includes("const EAT = ['restaurant', 'cafe', 'bar'];"));
+  assert.ok(addMenu.includes("const EAT = ['restaurant', 'cafe', 'bar', 'winery'];"));
   assert.ok(js.includes("attraction: 'Disneyland'"));
   assert.ok(js.includes("attraction: ['theme park', 'park', 'zoo', 'aquarium', 'disney', 'rides']"));
   assert.ok(!/data-types="[^"]*\bsight\b(?![^"]*\battraction\b)[^"]*"/.test(html), 'every field a sight has, an attraction has');

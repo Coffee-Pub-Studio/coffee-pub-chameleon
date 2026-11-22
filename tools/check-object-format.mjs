@@ -19,7 +19,9 @@ const {
   cleanObject, cleanDetails, schema, readObjects, decodeBytes, FormatError, kindA,
 } = require('../server/object-format.js');
 // The kinds before the planners' joined the catalogue (2026-11-15), as the before-details fixture recorded them.
-const KINDS_BEFORE_PLANS = KINDS.filter((k) => !PLAN_KINDS.includes(k));
+const KINDS_BEFORE_PLANS = KINDS.filter((k) => !PLAN_KINDS.includes(k) && k !== 'winery');
+// And before winery joined (2026-11-22): the recorded instructions are of the kinds as they were; the fixture's other cases name no winery.
+const TRAVEL_BEFORE_WINERY = TRAVEL_KINDS.filter((k) => k !== 'winery');
 const { MAX_SUMMARIES, parseSummaries } = require('../server/prompts/parse.js');
 const prompts = require('../server/prompts');
 const { fencedRule, answerSchema } = require('../server/prompts/object-rule.js');
@@ -412,7 +414,7 @@ const BAD = {
 };
 
 test('the catalogue: 23 kinds, image for handoffs only, every field typed', () => {
-  assert.deepEqual(TRAVEL_KINDS, ['flight', 'train', 'bus', 'ferry', 'car', 'hotel', 'restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show']);
+  assert.deepEqual(TRAVEL_KINDS, ['flight', 'train', 'bus', 'ferry', 'car', 'hotel', 'restaurant', 'cafe', 'bar', 'winery', 'sight', 'museum', 'attraction', 'tour', 'show']);
   assert.deepEqual(PLAN_KINDS, ['milestone', 'work', 'goal', 'step']);
   assert.deepEqual(KINDS, [...TRAVEL_KINDS, 'event', 'task', 'poll', 'note', 'link', ...PLAN_KINDS]);
   assert.deepEqual(HANDOFF_KINDS, ['image']);
@@ -733,7 +735,7 @@ test('the structured output: one shape per kind, joined with anyOf, each with on
   const shapes = s.properties.objects.items.anyOf;
   const kindsOf = (shape) => (shape.properties.kind.enum || [null]);
   assert.deepEqual(shapes.flatMap(kindsOf), [...kinds, null], 'every kind once, in the catalogue\'s order, then an object with no kind');
-  assert.deepEqual(shapes.map(kindsOf).filter((g) => g.length > 1), [['restaurant', 'cafe', 'bar'], ['sight', 'museum', 'attraction', 'tour', 'show'], ['note', 'link']], 'kinds with the same details share one shape');
+  assert.deepEqual(shapes.map(kindsOf).filter((g) => g.length > 1), [['restaurant', 'cafe', 'bar', 'winery'], ['sight', 'museum', 'attraction', 'tour', 'show'], ['note', 'link']], 'kinds with the same details share one shape');
   for (const shape of shapes) {
     assert.equal(shape.additionalProperties, false);
     assert.deepEqual(shape.required, Object.keys(shape.properties), 'strict: every property required');
@@ -776,7 +778,7 @@ test('old files, pastes and stored AI answers read exactly as before details', (
   // The copied instructions as built from the modules' `takes` (plan step 3): with no `takes` declared (the travel kinds, as
   // before) and with every kind taken (the plan's text). paste@1 is that text word for word; the in-app prompts have their
   // own golden files (tools/check-prompts.mjs).
-  assert.equal(instructions('object'), before.prompts.instructions);
+  assert.equal(instructions('object', { kinds: TRAVEL_BEFORE_WINERY }), before.prompts.instructions);
   assert.equal(instructions('object', { kinds: KINDS_BEFORE_PLANS }), before.prompts.instructionsEveryKind);
 });
 
@@ -785,7 +787,7 @@ test('a booking keeps its travel kind rather than "event" when both are listed',
   const rule = (kinds) => objectRule({ fence: 'objects', noun: 'object', max: 50, kinds });
   // Every kind: all 14 travel kinds, in KINDS order, right after the kind line, in both prompts.
   const every = rule(KINDS);
-  const all = sentence('flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, sight, museum, attraction, tour or show');
+  const all = sentence('flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour or show');
   assert.ok(every.includes(`Leave it out only when none fits.\n${all}\n`), 'directly after the kind line');
   assert.ok(instructions('object', { kinds: KINDS }).includes(all));
   assert.ok(askSystem(KINDS).includes(all));

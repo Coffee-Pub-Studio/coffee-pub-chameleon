@@ -22,6 +22,7 @@
 .entry[data-type="restaurant"] { --turn: 0; }
 .entry[data-type="cafe"] { --turn: 345; }
 .entry[data-type="bar"] { --turn: 320; }
+.entry[data-type="winery"] { --turn: 330; }
 .entry[data-type="sight"] { --turn: 95; }
 .entry[data-type="museum"] { --turn: 285; }
 .entry[data-type="attraction"] { --turn: 240; }

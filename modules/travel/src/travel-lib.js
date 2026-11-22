@@ -22,7 +22,9 @@
   // a stop and a stay a `type`, and any item may say how you get to it (`travelMode`, `travelMinutes`: the leg from the
   // item before), which a person sets now and a routing service could fill later.
   const MODES = ['flight', 'train', 'bus', 'ferry', 'car', 'taxi', 'rideshare', 'shuttle', 'other'];
-  const STOP_TYPES = ['restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show', 'hike', 'beach', 'shop', 'spa', 'other'];
+  const STOP_TYPES = ['restaurant', 'cafe', 'bar', 'winery', 'sight', 'museum', 'attraction', 'tour', 'show', 'hike', 'beach', 'shop', 'spa', 'other'];
+  // The kinds acceptSuggestion takes by name (the `takes` of module.json): a flat request with any other kind is refused.
+  const ACCEPT_KINDS = ['flight', 'train', 'bus', 'ferry', 'car', 'hotel', 'restaurant', 'cafe', 'bar', 'winery', 'sight', 'museum', 'attraction', 'tour', 'show', 'event', 'note'];
   const STAY_TYPES = ['hotel', 'rental', 'hostel', 'camp', 'other'];
   const TRAVEL_MODES = ['walk', 'drive', 'transit', 'bike', 'taxi', 'rideshare', 'none'];
   const MAX_DAYS = 60;
@@ -788,10 +790,10 @@
   // --- what an item is, for its card and its editor ---------------------------------------------------------------
   // The editor's tiles, one per kind of thing, and the card's colour family and silhouette for each. A card's family is what
   // the stylesheet colours by (`data-type` on the row), so the kinds without a colour of their own borrow one.
-  const TILES = ['flight', 'train', 'ferry', 'bus', 'car', 'taxi', 'rideshare', 'shuttle', 'hotel', 'restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show', 'note'];
+  const TILES = ['flight', 'train', 'ferry', 'bus', 'car', 'taxi', 'rideshare', 'shuttle', 'hotel', 'restaurant', 'cafe', 'bar', 'winery', 'sight', 'museum', 'attraction', 'tour', 'show', 'note'];
   const JOURNEY_TILES = ['flight', 'train', 'ferry', 'bus', 'car', 'taxi', 'rideshare', 'shuttle'];
   // An attraction (a theme park, a zoo: #246) is a stop like a sight, with the activity card.
-  const STOP_TILES = ['restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show'];
+  const STOP_TILES = ['restaurant', 'cafe', 'bar', 'winery', 'sight', 'museum', 'attraction', 'tour', 'show'];
   // The tile an item shows under in the editor. A link (another module's object) has none.
   function tileOf(item) {
     if (!item) return 'sight';
@@ -808,7 +810,7 @@
   }
   // The colour family of each kind in the editor's kind picker: degrees the accent's hue is turned, the same numbers the
   // cards use (`--turn` per `data-type` in travel-lib-cards.css), so the kind in the picker and its card look alike.
-  const TURNS = { flight: 195, train: 150, ferry: 120, bus: 100, car: 45, taxi: 170, rideshare: 220, shuttle: 80, hotel: 255, restaurant: 0, cafe: 345, bar: 320, sight: 95, museum: 285, attraction: 240, tour: 65, show: 305, note: 25 };
+  const TURNS = { flight: 195, train: 150, ferry: 120, bus: 100, car: 45, taxi: 170, rideshare: 220, shuttle: 80, hotel: 255, restaurant: 0, cafe: 345, bar: 320, winery: 330, sight: 95, museum: 285, attraction: 240, tour: 65, show: 305, note: 25 };
   // The kind picker shows each marker type once (`marker:<type>`); Where decides whether it is stored in a day (a `block:`
   // tile) or at a joint between days (a `lane:` tile). kindOf: the picker's id for a tile; tileAt: the tile for a picker's id
   // at a Where value (`d:<day>` or `d:` a day, `j:<day>` or `j:` a joint).
@@ -823,12 +825,12 @@
     if (JOURNEY_TILES.includes(tile)) return { kind: 'journey', mode: keep && item.mode ? item.mode : tile, category: 'travel' };
     if (tile === 'hotel') return { kind: 'stay', type: keep && item.type ? item.type : 'hotel', category: 'stay' };
     if (tile === 'note') return { kind: 'note', category: 'other' };
-    return { kind: 'stop', type: keep && item.type ? item.type : tile, category: tile === 'restaurant' || tile === 'cafe' || tile === 'bar' ? 'eat' : 'do' };
+    return { kind: 'stop', type: keep && item.type ? item.type : tile, category: tile === 'restaurant' || tile === 'cafe' || tile === 'bar' || tile === 'winery' ? 'eat' : 'do' };
   }
   // How an item is drawn: its card's template, the colour family on its row, the kicker and the badge icon. A link is drawn
   // from the summary of the object it points at (`summary`, as host.objects.resolve gave it).
-  const KICKERS = { flight: 'Flight', train: 'Train', ferry: 'Ferry', bus: 'Bus', car: 'Rental car', taxi: 'Taxi', rideshare: 'Ride share', shuttle: 'Shuttle', restaurant: 'Restaurant', cafe: 'Café', bar: 'Bar', sight: 'Sight', museum: 'Museum', attraction: 'Attraction', tour: 'Tour', hike: 'Hike', beach: 'Beach', shop: 'Shop', spa: 'Spa', show: 'Show', other: 'Stop' };
-  const BADGES = { flight: 'plane', train: 'train', ferry: 'ship', bus: 'bus', car: 'car', taxi: 'taxi', rideshare: 'car-side', shuttle: 'van-shuttle', restaurant: 'utensils', cafe: 'mug-hot', bar: 'martini-glass', sight: 'monument', museum: 'building-columns', attraction: 'wand-magic-sparkles', tour: 'person-hiking', hike: 'person-hiking', beach: 'umbrella-beach', shop: 'bag-shopping', spa: 'spa', show: 'masks-theater', other: 'location-dot' };
+  const KICKERS = { flight: 'Flight', train: 'Train', ferry: 'Ferry', bus: 'Bus', car: 'Rental car', taxi: 'Taxi', rideshare: 'Ride share', shuttle: 'Shuttle', restaurant: 'Restaurant', cafe: 'Café', bar: 'Bar', winery: 'Winery', sight: 'Sight', museum: 'Museum', attraction: 'Attraction', tour: 'Tour', hike: 'Hike', beach: 'Beach', shop: 'Shop', spa: 'Spa', show: 'Show', other: 'Stop' };
+  const BADGES = { flight: 'plane', train: 'train', ferry: 'ship', bus: 'bus', car: 'car', taxi: 'taxi', rideshare: 'car-side', shuttle: 'van-shuttle', restaurant: 'utensils', cafe: 'mug-hot', bar: 'martini-glass', winery: 'wine-glass', sight: 'monument', museum: 'building-columns', attraction: 'wand-magic-sparkles', tour: 'person-hiking', hike: 'person-hiking', beach: 'umbrella-beach', shop: 'bag-shopping', spa: 'spa', show: 'masks-theater', other: 'location-dot' };
   const STAY_KICKERS = { hotel: 'Hotel', rental: 'Rental', hostel: 'Hostel', camp: 'Camp', other: 'Stay' };
   function cardOf(item, summary) {
     if (item.kind === 'link') return { template: summary && !summary.error && summary.kind === 'place' ? 'place' : 'link', family: summary && !summary.error && summary.kind === 'place' ? 'place' : 'link', kicker: '', badge: '' };
@@ -843,7 +845,7 @@
     }
     const t = item.type || (item.category === 'eat' ? 'restaurant' : item.category === 'do' ? 'sight' : 'other');
     const family = ['hike', 'beach', 'shop', 'spa', 'other'].includes(t) ? 'sight' : t;
-    const template = t === 'restaurant' || t === 'cafe' || t === 'bar' ? 'meal' : t === 'show' ? 'show' : 'activity';
+    const template = t === 'restaurant' || t === 'cafe' || t === 'bar' || t === 'winery' ? 'meal' : t === 'show' ? 'show' : 'activity';
     return { template, family, kicker: KICKERS[t] || 'Stop', badge: BADGES[t] || 'location-dot' };
   }
   // The icon for the way to a stop.

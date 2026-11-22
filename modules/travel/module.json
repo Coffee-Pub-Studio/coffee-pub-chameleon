@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.13",
+  "version": "0.16.14",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -78,7 +78,7 @@
       {
         "name": "addStop",
         "label": "Add it to the trip",
-        "description": "Add a stop to the itinerary, at a saved place if one is given.",
+        "description": "Add a plain stop to the itinerary, at a saved place if one is given; for a hotel, restaurant, winery, tour or other typed item use acceptSuggestion with a kind.",
         "inputHints": {
           "placeRef": "A saved place from Maps (its pointer, as search shows it). The stop then shows that place's name, and its address if the stop has none.",
           "time": "Start time as HH:MM, 24-hour, for example 14:30.",
@@ -114,6 +114,7 @@
         "label": "Add it to the trip, properly typed",
         "description": "Add a journey, stay or stop by kind; a stop can be at a saved place.",
         "inputHints": {
+          "kind": "What it is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show, event or note. Leave out for a plain stop.",
           "placeRef": "A saved place from Maps, for a stop only. The stop then shows that place's name, and its address if you gave none.",
           "time": "Start time as HH:MM, 24-hour, for example 14:30; a flight's departure.",
           "minutes": "How long it lasts, in whole minutes, from 1 to 10080; a stay has no length.",
@@ -137,7 +138,7 @@
         "takes": [
           { "kinds": ["flight", "train", "bus", "ferry", "car"], "as": "{kind}" },
           { "kinds": ["hotel"], "as": "a stay" },
-          { "kinds": ["restaurant", "cafe", "bar", "sight", "museum", "attraction", "tour", "show", "event"], "as": "{kind}" },
+          { "kinds": ["restaurant", "cafe", "bar", "winery", "sight", "museum", "attraction", "tour", "show", "event"], "as": "{kind}" },
           { "kinds": ["note"], "as": "a note" }
         ]
       },
