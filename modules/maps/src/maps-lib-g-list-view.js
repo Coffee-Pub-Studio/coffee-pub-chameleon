@@ -1652,7 +1652,9 @@ async function runList(env) {
   // A place another module adds takes the same default as the form here (Everyone and this space, else this space), or
   // what its `in` asks ("environment space person"); the answer is the home's pointer. A request that is not this person's
   // own never touches a private list: the page carrying it out is someone else's, and their list is theirs.
-  const ownRequest = (ctx) => !ctx || !ctx.by || (personal && ctx.by === info.user.key);
+  // Keys against keys: ctx.byKey is the asker's key (ctx.by is only their display name). A direct call has no ctx and is the
+  // page person's own. An asker with no key (a guest, or someone who has left) is not known, so never the page person's own.
+  const ownRequest = (ctx) => !ctx || Boolean(personal && ctx.byKey && ctx.byKey === info.user.key);
   // Where a pointer's place is now (through a forward when it moved): { w, p }, read first when its store is not yet.
   async function placeOfRef(ref) {
     if (!ref || ref.kind !== 'place') throw new Error('that is not a place');

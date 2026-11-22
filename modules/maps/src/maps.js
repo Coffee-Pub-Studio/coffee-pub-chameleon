@@ -1390,7 +1390,7 @@
     if (name === 'pickPoint' || name === 'showResult') show('map'); // the dialog steps aside and the map is what waits for a click
     let result;
     try {
-      const out = await fn(input || {}, { from: ownId, by: info.user && info.user.key });
+      const out = await fn(input || {}, { from: ownId, by: info.user && info.user.name, byKey: (info.user && info.user.key) || null });
       result = { ok: true, ref: out && out.ref, ...(out && out.data !== undefined ? { data: out.data } : {}) };
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
