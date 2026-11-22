@@ -7,7 +7,7 @@
 import { confirmDialog } from '/confirm.js';
 
 const MAX_NAME = 40;
-const POLL_MS = 10000; // how often the live "Claude connected" line asks while it is on screen
+const POLL_MS = 10000; // how often the live "Connected" line asks while it is on screen
 // The agent's name as a person reads it, with the mark that it is not a person: "(set-up agent)" for the set-up kind
 // (plan-admin-agent.md, decision 2), else "(agent)".
 export const agentName = (user) => `${String((user && (user.displayName || user.key)) || 'Agent')} ${user && user.kind === 'setup' ? '(set-up agent)' : '(agent)'}`;
@@ -55,7 +55,7 @@ export const endingText = (expiresAt, now = Date.now()) => {
   if (end <= now) return 'This token has ended. Make a new token.';
   const days = Math.ceil((end - now) / 86400000);
   if (days > 7) return '';
-  return `This token ends in ${days === 1 ? '1 day' : `${days} days`}. Make a new token before then, and update Claude with it.`;
+  return `This token ends in ${days === 1 ? '1 day' : `${days} days`}. Make a new token before then, and update your app with it.`;
 };
 
 // What each of the gate's routes reads like in the log (the route is the gate's pattern, as the server writes it). `w` is the
@@ -191,7 +191,7 @@ const rolesHint = (before, after) => {
   return p;
 };
 
-// Connect Claude Code: the command and the .mcp.json form, with this server's address (the page's own origin, right in every
+// Claude Code: the command and the .mcp.json form, with this server's address (the page's own origin, right in every
 // environment). `token` is the real one in the token window and a placeholder on the agent's page. Text only.
 const PLACEHOLDER_TOKEN = 'agt_YOUR_TOKEN';
 export const connectCommand = (origin, token) => `claude mcp add --transport http chameleon ${origin}/mcp --header "Authorization: Bearer ${token}"`;
@@ -205,18 +205,19 @@ export const envCommands = (token, name = ENV_VAR_NAME) => ({
 });
 export const connectJson = (origin, token) => JSON.stringify({ mcpServers: { chameleon: { type: 'http', url: `${origin}/mcp`, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
 
-// A line of text to copy: a label, the text in a box and a Copy button of its own.
+// A value to copy: the label above, the value in a box and a Copy button beside it (below it on a narrow screen). The one
+// piece every route of the connect guide uses for anything the person must type or paste.
 function copyBlock(label, text, copyLabel = 'Copy') {
   const wrap = make('div', 'agent-copy');
   const name = make('p', 'hint', label);
   const box = make('code', 'key agent-copy-text', text);
   box.tabIndex = 0;
-  const row = make('div', 'row');
+  const row = make('div', 'agent-copy-line');
   const btn = make('button', 'btn btn-small', copyLabel);
   btn.type = 'button';
+  btn.setAttribute('aria-label', `Copy ${label}`);
   const status = make('span', 'status');
   status.setAttribute('role', 'status');
-  row.append(btn, status);
   btn.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -230,7 +231,8 @@ function copyBlock(label, text, copyLabel = 'Copy') {
       status.textContent = 'Select and copy it by hand';
     }
   });
-  wrap.append(name, box, row);
+  row.append(box, btn);
+  wrap.append(name, row, status);
   return wrap;
 }
 
@@ -248,18 +250,27 @@ export function agoText(iso, now = Date.now()) {
 // What the live line says, from the token's last use (null when there is no token or it was never used). Says only what is known.
 export const connectedText = (lastUsedAt, now = Date.now()) => {
   const ago = lastUsedAt ? agoText(lastUsedAt, now) : '';
-  return ago ? `Claude connected, ${ago}` : 'Not connected yet';
+  return ago ? `Connected, ${ago}` : 'Not connected yet';
 };
 
 export const FIRST_QUESTION = 'Use the chameleon tools. Which spaces can you see, and what is in the to-do list?';
 export const setupFirstQuestion = (spaceWord) => `Use the chameleon tools. Which templates can you use to make ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}?`;
 export const CLAUDE_DOCS = 'https://code.claude.com/docs';
 
-// The guided flow: purpose, what you need, numbered steps, the first question, what to try next. `token` is the real one in the
-// token window and a placeholder on the agent's page (`note` then says why). Returns { el, setUsed(lastUsedAt) } for the live line.
+// The guided flow: one chooser ("Which app are you connecting?") and only the chosen route's numbered steps. Every value a
+// person types or pastes is a labelled copy box. `token` is the real one in the token window and a placeholder on the agent's
+// page (`note` then says why). `route` is the route shown first. Returns { el, setUsed(lastUsedAt), setSpaces(names), select(route) }.
 // Text only; the token is only ever put in as textContent.
-function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agent)', spaceWord = 'space', spaceName = '', spaceWords = (n) => (n === 1 ? 'space' : 'spaces'), setup = false }) {
+export const ROUTES = [
+  { id: 'signin', label: 'An app that signs in (easiest)' },
+  { id: 'code', label: 'Claude Code' },
+  { id: 'form', label: 'Codex or another app with a form' },
+  { id: 'script', label: 'A script or other tool' },
+];
+function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agent)', spaceWord = 'space', spaceName = '', spaceWords = (n) => (n === 1 ? 'space' : 'spaces'), setup = false, route = 'signin' }) {
   const el = make('div', 'agent-connect');
+  const a = /^[aeiou]/i.test(spaceWord) ? 'an' : 'a';
+  const address = `${location.origin}/mcp`;
   const live = make('p', 'agent-connected');
   live.setAttribute('role', 'status');
   live.dataset.agentConnected = '';
@@ -271,117 +282,131 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   };
   setUsed(null);
   // Where the agent is a member: only what the spaces list says.
-  const where = make('p', 'agent-connected');
-  where.setAttribute('role', 'status');
-  where.dataset.agentSpaces = '';
+  const wheres = [];
   const setSpaces = (names) => {
-    if (!Array.isArray(names)) { where.textContent = ''; return; } // not known yet: says nothing
-    const list = names;
-    if (setup) { where.textContent = !list.length ? `It has not made ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord} yet.` : list.length === 1 ? `In 1 ${spaceWords(1)}: ${list[0]}` : `In ${list.length} ${spaceWords(list.length)}`; return; }
-    where.textContent = !list.length ? `Not in any ${spaceWord} yet. Add it under ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}'s Set up, then Members.`
-      : list.length === 1 ? `In 1 ${spaceWords(1)}: ${list[0]}` : `In ${list.length} ${spaceWords(list.length)}`;
+    const text = !Array.isArray(names) ? '' // not known yet: says nothing
+      : setup && !names.length ? `It has not made ${a} ${spaceWord} yet.`
+      : !names.length ? `Not in any ${spaceWord} yet. Add it under ${a} ${spaceWord}'s Set up, then Members.`
+      : names.length === 1 ? `In 1 ${spaceWords(1)}: ${names[0]}` : `In ${names.length} ${spaceWords(names.length)}`;
+    for (const w of wheres) w.textContent = text;
   };
   setSpaces(null);
-  const need = make('p', 'hint', 'You need Claude Code, a program you run in a terminal on your own computer. ');
-  const link = make('a', '', 'About Claude Code');
+
+  const list = () => make('ol', 'agent-steps');
+  const add = (ol, text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); ol.append(li); return li; };
+  // The first step of the routes that use a token: the agent must be a member of a space.
+  const addSpace = (ol) => {
+    if (setup) return;
+    const where = make('p', 'agent-connected');
+    where.setAttribute('role', 'status');
+    where.dataset.agentSpaces = '';
+    wheres.push(where);
+    add(ol, `Add this agent to ${a} ${spaceWord}.`, make('p', 'hint', `An agent only works in ${spaceWords(2)} it belongs to. Open the ${spaceWord}'s Set up, then Members, switch on "${agentLabel}", and Save.`), where);
+  };
+  const withNote = () => (note ? [make('p', 'hint', note)] : []);
+  const headerValue = `Bearer ${token}`;
+  const panel = (id) => { const s = make('section', 'agent-route'); s.dataset.agentRoutePanel = id; s.hidden = true; return s; };
+
+  // (a) An app that signs in: the address only; the app opens a page here and the person allows it.
+  const signin = panel('signin');
+  signin.dataset.agentSignin = '';
+  const s1 = list();
+  add(s1, 'Copy the address.', copyBlock('Address', address));
+  add(s1, 'In your app, add a server or connector and paste the address. Leave any token or header empty.');
+  add(s1, 'Allow it on the page that opens.');
+  add(s1, 'Ask the agent the first question below.');
+  signin.append(make('p', 'hint', 'No token needed.'), s1);
+
+  // (b) Claude Code: one command, run in the person's own terminal.
+  const code = panel('code');
+  const c1 = list();
+  const need = make('p', 'hint', 'This runs in a terminal on your own computer. ');
+  const link = make('a', '', 'Read its setup guide');
   link.href = CLAUDE_DOCS;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
   need.append(link);
-  const steps = make('ol', 'agent-steps');
-  const step = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); steps.append(li); return li; };
-  if (!setup) step(`Add this agent to ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord}.`, make('p', 'hint', `An agent only works in ${spaceWords(2)} it belongs to. Open the ${spaceWord}'s Set up, then Members, switch on "${agentLabel}", and Save.`), where);
-  step('Copy the command.', copyBlock('Command', connectCommand(location.origin, token)), ...(note ? [make('p', 'hint', note)] : []));
-  step('Open a terminal on your computer, paste it and press Enter.');
-  const three = step('Start Claude Code by typing ');
-  three.querySelector('span').after(make('code', '', 'claude'));
-  step('Ask it the first question below.');
-  const next = make('ul', 'agent-try');
-  const tries = setup ? [`Make ${/^[aeiou]/i.test(spaceWord) ? 'an' : 'a'} ${spaceWord} for a trip to Lisbon.`, `Rename the ${spaceWord} you made.`, `Ask to add Ana to the ${spaceWord} you made.`] : [`Summarise the chat in ${spaceName || `the ${spaceWord}`}.`, 'What is due this week?', 'Ask the Planner to add a milestone.'];
-  for (const line of tries) next.append(make('li', '', line));
+  addSpace(c1);
+  add(c1, 'Copy the command.', copyBlock('Command', connectCommand(location.origin, token)), ...withNote());
+  add(c1, 'Open a terminal on your computer, paste it and press Enter.');
+  add(c1, 'Start the app.', copyBlock('Start command', 'claude'));
+  add(c1, 'Ask the agent the first question below.');
   const file = make('details', 'agent-file');
-  file.append(make('summary', '', 'Use a project file instead'), make('p', 'hint', 'Save this as .mcp.json in the folder you work in, then start Claude Code there. Or add --scope user to the command to use it in every folder.'), copyBlock('.mcp.json', connectJson(location.origin, token)));
-  const apps = make('ol', 'agent-steps');
-  const appStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); apps.append(li); };
-  appStep('Open the Claude app: Customize, then Connectors, then Add custom connector.');
-  appStep('Name it, and use this address:', copyBlock('Address', `${location.origin}/mcp`));
-  appStep('Under Authentication, choose No sign-in.');
-  appStep('Under Request headers, choose Add header. Name: Authorization. Value: Bearer then a space then the token.', copyBlock('Header value', `Bearer ${token}`));
-  appStep('Save, then start a new chat and turn the connector on for that chat. Ask: "Use the chameleon tools. Which spaces can you see?"');
-  const envs = make('ol', 'agent-steps');
-  envs.dataset.agentEnv = '';
-  const envStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); envs.append(li); };
-  envStep('Open Connect to a custom MCP, and type Chameleon (or the server\'s name) in Name.');
-  envStep('Under Type, choose Streamable HTTP, not STDIO.');
-  envStep('URL: use this address.', copyBlock('Address', `${location.origin}/mcp`));
-  envStep('Leave Bearer token env var empty.');
-  envStep('Under Headers, choose Add header. Key: Authorization. Value: Bearer then a space then the token.', copyBlock('Header value', `Bearer ${token}`));
-  envStep('Leave Headers from environment variables empty.');
-  envStep('Save the server, then select Restart.');
-  envStep('In a Codex conversation type /mcp: Chameleon should be listed and Enabled.');
-  envStep('Start a new Codex conversation and ask the first question above.');
-  const codexIn = make('ol', 'agent-steps');
-  codexIn.dataset.agentCodexSignin = '';
-  const inStep = (text) => { const li = make('li'); li.append(make('span', '', text)); codexIn.append(li); };
-  inStep('Add the server with only the address (the URL above): Settings, MCP servers, Add server, Streamable HTTP. Leave Bearer token env var and Headers empty.');
-  inStep('Save, then select Restart.');
-  inStep('Select Authenticate next to Chameleon in the server list. A Chameleon page opens: choose the agent and Allow.');
-  inStep('In a Codex conversation type /mcp: Chameleon should be listed and Enabled.');
-  inStep('Start a new Codex conversation and ask the first question above.');
-  const safer = make('ol', 'agent-steps');
+  file.append(make('summary', '', 'Use a project file instead'), make('p', 'hint', 'Save this as .mcp.json in the folder you work in, then start the app there. Or add --scope user to the command to use it in every folder.'), copyBlock('.mcp.json', connectJson(location.origin, token)));
+  code.append(need, c1, file);
+
+  // (c) An app with a form: Name, URL, Header name, Header value.
+  const form = panel('form');
+  const f1 = list();
+  addSpace(f1);
+  add(f1, 'In Codex, open Settings, then MCP servers, then Add server, and choose Streamable HTTP. Other apps have the same form.');
+  add(f1, 'Type this in Name.', copyBlock('Name', 'chameleon'));
+  add(f1, 'Paste this in URL.', copyBlock('URL', address));
+  add(f1, 'Under Headers, choose Add header. Type this in the header name.', copyBlock('Header name', 'Authorization'));
+  add(f1, 'Paste this in the header value.', copyBlock('Header value', headerValue), ...withNote());
+  add(f1, 'Save, then select Restart.');
+  add(f1, 'Ask the agent the first question below.');
+  const safer = make('details', 'agent-file');
   safer.dataset.agentEnvSafer = '';
-  const saferStep = (text, ...more) => { const li = make('li'); li.append(make('span', '', text), ...more); safer.append(li); };
+  const sl = list();
   const cmds = envCommands(token);
-  saferStep('Bearer token env var: type the name of a variable, not the token.', copyBlock('Variable name', ENV_VAR_NAME));
-  saferStep('Leave Headers empty.');
-  saferStep('On your computer, set that variable to the token. Pick your system, paste it in a terminal and press Enter.',
-    copyBlock('Windows (PowerShell)', cmds.windows), copyBlock('macOS (Terminal)', cmds.macos), copyBlock('Linux (shell)', cmds.linux));
-  saferStep('Quit the app and open it again, because it reads variables only when it starts. Then save the server.');
+  add(sl, 'Leave Headers empty. In Bearer token env var, type this name, not the token.', copyBlock('Variable name', ENV_VAR_NAME));
+  add(sl, 'On your computer, set that variable to the token. Pick your system, paste it in a terminal and press Enter.', copyBlock('Windows (PowerShell)', cmds.windows), copyBlock('macOS (Terminal)', cmds.macos), copyBlock('Linux (shell)', cmds.linux));
+  add(sl, 'Quit the app and open it again, because it reads variables only when it starts. Then save the server.');
+  safer.append(make('summary', '', 'Keep the token out of the settings file'), make('p', 'hint', 'Use these steps instead of the header steps above. Same form, same Name and URL.'), sl);
+  form.append(f1, safer);
+
+  // (d) A script or other tool: the address and the header.
+  const script = panel('script');
+  const d1 = list();
+  addSpace(d1);
+  add(d1, 'Send your requests to this address.', copyBlock('Address', address));
+  add(d1, 'Add this header to every request.', copyBlock('Header name', 'Authorization'), copyBlock('Header value', headerValue), ...withNote());
+  add(d1, 'If your tool asks for the token alone, use this.', copyBlock('Token', token));
+  script.append(d1);
+
+  const panels = { signin, code, form, script };
+  const pick = make('label', 'agent-route-pick', 'Which app are you connecting?');
+  const select = make('select');
+  select.dataset.agentRoute = '';
+  for (const r of ROUTES) { const o = make('option', '', r.label); o.value = r.id; select.append(o); }
+  pick.append(select);
+  const first = make('div', 'agent-first');
+  first.append(make('h4', 'agent-connect-sub', 'What to say to the agent first'), copyBlock('First question', setup ? setupFirstQuestion(spaceWord) : FIRST_QUESTION));
+  const show = (id) => {
+    const r = panels[id] ? id : 'signin';
+    select.value = r;
+    for (const [k, p] of Object.entries(panels)) p.hidden = k !== r;
+    first.hidden = r === 'script';
+  };
+  select.addEventListener('change', () => show(select.value));
+  show(route);
+
   const moderatorWord = word('moderator', { a: true });
-  const setupIntro = `Let Claude set up ${spaceWords(2)}: make one, and change its name, description and icon. It needs only this connection, and it can't read what is inside a ${spaceWord}. Adding or taking off a person, or making someone ${moderatorWord}, waits for your yes.`;
-  // An app that can sign in needs only the server's address; the approval page makes or picks the agent (plan-mcp-oauth.md).
-  const signIn = make('div', 'agent-signin');
-  signIn.dataset.agentSignin = '';
-  signIn.append(
-    make('p', '', 'Using an app that can sign in? Give it this address:'),
-    copyBlock('Address', `${location.origin}/mcp`),
-    make('p', 'hint', 'An app that offers sign-in needs only that. You allow it on a page here, so there is no token to copy.'),
-  );
+  const setupIntro = `Let the agent set up ${spaceWords(2)}: make one, and change its name, description and icon. It needs only this connection, and it can't read what is inside ${a} ${spaceWord}. Adding or taking off a person, or making someone ${moderatorWord}, waits for your yes.`;
+  const next = make('ul', 'agent-try');
+  const tries = setup ? [`Make ${a} ${spaceWord} for a trip to Lisbon.`, `Rename the ${spaceWord} you made.`, `Ask to add Ana to the ${spaceWord} you made.`] : [`Summarise the chat in ${spaceName || `the ${spaceWord}`}.`, 'What is due this week?', 'Ask the Planner to add a milestone.'];
+  for (const line of tries) next.append(make('li', '', line));
   el.append(
-    make('h3', 'agent-connect-title', 'Connect Claude'),
-    make('p', 'hint', setup ? setupIntro : 'Let Claude read and help in the spaces this agent is in: the plan, the to-dos and the chat.'),
-    signIn,
-    make('h4', 'agent-connect-sub', 'Claude Code and scripts'),
-    make('p', 'hint', 'These use a pasted token. Follow the steps below.'),
-    need, live, steps,
-    make('h4', 'agent-connect-sub', 'What to say first'),
-    copyBlock('First question', setup ? setupFirstQuestion(spaceWord) : FIRST_QUESTION),
+    make('h3', 'agent-connect-title', 'Connect an app'),
+    make('p', 'hint', setup ? setupIntro : 'Let an app read and help in the spaces this agent is in: the plan, the to-dos and the chat.'),
+    make('p', 'hint', 'Put a token only in your own terminal or the app\'s form, never in a chat.'),
+    pick, live,
+    signin, code, form, script,
+    first,
     make('h4', 'agent-connect-sub', 'What to try next'),
     next,
     ...(setup ? [rolesHint('What it may do is set on ', ', in the Set-up agent column.')] : [
       make('p', 'hint', 'A change waits until a person who can change that module has it open.'),
-      rolesHint('To let Claude write in Chat, tick Send chat messages for agents on ', '.'),
+      rolesHint('To let the agent write in Chat, tick Send chat messages for agents on ', '.'),
     ]),
-    make('h4', 'agent-connect-sub', 'Claude apps'),
-    apps,
-    make('p', 'hint', "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header."),
-    file,
-    make('h4', 'agent-connect-sub', 'Codex (an app with environment-variable fields)'),
-    make('p', 'hint', "Codex is the OpenAI app that sets up servers in a form titled Connect to a custom MCP. A server added there shows in Codex, not in an ordinary ChatGPT chat. ChatGPT's own chat (Plugins) takes custom servers only on some plans, Business and Enterprise, and needs sign-in, not a token; Codex works on other plans. This worked in a test on 21 November 2026 with a token header. Signing in from this app has not been tested yet."),
-    make('h4', 'agent-connect-sub', 'Sign in (first choice)'),
-    codexIn,
-    make('h4', 'agent-connect-sub', "If it can't sign in, use a token"),
-    envs,
-    make('h4', 'agent-connect-sub', 'Safer, needs a terminal'),
-    make('p', 'hint', "Use these steps instead of the header steps above (same form, same Name, Type and URL). The token stays out of the app's settings file."),
-    safer,
   );
-  return { el, setUsed, setSpaces };
+  return { el, setUsed, setSpaces, select: show };
 }
 
 // The token, once: a dialog with the token in a box, Copy and the plain warning. The only place the token is ever on a page.
 // `poll()` (optional) answers the token's record again ({ lastUsedAt }); it is asked every few seconds while the window is open.
-export function showToken({ token, lifetime, expiresAt, agent, hour12 = true, poll = null, spaceWord, spaceName, spaceWords, word }) {
+export function showToken({ token, lifetime, expiresAt, agent, hour12 = true, poll = null, spaceWord, spaceName, spaceWords, word, route = 'code' }) {
   return new Promise((resolve) => {
     const opener = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
     const dlg = make('dialog', 'sdk-dialog sdk-dialog-confirm agent-token-dialog');
@@ -403,7 +428,7 @@ export function showToken({ token, lifetime, expiresAt, agent, hour12 = true, po
     status.setAttribute('role', 'status');
     row.append(copy, status);
     const ends = make('p', 'hint', `${lifetimeText(lifetime, expiresAt)} Keep it as a secret, never in a chat.`.trim());
-    const guide = connectGuide({ token, agentLabel: agentName(agent), spaceWord, spaceName, spaceWords, setup: agent && agent.kind === 'setup', word });
+    const guide = connectGuide({ token, agentLabel: agentName(agent), spaceWord, spaceName, spaceWords, setup: agent && agent.kind === 'setup', word, route }); // a token was just made: open on a route that uses it
     const connect = guide.el;
     body.append(warning, box, row, ends, connect);
     const foot = make('div', 'sdk-dialog-foot');
@@ -472,7 +497,7 @@ export function mountAgentPage(ctx) {
   let token = null; // GET /api/users/:key/token's answer: the pasted token
   let connection = null; // and its sign-in connection (one way in per agent: at most one of the two)
   let lastRun = null; // the last run of lines shown (see foldLines)
-  let guide = null; // the Connect Claude block drawn by paint(), for its live line
+  let guide = null; // the Connect an app block drawn by paint(), for its live line
   let timer = null;
   let changeLimits = null; // the daily limits the changes route carries
   const tokenUrl = () => `/api/users/${encodeURIComponent(agent.key)}/token`;
@@ -522,7 +547,7 @@ export function mountAgentPage(ctx) {
     memberOf().then((names) => { if (guide && agent) guide.setSpaces(names); }).catch(() => {});
     $('[data-agent="revoke"]').hidden = !wayIn;
     $('[data-agent="revoke"]').textContent = connection ? 'End connection' : 'Revoke';
-    $('[data-agent-make-hint]').textContent = connection ? 'A token ends the connection.' : token ? 'A new token ends the old one.' : `Claude uses the token to work in the ${ctx.word('space', { many: true })} you add it to.`;
+    $('[data-agent-make-hint]').textContent = connection ? 'A token ends the connection.' : token ? 'A new token ends the old one.' : `The app uses the token to work in the ${ctx.word('space', { many: true })} you add it to.`;
   }
 
   async function loadToken() {
