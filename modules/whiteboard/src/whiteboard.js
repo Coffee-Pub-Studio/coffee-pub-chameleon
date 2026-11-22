@@ -612,6 +612,13 @@
   // The #rrggbb a block colour draws as: a custom colour itself; a fixed or tinted id (kept on saved boards, no longer offered)
   // read from the page. null for anything that is not a colour (None, Matching, Default, Mixed).
   const drawnHex = (id) => wbHex(id) || (isColour(id) ? cssHex(colourOf(id)) : null);
+  // The colour a role of these blocks shows as, as drawn on the board (renderer.drawnColour: a tinted note's fill is the wash it
+  // draws, not its tint), so the Colour row and the picker start from what is seen and choosing it unchanged looks the same.
+  // Blocks that draw the same id differently (a note and a shape) fall back to the id's own colour (drawnHex).
+  const shownOn = (blocks, role, id) => {
+    const seen = new Set(blocks.map((b) => renderer.drawnColour(b.id, role) || drawnHex(id)));
+    return seen.size === 1 ? [...seen][0] : drawnHex(id);
+  };
   // The same for the board's background: a tinted id draws as a wash of its tint on the page (wbBackdrop), not the tint.
   const groundHex = (id) => wbHex(id) || (isColour(id) ? cssHex(backdropOf(id).ground) : null);
   function redrawSeeThrough() {
@@ -1342,7 +1349,7 @@
           if (isColour(v)) for (const t of new Set(having.map((b) => b.type))) setNextColour(blockTypes.get(t), role.id, v);
         };
         const same = new Set(having.map((b) => b.type)).size === 1 ? defOf(having[0]) : null;
-        const shown = now === undefined ? null : drawnHex(now);
+        const shown = now === undefined ? null : shownOn(having, role.id, now);
         // Colour: the picker shows each choice on these blocks alone and saves the one chosen once (one undo step);
         // Escape puts back what they showed. A fill keeps the picker's opacity; a border, words or a line the colour only.
         const custom = () => {
@@ -1376,7 +1383,7 @@
           const pickPattern = (v) => () => { for (const b of having) ctx.change(b.id, { pattern: v === 'none' ? undefined : v }, { save: 'now' }); };
           rows.push(...patternRows(pnow, pickPattern));
         }
-        return { role, label: roleLabel(same, role), now, rows };
+        return { role, label: roleLabel(same, role), now, shown, rows };
       }).filter((g) => g && (!role || g.role.id === role));
     } else {
       // For new blocks: "Default" (the block type's own colour, named beside it when the type is known) and the palette.
@@ -1400,7 +1407,7 @@
     const prep = list.length ? 'of' : 'for';
     const items = groups.length === 1
       ? [{ heading: groups[0].role.id === 'ink' ? `Colour of the words ${prep} ${whose}` : `${groups[0].label} colour ${prep} ${whose}` }, ...groups[0].rows]
-      : [{ heading: `Colours ${prep} ${whose}` }, ...groups.map((g) => ({ id: g.role.id, label: g.label, hint: nameOf(g.now), ...swatch(g.now), items: g.rows }))];
+      : [{ heading: `Colours ${prep} ${whose}` }, ...groups.map((g) => ({ id: g.role.id, label: g.label, hint: g.shown || nameOf(g.now), ...(g.shown ? { icon: 'circle', iconColor: g.shown } : swatch(g.now)), items: g.rows }))];
     showColourMenu('colour', where, items);
   }
 
@@ -2038,7 +2045,9 @@
     for (const role of WB_ROLES) {
       if (list.length) {
         const having = list.filter((b) => { const d = defOf(b); return d.paint && d.paint[role.id]; });
-        out[role.id] = having.length ? { value: agreed(having, role.id), label: roleLabel(sameDef(having), role) } : null;
+        const value = having.length ? agreed(having, role.id) : undefined;
+        // `drawn`: the colour as the blocks draw it (a tinted note's wash), as the Colour row shows it.
+        out[role.id] = having.length ? { value, drawn: isColour(value) ? shownOn(having, role.id, value) : null, label: roleLabel(sameDef(having), role) } : null;
       } else if (!def || takesNext(def, role.id)) {
         const now = nextColour(def, role.id);
         out[role.id] = { value: now !== null ? now : def ? def.create()[role.id] : null, label: roleLabel(def, role), own: now === null && Boolean(def) };
@@ -2095,10 +2104,10 @@
         p.mark.style.setProperty('--lw', `${Math.min(8, s.value || 2)}px`);
         words = `Line width: ${words}`;
       } else {
-        const c = colourOf(s.value);
+        const c = s.drawn || colourOf(s.value);
         p.mark.dataset.state = s.value === undefined ? 'mixed' : s.value === null ? 'default' : c ? 'colour' : s.value;
         if (c) p.mark.style.setProperty('--wb-sw', c); else p.mark.style.removeProperty('--wb-sw');
-        words = `${s.label || p.label}: ${s.own ? `Default (${nameOf(s.value)})` : nameOf(s.value)}`;
+        words = `${s.label || p.label}: ${s.own ? `Default (${nameOf(s.value)})` : s.drawn || nameOf(s.value)}`;
       }
       p.button.setAttribute('aria-label', words);
       p.button.dataset.tip = words;

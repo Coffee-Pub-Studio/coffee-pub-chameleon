@@ -164,6 +164,18 @@ try {
     assert.equal((await complete(camp, id)).json.ok, true, 'finished');
   });
 
+  await test('a long-text input keeps its line breaks from the agent to the module; a one-line input does not', async () => {
+    const notes = 'First paragraph.\n\nSecond paragraph.\nThird line.';
+    const r = await call('POST', `/api/spaces/${camp}/action`, { token, body: { action: 'schedule:addNote', input: { title: 'Two\nlines', notes: `${notes.replace(/\n/g, '\r\n')}\n\n` } } });
+    ok(r, 'asks with paragraphs');
+    const stored = busFile().actions.find((a) => a.id === r.json.id);
+    assert.equal(stored.input.notes, notes, 'the notes reach the module as sent (\\r\\n read as \\n, ends trimmed)');
+    assert.equal(stored.input.title, 'Two lines', 'a title is one line');
+    const c = await claim(camp, r.json.id);
+    assert.equal(c.json.action.input.notes, notes, 'the page that claims it is handed the same text');
+    assert.equal((await complete(camp, r.json.id)).json.ok, true, 'finished');
+  });
+
   await test('Revoke ends its waiting requests: not offered, claim and complete refused, one activity line', async () => {
     const a = await ask(camp, 'Before revoke 1');
     const b = await ask(camp, 'Before revoke 2');

@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.15",
+  "version": "0.16.16",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -84,7 +84,8 @@
           "time": "Start time as HH:MM, 24-hour, for example 14:30.",
           "minutes": "How long it lasts, in whole minutes, from 1 to 10080; use this or endTime, not both.",
           "endTime": "End time as HH:MM, which needs a start time; use this or minutes, not both.",
-          "cost": "The estimated cost, a number from 0 in the trip's currency, for example 120.50."
+          "cost": "The estimated cost, a number from 0 in the trip's currency, for example 120.50.",
+          "notes": "The notes. Line breaks are allowed."
         },
         "effect": "write",
         "input": {
@@ -119,7 +120,8 @@
           "time": "Start time as HH:MM, 24-hour, for example 14:30; a flight's departure.",
           "minutes": "How long it lasts, in whole minutes, from 1 to 10080; a stay has no length.",
           "cost": "The estimated cost, a number from 0 in the trip's currency, for example 120.50.",
-          "reference": "The confirmation number."
+          "reference": "The confirmation number.",
+          "content": "The words. Line breaks are allowed."
         },
         "effect": "write",
         "input": {

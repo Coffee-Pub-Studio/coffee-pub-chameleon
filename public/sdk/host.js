@@ -2634,16 +2634,11 @@
         return s;
       };
       const hue = slider('sdk-cp-hue', 'Hue', 359);
-      const opac = slider('sdk-cp-alpha', 'Opacity', 100);
-      pop.append(area, hue, opac);
-      if (!keeps) {
-        // Option O2: drawn at 100 and switched off, with the reason under it; it stays in the Tab order so a screen reader hears why.
-        const note = make('p', 'sdk-cp-note', 'Opacity isn\'t kept here.');
-        note.id = `${uid}-note`;
-        opac.setAttribute('aria-disabled', 'true');
-        opac.setAttribute('aria-describedby', note.id);
-        pop.appendChild(note);
-      }
+      // Opacity only where it is kept: where it is not, there is no slider at all (what cannot be set is not shown).
+      const opac = keeps ? slider('sdk-cp-alpha', 'Opacity', 100) : null;
+      pop.append(area, hue);
+      if (opac) pop.appendChild(opac);
+      else pop.classList.add('sdk-cp-solid');
 
       // The row: the colour as it is, the hex, and the eyedropper.
       const row = make('div', 'sdk-cp-row');
@@ -2722,14 +2717,16 @@
         pop.style.setProperty('--cp-x', String(hsv.s / 100));
         pop.style.setProperty('--cp-y', String(1 - hsv.v / 100));
         hue.style.setProperty('--cp-at', String(Math.min(hsv.h, 359) / 359));
-        opac.style.setProperty('--cp-at', String(alpha / 100));
         area.setAttribute('aria-valuenow', String(round(hsv.s)));
         area.setAttribute('aria-valuetext', `Saturation ${round(hsv.s)} percent, brightness ${round(hsv.v)} percent`);
         const h = Math.min(359, round(hsv.h));
         hue.setAttribute('aria-valuenow', String(h));
         hue.setAttribute('aria-valuetext', `Hue ${h} degrees`);
-        opac.setAttribute('aria-valuenow', String(alpha));
-        opac.setAttribute('aria-valuetext', `Opacity ${alpha} percent`);
+        if (opac) {
+          opac.style.setProperty('--cp-at', String(alpha / 100));
+          opac.setAttribute('aria-valuenow', String(alpha));
+          opac.setAttribute('aria-valuetext', `Opacity ${alpha} percent`);
+        }
         if (from !== 'hex') { hexIn.value = hex; markBad(false); }
         for (const g of groups) {
           const cells = [...g.querySelectorAll('.sdk-swatch')];
@@ -2763,7 +2760,7 @@
       const clamp = (n) => Math.max(0, Math.min(1, n));
       const drag = (el, move) => {
         el.addEventListener('pointerdown', (e) => {
-          if (e.button !== 0 || el.getAttribute('aria-disabled') === 'true') return;
+          if (e.button !== 0) return;
           e.preventDefault();
           el.focus({ preventScroll: true });
           try { el.setPointerCapture(e.pointerId); } catch (err) { /* the pointer is gone */ }
@@ -2784,7 +2781,7 @@
         return clamp((e.clientX - r.left - tw / 2) / Math.max(1, r.width - tw));
       };
       drag(hue, (e) => { hsv = { ...hsv, h: Math.min(359, along(hue, e) * 359) }; changed(); });
-      drag(opac, (e) => { alpha = round(along(opac, e) * 100); changed(); });
+      if (opac) drag(opac, (e) => { alpha = round(along(opac, e) * 100); changed(); });
 
       // The keys of "Keyboard and screen reader": arrows by 1, Shift by 10; on the sliders Page Up and Page Down by 10, Home and End to
       // the ends; on the area Left and Right are saturation, Up and Down brightness, Home and End the ends of saturation.
@@ -2822,8 +2819,7 @@
         changed();
         announce();
       });
-      opac.addEventListener('keydown', (e) => {
-        if (!keeps) return;
+      if (opac) opac.addEventListener('keydown', (e) => {
         const next = sliderKey(e, alpha, 100);
         if (next === null) return;
         e.preventDefault();
@@ -3778,15 +3774,14 @@
           },
         };
       },
-      // The colour picker (plan-colour-picker.md): an area of saturation and brightness, Hue, Opacity (always shown), the colour as it is,
+      // The colour picker (plan-colour-picker.md): an area of saturation and brightness, Hue, Opacity (only where it is kept), the colour as it is,
       // a Hex field, Pick from the screen (only where the browser has an eyedropper that works here), the palette's groups and Recent (the
       // last 8 chosen in this browser for this module, newest first). Drawn in the module's own page, one at a time with host.menu.
       //   colorPicker({ anchor | at, value?, opacity?, palette?, recent?, label?, onInput? }) -> Promise<{ color, opacity } | null>
       //   anchor   an element of the module's page to open under; or at: { x, y } in the module's area, as host.menu.show takes it
       //            (from a toolbar button: { x: e.x, y: 4 }). Clamped inside the module's box; it scrolls inside itself when the box is short.
       //   value    '#rrggbb' to start from (anything else starts on the palette's first colour). opacity: 0 to 100 (default 100), or
-      //            false where the opacity is not kept: the slider is drawn at 100, switched off, "Opacity isn't kept here.", and the
-      //            answer's opacity is always 100.
+      //            false where the opacity is not kept: no Opacity slider is drawn, and the answer's opacity is always 100.
       //   palette  [{ heading, colours: [{ name, color }] }] in place of the default (at most 6 groups, 48 colours). recent: false leaves
       //            Recent out. label: what the dialog is called ("Fill colour"; default "Colour").
       //   onInput  (answer) on each change while it is open, to show it live; save the answer, not these.

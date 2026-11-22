@@ -203,7 +203,7 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
     },
     {
       id: 'live-colour', block: 'pickers', name: 'Live: colour picker, open', height: 620, title: 'Live colour picker, open',
-      desc: 'host.ui.colorField on two inputs, the first opened: Fill keeps an opacity; Row colour keeps the colour only (opacity: false), so its Opacity is switched off. The button opens host.ui.colorPicker under itself and shows the answer. Recent shows once a colour has been chosen here. The picker is placed inside this frame, as it is inside a module.',
+      desc: 'host.ui.colorField on two inputs, the first opened: Fill keeps an opacity; Row colour keeps the colour only (opacity: false), so its picker has no Opacity. The button opens host.ui.colorPicker under itself and shows the answer. Recent shows once a colour has been chosen here. The picker is placed inside this frame, as it is inside a module.',
       body: `<div class="dsf-live" style="min-height:580px"><form class="sdk-form" onsubmit="return false">
         <div class="sdk-form-row">
           <label class="sdk-field sdk-m"><span class="sdk-label">Fill</span><input type="text" id="c1" value="#2f6cbf"><span class="sdk-hint"></span></label>
