@@ -336,7 +336,7 @@
       if (!host.actions || !host.actions.provide) return;
       const o = opts || {};
       // Who asked: the person behind the request (a Keep in Chat or Assistant), else this page's own person.
-      const byOf = (ctx) => (ctx && ctx.by) || me || '';
+      const byOf = (ctx) => (ctx && ctx.credit && ctx.credit.name) || me || '';
       const link = (item, ref) => { if (ref && scope !== 'person') host.objects.setLinks(refOf(item.kind, item.id), [ref]).catch(() => {}); };
       host.actions.provide({
         // tags is a plain comma- or space-separated string, as the field in the dialog reads it, so any module (or Assistant,

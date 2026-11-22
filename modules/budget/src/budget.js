@@ -696,7 +696,7 @@
     host.actions.provide({
       addCost: async (input, ctx) => {
         if (!canEdit) throw new Error(REFUSED);
-        const c = costFromRequest(input, (ctx && ctx.by) || info.user.key, state.people);
+        const c = costFromRequest(input, (ctx && ctx.credit && ctx.credit.key) || info.user.key, state.people);
         const saved = await saveCost(c);
         return { ref: pointer(saved.id) };
       },

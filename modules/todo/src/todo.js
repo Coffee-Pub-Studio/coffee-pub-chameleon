@@ -1038,7 +1038,7 @@
         if (input.remind === true && !wantsDue) throw new Error('A reminder needs a due date.');
         const t = {
           id: newId(), title, notes: made ? made.notes : input.notes || '', due: input.due || (made && made.due) || null, remind: false, done: false, doneAt: null,
-          createdAt: Date.now(), by: (meta && meta.by) || 'someone', links: input.ref && linkable(input.ref) ? [input.ref] : [], autoDone: false,
+          createdAt: Date.now(), by: (meta && meta.credit && meta.credit.name) || 'someone', links: input.ref && linkable(input.ref) ? [input.ref] : [], autoDone: false,
         };
         t.remind = input.remind === true; // the form's own rule: a reminder only with a due date, checked above
         const saved = await put(null, t);

@@ -1715,7 +1715,7 @@ async function runList(env) {
         const asked = ticksFromIn(input && input.in, here);
         if (asked && asked.mine && !own) throw new Error('only that person can add to their own list');
         const ticks = asked || defaultTicks('space', here, { everyone: canEveryone(), here: canHere(), mine: own && canMine() });
-        return placeWhere(ticks, input, info.user.key || (ctx && ctx.by) || '');
+        return placeWhere(ticks, input, (ctx && ctx.credit && ctx.credit.key) || info.user.key || '');
       };
       handlers.setPlacePoint = async (input) => {
         const { w, p } = await placeOfRef(input && input.place);
@@ -1728,7 +1728,7 @@ async function runList(env) {
         const { w, p } = await placeOfRef(input && input.place);
         if (!writable(w)) throw new Error(REFUSED);
         if (w === 'my' && !ownRequest(ctx)) throw new Error('only that person can change their own list');
-        const place = placeChanged(p, input, info.user.key || (ctx && ctx.by) || '', state.people);
+        const place = placeChanged(p, input, (ctx && ctx.credit && ctx.credit.key) || info.user.key || '', state.people);
         if (!place.iconOwn) place.icon = lookOf(place, cats).icon;
         const done = await stores[w].save(place, stores[w].versionOf(p.id));
         return { ref: placeRef(w, done.id) };

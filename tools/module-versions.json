@@ -4,32 +4,32 @@
     "hash": "78fa61c739d6f431"
   },
   "budget": {
-    "version": "0.1.27",
-    "hash": "f6b68549eb1823f3"
+    "version": "0.1.28",
+    "hash": "6f04af5fbc356efd"
   },
   "calendar": {
-    "version": "1.24.46",
-    "hash": "d36048528b6c8a60"
+    "version": "1.24.47",
+    "hash": "7046efc2c52834d0"
   },
   "documents": {
     "version": "0.11.36",
     "hash": "98dcd2af1fd5f6a8"
   },
   "goals": {
-    "version": "0.1.6",
-    "hash": "df850df037857bea"
+    "version": "0.1.7",
+    "hash": "2452d02e53aaef44"
   },
   "maps": {
-    "version": "0.10.9",
-    "hash": "feb2c1c241155363"
+    "version": "0.10.10",
+    "hash": "3de04d6fbe1ebed7"
   },
   "polls": {
-    "version": "1.15.31",
-    "hash": "5a2525a013ba43f9"
+    "version": "1.15.32",
+    "hash": "819790d3c9dd83d4"
   },
   "research": {
-    "version": "0.4.36",
-    "hash": "57253d11bf9f4dda"
+    "version": "0.4.37",
+    "hash": "8f9d0539254a7b18"
   },
   "schedule": {
     "version": "0.1.8",
@@ -40,12 +40,12 @@
     "hash": "0f03de5a254fe51d"
   },
   "todo": {
-    "version": "1.15.34",
-    "hash": "ff92cc76d07900d5"
+    "version": "1.15.35",
+    "hash": "f467dfe471acceaf"
   },
   "travel": {
-    "version": "0.16.14",
-    "hash": "8dc51e80324046e4"
+    "version": "0.16.15",
+    "hash": "b3379c31cffa1d5d"
   },
   "vault": {
     "version": "0.4.9",

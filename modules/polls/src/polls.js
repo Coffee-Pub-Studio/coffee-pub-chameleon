@@ -861,7 +861,7 @@
       },
       // An agent's request (or another module's): a poll as the form would save it, within the form's own limits (pollFromRequest in
       // polls-lib.js). This open page carries it out, so the poll is the person's whose page it is. There is no voting action.
-      createPoll: async (input) => {
+      createPoll: async (input, ctx) => {
         if (!canCreate) throw new Error('this person cannot start a poll here');
         const made = pollFromRequest(input);
         let closesAt = made.closesAt;
@@ -871,7 +871,7 @@
         }
         const p = {
           id: newId(), question: made.question, options: made.options.map((text, i) => ({ id: 'o' + (i + 1), text })),
-          multi: made.multi, addable: Boolean(prefs.addableByDefault), closed: false, closesAt, createdAt: Date.now(), by: info.user.name, byKey: me,
+          multi: made.multi, addable: Boolean(prefs.addableByDefault), closed: false, closesAt, createdAt: Date.now(), by: (ctx && ctx.credit && ctx.credit.name) || info.user.name, byKey: (ctx && ctx.credit && ctx.credit.key) || me,
         };
         const saved = await host.storage.set('poll:' + p.id, p);
         rememberPoll('own', { key: 'poll:' + p.id, value: p, version: saved.version });
