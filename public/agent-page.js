@@ -305,10 +305,10 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   };
   const withNote = () => (note ? [make('p', 'hint', note)] : []);
   const headerValue = `Bearer ${token}`;
-  const panel = (id) => { const s = make('section', 'agent-route'); s.dataset.agentRoutePanel = id; s.hidden = true; return s; };
+  const routeView = (id) => { const s = make('section', 'agent-route'); s.dataset.agentRouteView = id; s.hidden = true; return s; };
 
   // (a) An app that signs in: the address only; the app opens a page here and the person allows it.
-  const signin = panel('signin');
+  const signin = routeView('signin');
   signin.dataset.agentSignin = '';
   const s1 = list();
   add(s1, 'Copy the address.', copyBlock('Address', address));
@@ -318,7 +318,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   signin.append(make('p', 'hint', 'No token needed.'), s1);
 
   // (b) Claude Code: one command, run in the person's own terminal.
-  const code = panel('code');
+  const code = routeView('code');
   const c1 = list();
   const need = make('p', 'hint', 'This runs in a terminal on your own computer. ');
   const link = make('a', '', 'Read its setup guide');
@@ -336,7 +336,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   code.append(need, c1, file);
 
   // (c) An app with a form: Name, URL, Header name, Header value.
-  const form = panel('form');
+  const form = routeView('form');
   const f1 = list();
   addSpace(f1);
   add(f1, 'In Codex, open Settings, then MCP servers, then Add server, and choose Streamable HTTP. Other apps have the same form.');
@@ -357,7 +357,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   form.append(f1, safer);
 
   // (d) A script or other tool: the address and the header.
-  const script = panel('script');
+  const script = routeView('script');
   const d1 = list();
   addSpace(d1);
   add(d1, 'Send your requests to this address.', copyBlock('Address', address));
@@ -365,7 +365,7 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   add(d1, 'If your tool asks for the token alone, use this.', copyBlock('Token', token));
   script.append(d1);
 
-  const panels = { signin, code, form, script };
+  const views = { signin, code, form, script };
   const pick = make('label', 'agent-route-pick', 'Which app are you connecting?');
   const select = make('select');
   select.dataset.agentRoute = '';
@@ -374,9 +374,9 @@ function connectGuide({ word = (w) => w, token, note, agentLabel = 'Claude (agen
   const first = make('div', 'agent-first');
   first.append(make('h4', 'agent-connect-sub', 'What to say to the agent first'), copyBlock('First question', setup ? setupFirstQuestion(spaceWord) : FIRST_QUESTION));
   const show = (id) => {
-    const r = panels[id] ? id : 'signin';
+    const r = views[id] ? id : 'signin';
     select.value = r;
-    for (const [k, p] of Object.entries(panels)) p.hidden = k !== r;
+    for (const [k, p] of Object.entries(views)) p.hidden = k !== r;
     first.hidden = r === 'script';
   };
   select.addEventListener('change', () => show(select.value));
@@ -512,8 +512,8 @@ export function mountAgentPage(ctx) {
   function paint() {
     $('[data-agent-title]').textContent = agentName(agent);
     const setup = agent.kind === 'setup';
-    for (const panel of document.querySelectorAll('#agent-page [data-agent-setup]')) panel.hidden = !setup;
-    for (const panel of document.querySelectorAll('#agent-page [data-agent-ordinary]')) panel.hidden = setup;
+    for (const part of document.querySelectorAll('#agent-page [data-agent-setup]')) part.hidden = !setup;
+    for (const part of document.querySelectorAll('#agent-page [data-agent-ordinary]')) part.hidden = setup;
     const name = $('[data-agent-name]');
     if (document.activeElement !== name) name.value = agent.displayName || '';
     const off = agent.off === true;

@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.16",
+  "version": "0.16.17",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -78,7 +78,7 @@
       {
         "name": "addStop",
         "label": "Add it to the trip",
-        "description": "Add a plain stop to the itinerary, at a saved place if one is given; for a hotel, restaurant, winery, tour or other typed item use acceptSuggestion with a kind.",
+        "description": "Add a plain stop to the itinerary, at a saved place if one is given; for a hotel, restaurant, winery, tour or other typed stop use acceptSuggestion with a kind.",
         "inputHints": {
           "placeRef": "A saved place from Maps (its pointer, as search shows it). The stop then shows that place's name, and its address if the stop has none.",
           "time": "Start time as HH:MM, 24-hour, for example 14:30.",
