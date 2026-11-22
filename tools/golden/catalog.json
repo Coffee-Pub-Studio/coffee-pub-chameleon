@@ -425,5 +425,40 @@
       ],
       "additionalProperties": false
     }
+  },
+  {
+    "name": "travel__setStopPlace",
+    "module": "travel",
+    "action": "setStopPlace",
+    "label": "Put this stop at a place",
+    "description": "Put an itinerary stop at a saved place, or take it off its place.",
+    "effect": "write",
+    "input": {
+      "stop": "ref:travel:plan",
+      "placeRef": "ref:maps:place?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "stop": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        },
+        "placeRef": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "The number n of a place shown in this question."
+        }
+      },
+      "required": [
+        "stop",
+        "placeRef"
+      ],
+      "additionalProperties": false
+    }
   }
 ]

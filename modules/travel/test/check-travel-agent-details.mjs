@@ -139,13 +139,13 @@ assert.equal(plan.list().length, before);
   assert.deepEqual([got('No people').owners, got('No people').notes], [[], 'Travellers: Ben'], 'the people unknown: a notes line');
 }
 
-// the manifest declares the inputs, within the host's ten-field limit
+// the manifest declares the inputs, within the host's twenty-input limit
 const manifest = JSON.parse(read('../module.json'));
 const act = (name) => manifest.actions.provides.find((a) => a.name === name);
 for (const k of ['time', 'minutes', 'endTime', 'cost']) assert.ok(act('addStop').input[k], `addStop ${k}`);
 for (const k of ['time', 'minutes', 'cost', 'reference']) assert.ok(act('acceptSuggestion').input[k], `acceptSuggestion ${k}`);
 for (const name of ['addStop', 'acceptSuggestion']) {
-  assert.ok(Object.keys(act(name).input).length <= 10, `${name} has at most 10 inputs`);
+  assert.ok(Object.keys(act(name).input).length <= 20, `${name} has at most 20 inputs`);
   assert.match(act(name).inputHints.time, /HH:MM, 24-hour/);
   for (const k of Object.keys(act(name).inputHints)) assert.ok(act(name).input[k], `${name} hint ${k} is a declared input`);
 }

@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.12",
+  "version": "0.16.13",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -78,8 +78,9 @@
       {
         "name": "addStop",
         "label": "Add it to the trip",
-        "description": "Add a stop to the itinerary.",
+        "description": "Add a stop to the itinerary, at a saved place if one is given.",
         "inputHints": {
+          "placeRef": "A saved place from Maps (its pointer, as search shows it). The stop then shows that place's name, and its address if the stop has none.",
           "time": "Start time as HH:MM, 24-hour, for example 14:30.",
           "minutes": "How long it lasts, in whole minutes, from 1 to 10080; use this or endTime, not both.",
           "endTime": "End time as HH:MM, which needs a start time; use this or minutes, not both.",
@@ -91,6 +92,7 @@
           "date": "date?",
           "notes": "text?",
           "ref": "ref?",
+          "placeRef": "ref:maps:place?",
           "time": "string?",
           "minutes": "number?",
           "endTime": "string?",
@@ -110,8 +112,9 @@
       {
         "name": "acceptSuggestion",
         "label": "Add it to the trip, properly typed",
-        "description": "Add a journey, stay or stop by kind.",
+        "description": "Add a journey, stay or stop by kind; a stop can be at a saved place.",
         "inputHints": {
+          "placeRef": "A saved place from Maps, for a stop only. The stop then shows that place's name, and its address if you gave none.",
           "time": "Start time as HH:MM, 24-hour, for example 14:30; a flight's departure.",
           "minutes": "How long it lasts, in whole minutes, from 1 to 10080; a stay has no length.",
           "cost": "The estimated cost, a number from 0 in the trip's currency, for example 120.50.",
@@ -125,6 +128,7 @@
           "place": "string?",
           "date": "date?",
           "object": "object?",
+          "placeRef": "ref:maps:place?",
           "time": "string?",
           "minutes": "number?",
           "cost": "number?",
@@ -136,6 +140,20 @@
           { "kinds": ["restaurant", "cafe", "bar", "sight", "museum", "attraction", "tour", "show", "event"], "as": "{kind}" },
           { "kinds": ["note"], "as": "a note" }
         ]
+      },
+      {
+        "name": "setStopPlace",
+        "label": "Put this stop at a place",
+        "description": "Put an itinerary stop at a saved place, or take it off its place.",
+        "inputHints": {
+          "stop": "The stop to change; only a stop can be at a place.",
+          "placeRef": "A saved place from Maps. Leave out to take the stop off its place; its name stays."
+        },
+        "effect": "write",
+        "input": {
+          "stop": "ref:travel:plan",
+          "placeRef": "ref:maps:place?"
+        }
       },
       {
         "name": "addFromText",
