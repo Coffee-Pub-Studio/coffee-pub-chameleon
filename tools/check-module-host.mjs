@@ -903,3 +903,28 @@ test('host.menu.show takes onClose and calls it once from the one cleanup', () =
   // Every way out goes through closeMenu -> cleanup.
   assert.match(sdk, /function closeMenu\(\) \{\s*if \(!openMenu\) return;\s*const \{ cleanup \} = openMenu;\s*openMenu = null;\s*cleanup\(\);/, 'closeMenu runs the cleanup once');
 });
+
+// The person's colour grid (plan-colour-picker.md, step 7): the page answers the colour picker's two calls, ui.colorGrid and
+// ui.colorGrid.set, next to ui.confirm, from one copy for the page, and checks a list before it sends it. The host pages' page host
+// (hostColour in public/sdk/host.js) answers the same two by fetching the route itself.
+{
+  const rd = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+  const mh = rd('public/module-host.js');
+  assert.match(mh, /async 'ui\.colorGrid'\(\) \{[\s\S]{0,160}return readColourGrid\(\);/, "module-host.js answers 'ui.colorGrid' from the page's copy");
+  assert.match(mh, /async 'ui\.colorGrid\.set'\(\{ colors \} = \{\}\) \{[\s\S]{0,200}return writeColourGrid\(colors\);/, "module-host.js answers 'ui.colorGrid.set'");
+  assert.ok(mh.indexOf("async 'ui.colorGrid'()") > mh.indexOf("async 'ui.confirm'(o)"), 'the grid handlers sit with ui.confirm');
+  assert.match(mh, /api\('GET', '\/api\/me\/color-grid'\)/, 'the page reads the route');
+  assert.match(mh, /api\('PUT', '\/api\/me\/color-grid', \{ colors: list \}\)/, 'the page sends only the checked list');
+  const { cleanColourGrid } = new Function(`${slice('public/module-host.js', 'const COLOUR_GRID_MAX = 48;', '\n  return out;\n}')}\nreturn { cleanColourGrid };`)();
+  const e = (color, opacity = 100) => ({ color, opacity });
+  assert.deepEqual(cleanColourGrid([e('#d62828'), e('#d62828', 60)]), [e('#d62828'), e('#d62828', 60)], 'a good list is kept');
+  for (const bad of [null, {}, [e('#D62828')], [e('#fff')], [e('#d62828', 1.5)], [e('#d62828', 101)], [{ color: '#d62828', opacity: '100' }], [{ color: '#d62828', opacity: 100, x: 1 }], [e('#d62828'), e('#d62828')], Array.from({ length: 49 }, (_, i) => e(`#0000${i.toString(16).padStart(2, '0')}`))]) {
+    assert.equal(cleanColourGrid(bad), null, `refused: ${JSON.stringify(bad).slice(0, 60)}`);
+  }
+  const sdk = rd('public/sdk/host.js');
+  assert.match(sdk, /method === 'ui\.colorGrid' \? pageGridRead\(\)\s*: method === 'ui\.colorGrid\.set' \? pageGridWrite\(params\)/, "the host pages' page host answers ui.colorGrid and ui.colorGrid.set");
+  assert.match(sdk, /call\('ui\.colorGrid', \{\}\)/, 'the picker asks the page for the grid');
+  assert.match(sdk, /call\('ui\.colorGrid\.set', \{ colors: next \}\)/, 'the picker sends the whole list');
+  assert.ok(!/fetch\(\s*['`]\/api\/me\/color-grid/.test(sdk.slice(0, sdk.indexOf('let pageGrid = null;'))), 'the SDK fetches the route only in the page host, never from inside a module');
+  console.log('ok - the colour grid: ui.colorGrid and ui.colorGrid.set answered by the page and the page host');
+}

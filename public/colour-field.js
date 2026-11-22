@@ -27,9 +27,20 @@ export function colourFields(root) {
   }
 }
 
-// The colours a new list row starts with, one after another: the default palette's Strong group (window.hostColour.palette).
+// The colours a new list row starts with, one after another (plan-colour-picker.md, open question 9, a try-build lean): the 24
+// starting colours (window.hostColour.palette) in order, from Red, leaving out white, the greys and black (HSL saturation under 10
+// percent) and the light ones (HSL lightness 65 percent or more). That is Red, Dark red, Orange, Brown, Yellow, Green, Dark green, Cyan,
+// Teal, Blue, Dark blue, Purple and Magenta. Fixed, not the person's own grid, so a list looks the same for everyone.
 export function newRowColours() {
-  const palette = window.hostColour && Array.isArray(window.hostColour.palette) ? window.hostColour.palette : [];
-  const strong = palette.find((g) => g.heading === 'Strong') || palette[palette.length - 1];
-  return strong ? strong.colours.map((c) => c.color) : [];
+  const start = window.hostColour && Array.isArray(window.hostColour.palette) ? window.hostColour.palette : [];
+  return start.map((c) => c && c.color).filter((hex) => {
+    if (typeof hex !== 'string' || !/^#[0-9a-f]{6}$/.test(hex)) return false;
+    const n = parseInt(hex.slice(1), 16);
+    const v = [n >> 16, (n >> 8) & 255, n & 255].map((x) => x / 255);
+    const max = Math.max(...v);
+    const min = Math.min(...v);
+    const l = (max + min) / 2;
+    const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+    return s >= 0.1 && l < 0.65;
+  });
 }
