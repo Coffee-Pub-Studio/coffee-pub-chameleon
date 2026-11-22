@@ -70,6 +70,15 @@ async function main() {
     const copy = await fetch(`${S.base}/api/environment/templates`, { method: 'POST', headers: asAdmin, body: JSON.stringify({ from: 'default', id: 'mine', name: 'Mine' }) });
     expect(copy.status === 201, `could not copy the Default template: ${copy.status}`);
 
+    // Every module that ships installed and on, so the Modules tab's Available chip counts 0: the case where the list
+    // has nothing to show under it and says so (that line once threw on an element that was gone and the list stayed empty).
+    const api = async (method, url, body) => (await fetch(`${S.base}${url}`, { method, headers: asAdmin, body: body ? JSON.stringify(body) : undefined })).json().catch(() => ({}));
+    for (const b of (await api('GET', '/api/modules')).bundled || []) if (!b.installed && !b.notInPlan) await api('POST', `/api/modules/bundled/${encodeURIComponent(b.id)}/install`);
+    for (const m of (await api('GET', '/api/modules')).modules || []) if (!m.enabled && !m.outdated) await api('PATCH', `/api/modules/${encodeURIComponent(m.id)}`, { enabled: true });
+    const left = await api('GET', '/api/modules');
+    say(`modules: ${(left.modules || []).length} installed, ${(left.modules || []).filter((m) => !m.enabled && !m.outdated).length} off, ${(left.bundled || []).filter((b) => !b.installed).length} not installed`);
+    expect((left.bundled || []).every((b) => b.installed || b.notInPlan) && (left.modules || []).every((m) => m.enabled || m.outdated), 'could not set every module up and on, so the Available chip would not count 0');
+
     browser = await launch(bin);
     const open = async (size) => {
       const tab = new Tab(browser.cdp, S.ctx);
@@ -184,6 +193,15 @@ async function main() {
             }
             expect(await tab.eval(`[...document.querySelectorAll('#module-subtabs .subtab')].some((b) => b.dataset.modulePart === 'assistant')`), `${size}: no AI Assistant tab`);
             await click('#module-subtabs .subtab[data-module-part="config"]');
+            // Every filter chip draws something: cards, or the line that says there is none (a chip with a count of
+            // 0 once threw on a lookup of an element that was gone, and the list stayed empty).
+            for (const f of await tab.eval(`[...document.querySelectorAll('#module-filters [data-module-filter]')].map((b) => b.dataset.moduleFilter)`)) {
+              expect(['all', 'updates', 'configurable', 'available'].includes(f), `${size}: unexpected Modules filter ${f}`);
+              await click(`#module-filters [data-module-filter="${f}"]`);
+              expect(await tab.eval(`document.getElementById('modules-list').children.length`) > 0, `${size}: the Modules list drew nothing under the ${f} filter`);
+            }
+            expect(await tab.eval(`document.querySelectorAll('#module-filters [data-module-filter]').length`) === 4, `${size}: the Modules filter chips are not the four expected`);
+            await click('#module-filters [data-module-filter="all"]');
           }
           // The tab's main data is drawn, not only free of errors.
           const data = {

@@ -1863,7 +1863,7 @@ function renderModules() {
         <button class="btn btn-primary" data-bundled-action="install" data-bundled-id="${escapeHtml(b.id)}" type="button" ${b.notInPlan ? `disabled title="Your plan does not include this ${escapeHtml(word('module'))}"` : ''}>Install</button>
       </div>`).join('')}`;
     list.appendChild(box);
-  } else if (moduleFilter === 'available' && !shown.length && !builtins.length && $('ai-row').hidden) {
+  } else if (moduleFilter === 'available' && !shown.length && !builtins.length) {
     const none = document.createElement('div');
     none.className = 'panel';
     none.innerHTML = '<p class="hint">Nothing new to install or turn on right now.</p>';
