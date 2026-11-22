@@ -4646,6 +4646,23 @@ app.get('/api/me/themes', (req, res, next) => (!currentUser(req) && hasGuestAcce
   });
 });
 
+// A person's own colour grid (plan-colour-picker.md, "The person's colour grid"): GET answers { colors: [...] }, or
+// { colors: null } while they have never edited it; PUT { colors } replaces the whole list and answers the list kept. Only
+// ever the caller's own; not for a guest (403), and not on the agent gate's list, so an agent's token can't reach it.
+const guestsGetNoColorGrid = () => `${word('guest', { many: true, cap: true })} can't keep their own colours.`;
+const noGuestColorGrid = (req, res, next) => (!currentUser(req) && hasGuestAccess(req) ? res.status(403).json({ error: guestsGetNoColorGrid() }) : next());
+app.get('/api/me/color-grid', noGuestColorGrid, requireUser, (req, res) => {
+  res.set('Cache-Control', 'no-store').json({ colors: store.colorGrid(currentUser(req)) });
+});
+app.put('/api/me/color-grid', noGuestColorGrid, requireUser, (req, res) => {
+  const body = req.body;
+  const plain = body && typeof body === 'object' && !Array.isArray(body) && Object.getPrototypeOf(body) === Object.prototype;
+  if (!plain || Object.keys(body).length !== 1 || !Object.hasOwn(body, 'colors')) {
+    return res.status(400).json({ error: 'Send the colours as a list, such as {"colors":[{"color":"#d62828","opacity":100}]}.' });
+  }
+  res.set('Cache-Control', 'no-store').json({ colors: store.setColorGrid(currentUser(req).key, body.colors) });
+});
+
 // Enrolment (documentation/plans/plan-mfa.md): for the signed-in person, or -- with no session yet -- whoever
 // holds a valid 'enrol' pending token (mfaSubject covers both). start makes a new secret, kept unconfirmed
 // until enable; another start simply replaces it. enable confirms it, makes the recovery codes (shown once,

@@ -103,6 +103,8 @@
   {"kind":"route","method":"GET","path":"/api/me","name":null,"part":null},
   {"kind":"route","method":"PATCH","path":"/api/me","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/me/themes","name":null,"part":null},
+  {"kind":"route","method":"GET","path":"/api/me/color-grid","name":null,"part":null},
+  {"kind":"route","method":"PUT","path":"/api/me/color-grid","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/me/mfa/start","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/me/mfa/enable","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/me/mfa/disable","name":null,"part":null},
