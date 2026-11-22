@@ -45,7 +45,8 @@ function format() {
   check(usual.background === 'default', 'a new board is Default');
   check(clean({ id: 'settings', background: 'blue' }).background === 'blue', 'a palette colour is kept');
   check(clean({ id: 'settings', background: 'magenta' }).background === 'default', 'an unknown palette id falls back to Default');
-  check(clean({ id: 'settings', background: '#ff0000' }).background === 'default', 'a raw colour falls back to Default');
+  check(clean({ id: 'settings', background: '#FF0000' }).background === '#ff0000', 'a custom colour (#rrggbb, #544) is kept, in lower case');
+  check(['#f00', 'crimson', '#ff0000;x', 'rgb(1,2,3)'].every((v) => clean({ id: 'settings', background: v }).background === 'default'), 'anything else that is not a colour falls back to Default');
   check(clean({ id: 'settings' }).background === 'default', 'no background is Default');
   check(clean({ id: 'settings', background: { a: 1 } }).background === 'default', 'a background that is not a string is Default');
   check(clean({ id: 'other', background: 'blue' }) === null, 'a value that is not the settings is left out');

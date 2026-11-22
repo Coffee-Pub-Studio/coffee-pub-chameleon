@@ -215,7 +215,10 @@ const cases = {
     check(took.kind === 'pick' && took.colour === 'teal', 'Alt takes the background');
     const line = lib.wbFillAction({ type: 'line', stroke: 'red' }, def('line'), 'gold', true);
     check(line.kind === 'pick' && line.colour === 'red', 'Alt takes a line\'s colour');
-    check(lib.wbFillAction(rect, def('rect'), '#ff0000', false).kind === 'no', 'only a palette colour');
+    check(lib.wbFillAction(rect, def('rect'), 'magenta', false).kind === 'no', 'only a colour');
+    check(lib.wbFillAction(rect, def('rect'), '#ff0000', false, 60).kind === 'fill', 'a custom colour (#544) fills');
+    check(lib.wbFillAction({ ...rect, fill: '#ff0000', fillOpacity: 60 }, def('rect'), '#ff0000', false, 60).kind === 'same', 'the same custom fill at the same opacity is the same');
+    check(lib.wbFillAction({ ...rect, fill: '#ff0000', fillOpacity: 60 }, def('rect'), '#ff0000', false, 100).kind === 'fill', 'at another opacity it fills');
   },
   'a stroke keeps its brush; an unknown brush is a pen'() {
     need('wbClean');

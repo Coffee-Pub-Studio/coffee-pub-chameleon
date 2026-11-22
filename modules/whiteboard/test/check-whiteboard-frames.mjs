@@ -112,7 +112,8 @@ await test('clean: one line of at most 80 characters, at least 80 x 60, usual co
   assert.equal(L.blockTypes.get('frame').create().title, 'Frame', 'a new frame is called Frame');
   const tinted = clean({ id: 't', type: 'frame', x: 0, y: 0, fill: 'blue', stroke: 'none', ink: 'red' });
   assert.deepEqual([tinted.fill, tinted.stroke, tinted.ink], ['blue', 'none', 'red'], 'a palette colour, or none for its border');
-  const odd = clean({ id: 'o', type: 'frame', x: 0, y: 0, fill: '#ff0000', ink: 'none', title: 42 });
+  assert.equal(clean({ id: 'c', type: 'frame', x: 0, y: 0, fill: '#FF0000' }).fill, '#ff0000', 'a custom colour (#544) is kept');
+  const odd = clean({ id: 'o', type: 'frame', x: 0, y: 0, fill: '#ff00', ink: 'none', title: 42 });
   assert.deepEqual([odd.fill, odd.ink, odd.title], ['usual', 'usual', ''], 'anything else is the usual (the title has no None)');
   assert.ok(L.wbIsFrame(f) && !L.wbIsFrame(note('n', 0, 0)), 'a frame is a container; a note is not');
   assert.equal(L.wbAttachable(L.blockTypes.get('frame')), false, 'no connector attaches to a frame');

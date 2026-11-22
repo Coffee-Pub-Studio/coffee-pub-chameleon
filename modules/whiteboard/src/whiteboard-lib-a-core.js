@@ -1,7 +1,7 @@
   // ---- whiteboard-lib-a-core.js: the block format, the board's state and the two registries ----------------------------
   //
   // Everything placed on the board is a block. A block is plain data, saved whole under its own key:
-  //   { id, type, x, y, z, ...its colours (fill, stroke, ink) and weight, ...the type's own fields, by, at }
+  //   { id, type, x, y, z, ...its colours (fill, stroke, ink), fillOpacity and pattern, and weight, ...the type's own fields, by, at }
   // x and y are where it sits on the board (board units: one unit is one pixel at 100%), z its place in the stack (higher is
   // on top; any number, see wbBetween), by the key of whoever saved it last and at when (ISO). The type's own fields are
   // named by its block type.
@@ -20,7 +20,8 @@
   // the first board, and today's one, is `main` (WB_BOARD_FIRST).
 
   // The colours a person can give a role: the theme's text colour (id 'ink', read as Charcoal) and the eight tints. Stored as the name,
-  // never as a colour, so a block follows the theme and both modes (the renderer hands the token to whiteboard.css).
+  // never as a colour, so a block follows the theme and both modes (the renderer hands the token to whiteboard.css). Beside them
+  // are the fixed colours (below) and a custom colour from the host's colour picker (#rrggbb, wbHex).
   const WB_PALETTE = [
     { id: 'ink', label: 'Charcoal', token: 'var(--text-primary)' },
     { id: 'gold', label: 'Yellow', token: 'var(--tint-gold)' },
@@ -66,9 +67,44 @@
     { id: 'dark-purple', label: 'Dark Purple', family: 'dark', css: '--wb-fixed-dark-purple' },
   ];
   const WB_FIXED_BY_ID = new Map(WB_FIXED_BACKGROUNDS.map((c) => [c.id, c]));
+  // A custom colour (#544): one a person chose in the host's colour picker (host.ui.colorPicker), stored as it is, as `#rrggbb`.
+  // Checked strictly wherever it is read (exactly 7 characters, # and six hex digits) and kept in lower case, so nothing
+  // else ever reaches CSS: wbHex answers the cleaned colour or null. A fill keeps the picker's opacity beside it as
+  // `fillOpacity`, a whole number from 0 to 100 (wbOpacity: anything else is 100); a border, words, a line, the board's
+  // background and the grid's colour keep the colour alone (the grid has an opacity of its own).
+  const WB_HEX_RE = /^#[0-9a-fA-F]{6}$/;
+  const wbHex = (v) => (typeof v === 'string' && v.length === 7 && WB_HEX_RE.test(v) ? v.toLowerCase() : null);
+  const wbOpacity = (v) => (Number.isInteger(v) && v >= 0 && v <= 100 ? v : 100);
+  // A colour a role, the background or the Fill tool can hold: a tint, a fixed colour or a custom one.
+  const wbIsColour = (v) => WB_PALETTE_BY_ID.has(v) || WB_FIXED_BY_ID.has(v) || wbHex(v) !== null;
+  // A fill's pattern (#544), drawn over the fill in the fill's readable words colour, faintly (whiteboard.css, [data-pattern]).
+  // Stored on the block as one of these ids; none is the field left out. Only a block type with `pattern: true` takes one.
+  const WB_PATTERNS = [
+    { id: 'dots', label: 'Dots' },
+    { id: 'stripes', label: 'Stripes' },
+    { id: 'grid', label: 'Grid' },
+    { id: 'crosshatch', label: 'Crosshatch' },
+  ];
+  const WB_PATTERN_BY_ID = new Map(WB_PATTERNS.map((x) => [x.id, x]));
+  // How strong a pattern's marks are: per cent of the fill's words colour (whiteboard.css's --wb-pat-pct, faded with a fill's opacity).
+  const WB_PATTERN_PCT = 18;
+  // What the page hands the renderer for a custom fill: ink(hex, opacity) -> the words colour that reads on it (#rrggbb), or
+  // null until the page sets it (then a custom fill keeps the theme's words).
+  const wbPaintHelp = { ink: null };
+  // A pattern as an SVG <pattern> (for a block drawn in SVG, a shape), 10 board units a tile, its marks classed wb-pat-mark
+  // (whiteboard.css colours them). An HTML block draws the same patterns with CSS gradients.
+  function wbPatternSvg(kind, id) {
+    const p = wb.svg('pattern', { id, patternUnits: 'userSpaceOnUse', width: 10, height: 10 });
+    const line = (x1, y1, x2, y2) => wb.svg('line', { x1, y1, x2, y2, class: 'wb-pat-mark' });
+    if (kind === 'dots') p.append(wb.svg('circle', { cx: 5, cy: 5, r: 1.3, class: 'wb-pat-mark wb-pat-dot' }));
+    else if (kind === 'stripes') p.append(line(-1, 11, 11, -1), line(-6, 6, 6, -6), line(4, 16, 16, 4));
+    else if (kind === 'grid') p.append(line(0, 0, 10, 0), line(0, 0, 0, 10));
+    else if (kind === 'crosshatch') p.append(line(-1, 11, 11, -1), line(-6, 6, 6, -6), line(4, 16, 16, 4), line(-1, -1, 11, 11), line(-6, 4, 6, 16), line(4, -6, 16, 6));
+    return p;
+  }
   // A block's colour menus (fill, border, words, line) offer the same groups as the background menu: the role's own rows
   // (`specials`, opaque entries the page builds: Default, None...), Light colours and Dark colours (fixed: the same in both
-  // modes), Tinted colours (follow the theme), then the disabled Custom row. Returns the entries in order:
+  // modes), Tinted colours (follow the theme), then the Custom row (opens the host's colour picker). Returns the entries in order:
   // { kind: 'special', row }, { kind: 'heading', label }, { kind: 'fixed', id, label }, { kind: 'tint', id, label }, { kind: 'custom', label }.
   function wbColourMenuModel(specials) {
     const out = (specials || []).map((row) => ({ kind: 'special', row }));
@@ -78,7 +114,7 @@
     }
     out.push({ kind: 'heading', label: 'Tinted colours' });
     for (const c of WB_PALETTE) out.push({ kind: 'tint', id: c.id, label: c.label });
-    out.push({ kind: 'custom', label: 'Custom colour (coming with the colour picker)' });
+    out.push({ kind: 'custom', label: 'Custom colour…' });
     return out;
   }
   // The settings' key is wbSettingsPrefix(<board>) + WB_BOARD_ID (lib-s).
@@ -89,7 +125,7 @@
     return {
       id: WB_BOARD_ID,
       type: 'board',
-      background: WB_PALETTE_BY_ID.has(raw.background) || WB_FIXED_BY_ID.has(raw.background) ? raw.background : 'default',
+      background: WB_PALETTE_BY_ID.has(raw.background) || WB_FIXED_BY_ID.has(raw.background) ? raw.background : wbHex(raw.background) || 'default',
       by: typeof raw.by === 'string' ? raw.by.slice(0, 64) : '',
       at: typeof raw.at === 'string' ? raw.at.slice(0, 40) : '',
     };
@@ -102,8 +138,15 @@
   // Charcoal. A fixed colour ignores the theme: its dots are the fixed ink of its family. An unknown id is 'default'.
   const WB_WASH = 18; // per cent of the tint in a background
   const WB_DOT = { default: 16, tint: 26, ink: 34, fixed: 24 }; // per cent of the words' colour in a dot
-  function wbBackdrop(id) {
+  // A custom colour (#rrggbb, wbHex) is drawn as a fixed one is; whether it is light or dark is `family`, which the page
+  // tells from the host's readableOn (light unless it says 'dark').
+  function wbBackdrop(id, family) {
     const dot = (n, tok = 'var(--text-primary)') => `color-mix(in srgb, ${tok} ${n}%, transparent)`;
+    const hex = wbHex(id);
+    if (hex) {
+      const fam = family === 'dark' ? 'dark' : 'light';
+      return { id: hex, family: fam, custom: true, ground: hex, dot: dot(WB_DOT.fixed, `var(--wb-fixed-ink-${fam})`), ink: `var(--wb-fixed-ink-${fam})`, strength: WB_DOT.fixed };
+    }
     const f = WB_FIXED_BY_ID.get(id);
     if (f) return { id: f.id, family: f.family, ground: `var(${f.css})`, dot: dot(WB_DOT.fixed, `var(--wb-fixed-ink-${f.family})`), ink: `var(--wb-fixed-ink-${f.family})`, strength: WB_DOT.fixed };
     const c = WB_PALETTE_BY_ID.get(id);
@@ -155,7 +198,7 @@
     return {
       style: WB_GRID_STYLES.includes(o.style) ? o.style : u.style,
       size: Number.isInteger(o.size) && o.size >= 8 && o.size <= 96 ? o.size : u.size,
-      color: WB_GRID_COLOURS.some((c) => c.id === o.color) ? o.color : u.color,
+      color: WB_GRID_COLOURS.some((c) => c.id === o.color) ? o.color : wbHex(o.color) || u.color,
       opacity: typeof o.opacity === 'number' && o.opacity >= 0 && o.opacity <= 1 ? o.opacity : u.opacity,
     };
   }
@@ -170,7 +213,7 @@
   function wbGridPaint(d, g) {
     if (g.color === 'auto' && g.opacity === null) return d.dot;
     const c = WB_GRID_COLOURS.find((x) => x.id === g.color);
-    const tok = c && c.token ? c.token : d.ink;
+    const tok = c && c.token ? c.token : wbHex(g.color) || d.ink; // a custom colour: its cleaned #rrggbb
     const pct = g.opacity === null ? d.strength : Math.round(g.opacity * 100);
     return `color-mix(in srgb, ${tok} ${pct}%, transparent)`;
   }
@@ -293,8 +336,12 @@
     },
     text(v) { return typeof v === 'string' ? v.slice(0, WB_LIMITS.text) : ''; },
     // A role's colour: a palette name, or one of the role's extra choices ('none', 'auto'), or the fallback.
-    // A fixed colour (WB_FIXED_BACKGROUNDS, the board background's own list) is a palette name too.
-    paint(v, extra, fallback) { return WB_PALETTE_BY_ID.has(v) || WB_FIXED_BY_ID.has(v) || (extra && extra.includes(v)) ? v : fallback; },
+    // A fixed colour (WB_FIXED_BACKGROUNDS, the board background's own list) is a palette name too, and a custom colour
+    // (#rrggbb, checked strictly by wbHex) is kept in lower case.
+    paint(v, extra, fallback) {
+      if (WB_PALETTE_BY_ID.has(v) || WB_FIXED_BY_ID.has(v) || (extra && extra.includes(v))) return v;
+      return wbHex(v) || fallback;
+    },
     // One of the widths, or the fallback.
     weight(v, fallback) { return WB_WEIGHTS.includes(v) ? v : fallback; },
     // One of a closed list's ids (a Map by id), or the fallback.
@@ -328,7 +375,7 @@
   // x, y ({ x, y, w, h }, h null for a block whose height follows its words), render(block, el) -> draws it into its
   // element, describe(block) -> words for a screen reader, noun?(block) -> what a person calls it ("arrow"; else the
   // label in lower case), paint?: { role: { label?, extra?: ['none', 'auto'] } } (the
-  // colour roles it has, see the top of this file), weight?: true (it has a line or border width), edit?: 'text' |
+  // colour roles it has, see the top of this file), pattern?: true (its fill takes a pattern, WB_PATTERNS), weight?: true (it has a line or border width), edit?: 'text' |
   // 'colour' (what opening it does), markup?: true (its `text` is markup, drawn with wbShowWords, edited with the
   // formatting bar, and it has a size and an align: its create() gives their usual, wbClean cleans them), and for 'text' textOf(el) -> the element the words are edited over, textField? (the
   // field edited, 'text' unless named: a picture's 'alt'), textLine? (one line: Enter keeps it), textLabel? (the field's
@@ -424,6 +471,10 @@
     if (!own) return null;
     const usual = def.create();
     for (const [role, spec] of Object.entries(def.paint || {})) own[role] = wb.paint(raw[role], spec.extra, usual[role]);
+    // A custom fill keeps its opacity (a whole number, 0 to 100); any other fill has none.
+    if (own.fill && wbHex(own.fill)) own.fillOpacity = wbOpacity(raw.fillOpacity);
+    // A fill's pattern, for a type that takes one: a known id, else none (the field left out).
+    if (def.pattern && def.paint && def.paint.fill && WB_PATTERN_BY_ID.has(raw.pattern)) own.pattern = raw.pattern;
     if (def.weight) own.weight = wb.weight(raw.weight, usual.weight);
     if (def.markup) {
       own.size = wb.choice(raw.size, WB_SIZE_BY_ID, usual.size);

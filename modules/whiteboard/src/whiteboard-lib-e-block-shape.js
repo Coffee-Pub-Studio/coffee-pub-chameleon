@@ -96,6 +96,7 @@
         markup: true,
         valign: 'middle', // the usual: the words are in the middle
         paint: { stroke: { extra: ['none'] }, fill: { extra: ['none'] }, ink: {} },
+        pattern: true, // a fill pattern (lib-a, WB_PATTERNS): an SVG pattern of its own over the body
         weight: true,
         create: () => ({ w: shape.w, h: shape.h, text: '', stroke: 'ink', fill: 'ink', ink: 'ink', weight: 3, size: 'medium', align: 'center' }),
         mark: true, // travels with the picture it is put on (lib-u)
@@ -118,6 +119,17 @@
           const body = shape.draw(b.w, b.h, b.stroke === 'none' ? 0.5 : b.weight / 2, shape.radius ? b.radius : undefined);
           body.setAttribute('class', 'wb-hit wb-shape-body');
           svg.append(body);
+          // A fill pattern: the same outline again, filled with a small SVG pattern of this block's own (its marks take the
+          // colour whiteboard.css gives them, --wb-pat, from the block), never picked.
+          if (b.pattern && b.fill !== 'none' && WB_PATTERN_BY_ID.has(b.pattern)) {
+            const pid = `wb-pat-${b.id}`;
+            const defs = wb.svg('defs');
+            defs.append(wbPatternSvg(b.pattern, pid));
+            const over = body.cloneNode(false);
+            over.setAttribute('class', 'wb-shape-pat');
+            over.setAttribute('fill', `url(#${pid})`);
+            svg.append(defs, over);
+          }
           const words = document.createElement('div');
           words.className = 'wb-words';
           wbShowWords(words, b.text);

@@ -38,7 +38,8 @@ if (!missing.length) {
   for (const size of [7, 97, 24.5, '24', null, NaN]) check(L.wbGridClean({ size }).size === 24, `size ${JSON.stringify(size)}: 24`);
   for (const size of [8, 96]) check(L.wbGridClean({ size }).size === size, `size ${size} is kept`);
   check(L.wbGridClean({ style: 'grid' }).style === 'dots' && L.wbGridClean({ style: 'off' }).style === 'off', 'an unknown style is dots; off is kept');
-  check(L.wbGridClean({ color: '#ff0000' }).color === 'auto' && L.wbGridClean({ color: 'accent' }).color === 'accent', 'an unknown colour is automatic');
+  check(L.wbGridClean({ color: '#ff00' }).color === 'auto' && L.wbGridClean({ color: 'magenta' }).color === 'auto' && L.wbGridClean({ color: 'accent' }).color === 'accent', 'an unknown colour is automatic');
+  check(L.wbGridClean({ color: '#FF0000' }).color === '#ff0000', 'a custom colour (#544) is kept');
   check(L.wbGridClean({ color: 'ink' }).color === 'auto', 'Charcoal is not a grid colour');
   for (const o of [-0.1, 1.1, '0.5', NaN, undefined]) check(L.wbGridClean({ opacity: o }).opacity === null, `opacity ${String(o)}: automatic`);
   check(L.wbGridClean({ opacity: 0 }).opacity === 0 && L.wbGridClean({ opacity: 1 }).opacity === 1, 'opacity 0 and 1 are kept');
