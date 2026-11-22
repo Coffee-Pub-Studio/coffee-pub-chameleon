@@ -50,26 +50,50 @@ const SPACE_NAME = 'Paris <b>trip</b>';
 
 const jarOf = (res) => res.headers.getSetCookie().map((c) => { const [nv] = c.split(';'); const i = nv.indexOf('='); return { name: nv.slice(0, i), value: nv.slice(i + 1) }; });
 
-// The env-var choice in the connect guide (root = 'dialog.agent-token-dialog' or '#agent-page'): its heading, address, variable name,
-// the three commands and the steps. `token` is what must be in the commands (the real token or the placeholder).
-const ENV_HEAD = 'Codex (an app with environment-variable fields)';
-async function envChoice(t, root, token, origin, label) {
-  const v = await t.eval(`(() => { const r = document.querySelector(${JSON.stringify(root)}); const h = [...r.querySelectorAll('h4')].find((e) => e.textContent === ${JSON.stringify(ENV_HEAD)}); const ol = r.querySelector('[data-agent-env]'); const sf = r.querySelector('[data-agent-env-safer]'); const ci = r.querySelector('[data-agent-codex-signin]'); const hs = [...r.querySelectorAll('h4')].map((e) => e.textContent); const hint = h && h.nextElementSibling ? h.nextElementSibling.textContent : ''; const sh = [...r.querySelectorAll('h4')].some((e) => e.textContent === 'Safer, needs a terminal'); if (!h || !ol || !sf || !ci) return null; const copies = (o) => [...o.querySelectorAll('.agent-copy-text')].map((e) => e.textContent); const labs = (o) => [...o.querySelectorAll('.agent-copy > p.hint')].map((e) => e.textContent); const steps = (o) => [...o.children].map((e) => e.firstChild.textContent); const box = ol.getBoundingClientRect(); const box2 = sf.getBoundingClientRect(); const all = [...ol.querySelectorAll('.agent-copy-text'), ...sf.querySelectorAll('.agent-copy-text')]; return { ci: steps(ci), hs, hint, ci0: ci.compareDocumentPosition(ol) & 4, c: copies(ol), lab: labs(ol), steps: steps(ol), c2: copies(sf), lab2: labs(sf), steps2: steps(sf), sh, right: Math.max(box.right, box2.right), width: window.innerWidth, sideways: document.documentElement.scrollWidth - window.innerWidth, wrap: all.every((e) => e.getBoundingClientRect().right <= window.innerWidth + 1) }; })()`);
-  expect(!!v, `${label}: the Codex choice is missing`);
+// The connect guide (root = 'dialog.agent-token-dialog' or '#agent-page'): a chooser with four routes, and only the chosen route's
+// numbered steps shown. Each route's copy boxes are read as [label, value]. `token` is what must be in the values (the real token or
+// the placeholder); `addStep` is 1 when the route opens with "Add this agent to a space" (an ordinary agent), 0 for a set-up agent.
+async function guideChoice(t, root, token, origin, label, addStep = 1) {
+  const v = await t.eval(`(() => {
+    const r = document.querySelector(${JSON.stringify(root)}); const sel = r.querySelector('[data-agent-route]');
+    if (!sel) return null;
+    const out = { options: [...sel.options].map((o) => o.value + '=' + o.textContent), pickLabel: sel.closest('label').firstChild.textContent, routes: {}, claude: 0 };
+    const agentWords = /Claude \\((set-up )?agent\\)/g;
+    for (const o of sel.options) {
+      sel.value = o.value; sel.dispatchEvent(new Event('change', { bubbles: true }));
+      const panels = [...r.querySelectorAll('[data-agent-route-panel]')];
+      const shown = panels.filter((p) => !p.hidden && p.getClientRects().length > 0);
+      const p = shown[0];
+      const first = r.querySelector('.agent-first');
+      const boxes = p ? [...p.querySelectorAll('.agent-copy')].map((c) => ({ label: c.querySelector('p.hint').textContent, value: c.querySelector('.agent-copy-text').textContent, button: !!c.querySelector('button.btn') && c.querySelector('button').textContent === 'Copy', inline: c.querySelector('.agent-copy-text').getBoundingClientRect().right <= window.innerWidth + 1 && c.querySelector('button').getBoundingClientRect().right <= window.innerWidth + 1 })) : [];
+      out.routes[o.value] = { shown: shown.map((x) => x.dataset.agentRoutePanel), steps: p ? [...p.querySelectorAll(':scope > ol > li')].map((li) => li.firstChild.textContent) : [], boxes, firstShown: !!first && !first.hidden && first.getClientRects().length > 0, sideways: document.documentElement.scrollWidth - window.innerWidth, plain: p ? p.textContent : '' };
+    }
+    sel.value = 'signin'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    out.claude = (r.querySelector('[data-agent-connect], .agent-connect') || r).textContent.replace(agentWords, '').split('Claude').length - 1;
+    const c = r.querySelector('.agent-connect'); out.claudeAll = [...c.querySelectorAll('*')].filter((e) => e.children.length === 0 && /Claude/.test(e.textContent.replace(agentWords, ''))).map((e) => e.tagName + ':' + e.textContent.slice(0, 40));
+    out.chip = r.querySelector('[data-agent-connected]').textContent;
+    return out;
+  })()`);
+  expect(!!v, `${label}: the route chooser is missing`);
   if (!v) return;
-  expect(v.c.length === 2 && v.c[0] === `${origin}/mcp` && v.c[1] === `Bearer ${token}`, `${label}: the address or the header value is wrong (${JSON.stringify(v.c)})`);
-  expect(v.lab.join('|') === 'Address|Header value', `${label}: the labels are ${v.lab.join('|')}`);
-  expect(v.steps.length === 9 && /^Open Connect to a custom MCP, and type Chameleon \(or the server's name\) in Name\./.test(v.steps[0]) && /^Under Type, choose Streamable HTTP, not STDIO\./.test(v.steps[1]) && /^Leave Bearer token env var empty\./.test(v.steps[3]) && /^Under Headers, choose Add header\. Key: Authorization\./.test(v.steps[4]) && /^Leave Headers from environment variables empty\./.test(v.steps[5]) && /^Save the server, then select Restart\./.test(v.steps[6]) && /^In a Codex conversation type \/mcp: Chameleon should be listed and Enabled\./.test(v.steps[7]) && /^Start a new Codex conversation and ask the first question above\./.test(v.steps[8]), `${label}: the steps are not as written`);
-  expect(v.ci.length === 5 && /^Add the server with only the address \(the URL above\)/.test(v.ci[0]) && /Leave Bearer token env var and Headers empty\./.test(v.ci[0]) && /^Save, then select Restart\./.test(v.ci[1]) && /^Select Authenticate next to Chameleon in the server list\. A Chameleon page opens: choose the agent and Allow\./.test(v.ci[2]) && /^In a Codex conversation type \/mcp: Chameleon should be listed and Enabled\./.test(v.ci[3]) && /^Start a new Codex conversation/.test(v.ci[4]), `${label}: the Codex sign-in steps are not as written`);
-  const order = ['Sign in (first choice)', "If it can't sign in, use a token", 'Safer, needs a terminal'].map((x) => v.hs.indexOf(x));
-  expect(order[0] > v.hs.indexOf(ENV_HEAD) && order[1] > order[0] && order[2] > order[1] && v.ci0 === 4, `${label}: the Codex paths are not in order: sign in, token, safer (${JSON.stringify(order)})`);
-  expect(v.hint.includes('This worked in a test on 21 November 2026 with a token header. Signing in from this app has not been tested yet.') && !v.hint.includes('not tested end to end') && v.hint.includes("ChatGPT's own chat (Plugins) takes custom servers only on some plans, Business and Enterprise, and needs sign-in, not a token; Codex works on other plans.") && !/Plus/.test(v.hint), `${label}: the Codex note is not as written`);
-  expect(v.sh, `${label}: the Safer, needs a terminal heading is missing`);
-  expect(v.c2.length === 4 && v.c2[0] === 'CHAMELEON_TOKEN', `${label}: the variable name is wrong (${JSON.stringify(v.c2.slice(0, 1))})`);
-  expect(v.c2[1] === `setx CHAMELEON_TOKEN "${token}"` && v.c2[2] === `echo 'export CHAMELEON_TOKEN="${token}"' >> ~/.zshrc` && v.c2[3] === `echo 'export CHAMELEON_TOKEN="${token}"' >> ~/.bashrc`, `${label}: the three system commands are wrong (${JSON.stringify(v.c2.slice(1))})`);
-  expect(v.lab2.join('|') === 'Variable name|Windows (PowerShell)|macOS (Terminal)|Linux (shell)', `${label}: the safer labels are ${v.lab2.join('|')}`);
-  expect(v.steps2.length === 4 && /^Bearer token env var: type the name of a variable, not the token\./.test(v.steps2[0]) && /^Leave Headers empty\./.test(v.steps2[1]) && /^Quit the app and open it again/.test(v.steps2[3]), `${label}: the safer steps are not as written`);
-  expect(v.sideways <= 1 && v.wrap && v.right <= v.width + 1, `${label}: the choice runs outside the window (${JSON.stringify({ s: v.sideways, r: v.right, w: v.width })})`);
+  expect(v.pickLabel === 'Which app are you connecting?', `${label}: the chooser is labelled "${v.pickLabel}"`);
+  expect(v.options.join('|') === 'signin=An app that signs in (easiest)|code=Claude Code|form=Codex or another app with a form|script=A script or other tool', `${label}: the routes are ${v.options.join('|')}`);
+  for (const [id, rt] of Object.entries(v.routes)) {
+    expect(rt.shown.length === 1 && rt.shown[0] === id, `${label}: choosing ${id} shows ${JSON.stringify(rt.shown)}`);
+    expect(rt.boxes.every((b) => b.button && b.inline), `${label}: ${id}: a copy box lacks its Copy button or runs outside the window`);
+    expect(rt.sideways <= 1, `${label}: ${id}: the page scrolls sideways (${rt.sideways})`);
+    expect(rt.firstShown === (id !== 'script'), `${label}: ${id}: the first question is ${rt.firstShown ? 'shown' : 'hidden'}`);
+  }
+  const pairs = (id) => v.routes[id].boxes.map((b) => `${b.label}=${b.value}`);
+  const R = v.routes;
+  expect(pairs('signin').join('|') === `Address=${origin}/mcp` && R.signin.steps.length === 4 && /^Allow it on the page that opens\./.test(R.signin.steps[2]) && /No token needed/.test(R.signin.plain), `${label}: the sign-in route is ${JSON.stringify([pairs('signin'), R.signin.steps])}`);
+  const code = pairs('code');
+  expect(code.length === 3 && code[0] === `Command=claude mcp add --transport http chameleon ${origin}/mcp --header "Authorization: Bearer ${token}"` && code[1] === 'Start command=claude' && code[2].startsWith('.mcp.json=') && code[2].includes(token) && R.code.steps.length === 4 + addStep && /^Open a terminal on your computer, paste it and press Enter\./.test(R.code.steps[1 + addStep]), `${label}: the terminal route is ${JSON.stringify([code, R.code.steps])}`);
+  expect(pairs('form').slice(0, 4).join('|') === `Name=chameleon|URL=${origin}/mcp|Header name=Authorization|Header value=Bearer ${token}` && R.form.steps.length === 7 + addStep && /Settings, then MCP servers, then Add server, and choose Streamable HTTP/.test(R.form.steps[addStep]) && /^Save, then select Restart\./.test(R.form.steps[5 + addStep]), `${label}: the form route is ${JSON.stringify([pairs('form'), R.form.steps])}`);
+  const env = pairs('form').slice(4);
+  expect(env.length === 4 && env[0] === 'Variable name=CHAMELEON_TOKEN' && env[1] === `Windows (PowerShell)=setx CHAMELEON_TOKEN "${token}"` && env[2] === `macOS (Terminal)=echo 'export CHAMELEON_TOKEN="${token}"' >> ~/.zshrc` && env[3] === `Linux (shell)=echo 'export CHAMELEON_TOKEN="${token}"' >> ~/.bashrc`, `${label}: the variable choice is ${JSON.stringify(env)}`);
+  expect(pairs('script').join('|') === `Address=${origin}/mcp|Header name=Authorization|Header value=Bearer ${token}|Token=${token}` && R.script.steps.length === 3 + addStep, `${label}: the script route is ${JSON.stringify([pairs('script'), R.script.steps])}`);
+  expect(v.claude === 1 && v.claudeAll.length === 1 && v.claudeAll[0].startsWith('OPTION:Claude Code'), `${label}: "Claude" appears outside the Claude Code option (${v.claude}: ${JSON.stringify(v.claudeAll)})`);
 }
 
 async function main() {
@@ -260,23 +284,19 @@ async function main() {
     expect(made && made.copy && made.title === 'Token for Claude (agent)', `the dialog's title is "${made && made.title}" or Copy is missing`);
     const token = made ? made.token : '';
     expect(await tab.eval(`[...document.querySelectorAll('dialog.agent-token-dialog p.hint')].some((e) => /^Works for 1 year, until [A-Z][a-z]{2} \\d{1,2}, \\d{4}\\. Keep it as a secret, never in a chat\\.$/.test(e.textContent))`), 'the token window does not say "Works for 1 year, until <date>."');
-    expect(await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog'); const end = [...d.querySelectorAll('p.hint')].find((e) => e.textContent.startsWith('Works for')); return !!end && !!(end.compareDocumentPosition(d.querySelector('.agent-connect')) & Node.DOCUMENT_POSITION_FOLLOWING); })()`), 'the end is not above the Connect Claude steps');
+    expect(await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog'); const end = [...d.querySelectorAll('p.hint')].find((e) => e.textContent.startsWith('Works for')); return !!end && !!(end.compareDocumentPosition(d.querySelector('.agent-connect')) & Node.DOCUMENT_POSITION_FOLLOWING); })()`), 'the end is not above the Connect an app steps');
     expect((await call('admin', 'GET', `/api/users/${agent.key}/token`)).json.token.lifetime === '1y', 'the page did not send the chosen lifetime (expires) with the request');
     {
-      const guide = await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog[open]'); const t = (sel) => [...d.querySelectorAll(sel)].map((e) => e.textContent); return { origin: location.origin, live: d.querySelector('[data-agent-connected]').textContent, steps: t('.agent-steps:not([data-agent-env]):not([data-agent-env-safer]):not([data-agent-codex-signin]) > li').length, command: t('.agent-copy-text:not([data-agent-signin] *)')[0], first: t('.agent-copy-text:not([data-agent-signin] *)')[1], link: d.querySelector('a[href]').href, file: d.querySelector('details.agent-file') && !d.querySelector('details.agent-file').open, tries: t('.agent-try li'), apps: t('.agent-steps:not([data-agent-env]):not([data-agent-env-safer]):not([data-agent-codex-signin]) > li').slice(5), copies: t('.agent-copy-text:not([data-agent-signin] *)'), hint: t('p.hint').filter((x) => x.startsWith('Tested in the Claude app')) }; })()`);
-      expect(await tab.eval(`(() => { const s = document.querySelector('dialog.agent-token-dialog [data-agent-signin]'); return !!s && s.querySelector('.agent-copy-text').textContent === location.origin + '/mcp' && /^Using an app that can sign in\\? Give it this address:$/.test(s.querySelector('p').textContent); })()`), 'the token window has no sign-in address block (plan-mcp-oauth.md)');
-      expect(guide.copies[2] === `${guide.origin}/mcp` && guide.copies[3] === `Bearer ${token}`, `the Claude apps block's address or header value is "${guide.copies[2]}" / "${guide.copies[3]}"`);
-      expect(guide.steps === 10 && guide.apps.length === 5 && guide.apps[0].startsWith('Open the Claude app: Customize, then Connectors, then Add custom connector.') && guide.apps[2] === 'Under Authentication, choose No sign-in.' && guide.apps[4].includes('Which spaces can you see?'), 'the Claude apps steps are not as written');
-      expect(guide.hint.length === 1 && guide.hint[0] === "Tested in the Claude app on 2026-11-20. The header value is shown once by the app and never again; if you make a new token, edit the connector's header.", 'the Claude apps honest line is not as written');
-      expect(!guide.copies.slice(0, 3).some((x) => x.includes('agt_YOUR')) && guide.copies.filter((x) => x.includes(token)).length === 7, 'the real token is not in exactly the command, the header value, the project file, the Codex header value and the three system commands');
+      const guide = await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog[open]'); const sel = d.querySelector('[data-agent-route]'); const shown = [...d.querySelectorAll('[data-agent-route-panel]')].filter((p) => !p.hidden).map((p) => p.dataset.agentRoutePanel); return { live: d.querySelector('[data-agent-connected]').textContent, route: sel && sel.value, shown, first: d.querySelector('.agent-first .agent-copy-text').textContent, link: d.querySelector('a[href]').href, file: d.querySelector('details.agent-file') && !d.querySelector('details.agent-file').open, tries: [...d.querySelectorAll('.agent-try li')].length, safe: [...d.querySelectorAll('p.hint')].some((e) => e.textContent === "Put a token only in your own terminal or the app's form, never in a chat.") }; })()`);
+      expect(guide.route === 'code' && guide.shown.join() === 'code', `the token window opens on route ${guide.route} (${guide.shown}), not the terminal route`);
       expect(guide.live === 'Not connected yet', `the window's live line reads "${guide.live}" before any use`);
-      expect(guide.steps === 10 && guide.command.includes(token) && guide.first === 'Use the chameleon tools. Which spaces can you see, and what is in the to-do list?', 'the window does not show the ten steps, the command with the token and the first question');
-      expect(guide.link === 'https://code.claude.com/docs' && guide.file && guide.tries.length === 3, 'the Claude Code link, the closed project-file disclosure or the three things to try are not as written');
+      expect(guide.first === 'Use the chameleon tools. Which spaces can you see, and what is in the to-do list?' && guide.safe, 'the window does not show the first question and the one safety line');
+      expect(guide.link === 'https://code.claude.com/docs' && guide.file && guide.tries === 3, 'the setup-guide link, the closed project-file disclosure or the three things to try are not as written');
     }
-    await envChoice(tab, 'dialog.agent-token-dialog', token, await tab.eval('location.origin'), '1280 token window');
+    await guideChoice(tab, 'dialog.agent-token-dialog', token, await tab.eval('location.origin'), '1280 token window');
     expect(await waitText(tab, 'dialog.agent-token-dialog [data-agent-spaces]', `In 1 space: ${SPACE_NAME}`), 'the window does not say which space the agent is in');
     expect((await call('x', 'GET', '/api/agent/me', undefined, server, token)).status === 200, 'the token shown does not work');
-    expect(await waitText(tab, 'dialog.agent-token-dialog [data-agent-connected]', 'Claude connected, ', 16000), 'the live line in the window did not flip to "Claude connected" within the refresh window');
+    expect(await waitText(tab, 'dialog.agent-token-dialog [data-agent-connected]', 'Connected, ', 16000), 'the live line in the window did not flip to "Connected" within the refresh window');
     await shot(tab, 'token-dialog-1280-dark', false);
     await tab.switchMode('light'); await tab.settle();
     await shot(tab, 'token-dialog-1280-light', false);
@@ -285,9 +305,10 @@ async function main() {
     expect(await waitDialog(tab, false), 'Done did not close the token dialog');
     expect(!(await tab.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(token)}) || document.body.innerText.includes(${JSON.stringify(token)})`)), 'the token is still on the page after Done');
     expect(await text(tab, '[data-agent="make"]') === 'Make a new token' && !(await hiddenOf(tab, '[data-agent="revoke"]')), 'after a token is made the page does not offer a new one and Revoke');
-    expect(/^Claude connected, /.test(await text(tab, '[data-agent-connected]')) && (await tab.eval(`document.querySelector('[data-agent-connect] .agent-copy-text:not([data-agent-signin] *)').textContent`)).includes('agt_YOUR_TOKEN'), 'the page does not show "Claude connected" and the command with the placeholder');
-    await envChoice(tab, '#agent-page', 'agt_YOUR_TOKEN', await tab.eval('location.origin'), '1280 page');
-    expect(await tab.eval(`(() => { const c = [...document.querySelectorAll('[data-agent-connect] .agent-copy-text:not([data-agent-signin] *)')].map((e) => e.textContent); return c.includes('Bearer agt_YOUR_TOKEN') && !c.some((x) => x.includes(${JSON.stringify(token)})); })()`), 'the page does not show the header value with the placeholder only');
+    expect(/^Connected, /.test(await text(tab, '[data-agent-connected]')), 'the page does not show "Connected, ..." after the token was used');
+    expect(await tab.eval(`(() => { const sel = document.querySelector('#agent-page [data-agent-route]'); return sel.value === 'signin' && [...document.querySelectorAll('#agent-page [data-agent-route-panel]')].filter((p) => !p.hidden).length === 1; })()`), 'the page does not open on the sign-in route alone');
+    await guideChoice(tab, '#agent-page', 'agt_YOUR_TOKEN', await tab.eval('location.origin'), '1280 page');
+    expect(await tab.eval(`document.querySelector('#agent-page [data-agent-connect]').textContent.includes(${JSON.stringify(token)})`) === false, 'the page shows the real token in the guide');
     expect(/^Works for 1 year, until [A-Z][a-z]{2} \d{1,2}, \d{4}\.$/.test(await text(tab, '[data-agent-token-state]')), `the token state reads "${await text(tab, '[data-agent-token-state]')}"`);
     expect(await tab.eval(`document.querySelector('[data-agent-lifetime]').value`) === '30d', 'the choice remembered the last lifetime');
     await go(tab, `/admin#agent/${agent.key}`);
@@ -553,7 +574,7 @@ async function main() {
       expect(tokenWide.left >= 0 && tokenWide.right <= tokenWide.width && tokenWide.kLeft >= tokenWide.left && tokenWide.kRight <= tokenWide.right + 1, `390: the token box is outside the dialog or the window (${JSON.stringify(tokenWide)})`);
       for (const sel of ['dialog [data-agent="copy"]', 'dialog [data-agent="token-done"]']) expect(await hit(t, sel) >= 43.5, `390: ${sel} is ${await hit(t, sel)} px tall (44 is the least)`);
       const tok390 = await t.eval(`document.querySelector('.agent-token-value').textContent`);
-      await envChoice(t, 'dialog.agent-token-dialog', tok390, await t.eval('location.origin'), '390 token window');
+      await guideChoice(t, 'dialog.agent-token-dialog', tok390, await t.eval('location.origin'), '390 token window');
       await shot(t, 'token-dialog-390-dark', false);
       await t.switchMode('light'); await t.settle();
       await shot(t, 'token-dialog-390-light', false);
@@ -705,7 +726,7 @@ async function main() {
       await go(t, page);
       await t.waitFor('[data-agent="make"]');
       st = await state(t);
-      expect(st.warn === 'This token ends in 3 days. Make a new token before then, and update Claude with it.' && !st.warnHidden && st.make === 'Make a new token', `a token ending in 3 days reads ${JSON.stringify(st)}`);
+      expect(st.warn === 'This token ends in 3 days. Make a new token before then, and update your app with it.' && !st.warnHidden && st.make === 'Make a new token', `a token ending in 3 days reads ${JSON.stringify(st)}`);
       expect(new RegExp(`^Works for 30 days, until ${DATE}\\.$`).test(st.line), `the near-end line reads "${st.line}"`);
       expect(await t.eval(`(() => { const w = document.querySelector('[data-agent-ending]'); const b = document.querySelector('[data-agent="make"]'); return w.closest('.panel') === b.closest('.panel') && !!(w.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); })()`), 'the warning is not in the Token section above the Make a new token button');
       await shot(t, 'agent-page-token-ends-soon-1280-dark');
@@ -795,15 +816,15 @@ async function main() {
       const ord = (await adm('POST', '/api/users', { agent: true, displayName: 'Reader' })).json.user;
       await go(t, `/admin#agent/${ord.key}`);
       expect(await waitText(t, '[data-agent-title]', 'Reader (agent)') && await hiddenOf(t, '[data-agent-asks]') && await hiddenOf(t, '[data-agent-changes]') && !(await hiddenOf(t, '[data-agent-connect]')), 'the ordinary agent\'s page shows the set-up agent\'s lists');
-      expect(/Add this agent to a space/.test(await text(t, '[data-agent-connect]')), 'the ordinary agent\'s guide lost its first step');
+      expect(/Add this agent to a space/.test(await t.eval(`document.querySelector('[data-agent-connect] [data-agent-route-panel="code"]').textContent`)), 'the ordinary agent\'s guide lost its first step');
       // The set-up agent's guide has the environment-variable choice too: the placeholder on the page, the real token only in the window.
       await go(t, `/admin#agent/${other.key}`);
       await t.waitFor('[data-agent="make"]');
-      await envChoice(t, '#agent-page', 'agt_YOUR_TOKEN', await t.eval('location.origin'), 'set-up page');
+      await guideChoice(t, '#agent-page', 'agt_YOUR_TOKEN', await t.eval('location.origin'), 'set-up page', 0);
       await press(t, '[data-agent="make"]');
       expect(await waitDialog(t, true), 'the set-up agent\'s Make token showed no dialog');
       const otherToken = await t.eval(`document.querySelector('.agent-token-value').textContent`);
-      await envChoice(t, 'dialog.agent-token-dialog', otherToken, await t.eval('location.origin'), 'set-up token window');
+      await guideChoice(t, 'dialog.agent-token-dialog', otherToken, await t.eval('location.origin'), 'set-up token window', 0);
       await press(t, '[data-agent="token-done"]');
       expect(await waitDialog(t, false), 'Done did not close the set-up agent\'s token window');
       expect(!(await t.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(otherToken)}) || document.body.innerText.includes(${JSON.stringify(otherToken)})`)), 'the set-up agent\'s token is still on the page after Done');

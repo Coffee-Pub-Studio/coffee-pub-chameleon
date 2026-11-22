@@ -285,9 +285,9 @@ async function main() {
       expect(await text(tab, '[data-agent="revoke"]') === 'End connection' && !(await hiddenOf(tab, '[data-agent="revoke"]')), 'End connection is not offered');
       expect(await text(tab, '[data-agent="make"]') === 'Make token' && await text(tab, '[data-agent-make-hint]') === 'A token ends the connection.', 'Make token does not say it ends the connection');
       expect(await tab.eval(`window.__pwn === undefined`), 'the app name ran as markup on the agent page');
-      const guide = await tab.eval(`(() => { const s = document.querySelector('[data-agent-signin]'); return s ? { lead: s.querySelector('p').textContent, address: s.querySelector('.agent-copy-text').textContent, copy: !!s.querySelector('button'), hint: [...s.children].filter((e) => e.tagName === 'P').pop().textContent } : null; })()`);
-      expect(!!guide && guide.lead === 'Using an app that can sign in? Give it this address:' && guide.address === `${server.base}/mcp` && guide.copy, `the sign-in address block is ${JSON.stringify(guide)}`);
-      expect(!!guide && /needs only that/.test(guide.hint), 'the sign-in block does not say an app that signs in needs only the address');
+      const guide = await tab.eval(`(() => { const s = document.querySelector('[data-agent-signin]'); const sel = document.querySelector('[data-agent-route]'); return s ? { shown: !s.hidden, route: sel.value, label: sel.selectedOptions[0].textContent, address: s.querySelector('.agent-copy-text').textContent, copy: !!s.querySelector('button'), hint: s.querySelector('p.hint').textContent, steps: [...s.querySelectorAll(':scope > ol > li')].map((l) => l.firstChild.textContent) } : null; })()`);
+      expect(!!guide && guide.shown && guide.route === 'signin' && guide.label === 'An app that signs in (easiest)' && guide.address === `${server.base}/mcp` && guide.copy, `the sign-in address block is ${JSON.stringify(guide)}`);
+      expect(!!guide && /No token needed/.test(guide.hint) && guide.steps[2] === 'Allow it on the page that opens.', 'the sign-in route does not say no token is needed and to allow it on the page that opens');
       const lines = await tab.eval(`[...document.querySelectorAll('[data-agent-log] .agent-log-what')].map((e) => e.textContent)`);
       expect(lines.some((l) => /^Connected by sign-in: Nova img src=x onerror=window\.__pwn=1, allowed by .+$/.test(l)), `the log has no "Connected by sign-in" line (${JSON.stringify(lines)})`);
       expect(await wide(tab) <= 1, 'the agent page scrolls sideways at 1280');
