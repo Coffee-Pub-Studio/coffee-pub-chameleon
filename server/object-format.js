@@ -26,12 +26,12 @@ const MAX_SOURCES = 12;
 
 const BASES = ['general', 'items', 'both'];
 // The kinds (plan-object-handoff.md, "Kinds and their details"). TRAVEL_KINDS are the 13 from before the plan plus
-// attraction (a theme park, a zoo: #246, a stop like a sight); the prompt lists them when no enabled module declares
+// attraction (a theme park, a zoo: #246, a stop like a sight) and winery (a tasting: a stop like a bar); the prompt lists them when no enabled module declares
 // `takes` (kindsTaken). KINDS is every kind an AI or an import may write. HANDOFF_KINDS pass only between pages
 // (cleanObject's `handoff`), never from an AI or an import. PLAN_KINDS are a project's and a goal plan's entries
 // (Thomas, 2026-11-15: the planners' kinds join the shared format); like every kind, the prompt lists them only when an
 // enabled module's `takes` names them.
-const TRAVEL_KINDS = Object.freeze(['flight', 'train', 'bus', 'ferry', 'car', 'hotel', 'restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show']);
+const TRAVEL_KINDS = Object.freeze(['flight', 'train', 'bus', 'ferry', 'car', 'hotel', 'restaurant', 'cafe', 'bar', 'winery', 'sight', 'museum', 'attraction', 'tour', 'show']);
 const PLAN_KINDS = Object.freeze(['milestone', 'work', 'goal', 'step']);
 const KINDS = [...TRAVEL_KINDS, 'event', 'task', 'poll', 'note', 'link', ...PLAN_KINDS];
 const HANDOFF_KINDS = Object.freeze(['image']);
@@ -74,6 +74,7 @@ const DETAILS = deepFreeze({
   restaurant: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60', ...BOOKING_DETAILS },
   cafe: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60', ...BOOKING_DETAILS },
   bar: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60', ...BOOKING_DETAILS },
+  winery: { ...STOP_DETAILS, partySize: 'count:99', name: 'text:60', reference: 'text:60', ...BOOKING_DETAILS },
   sight: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60', ...BOOKING_DETAILS },
   museum: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60', ...BOOKING_DETAILS },
   attraction: { ...STOP_DETAILS, tickets: 'count:999', reference: 'text:60', ...BOOKING_DETAILS },

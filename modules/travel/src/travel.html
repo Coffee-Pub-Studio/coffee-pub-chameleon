@@ -169,9 +169,9 @@
     <div class="sdk-form-row" id="f-timing">
       <div class="sdk-field sdk-m" id="f-date-field" role="group" aria-labelledby="f-date-label"><span class="sdk-label" id="f-date-label">When</span><select id="f-date" name="date" hidden></select><input id="f-date-input" type="date" aria-labelledby="f-date-label" aria-describedby="f-date-phase"><span class="sdk-hint" id="f-date-phase" role="status"></span></div>
       <label class="sdk-field sdk-m" id="f-phase-row" hidden><span class="sdk-label">Phase</span><select id="f-phase" name="phase"></select><span class="sdk-hint"></span></label>
-      <label class="sdk-field sdk-s" id="f-time-field" data-types="block flight train ferry bus car taxi rideshare shuttle restaurant cafe bar sight museum attraction tour show hotel"><span class="sdk-label" id="f-time-label">Start time</span><input id="f-time" name="time" type="time"><span class="sdk-hint"></span></label>
-      <label class="sdk-field sdk-s" id="f-end-field" data-types="block car taxi rideshare shuttle restaurant cafe bar sight museum attraction tour show"><span class="sdk-label" id="f-end-label">End time</span><input id="f-endTime" type="time" aria-describedby="f-endNote"><span class="sdk-hint" id="f-endNote" role="status"></span></label>
-      <div class="sdk-field sdk-m" id="f-length-field" role="group" aria-labelledby="f-minutes-label" data-types="block flight train ferry bus car taxi rideshare shuttle restaurant cafe bar sight museum attraction tour show"><span class="sdk-label" id="f-minutes-label">How long</span><span class="sdk-group sdk-duration"><input id="f-hours" name="hours" type="number" min="0" step="1" inputmode="numeric" aria-label="Hours"><span class="sdk-unit">h</span><input id="f-minutes" name="minutes" type="number" min="0" step="1" inputmode="numeric" aria-label="Minutes"><span class="sdk-unit">min</span></span><span class="sdk-hint"></span></div>
+      <label class="sdk-field sdk-s" id="f-time-field" data-types="block flight train ferry bus car taxi rideshare shuttle restaurant cafe bar winery sight museum attraction tour show hotel"><span class="sdk-label" id="f-time-label">Start time</span><input id="f-time" name="time" type="time"><span class="sdk-hint"></span></label>
+      <label class="sdk-field sdk-s" id="f-end-field" data-types="block car taxi rideshare shuttle restaurant cafe bar winery sight museum attraction tour show"><span class="sdk-label" id="f-end-label">End time</span><input id="f-endTime" type="time" aria-describedby="f-endNote"><span class="sdk-hint" id="f-endNote" role="status"></span></label>
+      <div class="sdk-field sdk-m" id="f-length-field" role="group" aria-labelledby="f-minutes-label" data-types="block flight train ferry bus car taxi rideshare shuttle restaurant cafe bar winery sight museum attraction tour show"><span class="sdk-label" id="f-minutes-label">How long</span><span class="sdk-group sdk-duration"><input id="f-hours" name="hours" type="number" min="0" step="1" inputmode="numeric" aria-label="Hours"><span class="sdk-unit">h</span><input id="f-minutes" name="minutes" type="number" min="0" step="1" inputmode="numeric" aria-label="Minutes"><span class="sdk-unit">min</span></span><span class="sdk-hint"></span></div>
       <div class="sdk-field sdk-m" id="f-checkout-field" role="group" aria-labelledby="f-checkout-label" data-types="hotel car"><span class="sdk-label" id="f-checkout-label">Check out</span><select id="f-checkout" name="checkOut" hidden></select><input id="f-checkout-input" type="date" aria-labelledby="f-checkout-label" aria-describedby="f-checkout-phase"><span class="sdk-hint" id="f-checkout-phase" role="status"></span></div>
       <label class="sdk-field sdk-s" id="f-checkouttime-field" data-types="hotel"><span class="sdk-label">Check-out time</span><input id="f-checkOutTime" name="checkOutTime" type="time"><span class="sdk-hint"></span></label>
     </div>
@@ -245,7 +245,7 @@
       </div>
     </fieldset>
 
-    <fieldset class="sdk-section" data-types="restaurant cafe bar sight museum attraction tour show"><legend class="sdk-section-title">Where and who</legend>
+    <fieldset class="sdk-section" data-types="restaurant cafe bar winery sight museum attraction tour show"><legend class="sdk-section-title">Where and who</legend>
       <div class="sdk-field sdk-full" id="f-place-field" role="group" aria-labelledby="f-place-label">
         <span class="sdk-label" id="f-place-label">Place</span>
         <input id="f-place" name="place" maxlength="120" autocomplete="off" aria-labelledby="f-place-label" aria-describedby="f-place-hint">
@@ -260,14 +260,14 @@
       </div>
       <label class="sdk-field sdk-full"><span class="sdk-label">Address</span><input id="f-address-stop" name="address" maxlength="200"><span class="sdk-hint"></span></label>
       <div class="sdk-form-row">
-        <label class="sdk-field sdk-m" data-types="restaurant cafe bar"><span class="sdk-label">Party size</span><input id="f-partySize" name="partySize" type="number" min="1"><span class="sdk-hint"></span></label>
-        <label class="sdk-field sdk-m" data-types="restaurant cafe bar"><span class="sdk-label">Reservation name</span><input id="f-reservationName" name="reservationName" maxlength="80"><span class="sdk-hint"></span></label>
+        <label class="sdk-field sdk-m" data-types="restaurant cafe bar winery"><span class="sdk-label">Party size</span><input id="f-partySize" name="partySize" type="number" min="1"><span class="sdk-hint"></span></label>
+        <label class="sdk-field sdk-m" data-types="restaurant cafe bar winery"><span class="sdk-label">Reservation name</span><input id="f-reservationName" name="reservationName" maxlength="80"><span class="sdk-hint"></span></label>
         <label class="sdk-field sdk-s" data-types="sight museum attraction tour show"><span class="sdk-label">Tickets</span><input id="f-admissionCount" name="admissionCount" type="number" min="1"><span class="sdk-hint"></span></label>
         <label class="sdk-field sdk-s" data-types="show"><span class="sdk-label">Entry</span><input id="f-gate-show" name="gate" maxlength="40"><span class="sdk-hint"></span></label>
       </div>
     </fieldset>
 
-    <fieldset class="sdk-section" data-types="flight train ferry bus car taxi rideshare shuttle hotel restaurant cafe bar sight museum attraction tour show"><legend class="sdk-section-title">Booking</legend>
+    <fieldset class="sdk-section" data-types="flight train ferry bus car taxi rideshare shuttle hotel restaurant cafe bar winery sight museum attraction tour show"><legend class="sdk-section-title">Booking</legend>
       <p class="sdk-hint" id="f-booking-both" hidden>The reference, amounts and payer cover both legs.</p>
       <div class="sdk-form-row">
         <label class="sdk-field sdk-m" id="f-confirm-field"><span class="sdk-label">Reference</span><input id="f-confirm" name="confirm" class="mono" maxlength="40"><span class="sdk-hint"></span></label>
@@ -285,9 +285,9 @@
       </div>
     </fieldset>
 
-    <label class="sdk-field sdk-full" data-types="lane block note flight train ferry bus car taxi rideshare shuttle hotel restaurant cafe bar sight museum attraction tour show"><span class="sdk-label">Notes</span><textarea id="f-notes" name="notes" rows="3" maxlength="8000"></textarea><span class="sdk-hint"></span></label>
+    <label class="sdk-field sdk-full" data-types="lane block note flight train ferry bus car taxi rideshare shuttle hotel restaurant cafe bar winery sight museum attraction tour show"><span class="sdk-label">Notes</span><textarea id="f-notes" name="notes" rows="3" maxlength="8000"></textarea><span class="sdk-hint"></span></label>
 
-    <fieldset class="sdk-section" data-types="flight train ferry bus car taxi rideshare shuttle hotel restaurant cafe bar sight museum attraction tour show"><legend class="sdk-section-title">Getting to this stop</legend>
+    <fieldset class="sdk-section" data-types="flight train ferry bus car taxi rideshare shuttle hotel restaurant cafe bar winery sight museum attraction tour show"><legend class="sdk-section-title">Getting to this stop</legend>
       <div class="sdk-form-row">
         <div class="sdk-field sdk-m" role="group" aria-labelledby="f-travelMode-label"><span class="sdk-label" id="f-travelMode-label">How you get there</span><span class="sdk-group"><span class="mf-switch" id="f-travelMode" role="radiogroup" aria-labelledby="f-travelMode-label"><button class="mf-switch-btn mode" type="button" role="radio" aria-checked="false" tabindex="0" data-mode="walk" aria-label="Walk" data-tip="Walk"><span class="ic" data-icon="person-walking" aria-hidden="true"></span></button><button class="mf-switch-btn mode" type="button" role="radio" aria-checked="false" tabindex="-1" data-mode="drive" aria-label="Drive" data-tip="Drive"><span class="ic" data-icon="car" aria-hidden="true"></span></button><button class="mf-switch-btn mode" type="button" role="radio" aria-checked="false" tabindex="-1" data-mode="transit" aria-label="Transit" data-tip="Transit"><span class="ic" data-icon="bus" aria-hidden="true"></span></button><button class="mf-switch-btn mode" type="button" role="radio" aria-checked="false" tabindex="-1" data-mode="bike" aria-label="Bike" data-tip="Bike"><span class="ic" data-icon="bicycle" aria-hidden="true"></span></button><button class="mf-switch-btn mode" type="button" role="radio" aria-checked="false" tabindex="-1" data-mode="taxi" aria-label="Taxi" data-tip="Taxi"><span class="ic" data-icon="taxi" aria-hidden="true"></span></button><button class="mf-switch-btn mode" type="button" role="radio" aria-checked="false" tabindex="-1" data-mode="rideshare" aria-label="Ride share" data-tip="Ride share"><span class="ic" data-icon="car-side" aria-hidden="true"></span></button></span></span></div>
         <div class="sdk-field sdk-m" role="group" aria-labelledby="f-travelMinutes-label"><span class="sdk-label" id="f-travelMinutes-label">How long from the stop before</span><span class="sdk-group sdk-duration"><input id="f-travelHours" name="travelHours" type="number" min="0" step="1" inputmode="numeric" aria-label="Hours"><span class="sdk-unit">h</span><input id="f-travelMinutes" name="travelMinutes" type="number" min="0" step="1" inputmode="numeric" aria-label="Minutes"><span class="sdk-unit">min</span></span><span class="sdk-hint"></span></div>

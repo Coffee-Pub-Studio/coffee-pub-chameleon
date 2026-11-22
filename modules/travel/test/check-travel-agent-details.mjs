@@ -152,4 +152,17 @@ for (const name of ['addStop', 'acceptSuggestion']) {
 for (const k of ['title', 'date', 'notes', 'ref']) assert.ok(act('addStop').input[k], `addStop keeps ${k}`);
 for (const k of ['title', 'kind', 'content', 'place', 'date', 'object']) assert.ok(act('acceptSuggestion').input[k], `acceptSuggestion keeps ${k}`);
 
+// typed items: the kinds acceptSuggestion takes are the manifest's `takes` and its `kind` hint; any other kind is refused with them listed
+const takes = act('acceptSuggestion').takes.flatMap((e) => e.kinds);
+const sentence = `${takes.slice(0, -1).join(', ')} or ${takes[takes.length - 1]}`;
+assert.ok(takes.includes('winery') && takes.includes('hotel') && takes.includes('restaurant'));
+assert.ok(act('acceptSuggestion').inputHints.kind.includes(takes.join(', ').replace(/, note$/, '').replace(/, event$/, '')) || takes.every((k) => act('acceptSuggestion').inputHints.kind.includes(k)), 'the kind hint lists every kind taken');
+for (const [name, hint] of Object.entries(act('acceptSuggestion').inputHints)) assert.ok(hint.length <= 200, `${name} hint is at most 200 characters`);
+await refused(() => acceptSuggestion({ title: 'x', kind: 'spaceship' }), `That kind is not one the itinerary takes. Use ${sentence}.`);
+const tasting = await acceptSuggestion({ title: 'Tasting', kind: 'winery', date: '2026-10-03', time: '11:00', minutes: 60 });
+const tasted = plan.list().find((i) => i.id === tasting.ref.id);
+assert.deepEqual([tasted.kind, tasted.type, tasted.category], ['stop', 'winery', 'eat']);
+assert.match(act('addStop').description, /acceptSuggestion with a kind\.$/);
+assert.equal(act('addStop').input.kind, undefined, 'addStop takes no kind: a typed item goes through acceptSuggestion');
+
 console.log('check-travel-agent-details: OK');

@@ -576,10 +576,14 @@
         },
         // A suggestion from anywhere (an AI's typed summary, another module's idea): placed as the right kind of item when its
         // `kind` is one of the everyday words a journey, a stay or a stop already knows (a flight, a hotel, a sight...); an
-        // unrecognised or missing kind is an ordinary stop, the same as addStop. Found by name and input shape, never by
+        // missing kind is an ordinary stop, the same as addStop, and any other kind is refused. Found by name and input shape, never by
         // whoever asks for it.
         // With `object` (plan-object-handoff.md): the whole object, its details in the plan's own fields (fromObject).
-        acceptSuggestion: async (input) => (input.object ? addObject(input.object, input.placeRef) : addHandedIn(await withPlaceRef(fromSuggestion(input), input.placeRef))),
+        acceptSuggestion: async (input) => {
+          if (input.object) return addObject(input.object, input.placeRef);
+          if (input.kind !== undefined && input.kind !== null && input.kind !== '' && !ACCEPT_KINDS.includes(input.kind)) throw new Error(`That kind is not one the itinerary takes. Use ${ACCEPT_KINDS.slice(0, -1).join(', ')} or ${ACCEPT_KINDS[ACCEPT_KINDS.length - 1]}.`);
+          return addHandedIn(await withPlaceRef(fromSuggestion(input), input.placeRef));
+        },
         // Put a stop that is already on the plan at a saved place (what the editor's Pick from Maps does), or take it off its place.
         setStopPlace: async (input) => {
           const cur = input.stop && items.get(input.stop.id);
@@ -653,7 +657,7 @@
       const kindWord = typeof input.kind === 'string' ? input.kind : '';
       if (MODES.includes(kindWord)) { fields.kind = 'journey'; fields.mode = kindWord; }
       else if (STAY_TYPES.includes(kindWord)) { fields.kind = 'stay'; fields.type = kindWord; }
-      else if (STOP_TYPES.includes(kindWord)) { fields.kind = 'stop'; fields.type = kindWord; }
+      else if (STOP_TYPES.includes(kindWord)) { fields.kind = 'stop'; fields.type = kindWord; if (['restaurant', 'cafe', 'bar', 'winery'].includes(kindWord)) fields.category = 'eat'; }
       else fields.kind = 'stop';
       return withDetails(input, fields);
     }

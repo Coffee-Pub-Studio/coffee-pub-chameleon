@@ -21,7 +21,7 @@ function promptExample(kinds, withProvenance) {
 
 // What a details field needs said beside its name. A `when` is explained once, in the dates line.
 const FIELD_NOTES = {
-  'flight.minutes': 'time in the air', 'car.from': 'pick-up', 'car.to': 'drop-off', 'car.departs': 'pick-up', 'car.arrives': 'drop-off', 'restaurant.name': "the booking's name", 'cafe.name': "the booking's name", 'bar.name': "the booking's name",
+  'flight.minutes': 'time in the air', 'car.from': 'pick-up', 'car.to': 'drop-off', 'car.departs': 'pick-up', 'car.arrives': 'drop-off', 'restaurant.name': "the booking's name", 'cafe.name': "the booking's name", 'bar.name': "the booking's name", 'winery.name': "the booking's name",
   'milestone.start': 'its day', 'milestone.phase': "the phase's name", 'milestone.under': 'the title of what it sits under',
   'work.start': 'first day', 'work.end': 'last day', 'work.phase': "the phase's name", 'work.under': 'the title of what it sits under',
   'goal.why': 'why it matters', 'goal.date': 'the day it is due', 'goal.phase': "the phase's name",

@@ -921,7 +921,7 @@
     const kindRow = (t) => ({ id: t, label: KICKERS[t], icon: BADGES[t], tip: `Add ${/^[aeiou]/i.test(KICKERS[t]) ? 'an' : 'a'} ${KICKERS[t].toLowerCase()}` }); // "an attraction"
     const kinds = [];
     const category = (id, label, icon, tiles) => { if (tiles.length) kinds.push({ id, label, icon, items: tiles.map(kindRow) }); };
-    const EAT = ['restaurant', 'cafe', 'bar'];
+    const EAT = ['restaurant', 'cafe', 'bar', 'winery'];
     category('travel', 'Travel', 'plane', JOURNEY_TILES);
     kinds.push({ id: 'hotel', label: 'Add a stay', icon: 'bed' });
     category('eat', 'Eat and drink', 'utensils', STOP_TILES.filter((t) => EAT.includes(t)));
@@ -2187,7 +2187,7 @@
   // --- the editor ---------------------------------------------------------------------------------------------
 
   // A placeholder for the title of each kind of thing.
-  const TITLES = { flight: 'Flight to Lisbon', train: 'Train to Porto', ferry: 'Ferry to the island', bus: 'Bus to the airport', car: 'Rental car', taxi: 'Taxi to the hotel', rideshare: 'Ride to the airport', shuttle: 'Shuttle to the airport', hotel: 'Hotel Avenida', restaurant: 'Dinner at Cervejaria Ramiro', cafe: 'Coffee at the pier', bar: 'Drinks at the rooftop', sight: 'Belem Tower', museum: 'The tile museum', attraction: 'Disneyland', tour: 'Walking tour', show: 'Fado night', note: 'Remember to...' };
+  const TITLES = { flight: 'Flight to Lisbon', train: 'Train to Porto', ferry: 'Ferry to the island', bus: 'Bus to the airport', car: 'Rental car', taxi: 'Taxi to the hotel', rideshare: 'Ride to the airport', shuttle: 'Shuttle to the airport', hotel: 'Hotel Avenida', restaurant: 'Dinner at Cervejaria Ramiro', cafe: 'Coffee at the pier', bar: 'Drinks at the rooftop', winery: 'Tasting at the vineyard', sight: 'Belem Tower', museum: 'The tile museum', attraction: 'Disneyland', tour: 'Walking tour', show: 'Fado night', note: 'Remember to...' };
   const option = (value, label) => { const o = document.createElement('option'); o.value = value; o.textContent = label; return o; };
   // The days a stay can check out, a list like the check-in's (#245): the day after it checks in and on, as many as a plan can be
   // long (checkoutDays; a stored day past that is added), so a stay can check out after the trip's last day. Until a check-out is
@@ -2417,13 +2417,13 @@
     ? (turn) => `oklch(from var(--accent) l calc(c * 0.95) calc(h + ${turn}))`
     : () => 'color-mix(in srgb, var(--accent) 65%, var(--text))';
   // Other words a kind is found by when typing.
-  const KIND_WORDS = { flight: ['plane', 'air', 'fly'], train: ['rail'], ferry: ['boat', 'ship'], bus: ['coach'], car: ['rental', 'drive', 'hire'], taxi: ['cab'], rideshare: ['uber', 'lyft', 'ride'], shuttle: ['van'], hotel: ['hotel', 'rental', 'hostel', 'camp', 'lodging', 'sleep'], restaurant: ['dinner', 'lunch', 'eat', 'meal', 'food'], cafe: ['coffee', 'breakfast', 'brunch'], bar: ['drinks', 'pub', 'cocktails'], sight: ['see', 'landmark', 'beach', 'shop', 'spa'], museum: ['gallery', 'exhibit'], attraction: ['theme park', 'park', 'zoo', 'aquarium', 'disney', 'rides'], tour: ['hike', 'walk', 'guide'], show: ['theater', 'theatre', 'concert', 'tickets', 'game'], note: ['memo', 'reminder'] };
+  const KIND_WORDS = { flight: ['plane', 'air', 'fly'], train: ['rail'], ferry: ['boat', 'ship'], bus: ['coach'], car: ['rental', 'drive', 'hire'], taxi: ['cab'], rideshare: ['uber', 'lyft', 'ride'], shuttle: ['van'], hotel: ['hotel', 'rental', 'hostel', 'camp', 'lodging', 'sleep'], restaurant: ['dinner', 'lunch', 'eat', 'meal', 'food'], cafe: ['coffee', 'breakfast', 'brunch'], bar: ['drinks', 'pub', 'cocktails'], winery: ['wine', 'vineyard', 'tasting'], sight: ['see', 'landmark', 'beach', 'shop', 'spa'], museum: ['gallery', 'exhibit'], attraction: ['theme park', 'park', 'zoo', 'aquarium', 'disney', 'rides'], tour: ['hike', 'walk', 'guide'], show: ['theater', 'theatre', 'concert', 'tickets', 'game'], note: ['memo', 'reminder'] };
   const kindOption = (t, label) => ({ id: t, label: label || KICKERS[t], icon: t === 'hotel' ? 'bed' : t === 'note' ? 'note-sticky' : BADGES[t], color: TONE(TURNS[t] || 0), words: KIND_WORDS[t] });
   function kindGroups() {
     return [
       { label: 'Getting there', options: JOURNEY_TILES.map((t) => kindOption(t)) },
       { label: 'Stay', options: [kindOption('hotel', 'Stay')] },
-      { label: 'Eat and drink', options: ['restaurant', 'cafe', 'bar'].map((t) => kindOption(t)) },
+      { label: 'Eat and drink', options: ['restaurant', 'cafe', 'bar', 'winery'].map((t) => kindOption(t)) },
       { label: 'See and do', options: ['sight', 'museum', 'attraction', 'tour', 'show'].map((t) => kindOption(t)) },
       { label: 'Markers', options: blockTypes().map((t) => ({ id: `marker:${t.id}`, label: t.label, icon: t.icon, color: t.color, words: ['marker', 'time'] })) },
       { label: 'Other', options: [kindOption('note', 'Note')] },

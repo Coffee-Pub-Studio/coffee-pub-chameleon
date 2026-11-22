@@ -73,7 +73,7 @@ await test('the bus\'s object: kept as the checker keeps it, a picture kept, no 
 
 // Stand-in manifests as the server keeps them (actions.provides[].takes).
 const manifest = (id, provides) => ({ id, actions: { provides } });
-const planner = manifest('stand-plans', [{ name: 'acceptSuggestion', takes: [{ kinds: ['flight', 'train', 'bus', 'ferry', 'car'], as: '{kind}' }, { kinds: ['hotel'], as: 'a stay' }, { kinds: ['restaurant', 'cafe', 'bar', 'sight', 'museum', 'attraction', 'tour', 'show', 'event'], as: '{kind}' }, { kinds: ['note'], as: 'a note' }] }]);
+const planner = manifest('stand-plans', [{ name: 'acceptSuggestion', takes: [{ kinds: ['flight', 'train', 'bus', 'ferry', 'car'], as: '{kind}' }, { kinds: ['hotel'], as: 'a stay' }, { kinds: ['restaurant', 'cafe', 'bar', 'winery', 'sight', 'museum', 'attraction', 'tour', 'show', 'event'], as: '{kind}' }, { kinds: ['note'], as: 'a note' }] }]);
 const todo = manifest('stand-tasks', [{ name: 'createTask', takes: [{ kinds: ['task', '*', 'text'], as: 'a task' }] }]);
 const calendar = manifest('stand-days', [{ name: 'createEvent', takes: [{ kinds: ['*', 'text'], except: TRAVEL_KINDS.slice(), as: 'an event' }] }]);
 const research = manifest('stand-notes', [{ name: 'saveNote', takes: [{ kinds: ['note', '*', 'text'], as: 'a note' }] }, { name: 'saveLink', takes: [{ kinds: ['link'], as: 'a link' }] }, { name: 'savePhoto', takes: [{ kinds: ['image'], as: 'an image' }] }]);
@@ -100,12 +100,12 @@ await test('the prompt\'s kinds: only those some enabled module names, in the ca
 await test('the copied instructions for different sets of modules: each kind with every field of its details', () => {
   const every = instructions('object', { kinds: kindsTaken([planner, todo, calendar, research, polls]) });
   assert.ok(every.startsWith(`I keep my plans and research in ${PRODUCT}. `));
-  assert.match(every, /Set "kind" to what the object is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, sight, museum, attraction, tour, show, event, task, poll, note or link\. Leave it out only when none fits\./);
+  assert.match(every, /Set "kind" to what the object is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show, event, task, poll, note or link\. Leave it out only when none fits\./);
   assert.match(every, /One object per thing\. A whole itinerary is one object for each flight, train, stay, meal, visit and event, in the order they happen; a return flight is its own object\. Never fold several into one object's text\./);
   assert.match(every, /never guess a date or a year\. If something happens on a day you were not told, ask me for the date before you write the block; if I do not know, leave the date out\./);
   assert.match(every, /- flight: airline, number, from and to \(\{"code","name"\}\), departs, arrives, minutes \(time in the air\), terminal, gate, seat, class, reference\n/);
   assert.match(every, /\n- car: company, from \(pick-up\), to \(drop-off\), departs \(pick-up\), arrives \(drop-off\), class, reference\n/);
-  assert.match(every, /\n- restaurant, cafe, bar: starts, ends, minutes, address, partySize, name \(the booking's name\), reference\n/);
+  assert.match(every, /\n- restaurant, cafe, bar, winery: starts, ends, minutes, address, partySize, name \(the booking's name\), reference\n/);
   assert.match(every, /\n- sight, museum, attraction, tour, show: starts, ends, minutes, address, tickets, reference\n/);
   assert.match(every, /\n- note and link: no details; a link's address goes in "links"\.\n/);
   assert.ok(!every.includes('image'), 'a picture is never asked of an AI');
@@ -125,11 +125,12 @@ await test('the copied instructions for different sets of modules: each kind wit
   assert.ok(instructions('object', { kinds: ['hotel', 'task'] }).includes('\n- hotel also takes: cost ('), 'one booking kind is named');
   assert.ok(!instructions('object', { kinds: ['event', 'task'] }).includes('also takes'), 'no booking, no booking line');
   const before = JSON.parse(fs.readFileSync(path.join(ROOT, 'tools/fixtures/object-format/before-details.json'), 'utf8'));
-  assert.equal(every, before.prompts.instructionsEveryKind);
+  // The recorded text is of the kinds before winery joined (2026-11-22): the same instructions without it.
+  assert.equal(instructions('object', { kinds: kindsTaken([planner, todo, calendar, research, polls]).filter((k) => k !== 'winery') }), before.prompts.instructionsEveryKind);
   // The size the plan expects: about 1,500 characters over the instructions before details (1,895 with "Testname"),
   // plus room for the travel-kind sentence (a booking keeps its own kind rather than "event") Thomas asked for on 2026-10-04,
-  // and for a booking's cost, currency and travellers (plan-assistant-reboot.md, decision 3: about 220 more).
-  assert.ok(every.length - 1895 < 2320, `the full instructions are ${every.length} characters, ${2320 - (every.length - 1895)} under the budget of 2320 over the 1,895 before details`);
+  // and for a booking's cost, currency and travellers (plan-assistant-reboot.md, decision 3: about 220 more), and for winery (2026-11-22: about 20 more).
+  assert.ok(every.length - 1895 < 2350, `the full instructions are ${every.length} characters, ${2350 - (every.length - 1895)} under the budget of 2350 over the 1,895 before details`);
   const travelOnly = instructions('object');
   // To-do off: no task line, no task in the kinds.
   const noTodo = instructions('object', { kinds: kindsTaken([planner, calendar, research, polls]) });
@@ -660,7 +661,7 @@ try {
   await test('live: the copied instructions list what the enabled modules take; the schema is the whole catalogue', async () => {
     const shown = async () => (await call('GET', '/api/objects/format', { token: pat })).json;
     let format = await shown();
-    assert.match(format.instructions, /Set "kind" to what the object is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, sight, museum, attraction, tour, show, event, task, poll or note\./);
+    assert.match(format.instructions, /Set "kind" to what the object is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show, event, task, poll or note\./);
     assert.match(format.instructions, /\n- task: due\n/);
     assert.deepEqual(format.schema.$defs.object.properties.kind.enum, EVERY_KIND);
     await turn('stand-polls', false);
@@ -673,7 +674,7 @@ try {
     assert.deepEqual(format.schema.$defs.object.properties.kind.enum, EVERY_KIND, 'the schema stays one schema');
     await turn('stand-older', true);
     format = await shown();
-    assert.match(format.instructions, /Set "kind" to what the object is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, sight, museum, attraction, tour, show or task\./, 'the old typed keeper beside Tasks: the travel kinds and task');
+    assert.match(format.instructions, /Set "kind" to what the object is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show or task\./, 'the old typed keeper beside Tasks: the travel kinds and task');
     await turn('stand-older', false);
     for (const id of ['stand-days', 'stand-tasks', 'stand-notes']) await turn(id, false);
     format = await shown();

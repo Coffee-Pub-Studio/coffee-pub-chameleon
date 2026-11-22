@@ -8,8 +8,8 @@
     "hash": "f6b68549eb1823f3"
   },
   "calendar": {
-    "version": "1.24.45",
-    "hash": "1574e119bab9dd8a"
+    "version": "1.24.46",
+    "hash": "d36048528b6c8a60"
   },
   "documents": {
     "version": "0.11.36",
@@ -44,8 +44,8 @@
     "hash": "ff92cc76d07900d5"
   },
   "travel": {
-    "version": "0.16.13",
-    "hash": "b416af278dfd7e60"
+    "version": "0.16.14",
+    "hash": "8dc51e80324046e4"
   },
   "vault": {
     "version": "0.4.9",
