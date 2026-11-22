@@ -2,7 +2,7 @@
 
 **Audience:** Thomas decides. If he approves, experience-design builds the picker in the SDK, the host pages' use of it and its entry on the design-system Pickers page; server-development writes its check. This is a core change (`public/sdk/host.js`, `public/sdk/system.css`, and the host pages that draw a colour field today), so each step is held for an independent read, and the full `npm run check` covers it at release prep, run by the project manager. content-manager documents it afterwards. The Whiteboard's colours (#544) are a module-lane follow-up once step 2 lands, not part of this build.
 
-**Status:** Being built on the branch `claude/colour-picker-933`, not merged (2026-11-19). Steps 1 to 4 are built. Each step had its independent reads: step 1 twice; step 2 three times, the last with no must-fix; steps 3 and 4 once, with no must-fix. The fixes from every read are in. The check holds them: `tools/check-colour-picker.mjs`, 1196 checks, 235 in Node and 961 in Chromium. Nothing is merged; the work is on the draft pull request #934. Step 5, the documents, is written (content-manager, 2026-11-19). Decisions 1 to 21 are below; decisions 8 and 11 are replaced by decision 20 (2026-11-22). Thomas added decisions 12 to 17 on 2026-11-19 ("merge the colour picker when green"). Open questions 3 to 8 were built with the plan's suggestions.
+**Status:** Being built on the branch `claude/colour-picker-933`, not merged (2026-11-19). Steps 1 to 4 are built. Each step had its independent reads: step 1 twice; step 2 three times, the last with no must-fix; steps 3 and 4 once, with no must-fix. The fixes from every read are in. The check holds them: `tools/check-colour-picker.mjs`, 1196 checks, 235 in Node and 961 in Chromium. Nothing is merged; the work is on the draft pull request #934. Step 5, the documents, is written (content-manager, 2026-11-19). Decisions 1 to 26 are below; decisions 8 and 11 are replaced by decision 20 (2026-11-22), and decision 12 (the palette of three groups) by decisions 22 and 24 (2026-11-22). Decisions 22 to 26 (the palette becomes the person's own grid) are not built yet; their contract is "The person's colour grid" and they are steps 6 and 7. Thomas added decisions 12 to 17 on 2026-11-19 ("merge the colour picker when green"). Open questions 3 to 8 were built with the plan's suggestions.
 
 **Progress notes (content-manager, 2026-11-19, from the code on the branch).** Built as the contract says, with these differences: `host.ui.colorPalette()` is not built, since Thomas decided it is not built now (decision 17; the host's pages read the palette as `window.hostColour.palette`); the default palette is built as proposed. `profile.html` and `module-config.html` load the SDK; `host.html` does not, because the host console's template editor draws no colour field. A new list row takes the Strong group's colours by its place in the list. The picker answers on a press outside only when something changed (else `null`), and Enter in Hex is always a choice (open question 6, built so). Also fixed on the way: a sandboxed frame now gets every theme role the page writes, so popovers have their surface there; a frame drops a role the page no longer sends; and menus, the tags picker and the colour picker are placed right on a scrolled page or frame. Gaps are in [known-issues](../known-issues.md), "The colour picker: gaps", and what is left in [TODO](../TODO.md).
 
@@ -59,8 +59,8 @@ Thomas, 2026-11-19 (open question 2).
 
 Thomas, 2026-11-19 ("merge when green").
 
-12. **The default palette is accepted as built:** 24 colours in three groups of 8, Light, Dark and Strong. This answers open question 1.
-13. **New list rows start on the Strong colours in turn, Red first,** not the whole palette in order. This replaces "in order" in the contract. Reason: Strong is the group for marks and bold fills.
+12. **The default palette is accepted as built:** 24 colours in three groups of 8, Light, Dark and Strong. This answers open question 1. *Replaced by decisions 22 and 24 (2026-11-22): one grid sorted by colour, with 24 new starting colours. Text kept as the record.*
+13. **New list rows start on the Strong colours in turn, Red first,** not the whole palette in order. This replaces "in order" in the contract. Reason: Strong is the group for marks and bold fills. *Decision 22 removes the Strong group, so which colours a new list row takes is open again (open question 9).*
 14. **In dark mode 16 of the 24 swatches get the stronger edge,** as built.
 15. **At 360 px wide the swatch cells narrow to about 42 px wide and stay 44 px tall,** as built.
 16. **`host.html` does not load the SDK, and `module-config.html` does,** as built. Reason: the host console draws no colour field there.
@@ -75,6 +75,20 @@ Thomas, 2026-11-22 (after trying Whiteboard 0.1.84).
 
 20. **Where a colour can't keep an opacity, the picker shows no Opacity slider and no line.** Thomas: "'opacity isn't kept here' makes no sense to the user. if you can't set it, don't show it." So with `opacity: false` the picker draws no slider and no line, and the answer's opacity is always 100. This replaces decision 8 (the slider always shown) and decision 11 (O2, shown switched off). Reason: a control or a line a person can't use only confuses.
 21. **The Whiteboard's Colour row and the picker's starting colour are the colour the block shows as drawn, not its stored base tint.** Thomas: "i want to honor what is in the color picker, so i think that means show the shade as drawn." So the picker opens on the shade the block is drawn in, and anything picked draws exactly as picked. Reason: what a person sees in the picker and on the board must be the same colour.
+
+Thomas, 2026-11-22 (the palette becomes the person's own grid).
+
+22. **The picker's palette is one grid, organised by colour.** Thomas: "get rid of these categories. just show a grid of colors, organized by color. we do not need the previous ones." So there are no Light, Dark or Strong headings. The palette is one grid sorted by hue: whites, greys and black first, then red through purple. Recent stays as it is. This replaces decision 12. Reason: one grid by colour is easier to scan than three named groups.
+23. **The person edits the grid.** Thomas: "we should be able to drag a current one into the grid. right click to remove one." The grid is kept per person, on any device (his choice): it is stored on the person's account, not in the browser. These are the project manager's leans, not Thomas's words, and stand unless he says otherwise:
+    - a right-click on a swatch opens a small menu with "Remove";
+    - the Delete key on a focused swatch removes it too;
+    - a "+" at the end of the grid adds the current colour, for keyboard and touch;
+    - the grid holds at most 48 colours;
+    - a colour already in the grid is not added twice;
+    - a colour a person adds keeps its opacity.
+24. **The starting grid is 24 new colours, a traditional palette, all fully opaque.** Thomas: "ignore the colors from before. go with 24 but make them a traditional palette. include white and black. for the preconfigured, all are fully opaque." So the Light, Dark and Strong colours of decision 12 are gone. The 24 are the planner's proposal under "The starting grid (proposed)", for Thomas to see as a chart; until he changes them they are what is built.
+25. **No theme colours: colours stay fixed.** Thomas chose "No, colours stay fixed". The theme's tints and its text colour are not offered in the picker or the grid. His question was whether colours that follow the theme were offered before the picker. The answer, from the code before the picker: the Whiteboard offered the 8 theme tints and the theme's text colour, which followed the theme, and a background "Default" that follows the theme; its Light and Dark families and the host pages' 16 named swatches (`colour-pick.js`) were fixed. Reason: a picked colour is data and looks the same in every theme and mode (decision 7).
+26. **A module's own palette replaces the grid in that picker, and is not editable there.** This is the project manager's lean, standing unless Thomas says otherwise. A picker opened with `palette` shows the module's colours in place of the person's grid, with no "+", no Remove and no drop. Reason: the module's colours are the module's, and editing them in one picker would not reach the module.
 
 **What decision 5 lets the plan drop.**
 
@@ -160,7 +174,46 @@ Decided: O2 (decision 11), then replaced on 2026-11-22 by decision 20: where the
 
 Why O2 (decision 11): it keeps the slider always shown, tells the person plainly where opacity does not stick, and changes no stored format before the freeze. O3 can follow for a setting that needs a transparent colour, after the release if need be. No module setting asks for one today.
 
-## The default palette (proposed)
+## The starting grid (proposed)
+
+Decision 24: 24 new colours, a traditional palette with white and black, all at opacity 100. This is the planner's proposal, for Thomas to see as a chart and change. It is what a person sees until they first edit their grid (decision 23), and it is not stored on their account until then.
+
+A crayon-box set: white, three greys and black, then each hue with a lighter and a darker step where a box has one, in the order the grid draws them (the rule is under "The person's colour grid", "The order"). In rows of 8 that is: the neutrals and the reds; the browns, orange, yellow and the greens; the blue-greens, the blues, the purples, pink and magenta.
+
+| # | Name | Colour | Opacity |
+|---|---|---|---|
+| 1 | White | `#ffffff` | 100 |
+| 2 | Light grey | `#c0c0c0` | 100 |
+| 3 | Grey | `#808080` | 100 |
+| 4 | Dark grey | `#404040` | 100 |
+| 5 | Black | `#000000` | 100 |
+| 6 | Light red | `#f28b82` | 100 |
+| 7 | Red | `#d62828` | 100 |
+| 8 | Dark red | `#8b1a1a` | 100 |
+| 9 | Light brown | `#d2b48c` | 100 |
+| 10 | Orange | `#f28c28` | 100 |
+| 11 | Brown | `#8b5a2b` | 100 |
+| 12 | Yellow | `#ffe135` | 100 |
+| 13 | Light green | `#90ee90` | 100 |
+| 14 | Green | `#2e9e3e` | 100 |
+| 15 | Dark green | `#1b5e20` | 100 |
+| 16 | Cyan | `#00bcd4` | 100 |
+| 17 | Teal | `#008080` | 100 |
+| 18 | Light blue | `#87ceeb` | 100 |
+| 19 | Blue | `#1e5fd0` | 100 |
+| 20 | Dark blue | `#1a237e` | 100 |
+| 21 | Light purple | `#c3a6e8` | 100 |
+| 22 | Purple | `#7b3fb5` | 100 |
+| 23 | Pink | `#f48fb1` | 100 |
+| 24 | Magenta | `#d81b9c` | 100 |
+
+- **Why these.** Each is a colour a person can name at a glance, as in a paint or crayon box, and each name is plain words; Cyan, Teal and Magenta are the box's own names. Brown sits with orange because its hue is orange's.
+- **Not worked out yet.** Unlike the first palette, these carry no contrast figures: they are fills and marks a person chooses, not words. White on a light menu and Black on a dark one still get the stronger edge (decision 14's rule, worked out when drawn). The order was worked out with a short script using the rule under "The order"; nothing was tried in a browser.
+- **Theme tokens.** None (decision 25): the colours are data and the same in every theme and mode. Everything around them is tokens, as before.
+
+## The default palette (as first proposed; replaced)
+
+Replaced by decisions 22 and 24 on 2026-11-22: the three groups are gone, and so are their colours. Kept as the record of what was built under decision 12.
 
 Decision 4 asks for a core default; decision 5 frees it from today's 16. This is the planner's proposal, for Thomas to confirm or change (open question 1).
 
@@ -179,7 +232,7 @@ Decision 4 asks for a core default; decision 5 frees it from today's 16. This is
 
 ## The contract
 
-Drafted on decisions 1 to 21 (decision 20: no slider and no line where the opacity is not kept) and the planner's reading A1 (open question 3). A different answer to an open question changes only the part that names it.
+Drafted on decisions 1 to 26 (decision 20: no slider and no line where the opacity is not kept; decisions 22 to 26: the person's own grid, under "The person's colour grid") and the planner's reading A1 (open question 3). A different answer to an open question changes only the part that names it.
 
 ### The SDK calls (experience-design; core)
 
@@ -188,9 +241,9 @@ Drafted on decisions 1 to 21 (decision 20: no slider and no line where the opaci
 host.ui.colorPicker({
   anchor,      // an element of the module's own page to open under; or
   at,          // { x, y } in the module's area, as host.menu.show takes it
-  value,       // '#rrggbb' to start from (anything else starts from the palette's first colour)
+  value,       // '#rrggbb' to start from (anything else starts from the grid's or palette's first colour)
   opacity,     // 0 to 100 to start the slider at (default 100); false where the opacity is not kept: no slider and no line are shown, and the answer's opacity is 100 (decision 20)
-  palette,     // [{ heading, colours: [{ name, color }] }] in place of the default (decision 4)
+  palette,     // [{ heading, colours: [{ name, color }] }] in place of the person's grid, not editable there (decisions 4 and 26)
   recent,      // false to leave out the recent colours (default: shown)
   label,       // what the dialog is called for a screen reader ("Fill colour"); default "Colour"
   onInput,     // (answer) => {} on each change while it is open, to show it live; never stored by the SDK
@@ -210,7 +263,7 @@ host.ui.colorField(input, { palette, opacity, recent, label, onChange })
 - **Refused, thrown at once** (as `kindPicker` and `timeField` do): no `anchor` and no `at` ("host.ui.colorPicker needs an anchor or a point"); a `palette` that is not groups of `{ name, color }` with a plain-text name and a `#rrggbb` colour, at most 6 groups and 48 colours ("host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour"). A `value` that is not `#rrggbb` is not refused; it is ignored.
 - **One at a time.** Opening one closes any menu or picker the module has open, as `host.menu.show` does.
 - **`colorField`.** A trigger (a swatch, the hex in words, a chevron; `.sdk-picker`) on an `<input type="color">` or `<input type="text">` the module or page has. The input stays, hidden, and holds the colour; a choice sets it and sends `input` and `change`. `onChange({ color, opacity })` gives both; the input never holds the opacity. A field whose value keeps the colour only passes `opacity: false` (option O2, decision 11). It follows a disabled input. It never shows the browser's own colour input (decision 6).
-- **What it costs a module.** Nothing to declare: no permission, no manifest key, no route, and nothing stored by the host. It is an interface piece like `datePicker`. The recent colours are kept in this browser for this module, the way the kind picker's `recent` is (the builder reads how that works in a sandboxed frame and does the same). A module that starts using it bumps its own version.
+- **What it costs a module.** Nothing to declare: no permission, no manifest key and no route. It is an interface piece like `datePicker`. The host stores nothing for the module; the person's grid is the person's, reached through the page (see "The person's colour grid"), and a module never reads or writes it itself. The recent colours are kept in this browser for this module, the way the kind picker's `recent` is (the builder reads how that works in a sandboxed frame and does the same). A module that starts using it bumps its own version.
 
 ### The contrast helper (experience-design; core; decision 3)
 
@@ -226,7 +279,7 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 2. **Hue**: a slider across the colours.
 3. **Opacity** (decisions 2 and 8: always shown): a slider from clear to solid, over a checked ground so clear is visible. Where the opacity is not kept (`opacity: false`), there is no slider and no line, and the answer's opacity is 100 (decision 20, which replaces decisions 8 and 11).
 4. **A row**: a swatch of the chosen colour (half over a checked ground when opacity is below 100), the **Hex** field (`#2f6cbf`; it takes `2f6cbf` or `#2F6CBF` and shows it lower case), and **Pick from the screen** (the eyedropper button), shown only where the browser has it and it works here.
-5. **The palette**: the default's three groups (Light, Dark, Strong), each a row of 8 under its heading, or the module's own groups.
+5. **The palette**: the person's grid, one grid of swatches in rows of 8 with no headings, sorted by colour, and a "+" at its end (decisions 22 and 23; "The person's colour grid"). With a module's `palette`, the module's own groups instead, not editable (decision 26). *Before 2026-11-22: the default's three groups (Light, Dark, Strong), each a row of 8 under its heading; replaced by decision 22.*
 6. **Recent**: the last 8 colours chosen with this picker in this browser, newest first; not shown when empty.
 
 - **Theme tokens only** for the picker itself: surface, edges, words, focus ring, the check disc. The colours inside the area, the sliders and the swatches are data, set as custom properties (`--sw` as today, and one or two more for the hue and the chosen colour), never as declarations in a stylesheet. The checked ground behind opacity is drawn from tokens (two mixes of `--text-primary` over the surface).
@@ -240,7 +293,7 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 - **The area** is one focusable element, `role="slider"`, named "Saturation and brightness", with `aria-valuetext` such as "Saturation 40 percent, brightness 70 percent". Left and Right change saturation, Up and Down brightness, by 1; with Shift by 10; Home and End go to the ends of saturation.
 - **Hue** and **Opacity** are `role="slider"` (`aria-valuetext` "Hue 210 degrees", "Opacity 80 percent"), arrows by 1, Shift by 10, Page Up and Page Down by 10, Home and End to the ends. Where the opacity is not kept there is no Opacity slider, so nothing for it is in the Tab order or read out (decision 20).
 - **Hex** is a text field labelled "Hex". On Enter or leaving it, a good value is taken; a bad one gets `aria-invalid` and one line under it, "Type six hex digits, like #2f6cbf", and the colour does not change.
-- **Swatches** are a radio group: each is a radio named by its colour's name; a recent colour with no name is named by its hex.
+- **Swatches** are a radio group: each is a radio named by its colour's name; a recent colour, or a colour a person added, with no name is named by its hex (and its opacity when below 100: "#2f6cbf, 60 percent"). The grid's keys for editing are under "The person's colour grid".
 - A live region says the chosen colour once it settles (not on every drag step): "Teal, #00796b" or "#2f6cbf".
 - Reduced motion: nothing animates beyond the menus' own opening.
 
@@ -267,16 +320,77 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 - A live one under Live SDK pieces (`components-3.js`), opened from a trigger, as the date and kind pickers are there.
 - `tools/check-design-system-catalog.mjs` holds every class the entry draws to a real rule.
 
+### The person's colour grid (server-development and experience-design; core; decisions 22 to 26)
+
+This is a core change: `server/` (a route and the account's stored data), `public/sdk/host.js` and `public/module-host.js`. Thomas named no kind of build for it, so it is a try build: one builder per half, its own checks, no independent read and no QA, and every check green on `main` before it merges (`CLAUDE.md`, "Core stability"). What follows is the planner's proposal where Thomas's words don't settle it.
+
+**What was read for it.** `public/sdk/host.js`: `COLOUR_PALETTE` (line 1164), `showColourPicker()` (line 2554) and its recent colours, kept in `localStorage` under `app:colour:<moduleId>` (lines 2595 to 2597), and the page global `hostColour` with its own page host whose `call` refuses everything but `hello` (lines 5694 to 5710; the page host at line 5697). `public/module-host.js`: the `ui.toast`, `ui.confirm` and `ui.prompt` handlers (lines 1618 to 1631). `server/index.js`: `GET /api/me` (line 4594), `PATCH /api/me` with `ME_FIELDS` (lines 4614 to 4637; `ME_FIELDS` at line 4619), `GET /api/me/themes` (line 4641) and `PATCH /api/me/call-prefs` (line 5149). `server/store.js`: the account's `themeMode` and `theme` keys in the account's normaliser (lines 1083 to 1087), `setThemeMode()`, `personTheme()` and `setPersonTheme()` (lines 1890 to 1918), and `setCallPrefs()` (line 1140). `tools/check-person-theme.mjs` (its header) and `tools/route-table.json` (searched). Read in code; nothing was run.
+
+**Where it is stored.** On the person's account, as the key `colorGrid`, beside `theme` and `themeMode` in `server/store.js` (lines 1083 to 1087), so it follows them to any device and rides with the environment's copy, as a person's theme does. The key is left off the account while the person has never edited their grid. The account's normaliser keeps it only when it passes the same check as the route (below), and otherwise drops it, as it does `theme`. Setter: `store.setColorGrid(key, list)`, modelled on `setPersonTheme()` (line 1909): it checks, keeps, saves and answers the list kept.
+
+**The shape.** A list of `{ color: '#rrggbb', opacity: 0..100 }`, at most 48. No name is stored: the 24 starting colours carry their names in the SDK, and a colour a person adds is named by its hex. The order stored is the order sent; the SDK sorts when it draws (see "The order"), so the order rule can change without touching stored data.
+
+**The routes.** Their own path, beside `GET /api/me/themes` in `server/index.js` (line 4641), and not a field of `PATCH /api/me`, because that route answers about themes and tells the person's other pages about their mode (lines 4621 to 4637).
+
+| Route | Answers | Refused |
+|---|---|---|
+| `GET /api/me/color-grid` | `200 { colors: [...] }`, or `200 { colors: null }` while the person has never edited it. `Cache-Control: no-store` | No session: 401. A guest (no account): 403 |
+| `PUT /api/me/color-grid`, body `{ colors: [...] }` | Replaces the whole list. `200 { colors: [...] }`, the list kept. An empty list is kept as empty (the person removed everything), which is not the same as never edited | No session: 401. A guest: 403. A bad body: 400 with one sentence, and nothing changes |
+
+- **Checked strictly on the server**, every entry before anything is kept: the body is a plain object whose only key is `colors`; `colors` is an array of at most 48; each entry is a plain object whose own keys are exactly `color` and `opacity`; `color` matches `^#[0-9a-f]{6}$` (lower case only: the SDK cleans before it sends); `opacity` is a whole number from 0 to 100 (`Number.isInteger`); no two entries have the same `color` and `opacity`. A prototype key, a string opacity, `#RRGGBB`, `#rrggbbaa`, a CSS name, `url(...)` and a 49th entry are each refused. Suggested sentences: "Send the colours as a list, such as {"colors":[{"color":"#d62828","opacity":100}]}.", "The grid holds at most 48 colours.", "Each colour is #rrggbb in lower case, with an opacity from 0 to 100.", "That colour is in the list twice."
+- **Only the caller's own.** No route sets another person's grid; an owner's `PATCH /api/users/:key` does not take it, and the owner's view of a person and the listing of people don't show it.
+- **Not for an agent.** The routes are not added to the agent gate's list (`server/agent-routes.js`, `AGENT_ROUTES`), so an agent's token can't reach them.
+- **Two devices at once.** A `PUT` replaces the list, so the last save wins. Acceptable for a list a person edits by hand; said in known-issues when built.
+- **The route-table check.** Both routes go into `tools/route-table.json`.
+
+**When the person has never edited it.** `GET` answers `colors: null`, and the picker shows the 24 starting colours (decision 24), which live in the SDK in place of `COLOUR_PALETTE`'s three groups. They are not stored. The first edit (an add or a remove) sends the whole list, starting colours included, and from then on the account holds it.
+
+**How the picker reaches it.** The picker never fetches the route itself, because a sandboxed module's frame has no session. It asks through the page, the way `ui.confirm` does (`module-host.js`, line 1624):
+
+- `call('ui.colorGrid')` answers `{ colors: [...] | null, editable: true | false }`. `editable` is false for a guest or where the route can't be reached; the picker then shows the starting colours with no "+", no Remove and no drop.
+- `call('ui.colorGrid.set', { colors })` sends the whole new list; the page `PUT`s it and answers the list kept, or throws the server's sentence.
+- **In `module-host.js`**, two new handlers beside `ui.confirm`. The page keeps one copy of the grid for all its modules: read from the route on the first ask, replaced by each `set`'s answer, so two modules on one page see the same grid. A handler checks the list's shape before it sends it, and the server checks it again.
+- **On the host's own pages** (`hostColour`, `host.js` lines 5694 to 5710), the page host's `call` answers the same two methods by fetching the route itself, with its own copy for that page. A page that has both (a space's page, with its settings and its modules) may hold two copies until it reloads; a known gap, said in known-issues when built.
+- The picker asks each time it opens and draws the grid once the answer is there (from the page's copy, so after the first open there is no network wait).
+- A module can't send these calls itself in any useful way beyond what the picker does: a hostile module could rewrite the person's grid, but only with checked colours, and nothing else is reachable. Accepted, as the grid holds no secrets; named in the risks.
+
+**What a person sees and does.**
+
+- **Add by dragging.** The chosen colour's swatch in the row under the sliders (item 4 of "What a person sees") can be dragged onto the grid. Dropped anywhere on the grid, the colour, with its opacity (decision 23), takes its place by the order below; the drop position does not set it.
+- **Add with "+".** A button at the grid's end, named "Add the current colour to your colours". Enter, Space, a click or a tap adds the colour showing, with its opacity. Where the picker has no opacity (`opacity: false`), it adds at 100.
+- **Already there.** A colour with the same `color` and `opacity` is not added again: the focus moves to that swatch and the live region says "Already in your colours".
+- **Full.** At 48 the "+" is not shown, and a drop adds nothing; the live region says "Your colours are full. Remove one first." Suggested, following decision 20 (a control that can't be used is not shown).
+- **Remove.** A right-click on a swatch, the context-menu key or Shift+F10 opens a small menu with one row, "Remove", in the Menus family's look and drawn by the picker so the picker stays open. The Delete key (and Backspace) on a focused swatch removes it at once. After a remove, the focus goes to the next swatch, else the previous, else the "+". The live region says "Removed Red" (or the hex).
+- **Choosing** a grid colour answers its `color` and its `opacity`, as a swatch does now; with `opacity: false` it answers the colour at 100.
+- **A swatch below 100** is drawn half over the checked ground, as the chosen-colour swatch is.
+- **Saving.** Each add or remove is saved at once; there is no Save button. If the save is refused, the grid goes back to what it was and the picker shows the server's sentence in its line under the grid.
+- **Recent** stays as built: the last 8 picked with this module in this browser (decision 22).
+- **A module's palette** replaces the grid and is not editable: no "+", no drag target, no Remove (decision 26).
+- **No reset.** There is no "Back to the starting colours" in version 1 (open question 10).
+
+**The order.** Neutrals first, light to dark: any colour whose HSL saturation is under 10 percent. Then the rest by hue in twelve bands of 30 degrees, the first centred on red (0 degrees), so red, orange and brown, yellow, the greens, the blue-greens, the blues, the purples, magenta and pink; within a band, lighter first; two colours that tie keep the order they were stored in. This is the rule the 24 starting colours were sorted by.
+
+**The keys, in the grid.** The grid stays one Tab stop with arrows inside (a radio group, as now); the "+" is the next Tab stop. Delete or Backspace removes the focused swatch. The context-menu key or Shift+F10 opens its Remove menu; in it, Enter removes and Escape closes the menu only, back to the swatch. Escape in the picker still answers `null`; an add or a remove already saved is not undone by it.
+
+**The check: `tools/check-colour-grid.mjs`** (server-development), modelled on `tools/check-person-theme.mjs`, on a real server with a throwaway `DATA_DIR`:
+
+- `GET` answers `colors: null` for a new person; a `PUT` keeps the list, `GET` answers it, and a store reload keeps it; an empty list is kept as empty.
+- Hostile: each refused body above is 400 with one sentence and changes nothing; another person's grid can't be set (an unknown field, an owner's `PATCH /api/users/:key`) or read (the owner's view of a person, the listing of people); a guest gets 403 and no session 401; an agent's token can't reach it; a stored grid that fails the check is dropped when the store loads.
+- `tools/check-colour-picker.mjs` changes with it (experience-design's half, checked by server-development): the 24 starting colours and their order; the order rule on a set of added colours; no headings; "+", drag, Delete and the Remove menu each add or remove and send `ui.colorGrid.set`; a duplicate is not added; at 48 the "+" is gone; a module palette shows no "+" and takes no drop; a guest (`editable: false`) shows no editing; and in a sandboxed frame the picker reaches the grid through `module-host.js`. The old palette's contrast figures (Light, Dark, Strong) go from the check.
+- `npm run check:docs` for this plan; `check-route-table` for the two routes.
+
 ### The stored format
 
 - A module stores what the answer gives: `color` as `#rrggbb`, lower case, and, if it keeps it, `opacity` apart, as a whole number from 0 to 100. It checks them again before storing or drawing (decision 7). A module that keeps the colour only passes `opacity: false`.
-- The host stores nothing new. A `color` setting stays `#rrggbb` as `server/modules.js` checks it now. No stored format, route or key changes (decision 11).
+- A `color` setting stays `#rrggbb` as `server/modules.js` checks it now (decision 11).
+- The host stores one new thing: the person's grid, `colorGrid` on their account, under "The person's colour grid" (decision 23). *Before 2026-11-22 this said the host stores nothing new and no stored format, route or key changes; decision 23 changes that.*
 
 ## Not in version 1
 
-- Theme tints (which follow the theme) as choices in the picker.
+- Theme tints (which follow the theme) as choices in the picker or the grid. Thomas decided they stay out (decision 25).
 - Colours other than `#rrggbb` (no `rgb()`, `hsl()`, names or `#rrggbbaa` in or out), and other colour spaces (no OKLCH, no P3).
-- Gradients, patterns (#544's "pattern option" for fills is the Whiteboard's own), and saved palettes that a person or an environment names and shares.
+- Gradients, patterns (#544's "pattern option" for fills is the Whiteboard's own), and palettes that a person or an environment names and shares with others. A person's own grid, kept on their account, is in (decision 23); it has no name and is never shared. *Before 2026-11-22 this line also kept out any saved palette a person keeps; decision 23 brings their own grid in.*
+- Several grids per person, names for colours a person adds, and a way back to the starting colours (open question 10).
 - Recent colours kept on the server or shared between devices or people.
 - A contrast warning inside the picker (decision 3).
 - The host's button rectangle for a toolbar or title-bar button (#480 point 3; decision 1), and swatches on toolbar buttons (#480 point 1).
@@ -294,9 +408,11 @@ Each step is one build, leaves the app working and can be checked on its own. Si
 | 2 | **The picker in the SDK.** `host.ui.colorPicker` and `host.ui.colorField` (decision 9): the popover (area, Hue, the Opacity slider, left out with its line where `opacity: false` (decision 20), hex row, eyedropper where it works, palette groups, Recent), placing by `anchor` or `at` (decision 1), the keys, the names and the live region, the phone sizes, and the styles in the Pickers block. The check's browser half | experience-design; the check by server-development | `public/sdk/host.js`, `public/sdk/system.css`, `tools/check-colour-picker.mjs` | L | Medium. Core: independent read |
 | 3 | **The host's pages use it.** `colour-pick.js` is removed; `module-settings.js`, `list-rows.js` and `template-pages.js` use the SDK's field, with `opacity: false` where only `#rrggbb` is kept (decision 11); `list-rows.js`'s own colours go; `host.html` and `profile.html` load the SDK; the checks that stub or name `colour-pick.js` (`check-template-pages-b`, the comment in `check-system-css`) change with it | experience-design; the checks by server-development | `public/colour-pick.js` (removed), `public/module-settings.js`, `public/list-rows.js`, `public/template-pages.js`, `public/host.html`, `public/profile.html`, `tools/check-template-pages-b.mjs`, `tools/check-system-css.mjs` | M | Medium. Core: independent read |
 | 4 | **The design-system Pickers page.** The entry and its states, and the live piece | experience-design | `public/design-system/components.js`, `public/design-system/components-3.js` | S | Low |
+| 6 | **The person's grid on the server (decision 23).** `colorGrid` on the account, its normaliser and `store.setColorGrid()`; `GET` and `PUT /api/me/color-grid` with the strict check; the two routes in `tools/route-table.json`; the new check | server-development | `server/store.js`, `server/index.js`, `tools/route-table.json`, `tools/check-colour-grid.mjs` | S | Low. Core, try build: no independent read |
+| 7 | **The grid in the picker (decisions 22 to 26).** The 24 starting colours in place of `COLOUR_PALETTE`'s groups; one grid sorted by the order rule, no headings; "+", the drag, Delete and the Remove menu; the `ui.colorGrid` and `ui.colorGrid.set` handlers in `module-host.js` and the same two on the page host of `hostColour`; a module's palette not editable; the Pickers entry's states (step 4's page) and the check's changes | experience-design; the check by server-development | `public/sdk/host.js`, `public/sdk/system.css`, `public/module-host.js`, `public/design-system/components.js`, `tools/check-colour-picker.mjs` | M | Medium. Core, try build: no independent read |
 | 5 | **The documents.** api-module-sdk ("Shared tools": the two calls and the helper), design-theme (a section "The colour picker" with the default palette), the user guides where a colour is chosen, `known-issues.md` (the eyedropper where it is hidden), and the CHANGELOG | content-manager | `documentation/`, `CHANGELOG.md` | S | Low |
 
-Order: 1, then 2, then 3 and 4 side by side; 5 with each step and a summary at the end.
+Order: 1, then 2, then 3 and 4 side by side; 5 with each step and a summary at the end. Then 6, then 7 (it needs the route); 7 can be built against a stub of the two calls while 6 is built. Steps 6 and 7 are a try build: Thomas named no kind of build for them, so each is one builder, one pass and its own checks, merged when every check on `main` is green; the paragraph on the kind of build below is about steps 1 to 5.
 
 In step 3, a new list row takes the Strong group's colours in turn, Red first (decision 13), not the default palette in order.
 
@@ -331,6 +447,8 @@ What that means for the schedule:
 - **Step 1, checked by a tool** (`tools/check-colour-picker.mjs`, node half). A hex is cleaned (`#2F6CBF`, `2f6cbf` and ` #2f6cbf ` become `#2f6cbf`; `#2f6cb`, `#2f6cbfff`, `red` and `url(x)` are refused). Every palette colour, black, white and a grid of colours round-trip through hue, saturation and brightness and back to the same hex. The palette check takes a good palette and refuses each bad shape with its sentence. `host.util.contrast` and `readableOn` agree with `pickOn()` in `theme-colour.js` on every palette colour. The default palette holds its figures: dark words on each Light colour and light words on each Dark colour at 4.5:1 or more; white words on each Strong colour at 4.5:1 or more, and each Strong colour at 3:1 or more against white and against `#0e1a2b`.
 - **Step 2, checked by a tool** (the check's browser half, in headless Chromium; skipped and said so when there is none). Light and dark, at 1280 and at a 390 touch screen: the popover opens under an anchor, at a point, and at `{ x, y: 4 }` from a toolbar button's event, always inside the module's box; keyboard only, every control is reached in the order above and changes the colour by the keys listed; a typed hex is taken and a bad one is marked with its line; Escape answers `null` and puts focus back; a swatch answers and closes; `onInput` fires while dragging and the answer comes once; the opacity slider is shown, the answer always carries the percent, and with `opacity: false` there is no slider and no line and the answer's opacity is 100 (decision 20); `colorField` and `colorPicker` both work in a form and from a toolbar button; a module palette is drawn in place of the default and answers its colour; at 390 px every target is 44 px; the picker's own words reach 4.5:1 on its surface; White on a light menu and Black on a dark one have the stronger edge; the accessibility tree names the dialog, the area, the sliders, the field and each radio. `check-system-css`, `check-no-raw-colours`, `check-radius`, `check-nav` (selected states) and `check-phone-targets` pass. **Live, by the builder:** a bundled module in the page and an uploaded module in a sandboxed frame, each opening the picker from a toolbar button and from a click in its page, in Chromium, with the eyedropper tried in both.
 - **Step 3, checked by a tool:** `check-template-pages-b`, `check-admin-load` and the module settings' check open the pages with a colour field and no page error; no file in `public/` draws `<input type="color">` for a person to use except the theme editor's, and `colour-pick.js` is gone. **Live in Chromium:** a module setting of type `color` in Manage, a list row's colour (and a new row's first colour from the default palette), a colour field in the host console's template editor and one on Profile each open the new picker with no Opacity slider and no line, save, and show the saved colour after a reload.
+- **Step 6, checked by a tool:** `tools/check-colour-grid.mjs` (the cases under "The person's colour grid", "The check") and `check-route-table`. Neighbours: `check-person-theme`, which reads the same account record.
+- **Step 7, checked by a tool:** `tools/check-colour-picker.mjs` with its changes, in node and in headless Chromium, and `check-module-host` for the two handlers. **Live, by the builder, in Chromium:** the grid in a bundled module in the page and in an uploaded module in a sandboxed frame; an add by dragging and by "+", a remove by right-click and by Delete; the grid the same after a reload and in a second browser signed in as the same person. Not checkable here: touch dragging on a real phone (the "+" is the way in on touch), and a screen reader on the Remove menu.
 - **Step 4, checked by a tool:** `check-design-system-catalog` and `check-design-system`. **Live:** the Pickers entry shows the popover and its states in light and dark.
 - **Not checked by any step:** a real screen reader (only the accessibility tree is read), a real phone, Safari and Firefox (where there is no eyedropper: it must be hidden there; to be tried by a person), the eyedropper in a sandboxed frame outside Chromium, and the palette's look on a theme other than the default. A real LiveKit call is not involved: nothing here touches the call.
 - **Always:** `npm run check:docs` for the documents.
@@ -346,16 +464,18 @@ What that means for the schedule:
 7. **Two copies of the contrast maths.** `theme-colour.js` and the SDK's helper could drift. Mitigation: step 1's check holds them equal.
 8. **Removing a page piece everyone uses.** `colour-pick.js` reaches Manage, the host console, Profile and a space's settings, and two checks name it. Mitigation: step 3 changes its three users and the checks in one step, and its live checks open each page.
 9. **Undo and saves while dragging.** A module that saves on every `onInput` floods its saves and its undo history. Mitigation: the SDK document says `onInput` is for showing only, and the answer is the one change to save.
+10. **A module rewriting a person's grid.** The picker runs in the module's frame (A1), so the page can't tell a person's add from a module's own `ui.colorGrid.set`. Mitigation: the server takes only checked colours, at most 48, and the grid holds nothing private; the worst case is a spoiled list the person can edit back.
+11. **Two copies on one page.** A space's page may hold the module host's copy and the page host's copy of the grid, which can differ until a reload. Mitigation: each set answers the stored list; named in known-issues.
 
 ## Rollback
 
-There is no setting. Each step is its own commit. Reverting step 3 brings back `colour-pick.js` with its native Custom row, against decisions 5 and 6, so only as a stopgap Thomas allows. Reverting step 2 removes the two SDK calls; any module that has started using it must be reverted first. Nothing stored by the host changes. A revert after the freeze starts is a change in the freeze, which only Thomas allows.
+There is no setting. Each step is its own commit. Reverting step 3 brings back `colour-pick.js` with its native Custom row, against decisions 5 and 6, so only as a stopgap Thomas allows. Reverting step 2 removes the two SDK calls; any module that has started using it must be reverted first. Steps 1 to 5 change nothing the host stores. Step 6 adds `colorGrid` to the account; reverting it leaves the key on accounts, where nothing reads it, and the normaliser of the reverted code drops it on the next save. Revert step 7 before step 6, or the picker asks for a route that is gone and shows the starting colours with no editing. A revert after the freeze starts is a change in the freeze, which only Thomas allows.
 
 ## Open questions for Thomas
 
 Each has the planner's suggestion. The first draft's questions on anchoring, opacity, a contrast helper and the palette are answered (decisions 1 to 4); the second draft's questions on the opacity slider, the call's shape and the freeze are answered (decisions 8 to 10), and so is question 2 (decision 11). Decision 5 added question 1.
 
-1. **Answered (decisions 12 and 17): the palette is accepted as built, and `host.ui.colorPalette()` is not built now.** **The new default palette.** Proposed under "The default palette (proposed)": three named groups of 8, Light, Dark and Strong, 24 colours, with the contrast each reaches. Confirm the groups, the names and the values, or change them. Within this: whether a module can read the default palette (suggested: yes, read only). Blocks nothing now: step 1 is built with the proposal and changed before step 2 is merged (see "The freeze").
+1. **Answered (decisions 12 and 17), then replaced (decisions 22 and 24, 2026-11-22): one grid sorted by colour, starting on 24 new colours, which the person edits (decision 23).** The proposal below is the record; the 24 now proposed are under "The starting grid (proposed)". **Answered (decisions 12 and 17): the palette is accepted as built, and `host.ui.colorPalette()` is not built now.** **The new default palette.** Proposed under "The default palette (proposed)": three named groups of 8, Light, Dark and Strong, 24 colours, with the contrast each reaches. Confirm the groups, the names and the values, or change them. Within this: whether a module can read the default palette (suggested: yes, read only). Blocks nothing now: step 1 is built with the proposal and changed before step 2 is merged (see "The freeze").
 2. **Answered (decision 11): O2.** **A colour stored without its opacity.** The slider is always shown (decision 8), but a `color` setting and a list row's colour keep `#rrggbb` only, so as drafted their opacity would be thrown away. The options are under "O. A colour stored without its opacity": O1, shown and ignored; O2, shown at 100 and switched off with the line "Opacity isn't kept here."; O3, the setting declares and keeps an opacity (a new manifest field and stored format, before the freeze). Thomas chose O2 on 2026-11-19; O3 can follow later if a setting needs it. Blocks nothing.
 3. **Drawn in the module's page (A1).** The planner's reading of decision 1, which the contract is drafted on. Confirm, or say if the picker should be drawn over the page. Does not block unless changed.
 4. **The eyedropper in version 1?** Suggested: yes, shown only where it works, hidden elsewhere and named in `known-issues.md`. Does not block.
@@ -363,6 +483,9 @@ Each has the planner's suggestion. The first draft's questions on anchoring, opa
 6. **What ends a pick.** Suggested: a swatch, Enter in the hex field, or a press outside the picker keeps the colour; Escape puts back the colour it opened with. Does not block step 1.
 7. **The words a person reads.** "Hue", "Opacity", "Hex", "Pick from the screen", "Recent", the group names "Light", "Dark", "Strong", "Saturation and brightness" (for a screen reader), and the hex line "Type six hex digits, like #2f6cbf". Suggested as written. Does not block.
 8. **The phone: popover or bottom sheet?** Suggested: the popover, as the approved Pickers family says for a grid, scrolling inside itself in a short module. Does not block step 1.
+9. **New list rows' colours.** Decision 13 gave new list rows the Strong colours in turn, Red first; decision 22 removes the Strong group. Suggested: the starting grid's colours that are neither neutral nor light, in grid order from Red (Red, Dark red, Orange, Brown, Yellow, Green, Dark green, Cyan, Teal, Blue, Dark blue, Purple, Magenta), fixed and not the person's own grid, so a list looks the same for everyone. Blocks step 7 only for `list-rows.js`; until answered, `list-rows.js` keeps the old Strong eight as its own list.
+10. **A way back to the starting colours.** Not asked. Suggested: none in version 1; a person who wants one back adds it. Does not block.
+11. **The 24 starting colours.** The planner's proposal (decision 24), for Thomas to see as a chart. Does not block: step 7 builds with them and a change is an edit to one list and the check.
 
 ## What the issues say that this plan could not confirm
 
