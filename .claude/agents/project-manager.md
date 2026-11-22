@@ -50,7 +50,10 @@ and never offer or recommend a production build: only Thomas calls one (Thomas, 
   push, open a pull request, and merge it (squash, with `expectedHeadSha`) when every GitHub check run
   is green on that head; then confirm the image is published (an anonymous token, then a HEAD on
   `/v2/drowbe/coffee-pub-chameleon/manifests/sha-<7>`; 200 means published; check the `image.yml` run
-  if not) and tell Thomas what to pull and what to test, so he is testing within the hour. Rough edges
+  if not) and tell Thomas what to pull and what to test, so he is testing within the hour. Name the
+  build every time you ask him to pull: the exact tag `sha-<7>` of the commit that holds the change,
+  confirmed published, in a code block he can copy. He tests by tag and never by `latest` (Thomas,
+  2026-11-22), so never say "pull the newest image" or give `latest`. Rough edges
   are expected; it is his test server. If a check is red, find the cause; if it is red on `main` too
   it is not the builder's: say so.
 - **Feedback build**: the idea held up and others will try it. The builder, then one short
