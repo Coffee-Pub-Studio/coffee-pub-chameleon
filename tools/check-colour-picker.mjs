@@ -7,10 +7,14 @@
  *      colourClean: a hex in any case, with or without "#", with spaces round it, becomes "#rrggbb" in lower case; anything else
  *      (short, long, a word, url(), three digits, empty, null, a number) is null. colourToHsv and colourFromHsv: every palette
  *      colour, black, white and a grid of colours go to hue, saturation and brightness (in range) and back to the same hex; a bad
- *      hex throws. COLOUR_PALETTE: exactly the plan's three groups of eight (names and colours), unique names and colours, frozen
- *      all the way down, and its contrast figures (dark words #1c2024 on each Light colour, light words #eceff3 on each Dark colour,
- *      each Dark colour as words on white, white words on each Strong colour, all at 4.5:1 or more; each Strong colour at 3:1 or
- *      more against white and against the dark ground #0e1a2b). colourPaletteCheck: takes the default and a small module palette
+ *      hex throws. COLOUR_GRID_START: exactly the plan's 24 starting colours ("The starting grid (proposed)": names, colours, all at
+ *      opacity 100, in that order), unique, frozen all the way down, and already in the grid's order. The grid's pure parts (step 7):
+ *      colourGridClean takes a good list (a copy) and refuses each bad one (49 entries, upper case, three digits, a string, 1.5, 101 or
+ *      -1 opacity, an extra or a missing key, a duplicate, a hole); colourGridOrder sorts a set of added colours by the plan's rule
+ *      (neutrals light to dark, then hue bands of 30 degrees from red, lighter first, ties as stored); colourGridName and
+ *      colourGridLabel name a starting colour, and a colour a person added by its hex ("#hex, N percent" below 100); colourGridAdd
+ *      answers added, there (the same colour and opacity) or full (48); colourGridRemove. newRowColours (public/colour-field.js) on the
+ *      starting colours: the 13 that are neither neutral nor light, from Red. colourPaletteCheck: takes a small module palette
  *      (answering a cleaned copy) and refuses each bad shape with its one sentence. colourOpacity and colourAnswer: the edges.
  *      colourPaletteCheck also: holes (new Array(1), new Array(6), [g, , g], colours [ , ] and new Array(3)) are refused, and an
  *      own `map` on the palette or on a colours list is never what is answered (the checked copy, or the refusal); headings and
@@ -18,7 +22,7 @@
  *      delete or U+0085 control, a lone surrogate, or no letter or digit at all, are refused, while "Black & white", Rot "dunkel",
  *      Café and Ébène 2 are kept. colourContrast and colourReadableOn are strict (no "2f6cbf", "#2F6CBF", spaces or "#fff").
  *      colourFromHsv always answers #rrggbb (empty, NaN, Infinity, null) and wraps hue (-60, 360, 720) and clamps saturation and
- *      brightness. The plan's palette figures hold as lower bounds (12.8, 10.3, 11.9, 4.8 and 3.2).
+ *      brightness.
  *      colourContrast and colourReadableOn: equal to contrast() and pickOn() in public/theme-colour.js on every palette colour and
  *      the grid, and refusing what is not a colour with their sentences. The block reaches nothing outside itself (it is run again
  *      in an empty context with no window, document, require or process). Read as code: host.util names contrast and readableOn
@@ -42,6 +46,14 @@
  *      frame, Escape answers null and focus goes back to the toolbar button, the button pressed again closes it, and a colorField in
  *      its form sets the input. The popover's background in a frame is not asserted (a separate fix in public/module-host.js).
  *      Every answer seen is { color: #rrggbb, opacity: a whole number from 0 to 100 }. CHROME_PATH names the browser.
+ *   3. Chromium, the person's grid (step 7), at 1280 light once the rest has run, through the real route on this check's own server:
+ *      the grid has no heading and is the 24 starting colours before any edit; in the sandboxed frame "+" adds the colour showing at 60
+ *      percent (named "#hex, 60 percent", drawn over the checked ground), a second "+" adds nothing and says so, a right-click on a
+ *      swatch opens the Remove menu and Remove takes it out, Delete on a focused swatch takes another, none of these answers or closes
+ *      the picker, and each is on the server (GET /api/me/color-grid); after a reload the frame shows the same grid; in the module running
+ *      in the page the same grid shows, and a drag of the colour showing onto the grid adds it (Input.setInterceptDrags, a real drag);
+ *      a module's own palette there has no "+", no drag and no Remove; the page's own picker (hostColour) shows the same grid; a save the
+ *      page refuses puts the grid back and shows the sentence under it; at 48 there is no "+".
  * Usage: node tools/check-colour-picker.mjs. Exits 0 when every check passes, 1 with a line per failure.
  */
 import assert from 'node:assert/strict';
@@ -93,7 +105,7 @@ const to = sdk.indexOf('// colour:end');
 ok(from > 0 && to > from, 'public/sdk/host.js has its colour:start and colour:end markers');
 if (!(from > 0 && to > from)) finish();
 const block = sdk.slice(from, to);
-const NAMES = 'COLOUR_HEX, colourClean, colourToHsv, colourFromHsv, COLOUR_PALETTE, colourPaletteCheck, colourOpacity, colourAnswer, colourContrast, colourReadableOn';
+const NAMES = 'COLOUR_HEX, colourClean, colourToHsv, colourFromHsv, COLOUR_GRID_MAX, COLOUR_GRID_START, colourGridClean, colourGridOrder, colourGridName, colourGridLabel, colourGridFind, colourGridAdd, colourGridRemove, colourPaletteCheck, colourOpacity, colourAnswer, colourContrast, colourReadableOn';
 let P;
 try {
   P = new Function(`${block}\n; return { ${NAMES} };`)();
@@ -104,17 +116,19 @@ try {
 for (const k of NAMES.split(', ')) ok(P[k] !== undefined, `the colour block defines ${k}`);
 if (problems.length) finish();
 
-const PALETTE = [
-  ['Light', [['White', '#ffffff'], ['Cream', '#f5eedb'], ['Light grey', '#e4e6ea'], ['Light blue', '#dce9f6'], ['Light green', '#ddeedd'], ['Light yellow', '#fbf4c8'], ['Light pink', '#f8e0e9'], ['Light purple', '#e8e0f5']]],
-  ['Dark', [['Black', '#000000'], ['Slate', '#2b3440'], ['Dark grey', '#34373c'], ['Navy', '#14274b'], ['Forest', '#163a2b'], ['Wine', '#4a1b2b'], ['Plum', '#2f2050'], ['Brown', '#3d2b1f']]],
-  ['Strong', [['Red', '#c0392b'], ['Orange', '#b8560f'], ['Gold', '#8a6a00'], ['Green', '#2e7d32'], ['Teal', '#00796b'], ['Blue', '#2f6cbf'], ['Purple', '#7c55c8'], ['Pink', '#b23f7f']]],
-].map(([heading, list]) => ({ heading, colours: list.map(([name, color]) => ({ name, color })) }));
-const group = (h) => PALETTE.find((g) => g.heading === h).colours.map((c) => c.color);
+// The plan's 24 starting colours ("The starting grid (proposed)"), in the grid's order, all at opacity 100.
+const START = [
+  ['White', '#ffffff'], ['Light grey', '#c0c0c0'], ['Grey', '#808080'], ['Dark grey', '#404040'], ['Black', '#000000'], ['Light red', '#f28b82'],
+  ['Red', '#d62828'], ['Dark red', '#8b1a1a'], ['Light brown', '#d2b48c'], ['Orange', '#f28c28'], ['Brown', '#8b5a2b'], ['Yellow', '#ffe135'],
+  ['Light green', '#90ee90'], ['Green', '#2e9e3e'], ['Dark green', '#1b5e20'], ['Cyan', '#00bcd4'], ['Teal', '#008080'], ['Light blue', '#87ceeb'],
+  ['Blue', '#1e5fd0'], ['Dark blue', '#1a237e'], ['Light purple', '#c3a6e8'], ['Purple', '#7b3fb5'], ['Pink', '#f48fb1'], ['Magenta', '#d81b9c'],
+].map(([name, color]) => ({ name, color, opacity: 100 }));
+const HEX = Object.fromEntries(START.map((c) => [c.name, c.color]));
 const GRID = [];
 for (let r = 0; r <= 255; r += 15) for (let g = 0; g <= 255; g += 15) for (let b = 0; b <= 255; b += 15) {
   GRID.push(`#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`);
 }
-const ALL = [...new Set([...PALETTE.flatMap((g) => g.colours.map((c) => c.color)), '#000000', '#ffffff', ...GRID])];
+const ALL = [...new Set([...START.map((c) => c.color), '#000000', '#ffffff', ...GRID])];
 
 section('the hex pattern and cleaning', () => {
   // --- the hex pattern and cleaning ---
@@ -146,35 +160,71 @@ section('hue, saturation and brightness, and back', () => {
   for (const v of ['red', '#fff', '', null, '#2F6CBF0']) throws(() => P.colourToHsv(v), `colourToHsv(${JSON.stringify(v)}) throws`);
 });
 
-section('the default palette', () => {
-  // --- the default palette ---
-  const D = P.COLOUR_PALETTE;
-  same(JSON.parse(JSON.stringify(D)), PALETTE, 'the default palette is the plan\'s three groups of eight, in order');
-  ok(Array.isArray(D) && D.length === 3 && D.every((g) => g.colours.length === 8), 'the default palette is 3 groups of 8');
-  const names = D.flatMap((g) => g.colours.map((c) => c.name));
-  const colours = D.flatMap((g) => g.colours.map((c) => c.color));
-  same(new Set(names).size, names.length, 'the default palette\'s names are unique');
-  same(new Set(colours).size, colours.length, 'the default palette\'s colours are unique');
-  ok(colours.every((c) => P.COLOUR_HEX.test(c)), 'every default colour is #rrggbb in lower case');
-  ok(Object.isFrozen(D) && D.every((g) => Object.isFrozen(g) && Object.isFrozen(g.colours) && g.colours.every((c) => Object.isFrozen(c))),
-    'the default palette is frozen all the way down (the list, each group, each group\'s colours and each colour)');
+section('the starting grid', () => {
+  const D = P.COLOUR_GRID_START;
+  same(JSON.parse(JSON.stringify(D)), START, 'the starting grid is the plan\'s 24 colours, names and colours, all at opacity 100, in its order');
+  same(P.COLOUR_GRID_MAX, 48, 'the grid holds at most 48');
+  same(new Set(D.map((c) => c.name)).size, 24, 'the starting colours\' names are unique');
+  same(new Set(D.map((c) => c.color)).size, 24, 'the starting colours are unique');
+  ok(Object.isFrozen(D) && D.every((c) => Object.isFrozen(c)), 'the starting grid is frozen all the way down (the list and each colour)');
+  same(P.colourGridOrder(D.map((c) => ({ color: c.color, opacity: c.opacity }))).map((c) => c.color), START.map((c) => c.color), 'the starting colours are already in the grid\'s order');
+  same(P.colourGridOrder([...D].reverse().map((c) => ({ color: c.color, opacity: 100 }))).map((c) => c.color), START.map((c) => c.color), 'the starting colours in reverse sort back to the plan\'s order');
+});
 
-  // Its figures, worked out with public/theme-colour.js's own maths (independent of the block).
-  const below = (list, other, min, how) => list.filter((c) => !(TC.contrast(c, other) >= min)).map((c) => `${c} ${how} ${TC.contrast(c, other).toFixed(2)}`);
-  same(below(group('Light'), '#1c2024', 4.5, 'with #1c2024'), [], 'dark words #1c2024 on each Light colour reach 4.5:1');
-  same(below(group('Dark'), '#eceff3', 4.5, 'with #eceff3'), [], 'light words #eceff3 on each Dark colour reach 4.5:1');
-  same(below(group('Dark'), '#ffffff', 4.5, 'on white'), [], 'each Dark colour as words on white reaches 4.5:1');
-  same(below(group('Strong'), '#ffffff', 4.5, 'with white'), [], 'white words on each Strong colour reach 4.5:1');
-  same(below(group('Strong'), '#ffffff', 3, 'against white'), [], 'each Strong colour reaches 3:1 against white');
-  same(below(group('Strong'), '#0e1a2b', 3, 'against #0e1a2b'), [], 'each Strong colour reaches 3:1 against the dark ground #0e1a2b');
+section('the grid: clean, order, names, add and remove', () => {
+  const e = (color, opacity = 100) => ({ color, opacity });
+  const good = [e('#d62828'), e('#1e5fd0', 60), e('#1e5fd0', 100)];
+  const got = P.colourGridClean(good);
+  same(got, good, 'colourGridClean takes a good list (the same colour at two opacities too)');
+  ok(got !== good && got[0] !== good[0], 'colourGridClean answers a copy');
+  same(P.colourGridClean([]), [], 'colourGridClean takes an empty list');
+  same((P.colourGridClean(Array.from({ length: 48 }, (_, i) => e(`#0000${i.toString(16).padStart(2, '0')}`))) || []).length, 48, 'colourGridClean takes 48');
+  const bad = [
+    ['49 entries', Array.from({ length: 49 }, (_, i) => e(`#0000${i.toString(16).padStart(2, '0')}`))],
+    ['not a list', { colors: [] }], ['null', null], ['upper case', [e('#D62828')]], ['three digits', [e('#fff')]], ['eight digits', [e('#d62828ff')]],
+    ['a name', [e('red')]], ['url(x)', [e('url(x)')]], ['a string opacity', [{ color: '#d62828', opacity: '100' }]], ['opacity 1.5', [e('#d62828', 1.5)]],
+    ['opacity 101', [e('#d62828', 101)]], ['opacity -1', [e('#d62828', -1)]], ['an extra key', [{ color: '#d62828', opacity: 100, name: 'Red' }]],
+    ['a missing key', [{ color: '#d62828' }]], ['a duplicate', [e('#d62828'), e('#d62828')]], ['a hole', [e('#d62828'), , e('#1e5fd0')]],
+    ['a null entry', [null]], ['an array entry', [['#d62828', 100]]],
+  ];
+  for (const [what, list] of bad) same(P.colourGridClean(list), null, `colourGridClean refuses ${what}`);
+  // The order rule on a set of added colours: neutrals light to dark, then by hue band from red, lighter first, ties as stored.
+  const added = [e('#1e5fd0', 60), e('#000000'), e('#d62828'), e('#ff3355'), e('#808080', 40), e('#ffffff'), e('#f28b82'), e('#1e5fd0'), e('#2e9e3e'), e('#d81b9c')];
+  same(P.colourGridOrder(added).map((c) => `${c.color}/${c.opacity}`), ['#ffffff/100', '#808080/40', '#000000/100', '#f28b82/100', '#ff3355/100', '#d62828/100', '#2e9e3e/100', '#1e5fd0/60', '#1e5fd0/100', '#d81b9c/100'],
+    'colourGridOrder: neutrals light to dark, then hue bands from red (a hue of 350 is red), lighter first, a tie as stored');
+  same(P.colourGridOrder([e('#1e5fd0'), e('#1e5fd0', 60)]).map((c) => c.opacity), [100, 60], 'colourGridOrder keeps a tie as stored');
+  ok(P.colourGridOrder(added) !== added && added[0].color === '#1e5fd0', 'colourGridOrder answers a copy and leaves the list alone');
+  same([P.colourGridName(e('#d62828')), P.colourGridName(e('#d62828', 60)), P.colourGridName(e('#123456'))], ['Red', '', ''], 'colourGridName names a starting colour at 100 only');
+  same([P.colourGridLabel(e('#d62828')), P.colourGridLabel(e('#d62828', 60)), P.colourGridLabel(e('#123456')), P.colourGridLabel(e('#123456', 0))], ['Red', '#d62828, 60 percent', '#123456', '#123456, 0 percent'], 'colourGridLabel: the name, else the hex, with the percent below 100');
+  const one = [e('#d62828')];
+  same(P.colourGridAdd(one, e('#1e5fd0', 60)), { list: [e('#d62828'), e('#1e5fd0', 60)], how: 'added' }, 'colourGridAdd adds a new colour with its opacity');
+  same(P.colourGridAdd(one, e('#d62828', 60)).how, 'added', 'colourGridAdd adds the same colour at another opacity');
+  const there = P.colourGridAdd(one, e('#d62828'));
+  ok(there.how === 'there' && there.list === one, 'colourGridAdd does not add the same colour and opacity again');
+  const full = Array.from({ length: 48 }, (_, i) => e(`#0000${i.toString(16).padStart(2, '0')}`));
+  const f = P.colourGridAdd(full, e('#d62828'));
+  ok(f.how === 'full' && f.list === full, 'colourGridAdd adds nothing at 48');
+  same(P.colourGridRemove([e('#d62828'), e('#1e5fd0', 60)], e('#1e5fd0', 60)), [e('#d62828')], 'colourGridRemove takes a colour out');
+  ok(P.colourGridRemove(one, e('#1e5fd0')) === one, 'colourGridRemove leaves a list without the colour as it is');
+  same(P.colourGridFind([e('#d62828'), e('#d62828', 60)], e('#d62828', 60)), 1, 'colourGridFind finds a colour at its opacity');
+});
+
+section('new list rows take the starting colours from Red, not the neutral or light ones', () => {
+  const src = read('public/colour-field.js');
+  const at = src.indexOf('export function newRowColours()');
+  ok(at > 0, 'public/colour-field.js has newRowColours');
+  const fn = new Function('window', `${src.slice(at).replace('export ', '')}\n; return newRowColours;`)({ hostColour: { palette: P.COLOUR_GRID_START } });
+  same(fn(), ['Red', 'Dark red', 'Orange', 'Brown', 'Yellow', 'Green', 'Dark green', 'Cyan', 'Teal', 'Blue', 'Dark blue', 'Purple', 'Magenta'].map((n) => HEX[n]), 'newRowColours: Red, Dark red, Orange, Brown, Yellow, Green, Dark green, Cyan, Teal, Blue, Dark blue, Purple, Magenta');
+  same(new Function('window', `${src.slice(at).replace('export ', '')}\n; return newRowColours;`)({})(), [], 'newRowColours with no SDK on the page is empty');
 });
 
 section('the palette check', () => {
   // --- the palette check ---
   const SENTENCE = 'host.ui.colorPicker: a palette colour needs a name and a #rrggbb colour';
   let got;
-  try { got = P.colourPaletteCheck(P.COLOUR_PALETTE); } catch (e) { got = `threw ${e && e.message}`; }
-  same(JSON.parse(JSON.stringify(got)), PALETTE, 'colourPaletteCheck takes the default palette as it is');
+  const asGroups = [{ heading: 'Start', colours: START.slice(0, 8).map(({ name, color }) => ({ name, color })) }, { heading: 'More', colours: START.slice(8).map(({ name, color }) => ({ name, color })) }];
+  try { got = P.colourPaletteCheck(asGroups); } catch (e) { got = `threw ${e && e.message}`; }
+  same(JSON.parse(JSON.stringify(got)), asGroups, 'colourPaletteCheck takes two named groups of the starting colours as they are');
   const mine = [{ heading: 'Inks', colours: [{ name: 'Ink', color: '#1A2B3C' }, { name: 'Paper', color: 'F5EEDB' }, { name: 'Rust', color: ' #b8560f ' }] }];
   try { got = P.colourPaletteCheck(mine); } catch (e) { got = `threw ${e && e.message}`; }
   same(JSON.parse(JSON.stringify(got)), [{ heading: 'Inks', colours: [{ name: 'Ink', color: '#1a2b3c' }, { name: 'Paper', color: '#f5eedb' }, { name: 'Rust', color: '#b8560f' }] }],
@@ -364,29 +414,18 @@ section('colourFromHsv always answers a colour', () => {
   same(P.colourFromHsv({ h: 200, s: 50, v: -5 }), P.colourFromHsv({ h: 200, s: 50, v: 0 }), 'colourFromHsv clamps brightness below 0');
 });
 
-section('the default palette: the plan\'s figures as lower bounds', () => {
-  const least = (list, other) => Math.min(...list.map((c) => TC.contrast(c, other)));
-  // The plan states these to one decimal, rounded (Orange on white is 4.7988, stated as 4.8), so the least is compared at 2 decimals.
-  const bound = (what, got, min) => ok(Math.round(got * 100) / 100 >= min, `${what}: the least is ${got.toFixed(4)}, wanted ${min} or more`);
-  bound('dark words #1c2024 on Light', least(group('Light'), '#1c2024'), 12.8);
-  bound('light words #eceff3 on Dark', least(group('Dark'), '#eceff3'), 10.3);
-  bound('Dark as words on white', least(group('Dark'), '#ffffff'), 11.9);
-  bound('white words on Strong', least(group('Strong'), '#ffffff'), 4.8);
-  bound('Strong against #0e1a2b', least(group('Strong'), '#0e1a2b'), 3.2);
-});
-
 section('the block reaches nothing outside itself', () => {
   // --- the block reaches nothing outside itself: run it again in an empty context (no window, document, require, process, console) ---
   let out;
   try {
     out = vm.runInNewContext(`(function () {\n      const P = (function () {\n${block}\n; return { ${NAMES} }; })();
-      const pal = P.colourPaletteCheck(P.COLOUR_PALETTE);
+      const pal = P.colourGridOrder(P.colourGridClean(P.COLOUR_GRID_START.map((c) => ({ color: c.color, opacity: c.opacity }))));
       const hex = P.colourFromHsv(P.colourToHsv(P.colourClean(' #2F6CBF ')));
       const a = P.colourAnswer(hex, 49.5, true);
       return JSON.stringify([pal.length, hex, a, P.colourOpacity('x'), P.colourContrast(hex, '#ffffff'), P.colourReadableOn(hex)]);
     })()`, Object.create(null), { timeout: 5000 });
   } catch (e) { out = `threw ${e && e.message}`; }
-  same(out, JSON.stringify([3, '#2f6cbf', { color: '#2f6cbf', opacity: 50 }, 100, TC.contrast('#2f6cbf', '#ffffff'), P.colourReadableOn('#2f6cbf')]),
+  same(out, JSON.stringify([24, '#2f6cbf', { color: '#2f6cbf', opacity: 50 }, 100, TC.contrast('#2f6cbf', '#ffffff'), P.colourReadableOn('#2f6cbf')]),
     'the colour block runs in an empty context (it uses nothing outside itself)');
   const code = block.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"\\])\/\/.*$/gm, '$1');
   const reach = code.match(/\b(window|document|globalThis|self|localStorage|sessionStorage|postMessage|fetch|require|process|env)\b/g);
@@ -411,8 +450,8 @@ section('read as code', () => {
   same(native, [], 'public/sdk/host.js creates no <input type="color"> (decision 6)');
 });
 
-section('the Design System keeps the same palette and icons as host.js', () => {
-  // components.js carries a copy of COLOUR_PALETTE (as CP_PALETTE) and of the three icons (CP_CHECK, CP_DROPPER, CP_CHEVRON) so the
+section('the Design System keeps the same starting colours and icons as host.js', () => {
+  // components.js carries a copy of COLOUR_GRID_START (as CP_GRID) and of the four icons (CP_CHECK, CP_DROPPER, CP_CHEVRON, CP_PLUS) so the
   // specimens draw without the SDK. Only the literals are read: each is cut out of its file and evaluated alone, never the whole file.
   const ds = read('public/design-system/components.js');
   const cut = (src, start, end, what) => {
@@ -422,14 +461,15 @@ section('the Design System keeps the same palette and icons as host.js', () => {
     return src.slice(a + start.length, b);
   };
   const arr = (text) => (text === null ? null : new Function(`return [${text}]`)());
-  const hostPal = arr(cut(sdk, 'const COLOUR_PALETTE = Object.freeze([', '\n  ].map(', 'COLOUR_PALETTE in public/sdk/host.js'));
-  const dsPal = arr(cut(ds, 'const CP_PALETTE = [', '\n  ];', 'CP_PALETTE in public/design-system/components.js'));
+  const hostPal = arr(cut(sdk, 'const COLOUR_GRID_START = Object.freeze([', '\n  ].map(', 'COLOUR_GRID_START in public/sdk/host.js'));
+  const dsPal = arr(cut(ds, 'const CP_GRID = [', '\n  ];', 'CP_GRID in public/design-system/components.js'));
   if (hostPal && dsPal) {
-    ok(hostPal.length === 3, `COLOUR_PALETTE in host.js reads as ${hostPal.length} groups; wanted 3`);
-    same(dsPal, hostPal, 'CP_PALETTE in public/design-system/components.js holds the same groups, names and colours as COLOUR_PALETTE in public/sdk/host.js');
+    ok(hostPal.length === 24, `COLOUR_GRID_START in host.js reads as ${hostPal.length} colours; wanted 24`);
+    same(dsPal, hostPal, 'CP_GRID in public/design-system/components.js holds the same names and colours, in the same order, as COLOUR_GRID_START in public/sdk/host.js');
   }
+  ok(!/CP_PALETTE|'Light', \[|'Strong', \[/.test(ds), 'components.js has no copy of the old three groups (Light, Dark, Strong)');
   const icon = (src, re, what) => { const m = src.match(re); if (!m) { ok(false, `could not find ${what} to compare`); return null; } return m[1]; };
-  for (const [key, cp] of [['check', 'CP_CHECK'], ['dropper', 'CP_DROPPER'], ['chevron', 'CP_CHEVRON']]) {
+  for (const [key, cp] of [['check', 'CP_CHECK'], ['dropper', 'CP_DROPPER'], ['chevron', 'CP_CHEVRON'], ['plus', 'CP_PLUS']]) {
     const a = icon(sdk, new RegExp(`\\n\\s+${key}: '([^'\\n]+)',?\\n`), `COLOUR_ICONS.${key} in host.js`);
     const b = icon(ds, new RegExp(`const ${cp} = '([^'\\n]+)';`), `${cp} in components.js`);
     ok(Boolean(a) && a === b, `${cp} in components.js is not the same string as COLOUR_ICONS.${key} in host.js`);
@@ -481,7 +521,7 @@ finish();
 
 async function browserHalf(chrome) {
   const { buildModule } = createRequire(import.meta.url)(path.join(ROOT, 'server/module-build.js'));
-  const NAMES_ALL = PALETTE.flatMap((g) => g.colours.map((c) => c.name));
+  const NAMES_ALL = START.map((c) => c.name);
   const HINT = 'Type six hex digits, like #2f6cbf';
   const answers = []; // every answer seen, for the shape check at the end
   const note = []; // what is worth saying that is not a failure
@@ -506,7 +546,7 @@ async function browserHalf(chrome) {
       const modDir = path.join(dataDir, `${id}-src`);
       fs.mkdirSync(path.join(modDir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(modDir, 'module.json'), JSON.stringify({ id, name: `Colour check ${id}`, version: '0.0.1', icon: 'palette', scope: ['environment'], surfaces: { page: { entry: `${id}.html` } } }));
-      fs.writeFileSync(path.join(modDir, 'src', `${id}.html`), '<!doctype html><html><head><meta charset="utf-8"><style>/*__CSS__*/</style></head><body><form id="form"><label for="fld">Fill</label> <input id="fld" type="text" value="#2f6cbf"></form><script>/*__JS__*/</script></body></html>');
+      fs.writeFileSync(path.join(modDir, 'src', `${id}.html`), '<!doctype html><html><head><meta charset="utf-8"><style>/*__CSS__*/</style></head><body><form id="form"><label for="fld">Fill</label> <input id="fld" type="text" value="#1e5fd0"></form><script>/*__JS__*/</script></body></html>');
       fs.writeFileSync(path.join(modDir, 'src', `${id}.css`), 'form { padding: 80px 16px; }');
       fs.writeFileSync(path.join(modDir, 'src', `${id}.js`), `const host = (document.currentScript && document.currentScript.host) || window.host; window.__answers = []; window.__events = [];
 host.ready().then(() => {
@@ -518,12 +558,13 @@ host.ready().then(() => {
   host.ui.toolbarButton({ id: 'colour', label: 'Colour', icon: 'palette', onClick: (e) => {
     window.__clicks += 1;
     window.__tbx = e.x;
-    host.ui.colorPicker({ at: { x: Number.isFinite(e.x) ? e.x : 100000, y: 4 }, value: '#c0392b' }).then((a) => window.__answers.push(a));
+    host.ui.colorPicker({ at: { x: Number.isFinite(e.x) ? e.x : 100000, y: 4 }, value: '#d62828' }).then((a) => window.__answers.push(a));
   } });
   host.ui.toolbarButton({ id: 'shade', label: 'Shade', icon: 'palette', onClick: (e) => {
     window.__clicks2 = (window.__clicks2 || 0) + 1;
-    host.ui.colorPicker({ at: { x: Number.isFinite(e.x) ? e.x : 100000, y: 4 }, value: '#00796b', label: 'Shade' }).then((a) => window.__answers.push(a));
+    host.ui.colorPicker({ at: { x: Number.isFinite(e.x) ? e.x : 100000, y: 4 }, value: '#008080', label: 'Shade' }).then((a) => window.__answers.push(a));
   } });
+  window.__host = host;
   window.__ready = true;
 });`);
       const up = await fetch(`${server.base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', cookie: jar }, body: buildModule(modDir).zip });
@@ -595,6 +636,21 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
       await tab.close();
     }
 
+    // The person's grid (step 7), once the rest has run (it edits the admin's grid on this server, which the cases above read).
+    {
+      const tab = new Tab(cdp, {});
+      await tab.open(1280, 'light', false);
+      const send = (m, p) => cdp.send(m, p, tab.sid);
+      for (const c of cookies) await send('Network.setCookie', { ...c, url: server.base });
+      try {
+        await gridCases({ tab, send, jar });
+      } catch (e) {
+        n += 1;
+        problems.push(`the grid: stopped: ${e && (e.stack || e.message)}`);
+      }
+      await tab.close();
+    }
+
     // Every answer seen: a colour and a percent, nothing else.
     const badShape = answers.filter((a) => a !== null && !(a && Object.keys(a).sort().join() === 'color,opacity' && /^#[0-9a-f]{6}$/.test(a.color) && Number.isInteger(a.opacity) && a.opacity >= 0 && a.opacity <= 100));
     same(badShape, [], `every answer (${answers.filter(Boolean).length} of them) is { color: #rrggbb, opacity: 0 to 100 }`);
@@ -608,7 +664,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
 
   // ---- the keys, the pointer and the finger ----
   async function key(send, k, { shift = false } = {}) {
-    const codes = { Escape: 27, Enter: 13, Tab: 9, ' ': 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35, PageUp: 33, PageDown: 34 };
+    const codes = { Escape: 27, Enter: 13, Tab: 9, ' ': 32, ArrowLeft: 37, ArrowUp: 38, ArrowRight: 39, ArrowDown: 40, Home: 36, End: 35, PageUp: 33, PageDown: 34, Delete: 46, Backspace: 8, F10: 121 };
     const code = k === ' ' ? 'Space' : k;
     const base = { key: k, code, windowsVirtualKeyCode: codes[k], modifiers: shift ? 8 : 0 };
     if (k === 'Enter' || k === ' ') await send('Input.dispatchKeyEvent', { type: 'keyDown', ...base, text: k === 'Enter' ? '\r' : ' ' });
@@ -661,7 +717,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
       const R = c.attachShadow({ mode: 'open' });
       R.innerHTML = '<style>' + css + '</style><style>.fill{position:absolute;inset:0;background:var(--surface-page)}#a{position:absolute;left:12px;top:12px}#low{position:absolute;left:12px;bottom:12px}#fl{position:absolute;right:12px;top:12px;display:flex;gap:8px;align-items:center}</style>'
         + '<div class="fill"></div><button id="a" class="btn" type="button">Anchor</button><button id="low" class="btn" type="button">Low</button>'
-        + '<label id="fl">Row <input id="fld" type="text" value="#c0392b" aria-label="Row colour"></label>';
+        + '<label id="fl">Row <input id="fld" type="text" value="#d62828" aria-label="Row colour"></label>';
       const h = createHost({ call: (m) => (m === 'hello' ? Promise.resolve({ module: { id: 'cpcheck' } }) : Promise.reject(new Error('not here'))), root: R, rootElement: c, elementAt: (p) => document.elementFromPoint(p.x, p.y), applyTheme: () => {} }).host;
       await h.ready().catch(() => {});
       window.__h = h; window.__R = R; window.__box = c;
@@ -742,37 +798,40 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     same(await ev(`(async () => { const a = __h.ui.colorPicker({ at: { x: 10, y: 4 } }); const b = __h.ui.colorPicker({ at: { x: 10, y: 4 } }); return [await a, await b, !window.__cp()]; })()`), [null, null, true], `${label}: the same call again while it is open closes it, both answering null`);
 
     // --- a swatch answers and closes ---
-    await pick(`{ anchor: 'a', value: '#2f6cbf', opacity: 80 }`);
+    await pick(`{ anchor: 'a', value: '#1e5fd0', opacity: 80 }`);
     same(await ev('window.__focus()'), 'Blue', `${label}: focus starts on the chosen swatch`);
+    // The person's grid: one group, no heading, the 24 starting colours (this module's page answers no grid: not editable, no "+").
+    same(await ev(`[window.__cp().querySelectorAll('[aria-label="Colours"] .sdk-cp-head').length, [...window.__cp().querySelectorAll('[aria-label="Colours"] .sdk-swatch')].map((b) => b.getAttribute('aria-label'))]`), [0, NAMES_ALL], `${label}: the grid has no heading and is the 24 starting colours in order`);
+    same(await ev(`[Boolean(window.__in('.sdk-cp-add')), window.__in('.sdk-cp-current').draggable]`), [false, false], `${label}: where the grid can't be edited there is no "+" and the colour showing can't be dragged`);
     await pressOn(swatch('Teal'));
     const teal = await last();
     answers.push(teal);
-    same(teal, { color: '#00796b', opacity: 80 }, `${label}: a swatch answers its colour with the opacity it started at`);
+    same(teal, { color: '#008080', opacity: 100 }, `${label}: a grid swatch answers its colour and its own opacity`);
     ok(!(await open()), `${label}: a swatch did not close the picker`);
     same(await ev('window.__answers.length'), 6, `${label}: the answers so far (5 Escapes and the swatch) each came once`);
     // Enter on a swatch answers too.
-    await pick(`{ anchor: 'a', value: '#00796b' }`);
+    await pick(`{ anchor: 'a', value: '#008080' }`);
     await key(send, 'ArrowRight');
-    same(await ev('window.__focus()'), 'Blue', `${label}: Right moves from Teal to Blue in the palette`);
+    same(await ev('window.__focus()'), 'Light blue', `${label}: Right moves from Teal to Light blue in the grid`);
     await key(send, 'Enter');
     const blue = await last();
     answers.push(blue);
-    same(blue, { color: '#2f6cbf', opacity: 100 }, `${label}: Enter on a swatch answers its colour`);
+    same(blue, { color: '#87ceeb', opacity: 100 }, `${label}: Enter on a swatch answers its colour`);
     same(await ev('window.__focus()'), '#a', `${label}: after a swatch, focus is back on the anchor`);
 
     // --- the keyboard, the names and the words ---
-    await pick(`{ anchor: 'a', value: '#2F6CBF', opacity: 50, label: 'Fill colour' }`);
-    same(await ev('window.__focus()'), 'Blue', `${label}: a value in capitals starts on its swatch`);
+    await pick(`{ anchor: 'a', value: '#87CEEB', opacity: 50, label: 'Fill colour' }`);
+    same(await ev('window.__focus()'), 'Light blue', `${label}: a value in capitals starts on its swatch`);
     same(await ev(`window.__cp().getAttribute('aria-label')`), 'Fill colour', `${label}: the dialog is named by its label`);
     const recentNames = await ev(`[...window.__cp().querySelectorAll('[aria-label="Recent"] .sdk-swatch')].map((b) => b.getAttribute('aria-label'))`);
-    same(recentNames, ['Blue', 'Teal'], `${label}: Recent holds the colours chosen, newest first, named by their colour names`);
+    same(recentNames, ['Light blue', 'Teal'], `${label}: Recent holds the colours chosen, newest first, named by their colour names`);
     const dropper = await ev(`!window.__in('.sdk-cp-dropper').hidden`);
-    const order = ['Saturation and brightness', 'Hue', 'Opacity', 'sdk-cp-hexin', ...(dropper ? ['Pick from the screen'] : []), 'Blue', 'Blue'];
+    const order = ['Saturation and brightness', 'Hue', 'Opacity', 'sdk-cp-hexin', ...(dropper ? ['Pick from the screen'] : []), 'Light blue', 'Light blue'];
     const seen = [];
     await key(send, 'Tab'); // from the palette to Recent
     seen.push(await ev(`window.__focus() + '@' + (((__R.activeElement || document.activeElement).closest('[role=radiogroup]') || { getAttribute: () => '' }).getAttribute('aria-label'))`));
     for (let i = 0; i < order.length - 1; i += 1) { await key(send, 'Tab'); seen.push(await ev('window.__focus()')); }
-    same(seen, ['Blue@Recent', ...order.slice(0, -1)], `${label}: Tab goes from the palette to Recent, then round to the area, Hue, Opacity, Hex${dropper ? ', Pick from the screen' : ''} and the palette`);
+    same(seen, ['Light blue@Recent', ...order.slice(0, -1)], `${label}: Tab goes from the palette to Recent, then round to the area, Hue, Opacity, Hex${dropper ? ', Pick from the screen' : ''} and the palette`);
     await key(send, 'Tab', { shift: true });
     same(await ev('window.__focus()'), dropper ? 'Pick from the screen' : 'sdk-cp-hexin', `${label}: Shift+Tab goes back`);
 
@@ -814,15 +873,15 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     ok(inputsSoFar >= 15, `${label}: onInput fired ${inputsSoFar} times for the keys; it should fire on each change`);
     ok(await open() && (await ev('window.__last')) === undefined, `${label}: the picker answered while it was being changed`);
     // The palette: arrows inside it, Up and Down by rows, Home and End.
-    const blueSel = swatch('Blue');
+    const blueSel = swatch('Light blue');
     await ev(`${blueSel}.focus()`);
-    for (const [k, want] of [['ArrowRight', 'Purple'], ['ArrowLeft', 'Blue'], ['Home', 'White'], ['ArrowDown', 'Black'], ['ArrowDown', 'Red'], ['ArrowUp', 'Black'], ['End', 'Pink']]) {
+    for (const [k, want] of [['ArrowRight', 'Blue'], ['ArrowLeft', 'Light blue'], ['Home', 'White'], ['ArrowDown', 'Light brown'], ['ArrowDown', 'Teal'], ['ArrowUp', 'Light brown'], ['End', 'Magenta']]) {
       await key(send, k);
       same(await ev('window.__focus()'), want, `${label}: ${k} in the palette`);
     }
     // Recent: its own Tab stop, arrows inside.
     await key(send, 'Tab');
-    same(await ev('window.__focus()'), 'Blue', `${label}: Tab from the palette goes to Recent`);
+    same(await ev('window.__focus()'), 'Light blue', `${label}: Tab from the palette goes to Recent`);
     await key(send, 'ArrowRight');
     same(await ev('window.__focus()'), 'Teal', `${label}: Right inside Recent`);
 
@@ -840,7 +899,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     // The words, on the picker's surface: Hex, the typed hex, a group's heading (4.5:1 or more).
     await tab.eval(CONTRAST_JS);
     const ratio = (expr) => ev(`window.__contrast(${expr})`);
-    for (const [what, expr] of [['the word Hex', `window.__in('.sdk-cp-hex-word')`], ['the hex in its field', `window.__in('.sdk-cp-hexin')`], ['a group heading', `window.__in('.sdk-cp-head')`]]) {
+    for (const [what, expr] of [['the word Hex', `window.__in('.sdk-cp-hex-word')`], ['the hex in its field', `window.__in('.sdk-cp-hexin')`], ['the Recent heading', `window.__in('.sdk-cp-head')`]]) {
       const v = await ratio(expr);
       ok(v >= 4.5, `${label}: ${what} is ${v.toFixed(2)}:1 on the picker; wanted 4.5:1`);
     }
@@ -848,14 +907,14 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     // swatches under 3:1 against the menu's own surface, worked out here from the drawn surface with theme-colour.js's maths.
     const faint = await ev(`[...window.__cp().querySelectorAll('[aria-label="Colours"] .sdk-cp-faint')].map((b) => b.getAttribute('aria-label'))`);
     const surface = await ev(`(() => { const cv = document.createElement('canvas'); cv.width = cv.height = 1; const g = cv.getContext('2d', { willReadFrequently: true }); g.fillStyle = getComputedStyle(window.__cp()).backgroundColor; g.fillRect(0, 0, 1, 1); return '#' + [...g.getImageData(0, 0, 1, 1).data].slice(0, 3).map((v) => v.toString(16).padStart(2, '0')).join(''); })()`);
-    const under3 = PALETTE.flatMap((g) => g.colours).filter((c) => TC.contrast(c.color, surface) < 3).map((c) => c.name);
+    const under3 = START.filter((c) => TC.contrast(c.color, surface) < 3).map((c) => c.name);
     const wantFaint = mode === 'light' ? 'White' : 'Black';
     const notFaint = mode === 'light' ? 'Black' : 'White';
     ok(faint.includes(wantFaint) && !faint.includes(notFaint), `${label}: the swatches with the stronger edge are ${JSON.stringify(faint)}; wanted ${wantFaint} among them and not ${notFaint}`);
     same(faint, under3, `${label}: the swatches with the stronger edge are those under 3:1 against the menu's surface (${surface})`);
     const edges = await ev(`[${swatch(wantFaint)}, ${swatch(notFaint)}].map((b) => getComputedStyle(b, '::before').borderTopColor)`);
     ok(edges[0] !== edges[1], `${label}: ${wantFaint}'s stronger edge is drawn the same as ${notFaint}'s (${edges[0]})`);
-    if (faint.length > 2) note.push(`${label}: ${faint.length} of 24 swatches take the stronger edge on a ${surface} menu (${faint.join(', ')})`);
+    if (faint.length > 6) note.push(`${label}: ${faint.length} of 24 swatches take the stronger edge on a ${surface} menu (${faint.join(', ')})`);
 
     // At 390 on a touch screen: 44px targets and 16px hex text.
     if (coarse) {
@@ -927,7 +986,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     ok(dropped && dropped.opacity === 70, `${label}: the answer kept the opacity it started at (${dropped && dropped.opacity})`);
 
     // --- opacity: false (decision 11) ---
-    await pick(`{ at: { x: 20, y: 60 }, value: '#c0392b', opacity: false, label: 'Row colour' }`);
+    await pick(`{ at: { x: 20, y: 60 }, value: '#d62828', opacity: false, label: 'Row colour' }`);
     const off = await ev(`(() => { const p = window.__cp(); return [Boolean(window.__in('.sdk-cp-alpha')), [...p.querySelectorAll('[role=slider]')].map((x) => x.getAttribute('aria-label')), /opacity/i.test(p.textContent), p.classList.contains('sdk-cp-solid')]; })()`);
     same(off, [false, ['Saturation and brightness', 'Hue'], false, true], `${label}: with opacity: false there is no Opacity slider and no line about it; the sliders are the area and Hue`);
     // The Tab order skips it: the area, Hue, Hex, Pick from the screen when shown, the palette; Shift+Tab from Hue goes to the area.
@@ -946,21 +1005,22 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     const ax2 = (await send('Accessibility.getFullAXTree', {})).nodes.filter((x) => !x.ignored);
     ok(!ax2.some((x) => x.name && /opacity/i.test(String(x.name.value || ''))), `${label}: with opacity: false the accessibility tree has nothing named Opacity`);
     ok(ax2.some((x) => x.role && x.role.value === 'dialog' && x.name && x.name.value === 'Row colour'), `${label}: the accessibility tree has no dialog named "Row colour"`);
-    await pressOn(swatch('Gold'));
+    await pressOn(swatch('Orange'));
     const gold = await last();
     answers.push(gold);
-    same(gold, { color: '#8a6a00', opacity: 100 }, `${label}: with opacity: false the answer's opacity is 100`);
-    await pick(`{ at: { x: 20, y: 60 }, value: '#c0392b', opacity: 0 }`);
+    same(gold, { color: '#f28c28', opacity: 100 }, `${label}: with opacity: false the answer's opacity is 100`);
+    await pick(`{ at: { x: 20, y: 60 }, value: '#d62828', opacity: 0 }`);
     await key(send, 'Escape');
     await last();
-    await pick(`{ at: { x: 20, y: 60 }, value: '#c0392b', opacity: 37 }`);
+    await pick(`{ at: { x: 20, y: 60 }, value: '#d62828', opacity: 37 }`);
     await pressOn(swatch('Red'));
     const kept = await last();
     answers.push(kept);
-    same(kept, { color: '#c0392b', opacity: 37 }, `${label}: where opacity is kept the answer carries the percent`);
+    same(kept, { color: '#d62828', opacity: 100 }, `${label}: a grid colour answers its own opacity (100), not the slider's`);
 
     // --- a module palette ---
     await pick(`{ at: { x: 20, y: 60 }, recent: false, palette: [{ heading: 'Inks', colours: [{ name: 'Ink', color: '#1A2B3C' }, { name: 'Paper', color: 'f5eedb' }] }] }`);
+    same(await ev(`[Boolean(window.__in('.sdk-cp-add')), window.__in('.sdk-cp-current').draggable, Boolean(window.__in('.sdk-cp-grid-error'))]`), [false, false, false], `${label}: a module palette has no "+", no drag and no grid line`);
     same(await ev(`[...window.__cp().querySelectorAll('.sdk-swatch')].map((b) => b.getAttribute('aria-label'))`), ['Ink', 'Paper'], `${label}: a module palette is drawn in place of the default, and recent: false leaves Recent out`);
     same(await ev(`[...window.__cp().querySelectorAll('.sdk-cp-head')].map((h) => h.textContent)`), ['Inks'], `${label}: the module palette's heading is drawn`);
     same(await ev(`window.__in('.sdk-cp-hexin').value`), '#1a2b3c', `${label}: with no value the picker starts at the palette's first colour`);
@@ -969,21 +1029,21 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     answers.push(ink);
     same(ink, { color: '#1a2b3c', opacity: 100 }, `${label}: a module palette's swatch answers its colour`);
     await pick(`{ at: { x: 20, y: 60 }, value: 'red', palette: [{ heading: 'Inks', colours: [{ name: 'Ink', color: '#1a2b3c' }] }] }`);
-    same(await ev(`[[...window.__cp().querySelectorAll('[aria-label="Recent"] .sdk-swatch')].map((b) => b.getAttribute('aria-label')).slice(0, 2), window.__in('.sdk-cp-hexin').value, window.__focus()]`), [['#c0392b', '#8a6a00'], '#1a2b3c', 'Ink'], `${label}: a value that is not #rrggbb is ignored (it starts at the palette's first colour), and Recent, newest first, names a colour the palette does not have by its hex (the answer from recent: false is not kept)`);
+    same(await ev(`[[...window.__cp().querySelectorAll('[aria-label="Recent"] .sdk-swatch')].map((b) => b.getAttribute('aria-label')).slice(0, 2), window.__in('.sdk-cp-hexin').value, window.__focus()]`), [['#d62828', '#f28c28'], '#1a2b3c', 'Ink'], `${label}: a value that is not #rrggbb is ignored (it starts at the palette's first colour), and Recent, newest first, names a colour the palette does not have by its hex (the answer from recent: false is not kept)`);
     await key(send, 'Escape');
     answers.push(await last());
 
     // --- colorField ---
     await ev(`(() => { const i = __R.getElementById('fld'); window.__ev = []; i.addEventListener('input', () => __ev.push('input')); i.addEventListener('change', () => __ev.push('change')); window.__f = __h.ui.colorField(i, { opacity: false, onChange: (a) => __ev.push(a) }); window.__trig = () => __R.querySelector('.sdk-picker'); return 1; })()`);
     const trig = () => ev(`(() => { const t = window.__trig(); return t ? [t.getAttribute('aria-label'), t.getAttribute('aria-haspopup'), t.getAttribute('aria-expanded'), t.disabled, __R.getElementById('fld').hidden] : null; })()`);
-    same(await trig(), ['Row colour, Red, #c0392b. Change it', 'dialog', 'false', false, true], `${label}: the colour field's trigger is named "<label>, <name>, <hex>. Change it", has a dialog popup, and hides the input`);
-    same(await ev('window.__f.value'), '#c0392b', `${label}: the field's value`);
+    same(await trig(), ['Row colour, Red, #d62828. Change it', 'dialog', 'false', false, true], `${label}: the colour field's trigger is named "<label>, <name>, <hex>. Change it", has a dialog popup, and hides the input`);
+    same(await ev('window.__f.value'), '#d62828', `${label}: the field's value`);
     await pressOn('window.__trig()');
     same(await ev(`[window.__trig().getAttribute('aria-expanded'), window.__cp() && window.__cp().getAttribute('aria-label'), Boolean(window.__in('.sdk-cp-alpha'))]`), ['true', 'Row colour', false], `${label}: the field opens its picker named by the field, with no Opacity`);
     await inside('from the colour field');
     await pressOn(swatch('Teal'));
     same(await ev(`[__R.getElementById('fld').value, window.__ev, window.__f.value, window.__trig().getAttribute('aria-expanded'), window.__trig().getAttribute('aria-label'), window.__focus()]`),
-      ['#00796b', ['input', 'change', { color: '#00796b', opacity: 100 }], '#00796b', 'false', 'Row colour, Teal, #00796b. Change it', 'Row colour, Teal, #00796b. Change it'],
+      ['#008080', ['input', 'change', { color: '#008080', opacity: 100 }], '#008080', 'false', 'Row colour, Teal, #008080. Change it', 'Row colour, Teal, #008080. Change it'],
       `${label}: a choice in the field sets the input, sends input then change, then onChange once, and focus goes back to the trigger`);
     answers.push(...(await ev('window.__ev.filter((x) => typeof x === "object")')));
     // Opened and closed again with nothing chosen: nothing is sent, and the trigger shows the stored colour.
@@ -992,7 +1052,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     await key(send, 'ArrowRight');
     await key(send, 'Escape');
     await tick();
-    same(await ev(`[window.__ev.length, window.__trig().getAttribute('aria-label'), Boolean(window.__cp())]`), [3, 'Row colour, Teal, #00796b. Change it', false], `${label}: Escape in the field sends nothing and puts the trigger back`);
+    same(await ev(`[window.__ev.length, window.__trig().getAttribute('aria-label'), Boolean(window.__cp())]`), [3, 'Row colour, Teal, #008080. Change it', false], `${label}: Escape in the field sends nothing and puts the trigger back`);
     // The trigger again while it is open closes it (a toggle).
     await pressOn('window.__trig()');
     await pressOn('window.__trig()');
@@ -1175,7 +1235,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     await press(send, coarse, boxRect.r - 6, boxRect.b - 6);
     await track('a swatch', `{ anchor: __R.getElementById('a') }`);
     await tick();
-    await pressOn(swatch('Gold'));
+    await pressOn(swatch('Orange'));
     await track('Enter in Hex', `{ anchor: __R.getElementById('a') }`);
     await ev(`window.__in('.sdk-cp-hexin').focus()`);
     await key(send, 'Enter');
@@ -1205,13 +1265,14 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     await ev(`(document.getElementById('cp-box').remove(), 1)`);
 
     // --- the page's own field (hostColour, for the host's pages) ---
-    await ev(`(() => { const i = document.createElement('input'); i.type = 'color'; i.id = 'cp-page'; i.value = '#2f6cbf'; i.setAttribute('aria-label', 'Accent'); i.style.cssText = 'position:fixed;left:8px;top:8px'; document.body.appendChild(i); window.__pev = []; i.addEventListener('change', () => __pev.push(i.value)); window.__pf = hostColour.field(i, { onChange: (a) => __pev.push(a) }); return 1; })()`);
-    same(await ev(`document.getElementById('cp-page').previousElementSibling.getAttribute('aria-label')`), 'Accent, Blue, #2f6cbf. Change it', `${label}: hostColour.field puts the same trigger on a page's input`);
+    await ev(`(() => { const i = document.createElement('input'); i.type = 'color'; i.id = 'cp-page'; i.value = '#1e5fd0'; i.setAttribute('aria-label', 'Accent'); i.style.cssText = 'position:fixed;left:8px;top:8px'; document.body.appendChild(i); window.__pev = []; i.addEventListener('change', () => __pev.push(i.value)); window.__pf = hostColour.field(i, { onChange: (a) => __pev.push(a) }); return 1; })()`);
+    same(await ev(`document.getElementById('cp-page').previousElementSibling.getAttribute('aria-label')`), 'Accent, Blue, #1e5fd0. Change it', `${label}: hostColour.field puts the same trigger on a page's input`);
     await ev(`document.getElementById('cp-page').previousElementSibling.click()`);
     await tick();
     ok(await ev(`Boolean(document.querySelector('.sdk-cp'))`), `${label}: hostColour.field's trigger opened no picker in the page`);
-    await pressOn(`document.querySelector('.sdk-cp .sdk-swatch[aria-label="Gold"]')`);
-    same(await ev('window.__pev'), ['#8a6a00', { color: '#8a6a00', opacity: 100 }], `${label}: hostColour.field sets the page's input and answers`);
+    await sleep(200); // the page's own grid arrives from the route
+    await pressOn(`document.querySelector('.sdk-cp .sdk-swatch[aria-label="Orange"]')`);
+    same(await ev('window.__pev'), ['#f28c28', { color: '#f28c28', opacity: 100 }], `${label}: hostColour.field sets the page's input and answers`);
     answers.push(...(await ev('window.__pev.filter((x) => typeof x === "object")')));
     await ev(`(window.__pf.destroy(), document.getElementById('cp-page').remove(), 1)`);
   }
@@ -1273,7 +1334,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
 
     // S1: a picker is open; a press on the page's top bar (outside the module) closes it; within 600ms a press on an anchored
     // colorField trigger opens its picker (the outside press must not swallow the next open).
-    // S2: open the picker from a button, press its group heading ("Strong"), then Escape: focus is back on the button.
+    // S2: open the picker from a button, press a part of it that takes no focus (the colour showing), then Escape: focus is back on the button.
     const TRIGGER = `(() => { let found = null; const walk = (r) => { for (const e of r.querySelectorAll('.sdk-picker')) found = found || e; for (const e of r.querySelectorAll('*')) if (e.shadowRoot) walk(e.shadowRoot); }; walk(document); return found; })()`;
     const trig = await tab.eval(`(() => { const t = ${TRIGGER}; if (!t) return null; const r = t.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, bottom: r.bottom }; })()`);
     const bar = await tab.eval(`(() => { const h = document.querySelector('header.topbar'); if (!h) return null; const r = h.getBoundingClientRect(); for (let x = r.left + 4; x < r.right - 4; x += 6) { const y = r.top + r.height / 2; const e = document.elementFromPoint(x, y); if (e === h) return { x, y }; } return null; })()`);
@@ -1298,15 +1359,15 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     await press(send, coarse, btn.x, btn.y);
     if (!(await waitOpen())) ok(false, `${label}: S2: the button opened no picker`);
     else {
-      const head = await tab.eval(`(() => { const p = ${DEEP_CP}; const h = [...p.querySelectorAll('.sdk-cp-head')].find((e) => e.textContent.trim() === 'Strong'); if (!h) return null; const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
-      if (!head) ok(false, `${label}: S2: the picker has no "Strong" heading`);
+      const head = await tab.eval(`(() => { const p = ${DEEP_CP}; const h = p.querySelector('.sdk-cp-current'); if (!h) return null; const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+      if (!head) ok(false, `${label}: S2: the picker has no colour showing`);
       else {
         await press(send, coarse, head.x, head.y);
-        ok(await pickerOpen(), `${label}: S2: a press on the "Strong" heading closed the picker`);
+        ok(await pickerOpen(), `${label}: S2: a press on the colour showing closed the picker`);
         await key(send, 'Escape');
         await sleep(200);
         ok(!(await pickerOpen()), `${label}: S2: the picker is still open after Escape`);
-        same(await onButton(), 'button (the toolbar button)', `${label}: S2: after a press on the "Strong" heading and Escape, focus is not back on the button`);
+        same(await onButton(), 'button (the toolbar button)', `${label}: S2: after a press on the colour showing and Escape, focus is not back on the button`);
       }
     }
   }
@@ -1398,7 +1459,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     }
     if (width !== 375) {
       // Red and Teal chosen (the chosen swatch carries a ring): the popover has no sideways scroll, at the top left, the top right and under the field.
-      for (const [name, value] of [['Red', '#c0392b'], ['Teal', '#00796b']]) {
+      for (const [name, value] of [['Red', '#d62828'], ['Teal', '#008080']]) {
         for (const [how, o] of [['at { x: 0, y: 4 }', `{ at: { x: 0, y: 4 }, value: '${value}' }`], ['at { x: 100000, y: 4 }', `{ at: { x: 100000, y: 4 }, value: '${value}' }`], ['under the field', `{ anchor: document.querySelector('#cp-phone .sdk-picker'), value: '${value}' }`]]) {
           const m = await tab.eval(`(() => { window.__pp = hostColour.picker(${o}); const p = document.querySelector('.sdk-cp'); return { sw: p.scrollWidth, cw: p.clientWidth, chosen: p.querySelectorAll('.sdk-swatch[aria-checked="true"]').length }; })()`);
           ok(m.sw <= m.cw, `${label}: no sideways scroll: with ${name} chosen ${how} the picker scrolls sideways (scrollWidth ${m.sw}, clientWidth ${m.cw})`);
@@ -1426,6 +1487,220 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     }
     await key(send, 'Escape');
     answers.push(await tab.eval('window.__pp'));
+  }
+
+  // ---- the person's grid (step 7): through the real route, in a sandboxed frame, a module in the page and the page's own picker ----
+  async function gridCases({ tab, send, jar }) {
+    const label = 'the grid';
+    const server_ = async (method, body) => {
+      const r = await fetch(`${server.base}/api/me/color-grid`, { method, headers: { cookie: jar, 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    };
+    const stored = async () => (await server_('GET')).body.colors;
+    const named = (list) => list.map((c) => START.find((x) => x.color === c.color && c.opacity === 100)?.name || (c.opacity < 100 ? `${c.color}, ${c.opacity} percent` : c.color));
+    same(await stored(), null, `${label}: before any edit the server holds no grid (colors: null)`);
+    const mouse = async (x, y, button = 'left') => {
+      const b = button === 'right' ? 2 : 1;
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none' });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, buttons: b, clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount: 1 });
+      await sleep(80);
+    };
+    // The frame of the sandboxed test module, and its toolbar button.
+    const openFrame = async () => {
+      const attached = [];
+      const hook = (m) => { if (m.method === 'Target.attachedToTarget' && m.sessionId === tab.sid && m.params.targetInfo.type === 'iframe') attached.push(m.params.sessionId); };
+      cdp.listeners.push(hook);
+      try {
+        await send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
+        await send('Page.navigate', { url: `${server.base}/modules/cpcheck` });
+        const frameEval = async (sid, expr) => {
+          const r = await cdp.send('Runtime.evaluate', { expression: `(async () => (${expr}))()`, returnByValue: true, awaitPromise: true }, sid);
+          if (r.exceptionDetails) throw new Error(`frame error: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
+          return r.result.value;
+        };
+        let sid = null;
+        for (let i = 0; i < 150 && !sid; i += 1) {
+          for (const s of [...attached].reverse()) if (await frameEval(s, 'window.__ready === true').catch(() => false)) { sid = s; break; }
+          if (!sid) await sleep(100);
+        }
+        if (!sid) throw new Error('the sandboxed test module\'s frame did not start in its own process');
+        const fev = (expr) => frameEval(sid, expr);
+        const box = await tab.eval(`(() => { const f = [...document.querySelectorAll('iframe')].find((x) => x.getClientRects().length && x.getBoundingClientRect().width > 100); const r = f.getBoundingClientRect(); return { l: r.left + f.clientLeft, t: r.top + f.clientTop }; })()`);
+        let btn = null;
+        for (let i = 0; i < 50 && !btn; i += 1) {
+          btn = await tab.eval(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getClientRects().length && ((x.getAttribute('aria-label') || '').trim() === 'Colour' || x.textContent.trim() === 'Colour')); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+          if (!btn) await sleep(100);
+        }
+        if (!btn) throw new Error('the frame module\'s toolbar button "Colour" is not on the page');
+        return { fev, box, btn };
+      } finally {
+        cdp.listeners = cdp.listeners.filter((f) => f !== hook);
+      }
+    };
+    const until = async (get, test, tries = 60) => { let v; for (let i = 0; i < tries; i += 1) { v = await get().catch(() => undefined); if (test(v)) return v; await sleep(100); } return v; };
+    const LABELS = `[...document.querySelectorAll('.sdk-cp [aria-label="Colours"] .sdk-swatch')].map((b) => b.getAttribute('aria-label'))`;
+    const at = (sel) => `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`;
+
+    // --- in the sandboxed frame: the 24, "+", a duplicate, the Remove menu, Delete ---
+    let F = await openFrame();
+    await mouse(F.btn.x, F.btn.y);
+    const editableNow = await until(() => F.fev(`Boolean(document.querySelector('.sdk-cp .sdk-cp-add'))`), (v) => v === true);
+    ok(editableNow, `${label}: in the frame the grid shows no "+" (the page did not answer it as editable)`);
+    same(await F.fev(`[document.querySelectorAll('.sdk-cp [aria-label="Colours"] .sdk-cp-head').length, ${LABELS}, document.querySelector('.sdk-cp-add').getAttribute('aria-label'), document.querySelector('.sdk-cp-current').draggable]`), [0, NAMES_ALL, 'Add this colour', true],
+      `${label}: in the frame, before any edit, the grid is the 24 starting colours with no heading, then "+" ("Add this colour"), and the colour showing can be dragged`);
+    await F.fev(`(document.querySelector('.sdk-cp-alpha').focus(), 1)`);
+    await key(send, 'Home');
+    for (let i = 0; i < 6; i += 1) await key(send, 'PageUp');
+    same(await F.fev(`document.querySelector('.sdk-cp-alpha').getAttribute('aria-valuenow')`), '60', `${label}: the opacity is set to 60 by its keys`);
+    const answersBefore = await F.fev('window.__answers.length');
+    let plus = await F.fev(at('.sdk-cp-add'));
+    await mouse(F.box.l + plus.x, F.box.t + plus.y);
+    const want1 = [...NAMES_ALL.slice(0, 7), '#d62828, 60 percent', ...NAMES_ALL.slice(7)];
+    same(await until(() => F.fev(LABELS), (v) => v && v.length === 25), want1, `${label}: "+" adds the colour showing at 60 percent, in its place by the grid's order (after Red)`);
+    same(await F.fev(`[Boolean(document.querySelector('.sdk-cp')), window.__answers.length, document.querySelector('.sdk-cp-live').textContent, document.activeElement && document.activeElement.getAttribute('aria-label')]`), [true, answersBefore, 'Added #d62828, 60 percent', 'Add this colour'],
+      `${label}: "+" keeps the picker open, picks nothing, says what it added, and keeps the focus on "+"`);
+    const see = await F.fev(`(() => { const b = document.querySelector('.sdk-cp .sdk-swatch[aria-label="#d62828, 60 percent"]'); return [b.classList.contains('sdk-cp-see'), /conic-gradient/.test(getComputedStyle(b, '::before').backgroundImage)]; })()`);
+    same(see, [true, true], `${label}: a colour below opacity 100 is drawn over the checked ground`);
+    same(named(await until(stored, (v) => Array.isArray(v) && v.length === 25)).sort(), [...want1].sort(), `${label}: the add is on the server, the starting colours with it`);
+    plus = await F.fev(at('.sdk-cp-add')); // "+" moved along by one
+    await mouse(F.box.l + plus.x, F.box.t + plus.y);
+    await sleep(200);
+    same(await F.fev(`[${LABELS}.length, document.querySelector('.sdk-cp-live').textContent, document.activeElement && document.activeElement.getAttribute('aria-label')]`), [25, 'Already in your colours', '#d62828, 60 percent'],
+      `${label}: "+" again does not add the same colour and opacity twice, says so, and puts the focus on it`);
+    same((await stored()).length, 25, `${label}: the duplicate is not on the server`);
+    // A right-click on Teal: the Remove menu; Remove takes it out.
+    const teal = await F.fev(at('.sdk-cp .sdk-swatch[aria-label="Teal"]'));
+    await mouse(F.box.l + teal.x, F.box.t + teal.y, 'right');
+    const menu = await until(() => F.fev(`[...document.querySelectorAll('.sdk-menu .sdk-menu-item')].map((b) => b.textContent.trim())`), (v) => Array.isArray(v) && v.length > 0);
+    same(menu, ['Remove'], `${label}: a right-click on a swatch opens a menu with one row, Remove`);
+    ok(await F.fev(`Boolean(document.querySelector('.sdk-cp'))`), `${label}: the Remove menu closed the picker`);
+    const rm = await F.fev(at('.sdk-menu .sdk-menu-item'));
+    await mouse(F.box.l + rm.x, F.box.t + rm.y);
+    const want2 = want1.filter((x) => x !== 'Teal');
+    same(await until(() => F.fev(LABELS), (v) => v && v.length === 24), want2, `${label}: Remove takes Teal out`);
+    await sleep(100);
+    same(await F.fev(`[Boolean(document.querySelector('.sdk-cp')), Boolean(document.querySelector('.sdk-menu')), window.__answers.length, document.querySelector('.sdk-cp-live').textContent]`), [true, false, answersBefore, 'Removed Teal'],
+      `${label}: after Remove the menu is gone, the picker is open, nothing was picked, and it says what it removed`);
+    same(named(await until(stored, (v) => Array.isArray(v) && v.length === 24)).sort(), [...want2].sort(), `${label}: the remove is on the server`);
+    // Shift+F10 on a focused swatch: the Remove menu; Escape closes the menu only, back to the swatch.
+    await F.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Grey"]').focus(), 1)`);
+    await key(send, 'F10', { shift: true });
+    const menu2 = await until(() => F.fev(`Boolean(document.querySelector('.sdk-menu'))`), (v) => v === true, 20);
+    ok(menu2, `${label}: Shift+F10 on a swatch opened no Remove menu`);
+    await key(send, 'Escape');
+    await sleep(150);
+    same(await F.fev(`[Boolean(document.querySelector('.sdk-menu')), Boolean(document.querySelector('.sdk-cp')), document.activeElement && document.activeElement.getAttribute('aria-label'), ${LABELS}.length]`), [false, true, 'Grey', 24],
+      `${label}: Escape in the Remove menu closes the menu only, the focus back on the swatch, nothing removed`);
+    // Delete on a focused swatch removes it; the focus goes to the next one.
+    await F.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Pink"]').focus(), 1)`);
+    await key(send, 'Delete');
+    const want3 = want2.filter((x) => x !== 'Pink');
+    same(await until(() => F.fev(LABELS), (v) => v && v.length === 23), want3, `${label}: Delete takes Pink out`);
+    same(await F.fev(`[document.activeElement && document.activeElement.getAttribute('aria-label'), document.querySelector('.sdk-cp-live').textContent, window.__answers.length]`), ['Magenta', 'Removed Pink', answersBefore], `${label}: after Delete the focus is on the next swatch, it says what it removed, and nothing was picked`);
+    // Backspace too.
+    await F.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Grey"]').focus(), 1)`);
+    await key(send, 'Backspace');
+    const want4 = want3.filter((x) => x !== 'Grey');
+    same(await until(() => F.fev(LABELS), (v) => v && v.length === 22), want4, `${label}: Backspace takes Grey out`);
+    same(named(await until(stored, (v) => Array.isArray(v) && v.length === 22)).sort(), [...want4].sort(), `${label}: Delete and Backspace are on the server`);
+    await key(send, 'Escape');
+    same(await until(() => F.fev('window.__answers.at(-1)'), (v) => v === null), null, `${label}: Escape after the edits answers null (the edits stay)`);
+    answers.push(null);
+
+    // --- a reload keeps it ---
+    F = await openFrame();
+    await mouse(F.btn.x, F.btn.y);
+    same(await until(() => F.fev(LABELS), (v) => v && v.length === 22), want4, `${label}: after a reload the frame shows the grid as kept`);
+    await key(send, 'Escape');
+    answers.push(null);
+
+    // --- a module in the page: the same grid, and a drag of the colour showing onto it ---
+    await send('Page.navigate', { url: `${server.base}/modules/cppage` });
+    const ready = await until(() => tab.eval('window.__ready === true'), (v) => v === true, 150);
+    ok(ready, `${label}: the in-page test module did not start`);
+    const DEEP = (sel) => `(() => { const out = []; const walk = (r) => { for (const e of r.querySelectorAll(${JSON.stringify(sel)})) out.push(e); for (const e of r.querySelectorAll('*')) if (e.shadowRoot) walk(e.shadowRoot); }; walk(document); return out; })()`;
+    const DLABELS = `${DEEP('.sdk-cp [aria-label="Colours"] .sdk-swatch')}.map((b) => b.getAttribute('aria-label'))`;
+    const dat = (sel) => `(() => { const e = ${DEEP(sel)}[0]; if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`;
+    const pbtn = await until(() => tab.eval(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getClientRects().length && ((x.getAttribute('aria-label') || '').trim() === 'Colour' || x.textContent.trim() === 'Colour')); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`), (v) => Boolean(v));
+    await mouse(pbtn.x, pbtn.y);
+    same(await until(() => tab.eval(DLABELS), (v) => v && v.length === 22), want4, `${label}: a module in the page shows the same grid`);
+    await until(() => tab.eval(`${DEEP('.sdk-cp-add')}.length`), (v) => v === 1);
+    await tab.eval(`(() => { const i = ${DEEP('.sdk-cp-hexin')}[0]; i.focus(); i.select(); return 1; })()`);
+    await send('Input.insertText', { text: '#123456' });
+    await sleep(60);
+    const from = await tab.eval(dat('.sdk-cp-current'));
+    const to = await tab.eval(dat('.sdk-cp [aria-label="Colours"] .sdk-swatch'));
+    let how = 'a real drag (Input.setInterceptDrags)';
+    let intercepted = null;
+    const dragHook = (m) => { if (m.method === 'Input.dragIntercepted' && m.sessionId === tab.sid) intercepted = m.params.data; };
+    cdp.listeners.push(dragHook);
+    try {
+      await send('Input.setInterceptDrags', { enabled: true });
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x, y: from.y, button: 'none' });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', buttons: 1, clickCount: 1 });
+      for (let i = 1; i <= 6; i += 1) await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x + (to.x - from.x) * i / 6, y: from.y + (to.y - from.y) * i / 6, button: 'left', buttons: 1 });
+      for (let i = 0; i < 20 && !intercepted; i += 1) await sleep(50);
+      if (intercepted) {
+        for (const type of ['dragEnter', 'dragOver', 'drop']) await send('Input.dispatchDragEvent', { type, x: to.x, y: to.y, data: intercepted });
+      }
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: to.x, y: to.y, button: 'left', buttons: 0, clickCount: 1 });
+      await send('Input.setInterceptDrags', { enabled: false });
+    } finally {
+      cdp.listeners = cdp.listeners.filter((f) => f !== dragHook);
+    }
+    if (!intercepted) {
+      how = 'drag events made in the page (this Chromium gave no real drag)';
+      await tab.eval(`(() => { const c = ${DEEP('.sdk-cp-current')}[0]; const g = ${DEEP('.sdk-cp [aria-label="Colours"]')}[0]; const dt = new DataTransfer(); c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, composed: true, dataTransfer: dt })); for (const t of ['dragenter', 'dragover', 'drop']) g.dispatchEvent(new DragEvent(t, { bubbles: true, composed: true, cancelable: true, dataTransfer: dt })); c.dispatchEvent(new DragEvent('dragend', { bubbles: true, composed: true, dataTransfer: dt })); return 1; })()`);
+    }
+    note.push(`the grid: the drag onto the grid was ${how}`);
+    const want5 = [...want4.slice(0, 19), '#123456', ...want4.slice(19)];
+    const afterDrag = await until(() => tab.eval(DLABELS), (v) => v && v.length === 23);
+    same(afterDrag && [...afterDrag].sort(), [...want4, '#123456'].sort(), `${label}: a drag of the colour showing onto the grid adds it (${how})`);
+    same(await tab.eval(`[${DEEP('.sdk-cp')}.length, window.__answers.length, ${DEEP('.sdk-cp-drop')}.length]`), [1, 0, 0], `${label}: the drop keeps the picker open, picks nothing and leaves no drop mark`);
+    same(named(await until(stored, (v) => Array.isArray(v) && v.length === 23)).sort(), [...want4, '#123456'].sort(), `${label}: the drop is on the server`);
+    const order5 = afterDrag || [];
+    await key(send, 'Escape');
+    await sleep(150);
+    // A module's own palette: not editable (no "+", no drag, no Remove menu, Delete does nothing).
+    await tab.eval(`(window.__mp = window.__host.ui.colorPicker({ at: { x: 10, y: 10 }, palette: [{ heading: 'Inks', colours: [{ name: 'Ink', color: '#1a2b3c' }, { name: 'Paper', color: '#f5eedb' }] }] }), 1)`);
+    await sleep(150);
+    const mp = await tab.eval(`(() => { const add = ${DEEP('.sdk-cp-add')}.length; const cur = ${DEEP('.sdk-cp-current')}[0].draggable; const b = ${DEEP('.sdk-cp .sdk-swatch')}[0]; b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, composed: true, cancelable: true })); const menu = ${DEEP('.sdk-menu')}.length; b.focus(); b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, composed: true, cancelable: true })); return [add, cur, menu, ${DEEP('.sdk-cp .sdk-swatch')}.length]; })()`);
+    same(mp, [0, false, 0, 2], `${label}: a module's own palette has no "+", no drag, no Remove menu, and Delete removes nothing`);
+    await key(send, 'Escape');
+    answers.push(await tab.eval('window.__mp'));
+
+    // --- the page's own picker (hostColour, Manage's colour fields): the same grid ---
+    await send('Page.navigate', { url: `${server.base}/admin.html` });
+    await until(() => tab.eval(`document.readyState === 'complete' && typeof window.hostColour === 'object' && typeof window.createHost === 'function'`), (v) => v === true, 100);
+    await sleep(200);
+    await tab.eval(`(window.__pp = hostColour.picker({ at: { x: 0, y: 4 } }), 1)`);
+    same(await until(() => tab.eval(LABELS), (v) => v && v.length === 23), order5, `${label}: the page's own picker (hostColour, as Manage's colour fields use it) shows the same grid`);
+    await key(send, 'Escape');
+    answers.push(await tab.eval('window.__pp'));
+    // A save the page refuses: the grid goes back and the sentence shows under it (a page host that answers a grid and refuses to save).
+    const refused = await tab.eval(`(async () => {
+      const h = createHost({ call: (m) => (m === 'hello' ? Promise.resolve({}) : m === 'ui.colorGrid' ? Promise.resolve({ colors: null, editable: true }) : m === 'ui.colorGrid.set' ? Promise.reject(new Error('The grid holds at most 48 colours.')) : Promise.reject(new Error('not here'))), root: document, rootElement: document.documentElement, elementAt: (p) => document.elementFromPoint(p.x, p.y), applyTheme: () => {} }).host;
+      await h.ready().catch(() => {});
+      window.__rp = h.ui.colorPicker({ at: { x: 0, y: 4 }, value: '#abcdef' });
+      for (let i = 0; i < 40 && !document.querySelector('.sdk-cp-add'); i += 1) await new Promise((r) => setTimeout(r, 50));
+      document.querySelector('.sdk-cp-add').click();
+      const mid = document.querySelectorAll('.sdk-cp [aria-label="Colours"] .sdk-swatch').length;
+      await new Promise((r) => setTimeout(r, 200));
+      return [mid, document.querySelectorAll('.sdk-cp [aria-label="Colours"] .sdk-swatch').length, document.querySelector('.sdk-cp-grid-error').textContent, Boolean(document.querySelector('.sdk-cp'))];
+    })()`);
+    same(refused, [25, 24, 'The grid holds at most 48 colours.', true], `${label}: a refused save puts the grid back and shows the sentence under it, the picker open`);
+    await key(send, 'Escape');
+    answers.push(await tab.eval('window.__rp'));
+
+    // --- at 48 there is no "+" ---
+    const full = Array.from({ length: 48 }, (_, i) => ({ color: `#20${(i * 5).toString(16).padStart(2, '0')}40`, opacity: 100 }));
+    same((await server_('PUT', { colors: full })).status, 200, `${label}: 48 colours are kept`);
+    F = await openFrame();
+    await mouse(F.btn.x, F.btn.y);
+    same(await until(() => F.fev(`[${LABELS}.length, Boolean(document.querySelector('.sdk-cp-add'))]`), (v) => v && v[0] === 48), [48, false], `${label}: at 48 there is no "+"`);
+    await key(send, 'Escape');
+    answers.push(null);
   }
 
   // ---- an uploaded module in its sandboxed frame ----
@@ -1542,17 +1817,18 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
       }
       // A colour field in the module's form.
       const tr = await fev(`(() => { const t = document.querySelector('.sdk-picker'); const r = t.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, name: t.getAttribute('aria-label') }; })()`);
-      same(tr.name, 'Fill, Blue, #2f6cbf. Change it', `${label}: in the frame the field's trigger is named by its <label>`);
+      same(tr.name, 'Fill, Blue, #1e5fd0. Change it', `${label}: in the frame the field's trigger is named by its <label>`);
       await press(send, coarse, frameBox.l + tr.x, frameBox.t + tr.y);
       await until(PICKER);
-      const sw = await fev(`(() => { const b = document.querySelector('.sdk-cp .sdk-swatch[aria-label="Gold"]'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+      await sleep(200); // the grid as the page has it
+      const sw = await fev(`(() => { const b = document.querySelector('.sdk-cp .sdk-swatch[aria-label="Orange"]'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
       ok(Boolean(sw), `${label}: the field's trigger opened no picker in the frame`);
       if (sw) {
         await press(send, coarse, frameBox.l + sw.x, frameBox.t + sw.y);
         await until(NO_PICKER);
         await until('window.__events.length === 3');
-        same(await fev(`[document.getElementById('fld').value, window.__events]`), ['#8a6a00', ['input', 'change', { color: '#8a6a00', opacity: 100 }]], `${label}: in the frame a choice sets the field's input, sends input then change, and onChange`);
-        answers.push({ color: '#8a6a00', opacity: 100 });
+        same(await fev(`[document.getElementById('fld').value, window.__events]`), ['#f28c28', ['input', 'change', { color: '#f28c28', opacity: 100 }]], `${label}: in the frame a choice sets the field's input, sends input then change, and onChange`);
+        answers.push({ color: '#f28c28', opacity: 100 });
       }
       answers.push(...(await fev('window.__answers')));
     } finally {

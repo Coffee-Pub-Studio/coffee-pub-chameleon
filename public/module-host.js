@@ -52,6 +52,52 @@ export function cleanTag(t) {
 }
 export const cleanTagList = (list) => (Array.isArray(list) ? list : []).slice(0, 200).map(cleanTag).filter(Boolean);
 
+// The person's colour grid (plan-colour-picker.md, "The person's colour grid"): a module's colour picker asks the page for it
+// (ui.colorGrid, ui.colorGrid.set), since a sandboxed frame has no session. The page fetches GET /api/me/color-grid on the first ask
+// and keeps one copy for every module on it, replaced by each save's answer. A list is checked here before it is sent (the server checks
+// it again): at most 48 of { color: '#rrggbb' lower case, opacity: a whole 0 to 100 }, no colour and opacity twice.
+const COLOUR_GRID_MAX = 48;
+function cleanColourGrid(list) {
+  if (!Array.isArray(list) || list.length > COLOUR_GRID_MAX) return null;
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; i < list.length; i += 1) {
+    const e = Object.hasOwn(list, i) ? list[i] : null;
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+    const keys = Object.keys(e);
+    if (keys.length !== 2 || !keys.includes('color') || !keys.includes('opacity')) return null;
+    if (typeof e.color !== 'string' || !/^#[0-9a-f]{6}$/.test(e.color) || !Number.isInteger(e.opacity) || e.opacity < 0 || e.opacity > 100) return null;
+    const k = `${e.color}/${e.opacity}`;
+    if (seen.has(k)) return null;
+    seen.add(k);
+    out.push({ color: e.color, opacity: e.opacity });
+  }
+  return out;
+}
+let colourGrid = null; // Promise<{ colors: [...] | null, editable }>, the page's one copy
+function readColourGrid() {
+  if (!colourGrid) {
+    colourGrid = api('GET', '/api/me/color-grid').then((a) => {
+      const colors = a && a.colors === null ? null : cleanColourGrid(a && a.colors);
+      return a && (a.colors === null || colors) ? { colors, editable: true } : { colors: null, editable: false };
+    }, (err) => {
+      if (err.status !== 401 && err.status !== 403) colourGrid = null; // not reached: asked again next time
+      return { colors: null, editable: false }; // no session, a guest or an agent: the starting colours, not editable
+    });
+  }
+  return colourGrid.then((g) => ({ colors: g.colors && g.colors.map((c) => ({ ...c })), editable: g.editable }));
+}
+async function writeColourGrid(colors) {
+  const list = cleanColourGrid(colors);
+  if (!list) throw Object.assign(new Error(Array.isArray(colors) && colors.length > COLOUR_GRID_MAX ? 'The grid holds at most 48 colours.' : 'Each colour is #rrggbb in lower case, with an opacity from 0 to 100, and no colour twice.'), { status: 400 });
+  const now = await readColourGrid();
+  if (!now.editable) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
+  const answer = await api('PUT', '/api/me/color-grid', { colors: list });
+  const kept = cleanColourGrid(answer && answer.colors) || list;
+  colourGrid = Promise.resolve({ colors: kept, editable: true });
+  return kept.map((c) => ({ ...c }));
+}
+
 export function readTheme() {
   const styles = getComputedStyle(document.documentElement);
   const theme = {};
@@ -1628,6 +1674,17 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     // Strings only; validate never comes here (the SDK in the module runs it and asks again with `error`).
     async 'ui.prompt'(o) {
       return promptDialog(cleanPrompt(o));
+    },
+    // The person's colour grid for the colour picker (host.ui.colorPicker): { colors: [...] | null, editable }, from the page's one copy.
+    // A guest's page has no grid of its own: the starting colours, not editable.
+    async 'ui.colorGrid'() {
+      if (guestToken) return { colors: null, editable: false };
+      return readColourGrid();
+    },
+    // Saves the whole new list ({ colors }); answers the list kept, or throws the server's sentence.
+    async 'ui.colorGrid.set'({ colors } = {}) {
+      if (guestToken) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
+      return writeColourGrid(colors);
     },
     // The object picker (host.objects.pick): a window the page draws, searching with this module's own permissions (the same search as
     // 'objects.search'). Resolves with a pointer, a list of them (multiple), or null when the person cancels.

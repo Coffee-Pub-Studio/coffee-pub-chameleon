@@ -1159,16 +1159,83 @@
     const f = (k) => { const x = (k + h / 60) % 6; return v - v * s * Math.max(0, Math.min(x, 4 - x, 1)); };
     return `#${[f(5), f(3), f(1)].map((x) => Math.max(0, Math.min(255, Math.round(x * 255))).toString(16).padStart(2, '0')).join('')}`;
   }
-  // The default palette: three named groups of eight. A picked colour is data, the same in every theme, so these are not tokens.
-  // (Each colour is written as [name, hex] so that no line here reads as a stylesheet declaration.)
-  const COLOUR_PALETTE = Object.freeze([
-    ['Light', [['White', '#ffffff'], ['Cream', '#f5eedb'], ['Light grey', '#e4e6ea'], ['Light blue', '#dce9f6'],
-      ['Light green', '#ddeedd'], ['Light yellow', '#fbf4c8'], ['Light pink', '#f8e0e9'], ['Light purple', '#e8e0f5']]],
-    ['Dark', [['Black', '#000000'], ['Slate', '#2b3440'], ['Dark grey', '#34373c'], ['Navy', '#14274b'],
-      ['Forest', '#163a2b'], ['Wine', '#4a1b2b'], ['Plum', '#2f2050'], ['Brown', '#3d2b1f']]],
-    ['Strong', [['Red', '#c0392b'], ['Orange', '#b8560f'], ['Gold', '#8a6a00'], ['Green', '#2e7d32'],
-      ['Teal', '#00796b'], ['Blue', '#2f6cbf'], ['Purple', '#7c55c8'], ['Pink', '#b23f7f']]],
-  ].map(([heading, list]) => Object.freeze({ heading, colours: Object.freeze(list.map(([name, hex]) => Object.freeze({ name, color: hex }))) })));
+  // The person's colour grid (plan-colour-picker.md, "The person's colour grid"; decisions 22 to 24). Before their first edit it is
+  // these 24 starting colours, all at opacity 100, in the grid's own order; they are not stored until then. A picked colour is data,
+  // the same in every theme, so these are not tokens. (Each is written as [name, hex] so that no line reads as a stylesheet declaration.)
+  const COLOUR_GRID_MAX = 48;
+  const COLOUR_GRID_START = Object.freeze([
+    ['White', '#ffffff'], ['Light grey', '#c0c0c0'], ['Grey', '#808080'], ['Dark grey', '#404040'],
+    ['Black', '#000000'], ['Light red', '#f28b82'], ['Red', '#d62828'], ['Dark red', '#8b1a1a'],
+    ['Light brown', '#d2b48c'], ['Orange', '#f28c28'], ['Brown', '#8b5a2b'], ['Yellow', '#ffe135'],
+    ['Light green', '#90ee90'], ['Green', '#2e9e3e'], ['Dark green', '#1b5e20'], ['Cyan', '#00bcd4'],
+    ['Teal', '#008080'], ['Light blue', '#87ceeb'], ['Blue', '#1e5fd0'], ['Dark blue', '#1a237e'],
+    ['Light purple', '#c3a6e8'], ['Purple', '#7b3fb5'], ['Pink', '#f48fb1'], ['Magenta', '#d81b9c'],
+  ].map(([name, hex]) => Object.freeze({ name, color: hex, opacity: 100 })));
+  // A grid as the page or the server gives it, checked: a fresh list of { color: '#rrggbb' lower case, opacity: a whole 0 to 100 },
+  // at most 48, no colour and opacity twice; anything else (a hole, an extra key, a string opacity, upper case) is null.
+  function colourGridClean(list) {
+    if (!Array.isArray(list) || list.length > COLOUR_GRID_MAX) return null;
+    const out = [];
+    const seen = new Set();
+    for (let i = 0; i < list.length; i += 1) {
+      const e = Object.prototype.hasOwnProperty.call(list, i) ? list[i] : null;
+      if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+      const keys = Object.keys(e);
+      if (keys.length !== 2 || !keys.includes('color') || !keys.includes('opacity')) return null;
+      if (typeof e.color !== 'string' || !COLOUR_HEX.test(e.color) || !Number.isInteger(e.opacity) || e.opacity < 0 || e.opacity > 100) return null;
+      const k = `${e.color}/${e.opacity}`;
+      if (seen.has(k)) return null;
+      seen.add(k);
+      out.push({ color: e.color, opacity: e.opacity });
+    }
+    return out;
+  }
+  // The grid's order ("The order"): the neutrals first (HSL saturation under 10 percent), light to dark; then by hue in twelve bands
+  // of 30 degrees, the first centred on red; within a band, lighter first; a tie keeps the order it was stored in. A sorted copy.
+  function colourGridOrder(list) {
+    const place = (hex) => {
+      const n = parseInt(hex.slice(1), 16);
+      const r = (n >> 16) / 255;
+      const g = ((n >> 8) & 255) / 255;
+      const b = (n & 255) / 255;
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const l = (max + min) / 2;
+      const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+      return { band: s < 0.1 ? -1 : Math.floor(((colourToHsv(hex).h + 15) % 360) / 30), l };
+    };
+    return list.map((e, i) => ({ e, i, ...place(e.color) }))
+      .sort((a, b) => a.band - b.band || b.l - a.l || a.i - b.i)
+      .map((x) => x.e);
+  }
+  // A grid colour's name: a starting colour's own name at opacity 100, else '' (a colour a person adds is named by its hex).
+  function colourGridName(entry) {
+    if (!entry || entry.opacity !== 100) return '';
+    const s = COLOUR_GRID_START.find((c) => c.color === entry.color);
+    return s ? s.name : '';
+  }
+  // What a grid swatch is called: its name, else its hex, with its opacity below 100 ("#2f6cbf, 60 percent").
+  function colourGridLabel(entry) {
+    const name = colourGridName(entry);
+    if (name) return name;
+    return entry.opacity < 100 ? `${entry.color}, ${entry.opacity} percent` : entry.color;
+  }
+  // The place of a colour at an opacity in a grid, or -1.
+  function colourGridFind(list, entry) {
+    return list.findIndex((c) => c.color === entry.color && c.opacity === entry.opacity);
+  }
+  // Adding a colour: { list, how } where how is 'added' (a new list with it at the end), 'there' (the same colour and opacity is in
+  // it already) or 'full' (48 already); the list is unchanged for the last two.
+  function colourGridAdd(list, entry) {
+    if (colourGridFind(list, entry) >= 0) return { list, how: 'there' };
+    if (list.length >= COLOUR_GRID_MAX) return { list, how: 'full' };
+    return { list: [...list, { color: entry.color, opacity: entry.opacity }], how: 'added' };
+  }
+  // Removing a colour: a new list without it (the same list when it is not there).
+  function colourGridRemove(list, entry) {
+    const i = colourGridFind(list, entry);
+    return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
+  }
   // A module's own palette, checked: a fresh copy [{ heading, colours: [{ name, color }] }] with names trimmed and colours cleaned.
   // At most 6 groups and 48 colours; every heading and name plain text: at most 40 characters, at least one letter or digit, and no
   // control, format (zero-width, bidi), line or paragraph separator characters, lone surrogates, < or >. The input is walked by index
@@ -2519,6 +2586,7 @@
     check: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.6 2.4 7.8l1.4-1.4 2.4 2.4 6-6 1.4 1.4z"/></svg>',
     dropper: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M13.4 1.3a2 2 0 0 0-2.8 0L8.9 3l-.7-.7-1.4 1.4.7.7-5.2 5.2a1 1 0 0 0-.3.7V13h2.7a1 1 0 0 0 .7-.3l5.2-5.2.7.7 1.4-1.4-.7-.7 1.7-1.7a2 2 0 0 0 0-2.8zM4.3 11.5h-.8v-.8l5.1-5.1.8.8z"/></svg>',
     chevron: '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M2.3 5.3 8 11l5.7-5.7-1.4-1.4L8 8.2 3.7 3.9z"/></svg>',
+    plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M7 2h2v5h5v2H9v5H7V9H2V7h5z"/></svg>',
   };
   // The ends of the area (no colour at the top right is "white", the bottom is "black") and the hue track's stops, worked out from the
   // colour maths, so no colour is written in a stylesheet or a style string.
@@ -2529,6 +2597,17 @@
   const COLOUR_RECENT_MAX = 8;
   const COLOUR_HEX_HINT = 'Type six hex digits, like #2f6cbf'; // the hex field's error line
   let colourSeq = 0;
+  // The person's colour grid as the page last answered it ({ colors: [...] | null, editable }), so the next picker draws it at once and
+  // only redraws when the page's answer differs. Asked through the page each time a picker opens (ui.colorGrid): the SDK never fetches
+  // the route itself, since a sandboxed frame has no session.
+  let colourGridSeen = null;
+  const colourGridAsk = () => Promise.resolve()
+    .then(() => call('ui.colorGrid', {}))
+    .then((a) => {
+      const colors = a && a.colors === null ? null : colourGridClean(a && a.colors);
+      colourGridSeen = a && (a.colors === null || colors) ? { colors, editable: a.editable === true } : { colors: null, editable: false };
+      return colourGridSeen;
+    }, () => (colourGridSeen = { colors: null, editable: false }));
   let colourLastOutside = null; // { at, time }: a module in the page whose picker (opened at a point) a press on its own toolbar or title bar closed
   // The browser's eyedropper: offered where it exists; the first time it refuses (a frame it may not work in), it is hidden from then on.
   let colourDropper = typeof window.EyeDropper === 'function';
@@ -2556,7 +2635,9 @@
     const anchor = opt.anchor && opt.anchor.nodeType === 1 && typeof opt.anchor.getBoundingClientRect === 'function' ? opt.anchor : null;
     const at = opt.at && typeof opt.at === 'object' && Number.isFinite(opt.at.x) && Number.isFinite(opt.at.y) ? { x: opt.at.x, y: opt.at.y } : null;
     if (!anchor && !at) throw new Error('host.ui.colorPicker needs an anchor or a point');
-    const palette = opt.palette !== undefined ? colourPaletteCheck(opt.palette) : COLOUR_PALETTE;
+    // No palette: the person's own grid (decisions 22 to 26). A module's palette: its groups, in place of the grid and not editable.
+    const own = opt.palette === undefined;
+    const palette = own ? null : colourPaletteCheck(opt.palette);
     const keeps = opt.opacity !== false;
     const label = typeof opt.label === 'string' && opt.label.trim() ? opt.label.trim().slice(0, 80) : 'Colour';
     const onInput = typeof opt.onInput === 'function' ? opt.onInput : null;
@@ -2590,19 +2671,24 @@
       const opener = (env.root !== document && env.root.activeElement) || document.activeElement;
       const uid = `sdk-cp-${++colourSeq}`;
       const names = new Map();
-      for (const g of palette) for (const c of g.colours) if (!names.has(c.color)) names.set(c.color, c.name);
+      for (const g of own ? [{ colours: COLOUR_GRID_START }] : palette) for (const c of g.colours) if (!names.has(c.color)) names.set(c.color, c.name);
+      // The grid as last seen (the starting colours, not editable, until the page answers).
+      let grid = own ? { ...(colourGridSeen || { colors: null, editable: false }) } : null;
+      const gridList = () => (grid.colors || COLOUR_GRID_START.map((c) => ({ color: c.color, opacity: c.opacity })));
+      const editable = () => Boolean(own && grid.editable);
       // The recent colours: this browser, this module (as the kind picker keeps its recent choices; not kept where storage is shut).
       const memory = `app:colour:${editorDeps.moduleId}`;
       const readRecent = () => { try { const v = JSON.parse(localStorage.getItem(memory) || '[]'); return Array.isArray(v) ? v.map(colourClean).filter(Boolean).filter((c, i, a) => a.indexOf(c) === i).slice(0, COLOUR_RECENT_MAX) : []; } catch (err) { return []; } };
       const writeRecent = (c) => { try { localStorage.setItem(memory, JSON.stringify([c, ...readRecent().filter((x) => x !== c)].slice(0, COLOUR_RECENT_MAX))); } catch (err) { /* not kept */ } };
 
-      const startHex = colourClean(opt.value) || palette[0].colours[0].color;
+      const startHex = colourClean(opt.value) || (own ? (colourGridOrder(gridList())[0] || COLOUR_GRID_START[0]).color : palette[0].colours[0].color);
       let hsv = colourToHsv(startHex);
       let hex = startHex;
       let alpha = keeps ? colourOpacity(opt.opacity === undefined ? 100 : opt.opacity) : 100;
       let result = null;
       let outside = false;
       let dropping = false;
+      let mine = null; // this picker's own entry as the open menu (openMenu), once it is open
       let sent = `${hex}/${alpha}`;
       let touched = false; // the person changed the colour or the opacity since it opened
 
@@ -2665,35 +2751,64 @@
       error.setAttribute('aria-live', 'polite');
       pop.append(row, error);
 
-      // The swatches: the palette's groups as one radio group (one Tab stop, the arrows inside), then Recent as another.
+      // The swatches, each group one radio group (one Tab stop, the arrows inside). The person's grid: one group with no headings, sorted
+      // by colour, a "+" at its end where it can be edited (the next Tab stop). A module's palette: its groups under their headings.
+      // Then Recent. A grid swatch carries its opacity (data-opacity); one below 100 is drawn half over the checked ground.
       const groups = [];
+      const swatchCell = (c) => {
+        const b = make('button', 'sdk-swatch');
+        b.type = 'button';
+        b.tabIndex = -1;
+        b.setAttribute('role', 'radio');
+        b.setAttribute('aria-checked', 'false');
+        const said = c.label || c.name || c.color;
+        b.setAttribute('aria-label', said);
+        b.dataset.tip = c.name ? `${c.name}, ${c.color}` : said;
+        b.dataset.color = c.color;
+        if (c.opacity !== undefined) {
+          b.dataset.opacity = String(c.opacity);
+          if (c.opacity < 100) { b.classList.add('sdk-cp-see'); b.style.setProperty('--cp-sw-alpha', `${c.opacity}%`); }
+        }
+        b.style.setProperty('--sw', c.color);
+        b.innerHTML = `<i aria-hidden="true">${COLOUR_ICONS.check}</i>`;
+        return b;
+      };
       const swatchGroup = (name, headings) => {
         const g = make('div', 'sdk-cp-swatches');
         g.setAttribute('role', 'radiogroup');
         g.setAttribute('aria-label', name);
         for (const { heading, colours } of headings) {
           if (heading) { const hd = make('div', 'sdk-cp-head', heading); hd.setAttribute('aria-hidden', 'true'); g.appendChild(hd); }
-          const grid = make('div', 'sdk-swatch-grid');
-          grid.setAttribute('role', 'presentation');
-          for (const c of colours) {
-            const b = make('button', 'sdk-swatch');
-            b.type = 'button';
-            b.tabIndex = -1;
-            b.setAttribute('role', 'radio');
-            b.setAttribute('aria-checked', 'false');
-            b.setAttribute('aria-label', c.name || c.color);
-            b.dataset.tip = c.name ? `${c.name}, ${c.color}` : c.color;
-            b.dataset.color = c.color;
-            b.style.setProperty('--sw', c.color);
-            b.innerHTML = `<i aria-hidden="true">${COLOUR_ICONS.check}</i>`;
-            grid.appendChild(b);
-          }
-          g.appendChild(grid);
+          const cells = make('div', 'sdk-swatch-grid');
+          cells.setAttribute('role', 'presentation');
+          for (const c of colours) cells.appendChild(swatchCell(c));
+          g.appendChild(cells);
         }
         groups.push(g);
         return g;
       };
-      pop.appendChild(swatchGroup('Colours', palette.map((p) => ({ heading: p.heading, colours: p.colours }))));
+      const gridGroup = swatchGroup('Colours', own ? [] : palette.map((p) => ({ heading: p.heading, colours: p.colours })));
+      pop.appendChild(gridGroup);
+      // "+": adds the colour showing, with its opacity, to the grid (decision 23); not shown at 48 or where the grid can't be edited.
+      const plus = own ? make('button', 'sdk-cp-add') : null;
+      if (plus) {
+        plus.type = 'button';
+        plus.setAttribute('aria-label', 'Add this colour');
+        plus.dataset.tip = 'Add this colour';
+        plus.innerHTML = COLOUR_ICONS.plus;
+      }
+      // The line under the grid: a save the server refused, in its own words.
+      const gridError = own ? make('p', 'sdk-error sdk-cp-error sdk-cp-grid-error') : null;
+      if (gridError) { gridError.setAttribute('aria-live', 'polite'); pop.appendChild(gridError); }
+      const drawGrid = () => {
+        const cells = make('div', 'sdk-swatch-grid');
+        cells.setAttribute('role', 'presentation');
+        for (const e of colourGridOrder(gridList())) cells.appendChild(swatchCell({ color: e.color, opacity: e.opacity, name: colourGridName(e), label: colourGridLabel(e) }));
+        if (editable() && gridList().length < COLOUR_GRID_MAX) cells.appendChild(plus);
+        gridGroup.replaceChildren(cells);
+        current.draggable = editable();
+      };
+      if (own) drawGrid();
       const recent = opt.recent === false ? [] : readRecent();
       if (recent.length) pop.appendChild(swatchGroup('Recent', [{ heading: 'Recent', colours: recent.map((c) => ({ name: names.get(c) || '', color: c })) }]));
       // What a screen reader hears once the colour settles: "Teal, #00796b" or "#2f6cbf".
@@ -2705,6 +2820,7 @@
       const say = () => `${names.has(hex) ? `${names.get(hex)}, ` : ''}${hex}`;
       let sayTimer = 0;
       const announce = (now) => { clearTimeout(sayTimer); const go = () => { live.textContent = say(); }; if (now) go(); else sayTimer = setTimeout(go, 700); };
+      const tell = (text) => { clearTimeout(sayTimer); live.textContent = text; }; // an add or a remove in the grid, said at once
       const markBad = (bad) => {
         if (bad) { hexIn.setAttribute('aria-invalid', 'true'); hexIn.setAttribute('aria-describedby', error.id); error.textContent = COLOUR_HEX_HINT; } else { hexIn.removeAttribute('aria-invalid'); hexIn.removeAttribute('aria-describedby'); error.textContent = ''; }
       };
@@ -2731,7 +2847,11 @@
         for (const g of groups) {
           const cells = [...g.querySelectorAll('.sdk-swatch')];
           let stop = null;
-          for (const b of cells) { const on = b.dataset.color === hex; b.setAttribute('aria-checked', String(on)); if (on && !stop) stop = b; }
+          // The chosen one: a grid swatch of this colour at this opacity, else the first of this colour (a palette or Recent swatch has
+          // no opacity of its own).
+          const exact = cells.find((b) => b.dataset.color === hex && b.dataset.opacity !== undefined && Number(b.dataset.opacity) === alpha);
+          const chosen = exact || cells.find((b) => b.dataset.color === hex) || null;
+          for (const b of cells) { const on = b === chosen; b.setAttribute('aria-checked', String(on)); if (on && !stop) stop = b; }
           const focused = cells.find((b) => b.tabIndex === 0 && b === ((env.root && env.root.activeElement) || document.activeElement));
           stop = focused || stop || cells[0];
           for (const b of cells) b.tabIndex = b === stop ? 0 : -1;
@@ -2868,6 +2988,7 @@
         g.addEventListener('click', (e) => {
           const b = e.target.closest('.sdk-swatch');
           if (!b || !g.contains(b)) return;
+          if (keeps && b.dataset.opacity !== undefined) alpha = colourOpacity(Number(b.dataset.opacity)); // a grid colour answers its own opacity
           setHex(b.dataset.color);
           finish(true);
         });
@@ -2875,6 +2996,11 @@
           const cells = [...g.querySelectorAll('.sdk-swatch')];
           const now = e.target.closest('.sdk-swatch');
           if (!now || !cells.length) return;
+          if (g === gridGroup && editable()) {
+            // Delete or Backspace removes the focused grid colour; the context-menu key or Shift+F10 opens its Remove menu.
+            if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); e.stopPropagation(); removeCell(now); return; }
+            if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) { e.preventDefault(); e.stopPropagation(); removeMenu(now); return; }
+          }
           let next = null;
           const i = cells.indexOf(now);
           if (e.key === 'ArrowRight') next = cells[Math.min(cells.length - 1, i + 1)];
@@ -2896,6 +3022,122 @@
           for (const c of cells) c.tabIndex = c === next ? 0 : -1;
           next.focus();
         });
+      }
+
+      // ---- Editing the grid (decision 23): "+", a drag of the colour showing, Delete and the Remove menu. Each add or remove is saved
+      // at once through the page (ui.colorGrid.set, the whole list); a refused save puts the grid back and shows the server's sentence
+      // under it. Never a choice: the picker stays open and the colour is not picked.
+      const focusedNow = () => (env.root && env.root.activeElement) || document.activeElement;
+      const gridCells = () => [...gridGroup.querySelectorAll('.sdk-swatch')];
+      const cellOf = (entry) => gridCells().find((b) => b.dataset.color === entry.color && Number(b.dataset.opacity) === entry.opacity) || null;
+      const entryOf = (b) => ({ color: b.dataset.color, opacity: Number(b.dataset.opacity) });
+      const faint = (list) => {
+        const surface = colourOfCss(getComputedStyle(pop).backgroundColor);
+        if (surface) for (const b of list) if (colourContrast(b.dataset.color, surface) < 3) b.classList.add('sdk-cp-faint');
+      };
+      // Draws the grid again, and puts the focus on `to` (an entry, or 'plus'), else where it was (the same colour, or "+").
+      const redraw = (to) => {
+        const was = focusedNow();
+        const inGrid = Boolean(was && gridGroup.contains(was));
+        const before = inGrid && was !== plus && was.dataset.color ? entryOf(was) : null;
+        drawGrid();
+        faint(gridCells());
+        paint();
+        place();
+        let target = null;
+        if (to === 'plus' || (!to && inGrid && !before)) target = plus.isConnected ? plus : gridCells().at(-1) || null;
+        else if (to || before) target = cellOf(to || before);
+        if (!target && inGrid) target = plus.isConnected ? plus : gridCells()[0] || null;
+        if (target) {
+          if (target !== plus) for (const b of gridCells()) b.tabIndex = b === target ? 0 : -1;
+          target.focus({ preventScroll: true });
+        }
+      };
+      let saving = Promise.resolve();
+      let kept = grid ? grid.colors : null; // the list the server last kept (null: never edited)
+      const save = (next) => {
+        grid = { colors: next, editable: true };
+        colourGridSeen = { colors: next, editable: true };
+        if (gridError) gridError.textContent = '';
+        saving = saving.then(() => call('ui.colorGrid.set', { colors: next })).then((answer) => {
+          const k = colourGridClean(answer) || next;
+          kept = k;
+          colourGridSeen = { colors: k, editable: true };
+        }, (err) => {
+          colourGridSeen = { colors: kept, editable: true };
+          if (!pop.isConnected) return;
+          grid = { colors: kept, editable: true };
+          redraw();
+          gridError.textContent = (err && err.message) || "Your colours weren't saved.";
+        });
+      };
+      const addCurrent = (from) => {
+        if (!editable()) return;
+        const entry = { color: hex, opacity: keeps ? alpha : 100 };
+        const r = colourGridAdd(gridList(), entry);
+        if (r.how === 'there') { const b = cellOf(entry); if (b) { for (const c of gridCells()) c.tabIndex = c === b ? 0 : -1; b.focus({ preventScroll: true }); } tell('Already in your colours'); return; }
+        if (r.how === 'full') { tell('Your colours are full. Remove one first.'); return; }
+        save(r.list);
+        redraw(from === 'plus' ? 'plus' : undefined);
+        tell(`Added ${colourGridLabel(entry)}`);
+      };
+      function removeCell(b) {
+        if (!editable() || !b || !gridGroup.contains(b) || !b.dataset.opacity) return;
+        const entry = entryOf(b);
+        const cells = gridCells();
+        const i = cells.indexOf(b);
+        const near = cells[i + 1] || cells[i - 1] || null;
+        save(colourGridRemove(gridList(), entry));
+        redraw(near ? entryOf(near) : 'plus');
+        tell(`Removed ${colourGridLabel(entry)}`);
+      }
+      // The Remove menu: the SDK's own menu (host.menu.show's), opened over the picker, which stays open under it. While it is open the
+      // picker is not the open menu, so the menu's own ways out (a pick, Escape, a press elsewhere) close the menu only; then the picker
+      // is the open one again, unless something else opened meanwhile, which closes it.
+      function removeMenu(b) {
+        if (!editable() || !mine || openMenu !== mine) return;
+        openMenu = null;
+        showMenu({
+          id: 'sdk-colour-remove',
+          anchor: b,
+          items: [{ label: 'Remove', icon: 'trash', onClick: () => { removeCell(b); } }],
+          onClose: () => {
+            Promise.resolve().then(() => {
+              if (!mine || !pop.isConnected) return;
+              if (openMenu === null) openMenu = mine;
+              else if (openMenu !== mine) { outside = true; mine.cleanup(); } // the focus stays with what opened
+            });
+          },
+        });
+      }
+      if (own) {
+        plus.addEventListener('click', () => addCurrent('plus'));
+        gridGroup.addEventListener('contextmenu', (e) => {
+          const b = e.target.closest('.sdk-swatch');
+          if (!b || !gridGroup.contains(b) || !editable()) return;
+          e.preventDefault();
+          removeMenu(b);
+        });
+        // A drag of the colour showing (the swatch beside Hex) onto the grid adds it; where it drops does not set its place.
+        const DRAG = `application/x-host-colour-${uid}`;
+        current.addEventListener('dragstart', (e) => {
+          if (!editable() || !e.dataTransfer) { e.preventDefault(); return; }
+          e.dataTransfer.setData(DRAG, hex);
+          e.dataTransfer.setData('text/plain', hex);
+          e.dataTransfer.effectAllowed = 'copy';
+        });
+        const ours = (e) => Boolean(editable() && e.dataTransfer && [...e.dataTransfer.types].includes(DRAG));
+        const over = (e) => { if (!ours(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; gridGroup.classList.add('sdk-cp-drop'); };
+        gridGroup.addEventListener('dragenter', over);
+        gridGroup.addEventListener('dragover', over);
+        gridGroup.addEventListener('dragleave', (e) => { if (!gridGroup.contains(e.relatedTarget)) gridGroup.classList.remove('sdk-cp-drop'); });
+        gridGroup.addEventListener('drop', (e) => {
+          gridGroup.classList.remove('sdk-cp-drop');
+          if (!ours(e)) return;
+          e.preventDefault();
+          addCurrent('drop');
+        });
+        current.addEventListener('dragend', () => gridGroup.classList.remove('sdk-cp-drop'));
       }
 
       // Placed like a menu: under the anchor (above it when there is no room below) or at the point, inside the module's box; taller
@@ -2925,9 +3167,17 @@
       container.appendChild(pop);
       paint();
       // A swatch whose colour has under 3:1 against the menu's own surface (White on a light menu, Black on a dark one) gets the stronger edge.
-      const surface = colourOfCss(getComputedStyle(pop).backgroundColor);
-      if (surface) for (const b of swatches()) if (colourContrast(b.dataset.color, surface) < 3) b.classList.add('sdk-cp-faint');
+      faint(swatches());
       place();
+      // The person's grid as the page has it now: drawn again when it differs from what was drawn.
+      if (own) {
+        colourGridAsk().then((g) => {
+          if (!pop.isConnected || (JSON.stringify(g.colors) === JSON.stringify(grid.colors) && g.editable === grid.editable)) return;
+          grid = { colors: g.colors, editable: g.editable };
+          kept = g.colors;
+          redraw();
+        });
+      }
       const first = groups.length ? groups[0].querySelector('.sdk-swatch[aria-checked="true"]') : null;
       // The first focus is ours, not the person's: the chosen swatch's label (data-tip) would cover its heading, so it waits until
       // the keyboard leaves that swatch.
@@ -2944,6 +3194,7 @@
       // toggle, so it is left to the call).
       const active = () => (env.root && env.root.activeElement) || document.activeElement;
       const onKey = (e) => {
+        if (openMenu !== mine) return; // the grid's Remove menu is open over the picker: the keys are the menu's
         if (e.key === 'Escape') {
           if (dropping) return;
           const here = active();
@@ -2956,19 +3207,20 @@
         if (e.key !== 'Tab') return;
         const now = active();
         if (!now || !pop.contains(now)) return;
-        const stops = [area, hue, opac, hexIn, dropper.hidden ? null : dropper, ...groups.map((g) => g.querySelector('.sdk-swatch[tabindex="0"]'))].filter(Boolean);
+        const stops = [area, hue, opac, hexIn, dropper.hidden ? null : dropper, gridGroup.querySelector('.sdk-swatch[tabindex="0"]'), plus && plus.isConnected ? plus : null, ...groups.slice(1).map((g) => g.querySelector('.sdk-swatch[tabindex="0"]'))].filter(Boolean);
         const i = stops.indexOf(now);
         if (now === pop) { e.preventDefault(); stops[e.shiftKey ? stops.length - 1 : 0].focus(); return; } // after a press on a part with no focus
         if (e.shiftKey && i === 0) { e.preventDefault(); stops[stops.length - 1].focus(); } else if (!e.shiftKey && i === stops.length - 1) { e.preventDefault(); stops[0].focus(); }
       };
       const onOutside = (e) => {
+        if (openMenu !== mine) return; // a press while the grid's Remove menu is open closes that menu only
         if (dropping || pop.contains(e.target) || (anchor && anchor.contains(e.target))) return;
         outside = true;
         finish(touched); // nothing changed since it opened: null, so an empty field is not given a colour nobody chose
       };
       // A module in the page: a press on the page outside the module's root closes it too (inside the root, onOutside above has it).
       const onPage = (e) => {
-        if (env.root === document) return;
+        if (env.root === document || openMenu !== mine) return;
         const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
         if (path.includes(env.rootElement) || path.includes(pop)) return;
         // The module's own frame (module-frame.js: a section.mf around the module's content) and its toolbar or title bar.
@@ -2980,12 +3232,13 @@
       document.addEventListener('keydown', onKey, true);
       env.root.addEventListener('pointerdown', onOutside, true);
       if (env.root !== document) document.addEventListener('pointerdown', onPage, true);
-      openMenu = {
+      openMenu = mine = {
         id: 'sdk-colour',
         anchor,
         at,
         menu: pop,
         cleanup: () => {
+          mine = null;
           clearTimeout(sayTimer);
           pop.remove();
           document.removeEventListener('keydown', onKey, true);
@@ -3018,7 +3271,8 @@
   function colourField(input, o) {
     if (!input || input.nodeType !== 1 || input.tagName !== 'INPUT') throw new Error('host.ui.colorField needs an <input>');
     const opt = o && typeof o === 'object' ? o : {};
-    const palette = opt.palette !== undefined ? colourPaletteCheck(opt.palette) : COLOUR_PALETTE;
+    // A module's palette, or (none given) the person's grid, whose starting colours carry the names.
+    const palette = opt.palette !== undefined ? colourPaletteCheck(opt.palette) : [{ heading: '', colours: COLOUR_GRID_START }];
     const keeps = opt.opacity !== false;
     let alpha = keeps ? colourOpacity(opt.opacity === undefined ? 100 : opt.opacity) : 100;
     const names = new Map();
@@ -3047,7 +3301,8 @@
       trigger.id = id;
       for (const l of pointed) l.htmlFor = trigger.id;
     }
-    // What the input holds ('#rrggbb', or null when it holds no colour), and what the trigger shows (the palette's first colour then).
+    // What the input holds ('#rrggbb', or null when it holds no colour), and what the trigger shows (the palette's or the starting
+    // grid's first colour then).
     const held = () => colourClean(input.value);
     const value = () => held() || palette[0].colours[0].color;
     const show = (c) => {
@@ -5699,11 +5954,45 @@
   global.hostSwitch = { fill: fillChoice, fit: fitSwitches, watch: watchSwitches, rove: roveSwitch, keydown: switchKeydown };
   // The colour picker likewise, for the host's own pages (plan-colour-picker.md, step 3): the same field and picker a module gets, on
   // one page host (so one picker or menu is open at a time on the page). field(input, o) is host.ui.colorField, picker(o) host.ui.colorPicker.
+  // The person's colour grid on a host page (plan-colour-picker.md, "How the picker reaches it"): the page host answers ui.colorGrid and
+  // ui.colorGrid.set by fetching the route itself, with one copy for the page. Not signed in (401) or a guest (403): the starting
+  // colours, not editable. A list is checked before it is sent; the server checks it again.
+  let pageGrid = null; // Promise<{ colors: [...] | null, editable }>
+  const pageGridRead = () => {
+    if (!pageGrid) {
+      pageGrid = fetch('/api/me/color-grid', { credentials: 'same-origin', headers: { accept: 'application/json' } })
+        .then(async (r) => {
+          if (r.status === 401 || r.status === 403) return { colors: null, editable: false };
+          if (!r.ok) throw new Error('not read');
+          const a = await r.json();
+          const colors = a && a.colors === null ? null : colourGridClean(a && a.colors);
+          return a && (a.colors === null || colors) ? { colors, editable: true } : { colors: null, editable: false };
+        })
+        .catch(() => { pageGrid = null; return { colors: null, editable: false }; }); // asked again next time
+    }
+    return pageGrid.then((g) => ({ colors: g.colors && g.colors.map((c) => ({ ...c })), editable: g.editable }));
+  };
+  const pageGridWrite = async (params) => {
+    const list = colourGridClean(params && params.colors);
+    if (!list) throw Object.assign(new Error(Array.isArray(params && params.colors) && params.colors.length > COLOUR_GRID_MAX ? 'The grid holds at most 48 colours.' : 'Each colour is #rrggbb in lower case, with an opacity from 0 to 100, and no colour twice.'), { status: 400 });
+    const r = await fetch('/api/me/color-grid', { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ colors: list }) });
+    let a = {};
+    try { a = await r.json(); } catch (err) { /* no body */ }
+    if (!r.ok) throw Object.assign(new Error(a && typeof a.error === 'string' && a.error ? a.error : "Your colours weren't saved."), { status: r.status });
+    const kept = colourGridClean(a && a.colors) || list;
+    pageGrid = Promise.resolve({ colors: kept, editable: true });
+    return kept.map((c) => ({ ...c }));
+  };
   let colourPage = null;
   const colourUi = () => {
     if (!colourPage) {
       colourPage = createHost({
-        call: (method) => (method === 'hello' ? Promise.resolve({}) : Promise.reject(new Error('not available on a page'))),
+        // `hello` has nothing to tell; the grid's two calls fetch the route (above); `icons.svg` draws the grid's Remove menu's icon.
+        call: (method, params) => (method === 'hello' ? Promise.resolve({})
+          : method === 'ui.colorGrid' ? pageGridRead()
+          : method === 'ui.colorGrid.set' ? pageGridWrite(params)
+          : method === 'icons.svg' ? fetch(`/api/icons/${params && params.style === 'regular' ? 'regular' : 'solid'}/${encodeURIComponent(params && params.name)}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error('no such icon'))))
+          : Promise.reject(new Error('not available on a page'))),
         root: document,
         rootElement: document.documentElement,
         elementAt: (pt) => document.elementFromPoint(pt.x, pt.y),
@@ -5712,5 +6001,5 @@
     }
     return colourPage.ui;
   };
-  global.hostColour = { field: (input, o) => colourUi().colorField(input, o), picker: (o) => colourUi().colorPicker(o), palette: COLOUR_PALETTE }; // palette: the default, read only (frozen)
+  global.hostColour = { field: (input, o) => colourUi().colorField(input, o), picker: (o) => colourUi().colorPicker(o), palette: COLOUR_GRID_START }; // palette: the 24 starting colours, read only (frozen)
 })(window);

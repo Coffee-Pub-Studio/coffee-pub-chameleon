@@ -4690,7 +4690,10 @@ html[data-dialog-open] { overflow: hidden; }
    The dense popover (.sdk-popover .sdk-popover-dense .sdk-picker-pop) with .sdk-cp: the area (.sdk-cp-area, saturation across and
    brightness up, a round handle), Hue and Opacity (.sdk-cp-slider: a track and a thumb; no Opacity where it is not kept, and the
    popover is .sdk-cp-solid), the row (.sdk-cp-current, the Hex field .sdk-cp-hex, Pick from the screen .sdk-cp-dropper), the hex error line
-   (.sdk-error), the palette's groups and Recent (.sdk-cp-swatches: .sdk-cp-head over a .sdk-swatch-grid), and the live line (.sdk-cp-live).
+   (.sdk-error), the person's grid (one .sdk-cp-swatches with no heading; "+" at its end, .sdk-cp-add, where it can be edited, and the
+   line a refused save shows, .sdk-cp-grid-error) or a module's palette (its groups, .sdk-cp-head over a .sdk-swatch-grid), Recent, and the
+   live line (.sdk-cp-live). A grid swatch below opacity 100 is .sdk-cp-see: half its colour, half the colour at --cp-sw-alpha over the
+   checked ground. While the colour showing is dragged over an editable grid, the grid is .sdk-cp-drop.
    Every colour in it that is the person's colour is data, set by host.js as a custom property on the popover: --cp-hue (the pure hue
    under the area), --cp-color (the colour), --cp-alpha (the opacity, a percent), --cp-area (the area's white and black, worked out
    from the colour maths), --cp-hue-track (the hue run, likewise), --cp-x and --cp-y (the handle), and --cp-at on each slider (its
@@ -4713,6 +4716,7 @@ html[data-dialog-open] { overflow: hidden; }
   --cp-check-a: color-mix(in srgb, var(--text-primary) 16%, transparent);
   --cp-check-b: color-mix(in srgb, var(--text-primary) 4%, transparent);
   --cp-checks: repeating-conic-gradient(var(--cp-check-a) 0 25%, var(--cp-check-b) 0 50%);
+  --cp-sw-alpha: 100%;
   /* The hex error line: --status-danger-text is 4.4:1 on the dark menu surface of the default theme; a step toward the text colour
      takes it past 4.5:1 in both modes. */
   --cp-error: color-mix(in srgb, var(--status-danger-text) 80%, var(--text-primary));
@@ -4820,6 +4824,9 @@ html[data-dialog-open] { overflow: hidden; }
   background-size: 100% 100%, 8px 8px;
 }
 
+/* An editable grid: the colour showing can be dragged onto it. */
+.sdk-cp-current[draggable="true"] { cursor: grab; }
+
 /* Where the opacity is not kept, the colour as it is is the colour whole: no checked half. */
 .sdk-cp-solid .sdk-cp-current { background-image: none; background-color: var(--cp-color); }
 
@@ -4868,6 +4875,53 @@ html[data-dialog-open] { overflow: hidden; }
 .sdk-cp .sdk-swatch[aria-checked="true"] > i { display: grid; }
 .sdk-cp .sdk-swatch > i svg { display: block; width: 10px; height: 10px; margin: auto; }
 .sdk-swatch.sdk-cp-faint::before { border-color: color-mix(in srgb, var(--text-muted) 75%, var(--edge-hairline)); }
+
+/* A grid colour below opacity 100: half the colour, half the colour as it is over the checked ground (as the colour showing is drawn). */
+.sdk-cp .sdk-swatch.sdk-cp-see::before {
+  background-color: var(--surface-popover);
+  background-image: linear-gradient(to right, var(--sw) 50%, color-mix(in srgb, var(--sw) var(--cp-sw-alpha), transparent) 50%), var(--cp-checks);
+  background-size: 100% 100%, 8px 8px;
+}
+
+/* "+" at the grid's end: a cell the size of a swatch, a dashed edge round a plus. */
+.sdk-cp-add {
+  position: relative;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--pk-sw-cell);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  outline: none;
+}
+
+.sdk-cp-add::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: var(--pk-sw);
+  height: var(--pk-sw);
+  margin: auto;
+  border: 1px dashed color-mix(in srgb, var(--text-muted) 75%, var(--edge-hairline));
+  border-radius: var(--radius-small);
+}
+
+.sdk-cp-add svg { display: block; width: 12px; height: 12px; }
+
+.sdk-cp-add:hover { background: var(--menu-hover); color: var(--text-primary); }
+.sdk-cp-add:focus-visible { background: var(--menu-hover); color: var(--text-primary); outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+
+/* The colour showing dragged over the grid: the grid shows where it can drop. */
+.sdk-cp-swatches.sdk-cp-drop { border-radius: var(--radius-small); outline: 2px dashed var(--focus-ring); outline-offset: 1px; }
+
+.sdk-cp .sdk-cp-grid-error:empty { display: none; }
 
 .sdk-cp-live {
   position: absolute;
