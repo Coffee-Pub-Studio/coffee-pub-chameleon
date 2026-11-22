@@ -7,6 +7,9 @@
  *     time was expected, an extra booking, a booking expected and not found, and a sample that expects no booking.
  *   - The golden set through the stand-in model: every sample with a stand-in answer scores in full, and the others score what a
  *     blank answer scores; `written` and `real-anonymised` samples are reported apart.
+ *   - Real samples (EVAL_REAL_DIR, a private folder outside the repo): unset means written only and a plain note; a folder is read
+ *     and scored apart; a folder inside the repo is refused; a malformed file is named and skipped; and no file but .gitignore is
+ *     tracked under tools/golden/extract/real/.
  *   - The spending cap: the run stops before the sample that would pass it, and says so.
  *   - The command: no key printed anywhere (output, report file); no call at all without EVAL_AI_PROVIDER (or without prices);
  *     a report written to the path given.
@@ -101,17 +104,17 @@ try {
     const text = report({ run, label: 'stand-in', dry: true, cap: 5, prices: { in: 0, out: 0 } });
     for (const f of FIELDS) assert.ok(text.includes(f), `the report names ${f}`);
     assert.ok(text.includes('Per sample') && text.includes('By kind') && text.includes('By field') && text.includes('All samples together'));
-    assert.ok(text.includes('Samples marked written (24 samples)') && text.includes('Samples marked real-anonymised: none'));
+    assert.ok(/Samples marked written \(\d+ samples\)/.test(text) && text.includes('Samples marked real-anonymised: none (no real samples: set EVAL_REAL_DIR).'));
   });
 
   await test('written and real-anonymised samples are reported apart', async () => {
     const g = tmp('golden');
-    fs.mkdirSync(path.join(g, 'real'));
+    const priv = tmp('private');
     const a = loadSamples().find((s) => s.standIn);
     const { file, ...bare } = a;
     fs.writeFileSync(path.join(g, 'a.json'), JSON.stringify(bare));
-    fs.writeFileSync(path.join(g, 'real', 'b.json'), JSON.stringify({ ...bare, mark: 'real-anonymised' }));
-    const samples = loadSamples(g);
+    fs.writeFileSync(path.join(priv, 'b.json'), JSON.stringify({ ...bare, mark: 'real-anonymised' }));
+    const samples = loadSamples(g, priv);
     assert.deepEqual(samples.map((s) => `${s.file}:${s.mark}`), ['a.json:written', path.join('real', 'b.json') + ':real-anonymised']);
     const run = await evaluate({ ai, samples, script });
     const s = summarise(run.results);
@@ -120,7 +123,58 @@ try {
     assert.ok(text.includes('Samples marked written (1 samples)') && text.includes('Samples marked real-anonymised (1 samples)'));
     fs.writeFileSync(path.join(g, 'c.json'), JSON.stringify({ ...bare, mark: 'guessed' }));
     assert.throws(() => loadSamples(g), /mark must be written or real-anonymised/);
-    assert.ok(fs.existsSync(path.join(ROOT, 'tools', 'golden', 'extract', 'real', '.gitkeep')), 'the place for real samples exists');
+  });
+
+  const capture = () => { const r = { out: '', err: '' }; return [r, { out: (t) => { r.out += t; }, err: (t) => { r.err += t; } }]; };
+
+  await test('EVAL_REAL_DIR unset: written samples only, and the report says so plainly', async () => {
+    const [r, io] = capture();
+    assert.equal(await main(['--dry-run'], {}, io), 0);
+    assert.ok(r.out.includes('no real samples: set EVAL_REAL_DIR'));
+    assert.ok(!/real\//.test(r.out.split('Samples marked')[0]), 'no real sample in the per-sample list');
+  });
+
+  await test('EVAL_REAL_DIR with a fake real sample: it is read and scored apart from the written ones', async () => {
+    const priv = tmp('private');
+    const a = loadSamples().find((s) => s.standIn);
+    const { file, ...bare } = a;
+    fs.writeFileSync(path.join(priv, 'fake.json'), JSON.stringify({ ...bare, mark: 'real-anonymised' }));
+    const [r, io] = capture();
+    assert.equal(await main(['--dry-run'], { EVAL_REAL_DIR: priv }, io), 0);
+    assert.ok(/Samples marked real-anonymised \(1 samples\)/.test(r.out) && /Samples marked written \(\d+ samples\)/.test(r.out));
+    assert.ok(r.out.includes(path.join('real', 'fake.json')) && !r.out.includes('no real samples'));
+  });
+
+  await test('a directory inside the repo is refused, with a plain sentence', async () => {
+    for (const bad of [path.join(ROOT, 'tools', 'golden', 'extract', 'real'), ROOT, path.join(ROOT, 'tools')]) {
+      const [r, io] = capture();
+      assert.equal(await main(['--dry-run'], { EVAL_REAL_DIR: bad }, io), 2);
+      assert.ok(r.err.includes('Keep real samples outside the repo.') && !r.out, bad);
+    }
+    assert.throws(() => loadSamples(undefined, ROOT), /Keep real samples outside the repo\./);
+  });
+
+  await test('a malformed sample in the folder is named and skipped; the rest still run', async () => {
+    const priv = tmp('private');
+    const a = loadSamples().find((s) => s.standIn);
+    const { file, ...bare } = a;
+    fs.writeFileSync(path.join(priv, 'good.json'), JSON.stringify({ ...bare, mark: 'real-anonymised' }));
+    fs.writeFileSync(path.join(priv, 'broken.json'), '{ not json');
+    fs.writeFileSync(path.join(priv, 'nomark.json'), JSON.stringify({ ...bare, mark: 'guessed' }));
+    const [r, io] = capture();
+    assert.equal(await main(['--dry-run'], { EVAL_REAL_DIR: priv }, io), 0);
+    assert.ok(r.err.includes('Skipped real/broken.json: it could not be read (not valid JSON).'), r.err);
+    assert.ok(r.err.includes('Skipped real/nomark.json') && r.out.includes('Skipped real/broken.json'));
+    assert.ok(/Samples marked real-anonymised \(1 samples\)/.test(r.out));
+  });
+
+  await test('no real sample is tracked by git: only .gitignore under tools/golden/extract/real/', async () => {
+    const { execFileSync } = await import('node:child_process');
+    let tracked;
+    try { tracked = execFileSync('git', ['ls-files', 'tools/golden/extract/real'], { cwd: ROOT, encoding: 'utf8' }); } catch { return; } // not a git checkout
+    const extra = tracked.split('\n').filter(Boolean).filter((f) => f !== 'tools/golden/extract/real/.gitignore');
+    assert.deepEqual(extra, [], 'real samples must never be committed (this repository is public)');
+    assert.equal(fs.readFileSync(path.join(ROOT, 'tools', 'golden', 'extract', 'real', '.gitignore'), 'utf8'), '*\n!.gitignore\n');
   });
 
   await test('the spending cap: it stops before the sample that would pass it, and says so', async () => {
