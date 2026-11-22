@@ -15,6 +15,7 @@
  *   EVAL_AI_ADDRESS    the service's address, for compatible only (for example http://127.0.0.1:11434/v1).
  *   EVAL_PRICE_IN      US$ per million tokens read (input); needed for a real run, so the spending cap can be kept.
  *   EVAL_PRICE_OUT     US$ per million tokens written (output); needed for a real run.
+ *   EVAL_REAL_DIR      a private folder of real-anonymised samples, outside the repo (optional; see below).
  *   EVAL_SPEND_CAP     the most to spend, in US$ (default 5). It stops before the next sample when that would pass it.
  *
  * Options: --dry-run, --report <path> (the report goes there; default stdout), --only <text> (only samples whose file name has it).
@@ -29,9 +30,15 @@
  *   travellers match as a set of names (Mr, Mrs and the like ignored). Reported per sample, per kind, per field and overall,
  *   `written` and `real-anonymised` samples apart.
  *
- * Adding a real sample: save the email text as a new .json file in tools/golden/extract/real/ (same shape as the ones beside it)
- * with "mark": "real-anonymised", after removing names, confirmation numbers and addresses (swap them for made-up ones, in the text
- * and in `expected`).
+ * Real samples (this repository is public, so they are never committed, even anonymised):
+ *   1. Put the files in a private folder on your own machine, outside the repo (same shape as the samples in
+ *      tools/golden/extract/, one .json each, with "mark": "real-anonymised").
+ *   2. Set EVAL_REAL_DIR=/path/to/folder when you run this. Without it only the written samples run and the report says
+ *      "no real samples: set EVAL_REAL_DIR". A folder inside the repo is refused.
+ *   3. Anonymise first: remove names, confirmation numbers, addresses, emails, phone numbers and card digits (swap them for
+ *      made-up ones, in the text and in `expected`).
+ *   Do not commit them. tools/golden/extract/real/ ignores everything but its .gitignore, and check-eval-extract fails if a file
+ *   there is tracked.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -161,16 +168,33 @@ export function summarise(results) {
 }
 
 // --- the samples ----------------------------------------------------------------------------------------------------------
-// Every .json in tools/golden/extract/ and in its real/ folder (Thomas's anonymised ones), by file name.
-export function loadSamples(dir = GOLDEN) {
+// Every .json in tools/golden/extract/, then those in `realDir` (a private folder outside the repo, EVAL_REAL_DIR), by file name.
+// A real sample that cannot be read is skipped and named in `notes`. A folder inside the repo is refused.
+export function loadSamples(dir = GOLDEN, realDir = '', notes = []) {
   const out = [];
-  for (const d of [dir, path.join(dir, 'real')]) {
-    if (!fs.existsSync(d)) continue;
+  const read = (d, prefix, real) => {
     for (const f of fs.readdirSync(d).filter((n) => n.endsWith('.json')).sort()) {
-      const s = JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'));
-      if (!MARKS.includes(s.mark)) throw new Error(`${f}: mark must be written or real-anonymised.`);
-      out.push({ ...s, file: path.relative(dir, path.join(d, f)) });
+      const name = path.join(prefix, f);
+      let s;
+      try {
+        s = JSON.parse(fs.readFileSync(path.join(d, f), 'utf8'));
+        if (!MARKS.includes(s.mark)) throw new Error('mark must be written or real-anonymised.');
+        if (real && (typeof s.text !== 'string' || !s.text.trim() || !Array.isArray(s.expected))) throw new Error('it needs text and an expected list.');
+      } catch (err) {
+        if (!real) throw new Error(`${f}: ${err.message}`);
+        notes.push(`Skipped ${name}: it could not be read (${err instanceof SyntaxError ? 'not valid JSON' : err.message.replace(/\.$/, '')}).`);
+        continue;
+      }
+      out.push({ ...s, file: name });
     }
+  };
+  if (fs.existsSync(dir)) read(dir, '', false);
+  if (realDir) {
+    const at = fs.existsSync(realDir) ? fs.realpathSync(realDir) : path.resolve(realDir);
+    const rel = path.relative(fs.realpathSync(ROOT), at);
+    if (!rel || (!rel.startsWith('..') && !path.isAbsolute(rel))) throw new Error('Keep real samples outside the repo.');
+    if (!fs.existsSync(at) || !fs.statSync(at).isDirectory()) throw new Error('EVAL_REAL_DIR is not a folder.');
+    read(at, 'real', true);
   }
   return out;
 }
@@ -239,14 +263,16 @@ function block(title, part) {
   return out;
 }
 
-export function report({ run, label, dry, cap, prices }) {
+export function report({ run, label, dry, cap, prices, realDir = '', notes = [] }) {
   const s = summarise(run.results);
   const out = [`Booking extraction evaluation${dry ? ' (stand-in model: nothing real was asked)' : ''}`, `Service: ${label}`, ''];
   out.push('Per sample', ...run.results.map((r) => `  ${r.sample.file.padEnd(46)} ${r.sample.mark.padEnd(15)} ${String(r.score.points).padStart(3)} / ${String(r.score.possible).padEnd(3)} ${pct(r.score.points, r.score.possible).padStart(7)}  tokens ${r.tokens.in}+${r.tokens.out}${r.error ? `  ERROR: ${r.error}` : ''}`), '');
   for (const mark of MARKS) {
     if (s.byMark[mark]) out.push(...block(`Samples marked ${mark}`, s.byMark[mark]), '');
+    else if (mark === 'real-anonymised' && !realDir) out.push('Samples marked real-anonymised: none (no real samples: set EVAL_REAL_DIR).', '');
     else out.push(`Samples marked ${mark}: none${run.results.length ? '' : ' were run'}.`, '');
   }
+  if (notes.length) out.push(...notes, '');
   out.push(...block('All samples together', s), '');
   out.push(`Tokens: ${run.tokens.in} read, ${run.tokens.out} written.`);
   out.push(`Estimated cost: US$${run.spent.toFixed(4)} of a cap of US$${cap}${prices.in || prices.out ? ` (US$${prices.in} in and US$${prices.out} out per million tokens)` : ' (no prices given, so no cost is counted)'}.`);
@@ -287,7 +313,11 @@ export async function main(argv, env, io = { out: (t) => process.stdout.write(t)
     if (!(st.priceIn >= 0) || !(st.priceOut >= 0) || st.priceIn === null || st.priceOut === null) return fail('Set EVAL_PRICE_IN and EVAL_PRICE_OUT (US$ per million tokens) so the spending cap can be kept.');
   }
   if (!(st.cap > 0)) return fail('EVAL_SPEND_CAP must be a number above 0 (US$).');
-  let samples = loadSamples();
+  const realDir = String(env.EVAL_REAL_DIR || '').trim();
+  const notes = [];
+  let samples;
+  try { samples = loadSamples(GOLDEN, realDir, notes); } catch (err) { return fail(err.message); }
+  for (const n of notes) io.err(`${n}\n`);
   if (only) samples = samples.filter((s) => s.file.includes(only));
   if (!samples.length) return fail('No samples to run.');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eval-extract-'));
@@ -315,7 +345,7 @@ export async function main(argv, env, io = { out: (t) => process.stdout.write(t)
     }
     const prices = { in: st.priceIn || 0, out: st.priceOut || 0 };
     const run = await evaluate({ ai, samples, prices, cap: st.cap, script, scrub, progress: (m) => io.err(`${m}\n`) });
-    const text = report({ run, label, dry, cap: st.cap, prices });
+    const text = report({ run, label, dry, cap: st.cap, prices, realDir, notes });
     if (reportPath) { fs.writeFileSync(reportPath, text); io.err(`Report written to ${reportPath}\n`); } else io.out(text);
     return 0;
   } finally {
