@@ -284,10 +284,10 @@
         : `A plan can be at most ${MAX_DAYS} days long, so that day is left off the plan.`);
     }
 
-    async function addItem(fields) {
+    async function addItem(fields, by) {
       const id = host.util.id();
       const onTheLine = !fields.date && (fields.after === '' || isYmd(fields.after) || fields.kind === 'lane');
-      const item = cleanItem({ ...fields, id, order: fields.order ?? (onTheLine ? nextJointOrder(fields.after || '') : nextOrder(fields.date)), by: host.user.name });
+      const item = cleanItem({ ...fields, id, order: fields.order ?? (onTheLine ? nextJointOrder(fields.after || '') : nextOrder(fields.date)), by: by || host.user.name });
       if (!item) throw new Error('that needs a title');
       const { id: _drop, ...value } = item;
       const saved = await host.storage.set(PLAN_PREFIX + id, value, {});
@@ -308,7 +308,7 @@
     // that day. A day past the plan's MAX_DAYS would show nowhere, so it goes under "Unscheduled" with "Dated <day>,
     // outside the plan" in its notes (plan-object-handoff.md, decision 12). What the person should know is said through
     // onSaid (the page's note) and comes back with the result.
-    async function addHandedIn(fields) {
+    async function addHandedIn(fields, by) {
       const said = [];
       let next = fields;
       if (next.date && !fitsPlan(days(), next.date)) {
@@ -336,7 +336,7 @@
       }
       let item;
       try {
-        item = await addItem(next);
+        item = await addItem(next, by);
       } catch (err) {
         if (!err.item) throw err;
         item = err.item;
@@ -526,7 +526,7 @@
 
     // A pointer to another module's object, put at a place: `{ date }` a day, `{ after }` a joint on the line, or nothing (the
     // pointed-at object's own day when it has one, else the head of the line).
-    const addLink = (ref, place, title) => addItem({ kind: 'link', ref, ...placeFields(place), title: title || '' });
+    const addLink = (ref, place, title, by) => addItem({ kind: 'link', ref, ...placeFields(place), title: title || '' }, by);
 
     // Dated objects other modules hold in this space, on days of the trip, that the plan does not already point at:
     // what the plan could take in. Nothing is stored until one is added. A Calendar copy of the plan's own object (`copy`, set
@@ -561,17 +561,18 @@
     function provide() {
       if (!host.actions || !host.actions.provide) return;
       host.actions.provide({
-        addStop: async (input) => {
+        addStop: async (input, ctx) => {
+          const by = ctx && ctx.credit ? ctx.credit.name : undefined; // who asked, so an agent's stop is the agent's
           if (input.ref && input.placeRef) throw new Error('Give a link or a place, not both.');
           const date = input.date && isYmd(input.date) ? input.date : null;
           const item = input.ref
-            ? await addLink(input.ref, date, input.title)
-            : await addItem(await withPlaceRef(withDetails(input, { kind: 'stop', title: input.title, date, notes: input.notes || '' }), input.placeRef));
+            ? await addLink(input.ref, date, input.title, by)
+            : await addItem(await withPlaceRef(withDetails(input, { kind: 'stop', title: input.title, date, notes: input.notes || '' }), input.placeRef), by);
           return { ref: host.objects.make('plan', item.id) };
         },
-        addToDay: async (input) => {
+        addToDay: async (input, ctx) => {
           // `item` is what the input was called before the rename (a request queued then is still carried out).
-          const item = await addLink(input.object || input.item, isYmd(input.date) ? input.date : null);
+          const item = await addLink(input.object || input.item, isYmd(input.date) ? input.date : null, undefined, ctx && ctx.credit ? ctx.credit.name : undefined);
           return { ref: host.objects.make('plan', item.id) };
         },
         // A suggestion from anywhere (an AI's typed summary, another module's idea): placed as the right kind of item when its
@@ -579,10 +580,11 @@
         // missing kind is an ordinary stop, the same as addStop, and any other kind is refused. Found by name and input shape, never by
         // whoever asks for it.
         // With `object` (plan-object-handoff.md): the whole object, its details in the plan's own fields (fromObject).
-        acceptSuggestion: async (input) => {
-          if (input.object) return addObject(input.object, input.placeRef);
+        acceptSuggestion: async (input, ctx) => {
+          const by = ctx && ctx.credit ? ctx.credit.name : undefined;
+          if (input.object) return addObject(input.object, input.placeRef, by);
           if (input.kind !== undefined && input.kind !== null && input.kind !== '' && !ACCEPT_KINDS.includes(input.kind)) throw new Error(`That kind is not one the itinerary takes. Use ${ACCEPT_KINDS.slice(0, -1).join(', ')} or ${ACCEPT_KINDS[ACCEPT_KINDS.length - 1]}.`);
-          return addHandedIn(await withPlaceRef(fromSuggestion(input), input.placeRef));
+          return addHandedIn(await withPlaceRef(fromSuggestion(input), input.placeRef), by);
         },
         // Put a stop that is already on the plan at a saved place (what the editor's Pick from Maps does), or take it off its place.
         setStopPlace: async (input) => {
@@ -612,7 +614,7 @@
     function onSaid(fn) { tell = fn; }
     // An object of the objects format put on the trip: the one path acceptSuggestion's `object` and the paste sheet's Add to the
     // trip share, so the cost, the currency and the travellers land as plan-assistant-reboot.md, decision 3, built them.
-    async function addObject(object, placeRef) { return addHandedIn(await withPlaceRef(fromObject(object, undefined, await bookingContext()), placeRef)); }
+    async function addObject(object, placeRef, by) { return addHandedIn(await withPlaceRef(fromObject(object, undefined, await bookingContext()), placeRef), by); }
     // The Place a request names, as the editor's Pick from Maps takes it (travel.js, placeFieldInit): its pointer, its title
     // (the stop's `place`) and its address. Refused in plain words when it is not a Maps place, is a person's own, or cannot be read
     // (one the asker may not see does not resolve; the server has already refused an agent a pointer outside its spaces).

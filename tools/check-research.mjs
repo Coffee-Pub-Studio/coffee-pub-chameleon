@@ -143,7 +143,7 @@ await test('the store: save, edit with versions, remove (and the picture), and w
   await again.load();
   assert.equal(again.list().length, 1);
   r.provide('u1');
-  const out = await f.handlers.saveNote({ title: 'From elsewhere', body: 'text', tags: '#Hotel, Lisbon', ref: { module: 'maps', kind: 'place', id: 'p' } }, { by: 'u2' });
+  const out = await f.handlers.saveNote({ title: 'From elsewhere', body: 'text', tags: '#Hotel, Lisbon', ref: { module: 'maps', kind: 'place', id: 'p' } }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
   assert.equal(out.ref.kind, 'note');
   assert.equal(r.get(out.ref.id).by, 'u2', 'a note asked for by someone else is theirs, not the open page\'s');
   assert.deepEqual(r.get(out.ref.id).tags, ['hotel', 'lisbon']);
@@ -156,11 +156,11 @@ await test('the store: save, edit with versions, remove (and the picture), and w
   const link = await f.handlers.saveLink({ url: 'https://example.org/a', excerpt: 'because' });
   assert.equal(r.get(link.ref.id).excerpt, 'because');
   assert.equal(r.get(link.ref.id).by, 'u1', 'the page\'s own request is its own person\'s');
-  const kept = await f.handlers.saveLink({ url: 'https://example.org/kept' }, { by: 'u2' });
+  const kept = await f.handlers.saveLink({ url: 'https://example.org/kept' }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
   assert.equal(r.get(kept.ref.id).by, 'u2', 'a link kept from Chat is the keeper\'s');
   const long = `https://example.org/${'l'.repeat(280)}`;
   assert.equal(long.length, 300);
-  const whole = await f.handlers.saveLink({ url: long }, { by: 'u2' });
+  const whole = await f.handlers.saveLink({ url: long }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
   assert.equal(r.get(whole.ref.id).url, long, 'a 300-character address is saved whole');
   await assert.rejects(f.handlers.saveLink({ url: `https://example.org/${'l'.repeat(481)}` }), /web address/, 'over 500 is refused');
   await assert.rejects(f.handlers.saveLink({ url: 'ftp://x' }), /web address/);
@@ -220,7 +220,7 @@ await test('saveNote, saveLink and savePhoto with an object; the flat fields as 
   let thumbs = 0;
   let readied = 0;
   r.provide('u1', { ready: async () => { readied += 1; }, makeThumb: async (id) => { thumbs += 1; f.files.find((x) => x.id === id).hasThumb = true; } });
-  const note = await f.handlers.saveNote({ title: 'Southwest 2483', object: SOUTHWEST, ref: { module: 'maps', kind: 'place', id: 'p' } }, { by: 'u2' });
+  const note = await f.handlers.saveNote({ title: 'Southwest 2483', object: SOUTHWEST, ref: { module: 'maps', kind: 'place', id: 'p' } }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
   const kept = r.get(note.ref.id);
   assert.equal(kept.title, 'Southwest 2483');
   assert.ok(kept.body.startsWith('Booked with **points**.\n\nAirline: Southwest'));
@@ -231,13 +231,13 @@ await test('saveNote, saveLink and savePhoto with an object; the flat fields as 
   const words = await f.handlers.saveNote({ title: 'Dinner Friday', object: { title: 'Dinner Friday', content: 'Dinner Friday\nat 7' } });
   assert.equal(r.get(words.ref.id).body, 'at 7');
   await assert.rejects(f.handlers.saveNote({ object: { title: '  ', content: 'x' } }), /title/);
-  const link = await f.handlers.saveLink({ url: 'https://timeout.com/lisbon', object: { kind: 'link', title: 'Time Out', content: 'Nata', tags: ['food'], links: [{ title: 'Time Out', url: 'https://timeout.com/lisbon' }] } }, { by: 'u2' });
+  const link = await f.handlers.saveLink({ url: 'https://timeout.com/lisbon', object: { kind: 'link', title: 'Time Out', content: 'Nata', tags: ['food'], links: [{ title: 'Time Out', url: 'https://timeout.com/lisbon' }] } }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
   assert.deepEqual([r.get(link.ref.id).url, r.get(link.ref.id).title, r.get(link.ref.id).excerpt, r.get(link.ref.id).tags], ['https://timeout.com/lisbon', 'Time Out', 'Nata', ['food']]);
   await assert.rejects(f.handlers.saveLink({ url: 'ftp://x', object: { title: 'x', content: 'y' } }), /web address/);
   // A picture: in this place's uploads, not a photo yet; its thumbnail made here, its caption the picture's name.
   const FILE2 = 'b'.repeat(24);
   f.files.push({ id: FILE2, hasThumb: false });
-  const photo = await f.handlers.savePhoto({ object: { kind: 'image', title: 'From chat', date: '2026-11-14', details: { upload: FILE2, name: 'IMG_2041.jpg' } } }, { by: 'u2' });
+  const photo = await f.handlers.savePhoto({ object: { kind: 'image', title: 'From chat', date: '2026-11-14', details: { upload: FILE2, name: 'IMG_2041.jpg' } } }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
   const p = r.get(photo.ref.id);
   assert.deepEqual([p.kind, p.title, p.file, p.by, p.date], ['photo', 'IMG 2041', { id: FILE2, hasThumb: true }, 'u2', '2026-11-14']);
   assert.equal(thumbs, 1);

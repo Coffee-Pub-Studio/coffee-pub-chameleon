@@ -4760,7 +4760,12 @@
           if (!claim || !claim.ok) return;
           let result;
           try {
-            const out = await fn(claim.action.input, { from: claim.action.from, by: claim.action.by, byKey: claim.action.byKey || null });
+            // `credit` is who an object this request makes is recorded as made by: the asker (a person, or an agent) when the server
+            // knows them, else the person whose page carries it out. A module stamps `credit`, so every module credits alike.
+            const me = (info && info.user) || {};
+            const byKey = claim.action.byKey || null;
+            const credit = byKey ? { name: String(claim.action.by || ''), key: byKey } : { name: String(me.name || ''), key: String(me.key || '') };
+            const out = await fn(claim.action.input, { from: claim.action.from, by: claim.action.by, byKey, credit });
             result = { ok: true, ref: out && out.ref, ...(out && out.data !== undefined ? { data: out.data } : {}) };
           } catch (err) {
             result = { ok: false, error: String((err && err.message) || err) };

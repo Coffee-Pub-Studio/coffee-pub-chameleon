@@ -153,13 +153,13 @@
     const last = [...sibs].reverse().find((e) => typeof e.order === 'string' && !e.order.endsWith('0'));
     try { return host.util.order(last ? last.order : null, null); } catch (err) { return undefined; }
   }
-  async function add(kind, raw) {
+  async function add(kind, raw, by) {
     if (!canEdit()) throw new Error(`You can't change the ${label('goal', { many: true })} here.`);
     const id = host.util.id();
     const parent = kind === 'goal' ? null : raw.parent || null;
     const value = L.valueOf(kind, { ...raw, parent, order: orderAtEnd(parent) }, { dates: datesOn() });
     value.createdAt = Date.now();
-    value.by = me;
+    value.by = by || me;
     await put(id, value);
     if (value.parent) await syncEntry(value.parent);
     return id;
@@ -827,7 +827,7 @@
     host.actions.provide({
       // With `object` (a goal, a step or a note in the objects format), its fields are mapped here (L.fromObject): the goal a step
       // sits under is the one `details.under` names, else the pointer given; a phase is named, so it is matched to the template's.
-      addGoal: async (input) => {
+      addGoal: async (input, ctx) => {
         const o = obj(input);
         const raw = o ? L.fromObject('goal', o, { phases: phases() }) : { title: input.title, why: input.why, date: input.date };
         // Owners are checked before anything is made; a person is named by key or by name (the form's own owners: a list of keys).
@@ -837,24 +837,24 @@
           if (r.problem) throw new Error(r.problem);
           owners = r.owners;
         }
-        const id = await add('goal', { ...raw, date: raw.date || input.date, ...(owners && owners.length ? { owners } : {}) });
+        const id = await add('goal', { ...raw, date: raw.date || input.date, ...(owners && owners.length ? { owners } : {}) }, ctx && ctx.credit && ctx.credit.key);
         render();
         return { ref: host.objects.make('plan', id) };
       },
-      addStep: async (input) => {
+      addStep: async (input, ctx) => {
         const o = obj(input);
         const raw = o ? L.fromObject('step', o, { entries: [...entries.values()].map((x) => x.e) }) : { title: input.title };
         const parent = input.goal ? ownGoal(input.goal).id : raw.parent;
         if (!parent) throw new Error(o ? `Add ${label('goal', { a: true })} first: no ${label('goal')} here is named "${String(raw.under || '').slice(0, 60)}".` : `Say which ${label('goal')} it goes under.`);
-        const id = await add('step', { ...raw, date: raw.date || input.date, parent });
+        const id = await add('step', { ...raw, date: raw.date || input.date, parent }, ctx && ctx.credit && ctx.credit.key);
         render();
         return { ref: host.objects.make('plan', id) };
       },
-      addNote: async (input) => {
+      addNote: async (input, ctx) => {
         const o = obj(input);
         const parent = input.goal ? ownGoal(input.goal).id : null;
         const raw = o ? L.fromObject('note', o) : { title: input.title, text: input.text };
-        const id = await add('note', { ...raw, text: raw.text || input.text, parent });
+        const id = await add('note', { ...raw, text: raw.text || input.text, parent }, ctx && ctx.credit && ctx.credit.key);
         render();
         return { ref: host.objects.make('plan', id) };
       },

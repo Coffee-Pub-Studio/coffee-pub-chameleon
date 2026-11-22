@@ -71,7 +71,7 @@ test('each refusal says it in plain words', () => {
 test('the form and the action share eventSpan', () => {
   const js = read('modules/calendar/src/calendar.js');
   assert.ok(/eventSpan\(\{ date, time: \$\('f-time'\)\.value/.test(js), 'save() uses eventSpan');
-  assert.ok(js.includes('eventFromInput(input)') && js.includes('createEventOn(made.title, made.start, input.ref, made)'), 'createEvent uses eventFromInput and createEventOn');
+  assert.ok(js.includes('eventFromInput(input)') && js.includes('createEventOn(made.title, made.start, input.ref, made, by)'), 'createEvent uses eventFromInput and createEventOn');
   assert.ok(!/new Date\(`\$\{date\}T\$\{time\}`\)/.test(js), 'no second copy of the start rule in the page');
   assert.deepEqual(eventSpan({ date: day, time: '', endDate: '', endTime: '', allDay: false }), { allDay: false, start: at(day, '19:00'), end: null }, 'the form\'s 19:00 default');
 });

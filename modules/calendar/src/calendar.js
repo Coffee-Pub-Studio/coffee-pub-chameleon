@@ -1338,10 +1338,10 @@
     noteTimer = setTimeout(() => { $('note').hidden = true; }, 4000);
   }
   // An all-day event on `date`; `fields` (eventFromObject) gives its own times and description instead.
-  async function createEventOn(title, date, ref, fields) {
+  async function createEventOn(title, date, ref, fields, by) {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const when = fields ? { allDay: fields.allDay, start: fields.start, end: fields.end || null, desc: fields.desc || '' } : { allDay: true, start: date, end: null, desc: '' };
-    const ev = { id, title: String(title).slice(0, 120), ...when, remind: fields && fields.remind !== undefined ? fields.remind : null, repeat: fields && fields.repeat ? fields.repeat : null, by: info.user.name };
+    const ev = { id, title: String(title).slice(0, 120), ...when, remind: fields && fields.remind !== undefined ? fields.remind : null, repeat: fields && fields.repeat ? fields.repeat : null, by: by || info.user.name };
     const saved = await host.storage.set('event:' + id, ev, {});
     remember('here', { key: 'event:' + id, value: ev, version: saved.version });
     // A reminder is set as the form sets it; if it cannot be, the event stays and the asker is told.
@@ -1405,18 +1405,19 @@
     host.actions.provide({
       // With `object` (plan-object-handoff.md): an event made of it (eventFromObject in calendar-lib.js), timed when it says
       // a time. Either way it needs a day: the object's, else `date`.
-      createEvent: async (input) => {
+      createEvent: async (input, ctx) => {
+        const by = ctx && ctx.credit ? ctx.credit.name : undefined; // who asked: an agent's event is the agent's
         if (!canEdit) throw new Error('this person cannot add events here');
         if (input.object && typeof input.object === 'object') {
           const made = eventFromObject(input.object, host.util, input.date);
           if (!made) throw new Error('that needs a day to go on the calendar');
-          return createEventOn(made.title || input.title, made.allDay ? made.start : null, input.ref, made);
+          return createEventOn(made.title || input.title, made.allDay ? made.start : null, input.ref, made, by);
         }
         if (!input.date) throw new Error('that needs a day to go on the calendar');
         // The times, end, repeat and reminder the add-event form has, read in the zone of this page (the person carrying it out).
         const made = eventFromInput(input);
         if (made.error) throw new Error(made.error);
-        return createEventOn(made.title, made.start, input.ref, made);
+        return createEventOn(made.title, made.start, input.ref, made, by);
       },
       addEvent: async (input) => {
         if (!canAdd()) throw new Error('this person cannot add events here');
