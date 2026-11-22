@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /*
- * check-whiteboard-blockcolour.mjs -- block colours in the board background's groups (#544): fills, borders, words and lines
- * take Light and Dark colours (fixed, the same in both modes) beside the Tinted ones.
+ * check-whiteboard-blockcolour.mjs -- block colours (#544): fills, borders, words and lines take any colour from the host's
+ * picker; fixed and tinted ids saved on older boards still clean and draw, though no menu offers them now.
  * Guards: a block's clean keeps a fixed id for every colour role and still drops an unknown one; the labels are the
- * background's; the tinted ids are unchanged; the menu model's order (own rows, Light, Dark, Tinted, Custom); the words on
+ * background's; the tinted ids are unchanged; the menu model (own rows, then the one Colour row; no preset groups); the words on
  * every fixed fill read at 4.5:1 with the ink the stylesheet gives its family. Custom colours from the host's picker (#rrggbb,
  * checked strictly), a fill's opacity, a fill's pattern, a custom background and grid colour.
  * Usage: node modules/whiteboard/test/check-whiteboard-blockcolour.mjs [path to the module's src folder]. Exits 1 on any failure.
@@ -53,16 +53,13 @@ function main() {
       if (bad) check(bad[role] !== 'dark-nope', `${t}.${role}: an unknown id falls back`);
     }
   }
-  // the menu model: own rows, Light, Dark, Tinted, Custom
+  // the menu model (#544, 2026-11-22): the role's own rows, then the one Colour row; no preset groups (fixed or tinted rows)
   const m = lib.wbColourMenuModel(['a', 'b']);
-  const shape = m.map((e) => (e.kind === 'heading' ? `#${e.label}` : e.kind));
-  const heads = shape.filter((s) => s.startsWith('#'));
-  check(shape[0] === 'special' && shape[1] === 'special' && m[0].row === 'a', 'the role\'s own rows come first');
-  check(heads.join('|') === '#Light colours|#Dark colours|#Tinted colours', 'the headings, in order');
-  check(shape.at(-1) === 'custom' && m.at(-1).label === 'Custom colour…', 'the Custom row is last');
-  check(m.filter((e) => e.kind === 'fixed').map((e) => e.id).join() === lib.WB_FIXED_BACKGROUNDS.map((f) => f.id).join(), 'the fixed rows are the background list, in its order');
-  check(m.filter((e) => e.kind === 'tint').map((e) => e.id).join() === lib.WB_PALETTE.map((c) => c.id).join(), 'the tinted rows are today\'s palette');
-  check(lib.wbColourMenuModel().length === m.length - 2, 'no own rows, no extras');
+  const shape = m.map((e) => e.kind);
+  check(shape.join() === 'special,special,colour' && m[0].row === 'a' && m[1].row === 'b', 'the role\'s own rows, then Colour');
+  check(m.at(-1).label === 'Colour', 'the Colour row reads "Colour"');
+  check(!m.some((e) => e.kind === 'heading' || e.kind === 'fixed' || e.kind === 'tint'), 'no preset colour groups');
+  check(lib.wbColourMenuModel().length === 1, 'no own rows: Colour alone');
   // custom colours (#544): exactly #rrggbb, kept in lower case; anything else is not a colour
   check(lib.wbHex('#2F6CBF') === '#2f6cbf' && lib.wbHex('#000000') === '#000000', 'a hex is kept, in lower case');
   for (const v of ['#fff', '#2f6cbf0', '2f6cbf', '#2f6cbg', ' #2f6cbf', '#2f6cbf;', 'red', 'url(x)', '#2f6cbf\n', null, 5, {}, ['#2f6cbf']]) check(lib.wbHex(v) === null, `${JSON.stringify(v)}: not a hex`);

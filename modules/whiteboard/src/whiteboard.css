@@ -706,6 +706,9 @@
    line stands in Line width's icon place. */
 .wb-width-sample { flex: none; width: 2em; height: var(--sample); border-radius: var(--radius-min); background: currentColor; }
 .wb-width-sample.wb-width-icon { width: 1em; }
+/* A colour menu's swatch with under 3:1 against the menu (White on a dark menu): the stronger edge, as the colour picker's own. */
+.wb-colour-menu .sdk-menu-icon.wb-swatch-faint svg { overflow: visible; }
+.wb-colour-menu .sdk-menu-icon.wb-swatch-faint svg path { stroke: color-mix(in srgb, var(--text-muted) 75%, var(--edge-hairline)); stroke-width: 68px; paint-order: stroke; }
 
 /* The overview (lib-n): a small map of the whole board at its bottom right, on the plain clock surface whatever the
    board's background, so it reads in both modes. Blocks are small muted boxes, frames outlines, the view the accent.
