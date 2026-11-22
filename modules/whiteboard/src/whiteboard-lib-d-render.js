@@ -145,6 +145,80 @@
       if (def.markup && WB_ALIGN_BY_ID.has(block.align)) { el.dataset.align = block.align; el.style.setProperty('--wb-align', block.align); } else { delete el.dataset.align; el.style.removeProperty('--wb-align'); }
     }
 
+    // The colour a block's part (role: 'fill', 'stroke' for a border or a line, 'ink' for the words) draws as on the board, as the
+    // #rrggbb that, chosen in the colour picker, draws exactly so; null when the block is not drawn or the part is not a colour. A
+    // custom colour (#rrggbb) is its own answer. A fixed or tinted id from a saved board is read from the block's element: the
+    // stylesheet may draw it as a shade of its base (a tinted note's fill is a wash over the card), and a custom colour in the
+    // same part may be drawn through a step of its own (a marker's line at 55%). So a hidden copy of the element is painted as
+    // two custom colours, which finds the first place the part lands (in the element's order, the role's properties in turn)
+    // and the step a custom colour takes there (straight, mixed or see-through, all linear); the colour shown now there, over
+    // the board's background, is taken back through that step.
+    const DRAWN_PROPS = { fill: ['background-color', 'fill'], stroke: ['border-top-color', 'stroke', 'fill'], ink: ['color'] };
+    const DRAWN_PROBES = ['#333333', '#cccccc'];
+    function cssRgba(css) {
+      let m = /^rgba?\(\s*([\d.]+)[ ,]+([\d.]+)[ ,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?/.exec(css || '');
+      let rgb;
+      let a = 1;
+      if (m) rgb = [m[1], m[2], m[3]].map(Number);
+      else {
+        m = /^color\(srgb\s+([-\d.e]+)\s+([-\d.e]+)\s+([-\d.e]+)(?:\s*\/\s*([\d.e]+%?))?/.exec(css || '');
+        if (!m) return null;
+        rgb = [m[1], m[2], m[3]].map((v) => Number(v) * 255);
+      }
+      if (m[4] !== undefined) a = m[4].endsWith('%') ? parseFloat(m[4]) / 100 : Number(m[4]);
+      return { rgb, a: Number.isFinite(a) ? a : 1 };
+    }
+    function drawnColour(id, role) {
+      const block = shown.get(id);
+      const def = block && blockTypes.get(block.type);
+      const el = els.get(id);
+      const props = DRAWN_PROPS[role];
+      if (!el || !el.isConnected || !def || !def.paint || !def.paint[role] || !props) return null;
+      const v = block[role];
+      if (wbHex(v)) return wbHex(v);
+      if (!wbIsColour(v)) return null;
+      const ground = cssRgba(getComputedStyle(surface).backgroundColor);
+      const onScreen = (css) => {
+        const c = cssRgba(css);
+        if (!c || c.a <= 0) return null;
+        return ground && c.a < 1 ? c.rgb.map((n, i) => n * c.a + ground.rgb[i] * (1 - c.a)) : c.rgb;
+      };
+      const all = (root) => [root, ...root.querySelectorAll('*')];
+      const copy = el.cloneNode(true);
+      copy.removeAttribute('data-id');
+      copy.setAttribute('aria-hidden', 'true');
+      copy.inert = true;
+      copy.style.visibility = 'hidden';
+      el.after(copy);
+      try {
+        const nodes = all(copy);
+        const as = (hex) => {
+          paint(copy, { ...block, [role]: hex, fillOpacity: 100 }, def);
+          return nodes.map((n) => { const cs = getComputedStyle(n); return props.map((p) => cs.getPropertyValue(p)); });
+        };
+        const [one, two] = DRAWN_PROBES.map(as);
+        for (let i = 0; i < nodes.length; i += 1) {
+          for (let j = 0; j < props.length; j += 1) {
+            if (one[i][j] === two[i][j]) continue;
+            const s1 = onScreen(one[i][j]);
+            const s2 = onScreen(two[i][j]);
+            const now = onScreen(getComputedStyle(all(el)[i] || el).getPropertyValue(props[j]));
+            if (!s1 || !s2 || !now) return null;
+            const k1 = parseInt(DRAWN_PROBES[0].slice(1, 3), 16);
+            const k2 = parseInt(DRAWN_PROBES[1].slice(1, 3), 16);
+            const out = now.map((n, c) => {
+              const p = (s1[c] - s2[c]) / (k1 - k2);
+              return Math.abs(p) < 1e-6 ? n : (n - (s1[c] - p * k1)) / p;
+            });
+            return `#${out.map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('')}`;
+          }
+        }
+        return null;
+      } finally {
+        copy.remove();
+      }
+    }
+
     // A block's box on the board ({ x, y, w, h, in? }), for a connector attached to it, or null when it is not on the board
     // or cannot take one. The height of a block whose words set it is read from its element.
     function boxOf(id) {
@@ -541,6 +615,7 @@
       ring,
       cursorIcon,
       element: (id) => els.get(id) || null,
+      drawnColour,
       // A connector as it is drawn now ({ points, box, mid, head }), or null while it is not drawn.
       geometry: (id) => geoms.get(id) || null,
       // The ids of the connectors attached to a block.

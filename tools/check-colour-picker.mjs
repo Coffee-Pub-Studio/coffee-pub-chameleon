@@ -31,10 +31,10 @@
  *      call again closing it (both null); a swatch (pressed, or Enter) answers and closes; Tab order (the area, Hue, Opacity, Hex, Pick
  *      from the screen when shown, the palette, Recent, round again) and each control's keys; a typed hex taken in any case and a bad
  *      one marked aria-invalid with its line, the colour unchanged; Escape answers null and puts focus back; a drag (a touch drag at
- *      390) sends onInput and a press outside answers once; opacity: false shows 100, aria-disabled, described by "Opacity isn't kept
- *      here.", moves by nothing, and answers 100; a module palette in place of the default; Recent, newest first, named by colour name
+ *      390) sends onInput and a press outside answers once; opacity: false draws no Opacity slider (not in the DOM, the accessibility
+ *      tree or the Tab order: the area, Hue, Hex, Pick from the screen, the palette) and answers 100; a module palette in place of the default; Recent, newest first, named by colour name
  *      or hex; colorField (the trigger's name, input then change then onChange, Escape sends nothing, the toggle, set(), disabled,
- *      destroy) and the page's own hostColour.field; 44px targets and 16px hex text at 390; Hex, the typed hex, a heading, the note
+ *      destroy) and the page's own hostColour.field; 44px targets and 16px hex text at 390; Hex, the typed hex, a heading
  *      and the error line at 4.5:1 on the picker; the stronger edge exactly on the swatches under 3:1 against the menu's surface
  *      (White in light, Black in dark); the accessibility tree names the dialog, the area, the sliders, Hex, the radio groups and each
  *      radio (aria-valuetext is read from the element: this Chromium's DevTools tree leaves it empty even on a plain slider). In an
@@ -483,7 +483,6 @@ async function browserHalf(chrome) {
   const { buildModule } = createRequire(import.meta.url)(path.join(ROOT, 'server/module-build.js'));
   const NAMES_ALL = PALETTE.flatMap((g) => g.colours.map((c) => c.name));
   const HINT = 'Type six hex digits, like #2f6cbf';
-  const NOTE = 'Opacity isn\'t kept here.';
   const answers = []; // every answer seen, for the shape check at the end
   const note = []; // what is worth saying that is not a failure
 
@@ -929,21 +928,23 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
 
     // --- opacity: false (decision 11) ---
     await pick(`{ at: { x: 20, y: 60 }, value: '#c0392b', opacity: false, label: 'Row colour' }`);
-    const off = await ev(`(() => { const o = window.__in('.sdk-cp-alpha'); const d = o.getAttribute('aria-describedby'); const note = d ? (__R.getElementById(d) || document.getElementById(d)) : null; return [o.getAttribute('aria-disabled'), o.getAttribute('aria-valuenow'), o.getAttribute('aria-valuetext'), o.tabIndex, note ? note.textContent : null, note ? note.getClientRects().length > 0 : false]; })()`);
-    same(off, ['true', '100', 'Opacity 100 percent', 0, NOTE, true], `${label}: with opacity: false the slider shows 100, is aria-disabled, stays in the Tab order and is described by its line`);
-    await ev(`window.__in('.sdk-cp-alpha').focus()`);
-    for (const k of ['Home', 'ArrowLeft', 'PageDown']) await key(send, k);
-    const opr = await ev(`window.__rect(window.__in('.sdk-cp-alpha'))`);
-    await drag(send, coarse, [[opr.l + opr.w / 2, opr.y], [opr.l + 4, opr.y]]);
-    same(await ev(`window.__in('.sdk-cp-alpha').getAttribute('aria-valuenow')`), '100', `${label}: the switched-off slider does not move by keys or by dragging`);
+    const off = await ev(`(() => { const p = window.__cp(); return [Boolean(window.__in('.sdk-cp-alpha')), [...p.querySelectorAll('[role=slider]')].map((x) => x.getAttribute('aria-label')), /opacity/i.test(p.textContent), p.classList.contains('sdk-cp-solid')]; })()`);
+    same(off, [false, ['Saturation and brightness', 'Hue'], false, true], `${label}: with opacity: false there is no Opacity slider and no line about it; the sliders are the area and Hue`);
+    // The Tab order skips it: the area, Hue, Hex, Pick from the screen when shown, the palette; Shift+Tab from Hue goes to the area.
+    const offDropper = await ev(`!window.__in('.sdk-cp-dropper').hidden`);
+    const offOrder = ['Hue', 'sdk-cp-hexin', ...(offDropper ? ['Pick from the screen'] : []), 'Red'];
+    await ev(`window.__in('.sdk-cp-area').focus()`);
+    const offSeen = [];
+    for (let i = 0; i < offOrder.length; i += 1) { await key(send, 'Tab'); offSeen.push(await ev('window.__focus()')); }
+    same(offSeen, offOrder, `${label}: with opacity: false Tab goes from the area to Hue, Hex${offDropper ? ', Pick from the screen' : ''} and the palette, with no Opacity`);
+    await ev(`window.__in('.sdk-cp-hue').focus()`);
+    await key(send, 'Tab', { shift: true });
+    same(await ev('window.__focus()'), 'Saturation and brightness', `${label}: with opacity: false Shift+Tab from Hue goes back to the area`);
     await ev(`window.__in('.sdk-cp-hue').focus()`);
     await key(send, 'ArrowRight');
     ok((await ev('window.__inputs')).every((a) => a.opacity === 100), `${label}: with opacity: false every onInput has opacity 100`);
-    const noteRatio = await ratio(`window.__in('.sdk-cp-note')`);
-    ok(noteRatio >= 4.5, `${label}: "${NOTE}" is ${noteRatio.toFixed(2)}:1 on the picker; wanted 4.5:1`);
     const ax2 = (await send('Accessibility.getFullAXTree', {})).nodes.filter((x) => !x.ignored);
-    const opNode = ax2.find((x) => x.role && x.role.value === 'slider' && x.name && x.name.value === 'Opacity');
-    ok(opNode && (opNode.properties || []).some((p) => p.name === 'disabled' && p.value.value === true) && opNode.description && opNode.description.value === NOTE, `${label}: the accessibility tree does not read the switched-off Opacity as disabled and described by "${NOTE}"`);
+    ok(!ax2.some((x) => x.name && /opacity/i.test(String(x.name.value || ''))), `${label}: with opacity: false the accessibility tree has nothing named Opacity`);
     ok(ax2.some((x) => x.role && x.role.value === 'dialog' && x.name && x.name.value === 'Row colour'), `${label}: the accessibility tree has no dialog named "Row colour"`);
     await pressOn(swatch('Gold'));
     const gold = await last();
@@ -978,7 +979,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     same(await trig(), ['Row colour, Red, #c0392b. Change it', 'dialog', 'false', false, true], `${label}: the colour field's trigger is named "<label>, <name>, <hex>. Change it", has a dialog popup, and hides the input`);
     same(await ev('window.__f.value'), '#c0392b', `${label}: the field's value`);
     await pressOn('window.__trig()');
-    same(await ev(`[window.__trig().getAttribute('aria-expanded'), window.__cp() && window.__cp().getAttribute('aria-label'), window.__in('.sdk-cp-alpha').getAttribute('aria-disabled')]`), ['true', 'Row colour', 'true'], `${label}: the field opens its picker named by the field, with Opacity switched off`);
+    same(await ev(`[window.__trig().getAttribute('aria-expanded'), window.__cp() && window.__cp().getAttribute('aria-label'), Boolean(window.__in('.sdk-cp-alpha'))]`), ['true', 'Row colour', false], `${label}: the field opens its picker named by the field, with no Opacity`);
     await inside('from the colour field');
     await pressOn(swatch('Teal'));
     same(await ev(`[__R.getElementById('fld').value, window.__ev, window.__f.value, window.__trig().getAttribute('aria-expanded'), window.__trig().getAttribute('aria-label'), window.__focus()]`),
@@ -1046,7 +1047,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     if (await open()) await key(send, 'Escape');
     await tick();
 
-    // Read case 4: the picker's words at 4.5:1 (Hex, the typed hex, a heading, the note and the error line with its text showing are
+    // Read case 4: the picker's words at 4.5:1 (Hex, the typed hex, a heading and the error line with its text showing are
     // above); here also the Recent heading and the colour field's hex.
     await pick(`{ anchor: 'a', value: '#2f6cbf' }`);
     const recentHead = await ev(`(() => { const g = window.__cp().querySelector('[aria-label="Recent"] .sdk-cp-head'); return g ? window.__contrast(g) : null; })()`);

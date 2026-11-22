@@ -1,8 +1,8 @@
 // The host's own colour fields (a module's `color` setting, a list row's colour): the SDK's colour picker on each, through the page
 // global /sdk/host.js sets (window.hostColour; plan-colour-picker.md, step 3), so a page and a module get the very same picker.
 // The page draws a text input marked data-colour-field that holds '#rrggbb'; colourFields(root) puts the picker's trigger on each one
-// not done yet, and the input stays, hidden, keeping the value the page reads and saves. These keep the colour only, so the Opacity
-// slider is shown switched off (decision 11). Without the SDK on the page the input is left as it is: a text field with the hex.
+// not done yet, and the input stays, hidden, keeping the value the page reads and saves. These keep the colour only, so the picker
+// shows no Opacity slider (decision 11). Without the SDK on the page the input is left as it is: a text field with the hex.
 import { closeHostMenu } from '/host-menu.js';
 
 // The field's own name, for the trigger's accessible name: its aria-label, else its <label>'s first words.
