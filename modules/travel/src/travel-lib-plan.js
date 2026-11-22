@@ -562,10 +562,11 @@
       if (!host.actions || !host.actions.provide) return;
       host.actions.provide({
         addStop: async (input) => {
+          if (input.ref && input.placeRef) throw new Error('Give a link or a place, not both.');
           const date = input.date && isYmd(input.date) ? input.date : null;
           const item = input.ref
             ? await addLink(input.ref, date, input.title)
-            : await addItem(withDetails(input, { kind: 'stop', title: input.title, date, notes: input.notes || '' }));
+            : await addItem(await withPlaceRef(withDetails(input, { kind: 'stop', title: input.title, date, notes: input.notes || '' }), input.placeRef));
           return { ref: host.objects.make('plan', item.id) };
         },
         addToDay: async (input) => {
@@ -578,7 +579,21 @@
         // unrecognised or missing kind is an ordinary stop, the same as addStop. Found by name and input shape, never by
         // whoever asks for it.
         // With `object` (plan-object-handoff.md): the whole object, its details in the plan's own fields (fromObject).
-        acceptSuggestion: async (input) => (input.object ? addObject(input.object) : addHandedIn(fromSuggestion(input))),
+        acceptSuggestion: async (input) => (input.object ? addObject(input.object, input.placeRef) : addHandedIn(await withPlaceRef(fromSuggestion(input), input.placeRef))),
+        // Put a stop that is already on the plan at a saved place (what the editor's Pick from Maps does), or take it off its place.
+        setStopPlace: async (input) => {
+          const cur = input.stop && items.get(input.stop.id);
+          if (!cur) throw new Error("That stop isn't on the itinerary.");
+          if (cur.item.kind !== 'stop') throw new Error('Only a stop can be at a place.');
+          const given = input.placeRef !== undefined && input.placeRef !== null && input.placeRef !== '';
+          // Taken off its place, the stop keeps the name it shows (the editor's Unlink does the same).
+          if (!given) await updateItem(cur.item.id, { placeRef: null });
+          else {
+            const at = await atPlace(input.placeRef);
+            await updateItem(cur.item.id, { placeRef: at.placeRef, place: at.place, ...(!cur.item.address && at.address ? { address: at.address } : {}) });
+          }
+          return { ref: host.objects.make('plan', cur.item.id) };
+        },
         addFromText: async (input) => {
           if (!composeFromText) throw new Error('Planner - Itinerary is not open');
           composeFromText(String(input.text || ''));
@@ -593,7 +608,26 @@
     function onSaid(fn) { tell = fn; }
     // An object of the objects format put on the trip: the one path acceptSuggestion's `object` and the paste sheet's Add to the
     // trip share, so the cost, the currency and the travellers land as plan-assistant-reboot.md, decision 3, built them.
-    async function addObject(object) { return addHandedIn(fromObject(object, undefined, await bookingContext())); }
+    async function addObject(object, placeRef) { return addHandedIn(await withPlaceRef(fromObject(object, undefined, await bookingContext()), placeRef)); }
+    // The Place a request names, as the editor's Pick from Maps takes it (travel.js, placeFieldInit): its pointer, its title
+    // (the stop's `place`) and its address. Refused in plain words when it is not a Maps place, is a person's own, or cannot be read
+    // (one the asker may not see does not resolve; the server has already refused an agent a pointer outside its spaces).
+    async function atPlace(ref) {
+      if (!ref || typeof ref !== 'object' || ref.module !== 'maps' || ref.kind !== 'place' || typeof ref.id !== 'string' || !ref.id) throw new Error('That is not a place saved in Maps.');
+      if (ref.scope === 'person') throw new Error(`That place is private to one person. Share it to the ${host.util.word('space')} first.`);
+      let got = null;
+      try { got = (await host.objects.resolve([ref]))[0]; } catch (err) { got = null; }
+      if (!got || got.error || !got.title) throw new Error("That place can't be found, or you can't see it.");
+      return { placeRef: ref, place: clip(got.title, 120), address: clip(got.subtitle, 200) };
+    }
+    // `fields` at the place `ref` names: the pointer, the place's title as `place`, and its address when the stop has none.
+    // Nothing changes without one. Only a stop is at a place.
+    async function withPlaceRef(fields, ref) {
+      if (ref === undefined || ref === null || ref === '') return fields;
+      if (fields.kind !== 'stop') throw new Error('Only a stop can be at a place. Leave the place out for a journey, a stay or a note.');
+      const at = await atPlace(ref);
+      return { ...fields, placeRef: at.placeRef, place: at.place, ...(!fields.address && at.address ? { address: at.address } : {}) };
+    }
     // The item an object of the objects format becomes (objectFields in travel-lib-object.js), with host.util's plain text and
     // local times. `place` ({ date } or { after }): the Planner's own drop, whose day wins over the object's. `booking`
     // (bookingContext's answer): where a booking's cost and travellers go.
