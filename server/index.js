@@ -10708,7 +10708,11 @@ function busInput(who, shape, input, taker) {
     }
     if (base === 'string' || base === 'text') {
       if (typeof v !== 'string') throw refError(400, `${field} must be text`);
-      out[field] = v.replace(/\p{Cc}/gu, ' ').trim().slice(0, base === 'string' ? 200 : 8000);
+      // A `string` is one line (a title, a name): control characters read as spaces. A `text` is what a person types into a
+      // multi-line box, so its line breaks and tabs stay (a \r\n or lone \r becomes \n); other control characters read as spaces.
+      out[field] = base === 'string'
+        ? v.replace(/\p{Cc}/gu, ' ').trim().slice(0, 200)
+        : v.replace(/\r\n?/g, '\n').replace(/(?![\n\t])\p{Cc}/gu, ' ').trim().slice(0, 8000);
       if (!out[field] && !optional) throw refError(400, `${field} is needed`);
     } else if (base === 'date') {
       if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || !realDay(v)) throw refError(400, `${field} must be a date`);

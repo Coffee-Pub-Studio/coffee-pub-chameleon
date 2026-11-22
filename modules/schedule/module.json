@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -71,7 +71,8 @@
         "inputHints": {
           "date": "The day, as YYYY-MM-DD. The plan may need one.",
           "ref": "A pointer to something this entry is about.",
-          "object": "A full description to add instead of the flat fields; its own day and words are used."
+          "object": "A full description to add instead of the flat fields; its own day and words are used.",
+          "notes": "The notes. Line breaks are allowed."
         },
         "input": {
           "title": "string",
@@ -94,7 +95,8 @@
           "end": "Last day, as YYYY-MM-DD, on or after the start.",
           "owners": "Who is doing it: keys or names as list_members shows them, separated by commas.",
           "ref": "A pointer to something this entry is about.",
-          "object": "A full description to add instead of the flat fields; its own days and words are used."
+          "object": "A full description to add instead of the flat fields; its own days and words are used.",
+          "notes": "The notes. Line breaks are allowed."
         },
         "input": {
           "title": "string",
@@ -114,6 +116,9 @@
         "label": "Add it to the plan as a note",
         "description": "Add a note to the plan.",
         "effect": "write",
+        "inputHints": {
+          "notes": "The notes. Line breaks are allowed."
+        },
         "input": {
           "title": "string",
           "notes": "text?",
@@ -144,7 +149,8 @@
           "date": "A milestone's day, as YYYY-MM-DD; empty clears it.",
           "start": "Work's first day, as YYYY-MM-DD; empty clears it.",
           "end": "Work's last day, as YYYY-MM-DD, on or after the start; empty clears it.",
-          "owners": "Work only. Replaces who is doing it: keys or names as list_members shows them, separated by commas; empty clears."
+          "owners": "Work only. Replaces who is doing it: keys or names as list_members shows them, separated by commas; empty clears.",
+          "notes": "The notes. Line breaks are allowed."
         },
         "input": {
           "ref": "ref:schedule:plan",
