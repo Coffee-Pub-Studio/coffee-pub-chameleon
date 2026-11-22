@@ -199,5 +199,12 @@ test('the manifest declares both, as writes that name a plan entry', () => {
   assert.ok(['addMilestone', 'addWork', 'addNote'].every((n) => by[n]), 'the adds are still there');
 });
 
+test('an added note keeps the line breaks of the notes an agent sent', () => {
+  const notes = 'First paragraph.\n\nSecond paragraph.\nThird line.';
+  const r = L.scFromAction('note', { title: 'Idea', notes }, 'u1');
+  const e = r.entry || r;
+  assert.equal(L.scValue(L.scClean('n2', e)).notes, notes);
+});
+
 if (fails.length) { console.error(`check-schedule-actions: ${fails.length} failed\n${fails.join('\n')}`); process.exit(1); }
 console.log(`check-schedule-actions: OK (${passed} checks)`);
