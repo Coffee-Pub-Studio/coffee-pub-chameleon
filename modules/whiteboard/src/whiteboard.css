@@ -67,6 +67,13 @@
 .wb-block.wb-type-table[data-fixed-fill] .wb-tbl { background: var(--wb-fill); }
 .wb-block.wb-type-frame[data-fixed-fill] .wb-fr-face { background: var(--wb-fill); }
 .wb-block.wb-type-frame[data-fixed-fill] .wb-fr-tab { background: var(--wb-fill); }
+/* A custom fill (#544; renderer: data-fixed-fill "custom", the colour a person chose in the colour picker, at its opacity) is drawn
+   as a fixed one is, with the words colour the page read for it (--wb-fill-ink: the host's readableOn, white or near-black at
+   4.5:1, for a see-through fill as it shows over the board's background). A note's Matching border is that colour mixed into
+   the fill, so it is a darker edge on a light fill and a lighter one on a dark fill. */
+.wb-block[data-fixed-fill="custom"] { --text-primary: var(--wb-fill-ink); }
+.wb-type-note[data-fixed-fill="custom"][data-stroke="auto"] { border-color: color-mix(in srgb, var(--wb-fill-ink) 35%, var(--wb-fill)); }
+.wb-type-note[data-fixed-fill="custom"][data-stroke="auto"] .wb-note-outline { stroke: color-mix(in srgb, var(--wb-fill-ink) 35%, var(--wb-fill)); }
 
 /* On a fixed background (the board's data-ground, set from the background) the words, lines and borders left at their usual
    colour follow the ground, not the theme: the blocks' own copies of the theme's text, edge and surface tokens are the
@@ -1069,6 +1076,10 @@
 .wb-grid-swatch[aria-checked="true"] { box-shadow: 0 0 0 2px var(--surface-toolbar, var(--surface-page)), 0 0 0 4px var(--accent); }
 .wb-grid-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .wb-grid-auto { background: linear-gradient(135deg, var(--text-primary) 50%, var(--surface-page) 50%); }
+.wb-grid-custom { display: inline-flex; align-items: center; justify-content: center; color: var(--text-muted); }
+.wb-grid-custom .ic { display: inline-flex; width: 14px; height: 14px; }
+.wb-grid-custom .ic svg { width: 100%; height: 100%; fill: currentColor; }
+.wb-grid-custom-on .ic { display: none; }
 .app.narrow .wb-gridbar { left: var(--space-2); width: auto; }
 .app.narrow .wb-gridbar button { min-height: 36px; }
 .app.wb-presenting .wb-gridbar { display: none; }
@@ -1215,3 +1226,31 @@
 .wb-type-image[data-outline] { border-color: transparent; }
 .wb-outline { position: absolute; left: calc(-1 * var(--wb-weight)); top: calc(-1 * var(--wb-weight)); overflow: visible; pointer-events: none; }
 .wb-outline rect { fill: none; stroke: var(--wb-stroke); }
+
+/* A fill's pattern (#544; renderer: data-pattern, lib-a WB_PATTERNS): faint marks over the fill in the fill's own words colour
+   (--text-primary as the block has it: the theme's on a tint, the family's ink on a fixed fill, the read one on a custom fill),
+   at --wb-pat-pct (18%, less with a see-through custom fill, so the pattern fades with it). An HTML block draws them as
+   gradients; a shape as an SVG pattern of its own (lib-a, wbPatternSvg). Kept at the end, so it is layered over each type's own
+   background. */
+.wb-block[data-pattern] { --wb-pat: color-mix(in srgb, var(--text-primary) var(--wb-pat-pct, 18%), transparent); --wb-pat-size: auto; }
+.wb-block[data-pattern="dots"] { --wb-pat-img: radial-gradient(circle, var(--wb-pat) 1.3px, transparent 1.8px); --wb-pat-size: 10px 10px; }
+.wb-block[data-pattern="stripes"] { --wb-pat-img: repeating-linear-gradient(-45deg, var(--wb-pat) 0 1.5px, transparent 1.5px 7px); }
+.wb-block[data-pattern="grid"] { --wb-pat-img: linear-gradient(to right, var(--wb-pat) 1px, transparent 1px), linear-gradient(to bottom, var(--wb-pat) 1px, transparent 1px); --wb-pat-size: 10px 10px; }
+.wb-block[data-pattern="crosshatch"] { --wb-pat-img: repeating-linear-gradient(45deg, var(--wb-pat) 0 1px, transparent 1px 7px), repeating-linear-gradient(-45deg, var(--wb-pat) 0 1px, transparent 1px 7px); }
+/* a note: over its face, under its words (a note with a pointer has the pattern on its body, not its tail) */
+.wb-type-note[data-pattern]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--wb-pat-img);
+  background-size: var(--wb-pat-size);
+  pointer-events: none;
+}
+.wb-type-note[data-pattern] .wb-words { z-index: 1; }
+.wb-block.wb-type-text[data-pattern]:not([data-fill="none"]),
+.wb-block.wb-type-table[data-pattern] .wb-tbl,
+.wb-block.wb-type-frame[data-pattern] .wb-fr-face { background-image: var(--wb-pat-img); background-size: var(--wb-pat-size); }
+.wb-svg .wb-shape-pat { stroke: none; pointer-events: none; }
+.wb-svg .wb-pat-mark { fill: none; stroke: var(--wb-pat); stroke-width: 1.5; }
+.wb-svg .wb-pat-dot { fill: var(--wb-pat); stroke: none; }

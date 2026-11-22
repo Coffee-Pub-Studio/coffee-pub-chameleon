@@ -290,6 +290,7 @@
     textMax: WB_FRAME.title,
     editLabel: 'Rename',
     paint: { fill: { extra: ['none', 'usual'] }, stroke: { extra: ['none', 'usual'] }, ink: { label: 'Title', extra: ['usual'] } },
+    pattern: true, // a fill pattern (lib-a, WB_PATTERNS) on its face
     weight: true,
     create: () => ({ w: WB_FRAME.w, h: WB_FRAME.h, title: WB_FRAME_WORD, notes: '', fill: 'usual', stroke: 'usual', ink: 'usual', weight: 2 }),
     clean: (raw) => ({ w: wb.size(raw.w, WB_FRAME.min.w, WB_FRAME.w), h: wb.size(raw.h, WB_FRAME.min.h, WB_FRAME.h), title: wbFrameTitle(raw.title), notes: wbFrameNotes(raw.notes) }),

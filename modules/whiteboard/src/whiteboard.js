@@ -82,6 +82,7 @@
   // The colours and width picked for new blocks, by role; null: each type's usual. They go to a new block only where its
   // usual is a colour (a text block keeps no background, a note its matching border); weight goes with the stroke.
   const next = { stroke: null, fill: null, ink: null, weight: null };
+  let nextFillOpacity = 100; // the opacity of a custom fill (#rrggbb) picked for new blocks and the Fill tool, 0 to 100
   // A freehand stroke's width is picked for its brush alone (a marker is wide, a pen thin), and a highlight's for
   // highlights: brush id (or 'highlight') -> width, or null.
   const nextWeights = { pen: null, marker: null, brush: null, highlight: null };
@@ -219,6 +220,7 @@
         const v = role === 'weight' ? nextWeightOf(brush) : nextColour(def, role);
         if (v !== null && takesNext(def, role)) own[role] = v;
       }
+      if (wbHex(own.fill) && own.fill === next.fill) own.fillOpacity = nextFillOpacity; // a custom fill picked for new blocks, at its opacity
       if (type === CONNECTOR) for (const [k, v] of Object.entries(nextLine)) if (v !== null) own[k] = v;
       if (def.markup) Object.assign(own, wbNextWords(def, nextText));
       if (type === 'table') Object.assign(own, nextTable);
@@ -302,6 +304,7 @@
     // ('ok' or 'no'; null for none), the swatch by the pointer ({ sx, sy }, null to take it away), and a click on a block
     // with nothing to fill (or, with alt, no colour to take).
     nextFill: () => nextFill(),
+    nextFillOpacity: () => (wbHex(nextFill()) ? nextFillOpacity : 100), // a custom fill's opacity (lib-a, fillOpacity)
     setNextFill(v, { quiet = false } = {}) {
       if (!isColour(v)) return;
       next.fill = v;
@@ -542,9 +545,10 @@
   // The colour a fixed background holds in whiteboard.css (read by name from the board's own style).
   const fixedColour = (f) => getComputedStyle(surface).getPropertyValue(f.css).trim();
   // A colour name's CSS colour for a swatch on the page: the tint's theme token, or the fixed colour itself ('' for neither).
-  const colourOf = (id) => { const f = WB_FIXED_BY_ID.get(id); if (f) return fixedColour(f); const c = WB_PALETTE_BY_ID.get(id); return c ? c.token : ''; };
-  const isColour = (id) => WB_PALETTE_BY_ID.has(id) || WB_FIXED_BY_ID.has(id);
-  const colourLabel = (id) => (WB_FIXED_BY_ID.get(id) || WB_PALETTE_BY_ID.get(id) || {}).label;
+  // A custom colour (#rrggbb, lib-a wbHex) is its own cleaned value.
+  const colourOf = (id) => { const f = WB_FIXED_BY_ID.get(id); if (f) return fixedColour(f); const c = WB_PALETTE_BY_ID.get(id); return c ? c.token : wbHex(id) || ''; };
+  const isColour = (id) => wbIsColour(id);
+  const colourLabel = (id) => (wbHex(id) ? `Custom ${wbHex(id)}` : (WB_FIXED_BY_ID.get(id) || WB_PALETTE_BY_ID.get(id) || {}).label);
   const rgbOfColour = (css) => {
     const probe = document.createElement('span');
     probe.style.color = css;
@@ -559,14 +563,43 @@
     const pick = wbContrastInk(rgbOfColour(fixedColour(f)), rgbOfColour('var(--wb-fixed-ink-light)'), rgbOfColour('var(--wb-fixed-ink-dark)'));
     return pick === 'dark' ? 'light' : pick === 'light' ? 'dark' : f.family;
   }
+  // Light or dark for a custom colour (#rrggbb): white words reading best on it makes it dark (the host's readableOn).
+  const familyOfHex = (hex) => { try { return host.util.readableOn(hex).color === '#ffffff' ? 'dark' : 'light'; } catch { return 'light'; } };
+  const backdropOf = (id) => (wbHex(id) ? wbBackdrop(id, familyOfHex(wbHex(id))) : wbBackdrop(id));
+  let groundShown = '';
   function showBackdrop() {
-    const d = wbBackdrop(boardSettings.background);
+    const d = backdropOf(boardSettings.background);
     surface.style.setProperty('--wb-ground', d.ground);
     surface.style.setProperty('--wb-dot', wbGridPaint(d, wbGrid));
     surface.dataset.grid = wbGrid.style;
     surface.dataset.background = d.id;
-    surface.dataset.ground = d.family === 'themed' ? 'themed' : groundOf(WB_FIXED_BY_ID.get(d.id));
+    surface.dataset.ground = d.family === 'themed' ? 'themed' : d.custom ? d.family : groundOf(WB_FIXED_BY_ID.get(d.id));
+    // A see-through custom fill reads its words colour over the ground: drawn again when the ground changes.
+    if (d.ground !== groundShown) { groundShown = d.ground; redrawSeeThrough(); }
   }
+  // The words colour for a custom fill (lib-d's paint asks, through wbPaintHelp): the host's readableOn of the fill, and for a
+  // fill under 100% opacity, of the colour it shows as over the board's background (the ground as drawn now, read from the
+  // page; a block under it is not counted). '#ffffff' or '#0a0a0a', at 4.5:1 or the better of the two.
+  const hexOfRgb = (rgb) => `#${rgb.map((n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0')).join('')}`;
+  function fillInk(hex, opacity) {
+    let shown = hex;
+    if (opacity < 100) {
+      const m = /^rgba?\(\s*(\d+(?:\.\d+)?)[ ,]+(\d+(?:\.\d+)?)[ ,]+(\d+(?:\.\d+)?)/.exec(getComputedStyle(surface).backgroundColor || '');
+      const ground = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+      if (ground) {
+        const a = opacity / 100;
+        const fill = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+        shown = hexOfRgb(fill.map((v, i) => v * a + ground[i] * (1 - a)));
+      }
+    }
+    try { return host.util.readableOn(shown).color; } catch { return null; }
+  }
+  wbPaintHelp.ink = fillInk;
+  function redrawSeeThrough() {
+    for (const b of board.all()) if (wbHex(b.fill) && wbOpacity(b.fillOpacity) < 100) renderer.draw(b);
+  }
+  // The theme changed: the Default ground (and a tinted one) changed with it.
+  host.on('theme', () => requestAnimationFrame(() => { groundShown = ''; showBackdrop(); }));
   function takeBoard(change) {
     boardSettings = change.op === 'put' ? change.block : WB_BOARD_USUAL;
     showBackdrop();
@@ -1171,12 +1204,24 @@
     return col ? { icon: 'circle', iconColor: col } : { icon: 'circle', regular: true };
   };
   // A role's rows in the groups the background menu has (lib-a, wbColourMenuModel): its own rows first, then Light colours and
-  // Dark colours (fixed), Tinted colours (follow the theme) and the disabled Custom row. `pick(id)` makes a row's click.
-  function colourRows(specialRows, now, pick) {
+  // Dark colours (fixed), Tinted colours (follow the theme) and Custom colour…, which runs `custom` (it opens the host's colour
+  // picker), marked as the current one, with the colour as its swatch, when `now` is a custom colour. `pick(id)` makes a row's click.
+  const customRow = (label, now, custom) => {
+    const hex = wbHex(now);
+    return {
+      id: 'custom',
+      label,
+      current: Boolean(hex),
+      ...(hex ? { icon: 'circle', iconColor: hex, hint: hex } : { icon: 'palette' }),
+      ariaLabel: hex ? `Custom colour ${hex}, chosen. Choose another` : 'Custom colour: choose any colour',
+      onClick: () => { setTimeout(custom, 0); }, // after the menu has closed, or closing it would close the picker
+    };
+  };
+  function colourRows(specialRows, now, pick, custom) {
     return wbColourMenuModel(specialRows).map((e) => {
       if (e.kind === 'special') return e.row;
       if (e.kind === 'heading') return { heading: e.label };
-      if (e.kind === 'custom') return { id: 'custom', label: e.label, disabled: true };
+      if (e.kind === 'custom') return custom ? customRow(e.label, now, custom) : { id: 'custom', label: e.label, disabled: true };
       const how = e.kind === 'fixed' ? 'fixed colour' : 'follows the theme';
       return choiceRow(e.id, e.label, now, pick(e.id), { ...swatch(e.id), ariaLabel: `${e.label}, ${how}${e.id === now ? ', chosen' : ''}` });
     });
@@ -1191,13 +1236,41 @@
   // block type's own colour, when no type is known).
   const nameOf = (id) => (id === undefined ? 'Mixed' : NAMED[id] ? NAMED[id].label : isColour(id) ? colourLabel(id) : 'Default');
 
+  // The host's colour picker for a colour a person chooses (#544; api-module-sdk, "Choosing a colour"): at `where` (the point a
+  // menu was opened at, or the button it hangs from), starting from `value` when that is a custom colour. `opacity`: the start
+  // (0 to 100), or false where only the colour is kept. While it is open show(answer) shows a choice and never saves; Escape
+  // (null) runs put() to put back what showed; a choice runs save(answer) once, answer { color: cleaned #rrggbb, opacity }.
+  async function pickColour(where, { value, opacity, label, show, put, save }) {
+    let shown = false;
+    let answer = null;
+    try {
+      answer = await host.ui.colorPicker({
+        ...(where && where.anchor ? { anchor: where.anchor } : { at: (where && where.at) || { x: 100000, y: 4 } }),
+        value: wbHex(value) || undefined,
+        opacity: opacity === false ? false : wbOpacity(opacity),
+        label,
+        onInput: show ? (a) => { const c = wbHex(a && a.color); if (!c) return; shown = true; show({ color: c, opacity: opacity === false ? 100 : wbOpacity(a.opacity) }); } : undefined,
+      });
+    } catch { answer = null; }
+    const color = answer && wbHex(answer.color);
+    if (!color) { if (shown && put) put(); return; }
+    save({ color, opacity: opacity === false ? 100 : wbOpacity(answer.opacity) });
+  }
+  // The patterns a fill can take (lib-a, WB_PATTERNS), as menu rows: None first.
+  const PATTERN_ICONS = { none: 'ban', dots: 'braille', stripes: 'grip-lines', grid: 'table-cells', crosshatch: 'hashtag' };
+  const patternRows = (now, pick) => [
+    { heading: 'Pattern' },
+    ...[{ id: 'none', label: 'None' }, ...WB_PATTERNS].map((x) => choiceRow(`pattern-${x.id}`, x.label, now === undefined ? undefined : `pattern-${now}`, pick(x.id), { icon: PATTERN_ICONS[x.id], ariaLabel: `${x.label} pattern${now === x.id ? ', chosen' : ''}` })),
+  ];
+
   // `role`: only that colour role's rows (a swatch on the board's strip opens its own role).
   function colourMenu(where, only, role) {
     const list = targets(only);
     if (!list.length && tool.paints === 'fill') {
       // The Fill tool's colour (the fill new blocks get too): the palette, the current one marked.
       const now = nextFill();
-      const rows = colourRows([], now, (id) => () => ctx.setNextFill(id, { quiet: true }));
+      const custom = () => pickColour(where, { value: now, opacity: wbHex(now) ? nextFillOpacity : 100, label: 'Fill colour', save: (a) => { nextFillOpacity = a.opacity; ctx.setNextFill(a.color, { quiet: true }); } });
+      const rows = colourRows([], now, (id) => () => ctx.setNextFill(id, { quiet: true }), custom);
       host.menu.show({ id: 'colour', ...where, items: [{ heading: 'Colour for the Fill tool' }, ...rows] });
       return;
     }
@@ -1210,12 +1283,45 @@
         if (!having.length) return null;
         const now = agreed(having, role.id);
         const extras = having.map((b) => defOf(b).paint[role.id].extra || []).reduce((a, x) => a.filter((v) => x.includes(v)));
+        const fill = role.id === 'fill';
         const pick = (v) => () => {
           for (const b of having) ctx.change(b.id, { [role.id]: v }, { save: 'now' });
           if (isColour(v)) for (const t of new Set(having.map((b) => b.type))) setNextColour(blockTypes.get(t), role.id, v);
         };
-        const rows = colourRows(extras.map((v) => choiceRow(v, NAMED[v].label, now, pick(v), swatch(v))), now, pick);
         const same = new Set(having.map((b) => b.type)).size === 1 ? defOf(having[0]) : null;
+        // Custom colour…: the picker shows each choice on these blocks alone and saves the one chosen once (one undo step);
+        // Escape puts back what they showed. A fill keeps the picker's opacity; a border, words or a line the colour only.
+        const custom = () => {
+          const ids = having.map((b) => b.id);
+          const fields = (b) => (fill ? { fill: b.fill, fillOpacity: b.fillOpacity } : { [role.id]: b[role.id] });
+          const before = new Map(having.map((b) => [b.id, fields(b)]));
+          const patch = (a) => (fill ? { fill: a.color, fillOpacity: a.opacity } : { [role.id]: a.color });
+          const put = () => { for (const [id, f] of before) ctx.change(id, f, { save: false }); };
+          const opacityNow = fill ? (wbHex(now) ? agreed(having, 'fillOpacity') : 100) : false;
+          pickColour(where, {
+            value: now,
+            opacity: opacityNow === undefined ? 100 : opacityNow,
+            label: `${roleLabel(same, role)} colour`,
+            show: (a) => { for (const id of ids) ctx.change(id, patch(a), { save: false }); },
+            put,
+            save: (a) => {
+              const p = patch(a);
+              const kept = (id) => { const k = known.get(id); return Boolean(k) && Object.entries(p).every(([f, v]) => k[f] === v); };
+              if (ids.every(kept)) { put(); return; } // the colour they had: nothing to save
+              for (const id of ids) ctx.change(id, p, { save: 'now' });
+              for (const t of new Set(having.map((b) => b.type))) setNextColour(blockTypes.get(t), role.id, a.color);
+              if (fill) nextFillOpacity = a.opacity;
+              updateStatus();
+            },
+          });
+        };
+        const rows = colourRows(extras.map((v) => choiceRow(v, NAMED[v].label, now, pick(v), swatch(v))), now, pick, custom);
+        // A fill's pattern, where every block takes one: one save each, one undo step.
+        if (fill && having.every((b) => defOf(b).pattern)) {
+          const pnow = agreed(having.map((b) => ({ pattern: b.pattern || 'none' })), 'pattern');
+          const pickPattern = (v) => () => { for (const b of having) ctx.change(b.id, { pattern: v === 'none' ? undefined : v }, { save: 'now' }); };
+          rows.push(...patternRows(pnow, pickPattern));
+        }
         return { role, label: roleLabel(same, role), now, rows };
       }).filter((g) => g && (!role || g.role.id === role));
     } else {
@@ -1224,7 +1330,13 @@
         const now = nextColour(def, r.id);
         const usual = def ? def.create()[r.id] : null;
         const pick = (v) => () => { setNextColour(def, r.id, v); updateStatus(); };
-        const rows = colourRows([choiceRow(null, 'Default', now, pick(null), { ...swatch(usual), hint: usual ? nameOf(usual) : '' })], now, pick);
+        const custom = () => pickColour(where, {
+          value: now,
+          opacity: r.id === 'fill' ? (wbHex(now) ? nextFillOpacity : 100) : false,
+          label: `${roleLabel(def, r)} colour`,
+          save: (a) => { setNextColour(def, r.id, a.color); if (r.id === 'fill') nextFillOpacity = a.opacity; updateStatus(); },
+        });
+        const rows = colourRows([choiceRow(null, 'Default', now, pick(null), { ...swatch(usual), hint: usual ? nameOf(usual) : '' })], now, pick, custom);
         return { role: r, label: roleLabel(def, r), now: now === null ? usual : now, rows };
       });
     }
@@ -1238,7 +1350,7 @@
   }
 
   // The board's background (one for everyone, see "the board's background"), in groups: Default (the theme's own board colour),
-  // Custom background (a disabled row until the host has a colour picker), Light and Dark backgrounds (fixed colours, the same
+  // Custom background (Custom colour…, the host's colour picker: the colour only), Light and Dark backgrounds (fixed colours, the same
   // in both modes) and Tinted backgrounds (washes that follow the theme). The current one is marked. A pick asks first, then
   // is one save and one undo step.
   function backgroundMenu(where) {
@@ -1251,7 +1363,7 @@
       { heading: 'Background colour of the board' },
       choiceRow('default', 'Default', now, pick('default'), { icon: 'circle', regular: true, ariaLabel: `Default background, follows the theme${now === 'default' ? ', chosen' : ''}` }),
       { heading: 'Custom background' },
-      { id: 'custom', label: 'Custom colour (coming with the colour picker)', disabled: true },
+      customRow('Custom colour…', now, () => customBackground(where)),
       { heading: 'Light backgrounds' },
       ...WB_FIXED_BACKGROUNDS.filter((f) => f.family === 'light').map(fixedRow),
       { heading: 'Dark backgrounds' },
@@ -1260,6 +1372,28 @@
       ...WB_PALETTE.map(tintRow),
     ];
     host.menu.show({ id: 'background', ...where, items });
+  }
+  // Custom colour… for the background: the picker shows each choice on the board while it is open (never saved), asks once on a
+  // choice (it changes for everyone) and saves it as one undo step; Escape, or No, puts back the background there was.
+  function customBackground(where) {
+    const was = boardSettings;
+    const put = () => { boardSettings = was; showBackdrop(); };
+    pickColour(where, {
+      value: boardSettings.background,
+      opacity: false,
+      label: 'Background colour',
+      show: (a) => { boardSettings = { ...was, background: a.color }; showBackdrop(); },
+      put,
+      save: async (a) => {
+        boardSettings = { ...was, background: a.color };
+        showBackdrop();
+        if (a.color === was.background) { put(); return; }
+        let yes = false;
+        try { yes = await host.ui.confirm({ title: 'Change background', message: 'This will change for everyone. Are you sure you want to change the background?', action: 'Change background', cancel: 'Cancel' }); } catch { yes = false; }
+        put(); // the history's before is the background there was
+        if (yes) setBackground(a.color);
+      },
+    });
   }
   const backgroundRow = (at) => ({ id: 'background', label: 'Background colour', icon: 'palette', hint: nameOf(boardSettings.background), onClick: () => { setTimeout(() => backgroundMenu({ at }), 0); } });
 
@@ -2125,8 +2259,14 @@
     gridSize.value = String(wbGrid.size);
     $('grid-size-val').textContent = String(wbGrid.size);
     for (const [id, b] of gridSwatches) b.setAttribute('aria-checked', String(id === wbGrid.color));
+    const hex = wbHex(wbGrid.color);
+    gridCustom.setAttribute('aria-checked', String(Boolean(hex)));
+    gridCustom.classList.toggle('wb-grid-custom-on', Boolean(hex));
+    if (hex) gridCustom.style.setProperty('--wb-sw', hex); else gridCustom.style.removeProperty('--wb-sw');
+    gridCustom.setAttribute('aria-label', hex ? `Custom colour ${hex}` : 'Custom colour…');
+    gridCustom.title = hex ? `Custom colour ${hex}` : 'Custom colour…';
     const auto = wbGrid.opacity === null;
-    gridOpacity.value = String(auto ? Math.round(wbBackdrop(boardSettings.background).strength / 5) * 5 : Math.round(wbGrid.opacity * 100));
+    gridOpacity.value = String(auto ? Math.round(backdropOf(boardSettings.background).strength / 5) * 5 : Math.round(wbGrid.opacity * 100));
     $('grid-opacity-val').textContent = auto ? 'Auto' : `${gridOpacity.value}%`;
   }
   function gridSet(change) {
@@ -2146,6 +2286,33 @@
     gridSwatches.set(c.id, b);
     $('grid-colours').append(b);
   }
+  // Custom colour…: the host's colour picker under the button, with the grid's opacity (the grid keeps one). Each choice shows
+  // on the grid while it is open; the one chosen is kept; Escape puts back the grid there was.
+  const gridCustom = document.createElement('button');
+  gridCustom.type = 'button';
+  gridCustom.className = 'wb-grid-swatch wb-grid-custom';
+  gridCustom.setAttribute('role', 'radio');
+  gridCustom.setAttribute('aria-label', 'Custom colour…');
+  gridCustom.title = 'Custom colour…';
+  const gridCustomIcon = document.createElement('span');
+  gridCustomIcon.className = 'ic';
+  gridCustomIcon.setAttribute('aria-hidden', 'true');
+  gridCustom.append(gridCustomIcon);
+  iconSvg('palette').then((svg) => { if (svg) gridCustomIcon.innerHTML = svg; });
+  $('grid-colours').append(gridCustom);
+  gridCustom.addEventListener('click', () => {
+    const was = { ...wbGrid };
+    const opacity = was.opacity === null ? backdropOf(boardSettings.background).strength : Math.round(was.opacity * 100);
+    const shows = (a) => { Object.assign(wbGrid, wbGridClean({ ...was, color: a.color, opacity: a.opacity / 100 })); showBackdrop(); renderer.redrawGrid(); };
+    pickColour({ anchor: gridCustom }, {
+      value: was.color,
+      opacity,
+      label: 'Grid colour',
+      show: shows,
+      put: () => { Object.assign(wbGrid, was); gridShow(); },
+      save: (a) => gridSet({ color: a.color, opacity: a.opacity / 100 }),
+    });
+  });
   for (const b of gridPop.querySelectorAll('[data-style]')) b.addEventListener('click', () => gridSet({ style: b.dataset.style }));
   gridSize.addEventListener('input', () => gridSet({ size: Number(gridSize.value) }));
   gridOpacity.addEventListener('input', () => gridSet({ opacity: Number(gridOpacity.value) / 100 }));
@@ -2173,6 +2340,7 @@
     if (gridPop.hidden) return;
     const path = e.composedPath();
     if (path.includes(gridPop) || path.some((n) => n.dataset && n.dataset.key === 'btn:grid')) return;
+    if (path.some((n) => n.classList && n.classList.contains('sdk-cp'))) return; // the colour picker opened from the panel
     closeGrid();
   }, true);
   // The right zone's buttons are made in this order: Overview, Grid, Snap. The host draws the last one at the far right, so Snap
@@ -2878,7 +3046,7 @@
     const plan = exportPlan('all');
     if (!plan.ids.length) { note('There is nothing on the board to print.'); return false; }
     // On the board's background when one is picked (Default: the paper, as before).
-    const d = wbBackdrop(boardSettings.background);
+    const d = backdropOf(boardSettings.background);
     const { svg } = await exporter.scene(plan.items, plan.extent, { live: true, background: d.id === 'default' ? '' : d.family === 'themed' ? d.ground : getComputedStyle(surface).backgroundColor });
     svg.setAttribute('class', 'wb-print-svg');
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');

@@ -119,10 +119,24 @@
         // A fixed colour is used as it is (full strength, whatever the theme); a fixed fill also tells the stylesheet whether it
         // is light or dark (data-fixed-fill), which gives the block its own readable words and lines.
         const f = v && WB_FIXED_BY_ID.get(v);
+        // A custom colour (#rrggbb, cleaned by wbClean and checked again here) is used as it is; a custom fill at its opacity.
+        const hex = wbHex(v);
+        const op = role.id === 'fill' && hex ? wbOpacity(block.fillOpacity) : 100;
         if (f) el.style.setProperty(`--wb-${role.id}`, `var(${f.css})`);
+        else if (hex) el.style.setProperty(`--wb-${role.id}`, op < 100 ? `color-mix(in srgb, ${hex} ${op}%, transparent)` : hex);
         else if (c) el.style.setProperty(`--wb-${role.id}`, c.token); else el.style.removeProperty(`--wb-${role.id}`);
-        if (role.id === 'fill') { if (f) el.dataset.fixedFill = f.family; else delete el.dataset.fixedFill; }
+        if (role.id === 'fill') {
+          // A custom fill is drawn as a fixed one is (data-fixed-fill "custom"), with the words colour the page reads for it
+          // (wbPaintHelp.ink: the host's readableOn, light or dark at 4.5:1) as --wb-fill-ink, and its pattern faded with it.
+          const ink = hex ? wbHex(wbPaintHelp.ink ? wbPaintHelp.ink(hex, op) : null) : null;
+          if (f) el.dataset.fixedFill = f.family; else if (hex && ink) el.dataset.fixedFill = 'custom'; else delete el.dataset.fixedFill;
+          if (hex && ink) el.style.setProperty('--wb-fill-ink', ink); else el.style.removeProperty('--wb-fill-ink');
+          if (hex && op < 100) el.style.setProperty('--wb-pat-pct', `${Math.round((WB_PATTERN_PCT * op) / 100)}%`); else el.style.removeProperty('--wb-pat-pct');
+        }
       }
+      // A fill's pattern (lib-a, WB_PATTERNS), for a type that takes one and while it has a fill.
+      const pat = def.pattern && block.fill !== 'none' && WB_PATTERN_BY_ID.has(block.pattern) ? block.pattern : null;
+      if (pat) el.dataset.pattern = pat; else delete el.dataset.pattern;
       if (def.weight) el.style.setProperty('--wb-weight', `${block.weight}px`); else el.style.removeProperty('--wb-weight');
       // The words' size (a type token) and how they line up, for a block whose words take markup.
       const size = def.markup && WB_SIZE_BY_ID.get(block.size);

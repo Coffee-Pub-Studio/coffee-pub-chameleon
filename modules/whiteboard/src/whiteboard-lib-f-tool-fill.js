@@ -9,23 +9,24 @@
   // wbFillAction (plain, tested on its own).
   //
   // wbFillAction(block, def, colour, alt) -> { kind: 'fill', fill } (fill it), { kind: 'pick', colour } (take its colour),
-  // { kind: 'same' } (it has that fill), or { kind: 'no' } (nothing to fill, or no colour to take).
-  function wbFillAction(block, def, colour, alt) {
+  // { kind: 'same' } (it has that fill), or { kind: 'no' } (nothing to fill, or no colour to take). A custom colour (#rrggbb,
+  // lib-a wbHex) fills at `opacity` (the Fill tool's, 0 to 100), and is the same only at the same opacity.
+  function wbFillAction(block, def, colour, alt, opacity = 100) {
     if (!block || !def) return { kind: 'no' };
     const has = (role) => Boolean(def.paint && def.paint[role]);
     if (alt) {
-      for (const role of ['fill', 'stroke']) if (has(role) && (WB_PALETTE_BY_ID.has(block[role]) || WB_FIXED_BY_ID.has(block[role]))) return { kind: 'pick', colour: block[role] };
+      for (const role of ['fill', 'stroke']) if (has(role) && wbIsColour(block[role])) return { kind: 'pick', colour: block[role] };
       return { kind: 'no' };
     }
-    if (!has('fill') || !(WB_PALETTE_BY_ID.has(colour) || WB_FIXED_BY_ID.has(colour))) return { kind: 'no' };
-    return block.fill === colour ? { kind: 'same' } : { kind: 'fill', fill: colour };
+    if (!has('fill') || !wbIsColour(colour)) return { kind: 'no' };
+    return block.fill === colour && (!wbHex(colour) || wbOpacity(block.fillOpacity) === wbOpacity(opacity)) ? { kind: 'same' } : { kind: 'fill', fill: colour };
   }
   {
     const SLOP = 6; // screen pixels a press may wander and still be a click
     let pressed = null; // { id, sx, sy, alt }: the block pressed, until the pointer lifts
     const actionAt = (p, ctx) => {
       const b = p && p.id ? ctx.get(p.id) : null;
-      return { b, act: wbFillAction(b, b && blockTypes.get(b.type), ctx.nextFill(), Boolean(p && p.event && p.event.altKey)) };
+      return { b, act: wbFillAction(b, b && blockTypes.get(b.type), ctx.nextFill(), Boolean(p && p.event && p.event.altKey), ctx.nextFillOpacity()) };
     };
     tools.register({
       id: 'fill',
@@ -54,8 +55,8 @@
         // A click: let go near where it was pressed (the pointer is held by the board, so the block is the one pressed).
         if (!was || Math.hypot(p.sx - was.sx, p.sy - was.sy) > SLOP) return;
         const b = ctx.get(was.id);
-        const act = wbFillAction(b, b && blockTypes.get(b.type), ctx.nextFill(), was.alt);
-        if (act.kind === 'fill') ctx.change(b.id, { fill: act.fill }, { save: 'now' });
+        const act = wbFillAction(b, b && blockTypes.get(b.type), ctx.nextFill(), was.alt, ctx.nextFillOpacity());
+        if (act.kind === 'fill') ctx.change(b.id, { fill: act.fill, ...(wbHex(act.fill) ? { fillOpacity: ctx.nextFillOpacity() } : {}) }, { save: 'now' });
         else if (act.kind === 'pick') ctx.setNextFill(act.colour);
         else if (act.kind === 'no' && b) ctx.refuse(b, was.alt);
       },

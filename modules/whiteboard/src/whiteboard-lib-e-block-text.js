@@ -11,6 +11,7 @@
     textEmpty: 'remove',
     mark: true, // travels with the picture it is put on (lib-u)
     paint: { stroke: { extra: ['none'] }, fill: { extra: ['none'] }, ink: {} },
+    pattern: true, // a fill pattern (lib-a, WB_PATTERNS), shown while it has a fill
     weight: true,
     create: () => ({ w: 240, text: '', ink: 'ink', fill: 'none', stroke: 'none', weight: 2, size: 'large', align: 'left' }),
     clean: (raw) => ({ w: wb.size(raw.w, 40, 240), text: wb.text(raw.text) }),

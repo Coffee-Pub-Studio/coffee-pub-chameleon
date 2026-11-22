@@ -229,6 +229,7 @@
       valign: 'top', // the usual (a table without the field); a new table's cells are in the middle (create)
       role: 'group',
       paint: { stroke: { label: 'Lines', extra: ['none'] }, fill: { extra: ['none'] }, ink: {} },
+      pattern: true, // a fill pattern (lib-a, WB_PATTERNS)
       weight: true,
       create: () => ({
         w: WB_TABLE.colUsual * WB_TABLE.usualCols,
