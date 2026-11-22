@@ -52,11 +52,16 @@ Whiteboard 0.1.68 to 0.1.82 ([userguide-whiteboard](userguides/userguide-whitebo
 - **Flatten keeps the original file.** It makes a new picture file with the crop, blur, holes and marks baked in, and puts it in the place of the picture. The old file stays with the space, as every picture file does: no part of the board removes one (see the Limits in the guide). It is no redaction of the original.
 - **A flatten that had to grow the picture has a square corner.** When a mark hung over the picture's edge, the new picture is bigger and its margin is see-through; the picture's corner on that side comes out square, not rounded. With nothing hanging over, the result is the same as before.
 - **Marks drawn on a picture before 0.1.80 are not on it yet.** They join it the next time they are saved (moved or changed). Until then they do not move with it.
-- **Connectors do not travel with a picture.** A connector joins blocks and follows them, but it is not a mark, so one joining a mark to something else does not scale when its picture is resized.
 - **Holes and blur need a current browser.** They are drawn with a CSS mask. An older browser may show the picture without its holes.
 - **Copy and Cut of an area were not tried with the computer's real clipboard.** What the page hands to the clipboard was checked (a picture of exactly the area); pasting it in another program, and Safari's rules for writing a picture to the clipboard, were not.
 - **A new shape does not remember the corner radius or shadow you last chose.** They are set on a picked shape.
 - **Clicking a picture that is already picked opens its description box.** That is how the board treats a second click on a block with words, and it applies to pictures. Press **Escape** or click elsewhere to close it before pressing a handle.
+
+## Whiteboard: text formatting from the strip
+
+Whiteboard 0.1.85 ([userguide-whiteboard](userguides/userguide-whiteboard.md), "Write words"). Checked by tool (`check-whiteboard-format-strip.mjs`, `check-whiteboard-markup.mjs`), not by hand in a browser.
+
+- **Bold and Italic read as off when all the words are Code.** The strip's buttons show Bold and Italic as not pressed when the whole text is inside Code marks, and pressing one adds the mark inside the Code.
 
 ## Whiteboard: boards, the Eraser and unsent changes
 

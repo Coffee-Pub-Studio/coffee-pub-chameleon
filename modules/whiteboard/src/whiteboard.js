@@ -951,11 +951,24 @@
       label: def.textLabel || 'Words',
       max: def.textMax || 0,
       // Words that take markup get the formatting bar (lib-d).
-      bar: def.markup ? { layer: surface, icon: iconSvg, mod: KEYS ? MOD : null, align: alignFor(id) } : null, // keys named only where there are keys
+      bar: def.markup ? { layer: surface, icon: iconSvg, mod: KEYS ? MOD : null, align: alignFor(id), size: sizeFor(id) } : null, // keys named only where there are keys
     });
-    editing = { id, finish: handle.finish, fresh };
+    editing = { id, finish: handle.finish, format: handle.format, fresh };
   }
 
+  // The text size button of the formatting bar, for the block being edited: it goes to the next size (what the strip's menu would set).
+  const sizeFor = (id) => ({
+    read: () => { const b = board.get(id); return b ? b.size : undefined; },
+    label: (v) => { const c = WB_SIZE_BY_ID.get(v); return c ? c.label : ''; },
+    step() {
+      const b = board.get(id);
+      if (!b || !(drafts.has(id) || policy.canChange(b))) return;
+      const i = WB_SIZES.findIndex((c) => c.id === b.size);
+      const next = WB_SIZES[(i + 1) % WB_SIZES.length].id;
+      ctx.change(id, { size: next }, { save: 'now' });
+      nextText.size = next;
+    },
+  });
   // The format bar's alignment buttons for the block being edited: what it has now, and a change of one field (one save).
   const alignFor = (id) => ({
     read() {
@@ -1061,7 +1074,7 @@
         return false;
       },
     });
-    editing = { id, finish: handle.finish, cell: { r, c, td } };
+    editing = { id, finish: handle.finish, format: handle.format, cell: { r, c, td } };
     // A letter typed on the active cell starts its words afresh with it.
     const box = typed ? td.querySelector('.wb-text-edit') : null;
     if (box) { box.value = typed.slice(0, def.cellMax); box.setSelectionRange(box.value.length, box.value.length); box.dispatchEvent(new Event('input')); }
@@ -1510,6 +1523,13 @@
   fontsBox.setAttribute('role', 'group');
   fontsBox.setAttribute('aria-label', 'Words');
   fontsBox.hidden = true;
+  // The words' marks, the formatting bar's buttons on the strip (lib-j): with the block picked they change all its words; while its words are edited
+  // they change the selection, as the bar's do.
+  const formatBox = document.createElement('div');
+  formatBox.className = 'wb-paint-group wb-formatgroup';
+  formatBox.setAttribute('role', 'group');
+  formatBox.setAttribute('aria-label', 'Format the words');
+  formatBox.hidden = true;
   const lineBox = document.createElement('div');
   lineBox.className = 'wb-paint-group wb-linegroup';
   lineBox.setAttribute('role', 'group');
@@ -1555,7 +1575,7 @@
     endcapName = icon;
     iconSvg(icon).then((svg) => { if (svg && endcapName === icon) endcapIc.innerHTML = svg; });
   }
-  const stripGroups = [selectionBox, kindsBox, fontsBox, tableBox, lineBox, presentBox, pictureBox, coloursBox];
+  const stripGroups = [selectionBox, kindsBox, fontsBox, formatBox, tableBox, lineBox, presentBox, pictureBox, coloursBox];
   const stripSeps = [];
   for (let i = 1; i < stripGroups.length; i += 1) {
     const sep = document.createElement('span');
@@ -1564,7 +1584,7 @@
     sep.hidden = true;
     stripSeps.push(sep);
   }
-  paintStrip.append(endcap, selectionBox, stripSeps[0], kindsBox, stripSeps[1], fontsBox, stripSeps[2], tableBox, stripSeps[3], lineBox, stripSeps[4], presentBox, stripSeps[5], pictureBox, stripSeps[6], coloursBox);
+  paintStrip.append(endcap, selectionBox, stripSeps[0], kindsBox, stripSeps[1], fontsBox, stripSeps[2], formatBox, stripSeps[3], tableBox, stripSeps[4], lineBox, stripSeps[5], presentBox, stripSeps[6], pictureBox, stripSeps[7], coloursBox);
   // The strip floats: its grip, the endcap at the left end (the tool's own icon), drags it anywhere over the board (arrow keys move it by a step, Home puts it back
   // under the toolbar's left end, and a double-click on the grip turns it from a row to a column and back). Where it was left, and which way it lies, is this person's own, kept in this browser and not in
   // the board's data, and is held inside the module's page when the page changes size.
@@ -1714,6 +1734,7 @@
   // the arrowheads): icon buttons, the chosen one pressed, none pressed when the picked blocks differ. Size is one button
   // that shows the size and opens the four sizes as a menu: a row of four would be wider than the rest put together.
   const fontButtons = new Map(); // 'align:left', 'valign:top' -> button
+  const formatButtons = new Map(); // 'bold', 'italic', ... -> button (the Format group)
   const lineButtons = new Map(); // 'style:elbow', 'head:end' -> button
   const LINE_STRIP = {
     style: [{ id: 'elbow', label: 'Elbow line', icon: 'stairs' }, { id: 'straight', label: 'Straight line', icon: 'slash' }],
@@ -1796,6 +1817,14 @@
     sizeLabel.className = 'wb-btn-word'; // the word a column leaves out (the tooltip has it)
     sizeButton.append(sizeIc, sizeLabel);
     fontsBox.append(sizeButton, hBox, valignBox);
+    for (const f of WB_FORMATS) {
+      const b = pressButton(f.label, f.icon, () => { runFormat(f.id); });
+      if (f.id === 'link') b.removeAttribute('aria-pressed'); // a link is not a state of the words
+      // A press must not take the focus off the words being edited (the bar's buttons are the same): the selection is what is changed.
+      for (const type of ['pointerdown', 'mousedown']) b.addEventListener(type, (e) => { if (editing && editing.format) e.preventDefault(); });
+      formatButtons.set(f.id, b);
+      formatBox.appendChild(b);
+    }
     presentButton = document.createElement('button');
     presentButton.type = 'button';
     presentButton.className = 'btn btn-quiet btn-small wb-present-btn';
@@ -1867,6 +1896,41 @@
     const def = !list.length && tool.makes ? blockTypes.get(tool.makes) : null;
     return wbFontsShown(list, defOf, def, nextText);
   };
+  // Format the words (the strip's Bold, Italic, Code, lists, Heading and Link). While a block's words are edited, it is the bar's own button: it changes the selection.
+  // Otherwise it changes ALL the words of each picked block that has them (notes, text and shapes: a table's cells are edited one at a time), each its own save and
+  // all one undo step; words with nothing in them are left, so no empty pair of marks is made. Link asks for the address first.
+  const formattable = () => fontsOf().filter((b) => defOf(b).edit === 'text');
+  async function runFormat(id) {
+    if (editing && editing.format) { editing.format(id); return; }
+    const list = formattable();
+    if (!list.length) return;
+    let address = null;
+    if (id === 'link') {
+      address = await host.ui.prompt({ title: 'Link', label: 'Web address', placeholder: 'https://', action: 'Add the link', validate: (v) => (wbLinkAddress(v) ? '' : 'Only a web address (http or https) can be a link.') });
+      if (!address) return;
+    }
+    let long = 0;
+    for (const b of list) {
+      const field = defOf(b).textField || 'text';
+      const next = wbFormatAll(board.get(b.id)[field], id, address);
+      if (next === null) continue;
+      if (next.length > WB_LIMITS.text) { long += 1; continue; }
+      ctx.change(b.id, { [field]: next }, { save: 'now' });
+    }
+    if (long) note(`The words would be longer than ${WB_LIMITS.text} characters, so ${long === 1 ? 'one block was' : `${long} blocks were`} left as ${long === 1 ? 'it was' : 'they were'}.`);
+    updatePaint();
+  }
+  function updateFormat() {
+    const list = formattable();
+    formatBox.hidden = !(list.length || (editing && editing.format));
+    if (formatBox.hidden) return;
+    const typing = Boolean(editing && editing.format);
+    for (const [id, b] of formatButtons) {
+      if (id === 'link') continue;
+      const filled = list.filter((x) => String(x[defOf(x).textField || 'text'] || '').trim());
+      b.setAttribute('aria-pressed', String(!typing && filled.length > 0 && filled.every((x) => wbFormatOn(x[defOf(x).textField || 'text'], id))));
+    }
+  }
   function setWords(field, v) {
     for (const b of fontsOf()) if (field !== 'valign' || defOf(b).valign) ctx.change(b.id, { [field]: v }, { save: 'now' });
     if (field !== 'valign') nextText[field] = v; // not the vertical: the types sit differently (a table's cells are in the middle)
@@ -2050,6 +2114,7 @@
     }
     const kinds = showKinds();
     updateFonts();
+    updateFormat();
     updateLine();
     updateTable();
     const framePicked = Boolean(notesButton) && Boolean(pickedFrame());
@@ -2085,7 +2150,7 @@
     }
     coloursBox.hidden = !any;
     stripDividers();
-    paintStrip.hidden = !any && !kinds && selectionBox.hidden && fontsBox.hidden && tableBox.hidden && lineBox.hidden && presentBox.hidden && pictureBox.hidden;
+    paintStrip.hidden = !any && !kinds && selectionBox.hidden && fontsBox.hidden && formatBox.hidden && tableBox.hidden && lineBox.hidden && presentBox.hidden && pictureBox.hidden;
     // The endcap: the tool's icon, or the kind of the one block picked (the Select arrow for several).
     const picked = targets();
     const one1 = picked.length === 1 ? picked[0] : null;

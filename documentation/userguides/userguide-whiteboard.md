@@ -284,6 +284,8 @@ The words of a note, a text block, a shape and a table cell take formatting. A s
 
 The words are saved once, when you stop editing, and **Undo** takes back the whole edit, not each button press. A press on the bar keeps the box open.
 
+The same buttons (except Link's selection) are in the toolbar strip while a note, text block or shape is picked and its words are not being edited. There they change all the words of every picked block, in one **Undo** step; a block with no words is left alone. While the words are being edited, a press on the strip changes only the selection, as the bar does. The bar also has a **Text size** button that steps the block through Small, Medium, Large and Huge, and keeps the box open. Link in the strip asks for a web address and puts it round all the words.
+
 A link in the words opens in a new tab with **Ctrl+click** (**Cmd+click**) on it, or a plain click on a block that is already the only one picked. With a touch screen, tap a link once its block is picked. A link is never followed by a plain click on a block that is not picked yet; that picks and moves the block. The right-click menu has **Open link** for up to three links in the block's words; it is the way to open one from the keyboard.
 
 ### Text size and alignment
@@ -468,6 +470,7 @@ A drawing, highlight, line, arrow, shape, note or text block that you draw or pu
 - Resizing the picture scales each mark's place and size with it. Line widths and the size of words stay as they are.
 - Copying, cutting or duplicating the picture takes its marks, and the copies sit on the copy. Deleting the picture deletes its marks.
 - Cropping does not move them.
+- A connector between two marks follows them whenever they move or scale, stays joined to each, and is copied and deleted with them. A connector from a mark to a block that is not on the picture follows its mark and stays joined to that block; a copy of the picture leaves it with the original, and deleting the picture deletes it.
 
 A resize is one undo step, the picture and its marks together. Marks drawn on a picture before this was added join it the next time they are saved.
 
