@@ -76,6 +76,7 @@ Documents: [architecture-canvas](documentation/architecture/architecture-canvas.
 
 #### Added
 
+- **Whiteboard: text formatting from the strip (0.1.85).** With a note, text block or shape picked, the strip has Bold, Italic, Code, lists, Heading and Link, which change all its words in one undo step; while the words are edited the same buttons change the selection and keep the box open. The editing bar gains a Text size button. A connector between two marks of a picture is checked to travel with them, and the known issue saying it did not is removed.
 - **Whiteboard: a Picture tool.** Crop a picture with grips, blur a part, copy or cut an area (a cut leaves a see-through hole), round its corners (shapes too), give it or any closed shape a contact or drop shadow, and draw marks on it that move, scale, copy and delete with it. **Flatten** bakes a picture and its marks into one new picture, in one undo step. Whiteboard 0.1.82. Tried in a browser with the mouse and keys and by the Whiteboard checks; not tried on a phone, a tablet, Safari or Firefox, or with a real clipboard. Blur, cut and flatten do not remove the original file (see known issues).
 
 ### Whiteboard: the tool strip floats (2026-11-18)

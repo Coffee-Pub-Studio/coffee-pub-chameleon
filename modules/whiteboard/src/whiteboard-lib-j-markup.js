@@ -181,3 +181,37 @@
   function wbHasMarkup(text) {
     return /[*_`]|\]\(|https?:\/\/|^\s*(?:#{1,3}\s|>|-\s|\d+[.)]\s)/m.test(String(text || ''));
   }
+
+  // The same changes on ALL the words of a block, for the strip's buttons while the block is picked and not being edited (what the bar does to a
+  // selection, the strip does to everything: the words are the selection). wbFormatAll(text, id, address) -> the new words, or null when there is
+  // nothing to change (no words, an unknown action, a link with no good address). id: 'bold', 'italic', 'code', 'ul', 'ol', 'heading' (it goes round: none,
+  // large, medium, small, none, as in the bar) or 'link' (address: what the person typed; only an http or https address is taken).
+  function wbFormatAll(text, id, address = null) {
+    const v = typeof text === 'string' ? text : '';
+    if (!v.trim()) return null;
+    const end = v.length;
+    let next = null;
+    if (id === 'bold' || id === 'italic' || id === 'code') next = wbToggleMark(v, 0, end, id);
+    else if (id === 'ul' || id === 'ol') next = wbToggleList(v, 0, end, id);
+    else if (id === 'heading') next = wbCycleHeading(v, 0, end);
+    else if (id === 'link') {
+      const href = wbLinkAddress(address);
+      if (!href) return null;
+      next = wbLinkMarkup(v, 0, end, href);
+    }
+    return next && next.value !== v ? next.value : null;
+  }
+  // Whether a format is on for all the words (so its button is pressed): a mark is on when pressing would take it off (every line has it), a list when
+  // every line with words is one of that kind, a heading when the first line is one. Words with none are never "on".
+  function wbFormatOn(text, id) {
+    const v = typeof text === 'string' ? text : '';
+    if (!v.trim()) return false;
+    if (id === 'bold' || id === 'italic' || id === 'code') return wbToggleMark(v, 0, v.length, id).value.length < v.length;
+    if (id === 'ul' || id === 'ol') {
+      const re = id === 'ol' ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/;
+      const lines = v.split('\n').filter((l) => l.trim());
+      return lines.length > 0 && lines.every((l) => re.test(l));
+    }
+    if (id === 'heading') return wbHeadingOf(v, 0, v.length) > 0;
+    return false;
+  }

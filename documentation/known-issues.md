@@ -57,6 +57,12 @@ Whiteboard 0.1.68 to 0.1.82 ([userguide-whiteboard](userguides/userguide-whitebo
 - **A new shape does not remember the corner radius or shadow you last chose.** They are set on a picked shape.
 - **Clicking a picture that is already picked opens its description box.** That is how the board treats a second click on a block with words, and it applies to pictures. Press **Escape** or click elsewhere to close it before pressing a handle.
 
+## Whiteboard: text formatting from the strip
+
+Whiteboard 0.1.85 ([userguide-whiteboard](userguides/userguide-whiteboard.md), "Write words"). Checked by tool (`check-whiteboard-format-strip.mjs`, `check-whiteboard-markup.mjs`), not by hand in a browser.
+
+- **Bold and Italic read as off when all the words are Code.** The strip's buttons show Bold and Italic as not pressed when the whole text is inside Code marks, and pressing one adds the mark inside the Code.
+
 ## Whiteboard: boards, the Eraser and unsent changes
 
 Whiteboard 0.1.50 to 0.1.63 ([userguide-whiteboard](userguides/userguide-whiteboard.md), "Boards" and "Eraser"; [architecture-whiteboard](architecture/architecture-whiteboard.md)). Read from the code and the build reports; Safari, an iPad and a phone were not tried.

@@ -284,6 +284,8 @@ The words of a note, a text block, a shape and a table cell take formatting. A s
 
 The words are saved once, when you stop editing, and **Undo** takes back the whole edit, not each button press. A press on the bar keeps the box open.
 
+The same buttons (except Link's selection) are in the toolbar strip while a note, text block or shape is picked and its words are not being edited. There they change all the words of every picked block, in one **Undo** step; a block with no words is left alone. While the words are being edited, a press on the strip changes only the selection, as the bar does. The bar also has a **Text size** button that steps the block through Small, Medium, Large and Huge, and keeps the box open. Link in the strip asks for a web address and puts it round all the words.
+
 A link in the words opens in a new tab with **Ctrl+click** (**Cmd+click**) on it, or a plain click on a block that is already the only one picked. With a touch screen, tap a link once its block is picked. A link is never followed by a plain click on a block that is not picked yet; that picks and moves the block. The right-click menu has **Open link** for up to three links in the block's words; it is the way to open one from the keyboard.
 
 ### Text size and alignment

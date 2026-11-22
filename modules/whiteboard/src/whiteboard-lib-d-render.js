@@ -683,12 +683,13 @@
     box.focus();
     box.select();
     if (marks) marks.place();
-    return { finish };
+    // format(id): what a formatting button of the bar does, for another control to do on the selection too (the strip's, while the words are edited).
+    return { finish, format: (id) => { if (marks) marks.run(id); } };
   }
 
   // The formatting bar over a block being edited (see wbEditText). It sits just above the block (below it when there is
   // no room above), inside the board and above a phone's on-screen keyboard, and wraps onto two rows when narrow.
-  function wbFormatBar({ layer, anchor, box, icon, mod = 'Ctrl', max = 0, align = null, inside, finish, escape }) {
+  function wbFormatBar({ layer, anchor, box, icon, mod = 'Ctrl', max = 0, align = null, size = null, inside, finish, escape }) {
     const bar = document.createElement('div');
     bar.className = 'wb-format';
     bar.setAttribute('role', 'group');
@@ -758,6 +759,33 @@
     marks.className = 'wb-format-group';
     marks.append(...buttons);
     row.append(marks);
+    // Text size, its own button, as the strip has it: it goes round the sizes (small, medium, large, huge), as the heading button goes round the levels,
+    // and shows the one it is on as a letter. size = { read() -> the size's id, label(id) -> its words, step() } for the block being edited.
+    let sizeButton = null;
+    let sizeBadge = null;
+    if (size) {
+      sizeButton = button('size', 'Text size', 'text-height');
+      sizeBadge = document.createElement('span');
+      sizeBadge.className = 'wb-format-level';
+      sizeBadge.setAttribute('aria-hidden', 'true');
+      sizeButton.append(sizeBadge);
+      sizeButton.addEventListener('click', () => { size.step(); showSize(); });
+      const g = document.createElement('div');
+      g.className = 'wb-format-group';
+      g.setAttribute('role', 'group');
+      g.setAttribute('aria-label', 'Text size');
+      g.append(sizeButton);
+      row.append(g);
+    }
+    function showSize() {
+      if (!size) return;
+      const words = size.label(size.read()) || '';
+      sizeBadge.textContent = words ? words[0] : '';
+      const say = `Text size, now ${words || 'medium'}. Press for the next`;
+      sizeButton.setAttribute('aria-label', say);
+      sizeButton.title = say;
+    }
+    showSize();
     // Alignment, its own group: align = { read() -> { align, valign } (valign null: the block has none), set(field, value) }
     // for the block being edited. The chosen one is pressed.
     const alignButtons = [];
@@ -896,6 +924,7 @@
       const n = wbHeadingOf(box.value, box.selectionStart, box.selectionEnd);
       level.textContent = n ? String(n) : '';
       showAlign();
+      showSize();
       const words = `Heading, now ${WB_HEADING_NAMES[n]}`;
       headingButton.setAttribute('aria-label', words);
       headingButton.title = words;
