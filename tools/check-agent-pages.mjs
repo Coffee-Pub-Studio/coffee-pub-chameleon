@@ -61,12 +61,12 @@ async function guideChoice(t, root, token, origin, label, addStep = 1) {
     const agentWords = /Claude \\((set-up )?agent\\)/g;
     for (const o of sel.options) {
       sel.value = o.value; sel.dispatchEvent(new Event('change', { bubbles: true }));
-      const panels = [...r.querySelectorAll('[data-agent-route-panel]')];
-      const shown = panels.filter((p) => !p.hidden && p.getClientRects().length > 0);
+      const views = [...r.querySelectorAll('[data-agent-route-view]')];
+      const shown = views.filter((p) => !p.hidden && p.getClientRects().length > 0);
       const p = shown[0];
       const first = r.querySelector('.agent-first');
       const boxes = p ? [...p.querySelectorAll('.agent-copy')].map((c) => ({ label: c.querySelector('p.hint').textContent, value: c.querySelector('.agent-copy-text').textContent, button: !!c.querySelector('button.btn') && c.querySelector('button').textContent === 'Copy', inline: c.querySelector('.agent-copy-text').getBoundingClientRect().right <= window.innerWidth + 1 && c.querySelector('button').getBoundingClientRect().right <= window.innerWidth + 1 })) : [];
-      out.routes[o.value] = { shown: shown.map((x) => x.dataset.agentRoutePanel), steps: p ? [...p.querySelectorAll(':scope > ol > li')].map((li) => li.firstChild.textContent) : [], boxes, firstShown: !!first && !first.hidden && first.getClientRects().length > 0, sideways: document.documentElement.scrollWidth - window.innerWidth, plain: p ? p.textContent : '' };
+      out.routes[o.value] = { shown: shown.map((x) => x.dataset.agentRouteView), steps: p ? [...p.querySelectorAll(':scope > ol > li')].map((li) => li.firstChild.textContent) : [], boxes, firstShown: !!first && !first.hidden && first.getClientRects().length > 0, sideways: document.documentElement.scrollWidth - window.innerWidth, plain: p ? p.textContent : '' };
     }
     sel.value = 'signin'; sel.dispatchEvent(new Event('change', { bubbles: true }));
     out.claude = (r.querySelector('[data-agent-connect], .agent-connect') || r).textContent.replace(agentWords, '').split('Claude').length - 1;
@@ -287,7 +287,7 @@ async function main() {
     expect(await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog'); const end = [...d.querySelectorAll('p.hint')].find((e) => e.textContent.startsWith('Works for')); return !!end && !!(end.compareDocumentPosition(d.querySelector('.agent-connect')) & Node.DOCUMENT_POSITION_FOLLOWING); })()`), 'the end is not above the Connect an app steps');
     expect((await call('admin', 'GET', `/api/users/${agent.key}/token`)).json.token.lifetime === '1y', 'the page did not send the chosen lifetime (expires) with the request');
     {
-      const guide = await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog[open]'); const sel = d.querySelector('[data-agent-route]'); const shown = [...d.querySelectorAll('[data-agent-route-panel]')].filter((p) => !p.hidden).map((p) => p.dataset.agentRoutePanel); return { live: d.querySelector('[data-agent-connected]').textContent, route: sel && sel.value, shown, first: d.querySelector('.agent-first .agent-copy-text').textContent, link: d.querySelector('a[href]').href, file: d.querySelector('details.agent-file') && !d.querySelector('details.agent-file').open, tries: [...d.querySelectorAll('.agent-try li')].length, safe: [...d.querySelectorAll('p.hint')].some((e) => e.textContent === "Put a token only in your own terminal or the app's form, never in a chat.") }; })()`);
+      const guide = await tab.eval(`(() => { const d = document.querySelector('dialog.agent-token-dialog[open]'); const sel = d.querySelector('[data-agent-route]'); const shown = [...d.querySelectorAll('[data-agent-route-view]')].filter((p) => !p.hidden).map((p) => p.dataset.agentRouteView); return { live: d.querySelector('[data-agent-connected]').textContent, route: sel && sel.value, shown, first: d.querySelector('.agent-first .agent-copy-text').textContent, link: d.querySelector('a[href]').href, file: d.querySelector('details.agent-file') && !d.querySelector('details.agent-file').open, tries: [...d.querySelectorAll('.agent-try li')].length, safe: [...d.querySelectorAll('p.hint')].some((e) => e.textContent === "Put a token only in your own terminal or the app's form, never in a chat.") }; })()`);
       expect(guide.route === 'code' && guide.shown.join() === 'code', `the token window opens on route ${guide.route} (${guide.shown}), not the terminal route`);
       expect(guide.live === 'Not connected yet', `the window's live line reads "${guide.live}" before any use`);
       expect(guide.first === 'Use the chameleon tools. Which spaces can you see, and what is in the to-do list?' && guide.safe, 'the window does not show the first question and the one safety line');
@@ -306,7 +306,7 @@ async function main() {
     expect(!(await tab.eval(`document.documentElement.outerHTML.includes(${JSON.stringify(token)}) || document.body.innerText.includes(${JSON.stringify(token)})`)), 'the token is still on the page after Done');
     expect(await text(tab, '[data-agent="make"]') === 'Make a new token' && !(await hiddenOf(tab, '[data-agent="revoke"]')), 'after a token is made the page does not offer a new one and Revoke');
     expect(/^Connected, /.test(await text(tab, '[data-agent-connected]')), 'the page does not show "Connected, ..." after the token was used');
-    expect(await tab.eval(`(() => { const sel = document.querySelector('#agent-page [data-agent-route]'); return sel.value === 'signin' && [...document.querySelectorAll('#agent-page [data-agent-route-panel]')].filter((p) => !p.hidden).length === 1; })()`), 'the page does not open on the sign-in route alone');
+    expect(await tab.eval(`(() => { const sel = document.querySelector('#agent-page [data-agent-route]'); return sel.value === 'signin' && [...document.querySelectorAll('#agent-page [data-agent-route-view]')].filter((p) => !p.hidden).length === 1; })()`), 'the page does not open on the sign-in route alone');
     await guideChoice(tab, '#agent-page', 'agt_YOUR_TOKEN', await tab.eval('location.origin'), '1280 page');
     expect(await tab.eval(`document.querySelector('#agent-page [data-agent-connect]').textContent.includes(${JSON.stringify(token)})`) === false, 'the page shows the real token in the guide');
     expect(/^Works for 1 year, until [A-Z][a-z]{2} \d{1,2}, \d{4}\.$/.test(await text(tab, '[data-agent-token-state]')), `the token state reads "${await text(tab, '[data-agent-token-state]')}"`);
@@ -816,7 +816,7 @@ async function main() {
       const ord = (await adm('POST', '/api/users', { agent: true, displayName: 'Reader' })).json.user;
       await go(t, `/admin#agent/${ord.key}`);
       expect(await waitText(t, '[data-agent-title]', 'Reader (agent)') && await hiddenOf(t, '[data-agent-asks]') && await hiddenOf(t, '[data-agent-changes]') && !(await hiddenOf(t, '[data-agent-connect]')), 'the ordinary agent\'s page shows the set-up agent\'s lists');
-      expect(/Add this agent to a space/.test(await t.eval(`document.querySelector('[data-agent-connect] [data-agent-route-panel="code"]').textContent`)), 'the ordinary agent\'s guide lost its first step');
+      expect(/Add this agent to a space/.test(await t.eval(`document.querySelector('[data-agent-connect] [data-agent-route-view="code"]').textContent`)), 'the ordinary agent\'s guide lost its first step');
       // The set-up agent's guide has the environment-variable choice too: the placeholder on the page, the real token only in the window.
       await go(t, `/admin#agent/${other.key}`);
       await t.waitFor('[data-agent="make"]');
