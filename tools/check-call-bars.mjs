@@ -258,7 +258,7 @@ async function runConference(browser, S) {
     if (await has('calendar')) await way('the Calendar tab', () => press('calendar'));
     if (await has('map')) await way('the Map tab', () => press('map'));
     for (const id of ['whiteboard', 'documents']) if (await has(id)) await way(`the ${id} tab`, () => press(id));
-    const saved = await tab.eval(`([...document.querySelectorAll('[data-layout-tab]')].map((b) => b.dataset.layoutTab).find((id) => !['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'].includes(id)) || '')`);
+    const saved = await tab.eval(`([...document.querySelectorAll('[data-layout-tab]')].map((b) => b.dataset.layoutTab).find((id) => !['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule'].includes(id)) || '')`);
     if (saved) await way('a saved layout tab', () => press(saved));
     await way('the keyboard on the Workspace tab', async () => {
       await tab.eval(`document.querySelector('[data-layout-tab=workspace]').focus()`);

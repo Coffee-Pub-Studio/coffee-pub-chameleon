@@ -104,7 +104,7 @@ function problems(table, manifests = manifestOf) {
     envonly: { scope: ['environment'], settings: [{ key: 'flag', type: 'boolean', scope: 'environment' }] },
   };
   const stand = (id) => fake[id] || null;
-  const one = (item) => problems({ calendar: [item], map: [], conference: [], whiteboard: [], documents: [] }, stand);
+  const one = (item) => problems({ calendar: [item], map: [], conference: [], whiteboard: [], documents: [], schedule: [] }, stand);
   same(one({ module: 'todo', setting: 'flag' }), [], 'a boolean of a module that can be on passes');
   same(one({ module: 'todo', setting: 'spacey' }), [], 'a space setting of a module with space scope passes');
   ok(one({ module: 'todo', setting: 'text' }).some((p) => /not a boolean/.test(p)), 'a string setting fails');
@@ -148,7 +148,7 @@ try {
     return r;
   };
   const admin = (await call('POST', '/api/login', { body: { login: 'admin', password: 'testpass1234' } })).json.token;
-  for (const m of ['calendar', 'todo', 'whiteboard', 'documents']) {
+  for (const m of ['calendar', 'todo', 'whiteboard', 'documents', 'schedule']) {
     await expect(`${m} installs`, 201, 'POST', `/api/modules/bundled/${m}/install`, { token: admin, body: {} });
     await expect(`${m} turns on`, 200, 'PATCH', `/api/modules/${m}`, { token: admin, body: { enabled: true } });
   }
@@ -171,9 +171,9 @@ try {
   for (const [who, token, canChange] of [['admin', T.admin, true], ['owner', T.owner, true], ['moderator', T.mod, false], ['member', T.member, false]]) {
     const list = await system(token);
     same(entry(list, 'calendar').settings, offered(canChange), `${who}: Calendar offers the To-do switch (canChange ${canChange})`);
-    for (const id of ['conference', 'whiteboard', 'documents']) same(entry(list, id).settings, [], `${who}: ${id} offers nothing: an empty list`);
+    for (const id of ['conference', 'whiteboard', 'documents', 'schedule']) same(entry(list, id).settings, [], `${who}: ${id} offers nothing: an empty list`);
     ok(!('settings' in entry(list, 'workspace')), `${who}: the Workspace has no settings: its Modules tab is the canvas menu`);
-    same(list.map((l) => l.id), ['workspace', 'calendar', 'conference', 'whiteboard', 'documents'], `${who}: the layouts are as before`);
+    same(list.map((l) => l.id), ['workspace', 'calendar', 'conference', 'whiteboard', 'documents', 'schedule'], `${who}: the layouts are as before, Projects last`);
   }
   for (const [who, query, extra] of [['guest link', asGuest, {}], ['door guest', `?space=${A}`, { cookie: doorCookie }]]) {
     const g = await expect(who, 200, 'GET', `${L}${query}`, extra);
@@ -204,7 +204,7 @@ try {
   await expect('the To-do on again', 200, 'PATCH', '/api/modules/todo', { token: admin, body: { enabled: true } });
   same(entry(await system(T.member), 'calendar').settings.length, 1, 'back with the module');
   await expect('the Calendar turns off', 200, 'PATCH', '/api/modules/calendar', { token: admin, body: { enabled: false } });
-  same((await system(T.owner)).map((l) => l.id), ['workspace', 'conference', 'whiteboard', 'documents'], 'no Calendar: no Calendar entry, so no switch');
+  same((await system(T.owner)).map((l) => l.id), ['workspace', 'conference', 'whiteboard', 'documents', 'schedule'], 'no Calendar: no Calendar entry, so no switch');
   await expect('the Calendar on again', 200, 'PATCH', '/api/modules/calendar', { token: admin, body: { enabled: true } });
   same(entry(await system(T.owner), 'calendar').settings.length, 1, 'back');
 

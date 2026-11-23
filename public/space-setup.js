@@ -86,9 +86,9 @@ export const FIELD_TAB = Object.freeze({
 // space tab (an owner's), else the Settings tab (a moderator's, with First visit). `tabs` is the tabs the person has.
 // The Modules tab by kind of workspace (plan-workspaces.md, decisions 33 to 35). A Customizable Workspace (the Workspace, a saved
 // layout) shows the canvas menu: the modules, Arrange, Layouts, Open for you. A Fixed Workspace (Conference, Calendar, Map,
-// Whiteboards, Documents) shows none of that: only the switches its layouts entry offers (`settings`, from the server), or a
+// Whiteboards, Documents, Projects) shows none of that: only the switches its layouts entry offers (`settings`, from the server), or a
 // sentence saying there is nothing to configure.
-export const FIXED_WORKSPACES = Object.freeze(['conference', 'calendar', 'map', 'whiteboard', 'documents']);
+export const FIXED_WORKSPACES = Object.freeze(['conference', 'calendar', 'map', 'whiteboard', 'documents', 'schedule']);
 export const NOTHING_TO_CONFIGURE = 'There is nothing to configure here.';
 // The layouts entry of the Fixed Workspace shown, or null (a Customizable Workspace, or no entry yet).
 export function fixedWorkspaceOf(system = [], shownId = 'workspace') {
@@ -214,7 +214,7 @@ const sameBudget = (a, b) => JSON.stringify(budgetSent(a)) === JSON.stringify(bu
 // The owner's tabs (plan-workspaces.md, "Owner controls"; server/layouts.js cleanTabs and tabsOf): the fixed layouts' ids in
 // their default order, and `tabs` whole as { order: [every id], hide: [ids] }. The Layouts section works on a draft that holds
 // `tabs` and `defaultLayout`; each helper answers a new draft and never changes the one it was given. Pure, for check-nav.
-export const LAYOUT_IDS = Object.freeze(['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents']);
+export const LAYOUT_IDS = Object.freeze(['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule']);
 // Whole tabs from what is stored or sent: unknown ids and repeats are dropped, any id left out is added at the end in the
 // default order, and the Workspace is never in hide.
 export function tabsWhole(raw) {

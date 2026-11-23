@@ -295,7 +295,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     ['not entering (the Workspace tab pressed): the Workspace', firstVisitLayout({ firstVisit: fv('map'), entering: false }), 'workspace'],
     ['a guest: a shared layout every time', firstVisitLayout({ firstVisit: fv('labc123'), remembered: ['todo'], guest: true }), 'labc123'],
     ['a guest: no Calendar tab', firstVisitLayout({ firstVisit: fv('calendar'), guest: true }), 'workspace'],
-    ['the tabs a first visit may open', [...SYSTEM_TABS], ['calendar', 'map', 'conference', 'whiteboard', 'documents']],
+    ['the tabs a first visit may open', [...SYSTEM_TABS], ['calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule']],
   ];
   for (const [name, got, want] of firstCases) {
     try {

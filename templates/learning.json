@@ -2,7 +2,7 @@
   "id": "learning",
   "name": "Education",
   "description": "Learn something together: exercises, reading, a journal and sessions on a calendar.",
-  "version": 6,
+  "version": 7,
   "words": {
     "space": {
       "one": "course",
@@ -157,7 +157,8 @@
       { "id": "map", "show": false },
       { "id": "conference", "show": true },
       { "id": "whiteboard", "show": false },
-      { "id": "documents", "show": true }
+      { "id": "documents", "show": true },
+      { "id": "schedule", "show": false }
     ]
   },
   "phases": [

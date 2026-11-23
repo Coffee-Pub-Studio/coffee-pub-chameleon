@@ -88,7 +88,7 @@ const LAYOUT_ID = /^[a-z][a-z0-9]{1,31}$/;
 // The system layouts a space's defaultLayout may also name (server/layouts.js; Workspace is "no default layout").
 const SYSTEM_DEFAULTS = LAYOUT_SYSTEM_IDS.filter((id) => id !== 'workspace');
 // What a refusal calls each of them (the plan's words; the page shows the environment's own).
-const SYSTEM_DEFAULT_WORDS = { calendar: 'Calendar', map: 'Map', conference: 'Conference', whiteboard: 'Whiteboards', documents: 'Documents' };
+const SYSTEM_DEFAULT_WORDS = { calendar: 'Calendar', map: 'Map', conference: 'Conference', whiteboard: 'Whiteboards', documents: 'Documents', schedule: 'Projects' };
 const cleanLayoutId = (id) => (typeof id === 'string' && LAYOUT_ID.test(id) ? id : null);
 // A space's optional "launch" link (their VTT, wiki, playlist, whatever) --
 // shown as a button next to Join and in the in-call toolbar. The icon is

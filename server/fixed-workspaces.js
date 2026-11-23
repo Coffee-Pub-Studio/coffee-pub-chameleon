@@ -9,8 +9,8 @@
 // setting: it reads and writes through the module settings routes as always and keeps its own `needsModule`.
 // server/index.js (fixedSettingsFor) decides, per viewer, which of these are answered in GET /api/spaces/:id/layouts.
 //
-// Today only Calendar offers one: the To-do list's `inCalendar` ("Show in the Calendar"). Map, Conference, Whiteboards
-// and Documents offer none: there is nothing you would want to run next to them.
+// Today only Calendar offers one: the To-do list's `inCalendar` ("Show in the Calendar"). Map, Conference, Whiteboards,
+// Documents and Projects (`schedule`) offer none: there is nothing you would want to run next to them.
 'use strict';
 
 const FIXED_WORKSPACE_SETTINGS = Object.freeze({
@@ -19,6 +19,7 @@ const FIXED_WORKSPACE_SETTINGS = Object.freeze({
   conference: Object.freeze([]),
   whiteboard: Object.freeze([]),
   documents: Object.freeze([]),
+  schedule: Object.freeze([]),
 });
 
 module.exports = { FIXED_WORKSPACE_SETTINGS };

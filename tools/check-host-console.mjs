@@ -553,7 +553,7 @@ try {
       // The tab list (plan-template-tab-list.md): in the order a new space shows its tabs, the first shown one marked; a move keeps the
       // focus on the pressed button and says where the row went; a hidden row and the order save and read back.
       const tabIds = "[...document.querySelectorAll('#te-tabs [data-tab-id]')].map((r) => r.dataset.tabId + (r.querySelector('[data-tab-show]').checked ? '' : '-'))";
-      assert.deepEqual(await tab.evaluate(tabIds), ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'], 'a template with no list: the default order, all shown');
+      assert.deepEqual(await tab.evaluate(tabIds), ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule'], 'a template with no list: the default order, all shown, Projects last');
       assert.equal(await tab.evaluate("document.querySelector('#te-tabs [data-tab-first]').closest('[data-tab-id]').dataset.tabId"), 'workspace', 'the Workspace opens first');
       await tab.evaluate("document.querySelector('#te-tabs [data-tab-id=workspace] [data-tab-move=down]').click()");
       assert.deepEqual([await tab.evaluate("document.getElementById('te-tabs').querySelector('[data-tab-live]').textContent"), await tab.evaluate("document.activeElement.dataset.tabMove + ':' + document.activeElement.closest('[data-tab-id]').dataset.tabId"), await tab.evaluate("document.querySelector('#te-tabs [data-tab-first]').closest('[data-tab-id]').dataset.tabId")], ['Workspace moved to position 2.', 'down:workspace', 'calendar'], 'said, the focus kept on the button, the mark follows');
@@ -562,9 +562,9 @@ try {
       await tab.evaluate("document.querySelector('#te-tabs [data-tab-id=calendar] [data-tab-show]').click(); document.querySelector('#te-tabs [data-tab-id=map] [data-tab-show]').click()");
       await tab.evaluate("document.getElementById('te-save').click()");
       await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent) && document.activeElement && document.activeElement.closest('#template-list [data-id=\"tabs-copy\"]') !== null", 'the tab list saved');
-      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.workspace.tabs, [['calendar', true], ['workspace', true], ['map', false], ['conference', true], ['whiteboard', true], ['documents', true]].map(([id, show]) => ({ id, show })), 'the list as the page held it'); }
+      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.workspace.tabs, [['calendar', true], ['workspace', true], ['map', false], ['conference', true], ['whiteboard', true], ['documents', true], ['schedule', true]].map(([id, show]) => ({ id, show })), 'the list as the page held it, Projects offered'); }
       await tab.go('#templates/tabs-copy/workspace');
-      await tab.waitFor(`${tab.visible('#te-tabs [data-tab-id]')} && ${tabIds}.join() === 'calendar,workspace,map-,conference,whiteboard,documents'`, 'the list read back');
+      await tab.waitFor(`${tab.visible('#te-tabs [data-tab-id]')} && ${tabIds}.join() === 'calendar,workspace,map-,conference,whiteboard,documents,schedule'`, 'the list read back');
       // A layout refusal (plan-layout-picker.md, step 3): untick a module the layout uses and save. Before saving, the
       // Modules tab and the picker both say so (step 5); the Vault area keeps its name and Vault is no longer offered.
       // sentence with `parts: ['workspace']`, so it lands once in the Default Workspace part and badges that tab alone; the

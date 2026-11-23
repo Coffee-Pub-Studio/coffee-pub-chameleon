@@ -13,7 +13,7 @@
 // forgetPerson() keep it clean; the key is left out of a space's entry while nobody there has a favorite.
 //
 // system (documentation/plans/plan-layout-views.md, step 1): the system layouts `workspace`, `calendar`, `map`,
-// `conference`, `whiteboard` and `documents` are never stored; server/index.js makes them per space from what is on. What is stored is each person's own choices for
+// `conference`, `whiteboard`, `documents` and `schedule` are never stored; server/index.js makes them per space from what is on. What is stored is each person's own choices for
 // them, per space, like favorites: "system": { "<user key>": { "<system id>": { "name"?, "icon"?, "tab"?: false } } }.
 // last (documentation/plans/plan-workspaces.md, decision 20, step 11): the layout each signed-in person last used in a
 // space, so entering the space can open it: "last": { "<user key>": { "layout": "<layout id>", "at": <ms> } }. One entry per
@@ -61,9 +61,10 @@ const STACK_ID = /^[a-z0-9]{1,32}$/;
 // The system layouts' stable ids (a user layout's is `l` and six characters, so they never collide) and their default
 // icons; a user layout's default icon is the Layout button's.
 // The fixed set, in the default order (documentation/plans/plan-workspaces.md, "The fixed set"); Conference, Whiteboards and
-// Documents come after the three that were there. Icons: each module's own, a video glyph for Conference (decision 23).
-const SYSTEM_IDS = Object.freeze(['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents']);
-const SYSTEM_ICONS = Object.freeze({ workspace: 'columns', calendar: 'calendar-days', map: 'map-location-dot', conference: 'video', whiteboard: 'chalkboard', documents: 'file-lines' });
+// Documents come after the three that were there, and Projects (the `schedule` module, Planner - Projects, opened large; Thomas,
+// 2026-11-23, over decision 19) after them. Icons: each module's own, a video glyph for Conference (decision 23).
+const SYSTEM_IDS = Object.freeze(['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule']);
+const SYSTEM_ICONS = Object.freeze({ workspace: 'columns', calendar: 'calendar-days', map: 'map-location-dot', conference: 'video', whiteboard: 'chalkboard', documents: 'file-lines', schedule: 'diagram-project' });
 const USER_ICON = 'object-group';
 const ICON_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 // A module id: the same rule as a template's module ids (server/layout-shapes.js).
