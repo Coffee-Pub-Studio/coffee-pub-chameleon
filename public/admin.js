@@ -932,20 +932,52 @@ function selectedColors() {
   const theme = selectedTheme() || defaultTheme;
   return theme[selectedMode] || theme.light || theme.dark;
 }
+// The theme's colour fields: the SDK's colour picker on each (window.hostColour, from /sdk/host.js; plan-colour-picker.md, no native
+// colour input anywhere). Each <input id="theme-..."> stays, hidden, holding '#rrggbb'; its trigger shows the colour. A theme colour
+// keeps no opacity (server/store.js cleanColor takes #rrggbb only), so the picker shows no Opacity slider. While a picker is open the
+// colour being dragged is previewed (themeLive, never saved); the colour chosen lands in the input and sends `input`, as before.
+const themeFieldOf = new Map(); // input id -> the colour field on it
+const themeLive = new Map(); // input id -> the colour its open picker shows, not chosen yet
+const themeValue = (id) => themeLive.get(id) ?? $(id).value;
+// Puts a colour in a field without telling anyone (loading a theme, an Auto field's worked-out colour, Auto-fix).
+function setThemeInput(id, hex) {
+  const field = themeFieldOf.get(id);
+  if (!field || !field.set(hex)) $(id).value = hex;
+}
+let themeLiveFrame = 0;
+function previewThemeLive() {
+  if (themeLiveFrame) return;
+  themeLiveFrame = requestAnimationFrame(() => { themeLiveFrame = 0; previewThemeEdit(); });
+}
+// A field's name for the picker: its label's words, read when it is made (the {module} word is filled in by setWords).
+const themeLabelOf = (id) => ($(id).closest('label')?.textContent || '').replace(/\s+/g, ' ').trim() || 'Colour';
+function makeThemeField(id) {
+  const input = $(id);
+  if (!window.hostColour) return; // without the SDK the input stays a text field holding the hex
+  themeFieldOf.get(id)?.destroy();
+  themeFieldOf.set(id, window.hostColour.field(input, {
+    opacity: false,
+    label: themeLabelOf(id),
+    onInput: (a) => {
+      if (a.color === input.value.toLowerCase()) themeLive.delete(id); else themeLive.set(id, a.color);
+      previewThemeLive();
+    },
+  }));
+}
 function loadThemeInputsFrom(colors) {
-  for (const [id, , key] of THEME_FIELDS) $(id).value = colors[key];
+  for (const [id, , key] of THEME_FIELDS) setThemeInput(id, colors[key]);
   for (const [id, , key] of THEME_OPTIONAL_FIELDS) {
     const auto = !colors[key];
     autoBox(id).checked = auto;
     $(id).disabled = auto;
-    if (!auto) $(id).value = colors[key];
+    if (!auto) setThemeInput(id, colors[key]);
   }
 }
 // The set the inputs show now: every base colour, and each optional one or null when it is on Auto.
 function currentThemeSet() {
   const set = {};
-  for (const [id, , key] of THEME_FIELDS) set[key] = $(id).value;
-  for (const [id, , key] of THEME_OPTIONAL_FIELDS) set[key] = isAuto(id) ? null : $(id).value;
+  for (const [id, , key] of THEME_FIELDS) set[key] = themeValue(id);
+  for (const [id, , key] of THEME_OPTIONAL_FIELDS) set[key] = isAuto(id) ? null : themeValue(id);
   return set;
 }
 // Every property the preview has put on :root, so that leaving the preview takes exactly those off again.
@@ -960,12 +992,12 @@ const setPreviewVar = (name, value) => { document.documentElement.style.setPrope
 // persists it. Not previewing, the colors go on only long enough to read the Auto fields' values, and come off again
 // before the page paints.
 function updateThemePreview() {
-  for (const [id, cssVar] of THEME_FIELDS) setPreviewVar(cssVar, $(id).value);
+  for (const [id, cssVar] of THEME_FIELDS) setPreviewVar(cssVar, themeValue(id));
   for (const [id, cssVar, key, formula] of THEME_OPTIONAL_FIELDS) {
     const auto = isAuto(id);
-    setPreviewVar(cssVar, auto ? autoCssFor(key, formula) : $(id).value);
+    setPreviewVar(cssVar, auto ? autoCssFor(key, formula) : themeValue(id));
     const old = TC.LEGACY[key]; // the old token the server also writes for this role (theme-colour.js LEGACY)
-    if (old) setPreviewVar(old, auto ? TC.LEGACY_AUTO[old] : $(id).value);
+    if (old) setPreviewVar(old, auto ? TC.LEGACY_AUTO[old] : themeValue(id));
   }
   // What the server picks for this set (text on the accent and on the status fills, the accent and status colours as text).
   const got = TC.resolve(currentThemeSet(), selectedMode);
@@ -978,9 +1010,9 @@ function updateThemePreview() {
   for (const [id, cssVar, key] of THEME_OPTIONAL_FIELDS) {
     if (!isAuto(id)) continue;
     const old = TC.LEGACY[key];
-    $(id).value = old === '--icon'
+    setThemeInput(id, old === '--icon'
       ? toHex(computedColor('var(--icon, color-mix(in srgb, var(--header-text) 75%, transparent))'))
-      : resolvedVar(old || cssVar);
+      : resolvedVar(old || cssVar));
   }
   if (!previewing) clearThemePreview();
 }
@@ -1059,12 +1091,15 @@ function renderThemeContrast() {
 $('theme-contrast').addEventListener('click', (event) => {
   const fix = event.target.closest('[data-fix-on-accent]');
   if (!fix) return;
-  $('theme-on-accent').value = fix.dataset.fixOnAccent;
+  setThemeInput('theme-on-accent', fix.dataset.fixOnAccent);
   previewThemeEdit();
 });
-for (const [id] of THEME_FIELDS) $(id).addEventListener('input', previewThemeEdit);
+// A colour chosen in a picker: what it showed live is now the field's own.
+const themeChosen = (id) => () => { themeLive.delete(id); previewThemeEdit(); };
+for (const [id] of [...THEME_FIELDS, ...THEME_OPTIONAL_FIELDS]) makeThemeField(id);
+for (const [id] of THEME_FIELDS) $(id).addEventListener('input', themeChosen(id));
 for (const [id] of THEME_OPTIONAL_FIELDS) {
-  $(id).addEventListener('input', previewThemeEdit);
+  $(id).addEventListener('input', themeChosen(id));
   autoBox(id).addEventListener('change', () => {
     $(id).disabled = autoBox(id).checked;
     previewThemeEdit();
@@ -1123,6 +1158,8 @@ function showSelectedTheme() {
   updateThemePreview();
 }
 async function loadThemes() {
+  // The fields whose label holds a word of the environment's ({module}) are named again, now that setWords has filled it in.
+  for (const [id] of [...THEME_FIELDS, ...THEME_OPTIONAL_FIELDS]) if ($(id).closest('label')?.querySelector('[data-word]')) makeThemeField(id);
   const data = await api('GET', '/api/themes');
   themes = data.themes;
   defaultTheme = data.defaultTheme;

@@ -65,7 +65,7 @@ function dlMetaValueProblem(key, v) {
     if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(v)) return 'title has control characters';
     return '';
   }
-  if (key === 'paper') return typeof v === 'string' && DL_PAPER_BY_ID.has(v) ? '' : 'paper is not one of the colours';
+  if (key === 'paper') return typeof v === 'string' && (DL_PAPER_BY_ID.has(v) || dlPaperHex(v)) ? '' : 'paper is not a page colour';
   if (key === 'layout') return v === 'fluid' || v === 'paper' ? '' : 'layout is not fluid or paper';
   if (key === 'pageSize') return v === 'letter' || v === 'a4' ? '' : 'pageSize is not letter or a4';
   if (key === 'pageNumbers') return typeof v === 'boolean' ? '' : 'pageNumbers is not true or false';

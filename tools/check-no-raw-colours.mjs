@@ -17,7 +17,7 @@
 // module at check time) that is the whole quoted value of an object property ({ fill: 'gold' }) is not read. Anywhere else, and for any
 // other name, a hex, rgb(), assignment (el.style.fill = 'gold') or attribute (fill="gold"), it is read like any colour.
 //
-// The admin theme editor's native colour inputs (public/admin.html, type="color") hold a colour the person picks and the code draws none, so there is nothing to read there.
+// The admin theme editor's colour fields (public/admin.html, the inputs id="theme-*", with the SDK's colour picker on each) hold a colour the person picks and the code draws none, so there is nothing to read there.
 // One page has a palette of its own: the start page (public/start.css), whose :root blocks are token definitions like the theme files' (the studio's colours, light and dark); outside those blocks it is read like any file. @font-face blocks are not read.
 // Today's offenders are recorded per file and kind in tools/check-no-raw-colours-allow.json. The check passes while no
 // count is higher, fails on a higher count or a new file, and says when a count has dropped.

@@ -361,36 +361,56 @@
   }
 
   // ---- the page colour -----------------------------------------------------------------------------------------------------
-  // The sheet gets the chosen colour (data-paper names it; documents.css holds the value) and the ink that reads best on it
-  // (data-ink, picked by contrast from the two inks in documents.css), so every colour is readable.
-  const inks = new Map(); // paper id -> 'dark' | 'light' (the colours are fixed, so each is worked out once)
-  function paintPaper(sheet, id) {
-    const p = DL_PAPER_BY_ID.get(dlCleanPaper(id));
-    if (!inks.has(p.id)) {
+  // The sheet gets the chosen colour and the ink that reads best on it (data-ink, picked by contrast from the two inks in
+  // documents.css). A named colour (data-paper) is documents.css's; a picked one (data-paper="colour") is set as --doc-paper, after
+  // dlCleanPaper has checked it is '#rrggbb'.
+  const inks = new Map(); // paper -> 'dark' | 'light' (a colour's ink never changes, so each is worked out once)
+  function paperHex(paper) {
+    const hex = dlPaperHex(paper);
+    if (hex) return hex;
+    const p = DL_PAPER_BY_ID.get(dlCleanPaper(paper));
+    const rgb = dlHexRgb(getComputedStyle($('app')).getPropertyValue(p.css));
+    return rgb ? `#${rgb.map((n) => n.toString(16).padStart(2, '0')).join('')}` : null;
+  }
+  function paintPaper(sheet, paper) {
+    const clean = dlCleanPaper(paper);
+    if (!inks.has(clean)) {
       const css = getComputedStyle($('app'));
       const rgb = (name) => dlHexRgb(css.getPropertyValue(name));
-      inks.set(p.id, dlInkFor(rgb(p.css), rgb('--doc-fixed-ink-light'), rgb('--doc-fixed-ink-dark')) || 'dark');
+      inks.set(clean, dlInkFor(dlHexRgb(paperHex(clean)), rgb('--doc-fixed-ink-light'), rgb('--doc-fixed-ink-dark')) || 'dark');
     }
-    sheet.dataset.paper = p.id;
-    sheet.dataset.ink = inks.get(p.id);
+    const hex = dlPaperHex(clean);
+    sheet.dataset.paper = hex ? 'colour' : clean;
+    if (hex) sheet.style.setProperty('--doc-paper', hex); else sheet.style.removeProperty('--doc-paper');
+    sheet.dataset.ink = inks.get(clean);
   }
-  function choosePaper(id) {
-    if (!ed || ed.lost || coReadOnly() || ed.paper === dlCleanPaper(id)) return;
-    ed.paper = dlCleanPaper(id);
+  function choosePaper(paper) {
+    if (!ed || ed.lost || coReadOnly() || ed.paper === dlCleanPaper(paper)) return;
+    ed.paper = dlCleanPaper(paper);
     paintPaper($('editor').querySelector('.sheet'), ed.paper);
     coMetaPush({ paper: ed.paper });
     typed();
   }
-  function paperMenu(e) {
+  // Page colour: the host's colour picker (no Opacity: a page colour is a colour only), where the Page menu was opened. Each change
+  // shows on the sheet while it is open; the one chosen is kept; Escape puts back the colour there was.
+  async function paperMenu(e) {
+    if (!ed || ed.lost || coReadOnly()) return;
+    const sheet = () => $('editor').querySelector('.sheet');
+    const was = ed.paper;
+    let answer = null;
+    try {
+      answer = await host.ui.colorPicker({
+        at: { x: e && Number.isFinite(e.x) ? e.x : 100000, y: 4 },
+        value: paperHex(was) || undefined,
+        opacity: false,
+        label: 'Page colour',
+        onInput: (a) => { if (ed && !ed.lost && dlPaperHex(a && a.color)) paintPaper(sheet(), a.color); },
+      });
+    } catch { answer = null; }
     if (!ed || ed.lost) return;
-    const swatch = (p) => getComputedStyle($('app')).getPropertyValue(p.css).trim();
-    const items = [{ heading: 'Page colour' }, ...dlPaperMenuModel().map((m) => {
-      if (m.kind === 'heading') return { heading: m.label };
-      const p = DL_PAPER_BY_ID.get(m.id);
-      const now = m.id === ed.paper;
-      return { id: m.id, label: m.label, current: now, ariaLabel: `${m.label} page colour${now ? ', chosen' : ''}`, icon: 'circle', iconColor: swatch(p) || undefined, onClick: () => choosePaper(m.id) };
-    })];
-    host.menu.show({ id: 'paper', at: { x: e && Number.isFinite(e.x) ? e.x : 100000, y: 4 }, items });
+    const hex = answer && dlPaperHex(answer.color);
+    if (hex) choosePaper(hex);
+    else paintPaper(sheet(), ed.paper || was);
   }
 
   // ---- the page: layout, size, numbers --------------------------------------------------------------------------------------
