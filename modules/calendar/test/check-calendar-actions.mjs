@@ -116,9 +116,9 @@ await test('updateEvent: "" clears the end, the repeat, the reminder or the note
   assert.equal(m.actions.server, 'src/calendar-lib-actions.js');
 });
 await test('carried on the server, a reminder waits for a page: marked remindPending and said; a page sets it at once', async () => {
-  const made = await onRunner('calendar', 'createEvent', { title: 'Car', date: '2026-11-20', time: '10:00', remind: 90 }, world(), { carrier: 'server', kinds: ['event'] });
+  const made = await onRunner('calendar', 'createEvent', { title: 'Car', date: '2026-11-20', time: '10:00', remind: 90 }, world(), { carrier: 'server', kinds: ['event'], now: Date.parse('2026-11-01T12:00Z') });
   assert.equal(made.writes[0].value.remindPending, true);
-  assert.equal(made.data.note, 'Its reminder is set the next time someone who can change events opens the calendar.');
+  assert.equal(made.data.note, 'The reminder is for Friday 20 November, 8:30 AM, 90 minutes before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
   const none = await onRunner('calendar', 'createEvent', { title: 'Car', date: '2026-11-20' }, world(), { carrier: 'server', kinds: ['event'] });
   assert.deepEqual([none.writes[0].value.remindPending, none.data], [undefined, undefined], 'no reminder: no mark, nothing said');
   const rows = { 'event:e1': { ...TIMED, remindPending: true } };
@@ -128,6 +128,119 @@ await test('carried on the server, a reminder waits for a page: marked remindPen
   assert.equal(written(page, 'event:e1').remindPending, undefined, 'a page sets it itself, so the mark goes');
   const js = fs.readFileSync(new URL('../src/calendar.js', import.meta.url), 'utf8');
   assert.ok(/async function setWaitingReminders[\s\S]*remindPending[\s\S]*applyReminder\(x\.id, x\.ev, \{\}, true\)[\s\S]*delete ev\.remindPending/.test(js), 'the page sets a waiting reminder and takes the mark off');
+});
+
+// --- remindAt: the reminder as a clock time --------------------------------------------------------------------------------
+// Dates from 2030 on, so a reminder is never in the past on either carrier (both read the real time); a past one, a clock
+// change in Pacific time and the server's own note are on the runner, whose `now` and zone a test sets.
+const SAY_AT = 'Say remindAt as a date and time, for example 2026-11-24 11:00, or a time on the event\'s day, for example 11:00, 11:00 AM or 9am.';
+const lead = (r) => written(r, 'event:n1').remind;
+const note = (r) => (r.data || {}).note;
+await test('remindAt: every accepted form, for an all-day and a timed event, stored as minutes before', async () => {
+  // Thomas's case: 11:00 on 24 November for an all-day event on the 26th. An all-day event reminds from 9:00 on its day, so
+  // that is 46 hours (2760 minutes), not the 37 hours counted from midnight (which would have come at 20:00 on the 24th).
+  const allDay = { title: 'Market', date: '2030-11-26' };
+  for (const at of ['2030-11-24 11:00', '2030-11-24T11:00', '2030-11-24T11:00:00', '2030-11-24 11:00 AM', '2030-11-24 11am', ' 2030-11-24   11:00 ']) {
+    assert.equal(lead(await same('createEvent', { ...allDay, remindAt: at }, world())), 2760, at);
+  }
+  const r = await same('createEvent', { ...allDay, remindAt: '2030-11-24 11:00' }, world());
+  assert.equal(note(r), 'The reminder is for Sunday 24 November, 11:00 AM, 46 hours before 9:00 AM on its day (all-day reminders count from 9:00 AM).');
+  assert.equal(written(r, 'event:n1').remindAt, undefined, 'nothing new is stored: the form shows the minutes');
+  for (const [at, m] of [['8:30', 30], ['08:30', 30], ['8:30 AM', 30], ['8:30am', 30], ['8am', 60], ['8 a.m.', 60], ['12am', 540], ['9:00', 0]]) {
+    assert.equal(lead(await same('createEvent', { ...allDay, remindAt: at }, world())), m, `${at} on its own day`);
+  }
+  assert.equal(note(await same('createEvent', { ...allDay, remindAt: '9:00' }, world())), 'The reminder is for Tuesday 26 November, 9:00 AM (all-day reminders count from 9:00 AM on the day).');
+  const timed = { title: 'Dinner', date: '2030-11-26', time: '19:00' };
+  for (const [at, m] of [['2030-11-24 11:00', 2 * 1440 + 8 * 60], ['2030-11-26T18:15', 45], ['6pm', 60], ['18:00', 60], ['6:59 PM', 1], ['7pm', 0], ['19:00', 0], ['00:00', 1140]]) {
+    assert.equal(lead(await same('createEvent', { ...timed, remindAt: at }, world())), m, at);
+  }
+  assert.equal(note(await same('createEvent', { ...timed, remindAt: '6pm' }, world())), 'The reminder is for Tuesday 26 November, 6:00 PM, 1 hour before it starts.');
+  assert.equal(note(await same('createEvent', { ...timed, remindAt: '19:00' }, world())), 'The reminder is for Tuesday 26 November, 7:00 PM, when it starts.');
+  assert.equal(note(await same('createEvent', { ...timed, remindAt: '2030-11-24 11:00' }, world())), 'The reminder is for Sunday 24 November, 11:00 AM, 56 hours before it starts.');
+  // Exactly 28 days before is the most: real time, so across the clock change of 3 November it is 20:00 on 29 October.
+  assert.equal(lead(await same('createEvent', { ...timed, date: '2030-12-26', remindAt: '2030-11-28 19:00' }, world())), 40320);
+  assert.equal(lead(await same('createEvent', { ...timed, remindAt: '2030-10-29 20:00' }, world())), 40320);
+  // With an object: the event made of it.
+  const object = { kind: 'event', title: 'Concert', details: { starts: '2030-11-15T20:00' } };
+  assert.equal(lead(await same('createEvent', { title: 'Concert', object, remindAt: '19:30' }, world())), 30);
+});
+await test('remindAt: every refusal, in plain sentences', async () => {
+  const timed = { title: 'Dinner', date: '2030-11-26', time: '19:00' };
+  const allDay = { title: 'Market', date: '2030-11-26' };
+  for (const bad of ['tomorrow', '2030-11-24', '25:00', '13pm', '0am', '11.00', '2030-02-30 10:00', '24/11/2030 11:00', 'noon', 'x'.repeat(50)]) {
+    await refuses('createEvent', { ...timed, remindAt: bad }, world(), SAY_AT);
+  }
+  await refuses('createEvent', { ...timed, remindAt: 1100 }, world(), SAY_AT);
+  for (const zone of ['2030-11-24T11:00Z', '2030-11-24T11:00:00+01:00', '2030-11-24 11:00 -0800', '11:00Z']) {
+    await refuses('createEvent', { ...timed, remindAt: zone }, world(), 'Leave the zone out of remindAt (no Z or +01:00): it is read on the event\'s own clock.');
+  }
+  await refuses('createEvent', { ...timed, remind: 15, remindAt: '18:00' }, world(), 'Give remind or remindAt, not both.');
+  await refuses('createEvent', { ...timed, remind: 0, remindAt: '18:00' }, world(), 'Give remind or remindAt, not both.');
+  await refuses('createEvent', { ...timed, remindAt: '19:01' }, world(), 'remindAt is after the event starts (Tuesday 26 November, 7:00 PM); give a time at or before its start.');
+  await refuses('createEvent', { ...timed, remindAt: '2030-11-27 08:00' }, world(), 'remindAt is after the event starts (Tuesday 26 November, 7:00 PM); give a time at or before its start.');
+  await refuses('createEvent', { ...allDay, remindAt: '9:01' }, world(), 'An all-day event\'s reminder can be at 9:00 AM on its day at the latest; give an earlier time.');
+  await refuses('createEvent', { ...timed, date: '2030-12-26', remindAt: '2030-11-28 18:59' }, world(), 'remindAt can be at most 28 days before the event starts.');
+  await refuses('createEvent', { ...timed, remindAt: '2030-10-29 19:00' }, world(), 'remindAt can be at most 28 days before the event starts.');
+  await refuses('createEvent', { ...allDay, date: '2030-12-26', remindAt: '2030-11-28 08:59' }, world(), 'remindAt can be at most 28 days before the event starts.');
+  // The event's own checks still come first.
+  await refuses('createEvent', { title: 'T', date: '26 Nov', remindAt: '9am' }, world(), 'Say the date as YYYY-MM-DD, for example 2026-11-20.');
+});
+await test('remindAt with a repeat: on the first occurrence\'s day, the same lead for every one', async () => {
+  const r = await same('createEvent', { title: 'Standup', date: '2030-11-25', time: '09:30', repeat: 'week', remindAt: '9am' }, world());
+  assert.deepEqual([lead(r), written(r, 'event:n1').repeat], [30, { every: 'week', until: null }]);
+  assert.equal(note(r), 'The reminder is for Monday 25 November, 9:00 AM, 30 minutes before it starts. It comes as long before each repeat.');
+  const past = await onRunner('calendar', 'createEvent', { title: 'Standup', date: '2026-11-02', time: '09:30', repeat: 'week', remindAt: '9am' }, world(), { kinds: ['event'], now: Date.parse('2026-11-20T12:00Z') });
+  assert.equal(past.data.note, 'The reminder is for Monday 2 November, 9:00 AM, 30 minutes before it starts. That time has passed; the first one is before its next repeat.');
+  const once = await onRunner('calendar', 'createEvent', { title: 'Dinner', date: '2026-11-02', time: '19:00', remindAt: '6pm' }, world(), { carrier: 'server', kinds: ['event'], now: Date.parse('2026-11-20T12:00Z') });
+  assert.equal(once.data.note, 'The reminder is for Monday 2 November, 6:00 PM, 1 hour before it starts. That time has passed, so it will not come.', 'nothing will come, so nothing waits for a page either');
+});
+await test('remindAt across a clock change: the lead is the real time between, so it comes at the clock time asked', async () => {
+  const LA = { kinds: ['event'], tz: 'America/Los_Angeles', now: Date.parse('2026-10-01T12:00Z') };
+  // Pacific time falls back on 1 November 2026: 10:00 on 31 October to 10:00 on 2 November is 49 hours, not 48.
+  const fall = await onRunner('calendar', 'createEvent', { title: 'Dinner', date: '2026-11-02', time: '10:00', remindAt: '2026-10-31 10:00' }, world(), LA);
+  assert.equal(fall.writes[0].value.remind, 49 * 60);
+  assert.equal(fall.data.note, 'The reminder is for Saturday 31 October, 10:00 AM, 49 hours before it starts.');
+  assert.equal(new Date(Date.parse(fall.writes[0].value.start) - 49 * 3600e3).toISOString(), '2026-10-31T17:00:00.000Z', '10:00 PDT is 17:00 UTC');
+  // An all-day event on 2 November: from 9:00 on its day (17:00 UTC), 11:00 on 31 October (18:00 UTC) is 47 hours.
+  const fallDay = await onRunner('calendar', 'createEvent', { title: 'Market', date: '2026-11-02', remindAt: '2026-10-31 11:00' }, world(), LA);
+  assert.equal(fallDay.writes[0].value.remind, 47 * 60);
+  // It springs forward on 14 March 2027: 10:00 on the 13th to 10:00 on the 15th is 47 hours.
+  const spring = await onRunner('calendar', 'createEvent', { title: 'Dinner', date: '2027-03-15', time: '10:00', remindAt: '2027-03-13 10:00' }, world(), LA);
+  assert.equal(spring.writes[0].value.remind, 47 * 60);
+  assert.equal(spring.data.note, 'The reminder is for Saturday 13 March, 10:00 AM, 47 hours before it starts.');
+  const springDay = await onRunner('calendar', 'createEvent', { title: 'Market', date: '2027-03-15', remindAt: '2027-03-13 09:00' }, world(), LA);
+  assert.equal(springDay.writes[0].value.remind, 47 * 60);
+  // The same on a page and on the server, in this process's zone (Chicago changes its clocks on the same days).
+  assert.equal(lead(await same('createEvent', { title: 'Dinner', date: '2030-11-04', time: '10:00', remindAt: '2030-11-02 10:00' }, world())), 49 * 60);
+  assert.equal(lead(await same('createEvent', { title: 'Dinner', date: '2030-03-11', time: '10:00', remindAt: '2030-03-09 10:00' }, world())), 47 * 60);
+});
+await test('updateEvent with remindAt: read against the event as changed; a moved event keeps its lead', async () => {
+  const LATER = { ...TIMED, id: 'e3', start: at('2030-11-20', '19:00'), end: at('2030-11-20', '21:00'), remind: 60 };
+  const DAY = { ...ALLDAY, id: 'e4', start: '2030-11-21', end: null, repeat: null, skips: undefined };
+  delete DAY.skips;
+  const rows = { 'event:e3': LATER, 'event:e4': DAY };
+  const r = await same('updateEvent', { event: ref('e3'), remindAt: '2030-11-19 19:00' }, world(rows));
+  assert.deepEqual(written(r, 'event:e3'), { ...LATER, remind: 1440, by: 'Claude (agent)' });
+  assert.equal(note(r), 'The reminder is for Tuesday 19 November, 7:00 PM, 1 day before it starts.');
+  const moved = await same('updateEvent', { event: ref('e3'), date: '2030-11-22', remindAt: '5pm' }, world(rows));
+  assert.equal(written(moved, 'event:e3').remind, 120, 'a time alone is on the event\'s new day');
+  const keep = await same('updateEvent', { event: ref('e3'), date: '2030-11-22' }, world(rows));
+  assert.equal(written(keep, 'event:e3').remind, 60, 'no remindAt: the lead stays');
+  assert.equal(note(keep), 'The reminder is for Friday 22 November, 6:00 PM, 1 hour before it starts.');
+  const day = await same('updateEvent', { event: ref('e4'), remindAt: '2030-11-20 21:00' }, world(rows));
+  assert.equal(written(day, 'event:e4').remind, 12 * 60);
+  const same1 = await same('updateEvent', { event: ref('e3'), remindAt: '18:00' }, world(rows));
+  assert.equal(note(same1), 'That is already so; nothing changed.');
+  await refuses('updateEvent', { event: ref('e3'), remind: 30, remindAt: '18:00' }, world(rows), 'Give remind or remindAt, not both.');
+  await refuses('updateEvent', { event: ref('e3'), remind: '', remindAt: '18:00' }, world(rows), 'Give remind or remindAt, not both.');
+  await refuses('updateEvent', { event: ref('e3'), remindAt: '20:00' }, world(rows), 'remindAt is after the event starts (Wednesday 20 November, 7:00 PM); give a time at or before its start.');
+  await refuses('updateEvent', { event: ref('e3'), time: '21:00', remindAt: '21:30' }, world(rows), 'remindAt is after the event starts (Wednesday 20 November, 9:00 PM); give a time at or before its start.');
+  await refuses('updateEvent', { event: ref('e4'), remindAt: '10:00' }, world(rows), 'An all-day event\'s reminder can be at 9:00 AM on its day at the latest; give an earlier time.');
+  await refuses('updateEvent', { event: ref('e3'), remindAt: '2030-10-01 19:00' }, world(rows), 'remindAt can be at most 28 days before the event starts.');
+  await refuses('updateEvent', { event: ref('e3'), remindAt: 'soon' }, world(rows), SAY_AT);
+  const server = await onRunner('calendar', 'updateEvent', { event: ref('e3'), remindAt: '18:30' }, world(rows), { carrier: 'server', kinds: ['event'] });
+  assert.deepEqual([server.writes[0].value.remind, server.writes[0].value.remindPending], [30, true]);
+  assert.equal(server.data.note, 'The reminder is for Wednesday 20 November, 6:30 PM, 30 minutes before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
 });
 
 // --- reminders in the form and in the notification --------------------------------------------------------------------
@@ -162,7 +275,18 @@ await test('the form: the presets first, Other with a number and minutes, hours 
 await test('the manifest: updateEvent and notes, within the caps', async () => {
   const m = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
   const act = (name) => m.actions.provides.find((a) => a.name === name);
-  assert.deepEqual(act('updateEvent').input, { event: 'ref:calendar:event', title: 'string?', date: 'date?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?', notes: 'text?' });
+  assert.deepEqual(act('updateEvent').input, { event: 'ref:calendar:event', title: 'string?', date: 'date?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?', remindAt: 'string?', notes: 'text?' });
+  for (const name of ['createEvent', 'updateEvent']) {
+    const a = act(name);
+    assert.equal(a.input.remindAt, 'string?');
+    assert.ok(!a.clears || !a.clears.includes('remindAt'), 'remind "" takes a reminder off; remindAt clears nothing');
+    for (const [k, v] of Object.entries(a.inputHints)) assert.ok(v.length <= 200, `${name}.${k}: at most 200 characters`);
+    assert.match(a.inputHints.remindAt, /Instead of remind.*2026-11-24 11:00.*9am.*Times are the event's own clock time\./);
+    assert.match(a.inputHints.remind, /all-day event counts from 9:00/);
+    assert.ok(/^[^.]*\.$/.test(a.description), `${name}: one sentence`);
+  }
+  assert.match(act('updateEvent').inputHints.remindAt, /Moving the event keeps it as long before\./);
+  assert.match(act('updateEvent').inputHints.remind, /A new date keeps the minutes\./);
   assert.equal(act('createEvent').input.notes, 'text?');
   for (const name of ['createEvent', 'updateEvent']) assert.match(act(name).inputHints.remind, /40320/);
   const lib2 = library('calendar').js;

@@ -8,8 +8,8 @@
     "hash": "8dd3132b44311932"
   },
   "calendar": {
-    "version": "1.24.50",
-    "hash": "fae535852c77f9a9"
+    "version": "1.24.51",
+    "hash": "4da525bf106aecbf"
   },
   "documents": {
     "version": "0.11.37",
@@ -52,7 +52,7 @@
     "hash": "39298b89f8c6e08e"
   },
   "whiteboard": {
-    "version": "0.1.89",
-    "hash": "a8190ddefe16236c"
+    "version": "0.1.90",
+    "hash": "83eae8ffd5aa557b"
   }
 }
