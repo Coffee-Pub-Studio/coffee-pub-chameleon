@@ -691,16 +691,27 @@
   host.on('space', (e) => { state.target = e && e.budget ? e.budget : null; if (state.loaded) render(); });
 
   // --- what other modules may ask of this one ----------------------------------------------------------------------------------
-  const REFUSED = 'you may not add costs here';
+  // The actions library's handlers (ACTION_HANDLERS in budget-lib-actions.js: addCost and updateCost), carried out here by the
+  // SDK (host.actions.fromLibrary) with the environment's categories beside the runner's ctx (ctx.settings). Only someone who
+  // may edit adds or changes a cost.
+  const REFUSED = { addCost: 'you may not add costs here', updateCost: 'you may not change costs here' };
+  const withPage = (name, fn) => (input, ctx) => {
+    if (!canEdit) throw new Error(REFUSED[name]);
+    return fn(input, { ...ctx, settings: { categories: state.cats } });
+  };
+  // What only a page does once a request's cost is written: it shows at once, and a cost made from an object points at it.
+  function afterAction({ writes }) {
+    for (const w of writes) {
+      const id = w.key.slice(COST_PREFIX.length);
+      const cost = cleanCost(id, w.value);
+      if (!cost) continue;
+      state.costs.set(id, { cost, version: w.version });
+      if (cost.ref) host.objects.setLinks(pointer(id), [cost.ref]).catch(() => {});
+    }
+    render();
+  }
   if (host.actions && host.actions.provide) {
-    host.actions.provide({
-      addCost: async (input, ctx) => {
-        if (!canEdit) throw new Error(REFUSED);
-        const c = costFromRequest(input, (ctx && ctx.credit && ctx.credit.key) || info.user.key, state.people);
-        const saved = await saveCost(c);
-        return { ref: pointer(saved.id) };
-      },
-    });
+    host.actions.provide(host.actions.fromLibrary(Object.fromEntries(Object.entries(ACTION_HANDLERS).map(([name, fn]) => [name, withPage(name, fn)])), { after: afterAction }));
   }
   if (host.objects && host.objects.onOpen) {
     host.objects.onOpen((ref) => {

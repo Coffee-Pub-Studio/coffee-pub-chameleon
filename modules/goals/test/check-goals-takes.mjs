@@ -46,7 +46,8 @@ test('the manifest takes the plan kinds, and a step needs no pointer when it is 
   assert.deepEqual(by.addStep.takes.map((t) => [t.kinds, t.as]), [[['step'], 'a step']]);
   assert.deepEqual(by.addNote.takes.map((t) => [t.kinds, t.as]), [[['note'], 'a note']]);
   assert.equal(by.addStep.input.goal, 'ref:goals:plan?');
-  for (const a of Object.values(by)) assert.equal(a.input.object, 'object?');
+  for (const a of [by.addGoal, by.addStep, by.addNote]) assert.equal(a.input.object, 'object?');
+  for (const a of [by.updateGoal, by.setGoalDone]) assert.equal(a.input.object, undefined, `${a.name} takes no object`);
 });
 
 test('a goal: why from the details or the words, cut at 2000; day; phase by name', () => {
