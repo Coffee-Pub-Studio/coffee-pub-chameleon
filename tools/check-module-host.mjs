@@ -928,3 +928,32 @@ test('host.menu.show takes onClose and calls it once from the one cleanup', () =
   assert.ok(!/fetch\(\s*['`]\/api\/me\/color-grid/.test(sdk.slice(0, sdk.indexOf('let pageGrid = null;'))), 'the SDK fetches the route only in the page host, never from inside a module');
   console.log('ok - the colour grid: ui.colorGrid and ui.colorGrid.set answered by the page and the page host');
 }
+
+// The person's Recent colours (plan-colour-picker.md, decision 27), the grid's way: the page answers ui.colorRecent and
+// ui.colorRecent.set next to the grid's handlers, from one copy for the page, and checks a list (at most 8) before it sends it. The host
+// pages' page host answers the same two by fetching the route itself. Nothing is kept in the browser any more.
+{
+  const rd = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+  const mh = rd('public/module-host.js');
+  assert.match(mh, /async 'ui\.colorRecent'\(\) \{[\s\S]{0,160}return readColourRecent\(\);/, "module-host.js answers 'ui.colorRecent' from the page's copy");
+  assert.match(mh, /async 'ui\.colorRecent\.set'\(\{ colors \} = \{\}\) \{[\s\S]{0,200}return writeColourRecent\(colors\);/, "module-host.js answers 'ui.colorRecent.set'");
+  assert.ok(mh.indexOf("async 'ui.colorRecent'()") > mh.indexOf("async 'ui.colorGrid.set'"), "Recent's handlers sit with the grid's");
+  assert.match(mh, /api\('GET', '\/api\/me\/color-recent'\)/, 'the page reads the route');
+  assert.match(mh, /api\('PUT', '\/api\/me\/color-recent', \{ colors: list \}\)/, 'the page sends only the checked list');
+  const { cleanColourRecent } = new Function(`${slice('public/module-host.js', 'const COLOUR_GRID_MAX = 48;', '\n  return out;\n}')}\nconst COLOUR_RECENT_MAX = 8;\nconst cleanColourRecent = (list) => cleanColourGrid(list, COLOUR_RECENT_MAX);\nreturn { cleanColourRecent };`)();
+  assert.match(mh, /const cleanColourRecent = \(list\) => cleanColourGrid\(list, COLOUR_RECENT_MAX\);/, 'Recent is checked by the grid\'s check with its own limit');
+  assert.match(mh, /const COLOUR_RECENT_MAX = 8;/, 'Recent holds at most 8');
+  const e = (color, opacity = 100) => ({ color, opacity });
+  const eight = Array.from({ length: 8 }, (_, i) => e(`#0000${i.toString(16).padStart(2, '0')}`));
+  assert.deepEqual(cleanColourRecent(eight), eight, '8 are kept');
+  for (const bad of [null, [...eight, e('#ffffff')], [e('#D62828')], [e('#d62828', 101)], [e('#d62828'), e('#d62828')]]) {
+    assert.equal(cleanColourRecent(bad), null, `refused: ${JSON.stringify(bad).slice(0, 60)}`);
+  }
+  const sdk = rd('public/sdk/host.js');
+  assert.match(sdk, /method === 'ui\.colorRecent' \? pageRecentRead\(\)\s*: method === 'ui\.colorRecent\.set' \? pageRecentWrite\(params\)/, "the host pages' page host answers ui.colorRecent and ui.colorRecent.set");
+  assert.match(sdk, /call\('ui\.colorRecent', \{\}\)/, 'the picker asks the page for Recent');
+  assert.match(sdk, /call\('ui\.colorRecent\.set', \{ colors: next \}\)/, 'the picker sends the whole list');
+  assert.ok(!/fetch\(\s*['`]\/api\/me\/color-recent/.test(sdk.slice(0, sdk.indexOf('let pageRecent = null;'))), 'the SDK fetches the route only in the page host, never from inside a module');
+  assert.ok(!/app:colour:/.test(sdk), 'the SDK keeps no Recent in the browser (app:colour:<moduleId> is gone)');
+  console.log('ok - Recent colours: ui.colorRecent and ui.colorRecent.set answered by the page and the page host');
+}

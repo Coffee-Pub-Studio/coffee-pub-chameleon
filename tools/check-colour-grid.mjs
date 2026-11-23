@@ -11,6 +11,9 @@
  *     nor read (the owner's view of a person, the listing of people);
  *   - no session gets 401, a guest 403, and an agent's token can't reach it;
  *   - a stored grid that fails the check is dropped when the store loads.
+ * And each person's Recent colours (Thomas, 2026-11-22), kept the same way at GET/PUT /api/me/color-recent: null before the
+ * first write, the round trip, at most 8, each bad entry and a duplicate refused, one person's not another's, 401 and 403,
+ * kept across a restart, and a bad stored list dropped on load.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -84,6 +87,12 @@ const LIST = 'Send the colours as a list, such as {"colors":[{"color":"#d62828",
 const AT_MOST = 'The grid holds at most 48 colours.';
 const EACH = 'Each colour is #rrggbb in lower case, with an opacity from 0 to 100.';
 const TWICE = 'That colour is in the list twice.';
+const RECENT = [
+  { color: '#2f6cbf', opacity: 100 },
+  { color: '#d62828', opacity: 40 },
+  { color: '#d62828', opacity: 100 },
+];
+const RECENT_AT_MOST = 'Recent holds at most 8 colours.';
 const many = (count) => Array.from({ length: count }, (_, i) => ({ color: `#0000${i.toString(16).padStart(2, '0')}`, opacity: 100 }));
 
 let annToken = null;
@@ -204,6 +213,89 @@ try {
     assert.deepEqual(await gridOf(ann), GRID);
   });
 
+  const recentOf = async (token) => (await call('GET', '/api/me/color-recent', { token })).json.colors;
+
+  await test('Recent: null before the first write, not stored, and not cached', async () => {
+    const r = await call('GET', '/api/me/color-recent', { token: ann });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json, { colors: null });
+    assert.equal(r.headers.get('cache-control'), 'no-store');
+    assert.equal('colorRecent' in storedUser('ann'), false, 'the key is left off the account');
+  });
+
+  await test('Recent: PUT replaces the list, GET answers it in the order sent, and the grid is untouched', async () => {
+    const r = await call('PUT', '/api/me/color-recent', { token: ann, body: { colors: RECENT } });
+    assert.equal(r.status, 200, r.text);
+    assert.deepEqual(r.json, { colors: RECENT });
+    assert.equal(r.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await recentOf(ann), RECENT);
+    assert.deepEqual(storedUser('ann').colorRecent, RECENT);
+    assert.deepEqual(await gridOf(ann), GRID, 'the grid is its own list');
+    assert.equal((await call('PUT', '/api/me/color-recent', { token: ann, body: { colors: many(8) } })).status, 200, '8 fits');
+    assert.deepEqual(await recentOf(ann), many(8));
+    assert.equal((await call('PUT', '/api/me/color-recent', { token: ann, body: { colors: [] } })).status, 200);
+    assert.deepEqual(await recentOf(ann), [], 'an empty list is kept');
+    assert.equal((await call('PUT', '/api/me/color-recent', { token: ann, body: { colors: RECENT } })).status, 200);
+  });
+
+  await test('Recent: every bad body is 400 with one sentence and changes nothing', async () => {
+    const entry = (over) => [{ color: '#d62828', opacity: 100, ...over }];
+    const bad = [
+      [{}, LIST], [{ colors: null }, LIST], [{ colors: 'red' }, LIST], [{ colors: { color: '#d62828', opacity: 100 } }, LIST],
+      [[], LIST], [{ colors: RECENT, extra: 1 }, LIST], [{ recent: RECENT }, LIST],
+      [JSON.parse(`{"colors":${JSON.stringify(RECENT)},"__proto__":{"x":1}}`), LIST],
+      [{ colors: many(9) }, RECENT_AT_MOST],
+      [{ colors: entry({ color: '#D62828' }) }, EACH], [{ colors: entry({ color: '#abc' }) }, EACH], [{ colors: entry({ color: '#d62828ff' }) }, EACH],
+      [{ colors: entry({ color: 'red' }) }, EACH], [{ colors: entry({ color: 'url(x)' }) }, EACH], [{ colors: entry({ color: null }) }, EACH],
+      [{ colors: entry({ opacity: 101 }) }, EACH], [{ colors: entry({ opacity: -1 }) }, EACH], [{ colors: entry({ opacity: 1.5 }) }, EACH],
+      [{ colors: entry({ opacity: '100' }) }, EACH], [{ colors: entry({ name: 'Red' }) }, EACH], [{ colors: [{ color: '#d62828' }] }, EACH],
+      [{ colors: ['#d62828'] }, EACH], [{ colors: [null] }, EACH],
+      [{ colors: [JSON.parse('{"color":"#d62828","opacity":100,"__proto__":{"x":1}}')] }, EACH],
+      [{ colors: [...RECENT, { color: '#2f6cbf', opacity: 100 }] }, TWICE],
+    ];
+    for (const [body, sentence] of bad) {
+      const r = await call('PUT', '/api/me/color-recent', { token: ann, body });
+      assert.equal(r.status, 400, `${JSON.stringify(body).slice(0, 80)}: ${r.text.slice(0, 120)}`);
+      assert.equal(r.json?.error, sentence, JSON.stringify(body).slice(0, 80));
+    }
+    assert.equal((await call('PUT', '/api/me/color-recent', { token: ann, raw: '{"colors":' })).status, 400);
+    assert.deepEqual(await recentOf(ann), RECENT, 'nothing changed');
+    assert.deepEqual(storedUser('ann').colorRecent, RECENT);
+  });
+
+  await test('Recent: one person\'s is not another\'s, and nobody else can set or read it', async () => {
+    assert.equal(await recentOf(ben), null, 'ben has never written his');
+    const mine = [{ color: '#000000', opacity: 50 }];
+    assert.equal((await call('PUT', '/api/me/color-recent', { token: ben, body: { colors: mine } })).status, 200);
+    assert.deepEqual(await recentOf(ben), mine);
+    assert.deepEqual(await recentOf(ann), RECENT, 'ann\'s is untouched');
+    await call('PATCH', `/api/users/${benKey}`, { token: admin, body: { colorRecent: RECENT, displayName: 'ben' } });
+    await call('PATCH', '/api/me', { token: ben, body: { colorRecent: RECENT } });
+    assert.deepEqual(await recentOf(ben), mine, 'neither the owner nor PATCH /api/me sets it');
+    for (const [token, where] of [[admin, '/api/users'], [admin, `/api/users/${annKey}`], [ben, '/api/users'], [ann, '/api/me']]) {
+      const got = await call('GET', where, { token });
+      if (got.status !== 200) continue;
+      assert.equal(/colorRecent|#2f6cbf/.test(got.text), false, `${where} leaks Recent`);
+    }
+  });
+
+  await test('Recent: no session gets 401 and a guest 403, and nothing changes', async () => {
+    for (const [method, body] of [['GET'], ['PUT', { colors: [] }]]) {
+      const r = await call(method, '/api/me/color-recent', { body });
+      assert.equal(r.status, 401, `${method}: ${r.text}`);
+      assert.equal(r.json.error, 'sign in first');
+    }
+    const sp = await call('POST', '/api/spaces', { token: admin, body: { name: 'Porch' } });
+    assert.equal(sp.status, 200, sp.text);
+    const link = (await call('POST', `/api/spaces/${sp.json.space.id}/guest-link`, { token: admin, body: {} })).json.space.guestToken;
+    for (const [method, body] of [['GET'], ['PUT', { colors: [] }]]) {
+      const r = await call(method, `/api/me/color-recent?guest=${link}`, { body });
+      assert.equal(r.status, 403, `${method}: ${r.text}`);
+      assert.equal(r.json.error, 'Guests can\'t keep their own colours.');
+    }
+    assert.deepEqual(await recentOf(ann), RECENT);
+  });
+
   await test('an agent\'s token can\'t reach it', async () => {
     assert.equal((await call('PATCH', '/api/settings', { token: admin, body: { agents: true } })).status, 200);
     const made = await call('POST', '/api/users', { token: admin, body: { agent: true } });
@@ -211,12 +303,15 @@ try {
     const tok = await call('POST', `/api/users/${made.json.user.key}/token`, { token: admin });
     assert.equal(tok.status, 201, tok.text);
     assert.equal((await call('GET', '/api/agent/me', { bearer: tok.json.token })).status, 200, 'the token works where an agent may go');
-    for (const [method, body] of [['GET'], ['PUT', { colors: GRID }]]) {
-      const r = await call(method, '/api/me/color-grid', { bearer: tok.json.token, body });
-      assert.equal(r.status, 403, `${method}: ${r.text}`);
-      assert.equal(r.json.error, 'An agent can\'t do that.');
+    for (const where of ['/api/me/color-grid', '/api/me/color-recent']) {
+      for (const [method, body] of [['GET'], ['PUT', { colors: RECENT }]]) {
+        const r = await call(method, where, { bearer: tok.json.token, body });
+        assert.equal(r.status, 403, `${method} ${where}: ${r.text}`);
+        assert.equal(r.json.error, 'An agent can\'t do that.');
+      }
     }
     assert.equal('colorGrid' in storedUser(made.json.user.login), false);
+    assert.equal('colorRecent' in storedUser(made.json.user.login), false);
   });
 } catch (err) {
   failed += 1;
@@ -231,6 +326,9 @@ await test('a restarted server keeps it', async () => {
     const r = await call('GET', '/api/me/color-grid', { token: annToken });
     assert.equal(r.status, 200, r.text);
     assert.deepEqual(r.json.colors, GRID);
+    const recent = await call('GET', '/api/me/color-recent', { token: annToken });
+    assert.equal(recent.status, 200, recent.text);
+    assert.deepEqual(recent.json.colors, RECENT, 'Recent is kept too');
   } finally {
     await stopServer();
   }
@@ -250,6 +348,22 @@ await test('stored on the account: a reload keeps it, and a stored grid that fai
   assert.throws(() => store.setColorGrid('nope', []), /no such user/);
   assert.throws(() => store.setColorGrid(ann.key, many(49)), /at most 48/);
   assert.deepEqual(store.colorGrid(store.users.find((u) => u.login === 'ann')), GRID, 'a refusal changes nothing');
+});
+
+await test('Recent on the account: a reload keeps it, and a stored list that fails the check is dropped', async () => {
+  const store = new Store(dataDir);
+  const ann = store.users.find((u) => u.login === 'ann');
+  assert.deepEqual(ann.colorRecent, RECENT);
+  assert.deepEqual(store.colorRecent(ann), RECENT);
+  assert.equal(store.colorRecent(store.users.find((u) => u.login === 'admin')), null);
+  for (const colorRecent of ['#d62828', { color: '#d62828', opacity: 100 }, [{ color: '#D62828', opacity: 100 }], [{ color: '#d62828', opacity: 100, name: 'x' }],
+    [{ color: 'url(x)', opacity: 100 }], [{ color: '#d62828', opacity: 1.5 }], [{ color: '#d62828', opacity: 100 }, { color: '#d62828', opacity: 100 }], many(9)]) {
+    assert.equal('colorRecent' in store.sanitizeUser({ key: 'key1abc', login: 'x', colorRecent }), false, JSON.stringify(colorRecent).slice(0, 60));
+  }
+  assert.deepEqual(store.sanitizeUser({ key: 'key2abc', login: 'y', colorRecent: many(8) }).colorRecent, many(8));
+  assert.throws(() => store.setColorRecent('nope', []), /no such user/);
+  assert.throws(() => store.setColorRecent(ann.key, many(9)), /at most 8/);
+  assert.deepEqual(store.colorRecent(store.users.find((u) => u.login === 'ann')), RECENT, 'a refusal changes nothing');
 });
 
 fs.rmSync(dataDir, { recursive: true, force: true });

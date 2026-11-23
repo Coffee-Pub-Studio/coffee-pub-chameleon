@@ -90,6 +90,15 @@ Thomas, 2026-11-22 (the palette becomes the person's own grid).
 25. **No theme colours: colours stay fixed.** Thomas chose "No, colours stay fixed". The theme's tints and its text colour are not offered in the picker or the grid. His question was whether colours that follow the theme were offered before the picker. The answer, from the code before the picker: the Whiteboard offered the 8 theme tints and the theme's text colour, which followed the theme, and a background "Default" that follows the theme; its Light and Dark families and the host pages' 16 named swatches (`colour-pick.js`) were fixed. Reason: a picked colour is data and looks the same in every theme and mode (decision 7).
 26. **A module's own palette replaces the grid in that picker, and is not editable there.** This is the project manager's lean, standing unless Thomas says otherwise. A picker opened with `palette` shows the module's colours in place of the person's grid, with no "+", no Remove and no drop. Reason: the module's colours are the module's, and editing them in one picker would not reach the module.
 
+Thomas, 2026-11-22 (Recent).
+
+27. **Recent is kept with the person's account, like the grid.** Thomas: "yes, keep recent with my account too". Recent follows the person to any device and works in every module, sandboxed ones included. It is stored and reached the same way as the grid. Before this, Recent was kept in the browser per module, so it was empty on another device and not kept at all in a sandboxed module. This replaces the per-browser Recent of decision 22 ("Recent stays as it is"). These are the project manager's leans, not Thomas's words, and stand unless he says otherwise:
+    - one Recent list per person across all modules, not one per module;
+    - the last 8 colours chosen, newest first, each with its opacity, `{ color, opacity }`;
+    - not shown while empty;
+    - a module's own `palette` doesn't change Recent;
+    - a choice adds to the front, and drops an older copy of the same colour and opacity.
+
 **What decision 5 lets the plan drop.**
 
 - **Keeping `colour-pick.js`'s exports.** The first draft kept `upgradeColourInputs` and `colourPicker` so their users would not change. Now `colour-pick.js` is removed, and `module-settings.js`, `list-rows.js` and `template-pages.js` call the SDK's colour field directly. `tools/check-template-pages-b.mjs`, which stubs the old import line, changes with them.
@@ -280,7 +289,7 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 3. **Opacity** (decisions 2 and 8: always shown): a slider from clear to solid, over a checked ground so clear is visible. Where the opacity is not kept (`opacity: false`), there is no slider and no line, and the answer's opacity is 100 (decision 20, which replaces decisions 8 and 11).
 4. **A row**: a swatch of the chosen colour (half over a checked ground when opacity is below 100), the **Hex** field (`#2f6cbf`; it takes `2f6cbf` or `#2F6CBF` and shows it lower case), and **Pick from the screen** (the eyedropper button), shown only where the browser has it and it works here.
 5. **The palette**: the person's grid, one grid of swatches in rows of 8 with no headings, sorted by colour, and a "+" at its end (decisions 22 and 23; "The person's colour grid"). With a module's `palette`, the module's own groups instead, not editable (decision 26). *Before 2026-11-22: the default's three groups (Light, Dark, Strong), each a row of 8 under its heading; replaced by decision 22.*
-6. **Recent**: the last 8 colours chosen with this picker in this browser, newest first; not shown when empty.
+6. **Recent**: the last 8 colours the person chose, in any module, newest first, each with its opacity; not shown when empty; kept on their account (decision 27). *Before 2026-11-22: the last 8 chosen with this picker in this browser; replaced by decision 27.*
 
 - **Theme tokens only** for the picker itself: surface, edges, words, focus ring, the check disc. The colours inside the area, the sliders and the swatches are data, set as custom properties (`--sw` as today, and one or two more for the hue and the chosen colour), never as declarations in a stylesheet. The checked ground behind opacity is drawn from tokens (two mixes of `--text-primary` over the surface).
 - **Selected** is a check on a neutral disc over a swatch, never an accent border (design-theme, "Selected states"; `check-nav`).
@@ -320,7 +329,7 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 - A live one under Live SDK pieces (`components-3.js`), opened from a trigger, as the date and kind pickers are there.
 - `tools/check-design-system-catalog.mjs` holds every class the entry draws to a real rule.
 
-### The person's colour grid (server-development and experience-design; core; decisions 22 to 26)
+### The person's colour grid (server-development and experience-design; core; decisions 22 to 27)
 
 This is a core change: `server/` (a route and the account's stored data), `public/sdk/host.js` and `public/module-host.js`. Thomas named no kind of build for it, so it is a try build: one builder per half, its own checks, no independent read and no QA, and every check green on `main` before it merges (`CLAUDE.md`, "Core stability"). What follows is the planner's proposal where Thomas's words don't settle it.
 
@@ -364,7 +373,7 @@ This is a core change: `server/` (a route and the account's stored data), `publi
 - **Choosing** a grid colour answers its `color` and its `opacity`, as a swatch does now; with `opacity: false` it answers the colour at 100.
 - **A swatch below 100** is drawn half over the checked ground, as the chosen-colour swatch is.
 - **Saving.** Each add or remove is saved at once; there is no Save button. If the save is refused, the grid goes back to what it was and the picker shows the server's sentence in its line under the grid.
-- **Recent** stays as built: the last 8 picked with this module in this browser (decision 22).
+- **Recent** is kept on the account (decision 27). The last 8 colours chosen, newest first, each `{ color, opacity }`, one list per person across all modules. A choice adds to the front and drops an older copy of the same colour and opacity. It is not shown while empty, and a module's own `palette` doesn't change it. It is stored beside the grid as `colorRecent` on the account, and read and written through the same page calls as the grid. The route is the server builder's to name. It is checked as strictly as the grid, with a limit of 8. *Before 2026-11-22: "stays as built: the last 8 picked with this module in this browser", kept in `localStorage` under `app:colour:<moduleId>`; replaced by decision 27, and kept here as the record.*
 - **A module's palette** replaces the grid and is not editable: no "+", no drag target, no Remove (decision 26).
 - **No reset.** There is no "Back to the starting colours" in version 1 (open question 10).
 
@@ -391,7 +400,7 @@ This is a core change: `server/` (a route and the account's stored data), `publi
 - Colours other than `#rrggbb` (no `rgb()`, `hsl()`, names or `#rrggbbaa` in or out), and other colour spaces (no OKLCH, no P3).
 - Gradients, patterns (#544's "pattern option" for fills is the Whiteboard's own), and palettes that a person or an environment names and shares with others. A person's own grid, kept on their account, is in (decision 23); it has no name and is never shared. *Before 2026-11-22 this line also kept out any saved palette a person keeps; decision 23 brings their own grid in.*
 - Several grids per person, names for colours a person adds, and a way back to the starting colours (open question 10).
-- Recent colours kept on the server or shared between devices or people.
+- Recent colours shared between people. *Before 2026-11-22 this also kept Recent off the server and off other devices; decision 27 brings it onto the person's account.*
 - A contrast warning inside the picker (decision 3).
 - The host's button rectangle for a toolbar or title-bar button (#480 point 3; decision 1), and swatches on toolbar buttons (#480 point 1).
 - The theme editor's colour fields (open question 5).
