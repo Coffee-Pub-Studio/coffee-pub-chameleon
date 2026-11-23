@@ -9,7 +9,8 @@ dialog, the Roles row and each module's edit and delete actions (module lane, on
 server half as a security change; content-manager documents.
 
 **Status:** Draft, awaiting Thomas's approval of the whole plan; questions 1, 2 (and 3), 5 and 9 decided by him; the rest
-taken on leans. 2026-11-23. Nothing built. Thomas, 2026-11-23: "i no longer agree with "never delete".
+taken on leans. 2026-11-23. Decision 8 (no agent action waits for a page) added 2026-11-23; the gaps it leaves are planned
+in [plan-agent-server-actions](plan-agent-server-actions.md). Thomas, 2026-11-23: "i no longer agree with "never delete".
 I think "never delete without permission to do so which comes from the user"". Asked how an agent gets that permission,
 he chose the option **Right plus approval for each delete**. Asked whether ordinary agents should also get a visible
 review list, he answered "yes, add the review list with undo". The request behind it is a real-work test (ChatGPT as an
@@ -53,6 +54,15 @@ Only what Thomas decided. The planner's leans are under "Options" and "What is n
 7. **An agent may ask to delete objects other people made, with approval** (Thomas, 2026-11-23, question 9). A person who
    could delete the object themselves must approve that one ask, and Undo restores it. Not chosen: only objects the agent
    made.
+8. **Every agent action runs on the server at once; no action waits for a page to be open** (Thomas, 2026-11-23: "in
+   general i want to move away from 'waits until someone [opens the module]...' for the reasons we have already
+   discussed. I do not want this same decision to come up one module at a time... this is for all things. An agent is
+   not useful if you also have to be in the app for it to get real-time updates."). Page-only is not an acceptable end
+   state for any module, and a module is not done for agents until its actions run on the server (`actions.server`).
+   This covers what an action does after its write too: a reminder, a link, an announcement or a phase's end that waits
+   for a page is a wait, and is replaced by the server doing it. It is decided for every module at once and is not asked
+   again module by module. The work is planned in [plan-agent-server-actions](plan-agent-server-actions.md); a module's
+   done list carries it ([plan-release](plan-release.md), "What done means for a module", item 13).
 
 ## What it is today
 
