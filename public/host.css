@@ -141,6 +141,7 @@ fieldset.hc-part > legend.hc-part-name + * { clear: both; }
 .template-modules { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; }
 .phase-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .phase-row input[type="text"] { flex: 1 1 8rem; min-width: 0; }
+.phase-row > .sdk-choice-row, .phase-row > .list-tools { flex: none; width: auto; } /* one line: id, label, the colour chip, Main and the buttons */
 @media (max-width: 640px) {
   .module-display-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .module-display-row > :first-child { grid-column: 1 / -1; }

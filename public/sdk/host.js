@@ -2614,7 +2614,6 @@
   const COLOUR_ICONS = {
     check: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.2 11.6 2.4 7.8l1.4-1.4 2.4 2.4 6-6 1.4 1.4z"/></svg>',
     dropper: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M13.4 1.3a2 2 0 0 0-2.8 0L8.9 3l-.7-.7-1.4 1.4.7.7-5.2 5.2a1 1 0 0 0-.3.7V13h2.7a1 1 0 0 0 .7-.3l5.2-5.2.7.7 1.4-1.4-.7-.7 1.7-1.7a2 2 0 0 0 0-2.8zM4.3 11.5h-.8v-.8l5.1-5.1.8.8z"/></svg>',
-    chevron: '<svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M2.3 5.3 8 11l5.7-5.7-1.4-1.4L8 8.2 3.7 3.9z"/></svg>',
     plus: '<svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M7 2h2v5h5v2H9v5H7V9H2V7h5z"/></svg>',
   };
   // The ends of the area (no colour at the top right is "white", the bottom is "black") and the hue track's stops, worked out from the
@@ -3355,8 +3354,9 @@
     });
   }
 
-  // A colour field: a trigger (.sdk-picker: a swatch, the hex in words, a chevron) on an <input> the module or page has, which stays,
-  // hidden, holding '#rrggbb'. The picker opens under the trigger; a choice sets the input and sends `input` and `change` from it.
+  // A colour field: a colour chip (.sdk-picker: a square button filled with the colour, no words and no chevron; the hex is its
+  // tooltip and in its name) on an <input> the module or page has, which stays, hidden, holding '#rrggbb'. Pressed, the picker opens
+  // under the chip; a choice sets the input and sends `input` and `change` from it.
   function colourField(input, o) {
     if (!input || input.nodeType !== 1 || input.tagName !== 'INPUT') throw new Error('host.ui.colorField needs an <input>');
     const opt = o && typeof o === 'object' ? o : {};
@@ -3374,9 +3374,8 @@
     trigger.className = 'sdk-picker';
     trigger.setAttribute('aria-haspopup', 'dialog');
     trigger.setAttribute('aria-expanded', 'false');
-    trigger.innerHTML = `<span class="sdk-picker-sw" aria-hidden="true"></span><span class="sdk-picker-value"><span class="sdk-hex"></span></span><span class="sdk-picker-icon" aria-hidden="true">${COLOUR_ICONS.chevron}</span>`;
+    trigger.innerHTML = '<span class="sdk-picker-sw" aria-hidden="true"></span>';
     const sw = trigger.querySelector('.sdk-picker-sw');
-    const words = trigger.querySelector('.sdk-hex');
     const was = { hidden: input.hidden, tabIndex: input.getAttribute('tabindex') };
     input.hidden = true;
     input.tabIndex = -1;
@@ -3394,20 +3393,21 @@
     // grid's first colour then).
     const held = () => colourClean(input.value);
     const value = () => held() || palette[0].colours[0].color;
-    // `none`: the words the trigger shows while the input holds no colour (an empty swatch then), for a field where no colour is a
-    // choice the page offers beside it ("No colour"); set('') then empties the field. Without it the trigger shows the first colour.
+    // `none`: the words the chip's name and tooltip say while the input holds no colour (an empty, checked swatch then), for a field
+    // where no colour is a choice the page offers beside it ("No colour"); set('') then empties the field. Without it the chip shows
+    // the first colour.
     const none = typeof opt.none === 'string' ? opt.none.trim().slice(0, 40) : '';
     const show = (c) => {
       sw.removeAttribute('data-none');
       sw.style.setProperty('--sw', c);
-      words.textContent = c;
+      trigger.title = c;
       trigger.setAttribute('aria-label', `${label}, ${names.has(c) ? `${names.get(c)}, ` : ''}${c}. Change it`);
     };
     const showHeld = () => {
       if (held() || !none) { show(value()); return; }
       sw.dataset.none = '';
       sw.style.removeProperty('--sw');
-      words.textContent = none;
+      trigger.title = none;
       trigger.setAttribute('aria-label', `${label}, ${none}. Change it`);
     };
     showHeld();
