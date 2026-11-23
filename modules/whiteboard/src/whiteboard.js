@@ -745,8 +745,8 @@
   let copyButton = null;
   let pasteButton = null;
   // The host calls a button's handler from a loop over a live set, so a button made again inside its own click (the rows change when something is
-  // pasted or cut) is called again by that same click. The clipboard buttons answer one click once.
-  let clipHeld = false;
+  // pasted or cut, or when presenting starts) is called again by that same click. The toolbar buttons that change the rows answer one click once.
+  let clickHeld = false;
   // A copy from the buttons also leaves a short line on the phone's own clipboard, so a Paste can tell that the board's copy is the newer one
   // (what was on the clipboard before, a picture or a table, is gone); the keys put CLIP_MARK there instead.
   const CLIP_LINE = 'Whiteboard blocks';
@@ -787,7 +787,7 @@
     if (sys && sys.files.length) { note('Only pictures can go on the board.'); return; }
     paste();
   }
-  const clipOnce = (fn) => () => { if (clipHeld) return; clipHeld = true; setTimeout(() => { clipHeld = false; }, 0); fn(); };
+  const clickOnce = (fn) => (e) => { if (clickHeld) return; clickHeld = true; setTimeout(() => { clickHeld = false; }, 0); fn(e); };
   function toolbarTail() {
     const wantPresent = [...board.all()].some((b) => wbIsFrame(b));
     const wantDelete = [...sel].some((id) => policy.canDelete(board.get(id)));
@@ -799,12 +799,12 @@
     if (Boolean(presentTool) === wantPresent && Boolean(deleteButton) === wantDelete && Boolean(arrangeButton) === wantArrange && Boolean(cutButton) === wantCopy && Boolean(copyButton) === wantCopy && Boolean(pasteButton) === wantPaste) return;
     for (const b of [arrangeButton, cutButton, copyButton, pasteButton, deleteButton, presentTool]) if (b) b.destroy();
     arrangeButton = cutButton = copyButton = pasteButton = deleteButton = presentTool = null;
-    if (wantPresent) presentTool = host.ui.toolbarButton({ id: 'present-tool', label: 'Present the frames', icon: 'play', iconOnly: true, on: Boolean(presenting), onClick: () => presentToggle() });
-    if (wantCopy) cutButton = host.ui.toolbarButton({ id: 'clip-cut', label: 'Cut', icon: 'scissors', iconOnly: true, onClick: clipOnce(() => { if (presenting) return; if (tool.id === 'area' && pictureArea) copyArea(true); else { copy({ cut: true }); writeClipLine(); } }) });
-    if (wantCopy) copyButton = host.ui.toolbarButton({ id: 'clip-copy', label: 'Copy', icon: 'copy', iconOnly: true, onClick: clipOnce(() => { if (tool.id === 'area' && pictureArea) copyArea(false); else { copy(); writeClipLine(); } }) });
-    if (wantPaste) pasteButton = host.ui.toolbarButton({ id: 'clip-paste', label: 'Paste', icon: 'paste', iconOnly: true, onClick: clipOnce(() => pasteButtonPress()) });
-    if (wantDelete) deleteButton = host.ui.toolbarButton({ id: 'delete', label: 'Delete', icon: 'trash', iconOnly: true, onClick: () => removeMany([...sel]) });
-    if (wantArrange) arrangeButton = host.ui.toolbarButton({ id: 'arrange', label: 'Arrange', icon: 'arrows-left-right-to-line', iconOnly: true, onClick: (e) => arrangeMenu(toolbarAt(e)) });
+    if (wantPresent) presentTool = host.ui.toolbarButton({ id: 'present-tool', label: 'Present the frames', icon: 'play', iconOnly: true, on: Boolean(presenting), onClick: clickOnce(() => presentToggle()) });
+    if (wantCopy) cutButton = host.ui.toolbarButton({ id: 'clip-cut', label: 'Cut', icon: 'scissors', iconOnly: true, onClick: clickOnce(() => { if (presenting) return; if (tool.id === 'area' && pictureArea) copyArea(true); else { copy({ cut: true }); writeClipLine(); } }) });
+    if (wantCopy) copyButton = host.ui.toolbarButton({ id: 'clip-copy', label: 'Copy', icon: 'copy', iconOnly: true, onClick: clickOnce(() => { if (tool.id === 'area' && pictureArea) copyArea(false); else { copy(); writeClipLine(); } }) });
+    if (wantPaste) pasteButton = host.ui.toolbarButton({ id: 'clip-paste', label: 'Paste', icon: 'paste', iconOnly: true, onClick: clickOnce(() => pasteButtonPress()) });
+    if (wantDelete) deleteButton = host.ui.toolbarButton({ id: 'delete', label: 'Delete', icon: 'trash', iconOnly: true, onClick: clickOnce(() => removeMany([...sel])) });
+    if (wantArrange) arrangeButton = host.ui.toolbarButton({ id: 'arrange', label: 'Arrange', icon: 'arrows-left-right-to-line', iconOnly: true, onClick: clickOnce((e) => arrangeMenu(toolbarAt(e))) });
   }
   // The Present button: start (or follow a presentation to everyone, when one runs and this person is not in it), or leave.
   function presentToggle() {
