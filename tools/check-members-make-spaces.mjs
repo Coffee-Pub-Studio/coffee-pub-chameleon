@@ -36,6 +36,7 @@ const test = async (name, fn) => {
 const work = fs.mkdtempSync(path.join(os.tmpdir(), 'check-members-make-spaces-'));
 const copy = (name) => { const to = path.join(work, name.replace(/\.js$/, '.mjs')); fs.writeFileSync(to, fs.readFileSync(path.join(ROOT, 'public', name), 'utf8').replace(/from '\/([a-z-]+)\.js'/g, "from './$1.mjs'")); return to; };
 copy('template-choice.js');
+copy('action-bar.js');
 const { mayMakeSpace } = await import(pathToFileURL(copy('primary-nav.js')).href);
 const { addBody } = await import(pathToFileURL(copy('space-add.js')).href);
 
@@ -254,12 +255,12 @@ try {
           assert.equal(d.ok, 'Add');
           assert.equal(await noOverflow(tab), true, 'the form fits the screen');
           if (width < 640) {
-            // A phone's tap targets: the fields, the people's rows and the two buttons are 44 px tall.
-            const low = await tab.eval(`[...document.querySelectorAll('dialog.space-add :is(#space-add-name, #space-add-template, .sdk-choice-row, .sdk-dialog-foot .btn)')].map((e) => [e.id || e.className, Math.round(e.getBoundingClientRect().height)]).filter(([, h]) => h < 44)`);
+            // A phone's tap targets: the fields, the people's rows and the two buttons are 44 px tall (the bar's small buttons by their hit area, as check-phone-targets counts).
+            const low = await tab.eval(`[...document.querySelectorAll('dialog.space-add :is(#space-add-name, #space-add-template, .sdk-choice-row, .action-bar .btn)')].map((e) => { const a = getComputedStyle(e, '::after'); const hit = a.content !== 'none' && a.position === 'absolute' ? parseFloat(a.height) : 0; return [e.id || e.className, Math.round(Math.max(e.getBoundingClientRect().height, hit))]; }).filter(([, h]) => h < 44)`);
             assert.deepEqual(low, [], 'every target 44 px tall on a phone');
           }
           const name = `Mine ${width} ${mode}`;
-          await tab.eval(`(() => { const i = document.getElementById('space-add-name'); i.value = ${JSON.stringify(name)}; const b = document.querySelector('dialog.space-add input[data-member]'); b.checked = true; })()`);
+          await tab.eval(`(() => { const i = document.getElementById('space-add-name'); i.value = ${JSON.stringify(name)}; i.dispatchEvent(new Event('input', { bubbles: true })); const b = document.querySelector('dialog.space-add input[data-member]'); b.checked = true; b.dispatchEvent(new Event('change', { bubbles: true })); })()`);
           await shot(tab, `member-form-${width}-${mode}`);
           await tab.eval(`document.querySelector('dialog.space-add [data-ok]').click()`);
           await tab.waitFor('body.in-space', undefined, 20000);
@@ -295,7 +296,10 @@ try {
         assert.match(await tab.eval(`document.querySelector('dialog.space-add [data-error]').textContent`), /can't use its own template while that is turned off/);
         assert.equal(await tab.eval(`document.querySelector('dialog.space-add [data-ok]').disabled`), false, 'Add can be pressed again');
         await api('PATCH', '/api/settings', { spaceTemplates: true });
-        await tab.eval(`document.querySelector('dialog.space-add .sdk-dialog-foot [data-close]').click()`);
+        await tab.eval(`document.querySelector('dialog.space-add .action-bar [data-close]').click()`);
+        await sleep(300);
+        assert.equal(await tab.eval(`document.querySelector('dialog.space-add .action-bar-ask:not([hidden])') !== null`), true, 'a half-filled form asks "Discard changes?" first');
+        await tab.eval(`document.querySelector('dialog.space-add .action-bar-discard').click()`);
         await sleep(500);
         assert.equal(await tab.eval(`Boolean(document.querySelector('dialog.space-add'))`), false, 'closed');
         assert.equal(await count(), before, 'nothing made');
