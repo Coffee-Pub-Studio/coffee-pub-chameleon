@@ -1,40 +1,41 @@
-// Set up (documentation/plans/plan-setup-panel.md; plan-one-bar.md, decision 5, step 4): every setting of a space in
-// one side panel on the space's own screen, with tabs and Save and Cancel in an action bar locked to its bottom
-// (public/action-bar.js). The bar's Set up tool puts `body.setting-up` on (and shows pressed), the space's name becomes
-// an input in the bar, and this panel opens (a full-screen sheet on a phone). `/?setup=<id>#<tab>` opens it from an
+// Set up (documentation/plans/plan-setup-panel.md; plan-workspaces.md, decision 38): every setting of a space in one side
+// panel on the space's own screen, titled "<Space> Configuration", with tabs and Save and Cancel in an action bar locked to
+// its bottom (public/action-bar.js). The bar's Set up tool puts `body.setting-up` on (and shows pressed), the space's name
+// becomes an input in the bar, and this panel opens (a full-screen sheet on a phone). `/?setup=<id>#<tab>` opens it from an
 // address (space.js; setupAddress below reads it).
 //
-// The tabs, each a code id that is also its address fragment (#show, #space, #members, #phases, #modules). Two ids
-// differ from the words a person reads, and are kept as they are (links and stored addresses use them): `show` is
-// the tab labelled "Modules" (the first tab) and `modules` is the tab labelled "Settings" (the last).
-//   show        "Modules": the page's menu of modules (the switches), Arrange and Layouts
-//   space       the picture, name, description, faces in the call, launch link, link icon, the published calendar
-//               switch, and a danger section with Delete (its own confirmation here; it does not wait for Save)
-//   members     the members and the guest link switch (drafts), then Generate invite link and the guest link (actions, at once)
-//   phases      each phase's start and end, inline, through the rule in public/phases.js (a draft; the phase chip's
-//               sheet is its own surface and still saves as it is set there), then the budget (while a module here
-//               reads it, or one is set: #216; budgetTabOf says where it goes when the template has no phases)
-//   modules     "Settings": first the First visit section (the Workspace with its Opens with switches, Calendar, Map or a
-//               shared layout; a saved id that cannot open now is kept and said why; a default layout can be stopped),
-//               then Turn AI off and What AI may see (an owner's), then a section per module with its settings for this space (module-settings.js, its draft mode)
-// An owner and the admin see every tab; a moderator sees phases and Settings (First visit and the module settings; the
-// server lets a moderator PATCH exactly `phases`, `defaultLayout`, `tabs`, `closed` and `budget`, and set a space's module
-// settings; the Budget field is on the phases tab, which the three of them see);
-// a member has no Set up. A tab with nothing to show (no phases in the template, no module settings for a moderator) is
-// left out. The Lobby shows no Delete, no member switches and no calendar switch.
+// Six tabs, one job each, in this order; each code id is also its address fragment and is the tab's own word:
+//   details   "Details": the picture, name, description, template, launch link, link icon, the published calendar switch,
+//             the budget when the template has no phases, and last a danger section with Delete (its own confirmation
+//             here; it does not wait for Save)
+//   members   the member word: the members, Who can enter (with People can ask to come in), Waiting to come in, Guests can
+//             see costs, then the invite link and the guest link (actions, at once)
+//   phases    "Phases": each phase's start and end, inline, through the rule in public/phases.js (a draft; the phase chip's
+//             sheet is its own surface and still saves as it is set there), then the budget (budgetTabOf)
+//   call      "Call": Join on entry, Position and Layout (the space's own, else the template's), then Faces in the call
+//   layout    "Layout": Tabs in the bar (the fixed layouts: show, hide, order, Opens first), First visit, and for a moderator
+//             the open and close switch (an owner's is in Who can enter, on Members)
+//   modules   the module word: Turn AI off and What AI may see (an owner's), Tags, then a section per module with its
+//             settings for this space (module-settings.js, its draft mode) and the switches a Fixed Workspace offers for
+//             it (the server's list, server/fixed-workspaces.js, answered with GET /api/spaces/:id/layouts)
+// What is personal (Open for you, Arrange, the layout picker) is not here: it is the Layout button's menu (canvas.js,
+// space.js layoutMenuItems), because it changes only this person's own canvas.
+// An owner and the admin see all six; a moderator sees Phases, Call, Layout and Modules (the server lets a moderator PATCH
+// exactly `phases`, `defaultLayout`, `tabs`, `closed`, `budget` and the call's settings, and set a space's module settings);
+// a member has no Set up. Phases is left out when the template has none; no other tab comes and goes.
+// Each tab says once, at its top, what Save does there and what happens at once (saveCue).
 //
 // Every field is a draft until Save. Save sends, in order, and stops at the first refusal: PATCH /api/spaces/:id with
-// what changed (one body; a moderator's holds only their fields), the picture (PUT or DELETE /api/spaces/:id/image),
-// then each changed module's settings (PUT /api/modules/:id/settings/space). (The plan's module switches are not
-// here: availability per space was removed, and the server ignores a module's list of spaces.) A
-// refusal keeps the panel open on that field's tab with the server's sentence and the keyboard on the field, and says
-// what did save. After a full save the panel closes. A tab with unsaved changes shows a dot. Cancel drops every draft;
-// Escape cancels at once when nothing changed and asks "Discard your changes?" when something did; a click outside does
-// nothing.
+// what changed (one body; a moderator's holds only their fields), the call's own PATCH, the picture (PUT or DELETE
+// /api/spaces/:id/image), each changed module's settings (PUT /api/modules/:id/settings/space), then each changed Fixed
+// Workspace switch (PUT /api/modules/:id/settings/<its scope>). A refusal keeps the panel open on that field's tab with the
+// server's sentence and the keyboard on the field, and says what did save. After a full save the panel closes. A tab with
+// unsaved changes shows a dot. Cancel drops every draft; Escape cancels at once when nothing changed and asks "Discard your
+// changes?" when something did; a click outside does nothing.
 //
 // The pure parts (setupTabs, pickTab, setupAddress, setupPatch, dirtyTabs, takeSaved, problemField, setupSaidWords,
-// budgetEntryProblem, budgetWanted) touch no
-// document, so tools/check-nav.mjs runs them in node; the page hands the panel what it needs (createSpaceSetup's `deps`).
+// budgetEntryProblem, budgetWanted, fixedRows, saveCue) touch no document, so tools/check-nav.mjs runs them in node; the
+// page hands the panel what it needs (createSpaceSetup's `deps`).
 import { actionBar } from './action-bar.js';
 import { groupOf } from './composites.js';
 import { confirmDialog } from './confirm.js';
@@ -47,17 +48,16 @@ import { rowsOf, dayWords, plainDays, sameDates, tintOf, rowIconHtml } from './p
 export const configurationLabel = (word, aside = false) => `${word(aside ? 'aside' : 'space', { cap: true })} Configuration`;
 
 // The tabs, in the order shown, by rights.
-export const SETUP_TABS = Object.freeze(['space', 'members', 'phases', 'modules']);
+export const SETUP_TABS = Object.freeze(['details', 'members', 'phases', 'call', 'layout', 'modules']);
 export const OWNER_TABS = SETUP_TABS;
-export const MODERATOR_TABS = Object.freeze(['phases', 'modules']);
-// The fields a moderator's PATCH may hold (server/index.js, MODERATOR_SPACE_FIELDS).
+export const MODERATOR_TABS = Object.freeze(['phases', 'call', 'layout', 'modules']);
+// The fields a moderator's PATCH may hold (server/index.js, MODERATOR_SPACE_FIELDS; the call goes in its own PATCH).
 export const MODERATOR_FIELDS = Object.freeze(['phases', 'defaultLayout', 'tabs', 'budget', 'closed']);
-// `phases`: the template has phases. Settings is always there for an owner and a moderator: the First visit section is
-// in it, so it never has nothing to show.
-// `show`: the Modules tab (id `show`: the modules' switches, Arrange and Layouts, for everyone wider than a phone) comes first.
-export function setupTabs({ owner = false, moderator = false, phases = true, show = false } = {}) {
+// `phases`: the template has phases. Phases is the only tab that comes and goes: every other tab always has something for
+// the roles that see it (Layout its tabs in the bar, Modules its tags and the module settings, Call the call's three).
+export function setupTabs({ owner = false, moderator = false, phases = true } = {}) {
   const tabs = owner ? OWNER_TABS : moderator ? MODERATOR_TABS : [];
-  return [...(show ? ['show'] : []), ...tabs].filter((t) => t !== 'phases' || phases);
+  return tabs.filter((t) => t !== 'phases' || phases);
 }
 // The tab an address fragment asks for, else the first the person may see (an unknown fragment is never an error).
 export function pickTab(tabs, hash = '') {
@@ -71,55 +71,72 @@ export function setupAddress(search = '', hash = '') {
   if (!id || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) return null;
   return { id, tab: String(hash || '').replace(/^#/, '') };
 }
+// A tab's name. `word` is the page's word helper: Members and Modules follow the template's words.
+export const tabLabelOf = (id, word = (w, o = {}) => (o.many ? `${w}s` : w)) => ({
+  details: 'Details', members: word('member', { many: true, cap: true }), phases: 'Phases', call: 'Call', layout: 'Layout', modules: word('module', { many: true, cap: true }),
+})[id] || id;
+// What each tab says once at its top: whether its changes wait for Save, and what happens at once instead. `done`: the
+// phases show a Done switch (measured by goals or progress). Text for textContent.
+export function saveCue(id, { done = false } = {}) {
+  return ({
+    details: 'Saved with Save. Delete happens at once.',
+    members: 'Saved with Save. Waiting to come in and Links happen at once.',
+    phases: done ? 'Saved with Save. A phase\'s Done switch happens at once.' : 'Saved with Save.',
+    call: 'Saved with Save.',
+    layout: 'Saved with Save.',
+    modules: 'Saved with Save. Tags and deleting a file happen at once.',
+  })[id] || 'Saved with Save.';
+}
 
 // Which tab each saved field lives on (the dirty dots, and the tab a refusal opens).
 export const FIELD_TAB = Object.freeze({
-  name: 'space', description: 'space', template: 'space', profile: 'space', link: 'space', linkIcon: 'space', publishCalendar: 'space', image: 'space', imageRemoved: 'space', budget: 'phases',
-  members: 'members', allowGuests: 'members', entry: 'members', requestAccess: 'members', closed: 'members',
+  name: 'details', description: 'details', template: 'details', link: 'details', linkIcon: 'details', publishCalendar: 'details', image: 'details', imageRemoved: 'details', budget: 'phases',
+  members: 'members', allowGuests: 'members', entry: 'members', requestAccess: 'members', closed: 'members', guestsSeeHidden: 'members',
   phases: 'phases',
-  defaultLayout: 'modules', tabs: 'modules',
+  call: 'call', profile: 'call',
+  defaultLayout: 'layout', tabs: 'layout',
   aiOff: 'modules', aiSees: 'modules',
-  call: 'space',
 });
-// A module's settings, in the save's lists and its words, are `module:<id>`; they live on the Settings tab (id `modules`), as does the First visit section.
-// The tab the budget is on: the phases tab (every role with a Set up has it), else, when the template has no phases, the
-// space tab (an owner's), else the Settings tab (a moderator's, with First visit). `tabs` is the tabs the person has.
-// The Modules tab by kind of workspace (plan-workspaces.md, decisions 33 to 35). A Customizable Workspace (the Workspace, a saved
-// layout) shows the canvas menu: the modules, Arrange, Layouts, Open for you. A Fixed Workspace (Conference, Calendar, Map,
-// Whiteboards, Documents, Projects) shows none of that: only the switches its layouts entry offers (`settings`, from the server), or a
-// sentence saying there is nothing to configure.
-export const FIXED_WORKSPACES = Object.freeze(['conference', 'calendar', 'map', 'whiteboard', 'documents', 'schedule']);
-export const NOTHING_TO_CONFIGURE = 'There is nothing to configure here.';
-// The layouts entry of the Fixed Workspace shown, or null (a Customizable Workspace, or no entry yet).
-export function fixedWorkspaceOf(system = [], shownId = 'workspace') {
-  if (!FIXED_WORKSPACES.includes(shownId)) return null;
-  const entry = (Array.isArray(system) ? system : []).find((l) => l && l.id === shownId);
-  return entry && Array.isArray(entry.settings) ? entry : null;
-}
+// A module's settings, in the save's lists and its words, are `module:<id>`, and a Fixed Workspace switch `fixed:<module>:<key>`;
+// both live on the Modules tab.
+// The tab the budget is on: the phases tab (every role with a Set up has it when the template has phases), else Details (an
+// owner's), else Modules (a moderator's, beside the module settings that read it). `tabs` is the tabs the person has.
+export const budgetTabOf = (tabs) => (tabs.includes('phases') ? 'phases' : tabs.includes('details') ? 'details' : 'modules');
+// Closing a space is an owner's in Who can enter on Members, and a moderator's on Layout (a moderator has no Members tab).
+export const closedTabOf = (tabs) => (tabs.includes('members') ? 'members' : 'layout');
+
+// The Fixed Workspaces' switches (plan-workspaces.md, decisions 35 and 38): from the layouts the server lists for this space
+// (`system`, each Fixed Workspace with its `settings`), one row per module setting, each once even when two workspaces offer
+// it, grouped under its module. A row is { id, module, moduleName, key, scope, label, note, on, disabled, where }: `where` the
+// workspaces that show it ("the Calendar"), `note` the setting's help, then who it applies to or why it cannot be changed.
+// `word` is the page's word helper. All of it is text for textContent.
 // Why a switch is dimmed, by the scope of the setting it writes.
-// `word` is the page's word helper (the template's words for the roles); the default says the role names as they are.
 export const fixedSwitchReason = (scope, word = (w) => w) => (scope === 'space' ? `Only the ${word('owner')} or the ${word('moderator')} can change this.` : `Only the ${word('owner')} can change this.`);
-// What the tab draws: { fixed, canvasControls, heading, rows, empty }. A row is { id, module, key, scope, label, note, on, disabled }.
-// `note` is the setting's help, then the reason when the person may not change it. All of it is text for textContent.
-export function modulesTabView(entry = null, word = undefined) {
-  if (!entry || !Array.isArray(entry.settings)) return { fixed: false, canvasControls: true, heading: '', rows: [], empty: '' };
-  const rows = entry.settings.filter((d) => d && d.type === 'boolean' && typeof d.module === 'string' && typeof d.key === 'string').map((d) => ({
-    id: `${d.module}:${d.key}`,
-    module: d.module,
-    key: d.key,
-    scope: d.scope === 'space' || d.scope === 'person' ? d.scope : 'environment',
-    label: String(d.label || d.key),
-    note: [d.help ? String(d.help) : '', d.canChange ? '' : fixedSwitchReason(d.scope, word)].filter(Boolean).join(' '),
-    on: Boolean(d.value),
-    disabled: !d.canChange,
-  }));
-  return { fixed: true, canvasControls: false, heading: String(entry.name || entry.defaultName || entry.id || ''), rows, empty: rows.length ? '' : NOTHING_TO_CONFIGURE };
+export function fixedRows(system = [], word = (w) => w) {
+  const rows = new Map();
+  for (const entry of Array.isArray(system) ? system : []) {
+    if (!entry || entry.id === 'workspace' || !Array.isArray(entry.settings)) continue;
+    const place = String(entry.name || entry.defaultName || entry.id || '');
+    for (const d of entry.settings) {
+      if (!d || d.type !== 'boolean' || typeof d.module !== 'string' || typeof d.key !== 'string') continue;
+      const id = `${d.module}:${d.key}`;
+      const had = rows.get(id);
+      if (had) { if (place && !had.where.includes(place)) had.where.push(place); continue; }
+      const scope = d.scope === 'space' || d.scope === 'person' ? d.scope : 'environment';
+      const reach = scope === 'environment' ? `It applies to every ${word('space')} in the ${word('environment')}.` : '';
+      rows.set(id, {
+        id, module: d.module, moduleName: String(d.moduleName || d.module), key: d.key, scope,
+        label: String(d.label || d.key),
+        note: [d.help ? String(d.help) : '', d.canChange ? reach : fixedSwitchReason(scope, word)].filter(Boolean).join(' '),
+        on: Boolean(d.value),
+        disabled: !d.canChange,
+        where: place ? [place] : [],
+      });
+    }
+  }
+  return [...rows.values()];
 }
 
-export const budgetTabOf = (tabs) => (tabs.includes('phases') ? 'phases' : tabs.includes('space') ? 'space' : 'modules');
-// Closing a space is an owner's on the Members tab, and a moderator's on the Settings tab (which has no Members tab).
-// The call's three settings (plan-templates-redesign.md, step 4; decision 37): on the space tab (an owner's), else the Settings tab (a moderator's).
-export const callTabOf = (tabs) => (tabs.includes('space') ? 'space' : 'modules');
 // What Set up offers for each, in the words a person reads (the call's own menu and layout buttons say the same). `null` is the
 // template's. The values are the server's (server/call-settings.js).
 export const CALL_POSITION_CHOICES = Object.freeze([
@@ -145,7 +162,7 @@ export function callPatch(before = {}, after = {}) {
   for (const k of Object.keys(was)) if (was[k] !== now[k]) call[k] = now[k];
   return Object.keys(call).length ? { call } : {};
 }
-export const tabOfField = (f, tabs = null) => (f === 'call' && tabs ? callTabOf(tabs) : f === 'budget' && tabs ? budgetTabOf(tabs) : f === 'closed' && tabs && !tabs.includes('members') ? 'modules' : FIELD_TAB[f] || (String(f).startsWith('module:') ? 'modules' : null));
+export const tabOfField = (f, tabs = null) => (f === 'budget' && tabs ? budgetTabOf(tabs) : f === 'closed' && tabs ? closedTabOf(tabs) : FIELD_TAB[f] || (/^(module|fixed):/.test(String(f)) ? 'modules' : null));
 
 // The four switches of Who can enter, from the stored fields: `open` (Members of the space; off = closed for set up),
 // `accounts` (all the environment's members), `invited` (Invited guests: the guest link) and `visiting` (Visiting guests, from
@@ -322,10 +339,10 @@ export function setupPatch(before = {}, after = {}, { phaseIds = null } = {}) {
 }
 
 // The tabs with unsaved changes: the PATCH's fields, the picture when one was chosen or removed, and a module's
-// settings when any changed.
+// settings (or a Fixed Workspace switch) when any changed.
 export function dirtyTabs(patch = {}, { image = false, modules = false, tabs: have = null } = {}) {
   const tabs = new Set(Object.keys(patch).map((f) => (FIELD_TAB[f] ? tabOfField(f, have) : null)).filter(Boolean));
-  if (image) tabs.add('space');
+  if (image) tabs.add('details');
   if (modules) tabs.add('modules');
   return tabs;
 }
@@ -349,7 +366,7 @@ export function problemField(patch = {}, problem = '') {
 const FIELD_WORDS = {
   name: 'the name', description: 'the description', template: 'the template', profile: 'the faces in the call', link: 'the launch link', linkIcon: 'the link icon',
   publishCalendar: 'the published calendar', phases: 'the phase dates', aiOff: 'Turn AI off', aiSees: 'What AI may see',
-  defaultLayout: 'the first visit', tabs: 'the layouts', call: 'the call settings', image: 'the picture', imageRemoved: 'the picture', budget: 'the budget',
+  defaultLayout: 'the first visit', tabs: 'the tabs in the bar', call: 'the call settings', image: 'the picture', imageRemoved: 'the picture', budget: 'the budget',
 };
 export function setupSaidWords({ saved = [], failed = null, problem = '' } = {}, { setUp = 'Set up', words = {} } = {}) {
   const wordOf = (f) => words[f] || FIELD_WORDS[f] || f;
@@ -437,10 +454,10 @@ export function createSpaceSetup(deps) {
   const modulesWord = (cap = false) => word('module', { many: true, cap });
   const switchRow = (id, label) => `<label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label">${label}</span></span><input type="checkbox" class="sdk-switch" role="switch" id="${id}"></label>`;
   const configLabel = () => configurationLabel(word, Boolean(state && state.space && state.space.isAside)); // the button's name too (space.js setupLabel)
-  const tabLabel = (id) => ({ show: modulesWord(true), space: word('space', { cap: true }), members: membersWord(true), phases: 'Phases', modules: 'Settings' })[id];
+  const tabLabel = (id) => tabLabelOf(id, word);
   const sectionHtml = (id, title, inner, { hidden = false, cls = '' } = {}) => `<section class="setup-section${cls ? ` ${cls}` : ''}" data-section="${id}"${hidden ? ' hidden' : ''}><h3 class="setup-heading">${title}</h3>${inner}</section>`;
 
-  function spaceTabHtml() {
+  function detailsTabHtml() {
     const { space } = state;
     const parts = [];
     parts.push(sectionHtml('picture', 'Picture', `
@@ -455,13 +472,7 @@ export function createSpaceSetup(deps) {
         <p class="hint">Shown with its name on Home.</p>`));
     parts.push(sectionHtml('name', 'Name', '<label class="setup-field"><span class="visually-hidden">Name</span><input type="text" id="setup-name" maxlength="40" autocomplete="off"></label><p class="hint">Shown in the bar and on Home.</p>'));
     parts.push(sectionHtml('description', 'Description <span class="sdk-optional">(optional)</span>', `<label class="setup-field"><span class="visually-hidden">Description</span><textarea id="setup-description" rows="3" maxlength="300"></textarea></label><p class="hint">A line or two about this ${esc(spaceWord())}.</p>`));
-    if (!space.isLobby) parts.push(sectionHtml('template', 'Template', `<label class="setup-field"><span class="visually-hidden">Template</span><select id="setup-template"></select></label><p class="hint" id="setup-template-about"></p><p class="hint">Its words, phases and ${esc(word('module'))} names in this ${esc(spaceWord())}. Saved with Save.</p>`, { hidden: true }));
-    parts.push(sectionHtml('faces', 'Faces in the call', `
-        <label class="setup-field"><span class="visually-hidden">Faces in the call</span><select id="setup-profile">
-          <option value="participants">People's own pictures</option>
-          <option value="characters">Their character pictures</option>
-        </select></label>
-        <p class="hint">What each person's tile shows while their camera is off.</p>`));
+    if (!space.isLobby) parts.push(sectionHtml('template', 'Template', `<label class="setup-field"><span class="visually-hidden">Template</span><select id="setup-template"></select></label><p class="hint" id="setup-template-about"></p><p class="hint">Its words, phases and ${esc(word('module'))} names in this ${esc(spaceWord())}.</p>`, { hidden: true }));
     const enter = typeof deps.verb === 'function' ? deps.verb('enter') : 'Enter';
     parts.push(sectionHtml('link', 'Launch link <span class="sdk-optional">(optional)</span>', `<label class="setup-field"><span class="visually-hidden">Launch link</span><input type="url" id="setup-link" maxlength="500" placeholder="https://your-game-or-site.example" autocomplete="off" inputmode="url"></label><p class="hint">A button next to ${esc(enter)} and in the call's toolbar opens it.</p>`));
     if ((typeof deps.icons === 'function' ? deps.icons() : []).length) {
@@ -473,7 +484,7 @@ export function createSpaceSetup(deps) {
     return parts.join('');
   }
 
-  // The Delete section: the last thing on the space tab, after the budget and everything else (draw adds it). Not for the Lobby.
+  // The Delete section: the last thing on the Details tab, after the budget and everything else (draw adds it). Not for the Lobby.
   function dangerSectionHtml() {
     return sectionHtml('danger', `Delete this ${esc(spaceWord())}`, `
         <button type="button" class="btn btn-small btn-danger" id="setup-delete" aria-haspopup="true" aria-expanded="false"><i class="fa-solid fa-trash fa-fw" aria-hidden="true"></i> Delete ${esc(spaceWord())}</button>
@@ -501,20 +512,30 @@ export function createSpaceSetup(deps) {
         <p class="hint" id="setup-budget-hint"></p>`, { hidden: true });
   }
 
-  // The call (plan-templates-redesign.md, step 4): Join on entry, Position and Layout, each the template's until set. Drawn for
-  // every space but the Lobby and an aside, on the tab callTabOf names, and shown once the stored values are in (hidden
-  // until then, so nothing typed is lost). Saved with Save, as its own request. A person's own Position and Layout, picked in
-  // the call, win over these.
+  // The Call tab (plan-templates-redesign.md, step 4; plan-workspaces.md, decision 38): Join on entry, Position and Layout,
+  // each the template's until set, for every space but the Lobby and an aside, shown once the stored values are in (hidden
+  // until then, so nothing typed is lost) and saved with Save as its own request (a person's own Position and Layout,
+  // picked in the call, win over these); then, an owner's, Faces in the call.
   function callSectionHtml() {
     const options = (list) => `<option value="">${esc(CALL_SAME)}</option>${list.map(([v, label]) => `<option value="${v}">${esc(label)}</option>`).join('')}`;
     const field = (id, label, list, hint) => `<div class="setup-call-field"><label class="setup-call-label" for="${id}">${esc(label)}</label><select id="${id}" class="setup-call-select">${list}</select><p class="hint" id="${id}-now"></p></div>`;
-    return sectionHtml('call', '<span id="setup-call-heading">Call</span>', `
+    return sectionHtml('call', '<span id="setup-call-heading">How the call opens</span>', `
         <div class="setup-call" role="group" aria-labelledby="setup-call-heading">
           ${field('setup-call-join', 'Join on entry', `<option value="">${esc(CALL_SAME)}</option><option value="true">Join the call on entry</option><option value="false">Do not join on entry</option>`)}
           ${field('setup-call-position', 'Position', options(CALL_POSITION_CHOICES))}
           ${field('setup-call-layout', 'Layout', options(CALL_LAYOUT_CHOICES))}
         </div>
         <p class="hint">Joining on entry starts with the microphone and camera off. A person's own position and layout win once they pick them.</p>`, { hidden: true });
+  }
+  function callTabHtml() {
+    const parts = [callAsked() ? callSectionHtml() : ''];
+    if (state.owner) parts.push(sectionHtml('faces', 'Faces in the call', `
+        <label class="setup-field"><span class="visually-hidden">Faces in the call</span><select id="setup-profile">
+          <option value="participants">People's own pictures</option>
+          <option value="characters">Their character pictures</option>
+        </select></label>
+        <p class="hint">What each person's tile shows while their camera is off.</p>`));
+    return parts.join('');
   }
   const callAsked = () => !state.space.isLobby && !state.space.isAside;
   const callWord = (list, v) => (list.find(([x]) => x === v) || [, ''])[1];
@@ -550,7 +571,7 @@ export function createSpaceSetup(deps) {
     const parts = [];
     parts.push(sectionHtml('members', `<span id="setup-members-heading">${esc(membersWord(true))}</span>`, space.isLobby
       ? `<p class="hint">Everyone belongs to the ${esc(space.name || 'Lobby')}.</p>`
-      : `<div class="setup-members" id="setup-members" role="group" aria-labelledby="setup-members-heading"></div><p class="hint">Who is in this ${esc(spaceWord())}. Saved with Save.</p>`));
+      : `<div class="setup-members" id="setup-members" role="group" aria-labelledby="setup-members-heading"></div><p class="hint">Who is in this ${esc(spaceWord())}.</p>`));
     if (state.owner && !space.isLobby) {
       parts.push(sectionHtml('entry', '<span id="setup-entry-heading">Who can enter</span>', `<div class="setup-switches" id="setup-entry" role="group" aria-labelledby="setup-entry-heading">
           ${switchRow('setup-open', '<span id="setup-open-label"></span>')}
@@ -559,13 +580,12 @@ export function createSpaceSetup(deps) {
           ${switchRow('setup-entry-guests', esc(`Visiting ${guestsMany}`))}
         </div><p class="hint" id="setup-closed-note" hidden>This ${esc(spaceWord())} is closed for set up. Only ${esc(word('owner', { many: true }))}, its ${esc(word('moderator', { many: true }))} and the ${esc(word('admin'))} can enter it. The other switches keep what they were.</p>
         <p class="hint" id="setup-door-note" hidden>The host has not turned ${esc(word('guest'))} sign-in on, so this does nothing yet.</p>
-        <p class="hint" id="setup-entry-hint">${esc(membersWord(true))} of the ${esc(spaceWord())} come in. All ${esc(membersWord())} see it on Home and can join it. Invited ${esc(guestsMany)} come in with a ${esc(word('guest'))} link. Visiting ${esc(guestsMany)} come in from the sign-in page with just a name. Saved with Save.</p>
-        <label class="sdk-choice-row setup-ask-row"><span class="sdk-choice-text"><span class="sdk-choice-label">People can ask to come in</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-request-access"></label><p class="hint">Someone who cannot enter sees this ${esc(spaceWord())}'s name, picture and description, and can ask. Saved with Save.</p>`));
+        <p class="hint" id="setup-entry-hint">${esc(membersWord(true))} of the ${esc(spaceWord())} come in. All ${esc(membersWord())} see it on Home and can join it. Invited ${esc(guestsMany)} come in with a ${esc(word('guest'))} link. Visiting ${esc(guestsMany)} come in from the sign-in page with just a name.</p>
+        <label class="sdk-choice-row setup-ask-row"><span class="sdk-choice-text"><span class="sdk-choice-label">People can ask to come in</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-request-access"></label><p class="hint">Someone who cannot enter sees this ${esc(spaceWord())}'s name, picture and description, and can ask.</p>`));
       parts.push(sectionHtml('waiting', 'Waiting to come in', `<div id="setup-waiting"></div><p class="setup-links-status" id="setup-waiting-status" role="status" aria-live="polite"></p>`));
     }
-    parts.push(sectionHtml('guests', esc(guests), `<label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label">${esc(guests)} can see costs and booking codes</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-guests-see-hidden"></label><p class="hint">Off keeps amounts and booking codes from ${esc(guests.toLowerCase())}. Only ${esc(word('owner', { many: true }))} can change this. Saved with Save.</p>`));
+    parts.push(sectionHtml('guests', esc(guests), `<label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label">${esc(guests)} can see costs and booking codes</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-guests-see-hidden"></label><p class="hint">Off keeps amounts and booking codes from ${esc(guests.toLowerCase())}. Only ${esc(word('owner', { many: true }))} can change this.</p>`));
     parts.push(sectionHtml('links', 'Links', `
-        <p class="hint setup-links-hint">These work at once; they are not part of Save.</p>
         <h4 class="setup-subheading">Invite to sign up</h4>
         <div class="setup-link-row">
           <button type="button" class="btn btn-small" id="setup-make-invite"><i class="fa-solid fa-envelope fa-fw" aria-hidden="true"></i> Generate invite link</button>
@@ -620,21 +640,21 @@ export function createSpaceSetup(deps) {
           <button type="button" class="btn btn-small" id="setup-phase-first-go">Start</button>
         </div>
         <ol class="phase-list setup-phase-list" id="setup-phase-list" aria-labelledby="setup-phases-heading">${rows}</ol>
-        <p class="hint">Each phase starts the day after the one before ends. A phase with no dates is skipped. Saved with Save.</p>
+        <p class="hint">Each phase starts the day after the one before ends. A phase with no dates is skipped.</p>
         <p class="setup-phases-status" id="setup-phases-status" role="status" aria-live="polite"></p></section>`;
   }
 
-  // Layouts, a section of the Settings tab (plan-workspaces.md, step 3, decisions 4, 13 and 22): one row per fixed layout this
+  // Tabs in the bar, the first section of the Layout tab (plan-workspaces.md, step 3, decisions 4, 13, 22 and 38): one row per fixed layout this
   // space can show, in the owner's order, each with Show in the bar (the Workspace's is on and cannot be turned off), Move up
   // and Move down (buttons, so no dragging), and Opens first: the radios of one name, `setup-first-visit`, that First visit's
   // shared layouts share. One choice, the space's defaultLayout. Painted by paintLayoutRows(); a draft, saved with Save.
   function layoutsSectionHtml() {
-    return `<section class="setup-section" data-section="layouts"><h3 class="setup-heading" id="setup-layouts-heading">Layouts</h3>
-        <p class="hint" id="setup-layouts-hint">Which layouts show in the bar at the top of this ${esc(spaceWord())}, in what order, and which opens first. Everyone in this ${esc(spaceWord())} sees them. One you show is pinned: it stays in the bar for everyone, and nobody can hide it for themselves. Saved with Save.</p>
+    return `<section class="setup-section" data-section="layouts"><h3 class="setup-heading" id="setup-layouts-heading">Tabs in the bar</h3>
+        <p class="hint" id="setup-layouts-hint">Which tabs show in the bar at the top of this ${esc(spaceWord())}, in what order, and which opens first. Everyone in this ${esc(spaceWord())} sees them. One you show is pinned: it stays in the bar for everyone, and nobody can hide it for themselves.</p>
         <ul class="setup-layout-rows" id="setup-layout-rows" aria-labelledby="setup-layouts-heading" aria-describedby="setup-layouts-hint"></ul>
         <p class="visually-hidden" id="setup-layouts-live" role="status" aria-live="polite"></p></section>`;
   }
-  // First visit, a section of the Settings tab (plan-layout-views.md, step 5; plan-workspaces.md, step 3): what a new person sees
+  // First visit, a section of the Layout tab (plan-layout-views.md, step 5; plan-workspaces.md, step 3): what a new person sees
   // in the Workspace (the template's layout, one read-only line; plan-layout-picker.md, step 3), and the shared layouts by name, which share Opens first's radios with the
   // fixed layouts above (paintLayouts). Each person's own arrangement is remembered once they have a module open.
   function firstVisitHtml() {
@@ -655,24 +675,31 @@ export function createSpaceSetup(deps) {
         <p class="hint" id="setup-layout-note" hidden></p></section>`;
   }
 
-  // The Settings tab (id `modules`; plan-setup-panel.md, step 5). It starts with the First visit section (everyone with this
-  // tab). For an owner and the admin: the modules on here (a list: an enabled
-  // module is on in every space, so there are no switches; Manage's Modules tab turns one on or off), Turn AI off while
-  // AI Assistant is on, then a section per module with its settings for this space. A moderator sees the
-  // module settings only. The settings are drawn by module-settings.js in its draft mode (no Save on each).
-  function modulesTabHtml() {
+  // The Layout tab (plan-workspaces.md, decision 38): Tabs in the bar, then First visit; for a moderator, who has no Members
+  // tab, the one switch of Who can enter that is theirs, closing the space while it is set up. It sits here because it
+  // decides who can come in to see what this tab sets out (the owner's own is in Who can enter, on Members).
+  function layoutTabHtml() {
     const parts = [layoutsSectionHtml(), firstVisitHtml()];
-    if (!state.owner && !state.space.isLobby) parts.unshift(sectionHtml('template-seen', 'Template', `<p id="setup-template-seen"></p><p class="hint">Only the ${esc(word('owner'))} can change it.</p>`, { hidden: true }));
-    if (state.owner) {
-      parts.push(sectionHtml('ai', '<i class="fa-solid fa-wand-magic-sparkles fa-fw" aria-hidden="true"></i> AI', `<label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label">Turn AI off in this ${esc(spaceWord())}</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-ai-off"></label><p class="hint">${esc(modulesWord(true))} here can use AI Assistant to summarise and answer questions. Turned off, nobody here can, whatever the roles allow. Saved with Save.</p>`, { hidden: true }));
-      parts.push(sectionHtml('ai-sees', 'What AI may see', `<p class="hint">What goes to the AI with a question in this ${esc(spaceWord())}. This only narrows it: the AI never sees what the person asking could not open. Saved with Save.</p><label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label" id="setup-ai-sees-follow-label">Same as the ${esc(word('environment'))}'s choice</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-ai-sees-follow"></label><div id="setup-ai-sees-box"></div>`, { hidden: true }));
-    }
-    // A moderator has no Members tab, so closing is here for them: the one switch of Who can enter that is theirs.
     if (!state.owner && !state.space.isLobby) {
-      parts.push(sectionHtml('open', '<span id="setup-open-heading">Who can enter</span>', `${switchRow('setup-open', '<span id="setup-open-label"></span>')}<p class="hint" id="setup-closed-note" hidden>This ${esc(spaceWord())} is closed for set up. Only ${esc(word('owner', { many: true }))}, its ${esc(word('moderator', { many: true }))} and the ${esc(word('admin'))} can enter it.</p><p class="hint">Turn this off to close the ${esc(spaceWord())} while you set it up. Turn it on to open it again. Saved with Save.</p>`));
+      parts.push(sectionHtml('open', '<span id="setup-open-heading">Who can enter</span>', `${switchRow('setup-open', '<span id="setup-open-label"></span>')}<p class="hint" id="setup-closed-note" hidden>This ${esc(spaceWord())} is closed for set up. Only ${esc(word('owner', { many: true }))}, its ${esc(word('moderator', { many: true }))} and the ${esc(word('admin'))} can enter it.</p><p class="hint">Turn this off to close the ${esc(spaceWord())} while you set it up. Turn it on to open it again.</p>`));
+    }
+    return parts.join('');
+  }
+
+  // The Modules tab (id `modules`; plan-setup-panel.md, step 5; plan-workspaces.md, decision 38): for a moderator first the
+  // template this space reads (an owner chooses it on Details); for an owner and the admin where modules are turned on,
+  // then Turn AI off while AI Assistant is on, and What AI may see; then Tags; then a section per module with its settings
+  // for this space (module-settings.js in its draft mode, no Save on each) and, in it, the switches a Fixed Workspace offers
+  // for that module (paintFixed).
+  function modulesTabHtml() {
+    const parts = [];
+    if (!state.owner && !state.space.isLobby) parts.push(sectionHtml('template-seen', 'Template', `<p id="setup-template-seen"></p><p class="hint">Only the ${esc(word('owner'))} can change it.</p>`, { hidden: true }));
+    if (state.owner) {
+      parts.push(sectionHtml('ai', '<i class="fa-solid fa-wand-magic-sparkles fa-fw" aria-hidden="true"></i> AI', `<label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label">Turn AI off in this ${esc(spaceWord())}</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-ai-off"></label><p class="hint">${esc(modulesWord(true))} here can use AI Assistant to summarise and answer questions. Turned off, nobody here can, whatever the roles allow.</p>`, { hidden: true }));
+      parts.push(sectionHtml('ai-sees', 'What AI may see', `<p class="hint">What goes to the AI with a question in this ${esc(spaceWord())}. This only narrows it: the AI never sees what the person asking could not open.</p><label class="sdk-choice-row"><span class="sdk-choice-text"><span class="sdk-choice-label" id="setup-ai-sees-follow-label">Same as the ${esc(word('environment'))}'s choice</span></span><input type="checkbox" class="sdk-switch" role="switch" id="setup-ai-sees-follow"></label><div id="setup-ai-sees-box"></div>`, { hidden: true }));
     }
     if (!state.space.isLobby) parts.push(tagsSectionHtml());
-    parts.push(sectionHtml('module-settings', `${esc(word('module', { cap: true }))} settings`, `<p class="hint">What each ${esc(word('module'))} does in this ${esc(spaceWord())}. Saved with Save; deleting a file happens at once.</p><div class="setup-module-settings" id="setup-module-settings"><p class="hint">Loading…</p></div>`));
+    parts.push(sectionHtml('module-settings', `${esc(word('module', { cap: true }))} settings`, `<p class="hint">What each ${esc(word('module'))} does in this ${esc(spaceWord())}.${state.owner ? ` <span id="setup-modules-note">${esc(modulesWord(true))} are turned on for the whole ${esc(word('environment'))} in Manage.</span>` : ''}</p><div class="setup-module-settings" id="setup-module-settings"><p class="hint">Loading…</p></div><div class="setup-fixed-modules" id="setup-fixed-modules"></div>`));
     return parts.join('');
   }
 
@@ -682,7 +709,7 @@ export function createSpaceSetup(deps) {
   // answers in a sentence; a tag is made from a module's tag picker, not here. A name is set with textContent or .value.
   const TAG_TONES = ['gold', 'blue', 'green', 'teal', 'purple', 'red', 'orange', 'pink'];
   function tagsSectionHtml() {
-    return sectionHtml('tags', 'Tags', `<p class="hint">The shared tags of this ${esc(spaceWord())}, used by every ${esc(word('module'))} that has them. A change happens at once and does not wait for Save. A new name or colour shows on everything tagged; deleting a tag takes it off everything.</p><div class="setup-tags" id="setup-tags" role="list"><p class="hint">Loading…</p></div><p class="setup-tags-status status" id="setup-tags-status" role="status" aria-live="polite"></p>`);
+    return sectionHtml('tags', 'Tags', `<p class="hint">The shared tags of this ${esc(spaceWord())}, used by every ${esc(word('module'))} that has them. A new name or colour shows on everything tagged; deleting a tag takes it off everything.</p><div class="setup-tags" id="setup-tags" role="list"><p class="hint">Loading…</p></div><p class="setup-tags-status status" id="setup-tags-status" role="status" aria-live="polite"></p>`);
   }
   const tagsPath = (spaceId, tag = '') => `/api/spaces/${encodeURIComponent(spaceId)}/tags${tag ? `/${encodeURIComponent(tag)}` : ''}`;
   function tagsSay(words, bad = false) {
@@ -793,15 +820,13 @@ export function createSpaceSetup(deps) {
     paintTags();
   }
 
-  // The Modules tab (id `show`): the menu is drawn into #setup-show; an owner and the admin read at its foot where modules are turned on.
-  const showTabHtml = () => `<p class="hint setup-show-hint" id="setup-show-hint">What is open for you right now. Each person arranges their own; this does not change what a new person sees.</p><div class="setup-show" id="setup-show"></div>${state.owner ? `<p class="hint setup-modules-note" id="setup-modules-note">${esc(modulesWord(true))} are turned on for the whole ${esc(word('environment'))} in Manage.</p>` : ''}`;
-  const TAB_HTML = { show: showTabHtml, space: spaceTabHtml, members: membersTabHtml, phases: phasesTabHtml, modules: modulesTabHtml };
+  const TAB_HTML = { details: detailsTabHtml, members: membersTabHtml, phases: phasesTabHtml, call: callTabHtml, layout: layoutTabHtml, modules: modulesTabHtml };
 
   function draw() {
     const { tabs, space } = state;
     const one = tabs.length === 1;
     const tabButtons = tabs.map((id) => `<button type="button" role="tab" class="setup-tab" id="setup-tab-${id}" data-tab="${id}" aria-controls="setup-content-${id}" aria-selected="false" tabindex="-1"><span class="setup-tab-label">${esc(tabLabel(id))}</span><span class="setup-tab-dot" aria-hidden="true" hidden></span><span class="visually-hidden setup-tab-unsaved"></span></button>`).join('');
-    const contents = tabs.map((id) => `<div role="tabpanel" class="setup-tab-content" id="setup-content-${id}" data-tab="${id}" aria-labelledby="setup-tab-${id}" tabindex="-1" hidden>${TAB_HTML[id]()}${id === budgetTabOf(tabs) && !space.isLobby ? budgetSectionHtml() : ''}${id === callTabOf(tabs) && callAsked() ? callSectionHtml() : ''}${id === 'space' && !space.isLobby ? dangerSectionHtml() : ''}</div>`).join('');
+    const contents = tabs.map((id) => `<div role="tabpanel" class="setup-tab-content" id="setup-content-${id}" data-tab="${id}" aria-labelledby="setup-tab-${id}" tabindex="-1" hidden><p class="hint setup-cue" data-cue="${id}">${esc(saveCue(id))}</p>${TAB_HTML[id]()}${id === budgetTabOf(tabs) && !space.isLobby ? budgetSectionHtml() : ''}${id === 'details' && !space.isLobby ? dangerSectionHtml() : ''}</div>`).join('');
     el.innerHTML = `
       <div class="setup-head">
         <h2 id="space-setup-title">${esc(one ? tabLabel(tabs[0]) : configLabel())}</h2>
@@ -814,7 +839,6 @@ export function createSpaceSetup(deps) {
     state.bar = actionBar({
       label: 'Save the set up',
       doc,
-      readOnly: !(state.opts.owner || state.opts.moderator), // only the Modules tab: nothing to save, only Close
       ids: { save: 'setup-save', cancel: 'setup-cancel-button' },
       discardWords: 'Discard your changes?',
       dirty: isDirty,
@@ -825,77 +849,69 @@ export function createSpaceSetup(deps) {
     el.querySelector('#space-setup-which').textContent = space.name;
     fillFields();
     wire();
-    mountShow();
   }
 
-  // The Modules tab (id `show`): the page's menu of modules, Arrange and Layouts (canvas.mountMenu), drawn into the tab and kept up to date.
-  // In a Fixed Workspace (opts.fixedWorkspace() gives its layouts entry) the tab is that workspace's switches instead (modulesTabView).
-  function mountShow() {
-    const holder = q('#setup-show');
-    if (!holder || typeof state.opts.show !== 'function') return;
-    const entry = typeof state.opts.fixedWorkspace === 'function' ? state.opts.fixedWorkspace() : null;
-    const view = modulesTabView(entry, word);
-    const sig = view.fixed ? JSON.stringify([entry.id, view.heading, view.empty, view.rows.map((r) => [r.id, r.label, r.note, r.disabled])]) : 'canvas'; // not the values: a save's own answer must not redraw the row
-    if (state.showSig === sig) return;
-    state.showSig = sig;
-    state.showView?.destroy();
-    state.showView = null;
-    holder.replaceChildren();
-    for (const id of ['#setup-show-hint', '#setup-modules-note']) { const n = q(id); if (n) n.hidden = view.fixed; }
-    if (!view.fixed) { state.showView = state.opts.show(holder); return; }
-    drawFixedModules(holder, view);
-  }
-  // The heading, then one switch row per setting (texts set with textContent: they come from module manifests), or the sentence.
-  function drawFixedModules(holder, view) {
-    const head = doc.createElement('h3');
-    head.className = 'setup-heading';
-    head.id = 'setup-fixed-heading';
-    head.textContent = view.heading;
-    holder.appendChild(head);
-    if (!view.rows.length) {
-      const p = doc.createElement('p');
-      p.className = 'hint';
-      p.id = 'setup-fixed-empty';
-      p.textContent = view.empty;
-      holder.appendChild(p);
-      return;
+  // The Fixed Workspaces' switches (fixedRows), each under its module's section on the Modules tab: in the module's own card
+  // when it has settings for this space, else in a section of its own named after it. A switch is a draft, saved with Save
+  // through the module's own settings route for its scope (what Manage writes); `state.fixedDraft` holds what was changed.
+  // Drawn again whenever either part arrives (the layouts list, the module settings); the labels come from module
+  // manifests and are set with textContent.
+  function paintFixed() {
+    if (!state) return;
+    const holder = q('#setup-fixed-modules');
+    if (!holder) return;
+    for (const old of el.querySelectorAll('[data-fixed-block]')) old.remove();
+    const rows = fixedRows(state.layouts.system, word);
+    state.fixedRows = rows;
+    const byModule = new Map();
+    for (const r of rows) { if (!byModule.has(r.module)) byModule.set(r.module, []); byModule.get(r.module).push(r); }
+    for (const [moduleId, list] of byModule) {
+      const block = doc.createElement('div');
+      block.className = 'setup-fixed-block';
+      block.dataset.fixedBlock = moduleId;
+      const card = state.moduleSettings && state.moduleSettings.sectionOf(moduleId);
+      const icon = ((state.options.modules || []).find((m) => m.id === moduleId) || {}).icon || '';
+      if (!card) {
+        block.classList.add('module-settings-card', 'module-settings-draft');
+        const head = doc.createElement('h4');
+        head.className = 'module-settings-name';
+        if (/^[a-z0-9-]{1,40}$/.test(icon)) {
+          const i = doc.createElement('i');
+          i.className = `fa-solid fa-${icon} fa-fw`;
+          i.setAttribute('aria-hidden', 'true');
+          head.append(i, doc.createTextNode(' '));
+        }
+        head.append(doc.createTextNode(list[0].moduleName));
+        block.appendChild(head);
+      }
+      for (const r of list) {
+        const sub = doc.createElement('p');
+        sub.className = 'setup-subheading';
+        sub.textContent = r.where.length ? `In the ${r.where.join(' and ')} ${r.where.length > 1 ? 'tabs' : 'tab'}` : '';
+        const box = doc.createElement('div');
+        box.className = 'switch-list';
+        box.innerHTML = switchListHtml([{ id: r.id, icon, name: ' ', note: r.note ? ' ' : '', on: r.id in state.fixedDraft ? state.fixedDraft[r.id] : r.on, disabled: r.disabled }], 'fixed');
+        const input = box.querySelector('input.sdk-switch');
+        input.dataset.fixed = r.id;
+        const row = input.closest('label');
+        row.querySelector('.sdk-choice-label').textContent = r.label;
+        const desc = row.querySelector('.sdk-choice-desc');
+        if (desc) desc.textContent = r.note;
+        input.addEventListener('change', () => {
+          if (input.checked === r.on) delete state.fixedDraft[r.id]; else state.fixedDraft[r.id] = input.checked;
+          refresh();
+        });
+        wireSwitchList(box);
+        if (sub.textContent) block.appendChild(sub);
+        block.appendChild(box);
+      }
+      (card ? (card.querySelector('.module-settings-fields') || card) : holder).appendChild(block);
     }
-    const list = doc.createElement('div');
-    list.className = 'switch-list';
-    list.id = 'setup-fixed-switches';
-    list.innerHTML = switchListHtml(view.rows.map((r) => ({ id: r.id, name: ' ', note: r.note ? ' ' : '', on: r.on, disabled: r.disabled })), 'fixed');
-    const boxes = [...list.querySelectorAll('input.sdk-switch')];
-    view.rows.forEach((r, i) => {
-      const row = boxes[i].closest('label');
-      row.querySelector('.sdk-choice-label').textContent = r.label;
-      const desc = row.querySelector('.sdk-choice-desc');
-      if (desc) desc.textContent = r.note;
-      boxes[i].addEventListener('change', () => saveFixedSwitch(r, boxes[i]));
-    });
-    wireSwitchList(list);
-    holder.appendChild(list);
-    const say = doc.createElement('p');
-    say.className = 'hint';
-    say.id = 'setup-fixed-status';
-    say.setAttribute('role', 'status');
-    holder.appendChild(say);
+    const section = q('[data-section="module-settings"]');
+    if (section && rows.length) section.hidden = false;
   }
-  // A switch saves at once, through the module's own settings route (what the Settings tab of Manage writes); a refusal puts it back.
-  async function saveFixedSwitch(r, box) {
-    const on = box.checked;
-    const status = () => q('#setup-fixed-status');
-    box.disabled = true;
-    try {
-      await api('PUT', `/api/modules/${encodeURIComponent(r.module)}/settings/${r.scope}`, { values: { [r.key]: on }, ...(r.scope === 'space' ? { space: state.space.id } : {}) });
-      box.disabled = false;
-      if (status()) status().textContent = 'Saved.';
-      if (typeof state.opts.onFixedSaved === 'function') state.opts.onFixedSaved();
-    } catch (err) {
-      box.checked = !on;
-      box.disabled = false;
-      if (status()) status().textContent = (err && err.message) || 'That did not work. Try again.';
-    }
-  }
+  // The Fixed Workspace switches changed and not yet saved: [{ id, row, on }].
+  const fixedChanges = () => (state && state.fixedRows ? state.fixedRows.filter((r) => r.id in state.fixedDraft && state.fixedDraft[r.id] !== r.on).map((r) => ({ id: r.id, row: r, on: state.fixedDraft[r.id] })) : []);
 
   // The tabs that fit show; the rest go into the "..." after them (tabOverflow: the first tab and the one shown never
   // leave). The "..." lists the hidden ones on the shared menu, a check on none of them (the one shown is always in the row).
@@ -984,7 +1000,7 @@ export function createSpaceSetup(deps) {
     about.textContent = (options.find((o) => o.value === q('#setup-template').value) || {}).description || '';
     about.hidden = !about.textContent;
   }
-  // A moderator reads the template and does not choose it (decision 2): a line on Settings, named when the server says the name.
+  // A moderator reads the template and does not choose it (decision 2): a line on the Modules tab, named when the server says the name.
   function paintTemplateSeen(record, on) {
     const section = q('[data-section="template-seen"]');
     if (!section) return;
@@ -1241,8 +1257,9 @@ export function createSpaceSetup(deps) {
     q('#setup-first-visit-layouts').innerHTML = choices.map((c) => `<label class="setup-choice"><input type="radio" name="setup-first-visit" value="${escapeHtml(c.id)}"><i class="fa-solid fa-${escapeHtml(c.icon)} fa-fw" aria-hidden="true"></i><span class="setup-choice-name">${escapeHtml(c.name)}</span></label>`).join('');
     radioChecks();
     const note = q('#setup-layout-note');
-    // A layout for everyone is made with the layout picker, New layout for everyone in the Modules tab (plan-layout-picker.md, step 6).
-    note.textContent = layouts.shared.length ? '' : `A shared layout can be picked too: make one with New layout for everyone, in the ${modulesWord(true)} tab.`;
+    // A layout for everyone is made with the layout picker, New layout for everyone in the Layout button's menu (plan-layout-picker.md, step 6).
+    const menuWord = typeof deps.layoutVerb === 'function' ? deps.layoutVerb() : 'Layout';
+    note.textContent = layouts.shared.length ? '' : `A shared layout can be picked too: make one with New layout for everyone, in the ${menuWord} menu.`;
     note.hidden = !note.textContent;
     paintLayoutLine();
   }
@@ -1347,6 +1364,8 @@ export function createSpaceSetup(deps) {
     if (!note || !got) return;
     const goals = got.measure === 'goals';
     note.hidden = got.measure !== 'goals' && got.measure !== 'progress';
+    const cue = q('[data-cue="phases"]');
+    if (cue) cue.textContent = saveCue('phases', { done: !note.hidden });
     note.textContent = goals ? 'These phases are measured by goals: a phase is done when every goal that names it is done. One no goal names has a Done switch.' : 'These phases are measured by progress: switch a phase to Done when it is done.';
     for (const p of got.phases || []) {
       const box = q(`.phase-row-done[data-done-for="${CSS.escape(p.id)}"]`);
@@ -1654,7 +1673,7 @@ export function createSpaceSetup(deps) {
     if (ai) ai.addEventListener('change', () => { state.draft.aiOff = ai.checked; });
     wireAiSees();
     wireCall();
-    const content = q('#setup-content-modules');
+    const content = q('#setup-content-layout');
     if (content) {
       content.addEventListener('change', layoutsEvent);
       content.addEventListener('click', layoutsEvent);
@@ -1686,13 +1705,13 @@ export function createSpaceSetup(deps) {
   // The modules whose settings were changed here: [{ id, name, values }] (module-settings.js, its draft mode).
   const moduleChanges = () => (state.moduleSettings ? state.moduleSettings.changes() : []);
   function dirtyNow() {
-    return dirtyTabs({ ...patchNow(), ...callPatchNow() }, { image: imageChanged(), modules: moduleChanges().length > 0, tabs: state.tabs });
+    return dirtyTabs({ ...patchNow(), ...callPatchNow() }, { image: imageChanged(), modules: moduleChanges().length > 0 || fixedChanges().length > 0, tabs: state.tabs });
   }
   // Whether something would be lost on Cancel: the PATCH has something in it, a picture was chosen or removed, or a
   // module's settings changed.
   function isDirty() {
     if (!state) return false;
-    return Object.keys(patchNow()).length > 0 || Object.keys(callPatchNow()).length > 0 || imageChanged() || moduleChanges().length > 0;
+    return Object.keys(patchNow()).length > 0 || Object.keys(callPatchNow()).length > 0 || imageChanged() || moduleChanges().length > 0 || fixedChanges().length > 0;
   }
 
   // What the panel draws comes from the server: the space's whole record and the accounts (an owner's tabs), the
@@ -1851,7 +1870,7 @@ export function createSpaceSetup(deps) {
     if (!space.isLobby) loadCalendarSwitch(space);
   }
   // The modules' own settings for this space, drawn without their Saves (module-settings.js, `draft: true`): the panel's
-  // Save sends them. A moderator with none to change has only the First visit section.
+  // Save sends them. With none (and no Fixed Workspace switch) the section is hidden; Tags stay.
   async function loadModuleSettings(space) {
     const box = q('#setup-module-settings');
     if (!box) return;
@@ -1861,8 +1880,9 @@ export function createSpaceSetup(deps) {
     if (!state || state.space.id !== space.id) return;
     state.moduleSettings = answer;
     const section = q('[data-section="module-settings"]');
-    if (answer) { if (section) section.hidden = false; refresh(); return; }
-    if (section) section.hidden = true;
+    if (section) section.hidden = !answer;
+    paintFixed(); // a Fixed Workspace's switches go into the module's card now that it is drawn (and show the section)
+    refresh();
   }
   // The space's place in the published calendar (plan-space-calendars.md, section 2): shown only while an owner has
   // turned publishing on and the module whose events it carries is on, named after it.
@@ -1883,7 +1903,7 @@ export function createSpaceSetup(deps) {
 
   async function loadOptions() {
     const { space } = state;
-    const asks = state.tabs.includes('modules');
+    const asks = state.tabs.includes('layout') || state.tabs.includes('modules');
     const [answer, layouts] = await Promise.all([
       asks ? api('GET', `/api/modules/for-space?space=${encodeURIComponent(space.id)}`).catch(() => ({})) : Promise.resolve({}),
       asks ? api('GET', `/api/spaces/${encodeURIComponent(space.id)}/layouts`).catch(() => ({})) : Promise.resolve({}),
@@ -1919,14 +1939,14 @@ export function createSpaceSetup(deps) {
     // The template's phases (a list) and the rule (public/phases.js); without either, no phases tab.
     const rule = opts.rule || null;
     const phaseList = rule && Array.isArray(opts.phases) ? rule.cleanPhases(opts.phases) : [];
-    const tabs = setupTabs({ owner: opts.owner, moderator: opts.moderator, phases: phaseList.length > 0, show: typeof opts.show === 'function' });
+    const tabs = setupTabs({ owner: opts.owner, moderator: opts.moderator, phases: phaseList.length > 0 });
     if (!tabs.length) return false;
     const before = beforeOf(space);
     state = {
       space, tabs, tab: null, opts, owner: Boolean(opts.owner), before, draft: copyOf(before),
       options: { modules: [], builtin: [], layout: null }, layouts: { system: [], shared: [], canSetDefault: true },
       image: { file: null, url: '', remove: false }, links: { guestToken: space.guestToken || null, allowGuests: space.allowGuests !== false },
-      users: null, saving: false, rule, phaseList, today: opts.today || null, installed: null, moduleSettings: null,
+      users: null, saving: false, rule, phaseList, today: opts.today || null, installed: null, moduleSettings: null, fixedRows: [], fixedDraft: {},
     };
     el.dataset.who = opts.owner ? 'owner' : opts.moderator ? 'moderator' : 'member';
     draw();
@@ -1942,19 +1962,28 @@ export function createSpaceSetup(deps) {
     fitTabs();
     (doc.defaultView || window).requestAnimationFrame(() => fitTabs());
     refresh();
-    loadOptions().then(() => { if (state && state.space.id === space.id) { if (q('#setup-opens-with')) paintOpensWith(); if (q('#setup-first-visit')) paintLayouts(); paintBudgetSection(); refresh(); } });
+    loadOptions().then(() => { if (state && state.space.id === space.id) { if (q('#setup-opens-with')) paintOpensWith(); if (q('#setup-first-visit')) paintLayouts(); paintFixed(); paintBudgetSection(); refresh(); } });
     if (state.owner) loadOwnerParts(space);
     else if (opts.moderator && !space.isLobby) loadModeratorParts(space);
     if (state.tabs.includes('modules')) { loadModuleSettings(space); if (!space.isLobby) loadTags(space); }
     return true;
   }
-  // The keyboard goes to the tab's first field: the name, the first member's switch, the first phase's start (or the
-  // first step's day), the first visit's choice, the first module setting.
-  const FIRST_FIELD = { show: '#setup-show .host-menu-item[tabindex="0"], #setup-fixed-switches input:not(:disabled)', space: '#setup-name', members: '#setup-members input, #setup-allow-guests', phases: '#setup-phase-list input:not(:disabled), #setup-phase-list .phase-add', modules: '#setup-first-visit input:checked, #setup-first-visit input, #setup-module-settings input, #setup-module-settings select' };
+  // The keyboard goes to the tab's first field that shows: the name, the first member's switch, the first phase's start (or
+  // the first step's day), the call's Join on entry (or Faces), the first tab in the bar's switch (or the first visit's
+  // choice), the first of the modules' fields.
+  const FIRST_FIELD = {
+    details: '#setup-name',
+    members: '#setup-members input, #setup-open',
+    phases: '#setup-phase-list input:not(:disabled), #setup-phase-list .phase-add',
+    call: '#setup-call-join, #setup-profile',
+    layout: '#setup-layout-rows [data-layout-show]:not(:disabled), #setup-first-visit input:checked, #setup-first-visit input:not(:disabled), #setup-open',
+    modules: '#setup-ai-off, #setup-tags input, #setup-tags select, #setup-module-settings input, #setup-module-settings select, #setup-fixed-modules input:not(:disabled)',
+  };
+  const shownField = (sel) => [...el.querySelectorAll(sel || ':not(*)')].find((f) => f.getClientRects().length > 0 && !f.disabled) || null;
   function focusFirst() {
     const content = q(`#setup-content-${state.tab}`);
     const firstStep = state.tab === 'phases' && q('#setup-phase-first') && !q('#setup-phase-first').hidden ? q('#setup-phase-first-day') : null;
-    const first = firstStep || q(FIRST_FIELD[state.tab] || '');
+    const first = firstStep || shownField(FIRST_FIELD[state.tab]);
     if (first) first.focus();
     else if (content) content.focus();
   }
@@ -1964,7 +1993,6 @@ export function createSpaceSetup(deps) {
     if (state.image.url) URL.revokeObjectURL(state.image.url);
     const { opts } = state;
     if (state.onBarName && opts.nameInput) opts.nameInput.removeEventListener('input', state.onBarName);
-    state.showView?.destroy();
     state.fitWatch?.disconnect();
     state = null;
     el.hidden = true;
@@ -1990,6 +2018,7 @@ export function createSpaceSetup(deps) {
   function fieldWords() {
     const words = { members: `the ${membersWord()}`, allowGuests: `invited ${word('guest', { many: true })}`, entry: 'who can enter', closed: `whether the ${spaceWord()} is closed for set up` };
     for (const m of (state && state.moduleSettings ? state.moduleSettings.modules : [])) words[`module:${m.id}`] = `the ${m.name} settings`;
+    for (const r of (state ? state.fixedRows : [])) words[`fixed:${r.id}`] = `${r.label} (${r.moduleName})`;
     return words;
   }
   function refused(saved, failed, problem) {
@@ -1998,15 +2027,18 @@ export function createSpaceSetup(deps) {
     if (tab && state.tabs.includes(tab)) select(tab);
     const moduleId = String(failed).startsWith('module:') ? failed.slice(7) : null;
     const card = moduleId && state.moduleSettings ? state.moduleSettings.sectionOf(moduleId) : null;
-    const input = card ? card.querySelector('input, select, textarea, button') : q(FIELD_INPUT[failed] || '') || (failed === 'name' && state.opts.nameInput);
+    const fixedId = String(failed).startsWith('fixed:') ? failed.slice(6) : null;
+    const fixedInput = fixedId ? [...el.querySelectorAll('[data-fixed]')].find((f) => f.dataset.fixed === fixedId) : null;
+    const input = fixedInput || (card ? card.querySelector('input, select, textarea, button') : q(FIELD_INPUT[failed] || '') || (failed === 'name' && state.opts.nameInput));
     if (input) input.focus();
     if (card && typeof card.scrollIntoView === 'function') card.scrollIntoView({ block: 'nearest' });
     refresh();
     return false;
   }
 
-  // One save, in order, stopping at the first refusal: the PATCH for what changed, the picture, then each changed
-  // module's settings. (No module switches: availability per space was removed; the server ignores `spaces`.)
+  // One save, in order, stopping at the first refusal: the PATCH for what changed, the call's, the picture, each changed
+  // module's settings, then each changed Fixed Workspace switch. (No module on/off switches: availability per space was
+  // removed; the server ignores `spaces`.)
   async function done() {
     if (!state || state.saving) return false;
     const { space, image, opts } = state;
@@ -2098,6 +2130,20 @@ export function createSpaceSetup(deps) {
           return refused(saved, `module:${change.id}`, err.message);
         }
       }
+      // A Fixed Workspace's switches: the module's own setting, through its own route for its scope (what Manage writes).
+      const fixedChanged = fixedChanges();
+      for (const { id, row, on } of fixedChanged) {
+        try {
+          await api('PUT', `/api/modules/${encodeURIComponent(row.module)}/settings/${row.scope}`, { values: { [row.key]: on }, ...(row.scope === 'space' ? { space: space.id } : {}) });
+          saved.push(`fixed:${id}`);
+          row.on = on; // what went through is now what was
+          delete state.fixedDraft[id];
+        } catch (err) {
+          if (saved.length && typeof opts.onSaved === 'function') opts.onSaved(answered, saved);
+          return refused(saved, `fixed:${id}`, err.message);
+        }
+      }
+      if (fixedChanged.length && typeof opts.onFixedSaved === 'function') opts.onFixedSaved(); // the values the page holds follow
     } finally {
       if (state) { state.saving = false; el.classList.remove('saving'); }
     }
@@ -2117,5 +2163,5 @@ export function createSpaceSetup(deps) {
     paintBudget();
   }
 
-  return { el, open, close, done, cancel, offerBudget, redrawShow: () => { if (state) mountShow(); }, select: (id) => select(id, { focus: true }), isOpen: () => Boolean(state) };
+  return { el, open, close, done, cancel, offerBudget, select: (id) => select(id, { focus: true }), isOpen: () => Boolean(state) };
 }

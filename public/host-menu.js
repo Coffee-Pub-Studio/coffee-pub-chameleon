@@ -101,7 +101,7 @@ export function openHostMenu(trigger, items) {
   build(trigger, items, false);
 }
 
-// The same entries drawn into `container` and left there (the Set up panel's Modules tab): no position, no closing on a
+// The same entries drawn into `container` and left there (an empty area's module chooser on the canvas): no position, no closing on a
 // press outside or Escape, the keyboard roves between the rows (one tab stop), a category's flyout is the menu's own.
 // Another menu opening does not close it. Gives { redraw, destroy }; redraw draws it again from `items` (a function).
 export function mountHostMenu(container, items) {
@@ -134,6 +134,12 @@ function build(trigger, items, inline) {
     const t = trigger.getBoundingClientRect();
     let x = t.left;
     let y = t.bottom + 4;
+    // A menu longer than the room both under and over its button (the Layout menu on a short window) takes the larger side
+    // and scrolls there, so it never covers the button it opened from.
+    menu.style.maxHeight = '';
+    const below = view.innerHeight - t.bottom - 8;
+    const above = t.top - 8;
+    if (menu.offsetHeight > below && menu.offsetHeight > above && Math.max(below, above) > 120) menu.style.maxHeight = `${Math.floor(Math.max(below, above))}px`;
     if (y + menu.offsetHeight > view.innerHeight) y = t.top - menu.offsetHeight - 4;
     x = Math.max(4, Math.min(x, view.innerWidth - menu.offsetWidth - 4));
     y = Math.max(4, Math.min(y, view.innerHeight - menu.offsetHeight - 4));

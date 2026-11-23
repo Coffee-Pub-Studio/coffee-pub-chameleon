@@ -100,8 +100,8 @@ await test('closing changes only closed; the other three keep their values; reop
   assert.deepEqual(setupPatch({ closed: false }, { closed: true }), { closed: true });
   assert.deepEqual(setupPatch({ closed: true }, { closed: true }), {});
   assert.ok(MODERATOR_FIELDS.includes('closed') && !MODERATOR_FIELDS.includes('entry') && !MODERATOR_FIELDS.includes('allowGuests'));
-  assert.equal(tabOfField('closed', ['phases', 'modules']), 'modules');
-  assert.equal(tabOfField('closed', ['space', 'members', 'phases', 'modules']), 'members');
+  assert.equal(tabOfField('closed', ['phases', 'call', 'layout', 'modules']), 'layout', 'a moderator closes the space on the Layout tab');
+  assert.equal(tabOfField('closed', ['details', 'members', 'phases', 'call', 'layout', 'modules']), 'members', 'an owner in Who can enter, on Members');
 });
 await test('the label: the space name is set as text, truncated, whole in the title', () => {
   const src = fs.readFileSync(path.join(ROOT, 'public', 'space-setup.js'), 'utf8');

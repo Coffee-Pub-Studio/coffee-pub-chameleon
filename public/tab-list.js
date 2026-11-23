@@ -1,5 +1,5 @@
 // A template's tab list (plan-template-tab-list.md): one row per layout in the order a new space shows them, each with a Show
-// check, Move up and Move down. The rows are Set up's Layouts rows (space-setup.js: the same classes and markup, without its
+// check, Move up and Move down. The rows are Set up's Tabs in the bar rows (space-setup.js, the Layout tab: the same classes and markup, without its
 // Opens first radio): the first shown row is the one that opens first, so it carries the mark. The list lives in the page: a
 // move reorders the rows, and `readTabList` reads them back as the template's `workspace.tabs`, [{ id, show }].
 // Both template editors (the host console and Manage) draw and read it through here.

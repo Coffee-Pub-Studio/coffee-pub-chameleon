@@ -8429,13 +8429,13 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
   color: var(--tab-ink);
 }
 
-/* While Set up is open (wider than a phone) the toast stack holding an undo note sits under it, so the panel and the Show tab's menu in it are
+/* While Set up is open (wider than a phone) the toast stack holding an undo note sits under it, so the panel is
    what is on top where they meet (the panel stays under the popovers and sheets opened from it). */
 @media (min-width: 641px) {
   body.setting-up .sdk-toasts:has(> .sdk-toast[data-undo]) { z-index: calc(var(--z-menu) - 1); }
 }
 
-/* The Show tab: the page's menu drawn in the panel, not floating over it. */
+/* The page's menu drawn in place, not floating (host-menu.js mountHostMenu: an empty area's module chooser on the canvas). */
 .host-menu.host-menu-inline {
   position: static;
   width: 100%; /* fills the panel's content: rows, descriptions and switches use the whole width, not the floating menu's cap */
@@ -8660,8 +8660,9 @@ h4.setup-subheading {
   margin-top: 12px;
 }
 
-.setup-links-hint {
-  margin-top: 0;
+/* Each tab's one line at its top: what waits for Save and what happens at once (space-setup.js saveCue). */
+.setup-cue {
+  margin: 0 0 var(--space-2);
 }
 
 .setup-links-status {
@@ -8834,10 +8835,10 @@ h4.setup-subheading {
 }
 
 .setup-layout-name {
-  flex: 1 1 4em;
+  flex: 1 1 auto; /* its whole name: in a narrow panel the Move buttons go to the next line rather than the name breaking mid-word */
   min-width: 0;
   font-weight: var(--weight-strong);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .setup-layout-move {

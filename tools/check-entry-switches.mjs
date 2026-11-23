@@ -162,7 +162,7 @@ async function round(door) {
     });
 
     if (!door) {
-      await test('a moderator closes and reopens from the Settings tab and sees no other entry switch', async () => {
+      await test('a moderator closes and reopens from the Layout tab and sees no other entry switch', async () => {
         const tab = await open(`/#join=${ctx.trip}`, 'mia');
         await tab.waitFor('[data-layout-tab="workspace"]');
         await sleep(700);
@@ -170,8 +170,8 @@ async function round(door) {
         await tab.waitFor('#space-setup .setup-tab');
         await sleep(700);
         assert.equal(await tab.eval(`Boolean(document.querySelector('#setup-tab-members'))`), false, 'no Members tab');
-        await tab.click('#setup-tab-modules');
-        await tab.waitFor('#setup-open');
+        await tab.click('#setup-tab-layout');
+        await tab.waitFor('#setup-content-layout #setup-open');
         assert.equal(await tab.eval(`['#setup-entry-accounts', '#setup-allow-guests', '#setup-entry-guests'].some((id) => document.querySelector(id))`), false, 'only the first switch');
         await tab.click('#setup-open');
         await shot(tab, '8-moderator-closes');

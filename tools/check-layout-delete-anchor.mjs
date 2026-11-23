@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /*
- * check-layout-delete-anchor.mjs -- Set up > Modules > Layouts: Delete on a saved layout asks "Delete <name>?" in the
- * shared confirm menu (openConfirmMenu) beside the layout's own "..." that was pressed, not under the Set up button in
- * the top bar. In a real browser against a throwaway seeded server (tools/shots.mjs; no LiveKit), at 1280 and 390 wide.
+ * check-layout-delete-anchor.mjs -- the Layout menu's Layouts (the Layout button's popover; plan-workspaces.md, decision 38):
+ * Delete on a saved layout asks "Delete <name>?" in the shared confirm menu (openConfirmMenu) where the Layout menu was, under
+ * the Layout button it opened from (the menu closes as the row's "..." entry is picked), never under Set up. In a real browser
+ * against a throwaway seeded server (tools/shots.mjs; no LiveKit), at 1280 and 390 wide.
  * Keep it closes the confirm and keeps the layout; Delete deletes it. Run it under the browser lock:
  *   flock /tmp/browser-checks.lock node tools/check-layout-delete-anchor.mjs
  * LAYOUT_DELETE_SHOTS=<dir> also writes a picture of each step there. With no Chromium it says SKIPPED (not a pass).
@@ -51,8 +52,8 @@ try {
   assert.ok(start.length >= 2, `the seeded space has saved layouts: ${JSON.stringify(start.map((l) => l.name))}`);
 
   const WORDS = process.env.LAYOUT_DELETE_LABEL || 'shot';
-  // A phone has no Layouts list: Set up shows no Modules tab there (the Layout menu is empty when the canvas is narrow).
-  await test('at 390: Set up has no Layouts list, so there is no layout row to confirm from', async () => {
+  // A phone has no Layouts list: no Layout button there (the tab bar is the list), and Set up holds no layout rows.
+  await test('at 390: no Layout button and no Layouts list in Set up, so there is no layout row to confirm from', async () => {
     const tab = new Tab(browser.cdp, ctx);
     await tab.open(390, 'dark');
     tabs.push(tab);
@@ -65,28 +66,27 @@ try {
     await tab.click('#setup');
     await tab.waitFor('#space-setup .setup-tab');
     await sleep(900);
-    assert.equal(await tab.eval(`document.querySelectorAll('#setup-show .host-menu-more').length`), 0, 'no layout rows on a phone');
+    assert.equal(await tab.eval(`document.querySelectorAll('#space-setup .host-menu-more').length`), 0, 'no layout rows in Set up');
+    assert.equal(await tab.eval(`Boolean(document.getElementById('layout-menu')?.getClientRects().length)`), false, 'no Layout button on a phone');
     if (SHOTS) fs.writeFileSync(path.join(SHOTS, `${WORDS}-390-setup.png`), await tab.shoot(false));
   });
   for (const [width, mode] of [[1280, 'dark']]) {
-    await test(`at ${width}: Delete's confirm opens by the layout's "..." row, Keep it closes it, Delete deletes`, async () => {
+    await test(`at ${width}: Delete's confirm opens where the Layout menu was, under the Layout button; Keep it closes it, Delete deletes`, async () => {
       const tab = new Tab(browser.cdp, ctx);
       await tab.open(width, mode);
       tabs.push(tab);
       for (const c of cookies.admin) await tab.cdp.send('Network.setCookie', { name: c.name, value: c.value, url: server.base, httpOnly: true }, tab.sid);
       await tab.cdp.send('Page.navigate', { url: `${server.base}/#join=${ctx.trip}` }, tab.sid);
-      await tab.waitFor('#setup');
+      await tab.waitFor('#layout-menu');
       await sleep(900);
-      await tab.click('#setup');
-      await tab.waitFor('#space-setup .setup-tab');
-      await sleep(900);
+      const openMenu = async () => { await tab.click('#layout-menu'); await tab.waitFor('body > .host-menu .host-menu-more'); await sleep(500); };
+      await openMenu();
       const list = await saved();
       const target = list[list.length - 1]; // the last one: the farthest from the top bar
-      const rowSel = `#setup-show .host-menu-pair`;
-      const find = (name) => `(() => { const m = [...document.querySelectorAll('#setup-show .host-menu-more')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify('More for ' + name)}); return m || null; })()`;
+      const find = (name) => `(() => { const m = [...document.querySelectorAll('body > .host-menu .host-menu-more')].find((b) => b.getAttribute('aria-label') === ${JSON.stringify('More for ' + name)}); return m || null; })()`;
       const more = await tab.eval(`(() => { const b = ${find(target.name)}; if (!b) return null; b.scrollIntoView({ block: 'center' }); const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
       assert.ok(more, `a "..." for ${target.name}`);
-      const moreSel = `#setup-show .host-menu-more[aria-label="More for ${target.name.replace(/"/g, '\\"')}"]`;
+      const moreSel = `body > .host-menu .host-menu-more[aria-label="More for ${target.name.replace(/"/g, '\\"')}"]`;
       await tab.click(moreSel);
       await sleep(400);
       if (SHOTS) fs.writeFileSync(path.join(SHOTS, `${WORDS}-${width}-1-row-menu.png`), await tab.shoot(false));
@@ -96,29 +96,23 @@ try {
         const confirm = [...document.querySelectorAll('.host-menu')].find((m) => m.textContent.includes(${JSON.stringify('Delete ' + target.name + '?')}));
         if (!confirm) return null;
         const c = confirm.getBoundingClientRect();
-        const row = document.querySelector(${JSON.stringify(`#setup-show .host-menu-more[aria-label="More for ${target.name.replace(/"/g, '\\"')}"]`)});
-        const r = row ? row.getBoundingClientRect() : null;
         const t = document.getElementById('setup').getBoundingClientRect();
-        return { c: { top: c.top, bottom: c.bottom, left: c.left, right: c.right }, row: r && { top: r.top, bottom: r.bottom }, setup: { top: t.top, bottom: t.bottom }, keep: confirm.textContent.includes('Keep it') };
+        const b = document.getElementById('layout-menu').getBoundingClientRect();
+        return { c: { top: c.top, bottom: c.bottom, left: c.left, right: c.right }, setup: { left: t.left, right: t.right }, button: { top: b.top, bottom: b.bottom, left: b.left, right: b.right }, keep: confirm.textContent.includes('Keep it'), lists: document.querySelectorAll('.host-menu:not(.host-menu-inline)').length };
       })()`);
       assert.ok(seen, 'the confirm menu "Delete <name>?" is open');
       assert.ok(seen.keep, 'it offers Keep it');
       if (SHOTS) fs.writeFileSync(path.join(SHOTS, `${WORDS}-${width}-2-confirm.png`), await tab.shoot(false));
-      if (seen.row) {
-        const gap = Math.min(Math.abs(seen.c.top - seen.row.bottom), Math.abs(seen.c.bottom - seen.row.top), Math.abs(seen.c.top - seen.row.top), Math.abs(seen.c.bottom - seen.row.bottom));
-        const overlap = seen.c.top < seen.row.bottom && seen.c.bottom > seen.row.top;
-        assert.ok(overlap || gap <= 120, `the confirm (${Math.round(seen.c.top)}-${Math.round(seen.c.bottom)}) is within 120px of the row (${Math.round(seen.row.top)}-${Math.round(seen.row.bottom)})`);
-      } else {
-        // The row's "..." is gone while the confirm shows (a phone drills in): the confirm must still not be under Set up.
-        assert.ok(seen.c.top > seen.setup.bottom + 20 || seen.c.bottom < seen.setup.top, 'not under the Set up button');
-      }
-      assert.ok(!(seen.c.top <= seen.setup.bottom + 8 && seen.c.top >= seen.setup.top - 8) || seen.row && Math.abs(seen.row.top - seen.setup.top) < 120, 'not under the top bar Set up icon');
+      assert.equal(seen.lists, 1, 'one menu at a time: the confirm replaced the Layout menu');
+      assert.ok(seen.c.top >= seen.button.bottom - 1 && seen.c.top <= seen.button.bottom + 12, `the confirm (${Math.round(seen.c.top)}) opens under the Layout button (${Math.round(seen.button.bottom)}), where the menu was`);
+      assert.ok(seen.c.left <= seen.button.right && seen.c.right >= seen.button.left, 'beside it, not across the bar');
       // Keep it: closes the confirm, the layout stays.
       await tab.click('.host-menu .host-menu-item', 'Keep it');
       await sleep(500);
       assert.equal(await tab.eval(`[...document.querySelectorAll('.host-menu')].some((m) => m.textContent.includes('Keep it'))`), false, 'Keep it closes the confirm');
       assert.ok((await saved()).some((l) => l.id === target.id), 'Keep it keeps the layout');
       // Delete: ask again, then confirm.
+      await openMenu();
       await tab.click(moreSel);
       await sleep(300);
       await tab.click('.host-menu .host-menu-item.danger', 'Delete');

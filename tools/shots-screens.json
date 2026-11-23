@@ -1385,7 +1385,7 @@
    "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
-     "click": "#setup"
+     "click": "#layout-menu"
     }
    ],
    "space": true,
@@ -1488,7 +1488,7 @@
    "space": true
   },
   {
-   "id": "space-setup-space",
+   "id": "space-setup-details",
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/#join={trip}",
@@ -1498,7 +1498,7 @@
      "click": "#setup"
     },
     {
-     "click": "#setup-tab-space"
+     "click": "#setup-tab-details"
     },
     {
      "sleep": 2000
@@ -1547,10 +1547,10 @@
    "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
-     "click": "#setup"
+     "click": "#layout-menu"
     },
     {
-     "click": "#space-setup .host-menu-inline .host-menu-more"
+     "click": "body > .host-menu .host-menu-more"
     },
     {
      "sleep": 400
@@ -1563,10 +1563,10 @@
    "tier": "state"
   },
   {
-   "id": "space-setup-space-phone",
+   "id": "space-setup-details-phone",
    "family": "Profile and Set up tabs",
    "as": "admin",
-   "url": "/?setup={trip}#space",
+   "url": "/?setup={trip}#details",
    "wait": "#space-setup",
    "space": true,
    "sizes": [
@@ -1598,10 +1598,80 @@
    "tier": "state"
   },
   {
+   "id": "space-setup-call",
+   "family": "Profile and Set up tabs",
+   "as": "admin",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "steps": [
+    {
+     "click": "#setup"
+    },
+    {
+     "sleep": 2000
+    },
+    {
+     "click": "#setup-tab-call"
+    }
+   ],
+   "space": true,
+   "sizes": [
+    1280
+   ],
+   "tier": "state"
+  },
+  {
+   "id": "space-setup-layout",
+   "family": "Profile and Set up tabs",
+   "as": "admin",
+   "url": "/#join={trip}",
+   "wait": "[data-layout-tab=\"workspace\"]",
+   "steps": [
+    {
+     "click": "#setup"
+    },
+    {
+     "sleep": 2000
+    },
+    {
+     "click": "#setup-tab-layout"
+    }
+   ],
+   "space": true,
+   "sizes": [
+    1280
+   ],
+   "tier": "state"
+  },
+  {
    "id": "space-setup-members-phone",
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/?setup={trip}#members",
+   "wait": "#space-setup",
+   "space": true,
+   "sizes": [
+    390
+   ],
+   "tier": "state"
+  },
+  {
+   "id": "space-setup-call-phone",
+   "family": "Profile and Set up tabs",
+   "as": "admin",
+   "url": "/?setup={trip}#call",
+   "wait": "#space-setup",
+   "space": true,
+   "sizes": [
+    390
+   ],
+   "tier": "state"
+  },
+  {
+   "id": "space-setup-layout-phone",
+   "family": "Profile and Set up tabs",
+   "as": "admin",
+   "url": "/?setup={trip}#layout",
    "wait": "#space-setup",
    "space": true,
    "sizes": [
@@ -1645,7 +1715,7 @@
    "tier": "state"
   },
   {
-   "id": "space-setup-settings",
+   "id": "space-setup-modules",
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/#join={trip}",
@@ -1668,7 +1738,7 @@
    "tier": "state"
   },
   {
-   "id": "space-setup-settings-phone",
+   "id": "space-setup-modules-phone",
    "family": "Profile and Set up tabs",
    "as": "admin",
    "url": "/?setup={trip}#modules",
@@ -1755,10 +1825,7 @@
    "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
-     "click": "#setup"
-    },
-    {
-     "click": "#setup-tab-show"
+     "click": "#layout-menu"
     },
     {
      "click": "button.host-menu-item",

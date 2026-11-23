@@ -142,7 +142,7 @@ try {
     await tab.click('#setup');
     await tab.waitFor('.setup-tab');
     await sleep(900);
-    await tab.click('#setup-tab-modules');
+    await tab.click('#setup-tab-layout'); // Tabs in the bar, on the Layout tab (plan-workspaces.md, decision 38)
     await sleep(1200);
     const rows = () => tab.eval(`[...document.querySelectorAll('#setup-layout-rows .setup-layout-row')].map((r) => r.dataset.layout)`);
     const before = await rows();

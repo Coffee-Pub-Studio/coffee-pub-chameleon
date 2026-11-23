@@ -117,7 +117,8 @@ test('the Set up panel: Save and Cancel are the panel\'s bar, not the top bar\'s
   assert.match(setup, /<input type="checkbox" class="sdk-switch" role="switch" data-phase-done=/, 'the phases\' Done is a switch');
   assert.match(setup, /ids: \{ save: 'setup-save', cancel: 'setup-cancel-button' \}/);
   // The phase dates are drawn in the panel and saved with its Save (plan-setup-panel.md, step 4); the chip's sheet keeps its own.
-  assert.match(setup, /A phase with no dates is skipped\. Saved with Save\./);
+  assert.match(setup, /A phase with no dates is skipped\.<\/p>/);
+  assert.match(setup, /phases: done \? 'Saved with Save\. A phase\\'s Done switch happens at once\.' : 'Saved with Save\.',/, 'the Phases tab says Saved with Save once, at its top (saveCue)');
   assert.ok(!/save as you set them|The dates have their own Save in the sheet/.test(setup), 'the old lines are gone');
   assert.ok(!/openPhases/.test(setup), 'the panel no longer opens the sheet');
   // The module settings are drawn without their own Saves (module-settings.js, draft mode); the panel's Save sends them.
@@ -128,7 +129,7 @@ test('the Set up panel: Save and Cancel are the panel\'s bar, not the top bar\'s
   assert.match(setup, /dirty: isDirty,/);
   assert.match(setup, /discardWords: 'Discard your changes\?',/, 'the panel asks host.ui.editor\'s question');
   assert.match(setup, /if \(hideDeleteConfirm\(\{ focus: true \}\)\) return;\n\s*state\.bar\.requestCancel\(\);/, 'Escape: Keep on the Delete question first, else Cancel (which asks when dirty)');
-  assert.match(space, /onClick: \(\) => \(settingUp \? spaceSetup\.cancel\(\) : enterSetup\(\{ tab: '#show' \}\)\)/, 'the pressed Set up tool is Cancel too, asking when dirty');
+  assert.match(space, /onClick: \(\) => \(settingUp \? spaceSetup\.cancel\(\) : enterSetup\(\{ tab: '' \}\)\)/, 'the pressed Set up tool is Cancel too, asking when dirty');
   // Every field is a draft: the panel sends nothing but from Save, Delete, and the invite, guest link and Approve or Deny actions.
   const sends = [...setup.matchAll(/api\('(PATCH|PUT|POST|DELETE)', `([^`]*)`/g)].map((m) => `${m[1]} ${m[2]}`);
   assert.deepEqual(sends.sort(), [
@@ -140,13 +141,15 @@ test('the Set up panel: Save and Cancel are the panel\'s bar, not the top bar\'s
     'POST /api/spaces/${id}/guest-link',
     'POST /api/spaces/${encodeURIComponent(space.id)}/access-requests/${encodeURIComponent(r.id)}',
     'PUT /api/modules/${encodeURIComponent(change.id)}/settings/space',
-    'PUT /api/modules/${encodeURIComponent(r.module)}/settings/${r.scope}',
+    'PUT /api/modules/${encodeURIComponent(row.module)}/settings/${row.scope}',
     'PUT /api/spaces/${encodeURIComponent(space.id)}/image',
     'PUT /api/spaces/${encodeURIComponent(state.space.id)}/phases/${encodeURIComponent(box.dataset.phaseDone)}/done',
-  ].sort(), 'the requests: Save\'s two PATCHes (the space, then the call), picture and module settings, a fixed-setting switch and a phase\'s Done switch (each at once, through its own route), Delete, the guest link, an answer to a request to come in');
+  ].sort(), 'the requests: Save\'s two PATCHes (the space, then the call), picture, module settings and a Fixed Workspace switch (a draft, sent by Save through its module\'s own route), a phase\'s Done switch (at once), Delete, the guest link, an answer to a request to come in');
   const save = between(setup, '  async function done() {', '  return { el, open');
   assert.ok(save.indexOf("api('PATCH'") < save.indexOf("api('PUT', `/api/spaces/") && save.indexOf("api('PUT', `/api/spaces/") < save.indexOf("api('PUT', `/api/modules/"), 'in order: the space, the picture, the module settings');
   assert.match(save, /\} catch \(err\) \{\n\s*if \(saved\.length && typeof opts\.onSaved === 'function'\) opts\.onSaved\(answered, saved\);\n\s*return refused\(saved, `module:\$\{change\.id\}`, err\.message\);/, 'a refused module stops the save and says what did save');
+  assert.match(save, /\} catch \(err\) \{\n\s*if \(saved\.length && typeof opts\.onSaved === 'function'\) opts\.onSaved\(answered, saved\);\n\s*return refused\(saved, `fixed:\$\{id\}`, err\.message\);/, 'and so does a refused Fixed Workspace switch');
+  assert.ok(save.indexOf('settings/space`') < save.indexOf('settings/${row.scope}`'), 'the Fixed Workspace switches go last');
   assert.equal((setup.match(/api\('PATCH', `/g) || []).length, 2, 'two PATCHes, both from Save: the space, then the call');
   // The one other thing that goes at once: a space's shared tags, renamed, recoloured and deleted by the people the Roles grid lets (the
   // Tags section says so in its own line; plan-tags.md, decisions 4 and 8). Through the server's tag routes only; none is made here.

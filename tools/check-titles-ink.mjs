@@ -16,7 +16,7 @@ import { findBrowser, launch, freePort, bootSeeded, Tab, sleep, driveScreen, sto
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const say = (...a) => console.log('check-titles-ink:', ...a);
-const SCREENS = ['home-member', 'home-admin', 'space-workspace', 'space-setup-space', 'space-setup-members', 'space-layout-save-sheet', 'space-menu-spaces',
+const SCREENS = ['home-member', 'home-admin', 'space-workspace', 'space-setup-details', 'space-setup-members', 'space-layout-save-sheet', 'space-menu-spaces',
   'manage-environment', 'manage-theme', 'manage-modules', 'profile-profile', 'calendar-month'];
 const TITLES = 'h1, h2, h3, h4, h5, h6, [role="heading"], .mf-titlebar-title, .sdk-dialog-title, .sdk-editor-title, .layout-sheet-title, .brand-name, .brand-logo, .product-lockup-brand, .mf-titlebar-icon, .space-list-title, .whos-around-title, .dashboard-widget-title, .crumb-label';
 

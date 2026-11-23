@@ -3,10 +3,10 @@
  * check-space-template-choice.mjs -- a space's own template, the choices (documentation/plans/plan-space-templates.md, step 3), in a
  * real browser against a throwaway seeded server with two spaces in one Travel environment: Lisbon and Kyoto, neither with a template
  * of its own. No LiveKit. Covers, at 1280 and 390 px:
- *   - the owner in Set up's Space tab: a Template choice, "Same as the <environment> (Travel)" first, then the templates offered
+ *   - the owner in Set up's Details tab: a Template choice, "Same as the <environment> (Travel)" first, then the templates offered
  *     (the same list as GET /api/environment/template, hidden ones left out); choosing Games and pressing Save asks first, then the
  *     words in that space change at once (trip -> campaign) and in the other space they do not; choosing "Same as" clears it
- *   - a moderator of the space: the template named on Settings, with no control and no Template choice
+ *   - a moderator of the space: the template named on the Modules tab, with no control and no Template choice
  *   - a plain member: no Set up, and the space's own words in the space
  *   - Add <space>: the Add form (public/space-add.js) with the same choice; Add makes the space with that template; "Same as" sends none
  *   - Manage's switch (Space templates): turning it off hides the choice in Set up and in Add (public/space-add.js), and the words go back to the
@@ -69,8 +69,8 @@ try {
   const pageWord = (tab) => tab.eval(`(async () => { const w = await import('/words.js'); return w.word('space'); })()`);
   const noOverflow = (tab) => tab.eval(`document.documentElement.scrollWidth <= innerWidth + 1`);
   const inSpace = async (tab) => { await tab.waitFor('body.in-space'); await sleep(900); };
-  // Set up, opened by its address on the Space tab, with the choices read.
-  const setupOpen = async (as, width, id = ctx.trip, tab = '#space') => {
+  // Set up, opened by its address on the Details tab, with the choices read.
+  const setupOpen = async (as, width, id = ctx.trip, tab = '#details') => {
     const t = await open(`/?setup=${id}${tab}`, as, width);
     await t.waitFor('#space-setup .setup-tab');
     await sleep(1200);
@@ -150,7 +150,7 @@ try {
   });
 
   for (const width of [1280, 390]) {
-    await test(`moderator at ${width}: the template is named on Settings, with no choice; a member has no Set up and reads the space's words`, async () => {
+    await test(`moderator at ${width}: the template is named on the Modules tab, with no choice; a member has no Set up and reads the space's words`, async () => {
       assert.equal((await api('PATCH', `/api/spaces/${ctx.trip}`, { template: 'games' })).status, 200);
       const mod = await setupOpen('mia', width, ctx.trip, '#modules');
       const seen = await mod.eval(`(() => {

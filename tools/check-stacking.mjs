@@ -19,7 +19,7 @@
 //      kept in what is remembered, and it is drawn again when the window is wide.
 //  10. A short canvas collapses the lowest section by itself and opens it again when the height returns.
 //  11. A saved layout carries the stack (the server keeps it), and loading it, and a reload, give the same stack back.
-//  12. Unstack all, in the Modules tab of Set up (its id is show), puts every module of every stack in a column of its own.
+//  12. Unstack all, in the Layout menu (the Layout button's popover), puts every module of every stack in a column of its own.
 //  13. Inside a stack Tab goes top section, divider, next section; nothing in a module starts again when the page's order
 //      follows the stack; a drag inside a stack keeps the shares; Escape stops a drag; a module out of a stack has its own
 //      width again; after Unstack all the keyboard is on Panel Mode.
@@ -103,8 +103,8 @@ async function main() {
         await sleep(450);
         return drawn;
       };
-      // The Modules tab of Set up (#setup-show) (the modules' switches, Arrange): opened from the top bar's Set up, closed with Escape.
-      const showTab = async () => { await tab.eval(`document.getElementById('setup').click()`); await tab.waitFor('#setup-show .host-menu-item'); await sleep(300); };
+      // The Layout menu (the modules' switches, Arrange, Layouts): the popover under the top bar's Layout button, closed with Escape.
+      const showTab = async () => { await tab.eval(`document.getElementById('layout-menu').click()`); await tab.waitFor('.host-menu:not(.host-menu-inline) .host-menu-item'); await sleep(300); };
       const openFromLayoutMenu = async (name) => { await showTab(); await pick(name); await closeMenus(); await sleep(400); };
       // Enter the trip with a remembered layout of these modules, docked (Panel Mode, what nothing remembered reads as).
       const enter = async (open, records = {}) => {
@@ -370,7 +370,7 @@ async function main() {
         s = await state();
         expect(s.groups.includes('Stacked: Maps, Polls, Research'), `${L} back at 1280 the stack is not drawn again: ${JSON.stringify(s.groups)}`);
 
-        // A saved layout carries the stack (plan step 6; server/layouts.js keeps stack, at, h, folded): saved from the Modules tab,
+        // A saved layout carries the stack (plan step 6; server/layouts.js keeps stack, at, h, folded): saved from the Layout menu,
         // it is what the server answers, and loading it after Unstack all, and again after a reload, gives the same stack.
         const shape = (st) => st.docked.filter((d) => d.stacked).sort((a, b) => a.top - b.top).map((d) => `${d.id}:${d.h}`).join();
         const want = shape(await state());
@@ -385,20 +385,20 @@ async function main() {
         expect(members.map((m) => `${m.id}:${m.at}`).join() === 'maps:0,polls:1,research:2' && new Set(members.map((m) => m.stack)).size === 1 && Math.abs(members.reduce((a, m) => a + m.h, 0) - 1) <= 0.01 && members.every((m) => typeof m.folded === 'boolean'), `${L} the saved layout does not carry the stack: ${JSON.stringify(savedLayout?.modules)}`);
         await closeMenus();
 
-        // Unstack all (the Modules tab's Arrange): every module in a column of its own; past the limit the last one waits, floating.
+        // Unstack all (the Layout menu's Arrange): every module in a column of its own; past the limit the last one waits, floating.
         await showTab();
         expect((await menuItems()).some((x) => x.text === 'Unstack all' && !x.off), `${L} Arrange has no Unstack all while there is a stack`);
         // By the keyboard in light, by the pointer in dark: either way the keyboard stays in Arrange, on Panel Mode.
         if (mode === 'light') {
-          await tab.eval(`[...document.querySelectorAll('#setup-show .host-menu-item')].find((b) => b.textContent.trim() === 'Unstack all').focus()`);
+          await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].find((b) => b.textContent.trim() === 'Unstack all').focus()`);
           await key('Enter');
           await sleep(450);
         } else {
-          const u = await tab.eval(`(() => { const r = [...document.querySelectorAll('#setup-show .host-menu-item')].find((b) => b.textContent.trim() === 'Unstack all').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+          const u = await tab.eval(`(() => { const r = [...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].find((b) => b.textContent.trim() === 'Unstack all').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
           await tab.mouse('mouseMoved', u.x, u.y, { button: 'none', clickCount: 0 }); await tab.mouse('mousePressed', u.x, u.y); await tab.mouse('mouseReleased', u.x, u.y);
           await sleep(450);
         }
-        const focusAt = await tab.eval(`document.activeElement?.closest('#setup-show') ? document.activeElement.textContent.trim() : (document.activeElement?.id || document.activeElement?.tagName)`);
+        const focusAt = await tab.eval(`document.activeElement?.closest('.host-menu:not(.host-menu-inline)') ? document.activeElement.textContent.trim() : (document.activeElement?.id || document.activeElement?.tagName)`);
         expect(focusAt === 'Panel Mode', `${L} after Unstack all the keyboard is on "${focusAt}", not Panel Mode in Arrange`);
         s = await state();
         expect(!s.groups.length && !s.docked.some((d) => d.stacked) && s.floats.includes('research') && /too narrow for another column/.test(s.said), `${L} Unstack all: ${JSON.stringify({ groups: s.groups, floats: s.floats, said: s.said })}`);
