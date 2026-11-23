@@ -8,7 +8,8 @@ import { sameSiteNext } from '/next-address.js';
 import { word, envWord, setWords, setVerbs } from '/words.js';
 import { themeSwitch, setEnvironmentMode, setAccountMode, themeChanged, watchThemeWithoutStream, forgetThemeMode, toggleThemeMode, useDefaultMode, themeMode as modeNow } from '/theme-mode.js';
 import { loadWelcome, hasWelcome, showWelcome } from '/welcome-note.js';
-import { profileEntries, profileDestinationLabel, seesUpdates, hostConsoleUrl, switcherEntries, switchPick, bellState, destinationTools, pageAnchor } from '/primary-nav.js';
+import { openSpaceAdd } from '/space-add.js';
+import { profileEntries, profileDestinationLabel, seesUpdates, mayMakeSpace, hostConsoleUrl, switcherEntries, switchPick, bellState, destinationTools, pageAnchor } from '/primary-nav.js';
 
 // The words a person reads for each level and role (public/words.js), for every page that already imports from here.
 export { word, envWord, words, fill, applyWords, setWords, setSpaceLook, clearSpaceLook, hasSpaceLook, verb, verbs, setVerbs } from '/words.js';
@@ -361,7 +362,7 @@ async function loadAccount() {
   }
   const me = await loadMe();
   if (me === null) account = null;
-  else if (me && me.user) account = { role: me.user.role, hostAdmin: Boolean(me.environment?.hostAdmin || me.user.hostAdmin), hosted: Boolean(me.environment?.hosted), slug: me.environment?.slug || '' };
+  else if (me && me.user) account = { key: me.user.key, role: me.user.role, hostAdmin: Boolean(me.environment?.hostAdmin || me.user.hostAdmin), hosted: Boolean(me.environment?.hosted), slug: me.environment?.slug || '' };
   nav.draw(); // both bars: a page bar's Manage link waits on the role too
   if (account) loadWelcome().then((v) => { if (v) nav.draw(); }); // the Welcome entry waits on there being a note
   if (account && seesUpdates(account.role)) loadUpdateBadge();
@@ -422,14 +423,14 @@ function registerSystemTools(header) {
   nav.register({ id: 'topbar-status', bar: 'primary', zone: 'left', group: 'where', order: 11, element: status });
   if (guest || hostConsole) return; // a guest's bar is the logo, the name and the anchor; the host console's is its own
   // The phone menu's own entries, first: the environment's name, then home and the switcher's entries (refreshed as
-  // the menu opens), then "+ New" for owners and the admin.
+  // the menu opens), then "+ New" for everyone who may make a space (mayMakeSpace).
   const envName = doc.createElement('span');
   envName.className = 'nav-menu-heading';
   envName.dataset.brand = 'environmentName';
   envName.textContent = byId('brand-home-link')?.querySelector('[data-brand="environmentName"]')?.textContent || '';
   nav.register({ id: 'menu-environment', bar: 'primary', zone: 'right', group: 'menu-where', groupOrder: 1, order: 1, element: envName, visible: inMenuOnly });
   nav.register({ id: 'menu-home', bar: 'primary', zone: 'right', group: 'menu-where', order: 2, icon: 'house', label: word('home'), href: '/', target: '_top', visible: inMenuOnly });
-  nav.register({ id: 'menu-new-space', bar: 'primary', zone: 'right', group: 'menu-new', groupOrder: 2, order: 1, icon: 'plus', label: `New ${envWord('space')}`, visible: () => inMenuOnly() && seesUpdates(account?.role), onClick: newSpace });
+  nav.register({ id: 'menu-new-space', bar: 'primary', zone: 'right', group: 'menu-new', groupOrder: 2, order: 1, icon: 'plus', label: `New ${envWord('space')}`, visible: () => inMenuOnly() && mayMakeSpace(account?.role), onClick: newSpace });
   loadDestinations({ wide: () => wide() && signedIn(), inMenuOnly });
   // The bell: the unread module notices, and the module updates for owners and the admin (decisions 9 and 18).
   const bell = doc.createElement('button');
@@ -556,9 +557,26 @@ function openManage(hash = '') {
   const [path, own] = String(bar.adminHref).split('#');
   openPage(keepingQuery(hash ? `${path}#${hash}` : own ? `${path}#${own}` : path), 'manage');
 }
-// "+ New <space>": Manage's Spaces tab at its Add button (decision 16, owners and the admin).
-function newSpace() {
-  openManage('add-space');
+// "+ New <space>": the Add <space> form (space-add.js, the one Manage and Home open), for everyone who may make a space
+// (mayMakeSpace; Thomas, 2026-11-23), then into the new space with Set up open: the space page takes it (app:enter-space),
+// anywhere else the page goes to /?setup=<id>.
+async function newSpace() {
+  const space = await openSpaceAdd({ api, word: envWord, owner: hasOwnerRights(account), self: account?.key || '' });
+  if (!space) return;
+  let doc = document;
+  if (overCall()) {
+    try { doc = window.parent.document; } catch { doc = document; }
+  }
+  const view = doc.defaultView || window;
+  const unhandled = doc.dispatchEvent(new view.CustomEvent('app:enter-space', { detail: { id: space.id, action: 'setup' }, cancelable: true }));
+  if (!unhandled) return;
+  let win = window;
+  try {
+    if (window.top.location.origin === window.location.origin) win = window.top;
+  } catch {
+    // framed by another origin: this page goes
+  }
+  win.location.href = `/?setup=${encodeURIComponent(space.id)}`;
 }
 // The host console, on a hosted server, for the host admin's stand-in: the host's own address. Over a call it opens in
 // a new tab, so the call keeps running.
@@ -625,7 +643,7 @@ export async function openSwitcher(trigger) {
     : { icon: entryIcon(e.icon), label: e.name, hint: hereHint(e), onPick: () => pickSpace(e.id) }));
   items.push(...askRows(data).map(askItem));
   if (!data) items.push({ label: "Couldn't load the list. Try again.", disabled: true });
-  if (seesUpdates(account?.role)) items.push(...(items.length ? [{ divider: true }] : []), { icon: 'plus', label: `New ${envWord('space')}`, onPick: newSpace });
+  if (mayMakeSpace(account?.role)) items.push(...(items.length ? [{ divider: true }] : []), { icon: 'plus', label: `New ${envWord('space')}`, onPick: newSpace });
   if (leave) items.push(...(items.length ? [{ divider: true }] : []), { icon: 'right-from-bracket', label: `Leave ${word('space')}`, onPick: () => pickSpace(leave.id, 'leave') });
   openHostMenu(trigger, items);
 }

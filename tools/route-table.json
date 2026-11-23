@@ -359,6 +359,7 @@
   {"kind":"route","method":"PUT","path":"/api/environment/welcome","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/environment/welcome/seen","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/environment/template","name":null,"part":null},
+  {"kind":"route","method":"GET","path":"/api/environment/space-templates","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/environment/templates","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/environment/templates/:id","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/environment/templates","name":null,"part":null},

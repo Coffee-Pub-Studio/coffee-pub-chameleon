@@ -27,7 +27,8 @@
  *     than 20 keys, over 64 KB, a ".." module id: each 400 with its sentence.
  *   - A template that was valid but whose module no longer opts in (a hand edit of app.json) writes nothing; a module the
  *     template lists but that is off is skipped and the space still made.
- *   - A member can't make a space (403), so can't reach starter content for any space; nobody signed in gets 401.
+ *   - A member makes a space with the same starter content an owner's gets (Thomas, 2026-11-23), never with starter: false (403); nobody
+ *     signed in gets 401.
  *   - A switch of the environment's template to one with starter spaces makes none and offers them, unticked
  *     (offer.starterSpaces, offer.version, offer.offerId; every confirm sends offerId and version back); confirming one ticked makes exactly that space, once, with its starter content
  *     written as the owner who confirmed; a repeat is 409 and makes none; a member is refused (403).
@@ -466,9 +467,16 @@ try {
     assert.equal((await owner.as('PATCH', '/api/settings', { template: 'default' })).status, 200);
   });
 
-  await test('a member or guest cannot make a space, so cannot reach starter content for any space', async () => {
+  await test('a member makes a space with its starter content, as an owner does (Thomas, 2026-11-23); never without it; nobody signed in makes none', async () => {
     const r = await mia.as('POST', '/api/spaces', { name: 'Mine', template: 'proj' });
-    assert.equal(r.status, 403, r.text);
+    assert.equal(r.status, 200, r.text);
+    const o = await owner.as('POST', '/api/spaces', { name: 'Owners', template: 'proj' });
+    const keys = async (who, id) => (await who.as('GET', `/api/modules/notes/data?scope=space&space=${id}`)).json.items.map((i) => i.key).sort();
+    const mine = await keys(mia, r.json.space.id);
+    assert.ok(mine.length > 0, 'some starter content');
+    assert.deepEqual(mine, await keys(owner, o.json.space.id), 'the same an owner\'s space gets');
+    const skip = await mia.as('POST', '/api/spaces', { name: 'Bare', template: 'proj', starter: false });
+    assert.equal(skip.status, 403, 'starter: false is the owners\'');
     const nobody = await call(server, null, 'POST', '/api/spaces', { body: { name: 'Nobody', template: 'proj' } });
     assert.equal(nobody.status, 401, nobody.text);
   });
