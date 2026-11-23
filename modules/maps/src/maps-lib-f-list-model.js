@@ -275,6 +275,31 @@ function listModel(geo, LIB_TYPES, word) {
     return null;
   }
 
+  // What a search found, as the one line an agent reads (request_status keeps 300 characters of a note): as many matches as fit,
+  // each "<name>, <address>: <lat>, <lng>", the first always (cut to fit).
+  const FIND_NOTE_MAX = 300;
+  function findNote(q, results) {
+    const list = Array.isArray(results) ? results : [];
+    if (!list.length) return `Found nothing for "${geo.oneLine(q, 80)}".`;
+    const line = (r, i) => `${i + 1}. ${[r.name, r.address].filter(Boolean).join(', ')}: ${r.lat}, ${r.lng}`;
+    let note = '';
+    for (const [i, r] of list.entries()) {
+      const next = `${note}${note ? ' ' : ''}${line(r, i)}`;
+      if (next.length > FIND_NOTE_MAX && note) break;
+      note = next;
+    }
+    return note.slice(0, FIND_NOTE_MAX);
+  }
+  // Whether a search's results are one clear match: some, and all within `metres` of the first (a service may answer one
+  // building twice). The first is the match.
+  function oneClear(results, metres = 60) {
+    const list = Array.isArray(results) ? results : [];
+    const first = list[0];
+    if (!first) return null;
+    const at = (h) => ({ lat: Number(h.lat), lng: Number(h.lng) });
+    return list.every((h) => metresBetween(at(first), at(h)) <= metres) ? first : null;
+  }
+
   // A stored value as a place, or null when it is not one (a forward is not).
   function cleanPlace(id, v) {
     if (!v || typeof v !== 'object' || v.movedTo) return null;
@@ -584,5 +609,5 @@ function listModel(geo, LIB_TYPES, word) {
     if (v.searchProvider === 'custom') return typeof v.search === 'string' && /^https?:\/\//i.test(v.search);
     return typeof v.searchProvider === 'string' && v.searchProvider !== '' && v.searchProvider !== 'none';
   }
-  return { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, statusFromRequest, typeFromRequest, ownersFromRequest, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, placeChanged, createPlaces, movePlace, createBookmarks, readEntry, searchOn };
+  return { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, statusFromRequest, typeFromRequest, ownersFromRequest, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, placeChanged, createPlaces, movePlace, createBookmarks, readEntry, searchOn, findNote, oneClear };
 }

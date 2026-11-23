@@ -69,7 +69,7 @@ async function runList(env) {
   const asPart = Boolean(info.context.destination && info.context.destination.part);
 
   const geo = host.util.geo;
-  const { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, placeChanged, createPlaces, movePlace, createBookmarks, readEntry, searchOn } = listModel(geo, LIB_TYPES, word);
+  const { PLACE_PREFIX, CATEGORY_ID, ICON_NAME, AUTO_COLOR, DEFAULT_CATEGORIES, CATEGORIES, OLD_CATEGORIES, NEW_FOR_OLD, newCategoryId, findCategory, TYPES, TYPE_BY_ID, typeOf, typeFromOsm, STATUSES, statusOf, TINTS, isHex, asColor, categoryColor, cssColor, lookOf, typeGroups, iconOptions, SAVED_PREFIX, MAX_MARKS, MAX_SAVED, SPACE_ID, PLACE_ID, cleanMarks, cleanHome, sameHome, cleanForward, forwardValue, homeFor, ticksOf, defaultTicks, ticksFromIn, narrows, withoutMarks, marksOnly, bookmarkKey, cleanBookmark, markedFor, shownOnce, metresBetween, sameName, findDuplicate, cleanPlace, placeValue, placeFromRequest, placeChanged, createPlaces, movePlace, createBookmarks, readEntry, searchOn, findNote, oneClear } = listModel(geo, LIB_TYPES, word);
 
   const canEdit = host.can('edit');
   // An invented world drawn from a picture (the environment's picture map): there is no real-world position, so nothing here
@@ -385,6 +385,8 @@ async function runList(env) {
     if (mapText) mapText.textContent = asPart && state.mapOn ? 'On the map' : 'Has a position';
     hide(pinned, !p.point);
     hide(slot(el, 'nopos'), Boolean(p.point));
+    // "Find on map": a place with an address and no position, where a place search is set up and this person may change it.
+    hide(slot(el, 'find-on-map'), !(w !== 'saved' && !p.point && p.address && state.search && writable(w)));
     const owners = slot(el, 'owners');
     // Someone this page cannot name (the environment's people list leaves out some) is left out, not shown as "?".
     owners.replaceChildren(...p.owners.filter((k) => nameOf(k)).map((k) => { const o = clone('tpl-owner'); o.textContent = initial(k); o.title = nameOf(k); return o; }));
@@ -1371,6 +1373,10 @@ async function runList(env) {
       ev.stopPropagation();
       return openMenu(rowEl.dataset.where, rowEl.dataset.id, t);
     }
+    if (t && t.dataset.action === 'find-on-map' && rowEl) {
+      ev.stopPropagation();
+      return findOnMap(rowEl.dataset.where, rowEl.dataset.id);
+    }
     if (t && t.dataset.action === 'add-place') return openEditor(null, null);
     if (t && t.dataset.action === 'find-new') return void (state.q && showFound(state.q, sharedSearch(state.q)));
     if (t && t.dataset.action === 'clear-filter') { if (!asPart) state.filter = ''; state.cat = ''; return render(); }
@@ -1464,7 +1470,7 @@ async function runList(env) {
       return true;
     });
   }
-  const closeFound = () => { searchToken += 1; hits = []; hide($('found'), true); $('found').replaceChildren(); };
+  const closeFound = () => { searchToken += 1; hits = []; delete $('found').dataset.for; hide($('found'), true); $('found').replaceChildren(); };
   function foundHead(label, query, closable) {
     const h = clone('tpl-found-head');
     fill(h, { label, query: '\u201c' + query + '\u201d' });
@@ -1514,10 +1520,13 @@ async function runList(env) {
     $('found').replaceChildren(foundHead('Filtering for', query, true), st);
     hide($('found'), false);
   }
-  async function showFound(query, promise) {
+  // `target` ({ w, id }): the results are positions for that saved place, and a result is picked to set its position, never
+  // saved as a new place.
+  async function showFound(query, promise, target) {
     const mine = ++searchToken;
-    searching(query);
     const box = $('found');
+    if (target) box.dataset.for = rowKey(target.w, target.id); else delete box.dataset.for;
+    searching(query);
     let found;
     try {
       found = await promise;
@@ -1525,15 +1534,15 @@ async function runList(env) {
       if (mine !== searchToken) return;
       const st = clone('tpl-found-state');
       fill(st, { text: 'Search is not available right now.' });
-      box.replaceChildren(foundHead('Results for', query, true), st);
+      box.replaceChildren(foundHead(target ? 'Positions for' : 'Results for', query, true), st);
       return;
     }
     if (mine !== searchToken) return;
     hits = found;
     if (!found.length) {
       const st = clone('tpl-found-state');
-      fill(st, { text: 'Nothing found. Try a fuller name, or paste coordinates or a map link.' });
-      box.replaceChildren(foundHead('Results for', query, true), st);
+      fill(st, { text: target ? 'Nothing found for that address. Try a fuller address, or give the place a position by hand.' : 'Nothing found. Try a fuller name, or paste coordinates or a map link.' });
+      box.replaceChildren(foundHead(target ? 'Positions for' : 'Results for', query, true), st);
       return;
     }
     const rows = document.createElement('div');
@@ -1542,15 +1551,16 @@ async function runList(env) {
       const r = clone('tpl-found-row');
       r.dataset.i = String(i);
       // Where it came from; a result already in a list says so, and its button opens that place instead of saving it again.
-      const dup = findDuplicate(entries(), { origin: h.key, title: h.title, point: { lat: Number(h.lat), lng: Number(h.lng) } });
+      const dup = target ? null : findDuplicate(entries(), { origin: h.key, title: h.title, point: { lat: Number(h.lat), lng: Number(h.lng) } });
       fill(r, { title: h.title, address: h.sub, source: dup ? `Already in ${whereName(dup.w)}` : h.source === 'server' ? 'From earlier searches' : h.from || '' });
       const b = r.querySelector('[data-action="save-found"]');
       if (dup) { r.dataset.dup = rowKey(dup.w, dup.p.id); b.textContent = 'Open it'; }
-      hide(b, !dup && !canAdd());
+      if (target) b.textContent = 'Use this position';
+      hide(b, !dup && !(target ? writable(target.w) : canAdd()));
       if (i > 0 || dup) b.classList.remove('btn-primary'); // one main Save in the list: the first result's
       rows.append(r);
     });
-    const parts = [foundHead('Results for', query, true), rows];
+    const parts = [foundHead(target ? 'Positions for' : 'Results for', query, true), rows];
     if (state.searchCredit) { const c = document.createElement('p'); c.className = 'found-credit'; c.textContent = state.searchCredit; parts.push(c); }
     box.replaceChildren(...parts);
     hydrate(box);
@@ -1572,6 +1582,66 @@ async function runList(env) {
     const row = t ? findCategory(cats, t.category) : null;
     openEditor(null, null, { title: h.title, address: h.sub, point: { lat: h.lat, lng: h.lng }, origin: h.key, ...(t ? { type: t.id, category: row ? row.id : 'other' } : {}) });
   }
+  // "Find on map" on a place with an address and no position: search its address and list the matches; the person picks one
+  // (usePosition). Nothing is picked for them.
+  function findOnMap(w, id) {
+    const p = placeAt(w, id);
+    if (!p || p.point || !p.address || !state.search || !writable(w)) return;
+    const q = geo.oneLine(p.address, 200);
+    const promise = searchFor(q, null);
+    promise.catch(() => {});
+    showFound(q, promise, { w, id });
+  }
+  // The picked result becomes the position of the place the results are for.
+  async function usePosition(i) {
+    const h = hits[i];
+    const key = $('found').dataset.for || '';
+    const at = key.indexOf('/');
+    if (!h || at < 0) return;
+    const w = key.slice(0, at);
+    const id = key.slice(at + 1);
+    const p = placeAt(w, id);
+    if (!p || !writable(w)) return closeFound();
+    if (p.point) { closeFound(); return say('It has a position now.'); }
+    try {
+      await stores[w].setPoint(id, { lat: h.lat, lng: h.lng });
+      markUsed(h.key);
+      closeFound();
+      say('Position set.');
+    } catch (err) { say(`The position could not be set: ${(err && err.message) || err}`); }
+  }
+  // When the page opens, a place with an address and no position is searched once (quietly: at most a few, a moment apart, the
+  // server limiting them too). Exactly one clear match (results within 60 m are one match) sets the position; anything else
+  // is left, and "Find on map" is there. Every outcome is remembered on this device with the address, so a miss is never searched
+  // again until the address changes.
+  const TRIED_KEY = 'maps-find-tried';
+  const AUTO_MAX = 3;
+  function triedBefore() { try { return JSON.parse(localStorage.getItem(TRIED_KEY) || '{}') || {}; } catch (err) { return {}; } }
+  function rememberTried(tried) {
+    const keys = Object.keys(tried);
+    for (const k of keys.slice(0, Math.max(0, keys.length - 500))) delete tried[k];
+    try { localStorage.setItem(TRIED_KEY, JSON.stringify(tried)); } catch (err) { /* not remembered */ }
+  }
+  async function autoFind() {
+    if (!state.search || state.autoDone) return;
+    state.autoDone = true;
+    const tried = triedBefore();
+    const todo = entries().filter((e) => e.w !== 'saved' && writable(e.w) && e.p && !e.p.point && e.p.address && tried[`${e.w}/${e.p.id}`] !== e.p.address).slice(0, AUTO_MAX);
+    for (const [n, e] of todo.entries()) {
+      if (!state.search || !root.isConnected) return;
+      if (n) await new Promise((r) => setTimeout(r, 1500));
+      const key = `${e.w}/${e.p.id}`;
+      tried[key] = e.p.address;
+      rememberTried(tried);
+      let found = [];
+      try { found = await searchFor(geo.oneLine(e.p.address, 200), null); } catch (err) { continue; }
+      const first = oneClear(found);
+      if (!first) continue;
+      const now = placeAt(e.w, e.p.id);
+      if (!now || now.point || !writable(e.w)) continue;
+      try { await stores[e.w].setPoint(e.p.id, { lat: first.lat, lng: first.lng }); markUsed(first.key); } catch (err) { /* left for "Find on map" */ }
+    }
+  }
   // A click on a result shows it on the map (pan, zoom, a pin); Save is its own button and the only thing that opens the dialog.
   // With no map beside (a list alone) there is nothing to show, so the row does nothing.
   async function previewFound(i, row) {
@@ -1592,13 +1662,14 @@ async function runList(env) {
     const row = ev.target.closest('.found-row');
     if (ev.target.closest('[data-action="close-found"]')) return closeFound();
     if (!row) return;
-    if (ev.target.closest('[data-action="save-found"]') || row.dataset.dup) saveFound(Number(row.dataset.i), row);
+    if ($('found').dataset.for && ev.target.closest('[data-action="save-found"]')) usePosition(Number(row.dataset.i));
+    else if (ev.target.closest('[data-action="save-found"]') || row.dataset.dup) saveFound(Number(row.dataset.i), row);
     else previewFound(Number(row.dataset.i), row);
   });
   $('found').addEventListener('keydown', (ev) => {
     const row = ev.target.closest && ev.target.closest('.found-row');
     if (!row) return;
-    if (ev.key === 'Enter' && ev.target === row) { ev.preventDefault(); if (row.dataset.dup) saveFound(Number(row.dataset.i), row); else previewFound(Number(row.dataset.i), row); }
+    if (ev.key === 'Enter' && ev.target === row) { ev.preventDefault(); if ($('found').dataset.for) previewFound(Number(row.dataset.i), row); else if (row.dataset.dup) saveFound(Number(row.dataset.i), row); else previewFound(Number(row.dataset.i), row); }
     else if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
       ev.preventDefault();
       const next = ev.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling;
@@ -1615,6 +1686,18 @@ async function runList(env) {
   const REFUSED = 'you may not add places here';
   if (host.actions && host.actions.provide) {
     host.actions.provide({
+      // An agent's search (plan: Maps issue 1077): a few matches it can read, to pick one for setPlacePoint. Carried out by an open
+      // page, since the search is the page's (the server runs no network from its action library). Off when no place search is
+      // chosen: nothing is sent, and it says so. The matches come as the note, which is what request_status shows an agent.
+      findPlace: async (input) => {
+        for (let i = 0; i < 50 && !state.loaded; i += 1) await new Promise((r) => setTimeout(r, 100));
+        if (!state.search) throw new Error('Place search is off. An admin chooses one in the Maps settings.');
+        const q = geo.oneLine(input && input.q, 200);
+        if (q.length < 2) throw new Error('nothing to look for');
+        const results = (await searchFor(q, null)).filter((h) => geo.inRange(Number(h.lat), Number(h.lng))).slice(0, 5)
+          .map((h) => ({ name: geo.oneLine(h.title, 80), address: geo.oneLine(h.sub, 120), lat: geo.round6(Number(h.lat)), lng: geo.round6(Number(h.lng)) }));
+        return { data: { note: findNote(q, results), results } };
+      },
       searchPlaces: async (input) => {
         const q = geo.oneLine(input && input.q, 200);
         if (q.length < 2) throw new Error('nothing to look for');
@@ -1895,6 +1978,7 @@ async function runList(env) {
       render();
       loadLinks().catch(() => {});
       if (state.openWanted) { const f = state.openWanted; state.openWanted = null; f(); }
+      setTimeout(() => autoFind().catch(() => {}), 2500);
     } catch (err) {
       catsReadDone();
       $('list-app').hidden = true;
