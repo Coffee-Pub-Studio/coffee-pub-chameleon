@@ -405,6 +405,30 @@ try {
     assert.equal((await call(server, 'GET', `/api/users/${R.user.key}/asks`, { cookie: admin })).json.asks.length, 0, 'nothing refused was kept');
   });
 
+  // A space closed for set up (check-closed-space.mjs): the set-up agent, a member of the space it made, is refused it as an
+  // ordinary agent is (the unknown space's 404) and as a member is (kept out); its waiting ask is held, not ended; an owner
+  // still answers it, and the person named is read as listed though the space is closed. Reopening restores its reach.
+  await test('closed for set up: the set-up agent is kept out of the space it made; its ask waits; reopening restores', async () => {
+    const K = await setupOf('Closer');
+    const shut = await madeBy(K, 'Shut');
+    ok(await call(server, 'PATCH', `/api/spaces/${shut.id}`, { cookie: admin, body: { members: [K.user.key, mia.key] } }), 'Mia added by an owner');
+    const r = await ask(K, shut.id, { ask: 'remove', person: mia.key });
+    ok(r, 'asked while open', 202);
+    ok(await call(server, 'PATCH', `/api/spaces/${shut.id}`, { cookie: olga, body: { closed: true } }), 'an owner closes it');
+    refused(await call(server, 'GET', `/api/spaces/${shut.id}/chat`, { cookie: miaC }), 403, null, 'a member is kept out');
+    refused(await call(server, 'PATCH', `/api/agent/spaces/${shut.id}`, { ...K.T, body: { name: 'Renamed' } }), 404, 'no such space', 'renaming it');
+    refused(await ask(K, shut.id, { ask: 'moderator', person: mia.key, on: true }), 404, 'no such space', 'asking about it');
+    assert.ok(!(await call(server, 'GET', '/api/agent/me', K.T)).json.spaces.some((x) => x.id === shut.id), 'not among its spaces');
+    assert.equal((await spaceOf(shut.id)).name, 'Shut', 'nothing changed');
+    assert.equal((await call(server, 'GET', `/api/agent/asks/${r.json.ask.id}`, K.T)).json.ask.state, 'waiting', 'its ask is held, not ended');
+    const yes = await answer(K, r.json.ask.id, 'approve');
+    ok(yes, 'an owner approves while it is closed');
+    assert.deepEqual((await spaceOf(shut.id)).members, [K.user.key], 'Mia, listed though it is closed, is taken off');
+    ok(await call(server, 'PATCH', `/api/spaces/${shut.id}`, { cookie: olga, body: { closed: false } }), 'reopened');
+    ok(await call(server, 'PATCH', `/api/agent/spaces/${shut.id}`, { ...K.T, body: { name: 'Open again' } }), 'renaming it again');
+    assert.ok((await call(server, 'GET', '/api/agent/me', K.T)).json.spaces.some((x) => x.id === shut.id), 'among its spaces again');
+  });
+
   let addId = null;
   await test('an ask changes nothing until an owner approves; the owners get one bell line; approving adds them', async () => {
     const r = await ask(A, porto.id, { ask: 'add', person: mia.key });

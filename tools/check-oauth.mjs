@@ -577,6 +577,25 @@ try {
     assert.ok(logLines(single, key).some((l) => l.event === 'reused' && l.by === null));
   });
 
+  // Allowing an app into a space closed for set up (check-closed-space.mjs) makes the agent one of its members, once, and no
+  // more: it is kept out of it, as a member is, until the space is reopened.
+  await test('allowed into a space closed for set up: a member of it, kept out of it until it reopens', async () => {
+    const shut = (await call(server, 'POST', '/api/spaces', { cookie: admin, body: { name: 'Shut', members: [mia.key] } })).json.space.id;
+    ok(await call(server, 'PATCH', `/api/spaces/${shut}`, { cookie: admin, body: { closed: true } }), 'closed');
+    const c = await connect(server, admin, { agent: 'new', name: 'Shut out', spaces: [shut] });
+    const me = toolJson(await tool(server, 'me', {}, { token: c.tokens.access_token }));
+    const members = () => call(server, 'GET', `/api/spaces/${shut}`, { cookie: admin }).then((r) => r.json.space.members);
+    assert.deepEqual((await members()).filter((k) => k === me.agent.key), [me.agent.key], 'one of its members, once');
+    assert.deepEqual(me.spaces, [], 'not among its spaces while closed');
+    const read = await tool(server, 'read_chat', { space: shut }, { token: c.tokens.access_token });
+    assert.ok(read.json?.result?.isError || read.status !== 200, `its chat is refused: ${read.text.slice(0, 200)}`);
+    const again = await connect(server, admin, { agent: me.agent.key, spaces: [shut] }, { client: c.client });
+    assert.equal((await members()).filter((k) => k === me.agent.key).length, 1, 'allowed again: not added twice');
+    assert.deepEqual(toolJson(await tool(server, 'me', {}, { token: again.tokens.access_token })).spaces, [], 'still not among its spaces');
+    ok(await call(server, 'PATCH', `/api/spaces/${shut}`, { cookie: admin, body: { closed: false } }), 'reopened');
+    assert.deepEqual(toolJson(await tool(server, 'me', {}, { token: again.tokens.access_token })).spaces.map((x) => x.id), [shut], 'among its spaces once reopened');
+  });
+
   await test('Revoke, Turn off and Agents off stop it on the next call', async () => {
     const c = await connect(server, admin, { agent: 'new', name: 'Stopper', spaces: [S1] });
     const key = toolJson(await tool(server, 'me', {}, { token: c.tokens.access_token })).agent.key;
