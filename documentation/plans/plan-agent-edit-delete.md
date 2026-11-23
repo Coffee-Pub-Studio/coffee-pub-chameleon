@@ -9,7 +9,8 @@ dialog, the Roles row and each module's edit and delete actions (module lane, on
 server half as a security change; content-manager documents.
 
 **Status:** Draft, awaiting Thomas's approval of the whole plan; questions 1, 2 (and 3), 5 and 9 decided by him; the rest
-taken on leans. 2026-11-23. Nothing built. Thomas, 2026-11-23: "i no longer agree with "never delete".
+taken on leans. 2026-11-23. Decisions 8 (no agent action waits for a page) and 9 (uploaded modules run on the server once an admin approves) added 2026-11-23; the gaps it leaves are planned
+in [plan-agent-server-actions](plan-agent-server-actions.md). Thomas, 2026-11-23: "i no longer agree with "never delete".
 I think "never delete without permission to do so which comes from the user"". Asked how an agent gets that permission,
 he chose the option **Right plus approval for each delete**. Asked whether ordinary agents should also get a visible
 review list, he answered "yes, add the review list with undo". The request behind it is a real-work test (ChatGPT as an
@@ -41,7 +42,7 @@ Only what Thomas decided. The planner's leans are under "Options" and "What is n
    (Thomas, 2026-11-23, question 1, the choice "Yes, bundled modules only"). Each bundled module's action code moves into
    a plain library that its page and the server both use. The server runs it at once as the agent, with the agent's own
    rights, through the same checked write path. Uploaded modules keep the wait, with the better waiting tools (E1 plus
-   E3). This changes decision 14 of plan-agent-access ("The wait for an open page: accepted") for bundled modules. Not
+   E3); this part is replaced by decision 9. This changes decision 14 of plan-agent-access ("The wait for an open page: accepted") for bundled modules. Not
    chosen: a hidden browser per space (E2); better waiting tools only (E3); leave decision 14 as it is (E4).
 5. **Owners, admin and that space's moderators approve an agent's delete, and see the review list** (Thomas, 2026-11-23,
    question 2, the choice "Owners, admin and that space's moderators"; it also answers question 3). Each may approve a
@@ -53,6 +54,22 @@ Only what Thomas decided. The planner's leans are under "Options" and "What is n
 7. **An agent may ask to delete objects other people made, with approval** (Thomas, 2026-11-23, question 9). A person who
    could delete the object themselves must approve that one ask, and Undo restores it. Not chosen: only objects the agent
    made.
+8. **Every agent action runs on the server at once; no action waits for a page to be open** (Thomas, 2026-11-23: "in
+   general i want to move away from 'waits until someone [opens the module]...' for the reasons we have already
+   discussed. I do not want this same decision to come up one module at a time... this is for all things. An agent is
+   not useful if you also have to be in the app for it to get real-time updates."). Page-only is not an acceptable end
+   state for any module, and a module is not done for agents until its actions run on the server (`actions.server`).
+   This covers what an action does after its write too: a reminder, a link, an announcement or a phase's end that waits
+   for a page is a wait, and is replaced by the server doing it. It is decided for every module at once and is not asked
+   again module by module. The work is planned in [plan-agent-server-actions](plan-agent-server-actions.md); a module's
+   done list carries it ([plan-release](plan-release.md), "What done means for a module", item 13).
+9. **Uploaded modules run their server actions in the same isolated process, once an admin approves it** (Thomas,
+   2026-11-23, option (a) of the open question in plan-agent-server-actions). This replaces decision 4's wait for a page
+   for uploaded modules, so no agent action waits for a page anywhere. The approval is per module version and its exact
+   library text, a changed upload needs approval again, the run has the same sandbox limits as a bundled module's and no
+   permission beyond what the module already has; until it is approved its actions are refused to agents at once, not
+   queued. The details are section 8 and step 11 of [plan-agent-server-actions](plan-agent-server-actions.md). Not
+   chosen: never offering an uploaded module's actions to agents; keeping the wait for them.
 
 ## What it is today
 
@@ -215,7 +232,8 @@ stay below as the record of what he did not choose.
   object-sync, limits, the live `changes` event so open pages refresh, and the review list's records (section 4).
 - **Who carries it:** the agent itself, with its Agent column's rights, as the asker. `by` and `credit` are the agent's,
   honestly, with no hint. A request the agent's own rights do not allow is refused at once, with the module's sentence.
-- **Uploaded modules keep the wait.** Their code is not ours, and `vm` is not a security boundary, so it never runs in the
+- **Uploaded modules keep the wait** (replaced by decision 9: they run in the same isolated process once an admin
+  approves). Their code is not ours, and `vm` is not a security boundary, so it never runs in the
   server process. Their requests wait for a page, as today.
 - **Fixes:** reads after writes (the request is `done` with the new pointer in the same call), chaining, offline spaces,
   and stale data, for every bundled module. **Does not fix:** uploaded modules.
@@ -258,7 +276,7 @@ requests with their unchanged page code.
 **E4. Leave decision 14 as it is.** Costs nothing; fixes nothing of what Thomas saw. Every edit this plan adds would also
 wait for a page, so "clean up the itinerary, then add a reminder" still could not chain.
 
-**Decided (decision 4): E1 for bundled modules, with E3 for uploaded modules.** It is the structural fix: one copy of each
+**Decided (decision 4): E1 for bundled modules, with E3 for uploaded modules** (the uploaded half replaced by decision 9). It is the structural fix: one copy of each
 module's rules, run where the request lands, by the agent with its own rights, and it makes the review list's records
 exact.
 

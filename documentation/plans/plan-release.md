@@ -329,6 +329,10 @@ A module is done when all of this is true, and written in its "done list" (one p
     without a version bump and a migration.
 11. **Words and names.** Plain short words, the names in `CLAUDE.md`, themeable by template.
 12. **Licences.** Every library and asset it ships is in `public/credits.json` and passes `check-credits`.
+13. **Agent actions run on the server.** Every action an agent may ask the module for is carried out by the server at
+    once (`actions.server`), and nothing it does waits for someone to open the module. A module whose actions an agent
+    can only have carried out by an open page is not done (Thomas, 2026-11-23; decision 8 of
+    [plan-agent-edit-delete](plan-agent-edit-delete.md), built by [plan-agent-server-actions](plan-agent-server-actions.md)).
 
 ### What "done" means for the core
 

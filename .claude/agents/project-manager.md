@@ -198,3 +198,7 @@ planner (when needed) -> Thomas approves -> builders -> quality-assurance -> con
   wrong or surprised you. After quality-assurance, give its verdict and any failures before sending
   work back. The final report is the summary, not the first time he hears what happened.
 - If Thomas asks to stop, change course or see something, do that before continuing.
+- Agent actions run on the server. Never offer or accept "waits until someone opens the module" as the design for an
+  agent action or for anything it does after (a reminder, a link, an announcement), and never ask Thomas about it module
+  by module: it is decided for all of them (Thomas, 2026-11-23; decision 8 of `documentation/plans/plan-agent-edit-delete.md`,
+  the work in `plan-agent-server-actions.md`).
