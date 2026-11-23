@@ -1172,9 +1172,9 @@
     ['Light purple', '#c3a6e8'], ['Purple', '#7b3fb5'], ['Pink', '#f48fb1'], ['Magenta', '#d81b9c'],
   ].map(([name, hex]) => Object.freeze({ name, color: hex, opacity: 100 })));
   // A grid as the page or the server gives it, checked: a fresh list of { color: '#rrggbb' lower case, opacity: a whole 0 to 100 },
-  // at most 48, no colour and opacity twice; anything else (a hole, an extra key, a string opacity, upper case) is null.
-  function colourGridClean(list) {
-    if (!Array.isArray(list) || list.length > COLOUR_GRID_MAX) return null;
+  // at most 48 (`max`), no colour and opacity twice; anything else (a hole, an extra key, a string opacity, upper case) is null.
+  function colourGridClean(list, max = COLOUR_GRID_MAX) {
+    if (!Array.isArray(list) || list.length > max) return null;
     const out = [];
     const seen = new Set();
     for (let i = 0; i < list.length; i += 1) {
@@ -1235,6 +1235,15 @@
   function colourGridRemove(list, entry) {
     const i = colourGridFind(list, entry);
     return i < 0 ? list : [...list.slice(0, i), ...list.slice(i + 1)];
+  }
+  // The person's Recent colours (decision 27): kept on their account, one list across all modules, newest first, at most 8, each
+  // { color, opacity }; checked as the grid is (colourRecentClean). A choice goes to the front and an older copy of the same colour
+  // and opacity is dropped: colourRecentAdd answers that new list (the one sent whole to the page) and leaves `list` alone.
+  const COLOUR_RECENT_MAX = 8;
+  const colourRecentClean = (list) => colourGridClean(list, COLOUR_RECENT_MAX);
+  function colourRecentAdd(list, entry) {
+    const was = Array.isArray(list) ? list : [];
+    return [{ color: entry.color, opacity: entry.opacity }, ...was.filter((c) => !(c.color === entry.color && c.opacity === entry.opacity)).map((c) => ({ color: c.color, opacity: c.opacity }))].slice(0, COLOUR_RECENT_MAX);
   }
   // A module's own palette, checked: a fresh copy [{ heading, colours: [{ name, color }] }] with names trimmed and colours cleaned.
   // At most 6 groups and 48 colours; every heading and name plain text: at most 40 characters, at least one letter or digit, and no
@@ -2594,7 +2603,6 @@
   const COLOUR_BLACK = colourFromHsv({ h: 0, s: 0, v: 0 });
   const COLOUR_AREA = `linear-gradient(to top, ${COLOUR_BLACK}, transparent), linear-gradient(to right, ${COLOUR_WHITE}, transparent)`;
   const COLOUR_HUES = `linear-gradient(to right, ${[0, 60, 120, 180, 240, 300, 360].map((h) => colourFromHsv({ h: h % 360, s: 100, v: 100 })).join(', ')})`;
-  const COLOUR_RECENT_MAX = 8;
   const COLOUR_HEX_HINT = 'Type six hex digits, like #2f6cbf'; // the hex field's error line
   let colourSeq = 0;
   // The person's colour grid as the page last answered it ({ colors: [...] | null, editable }), so the next picker draws it at once and
@@ -2608,6 +2616,33 @@
       colourGridSeen = a && (a.colors === null || colors) ? { colors, editable: a.editable === true } : { colors: null, editable: false };
       return colourGridSeen;
     }, () => (colourGridSeen = { colors: null, editable: false }));
+  // The person's Recent colours likewise (decision 27): asked through the page each time a picker opens (ui.colorRecent), kept as last
+  // answered so the next picker draws them at once, and sent whole after a choice (ui.colorRecent.set). Where they can't be kept (no
+  // session, a guest, an agent: not editable) Recent is not shown and nothing is sent. The sends go one after another, each from the
+  // page's list as it is then.
+  let colourRecentSeen = null;
+  const colourRecentAsk = () => Promise.resolve()
+    .then(() => call('ui.colorRecent', {}))
+    .then((a) => {
+      const colors = a && a.colors === null ? null : colourRecentClean(a && a.colors);
+      colourRecentSeen = a && a.editable === true && (a.colors === null || colors) ? { colors, editable: true } : { colors: null, editable: false };
+      return colourRecentSeen;
+    }, () => (colourRecentSeen = { colors: null, editable: false }));
+  let colourRecentSaving = Promise.resolve();
+  const colourRecentKeep = (entry) => {
+    colourRecentSaving = colourRecentSaving
+      .then(() => colourRecentAsk()) // the page's copy, which another module on the page may have changed
+      .then((now) => {
+        if (!now.editable) return null;
+        const next = colourRecentAdd(now.colors, entry);
+        colourRecentSeen = { colors: next, editable: true };
+        return call('ui.colorRecent.set', { colors: next }).then((answer) => {
+          const k = colourRecentClean(Array.isArray(answer) ? answer : answer && answer.colors);
+          if (k) colourRecentSeen = { colors: k, editable: true };
+        });
+      })
+      .catch(() => { colourRecentSeen = null; }); // not kept: the next picker asks the page again
+  };
   let colourLastOutside = null; // { at, time }: a module in the page whose picker (opened at a point) a press on its own toolbar or title bar closed
   // The browser's eyedropper: offered where it exists; the first time it refuses (a frame it may not work in), it is hidden from then on.
   let colourDropper = typeof window.EyeDropper === 'function';
@@ -2676,10 +2711,9 @@
       let grid = own ? { ...(colourGridSeen || { colors: null, editable: false }) } : null;
       const gridList = () => (grid.colors || COLOUR_GRID_START.map((c) => ({ color: c.color, opacity: c.opacity })));
       const editable = () => Boolean(own && grid.editable);
-      // The recent colours: this browser, this module (as the kind picker keeps its recent choices; not kept where storage is shut).
-      const memory = `app:colour:${editorDeps.moduleId}`;
-      const readRecent = () => { try { const v = JSON.parse(localStorage.getItem(memory) || '[]'); return Array.isArray(v) ? v.map(colourClean).filter(Boolean).filter((c, i, a) => a.indexOf(c) === i).slice(0, COLOUR_RECENT_MAX) : []; } catch (err) { return []; } };
-      const writeRecent = (c) => { try { localStorage.setItem(memory, JSON.stringify([c, ...readRecent().filter((x) => x !== c)].slice(0, COLOUR_RECENT_MAX))); } catch (err) { /* not kept */ } };
+      // The person's Recent colours as last seen (none until the page answers); recent: false leaves them out.
+      const showsRecent = opt.recent !== false;
+      let recentList = showsRecent && colourRecentSeen && colourRecentSeen.editable ? colourRecentSeen.colors || [] : [];
 
       const startHex = colourClean(opt.value) || (own ? (colourGridOrder(gridList())[0] || COLOUR_GRID_START[0]).color : palette[0].colours[0].color);
       let hsv = colourToHsv(startHex);
@@ -2809,8 +2843,23 @@
         current.draggable = editable();
       };
       if (own) drawGrid();
-      const recent = opt.recent === false ? [] : readRecent();
-      if (recent.length) pop.appendChild(swatchGroup('Recent', [{ heading: 'Recent', colours: recent.map((c) => ({ name: names.get(c) || '', color: c })) }]));
+      // Recent: one group, drawn again when the page's answer differs; hidden while it is empty. Each colour carries its opacity, named
+      // by its name in what this picker shows (at 100), else by its hex, with the percent below 100.
+      const recentGroup = showsRecent ? swatchGroup('Recent', []) : null;
+      const drawRecent = () => {
+        if (!recentGroup) return;
+        const cells = make('div', 'sdk-swatch-grid');
+        cells.setAttribute('role', 'presentation');
+        for (const e of recentList) {
+          const name = e.opacity === 100 ? names.get(e.color) || '' : '';
+          cells.appendChild(swatchCell({ color: e.color, opacity: e.opacity, name, label: name || (e.opacity < 100 ? `${e.color}, ${e.opacity} percent` : e.color) }));
+        }
+        const hd = make('div', 'sdk-cp-head', 'Recent');
+        hd.setAttribute('aria-hidden', 'true');
+        recentGroup.replaceChildren(...(recentList.length ? [hd, cells] : []));
+        recentGroup.hidden = !recentList.length;
+      };
+      if (recentGroup) { drawRecent(); pop.appendChild(recentGroup); }
       // What a screen reader hears once the colour settles: "Teal, #00796b" or "#2f6cbf".
       const live = make('div', 'sdk-cp-live');
       live.setAttribute('aria-live', 'polite');
@@ -3178,6 +3227,26 @@
           redraw();
         });
       }
+      // The person's Recent colours as the page has them now: drawn again when they differ. Focus in Recent stays on the same colour
+      // (else the chosen or first one there).
+      if (recentGroup) {
+        colourRecentAsk().then((r) => {
+          const next = r.editable ? r.colors || [] : [];
+          if (!pop.isConnected || JSON.stringify(next) === JSON.stringify(recentList)) return;
+          const was = focusedNow();
+          const before = was && recentGroup.contains(was) ? { color: was.dataset.color, opacity: Number(was.dataset.opacity) } : null;
+          recentList = next;
+          drawRecent();
+          faint([...recentGroup.querySelectorAll('.sdk-swatch')]);
+          paint();
+          place();
+          if (before) {
+            const cells = [...recentGroup.querySelectorAll('.sdk-swatch')];
+            const target = cells.find((b) => b.dataset.color === before.color && Number(b.dataset.opacity) === before.opacity) || cells.find((b) => b.tabIndex === 0) || null;
+            if (target) { for (const b of cells) b.tabIndex = b === target ? 0 : -1; target.focus({ preventScroll: true }); } else hexIn.focus({ preventScroll: true });
+          }
+        });
+      }
       const first = groups.length ? groups[0].querySelector('.sdk-swatch[aria-checked="true"]') : null;
       // The first focus is ours, not the person's: the chosen swatch's label (data-tip) would cover its heading, so it waits until
       // the keyboard leaves that swatch.
@@ -3244,7 +3313,7 @@
           document.removeEventListener('keydown', onKey, true);
           env.root.removeEventListener('pointerdown', onOutside, true);
           document.removeEventListener('pointerdown', onPage, true);
-          if (result && opt.recent !== false) writeRecent(result.color);
+          if (result && showsRecent) colourRecentKeep(result);
           if (anchor && anchor.focus && !outside) { try { anchor.focus(); } catch (err) { /* not focusable */ } }
           // A point (a toolbar button, a title-bar action), focus left on nothing: back to what had it when the picker opened (a module in
           // the page, a host page: the toolbar button itself), else, in a frame, the host control that opened it (focus.opener).
@@ -5983,14 +6052,48 @@
     pageGrid = Promise.resolve({ colors: kept, editable: true });
     return kept.map((c) => ({ ...c }));
   };
+  // The person's Recent colours on a host page (decision 27), the same way: ui.colorRecent and ui.colorRecent.set fetch
+  // /api/me/color-recent, with one copy for the page. Not signed in (401), a guest or an agent (403): not editable, and the picker
+  // shows no Recent.
+  let pageRecent = null; // Promise<{ colors: [...] | null, editable }>
+  const pageRecentRead = () => {
+    if (!pageRecent) {
+      pageRecent = fetch('/api/me/color-recent', { credentials: 'same-origin', headers: { accept: 'application/json' } })
+        .then(async (r) => {
+          if (r.status === 401 || r.status === 403) return { colors: null, editable: false };
+          if (!r.ok) throw new Error('not read');
+          const a = await r.json();
+          const colors = a && a.colors === null ? null : colourRecentClean(a && a.colors);
+          return a && (a.colors === null || colors) ? { colors, editable: true } : { colors: null, editable: false };
+        })
+        .catch(() => { pageRecent = null; return { colors: null, editable: false }; }); // asked again next time
+    }
+    return pageRecent.then((g) => ({ colors: g.colors && g.colors.map((c) => ({ ...c })), editable: g.editable }));
+  };
+  const pageRecentWrite = async (params) => {
+    const list = colourRecentClean(params && params.colors);
+    if (!list) throw Object.assign(new Error(Array.isArray(params && params.colors) && params.colors.length > COLOUR_RECENT_MAX ? 'Recent holds at most 8 colours.' : 'Each colour is #rrggbb in lower case, with an opacity from 0 to 100, and no colour twice.'), { status: 400 });
+    const now = await pageRecentRead();
+    if (!now.editable) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
+    pageRecent = Promise.resolve({ colors: list, editable: true }); // at once, so a picker opened while it is sent shows it
+    const r = await fetch('/api/me/color-recent', { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ colors: list }) });
+    let a = {};
+    try { a = await r.json(); } catch (err) { /* no body */ }
+    if (!r.ok) { pageRecent = null; throw Object.assign(new Error(a && typeof a.error === 'string' && a.error ? a.error : "Your recent colours weren't kept."), { status: r.status }); }
+    const kept = colourRecentClean(a && a.colors) || list;
+    pageRecent = Promise.resolve({ colors: kept, editable: true });
+    return kept.map((c) => ({ ...c }));
+  };
   let colourPage = null;
   const colourUi = () => {
     if (!colourPage) {
       colourPage = createHost({
-        // `hello` has nothing to tell; the grid's two calls fetch the route (above); `icons.svg` draws the grid's Remove menu's icon.
+        // `hello` has nothing to tell; the grid's and Recent's calls fetch their routes (above); `icons.svg` draws the grid's Remove menu's icon.
         call: (method, params) => (method === 'hello' ? Promise.resolve({})
           : method === 'ui.colorGrid' ? pageGridRead()
           : method === 'ui.colorGrid.set' ? pageGridWrite(params)
+          : method === 'ui.colorRecent' ? pageRecentRead()
+          : method === 'ui.colorRecent.set' ? pageRecentWrite(params)
           : method === 'icons.svg' ? fetch(`/api/icons/${params && params.style === 'regular' ? 'regular' : 'solid'}/${encodeURIComponent(params && params.name)}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error('no such icon'))))
           : Promise.reject(new Error('not available on a page'))),
         root: document,

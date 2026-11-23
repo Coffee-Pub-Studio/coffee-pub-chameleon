@@ -57,8 +57,8 @@ export const cleanTagList = (list) => (Array.isArray(list) ? list : []).slice(0,
 // and keeps one copy for every module on it, replaced by each save's answer. A list is checked here before it is sent (the server checks
 // it again): at most 48 of { color: '#rrggbb' lower case, opacity: a whole 0 to 100 }, no colour and opacity twice.
 const COLOUR_GRID_MAX = 48;
-function cleanColourGrid(list) {
-  if (!Array.isArray(list) || list.length > COLOUR_GRID_MAX) return null;
+function cleanColourGrid(list, max = COLOUR_GRID_MAX) {
+  if (!Array.isArray(list) || list.length > max) return null;
   const out = [];
   const seen = new Set();
   for (let i = 0; i < list.length; i += 1) {
@@ -95,6 +95,43 @@ async function writeColourGrid(colors) {
   const answer = await api('PUT', '/api/me/color-grid', { colors: list });
   const kept = cleanColourGrid(answer && answer.colors) || list;
   colourGrid = Promise.resolve({ colors: kept, editable: true });
+  return kept.map((c) => ({ ...c }));
+}
+
+// The person's Recent colours (plan-colour-picker.md, decision 27), the same way as the grid: ui.colorRecent and ui.colorRecent.set,
+// one copy for the page from GET /api/me/color-recent, replaced by each save's answer. The picker sends the whole list, newest first:
+// at most 8, checked here as the grid is before it is sent.
+const COLOUR_RECENT_MAX = 8;
+const cleanColourRecent = (list) => cleanColourGrid(list, COLOUR_RECENT_MAX);
+let colourRecent = null; // Promise<{ colors: [...] | null, editable }>, the page's one copy
+function readColourRecent() {
+  if (!colourRecent) {
+    colourRecent = api('GET', '/api/me/color-recent').then((a) => {
+      const colors = a && a.colors === null ? null : cleanColourRecent(a && a.colors);
+      return a && (a.colors === null || colors) ? { colors, editable: true } : { colors: null, editable: false };
+    }, (err) => {
+      if (err.status !== 401 && err.status !== 403) colourRecent = null; // not reached: asked again next time
+      return { colors: null, editable: false }; // no session, a guest or an agent: no Recent
+    });
+  }
+  return colourRecent.then((g) => ({ colors: g.colors && g.colors.map((c) => ({ ...c })), editable: g.editable }));
+}
+async function writeColourRecent(colors) {
+  const list = cleanColourRecent(colors);
+  if (!list) throw Object.assign(new Error(Array.isArray(colors) && colors.length > COLOUR_RECENT_MAX ? 'Recent holds at most 8 colours.' : 'Each colour is #rrggbb in lower case, with an opacity from 0 to 100, and no colour twice.'), { status: 400 });
+  const now = await readColourRecent();
+  if (!now.editable) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
+  // The page's copy is the new list at once, so a picker that opens while it is being sent already shows it.
+  colourRecent = Promise.resolve({ colors: list, editable: true });
+  let answer;
+  try {
+    answer = await api('PUT', '/api/me/color-recent', { colors: list });
+  } catch (err) {
+    colourRecent = null; // asked again next time
+    throw err;
+  }
+  const kept = cleanColourRecent(answer && answer.colors) || list;
+  colourRecent = Promise.resolve({ colors: kept, editable: true });
   return kept.map((c) => ({ ...c }));
 }
 
@@ -1685,6 +1722,16 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     async 'ui.colorGrid.set'({ colors } = {}) {
       if (guestToken) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
       return writeColourGrid(colors);
+    },
+    // The person's Recent colours for the colour picker: { colors: [...] | null, editable }, from the page's one copy. A guest keeps none.
+    async 'ui.colorRecent'() {
+      if (guestToken) return { colors: null, editable: false };
+      return readColourRecent();
+    },
+    // Saves the whole new Recent list ({ colors }, newest first); answers the list kept, or throws the server's sentence.
+    async 'ui.colorRecent.set'({ colors } = {}) {
+      if (guestToken) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
+      return writeColourRecent(colors);
     },
     // The object picker (host.objects.pick): a window the page draws, searching with this module's own permissions (the same search as
     // 'objects.search'). Resolves with a pointer, a list of them (multiple), or null when the person cancels.
