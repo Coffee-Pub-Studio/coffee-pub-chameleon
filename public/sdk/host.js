@@ -5611,7 +5611,8 @@
   //                                            reader). `selected` the object's tag ids; `max` at most 8 (the one rule); onChange(ids)
   //                                            runs with the ids ticked now, on every change. Only one menu or picker is open at a time.
   //   host.tags.filterOptions(counts)       -> options for a toolbar 'chips' item (host.toolbar.set): one per tag in `counts`
-  //                                            ({ [id]: number } or a Map), named for the tag, with the count. A tag
+  //                                            ({ [id]: number } or a Map), named for the tag, in its colour (`tint`, '#rrggbb': a dot
+  //                                            before the name in the Filters menu), with the count. A tag
   //                                            filter means "has all of them"; the module applies it.
   //   host.on('tags', ({ op, tag }) => ...) op 'added', 'changed' (renamed or recoloured) or 'removed'; the SDK has already
   //                                            updated list(). A deleted tag leaves a dead id on objects: chip() returns null for it.
@@ -5869,7 +5870,7 @@
         const have = counts instanceof Map ? counts : new Map(Object.entries(counts && typeof counts === 'object' ? counts : {}));
         return sorted().filter((t) => have.has(t.id)).map((t) => {
           const n = Math.floor(Number(have.get(t.id)));
-          return { id: t.id, label: t.name, default: false, ...(Number.isFinite(n) && n >= 0 ? { count: n } : {}) };
+          return { id: t.id, label: t.name, default: false, ...(Number.isFinite(n) && n >= 0 ? { count: n } : {}), ...(t.color ? { tint: t.color } : {}) };
         });
       },
     };

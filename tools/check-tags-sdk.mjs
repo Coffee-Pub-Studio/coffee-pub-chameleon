@@ -88,6 +88,14 @@ test('a tag\'s colour is #rrggbb or none, one rule in the server, the SDK and th
   assert.match(css, /\.sdk-chip-tag\[data-tag-fill\] \{\s*background: var\(--tag-fill\);\s*color: var\(--tag-ink\);/);
   assert.match(css, /\.sdk-chip-dot\[data-tag-fill\] \{ --chip-tone: var\(--tag-fill\);/);
   assert.match(host, /global\.hostColour = \{[^}]*paintTag \};/, 'a page draws a tag with the same piece');
+  // The toolbar's filter options keep a tag's colour: the cleaner takes '#rrggbb' as well as the tint names, the Filters menu hands
+  // it to the menu as `colour`, and the menu draws the dot with paintTag.
+  const chrome = rd('public/module-chrome.js');
+  assert.match(chrome, /if \(TINT\.test\(o\?\.tint \|\| ''\)\) opt\.tint = o\.tint;\s*else if \(HEX\.test\(o\?\.tint \|\| ''\)\) opt\.tint = o\.tint\.toLowerCase\(\);/);
+  assert.match(rd('public/module-frame.js'), /\? \{ colour: o\.tint \}/);
+  const menu = rd('public/host-menu.js');
+  assert.match(menu, /dot\.className = 'sdk-chip-dot host-menu-dot';/);
+  assert.match(menu, /hostColour\.paintTag/);
 });
 
 const cleanSrc = slice('public/module-host.js', 'export const TAG_HEX', 'export const cleanTagList = (list) => (Array.isArray(list) ? list : []).slice(0, 200).map(cleanTag).filter(Boolean);').replace(/export /g, '');
@@ -176,7 +184,7 @@ function sdkWith(callImpl) {
 }
 const T = (id, name, color = '') => ({ id, name, color });
 
-test('host.tags: list is kept and current; chip uses textContent in the tag\'s colour; filterOptions are toolbar options', async () => {
+test('host.tags: list is kept and current; chip uses textContent in the tag\'s colour; filterOptions are toolbar options in its colour', async () => {
   const s = sdkWith(async (m) => (m === 'tags.list' ? [T('aaaaaaaa11', 'zebra', '#c0392b'), T('bbbbbbbb22', 'apple'), T('cccccccc33', 'old', 'teal'), { id: 'x', name: '<b>' }] : null));
   assert.equal(s.tags.chip('aaaaaaaa11'), null, 'before list() there is nothing to draw');
   const list = await s.tags.list();
@@ -196,8 +204,8 @@ test('host.tags: list is kept and current; chip uses textContent in the tag\'s c
   assert.equal(s.tags.chip({}), null);
   assert.deepEqual(s.tags.filterOptions({ aaaaaaaa11: 3, bbbbbbbb22: 0, dddddddd99: 9 }), [
     { id: 'bbbbbbbb22', label: 'apple', default: false, count: 0 },
-    { id: 'aaaaaaaa11', label: 'zebra', default: false, count: 3 },
-  ], 'only tags that are counts, in name order; no tint (the toolbar takes tint names, a tag\'s colour is #rrggbb)');
+    { id: 'aaaaaaaa11', label: 'zebra', default: false, count: 3, tint: '#c0392b' },
+  ], 'only tags that are counts, in name order; a tag\'s colour as its tint, a plain tag none');
   assert.deepEqual(s.tags.filterOptions(new Map([['bbbbbbbb22', 2]])).map((o) => o.id), ['bbbbbbbb22']);
   assert.deepEqual(s.tags.filterOptions(null), []);
   // The event first, then the module's: rename, recolour, delete, add.

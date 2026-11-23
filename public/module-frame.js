@@ -57,7 +57,8 @@
 //   { type: 'search', id, label, placeholder, value? }
 //   { type: 'chips', id, label, options: [{ id, label, on }] }            filter chips
 //   { type: 'filters', id, label, groups: [{ id, heading, single?, value?, options: [{ id, label, count?, on?, default?,
-//       icon?, tint?, note? }] }] }  one Filters button with a count; its menu has Clear filters and the groups. A single
+//       icon?, tint?, note? }] }] }  one Filters button with a count; its menu has Clear filters and the groups (a '#rrggbb' tint, a
+//       tag's colour, is the row's dot: host-menu.js `colour`). A single
 //       group is applied while its value is not its first option; a switch is applied while `on` is not its `default`
 //       (false unless given), and Clear filters puts each back
 //   { type: 'button', id, label, icon?, regular?, kind: 'primary' | 'secondary' | 'icon', tip?, on?, disabled?, more? }
@@ -493,7 +494,7 @@ export function createModuleFrame(opts = {}) {
     for (const g of it.groups) {
       if (g.heading) list.push({ heading: g.heading });
       for (const o of g.options) {
-        const look = { ...(o.icon ? { icon: o.icon } : {}), ...(TINT.test(o.tint || '') ? { tint: o.tint } : {}), ...(o.note ? { hint: o.note } : {}) };
+        const look = { ...(o.icon ? { icon: o.icon } : {}), ...(TINT.test(o.tint || '') ? { tint: o.tint } : /^#[0-9a-f]{6}$/.test(o.tint || '') ? { colour: o.tint } : {}), ...(o.note ? { hint: o.note } : {}) };
         list.push(g.single
           ? { label: o.label, ...look, radio: true, checked: o.id === g.value, badge: o.count, keepOpen: true, onPick: () => { const n = nowGroup(g); n.value = o.id; pick(n.id, o.id); fire({ id: n.id, value: o.id }); refreshCount(); } }
           : { label: o.label, ...look, checked: isOn(o), toggle: true, badge: o.count, onPick: () => {
