@@ -960,4 +960,47 @@ test('a module\'s test/ folder (modules/<id>/test/*.mjs, run by tools/check-modu
   }
 });
 
+// `actions.server` (plan-agent-edit-delete.md, decision 4; server/module-actions.js): kept when it names one of the module's
+// own libraries, refused otherwise; an uploaded zip that declares it is refused at install, a bundled one is not; and every
+// module that ships with it (and the check's fixture) has a handler for each action an agent may ask it for.
+{
+  const req = createRequire(import.meta.url);
+  const { zipFiles, libraryOf, bundledModules } = req('../server/module-build.js');
+  const { agentMayAsk } = req('../server/agent-routes.js');
+  const vm = await import('node:vm');
+  const withServer = (server) => ({ ...base(), actions: { server, provides: [{ name: 'addThing', label: 'Add', input: { title: 'string' } }] } });
+  assert.equal(cleanManifest(withServer('src/thing-lib-actions.js'), files).actions.server, 'src/thing-lib-actions.js');
+  assert.equal(cleanManifest(withServer('src/thing-lib.js'), files).actions.server, 'src/thing-lib.js');
+  assert.equal(cleanManifest(base(), files).actions.server, undefined, 'absent: none');
+  for (const bad of ['src/other-lib-actions.js', 'src/thing.js', 'thing-lib-actions.js', '../src/thing-lib.js', 'src/thing-lib-Actions.js', '', 1, null, ['src/thing-lib.js']]) {
+    assert.throws(() => cleanManifest(withServer(bad), files), (err) => err instanceof ModuleError && /actions\.server must name one of the module's own libraries, such as "src\/thing-lib-actions\.js"/.test(err.message), `refused: ${JSON.stringify(bad)}`);
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-modules-server-'));
+  try {
+    const mm = new ModuleManager(dir);
+    const zip = (id) => zipFiles([['module.json', Buffer.from(JSON.stringify({ id, name: id, version: '1.0.0', scope: ['environment'], surfaces: { page: { entry: 'page.html' } }, actions: { server: `src/${id}-lib-actions.js`, provides: [] } }))], ['page.html', Buffer.from('<!doctype html><body></body>')]]);
+    await assert.rejects(mm.install(zip('uploaded')), (err) => err instanceof ModuleError && err.message === 'Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
+    assert.equal(mm.list().some((m) => m.id === 'uploaded'), false, 'nothing was installed');
+    assert.equal((await mm.install(zip('shipped'), { source: 'bundled' })).id, 'shipped', 'a bundled module may declare it');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'modules');
+  const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'module-actions');
+  const declaring = [...bundledModules(root).map((m) => [root, m]), ...bundledModules(fixtures).map((m) => [fixtures, m])].filter(([, m]) => m.actions && m.actions.server !== undefined);
+  assert.ok(declaring.some(([, m]) => m.id === 'fixture-notes'), 'the fixture declares it');
+  for (const [at, raw] of declaring) {
+    const lib = libraryOf(path.join(at, raw.id), raw.id);
+    assert.ok(lib.files.includes(raw.actions.server), `${raw.id}: ${raw.actions.server} is one of its libraries`);
+    const context = vm.createContext(Object.create(null));
+    const names = vm.runInContext(`${lib.js}\n;typeof ACTION_HANDLERS === 'object' && ACTION_HANDLERS ? Object.keys(ACTION_HANDLERS).filter((k) => typeof ACTION_HANDLERS[k] === 'function').join(',') : ''`, context, { timeout: 2000 }).split(',');
+    const cleaned = cleanManifest(raw, new Set(Object.values(raw.surfaces || {}).flat().map((s) => s && s.entry).filter(Boolean)));
+    const askable = cleaned.actions.provides.filter((a) => agentMayAsk(a)).map((a) => a.name);
+    const missing = askable.filter((a) => !names.includes(a));
+    // The check's fixture leaves one out on purpose (noCode), to prove the runner's refusal.
+    assert.deepEqual(missing, raw.id === 'fixture-notes' ? ['noCode'] : [], `${raw.id}: a server handler for every action an agent may ask for`);
+  }
+  n += 1;
+}
+
 console.log(`check-modules: ${n} groups OK`);

@@ -1,0 +1,182 @@
+{
+  "id": "fixture-notes",
+  "name": "Fixture notes",
+  "version": "1.0.0",
+  "icon": "note-sticky",
+  "description": "A test module for tools/check-module-actions.mjs: its agent actions are carried out by the server.",
+  "author": "Coffee Pub",
+  "scope": [
+    "space"
+  ],
+  "surfaces": {
+    "canvas": {
+      "entry": "canvas.html",
+      "width": 320,
+      "height": 400,
+      "mode": [
+        "dock",
+        "float"
+      ]
+    }
+  },
+  "permissions": [
+    {
+      "key": "view",
+      "label": "See the notes",
+      "default": {
+        "member": true,
+        "guest": true,
+        "moderator": true
+      }
+    },
+    {
+      "key": "edit",
+      "label": "Add and change notes",
+      "default": {
+        "member": true,
+        "guest": false,
+        "moderator": true
+      }
+    },
+    {
+      "key": "manage",
+      "label": "Change anyone's notes",
+      "default": {
+        "member": false,
+        "guest": false,
+        "moderator": true
+      }
+    }
+  ],
+  "access": {
+    "read": "view",
+    "write": "edit"
+  },
+  "guards": {
+    "clear": "manage",
+    "only": true,
+    "keys": [
+      {
+        "key": "note:{id}",
+        "owner": "byKey",
+        "ownerName": "by",
+        "need": "edit",
+        "others": {
+          "change": "manage",
+          "delete": "manage"
+        },
+        "fields": {
+          "title": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          }
+        }
+      },
+      {
+        "key": "probe:{id}"
+      }
+    ]
+  },
+  "refs": {
+    "produces": [
+      {
+        "kind": "note",
+        "name": "Note",
+        "key": "note:{id}",
+        "summary": {
+          "title": "title"
+        }
+      }
+    ],
+    "consumes": []
+  },
+  "actions": {
+    "server": "src/fixture-notes-lib-actions.js",
+    "provides": [
+      {
+        "name": "addNote",
+        "label": "Add a note",
+        "description": "Add a note.",
+        "effect": "write",
+        "input": {
+          "title": "string",
+          "body": "text?",
+          "linkTo": "ref:fixture-notes:note?"
+        }
+      },
+      {
+        "name": "renameNote",
+        "label": "Rename a note",
+        "description": "Change a note's title.",
+        "effect": "write",
+        "input": {
+          "note": "ref:fixture-notes:note",
+          "title": "string"
+        }
+      },
+      {
+        "name": "slowRename",
+        "label": "Rename a note slowly",
+        "description": "Change a note's title, after a short wait.",
+        "effect": "write",
+        "input": {
+          "note": "ref:fixture-notes:note",
+          "title": "string",
+          "ms": "number?"
+        }
+      },
+      {
+        "name": "probe",
+        "label": "Probe",
+        "description": "Try something the server must hold.",
+        "effect": "write",
+        "input": {
+          "what": "string",
+          "person": "string?",
+          "b1": "text?",
+          "b2": "text?",
+          "b3": "text?",
+          "b4": "text?",
+          "b5": "text?",
+          "b6": "text?",
+          "b7": "text?",
+          "b8": "text?",
+          "b9": "text?"
+        }
+      },
+      {
+        "name": "noCode",
+        "label": "No code",
+        "description": "An action whose handler is missing.",
+        "effect": "write",
+        "input": {}
+      },
+      {
+        "name": "wipe",
+        "label": "Wipe",
+        "description": "Take everything away.",
+        "effect": "destructive",
+        "input": {}
+      },
+      {
+        "name": "hidden",
+        "label": "Hidden",
+        "description": "Kept from AI.",
+        "effect": "write",
+        "ai": false,
+        "input": {
+          "title": "string"
+        }
+      },
+      {
+        "name": "show",
+        "label": "Show",
+        "local": true,
+        "input": {
+          "note": "ref:fixture-notes:note"
+        }
+      }
+    ]
+  }
+}

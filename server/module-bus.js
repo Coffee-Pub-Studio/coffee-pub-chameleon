@@ -3,10 +3,12 @@
 // what any event or action means: modules declare them in module.json, an admin approves who may
 // hear and who may ask, and this file keeps them until someone can act on them.
 //
-// Modules are front-end only, so nothing here runs a module. An event is kept (a short while) for
-// modules that were not open when it happened to catch up on; an action request waits in the
-// providing module's queue until a person has that module open, whose page claims it, does it under
-// its own rules, and reports back. Persists to DATA_DIR/modules/bus.json.
+// Nothing here runs a module. An event is kept (a short while) for modules that were not open when it happened to catch
+// up on; an action request waits in the providing module's queue until a person has that module open, whose page claims
+// it, does it under its own rules, and reports back. The one exception is an agent's request to a bundled module that
+// declares server actions (plan-agent-edit-delete.md, decision 4): the server carries it out itself at once
+// (server/module-actions.js), so it is made already claimed by the server (`server: true`) and no page is ever offered
+// it, may claim it or may finish it; only completeServer finishes it. Persists to DATA_DIR/modules/bus.json.
 
 'use strict';
 
@@ -40,8 +42,13 @@ function expired(a, now) {
 // A stored request read back with the types the rules rely on, whatever the file says: a time or a count that is not a
 // number closes the carrying window and its cap (never reads as "none yet"), a name that is not text is empty.
 const isTime = (v) => typeof v === 'number' && Number.isFinite(v);
+// What a request the server was carrying out reads as when the server stopped before finishing it.
+const SERVER_STOPPED = 'The server stopped while carrying this out. Read the data to see whether it was done, and ask again if not.';
 function typed(a) {
   const out = { ...a };
+  if (a.server !== undefined) out.server = a.server === true;
+  // The server stopped part way through one it was carrying out: finished, failed, never offered to a page.
+  if (out.server && out.status !== 'done') Object.assign(out, { status: 'done', doneAt: isTime(a.claimedAt) ? a.claimedAt : Date.now(), doneBy: '', result: { ok: false, error: SERVER_STOPPED } });
   out.claimedAt = isTime(a.claimedAt) ? a.claimedAt : 0;
   if (a.claimedFirstAt !== undefined && !isTime(a.claimedFirstAt)) out.claimedFirstAt = 1;
   if (a.carried !== undefined && !(Number.isInteger(a.carried) && a.carried >= 0)) out.carried = LIMITS.carriedWrites;
@@ -135,9 +142,12 @@ class ModuleBus extends EventEmitter {
   // `askerOnly`: only the asker's own page may take it (the routes check `by`); it waits for that page as any request does.
   // `agentToken`: for a request an agent asked for through its token (plan-agent-access.md), that token's id. The request is
   // marked `agent: true` and is carried out only while that agent still may ask (the routes check it, server/index.js).
-  request({ from, provider, action, input, scopeKey, by, local, askerOnly, space, openOnly, agentToken }) {
+  // `server`: the server carries it out itself (plan-agent-edit-delete.md, decision 4): it is made claimed, by nobody, and
+  // stays the server's until completeServer.
+  request({ from, provider, action, input, scopeKey, by, local, askerOnly, space, openOnly, agentToken, server }) {
     const at = Date.now();
     const request = { id: ++this.state.seq, at, from, provider, action, input, scopeKey, by, ...(local ? { local: true } : {}), ...(askerOnly ? { askerOnly: true } : {}), ...(space ? { space } : {}), ...(openOnly ? { expiresAt: at + LIMITS.openOnlyMs } : {}), ...(agentToken ? { agent: true, agentToken } : {}), status: 'pending', claimedAt: 0, result: null };
+    if (server) Object.assign(request, { server: true, status: 'claimed', claimedAt: at, claimedFirstAt: at, claimedBy: '' });
     this.state.actions.push(request);
     this.pruneAndSave();
     this.emit('action', request);
@@ -151,7 +161,7 @@ class ModuleBus extends EventEmitter {
   // Requests waiting for the provider in a scope (or claimed too long ago to be still going).
   pending(provider, scopeKey) {
     const now = Date.now();
-    return this.state.actions.filter((a) => a.provider === provider && a.scopeKey === scopeKey && !expired(a, now)
+    return this.state.actions.filter((a) => a.provider === provider && a.scopeKey === scopeKey && !a.server && !expired(a, now)
       && (a.status === 'pending' || (a.status === 'claimed' && now - a.claimedAt > LIMITS.claimMs)));
   }
 
@@ -165,7 +175,7 @@ class ModuleBus extends EventEmitter {
   claim(id, provider, scopeKey, by) {
     const a = this.actionById(id);
     const now = Date.now();
-    if (!a || a.provider !== provider || a.scopeKey !== scopeKey || expired(a, now)) return null;
+    if (!a || a.server || a.provider !== provider || a.scopeKey !== scopeKey || expired(a, now)) return null;
     if (!(a.status === 'pending' || (a.status === 'claimed' && now - a.claimedAt > LIMITS.claimMs))) return null;
     a.status = 'claimed';
     a.claimedAt = now;
@@ -181,7 +191,7 @@ class ModuleBus extends EventEmitter {
   carrying(id, provider, by, writeScope) {
     const a = this.actionById(id);
     const now = Date.now();
-    if (!a || a.provider !== provider || a.status !== 'claimed' || !by || a.claimedBy !== by || expired(a, now) || now - (a.claimedFirstAt || a.claimedAt) > LIMITS.claimMs) return null;
+    if (!a || a.server || a.provider !== provider || a.status !== 'claimed' || !by || a.claimedBy !== by || expired(a, now) || now - (a.claimedFirstAt || a.claimedAt) > LIMITS.claimMs) return null;
     if (writeScope !== null && writeScope !== undefined && writeScope !== (a.space ? `space:${a.space}` : a.scopeKey)) return null;
     return a;
   }
@@ -197,10 +207,24 @@ class ModuleBus extends EventEmitter {
   complete(id, provider, scopeKey, result, by) {
     const a = this.actionById(id);
     // Past its time limit, only a page that claimed it in time (and is within the claim's minute) may finish it.
-    if (!a || a.provider !== provider || a.scopeKey !== scopeKey || a.status === 'done' || expired(a, Date.now())) return null;
+    if (!a || a.server || a.provider !== provider || a.scopeKey !== scopeKey || a.status === 'done' || expired(a, Date.now())) return null;
     a.status = 'done';
     a.doneAt = Date.now();
     a.doneBy = by && a.claimedBy === by ? by : '';
+    a.result = result;
+    this.save();
+    this.emit('actionDone', a);
+    return a;
+  }
+
+  // The server finishes a request it is carrying out, once: the request must be the server's and still claimed (not ended
+  // meanwhile, `cancel`). Returns the request, or null when it may not be finished (nothing is recorded then).
+  completeServer(id, result) {
+    const a = this.actionById(id);
+    if (!a || !a.server || a.status !== 'claimed' || a.cancelled) return null;
+    a.status = 'done';
+    a.doneAt = Date.now();
+    a.doneBy = '';
     a.result = result;
     this.save();
     this.emit('actionDone', a);

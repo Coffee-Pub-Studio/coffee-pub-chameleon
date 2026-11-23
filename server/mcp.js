@@ -28,8 +28,9 @@ const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
 // The most of a route's answer a tool sends back. Past it the tool says so instead of sending part of it.
 const ANSWER_MAX = 1024 * 1024;
 const MAX_ID_LENGTH = 200;
-// How long a tool call waits for the route it wraps.
-const DISPATCH_MS = 30000;
+// How long a tool call waits for the route it wraps: every route answers at once except wait_for_result's, which holds for
+// at most 30 seconds (server/index.js, ACTION_WAIT_MAX).
+const DISPATCH_MS = 40000;
 // The path as the router matches it (any case, one trailing slash).
 const MCP_PATH = /^\/mcp\/?$/i;
 const isMcpPath = (p) => MCP_PATH.test(String(p || ''));
@@ -151,7 +152,7 @@ const TOOLS = [
   {
     name: 'list_actions',
     title: 'What I can ask for',
-    description: 'The changes you may ask the modules in a space for (ask_for_change), each with its action name, label, description and the input it takes, and hints saying what to put in an input. Read an action\'s description and hints before you call ask_for_change.',
+    description: 'The changes you may ask the modules in a space for (ask_for_change), each with its action name, label, description and the input it takes, and hints saying what to put in an input. now is true when the change is made at once; when it is false, waiting says what the request will wait for. Read an action\'s description and hints before you call ask_for_change.',
     inputSchema: object({ space: SPACE }, ['space']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/actions` }),
@@ -159,7 +160,7 @@ const TOOLS = [
   {
     name: 'ask_for_change',
     title: 'Ask a module for a change',
-    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }. Nothing changes at once: the request waits (up to seven days) until a person who may change that module has it open in that space, and their page carries it out under the module\'s own rules. Read the action\'s description and hints in list_actions first. Answers the request\'s id; read how it went with request_status. Counts as a write.',
+    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }, under its own rules and your own rights. Where list_actions says now: true, it is done at once: the answer has ok, ref (what it made or changed) or the module\'s error. Otherwise it waits (up to seven days) until a person opens that module there, as waiting says; follow it with request_status or wait_for_result. Read the action\'s description and hints in list_actions first. Counts as a write.',
     inputSchema: object({
       space: SPACE,
       action: { type: 'string', minLength: 3, maxLength: 100, description: '<module>:<name>, from list_actions.' },
@@ -171,10 +172,22 @@ const TOOLS = [
   {
     name: 'request_status',
     title: 'How a request went',
-    description: 'How one of your own requests from ask_for_change went: pending, claimed, done (with ok, and error or note) or expired. Kept for ten minutes after it finished.',
+    description: 'How one of your own requests from ask_for_change went: pending or claimed (with waiting, saying what it waits for), done (with ok, and error or note, and ref, the pointer of what it made or changed) or expired. Kept for ten minutes after it finished.',
     inputSchema: object({ space: SPACE, request: { type: 'integer', minimum: 1, description: 'The request id ask_for_change gave.' } }, ['space', 'request']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/action/${seg(a.request)}` }),
+  },
+  {
+    name: 'wait_for_result',
+    title: 'Wait for a request',
+    description: 'Wait for one of your requests from ask_for_change that is still pending: answers as request_status does as soon as it is done, or how it stands when seconds (1 to 30, default 30) have passed. For a module that waits for a person to open it, this may run out with the request still pending; say what is still waiting rather than asking again. At most two waits at once. Counts as a read.',
+    inputSchema: object({
+      space: SPACE,
+      request: { type: 'integer', minimum: 1, description: 'The request id ask_for_change gave.' },
+      seconds: { type: 'integer', minimum: 1, maximum: 30, description: 'How long to wait at most, 1 to 30 (default 30).' },
+    }, ['space', 'request']),
+    annotations: READ_ONLY,
+    plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/action/${seg(a.request)}/wait${query({ seconds: a.seconds })}` }),
   },
   {
     name: 'read_chat',
@@ -290,7 +303,7 @@ const SETUP_TOOL_LIST = TOOLSETS.setup.list;
 
 // What initialize tells each kind.
 const INSTRUCTIONS = {
-  agent: 'You are an agent: an account a person made for you. Call me first to learn your spaces. You read what a member reads in your own spaces, ask modules for changes that wait for a person, and post in Chat only when allowed. Every call counts against your limits and is in your owner\'s log.',
+  agent: 'You are an agent: an account a person made for you. Call me first to learn your spaces. You read what a member reads in your own spaces, ask modules for changes (most are made at once; some wait for a person to open the module), and post in Chat only when allowed. Every call counts against your limits and is in your owner\'s log.',
   setup: 'You are a set-up agent: an account a person made for you. Call me first. You make spaces from a template, name them and change the ones you made, and ask an owner to add or take off a member or tick a moderator; nothing about people happens until an owner says yes. You read nothing in a space. Every call counts against your limits and is in your owner\'s log.',
 };
 
@@ -311,6 +324,7 @@ function checkArgs(schema, args, routeChecks = []) {
       if (rule.enum && !rule.enum.includes(v)) return `${key} is one of: ${rule.enum.join(', ')}.`;
       if (rule.pattern && !new RegExp(rule.pattern).test(v)) return `${key} is not an id this server uses.`;
     } else if (rule.type === 'integer') {
+      if (rule.maximum !== undefined && (!Number.isSafeInteger(v) || v < (rule.minimum ?? 0) || v > rule.maximum)) return `${key} is a whole number from ${rule.minimum ?? 0} to ${rule.maximum}.`;
       if (!Number.isSafeInteger(v) || (rule.minimum !== undefined && v < rule.minimum)) return `${key} is a whole number of ${rule.minimum ?? 0} or more.`;
     } else if (rule.type === 'boolean') {
       if (typeof v !== 'boolean') return `${key} is true or false.`;
@@ -494,7 +508,8 @@ function createMcp(base) {
         resolve(answer);
         return res;
       };
-      // Every wrapped route answers at once; one that has not answered in this long is given up on, so the outer call ends.
+      // Every wrapped route answers at once (wait_for_result within 30 seconds); one that has not answered in DISPATCH_MS is
+      // given up on, so the outer call ends.
       const timer = setTimeout(() => { if (!ended) reject(new Error(`An MCP tool call to ${plan.method} ${plan.path.split('?')[0]} did not answer in time.`)); }, DISPATCH_MS);
       timer.unref();
       res.once('finish', () => clearTimeout(timer));

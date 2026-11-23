@@ -60,6 +60,38 @@ function zipFiles(files) {
   return Buffer.concat([...parts, centralBuf, end]);
 }
 
+// A module's library as its page carries it (and as the server's action runner loads it, server/module-actions.js, so the
+// page and the server run one copy of each rule): { js, css } for `owner` (the module's id, or a page of its own,
+// src/<id>-<part>.html) from the source folder `dir`.
+// Code more than one of the module's pages shares can live in src/<id>-lib.js, put where the page's script has
+// `/*__LIB__*/`. Function replacements throughout, so "$&" and friends in the code are not treated as patterns.
+// (or several: src/<id>-lib.js first, then src/<id>-lib-*.js in name order). A page of its own (src/<id>-<part>.html, see
+// below) carries its own library the same way, from src/<id>-<part>-lib.js and src/<id>-<part>-lib-*.js, never the module's.
+// Plain data a library carries (src/<id>-lib-<name>.json) goes in first as `const LIB_<NAME> = <json>;` (dashes in the name
+// become underscores), so the file stays data a check can read and the code finds it as a constant.
+function libraryOf(dir, owner) {
+  const read = (name, ext) => fs.readFileSync(path.join(dir, 'src', `${name}.${ext}`), 'utf8');
+  const srcFiles = fs.readdirSync(path.join(dir, 'src'));
+  const libFile = `${owner}-lib.js`;
+  const isLib = (f) => f === libFile || (f.startsWith(`${owner}-lib-`) && f.endsWith('.js'));
+  const libNames = srcFiles.filter(isLib).sort((x, y) => (x === libFile ? -1 : y === libFile ? 1 : x.localeCompare(y)));
+  const dataLib = srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.json')).sort()
+    .map((f) => {
+      const name = f.slice(`${owner}-lib-`.length, -5);
+      if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error(`${f}: the name after "${owner}-lib-" must be lower case letters, digits and dashes`);
+      let data;
+      try { data = JSON.parse(read(f.slice(0, -5), 'json')); } catch (err) { throw new Error(`${f} is not valid JSON: ${err.message}`); }
+      return `const LIB_${name.toUpperCase().replace(/-/g, '_')} = ${JSON.stringify(data)};`;
+    });
+  return {
+    js: [...dataLib, ...libNames.map((f) => read(f.slice(0, -3), 'js'))].join('\n'),
+    // Stylesheets of a library the page carries (src/<owner>-lib-*.css, in name order) come before the page's own.
+    css: srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.css')).sort().map((f) => read(f.slice(0, -4), 'css')).join('\n'),
+    // The library's own files, in the order they are put in (src/<name>), so a caller can say which it holds.
+    files: libNames.map((f) => `src/${f}`),
+  };
+}
+
 // The module in `dir`, built: { manifest, fileCount, zip }. Throws if the folder is not a module.
 function buildModule(dir) {
   const manifestPath = path.join(dir, 'module.json');
@@ -67,30 +99,7 @@ function buildModule(dir) {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   const read = (name, ext) => fs.readFileSync(path.join(dir, 'src', `${name}.${ext}`), 'utf8');
   const srcFiles = fs.readdirSync(path.join(dir, 'src'));
-  // Code more than one of the module's pages shares can live in src/<id>-lib.js, put where the page's script has
-  // `/*__LIB__*/`. Function replacements throughout, so "$&" and friends in the code are not treated as patterns.
-  // (or several: src/<id>-lib.js first, then src/<id>-lib-*.js in name order). A page of its own (src/<id>-<part>.html, see
-  // below) carries its own library the same way, from src/<id>-<part>-lib.js and src/<id>-<part>-lib-*.js, never the module's.
-  // Plain data a library carries (src/<id>-lib-<name>.json) goes in first as `const LIB_<NAME> = <json>;` (dashes in the name
-  // become underscores), so the file stays data a check can read and the code finds it as a constant.
-  const libOf = (owner) => {
-    const libFile = `${owner}-lib.js`;
-    const isLib = (f) => f === libFile || (f.startsWith(`${owner}-lib-`) && f.endsWith('.js'));
-    const libNames = srcFiles.filter(isLib).sort((x, y) => (x === libFile ? -1 : y === libFile ? 1 : x.localeCompare(y)));
-    const dataLib = srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.json')).sort()
-      .map((f) => {
-        const name = f.slice(`${owner}-lib-`.length, -5);
-        if (!/^[a-z][a-z0-9-]*$/.test(name)) throw new Error(`${f}: the name after "${owner}-lib-" must be lower case letters, digits and dashes`);
-        let data;
-        try { data = JSON.parse(read(f.slice(0, -5), 'json')); } catch (err) { throw new Error(`${f} is not valid JSON: ${err.message}`); }
-        return `const LIB_${name.toUpperCase().replace(/-/g, '_')} = ${JSON.stringify(data)};`;
-      });
-    return {
-      js: [...dataLib, ...libNames.map((f) => read(f.slice(0, -3), 'js'))].join('\n'),
-      // Stylesheets of a library the page carries (src/<owner>-lib-*.css, in name order) come before the page's own.
-      css: srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.css')).sort().map((f) => read(f.slice(0, -4), 'css')).join('\n'),
-    };
-  };
+  const libOf = (owner) => libraryOf(dir, owner);
   const sharedLib = libOf(manifest.id);
   const build = (name, owner = manifest.id) => {
     const lib = owner === manifest.id ? sharedLib : libOf(owner);
@@ -140,4 +149,4 @@ function bundledModules(rootDir) {
   return out;
 }
 
-module.exports = { buildModule, bundledModules, zipFiles };
+module.exports = { libraryOf, buildModule, bundledModules, zipFiles };

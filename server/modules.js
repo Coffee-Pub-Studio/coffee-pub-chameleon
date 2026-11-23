@@ -21,6 +21,7 @@ const objectFormat = require('./object-format');
 const { scanBuiltPage } = require('./module-layout');
 const { cleanGuards, unreadableGuards } = require('./module-guards');
 const { cleanActionAi } = require('./action-catalog');
+const { SERVER_FILE_RE } = require('./module-actions');
 
 // The text a person reads from a manifest, which may name levels by {space}-style placeholders (server/words.js's fill):
 // its description, the dashboard widget's title, its permissions' labels, its settings' labels and help (and their
@@ -577,6 +578,12 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
     // What the AI is told of it and what it changes (server/action-catalog.js): `description`, `effect` and `ai`.
     const told = cleanActionAi(p, name, p.local === true, (message) => { throw new ModuleError(message); });
     actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...told });
+  }
+  // `server` (plan-agent-edit-delete.md, decision 4): the module's own library whose handlers the server runs for an agent's
+  // requests (server/module-actions.js). Honoured for a bundled module only; install refuses an upload that declares it.
+  if (rawActions && typeof rawActions === 'object' && rawActions.server !== undefined) {
+    if (typeof rawActions.server !== 'string' || !SERVER_FILE_RE(id).test(rawActions.server)) throw new ModuleError(`module.json: actions.server must name one of the module's own libraries, such as "src/${id}-lib-actions.js"`);
+    actions.server = rawActions.server;
   }
   for (const c of Array.isArray(rawActions?.uses) ? rawActions.uses.slice(0, 20) : []) {
     if (typeof c !== 'string' || (c !== '*' && !BUS_USE_RE.test(c))) throw new ModuleError(`module.json: actions.uses "${c}" must be "*" or look like "module:action"`);
@@ -1524,6 +1531,11 @@ class ModuleManager {
       raw = JSON.parse(manifestFile.toString('utf8'));
     } catch {
       throw new ModuleError("module.json isn't valid JSON");
+    }
+    // Only the server's own modules run code on the server (plan-agent-edit-delete.md, decision 4): an uploaded module that
+    // asks to is refused, so nothing it declares is ever taken for the server's.
+    if (source !== 'bundled' && raw && typeof raw === 'object' && raw.actions && typeof raw.actions === 'object' && Object.hasOwn(raw.actions, 'server')) {
+      throw new ModuleError('Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
     }
     const manifest = cleanManifest(raw, files);
     const existing = this.registry.modules[manifest.id];

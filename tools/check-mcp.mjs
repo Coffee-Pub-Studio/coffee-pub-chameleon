@@ -45,7 +45,7 @@ const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
 const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const ONLY_AGENTS = "This is for an agent's token only.";
-const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'read_chat', 'post_chat'];
+const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'wait_for_result', 'read_chat', 'post_chat'];
 const SETUP_TOOL_NAMES = ['me', 'list_templates', 'list_icons', 'list_people', 'make_space', 'change_space', 'ask_owner', 'ask_status'];
 const CANT = "An agent can't do that.";
 // The 401 on /mcp names the sign-in server's metadata (server/oauth.js, plan-mcp-oauth.md); a REST route's 401 does not.
@@ -209,6 +209,13 @@ try {
     }
     assert.equal(tools.find((t) => t.name === 'ask_for_change').annotations.readOnlyHint, false);
     assert.match(tools.find((t) => t.name === 'ask_for_change').description, /waits/, 'ask_for_change says it waits for a person');
+    // E3 of plan-agent-edit-delete.md: the wait, and the words saying what is done at once and what waits.
+    const wait = tools.find((t) => t.name === 'wait_for_result');
+    assert.deepEqual(wait.inputSchema.required, ['space', 'request']);
+    assert.equal(wait.inputSchema.properties.seconds.maximum, 30);
+    assert.equal(wait.annotations.readOnlyHint, true);
+    assert.match(tools.find((t) => t.name === 'ask_for_change').description, /now: true/, 'ask_for_change says what is done at once');
+    assert.match(tools.find((t) => t.name === 'request_status').description, /waiting/, 'request_status says what it waits for');
     assert.match(tools.find((t) => t.name === 'post_chat').description, /permissions in me includes chat/, 'post_chat says it needs chat in me\'s permissions');
     assert.match(tools.find((t) => t.name === 'me').description, /permissions/, 'me says it carries permissions');
   });
@@ -393,6 +400,8 @@ try {
       ['read_chat', { space: S1, extra: 1 }, 'extra is not an argument of this tool.'],
       ['read_data', { space: S1, module: '../x' }, 'module is not an id this server uses.'],
       ['request_status', { space: S1, request: 'one' }, 'request is a whole number of 1 or more.'],
+      ['wait_for_result', { space: S1, request: 1, seconds: 31 }, 'seconds is a whole number from 1 to 30.'],
+      ['wait_for_result', { space: S1, request: 1, seconds: 0 }, 'seconds is a whole number from 1 to 30.'],
       ['object_links', { from: 'todo', ref: { scope: 'space', space: S1 }, dir: 'up' }, 'dir is one of: to, from.'],
       ['post_chat', { space: S1, text: 42 }, 'text is text.'],
     ]) {
@@ -400,7 +409,7 @@ try {
       assert.deepEqual([out.isError, out.text], [true, sentence]);
     }
     const after = await used();
-    assert.equal(after.reads.usedToday, before.reads.usedToday + 8, 'each counted as one read');
+    assert.equal(after.reads.usedToday, before.reads.usedToday + 10, 'each counted as one read');
   });
 
   await test('20 writes a minute through MCP, then the gate\'s 429, every one logged', async () => {

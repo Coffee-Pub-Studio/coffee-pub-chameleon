@@ -7,7 +7,7 @@
 //   - a permission key (a row of the Roles grid): it must be ticked in the agent's column;
 //   - `module`: the module's own permission, which the route itself checks against the agent's column once the request
 //     names the module (module data, objects, the actions list and the action route);
-//   - `always`: nothing to tick (the agent's own `me`, the kinds of object, its own request's status, the MCP door, whose
+//   - `always`: nothing to tick (the agent's own `me`, the kinds of object, its own request's status and its wait, the MCP door, whose
 //     tool calls come back through the gate as the route they wrap and need what that route needs).
 //
 // Each entry: { kind, method, path, counts, place, needs }.
@@ -36,6 +36,8 @@ const AGENT_ROUTES = Object.freeze([
   { kind: 'agent', method: 'get', path: '/api/spaces/:id/actions', counts: 'read', place: 'spaceParam', needs: 'module' },
   { kind: 'agent', method: 'post', path: '/api/spaces/:id/action', counts: 'write', place: 'spaceParam', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/spaces/:id/action/:requestId', counts: 'read', place: 'spaceParam', needs: 'always' },
+  // Waiting up to 30 seconds for its own request (plan-agent-edit-delete.md, E3: MCP wait_for_result), as the status above.
+  { kind: 'agent', method: 'get', path: '/api/spaces/:id/action/:requestId/wait', counts: 'read', place: 'spaceParam', needs: 'always' },
   { kind: 'agent', method: 'get', path: '/api/spaces/:id/chat', counts: 'read', place: 'spaceParam', needs: 'chatRead' },
   { kind: 'agent', method: 'post', path: '/api/spaces/:id/chat', counts: 'write', place: 'spaceParam', needs: 'chat' },
   { kind: 'agent', method: 'post', path: '/mcp', counts: 'mcp', place: 'none', needs: 'always' },
