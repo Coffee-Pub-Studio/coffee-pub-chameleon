@@ -16,6 +16,8 @@
 
 ## Decisions
 
+Changed by decisions 39, 43 and 44 of [plan-workspaces](plan-workspaces.md) (Thomas, 2026-11-23): decisions 2, 5, 12 (in part), 13 and 15 are replaced. Every editable workspace is a tab and remembers its own arrangement; a person may not rename or re-icon the owner's tabs.
+
 Thomas, 2026-10-13.
 
 1. **Every view is a layout.** Workspace, Map and Calendar are layouts, not a separate view system.
