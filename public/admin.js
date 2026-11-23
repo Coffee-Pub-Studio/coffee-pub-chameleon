@@ -1539,7 +1539,7 @@ function moduleCard(m, shape = 'full') {
   if (newer) {
     const note = document.createElement('div');
     note.className = 'module-update';
-    note.innerHTML = `<span class="sdk-status" data-tone="warn">Update available</span> <strong>Version ${escapeHtml(newer.version)}</strong> comes with this server. <button class="btn btn-primary btn-small" data-bundled-action="install" data-bundled-id="${escapeHtml(newer.id)}" type="button">Update to ${escapeHtml(newer.version)}</button> <span class="hint">Your data stays as it is, and you can switch back${shape === 'full' ? ' below' : ` on its tab`}. If it asks for anything new you approve it first.</span>`;
+    note.innerHTML = `<span class="sdk-status" data-tone="warn">Newer version available: ${escapeHtml(newer.version)}. You have ${escapeHtml(m.version)}.</span> <button class="btn btn-primary btn-small" data-bundled-action="install" data-bundled-id="${escapeHtml(newer.id)}" type="button">Update</button> <span class="hint">Your data stays as it is, and you can switch back${shape === 'full' ? ' below' : ` on its tab`}. If it asks for anything new you approve it first.</span>`;
     (el.querySelector('.module-outdated') || el.querySelector('.module-head')).after(note);
   }
   return el;
@@ -1814,6 +1814,10 @@ function syncModuleFilters() {
   all.textContent = String(builtinModules.length + installedModules.length);
   up.textContent = String(updates);
   up.hidden = !updates;
+  // One line above the filters while any installed module has a newer version here; nothing at all when none does.
+  const newerLine = $('modules-newer');
+  newerLine.hidden = !updates;
+  newerLine.textContent = updates ? `${updates} ${updates === 1 ? word('module') : word('module', { many: true })} ${updates === 1 ? 'has' : 'have'} a newer version.` : '';
   greenCount(up, updates, `${updates} ${updates === 1 ? 'update' : 'updates'} available`);
   const conf = $('module-filters').querySelector('[data-count="configurable"]');
   conf.textContent = String(installedModules.filter(isConfigurable).length + builtinsFor('configurable').length);
