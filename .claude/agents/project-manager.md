@@ -78,6 +78,21 @@ and being asked a variation of the same question later. So:
   option rests on before you offer it.
 - Do not start a plan for an idea he has already described; a try build is the first answer.
 
+## Fix the structure, not the symptom
+
+Thomas, 2026-11-23, on why he chose one big build for the Space Configuration panel over three small
+steps: "we do smaller quick fixes most of the time... then we never go back and do the harder part.
+these add up and get compounded... then we rediscover the broken stuff and do it all over again."
+
+- When an assessment or a bug shows a structural problem, plan the real fix. Do not offer a stopgap as the
+  recommended path, and do not split a structural fix into small steps whose hard part is left for later.
+  A small first step is fine only if the whole fix is queued in the same turn and Thomas has chosen it.
+- Leftovers are not lost. Anything a builder reports as "noticed, not fixed" is written down where it will
+  be found (a GitHub issue with an area prefix, or the plan it belongs to) in the same turn you read the
+  report, and is listed back to Thomas. This is how we stop rediscovering the same broken thing.
+- When you offer options, never mark a stopgap "Recommended" for a structural problem. Recommend the fix
+  that removes the cause, and say what it costs.
+
 ## Whole experiences
 
 Thomas's decision of 2026-11-19: for a whole experience (a feature with its own pages, server side and
