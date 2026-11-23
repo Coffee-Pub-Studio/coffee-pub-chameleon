@@ -57,9 +57,10 @@
     return s.slice(0, n);
   }
 
-  // The page colour: one of a small fixed set, named as the Whiteboard names its fixed backgrounds (--wb-fixed-*), so a later move
-  // to shared tokens is a rename. `css` is the custom property in documents.css that holds the colour (read by name, never a
-  // free string in CSS). A missing or unknown id reads as the default.
+  // The page colour: a colour chosen with the host's colour picker, stored as '#rrggbb' (lower case, checked strictly; plan-colour-picker.md,
+  // decision 7), or one of the named page colours a document was given before the picker (and new documents start on, Pure White).
+  // A named one is drawn from the custom property in documents.css that holds it (read by name, never a free string in CSS); a picked
+  // one is set on the sheet as --doc-paper, only after this check. A missing or unknown value reads as the default.
   const DL_PAPERS = Object.freeze([
     { id: 'light-white', label: 'Pure White', family: 'light', css: '--doc-fixed-light-white' },
     { id: 'light-creme', label: 'Creme', family: 'light', css: '--doc-fixed-light-creme' },
@@ -71,16 +72,9 @@
   ].map((p) => Object.freeze(p)));
   const DL_PAPER_DEFAULT = 'light-white';
   const DL_PAPER_BY_ID = new Map(DL_PAPERS.map((p) => [p.id, p]));
-  const dlCleanPaper = (v) => (typeof v === 'string' && DL_PAPER_BY_ID.has(v) ? v : DL_PAPER_DEFAULT);
-  // The colour menu's entries in order: { kind:'heading', label } and { kind:'paper', id, label, css }.
-  function dlPaperMenuModel() {
-    const out = [];
-    for (const family of ['light', 'dark']) {
-      out.push({ kind: 'heading', label: family === 'light' ? 'Light colours' : 'Dark colours' });
-      for (const p of DL_PAPERS) if (p.family === family) out.push({ kind: 'paper', id: p.id, label: p.label, css: p.css });
-    }
-    return out;
-  }
+  // A picked page colour: exactly '#' and six lower-case hex digits, else null.
+  const dlPaperHex = (v) => (typeof v === 'string' && /^#[0-9a-f]{6}$/.test(v) ? v : null);
+  const dlCleanPaper = (v) => (typeof v === 'string' && (DL_PAPER_BY_ID.has(v) || dlPaperHex(v)) ? v : DL_PAPER_DEFAULT);
   // Contrast (WCAG), as the Whiteboard's wbContrast: colours are [r, g, b] (0-255); a ratio from 1 to 21.
   function dlLuminance(rgb) {
     const f = (v) => { const x = v / 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; };
