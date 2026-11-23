@@ -503,6 +503,9 @@ function cleanTakes(raw, action, permissionKeys) {
   });
 }
 
+// The input types an action may declare in `clears`.
+const CLEARABLE_TYPES = ['string', 'text', 'number', 'date'];
+
 // `permissionKeys`: the keys of the module's own permissions, which a `takes` entry may name.
 function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
   const events = { publishes: [], subscribes: [] };
@@ -575,9 +578,27 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
     // their own open page of the module takes the request, which waits until then; asking still needs write access.
     if (p.askerOnly !== undefined && typeof p.askerOnly !== 'boolean') throw new ModuleError(`module.json: action "${name}" askerOnly must be true or false`);
     if (p.askerOnly && p.local === true) throw new ModuleError(`module.json: action "${name}" is local, which is already for the asker only`);
+    // `clears` (plan-agent-edit-delete.md, "The contract", 1: "An empty text field clears it; a field left out is kept"): the
+    // optional inputs a request may send as "" to clear them. The bus hands the action "" for those and leaves every other ""
+    // out, as before. Only a string, text, number or date can be cleared.
+    const clears = [];
+    if (p.clears !== undefined) {
+      if (!Array.isArray(p.clears) || p.clears.some((f) => typeof f !== 'string')) throw new ModuleError(`module.json: action "${name}" clears must be a list of its input names`);
+      for (const f of p.clears) {
+        const type = Object.prototype.hasOwnProperty.call(input, f) ? input[f] : null;
+        if (!type) throw new ModuleError(`module.json: action "${name}" clears "${f}", which is not one of its inputs`);
+        if (!type.endsWith('?')) throw new ModuleError(`module.json: action "${name}" clears "${f}", which is required; only an optional input can be cleared`);
+        if (!CLEARABLE_TYPES.includes(type.slice(0, -1))) throw new ModuleError(`module.json: action "${name}" clears "${f}"; only ${CLEARABLE_TYPES.join(', ')} inputs can be cleared`);
+        if (!clears.includes(f)) clears.push(f);
+      }
+    }
+    // `patch`: its object input changes an object already there (an edit action's): only what it gives changes, so its title
+    // may be left out (the bus still checks its kind, when it names one, against `takes`).
+    if (p.patch !== undefined && typeof p.patch !== 'boolean') throw new ModuleError(`module.json: action "${name}" patch must be true or false`);
+    if (p.patch === true && !objectFields.length) throw new ModuleError(`module.json: action "${name}" is a patch, so it needs an input of type "object"`);
     // What the AI is told of it and what it changes (server/action-catalog.js): `description`, `effect` and `ai`.
     const told = cleanActionAi(p, name, p.local === true, (message) => { throw new ModuleError(message); });
-    actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...told });
+    actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...(clears.length ? { clears } : {}), ...(p.patch === true ? { patch: true } : {}), ...told });
   }
   // `server` (plan-agent-edit-delete.md, decision 4): the module's own library whose handlers the server runs for an agent's
   // requests (server/module-actions.js). Honoured for a bundled module only; install refuses an upload that declares it.

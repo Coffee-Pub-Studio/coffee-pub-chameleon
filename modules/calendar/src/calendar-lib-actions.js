@@ -8,6 +8,16 @@
 
   const calRef = (ctx, id) => ({ module: 'calendar', kind: 'event', id, scope: 'space', space: ctx.space.id });
   const calGiven = (v) => v !== undefined && v !== null && v !== '';
+  // A reminder is a schedule only a page sets (calendar.js applyReminder). Carried out on the server (ctx.carrier 'server'), an
+  // event with a reminder is marked `remindPending` and the page that next opens it sets it and takes the mark off (calendar.js
+  // setWaitingReminders); the server takes off the reminder the event had (it was set from the event as it was). Never silent:
+  // the request's note says so. Carried out on a page, the page sets it at once (afterAction) and there is no mark.
+  const CAL_REMIND_LATER = 'Its reminder is set the next time someone who can change events opens the calendar.';
+  function calReminder(ev, ctx) {
+    if (ctx.carrier === 'server' && ev.remind !== null && ev.remind !== undefined) { ev.remindPending = true; return CAL_REMIND_LATER; }
+    delete ev.remindPending;
+    return '';
+  }
   // A clock time of a Date as "HH:MM".
   const calClock = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   // An event as the form shows it, read in `tz`: { date, time, endDate, endTime, allDay } (the times null for an all-day one).
@@ -44,11 +54,13 @@
       }
       const id = ctx.util.id();
       const ev = { id, title: String(made.title).slice(0, 120), allDay: made.allDay, start: made.start, end: made.end || null, desc: made.desc || '', remind: made.remind, repeat: made.repeat, by: ctx.credit.name };
-      return { writes: [{ key: `event:${id}`, value: ev }], ref: calRef(ctx, id) };
+      const later = calReminder(ev, ctx);
+      return { writes: [{ key: `event:${id}`, value: ev }], ref: calRef(ctx, id), ...(later ? { data: { note: later } } : {}) };
     },
     // Change an event already on the calendar: only the fields given, with the form's own checks and sentences. A new day moves
     // its end with it; a time makes an all-day event timed; allDay true drops the times. A repeat keeps its Until while it repeats
-    // the same way. A copy of another module's object is changed where it lives.
+    // the same way. An input sent as "" (the manifest's `clears`: endTime, endDate, repeat, remind, notes) clears it, as emptying
+    // it in the form does. A copy of another module's object is changed where it lives.
     updateEvent(input, ctx) {
       const ref = input.event;
       const ours = ref && ref.module === 'calendar' && ref.kind === 'event' && typeof ref.id === 'string' && ref.scope === 'space' && ref.space === ctx.space.id;
@@ -57,17 +69,18 @@
       const seen = (ctx.refs || {})[ctx.util.objectKey(ref)];
       if (seen && seen.copy) throw new Error(`That is a copy; change it in ${(seen.original && seen.original.name) || 'the module it comes from'}.`);
       const fields = ['title', 'date', 'time', 'endTime', 'endDate', 'allDay', 'repeat', 'remind', 'notes'];
-      if (!fields.some((f) => calGiven(input[f]))) throw new Error('Say what to change: a title, a day, a time, an end, all day, a repeat, a reminder or the notes.');
+      const cleared = (f) => input[f] === '';
+      if (!fields.some((f) => calGiven(input[f]) || cleared(f))) throw new Error('Say what to change: a title, a day, a time, an end, all day, a repeat, a reminder or the notes. Send "" to clear the end, the repeat, the reminder or the notes.');
       const was = calFormOf(cur, ctx.tz);
       const allDayGiven = typeof input.allDay === 'boolean';
       const timeGiven = calGiven(input.time);
       const toAllDay = allDayGiven && input.allDay === true;
       const date = calGiven(input.date) ? input.date : was.date;
       // The end keeps its distance from the start when only the day moves.
-      let endDate = calGiven(input.endDate) ? input.endDate : was.endDate;
-      if (!calGiven(input.endDate) && calGiven(input.date) && was.endDate && was.date) endDate = ymdOf(addDays(parseYmd(was.endDate), Math.round((parseYmd(input.date) - parseYmd(was.date)) / DAY)));
+      let endDate = cleared('endDate') ? null : calGiven(input.endDate) ? input.endDate : was.endDate;
+      if (!calGiven(input.endDate) && !cleared('endDate') && calGiven(input.date) && was.endDate && was.date) endDate = ymdOf(addDays(parseYmd(was.endDate), Math.round((parseYmd(input.date) - parseYmd(was.date)) / DAY)));
       const time = timeGiven ? input.time : toAllDay ? null : was.time;
-      const endTime = calGiven(input.endTime) ? input.endTime : toAllDay || (was.allDay && timeGiven) ? null : was.endTime;
+      const endTime = cleared('endTime') ? null : calGiven(input.endTime) ? input.endTime : toAllDay || (was.allDay && timeGiven) ? null : was.endTime;
       const made = eventFromInput({
         title: calGiven(input.title) ? input.title : cur.title, date, time, endTime, endDate,
         ...(allDayGiven ? { allDay: input.allDay } : {}),
@@ -75,18 +88,19 @@
         ...(calGiven(input.remind) ? { remind: input.remind } : {}),
       }, ctx.tz);
       if (made.error) throw new Error(made.error);
-      const repeat = calGiven(input.repeat) ? { every: input.repeat, until: cur.repeat && cur.repeat.every === input.repeat ? cur.repeat.until || null : null } : cur.repeat || null;
+      const repeat = cleared('repeat') ? null : calGiven(input.repeat) ? { every: input.repeat, until: cur.repeat && cur.repeat.every === input.repeat ? cur.repeat.until || null : null } : cur.repeat || null;
       const ev = {
         ...cur,
         title: made.title, allDay: made.allDay, start: made.start, end: made.end,
-        desc: calGiven(input.notes) ? String(input.notes).trim().slice(0, EVENT_DESC_MAX) : cur.desc || '',
-        remind: calGiven(input.remind) ? input.remind : cur.remind === undefined ? null : cur.remind,
+        desc: cleared('notes') ? '' : calGiven(input.notes) ? String(input.notes).trim().slice(0, EVENT_DESC_MAX) : cur.desc || '',
+        remind: cleared('remind') ? null : calGiven(input.remind) ? input.remind : cur.remind === undefined ? null : cur.remind,
         repeat,
         by: ctx.credit.name,
       };
       if (!repeat) delete ev.skips;
       const same = ['title', 'allDay', 'start', 'end', 'desc', 'remind'].every((k) => JSON.stringify(ev[k]) === JSON.stringify(cur[k])) && JSON.stringify(repeat) === JSON.stringify(cur.repeat || null);
       if (same) return { ref: calRef(ctx, ref.id), data: { note: 'That is already so; nothing changed.' } };
-      return { writes: [{ key: `event:${ref.id}`, value: ev }], ref: calRef(ctx, ref.id) };
+      const later = calReminder(ev, ctx);
+      return { writes: [{ key: `event:${ref.id}`, value: ev }], ref: calRef(ctx, ref.id), ...(later ? { data: { note: later } } : {}) };
     },
   };

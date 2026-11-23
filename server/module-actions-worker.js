@@ -10,7 +10,8 @@
 // made from an object with no prototype (so `this.constructor.constructor` is the context's own Function, not this
 // process's), with code generation from strings and WebAssembly off (no eval, no Function('...'), no new code at run
 // time), no dynamic import (no callback is given, so import() is refused), its microtasks drained inside the time limit
-// (microtaskMode afterEvaluate, so a promise loop ends with the script), and only JavaScript's own built-ins: no require,
+// (microtaskMode afterEvaluate, so a promise loop ends with the script), and only JavaScript's own built-ins and the SDK's
+// pure helpers (SDK_BEFORE, below: loaded by this worker from the text its parent sends, never by the library): no require,
 // process, module, timers, network or console. Nothing of this process's crosses into it: the request, the module's data
 // and the handler's context go in as JSON text (strings carry no realm), and the answer comes out the same way, read from
 // the context's global as a plain value (getOwnPropertyDescriptor, so no getter of the handler's runs here). Whatever it
@@ -19,6 +20,30 @@ const vm = require('node:vm');
 
 // Built-ins a handler has no use for and that could hold a thread or watch the collector: removed before the library runs.
 const PRELUDE = "for (const name of ['console', 'Atomics', 'SharedArrayBuffer', 'WebAssembly', 'FinalizationRegistry', 'WeakRef']) { try { delete globalThis[name]; } catch (e) { /* not there */ } }";
+
+// The SDK's pure helpers (plan-agent-edit-delete.md, decision 4): public/sdk/host.js itself, the file every page loads, run in
+// the same context before the library, on a stand-in window that has nothing in it (no network, no page, no storage), so its
+// helpers are the context's own functions (their constructor is the context's Function, which makes no code). What the
+// library is then left with: `ymd` and `parseYmd` beside it (travel-lib.js and calendar-lib.js call them), and `__util`, the
+// frozen helpers RUN hands the handler as ctx.util (hostActions.util: plain, localWhen, detailLines, time, ymd, parseYmd,
+// objectKey, id, word, with `time` on the environment's clock and `word` from its words, as `__locale` gives them). The
+// stand-in window, and with it the rest of the SDK (hostActions, createHost, hostText), is taken away before the library runs.
+const SDK_BEFORE = "globalThis.window = { addEventListener() {}, removeEventListener() {}, location: { search: '', href: 'http://localhost/' } }; globalThis.window.parent = globalThis.window; globalThis.document = { createElement: (tag) => ({ tag }), currentScript: null };";
+const SDK_AFTER = `
+;(function () {
+  'use strict';
+  const g = globalThis;
+  const w = g.window;
+  let locale = {};
+  try { locale = JSON.parse(g.__locale); } catch (e) { locale = {}; }
+  const util = w && w.hostActions && typeof w.hostActions.util === 'function' ? w.hostActions.util(locale) : null;
+  delete g.window; delete g.document; delete g.__locale;
+  if (!util || !Object.isFrozen(util)) throw new Error('the SDK did not load');
+  g.ymd = util.ymd;
+  g.parseYmd = util.parseYmd;
+  Object.defineProperty(g, '__util', { value: util, writable: false, enumerable: false, configurable: false });
+})();
+`;
 
 // After the library: find the handler, give it the input and its context, and leave what it answered as JSON text in
 // __out. A handler may answer at once or with a promise; either way the answer is read only after the context's own
@@ -47,6 +72,7 @@ const RUN = `
   const data = parse(dataText);
   const copy = (v) => (v === undefined ? null : parse(stringify(v)));
   const ctx = parse(ctxText);
+  ctx.util = g.__util;
   ctx.read = (key) => (typeof key === 'string' && own.call(data, key) ? copy(data[key]) : null);
   ctx.list = (prefix) => {
     const p = typeof prefix === 'string' ? prefix : '';
@@ -67,7 +93,7 @@ const RUN = `
 const { types } = require('node:util');
 
 // The run, as one answer: { text } (what the handler left, as JSON text) or { fault }.
-function run({ code, filename, action, inputText, ctxText, dataText, timeoutMs }) {
+function run({ code, filename, action, inputText, ctxText, dataText, sdk, localeText, timeoutMs }) {
   const sandbox = Object.create(null);
   let context;
   try {
@@ -75,6 +101,16 @@ function run({ code, filename, action, inputText, ctxText, dataText, timeoutMs }
     vm.runInContext(PRELUDE, context, { timeout: timeoutMs });
   } catch {
     return { fault: 'start' };
+  }
+  // The SDK's helpers, before the library and in their own time limit (the library keeps its own whole).
+  try {
+    if (typeof sdk !== 'string' || !sdk) throw new Error('no SDK');
+    sandbox.__locale = String(localeText || '{}');
+    vm.runInContext(SDK_BEFORE, context, { timeout: timeoutMs });
+    vm.runInContext(sdk, context, { filename: 'public/sdk/host.js', timeout: timeoutMs });
+    vm.runInContext(SDK_AFTER, context, { timeout: timeoutMs });
+  } catch {
+    return { fault: 'sdk' };
   }
   let script;
   try {

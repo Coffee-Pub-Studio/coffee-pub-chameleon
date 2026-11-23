@@ -94,12 +94,40 @@ await test('updateEvent: the refusals, in the form\'s words', async () => {
   await refuses('updateEvent', { event: ref('c1'), title: 'x' }, w, 'That is a copy; change it in Planner - Itinerary.');
   await refuses('updateEvent', { event: ref('zz'), title: 'x' }, w, "That event isn't on the calendar.");
   await refuses('updateEvent', { event: { ...ref('e1'), space: 's2' }, title: 'x' }, w, "That event isn't on the calendar.");
-  await refuses('updateEvent', { event: ref('e1') }, w, 'Say what to change: a title, a day, a time, an end, all day, a repeat, a reminder or the notes.');
+  await refuses('updateEvent', { event: ref('e1') }, w, 'Say what to change: a title, a day, a time, an end, all day, a repeat, a reminder or the notes. Send "" to clear the end, the repeat, the reminder or the notes.');
   await refuses('updateEvent', { event: ref('e1'), endTime: '18:00' }, w, 'The end is before the start.');
   await refuses('updateEvent', { event: ref('e1'), allDay: true, time: '10:00' }, w, 'An all-day event has no times. Leave allDay out, or leave the times out.');
   await refuses('updateEvent', { event: ref('e2'), allDay: false }, w, 'An event that is not all day needs a start time (time), as HH:MM.');
   await refuses('updateEvent', { event: ref('e1'), remind: 40321 }, w, 'Say remind as the minutes before it starts: a whole number from 0 (when it starts) to 40320 (28 days).');
   await refuses('updateEvent', { event: ref('e1'), time: '7pm' }, w, 'Say the time as HH:MM, for example 10:00.');
+});
+
+await test('updateEvent: "" clears the end, the repeat, the reminder or the notes (the manifest\'s clears)', async () => {
+  const rows = { 'event:e1': TIMED, 'event:e2': ALLDAY };
+  const r = await same('updateEvent', { event: ref('e1'), remind: '', notes: '' }, world(rows));
+  assert.deepEqual(written(r, 'event:e1'), { ...TIMED, remind: null, desc: '', by: 'Claude (agent)' });
+  const end = await same('updateEvent', { event: ref('e1'), endTime: '' }, world(rows));
+  assert.deepEqual([written(end, 'event:e1').start, written(end, 'event:e1').end], [TIMED.start, null]);
+  const once = await same('updateEvent', { event: ref('e2'), repeat: '', endDate: '' }, world(rows));
+  const v = written(once, 'event:e2');
+  assert.deepEqual([v.repeat, v.end, v.skips], [null, null, undefined], 'no repeat, so no skips; no last day');
+  const m = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
+  assert.deepEqual(m.actions.provides.find((a) => a.name === 'updateEvent').clears, ['endTime', 'endDate', 'repeat', 'remind', 'notes']);
+  assert.equal(m.actions.server, 'src/calendar-lib-actions.js');
+});
+await test('carried on the server, a reminder waits for a page: marked remindPending and said; a page sets it at once', async () => {
+  const made = await onRunner('calendar', 'createEvent', { title: 'Car', date: '2026-11-20', time: '10:00', remind: 90 }, world(), { carrier: 'server', kinds: ['event'] });
+  assert.equal(made.writes[0].value.remindPending, true);
+  assert.equal(made.data.note, 'Its reminder is set the next time someone who can change events opens the calendar.');
+  const none = await onRunner('calendar', 'createEvent', { title: 'Car', date: '2026-11-20' }, world(), { carrier: 'server', kinds: ['event'] });
+  assert.deepEqual([none.writes[0].value.remindPending, none.data], [undefined, undefined], 'no reminder: no mark, nothing said');
+  const rows = { 'event:e1': { ...TIMED, remindPending: true } };
+  const off = await onRunner('calendar', 'updateEvent', { event: ref('e1'), remind: '' }, world(rows), { carrier: 'server', kinds: ['event'] });
+  assert.deepEqual([off.writes[0].value.remind, off.writes[0].value.remindPending, off.data], [null, undefined, undefined], 'taken off: no mark');
+  const page = await same('updateEvent', { event: ref('e1'), title: 'Dinner, later' }, world(rows));
+  assert.equal(written(page, 'event:e1').remindPending, undefined, 'a page sets it itself, so the mark goes');
+  const js = fs.readFileSync(new URL('../src/calendar.js', import.meta.url), 'utf8');
+  assert.ok(/async function setWaitingReminders[\s\S]*remindPending[\s\S]*applyReminder\(x\.id, x\.ev, \{\}, true\)[\s\S]*delete ev\.remindPending/.test(js), 'the page sets a waiting reminder and takes the mark off');
 });
 
 // --- reminders in the form and in the notification --------------------------------------------------------------------

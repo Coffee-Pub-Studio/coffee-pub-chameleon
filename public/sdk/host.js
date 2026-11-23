@@ -2052,6 +2052,45 @@
     return api;
   }
 
+  // The words a person reads for each level and role, by their code names (WORD_KEYS, server/words.js's KEYS in its
+  // order): each { one, many, a }, `a` the singular with its article. These are the defaults; an environment's own come
+  // in host.locale().words. host.util.word applies them. `home` (the home page, the list of spaces) is the space word's
+  // plural with a capital by default, "Spaces".
+  const WORD_KEYS = ['host', 'environment', 'space', 'home', 'aside', 'canvas', 'module', 'object', 'admin', 'owner', 'moderator', 'member', 'guest'];
+  const DEFAULT_WORDS = (() => {
+    const plural = { host: 'hosts', environment: 'environments', space: 'spaces', aside: 'asides', canvas: 'canvases', module: 'modules', object: 'objects', admin: 'admins', owner: 'owners', moderator: 'moderators', member: 'members', guest: 'guests' };
+    const article = (one) => `${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`;
+    const out = {};
+    for (const key of WORD_KEYS) {
+      const one = key === 'home' ? plural.space.charAt(0).toUpperCase() + plural.space.slice(1) : key;
+      const many = key === 'home' ? one : plural[key];
+      out[key] = { one, many, a: article(one) };
+    }
+    return out;
+  })();
+  // The SDK's pure helpers that host.util gives every module and hostActions.util gives a module's actions library (the very
+  // functions server/module-actions.js hands a library on the server, so a page and the server run one copy): a local day as
+  // "YYYY-MM-DD" from a Date and back, a pointer's identity as one string, a new id, a time of day on a 12- or 24-hour clock,
+  // and the word for a level or role from a set of words (an environment's, else the defaults).
+  const utilYmd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const utilParseYmd = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
+  const utilObjectKey = (r) => [r.module, r.kind, r.id, r.scope, r.space || ''].join('|');
+  const utilId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  function utilTime(hhmm, clock) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
+    if (!m) return hhmm || '';
+    if (clock === '24') return `${m[1].padStart(2, '0')}:${m[2]}`;
+    const h = Number(m[1]);
+    return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
+  }
+  function utilWord(words, key, o) {
+    const set = words || {};
+    const w = (set[key] && set[key].one && set[key].many ? set[key] : null) || DEFAULT_WORDS[key];
+    if (!w) throw new Error(`host.util.word: there is no word called ${key}`);
+    const text = o && o.a ? w.a || `${/^[aeiou]/i.test(w.one) ? 'an' : 'a'} ${w.one}` : o && o.many ? w.many : w.one;
+    return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
+  }
+
   // env: { call(method, params) -> Promise, root, rootElement, elementAt({x, y}), localPoint(clientX, clientY),
   // applyTheme(theme) }.
   // Returns { host, emit }: `emit` is how the host pushes an event to the module.
@@ -2130,22 +2169,6 @@
     }
   }
 
-  // The words a person reads for each level and role, by their code names (WORD_KEYS, server/words.js's KEYS in its
-  // order): each { one, many, a }, `a` the singular with its article. These are the defaults; an environment's own come
-  // in host.locale().words. host.util.word applies them. `home` (the home page, the list of spaces) is the space word's
-  // plural with a capital by default, "Spaces".
-  const WORD_KEYS = ['host', 'environment', 'space', 'home', 'aside', 'canvas', 'module', 'object', 'admin', 'owner', 'moderator', 'member', 'guest'];
-  const DEFAULT_WORDS = (() => {
-    const plural = { host: 'hosts', environment: 'environments', space: 'spaces', aside: 'asides', canvas: 'canvases', module: 'modules', object: 'objects', admin: 'admins', owner: 'owners', moderator: 'moderators', member: 'members', guest: 'guests' };
-    const article = (one) => `${/^[aeiou]/i.test(one) ? 'an' : 'a'} ${one}`;
-    const out = {};
-    for (const key of WORD_KEYS) {
-      const one = key === 'home' ? plural.space.charAt(0).toUpperCase() + plural.space.slice(1) : key;
-      const many = key === 'home' ? one : plural[key];
-      out[key] = { one, many, a: article(one) };
-    }
-    return out;
-  })();
   // How the server shows language, time and money, and the words it uses (Manage > Settings): known once hello has
   // answered, the defaults before.
   const locale = () => (info && info.locale) || { language: 'en', clock: '12', currency: 'USD', words: DEFAULT_WORDS };
@@ -3511,30 +3534,18 @@
       // the fields already used; { kind: 'car' } words a car's ends as Pick up and Drop off.
       detailLines,
       // A new id for something a module stores: short, and unlikely to repeat.
-      id: () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      id: utilId,
       // A pointer's identity as one string, for keeping and comparing them.
-      objectKey: (r) => [r.module, r.kind, r.id, r.scope, r.space || ''].join('|'),
+      objectKey: utilObjectKey,
       // A time of day ("22:30", as modules store one) the way the server shows times: "10:30 PM" on a 12-hour clock
       // (the default, see host.locale()), "22:30" on a 24-hour one. Anything that is not HH:MM comes back as it is.
-      time: (hhmm) => {
-        const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
-        if (!m) return hhmm || '';
-        if (locale().clock === '24') return `${m[1].padStart(2, '0')}:${m[2]}`;
-        const h = Number(m[1]);
-        return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`;
-      },
+      time: (hhmm) => utilTime(hhmm, locale().clock),
       // Whether times are on a 12-hour clock, for toLocaleString's hour12 where a Date is shown.
       hour12: () => locale().clock !== '24',
       // The word a person reads here for a level or role, by its code name, so a module never types one:
       // word('space') "space", word('space', { many: true, cap: true }) "Spaces", word('aside', { a: true }) "an aside".
       // An environment may call its spaces trips; this says so. An unknown name throws.
-      word: (key, o) => {
-        const set = locale().words || {};
-        const w = (set[key] && set[key].one && set[key].many ? set[key] : null) || DEFAULT_WORDS[key];
-        if (!w) throw new Error(`host.util.word: there is no word called ${key}`);
-        const text = o && o.a ? w.a || `${/^[aeiou]/i.test(w.one) ? 'an' : 'a'} ${w.one}` : o && o.many ? w.many : w.one;
-        return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
-      },
+      word: (key, o) => utilWord(locale().words, key, o),
       // One of the module's own renameable words (its manifest's `labels`), as this place reads it: the template's where
       // it renames it, else the manifest's. The twin of word: label('event') "meeting", label('event', { many: true, cap:
       // true }) "Meetings", label('event', { a: true }) "a meeting". A key the manifest does not declare (or before
@@ -3579,7 +3590,7 @@
       // better, and ok at 4.5:1 or more. The same pick as the theme editor's. Throws for anything that is not #rrggbb.
       readableOn: colourReadableOn,
       // Dates as "2026-09-24" (a local day): text from a Date, and back.
-      ymd: (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+      ymd: utilYmd,
       // The phase timeline of the space this module is in (public/phases.js timelineOf, the rule the server runs; see
       // plan-one-bar.md): one band per template phase in order, [{ id, label, main, color, start, end, dated, current }]
       // (`color` the phase's own '#rrggbb', or its place's default; words on it take host.util.readableOn(color)),
@@ -3638,7 +3649,7 @@
         if (!out.title) out.title = String(text || '').trim();
         return out;
       },
-      parseYmd: (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); },
+      parseYmd: utilParseYmd,
       // Places on the earth, for the modules that have them (a place, a map): coordinates checked and read, and the link
       // that opens a spot in the person's own maps app. Pure, so a check can run it without a browser.
       geo: (() => {
@@ -5985,7 +5996,8 @@
   // the very code server/module-actions.js runs for an agent's request to a bundled module that declares it (actions.server).
   // host.actions.fromLibrary(ACTION_HANDLERS, o) answers handlers for host.actions.provide that run it here exactly as the
   // runner does there, so a page and the server give the same answer:
-  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, space, action, read(key), list(prefix) }, `credit` the one
+  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, carrier, space, action, read(key), list(prefix) }, `carrier`
+  //     'page' here ('server' on the runner, which does nothing only a page does: a handler says so in its note), `credit` the one
   //     provide gives (the asker when the server knows them), read and list synchronous, over this module's data here as it
   //     was when the request was taken (each a copy), plus the facts below;
   //   - its answer is held to the runner's rules (at most LIBRARY_WRITES writes, each exactly { key, value }, no delete, a
@@ -6086,8 +6098,17 @@
     };
   }
   // The SDK helpers a handler may call (`ctx.util`): plain functions of their arguments, the same ones the runner hands it.
-  const libraryUtil = (util) => Object.freeze(Object.fromEntries(['plain', 'localWhen', 'detailLines', 'time', 'ymd', 'parseYmd', 'objectKey', 'id', 'word']
-    .filter((k) => typeof util[k] === 'function').map((k) => [k, util[k]])));
+  const LIBRARY_UTIL = ['plain', 'localWhen', 'detailLines', 'time', 'ymd', 'parseYmd', 'objectKey', 'id', 'word'];
+  const libraryUtil = (util) => Object.freeze(Object.fromEntries(LIBRARY_UTIL.filter((k) => typeof util[k] === 'function').map((k) => [k, util[k]])));
+  // The same helpers with no page: `time` on `locale.clock` ('12' or '24') and `word` from `locale.words` (an environment's, as
+  // host.locale().words gives them; the defaults for any it leaves out). What server/module-actions-worker.js hands a module's
+  // actions library on the server, built from this very file.
+  const libraryUtilFor = (locale) => {
+    const loc = locale && typeof locale === 'object' ? locale : {};
+    const clock = loc.clock === '24' ? '24' : '12';
+    const words = loc.words && typeof loc.words === 'object' ? loc.words : {};
+    return libraryUtil({ plain: plainText, localWhen, detailLines, time: (hhmm) => utilTime(hhmm, clock), ymd: utilYmd, parseYmd: utilParseYmd, objectKey: utilObjectKey, id: utilId, word: (key, o) => utilWord(words, key, o) });
+  };
   // One request carried out with the library's handler `fn` (see above). `carried` is what provide gives: { from, by, byKey, credit }.
   async function carryLibrary(host, name, fn, input, carried, o) {
     const util = host.util || {};
@@ -6103,7 +6124,7 @@
     let tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (err) { tz = 'UTC'; }
     const credit = carried.credit || { name: '', key: '' };
-    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, space: facts.space, people: facts.people, refs: facts.refs, action: name });
+    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, carrier: 'page', space: facts.space, people: facts.people, refs: facts.refs, action: name });
     ctx.read = (key) => (typeof key === 'string' && data.has(key) ? libraryCopy(data.get(key)) : null);
     ctx.list = (prefix) => {
       const p = typeof prefix === 'string' ? prefix : '';
@@ -6223,7 +6244,8 @@
   global.hostText = { esc, markdown, plain: plainText, localWhen, detailLines, parseClockText, clockText };
   // A module's actions library carried out on a page (libraryHandlers above), for the checks that run a module's handlers on a
   // stand-in host: fromLibrary(host, ACTION_HANDLERS, { module: () => ({ id, name }), after?, only? }).
-  global.hostActions = { fromLibrary: libraryHandlers, outcome: libraryOutcome, facts: libraryFacts };
+  // util(locale): the frozen ctx.util a handler gets, with no page (the server's runner builds its own from it).
+  global.hostActions = { fromLibrary: libraryHandlers, outcome: libraryOutcome, facts: libraryFacts, util: libraryUtilFor };
   // The currency list likewise, for Manage's Currency (a page, not a module): the same choices a module's currencySelect makes.
   global.hostCurrency = {
     fill: fillCurrencySelect,

@@ -1,7 +1,7 @@
 {
   "id": "calendar",
   "name": "Calendar",
-  "version": "1.24.49",
+  "version": "1.24.50",
   "icon": "calendar-days",
   "color": "red",
   "description": "Sessions and events for the whole {environment} and for each {space}, with reminders.",
@@ -107,6 +107,7 @@
     ]
   },
   "actions": {
+    "server": "src/calendar-lib-actions.js",
     "provides": [
       {
         "name": "createEvent",
@@ -151,14 +152,15 @@
           "title": "The new title.",
           "date": "The new first day, as YYYY-MM-DD; its end moves with it.",
           "time": "Start time as HH:MM, 24-hour, for example 10:00. An all-day event with a time is no longer all day.",
-          "endTime": "End time as HH:MM, on the same day or on endDate.",
-          "endDate": "Last day of a multi-day event, as YYYY-MM-DD.",
+          "endTime": "End time as HH:MM, on the same day or on endDate. \"\" clears it.",
+          "endDate": "Last day of a multi-day event, as YYYY-MM-DD. \"\" clears it.",
           "allDay": "True makes it all day and drops its times; false needs a start time.",
-          "repeat": "One of: day, week, 2weeks, month, year.",
-          "remind": "Minutes before the start to remind people: a whole number from 0 (when it starts) to 40320 (28 days).",
-          "notes": "The event's details, which replace the old ones. Line breaks are allowed."
+          "repeat": "One of: day, week, 2weeks, month, year. \"\" makes it not repeat.",
+          "remind": "Minutes before the start to remind people: a whole number from 0 (when it starts) to 40320 (28 days). \"\" takes the reminder off.",
+          "notes": "The event's details, which replace the old ones. Line breaks are allowed. \"\" clears them."
         },
         "effect": "write",
+        "clears": ["endTime", "endDate", "repeat", "remind", "notes"],
         "input": {
           "event": "ref:calendar:event",
           "title": "string?",

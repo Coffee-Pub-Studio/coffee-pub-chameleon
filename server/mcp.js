@@ -152,7 +152,7 @@ const TOOLS = [
   {
     name: 'list_actions',
     title: 'What I can ask for',
-    description: 'The changes you may ask the modules in a space for (ask_for_change), each with its action name, label, description and the input it takes, and hints saying what to put in an input. now is true when the change is made at once; when it is false, waiting says what the request will wait for. Read an action\'s description and hints before you call ask_for_change.',
+    description: 'The changes you may ask the modules in a space for (ask_for_change), each with its action name, label, description and the input it takes, and hints saying what to put in an input. clears lists the inputs you may send as "" to clear them (an input left out is kept); patch: true means its object input changes only what it gives, so it needs no title. now is true when the change is made at once; when it is false, waiting says what the request will wait for. Read an action\'s description and hints before you call ask_for_change.',
     inputSchema: object({ space: SPACE }, ['space']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/actions` }),

@@ -1067,7 +1067,8 @@
   // changes or goes away.
   // `where` is the event's place for the host ({ space } for another space's event), so the reminder is set there and
   // reaches that space's people.
-  async function applyReminder(id, ev, where) {
+  // `quiet`: a failure is not shown in the form (setting a reminder that waited, below, has no form open).
+  async function applyReminder(id, ev, where, quiet) {
     const key = 'remind:' + id;
     const stop = () => host.cancelSchedule(key, where);
     try {
@@ -1093,7 +1094,7 @@
         ...(where || {}),
       });
     } catch (err) {
-      showError('Saved, but the reminder could not be set: ' + err.message);
+      if (!quiet) showError('Saved, but the reminder could not be set: ' + err.message);
       throw err;
     }
   }
@@ -1609,6 +1610,30 @@
       }
     }
   }
+  // A reminder that waits for a page: an agent's request the server carried with no page open writes the event marked
+  // `remindPending` (calendar-lib-actions.js calReminder), since only a page sets a schedule. Whoever may change the event and
+  // has the calendar open sets it here, as the form would, and takes the mark off; a write that loses to another change leaves
+  // the mark for the next round.
+  const reminding = new Set();
+  async function setWaitingReminders() {
+    if (!canEdit || part === 'panel' || typeof host.schedule !== 'function') return;
+    for (const x of [...events.values()]) {
+      if (x.scope !== 'here' || !x.ev.remindPending || !writable(x) || reminding.has(x.id)) continue;
+      reminding.add(x.id);
+      try {
+        await applyReminder(x.id, x.ev, {}, true);
+        const ev = { ...x.ev };
+        delete ev.remindPending;
+        const saved = await host.storage.set('event:' + x.id, ev, { version: x.version });
+        remember('here', { key: 'event:' + x.id, value: ev, version: saved.version });
+      } catch (err) {
+        // changed meanwhile, or the reminder could not be set: tried again on the next round
+      } finally {
+        reminding.delete(x.id);
+      }
+    }
+  }
   announceEnded();
-  const announceTimer = setInterval(() => { if (!$('app')) return void clearInterval(announceTimer); announceEnded(); }, 60000);
+  setWaitingReminders();
+  const announceTimer = setInterval(() => { if (!$('app')) return void clearInterval(announceTimer); announceEnded(); setWaitingReminders(); }, 60000);
 })();

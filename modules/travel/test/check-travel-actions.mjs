@@ -10,7 +10,7 @@
 process.env.TZ = 'America/Chicago';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { both, onPage } from '../../../tools/module-actions-harness.mjs';
+import { both, onPage, onRunner } from '../../../tools/module-actions-harness.mjs';
 
 let n = 0;
 const test = async (name, fn) => { try { await fn(); n += 1; } catch (e) { process.exitCode = 1; console.error(`FAIL ${name}\n${e.stack || e}`); } };
@@ -149,12 +149,37 @@ await test('updatePlan: flat fields, a place, and the editor\'s sentences', asyn
   assert.deepEqual([written(moved, 'plan:s1').date, written(moved, 'plan:s1').time, written(moved, 'plan:s1').place], ['2026-10-02', '18:00', 'Castelo de S. Jorge']);
   await refuses('updatePlan', { entry: entry('zz'), title: 'x' }, w, "That object isn't on the itinerary any more.");
   await refuses('updatePlan', { entry: entry('l1'), title: 'x' }, w, 'That entry shows something kept in another module; change it there.');
-  await refuses('updatePlan', { entry: entry('f1') }, w, 'Say what to change: a title, a day, a time, the notes, the cost, a place, or an object with its details.');
+  await refuses('updatePlan', { entry: entry('f1') }, w, 'Say what to change: a title, a day, a time, the notes, the cost, a place, or an object with its details. Send "" to clear the time, minutes, cost or notes.');
   await refuses('updatePlan', { entry: entry('h1'), minutes: 30 }, w, 'A stay has no length, so leave out minutes and the end time.');
   await refuses('updatePlan', { entry: entry('h1'), date: '2026-10-03' }, w, 'Check out is on or before check in.');
   await refuses('updatePlan', { entry: entry('f1'), placeRef: PLACE }, w, 'Only a stop can be at a place. Leave the place out for a journey, a stay or a note.');
   await refuses('updatePlan', { entry: entry('f1'), object: { kind: 'hotel', title: 'To Faro', details: { roomType: 'Twin' } } }, w, 'Only a journey other than a car can be a round trip. Choose one, or turn off Round trip first.');
   await refuses('updatePlan', { entry: entry('f1'), time: '9am' }, w, 'The time must be a clock time as HH:MM, 24-hour, like 14:30.');
+});
+await test('updatePlan: "" clears the time, minutes, cost or notes (the manifest\'s clears); a field left out is kept', async () => {
+  const rows = { 'plan:f1': { ...FLIGHT, estimate: 80 } };
+  const r = await same('updatePlan', { entry: entry('f1'), time: '', notes: '' }, world(rows));
+  const v = written(r, 'plan:f1');
+  assert.deepEqual([v.time, v.notes, v.minutes, v.estimate, v.terminal], [null, '', 60, 80, '1']);
+  const c = await same('updatePlan', { entry: entry('f1'), minutes: '', cost: '' }, world(rows));
+  assert.deepEqual([written(c, 'plan:f1').minutes, written(c, 'plan:f1').estimate, written(c, 'plan:f1').time], [null, null, '09:00']);
+  await refuses('updatePlan', { entry: entry('f1'), time: '', endTime: '10:30' }, world(rows), 'An end time needs a start time too.');
+  const m = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
+  const act = m.actions.provides.find((a) => a.name === 'updatePlan');
+  assert.deepEqual(act.clears, ['time', 'minutes', 'cost', 'notes']);
+  assert.equal(act.patch, true);
+  assert.equal(m.actions.server, 'src/travel-lib-actions.js');
+});
+await test('with phases, carried on the server: the main phase\'s end is not moved, and the note says so', async () => {
+  const phased = world({}, { phases: [{ id: 'trip', main: true }], bands: [{ id: 'trip', label: 'Trip', main: true, start: '2026-10-01', end: '2026-10-03', dated: true }] });
+  const page = await onPage('travel', 'addStop', { title: 'Sintra', date: '2026-10-05' }, phased, { name: 'Planner - Itinerary' });
+  assert.deepEqual(page.writes.map((w) => w.key), ['plan:n1'], 'no trip write with phases');
+  assert.equal(page.data, undefined, 'a page moves the phase after (absorb): nothing to say');
+  const server = await onRunner('travel', 'addStop', { title: 'Sintra', date: '2026-10-05' }, phased, { carrier: 'server', kinds: ['trip', 'plan'] });
+  assert.deepEqual(server.writes.map((w) => w.key), ['plan:n1'], 'nothing of the space\'s is written');
+  assert.equal(server.data.note, "That is after the plan's last day, 2026-10-03, which was not moved. A person can add days to the plan in the itinerary.");
+  const inside = await onRunner('travel', 'addStop', { title: 'Castle', date: '2026-10-02' }, phased, { carrier: 'server', kinds: ['trip', 'plan'] });
+  assert.equal(inside.data, undefined, 'a day on the plan: nothing to say');
 });
 await test('updatePlan: a later day stretches the trip, as an add does', async () => {
   const r = await same('updatePlan', { entry: entry('f1'), date: '2026-10-06' }, world({ 'plan:f1': { ...FLIGHT } }));

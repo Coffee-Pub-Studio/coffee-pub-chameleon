@@ -5,9 +5,19 @@
 // A bundled module may declare `"actions": { "server": "src/<id>-lib-actions.js", ... }`: one of its own libraries, which
 // its page already carries (server/module-build.js libraryOf puts every src/<id>-lib*.js into the page), defining
 //   const ACTION_HANDLERS = { <action name>: (input, ctx) => ({ writes, ref?, data? }) };
-// with one handler for every action an agent may ask the module for. `ctx` is { from, by, byKey, credit: { name, key },
-// now, tz, space, action, read(key), list(prefix) }: the asker is the agent and so is the credit; read and list see only
-// this module's data in the request's space, as the agent may read it. A handler answers what to write (at most
+// with one handler for every action an agent may ask the module for. `ctx` is the page adapter's (public/sdk/host.js
+// host.actions.fromLibrary), as plain data plus three kinds of function:
+//   { from, by, byKey, credit: { name, key }, now, tz, carrier: 'server', action,
+//     space: { id, name, currency, defaultCurrency, phases: [{ id, main }], bands }, people: [{ key, name }],
+//     refs: { <objectKey>: { title, subtitle, kind, copy?, original?: { module, name } } | { error } },
+//     read(key), list(prefix), util }
+// The asker is the agent and so is the credit; read and list see only this module's data in the request's space, as the agent
+// may read it; the facts (space, people, refs) are server/index.js actionFacts, refs only for the input's own pointers as the
+// agent may see them. `util` is the SDK's pure helpers, frozen (hostActions.util: plain, localWhen, detailLines, time, ymd,
+// parseYmd, objectKey, id, word; `time` on the environment's clock and `word` in its words), and `ymd` and `parseYmd` are
+// beside the library as on a page: the worker builds them from public/sdk/host.js itself before the library runs, so a page
+// and the server run one copy. `carrier` is 'server' (a page's is 'page'): nothing only a page does is done here (a reminder's
+// schedule, a link, a phase's end), and a handler says so in its note. A handler answers what to write (at most
 // LIMITS.writes values, each { key, value }, in the module's own data in that space and nowhere else), the pointer of what
 // it made or changed (`ref`, one of the module's own kinds in that space) and a little plain data (`data`, with `data.note`
 // the line request_status shows); a throw is a refusal, and its message is the sentence the agent reads.
@@ -54,8 +64,19 @@ const runFlags = (workerFile) => [
   PERMISSION_FLAG, `--allow-fs-read=${workerFile}`, '--no-warnings', workerFile,
 ];
 
-function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'module-actions-worker.js') }) {
+// The SDK every page loads (public/sdk/host.js): its pure helpers are what a library gets as ctx.util, built from this very
+// file in the run's own context (server/module-actions-worker.js), so a page and the server run one copy of each.
+const SDK_FILE = path.join(__dirname, '..', 'public', 'sdk', 'host.js');
+
+function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'module-actions-worker.js'), sdkFile = SDK_FILE }) {
   const codeCache = new Map(); // `${id}@${version}` -> { code, file } | null
+  // Read once: it is the deployment's own file and changes only with a new deployment. Null when it can't be read, and then
+  // every run is a fault ('sdk'), never a run without the helpers.
+  let sdkText;
+  const sdk = () => {
+    if (sdkText === undefined) { try { sdkText = fs.readFileSync(sdkFile, 'utf8'); } catch { sdkText = null; } }
+    return sdkText;
+  };
 
   // Whether the server carries this module's agent requests, and with what code: { code, filename } or null. Only a module
   // installed from this deployment's own copy (`source: 'bundled'`), whose active version is the version shipped now,
@@ -98,9 +119,12 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
     if (next) next(); else running -= 1;
   };
 
-  // One run: { text } (the handler's answer as JSON text) or { fault } (start, library, timeout, memory, crashed, busy,
-  // missing, result, size, unanswered). Never throws.
-  async function run({ code, filename, action, inputText, ctxText, dataText }) {
+  // One run: { text } (the handler's answer as JSON text) or { fault } (start, sdk, library, timeout, memory, crashed, busy,
+  // missing, result, size, unanswered). `localeText` is { clock, words } as JSON: the environment's, for ctx.util's time and
+  // word. Never throws.
+  async function run({ code, filename, action, inputText, ctxText, dataText, localeText = '{}' }) {
+    const sdkSource = sdk();
+    if (!sdkSource) return { fault: 'sdk' };
     try { await turn(); } catch { return { fault: 'busy' }; }
     try {
       return await new Promise((resolve) => {
@@ -138,7 +162,7 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
           finish({ fault: signal === 'SIGABRT' || exitCode === 134 ? 'memory' : 'crashed' });
         });
         child.stdin.on('error', () => { /* the process ended before it read everything: its exit says why */ });
-        child.stdin.end(JSON.stringify({ code, filename, action, inputText, ctxText, dataText, timeoutMs: LIMITS.timeMs }));
+        child.stdin.end(JSON.stringify({ code, filename, action, inputText, ctxText, dataText, sdk: sdkSource, localeText, timeoutMs: LIMITS.timeMs }));
       });
     } finally {
       done();
@@ -201,6 +225,7 @@ const FAULT_WORDS = {
   timeout: () => 'it took too long',
   memory: () => 'it used too much memory',
   library: () => 'its code did not load',
+  sdk: () => 'the helpers its code uses did not load',
   start: () => 'its code could not be started',
   crashed: () => 'its code stopped',
   missing: () => 'it has no server code for that action',

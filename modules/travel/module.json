@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.19",
+  "version": "0.16.20",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -74,6 +74,7 @@
     ]
   },
   "actions": {
+    "server": "src/travel-lib-actions.js",
     "provides": [
       {
         "name": "addStop",
@@ -168,14 +169,16 @@
           "object": "A patch { kind, title, details }; the entry's own kind and title keep them. A flight's details: airline, number, from, to, departs, arrives, terminal, gate, seat, class, reference, cost, travellers.",
           "title": "The new title.",
           "date": "The day, as YYYY-MM-DD.",
-          "time": "Start time as HH:MM, 24-hour, for example 14:30; a flight's departure.",
-          "minutes": "How long it lasts, in whole minutes, from 1 to 10080; use this or endTime, not both.",
+          "time": "Start time as HH:MM, 24-hour, for example 14:30; a flight's departure. \"\" clears it.",
+          "minutes": "How long it lasts, in whole minutes, from 1 to 10080; use this or endTime, not both. \"\" clears it.",
           "endTime": "End time as HH:MM; it is measured from the start time given, else the entry's own.",
-          "cost": "The estimated cost, a number from 0 in the trip's currency, for example 120.50.",
-          "notes": "The notes, which replace the old ones. Line breaks are allowed.",
+          "cost": "The estimated cost, a number from 0 in the trip's currency, for example 120.50. \"\" clears it.",
+          "notes": "The notes, which replace the old ones. Line breaks are allowed. \"\" clears them.",
           "placeRef": "A saved place from Maps, for a stop only. The stop then shows that place's name, and its address if it has none."
         },
         "effect": "write",
+        "clears": ["time", "minutes", "cost", "notes"],
+        "patch": true,
         "input": {
           "entry": "ref:travel:plan",
           "object": "object?",
