@@ -99,9 +99,9 @@ Thomas, 2026-10-02, after the build of step 3.
 
 Decided (Thomas, 2026-11-23), asked "what happened to their ability to make their own or the moderator doing so?":
 
-36. **Members and moderators make spaces, always.** Every member and every moderator may make a space. There is no owner switch. Guests may not. Agents may not through the ordinary agent routes; the set-up agent keeps its own gated routes ([plan-admin-agent](plan-admin-agent.md)). The person who makes a space is its first moderator. Every existing limit on making spaces stays. The form is one shared piece, opened from the menu's "+ New <space>" and from Manage's Add. This replaces decision 16 and the "owners and the admin" in the switcher and "+ New" lines of the contract. Reason: a member could not make their own space and had to ask an owner. Options Thomas saw and did not choose: an owner switch in Manage (owners only, owners and moderators, or all members, default owners only); moderators only; leaving it owners only.
+36. **Members and moderators make spaces, always.** Every member and every moderator may make a space. There is no owner switch. Guests may not. Agents may not through the ordinary agent routes; the set-up agent keeps its own gated routes ([plan-admin-agent](plan-admin-agent.md)). Every existing limit on making spaces stays. The form is one shared piece, opened from the menu's "+ New <space>" and from Manage's Add. This replaces decision 16 and the "owners and the admin" in the switcher and "+ New" lines of the contract. Reason: Thomas asked what happened to their ability to make their own, or the moderator doing so (he stated no further reason). Options Thomas saw and did not choose: an owner switch in Manage (owners only, owners and moderators, or all members, default owners only); moderators only; leaving it owners only.
 
-Built: a try build is in flight on branch `claude/members-make-spaces`. Until it lands, the lines above that say owners and the admin describe the code on `main`.
+Built: a try build is in flight on branch `claude/members-make-spaces`. Until it lands, the lines above that say owners and the admin describe the code on `main`. Open, builder's lean (not decided by Thomas): the person who makes a space becomes its first moderator; confirm when the build reports.
 
 ## The bar
 
