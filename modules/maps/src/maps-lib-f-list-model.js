@@ -99,7 +99,7 @@ function listModel(geo, LIB_TYPES, word) {
   }
 
   // The eight theme tints, in the order the phases take them (public/phases.js): a category with the automatic colour takes the one
-  // at its place in the owner's list, round again after the eighth. A place's own colour is one of these names.
+  // at its place in the owner's list, round again after the eighth. A place's own colour is '#rrggbb' (an older one may be a tint name).
   const TINTS = ['blue', 'green', 'teal', 'purple', 'orange', 'pink', 'gold', 'red'];
   const isHex = (c) => /^#[0-9a-fA-F]{6}$/.test(String(c || ''));
   const asColor = (c) => (TINTS.includes(c) ? { tint: c } : isHex(c) ? { hex: String(c).toLowerCase() } : null);
@@ -297,7 +297,7 @@ function listModel(geo, LIB_TYPES, word) {
       type: typeof v.type === 'string' && CATEGORY_ID.test(v.type) ? v.type : '',
       icon: typeof v.icon === 'string' && ICON_NAME.test(v.icon) ? v.icon : '',
       iconOwn: v.iconOwn === true && typeof v.icon === 'string' && ICON_NAME.test(v.icon),
-      color: TINTS.includes(v.color) ? v.color : '',
+      color: TINTS.includes(v.color) ? v.color : isHex(v.color) ? String(v.color).toLowerCase() : '', // '#rrggbb' from the colour picker; a tint name from before it
       status: statusOf(v.status) ? v.status : '',
       address: geo.oneLine(v.address, 200),
       point,

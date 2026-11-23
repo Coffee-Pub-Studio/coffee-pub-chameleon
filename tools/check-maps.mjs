@@ -370,6 +370,7 @@ test('a pin takes the place\'s colour, else its category\'s, else the category\'
   const css = read('maps.css');
   const c = (category, color) => ({ ref: { scope: 'environment' }, category, ...(color ? { color } : {}) });
   assert.deepEqual(lib.pinColor(c('food', 'red'), { food: '#112233' }), { tint: 'red' }, 'the place\'s own colour first');
+  assert.deepEqual(lib.pinColor(c('food', '#3366cc'), { food: '#112233' }), { hex: '#3366cc' }, 'a place\'s own #rrggbb colour first');
   assert.deepEqual(lib.pinColor(c('food'), { food: '#112233' }), { hex: '#112233' }, 'then the owner\'s colour for the category');
   assert.deepEqual(lib.pinColor(c('food'), { food: 'pink' }), { tint: 'pink' }, 'Places may tell a tint name');
   assert.deepEqual(lib.pinColor(c('food'), {}), { tint: 'blue' }, 'else the automatic tint, by the category\'s place in the list');

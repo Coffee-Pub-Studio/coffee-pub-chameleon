@@ -426,10 +426,7 @@
     const c = look.color;
     if (!c) return;
     el.style.setProperty('--tone', cssColor(c));
-    if (c.hex) {
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.hex.slice(i, i + 2), 16));
-      el.style.setProperty('--tone-ink', r * 0.299 + g * 0.587 + b * 0.114 > 150 ? '#000000' : '#ffffff');
-    }
+    if (c.hex) el.style.setProperty('--tone-ink', host.util.readableOn(c.hex).color);
   }
 
   function makePin(x, on) {
