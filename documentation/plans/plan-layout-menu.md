@@ -17,6 +17,8 @@ Two things to keep apart: the conference has its own "layout" (its grid, strip, 
 
 ## Decisions
 
+Changed by decisions 40, 41 and 44 of [plan-workspaces](plan-workspaces.md) (Thomas, 2026-11-23): decisions 1, 4, 6 and 7 and the Arrange contract here are replaced. The Layout button goes; Arrange (Panels or Windows, with Clean up in both) moves to the menu on a workspace's tab.
+
 Thomas, 2026-10-02, and earlier where dated.
 
 1. **The Modules button is the Layout button,** "Layout ▾", with a **Show** heading over the module switches, "which would scale to our future changes". Built separately (the word is the environment's `layout` verb); this plan builds on it.

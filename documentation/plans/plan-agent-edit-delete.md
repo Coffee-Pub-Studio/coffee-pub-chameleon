@@ -53,6 +53,8 @@ Only what Thomas decided. The planner's leans are under "Options" and "What is n
 7. **An agent may ask to delete objects other people made, with approval** (Thomas, 2026-11-23, question 9). A person who
    could delete the object themselves must approve that one ask, and Undo restores it. Not chosen: only objects the agent
    made.
+8. **The Itinerary's phase end rule stays as built** (Thomas, 2026-11-23, by clickable choice, recorded here from the
+   planner's note of it). An agent's late entry does not extend the trip's end; a person's does.
 
 ## What it is today
 
