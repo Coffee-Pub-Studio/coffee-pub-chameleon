@@ -6,6 +6,8 @@
 
 **Progress (2026-11-11):** Built on main: the server half (#582: `server/tags.js`, the routes under `/api/spaces/:id/tags`, the `manageTags` right) and the SDK half (#585: `host.tags`, the picker, chips, the `tags` event and the Tags section in Set up). Documents 0.6.0 is the first module to use it (#593). Documented in [api-modules](../api/api-modules.md), "Tags", and [api-module-sdk](../api/api-module-sdk.md), "Shared tags". Research still keeps its own tags. Known gaps are in [known-issues](../known-issues.md).
 
+**Change (2026-11-23):** a tag's colour moves to the colour picker, so the tone-name rule below is replaced by [plan-colour-picker](plan-colour-picker.md) decision 30. Not built yet.
+
 ## What it is today
 
 - **There is no shared tag service.** No `host.tags`, no route and no stored list **(code, `public/sdk/host.js`, `server/index.js`)**.
@@ -45,7 +47,7 @@ Draft on the decisions above. Names: the list belongs to a space; the things tag
 
 ### A tag and its limits
 
-`{ id, name, color, by, at }`. `id` 8 to 12 lower-case letters and digits, made by the server and never reused. `name` 1 to 24 characters of letters (any language), digits and dashes, lower-cased and NFKC-normalised; unique in the list ignoring case. `color` a tone name from the theme's fixed set, or empty (plain); never a free hex, so the light and dark themes stay right. `by` a user key, `at` an ISO time. A list holds at most 200 tags; an object at most 8. `<`, `>`, `&` and quotes are not allowed in a name, so a stored name carries no HTML; pages still use `textContent`. One cleaning function in `server/tags.js` is used by the routes, the summary and the objects format.
+`{ id, name, color, by, at }`. `id` 8 to 12 lower-case letters and digits, made by the server and never reused. `name` 1 to 24 characters of letters (any language), digits and dashes, lower-cased and NFKC-normalised; unique in the list ignoring case. `color` a tone name from the theme's fixed set, or empty (plain); never a free hex, so the light and dark themes stay right. *Replaced by [plan-colour-picker](plan-colour-picker.md) decision 30 (Thomas, 2026-11-23): `color` is `#rrggbb` set with the colour picker, or empty (plain), and no longer follows the theme. Tags with a tone name may be reset. Text kept as the record.* `by` a user key, `at` an ISO time. A list holds at most 200 tags; an object at most 8. `<`, `>`, `&` and quotes are not allowed in a name, so a stored name carries no HTML; pages still use `textContent`. One cleaning function in `server/tags.js` is used by the routes, the summary and the objects format.
 
 ### Moving an object to another space
 
