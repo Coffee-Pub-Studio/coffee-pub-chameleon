@@ -237,11 +237,11 @@ try {
   await mia.click('.sdk-toast [data-toast-action="back"]');
   await sleep(600);
   same(await shown(mia), 'workspace', 'Go back returns to the tab they were on');
-  // Cancel stops it for everyone.
+  // Cancel stops it for everyone. (On Calendar again: the Conference tab can sit in the "...", and its button with it.)
   await sleep(1000);
-  await admin.click('#layout-tabs > .layout-tab-side[data-tab-side="conference"]');
+  await admin.click('#layout-tabs > .layout-tab-side[data-tab-side="calendar"]');
   await admin.click('.host-menu [role=menuitem]', 'Bring everyone here');
-  await waitText(mia, /is bringing everyone to Conference/);
+  await waitText(mia, /is bringing everyone to Calendar/);
   await admin.click('.sdk-toast [data-toast-action="cancel"]');
   ok(/admin stopped it\. You stay here\./.test(await waitText(mia, /stopped it/)), 'the others are told it stopped');
   await sleep(5500);

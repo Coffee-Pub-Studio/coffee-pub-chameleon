@@ -4139,9 +4139,9 @@ function renderLayoutTabs() {
       b.dataset.layoutTab = t.layout;
       b.title = t.label;
       b.setAttribute('aria-label', t.label);
-      // A pinned tab wears a small pin: the owner keeps it in the bar, so it has no way to hide it.
+      // A pinned tab draws no mark (its title and name say so): the owner keeps it in the bar, so it has no way to hide it.
       if (t.pinned) { b.title = `${t.label}. Kept in the bar by the ${word('owner')}.`; b.setAttribute('aria-label', `${t.label}, kept in the bar by the ${word('owner')}`); }
-      b.innerHTML = `<i class="fa-solid fa-${escapeHtml(t.icon)} fa-fw" aria-hidden="true"></i><span class="core-label">${escapeHtml(t.label)}</span>${t.pinned ? '<i class="fa-solid fa-thumbtack layout-tab-pinned" aria-hidden="true"></i>' : ''}`;
+      b.innerHTML = `<i class="fa-solid fa-${escapeHtml(t.icon)} fa-fw" aria-hidden="true"></i><span class="core-label">${escapeHtml(t.label)}</span>`;
       const side = tabSide(doc, t); // who is on it, and a moderator's caret
       if (!t.temp || t.kind === 'system') return [b, side]; // a fixed layout's tab is turned on by its Favorite, in the Layout menu
       // A temporary tab (a saved layout shown that is not a favorite): a heart beside it pins it as a favorite.
@@ -4425,6 +4425,13 @@ function paintTabSides({ draw = true } = {}) {
     const caret = Boolean(side.querySelector('.layout-tab-caret'));
     const hide = !all.length && !caret;
     if (side.hidden !== hide) { side.hidden = hide; changed = true; }
+    // The tab before it keeps room for it (style.css, .layout-tab-side): the width the button takes, once it can be measured.
+    const owner = side.previousElementSibling;
+    if (owner?.matches('[data-layout-tab]')) {
+      const w = hide ? 0 : Math.round(side.getBoundingClientRect().width);
+      if (hide) { owner.style.removeProperty('--side-w'); side.style.removeProperty('--side-w'); }
+      else if (w && owner.style.getPropertyValue('--side-w') !== `${w}px`) { owner.style.setProperty('--side-w', `${w}px`); side.style.setProperty('--side-w', `${w}px`); changed = true; }
+    }
     const names = all.map((p) => (p.you ? 'you' : p.name));
     const said = names.length ? `On ${label}: ${names.length > 4 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ')}` : `${label}: more`;
     side.setAttribute('aria-label', said);
