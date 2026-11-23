@@ -6,9 +6,9 @@
 import { escapeHtml } from '/brand.js';
 
 const e = escapeHtml;
-export const TAB_IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'];
-const NAMES = { workspace: 'Workspace', calendar: 'Calendar', map: 'Map', conference: 'Conference', whiteboard: 'Whiteboards', documents: 'Documents' };
-const ICONS = { workspace: 'columns', calendar: 'calendar-days', map: 'map-location-dot', conference: 'video', whiteboard: 'chalkboard', documents: 'file-lines' };
+export const TAB_IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule'];
+const NAMES = { workspace: 'Workspace', calendar: 'Calendar', map: 'Map', conference: 'Conference', whiteboard: 'Whiteboards', documents: 'Documents', schedule: 'Projects' };
+const ICONS = { workspace: 'columns', calendar: 'calendar-days', map: 'map-location-dot', conference: 'video', whiteboard: 'chalkboard', documents: 'file-lines', schedule: 'diagram-project' };
 export const tabName = (id) => NAMES[id] || id;
 
 // The rows a list draws, whole: the listed rows in their order, then every layout it leaves out, hidden, in the default

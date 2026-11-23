@@ -59,7 +59,7 @@ export function firstVisitShape({ shape = null, remembered = null, placed = fals
 // layout never needs a shape to open, and a shape never stops a layout. Only the restore on entering asks (`entering`), and only a
 // first visit: a person's remembered arrangement (`remembered`, never a guest's) wins afterwards. A guest has no tabs,
 // so Calendar or Map open the Workspace for one (the server already answers 'workspace' for a guest).
-export const SYSTEM_TABS = Object.freeze(['calendar', 'map', 'conference', 'whiteboard', 'documents']);
+export const SYSTEM_TABS = Object.freeze(['calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule']);
 // `last` (plan-workspaces.md, step 6) is the layout this person last used here, already checked as still available by
 // the page: it wins over the owner's default for anyone signed in ('workspace' too: the Workspace, as it was). A guest
 // has none, so the owner's default is theirs every time.

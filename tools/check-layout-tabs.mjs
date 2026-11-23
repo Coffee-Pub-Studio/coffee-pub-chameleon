@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * check-layout-tabs.mjs -- Workspaces, steps 1 and 2 (documentation/plans/plan-workspaces.md, GitHub #744):
- *   1. The ids. The fixed set is workspace, calendar, map, conference, whiteboard, documents. The code lists that name
+ *   1. The ids. The fixed set is workspace, calendar, map, conference, whiteboard, documents, schedule (Projects). The code lists that name
  *      them agree (server/layouts.js SYSTEM_IDS and SYSTEM_ICONS, server/store.js SYSTEM_DEFAULTS, public/primary-nav.js
  *      SYSTEM_TAB_DEFAULTS, public/opens-with.js SYSTEM_TABS). Conference, Whiteboards and Documents come and go with the
  *      call service, the environment's switch, the permission and their module; a space's defaultLayout accepts them
@@ -32,13 +32,13 @@ const ok = (cond, label) => { assert.ok(cond, label); n += 1; };
 const same = (got, want, label) => { assert.deepEqual(got, want, label); n += 1; };
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `check-layout-tabs-${name}-`));
 
-const IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'];
+const IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule'];
 
 // --- the four code lists name the same ids ------------------------------------------------------------------------
 {
   same([...SYSTEM_IDS], IDS, 'server/layouts.js SYSTEM_IDS');
   same(Object.keys(SYSTEM_ICONS), IDS, 'SYSTEM_ICONS names the same ids, in the same order');
-  same([SYSTEM_ICONS.conference, SYSTEM_ICONS.whiteboard, SYSTEM_ICONS.documents], ['video', 'chalkboard', 'file-lines'], 'a video glyph for Conference, the modules\' own icons');
+  same([SYSTEM_ICONS.conference, SYSTEM_ICONS.whiteboard, SYSTEM_ICONS.documents, SYSTEM_ICONS.schedule], ['video', 'chalkboard', 'file-lines', 'diagram-project'], 'a video glyph for Conference, the modules\' own icons');
   const setupSrc = fs.readFileSync(path.join(ROOT, 'public/space-setup.js'), 'utf8');
   same(/export const LAYOUT_IDS = Object\.freeze\(\[([^\]]*)\]\)/.exec(setupSrc)?.[1].split(',').map((x) => x.trim().replace(/'/g, '')), IDS, 'public/space-setup.js LAYOUT_IDS (the owner\'s Layouts section) names the same ids');
   const nav = fs.readFileSync(path.join(ROOT, 'public/primary-nav.js'), 'utf8');
@@ -68,9 +68,9 @@ const IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'docume
   same(strict({}), { tabs: null }, '{} clears');
   same(strict({ order: IDS }), { tabs: null }, 'the default order is nothing stored');
   same(strict({ order: [], hide: [] }), { tabs: null }, 'empty lists are nothing stored');
-  same(strict({ order: ['conference', 'workspace'] }).tabs, { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'] }, 'a missing id is added at the end, in the default order');
+  same(strict({ order: ['conference', 'workspace'] }).tabs, { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents', 'schedule'] }, 'a missing id is added at the end, in the default order');
   same(strict({ hide: ['documents', 'conference'] }).tabs, { hide: ['conference', 'documents'] }, 'hide is kept in the default order');
-  same(strict({ order: ['documents'], hide: ['map'] }).tabs, { order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard'], hide: ['map'] });
+  same(strict({ order: ['documents'], hide: ['map'] }).tabs, { order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard', 'schedule'], hide: ['map'] });
   same(strict({ order: null, hide: ['map'] }).tabs, { hide: ['map'] }, 'null for a list is none');
   refused('map', /\{ order, hide \}/, 'text');
   refused([], /\{ order, hide \}/, 'a list');
@@ -90,21 +90,21 @@ const IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'docume
   refused({ hide: ['workspace'] }, /^The Workspace is always shown\.$/, 'the Workspace in hide');
   refused({ order: ['map', 'map'] }, /listed twice/, 'an id twice');
   refused({ hide: ['map', 'map'] }, /listed twice/, 'an id twice in hide');
-  refused({ order: [...IDS, 'map'] }, /at most 6/, 'more than there are layouts');
-  refused({ order: Array.from({ length: 5000 }, () => 'x') }, /at most 6/, 'a long list is cut off before it is read');
+  refused({ order: [...IDS, 'map'] }, /at most 7/, 'more than there are layouts');
+  refused({ order: Array.from({ length: 5000 }, () => 'x') }, /at most 7/, 'a long list is cut off before it is read');
   ok(strict({ order: ['workspace'], hide: ['workspace'].slice(1) }).tabs === null, 'Workspace in order alone is the default');
   // Read (lenient): the file or an import is cleaned, never refused.
   const lenient = (v) => cleanTabs(v).tabs;
-  same(lenient({ order: ['nosuch', 'map', 'map', 7, 'workspace'], hide: ['workspace', 'nosuch', 'documents', 'documents'], extra: 1 }), { order: ['map', 'workspace', 'calendar', 'conference', 'whiteboard', 'documents'], hide: ['documents'] }, 'unknown ids, repeats, the Workspace in hide and other keys are dropped');
+  same(lenient({ order: ['nosuch', 'map', 'map', 7, 'workspace'], hide: ['workspace', 'nosuch', 'documents', 'documents'], extra: 1 }), { order: ['map', 'workspace', 'calendar', 'conference', 'whiteboard', 'documents', 'schedule'], hide: ['documents'] }, 'unknown ids, repeats, the Workspace in hide and other keys are dropped');
   same(lenient('junk'), null, 'junk reads as nothing');
   same(lenient(['map']), null, 'a list reads as nothing');
   same(lenient({ order: 'map', hide: 5 }), null, 'lists that are not lists read as nothing');
   same(tabsOf(undefined), { order: IDS, hide: [] }, 'unset reads as the defaults');
-  same(tabsOf({ order: ['conference'], hide: ['map'] }), { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['map'] }, 'tabsOf is whole');
+  same(tabsOf({ order: ['conference'], hide: ['map'] }), { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents', 'schedule'], hide: ['map'] }, 'tabsOf is whole');
   const t = tabsOf(undefined);
   t.order.push('x');
   same(tabsOf(undefined).order, IDS, 'and a copy, not the list itself');
-  ok(JSON.stringify(strict({ order: [...IDS].reverse(), hide: IDS.slice(1) })).length < 400, 'the largest record is small (at most 12 ids)');
+  ok(JSON.stringify(strict({ order: [...IDS].reverse(), hide: IDS.slice(1) })).length < 400, 'the largest record is small (at most 13 ids)');
 }
 
 // --- the store: the space record --------------------------------------------------------------------------------------
@@ -114,7 +114,7 @@ const IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'docume
   const a = store.addSpace({ name: 'Alpha', creator: null });
   ok(!('tabs' in a), 'a new space has no tabs');
   let space = store.updateSpace(a.id, { tabs: { order: ['conference'], hide: ['documents'] } });
-  same(space.tabs, { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['documents'] }, 'kept whole');
+  same(space.tabs, { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents', 'schedule'], hide: ['documents'] }, 'kept whole');
   same(new Store(dir).spaceById(a.id).tabs, space.tabs, 'read back as written');
   space = store.updateSpace(a.id, { name: 'Alpha 2' });
   same(space.tabs, new Store(dir).spaceById(a.id).tabs, 'another field leaves it');
@@ -134,7 +134,7 @@ const IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'docume
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   raw.spaces.find((s) => s.id === a.id).tabs = { order: ['nosuch', 'documents', 'documents'], hide: ['workspace', 'map', 'x'], extra: 1 };
   fs.writeFileSync(file, JSON.stringify(raw));
-  same(new Store(dir).spaceById(a.id).tabs, { order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard'], hide: ['map'] }, 'a stored record is cleaned on read');
+  same(new Store(dir).spaceById(a.id).tabs, { order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard', 'schedule'], hide: ['map'] }, 'a stored record is cleaned on read');
   raw.spaces.find((s) => s.id === a.id).tabs = 'junk';
   fs.writeFileSync(file, JSON.stringify(raw));
   ok(!('tabs' in new Store(dir).spaceById(a.id)), 'junk reads as none');
@@ -173,6 +173,20 @@ const IDS = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'docume
   same(new Store(dir2).spaceById(sp.id).tabs, source.spaceById(sp.id).tabs, 'an imported copy reads back the same (an unknown id in it dropped)');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(dir2, { recursive: true, force: true });
+}
+
+// --- Projects (`schedule`, Thomas 2026-11-23): an existing space's saved tabs without the new id get it at the end -----
+{
+  const dir = tmp('projects');
+  const a = new Store(dir).addSpace({ name: 'Saved before', creator: null });
+  const file = path.join(dir, 'app.json');
+  const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+  raw.spaces.find((x) => x.id === a.id).tabs = { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['documents'] };
+  fs.writeFileSync(file, JSON.stringify(raw));
+  const read = new Store(dir).spaceById(a.id).tabs;
+  same(read, { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents', 'schedule'], hide: ['documents'] }, 'a saved order without Projects reads with it last, shown (its hide does not name it)');
+  same(tabsOf({ hide: ['map'] }).order.at(-1), 'schedule', 'and a space with no saved order lists it last');
+  fs.rmSync(dir, { recursive: true, force: true });
 }
 
 // --- the routes, against throwaway servers ----------------------------------------------------------------------------
@@ -271,7 +285,7 @@ try {
   await expect('members lose the whiteboard', 200, 'PATCH', '/api/roles/member', { token: admin, body: { 'module.whiteboard.view': false } });
   same(await idsOf(A, T.member), ['workspace', 'calendar', 'conference', 'documents'], 'Whiteboards is not listed without the read permission');
   same(await idsOf(A, T.mod), ['workspace', 'calendar', 'conference', 'whiteboard', 'documents'], 'a moderator also has the moderator role\'s grants, so keeps it');
-  same(await idsOf(A, T.owner), IDS.filter((id) => id !== 'map'), 'the owner still has it');
+  same(await idsOf(A, T.owner), IDS.filter((id) => id !== 'map' && id !== 'schedule'), 'the owner still has it (Projects is not installed here)');
   await expect('members get it back', 200, 'PATCH', '/api/roles/member', { token: admin, body: { 'module.whiteboard.view': true } });
   await expect('members lose the conference', 200, 'PATCH', '/api/roles/member', { token: admin, body: { conference: false } });
   same(await idsOf(A, T.member), ['workspace', 'calendar', 'whiteboard', 'documents'], 'Conference is not listed without the permission');
@@ -302,17 +316,17 @@ try {
   await expect('null clears', 200, 'PATCH', P(A), { token: T.owner, body: { defaultLayout: null } });
 
   // -- step 2: who may write tabs -----------------------------------------------------------------------------------
-  const tabs = { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['documents'] };
+  const tabs = { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents', 'schedule'], hide: ['documents'] };
   for (const [who, token] of [['owner', T.owner], ['admin', T.admin], ['moderator of the space', T.mod]]) {
     r = await expect(`${who} writes tabs`, 200, 'PATCH', P(A), { token, body: { tabs: { order: ['documents'], hide: ['map'] } } });
-    same(r.json.space.tabs, { order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard'], hide: ['map'] }, `${who}: stored whole`);
+    same(r.json.space.tabs, { order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard', 'schedule'], hide: ['map'] }, `${who}: stored whole`);
   }
   for (const [who, token, status] of [['a member', T.member, 403], ['a moderator of another space', T.modB, 404], ['someone not in the space', T.other, 403], ['nobody', undefined, 401]]) {
     r = await call('PATCH', P(A), { token, body: { tabs } });
     ok(r.status === status || (who === 'a moderator of another space' && r.status === 403), `${who} is refused (${r.status})`);
     ok(!JSON.stringify(r.json).includes('conference'), `${who}: the answer says nothing of the tabs`);
   }
-  same((await call('GET', P(A), { token: T.admin })).json.space.tabs, { order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard'], hide: ['map'] }, 'refusals changed nothing');
+  same((await call('GET', P(A), { token: T.admin })).json.space.tabs, { order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard', 'schedule'], hide: ['map'] }, 'refusals changed nothing');
   await expect('a guest link writes tabs', 401, 'PATCH', `${P(A)}${asGuest}`, { body: { tabs } });
   await expect('a door guest writes tabs', 401, 'PATCH', P(A), { cookie: doorCookie, body: { tabs } });
   // A moderator may send tabs with the other moderator fields, and not with an owners-only field.
@@ -340,7 +354,7 @@ try {
   await bad('an id that is Object prototype', { hide: ['__proto__'] }, /^There is no such layout here\.$/);
   await bad('workspace in hide', { hide: ['workspace'] }, /^The Workspace is always shown\.$/);
   await bad('an id twice', { order: ['map', 'map'] }, /listed twice/);
-  await bad('too many', { order: [...IDS, ...IDS] }, /at most 6/);
+  await bad('too many', { order: [...IDS, ...IDS] }, /at most 7/);
   await bad('hide with objects', { hide: [{ id: 'map' }] }, /^There is no such layout here\.$/);
   // Bounds: the largest body a person can make is small and stored whole.
   r = await expect('the largest', 200, 'PATCH', P(A), { token: T.owner, body: { tabs: { order: [...IDS].reverse(), hide: IDS.slice(1) } } });
@@ -432,6 +446,43 @@ try {
   const saved = JSON.parse(fs.readFileSync(path.join(srv.dir, 'app.json'), 'utf8')).spaces.find((s) => s.id === A);
   same(saved.tabs, spaceNow.tabs, 'stored in app.json on the space');
   same(exportApp(JSON.parse(fs.readFileSync(path.join(srv.dir, 'app.json'), 'utf8'))).spaces.find((s) => s.id === A).tabs, spaceNow.tabs, 'and carried by the environment copy');
+
+  // -- Projects (`schedule`): the Planner opened large, a Fixed Workspace like Whiteboards and Documents ---------------
+  // Shown where the module is on in the space (on in the environment, offered by the space's template) and the owner has
+  // not hidden it; a guest has none. A space made from the Projects template shows it, second.
+  await expect('Planner - Projects installs', 201, 'POST', '/api/modules/bundled/schedule/install', { token: admin, body: {} });
+  await expect('and turns on', 200, 'PATCH', '/api/modules/schedule', { token: admin, body: { enabled: true } });
+  const made = async (name, template) => {
+    const id = (await expect(`space ${name}`, 200, 'POST', '/api/spaces', { token: admin, body: { name, template, starter: false } })).json.space.id;
+    await expect('members', 200, 'PATCH', P(id), { token: admin, body: { members: [keys.mod, keys.member], entry: 'guests' } });
+    return id;
+  };
+  const G = await made('Gamma', 'project');
+  got = (await expect('Projects space', 200, 'GET', L(G), { token: T.member })).json;
+  same(got.system.filter((l) => l.shown).map((l) => l.id), ['workspace', 'schedule', 'calendar', 'conference', 'documents'], 'a Projects space: Projects second, as its template lists it');
+  const pj = got.system.find((l) => l.id === 'schedule');
+  same([pj.kind, pj.icon, pj.defaultIcon, pj.tab, pj.pinned, pj.modules, pj.settings], ['system', 'diagram-project', 'diagram-project', true, true, [{ id: 'schedule', mode: 'dock' }], []], 'its own icon, docked large, nothing to configure');
+  same([pj.name, pj.defaultName], ['Planner - Projects', 'Planner - Projects'], 'its name: the module\'s, as the environment shows it (as Whiteboards and Documents are named)');
+  r = await expect('Projects can open first', 200, 'PATCH', P(G), { token: T.owner, body: { defaultLayout: 'schedule' } });
+  same([r.json.space.defaultLayout, (await call('GET', L(G), { token: T.member })).json.firstVisit.layout], ['schedule', 'schedule'], 'Opens first may name it, and the first visit opens it');
+  const gLink = (await expect('Gamma guest link', 200, 'POST', `/api/spaces/${G}/guest-link`, { token: admin, body: {} })).json.space.guestToken;
+  r = await call('GET', `${L(G)}?guest=${encodeURIComponent(gLink)}`);
+  same([r.status, r.json?.system, r.json?.firstVisit?.layout], [200, [], 'workspace'], 'a guest: no Fixed Workspaces, so the Workspace');
+  await expect('the owner hides it', 200, 'PATCH', P(G), { token: T.owner, body: { tabs: { order: ['workspace', 'schedule'], hide: ['schedule'] }, defaultLayout: null } });
+  const hid = (await call('GET', L(G), { token: T.member })).json.system.find((l) => l.id === 'schedule');
+  same([hid.shown, hid.tab, hid.pinned], [false, false, false], 'the owner\'s hide wins: listed for the Layout menu, not in the bar');
+  await expect('shown again', 200, 'PATCH', P(G), { token: T.owner, body: { tabs: { order: ['workspace', 'schedule'] } } });
+  same((await call('GET', L(G), { token: T.member })).json.system.find((l) => l.id === 'schedule').shown, true, 'and back in the bar');
+  // A space whose template does not offer the Planner (Travel): the module is off there, so no tab and no first visit.
+  const H = await made('Eta', 'travel');
+  ok(!(await idsOf(H, T.owner)).includes('schedule'), 'a Travel space: the Planner is off there, so no Projects tab');
+  r = await expect('Projects first where it is off', 400, 'PATCH', P(H), { token: T.owner, body: { defaultLayout: 'schedule' } });
+  same(r.json.error, "Projects is not on in this trip, so it can't be the first visit.", 'the sentence, in the Travel template\'s word');
+  // The module off in the environment: gone everywhere, the owner included.
+  await expect('the Planner turns off', 200, 'PATCH', '/api/modules/schedule', { token: admin, body: { enabled: false } });
+  ok(!(await idsOf(G, T.owner)).includes('schedule'), 'the module off: no Projects tab, the owner included');
+  await expect('and back on', 200, 'PATCH', '/api/modules/schedule', { token: admin, body: { enabled: true } });
+  ok((await idsOf(A, T.member)).includes('schedule'), 'a space on the Default template (every module offered) lists it too');
   console.log(`check-layout-tabs: OK (${n} checks)`);
 } finally {
   await stopAll();

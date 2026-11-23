@@ -145,18 +145,20 @@ try {
     for (const t of templates.all().values()) {
       const space = env.store.addSpace({ name: `On ${t.id}`, template: t.id });
       // What each shipped template seeded before it had a tab list: the same now (the list is written out in every file).
-      const before = { games: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'], hide: ['whiteboard', 'documents'] }, learning: { hide: ['map', 'whiteboard'] }, mentoring: { hide: ['map', 'whiteboard'] }, project: { hide: ['map', 'whiteboard'] } };
+      // The Projects tab (`schedule`, Thomas 2026-11-23): Projects shows it second; Default and Travel show every layout, so it too;
+      // Gaming, Education and Mentoring list it hidden.
+      const before = { games: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents', 'schedule'], hide: ['whiteboard', 'documents', 'schedule'] }, learning: { hide: ['map', 'whiteboard', 'schedule'] }, mentoring: { hide: ['map', 'whiteboard', 'schedule'] }, project: { order: ['workspace', 'schedule', 'calendar', 'map', 'conference', 'whiteboard', 'documents'], hide: ['map', 'whiteboard'] } };
       assert.deepEqual(space.tabs, before[t.id], `${t.id}: its tabs`);
       assert.equal(space.defaultLayout, t.id === 'games' ? 'conference' : undefined, `${t.id}: what opens first`);
-      assert.equal(t.workspace.tabs.length, 6, `${t.id}: the list names every layout`);
+      assert.equal(t.workspace.tabs.length, layoutIds.length, `${t.id}: the list names every layout`);
     }
     const gaming = env.store.spaces.find((x) => x.template === 'games');
-    assert.deepEqual([gaming.defaultLayout, gaming.tabs.hide], ['conference', ['whiteboard', 'documents']], 'Gaming opens on the Conference, which is shown');
+    assert.deepEqual([gaming.defaultLayout, gaming.tabs.hide], ['conference', ['whiteboard', 'documents', 'schedule']], 'Gaming opens on the Conference, which is shown');
   });
 
   await test('the Default template (decisions 3 and 33): the whole catalog as "*", no words, the core call, nothing added', () => {
     const d = templates.get('default');
-    assert.deepEqual([d.id, d.name, d.version, d.modules, d.words, d.home, d.phases, d.reactions, d.iconSet, d.starterSpaces, d.settings, d.lobby], ['default', 'Default', 3, '*', {}, null, [], [], [], [], {}, {}]);
+    assert.deepEqual([d.id, d.name, d.version, d.modules, d.words, d.home, d.phases, d.reactions, d.iconSet, d.starterSpaces, d.settings, d.lobby], ['default', 'Default', 4, '*', {}, null, [], [], [], [], {}, {}]);
     assert.deepEqual(d.call, { joinOnEntry: false, position: 'top', layout: 'grid' });
     assert.equal(templates.defaultTemplate(), d);
     assert.deepEqual(templates.moduleIdsOf(d), '*');
@@ -592,7 +594,7 @@ try {
       const copy = await api('POST', '/api/environment/templates', { from: 'default', id: 'plain', name: 'Plain' });
       assert.equal(copy.status, 201, copy.text);
       const t = copy.json.template;
-      assert.deepEqual([t.id, t.name, t.version, t.source, t.editable, t.copiedFrom], ['plain', 'Plain', 1, 'own', true, { id: 'default', version: 3 }]);
+      assert.deepEqual([t.id, t.name, t.version, t.source, t.editable, t.copiedFrom], ['plain', 'Plain', 1, 'own', true, { id: 'default', version: 4 }]);
       assert.ok(t.modules && typeof t.modules === 'object' && t.modules.chat && t.modules.conference, 'chat and the conference listed by id');
       const enabled = (await api('GET', '/api/modules')).json.modules.filter((m) => m.enabled).map((m) => m.id);
       for (const id of enabled) assert.ok(id in t.modules, `${id} is listed`);
@@ -611,7 +613,7 @@ try {
         assert.deepEqual([r.status, r.json.error], [status, error], JSON.stringify(body));
       }
       const stored = JSON.parse(fs.readFileSync(path.join(single, 'app.json'), 'utf8')).templates;
-      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 3 }], ['trips', 1, { id: 'travel', version: 16 }]]);
+      assert.deepEqual(stored.map((x) => [x.id, x.version, x.copiedFrom]), [['plain', 1, { id: 'default', version: 4 }], ['trips', 1, { id: 'travel', version: 17 }]]);
       for (const x of stored) assert.ok(x.createdAt && x.updatedAt, 'dated');
     });
 
@@ -665,7 +667,7 @@ try {
       assert.equal(file.status, 200, file.text);
       const imported = await api('POST', '/api/templates/import?id=from-file', file.json);
       assert.equal(imported.status, 201, imported.text);
-      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 16, null]);
+      assert.deepEqual([imported.json.template.source, imported.json.template.version, imported.json.template.copiedFrom], ['own', 17, null]);
       const theme = await api('POST', '/api/templates/import?id=themed', { ...file.json, theme: { name: 'x' } });
       assert.deepEqual([theme.status, theme.json.error.slice(0, 32)], [400, '"theme" is not a template field;']);
       const badLayout = { ...file.json, workspace: { layout: { shape: 'one', areas: ['zzz'] } } };

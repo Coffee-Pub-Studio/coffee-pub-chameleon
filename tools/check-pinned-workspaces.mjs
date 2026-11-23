@@ -41,13 +41,16 @@ const TAKE_OUT = 'To take this one out of the bar, hide it for everyone in Set u
   const store = new Store(dir);
   // A tab list: the ids in order, the `off` ones not shown.
   const rows = (ids, off = []) => ids.map((id) => ({ id, show: !off.includes(id) }));
-  const ALL = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'];
+  const ALL = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule'];
+  // A list that leaves Projects (`schedule`) out: it follows last, hidden.
   const DOCS_FIRST = ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard'];
+  const DOCS_ORDER = [...DOCS_FIRST, 'schedule'];
+  const DOCS_HIDE = ['map', 'conference', 'whiteboard', 'schedule'];
   const custom = {
     shows: templates.cleanTemplate({ id: 'shows', name: 'Shows', description: 'x', modules: { chat: {}, calendar: {} }, workspace: { layout: { shape: 'two-equal', areas: ['calendar', null] }, tabs: rows(DOCS_FIRST, ['map', 'conference', 'whiteboard']) } }),
     away: templates.cleanTemplate({ id: 'away', name: 'Away', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['workspace', 'calendar']) } }),
     plain: templates.cleanTemplate({ id: 'plain', name: 'Plain', description: 'x', modules: { chat: {} } }),
-    first: templates.cleanTemplate({ id: 'first', name: 'First', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents']) } }),
+    first: templates.cleanTemplate({ id: 'first', name: 'First', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents', 'schedule']) } }),
     none: templates.cleanTemplate({ id: 'none', name: 'None', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['workspace']) } }),
   };
   store.templateById = (id) => custom[id] || templates.get(id) || null;
@@ -55,18 +58,18 @@ const TAKE_OUT = 'To take this one out of the bar, hide it for everyone in Set u
   // The seed, pure.
   same(store.workspaceSeed(undefined), { tabs: null, defaultLayout: null }, 'nothing given: nothing seeded');
   same(store.workspaceSeed({}), { tabs: null, defaultLayout: null }, 'an empty workspace: nothing seeded');
-  same(store.workspaceSeed(custom.shows.workspace), { tabs: { order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }, defaultLayout: 'documents' }, 'the list is the order, a row not shown is hidden, the first shown row opens first');
-  same(store.workspaceSeed(custom.away.workspace), { tabs: { hide: ['map', 'conference', 'whiteboard', 'documents'] }, defaultLayout: null }, 'a layout the list leaves out is hidden; the Workspace first opens the Workspace');
-  same(store.workspaceSeed(custom.first.workspace), { tabs: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents'] }, defaultLayout: 'conference' }, 'the Conference first: it opens first, every tab shown');
-  same(store.workspaceSeed(custom.none.workspace), { tabs: { hide: ['calendar', 'map', 'conference', 'whiteboard', 'documents'] }, defaultLayout: null }, 'only the Workspace: every other one hidden, the Workspace is no default layout');
+  same(store.workspaceSeed(custom.shows.workspace), { tabs: { order: DOCS_ORDER, hide: DOCS_HIDE }, defaultLayout: 'documents' }, 'the list is the order, a row not shown is hidden, the first shown row opens first');
+  same(store.workspaceSeed(custom.away.workspace), { tabs: { hide: ['map', 'conference', 'whiteboard', 'documents', 'schedule'] }, defaultLayout: null }, 'a layout the list leaves out is hidden; the Workspace first opens the Workspace');
+  same(store.workspaceSeed(custom.first.workspace), { tabs: { order: ['conference', 'workspace', 'calendar', 'map', 'whiteboard', 'documents', 'schedule'] }, defaultLayout: 'conference' }, 'the Conference first: it opens first, every tab shown');
+  same(store.workspaceSeed(custom.none.workspace), { tabs: { hide: ['calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule'] }, defaultLayout: null }, 'only the Workspace: every other one hidden, the Workspace is no default layout');
   same(store.workspaceSeed({ tabs: rows(ALL) }), { tabs: null, defaultLayout: null }, 'every layout shown in the default order is the default: nothing stored');
-  same(store.workspaceSeed({ tabs: [{ id: 'calendar', show: false }, { id: 'nope', show: true }, { id: 'map', show: true }, { id: 'map', show: false }] }), { tabs: { order: ['calendar', 'map', 'workspace', 'conference', 'whiteboard', 'documents'], hide: ['calendar', 'conference', 'whiteboard', 'documents'] }, defaultLayout: 'map' }, 'a hidden first row is passed over; unknown ids and repeats are ignored');
+  same(store.workspaceSeed({ tabs: [{ id: 'calendar', show: false }, { id: 'nope', show: true }, { id: 'map', show: true }, { id: 'map', show: false }] }), { tabs: { order: ['calendar', 'map', 'workspace', 'conference', 'whiteboard', 'documents', 'schedule'], hide: ['calendar', 'conference', 'whiteboard', 'documents', 'schedule'] }, defaultLayout: 'map' }, 'a hidden first row is passed over; unknown ids and repeats are ignored');
   same(store.workspaceSeed({ show: ['calendar'], opensFirst: 'map' }), { tabs: null, defaultLayout: null }, 'show and opensFirst are no longer read');
   same(store.workspaceSeed('x'), { tabs: null, defaultLayout: null }, 'not an object');
 
   // A new space.
   const g = store.addSpace({ name: 'G', template: 'shows' });
-  same([g.tabs, g.defaultLayout], [{ order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'seeded from its own template');
+  same([g.tabs, g.defaultLayout], [{ order: DOCS_ORDER, hide: DOCS_HIDE }, 'documents'], 'seeded from its own template');
   ok(!('layout' in g) && !('opensWith' in g), 'no layout on the record');
   same(store.layoutOf(g.id), { shape: 'two-equal', areas: ['calendar', null] }, 'the layout is read from the template');
   same(store.lookOf(g.id).workspace, custom.shows.workspace, 'lookOf carries the workspace');
@@ -76,22 +79,22 @@ const TAKE_OUT = 'To take this one out of the bar, hide it for everyone in Set u
 
   // The owner owns them after: a template switch changes what it opens with, never the tabs.
   const switched = store.updateSpace(g.id, { template: 'plain' });
-  same([switched.tabs, switched.defaultLayout], [{ order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'a template switch leaves the owner\'s tabs and first visit');
+  same([switched.tabs, switched.defaultLayout], [{ order: DOCS_ORDER, hide: DOCS_HIDE }, 'documents'], 'a template switch leaves the owner\'s tabs and first visit');
   same(store.layoutOf(g.id), null, 'the new template decides what it starts with, at once');
   store.updateSpace(g.id, { template: 'shows' });
   custom.shows = { ...custom.shows, workspace: { ...custom.shows.workspace, layout: { shape: 'one', areas: ['calendar'] }, tabs: rows(ALL, ['calendar']) } };
   same(store.layoutOf(g.id), { shape: 'one', areas: ['calendar'] }, 'an edited template is read at once');
-  same(store.spaceById(g.id).tabs, { order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }, 'and the seeded tabs are not re-seeded');
+  same(store.spaceById(g.id).tabs, { order: DOCS_ORDER, hide: DOCS_HIDE }, 'and the seeded tabs are not re-seeded');
   delete custom.shows;
   store.templateById = (id) => custom[id] || templates.get(id) || null; // a new lookup, so the catalog is read again
-  same([store.layoutOf(g.id), store.spaceById(g.id).tabs], [null, { order: DOCS_FIRST, hide: ['map', 'conference', 'whiteboard'] }], 'a deleted template: the environment\'s, and the tabs stay');
+  same([store.layoutOf(g.id), store.spaceById(g.id).tabs], [null, { order: DOCS_ORDER, hide: DOCS_HIDE }], 'a deleted template: the environment\'s, and the tabs stay');
 
   // The environment's template seeds a space with none of its own.
   const env = new Store(tmp('env'));
   env.templateById = (id) => ({ shows: templates.cleanTemplate({ id: 'shows', name: 'Shows', description: 'x', modules: { chat: {} }, workspace: { tabs: rows(['calendar', 'workspace', 'map', 'conference', 'whiteboard', 'documents'], ['map', 'conference', 'whiteboard', 'documents']), layout: { shape: 'one', areas: [null] } } }) })[id] || templates.get(id) || null;
   templates.useLive(env, env.templateById('shows'));
   const e = env.addSpace({ name: 'E' });
-  same([e.tabs, e.defaultLayout, env.layoutOf(e.id)], [{ order: ['calendar', 'workspace', 'map', 'conference', 'whiteboard', 'documents'], hide: ['map', 'conference', 'whiteboard', 'documents'] }, 'calendar', { shape: 'one', areas: [null] }], 'the environment\'s template seeds a space with none of its own');
+  same([e.tabs, e.defaultLayout, env.layoutOf(e.id)], [{ order: ['calendar', 'workspace', 'map', 'conference', 'whiteboard', 'documents', 'schedule'], hide: ['map', 'conference', 'whiteboard', 'documents', 'schedule'] }, 'calendar', { shape: 'one', areas: [null] }], 'the environment\'s template seeds a space with none of its own');
 
   // A stray opensWith on a stored space is not read; the environment's settings take no layout or opensWith.
   ok(!('opensWith' in store.sanitizeSpace({ id: 'abcd', name: 'x', members: [], opensWith: ['chat'] })), 'a stray key on a stored space is not read');
@@ -163,7 +166,7 @@ try {
   const sysOf = async (id, token) => Object.fromEntries((await expect('read', 200, 'GET', L(id), { token })).json.system.map((l) => [l.id, l]));
 
   // -- 2. the seed, through the routes
-  same([A.tabs, A.defaultLayout], [{ order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard'], hide: ['map', 'conference', 'whiteboard'] }, 'documents'], 'the record the route answers carries the seed');
+  same([A.tabs, A.defaultLayout], [{ order: ['documents', 'workspace', 'calendar', 'map', 'conference', 'whiteboard', 'schedule'], hide: ['map', 'conference', 'whiteboard', 'schedule'] }, 'documents'], 'the record the route answers carries the seed');
   ok(!('tabs' in B) && !('defaultLayout' in B), 'a space with no template and an environment with no tab list seeds nothing');
   let seen = await sysOf(A.id, T.member);
   same(Object.keys(seen), ['documents', 'workspace', 'calendar', 'conference', 'whiteboard'], 'the member lists what is on here, in the owner\'s order');
@@ -171,7 +174,7 @@ try {
   same((await expect('first visit', 200, 'GET', L(A.id), { token: T.member })).json.firstVisit, { layout: 'documents', shape: { shape: 'one', areas: ['calendar'] } }, 'opens first on the template\'s choice, with its layout');
   same((await expect('for-space', 200, 'GET', `/api/modules/for-space?space=${A.id}`, { token: T.member })).json.layout, { shape: 'one', areas: ['calendar'] }, 'for-space says what the template starts with');
   same((await expect('look', 200, 'GET', `/api/spaces/${A.id}/look`, { token: T.member })).json.look.workspace, { layout: { shape: 'one', areas: ['calendar'] }, tabs: [{ id: 'documents', show: true }, { id: 'workspace', show: true }, { id: 'calendar', show: true }, { id: 'map', show: false }, { id: 'conference', show: false }, { id: 'whiteboard', show: false }] }, 'look carries the Default Workspace');
-  same((await expect('look of B', 200, 'GET', `/api/spaces/${B.id}/look`, { token: T.member })).json.look.workspace, { layout: { shape: 'one', areas: [null] }, tabs: ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'].map((id) => ({ id, show: true })) }, 'the Default template\'s own layout and tab list');
+  same((await expect('look of B', 200, 'GET', `/api/spaces/${B.id}/look`, { token: T.member })).json.look.workspace, { layout: { shape: 'one', areas: [null] }, tabs: ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule'].map((id) => ({ id, show: true })) }, 'the Default template\'s own layout and tab list');
   // A layout is the template's, never the space's: the owner's request changes nothing, and no one else may send it.
   for (const [who, status] of [['admin', 200], ['mod', 403], ['member', 403], ['other', 404]]) {
     const r = await call('PATCH', `/api/spaces/${A.id}`, { token: T[who], body: { layout: { shape: 'one', areas: [null] } } });

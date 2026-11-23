@@ -2,7 +2,7 @@
   "id": "games",
   "name": "Gaming",
   "description": "Run a campaign together: the chat, the calendar for sessions, a campaign planner, quests, lore and polls, and every player as an OBS source.",
-  "version": 9,
+  "version": 10,
   "words": {
     "space": {
       "one": "campaign",
@@ -203,7 +203,8 @@
       { "id": "calendar", "show": true },
       { "id": "map", "show": true },
       { "id": "whiteboard", "show": false },
-      { "id": "documents", "show": false }
+      { "id": "documents", "show": false },
+      { "id": "schedule", "show": false }
     ]
   },
   "settings": {

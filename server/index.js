@@ -784,12 +784,12 @@ function environmentFor(slug) {
   env.store.setupColumn = setupOn;
   // Whether a system layout (calendar, map, conference, whiteboard, documents) is on in a space, whoever asks: its destination
   // resolves there (module on in the space, map file present); the conference while the server has a call service and the
-  // environment's switch is on; Whiteboards and Documents while their module is on in the space. A space's defaultLayout
+  // environment's switch is on; Whiteboards, Documents and Projects (`schedule`) while their module is on in the space. A space's defaultLayout
   // may name it only while this holds (store.updateSpace). What one person may open is systemLayoutsFor's.
   env.store.systemLayoutOn = (spaceId, id) => {
     const enabled = env.modules.enabledAll();
     if (id === 'conference') return HAS_CALL_SERVICE && env.store.settings.conferenceEnabled !== false;
-    if (id === 'whiteboard' || id === 'documents') {
+    if (id === 'whiteboard' || id === 'documents' || id === 'schedule') {
       const found = enabled.find((m) => m.manifest.id === id);
       return Boolean(found) && found.manifest.scope.includes('space') && Boolean(found.manifest.surfaces?.canvas) && !refusedInLobby(found.manifest, spaceId) && env.modules.isOnIn(found.entry.id, spaceId);
     }
@@ -7072,11 +7072,12 @@ function sendLayoutError(err, res) {
 
 // The system layouts (documentation/plans/plan-layout-views.md, step 1; plan-workspaces.md, steps 1 and 2): the fixed set,
 // never stored, made per space from what is on, in the owner's order (the space's `tabs.order`, else Workspace, Calendar,
-// Map, Conference, Whiteboards, Documents). Workspace is always there. Calendar is there while the Calendar destination
+// Map, Conference, Whiteboards, Documents, Projects). Workspace is always there. Calendar is there while the Calendar destination
 // answers in this space for this person (its module on in the space and readable); Map likewise while Maps is on and
 // the map-file rule holds (destinationInSpace, the same rule the destination page uses). Conference is there while this
 // person has the conference (modulePerms(...).conference: a call service, the environment's switch and the permission,
-// all folded in by store.roleSet); Whiteboards and Documents while their module is on in the space, on the canvas and
+// all folded in by store.roleSet); Whiteboards, Documents and Projects (the `schedule` module, Planner - Projects) while their
+// module is on in the space, on the canvas and
 // readable by this person. Each carries this person's own name, icon and tab choices (store.layouts.systemOf), else its
 // defaults. `shown` is false when the owner hid it (`tabs.hide`); the owner's hide wins, so `tab` is false then whatever the
 // person chose. `pinned` is true while it is shown: the owner keeps it in the bar for everyone and nobody hides it for
@@ -7108,7 +7109,7 @@ function systemLayoutsFor(found) {
     made.set('conference', make('conference', conference.name, conference.icon || SYSTEM_ICONS.conference, []));
   }
   const perms = modulePerms(found.who, found.space.id);
-  for (const id of ['whiteboard', 'documents']) {
+  for (const id of ['whiteboard', 'documents', 'schedule']) {
     const here = modules.enabledAll().find(({ manifest }) => manifest.id === id);
     if (!here) continue;
     const { manifest, entry } = here;
@@ -7296,7 +7297,7 @@ app.post('/api/spaces/:id/layouts', (req, res) => {
 });
 
 // The name a person sees for a system layout, for a refusal's sentence (its default word when it is not on here).
-const systemNameOf = (found, id) => systemLayoutsFor(found).find((l) => l.id === id)?.name || { workspace: 'Workspace', calendar: 'Calendar', map: 'Map', conference: 'Conference', whiteboard: 'Whiteboards', documents: 'Documents' }[id];
+const systemNameOf = (found, id) => systemLayoutsFor(found).find((l) => l.id === id)?.name || { workspace: 'Workspace', calendar: 'Calendar', map: 'Map', conference: 'Conference', whiteboard: 'Whiteboards', documents: 'Documents', schedule: 'Projects' }[id];
 
 // Rename (name), or replace: a personal layout with the current canvas (modules, snap, arrange), a shared one with a shape
 // and its areas (shape, areas).

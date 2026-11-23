@@ -23,9 +23,9 @@ const { bootSeeded, stopServer, freePort, findBrowser, launch, Tab, sleep } = aw
   const system = [
     { id: 'workspace', name: 'Workspace' },
     { id: 'calendar', name: 'Calendar', settings: [todo] },
-    ...['map', 'conference', 'whiteboard', 'documents'].map((id) => ({ id, name: id, settings: [] })),
+    ...['map', 'conference', 'whiteboard', 'documents', 'schedule'].map((id) => ({ id, name: id, settings: [] })),
   ];
-  assert.deepEqual([...FIXED_WORKSPACES].sort(), ['calendar', 'conference', 'documents', 'map', 'whiteboard']);
+  assert.deepEqual([...FIXED_WORKSPACES].sort(), ['calendar', 'conference', 'documents', 'map', 'schedule', 'whiteboard']);
   assert.equal(fixedWorkspaceOf(system, 'workspace'), null, 'the Workspace is a Customizable Workspace');
   assert.equal(fixedWorkspaceOf(system, 'some-saved-layout'), null, 'a saved layout is a Customizable Workspace');
   assert.equal(fixedWorkspaceOf([], 'calendar'), null, 'no entry yet: the canvas menu, not a guess');
@@ -41,7 +41,7 @@ const { bootSeeded, stopServer, freePort, findBrowser, launch, Tab, sleep } = aw
   assert.deepEqual([cannot.on, cannot.disabled], [false, true], 'a person who may not change it sees it off or on as it is, disabled');
   assert.equal(cannot.note, `Also in the side panel. ${fixedSwitchReason('environment')}`, 'the reason follows the help');
   assert.equal(fixedSwitchReason('environment'), 'Only the owner can change this.');
-  for (const id of ['map', 'conference', 'whiteboard', 'documents']) {
+  for (const id of ['map', 'conference', 'whiteboard', 'documents', 'schedule']) {
     const v = modulesTabView(fixedWorkspaceOf(system, id));
     assert.deepEqual([v.fixed, v.canvasControls, v.rows.length, v.empty], [true, false, 0, NOTHING_TO_CONFIGURE], `${id}: the message, nothing else`);
   }

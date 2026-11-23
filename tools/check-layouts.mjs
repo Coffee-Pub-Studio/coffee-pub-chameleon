@@ -524,7 +524,7 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
 // --- layout views, step 1: kind, icon and the system layouts' per-person record ----------------------------------------
 
 {
-  assert.deepEqual([...SYSTEM_IDS], ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents']);
+  assert.deepEqual([...SYSTEM_IDS], ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule']);
   // cleanLayout takes an icon (an id from the list it is given); the rest is as before.
   assert.equal(cleanLayout({ ...good(), icon: 'couch' }, { icons: ['couch', 'columns'] }).layout.icon, 'couch', 'an icon from the list');
   assert.equal(cleanLayout({ ...good(), icon: 'couch' }).layout.icon, 'couch', 'any well-formed id when no list is given');
@@ -1585,7 +1585,8 @@ try {
   assert.equal((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: pat4 })).json.look.workspace.layout.areas[0], 'schedule', 'and in the look');
   // The template's Fixed Workspaces (`tabs`) are not a guest's: they have none, so their look lists the Workspace alone. A member's and a maker's look keep what the template says.
   const memberLook = (await call('GET', `/api/spaces/${proj.id}/look`, { cookie: pat4 })).json.look.workspace;
-  const projectTabs = SYSTEM_IDS.map((id) => ({ id, show: ['workspace', 'calendar', 'conference', 'documents'].includes(id) }));
+  // The Projects template's list: Projects (`schedule`) second, as the file writes it.
+  const projectTabs = ['workspace', 'schedule', 'calendar', 'map', 'conference', 'whiteboard', 'documents'].map((id) => ({ id, show: ['workspace', 'schedule', 'calendar', 'conference', 'documents'].includes(id) }));
   assert.deepEqual(memberLook.tabs, projectTabs, 'a member: as the template says');
   assert.deepEqual((await call('GET', `/api/spaces/${proj.id}/look`, { cookie: owner2 })).json.look.workspace.tabs, projectTabs, 'a maker: as the template says');
   const linkLook = (await call('GET', `/api/guest-link/${encodeURIComponent(projGuest)}`)).json.look.workspace;

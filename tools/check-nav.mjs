@@ -2587,11 +2587,11 @@ test('Set up: one PATCH of what changed; Opens with is never sent (the template\
 });
 
 test('Set up Layouts (plan-workspaces.md, step 3): the owner\'s order and hide as pure steps on a draft, the Workspace never hidden, unknown ids dropped, the default a shown layout, one PATCH of only what changed', () => {
-  const ALL = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents'];
+  const ALL = ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule'];
   assert.deepEqual([...LAYOUT_IDS], ALL, 'the fixed layouts, in their default order (server/layouts.js SYSTEM_IDS)');
   // tabs whole
   assert.deepEqual(tabsWhole(undefined), { order: ALL, hide: [] }, 'unset reads as the defaults');
-  assert.deepEqual(tabsWhole({ order: ['conference', 'nope', 'conference', 'map'], hide: ['workspace', 'documents', 'zzz'] }), { order: ['conference', 'map', 'workspace', 'calendar', 'whiteboard', 'documents'], hide: ['documents'] }, 'unknown and repeated ids dropped, the rest added at the end, no Workspace in hide');
+  assert.deepEqual(tabsWhole({ order: ['conference', 'nope', 'conference', 'map'], hide: ['workspace', 'documents', 'zzz'] }), { order: ['conference', 'map', 'workspace', 'calendar', 'whiteboard', 'documents', 'schedule'], hide: ['documents'] }, 'unknown and repeated ids dropped, the rest added at the end, no Workspace in hide');
   // rows: the layouts this space can show, in the owner\'s order
   const system = [{ id: 'workspace', name: 'My place', defaultName: 'Workspace', defaultIcon: 'columns' }, { id: 'map', name: 'Map', defaultName: 'Map', defaultIcon: 'map-location-dot' }, { id: 'conference', name: 'Conference', defaultName: 'Conference', defaultIcon: 'video' }, { id: 'documents', name: 'Documents', defaultName: 'Documents', defaultIcon: 'file-lines' }];
   const rows = layoutRows({ order: ['conference', 'calendar', 'workspace'], hide: ['documents'] }, system);
@@ -2612,12 +2612,24 @@ test('Set up Layouts (plan-workspaces.md, step 3): the owner\'s order and hide a
   // moves, among what is available; the ones that are not keep their places
   const avail = ['workspace', 'map', 'conference', 'documents'];
   const moved = withLayoutMoved(base, 'conference', -1, avail);
-  assert.deepEqual(moved.tabs.order, ['workspace', 'calendar', 'conference', 'map', 'whiteboard', 'documents'], 'Conference past Map; Calendar and Whiteboards stay where they were');
+  assert.deepEqual(moved.tabs.order, ['workspace', 'calendar', 'conference', 'map', 'whiteboard', 'documents', 'schedule'], 'Conference past Map; Calendar and Whiteboards stay where they were');
   assert.equal(withLayoutMoved(base, 'workspace', -1, avail), base, 'the first cannot go up');
   assert.equal(withLayoutMoved(base, 'documents', 1, avail), base, 'the last cannot go down');
   assert.equal(withLayoutMoved(base, 'calendar', 1, avail), base, 'one this space cannot show cannot be moved');
   assert.deepEqual(withLayoutMoved(moved, 'conference', 1, avail).tabs.order, ALL, 'down again, as it was');
   assert.equal(movedWords(moved, 'conference', 'Conference', avail), 'Conference moved to position 2.', 'the live region counts what is shown here');
+  // Projects (`schedule`, Thomas 2026-11-23): a row like the others where the space has it; it moves, hides and can open first.
+  const withProjects = [...system, { id: 'schedule', name: 'Planner - Projects', defaultName: 'Planner - Projects', defaultIcon: 'diagram-project' }];
+  const pRows = layoutRows(null, withProjects);
+  assert.deepEqual(pRows.map((r) => r.id), ['workspace', 'map', 'conference', 'documents', 'schedule'], 'Projects is a row, last in the default order');
+  assert.deepEqual([pRows.at(-1).name, pRows.at(-1).icon, pRows.at(-1).shown, pRows.at(-1).locked], ['Planner - Projects', 'diagram-project', true, false], 'its own name and icon, shown, not locked');
+  assert.ok(!layoutRows(null, system).some((r) => r.id === 'schedule'), 'no row where the space does not have it (the module off)');
+  const availP = [...avail, 'schedule'];
+  assert.deepEqual(withLayoutMoved(base, 'schedule', -1, availP).tabs.order, ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'schedule', 'documents'], 'Projects moves up past Documents');
+  assert.equal(withLayoutMoved(base, 'schedule', 1, availP), base, 'and, last, cannot go down');
+  assert.equal(movedWords(withLayoutMoved(base, 'schedule', -1, availP), 'schedule', 'Planner - Projects', availP), 'Planner - Projects moved to position 4.', 'said with its name');
+  assert.deepEqual(withLayoutShown(base, 'schedule', false).tabs.hide, ['schedule'], 'Projects can be hidden');
+  assert.equal(withOpensFirst(base, 'schedule').defaultLayout, 'schedule', 'and can open first');
   // what opens first
   assert.equal(withOpensFirst(base, 'conference').defaultLayout, 'conference');
   assert.equal(withOpensFirst({ ...base, defaultLayout: 'map' }, 'workspace').defaultLayout, null, 'the Workspace is none');

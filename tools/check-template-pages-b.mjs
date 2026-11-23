@@ -143,14 +143,15 @@ await test('Workspace, Phases, Additions: fields when editable, lines when not, 
   // The tab list (plan-template-tab-list.md): one row per layout in the template's order (the ones it leaves out follow, hidden),
   // Set up's own row classes, a Show check each (the Workspace's on and fixed), Move up and Move down, a live region, and the
   // first shown row marked Opens first. Read back as workspace.tabs in the order on the page.
-  assert.equal((ws.match(/data-tab-id=/g) || []).length, 6);
-  assert.deepEqual([...ws.matchAll(/data-tab-id="([a-z]+)"/g)].map((m) => m[1]), ['calendar', 'workspace', 'map', 'conference', 'whiteboard', 'documents']);
-  assert.equal((ws.match(/class="setup-layout-row"/g) || []).length, 6, 'Set up\'s rows');
-  assert.equal((ws.match(/data-tab-move="up"/g) || []).length + (ws.match(/data-tab-move="down"/g) || []).length, 12);
+  assert.equal((ws.match(/data-tab-id=/g) || []).length, 7);
+  assert.deepEqual([...ws.matchAll(/data-tab-id="([a-z]+)"/g)].map((m) => m[1]), ['calendar', 'workspace', 'map', 'conference', 'whiteboard', 'documents', 'schedule'], 'the list\'s rows, then Projects (left out by it), hidden');
+  assert.equal((ws.match(/class="setup-layout-row"/g) || []).length, 7, 'Set up\'s rows');
+  assert.equal((ws.match(/data-tab-move="up"/g) || []).length + (ws.match(/data-tab-move="down"/g) || []).length, 14);
   assert.match(ws, /data-tab-id="calendar">[^]*?Opens first<\/span>[^]*?data-tab-id="workspace"/, 'the first shown row is marked');
   assert.equal((ws.match(/data-tab-first/g) || []).length, 1, 'one mark');
   assert.match(ws, /data-tab-id="calendar">[^]*?data-tab-move="up" aria-label="Move Calendar up" disabled/, 'the first row cannot move up');
-  assert.match(ws, /data-tab-id="documents">[^]*?data-tab-move="down" aria-label="Move Documents down" disabled/, 'the last row cannot move down');
+  assert.match(ws, /data-tab-id="schedule">[^]*?data-tab-move="down" aria-label="Move Projects down" disabled/, 'the last row cannot move down');
+  assert.doesNotMatch(ws, /data-tab-show aria-label="Show Projects in the bar"[^>]*checked/, 'Projects, left out of the list, is not shown');
   assert.match(ws, /data-tab-show aria-label="Show Workspace in the bar" checked disabled/, 'the Workspace is always shown');
   assert.doesNotMatch(ws, /data-tab-show aria-label="Show Map in the bar"[^>]*checked/, 'a row the list hides is not checked');
   assert.match(ws, /data-tab-live role="status" aria-live="polite"/, 'a live region');
@@ -162,15 +163,15 @@ await test('Workspace, Phases, Additions: fields when editable, lines when not, 
   assert.doesNotMatch(ws, /data-tw-open|Opens with/);
   assert.match(ws, /<h3>Layout<\/h3>[^]*?<div class="tp-layout" data-tw-layout="\{&quot;shape&quot;:&quot;one&quot;,&quot;areas&quot;:\[null\]\}">One empty area opens\. Each person chooses what goes in it\.<\/div>/);
   const held = (html) => ({ querySelector: (q) => (q === '[data-tw-layout]' ? { dataset: { twLayout: (html.match(/data-tw-layout="([^"]*)"/) || [])[1]?.replace(/&quot;/g, '"') } } : null), querySelectorAll: (q) => (q === '[data-tab-id]' ? rowsOf(html) : []) });
-  const asRows = [['calendar', true], ['workspace', true], ['map', false], ['conference', true], ['whiteboard', false], ['documents', false]].map(([id, show]) => ({ id, show }));
+  const asRows = [['calendar', true], ['workspace', true], ['map', false], ['conference', true], ['whiteboard', false], ['documents', false], ['schedule', false]].map(([id, show]) => ({ id, show }));
   assert.deepEqual(P.readWorkspace(held(ws)), { workspace: { layout: { shape: 'one', areas: [null] }, tabs: asRows } }, 'the layout and the list are sent back as they were');
   const plainList = P.workspaceHtml({ ...tpl, workspace: { layout: { shape: 'one', areas: [null] } } }, { editable: true, catalog, word });
-  assert.equal((plainList.match(/data-tab-show[^>]*checked/g) || []).length, 6, 'no list: every layout shown, the Workspace first');
+  assert.equal((plainList.match(/data-tab-show[^>]*checked/g) || []).length, 7, 'no list: every layout shown, the Workspace first');
   assert.match(plainList, /data-tab-id="workspace">[^]*?Opens first<\/span>[^]*?data-tab-id="calendar"/, 'the Workspace opens first');
   assert.deepEqual(P.readWorkspace(held(plainList)), { workspace: { layout: { shape: 'one', areas: [null] } } }, 'the default list is left out, as a template with none says it');
   const noLayout = P.workspaceHtml({ ...tpl, workspace: { tabs: [{ id: 'map', show: true }] } }, { editable: true, catalog, word });
   assert.match(noLayout, /data-tw-layout="">None: the chat and every module that is on\.<\/div>/);
-  assert.deepEqual(P.readWorkspace(held(noLayout)), { workspace: { tabs: [{ id: 'map', show: true }, { id: 'workspace', show: true }, ...['calendar', 'conference', 'whiteboard', 'documents'].map((id) => ({ id, show: false }))] } }, 'no layout, none sent');
+  assert.deepEqual(P.readWorkspace(held(noLayout)), { workspace: { tabs: [{ id: 'map', show: true }, { id: 'workspace', show: true }, ...['calendar', 'conference', 'whiteboard', 'documents', 'schedule'].map((id) => ({ id, show: false }))] } }, 'no layout, none sent');
   const readOnly = P.workspaceHtml(tpl, { editable: false, catalog, word });
   assert.match(readOnly, /<li>Calendar [^]*?Opens first<\/span><\/li><li>Workspace<\/li><li>Map <span class="hint">\(hidden\)<\/span><\/li>/, 'read only: the order, a hidden one said, the first marked');
   const named = P.workspaceHtml({ ...tpl, workspace: { layout: { shape: 'wide-narrow', areas: ['marks', 'travel'] } } }, { editable: false, catalog, word });
@@ -337,22 +338,22 @@ async function live() {
           // The layout picker (plan-layout-picker.md, step 5) on the owner's own template: its areas (the board, or one row per
           // area at 390), no bar of its own, Remove the layout; no Opens with list.
           const areas = `[...document.querySelectorAll('#tpl-workspace-box :is(.layout-picker-area, .layout-picker-row-main)')].filter((a) => a.getClientRects().length).map((a) => a.getAttribute('aria-label')).join('|')`;
-          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-open]')} === 0 && ${areas} === 'Area 1 of 2: Timesheet|Area 2 of 2: Empty' && ${count('#tpl-workspace-box .action-bar')} === 0 && ${count('#tpl-workspace-box [data-layout-remove]')} === 1 && ${count('#tpl-workspace-box [data-tab-id]')} === 6 && document.querySelector('#tpl-workspace-box [data-tab-id="calendar"] [data-tab-show]').checked && !document.querySelector('#tpl-workspace-box [data-tab-id="map"] [data-tab-show]').checked`, 'the Default Workspace page');
+          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tw-open]')} === 0 && ${areas} === 'Area 1 of 2: Timesheet|Area 2 of 2: Empty' && ${count('#tpl-workspace-box .action-bar')} === 0 && ${count('#tpl-workspace-box [data-layout-remove]')} === 1 && ${count('#tpl-workspace-box [data-tab-id]')} === 7 && document.querySelector('#tpl-workspace-box [data-tab-id="calendar"] [data-tab-show]').checked && !document.querySelector('#tpl-workspace-box [data-tab-id="map"] [data-tab-show]').checked`, 'the Default Workspace page');
           if (phone) assert.ok(await tab.eval(`${count('#tpl-workspace-box .layout-picker-board .layout-picker-area')} > 0 && [...document.querySelectorAll('#tpl-workspace-box .layout-picker-board')].every((b) => !b.getClientRects().length) && [...document.querySelectorAll('#tpl-workspace-box .layout-picker-row-main')].every((r) => r.getBoundingClientRect().height >= 44) && [...document.querySelectorAll('#tpl-workspace-box .tp-layout-button')].every((b) => b.getBoundingClientRect().height >= 44)`), at('the layout at 390: a list, 44 px targets'));
           // Read only (the Default template, the plain one): the picker with nothing to press, Copy to change it.
-          await open('template/default/workspace', `${count('#tpl-workspace-box [data-tab-read] li')} === 6 && ${count('#tpl-workspace-box input')} === 0 && ${areas} === 'Area 1 of 1: Empty' && ${count('#tpl-workspace-box .layout-picker-readonly')} === 1 && [...document.querySelectorAll('#tpl-workspace-box button')].filter((b) => b.getClientRects().length).length === 0 && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of the Default template');
+          await open('template/default/workspace', `${count('#tpl-workspace-box [data-tab-read] li')} === 7 && ${count('#tpl-workspace-box input')} === 0 && ${areas} === 'Area 1 of 1: Empty' && ${count('#tpl-workspace-box .layout-picker-readonly')} === 1 && [...document.querySelectorAll('#tpl-workspace-box button')].filter((b) => b.getClientRects().length).length === 0 && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of the Default template');
           await shot(tab, `${size}-workspace-default`);
           // A shipped template with no layout (Gaming): said plainly, no Pick a shape, Copy to change it.
           await open('template/games/workspace', `document.querySelector('#tpl-workspace-box .tp-layout-words')?.textContent === 'No layout. A new space opens the chat and every module that is on.' && ${count('#tpl-workspace-box [data-layout-add], #tpl-workspace-box .layout-picker')} === 0 && !!document.querySelector('#tpl-workspace-card [data-tpl-copy]')`, 'the Default Workspace of Gaming');
         });
         await test(at('Default Workspace saves'), async () => {
-          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tab-id]')} === 6`, 'the Default Workspace page');
+          await open('template/mine/workspace', `${count('#tpl-workspace-box [data-tab-id]')} === 7`, 'the Default Workspace page');
           await shot(tab, `${size}-workspace`);
           // Another shape in the picker (Timesheet carried into area 1), the tab list changed (Map shown and moved up, Calendar hidden), saved with the page's Save.
-          await tab.eval(`(() => { document.querySelector('#tpl-workspace-box .layout-picker-step[data-step="1"]').click(); document.querySelector('#tpl-workspace-box .layout-picker-shape[data-shape="one"]').click(); document.querySelector('#tpl-workspace-box [data-tab-id="map"] [data-tab-show]').click(); document.querySelector('#tpl-workspace-box [data-tab-id="map"] [data-tab-move="up"]').click(); document.querySelector('#tpl-workspace-box [data-tab-id="calendar"] [data-tab-show]').click(); document.querySelector('#tpl-workspace-card [data-tpl-save-button]').click(); return true; })()`);
+          await tab.eval(`(() => { document.querySelector('#tpl-workspace-box .layout-picker-step[data-step="1"]').click(); document.querySelector('#tpl-workspace-box .layout-picker-shape[data-shape="one"]').click(); document.querySelector('#tpl-workspace-box [data-tab-id="map"] [data-tab-show]').click(); document.querySelector('#tpl-workspace-box [data-tab-id="map"] [data-tab-move="up"]').click(); document.querySelector('#tpl-workspace-box [data-tab-id="calendar"] [data-tab-show]').click(); document.querySelector('#tpl-workspace-box [data-tab-id="schedule"] [data-tab-show]').click(); document.querySelector('#tpl-workspace-card [data-tpl-save-button]').click(); return true; })()`);
           await sleep(1200);
           const t = (await api('GET', '/api/environment/templates/mine')).json.template;
-          assert.deepEqual(t.workspace.tabs, [{ id: 'workspace', show: true }, { id: 'map', show: true }, { id: 'calendar', show: false }, { id: 'conference', show: false }, { id: 'whiteboard', show: false }, { id: 'documents', show: false }], 'the list as the page held it: Map moved up and shown, Calendar hidden');
+          assert.deepEqual(t.workspace.tabs, [{ id: 'workspace', show: true }, { id: 'map', show: true }, { id: 'calendar', show: false }, { id: 'conference', show: false }, { id: 'whiteboard', show: false }, { id: 'documents', show: false }, { id: 'schedule', show: true }], 'the list as the page held it: Map moved up and shown, Calendar hidden, Projects offered and shown');
           assert.deepEqual(t.workspace.layout, { shape: 'one', areas: ['marks'] }, 'the layout as the picker held it');
           await open('template/list', 'true', 'the list');
           await open('template/mine/workspace', `document.querySelector('#tpl-workspace-box [data-tab-id]:nth-child(2)')?.dataset.tabId === 'map' && document.querySelector('#tpl-workspace-box [data-tab-id="map"] [data-tab-show]').checked && !document.querySelector('#tpl-workspace-box [data-tab-id="calendar"] [data-tab-show]').checked && document.querySelector('#tpl-workspace-box [data-tw-layout]')?.dataset.twLayout === '{"shape":"one","areas":["marks"]}' && [...document.querySelectorAll('#tpl-workspace-box :is(.layout-picker-area, .layout-picker-row-main)')].filter((a) => a.getClientRects().length).map((a) => a.getAttribute('aria-label')).join('|') === 'Area 1 of 1: Timesheet'`, 'the layout read back');
