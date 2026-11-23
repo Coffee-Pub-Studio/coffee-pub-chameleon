@@ -10,6 +10,7 @@ Written from the code on the branch `claude/colour-picker-933` (head `549b317`),
 
 #### Added
 
+- **Whiteboard: the Present button works again (0.1.90).** Since the Copy and Paste buttons (0.1.88) pressing Present started the read-through and stopped it at once: starting to present changes which toolbar buttons there are, so the button was made again inside its own click and the host called it a second time. Present, Delete, Arrange and the clipboard buttons now answer one click once. The host's own loop (core) is not changed.
 - **Whiteboard: on a phone the tool strip is one row you swipe (0.1.89).** It wrapped to several rows over the board on a narrow screen; it is now a single row that scrolls sideways at 640 pixels wide or less. The standing column is unchanged.
 - **Whiteboard: Paste takes the phone's own clipboard (0.1.88).** The Paste button is always there for anyone who can add, and pastes a picture or rows and columns from the system clipboard; a Cut or Copy made with the buttons is pasted instead when it is the newer. Words copied elsewhere are not pasted.
 - **Whiteboard: a Cut button (0.1.87).** Cut joins Copy and Paste in the toolbar while blocks are picked; it takes the picked blocks (not locked ones) and, with Select area on, cuts the area of the picture.
