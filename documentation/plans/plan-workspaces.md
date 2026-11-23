@@ -2,7 +2,7 @@
 
 **Audience:** Thomas decides. If he approves, server-development builds the space record, the routes, the stored last-layout record and the checks, and experience-design builds the Conference view, the owner controls and the menu entry. The stored last-layout record (decision 20) is a core change (`server/`, the stored data format): it is held for an independent read and covered by the full `npm run check`. content-manager documents after.
 
-**Status:** Draft for Thomas, 2026-11-12, by product-planner; updated 2026-11-12 with Thomas's answers to questions 2, 4 and 5 (decisions 12 to 14), to question 1 (decisions 15 to 18, the last about the collapsed call area) on 2026-11-12, to questions 3 and 6 to 12 (decisions 19 to 26) and, on 2026-11-12, to the four open points on the guest fallback, Start call, phones and In the workspace (decisions 27 to 30) and, on 2026-11-13, to the open points on the collapsed rail (decision 31) and, on 2026-11-13, to a correction of decision 28 after trying the call title bar build (decision 32) and, on 2026-11-13, to the two kinds of workspace, the Modules tab of a Fixed Workspace and its schema (decisions 33 to 35, step 12) and, on 2026-11-15, to Thomas's request in #829, Bring Everyone Here (decision 36, step 13, a proposal only beyond the request). Nothing here is decided except the lines marked "Thomas" and the decisions below. As of 2026-11-15, steps 1 to 12 are built and merged (#785, #796, #791, #806, #809, #767, #775, #799, #805; read from `git log origin/main`); step 13, Bring Everyone Here (decision 36), is a proposal and not built. On 2026-11-17 a draft section, "Draft: shared and personal workspaces", was added from Thomas's words; it is under discussion and nothing in it is decided. **Decision 13 is replaced in part** by [plan-templates-redesign](plan-templates-redesign.md), built (step 8, #847): a person can no longer hide a Fixed Workspace the owner turned on; renaming and re-icon for oneself stay. From the feedback and from Thomas, in his words:
+**Status:** Draft for Thomas, 2026-11-12, by product-planner; updated 2026-11-12 with Thomas's answers to questions 2, 4 and 5 (decisions 12 to 14), to question 1 (decisions 15 to 18, the last about the collapsed call area) on 2026-11-12, to questions 3 and 6 to 12 (decisions 19 to 26) and, on 2026-11-12, to the four open points on the guest fallback, Start call, phones and In the workspace (decisions 27 to 30) and, on 2026-11-13, to the open points on the collapsed rail (decision 31) and, on 2026-11-13, to a correction of decision 28 after trying the call title bar build (decision 32) and, on 2026-11-13, to the two kinds of workspace, the Modules tab of a Fixed Workspace and its schema (decisions 33 to 35, step 12) and, on 2026-11-15, to Thomas's request in #829, Bring Everyone Here (decision 36, step 13, a proposal only beyond the request). Nothing here is decided except the lines marked "Thomas" and the decisions below. Updated 2026-11-23 with Thomas's decisions 39 to 49 on workspaces as tabs, the tab menu, Manage tabs, no favorites, presence on tabs and a warning before Bring Everyone Here; three questions are under "Still open (2026-11-23)". As of 2026-11-15, steps 1 to 12 are built and merged (#785, #796, #791, #806, #809, #767, #775, #799, #805; read from `git log origin/main`); step 13, Bring Everyone Here (decision 36), is a proposal and not built. On 2026-11-17 a draft section, "Draft: shared and personal workspaces", was added from Thomas's words; it is under discussion and nothing in it is decided. **Decision 13 is replaced in part** by [plan-templates-redesign](plan-templates-redesign.md), built (step 8, #847): a person can no longer hide a Fixed Workspace the owner turned on; renaming and re-icon for oneself stay. From the feedback and from Thomas, in his words:
 
 > "we've made conference (video) so secondary, there is no way to have a dedicated call without popping it out."
 
@@ -152,7 +152,7 @@ Thomas, agreeing with the planner's opinion ("I think you are correct"), the sta
 Thomas, 2026-11-12, answers to the open questions (DECIDED):
 
 12. **The call's share of the Conference page (question 2): no fixed percentage.** In his words: "it should honor whatever the chat area already takes and then fill the workspace area." In the Conference layout the chat column keeps the width it already has and the call takes all the rest of the page. There is no percentage setting.
-13. **Who controls tabs (question 4): the owner sets what shows and the order.** A person may hide more, rename and re-icon. The owner's hide wins. A person cannot reorder. This builds the planned "Phase 2" owner override of plan-layout-views (issues #266 and #267).
+13. **Who controls tabs (question 4): the owner sets what shows and the order.** A person may hide more, rename and re-icon. The owner's hide wins. A person cannot reorder. (Changed by decision 43: a person may not rename or re-icon the owner's tabs, and may reorder and remove only their own added tabs.) This builds the planned "Phase 2" owner override of plan-layout-views (issues #266 and #267).
 14. **New tabs on day one (question 5): all three new tabs show** (Conference, Whiteboards, Documents). The **...** overflow keeps the bar from crowding, and people can hide them.
 
 Thomas, 2026-11-12, answer to question 1 (DECIDED), after showing two screenshots: the Discussion column with the chat's three-dot menu holding "Save the chat", "Delete the chat" and "Pop out the call", and "Call position" with its flyout (Top of the column, Bottom of the column, Left of the chat, Floating window, Its own window); and the call's title bar ("Call · 00:36") with its own pop-out and collapse buttons over the participant tile and call controls. In his words: "Part of our issue now is that we do not show the call titlebar area unless a call is active. We should have it shown all the time and have the menus for it where they belong, which is not on a different window like they are now. So I would say there are two options missing: to the right of chat; in the workspace."
@@ -165,7 +165,7 @@ Thomas, 2026-11-12, answer to question 1 (DECIDED), after showing two screenshot
 
 Thomas, 2026-11-12, answers to questions 3 and 6 to 12 (DECIDED). Two of them differ from the planner's suggestion (decisions 20 and 21).
 
-19. **(Changed by decision 37.)** **Only the six fixed layouts (question 3):** Workspace, Conference, Calendar, Map, Whiteboards, Documents. No preset for Budget, Polls, Vault, Research, Planner, Stream or the others. They are reached through the Workspace, or through a saved layout and a heart.
+19. **(Changed by decisions 37 and 39.)** **Only the six fixed layouts (question 3):** Workspace, Conference, Calendar, Map, Whiteboards, Documents. No preset for Budget, Polls, Vault, Research, Planner, Stream or the others. They are reached through the Workspace, or through a saved layout and a heart.
 20. **The last layout is remembered on the server, per person and per space (question 6).** Not the browser-only option the planner suggested. Entering a space opens the layout the person last used there. This reverses today's "entering opens on the Workspace" for a person who has a remembered choice. Decision 8 stands: a person with no remembered choice gets today's default. This adds a stored record and a route, so it is a core change (see "The last layout, on the server").
 21. **Guests follow the owner's default (question 7).** Not the always-Conference option the planner suggested. What a guest sees when the owner's default is a layout a guest can hardly use is answered by decision 27: the Workspace.
 22. **Owners, the admin and moderators set the default, the tabs and their order (question 8),** as `defaultLayout` is set today.
@@ -237,6 +237,42 @@ Thomas, 2026-11-23, after a usability look at the Space Configuration panel (Set
     - **Save cue.** Each tab says once at its top whether its changes are "Saved with Save" or "Happen at once" (Members' links, Tags and Delete).
     - **Built:** one big try build, to start after pull requests #1045 (members and moderators make spaces) and #1047 (the Projects tab) land, because they edit the same files.
     - **Not decided by Thomas; the builder proposes and reports** (these are not decisions): where a moderator's open and close (closed) switch goes, at the top of Phases or with Layout; whether "Layout" is the final label (the other choice is "What people see"); the exact placement of "Waiting to come in"; and the code ids of the renamed tabs. They appear in the addresses `#show` and `#modules`, the product is unreleased, and they may be renamed cleanly.
+    - **Changed in part by decisions 40 and 44 (2026-11-23):** the **Layout** button and the personal controls in its menu go; Arrange moves to the menu on a workspace's tab, and the picker becomes Edit layout. The six tabs of Set up stand.
+
+Thomas, 2026-11-23, on how a person's workspaces, tabs and layouts should work (DECIDED). He answered by clickable choice and in his own words, after a design proposal by the planner. The proposal is a design, not a decision: only the items below are decided. The first build is decision 49; the rest is built after it.
+
+39. **Terms: a workspace is the canvas area, and each workspace is shown as a tab.** A person can add a workspace, set its layout, choose its modules, and it is added as a new tab. **An added workspace is personal** (his answer "Agreed" to: a person's added workspace is personal; sharing one with the group stays an owner and moderator action in Set up, "layouts for everyone"). Others never see a person's added workspace. The editable workspaces are the Workspace and the ones a person added; the fixed ones are Calendar, Map, Conference, Whiteboards, Documents and Projects.
+40. **A menu on each editable workspace tab** (the Workspace and any workspace the person added; not the fixed ones), holding:
+    - **Arrange:** **Panels** or **Windows**, "cleaned up". **Popped out is not a mode.** In his words: "we do not pop out a workspace into a window. Ignore the idea of popout."
+    - **Edit layout:** opens a panel that reuses the existing template layout editor: pick a shape, then choose modules with the same module chooser.
+    - **Rename**, and **Delete** (only for a workspace the person added).
+    - This replaces the Layout menu's Arrange and Layouts sections (plan-layout-menu decisions 1, 4, 6 and 7 and its Arrange contract, which this change replaces; plan-panel-stacking decision 9, which put **Unstack all** in the Layout menu).
+41. **Clean up exists for Panels as well as Windows.** In his words: "given our changes to panel (stacking and reordering) i think cleanup should be an option for them too".
+42. **More shapes for large monitors.** In his words: "most monitors are wide, not tall". No shape stacks three high. He asked for "one big, a stack of two, then a second stack of two" and "one big, a second big, and a stack of two". The exact shapes are not decided (see "Still open"). Plan-layout-picker decision 9 ("the six shapes are the set") and, if a quarter width is used, decision 11 are changed by this wish.
+43. **Manage tabs.** A menu on the tab bar opens a **Manage tabs** view, in his words "the same sort of manage tabs view we have today".
+    - A person can reorder only their own added tabs, and remove only the ones they added, never the owner's. His answer: "for phase 1 ... only their own. we need to make it clear in the UI".
+    - The owner sets the initial order and the set of default tabs, in Set up, unchanged.
+    - A person may not rename or re-icon the owner's tabs (his clickable choice "No, owner's tabs are the owner's"). This changes decision 13, which let a person rename and re-icon for oneself; hiding was already removed by the templates redesign.
+44. **Favoriting is killed, and the Layout button goes.** His words: "We should kill the idea of favoriting things... if a user adds a layout, it shows up top". A workspace a person adds is a tab: no heart and no personal pin (this ends plan-favorite-layouts). The **Layout** button goes, and its module switches with it: opening one more module is not a use case. In his words: "if they want a module, even today, they can add it to a workspace or create a new workspace and add it". The default shapes keep an empty area so one click still works there (his clickable choice "Yes, keep an empty area in default shapes").
+45. **Saving Edit layout re-places the chosen shape,** and warns first if the person dragged things away (his clickable choice "Replace it, with a warning first"). Within a workspace, modules can still be dragged by the title bar.
+46. **No new bar anywhere.** His words: "we will NOT be adding yet another bar to the tool. there are already too many places to do things". The design must reduce or keep the number of places a person has to look.
+47. **Presence on tabs: the "Just you" control leaves the desktop bar.** His earlier words on portraits stay in the draft section (point 4). New, in his words: "if we show peeps on tabs we don't need the Just you thing anymore". When portraits show on the tabs, the who-is-here control is removed from the desktop bar. A phone keeps its Online item. Names come from hovering a portrait, and the full list ("In this space") opens from a tab's portraits.
+48. **Bring Everyone Here warns first.** His words: "the moderator could choose a tab and bring everyone here with a warning that they'd be pulled to a tab in a few moments".
+    - A countdown toast of 5 seconds shows before the move, with **Stay here**. A person can decline (his clickable choice "Yes, they can stay").
+    - The moderator sees how many stayed and can cancel.
+    - Only owners, the admin and moderators can do it.
+    - This replaces the line "Nothing asks first" under "Bring Everyone Here" (marked there, not rewritten).
+49. **Build order (his clickable choice).**
+    1. **Presence on tabs and Bring Everyone Here first,** on branch `claude/presence-bring`, being built, held for his review.
+    2. Then, in this order: personal workspaces on the server; each workspace remembering its own arrangement; the tab menu with the Layout button removed; panel Clean up and Undo; Edit layout and New workspace; Manage tabs; the new shapes; and **Copy one of mine** in Set up (an owner or moderator offers one of their own workspaces as a layout for everyone).
+
+### Still open (2026-11-23)
+
+Not decided by Thomas. The designer's lean is given for each; none is a decision.
+
+- **The exact new shapes.** The designer found only **Two large, right split** (two full-height areas and a stack of two on the right, on thirds) fits today's shape model as data. **Large, two splits** (one big, two stacks of two) needs groups of stacks and quarter widths, which changes decision 11 and decision 9 of plan-layout-picker. Lean: build Two large, right split first, then Large, two splits with groups and quarters.
+- **For Large, two splits, is the big area half or a third of the width?** Lean: half. It reads as big, and it is what needs quarters.
+- **Is your own portrait enough to open the list when nobody else is on a tab?** Lean: yes, so the list is always one press away.
 
 ## Names
 
@@ -514,7 +550,7 @@ Proposal, except what decision 36 records. Nothing here is built.
 - The workspace opens as if they had pressed its tab.
 - One plain line, in the page's existing notice place, for example: "The game master brought everyone to Whiteboard." It names the person by their display name and the workspace by the name this person sees for it (their own rename counts). In words that follow the template, "game master" is whoever the template calls a moderator.
 - The line has one button, **Go back**, which returns to the layout they were on, as pressing that tab would. The line stays until they use it, dismiss it, or press any layout tab. The screen reader hears it through `#layout-announce` (a polite announcement), and focus is not moved.
-- Nothing asks first. It is a show, and stepping back is one press.
+- Nothing asks first. It is a show, and stepping back is one press. (Changed by decision 48: a 5-second warning with **Stay here** comes first.)
 - If the person is already on that workspace, nothing changes and there is no notice.
 - A later push replaces the line; **Go back** returns to what they were on before the first push, not to the previous push.
 
@@ -655,6 +691,8 @@ Every numbered question is answered (decisions 12 to 26), and so are the guest f
 - **Right of the chat** when the column is narrow: suggested to follow the Left rule (`CALL_LEFT_MIN`, falls back to Top). A suggestion for the builder of step 9; it does not block it.
 
 ## Open questions for Thomas
+
+Decision 48 (2026-11-23) answers question 5 below (a warning, with **Stay here**) and the part of question 1 about who may press it (owners, the admin and moderators). The other suggestions stand.
 
 About Bring Everyone Here (decision 36), suggestion first. Questions 1 and 2 block step 13; the rest do not, and the suggestion is built if he does not say.
 
