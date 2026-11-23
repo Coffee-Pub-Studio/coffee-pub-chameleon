@@ -182,9 +182,8 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
     not a choice per agent; see [plan-agent-matrix](plan-agent-matrix.md) (approved, not built).
 14. **The wait for an open page: accepted.** The change lands when someone with write access next opens the module;
     Claude reads the request's status and says what is still waiting. Modules keep running no server code.
-    Note (2026-11-23): reopened for Thomas to decide as open question 1 of
-    [plan-agent-edit-delete](plan-agent-edit-delete.md) (the server carrying out requests to bundled modules); not
-    changed.
+    Note (2026-11-23): Changed for bundled modules by [plan-agent-edit-delete](plan-agent-edit-delete.md), decision 4
+    (the server carries out an agent's requests to bundled modules at once). Uploaded modules keep the wait.
 15. **The limits: 60 reads and 20 writes a minute, 3,000 reads and 300 writes a day,** per agent. A Chat post counts as
     a write.
 16. **The word: `agent`, shown as "Claude (agent)".** "Assistant" is taken by the AI Assistant module.

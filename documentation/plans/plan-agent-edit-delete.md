@@ -1,13 +1,15 @@
 # Agent Edit and Delete Plan
 
 **Audience:** Thomas decided that an agent may delete with permission that comes from a person, how that permission is
-given, and that an ordinary agent's changes get a review list with Undo (Decisions). He decides the open questions.
+given, that an ordinary agent's changes get a review list with Undo, and the server runner, the approvers, direct edits
+and deleting others' objects (Decisions). He may change any question taken on a lean.
 server-development builds the shared delete and undo path, the records, the gate's rows, the routes, the MCP tools and the
 checks (`server/`, `tools/`, larger model; security); experience-design builds the shared review piece, the approval
 dialog, the Roles row and each module's edit and delete actions (module lane, one bump each); quality-assurance reads the
 server half as a security change; content-manager documents.
 
-**Status:** draft, 2026-11-23. Not approved; nothing built. Thomas, 2026-11-23: "i no longer agree with "never delete".
+**Status:** Draft, awaiting Thomas's approval of the whole plan; questions 1, 2 (and 3), 5 and 9 decided by him; the rest
+taken on leans. 2026-11-23. Nothing built. Thomas, 2026-11-23: "i no longer agree with "never delete".
 I think "never delete without permission to do so which comes from the user"". Asked how an agent gets that permission,
 he chose the option **Right plus approval for each delete**. Asked whether ordinary agents should also get a visible
 review list, he answered "yes, add the review list with undo". The request behind it is a real-work test (ChatGPT as an
@@ -35,6 +37,22 @@ Only what Thomas decided. The planner's leans are under "Options" and "What is n
    ordinary agent added, changed or (with approval) deleted is listed in words, each with **Undo** for a few days, and its
    delete asks wait in the same **Waiting for you** list the set-up agent's asks use. One place for what waits, one for
    what was done and can be undone.
+4. **The server carries out an agent's requests to the bundled modules itself, without waiting for an open page**
+   (Thomas, 2026-11-23, question 1, the choice "Yes, bundled modules only"). Each bundled module's action code moves into
+   a plain library that its page and the server both use. The server runs it at once as the agent, with the agent's own
+   rights, through the same checked write path. Uploaded modules keep the wait, with the better waiting tools (E1 plus
+   E3). This changes decision 14 of plan-agent-access ("The wait for an open page: accepted") for bundled modules. Not
+   chosen: a hidden browser per space (E2); better waiting tools only (E3); leave decision 14 as it is (E4).
+5. **Owners, admin and that space's moderators approve an agent's delete, and see the review list** (Thomas, 2026-11-23,
+   question 2, the choice "Owners, admin and that space's moderators"; it also answers question 3). Each may approve a
+   delete request only for an object they could delete themselves. The same people see the review list in a space and may
+   Undo there, each only for a change they could make themselves. Members see no list. Not chosen: owners and the admin
+   only; the person who asked the agent.
+6. **An agent's edits are direct, with Undo and an entry in the review list** (Thomas, 2026-11-23, question 5). They are
+   not approved one by one. Not chosen: approval for every edit (option C2).
+7. **An agent may ask to delete objects other people made, with approval** (Thomas, 2026-11-23, question 9). A person who
+   could delete the object themselves must approve that one ask, and Undo restores it. Not chosen: only objects the agent
+   made.
 
 ## What it is today
 
@@ -114,7 +132,7 @@ Calendar's `createEvent` also has no notes input, though the form has a descript
 
 - [plan-assistant-reboot](plan-assistant-reboot.md), steps 6 and 7 (planned, not approved): an MCP tool `object_format`
   and an Itinerary action that "changes only the fields the object gives". Its decision 7 puts Update after its steps 1 to
-  4. This plan uses the same tool and the same action (see Open question 7).
+  4. This plan uses the same tool and the same action (see question 7 under "What is not decided").
 - [plan-admin-agent](plan-admin-agent.md): the asks, Approve, Decline, Undo, 7 days, caps and `madeBy` this plan reuses.
 
 ## Options
@@ -162,8 +180,9 @@ Lean: **D1**.
 
 Thomas, 2026-11-23, asked why an agent's request is not carried out until someone opens the space, and observed: "if the
 user was asking the agent to do several things, the data would be stale because it would not have been created yet". He
-chose "Yes, add it to that plan", so it is analysed here for him to decide with the rest (Open question 1). It changes
-decision 14 of plan-agent-access ("The wait for an open page: accepted", 2026-11-16) only if he chooses so.
+chose "Yes, add it to that plan", so it is analysed here. He then decided option E1 for bundled modules (decision 4), which
+changes decision 14 of plan-agent-access ("The wait for an open page: accepted", 2026-11-16) for them. The other options
+stay below as the record of what he did not choose.
 
 ### Today
 
@@ -239,16 +258,15 @@ requests with their unchanged page code.
 **E4. Leave decision 14 as it is.** Costs nothing; fixes nothing of what Thomas saw. Every edit this plan adds would also
 wait for a page, so "clean up the itinerary, then add a reminder" still could not chain.
 
-**Lean: E1 with E3 for uploaded modules.** It is the structural fix: one copy of each module's rules, run where the
-request lands, by the agent with its own rights, and it makes the review list's records exact. It changes decision 14 for
-bundled modules, so it is Thomas's to decide.
+**Decided (decision 4): E1 for bundled modules, with E3 for uploaded modules.** It is the structural fix: one copy of each
+module's rules, run where the request lands, by the agent with its own rights, and it makes the review list's records
+exact.
 
 ### What it changes in the build order
 
-Yes, if E1 is chosen. The runner comes first (new step 1), the edit actions are written as server handlers from the start
-(step 2, so they are not written twice), and each module's existing handlers move into its actions library in the same
-module-lane step. Step 4 then records server writes directly, and keeps the SDK runner's tagging only for uploaded modules.
-If Thomas keeps decision 14, the runner step is dropped, E3 is built alone, and the rest stands as written.
+The runner comes first (step 1), the edit actions are written as server handlers from the start (step 2, so they are not
+written twice), and each module's existing handlers move into its actions library in the same module-lane step. Step 5
+then records server writes directly, and keeps the SDK runner's tagging only for uploaded modules.
 
 ## The contract
 
@@ -333,8 +351,7 @@ Each stays within the host's caps (20 inputs an action, 16 actions a module; Map
   disk rules as Clear's holds (written before the change, survives a restart, an unreadable file set aside). Kept for the
   undo days, then removed with its record. An added object holds nothing (Undo removes it).
 - **How an add or an edit is recorded.** When the server carries the request (option E1), it writes, so it holds the
-  earlier value and records the change itself. When a page carries it (an uploaded module, or every module if Thomas keeps
-  decision 14): the SDK's `host.actions.provide` runner sends `for` and `request` on every data write a
+  earlier value and records the change itself. When a page carries it (an uploaded module only): the SDK's `host.actions.provide` runner sends `for` and `request` on every data write a
   handler makes while it carries out a request (one change in the shared path, so every module is covered). The server's
   `carriedFor` keeps naming the asker only for a create, as decision 9 of plan-agent-access says, but for any write it
   can tie to an agent's claimed request (same checks: this module, claimed by this carrier, within the minute, the same
@@ -403,17 +420,17 @@ by Thomas"). The module activity list (`noteActivity`) names both people on a de
   plain stop with the flight in its notes becomes a typed flight). Notes lines that a field now holds are left to the
   agent to rewrite through `notes`.
 - **Passengers and seats:** `travellers` already sets the people a booking is for; one `seat` text holds several seats
-  ("12A, 12B"). No per-passenger seats in this plan (see Open question 8).
-- **Reminder lead times (Calendar):** see Open question 6. Lean: `remind` becomes any whole number of minutes from 0 to
+  ("12A, 12B"). No per-passenger seats in this plan (question 8 below, taken on the lean).
+- **Reminder lead times (Calendar):** taken on the planner's lean, not asked (question 6 below). `remind` becomes any whole number of minutes from 0 to
   40320 (28 days), in `createEvent`, `updateEvent` and the person's form alike (the form keeps its presets and adds
   "Other" with a number and minutes, hours or days), and the notification's words are worked out from the number ("Starts
   in 2 hours"). The agent stays held to exactly what a person can set.
 
 ### 6. Approving a delete
 
-- **Who:** see Open question 2. Lean: owners and the admin, and that space's moderators; each only for an object they
-  could delete themselves in that module (its write permission and `checkDelete` guards, as them). Nothing an agent sends
-  is a yes.
+- **Who** (decision 5): owners, the admin and that space's moderators; each only for an object they could delete
+  themselves in that module (its write permission and `checkDelete` guards, as them). This holds for objects other people
+  made too (decision 7). Nothing an agent sends is a yes.
 - **What the approver sees** (the shared piece's dialog): the agent's name with its mark, the space, the module, the
   object as the server resolves it now (kind, title, day, who made it), what goes with it ("and its 12 votes", "and 1
   Itinerary entry that shows it"), how many objects link to it, the agent's reason as a quote headed "Claude (agent)
@@ -444,17 +461,17 @@ by Thomas"). The module activity list (`noteActivity`) names both people on a de
 
 ## Left to build, in order
 
-Each step is built and checked on its own. Thomas names the kind of build. This order assumes the lean on Open
-question 1 (E1); if he keeps decision 14, step 1 becomes E3 alone and step 2's handlers stay in the pages.
+Each step is built and checked on its own. Thomas names the kind of build. Steps 1 and 2 are committed by decision 4: the
+server runner for bundled modules, and the move of each module's action code into a shared library.
 
-1. **The server runner** (server-development, larger model; security). `server/module-actions.js`: the `actions.server`
+1. **The server runner** (server-development, larger model; security; committed by decision 4). `server/module-actions.js`: the `actions.server`
    declaration (bundled modules only), the `vm` context and its limits, writes through the shared write path as the agent,
    the bus claim by the server, `request_status` with the pointer, and E3's `wait_for_result` and pending words for
    uploaded modules. New `tools/check-module-actions.mjs`; `check-agent-tokens`, `check-mcp`.
 2. **The edit actions, and each module's handlers moved into its actions library** (experience-design, module lane, one
-   patch bump each). Section 1's list, To-do's two gaps, Calendar's `notes`, each with the editor's checks and sentences,
+   patch bump each; the move is committed by decision 4). Section 1's list, To-do's two gaps, Calendar's `notes`, each with the editor's checks and sentences,
    shared by the page and the server; `objectPatch` for the Itinerary. Each module's own test runs its handlers in Node.
-   (Calendar's reminder change waits for Open question 6.)
+   (Calendar's reminder change follows question 6's lean; Thomas may change it.)
 3. **The objects format reaches the agent** (server-development, core). The schema route on the gate, `object_format`,
    `objectKinds` and the host's hint in the actions list. `check-mcp`, `check-agent-matrix`, `check-route-table`.
 4. **The shared delete path and keyed holds** (server-development, larger model; security). One delete function used by
@@ -533,35 +550,27 @@ it is checked by hand. No step needs a LiveKit call.
 
 ## What is not decided
 
-Most important first. Each has the planner's lean; none is decided.
+No question is open. Thomas decided questions 1, 2 (and 3), 5 and 9 (decisions 4 to 7). The others he did not answer;
+under his standing rule (ask only when blocked; for a small choice take the planner's lean, write it down and say so)
+each is **taken on the planner's lean, not asked**, and Thomas may change any of them. The numbers are those of the
+question list the planner gave him.
 
-1. **Should the server carry out agent requests to bundled modules, without waiting for an open page?** (See "Carrying
-   out agent requests without an open page".) Lean: yes, option E1, with E3 for uploaded modules: the agent's request is
-   carried out at once by the module's own code, as the agent, so it can read back and chain; uploaded modules keep the
-   wait. It changes decision 14 of plan-agent-access for bundled modules. Blocks step 1 and the shape of step 2.
-   Not in this lean: people's own requests (Chat's Keep, Send to...) would keep the page path; whether they should use the
-   runner too is a later question.
-2. **Who may approve a delete?** Lean: owners, the admin, and that space's moderators, each only for an object they could
-   delete themselves. ("As the set-up agent's asks work" could be read as owners and the admin only, which leaves a
-   moderator unable to answer in their own space.) Blocks step 6.
-3. **Who sees the review list in a space, and who may undo there?** Lean: that space's approvers (as question 2) see the
-   whole list; Undo by them, only for a change they could make themselves; members see no list. Blocks step 7.
-4. **How long Undo lasts.** Lean: 7 days, the set-up agent's number, one number for both kinds. Small; taken unless
-   Thomas says otherwise.
-5. **Edits direct or approved?** Lean: direct with Undo (option C1), as plan-agent-access decision 6. Blocks nothing if
-   the lean stands.
-6. **Reminder lead times.** Lean: any whole minutes from 0 to 28 days in the form and the action alike (section 5).
-   Alternatives: more presets only (5, 30, 120 minutes, 2 days, a week), or keep the four. To-do's 9:00 reminder and an
-   Itinerary entry's reminder (set on its Calendar copy, not confirmed possible today) stay as they are under this lean.
-   Blocks Calendar's part of step 2.
-7. **Order against plan-assistant-reboot.** Its decision 7 puts the Itinerary's Update after its steps 1 to 4. Lean:
-   build `updatePlan` here in step 2, since agents need it now, and let the reboot's step 7 add only the preview's
-   **Update** rows on the same action. Blocks the Itinerary's part of step 2.
-8. **Per-passenger seats.** Lean: not in this plan; several seats as one text. A model change for people too.
-9. **May an agent ask to delete objects others made?** Lean: yes, the approval is the check, and the real case (an old
-   entry a person made) needs it.
-10. **An agent's own Chat messages.** Lean: stay out; Chat is not a module object and decision 7's Chat part stands.
-11. **The reason text.** Lean: allowed, 200 characters, labelled as the agent's words.
+- **Question 4. How long Undo lasts.** Taken on the planner's lean, not asked: 7 days for both kinds of agent, one number.
+- **Question 6. Reminder lead times.** Taken on the planner's lean, not asked: any whole number of minutes up to 28 days,
+  in Calendar's form and its action alike (section 5). Alternatives he did not see: more presets only, or keep the four.
+  To-do's 9:00 reminder and an Itinerary entry's reminder stay as they are.
+- **Question 7. Order against plan-assistant-reboot.** Taken on the planner's lean, not asked: the Itinerary's `updatePlan`
+  is built in this plan (step 2), and plan-assistant-reboot later adds only its preview's **Update** rows on the same
+  action.
+- **Question 8. Per-passenger seats.** Taken on the planner's lean, not asked: not now; several seats stay one text field.
+- **Question 10. An agent's own Chat messages.** Taken on the planner's lean, not asked: they stay out of delete; Chat is
+  not a module object and decision 7 of plan-agent-access stands for it.
+- **Question 11. The reason text.** Taken on the planner's lean, not asked: a short reason from the agent, 200 characters,
+  shown to the approver labelled as the agent's words.
+
+Not in decision 4: people's own requests (Chat's Keep, Send to...) keep the page path; whether they should use the runner
+too is a later question.
 
 Small choices this draft takes at the planner's lean, for Thomas to change: the route and tool names, the caps (10
-waiting, 30 a day, 256 KB, 50 MB), the 7-day decline cooldown, one waiting ask per object, and options A1, B1 and D1.
+waiting, 30 a day, 256 KB, 50 MB), the 7-day decline cooldown, one waiting ask per object, and options A1, B1 and D1. Options C1 and D1 now stand on
+decisions 6 and 5.
