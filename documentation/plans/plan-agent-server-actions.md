@@ -7,7 +7,7 @@ model for the runner and the write scopes, security); experience-design builds e
 lane, a patch bump each); quality-assurance reads the runner changes as a security change when Thomas calls a feedback or
 production build.
 
-**Status:** Draft, 2026-11-23. Nothing in it is built. The request, Thomas, 2026-11-23: "in general i want to move away
+**Status:** Draft, 2026-11-23. Nothing in it is built. Uploaded modules decided the same day (decision 2). The request, Thomas, 2026-11-23: "in general i want to move away
 from 'waits until someone [opens the module]...' for the reasons we have already discussed. I do not want this same
 decision to come up one module at a time... this is for all things. An agent is not useful if you also have to be in the
 app for it to get real-time updates." The gaps below are the ones the builders of steps 1, 2a and 2b of
@@ -80,6 +80,10 @@ Only Thomas's.
 1. **No agent action waits for a page; this is decided for every module at once** (Thomas, 2026-11-23, decision 8 of
    plan-agent-edit-delete; quoted under Status). The marks that wait for a page (`remindPending`, `linksPending`, the
    Itinerary's phase-end note) are not the end state either: each is replaced by the server doing the thing.
+2. **Uploaded modules run their server actions in the same isolated process, once an admin approves it** (Thomas,
+   2026-11-23, option (a) of the question this plan asked; decision 9 of plan-agent-edit-delete). This replaces decision
+   4's wait for a page for uploaded modules. Not chosen: (b) never offer an uploaded module's actions to agents; (c) keep
+   the wait for uploaded modules as an exception to decision 8.
 
 ## The contract
 
@@ -161,10 +165,32 @@ Each turns on `actions.server` and drops what waits:
 - **Maps:** moves `addPlace`, `updatePlace` and `setPlacePoint` into `src/maps-lib-actions.js` (one copy, the page calls
   it too), declares `lookups` for `address`, writes environment places with marks (section 4), and turns on the server.
 
-### 8. Uploaded modules
+### 8. Uploaded modules (core; security)
 
-Decision 4 of plan-agent-edit-delete keeps uploaded modules on the wait for a page, since their code is not ours. Decision
-8 says no action waits. See the one open question.
+Decision 2. The details are the planner's leans, chosen as the safest; Thomas may change any.
+
+- **The declaration.** An uploaded module declares `actions.server` as a bundled one does: one of its own
+  `src/<id>-lib*.js` files. Nothing else is new in its manifest.
+- **The approval.** The admin approves running it on the server, per module, on the Modules page beside the hooks the
+  admin already approves. The approval is stored with the module's id, its version and the SHA-256 of the library text the
+  runner would load (`libraryOf` on the installed copy). An approval is off by default and can be taken back at any time.
+- **A changed upload needs approval again.** A new version, or the same version with any different byte in the library,
+  does not match the stored approval, so it is not run; the admin approves again. The runner hashes the text it is about
+  to send to the worker and compares it with the approval on every run, so what runs is exactly what was approved.
+- **Until it is approved** the module's actions are not offered to agents (`list_actions` shows them with `may: false`
+  and "Needs the admin's approval to run on the server."), and `ask_for_change` refuses at once with that sentence.
+  Nothing waits. The agent's queue for an open page goes; a person's own requests (Chat's Keep, Send to...) keep the page
+  path, as decision 4 left them.
+- **The same sandbox limits.** The same worker (`server/module-actions-worker.js`): its own process, Node's permission
+  model with nothing allowed but reading the worker, no environment, no network, no files, no child process, code
+  generation from strings off, the heap, time and size limits, killed after the wall-clock limit. The answer is checked
+  by `outcomeOf` and every write applied as the agent through `putModuleValue`, exactly as for a bundled module.
+- **No extra permissions.** An uploaded module's handler may do nothing its manifest and the admin's approvals do not
+  already allow a person's page of it: space writes in its own data, links, and `schedules` and `notify` only with hooks
+  the admin approved. It gets no `lookups` (no place search), no `scope: "environment"` writes and no `phaseEnd`.
+- **Its share of the runner.** At most 2 of the runner's 4 running slots go to uploaded modules at once, so one can't hold
+  up the bundled modules.
+- **Taken off.** Uninstalling, disabling or replacing the module drops its approval.
 
 ## Left to build, in order
 
@@ -187,10 +213,14 @@ Each step is a try build unless Thomas names another kind. Core steps leave ever
 9. **Writes outside the space and the place search** (server-development, core, larger model; security). Sections 3 and 4.
    `check-module-actions` with the hostile cases below; `check-agent-tokens`.
 10. **Maps on the server** (experience-design, module lane, a bump). Section 7's Maps line.
+11. **Uploaded modules on the server** (server-development, core, larger model; security). Section 8: the approval and
+    its hash, the check on every run, the slot share, `list_actions`' `may` and sentence, the agent's queue for uploaded
+    modules removed, the Modules page's approval control (experience-design, in the same step). New hostile cases in
+    `check-module-actions`; `check-agent-tokens`, `check-mcp`, `check-route-table`.
 
 After step 10 every bundled module with agent actions declares `actions.server` and none marks anything for a page. A
 check then holds it: `check-module-actions` fails when a bundled module offers an agent action without `actions.server`,
-or when a library says `carrier === 'server'` to leave work for a page.
+or when a library says `carrier === 'server'` to leave work for a page. After step 11 no agent request waits for a page.
 
 ## Verify
 
@@ -198,7 +228,10 @@ Checked by a tool, on throwaway servers: each new answer kind applied and rolled
 can't see, a schedule about another module's object, a notify without the hook, an environment write without the space's
 mark, a person-scope write, more than the counts: each refused and nothing changed. The place search: the worker's
 process still has no network (the permission model and an attempted `fetch` in a test library), and the lookup counts
-against the agent's reads. Each module's own test runs its handlers with `carrier: 'server'` and finds no mark left for a
+against the agent's reads. Uploaded modules (step 11): an unapproved module's action is refused at once and nothing waits;
+an approved one runs; a new version, or one byte changed in its library, is not run until approved again; its handler
+can't write environment data, search places or move a phase; a third uploaded run waits for a slot while bundled runs go
+on; taking the approval back stops the next run. Each module's own test runs its handlers with `carrier: 'server'` and finds no mark left for a
 page.
 
 Not checkable here: a reminder or a poll's announcement reaching a person at its time (needs a page signed in and time
@@ -215,6 +248,11 @@ call.
 3. **More side effects to roll back.** Links, schedules and announcements in one step with the writes; a notification
    already sent can't be taken back, so `notify` is applied last, only after everything else stood.
 4. **A schedule hook on Polls.** A manifest hook change; the admin approves it as any hook.
+5. **Code that is not ours on the server** (step 11). `vm` is no boundary; the boundary is the separate process with
+   Node's permission model, no network, no files and no environment, killed on its limits. What is left is a flaw in Node
+   or V8 that escapes that process, which would run as the server's own user. The admin's approval of exact bytes is the
+   gate, and the answer is checked as if the agent had sent it, so a hostile handler that stays in the box can do no more
+   than the agent may. Running the process as a separate system user is not in this plan.
 
 ## What is not decided
 
@@ -226,9 +264,4 @@ Taken on the planner's lean, not asked; Thomas may change any:
 - Polls' time-close announcement becomes a server schedule for people's polls too, since decision 8 is for all things.
 - The counts (5 links, 5 schedules, 1 notify) and the order of the steps.
 
-**Open, for Thomas (does not block steps 1 to 10):** uploaded modules. Decision 4 keeps their wait; decision 8 says no
-action waits. Options: (a) offer an uploaded module's actions to agents only when it ships server actions and the admin
-approves running them in the same isolated process (its code is not ours; the process has no network and no files, but
-it is still code on the server); (b) do not offer an uploaded module's actions to agents at all, so nothing waits; (c)
-keep the wait for uploaded modules only, as an exception to decision 8. Lean: (b) until a plan for (a) is agreed, since
-it keeps decision 8 without running code that is not ours.
+No question is open. Uploaded modules were decided by Thomas (decision 2); the details of section 8 are leans.
