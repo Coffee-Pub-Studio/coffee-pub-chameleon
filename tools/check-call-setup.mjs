@@ -3,8 +3,8 @@
  * check-call-setup.mjs -- the page half of the core call settings (documentation/plans/plan-templates-redesign.md, step 4;
  * decisions 16 and 37), in a real browser against a throwaway seeded server (Lisbon: Mia moderates it; Kyoto reads an owner's own
  * template that sets the call's position, layout and joining on entry). Covers, at 1280 and 390 px:
- *   - Set up shows Join on entry, Position and Layout (each with "Same as the template") to the admin on the Space tab and to a
- *     moderator on the Settings tab, and a plain member has no Set up; each control is 44 px tall on a phone; no sideways scroll
+ *   - Set up shows Join on entry, Position and Layout (each with "Same as the template") on its Call tab, to the admin and to a
+ *     moderator alike (plan-workspaces.md, decision 38), and a plain member has no Set up; each control is 44 px tall on a phone; no sideways scroll
  *   - Save sends the call as its own PATCH holding only `call` (a changed name goes in another request); "Same as the template"
  *     sends null for that key; the stored space follows
  *   - a space whose template's call sets position left and layout strip starts so for a person with no choice, the start is never
@@ -100,8 +100,8 @@ try {
   const pick = (tab, id, value) => tab.eval(`(() => { const s = document.getElementById('setup-call-${id}'); s.value = ${JSON.stringify(value)}; s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; })()`);
 
   for (const width of [1280, 390]) {
-    await test(`the admin in Lisbon at ${width}: the Space tab has Join on entry, Position and Layout; Save sends the call as its own PATCH`, async () => {
-      const tab = await open(`/?setup=${ctx.trip}#space`, 'admin', width);
+    await test(`the admin in Lisbon at ${width}: the Call tab has Join on entry, Position and Layout; Save sends the call as its own PATCH`, async () => {
+      const tab = await open(`/?setup=${ctx.trip}#call`, 'admin', width);
       await tab.waitFor('#setup-call-join');
       await sleep(1200);
       const c = await callControls(tab);
@@ -109,7 +109,9 @@ try {
       assert.equal(c.position.options.length, 8, '"Same as the template" and the seven');
       assert.equal(c.layout.options.length, 5, '"Same as the template" and the four');
       assert.deepEqual([c.join.value, c.position.value, c.layout.value], ['', '', ''], 'nothing set: all follow the template');
-      assert.ok(await tab.eval(`document.getElementById('setup-content-space').contains(document.getElementById('setup-call-join'))`), 'on the Space tab');
+      assert.ok(await tab.eval(`document.getElementById('setup-content-call').contains(document.getElementById('setup-call-join'))`), 'on the Call tab');
+      assert.ok(await tab.eval(`document.getElementById('setup-content-call').contains(document.getElementById('setup-profile'))`), 'with Faces in the call, an owner\'s');
+      assert.equal(await tab.eval(`document.querySelector('#space-setup .setup-tab[aria-selected="true"]').dataset.tab`), 'call', '#call opens the Call tab');
       if (width === 390) for (const k of ['join', 'position', 'layout']) assert.ok(c[k].height >= 44, `${k} is ${c[k].height}px tall`);
       assert.equal(await overflow(tab), false, 'no sideways scroll');
       assert.match(await tab.eval(`document.querySelector('[data-section="call"]').textContent`), /Now: .*(Top of the column|Grid|does not join)/, 'what the template gives, said');
@@ -128,7 +130,7 @@ try {
       assert.deepEqual(stored(ctx.trip).call, { joinOnEntry: true, position: 'bottom' });
       await tab.close();
       // And back to the template's, one key at a time: null for that key.
-      const again = await open(`/?setup=${ctx.trip}#space`, 'admin', width);
+      const again = await open(`/?setup=${ctx.trip}#call`, 'admin', width);
       await again.waitFor('#setup-call-join');
       await sleep(1200);
       const c2 = await callControls(again);
@@ -144,14 +146,15 @@ try {
       assert.equal((await api('PATCH', `/api/spaces/${ctx.trip}`, { name: 'Lisbon', call: null })).status, 200);
     });
 
-    await test(`a moderator (Mia, Lisbon) at ${width}: the controls are on the Settings tab; Save sends the call only`, async () => {
-      const tab = await open(`/?setup=${ctx.trip}#modules`, 'mia', width);
+    await test(`a moderator (Mia, Lisbon) at ${width}: the controls are on the Call tab; Save sends the call only`, async () => {
+      const tab = await open(`/?setup=${ctx.trip}#call`, 'mia', width);
       await tab.waitFor('#setup-call-layout');
       await sleep(1200);
       const c = await callControls(tab);
       assert.equal(c.layout.options.length, 5);
-      assert.ok(await tab.eval(`document.getElementById('setup-content-modules').contains(document.getElementById('setup-call-layout'))`), 'a moderator has no Space tab: the Settings tab');
-      assert.equal(await tab.eval(`!!document.getElementById('setup-tab-space')`), false);
+      assert.ok(await tab.eval(`document.getElementById('setup-content-call').contains(document.getElementById('setup-call-layout'))`), 'a moderator has the Call tab too');
+      assert.equal(await tab.eval(`!!document.getElementById('setup-tab-details')`), false, 'and no Details');
+      assert.equal(await tab.eval(`!!document.getElementById('setup-profile')`), false, 'Faces in the call is an owner\'s');
       if (width === 390) for (const k of ['join', 'position', 'layout']) assert.ok(c[k].height >= 44, `${k} is ${c[k].height}px tall`);
       assert.equal(await overflow(tab), false);
       await shot(tab, `moderator-${width}.png`);

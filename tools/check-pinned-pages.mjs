@@ -2,16 +2,16 @@
 /*
  * check-pinned-pages.mjs -- Workspaces, the page half (documentation/plans/plan-templates-redesign.md, step 8; decisions 9,
  * 35 and 36), in a real browser against a throwaway seeded server (tools/shots.mjs; no LiveKit):
- *   - Set up's Settings tab shows what the template opens a new person with (its layout, in plain words) as one read-only line with its reason ("This
+ *   - Set up's Layout tab shows what the template opens a new person with (its layout, in plain words) as one read-only line with its reason ("This
  *     comes from the <space>'s template."), no switches, for an owner (the admin) and a moderator, at 1280 and 390
- *   - Set up's Layouts section marks a shown Fixed Workspace as pinned (the Workspace and a hidden one carry no mark)
+ *   - Set up's Tabs in the bar section marks a shown Fixed Workspace as pinned (the Workspace and a hidden one carry no mark)
  *   - a member's tab bar: a pinned tab wears the pin and has the owner's sentence in its title; the page offers no hide for
  *     it (the Layout menu's Favorite and Unfavorite are not drawn for it: read in check-nav); a stale page's attempt is
  *     refused by the server with its sentence, which the page shows as it is
  *   - a first visit opens the template's Opens first: that layout is the tab shown, with the template's layout behind it
  *   - a phone (390): the line and the Layouts rows keep 44 px targets and the panel does not scroll sideways
  * Run it under the shared browser lock. With no Chromium it says SKIPPED (set CHROME_PATH); that is not a pass.
- *   - the Layout menu (in Set up's Modules tab): a pinned row wears the pin and its ... has no Favorite or Unfavorite
+ *   - the Layout menu (the Layout button's popover): a pinned row wears the pin and its ... has no Favorite or Unfavorite
  * PINNED_PAGES_SHOTS=<dir> writes the screenshots it takes.
  */
 import fs from 'node:fs';
@@ -96,13 +96,11 @@ try {
     return tab;
   };
   const shot = async (tab, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, name), await tab.shoot(false)); } };
+  // Set up's Layout tab, by its address (at 390 the six tabs fold some into the "...").
   const settingsTab = async (tab) => {
-    if (await tab.eval(`innerWidth <= 700`)) await tab.click('#nav-toggle'), await sleep(500); // a phone: the bar's tools are behind the menu button
-    await tab.click('#setup');
-    await tab.waitFor('.setup-tab');
-    await sleep(900);
-    await tab.click('#setup-tab-modules');
-    await sleep(1200);
+    await tab.cdp.send('Page.navigate', { url: `${server.base}/?setup=${ctx.trip}#layout` }, tab.sid);
+    await tab.waitFor('#setup-content-layout:not([hidden]) #setup-layout-rows');
+    await sleep(1500);
   };
   const readLine = (tab) => tab.eval(`({ text: document.getElementById('setup-opens-with')?.textContent || '', tag: document.getElementById('setup-opens-with')?.tagName, controls: document.querySelectorAll('#setup-opens-with input, #setup-opens-with button, #setup-opens-with [role=switch]').length, why: document.getElementById('setup-opens-with-hint')?.textContent || '', oldList: Boolean(document.querySelector('.opens-with-list')), noSideways: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1 })`);
 
@@ -185,14 +183,10 @@ try {
     await shot(tab, 'tab-bar-1280.png');
   });
   await test('the Layout menu: a pinned layout\'s row has the pin, and its ... has Rename and Change icon but no Favorite or Unfavorite', async () => {
-    const tab = await inSpace('admin', 1280); // the Layout menu is Set up's Modules tab
-    await tab.click('[data-layout-tab=workspace]'); // the first visit is Documents, whose Modules tab has its own switches
-    await sleep(800);
-    await tab.click('#setup');
-    await tab.waitFor('#space-setup .setup-tab');
-    await sleep(2500);
-    await tab.waitFor('#space-setup .host-menu-item');
-    await sleep(500);
+    const tab = await inSpace('admin', 1280); // the Layout menu is the Layout button's popover, in any workspace
+    await tab.click('#layout-menu');
+    await tab.waitFor('body > .host-menu .host-menu-item');
+    await sleep(1200);
     const rows = await tab.eval(`[...document.querySelectorAll('.host-menu-item[role=menuitemradio]')].map((b) => ({ label: b.querySelector('.host-menu-label')?.textContent.trim(), mark: Boolean(b.querySelector('.host-menu-mark')), more: Boolean(b.parentElement?.querySelector('.host-menu-more')) }))`);
     const cal = rows.find((r) => r.label === 'Calendar');
     assert.ok(cal && cal.mark, 'Calendar is pinned: its row wears a mark');

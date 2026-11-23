@@ -17,16 +17,14 @@ const FRONT = `(document.querySelector('.fv-win.is-front .mf-titlebar-title') ||
 const SENTENCE = 'Close a window to open another.';
 
 // A space no longer opens with a module (its template decides), so a check that needs the Vault on the canvas opens it as a person
-// does: Set up, the tab of modules (id show), the Vault's switch.
+// does: the Layout button's menu, Open for you, the Vault's switch.
 async function openVault(tab) {
   if (await tab.eval(`!!__q('[data-module-root=vault]')`)) return;
-  await tab.click('#setup');
-  await tab.waitFor('#setup-tab-show');
-  await tab.click('#setup-tab-show');
-  await tab.waitFor('#setup-content-show .host-menu-item', 'Vault', 15000);
-  await tab.click('#setup-content-show .host-menu-item', 'Vault');
+  await tab.click('#layout-menu');
+  await tab.waitFor('body > .host-menu .host-menu-item', 'Vault', 15000);
+  await tab.click('body > .host-menu .host-menu-item', 'Vault');
   await tab.waitFor('[data-module-root=vault] >>> .vt-row', '', 15000);
-  await tab.click('#setup'); // the panel away again
+  await tab.click('#layout-menu'); // the menu away again
   await sleep(500);
 }
 
@@ -286,7 +284,7 @@ export async function viewerCases({ S, api, say, fail, browser, until, open, dat
       await tab.eval(`__q('[data-module-root=vault] >>> .vt-row .sdk-open', 'plain.pdf').click()`);
       const winOn = await until(tab, WINS, (v) => v === 1, 8000);
       if (winOn !== 1) fail('a file did not open in a window over the space\'s canvas');
-      await tab.click('#setup');
+      await tab.click('#layout-menu');
       await until(tab, `[...document.querySelectorAll('[role=menuitem]')].some((e) => /Close all/.test(e.innerText))`, Boolean);
       const hasClose = await tab.eval(`[...document.querySelectorAll('[role=menuitem]')].some((e) => /Close all/.test(e.innerText))`);
       if (!hasClose) fail('the Layout menu has no Close all while a file window is open');

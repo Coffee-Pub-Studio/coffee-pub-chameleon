@@ -1,4 +1,4 @@
-// A space's own template (documentation/plans/plan-space-templates.md, step 3): the choice in Set up's Space tab and in
+// A space's own template (documentation/plans/plan-space-templates.md, step 3): the choice in Set up's Details tab and in
 // Add <space> (public/space-add.js). The templates are the ones this environment offers (GET /api/environment/template's `choices`; the hidden
 // ones are not in it), and the first choice, "Same as the <environment>", clears the space's own (template: null).
 // The choice is hidden everywhere while the owner has the switch off (branding.spaceTemplates).

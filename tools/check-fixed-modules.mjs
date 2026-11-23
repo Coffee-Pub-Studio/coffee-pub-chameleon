@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /**
- * The Modules tab by kind of workspace (plan-workspaces.md, decisions 33 to 35, step 12): a Fixed Workspace (Conference, Calendar,
- * Map, Whiteboards, Documents) shows only the switches from `settings` in GET /api/spaces/:id/layouts, or "There is nothing to
- * configure here."; the Workspace (a Customizable Workspace) keeps the canvas menu.
- *   - pure helpers (no browser)
- *   - live: Calendar shows the To-do switch and toggling it persists (read back from the server); a member sees it disabled with
- *     the reason; Conference shows the message and no canvas controls; the Workspace is unchanged
+ * The Fixed Workspaces' switches in Set up (plan-workspaces.md, decisions 35 and 38): the module settings a Fixed Workspace offers
+ * (server/fixed-workspaces.js, answered as `settings` in GET /api/spaces/:id/layouts) are on the Modules tab, under their module's
+ * section, whatever workspace is shown; the question is no longer asked per workspace, so there is no "nothing to configure".
+ *   - pure helpers (no browser): fixedRows, fixedSwitchReason
+ *   - live: the owner finds the To-do switch under To-do on the Modules tab, its change is a draft (the tab's dot) that Save
+ *     writes (read back from the server); a moderator sees it disabled with the reason; the panel has no `show` tab and no
+ *     canvas menu, in the Workspace or in Calendar
  * With no Chromium it says SKIPPED (set CHROME_PATH); that is not a pass. Run it under the browser lock when machines share.
  */
 import fs from 'node:fs';
@@ -15,39 +16,35 @@ import assert from 'node:assert/strict';
 
 const { bootSeeded, stopServer, freePort, findBrowser, launch, Tab, sleep } = await import('./shots.mjs');
 
-// --- the Modules tab by kind of workspace: the pure helpers (no browser) ---
+// --- the Fixed Workspaces' switches: the pure helpers (no browser) ---
 {
-  const { fixedWorkspaceOf, modulesTabView, fixedSwitchReason, NOTHING_TO_CONFIGURE, FIXED_WORKSPACES } = await import('../public/space-setup.js');
-  assert.equal(NOTHING_TO_CONFIGURE, 'There is nothing to configure here.');
+  const setup = await import('../public/space-setup.js');
+  const { fixedRows, fixedSwitchReason } = setup;
+  for (const gone of ['fixedWorkspaceOf', 'modulesTabView', 'NOTHING_TO_CONFIGURE', 'FIXED_WORKSPACES']) assert.equal(setup[gone], undefined, `${gone} is gone with the old Modules tab`);
   const todo = { module: 'todo', moduleName: 'To-do', key: 'inCalendar', label: 'Show in the Calendar', type: 'boolean', scope: 'environment', value: true, canChange: true, help: 'Also in the side panel.' };
   const system = [
     { id: 'workspace', name: 'Workspace' },
     { id: 'calendar', name: 'Calendar', settings: [todo] },
     ...['map', 'conference', 'whiteboard', 'documents', 'schedule'].map((id) => ({ id, name: id, settings: [] })),
   ];
-  assert.deepEqual([...FIXED_WORKSPACES].sort(), ['calendar', 'conference', 'documents', 'map', 'schedule', 'whiteboard']);
-  assert.equal(fixedWorkspaceOf(system, 'workspace'), null, 'the Workspace is a Customizable Workspace');
-  assert.equal(fixedWorkspaceOf(system, 'some-saved-layout'), null, 'a saved layout is a Customizable Workspace');
-  assert.equal(fixedWorkspaceOf([], 'calendar'), null, 'no entry yet: the canvas menu, not a guess');
-  assert.equal(fixedWorkspaceOf([{ id: 'calendar' }], 'calendar'), null, 'an entry with no settings key is not a Fixed Workspace answer');
-  assert.equal(fixedWorkspaceOf(system, 'calendar').id, 'calendar');
-  const custom = modulesTabView(null);
-  assert.deepEqual([custom.fixed, custom.canvasControls, custom.rows.length, custom.empty], [false, true, 0, ''], 'a Customizable Workspace keeps the canvas controls');
-  const cal = modulesTabView(fixedWorkspaceOf(system, 'calendar'));
-  assert.deepEqual([cal.fixed, cal.canvasControls, cal.heading, cal.empty], [true, false, 'Calendar', ''], 'Calendar: switches, no canvas controls, no message');
-  assert.equal(cal.rows.length, 1);
-  assert.deepEqual([cal.rows[0].id, cal.rows[0].label, cal.rows[0].on, cal.rows[0].disabled, cal.rows[0].note], ['todo:inCalendar', 'Show in the Calendar', true, false, 'Also in the side panel.']);
-  const cannot = modulesTabView({ ...system[1], settings: [{ ...todo, canChange: false, value: false }] }).rows[0];
-  assert.deepEqual([cannot.on, cannot.disabled], [false, true], 'a person who may not change it sees it off or on as it is, disabled');
+  const words = (w) => ({ space: 'trip', environment: 'agency' })[w] || w;
+  const rows = fixedRows(system, words);
+  assert.equal(rows.length, 1, 'one switch: To-do in the Calendar; the others offer none');
+  assert.deepEqual([rows[0].id, rows[0].module, rows[0].moduleName, rows[0].label, rows[0].on, rows[0].disabled, rows[0].scope], ['todo:inCalendar', 'todo', 'To-do', 'Show in the Calendar', true, false, 'environment']);
+  assert.deepEqual(rows[0].where, ['Calendar'], 'it says which tab shows it');
+  assert.equal(rows[0].note, 'Also in the side panel. It applies to every trip in the agency.', 'an environment setting says how far it reaches');
+  const cannot = fixedRows([{ ...system[1], settings: [{ ...todo, canChange: false, value: false }] }])[0];
+  assert.deepEqual([cannot.on, cannot.disabled], [false, true], 'a person who may not change it sees it as it is, disabled');
   assert.equal(cannot.note, `Also in the side panel. ${fixedSwitchReason('environment')}`, 'the reason follows the help');
   assert.equal(fixedSwitchReason('environment'), 'Only the owner can change this.');
-  for (const id of ['map', 'conference', 'whiteboard', 'documents', 'schedule']) {
-    const v = modulesTabView(fixedWorkspaceOf(system, id));
-    assert.deepEqual([v.fixed, v.canvasControls, v.rows.length, v.empty], [true, false, 0, NOTHING_TO_CONFIGURE], `${id}: the message, nothing else`);
-  }
-  const odd = modulesTabView({ id: 'calendar', settings: [{ ...todo, type: 'choice' }, { ...todo, module: 5 }, null] });
-  assert.equal(odd.rows.length, 0, 'only boolean settings with a module and a key are drawn');
-  assert.equal(modulesTabView({ ...system[1], settings: [{ ...todo, label: '<img src=x onerror=alert(1)>' }] }).rows[0].label, '<img src=x onerror=alert(1)>', 'text stays text here; the page sets it with textContent');
+  assert.equal(fixedSwitchReason('space'), 'Only the owner or the moderator can change this.');
+  const twice = fixedRows([{ id: 'calendar', name: 'Calendar', settings: [todo] }, { id: 'map', name: 'Map', settings: [todo] }]);
+  assert.equal(twice.length, 1, 'a setting two workspaces offer is one switch');
+  assert.deepEqual(twice[0].where, ['Calendar', 'Map']);
+  assert.equal(fixedRows([{ id: 'workspace', settings: [todo] }]).length, 0, 'the Workspace is no Fixed Workspace');
+  assert.equal(fixedRows([{ id: 'calendar', settings: [{ ...todo, type: 'choice' }, { ...todo, module: 5 }, null] }]).length, 0, 'only boolean settings with a module and a key are drawn');
+  assert.equal(fixedRows([{ ...system[1], settings: [{ ...todo, label: '<img src=x onerror=alert(1)>' }] }])[0].label, '<img src=x onerror=alert(1)>', 'text stays text here; the page sets it with textContent');
+  assert.deepEqual(fixedRows(null), []);
 }
 
 const bin = findBrowser();
@@ -93,7 +90,7 @@ try {
     await sleep(900);
   };
 
-  // --- the Modules tab of a Fixed Workspace (step 12) ---
+  // --- the Fixed Workspaces' switches on the Modules tab ---
   const cookieOf = (as) => cookies[as].map((c) => `${c.name}=${c.value}`).join('; ');
   const layoutsAs = async (as) => (await fetch(`${server.base}/api/spaces/${ctx.trip}/layouts`, { headers: { cookie: cookieOf(as) } })).json();
   const pressTab = async (tab, id) => {
@@ -102,76 +99,69 @@ try {
     await sleep(1200);
   };
   const modulesTab = async (tab) => {
-    await tab.waitFor('#setup-show .host-menu-item, #setup-fixed-heading');
-    return modulesTabNow(tab);
+    await tab.click('#setup-tab-modules');
+    await tab.waitFor('#setup-fixed-modules [data-fixed]', '', 10000);
+    return tab.eval(`(() => {
+      const box = document.querySelector('[data-fixed="todo:inCalendar"]');
+      const row = box.closest('.sdk-choice-row');
+      const block = box.closest('[data-fixed-block]');
+      return {
+        tabs: [...document.querySelectorAll('#space-setup .setup-tab')].map((b) => b.dataset.tab),
+        label: row.querySelector('.sdk-choice-label').textContent,
+        note: row.querySelector('.sdk-choice-desc')?.textContent || '',
+        where: block.querySelector('.setup-subheading')?.textContent || '',
+        under: block.closest('.module-settings-card')?.querySelector('.module-settings-name')?.textContent.trim() || '',
+        on: box.checked, disabled: box.disabled,
+        canvasMenu: Boolean(document.querySelector('#space-setup .host-menu')),
+        empty: /nothing to configure/i.test(document.getElementById('space-setup').textContent),
+      };
+    })()`);
   };
-  const modulesTabNow = (tab) => tab.eval(`(() => {
-    const holder = document.getElementById('setup-show');
-    const vis = (e) => Boolean(e) && e.getClientRects().length > 0;
-    return {
-      heading: document.getElementById('setup-fixed-heading')?.textContent || null,
-      empty: document.getElementById('setup-fixed-empty')?.textContent || null,
-      switches: [...document.querySelectorAll('#setup-fixed-switches .sdk-choice-row')].map((r) => ({ label: r.querySelector('.sdk-choice-label').textContent, note: r.querySelector('.sdk-choice-desc')?.textContent || '', on: r.querySelector('input').checked, disabled: r.querySelector('input').disabled })),
-      canvasMenu: Boolean(holder.querySelector('.host-menu-item')), arrange: [...holder.querySelectorAll('.host-menu-item')].some((e) => /Arrange/.test(e.textContent)), layouts: [...holder.querySelectorAll('.host-menu-item, .host-menu-heading')].some((e) => /Layouts/.test(e.textContent)),
-      hintShown: vis(document.getElementById('setup-show-hint')),
-    };
-  })()`);
-  await test('Workspace: the Modules tab is the canvas menu, as before', async () => {
-    const tab = await inSpace('admin', 1280);
-    await openSetup(tab);
-    const m = await modulesTab(tab);
-    assert.equal(m.canvasMenu, true);
-    assert.equal(m.heading, null);
-    assert.equal(m.switches.length, 0);
-  });
-  await test('Calendar: the owner sees only the To-do switch; no Arrange, no Layouts; the switch writes inCalendar and the Workspace gets the menu back', async () => {
-    const tab = await inSpace('admin', 1280);
-    await pressTab(tab, 'calendar');
-    await openSetup(tab);
-    const m = await modulesTab(tab);
-    assert.equal(m.heading, 'Calendar');
-    assert.equal(m.canvasMenu, false, 'no canvas menu rows');
-    assert.equal(m.hintShown, false, 'not the "open for you" hint');
-    assert.equal(m.switches.length, 1);
-    assert.equal(m.switches[0].label, 'Show in the Calendar');
-    assert.equal(m.switches[0].disabled, false);
-    assert.equal(m.empty, null);
-    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, 'fixed-calendar-owner.png'), await tab.shoot(false)); }
-    await tab.eval(`document.querySelector('#setup-fixed-switches input').click()`);
-    await sleep(900);
-    const layouts = (await layoutsAs('admin')).system.find((l) => l.id === 'calendar').settings[0].value;
-    assert.equal(layouts, false, 'the answer says the switch is off now');
-    assert.equal(await tab.eval(`document.getElementById('setup-fixed-status').textContent`), 'Saved.');
-    assert.equal(await tab.eval(`document.querySelector('#setup-fixed-switches input').checked`), false);
-    await tab.eval(`document.querySelector('#setup-fixed-switches input').click()`); // back on, for the next test
-    await sleep(700);
-    await pressTab(tab, 'workspace');
-    const back = await modulesTab(tab);
-    assert.equal(back.canvasMenu, true, 'the Workspace has the canvas menu again');
-    assert.equal(back.heading, null);
-  });
-  await test('Calendar: a member sees the switch disabled, with the reason', async () => {
-    const tab = await inSpace('sam', 1280);
-    await pressTab(tab, 'calendar');
-    await openSetup(tab);
-    const m = await modulesTab(tab);
-    assert.equal(m.switches.length, 1);
-    assert.equal(m.switches[0].disabled, true);
-    assert.ok(m.switches[0].note.endsWith('Only the owner can change this.'), m.switches[0].note);
-    if (SHOTS) fs.writeFileSync(path.join(SHOTS, 'fixed-calendar-member.png'), await tab.shoot(false));
-  });
-  for (const id of ['conference']) {
-    await test(`${id}: the Modules tab says there is nothing to configure, and has no canvas controls`, async () => {
+  for (const where of ['workspace', 'calendar']) {
+    await test(`${where}: the owner finds the To-do switch under To-do on the Modules tab; no show tab, no canvas menu, no "nothing to configure"`, async () => {
       const tab = await inSpace('admin', 1280);
-      await pressTab(tab, id);
+      if (where !== 'workspace') await pressTab(tab, where);
       await openSetup(tab);
       const m = await modulesTab(tab);
-      assert.equal(m.empty, 'There is nothing to configure here.');
-      assert.equal(m.switches.length, 0);
-      assert.equal(m.canvasMenu, false);
-      if (SHOTS) fs.writeFileSync(path.join(SHOTS, `fixed-${id}-owner.png`), await tab.shoot(false));
+      assert.ok(!m.tabs.includes('show'), `no show tab: ${m.tabs}`);
+      assert.equal(m.label, 'Show in the Calendar');
+      assert.equal(m.under, 'To-do', 'under its module\'s section');
+      assert.equal(m.where, 'In the Calendar tab');
+      assert.equal(m.disabled, false);
+      assert.equal(m.canvasMenu, false, 'the personal controls are the Layout menu\'s, not Set up\'s');
+      assert.equal(m.empty, false);
     });
   }
+  await test('the switch is a draft: the Modules tab\'s dot, then Save writes inCalendar; Cancel would drop it', async () => {
+    const tab = await inSpace('admin', 1280);
+    await openSetup(tab);
+    await modulesTab(tab);
+    await tab.eval(`document.querySelector('[data-fixed="todo:inCalendar"]').click()`);
+    await sleep(300);
+    assert.equal(await tab.eval(`!document.querySelector('#setup-tab-modules .setup-tab-dot').hidden`), true, 'the Modules tab shows unsaved changes');
+    assert.equal((await layoutsAs('admin')).system.find((l) => l.id === 'calendar').settings[0].value, true, 'nothing is written before Save');
+    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, 'fixed-modules-owner.png'), await tab.shoot(false)); }
+    await tab.click('#setup-save');
+    await sleep(1500);
+    assert.equal(await tab.eval(`document.getElementById('space-setup').hidden`), true, 'a full save closes the panel');
+    assert.equal((await layoutsAs('admin')).system.find((l) => l.id === 'calendar').settings[0].value, false, 'Save wrote it');
+    await openSetup(tab);
+    const again = await modulesTab(tab);
+    assert.equal(again.on, false, 'drawn as saved');
+    await tab.eval(`document.querySelector('[data-fixed="todo:inCalendar"]').click()`); // back on, for the next test
+    await tab.click('#setup-save');
+    await sleep(1500);
+    assert.equal((await layoutsAs('admin')).system.find((l) => l.id === 'calendar').settings[0].value, true);
+  });
+  await test('a moderator sees the switch disabled, with the reason', async () => {
+    const tab = await inSpace('mia', 1280);
+    await openSetup(tab);
+    const m = await modulesTab(tab);
+    assert.deepEqual(m.tabs, ['phases', 'call', 'layout', 'modules'], 'a moderator\'s tabs');
+    assert.equal(m.disabled, true);
+    assert.ok(m.note.endsWith('Only the owner can change this.'), m.note);
+    if (SHOTS) fs.writeFileSync(path.join(SHOTS, 'fixed-modules-moderator.png'), await tab.shoot(false));
+  });
 
 } finally {
   for (const t of tabs) await t.close?.().catch(() => {});

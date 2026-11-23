@@ -172,7 +172,7 @@ try {
     const list = await system(token);
     same(entry(list, 'calendar').settings, offered(canChange), `${who}: Calendar offers the To-do switch (canChange ${canChange})`);
     for (const id of ['conference', 'whiteboard', 'documents', 'schedule']) same(entry(list, id).settings, [], `${who}: ${id} offers nothing: an empty list`);
-    ok(!('settings' in entry(list, 'workspace')), `${who}: the Workspace has no settings: its Modules tab is the canvas menu`);
+    ok(!('settings' in entry(list, 'workspace')), `${who}: the Workspace has no settings: it is no Fixed Workspace`);
     same(list.map((l) => l.id), ['workspace', 'calendar', 'conference', 'whiteboard', 'documents', 'schedule'], `${who}: the layouts are as before, Projects last`);
   }
   for (const [who, query, extra] of [['guest link', asGuest, {}], ['door guest', `?space=${A}`, { cookie: doorCookie }]]) {
@@ -212,7 +212,7 @@ try {
   const patched = (await expect('rename Calendar', 200, 'PATCH', `${L}/system/calendar`, { token: T.member, body: { name: 'Plans' } })).json.layout;
   same(patched.settings, offered(false), "a person's own change answers the layout with its settings");
   await expect('the owner hides Calendar', 200, 'PATCH', `/api/spaces/${A}`, { token: T.owner, body: { tabs: { hide: ['calendar'] } } });
-  same(entry(await system(T.member), 'calendar').settings.length, 1, 'a hidden tab still has its Modules tab');
+  same(entry(await system(T.member), 'calendar').settings.length, 1, 'a hidden tab still offers its switch (on the Modules tab of Set up)');
   await expect('and shows it', 200, 'PATCH', `/api/spaces/${A}`, { token: T.owner, body: { tabs: null } });
 
   // The closed-space rules (#762) are as before: a closed space's layouts are not read by those outside it.

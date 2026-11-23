@@ -3,7 +3,7 @@ import { Room, RoomEvent, Track, createLocalTracks } from '/lib/livekit-client.e
 import { loadBranding, api, noticeToast, renderTopbar, setTopbarLocation, setPresentSpace, setInSpace, openSwitcher as openSpaceSwitcher, refreshNotices, iconClasses, spaceCrumbIcon, hasOwnerRights, word, verb, applyWords, followTheme, getIcons, setSpaceLook, clearSpaceLook } from '/brand.js';
 import { anchorSegments, layoutTabs, tabOverflow, layoutIconChoices, iconMatches, gridStep, pageOpens, isHere, hereCount, asidePlaceholder, whereWords, offStream, mayMakeSpace } from '/primary-nav.js';
 import { openPhaseSheet, FACT_CHIPS_HIDDEN_AT } from '/phase-sheet.js';
-import { createSpaceSetup, setupAddress, configurationLabel, fixedWorkspaceOf } from '/space-setup.js';
+import { createSpaceSetup, setupAddress, configurationLabel } from '/space-setup.js';
 import { openSpaceAdd } from '/space-add.js';
 import { renderModuleSettings } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
@@ -3106,7 +3106,7 @@ nav.register({ id: 'aside-rejoin', bar: 'primary', zone: 'right', group: 'aside'
 // hasOwnerRights, or user.spaces[<id>].permissions.moderator). Pressing it puts `body.setting-up` on, shows the tool
 // pressed, turns the space's name in the bar into an input (in the switcher's place, placeSetupName below) and opens
 // the side panel with its tabs (a full-screen sheet on a phone); pressing it again is Cancel. The address fragment
-// picks the tab (#show, #space, #members, #phases, #modules: the tabs Modules, the space's own, Members, Phases and Settings) and follows it while the panel is open. The panel's
+// picks the tab (#details, #members, #phases, #call, #layout, #modules; plan-workspaces.md, decision 38) and follows it while the panel is open. The panel's
 // Save and Cancel are an action bar locked to its bottom (action-bar.js; not in the top bar): Save sends what changed,
 // in order, and leaves the mode; Cancel and Escape leave it and drop the edits, asking "Discard your changes?" first
 // when something was edited; a click outside does nothing. A member has no Set up. /?setup=<id>#<tab> opens it from an
@@ -3122,13 +3122,9 @@ setupNameInput.autocomplete = 'off';
 setupNameInput.setAttribute('aria-label', 'Name');
 const isModeratorHere = () => Boolean(currentSpace && me?.spaces?.[currentSpace.id]?.permissions?.moderator);
 const canSetUp = () => Boolean(currentSpace) && !inAside() && !viewingHome && !guestToken && Boolean(me) && me.role !== 'guest' && (hasOwnerRights(me) || isModeratorHere());
-// The Modules tab (id `show`; the modules' switches, Arrange, Layouts: canvas.mountMenu) is for everyone in a space wider than a phone, a
-// guest too; so Set up's button is, and a person who may not set up has that one tab and Close.
-const canShowTab = () => Boolean(currentSpace) && !viewingHome && !phoneWidth();
-const canOpenSetup = () => canSetUp() || canShowTab();
-const setupShown = () => canOpenSetup(); // shown while open too, pressed (nav.setActive in enterSetup and leaveSetup)
+const setupShown = () => canSetUp(); // shown while open too, pressed (nav.setActive in enterSetup and leaveSetup); a member has none
 // The panel's tabs in the address: the fragment it opened with, and the tab shown while it is open; gone with it.
-const SETUP_TAB_HASH = /^#(show|space|members|phases|modules)$/;
+const SETUP_TAB_HASH = /^#(details|members|phases|call|layout|modules)$/;
 function setupTabInAddress(tab) {
   const keep = location.pathname + location.search;
   if (tab) history.replaceState(history.state, '', `${keep}#${tab}`);
@@ -3151,7 +3147,7 @@ function placeSetupSide() {
 }
 // `tab`: the tab asked for (an address's fragment, or /?setup=<id>#<tab>'s); the address's own fragment when not given.
 function enterSetup({ tab = location.hash } = {}) {
-  if (!canOpenSetup() || settingUp) return;
+  if (!canSetUp() || settingUp) return;
   const space = phaseSpaceRecord() || currentSpace;
   settingUp = true;
   document.body.classList.add('setting-up');
@@ -3160,11 +3156,9 @@ function enterSetup({ tab = location.hash } = {}) {
   nav.setActive('setup', true);
   const opened = spaceSetup.open({
     space,
-    owner: canSetUp() && hasOwnerRights(me),
-    moderator: canSetUp() && isModeratorHere(),
-    show: canShowTab() ? (holder) => canvas.mountMenu(holder) : null,
-    fixedWorkspace: () => fixedWorkspaceOf(layoutList.system, currentLayoutTab), // a Fixed Workspace shown: its own switches replace the canvas menu
-    onFixedSaved: () => refreshLayouts(), // the values the page holds follow the switch
+    owner: hasOwnerRights(me),
+    moderator: isModeratorHere(),
+    onFixedSaved: () => refreshLayouts(), // a Fixed Workspace's switch was saved (Modules tab): the values the page holds follow
     phases: templatePhases, // drawn inline in the phases tab, a draft saved with Save (the chip's sheet is its own)
     rule: phaseRule(),
     today: phaseToday(),
@@ -3277,9 +3271,23 @@ document.addEventListener('keydown', (event) => {
 // Set up, wider than a phone, sits after your picture and before the window controls (`place: 'end'`, in their group
 // 'space', so no divider between them; Thomas, 2026-10-13: "Settings should go right before the window controls"). On a
 // phone `place` is not read and it keeps its place in the menu (groupOrder 85, before the bell's 90 and you 999).
-nav.register({ id: 'setup', bar: 'primary', zone: 'right', group: 'space', groupOrder: 85, order: 1, place: 'end', icon: 'sliders', label: setupLabel(), toggleable: true, active: false, visible: setupShown, onClick: () => (settingUp ? spaceSetup.cancel() : enterSetup({ tab: '#show' })) });
+nav.register({ id: 'setup', bar: 'primary', zone: 'right', group: 'space', groupOrder: 85, order: 1, place: 'end', icon: 'sliders', label: setupLabel(), toggleable: true, active: false, visible: setupShown, onClick: () => (settingUp ? spaceSetup.cancel() : enterSetup({ tab: '' })) });
+// The Layout button (plan-workspaces.md, decision 38; plan-layout-menu.md): just before Set up, wider than a phone, for
+// everyone in a space or an aside, a guest and a member too. It opens the Layout menu under it (canvas.openMenu: the
+// page's shared menu, a popover with no Save): Open for you, Arrange, Open files and the Layouts section
+// (layoutMenuItems below), each acting at once on this person's own canvas. Its count is the unread in modules not shown
+// (canvas.js update). On a phone the tab bar is the list and this button is not drawn. Folded into the top bar's "...",
+// the menu opens under the "...".
+const layoutButtonShown = () => Boolean(currentSpace) && !viewingHome && !phoneWidth();
+function openLayoutMenu() {
+  const own = nav.elementOf('layout-menu');
+  const anchor = own && own.getClientRects().length ? own : nav.elementOf('topbar-more') || own;
+  canvas.openMenu(anchor);
+}
+nav.register({ id: 'layout-menu', bar: 'primary', zone: 'right', group: 'space', groupOrder: 85, order: 0.5, place: 'end', icon: 'object-group', label: verb('layout'), visible: layoutButtonShown, onClick: () => openLayoutMenu() });
+nav.elementOf('layout-menu')?.setAttribute('aria-haspopup', 'menu');
 // Set up's tooltip and name for a screen reader: "<space word> Configuration" (Room Configuration, Trip Configuration), in
-// the template's word; in an aside, where it holds only the Modules tab, the aside's word. Home has no Set up button.
+// the template's word. Home and an aside have no Set up button.
 // Registered again once the environment's words are in, and when the page enters a space or an aside.
 function setupLabel() {
   return configurationLabel(word, inAside());
@@ -3287,6 +3295,8 @@ function setupLabel() {
 function paintSetupLabel() {
   const tool = nav.get('setup');
   if (tool && tool.label !== setupLabel()) nav.register({ ...tool, label: setupLabel() });
+  const layout = nav.get('layout-menu'); // the Layout button's name is the environment's `layout` verb
+  if (layout && layout.label !== verb('layout')) nav.register({ ...layout, label: verb('layout') });
 }
 // --- end Set up ---
 
@@ -3477,8 +3487,8 @@ function layoutRowItems(layoutId, anchor = null) {
   const layout = findLayout(layoutId);
   if (!layout) return [];
   const shared = layoutList.shared.includes(layout);
-  // The confirm opens by the row's "..." that was pressed; if that is gone (the list drew again), the Set up button.
-  const trigger = () => (anchor && anchor.isConnected ? anchor : nav.elementOf('setup'));
+  // The confirm opens by the row's "..." that was pressed; if that is gone (the list drew again), the Layout button.
+  const trigger = () => (anchor && anchor.isConnected ? anchor : nav.elementOf('layout-menu'));
   const entries = [];
   if (mayFavorite()) {
     entries.push(isFavorite(layoutId)
@@ -3599,7 +3609,7 @@ function openLayoutSheet({ title, name = '', emptyName = '', onSave }) {
     hint.hidden = false;
     input.setAttribute('aria-describedby', hint.id);
   }
-  const opener = nav.elementOf('setup');
+  const opener = nav.elementOf('layout-menu'); // the sheet was opened from the Layout menu
   let failed = false; // the last save was refused (sheet.error)
   const bar = actionBar({
     submit: true,
@@ -3714,8 +3724,8 @@ function startRename(layoutId) {
 // { name, shared: true, shape, areas } (POST), or on Edit only what changed (PUT: the name, and the shape with its areas
 // together). A refusal is filed where it belongs: the sentences about the shape and its areas under the shape, in the
 // picker; the rest (the name, the limit of 10, a refused right) under the name. Every sentence is shown as text.
-// `layout` is the shared layout to edit, or null for a new one. Opened from the Layouts section, which takes the keyboard
-// back when the sheet closes (backToLayouts: the row it was opened from). A new layout is shown at once (its tab is
+// `layout` is the shared layout to edit, or null for a new one. Opened from the Layout menu's Layouts section, which opens
+// again when the sheet closes, the keyboard on the row it was opened from (backToLayouts). A new layout is shown at once (its tab is
 // pressed); an edited one again if it is shown now. A module an area names that is off here, or that this person can't
 // open, is named as the catalog names it (moduleNameHere), never offered. Save is off, and Escape asks nothing, until
 // something is changed: the start is the record as the picker read it (a stored arrangement it had to move is that).
@@ -3723,6 +3733,7 @@ function openShapeSheet(layout = null) {
   const id = layoutSpaceId();
   if (!id || !layoutList.canShare) return;
   const editing = isShapeLayout(layout) ? layout : null;
+  let backTo = editing ? { more: editing.name } : { label: 'New layout for everyone' };
   const doc = canvasDoc();
   const title = editing ? `Edit ${editing.name}` : 'New layout for everyone';
   const startName = editing ? editing.name : '';
@@ -3768,7 +3779,6 @@ function openShapeSheet(layout = null) {
   dlg.querySelector('#layout-shape-picker').appendChild(picker.el);
   const startRecord = picker.value(); // after the picker's read (carryAreas), so an unchanged sheet is not dirty
   // Where the keyboard goes back to: Edit's row (its "..."), else New layout for everyone.
-  let backTo = editing ? { more: editing.name } : { label: 'New layout for everyone' };
   let savedNow = false;
   // Scrolling the sheet closes an open area menu (the sheet's body scrolls here, not the picker's).
   dlg.querySelector('.layout-form-body').addEventListener('scroll', () => closeHostMenu(), { passive: true });
@@ -3819,7 +3829,7 @@ function openShapeSheet(layout = null) {
       if (layoutSpaceId() !== id) return true;
       if (!editing) pressLayoutTab(saved.id);
       else if (currentLayoutTab === saved.id) pressLayoutTab(saved.id, null, { remember: false });
-      setTimeout(() => backToLayouts(backTo), 0); // once the section is drawn again
+      setTimeout(() => backToLayouts(backTo), 0); // once the list is drawn again
       return true;
     },
   });
@@ -3842,20 +3852,24 @@ function openShapeSheet(layout = null) {
   input.focus();
   if (editing) input.select();
 }
-// The keyboard back in the Layouts section (Set up > Modules) after the shape sheet: the row it was opened from, found
-// again by its words since the list is drawn anew (`more`: a layout's "..." by the layout's name; `label`: an entry),
-// else the section's first entry, else the Set up button.
+// The keyboard back in the Layout menu after the shape sheet: the menu closed as its entry opened the sheet, so it opens again
+// under its button (the Layout button, else the top bar's "..." it folded into), and the keyboard goes to the row the sheet
+// was opened from, found by its words since the list is drawn anew (`more`: a layout's "..." by the layout's name;
+// `label`: an entry), else the menu's first entry, else the button.
 function backToLayouts({ more = '', label = '' } = {}) {
-  const box = document.getElementById('setup-show');
-  const shown = (b) => b.getClientRects().length > 0;
+  const shown = (b) => Boolean(b) && b.isConnected && b.getClientRects().length > 0;
+  const own = nav.elementOf('layout-menu');
+  const button = shown(own) ? own : shown(nav.elementOf('topbar-more')) ? nav.elementOf('topbar-more') : null;
+  if (!button) return;
+  if (!canvas.menuOpen()) openLayoutMenu();
+  const box = button.ownerDocument.querySelector('.host-menu:not(.host-menu-inline)');
   const rows = box ? [...box.querySelectorAll('.host-menu-item, .host-menu-more')].filter(shown) : [];
   const words = (b) => (b.querySelector('.host-menu-label')?.textContent || '').trim();
   const target = (more && rows.find((b) => b.classList.contains('host-menu-more') && b.getAttribute('aria-label') === `More for ${more}`))
     || (label && rows.find((b) => b.classList.contains('host-menu-item') && words(b) === label))
     || rows.find((b) => b.classList.contains('host-menu-item') && !b.disabled)
     || null;
-  const setup = nav.elementOf('setup');
-  (target || (setup && setup.isConnected && shown(setup) ? setup : null))?.focus();
+  (target || button).focus();
 }
 
 // Change icon (plan-layout-views.md, decision 4, "Icons" and step 4): a small sheet like the layout sheet, on the shared
@@ -3939,7 +3953,7 @@ function openIconSheet({ title, current = '', defaultIcon = '', onSave }) {
     if (search.value) { search.value = ''; search.dispatchEvent(new Event('input')); }
     pick(grid.querySelector(`[data-icon-choice="${CSS.escape(defaultIcon)}"]`), true);
   });
-  const opener = nav.elementOf('setup');
+  const opener = nav.elementOf('layout-menu'); // the sheet was opened from the Layout menu
   let failed = false;
   const bar = actionBar({
     submit: true,
@@ -4103,7 +4117,6 @@ function layoutTabList() {
 const layoutTabsWanted = () => oneBar() && !inAside() && !phoneWidth() && layoutTabList().length > 0;
 let layoutTabsDrawn = ''; // what the tabs show now, so an unchanged list keeps its buttons (and the keyboard on one)
 function renderLayoutTabs() {
-  if (spaceSetup.isOpen()) spaceSetup.redrawShow(); // the Modules tab follows the layout shown (a Fixed Workspace's switches, or the canvas menu)
   const list = layoutTabList();
   const key = JSON.stringify(list.map((t) => [t.id, t.icon, t.label, t.temp === true, t.pinned === true]));
   if (key !== layoutTabsDrawn) {
@@ -6536,7 +6549,7 @@ function updateCrumb() {
   const last = segs[segs.length - 1] || null;
   paintSpaceSwitcher(last, last ? iconOf(last) : spaceCrumbIcon(null));
   setInSpace(oneBar());
-  if (settingUp && !canOpenSetup()) spaceSetup.cancel(); // home over the space, an aside, a space left: Set up ends
+  if (settingUp && !canSetUp()) spaceSetup.cancel(); // home over the space, an aside, a space left: Set up ends
   placeSetupName(); // while setting up, the current segment is the name's input
   nav.draw('secondary');
   updatePhaseChip(); // the strip follows the breadcrumb: shown in a space, gone on home, in an aside and for a guest

@@ -278,7 +278,7 @@ test('no tag text goes through innerHTML, and the picker is the SDK\'s own piece
   assert.equal(/innerHTML|insertAdjacentHTML|outerHTML/.test(makeSrc.replace('tick.innerHTML = svg;', '')), false, 'makeTags (the one exception is the tick: the host\'s own check icon, never a tag\'s text)');
   assert.equal((makeSrc.match(/innerHTML/g) || []).length, 1, 'one innerHTML, for the icon');
   assert.equal(/innerHTML|insertAdjacentHTML/.test(slice('public/module-host.js', "    async 'tags.list'() {", "      return tag;\n    },")), false, 'the bridge');
-  const tagsSet = slice('public/space-setup.js', '  const TAG_TONES = [', '  // The Modules tab (id `show`)');
+  const tagsSet = slice('public/space-setup.js', '  const TAG_TONES = [', '  const TAB_HTML = {');
   assert.equal(/innerHTML|insertAdjacentHTML/.test(tagsSet.replace(/function tagsSectionHtml[\s\S]*?\n  }\n/, '')), false, 'Set up\'s Tags section (its fixed intro aside)');
   assert.match(makeSrc, /menu\.className = 'sdk-menu sdk-tag-picker'/, 'the menu surface');
   assert.match(makeSrc, /search\.className = 'sdk-search'/, 'the search field');
@@ -291,7 +291,7 @@ test('no tag text goes through innerHTML, and the picker is the SDK\'s own piece
 });
 
 test('Set up\'s Tags section: the server\'s routes, asked before deleting, the server\'s sentence, not for the Lobby', () => {
-  const src = slice('public/space-setup.js', '  const TAG_TONES = [', '  // The Modules tab (id `show`)');
+  const src = slice('public/space-setup.js', '  const TAG_TONES = [', '  const TAB_HTML = {');
   assert.match(src, /api\('PATCH', tagsPath\(spaceId, tag\.id\), patch\)/);
   assert.match(src, /api\('DELETE', tagsPath\(spaceId, tag\.id\)\)/);
   assert.match(src, /api\('GET', tagsPath\(space\.id\)\)/);
