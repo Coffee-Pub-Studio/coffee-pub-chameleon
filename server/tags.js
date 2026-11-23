@@ -9,7 +9,8 @@
 //   name   1 to 24 characters (as a person counts them), letters of any language, digits and dashes, lower case, NFKC.
 //          Whitespace becomes a dash. Zero-width, direction and other invisible characters are taken out. `<`, `>`, `&`
 //          and quotes are not letters, so a stored name carries no HTML (pages still use textContent). Unique in its list.
-//   color  a tone name from TONES, or '' (plain). Never a free colour.
+//   color  '#rrggbb', lower case, no opacity, set with the colour picker (plan-colour-picker.md, decision 30), or '' (plain: no
+//          colour). A picked colour is data: it does not follow the theme. Anything else (an old tone name too) reads as plain.
 //   id     10 lower-case letters and digits, made here from crypto, unique across every space of the environment (so an
 //          id from one space is simply not a tag in another) and checked as ID_RE wherever one is read.
 //   limits 8 tags to an object, 200 to a list.
@@ -24,9 +25,7 @@ const crypto = require('crypto');
 const { EventEmitter } = require('events');
 
 const LIMITS = { name: 24, perObject: 8, perList: 200, rawName: 200 };
-// The tones a tag may wear: the theme's eight tints by name (--tint-<name>; public/sdk/system.css draws them, and
-// public/module-chrome.js's TINT is the same eight). Plain is ''. Not decided in the plan, so one list here.
-const TONES = ['gold', 'blue', 'green', 'teal', 'purple', 'red', 'orange', 'pink'];
+const COLOR_RE = /^#[0-9a-f]{6}$/i;
 const ID_LENGTH = 10;
 const ID_RE = /^[a-z0-9]{8,12}$/;
 const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -66,11 +65,12 @@ function cleanName(raw) {
   return { name };
 }
 
-// { color } ('' is plain) or { error }.
+// { color } ('#rrggbb' lower case, or '' for plain) or { error }. Loading the file and moving a tag use `.color || ''`, so a stored
+// value that is not a colour (an old tone name) reads as plain there.
 function cleanColor(raw) {
   if (raw === undefined || raw === null || raw === '') return { color: '' };
-  if (typeof raw === 'string' && TONES.includes(raw)) return { color: raw };
-  return { error: `A tag's colour must be one of ${TONES.join(', ')}, or left plain.` };
+  if (typeof raw === 'string' && COLOR_RE.test(raw)) return { color: raw.toLowerCase() };
+  return { error: "A tag's colour must be a colour (#rrggbb), or none." };
 }
 
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
@@ -285,4 +285,4 @@ function moveTagIds(tags, { ids, fromSpace, toSpace, mayCreate, by } = {}) {
   return { ids: out, dropped };
 }
 
-module.exports = { Tags, TagError, cleanName, cleanColor, moveTagIds, LIMITS, TONES, ID_RE };
+module.exports = { Tags, TagError, cleanName, cleanColor, moveTagIds, LIMITS, ID_RE };

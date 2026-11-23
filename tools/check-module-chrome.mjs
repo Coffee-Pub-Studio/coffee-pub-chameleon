@@ -419,7 +419,7 @@ test('the toolbar row: items cleaned, the rest dropped', () => {
     { type: 'title', text: 'October 2026' },
     { type: 'search', id: 'find', placeholder: 'Find a place', value: 'paris' },
     { type: 'search' }, // no id
-    { type: 'chips', id: 'show', label: 'Trips', options: [{ id: 'a', label: 'Paris', icon: 'plane', tint: 'blue', on: true }, { id: 'b', label: 'Rome', on: false, tint: 'nope' }, { id: 'c', label: 'Tags', default: false, count: 3 }, { id: '', label: 'x' }] },
+    { type: 'chips', id: 'show', label: 'Trips', options: [{ id: 'a', label: 'Paris', icon: 'plane', tint: 'blue', on: true }, { id: 'b', label: 'Rome', on: false, tint: '#fff' }, { id: 'c', label: 'Tags', default: false, count: 3, tint: '#C0392B' }, { id: '', label: 'x' }] },
     { type: 'chips', id: 'kind', label: 'Kind', single: true, value: 'nope', options: [{ id: 'all', label: 'All' }, { id: 'note', label: 'Notes', count: 2 }] },
     { type: 'chips', id: 'none', options: [] },
     { id: 'prev', icon: 'chevron-left', title: 'Previous' },
@@ -434,7 +434,7 @@ test('the toolbar row: items cleaned, the rest dropped', () => {
   assert.deepEqual(clean.map((i) => i.type), ['title', 'search', 'chips', 'chips', 'button', 'button', 'tabs', 'title'], 'no separator, progress, slider or unknown type');
   assert.equal(clean[1].label, 'Find a place', 'a search is named by its placeholder when it has no label');
   assert.equal(clean[1].value, 'paris');
-  assert.deepEqual(clean[2].options.map((o) => [o.id, o.on, o.default, o.tint || null, o.icon || null, o.count ?? null]), [['a', true, true, 'blue', 'plane', null], ['b', false, true, null, null, null], ['c', false, false, null, null, 3]], 'a switch is on unless off; its default on unless given');
+  assert.deepEqual(clean[2].options.map((o) => [o.id, o.on, o.default, o.tint || null, o.icon || null, o.count ?? null]), [['a', true, true, 'blue', 'plane', null], ['b', false, true, null, null, null], ['c', false, false, '#c0392b', null, 3]], 'a switch is on unless off; its default on unless given; a tint is a tint name or #rrggbb (a tag), kept lower case');
   assert.equal(clean[3].single, true);
   assert.equal(clean[3].value, 'all', 'a single choice falls back to its first option');
   assert.equal(clean[4].title, 'Previous', 'an icon button keeps its title');

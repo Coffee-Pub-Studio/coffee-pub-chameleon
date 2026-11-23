@@ -11,14 +11,15 @@
 // flyout beside it, as a category's, and Left or Escape closes just that flyout.
 //
 // An item is { label, icon?, regular?, tint?, hint?, clamp?, tip?, ariaLabel?, danger?, disabled?, checked?, toggle?, radio?,
-// keepOpen?, badge?, tag?, mark?, more?, onPick }. `checked` (true or false) makes it a checkbox item that says whether it is on (a tool
+// keepOpen?, badge?, tag?, mark?, more?, colour?, onPick }. `checked` (true or false) makes it a checkbox item that says whether it is on (a tool
 // that toggles, folded into the space bar's "..."); with `toggle: true` it is drawn as a switch instead (the same switch
 // as the Show list's) and the menu stays open as it flips, so several can be flipped in a row; with `radio: true` it is
 // one of a set, the one chosen drawn filled (no check mark: a check is only for a tick box). `keepOpen: true` keeps the menu open after a pick and draws it again (the
 // items given as a function are asked again, so what the pick changed shows). `badge` is a count shown after its
 // label; `tag` a small word after it (Default); `mark` a small accent icon after it (a favorite's heart). `icon` is a
 // Font Awesome name, or a whole class list (a module's own icon); `tint` colours it, one of the eight tint names (a
-// module's colour, gold for the AI), as a message's icon is. `tip` is the row's tooltip and, when it holds the label,
+// module's colour, gold for the AI), as a message's icon is. `colour` ('#rrggbb', a shared tag's) is a dot before the label, drawn
+// as a tag's dot is (window.hostColour.paintTag, the SDK's one tag look). `tip` is the row's tooltip and, when it holds the label,
 // its accessible name (a short row, "Flight", is heard as "Add a flight"); `ariaLabel` names it outright. `more` (a list of items, or a function
 // giving one) puts a "..." at the row's end whose entries fly out beside it while the menu stays open, as a category's
 // do (Thomas, 2026-10-13: "a flyout, not close the current and open a new context window"): the same flyout, the same
@@ -266,6 +267,15 @@ function build(trigger, items, inline) {
       b.appendChild(box);
     }
     if (item.icon) b.appendChild(iconEl(doc, item.icon, item.regular, item.tint));
+    if (typeof item.colour === 'string' && /^#[0-9a-f]{6}$/.test(item.colour)) {
+      const dot = doc.createElement('span');
+      dot.className = 'sdk-chip-dot host-menu-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      const paint = doc.defaultView && doc.defaultView.hostColour && doc.defaultView.hostColour.paintTag;
+      if (paint) paint(dot, item.colour);
+      else dot.style.setProperty('--chip-tone', item.colour);
+      b.appendChild(dot);
+    }
     const label = doc.createElement('span');
     label.className = 'host-menu-label';
     label.textContent = item.label || item.title || '';

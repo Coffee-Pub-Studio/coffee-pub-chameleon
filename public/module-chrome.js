@@ -12,6 +12,8 @@ export const STATUS_QUIET_MS = 1500;
 
 const ICON = /^[a-z0-9-]{1,40}$/;
 const TINT = /^(gold|blue|green|teal|purple|red|orange|pink)$/;
+// A filter option's own colour, as a shared tag has (plan-colour-picker.md, decision 30): '#rrggbb', drawn as a dot before its name.
+const HEX = /^#[0-9a-f]{6}$/i;
 // THE text helper: every word a person reads that a module gave (labels, titles, text, placeholders, hints, status text), never an
 // id or a value. Text only: one line. Gone: invisible direction and joining characters (U+061C, U+200B-U+200F, U+202A-U+202E, U+2060, U+2066-U+2069,
 // U+FEFF; this includes U+200D, so a joined emoji shows as separate emoji: the safe choice, no emoji-aware exceptions); turned into
@@ -229,6 +231,8 @@ export function topmostAt(candidates, x, y) {
 //                                                           `label` names it (its accessible name and its heading in "More"), plain text of at most 30 characters, else "Tools"
 //   { type: 'search', id, value?, placeholder?, label? }    the row's search, in its fixed place at the end
 //   { type: 'chips', id, label?, single?, value?, options: [{ id, label, icon?, tint?, note?, count?, on?, default? }] }
+//                                                           `tint`: one of the eight tint names (colours the icon), or a
+//                                                           '#rrggbb' colour (a tag's: a dot before the name)
 //                                                           a group of filters in the row's one Filters menu, under
 //                                                           `label`: switches (each `on`; applied while it is not its
 //                                                           `default`, which is on unless given), or with `single` one
@@ -294,6 +298,7 @@ export function cleanToolbarItems(items) {
         if (Number.isInteger(o?.count) && o.count >= 0) opt.count = o.count;
         if (icon(o?.icon)) opt.icon = o.icon;
         if (TINT.test(o?.tint || '')) opt.tint = o.tint;
+        else if (HEX.test(o?.tint || '')) opt.tint = o.tint.toLowerCase();
         return opt;
       }).filter((o) => o.id && o.label);
       if (!id(i.id) || !options.length) continue;

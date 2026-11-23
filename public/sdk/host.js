@@ -1317,6 +1317,26 @@
   }
   // colour:end
 
+  // A shared tag's look (plan-colour-picker.md, decision 30): a tag's colour is '#rrggbb', picked with the colour picker, or none. A
+  // colour is the chip's fill with readable words on it (readableOn), set as --tag-fill and --tag-ink (system.css draws them); no colour
+  // is the plain chip. The one place a tag chip or a tag's dot gets its colour: host.tags here, and a page through
+  // window.hostColour.paintTag (Set up's Tags section). Answers the element.
+  function paintTag(el, color) {
+    const hex = typeof color === 'string' && COLOUR_HEX.test(color) ? color : '';
+    if (!hex) {
+      el.dataset.tone = 'neutral';
+      el.removeAttribute('data-tag-fill');
+      el.style.removeProperty('--tag-fill');
+      el.style.removeProperty('--tag-ink');
+      return el;
+    }
+    el.removeAttribute('data-tone');
+    el.dataset.tagFill = '';
+    el.style.setProperty('--tag-fill', hex);
+    el.style.setProperty('--tag-ink', colourReadableOn(hex).color);
+    return el;
+  }
+
   // The words the outline says itself; the module passes its own as `labels` (it does not translate these).
   const OUTLINE_WORDS = {
     empty: 'Nothing here yet.', name: 'Outline', move: 'Move', open: 'Open', moveUp: 'Move up', moveDown: 'Move down', indent: 'Indent', outdent: 'Outdent',
@@ -3374,12 +3394,23 @@
     // grid's first colour then).
     const held = () => colourClean(input.value);
     const value = () => held() || palette[0].colours[0].color;
+    // `none`: the words the trigger shows while the input holds no colour (an empty swatch then), for a field where no colour is a
+    // choice the page offers beside it ("No colour"); set('') then empties the field. Without it the trigger shows the first colour.
+    const none = typeof opt.none === 'string' ? opt.none.trim().slice(0, 40) : '';
     const show = (c) => {
+      sw.removeAttribute('data-none');
       sw.style.setProperty('--sw', c);
       words.textContent = c;
       trigger.setAttribute('aria-label', `${label}, ${names.has(c) ? `${names.get(c)}, ` : ''}${c}. Change it`);
     };
-    show(value());
+    const showHeld = () => {
+      if (held() || !none) { show(value()); return; }
+      sw.dataset.none = '';
+      sw.style.removeProperty('--sw');
+      words.textContent = none;
+      trigger.setAttribute('aria-label', `${label}, ${none}. Change it`);
+    };
+    showHeld();
     const sync = () => { trigger.disabled = Boolean(input.disabled); };
     sync();
     const watch = typeof MutationObserver === 'function' ? new MutationObserver(sync) : null;
@@ -3400,7 +3431,7 @@
       return asked.then((a) => {
         opened = false;
         trigger.setAttribute('aria-expanded', 'false');
-        if (!a) { show(value()); if (shownLive) tellLive({ color: value(), opacity: alpha }); return null; }
+        if (!a) { showHeld(); if (shownLive) tellLive({ color: value(), opacity: alpha }); return null; }
         const moved = a.color !== held(); // an empty field takes any answer, the palette's first colour too
         const faded = a.opacity !== alpha;
         alpha = a.opacity;
@@ -3409,7 +3440,7 @@
           input.dispatchEvent(new Event('input', { bubbles: true }));
           input.dispatchEvent(new Event('change', { bubbles: true }));
         }
-        show(value());
+        showHeld();
         if ((moved || faded) && typeof opt.onChange === 'function') { try { opt.onChange({ color: a.color, opacity: a.opacity }); } catch (err) { console.error(err); } }
         return a;
       });
@@ -3419,8 +3450,15 @@
     return {
       // The colour the input holds, '#rrggbb', or '' when it holds none.
       get value() { return held() || ''; },
-      // Shows a colour without telling anyone (no events, no onChange); anything that is not a hex is ignored.
-      set: (c) => { const x = colourClean(c); if (!x) return false; input.value = x; show(x); return true; },
+      // Shows a colour without telling anyone (no events, no onChange); anything that is not a hex is ignored, but '' empties a field
+      // made with `none`.
+      set: (c) => {
+        const x = colourClean(c);
+        if (!x && !(none && c === '')) return false;
+        input.value = x || '';
+        showHeld();
+        return true;
+      },
       open,
       close: () => { if (opened && openMenu && openMenu.id === 'sdk-colour' && openMenu.anchor === trigger) closeMenu(); },
       destroy: () => {
@@ -4124,8 +4162,8 @@
       // onChange({ color, opacity }) gives both (the input never holds the opacity). Follows a disabled input. onInput({ color, opacity })
       // is for showing live only, as the picker's: each change while it is open, and once more with the field's own colour when the
       // pick ends with nothing chosen, so a preview goes back. Save on the input's change (or onChange), never on onInput.
-      //   colorField(input, { palette?, opacity?, recent?, label?, onChange?, onInput? }) -> { value, set(hex), open(), close(), destroy() }
-      // Anything but an input throws "host.ui.colorField needs an <input>".
+      //   colorField(input, { palette?, opacity?, recent?, label?, none?, onChange?, onInput? }) -> { value, set(hex), open(), close(), destroy() }
+      // none: the words shown while the input holds no colour ("No colour"; an empty swatch); set('') then empties it. Anything but an input throws "host.ui.colorField needs an <input>".
       colorField: (input, o) => colourField(input, o),
       // A view or filter switch, drawn in the toolbar (see host.toolbar.set) -- its most common tool, so
       // this is the one built for every module rather than each writing its own diffing and event wiring.
@@ -5564,8 +5602,8 @@
   //                                            the 'tags' event), so call it once when ready, then chip() and filterOptions() answer at once
   //   await host.tags.add(name, { color? }) -> the tag: finds the tag of that name or makes it (needs the module's write right
   //                                            here; never a guest). A refusal rejects with the server's sentence (a bad name, 200 in
-  //                                            the list, no right). `color` is one of the theme's tints, or none.
-  //   host.tags.chip(id)                    -> a tag chip element (.sdk-chip-tag in the tag's tone), or null when the id is not a
+  //                                            the list, no right). `color` is '#rrggbb' (lower case), or none.
+  //   host.tags.chip(id)                    -> a tag chip element (.sdk-chip-tag in the tag's colour), or null when the id is not a
   //                                            tag of this space (deleted, from another space, or list() has not been awaited)
   //   host.tags.picker(anchor, { selected, max?, create?, onChange }) -> { close(), set(ids) }
   //                                            a popover under `anchor`: type to filter, tick a tag to add it or take it off, and
@@ -5573,19 +5611,21 @@
   //                                            reader). `selected` the object's tag ids; `max` at most 8 (the one rule); onChange(ids)
   //                                            runs with the ids ticked now, on every change. Only one menu or picker is open at a time.
   //   host.tags.filterOptions(counts)       -> options for a toolbar 'chips' item (host.toolbar.set): one per tag in `counts`
-  //                                            ({ [id]: number } or a Map), named for the tag, in its tint, with the count. A tag
+  //                                            ({ [id]: number } or a Map), named for the tag, in its colour (`tint`, '#rrggbb': a dot
+  //                                            before the name in the Filters menu), with the count. A tag
   //                                            filter means "has all of them"; the module applies it.
   //   host.on('tags', ({ op, tag }) => ...) op 'added', 'changed' (renamed or recoloured) or 'removed'; the SDK has already
   //                                            updated list(). A deleted tag leaves a dead id on objects: chip() returns null for it.
   // What a tag's name or colour may be, the 8 to an object, 24 characters and 200 to a list are the server's rules; the
   // picker only stops offering a tick past `max`, and shows the server's sentence for the rest.
-  const TAG_TONES = ['gold', 'blue', 'green', 'teal', 'purple', 'red', 'orange', 'pink'];
+  // A tag's colour is '#rrggbb' lower case or '' (plain); anything else is plain here.
+  const TAG_HEX = /^#[0-9a-f]{6}$/;
   const TAG_ID = /^[a-z0-9]{8,12}$/;
   const TAG_MAX = 8;
   const cleanTagShape = (t) => {
     if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !TAG_ID.test(t.id)) return null;
     if (typeof t.name !== 'string' || !t.name || [...t.name].length > 24) return null;
-    return { id: t.id, name: t.name, color: TAG_TONES.includes(t.color) ? t.color : '' };
+    return { id: t.id, name: t.name, color: typeof t.color === 'string' && TAG_HEX.test(t.color) ? t.color : '' };
   };
   const byTagName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   function makeTags() {
@@ -5614,8 +5654,7 @@
       if (!t) return null;
       const el = document.createElement('span');
       el.className = 'sdk-chip-tag';
-      el.dataset.tone = t.color ? 'custom' : 'neutral';
-      if (t.color) el.dataset.tagTone = t.color;
+      paintTag(el, t.color);
       el.dataset.tag = t.id;
       const label = document.createElement('span');
       label.className = 'sdk-chip-label';
@@ -5676,8 +5715,7 @@
         if (!create) {
           const dot = document.createElement('span');
           dot.className = 'sdk-chip-dot';
-          dot.dataset.tone = tone ? 'custom' : 'neutral';
-          if (tone) dot.dataset.tagTone = tone;
+          paintTag(dot, tone);
           b.appendChild(dot);
         }
         const text = document.createElement('span');
@@ -5817,8 +5855,9 @@
       },
       add: async (name, options) => {
         if (typeof name !== 'string') throw Object.assign(new Error('A tag needs a name.'), { status: 400 });
-        const color = options && typeof options === 'object' && typeof options.color === 'string' ? options.color : '';
-        if (color && !TAG_TONES.includes(color)) throw Object.assign(new Error(`A tag's colour must be one of ${TAG_TONES.join(', ')}, or left plain.`), { status: 400 });
+        const given = options && typeof options === 'object' && typeof options.color === 'string' ? options.color.trim() : '';
+        const color = given.toLowerCase();
+        if (color && !TAG_HEX.test(color)) throw Object.assign(new Error("A tag's colour must be a colour (#rrggbb), or none."), { status: 400 });
         await readyPromise;
         const tag = cleanTagShape(await call('tags.add', { name, color }));
         if (!tag) throw Object.assign(new Error('The server did not send a tag.'), { status: 502 });
@@ -6112,5 +6151,5 @@
     }
     return colourPage.ui;
   };
-  global.hostColour = { field: (input, o) => colourUi().colorField(input, o), picker: (o) => colourUi().colorPicker(o), palette: COLOUR_GRID_START }; // palette: the 24 starting colours, read only (frozen)
+  global.hostColour = { field: (input, o) => colourUi().colorField(input, o), picker: (o) => colourUi().colorPicker(o), palette: COLOUR_GRID_START, paintTag }; // palette: the 24 starting colours, read only (frozen); paintTag(el, color): a tag chip's colour
 })(window);

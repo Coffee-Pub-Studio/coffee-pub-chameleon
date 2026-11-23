@@ -41,14 +41,14 @@ const THEME_TOKENS = [
 ];
 
 // The shared tags (plan-tags.md; server/tags.js is the one rule): what a page may pass to a module is a tag of this shape and
-// nothing else. The tones are the theme's eight tints by name; the same list is the server's TONES (tools/check-tags.mjs keeps
-// them equal). A name is a short run of letters, digits and dashes: a word of any other shape is not a tag and is left out.
-export const TAG_TONES = Object.freeze(['gold', 'blue', 'green', 'teal', 'purple', 'red', 'orange', 'pink']);
+// nothing else. A colour is '#rrggbb' lower case, as the server keeps it (plan-colour-picker.md, decision 30); anything else is plain.
+// A name is a short run of letters, digits and dashes: a word of any other shape is not a tag and is left out.
+export const TAG_HEX = /^#[0-9a-f]{6}$/;
 const TAG_OPS = ['added', 'changed', 'removed'];
 export function cleanTag(t) {
   if (!t || typeof t !== 'object' || typeof t.id !== 'string' || !/^[a-z0-9]{8,12}$/.test(t.id)) return null;
   if (typeof t.name !== 'string' || !/^[\p{L}\p{N}][\p{L}\p{N}\p{M}-]*$/u.test(t.name) || [...t.name].length > 24) return null;
-  return { id: t.id, name: t.name, color: TAG_TONES.includes(t.color) ? t.color : '' };
+  return { id: t.id, name: t.name, color: typeof t.color === 'string' && TAG_HEX.test(t.color) ? t.color : '' };
 }
 export const cleanTagList = (list) => (Array.isArray(list) ? list : []).slice(0, 200).map(cleanTag).filter(Boolean);
 

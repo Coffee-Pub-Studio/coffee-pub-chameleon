@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
-const { Tags, TagError, cleanName, cleanColor, moveTagIds, LIMITS, TONES, ID_RE } = require('../server/tags.js');
+const { Tags, TagError, cleanName, cleanColor, moveTagIds, LIMITS, ID_RE } = require('../server/tags.js');
 const { buildModule } = require('../server/module-build.js');
 const { cleanManifest } = require('../server/modules.js');
 
@@ -98,11 +98,10 @@ await test('a name that is not letters, digits and dashes, or is too long, is re
   }
 });
 
-await test('a colour is a tone from the fixed set or empty; a free colour is refused', () => {
-  assert.equal(TONES.length > 0 && new Set(TONES).size === TONES.length, true);
-  for (const t of TONES) assert.deepEqual(cleanColor(t), { color: t });
+await test('a colour is #rrggbb (kept lower case) or empty; a tone name and anything else is refused', () => {
+  for (const [given, kept] of [['#ff0000', '#ff0000'], ['#2F6CBF', '#2f6cbf'], ['#a1B2c3', '#a1b2c3']]) assert.deepEqual(cleanColor(given), { color: kept });
   for (const empty of [undefined, null, '']) assert.deepEqual(cleanColor(empty), { color: '' });
-  for (const bad of ['#ff0000', 'ff0000', 'rgb(1,2,3)', 'Red', 'red ', 'url(x)', 'javascript:alert(1)', '<b>', 5, {}, [], true, 'constructor']) assert.ok(cleanColor(bad).error, `${JSON.stringify(bad)} is refused`);
+  for (const bad of ['red', 'blue', 'gold', 'pink', 'ff0000', '#fff', '#ff0000ff', ' #ff0000', '#ff000g', 'rgb(1,2,3)', 'Red', 'red ', 'url(x)', 'javascript:alert(1)', '<b>', 5, {}, [], true, 'constructor']) assert.ok(cleanColor(bad).error, `${JSON.stringify(bad)} is refused`);
 });
 
 const spaceA = 'abcd1234';
@@ -113,14 +112,14 @@ await test('the list: find-or-create, case, rename, recolour, delete, ids', () =
   const tags = new Tags(dir, () => t);
   const events = [];
   tags.on('change', (e) => events.push(e));
-  const made = tags.add(spaceA, 'Hotel', 'blue', 'ann');
+  const made = tags.add(spaceA, 'Hotel', '#2a62b0', 'ann');
   assert.equal(made.made, true);
   assert.match(made.tag.id, ID_RE);
   assert.equal(made.tag.id.length, 10);
   assert.deepEqual(Object.keys(made.tag).sort(), ['color', 'id', 'name'], 'a page sees id, name, colour only');
-  assert.deepEqual([made.tag.name, made.tag.color], ['hotel', 'blue']);
-  const again = tags.add(spaceA, ' HOTEL​ ', 'red', 'bo');
-  assert.deepEqual([again.made, again.tag.id, again.tag.color], [false, made.tag.id, 'blue'], 'the same name is found, whatever its case or spacing, and keeps its colour');
+  assert.deepEqual([made.tag.name, made.tag.color], ['hotel', '#2a62b0']);
+  const again = tags.add(spaceA, ' HOTEL​ ', '#c0392b', 'bo');
+  assert.deepEqual([again.made, again.tag.id, again.tag.color], [false, made.tag.id, '#2a62b0'], 'the same name is found, whatever its case or spacing, and keeps its colour');
   assert.equal(tags.count(spaceA), 1);
   assert.deepEqual(events.map((e) => [e.spaceId, e.op, e.tag.name]), [[spaceA, 'added', 'hotel']], 'only the made one is told');
   const stored = JSON.parse(fs.readFileSync(path.join(dir, 'tags.json'), 'utf8'));
@@ -137,9 +136,9 @@ await test('the list: find-or-create, case, rename, recolour, delete, ids', () =
   // rename, recolour
   events.length = 0;
   const renamed = tags.update(spaceA, made.tag.id, { name: 'Stays' });
-  assert.deepEqual([renamed.id, renamed.name, renamed.color], [made.tag.id, 'stays', 'blue'], 'the id stays, so every use follows');
+  assert.deepEqual([renamed.id, renamed.name, renamed.color], [made.tag.id, 'stays', '#2a62b0'], 'the id stays, so every use follows');
   assert.deepEqual(events.map((e) => [e.op, e.tag.name]), [['changed', 'stays']]);
-  assert.deepEqual(tags.update(spaceA, made.tag.id, { color: 'green' }).color, 'green');
+  assert.deepEqual(tags.update(spaceA, made.tag.id, { color: '#2e8b57' }).color, '#2e8b57');
   assert.deepEqual(tags.update(spaceA, made.tag.id, { color: '' }).color, '', 'plain again');
   events.length = 0;
   tags.update(spaceA, made.tag.id, { name: 'STAYS' });
@@ -181,8 +180,8 @@ await test('the list: find-or-create, case, rename, recolour, delete, ids', () =
 await test('lists are per space: an id of one space is nothing in another', () => {
   const dir = tmp('spaces');
   const tags = new Tags(dir);
-  const a = tags.add(spaceA, 'secret-plan', 'red', 'ann').tag;
-  const b = tags.add(spaceB, 'secret-plan', 'blue', 'ann').tag;
+  const a = tags.add(spaceA, 'secret-plan', '#c0392b', 'ann').tag;
+  const b = tags.add(spaceB, 'secret-plan', '#2a62b0', 'ann').tag;
   assert.notEqual(a.id, b.id, 'the same name in two spaces is two tags');
   assert.equal(tags.get(spaceB, a.id), null);
   assert.deepEqual(tags.resolve(spaceB, [a.id, b.id]).map((x) => x.id), [b.id], 'another space\'s id is dropped, this one\'s kept');
@@ -230,13 +229,13 @@ await test('limits: 200 to a list, 8 to an object', () => {
 await test('the file: kept across a restart; a damaged or hostile file reads as what is sound', () => {
   const dir = tmp('file');
   const a = new Tags(dir);
-  const t = a.add(spaceA, 'kept', 'teal', 'ann').tag;
+  const t = a.add(spaceA, 'kept', '#0b7a84', 'ann').tag;
   const b = new Tags(dir);
   assert.deepEqual(b.list(spaceA), [t], 'read back as written');
-  assert.throws(() => b.add(spaceA, 'kept', 'red', 'x') && (() => { throw new Error('found, not made'); })(), /found, not made/);
+  assert.throws(() => b.add(spaceA, 'kept', '#c0392b', 'x') && (() => { throw new Error('found, not made'); })(), /found, not made/);
   fs.writeFileSync(path.join(dir, 'tags.json'), '{ not json');
   assert.deepEqual(new Tags(dir).list(spaceA), [], 'a damaged file is no tags');
-  const good = { id: 'goodid0001', name: 'good', color: 'red', by: 'ann', at: 'x' };
+  const good = { id: 'goodid0001', name: 'good', color: '#c0392b', by: 'ann', at: 'x' };
   fs.writeFileSync(path.join(dir, 'tags.json'), `{"spaces":{"__proto__":[${JSON.stringify(good)}],"constructor":[${JSON.stringify(good)}],"${spaceA}":[
     ${JSON.stringify(good)},
     ${JSON.stringify({ ...good, id: 'goodid0002' })},
@@ -244,13 +243,13 @@ await test('the file: kept across a restart; a damaged or hostile file reads as 
     ${JSON.stringify({ ...good, id: 'goodid0004', name: 'Fine​' })},
     ${JSON.stringify({ ...good, id: 'GOODID0005', name: 'upper' })},
     ${JSON.stringify({ ...good, id: '../..', name: 'path' })},
-    ${JSON.stringify({ ...good, id: 'goodid0006', name: 'colourful', color: '#ff0000' })},
+    ${JSON.stringify({ ...good, id: 'goodid0006', name: 'colourful', color: 'blue' })},
     ${JSON.stringify({ ...good, id: 'goodid0007', name: 'long'.repeat(10) })},
     ${JSON.stringify({ ...good, id: 'goodid0008', name: 'Hi', by: 'x'.repeat(500), at: 'y'.repeat(500) })},
     5, null, "str", [], {"id": 7}],
     "${spaceB}":[${JSON.stringify(good)}, ${JSON.stringify({ ...good, id: 'goodid0009', name: 'other' })}], "bad": 5}}`);
   const c = new Tags(dir);
-  assert.deepEqual(c.list(spaceA).map((x) => [x.id, x.name, x.color]), [['goodid0006', 'colourful', ''], ['goodid0004', 'fine', 'red'], ['goodid0001', 'good', 'red'], ['goodid0008', 'hi', 'red']], 'only sound tags: a duplicate name, HTML, a bad id, a long name and junk are skipped; a name is cleaned; a free colour becomes plain');
+  assert.deepEqual(c.list(spaceA).map((x) => [x.id, x.name, x.color]), [['goodid0006', 'colourful', ''], ['goodid0004', 'fine', '#c0392b'], ['goodid0001', 'good', '#c0392b'], ['goodid0008', 'hi', '#c0392b']], 'only sound tags: a duplicate name, HTML, a bad id, a long name and junk are skipped; a name is cleaned; an old tone name (not #rrggbb) becomes plain');
   assert.ok(c.list(spaceA).every((x) => !/[<>&]/.test(x.name)));
   assert.deepEqual(c.list(spaceB).map((x) => x.id), ['goodid0009'], 'an id already used in another space is not a second tag');
   assert.deepEqual(c.list('__proto__'), []);
@@ -282,19 +281,19 @@ await test('moving an object to another space (step 5b): names re-made there, on
   const dir = tmp('move');
   const tags = new Tags(dir);
   const mk = (space, name, color = '') => tags.add(space, name, color, 'ann').tag;
-  const hotel = mk(spaceA, 'hotel', 'blue');
-  const food = mk(spaceA, 'food', 'red');
+  const hotel = mk(spaceA, 'hotel', '#2a62b0');
+  const food = mk(spaceA, 'food', '#c0392b');
   const plain = mk(spaceA, 'plain');
-  const there = mk(spaceB, 'food', 'green');
+  const there = mk(spaceB, 'food', '#2e8b57');
 
   // With the right: a tag of that name there is used (its colour is kept); another is made with the source's colour.
   const first = moveTagIds(tags, { ids: [hotel.id, food.id, plain.id], fromSpace: spaceA, toSpace: spaceB, mayCreate: true, by: 'bo' });
   assert.deepEqual(first.dropped, []);
   assert.equal(first.ids.length, 3);
   assert.equal(first.ids[1], there.id, 'the existing tag of that name is used');
-  assert.equal(tags.get(spaceB, there.id).color, 'green', 'and is not recoloured');
+  assert.equal(tags.get(spaceB, there.id).color, '#2e8b57', 'and is not recoloured');
   const madeHotel = tags.get(spaceB, first.ids[0]);
-  assert.deepEqual([madeHotel.name, madeHotel.color], ['hotel', 'blue']);
+  assert.deepEqual([madeHotel.name, madeHotel.color], ['hotel', '#2a62b0']);
   assert.notEqual(madeHotel.id, hotel.id, 'a new id: the source\'s ids never cross');
   assert.equal(tags.list(spaceA).length, 3, 'the source list is untouched');
   const stored = JSON.parse(fs.readFileSync(path.join(dir, 'tags.json'), 'utf8'));
@@ -341,7 +340,7 @@ await test('moving an object to another space (step 5b): names re-made there, on
   assert.deepEqual(moveTagIds(tags, {}).ids, []);
   assert.deepEqual(moveTagIds(tags, { ids: [hotel.id], fromSpace: spaceA, toSpace: spaceA, mayCreate: false }), { ids: [hotel.id], dropped: [] }, 'within one space nothing changes');
   // A stored name that no longer passes the rule is dropped, never re-made.
-  tags.spaces[spaceA].push({ id: 'badname001', name: '<b>x</b>', color: 'red', by: '', at: '' });
+  tags.spaces[spaceA].push({ id: 'badname001', name: '<b>x</b>', color: '#c0392b', by: '', at: '' });
   tags.ids.add('badname001');
   const bad = moveTagIds(tags, { ids: ['badname001'], fromSpace: spaceA, toSpace: spaceF, mayCreate: true, by: 'bo' });
   assert.deepEqual(bad.ids, []);
@@ -505,11 +504,11 @@ try {
   });
 
   await test('creating: needs the calling module\'s write there; never a guest; 201 made, 200 found', async () => {
-    const made = await expect('member makes', 201, 'POST', L, { cookie: sessions.pat, body: { name: 'Hotel', color: 'blue', from: 'tagnotes' } });
+    const made = await expect('member makes', 201, 'POST', L, { cookie: sessions.pat, body: { name: 'Hotel', color: '#2a62b0', from: 'tagnotes' } });
     assert.deepEqual(Object.keys(made.json), ['tag']);
-    assert.deepEqual([made.json.tag.name, made.json.tag.color], ['hotel', 'blue']);
+    assert.deepEqual([made.json.tag.name, made.json.tag.color], ['hotel', '#2a62b0']);
     assert.match(made.json.tag.id, /^[a-z0-9]{10}$/);
-    const found = await expect('again finds', 200, 'POST', L, { cookie: sessions.sam, body: { name: ' HOTEL ', color: 'red', from: 'tagnotes' } });
+    const found = await expect('again finds', 200, 'POST', L, { cookie: sessions.sam, body: { name: ' HOTEL ', color: '#c0392b', from: 'tagnotes' } });
     assert.deepEqual(found.json.tag, made.json.tag, 'the same tag, its colour kept');
     assert.equal((await make(sessions.owner, 'hotel​')).status, 200, 'an invisible character makes no second tag');
     assert.equal((await make(admin, 'flights')).status, 201, 'the admin makes');
@@ -563,11 +562,12 @@ try {
       assert.match(r.json.error, /^A tag .+\.$/, label);
     }
     assert.equal((await make(sessions.pat, undefined)).status, 400, 'no name');
-    await expect('a free colour', 400, 'POST', L, { cookie: sessions.pat, body: { name: 'fine', color: '#ff0000', from: 'tagnotes' } });
+    await expect('a tone name', 400, 'POST', L, { cookie: sessions.pat, body: { name: 'fine', color: 'red', from: 'tagnotes' } });
+    await expect('a short hex', 400, 'POST', L, { cookie: sessions.pat, body: { name: 'fine', color: '#f00', from: 'tagnotes' } });
     await expect('a colour that is not text', 400, 'POST', L, { cookie: sessions.pat, body: { name: 'fine', color: { a: 1 }, from: 'tagnotes' } });
     assert.equal((await call('GET', L, { cookie: admin })).json.tags.length, before, 'nothing was made');
     const all = (await call('GET', L, { cookie: admin })).text;
-    assert.ok(!/[<>&"'`]/.test(all.replace(/"(id|name|color|tags)"|[{}\[\]:,]/g, '').replace(/"[a-z0-9à-鿿-]*"/g, '')), 'what is read carries no HTML characters');
+    assert.ok(!/[<>&"'`]/.test(all.replace(/"(id|name|color|tags)"|[{}\[\]:,]/g, '').replace(/"#[0-9a-f]{6}"/g, '').replace(/"[a-z0-9à-鿿-]*"/g, '')), 'what is read carries no HTML characters');
     // A name that is made safe is stored safe.
     const odd = await make(sessions.pat, '‮Dinner  Plans​');
     assert.equal(odd.status, 201);
@@ -601,15 +601,15 @@ try {
     // with it
     const renamed = await expect('the moderator renames', 200, 'PATCH', P, { cookie: sessions.mo, body: { name: 'Routes' } });
     assert.deepEqual(renamed.json.tag, { id: tag.id, name: 'routes', color: '' }, 'the id stays');
-    const colored = await expect('the owner recolours', 200, 'PATCH', P, { cookie: sessions.owner, body: { color: 'green' } });
-    assert.equal(colored.json.tag.color, 'green');
-    await expect('the admin both', 200, 'PATCH', P, { cookie: admin, body: { name: 'maps', color: 'purple' } });
-    assert.deepEqual((await list()).find((t) => t.id === tag.id), { id: tag.id, name: 'maps', color: 'purple' });
+    const colored = await expect('the owner recolours', 200, 'PATCH', P, { cookie: sessions.owner, body: { color: '#2e8b57' } });
+    assert.equal(colored.json.tag.color, '#2e8b57');
+    await expect('the admin both', 200, 'PATCH', P, { cookie: admin, body: { name: 'maps', color: '#7d3c98' } });
+    assert.deepEqual((await list()).find((t) => t.id === tag.id), { id: tag.id, name: 'maps', color: '#7d3c98' });
     await expect('plain again', 200, 'PATCH', P, { cookie: admin, body: { color: '' } });
     await expect('nothing to change', 400, 'PATCH', P, { cookie: admin, body: {} });
     await expect('a name already taken', 409, 'PATCH', P, { cookie: admin, body: { name: 'FOOD' } });
     await expect('a bad name', 400, 'PATCH', P, { cookie: admin, body: { name: '<b>' } });
-    await expect('a free colour', 400, 'PATCH', P, { cookie: admin, body: { color: 'red; background:url(x)' } });
+    await expect('not a colour', 400, 'PATCH', P, { cookie: admin, body: { color: 'red; background:url(x)' } });
     for (const id of ['nosuchid00', 'NOSUCHID00', '..', '__proto__', 'a'.repeat(40), '%2e%2e', 'x']) {
       await expect(`no such tag ${id}`, 404, 'PATCH', `${L}/${id}`, { cookie: admin, body: { name: 'zzz' } });
       await expect(`no such tag ${id} (delete)`, 404, 'DELETE', `${L}/${id}`, { cookie: admin });
@@ -617,12 +617,12 @@ try {
     // the owner may take the permission from moderators, and give it to members; the admin stays able
     await expect('take it from moderators', 200, 'PATCH', '/api/roles/moderator', { cookie: admin, body: { manageTags: false } });
     await expect('a moderator without it', 403, 'PATCH', P, { cookie: sessions.mo, body: { name: 'nope' } });
-    await expect('an owner still can', 200, 'PATCH', P, { cookie: sessions.owner, body: { color: 'blue' } });
-    await expect('the admin still can', 200, 'PATCH', P, { cookie: admin, body: { color: 'red' } });
+    await expect('an owner still can', 200, 'PATCH', P, { cookie: sessions.owner, body: { color: '#2a62b0' } });
+    await expect('the admin still can', 200, 'PATCH', P, { cookie: admin, body: { color: '#c0392b' } });
     await expect('give moderators it back', 200, 'PATCH', '/api/roles/moderator', { cookie: admin, body: { manageTags: true } });
     await expect('give it to members', 200, 'PATCH', '/api/roles/member', { cookie: admin, body: { manageTags: true } });
-    await expect('a member with it', 200, 'PATCH', P, { cookie: sessions.pat, body: { color: 'teal' } });
-    await expect('but not in a space they are not in', 404, 'PATCH', P, { cookie: sessions.out, body: { color: 'blue' } });
+    await expect('a member with it', 200, 'PATCH', P, { cookie: sessions.pat, body: { color: '#0b7a84' } });
+    await expect('but not in a space they are not in', 404, 'PATCH', P, { cookie: sessions.out, body: { color: '#2a62b0' } });
     await expect('take it from members', 200, 'PATCH', '/api/roles/member', { cookie: admin, body: { manageTags: false } });
     const noGuests = await expect('guests can never have it', 400, 'PATCH', '/api/roles/guest', { cookie: admin, body: { manageTags: true } });
     assert.match(noGuests.json.error, /Guests can never have/);
@@ -672,7 +672,7 @@ try {
     const elsewhere = await listen(`?space=${T}`, { cookie: sessions.out });
     const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await wait(300);
-    const t = (await make(sessions.pat, 'streamed', { color: 'pink' })).json.tag;
+    const t = (await make(sessions.pat, 'streamed', { color: '#e58ab8' })).json.tag;
     await call('PATCH', `${L}/${t.id}`, { cookie: sessions.mo, body: { name: 'streamed-2' } });
     await call('DELETE', `${L}/${t.id}`, { cookie: sessions.mo });
     await wait(600);

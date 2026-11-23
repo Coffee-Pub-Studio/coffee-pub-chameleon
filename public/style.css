@@ -8552,14 +8552,21 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
   gap: 8px;
 }
 
+/* One line at the panel's width: the name, the colour field (sized by what it shows), No colour and Delete. On a phone the name
+   takes its own line and the three controls sit under it. */
 .setup-tag-name {
-  flex: 1 1 140px;
+  flex: 1 1 100px;
   min-width: 0;
 }
 
-.setup-tag-tone {
-  flex: 0 1 120px;
-  min-width: 0;
+.setup-tag-field {
+  flex: none;
+  min-width: 140px; /* the same width for "No colour" and a hex, so the rows line up */
+}
+
+@media (max-width: 480px) {
+  .setup-tags { gap: var(--space-4); } /* the tags apart, each now two lines */
+  .setup-tag-name { flex-basis: 100%; }
 }
 
 .setup-picture {
