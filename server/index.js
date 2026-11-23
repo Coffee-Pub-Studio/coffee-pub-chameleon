@@ -4663,6 +4663,21 @@ app.put('/api/me/color-grid', noGuestColorGrid, requireUser, (req, res) => {
   res.set('Cache-Control', 'no-store').json({ colors: store.setColorGrid(currentUser(req).key, body.colors) });
 });
 
+// A person's own Recent colours (Thomas, 2026-11-22), kept with the account like the grid: GET answers { colors: [...] },
+// newest first, or { colors: null } before the first write; PUT { colors } replaces the whole list (at most 8, no pair twice)
+// and answers the list kept. The same gates as the grid: only the caller's own, a guest 403, not on the agent gate's list.
+app.get('/api/me/color-recent', noGuestColorGrid, requireUser, (req, res) => {
+  res.set('Cache-Control', 'no-store').json({ colors: store.colorRecent(currentUser(req)) });
+});
+app.put('/api/me/color-recent', noGuestColorGrid, requireUser, (req, res) => {
+  const body = req.body;
+  const plain = body && typeof body === 'object' && !Array.isArray(body) && Object.getPrototypeOf(body) === Object.prototype;
+  if (!plain || Object.keys(body).length !== 1 || !Object.hasOwn(body, 'colors')) {
+    return res.status(400).json({ error: 'Send the colours as a list, such as {"colors":[{"color":"#d62828","opacity":100}]}.' });
+  }
+  res.set('Cache-Control', 'no-store').json({ colors: store.setColorRecent(currentUser(req).key, body.colors) });
+});
+
 // Enrolment (documentation/plans/plan-mfa.md): for the signed-in person, or -- with no session yet -- whoever
 // holds a valid 'enrol' pending token (mfaSubject covers both). start makes a new secret, kept unconfirmed
 // until enable; another start simply replaces it. enable confirms it, makes the recovery codes (shown once,

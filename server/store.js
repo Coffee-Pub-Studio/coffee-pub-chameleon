@@ -567,13 +567,15 @@ const MAX_THEMES = 100;
 // A person's colour grid (plan-colour-picker.md, "The person's colour grid"): a list of { color: '#rrggbb', opacity: 0..100 },
 // at most MAX_COLOR_GRID, no two the same colour at the same opacity. Checked strictly, with nothing cleaned: lower-case hex
 // only (the SDK cleans before it sends), a whole-number opacity, and each entry a plain object with exactly those two keys.
-// Answers the sentence that refuses it, or null when it passes.
+// Answers the sentence that refuses it, or null when it passes. A person's Recent colours (Thomas, 2026-11-22) are the same
+// shape, newest first, at most MAX_COLOR_RECENT, checked the same way (colorRecentProblem).
 const MAX_COLOR_GRID = 48;
+const MAX_COLOR_RECENT = 8;
 const GRID_HEX = /^#[0-9a-f]{6}$/;
 const isBareObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
-function colorGridProblem(list) {
+function colorListProblem(list, max, tooMany) {
   if (!Array.isArray(list)) return 'Send the colours as a list, such as {"colors":[{"color":"#d62828","opacity":100}]}.';
-  if (list.length > MAX_COLOR_GRID) return `The grid holds at most ${MAX_COLOR_GRID} colours.`;
+  if (list.length > max) return tooMany;
   const seen = new Set();
   for (const entry of list) {
     const keys = isBareObject(entry) ? Object.keys(entry) : null;
@@ -587,6 +589,8 @@ function colorGridProblem(list) {
   }
   return null;
 }
+const colorGridProblem = (list) => colorListProblem(list, MAX_COLOR_GRID, `The grid holds at most ${MAX_COLOR_GRID} colours.`);
+const colorRecentProblem = (list) => colorListProblem(list, MAX_COLOR_RECENT, `Recent holds at most ${MAX_COLOR_RECENT} colours.`);
 
 function cleanColor(value) {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim()) ? value.trim().toLowerCase() : '';
@@ -1112,6 +1116,9 @@ class Store {
       // Their colour grid (plan-colour-picker.md, decision 23): kept only when it passes the route's own check, else dropped;
       // left off while they have never edited it (an empty list is kept: they removed everything).
       ...(!agent && colorGridProblem(u.colorGrid) === null ? { colorGrid: u.colorGrid.map((c) => ({ color: c.color, opacity: c.opacity })) } : {}),
+      // Their Recent colours (Thomas, 2026-11-22), newest first: kept only when they pass the route's own check, else dropped;
+      // left off until first written.
+      ...(!agent && colorRecentProblem(u.colorRecent) === null ? { colorRecent: u.colorRecent.map((c) => ({ color: c.color, opacity: c.opacity })) } : {}),
       // Their calendar feed's address (plan-google-calendar.md): only the SHA-256 of its token, never the token; left
       // off while they have none.
       ...(!agent && cleanCalendarFeed(u.calendarFeed) ? { calendarFeed: cleanCalendarFeed(u.calendarFeed) } : {}),
@@ -1959,6 +1966,22 @@ class Store {
     user.colorGrid = list.map((c) => ({ color: c.color, opacity: c.opacity }));
     this.save();
     return this.colorGrid(user);
+  }
+
+  // A person's Recent colours (Thomas, 2026-11-22): the list they keep, newest first, or null while it has never been written.
+  colorRecent(user) {
+    return user && Array.isArray(user.colorRecent) ? user.colorRecent.map((c) => ({ color: c.color, opacity: c.opacity })) : null;
+  }
+
+  // Replaces their whole Recent list with `list`, checked first (colorRecentProblem); a refusal changes nothing. Answers the list kept.
+  setColorRecent(key, list) {
+    const user = this.userByKey(key);
+    if (!user) throw new StoreError('no such user', 404);
+    const problem = colorRecentProblem(list);
+    if (problem) throw new StoreError(problem);
+    user.colorRecent = list.map((c) => ({ color: c.color, opacity: c.opacity }));
+    this.save();
+    return this.colorRecent(user);
   }
 
   // A user's video-box settings with the server defaults filled in.
@@ -3400,6 +3423,6 @@ module.exports = {
   Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS,
   LEGACY_SLOTS, ROLES, ASSIGNABLE_ROLES, hasOwnerRights, ROLE_PERMISSIONS, IMAGE_TYPES, MAX_IMAGE_BYTES, DEFAULT_BORDER_COLOR, LOBBY, randomToken, cleanText, cleanLogin,
   sanitizeMfa, CURRENCIES, QUALITY_OPTIONS, SCREEN_QUALITY_OPTIONS, LANGUAGES, BUILTIN_THEME_IDS: BUILTIN_THEMES.map((t) => t.id), displayNameProblem,
-  THEME_BASE, THEME_OPTIONAL, DEFAULT_THEME, cleanColor, colorGridProblem, MAX_COLOR_GRID, cleanAuthor, cleanReactions, cleanThemeName, MAX_THEMES,
+  THEME_BASE, THEME_OPTIONAL, DEFAULT_THEME, cleanColor, colorGridProblem, MAX_COLOR_GRID, colorRecentProblem, MAX_COLOR_RECENT, cleanAuthor, cleanReactions, cleanThemeName, MAX_THEMES,
   DEFAULT_HOME_ICON, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, DEFAULT_SETTINGS,
 };
