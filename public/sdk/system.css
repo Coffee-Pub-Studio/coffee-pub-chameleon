@@ -4541,9 +4541,10 @@ html[data-dialog-open] { overflow: hidden; }
    The date picker, the kind picker and the currency list (the kind picker's field and list), and the colour picker with its palette.
    Source: public/design-system/proposed-pickers.css and the date picker of proposed-menus.css, with the colour roles. The product's own
    names are the component; there are no aliases.
-   - The trigger is the Fields box: --field-h high, --surface-field, the --edge-field hairline, --radius-small, the accent focus line
-     and ring, a fill on hover, half strength when disabled. The kind picker's field (.sdk-kind-field) and the colour picker's button
-     (.sdk-picker) are this one box; the date field keeps its calendar button (the Fields block).
+   - The kind picker's field (.sdk-kind-field) is the Fields box: --field-h high, --surface-field, the --edge-field hairline,
+     --radius-small, the accent focus line and ring, a fill on hover, half strength when disabled. The colour field (.sdk-picker) is a
+     colour chip: a square of that box, --field-h on a side, filled with the colour and never faded. The date field keeps its calendar
+     button (the Fields block).
    - The flyout is the Menus surface: the kind list and the currency list are Menus rows (the Menus block), the date picker and the colour
      palette are dense popovers (8px around a grid). A long list on a phone is the Menus bottom sheet (.sdk-kind-sheet, host.css).
    - Selected is neutral. A list row is the selected fill (Menus). A swatch is a check on a neutral disc. The one exception: the chosen
@@ -4555,15 +4556,14 @@ html[data-dialog-open] { overflow: hidden; }
   --dp-day: 30px; /* a day of the date picker; 44px on a phone */
   --pk-sw: 24px; /* a swatch */
   --pk-sw-cell: 28px; /* its cell; 44px on a phone */
-  --pk-lead: 22px; /* the swatch in front of a colour trigger's value */
 }
 
 @media (max-width: 640px) {
   :root { --dp-day: 44px; --pk-sw-cell: 44px; }
 }
 
-/* ---- The trigger: the kind picker's field and the colour picker's button ---- */
-:is(.sdk-picker, .sdk-kind-field) {
+/* ---- The trigger: the kind picker's field ---- */
+.sdk-kind-field {
   position: relative;
   display: flex;
   align-items: center;
@@ -4582,16 +4582,13 @@ html[data-dialog-open] { overflow: hidden; }
   font-size: var(--field-font);
   line-height: normal;
   text-align: left;
-  cursor: pointer;
+  cursor: text;
   outline: none;
   box-shadow: none;
   transition: background var(--motion-fast);
 }
 
-.sdk-kind-field { cursor: text; }
-
-:is(.sdk-picker, .sdk-kind-field):hover:not(:disabled, [aria-disabled="true"]) { background: var(--field-fill-hover); }
-.sdk-picker[aria-expanded="true"], .sdk-kind.open .sdk-kind-field { background: var(--field-fill-hover); }
+.sdk-kind-field:hover:not([aria-disabled="true"]), .sdk-kind.open .sdk-kind-field { background: var(--field-fill-hover); }
 
 /* Focus: the Fields mechanism, a 2px accent line over the hairline (offset -2px) and a soft ring, equal on all four sides. */
 .sdk-picker:focus-visible, .sdk-kind-field:focus-within {
@@ -4601,40 +4598,57 @@ html[data-dialog-open] { overflow: hidden; }
   outline-offset: -2px;
 }
 
-.sdk-picker:disabled, .sdk-kind.disabled .sdk-kind-field { opacity: 0.5; cursor: not-allowed; background: var(--surface-field); }
+.sdk-kind.disabled .sdk-kind-field { opacity: 0.5; cursor: not-allowed; background: var(--surface-field); }
 
-.sdk-picker-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-.sdk-picker-icon {
-  flex: none;
+/* ---- The colour field: a colour chip (host.ui.colorField) ----
+   A square button as high as a field (--field-h; 44px on a phone and on any touch screen), filled with the colour: no words, no
+   chevron, never stretched across its line (flex: none, a fixed width), so it sits on the line of what it colours. The hex is its
+   tooltip and in its name. The swatch is exactly the colour: nothing on the chip fades it, disabled included (the edge goes dashed
+   and the cursor says no instead), since a faded swatch reads as another colour. */
+.sdk-picker {
+  --pk-chip: var(--field-h);
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  color: var(--text-muted);
-  font-size: var(--text-12);
-  line-height: 1;
-  transition: transform var(--motion-fast) var(--ease-out);
+  flex: none;
+  align-items: stretch;
+  justify-content: stretch;
+  box-sizing: border-box;
+  width: var(--pk-chip);
+  min-width: var(--pk-chip);
+  max-width: var(--pk-chip);
+  height: var(--pk-chip);
+  margin: 0;
+  padding: 3px;
+  border: 1px solid var(--edge-field);
+  border-radius: var(--radius-small);
+  background: var(--surface-field);
+  cursor: pointer;
+  outline: none;
+  box-shadow: none;
+  vertical-align: middle;
+  transition: background var(--motion-fast);
 }
 
-.sdk-picker-icon svg { display: block; width: 12px; height: 12px; }
-.sdk-picker[aria-expanded="true"] .sdk-picker-icon { transform: rotate(180deg); }
+@media (pointer: coarse) {
+  .sdk-picker { --pk-chip: max(44px, var(--field-h)); }
+}
 
-/* The colour in front of the value, drawn from the data: --sw. */
+.sdk-picker:hover:not(:disabled), .sdk-picker[aria-expanded="true"] { background: var(--field-fill-hover); }
+.sdk-picker:disabled { cursor: not-allowed; border-style: dashed; }
+
+/* The colour, drawn from the data: --sw. Filled to the chip's inside edge. */
 .sdk-picker-sw {
-  flex: none;
+  flex: 1 1 auto;
   box-sizing: border-box;
-  width: var(--pk-lead);
-  height: var(--pk-lead);
   border: 1px solid var(--edge-hairline);
-  border-radius: var(--radius-small);
+  border-radius: var(--radius-min);
   background: var(--sw, var(--text-muted));
 }
 
-/* A colour field holding no colour (colorField's `none`): an empty swatch, its edge only. */
-.sdk-picker-sw[data-none] { background: transparent; }
-
-.sdk-hex { font-variant-numeric: tabular-nums; }
+/* A colour field holding no colour (colorField's `none`): an empty swatch, the checked ground of the picker's opacity. */
+.sdk-picker-sw[data-none] {
+  background: repeating-conic-gradient(color-mix(in srgb, var(--text-primary) 16%, transparent) 0 25%, color-mix(in srgb, var(--text-primary) 4%, transparent) 0 50%) 50% / 10px 10px;
+}
 
 /* ---- The colour picker's flyout and its grid of swatches (the picker itself is below) ---- */
 .sdk-picker-pop { position: fixed; z-index: var(--z-popover); display: block; width: fit-content; max-width: calc(100vw - 16px); }

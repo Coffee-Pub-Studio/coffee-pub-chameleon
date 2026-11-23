@@ -6623,7 +6623,6 @@ body.chat-window {
 /* a list setting (Planner's marker types): a row each with a colour, an icon, a label and tools */
 .list-rows { list-style: none; margin: 8px 0 8px; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
 .list-row [data-f="label"] { flex: 1; min-width: 0; }
-.list-row .sdk-picker { flex: none; width: auto; }
 .list-tools { display: flex; align-items: center; gap: 4px; flex: none; }
 .icon-pick { position: relative; flex: none; }
 .icon-pick summary { display: flex; align-items: center; justify-content: center; width: 34px; height: 30px; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--bg-input, var(--bg-card)); cursor: pointer; list-style: none; }
@@ -6915,10 +6914,9 @@ body.chat-window {
    Phases, Additional Reactions and Icons and Modules, and how a module setting's mark reads in every form (module-settings.js). */
 .tp-checks { display: grid; gap: 2px; margin: 4px 0 8px; }
 .tp-phases { display: grid; gap: 8px; margin: 8px 0; }
-.tp-phase { display: grid; grid-template-columns: minmax(0, 2fr) 10rem minmax(0, 1.4fr) auto auto; gap: 8px 12px; align-items: end; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+.tp-phase { display: grid; grid-template-columns: minmax(0, 2fr) auto minmax(0, 1.4fr) auto auto; gap: 8px 12px; align-items: end; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
 .tp-phase:first-child { border-top: none; }
 .tp-phase .tf-field input { width: 100%; min-width: 0; box-sizing: border-box; }
-.tp-phase-colour .sdk-picker { width: 100%; box-sizing: border-box; } /* one width down the list, so the columns line up */
 .tp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .tp-phase-list { margin: 4px 0 0; padding-left: 1.4em; }
 .tp-phase-list li { padding: 2px 0; overflow-wrap: anywhere; }
@@ -6958,7 +6956,10 @@ body.chat-window {
 .tp-switch { display: inline-flex; align-items: center; min-height: 32px; }
 .tp-setting-list .tp-setting-value { grid-column: 1 / -1; }
 .tp-list { min-width: 0; }
-.tp-list[inert] { opacity: .6; }
+/* A list the template leaves alone is off: faded, all but its colour chips, which draw exactly their colour (a faded swatch reads as
+   another colour); a dashed edge says they are off. */
+.tp-list[inert] :is(.list-setting > :not(.list-rows), .list-row > :not(.sdk-picker)) { opacity: .6; }
+.tp-list[inert] .sdk-picker { border-style: dashed; }
 .tp-list .list-setting > .hint { display: none; } /* the setting's own name is on the row above */
 .tp-label-group h4 { display: flex; align-items: center; gap: var(--space-2); }
 #tab-template .tp-module-labels .tp-label-group { margin-top: 8px; }
@@ -6967,7 +6968,7 @@ body.chat-window {
 .module-setting .setting-mark .btn { --btn-h: 32px; }
 .module-setting[data-locked] input:disabled, .module-setting[data-locked] select:disabled { opacity: 1; cursor: default; }
 @media (max-width: 640px) {
-  .tp-phase { grid-template-columns: minmax(0, 1fr) 10rem; } /* name and colour, then icon and Main, then the buttons */
+  .tp-phase { grid-template-columns: minmax(0, 1fr) auto; } /* name and colour, then icon and Main, then the buttons */
   .tp-phase .tp-actions { grid-column: 1 / -1; }
   .tp-setting { grid-template-columns: minmax(0, 1fr); }
   .tp-module-head { grid-template-columns: auto minmax(0, 1fr); }
@@ -8554,21 +8555,15 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
   gap: 8px;
 }
 
-/* One line at the panel's width: the name, the colour field (sized by what it shows), No colour and Delete. On a phone the name
-   takes its own line and the three controls sit under it. */
+/* One line: the name, the colour chip, No colour and Delete, on a phone too; the row wraps only where it can't fit. */
 .setup-tag-name {
   flex: 1 1 100px;
   min-width: 0;
 }
 
 .setup-tag-field {
+  display: inline-flex;
   flex: none;
-  min-width: 140px; /* the same width for "No colour" and a hex, so the rows line up */
-}
-
-@media (max-width: 480px) {
-  .setup-tags { gap: var(--space-4); } /* the tags apart, each now two lines */
-  .setup-tag-name { flex-basis: 100%; }
 }
 
 .setup-picture {
@@ -8974,6 +8969,15 @@ h4.setup-subheading {
   gap: 4px;
   font-size: var(--text-14);
 }
+
+/* A colour field with its label (a module's colour setting, a theme colour): the colour chip in front of the label's words, on one
+   line, as a tick box sits in front of its words; never a line of its own under the label. */
+:is(.panel, .fields, .module-setting, .space-setup) label:not(.sdk-choice-row):has(> .sdk-picker) {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+}
+:is(.panel, .fields, .module-setting, .space-setup) label:not(.sdk-choice-row) > .sdk-picker { order: -1; }
 
 .space-setup .list-row {
   flex-wrap: wrap;

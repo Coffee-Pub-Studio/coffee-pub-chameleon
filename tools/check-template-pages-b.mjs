@@ -209,7 +209,7 @@ await test('the pages, the strip, the 44 px rules and the marks are in the files
   assert.doesNotMatch(html, /data-tpl-part="more"/, 'the stop-gap page is gone');
   assert.match(read('public/admin.js'), /TPL_PARTS = \['main', 'basics', 'labels', 'workspace', 'phases', 'reactions', 'modules', 'list'\]/);
   const css = read('public/style.css');
-  const phone = css.slice(css.indexOf('.tp-phase { grid-template-columns: minmax(0, 1fr) 10rem; }') - 60);
+  const phone = css.slice(css.indexOf('.tp-phase { grid-template-columns: minmax(0, 1fr) auto; }') - 60);
   assert.match(phone, /\.tp-actions \.btn[^{]*\{ --btn-h: 44px; \}/);
   assert.match(phone, /\.tp-phase \.tp-main, \.tp-module-head \{ min-height: 44px; \}/);
   const form = read('public/module-settings.js');
@@ -375,6 +375,15 @@ async function live() {
         await test(at('Phases: the list and the measure; an edit saves'), async () => {
           await open('template/mine/phases', `${count('#tpl-phases-box [data-tp-phase]')} === 3 && document.querySelector('#tpl-phases-box [data-tp-measure]').value === 'dates' && document.querySelector('#tpl-phases-box [data-tp-main]:checked') !== null`, 'the Phases page');
           await shot(tab, `${size}-phases`);
+          // Each phase's colour field is a colour chip on the row's line (not stretched across a column): a square button whose swatch
+          // computes to exactly the phase's colour, with nothing on it or round it fading it (opacity, filter, blend).
+          const chips = await tab.eval(`[...document.querySelectorAll('#tpl-phases-box [data-tp-phase]')].map((row) => { const t = row.querySelector('.sdk-picker'); const i = row.querySelector('[data-tp-color]'); if (!t) return { missing: true }; const sw = t.querySelector('.sdk-picker-sw'); const r = t.getBoundingClientRect(); const n = parseInt(i.value.slice(1), 16); const fade = []; for (let e = sw; e; e = e.parentElement) { const c = getComputedStyle(e); if (c.opacity !== '1' || c.filter !== 'none' || c.mixBlendMode !== 'normal') fade.push(e.tagName + '.' + e.className); } const name = row.querySelector('[data-tp-label]').getBoundingClientRect(); return { drawn: getComputedStyle(sw).backgroundColor, want: 'rgb(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ')', square: Math.abs(r.width - r.height) < 0.5, words: t.textContent.trim(), title: t.title === i.value, fade, sameLine: r.top < name.bottom && r.bottom > name.top }; })`);
+          assert.equal(chips.length, 3, 'three phase rows');
+          for (const c of chips) {
+            assert.ok(!c.missing, 'each phase row has its colour chip');
+            assert.equal(c.drawn, c.want, `a phase's colour chip draws exactly its colour (${JSON.stringify(c)})`);
+            assert.deepEqual([c.square, c.words, c.title, c.fade, c.sameLine], [true, '', true, [], true], `a phase's colour chip is a square with no words, the hex its tooltip, nothing fading it, on the name's line (${JSON.stringify(c)})`);
+          }
           await tab.eval(`(() => { const m = document.querySelector('#tpl-phases-box [data-tp-measure]'); m.value = 'goals'; m.dispatchEvent(new Event('change', { bubbles: true })); document.querySelector('#tpl-phases-box [data-tp-add]').click(); const rows = document.querySelectorAll('#tpl-phases-box [data-tp-label]'); rows[rows.length - 1].value = 'Review'; document.querySelector('#tpl-phases-card [data-tpl-save-button]').click(); return true; })()`);
           await sleep(1300);
           const t = (await api('GET', '/api/environment/templates/mine')).json.template;

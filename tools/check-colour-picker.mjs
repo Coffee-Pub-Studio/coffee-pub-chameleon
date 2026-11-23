@@ -478,7 +478,7 @@ section('read as code', () => {
 });
 
 section('the Design System keeps the same starting colours and icons as host.js', () => {
-  // components.js carries a copy of COLOUR_GRID_START (as CP_GRID) and of the four icons (CP_CHECK, CP_DROPPER, CP_CHEVRON, CP_PLUS) so the
+  // components.js carries a copy of COLOUR_GRID_START (as CP_GRID) and of the three icons (CP_CHECK, CP_DROPPER, CP_PLUS) so the
   // specimens draw without the SDK. Only the literals are read: each is cut out of its file and evaluated alone, never the whole file.
   const ds = read('public/design-system/components.js');
   const cut = (src, start, end, what) => {
@@ -496,7 +496,7 @@ section('the Design System keeps the same starting colours and icons as host.js'
   }
   ok(!/CP_PALETTE|'Light', \[|'Strong', \[/.test(ds), 'components.js has no copy of the old three groups (Light, Dark, Strong)');
   const icon = (src, re, what) => { const m = src.match(re); if (!m) { ok(false, `could not find ${what} to compare`); return null; } return m[1]; };
-  for (const [key, cp] of [['check', 'CP_CHECK'], ['dropper', 'CP_DROPPER'], ['chevron', 'CP_CHEVRON'], ['plus', 'CP_PLUS']]) {
+  for (const [key, cp] of [['check', 'CP_CHECK'], ['dropper', 'CP_DROPPER'], ['plus', 'CP_PLUS']]) {
     const a = icon(sdk, new RegExp(`\\n\\s+${key}: '([^'\\n]+)',?\\n`), `COLOUR_ICONS.${key} in host.js`);
     const b = icon(ds, new RegExp(`const ${cp} = '([^'\\n]+)';`), `${cp} in components.js`);
     ok(Boolean(a) && a === b, `${cp} in components.js is not the same string as COLOUR_ICONS.${key} in host.js`);
@@ -1159,8 +1159,19 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     await key(send, 'Escape');
     answers.push(await last());
     await ev(`(window.__f3 = __h.ui.colorField(__R.getElementById('fld')), 1)`);
-    const trigWords = await ev(`window.__contrast(__R.querySelector('.sdk-picker .sdk-hex'))`);
-    ok(trigWords >= 4.5, `${label}: read case 4: the colour field's hex is ${trigWords.toFixed(2)}:1 on its trigger; wanted 4.5:1`);
+    // The colour field is a colour chip: a square button holding only the swatch (no hex words, no chevron), the hex its tooltip,
+    // never stretched across its line; and the swatch draws exactly its colour, disabled too (nothing on it or round it fades it).
+    const chip = async () => ev(`(() => { const t = __R.querySelector('.sdk-picker'); const sw = t.querySelector('.sdk-picker-sw'); const r = t.getBoundingClientRect(); let fade = []; for (let e = sw; e && e.nodeType === 1; e = e.parentElement || (e.getRootNode() && e.getRootNode().host)) { const c = getComputedStyle(e); if (c.opacity !== '1' || c.filter !== 'none' || c.mixBlendMode !== 'normal') fade.push(e.tagName + ' ' + c.opacity + ' ' + c.filter + ' ' + c.mixBlendMode); } return { kids: t.children.length, words: t.textContent.trim(), title: t.title, square: Math.abs(r.width - r.height) < 0.5, h: Math.round(r.height), bg: getComputedStyle(sw).backgroundColor, img: getComputedStyle(sw).backgroundImage, fade }; })()`);
+    await ev(`(window.__f3.set('#1e5fd0'), 1)`);
+    const c1 = await chip();
+    same([c1.kids, c1.words, c1.title, c1.square, c1.bg, c1.img, c1.fade], [1, '', '#1e5fd0', true, 'rgb(30, 95, 208)', 'none', []], `${label}: the colour field is a square chip with the swatch only, the hex as its tooltip, the swatch exactly #1e5fd0 with nothing fading it`);
+    ok(c1.h >= (coarse ? 44 : 30), `${label}: the colour chip is ${c1.h}px high; wanted ${coarse ? 44 : 30} or more`);
+    await ev(`(__R.getElementById('fld').disabled = true, 1)`);
+    await tick();
+    const c2 = await chip();
+    same([c2.bg, c2.fade], ['rgb(30, 95, 208)', []], `${label}: a disabled colour chip still draws exactly its colour (no half strength on the swatch)`);
+    await ev(`(__R.getElementById('fld').disabled = false, 1)`);
+    await tick();
     await ev('(window.__f3.destroy(), 1)');
 
     // ==== The cases from step 2's second independent read. ====

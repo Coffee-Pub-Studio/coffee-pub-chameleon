@@ -183,10 +183,12 @@ async function main() {
             await rowFits('env-subtabs', 'the Environment row of tabs');
           }
           if (t === 'theme') {
-            // Each theme colour is a colour field (the SDK's picker trigger) on its hidden input: the triggers show the theme's colours.
-            const sw = await tab.eval(`[...document.querySelectorAll('#tab-theme input[id^="theme-"][type=text]')].map((i) => [i.value, i.previousElementSibling && i.previousElementSibling.classList.contains('sdk-picker') ? i.previousElementSibling.querySelector('.sdk-hex').textContent : ''])`);
+            // Each theme colour is a colour field (the SDK's colour chip) on its hidden input: each chip's tooltip is the theme's colour
+            // and its swatch draws exactly that colour.
+            const sw = await tab.eval(`[...document.querySelectorAll('#tab-theme input[id^="theme-"][type=text]')].filter((i) => !i.disabled).map((i) => { const t = i.previousElementSibling; if (!t || !t.classList.contains('sdk-picker')) return [i.value, '', '']; const n = parseInt(i.value.slice(1), 16); return [i.value, t.title, getComputedStyle(t.querySelector('.sdk-picker-sw')).backgroundColor, 'rgb(' + (n >> 16) + ', ' + ((n >> 8) & 255) + ', ' + (n & 255) + ')']; })`);
             expect(sw.length > 5 && sw.some(([v]) => v !== '#000000'), `${size}: the Theme swatches are all black (${sw.length} of them)`);
-            expect(sw.every(([v, shown]) => shown && shown === v.toLowerCase()), `${size}: a Theme colour has no picker trigger, or its trigger does not show its colour`);
+            expect(sw.every(([v, shown]) => shown && shown === v.toLowerCase()), `${size}: a Theme colour has no colour chip, or its chip does not name its colour`);
+            expect(sw.every(([, , drawn, want]) => drawn === want), `${size}: a Theme colour chip does not draw exactly its colour (${JSON.stringify(sw.filter(([, , d, w]) => d !== w).slice(0, 3))})`);
           }
           if (t === 'modules') {
             for (const p of await tab.eval(`[...document.querySelectorAll('#module-subtabs .subtab')].map((b) => b.dataset.modulePart)`)) {
