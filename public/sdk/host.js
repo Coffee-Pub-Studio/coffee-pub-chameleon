@@ -5110,6 +5110,12 @@
         }
         return { status: 'queued', id: queued.id };
       },
+      // Run the module's actions library here (const ACTION_HANDLERS in src/<id>-lib-actions.js, the code the server runs for
+      // an agent's request to a bundled module): fromLibrary(ACTION_HANDLERS, { after?, only? }) answers handlers for provide,
+      // each carrying a request out as the server's runner does, with the same ctx and the same answer (see libraryHandlers
+      // above): host.actions.provide({ ...host.actions.fromLibrary(ACTION_HANDLERS, { after }), myView: async (input) => {} }).
+      // Any module may use it, uploaded ones too (they keep the wait for an open page, and the page carries it out this way).
+      fromLibrary: (handlers, o) => libraryHandlers(host, handlers, { ...(o || {}), module: () => (info && info.module) || null }),
       // Carry out the actions this module provides: provide({ createTask: async (input, { from, by, byKey }) => ({ ref }) }).
       // `by` is the asker's name; `byKey` is the asker's key (a person's key you may store and look up), or null for a guest.
       // Called for each request, once (only one page takes it), under the rules of whoever has the module open.
@@ -5973,6 +5979,176 @@
   return { host, emit };
   }
 
+  // --- a module's actions library, carried out on its page (plan-agent-edit-delete.md, decision 4, step 2) -------------------
+  // A module keeps its action rules in one plain library, src/<id>-lib-actions.js, defining
+  //   const ACTION_HANDLERS = { <action>: (input, ctx) => ({ writes, ref?, data? }) };
+  // the very code server/module-actions.js runs for an agent's request to a bundled module that declares it (actions.server).
+  // host.actions.fromLibrary(ACTION_HANDLERS, o) answers handlers for host.actions.provide that run it here exactly as the
+  // runner does there, so a page and the server give the same answer:
+  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, space, action, read(key), list(prefix) }, `credit` the one
+  //     provide gives (the asker when the server knows them), read and list synchronous, over this module's data here as it
+  //     was when the request was taken (each a copy), plus the facts below;
+  //   - its answer is held to the runner's rules (at most LIBRARY_WRITES writes, each exactly { key, value }, no delete, a
+  //     pointer only to this module's own object here, `data` plain and small); a throw is a refusal, its message the
+  //     sentence the asker reads, on one line;
+  //   - each write goes through host.storage.set with the version the handler read (none: it must still be absent), so the
+  //     server checks it as any write of this page's; one refused write puts back the ones before it, and nothing is left
+  //     half done. A value changed meanwhile is refused with the runner's own sentence.
+  // The facts, the same plain data the runner hands a library: `space` { id, name, currency, defaultCurrency, phases: [{ id,
+  // main }], bands } (`currency` the space's budget's, `defaultCurrency` the server's; bands: host.util.phaseTimeline(), []
+  // without phases), `people` [{ key, name }], `refs` { <objectKey>: { title,
+  // subtitle, kind, copy?, original? } } for each pointer in the input, as this person may see it (`original`, for a copy:
+  // { module, name } of what it copies), and `util`: the SDK's plain, localWhen, detailLines, time, ymd, parseYmd,
+  // objectKey, id and word, the only functions it gets.
+  // `o.after({ action, input, writes: [{ key, value, version, before }], ref, data })` runs once the writes are in, for what
+  // only a page does (redraw at once, tell the host about links, set a reminder); a throw from it is the request's answer,
+  // the writes kept. `o.only` (names) keeps only those handlers.
+  const LIBRARY_WRITES = 10; // as server/module-actions.js LIMITS.writes
+  const LIBRARY_SENTENCE = 200; // as its LIMITS.sentence
+  const LIBRARY_DATA = 8000; // as its LIMITS.answerDataBytes
+  const LIBRARY_CHANGED = 'That changed while it was being done, so nothing was changed. Read it again and ask again.';
+  const libraryLine = (v) => String(v == null ? '' : v).replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, LIBRARY_SENTENCE);
+  const libraryPlain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
+  const libraryCopy = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
+  // What a handler answered, held to the runner's rules (server/module-actions.js outcomeOf): { writes, ref, data } or a throw
+  // with the sentence. `own(ref)` says whether a pointer is this module's own object here; `name` is the module's.
+  function libraryOutcome(answer, own, name) {
+    const fault = (why) => new Error(`${name} could not carry that out: ${why}.`);
+    const result = answer === undefined || answer === null ? {} : answer;
+    if (!libraryPlain(result) || Object.keys(result).some((k) => !['writes', 'ref', 'data'].includes(k))) throw fault('it answered something the server can\'t use');
+    const given = result.writes === undefined || result.writes === null ? [] : result.writes;
+    if (!Array.isArray(given)) throw fault('it answered something the server can\'t use');
+    if (given.length > LIBRARY_WRITES) throw fault(`it tried to change more than ${LIBRARY_WRITES} things at once`);
+    const writes = [];
+    const seen = new Set();
+    for (const w of given) {
+      if (!libraryPlain(w)) throw fault('it answered something the server can\'t use');
+      if (Object.prototype.hasOwnProperty.call(w, 'delete')) throw fault('it tried to delete something, which needs a person\'s approval');
+      if (Object.keys(w).some((k) => k !== 'key' && k !== 'value')) throw fault('it tried to write outside its own data here');
+      if (typeof w.key !== 'string' || !w.key || w.key.length > 128 || seen.has(w.key) || w.value === undefined) throw fault('it answered something the server can\'t use');
+      seen.add(w.key);
+      writes.push({ key: w.key, value: libraryCopy(w.value) });
+    }
+    let ref = null;
+    if (result.ref !== undefined && result.ref !== null) {
+      if (!libraryPlain(result.ref) || !own(result.ref)) throw fault('it pointed at something that is not its own here');
+      ref = libraryCopy(result.ref);
+    }
+    let data;
+    if (result.data !== undefined && result.data !== null) {
+      const text = JSON.stringify(result.data);
+      if (text.length > LIBRARY_DATA) throw fault('it answered more than the server takes');
+      data = JSON.parse(text);
+    }
+    return { writes, ref, ...(data !== undefined ? { data } : {}) };
+  }
+  // The pointers in a request's input (its own fields, as the bus checks them): what `refs` describes.
+  const libraryPointers = (input) => Object.values(input && typeof input === 'object' ? input : {})
+    .filter((v) => libraryPlain(v) && typeof v.module === 'string' && typeof v.kind === 'string' && typeof v.id === 'string');
+  // The facts a handler is given beside the data (see above), read from this page's host.
+  async function libraryFacts(host, input) {
+    const util = host.util || {};
+    const sp = typeof host.space === 'function' ? host.space() : null;
+    const phases = typeof host.phases === 'function' ? (host.phases() || []) : [];
+    let bands = [];
+    if (phases.length && typeof util.phaseTimeline === 'function') { try { bands = util.phaseTimeline() || []; } catch (err) { bands = []; } }
+    let people = [];
+    try { people = typeof host.people === 'function' ? (await host.people()) || [] : []; } catch (err) { people = []; }
+    const refs = {};
+    const pointers = libraryPointers(input);
+    if (pointers.length && host.objects && typeof host.objects.resolve === 'function') {
+      let got = [];
+      try { got = await host.objects.resolve(pointers); } catch (err) { got = []; }
+      const copies = [];
+      pointers.forEach((p, i) => {
+        const s = got[i];
+        const k = util.objectKey(p);
+        if (!s || s.error) { refs[k] = { error: (s && s.error) || 'unavailable' }; return; }
+        refs[k] = { title: typeof s.title === 'string' ? s.title : '', subtitle: typeof s.subtitle === 'string' ? s.subtitle : '', kind: s.kind || p.kind };
+        if (s.copy === true && libraryPlain(s.twinOf)) { refs[k].copy = true; copies.push([k, s.twinOf]); }
+      });
+      if (copies.length) {
+        let originals = [];
+        try { originals = await host.objects.resolve(copies.map((c) => c[1])); } catch (err) { originals = []; }
+        copies.forEach(([k, twin], i) => {
+          const s = originals[i];
+          refs[k].original = { module: twin.module, name: (s && !s.error && s.module && s.module.name) || '' };
+        });
+      }
+    }
+    const budget = sp && sp.budget && typeof sp.budget.currency === 'string' ? sp.budget.currency.trim().toUpperCase() : '';
+    const loc = typeof host.locale === 'function' ? host.locale() || {} : {};
+    const deflt = typeof loc.currency === 'string' ? loc.currency.trim().toUpperCase() : '';
+    return {
+      space: { id: sp ? sp.id : null, name: sp && typeof sp.name === 'string' ? sp.name : '', currency: budget, defaultCurrency: deflt, phases: phases.map((p) => ({ id: p.id, main: Boolean(p.main) })), bands: libraryCopy(bands) },
+      people: (Array.isArray(people) ? people : []).filter((p) => p && typeof p.key === 'string').map((p) => ({ key: p.key, name: String(p.name || '') })),
+      refs,
+    };
+  }
+  // The SDK helpers a handler may call (`ctx.util`): plain functions of their arguments, the same ones the runner hands it.
+  const libraryUtil = (util) => Object.freeze(Object.fromEntries(['plain', 'localWhen', 'detailLines', 'time', 'ymd', 'parseYmd', 'objectKey', 'id', 'word']
+    .filter((k) => typeof util[k] === 'function').map((k) => [k, util[k]])));
+  // One request carried out with the library's handler `fn` (see above). `carried` is what provide gives: { from, by, byKey, credit }.
+  async function carryLibrary(host, name, fn, input, carried, o) {
+    const util = host.util || {};
+    const mod = (o && typeof o.module === 'function' ? o.module() : null) || {};
+    const moduleName = typeof mod.name === 'string' && mod.name ? mod.name : 'This module';
+    const here = typeof host.space === 'function' && host.space() ? host.space().id : null;
+    const own = (ref) => typeof ref.id === 'string' && Boolean(ref.id) && typeof ref.kind === 'string' && typeof mod.id === 'string' && ref.module === mod.id && ref.scope === 'space' && ref.space === here;
+    const rows = await host.storage.list('');
+    const data = new Map();
+    const versions = new Map();
+    for (const r of rows || []) { data.set(r.key, r.value); versions.set(r.key, r.version || 0); }
+    const facts = await libraryFacts(host, input);
+    let tz = 'UTC';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (err) { tz = 'UTC'; }
+    const credit = carried.credit || { name: '', key: '' };
+    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, space: facts.space, people: facts.people, refs: facts.refs, action: name });
+    ctx.read = (key) => (typeof key === 'string' && data.has(key) ? libraryCopy(data.get(key)) : null);
+    ctx.list = (prefix) => {
+      const p = typeof prefix === 'string' ? prefix : '';
+      return [...data.keys()].filter((k) => k.startsWith(p)).map((k) => ({ key: k, value: libraryCopy(data.get(k)) }));
+    };
+    ctx.util = libraryUtil(util);
+    let answer;
+    try {
+      answer = await fn(libraryCopy(input), ctx);
+    } catch (err) {
+      throw new Error(libraryLine(err && typeof err.message === 'string' ? err.message : err) || `${moduleName} could not do that.`);
+    }
+    const outcome = libraryOutcome(answer, own, moduleName);
+    const applied = [];
+    for (const w of outcome.writes) {
+      try {
+        const saved = await host.storage.set(w.key, w.value, { version: versions.get(w.key) || 0 });
+        applied.push({ key: w.key, value: w.value, version: saved && saved.version, before: data.has(w.key) ? libraryCopy(data.get(w.key)) : null });
+      } catch (err) {
+        // Put back what was written before, newest first: the value as it was, or no value where there was none.
+        for (const a of [...applied].reverse()) {
+          try {
+            if (a.before !== null) await host.storage.set(a.key, a.before, { version: a.version });
+            else await host.storage.delete(a.key, { version: a.version });
+          } catch (e) { /* changed again meanwhile: left as it is */ }
+        }
+        throw new Error(err && err.status === 409 ? LIBRARY_CHANGED : libraryLine(err && err.message) || `${moduleName} could not do that.`);
+      }
+    }
+    // On a module's environment page (no space: ctx.space.id is null) the pointer a handler made is to this page's own place.
+    const ref = outcome.ref && here === null && host.objects && typeof host.objects.make === 'function' ? host.objects.make(outcome.ref.kind, outcome.ref.id) : outcome.ref;
+    if (o && typeof o.after === 'function') await o.after({ action: name, input, writes: applied, ref, data: outcome.data });
+    return { ...(ref ? { ref } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}) };
+  }
+  // Handlers for provide, one for each of the library's (or of o.only).
+  function libraryHandlers(host, handlers, o) {
+    const out = {};
+    const only = o && Array.isArray(o.only) ? new Set(o.only) : null;
+    for (const name of Object.keys(handlers || {})) {
+      if (typeof handlers[name] !== 'function' || (only && !only.has(name))) continue;
+      out[name] = (input, carried) => carryLibrary(host, name, handlers[name], input, carried || {}, o || {});
+    }
+    return out;
+  }
+
   // A the host page that hosts modules includes this file with data-host-sdk, to build SDKs for modules
   // that run in the page; anywhere else, inside a frame, it boots for the module in that frame.
   const hostPage = Boolean(document.currentScript && document.currentScript.hasAttribute('data-host-sdk'));
@@ -6045,6 +6221,9 @@
   // it hosts in the page, not as a module itself) can use the very same rendering Chat and every module share,
   // rather than a second copy. See host.util.markdown above for what this covers.
   global.hostText = { esc, markdown, plain: plainText, localWhen, detailLines, parseClockText, clockText };
+  // A module's actions library carried out on a page (libraryHandlers above), for the checks that run a module's handlers on a
+  // stand-in host: fromLibrary(host, ACTION_HANDLERS, { module: () => ({ id, name }), after?, only? }).
+  global.hostActions = { fromLibrary: libraryHandlers, outcome: libraryOutcome, facts: libraryFacts };
   // The currency list likewise, for Manage's Currency (a page, not a module): the same choices a module's currencySelect makes.
   global.hostCurrency = {
     fill: fillCurrencySelect,

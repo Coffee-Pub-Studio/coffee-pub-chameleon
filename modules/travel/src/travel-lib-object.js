@@ -36,7 +36,7 @@
   // cost and travellers (plan-assistant-reboot.md, decision 3): the cost is the Estimated when its currency is the trip's
   // (or it names none), else a notes line ("Cost: 412.80 EUR"); a traveller whose name is exactly a person's becomes one of
   // the people it is for, any other a notes line. Without `booking` a cost in a named currency is a notes line too.
-  function objectFields(object, util, place, booking) {
+  function objectFields(object, util, place, booking, report) {
     const o = object && typeof object === 'object' ? object : {};
     const line = (v, n) => clip(util.plain(typeof v === 'number' ? String(v) : typeof v === 'string' ? v : '', { line: true }), n);
     const title = line(o.title, 120);
@@ -206,7 +206,60 @@
     let notes = [String(typeof o.content === 'string' ? o.content : '').trim(), rest.join('\n')].filter(Boolean).join('\n\n');
     if (notes.length + suffix.length > MAX_NOTES) notes = `${notes.slice(0, Math.max(0, MAX_NOTES - suffix.length - 1))}…`;
     fields.notes = (notes + suffix).trim();
+    // Which details went into a field of the plan's own (objectPatch reads it): the rest are notes lines.
+    if (report && typeof report === 'object') report.used = [...used];
     return fields;
+  }
+
+  // --- an object as a patch to an entry already on the plan (updatePlan; plan-agent-edit-delete.md, section 5) -------------
+  // The plan's fields each details field fills (objectFields), so a patch changes only those a given detail filled.
+  const PATCH_FIELDS = {
+    airline: ['operator'], operator: ['operator'], company: ['operator'], number: ['number'],
+    from: ['fromCode', 'from', 'pickup'], to: ['toCode', 'to', 'dropoff'], departs: ['date', 'time'], arrives: ['arrives', 'minutes'],
+    minutes: ['minutes'], terminal: ['terminal'], gate: ['gate'], platform: ['platform'], carriage: ['carriage'], seat: ['seat'],
+    class: ['travelClass'], reference: ['confirm'], checkIn: ['date', 'time'], checkOut: ['checkOut', 'checkOutTime'],
+    roomType: ['roomType'], guests: ['guests'], address: ['address'], starts: ['date', 'time'], ends: ['minutes'], allDay: ['time'],
+    partySize: ['partySize'], name: ['reservationName'], tickets: ['admissionCount'], cost: ['estimate'], travellers: ['owners'],
+  };
+  // The objects-format kind an entry reads its details as when the object names none: its own.
+  function objectKindOf(item) {
+    if (!item) return '';
+    if (item.kind === 'journey') return OBJECT_JOURNEYS.includes(item.mode) || item.mode === 'car' ? item.mode : 'bus';
+    if (item.kind === 'stay') return 'hotel';
+    if (item.kind === 'note') return 'note';
+    if (item.kind === 'stop') return OBJECT_MEALS.includes(item.type) || OBJECT_VISITS.includes(item.type) ? item.type : 'sight';
+    return '';
+  }
+  // The fields an object changes on `item` (an entry already on the plan), as objectFields reads it: only what the object
+  // gives. Its title when it has one; its kind when it names one the person's editor would show under another tile (a plain
+  // stop with the flight in its notes becomes a typed flight, as choosing Flight in the editor does); each details field the
+  // plan has a field for, a time alone on the entry's own day; its date and place; its content as the notes. A details field
+  // with no field of its own is a "Label: value" line for the notes (`lines`), as when it is added. Answers { patch, lines }.
+  function objectPatch(object, item, util, booking) {
+    const o = object && typeof object === 'object' ? object : {};
+    const named = typeof o.kind === 'string' && o.kind ? o.kind : '';
+    const kind = named || objectKindOf(item);
+    const details = { ...(o.details && typeof o.details === 'object' && !Array.isArray(o.details) ? o.details : {}) };
+    const at = item && item.date && item.time ? `${item.date}T${item.time}` : null;
+    // An end alone is read against the entry's own start (a car's drop-off, an event's end).
+    if (kind === 'car' && details.arrives !== undefined && details.departs === undefined && at) details.departs = at;
+    if (details.ends !== undefined && details.starts === undefined && at) details.starts = at;
+    const day = isYmd(o.date) ? o.date : item && item.date ? item.date : undefined;
+    const report = {};
+    const full = objectFields({ ...o, kind, title: typeof o.title === 'string' && o.title.trim() ? o.title : (item && item.title) || 'x', content: '', details, ...(day ? { date: day } : {}), links: [], basis: undefined }, util, undefined, booking, report);
+    const patch = {};
+    const has = (f) => Object.prototype.hasOwnProperty.call(full, f);
+    if (typeof o.title === 'string' && o.title.trim()) patch.title = full.title;
+    if (named && tileOf(item) !== tileOf(full)) for (const f of ['kind', 'mode', 'type', 'category']) if (has(f)) patch[f] = full[f];
+    for (const name of report.used || []) for (const f of PATCH_FIELDS[name] || []) if (has(f)) patch[f] = full[f];
+    if (isYmd(o.date) && patch.date === undefined) patch.date = o.date;
+    if (patch.date !== undefined) patch.after = null;
+    if (o.place && typeof o.place.name === 'string' && o.place.name.trim()) patch.place = full.place;
+    if (typeof o.content === 'string' && o.content.trim()) patch.notes = clip(o.content, MAX_NOTES);
+    // What had no field: the notes lines objectFields wrote after the (here empty) content, and the links.
+    const linksOnly = Array.isArray(o.links) || o.basis === 'imported' ? objectFields({ title: 'x', links: o.links, basis: o.basis }, util).notes : '';
+    const lines = [full.notes, linksOnly].filter(Boolean).join('\n\n');
+    return { patch, lines };
   }
 
   // --- the flight lookup (plan-flight-lookup.md) ------------------------------------------------------------------------

@@ -43,13 +43,17 @@
         <div class="sdk-field sdk-m" id="f-until-wrap" role="group" aria-labelledby="f-until-label"><span class="sdk-label" id="f-until-label">Until <span class="sdk-optional">(optional)</span></span><input id="f-until" type="date" aria-labelledby="f-until-label"><span class="sdk-hint"></span></div>
       </div>
       <label class="sdk-field"><span class="sdk-label">Details</span><textarea id="f-desc" rows="3" maxlength="600"></textarea><span class="sdk-hint"></span></label>
-      <label class="sdk-field"><span class="sdk-label">Remind people</span><select id="f-remind">
-        <option value="">No reminder</option>
-        <option value="0">When it starts</option>
-        <option value="15">15 minutes before</option>
-        <option value="60">1 hour before</option>
-        <option value="1440">1 day before</option>
-      </select><span class="sdk-hint" id="f-remind-hint"></span></label>
+      <div class="sdk-form-row" id="f-remind-row">
+        <label class="sdk-field sdk-m"><span class="sdk-label">Remind people</span><select id="f-remind">
+          <option value="">No reminder</option>
+          <option value="0">When it starts</option>
+          <option value="15">15 minutes before</option>
+          <option value="60">1 hour before</option>
+          <option value="1440">1 day before</option>
+          <option value="other">Other time before</option>
+        </select><span class="sdk-hint" id="f-remind-hint"></span></label>
+        <div class="sdk-field sdk-m" id="f-remind-other" role="group" aria-labelledby="f-remind-other-label" hidden><span class="sdk-label" id="f-remind-other-label">How long before</span><span class="sdk-group"><input id="f-remind-n" type="number" min="1" max="40320" step="1" inputmode="numeric" aria-label="How many"><select id="f-remind-unit" aria-label="Minutes, hours or days"><option value="1">minutes</option><option value="60">hours</option><option value="1440">days</option></select></span><span class="sdk-hint">Up to 28 days.</span></div>
+      </div>
       </div>
       <div class="sdk-field" id="f-links-wrap" role="group" aria-labelledby="f-links-label" hidden><span class="sdk-label" id="f-links-label">Linked from</span><div class="links" id="f-links"></div></div>
       <div class="sdk-form-error" id="f-error" role="alert" hidden></div>
