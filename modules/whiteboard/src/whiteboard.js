@@ -747,6 +747,46 @@
   // The host calls a button's handler from a loop over a live set, so a button made again inside its own click (the rows change when something is
   // pasted or cut) is called again by that same click. The clipboard buttons answer one click once.
   let clipHeld = false;
+  // A copy from the buttons also leaves a short line on the phone's own clipboard, so a Paste can tell that the board's copy is the newer one
+  // (what was on the clipboard before, a picture or a table, is gone); the keys put CLIP_MARK there instead.
+  const CLIP_LINE = 'Whiteboard blocks';
+  let clipLine = false;
+  async function writeClipLine() {
+    clipLine = false;
+    try { await navigator.clipboard.writeText(CLIP_LINE); clipLine = true; } catch { /* no clipboard to write: the board's copy still pastes when nothing else is there */ }
+  }
+  // What the phone's or computer's clipboard holds that the board can take: pictures, or rows and columns (a table). null when it holds nothing
+  // of those, when the board's own copy is the newer, or when the browser will not let the page read it.
+  async function readSystemClipboard() {
+    if (!navigator.clipboard || !navigator.clipboard.read) return null;
+    let items = [];
+    try { items = await navigator.clipboard.read(); } catch { return null; }
+    const files = [];
+    let html = '';
+    let text = '';
+    for (const it of items) {
+      for (const type of it.types) {
+        try {
+          const blob = await it.getType(type);
+          if (type.startsWith('image/')) files.push(new File([blob], `pasted.${type.split('/')[1] || 'png'}`, { type }));
+          else if (type === 'text/html') html = await blob.text();
+          else if (type === 'text/plain') text = await blob.text();
+        } catch { /* a type that will not open */ }
+      }
+    }
+    if (clipLine && text === CLIP_LINE && !files.length) return null; // the board's own copy is the newer
+    const data = { getData: (t) => (t === 'text/html' ? html : t === 'text/plain' ? text : '') };
+    return { files, grid: files.length ? null : gridOf(data) };
+  }
+  // The Paste button: a picture or a table from the clipboard, else what the board copied.
+  async function pasteButtonPress() {
+    if (!policy.canCreate() || presenting) return;
+    const sys = clipboard.has() && !clipLine ? null : await readSystemClipboard();
+    if (sys && sys.files.length && pictures) { addPictures(sys.files); return; }
+    if (sys && sys.grid) { pasteTable(sys.grid); return; }
+    if (sys && sys.files.length) { note('Only pictures can go on the board.'); return; }
+    paste();
+  }
   const clipOnce = (fn) => () => { if (clipHeld) return; clipHeld = true; setTimeout(() => { clipHeld = false; }, 0); fn(); };
   function toolbarTail() {
     const wantPresent = [...board.all()].some((b) => wbIsFrame(b));
@@ -754,15 +794,15 @@
     const wantArrange = policy.canEdit && sel.size > 1;
     // Cut, Copy and Paste as buttons (a phone has no keys and no right-click): Cut and Copy while something copyable is picked, Paste once something is copied.
     const wantCopy = policy.canEdit && sel.size > 0 && copyable().length > 0;
-    const wantPaste = policy.canCreate() && !presenting && clipboard.has();
+    const wantPaste = policy.canCreate() && !presenting;
     if (presentTool) presentTool.set({ on: Boolean(presenting) });
     if (Boolean(presentTool) === wantPresent && Boolean(deleteButton) === wantDelete && Boolean(arrangeButton) === wantArrange && Boolean(cutButton) === wantCopy && Boolean(copyButton) === wantCopy && Boolean(pasteButton) === wantPaste) return;
     for (const b of [arrangeButton, cutButton, copyButton, pasteButton, deleteButton, presentTool]) if (b) b.destroy();
     arrangeButton = cutButton = copyButton = pasteButton = deleteButton = presentTool = null;
     if (wantPresent) presentTool = host.ui.toolbarButton({ id: 'present-tool', label: 'Present the frames', icon: 'play', iconOnly: true, on: Boolean(presenting), onClick: () => presentToggle() });
-    if (wantCopy) cutButton = host.ui.toolbarButton({ id: 'clip-cut', label: 'Cut', icon: 'scissors', iconOnly: true, onClick: clipOnce(() => { if (presenting) return; if (tool.id === 'area' && pictureArea) copyArea(true); else copy({ cut: true }); }) });
-    if (wantCopy) copyButton = host.ui.toolbarButton({ id: 'clip-copy', label: 'Copy', icon: 'copy', iconOnly: true, onClick: clipOnce(() => { if (tool.id === 'area' && pictureArea) copyArea(false); else copy(); }) });
-    if (wantPaste) pasteButton = host.ui.toolbarButton({ id: 'clip-paste', label: 'Paste', icon: 'paste', iconOnly: true, onClick: clipOnce(() => paste()) });
+    if (wantCopy) cutButton = host.ui.toolbarButton({ id: 'clip-cut', label: 'Cut', icon: 'scissors', iconOnly: true, onClick: clipOnce(() => { if (presenting) return; if (tool.id === 'area' && pictureArea) copyArea(true); else { copy({ cut: true }); writeClipLine(); } }) });
+    if (wantCopy) copyButton = host.ui.toolbarButton({ id: 'clip-copy', label: 'Copy', icon: 'copy', iconOnly: true, onClick: clipOnce(() => { if (tool.id === 'area' && pictureArea) copyArea(false); else { copy(); writeClipLine(); } }) });
+    if (wantPaste) pasteButton = host.ui.toolbarButton({ id: 'clip-paste', label: 'Paste', icon: 'paste', iconOnly: true, onClick: clipOnce(() => pasteButtonPress()) });
     if (wantDelete) deleteButton = host.ui.toolbarButton({ id: 'delete', label: 'Delete', icon: 'trash', iconOnly: true, onClick: () => removeMany([...sel]) });
     if (wantArrange) arrangeButton = host.ui.toolbarButton({ id: 'arrange', label: 'Arrange', icon: 'arrows-left-right-to-line', iconOnly: true, onClick: (e) => arrangeMenu(toolbarAt(e)) });
   }

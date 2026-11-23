@@ -75,13 +75,12 @@ try {
   const r = await tab.eval(`(() => { const r = ${Q('.wb-block[data-id="s1"]')}.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
   const bar = (label) => `#module-frame >>> .mf-toolbar button[aria-label="${label}"], #module-frame >>> button[title="${label}"]`;
   const has = (label) => tab.eval(`Boolean(document.querySelector('[aria-label="${label}"], [title="${label}"]')) || Boolean(${Q('#world')}.getRootNode().querySelector('[aria-label="${label}"]'))`);
-  check(!(await has('Copy')) && !(await has('Paste')), 'with nothing picked there is no Copy and no Paste');
+  check(!(await has('Copy')) && (await has('Paste')), 'with nothing picked there is no Copy, and Paste is there for the clipboard');
   await tab.mouse('mouseMoved', r.x + r.w / 2, r.y + r.h / 2, { button: 'none', clickCount: 0 });
   await tab.mouse('mousePressed', r.x + r.w / 2, r.y + r.h / 2);
   await tab.mouse('mouseReleased', r.x + r.w / 2, r.y + r.h / 2);
   await sleep(600);
   check(await has('Copy') && await has('Cut'), 'a picked shape gives a Cut and a Copy button');
-  check(!(await has('Paste')), 'and no Paste yet');
   await tab.click('.mf-toolbar button, button', 'Copy');
   await sleep(700);
   check(await has('Paste'), 'after Copy there is a Paste button');
@@ -97,6 +96,32 @@ try {
   await sleep(1200);
   list = (await blocks()).filter((b) => b.type === 'rect');
   check(list.length === 2, `and Paste puts it back (${list.length} shapes: ${JSON.stringify(list.map((b) => [b.id, b.x, b.y]))})`);
+  // Paste from the phone's own clipboard: a picture on it is added to the board; a copy the board made after is pasted instead.
+  await tab.eval(`(() => { window.__sys = { items: [], written: null };
+    navigator.clipboard.writeText = async (t) => { window.__sys.written = t; window.__sys.items = [new ClipboardItem({ 'text/plain': new Blob([t], { type: 'text/plain' }) })]; };
+    return true; })()`);
+  await tab.eval(`(async () => { const c = document.createElement('canvas'); c.width = 40; c.height = 30; const x = c.getContext('2d'); x.fillStyle = '#336699'; x.fillRect(0, 0, 40, 30);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+    navigator.clipboard.read = async () => window.__sys.items;
+    window.__sys.items = [new ClipboardItem({ 'image/png': blob })]; return true; })()`);
+  const pics = async () => (await blocks()).filter((b) => b.type === 'image').length;
+  const before = await pics();
+  await tab.click('.mf-toolbar button, button', 'Paste');
+  await sleep(2500);
+  check((await pics()) === before + 1, `Paste adds a picture that is on the phone's clipboard (${before} to ${await pics()})`);
+  await tab.eval(`(() => { const b = ${Q('#board')}; b.focus(); b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return true; })()`);
+  await sleep(400);
+  const picsLeft = await pics();
+  const shapes = (await blocks()).filter((b) => b.type === 'rect').length;
+  await tab.mouse('mouseMoved', r.x + 4, r.y + r.h - 4, { button: 'none', clickCount: 0 });
+  await tab.mouse('mousePressed', r.x + 4, r.y + r.h - 4);
+  await tab.mouse('mouseReleased', r.x + 4, r.y + r.h - 4);
+  await sleep(600);
+  await tab.click('.mf-toolbar button, button', 'Copy');
+  await sleep(700);
+  await tab.click('.mf-toolbar button, button', 'Paste');
+  await sleep(1500);
+  check((await pics()) === picsLeft && (await blocks()).filter((b) => b.type === 'rect').length === shapes + 1, 'a Copy made on the board after puts the board copy back, not the old picture');
 } catch (err) {
   failed += 1;
   console.error(`FAIL ${err.stack || err}`);
