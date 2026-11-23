@@ -51,8 +51,10 @@ test('the owners are stored as the form stores them', () => {
   assert.equal(L.valueOf('goal', { title: 'Ship', parent: null }, { dates: true }).owners, undefined);
 });
 
-test('the page checks owners before it adds a goal', () => {
-  assert.match(page, /L\.ownersFor\(input\.owners, people/);
+test('the actions library checks owners before it adds or changes a goal', () => {
+  const lib = fs.readFileSync(path.join(MOD, 'src', 'goals-lib-actions.js'), 'utf8');
+  assert.equal((lib.match(/G\.ownersFor\(input\.owners, ctx\.people, ctx\.util\.word\('space'\)\)/g) || []).length, 2, 'addGoal and updateGoal');
+  assert.match(page, /host\.actions\.fromLibrary\(/);
 });
 
 const acts = Object.fromEntries(manifest.actions.provides.map((a) => [a.name, a]));

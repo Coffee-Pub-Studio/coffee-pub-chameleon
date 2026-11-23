@@ -850,6 +850,28 @@
   // popped out, or its own page. Typing is `/p` in Chat, which opens the same form.
   host.add.set(canCreate ? [{ id: 'poll', label: `New ${host.util.label('poll')}`, icon: 'square-poll-horizontal' }] : []).catch(() => {});
   host.on('add', (e) => { if (e.id === 'poll' && canCreate) openEditor(); });
+  // The library's handlers as this page carries them: each with the settings a new poll starts from (ctx.settings, which the
+  // server's runner does not give yet), and a poll started only by someone who may start one.
+  function actionHandlers() {
+    const withSettings = (fn) => (input, ctx) => fn(input, { ...ctx, settings: { addableByDefault: Boolean(prefs.addableByDefault), closeAfterDays: Number(prefs.closeAfterDays) || 0 } });
+    return {
+      createPoll: (input, ctx) => {
+        if (!canCreate) throw new Error('this person cannot start a poll here');
+        return withSettings(ACTION_HANDLERS.createPoll)(input, ctx);
+      },
+      updatePoll: withSettings(ACTION_HANDLERS.updatePoll),
+    };
+  }
+  // What only a page does once a request's poll is written: it shows at once, and a poll the request ended is told to whoever
+  // follows it, as End poll tells them.
+  async function afterAction({ writes }) {
+    for (const w of writes) {
+      rememberPoll('own', { key: w.key, value: w.value, version: w.version });
+      const x = polls.get(pollKey('own', w.key.slice(5)));
+      if (x && w.before && !w.before.closed && w.value.closed) announceClosed(x);
+    }
+    render();
+  }
   if (host.actions && host.actions.provide) {
     host.actions.provide({
       // A poll or a message's words from Chat's Send to... (plan-object-handoff.md): the form, filled in; nothing is saved
@@ -859,25 +881,10 @@
         openEditor(pollFromObject(input.object, host.util));
         return {};
       },
-      // An agent's request (or another module's): a poll as the form would save it, within the form's own limits (pollFromRequest in
-      // polls-lib.js). This open page carries it out, so the poll is the person's whose page it is. There is no voting action.
-      createPoll: async (input, ctx) => {
-        if (!canCreate) throw new Error('this person cannot start a poll here');
-        const made = pollFromRequest(input);
-        let closesAt = made.closesAt;
-        if (closesAt === null && prefs.closeAfterDays > 0) {
-          const d = new Date(Date.now() + prefs.closeAfterDays * 24 * 60 * 60 * 1000);
-          closesAt = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0).getTime();
-        }
-        const p = {
-          id: newId(), question: made.question, options: made.options.map((text, i) => ({ id: 'o' + (i + 1), text })),
-          multi: made.multi, addable: Boolean(prefs.addableByDefault), closed: false, closesAt, createdAt: Date.now(), by: (ctx && ctx.credit && ctx.credit.name) || info.user.name, byKey: (ctx && ctx.credit && ctx.credit.key) || me,
-        };
-        const saved = await host.storage.set('poll:' + p.id, p);
-        rememberPoll('own', { key: 'poll:' + p.id, value: p, version: saved.version });
-        render();
-        return { ref: host.objects.make('poll', p.id) };
-      },
+      // An agent's request (or another module's): createPoll and updatePoll, the actions library's (ACTION_HANDLERS in
+      // polls-lib-actions.js), carried out here by the SDK (host.actions.fromLibrary) with this module's settings beside the
+      // runner's ctx (ctx.settings). There is no voting action.
+      ...host.actions.fromLibrary(actionHandlers(), { after: afterAction }),
       addPoll: async (input) => {
         if (!canCreate) throw new Error('this person cannot start a poll here');
         const parsed = input.text && host.util.parseWhen ? host.util.parseWhen(input.text) : { title: input.text || '' };

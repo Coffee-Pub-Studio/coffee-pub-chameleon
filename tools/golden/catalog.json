@@ -1,5 +1,114 @@
 [
   {
+    "name": "budget__updateCost",
+    "module": "budget",
+    "action": "updateCost",
+    "label": "Change a cost",
+    "description": "Change a cost in the budget, keeping what is not given.",
+    "effect": "write",
+    "input": {
+      "cost": "ref:budget:cost",
+      "title": "string?",
+      "amount": "number?",
+      "planned": "number?",
+      "actual": "number?",
+      "category": "string?",
+      "payer": "string?",
+      "sharedBy": "string?",
+      "date": "date?",
+      "notes": "text?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "cost": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a cost shown in this question."
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "amount": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "planned": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "actual": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "category": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "payer": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "sharedBy": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "A date, YYYY-MM-DD."
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "cost",
+        "title",
+        "amount",
+        "planned",
+        "actual",
+        "category",
+        "payer",
+        "sharedBy",
+        "date",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "calendar__updateEvent",
     "module": "calendar",
     "action": "updateEvent",
@@ -16,6 +125,7 @@
       "allDay": "boolean?",
       "repeat": "string?",
       "remind": "number?",
+      "remindAt": "string?",
       "notes": "text?"
     },
     "schema": {
@@ -86,6 +196,14 @@
             "null"
           ]
         },
+        "remindAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
         "notes": {
           "type": [
             "string",
@@ -105,7 +223,123 @@
         "allDay",
         "repeat",
         "remind",
+        "remindAt",
         "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "goals__setGoalDone",
+    "module": "goals",
+    "action": "setGoalDone",
+    "label": "Mark a goal or step done",
+    "description": "Mark a goal or a step done, or not done again.",
+    "effect": "write",
+    "input": {
+      "entry": "ref:goals:plan",
+      "done": "boolean"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        },
+        "done": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "entry",
+        "done"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "goals__updateGoal",
+    "module": "goals",
+    "action": "updateGoal",
+    "label": "Change a goal, step or note",
+    "description": "Change a goal, a step or a note in the plan, keeping what is not given.",
+    "effect": "write",
+    "input": {
+      "entry": "ref:goals:plan",
+      "title": "string?",
+      "why": "text?",
+      "date": "date?",
+      "owners": "text?",
+      "text": "text?",
+      "goal": "ref:goals:plan?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "entry": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "why": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "A date, YYYY-MM-DD."
+        },
+        "owners": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "goal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "The number n of a plan shown in this question."
+        }
+      },
+      "required": [
+        "entry",
+        "title",
+        "why",
+        "date",
+        "owners",
+        "text",
+        "goal"
       ],
       "additionalProperties": false
     }
@@ -236,6 +470,77 @@
         "address",
         "notes",
         "owners"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "polls__updatePoll",
+    "module": "polls",
+    "action": "updatePoll",
+    "label": "Change a poll",
+    "description": "Change a poll's question, choices, answers allowed or closing, keeping what is not given.",
+    "effect": "write",
+    "input": {
+      "poll": "ref:polls:poll",
+      "question": "string?",
+      "options": "text?",
+      "multiple": "boolean?",
+      "closes": "string?",
+      "closed": "boolean?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "poll": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a poll shown in this question."
+        },
+        "question": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "options": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "multiple": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "closes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "closed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "poll",
+        "question",
+        "options",
+        "multiple",
+        "closes",
+        "closed"
       ],
       "additionalProperties": false
     }

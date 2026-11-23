@@ -4,28 +4,28 @@
     "hash": "78fa61c739d6f431"
   },
   "budget": {
-    "version": "0.1.30",
-    "hash": "a382ce9a256aa2b6"
+    "version": "0.1.31",
+    "hash": "8dd3132b44311932"
   },
   "calendar": {
-    "version": "1.24.50",
-    "hash": "fae535852c77f9a9"
+    "version": "1.24.51",
+    "hash": "4da525bf106aecbf"
   },
   "documents": {
     "version": "0.11.37",
     "hash": "5be98936890517ef"
   },
   "goals": {
-    "version": "0.1.8",
-    "hash": "0203cc9dc0f667cd"
+    "version": "0.1.9",
+    "hash": "2171de5b04dcfe57"
   },
   "maps": {
     "version": "0.10.14",
     "hash": "5115819eb42e83cb"
   },
   "polls": {
-    "version": "1.15.32",
-    "hash": "819790d3c9dd83d4"
+    "version": "1.15.33",
+    "hash": "ab2a6bff3d4a8cfe"
   },
   "research": {
     "version": "0.4.39",

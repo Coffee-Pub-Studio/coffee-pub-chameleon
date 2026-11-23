@@ -64,35 +64,80 @@
     });
   }
 
+  // --- a wall clock in a time zone -------------------------------------------------------------------------------------
+  // A closing time is typed on a clock: the person's own on their page, the zone `tz` the request is carried out in
+  // (ctx.tz, polls-lib-actions.js). With no zone, or one that can't be read, this process's own clock.
+  const pollZoneFormats = new Map();
+  function pollZoneFormat(tz) {
+    if (typeof tz !== 'string' || !tz || tz.length > 64) return null;
+    if (!pollZoneFormats.has(tz)) {
+      try {
+        pollZoneFormats.set(tz, new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }));
+      } catch (err) {
+        pollZoneFormats.set(tz, null);
+      }
+    }
+    return pollZoneFormats.get(tz);
+  }
+  // The wall clock of an instant (ms) in `tz`: { y, mo, d, h, mi } (mo 1 to 12).
+  function pollWallOf(ms, tz) {
+    const f = pollZoneFormat(tz);
+    if (!f) { const t = new Date(ms); return { y: t.getFullYear(), mo: t.getMonth() + 1, d: t.getDate(), h: t.getHours(), mi: t.getMinutes() }; }
+    const get = {};
+    for (const p of f.formatToParts(new Date(ms))) get[p.type] = Number(p.value);
+    return { y: get.year, mo: get.month, d: get.day, h: get.hour === 24 ? 0 : get.hour, mi: get.minute };
+  }
+  // The instant (ms) a wall clock day and time stands for in `tz`: found twice, for a clock change.
+  function pollInstant(y, mo, d, h, mi, tz) {
+    if (!pollZoneFormat(tz)) return new Date(y, mo - 1, d, h, mi).getTime();
+    const want = Date.UTC(y, mo - 1, d, h, mi);
+    let guess = want;
+    for (let i = 0; i < 2; i += 1) {
+      const w = pollWallOf(guess, tz);
+      guess -= Date.UTC(w.y, w.mo - 1, w.d, w.h, w.mi) - want;
+    }
+    return guess;
+  }
+
   // The poll an agent's request makes (createPoll), with the form's own limits and words (polls.js, save), so a poll made this
   // way is one the form could have made. `question`; `options` (a list, or text with a choice to a line or between commas);
-  // `multiple` (true or false); `closes` ('YYYY-MM-DD', noon as the form's default, or 'YYYY-MM-DDTHH:MM' on the person's own
-  // clock). Returns { question, options: [text], multi, closesAt (ms or null) }; throws an Error in plain words. `now` is for a check.
+  // `multiple` (true or false); `closes` ('YYYY-MM-DD', noon as the form's default, or 'YYYY-MM-DDTHH:MM' on the clock of
+  // `tz`, else this process's). Returns { question, options: [text], multi, closesAt (ms or null) }; throws an Error in plain
+  // words. `now` is for a check. updatePoll (polls-lib-actions.js) uses the same pieces, so an edit is held to the same words.
   const POLL_QUESTION_MAX = 200;
   const POLL_OPTION_MAX = 100;
   const POLL_OPTIONS_MAX = 20;
-  function pollFromRequest(input, now) {
-    const i = input && typeof input === 'object' ? input : {};
-    const clean = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
-    const question = typeof i.question === 'string' ? clean(i.question) : '';
+  const pollClean = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  function pollQuestionOf(value) {
+    const question = typeof value === 'string' ? pollClean(value) : '';
     if (!question) throw new Error('A poll needs a question.');
     if (question.length > POLL_QUESTION_MAX) throw new Error(`A question can be ${POLL_QUESTION_MAX} letters at most.`);
-    let raw = i.options;
+    return question;
+  }
+  function pollOptionsOf(value) {
+    let raw = value;
     if (typeof raw === 'string') raw = raw.split(/[\n,]/);
     if (!Array.isArray(raw)) raw = [];
-    const options = raw.filter((x) => typeof x === 'string').map(clean).filter(Boolean);
+    const options = raw.filter((x) => typeof x === 'string').map(pollClean).filter(Boolean);
     if (options.length < 2) throw new Error('Give at least two options.');
     if (options.length > POLL_OPTIONS_MAX) throw new Error(`A poll can have ${POLL_OPTIONS_MAX} options at most.`);
     if (options.some((o) => o.length > POLL_OPTION_MAX)) throw new Error(`An option can be ${POLL_OPTION_MAX} letters at most.`);
     if (new Set(options.map((o) => o.toLowerCase())).size !== options.length) throw new Error('Two options are the same.');
+    return options;
+  }
+  function pollClosesOf(value, now, tz) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/.exec(typeof value === 'string' ? value.trim() : '');
+    const day = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
+    if (!day || day.getUTCMonth() !== +m[2] - 1 || day.getUTCDate() !== +m[3] || (m[4] && (+m[4] > 23 || +m[5] > 59))) throw new Error('Closes needs a day, such as 2026-11-30, or a day and time, such as 2026-11-30T18:00.');
+    const closesAt = pollInstant(+m[1], +m[2], +m[3], m[4] ? +m[4] : 12, m[5] ? +m[5] : 0, tz);
+    if (closesAt <= (now === undefined ? Date.now() : now)) throw new Error('The closing time has to be in the future.');
+    return closesAt;
+  }
+  function pollFromRequest(input, now, tz) {
+    const i = input && typeof input === 'object' ? input : {};
+    const question = pollQuestionOf(i.question);
+    const options = pollOptionsOf(i.options);
     if (i.multiple !== undefined && i.multiple !== null && typeof i.multiple !== 'boolean') throw new Error('Say whether several answers are allowed with true or false.');
-    let closesAt = null;
-    if (i.closes !== undefined && i.closes !== null && i.closes !== '') {
-      const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/.exec(typeof i.closes === 'string' ? i.closes.trim() : '');
-      const t = m ? new Date(+m[1], +m[2] - 1, +m[3], m[4] ? +m[4] : 12, m[5] ? +m[5] : 0) : null;
-      if (!t || t.getMonth() !== +m[2] - 1 || t.getDate() !== +m[3] || (m[4] && (+m[4] > 23 || +m[5] > 59))) throw new Error('Closes needs a day, such as 2026-11-30, or a day and time, such as 2026-11-30T18:00.');
-      closesAt = t.getTime();
-      if (closesAt <= (now === undefined ? Date.now() : now)) throw new Error('The closing time has to be in the future.');
-    }
+    const closesAt = i.closes !== undefined && i.closes !== null && i.closes !== '' ? pollClosesOf(i.closes, now, tz) : null;
     return { question, options, multi: i.multiple === true, closesAt };
   }

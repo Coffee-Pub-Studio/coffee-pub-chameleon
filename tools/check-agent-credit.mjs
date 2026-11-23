@@ -89,10 +89,13 @@ await has('modules/travel/src/travel-lib-actions.js', /function actAddPlain\(pla
 await has('modules/travel/src/travel-lib-plan.js', /host\.actions\.fromLibrary\(ACTION_HANDLERS/, 'travel: the page carries the library\'s handlers');
 await has('modules/calendar/src/calendar-lib-actions.js', /createEvent\(input, ctx\)[\s\S]*by: ctx\.credit\.name/, 'calendar: createEvent stamps the credit');
 await has('modules/calendar/src/calendar.js', /host\.actions\.fromLibrary\(ACTION_HANDLERS/, 'calendar: the page carries the library\'s handlers');
-await has('modules/polls/src/polls.js', /by: \(ctx && ctx\.credit && ctx\.credit\.name\) \|\| info\.user\.name, byKey: \(ctx && ctx\.credit && ctx\.credit\.key\) \|\| me/, 'polls: createPoll stamps name and key from the credit');
+await has('modules/polls/src/polls-lib-actions.js', /createPoll\(input, ctx\)[\s\S]*by: ctx\.credit\.name, byKey: ctx\.credit\.key/, 'polls: createPoll stamps name and key from the credit');
+await has('modules/polls/src/polls.js', /host\.actions\.fromLibrary\(actionHandlers\(\)/, 'polls: the page carries the library\'s handlers');
 await has('modules/goals/src/goals.js', /value\.by = by \|\| me/, 'goals: add stamps the given credit');
-await has('modules/goals/src/goals.js', /addGoal: async \(input, ctx\)[\s\S]*addStep: async \(input, ctx\)[\s\S]*addNote: async \(input, ctx\)/, 'goals: the three add actions take ctx');
-await has('modules/budget/src/budget.js', /costFromRequest\(input, \(ctx && ctx\.credit && ctx\.credit\.key\) \|\| info\.user\.key/, 'budget: addCost stamps the credit key');
+await has('modules/goals/src/goals-lib-actions.js', /function add\(kind, raw, ctx\) \{[\s\S]*value\.by = ctx\.credit\.key;/, 'goals: addGoal, addStep and addNote stamp the credit key');
+await has('modules/goals/src/goals.js', /host\.actions\.fromLibrary\(/, 'goals: the page carries the library\'s handlers');
+await has('modules/budget/src/budget-lib-actions.js', /costFromRequest\(input, ctx\.credit\.key, ctx\.people/, 'budget: addCost stamps the credit key');
+await has('modules/budget/src/budget.js', /host\.actions\.fromLibrary\(/, 'budget: the page carries the library\'s handlers');
 await has('modules/maps/src/maps-lib-g-list-view.js', /placeWhere\(ticks, input, \(ctx && ctx\.credit && ctx\.credit\.key\)/, 'maps: addPlace stamps the credit key');
 await has('modules/maps/src/maps-lib-g-list-view.js', /placeChanged\(p, input, \(ctx && ctx\.credit && ctx\.credit\.key\)/, 'maps: updatePlace stamps the credit key');
 await has('modules/research/src/research-lib.js', /byOf = \(ctx\) => \(ctx && ctx\.credit && ctx\.credit\.name\)/, 'research: byOf reads the credit');

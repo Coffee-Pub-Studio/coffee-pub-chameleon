@@ -1,7 +1,7 @@
 {
   "id": "budget",
   "name": "Budget",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "icon": "wallet",
   "color": "gold",
   "description": "What your {space} spends: costs planned and paid, a target, and who owes whom.",
@@ -87,6 +87,36 @@
           "date": "date?",
           "notes": "text?",
           "ref": "ref?"
+        }
+      },
+      {
+        "name": "updateCost",
+        "label": "Change a cost",
+        "description": "Change a cost in the budget, keeping what is not given.",
+        "effect": "write",
+        "input": {
+          "cost": "ref:budget:cost",
+          "title": "string?",
+          "amount": "number?",
+          "planned": "number?",
+          "actual": "number?",
+          "category": "string?",
+          "payer": "string?",
+          "sharedBy": "string?",
+          "date": "date?",
+          "notes": "text?"
+        },
+        "clears": ["planned", "actual", "payer", "sharedBy", "date", "notes"],
+        "inputHints": {
+          "cost": "The cost to change, as a pointer.",
+          "amount": "One amount in the space's own currency: what was paid if the cost has a payer or is paid, else what is planned.",
+          "planned": "The amount expected, above zero, in the space's own currency. Send \"\" to clear it.",
+          "actual": "The amount paid, above zero, in the space's own currency. Send \"\" to clear it.",
+          "category": "The id of a category in this budget, such as travel. Anything else counts as other.",
+          "payer": "Who paid: a person's key, or their name as list_members shows it. Send \"\" for nobody.",
+          "sharedBy": "Who shares the cost: keys or names from list_members, separated by commas; this replaces the list. Send \"\" for nobody.",
+          "date": "The day of the cost as YYYY-MM-DD. Send \"\" to clear it.",
+          "notes": "The notes. Line breaks are allowed. Send \"\" to clear them."
         }
       }
     ],
