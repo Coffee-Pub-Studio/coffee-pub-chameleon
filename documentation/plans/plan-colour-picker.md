@@ -99,6 +99,17 @@ Thomas, 2026-11-22 (Recent).
     - a module's own `palette` doesn't change Recent;
     - a choice adds to the front, and drops an older copy of the same colour and opacity.
 
+Thomas, 2026-11-23 (module access to the grid).
+
+28. **In an uploaded (sandboxed) module the grid and Recent are read-only.** The question: the picker runs inside the module's own page (the A1 reading of decision 1), so an uploaded module can send the same host calls the SDK sends and could read or change the person's grid and Recent. Thomas's answer: "Read-only in uploaded modules". It means:
+    - in a sandboxed module frame, the page answers the grid and Recent as not editable and refuses their writes;
+    - the picker there shows the grid and Recent with no "+", no drag-in and no Remove;
+    - a pick there doesn't update Recent;
+    - bundled modules running in the page, the host pages' own pickers and Manage stay editable;
+    - reading the colours stays allowed everywhere.
+
+    Options he did not take: the page draws the picker over everything for uploaded modules (A2), which closes it fully but is a larger change; and one-step calls only, which limits harm but doesn't close it. This replaces the acceptance of a hostile module rewriting the grid in the contract and in risk 10.
+
 **What decision 5 lets the plan drop.**
 
 - **Keeping `colour-pick.js`'s exports.** The first draft kept `upgradeColourInputs` and `colourPicker` so their users would not change. Now `colour-pick.js` is removed, and `module-settings.js`, `list-rows.js` and `template-pages.js` call the SDK's colour field directly. `tools/check-template-pages-b.mjs`, which stubs the old import line, changes with them.
@@ -329,7 +340,7 @@ The popover, top down, in the Pickers family's dense popover (`.sdk-popover .sdk
 - A live one under Live SDK pieces (`components-3.js`), opened from a trigger, as the date and kind pickers are there.
 - `tools/check-design-system-catalog.mjs` holds every class the entry draws to a real rule.
 
-### The person's colour grid (server-development and experience-design; core; decisions 22 to 27)
+### The person's colour grid (server-development and experience-design; core; decisions 22 to 28)
 
 This is a core change: `server/` (a route and the account's stored data), `public/sdk/host.js` and `public/module-host.js`. Thomas named no kind of build for it, so it is a try build: one builder per half, its own checks, no independent read and no QA, and every check green on `main` before it merges (`CLAUDE.md`, "Core stability"). What follows is the planner's proposal where Thomas's words don't settle it.
 
@@ -361,7 +372,8 @@ This is a core change: `server/` (a route and the account's stored data), `publi
 - **In `module-host.js`**, two new handlers beside `ui.confirm`. The page keeps one copy of the grid for all its modules: read from the route on the first ask, replaced by each `set`'s answer, so two modules on one page see the same grid. A handler checks the list's shape before it sends it, and the server checks it again.
 - **On the host's own pages** (`hostColour`, `host.js` lines 5694 to 5710), the page host's `call` answers the same two methods by fetching the route itself, with its own copy for that page. A page that has both (a space's page, with its settings and its modules) may hold two copies until it reloads; a known gap, said in known-issues when built.
 - The picker asks each time it opens and draws the grid once the answer is there (from the page's copy, so after the first open there is no network wait).
-- A module can't send these calls itself in any useful way beyond what the picker does: a hostile module could rewrite the person's grid, but only with checked colours, and nothing else is reachable. Accepted, as the grid holds no secrets; named in the risks.
+- **Uploaded modules are read-only (decision 28).** A module's own code can send these calls, as the SDK does, so the page decides by where the call comes from. For a call from a sandboxed module frame, `ui.colorGrid` and the Recent read answer `editable: false`, and `ui.colorGrid.set` and the Recent write are refused with one plain sentence and change nothing. The picker in that frame shows the grid and Recent with no "+", no drag-in and no Remove, and a pick there doesn't update Recent. Bundled modules running in the page, the host pages' own pickers (`hostColour`) and Manage stay editable. Reading stays allowed everywhere. The checks for this must cover a refused write from a sandboxed frame.
+- A module never reads or writes the grid by any route of its own: it has no session and reaches the grid only through these page calls, under the rule above.
 
 **What a person sees and does.**
 
@@ -473,7 +485,8 @@ What that means for the schedule:
 7. **Two copies of the contrast maths.** `theme-colour.js` and the SDK's helper could drift. Mitigation: step 1's check holds them equal.
 8. **Removing a page piece everyone uses.** `colour-pick.js` reaches Manage, the host console, Profile and a space's settings, and two checks name it. Mitigation: step 3 changes its three users and the checks in one step, and its live checks open each page.
 9. **Undo and saves while dragging.** A module that saves on every `onInput` floods its saves and its undo history. Mitigation: the SDK document says `onInput` is for showing only, and the answer is the one change to save.
-10. **A module rewriting a person's grid.** The picker runs in the module's frame (A1), so the page can't tell a person's add from a module's own `ui.colorGrid.set`. Mitigation: the server takes only checked colours, at most 48, and the grid holds nothing private; the worst case is a spoiled list the person can edit back.
+10. **A module rewriting a person's grid.** The picker runs in the module's frame (A1), so a module can send the same host calls as the picker. Closed for uploaded modules by decision 28: the page answers the grid and Recent as not editable in a sandboxed frame and refuses their writes. Bundled modules run in the page and are trusted. The server still takes only checked colours, at most 48.
+    - **Known: reading remains possible.** An uploaded module can still read the person's grid and Recent, because reading stays allowed everywhere (decision 28). They hold no secrets.
 11. **Two copies on one page.** A space's page may hold the module host's copy and the page host's copy of the grid, which can differ until a reload. Mitigation: each set answers the stored list; named in known-issues.
 
 ## Rollback
