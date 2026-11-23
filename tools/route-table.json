@@ -237,6 +237,7 @@
   {"kind":"route","method":"GET","path":"/api/spaces/:id/actions","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/spaces/:id/action","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/spaces/:id/action/:requestId","name":null,"part":null},
+  {"kind":"route","method":"GET","path":"/api/spaces/:id/action/:requestId/wait","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/icons/:style/:name","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/modules/:id/spaces-data","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/me/feed","name":null,"part":null},

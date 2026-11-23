@@ -175,6 +175,8 @@ const GATE_LIST = new Set([
   'GET /api/agent/me', 'GET /api/modules/:id/context', 'GET /api/modules/:id/data', 'GET /api/modules/:id/data/:key',
   'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'POST /api/objects/resolve',
   'GET /api/spaces/:id/members', 'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
+  // Waiting for its own request (plan-agent-edit-delete.md, E3); tools/check-module-actions.mjs checks it.
+  'GET /api/spaces/:id/action/:requestId/wait',
   // Chat (step 5): reading and posting; tools/check-agent-chat.mjs checks them.
   'GET /api/spaces/:id/chat', 'POST /api/spaces/:id/chat',
   // The MCP door (server/mcp.js): tools/check-mcp.mjs checks it.

@@ -24,6 +24,7 @@ const net = require('net');
 const { ModuleLinks, objectKey } = require('./module-links');
 const { Backgrounds } = require('./backgrounds');
 const { ModuleBus, BUS_LIMITS } = require('./module-bus');
+const { createModuleActions, outcomeOf: moduleActionOutcome, faultWords: moduleActionFault, MODULE_ACTION_LIMITS } = require('./module-actions');
 const { liveLimits, effectiveLiveLimits, readSend, dataBytes } = require('./module-live');
 const { ChatHistory, cleanChatText, postedByAgent, CHAT_LIMITS } = require('./chat-history');
 const { cleanReport: cleanAttention } = require('./attention');
@@ -335,6 +336,9 @@ const DEFAULT_SLUG = '';
 // bundledList()) because environmentFor()'s auto-install needs it, and environmentFor() runs at module load,
 // before that part of the file has executed.
 const BUNDLED_DIR = path.join(__dirname, '..', 'modules');
+// The server runner for agents' requests to bundled modules (server/module-actions.js; plan-agent-edit-delete.md, decision
+// 4): its code only ever comes from here, the deployment's own modules, never from what an environment has installed.
+const moduleActions = createModuleActions({ bundledDir: BUNDLED_DIR });
 // (Up here for the same reason: environmentFor() gives a module's display icon its built-in icons, at module load.)
 // The two panes that ship with the app, listed beside the installed modules. They are always on and
 // cannot be removed (for now); their permissions are the built-in ones on the Roles tab.
@@ -8897,6 +8901,9 @@ app.get('/api/spaces/:id/actions', (req, res) => {
         // Whether this caller can carry it out here (plan-chat-links.md, decision 10): read access for a local
         // action (already true to be listed), write access for any other; and, with `takes`, some entry they may use.
         may: (a.local ? true : mayWrite()) && (!a.takes || takesFor(manifest, a, perms).some((e) => e.may)),
+        // For an agent (plan-agent-edit-delete.md, E1 and E3): whether the server carries it out at once (`now`), or it
+        // waits for someone to open the module, and then the words saying so (`waiting`).
+        ...(req.agent ? (carriedNow({ manifest, entry }) ? { now: true } : { now: false, waiting: waitingWords(manifest, space, 'pending') }) : {}),
       });
     }
   }
@@ -8905,7 +8912,7 @@ app.get('/api/spaces/:id/actions', (req, res) => {
 
 // For an agent the route asks no chat permission, only the module's own read and write (plan-agent-matrix.md, decision 9);
 // a person still needs chat.
-app.post('/api/spaces/:id/action', (req, res) => {
+app.post('/api/spaces/:id/action', async (req, res) => {
   const found = chatSpaceFor(req, res, req.agent ? null : 'chat');
   if (!found) return;
   const [providerId, name] = String(req.body?.action || '').split(':');
@@ -8950,6 +8957,12 @@ app.post('/api/spaces/:id/action', (req, res) => {
     return res.status(err.status).json({ error: err.message });
   }
   if (chatRequestLimited(who, space)) return res.status(429).json({ error: CHAT_REQUESTS_REFUSAL });
+  // An agent's request to a bundled module with server actions is carried out here and now, as the agent (decision 4 of
+  // plan-agent-edit-delete.md); everything above, the gate before it included, has already held it to what the agent may.
+  const lib = req.agent ? serverCarries(provider.found, def, input, space.id) : null;
+  if (lib && JSON.stringify(input).length > MODULE_ACTION_LIMITS.inputBytes) {
+    return res.status(413).json({ error: `That request is too large for ${modules.shownName(provider.found.manifest)} to carry out.` });
+  }
   const request = moduleBus.request({
     from: providerId,
     provider: providerId,
@@ -8966,10 +8979,160 @@ app.post('/api/spaces/:id/action', (req, res) => {
     openOnly: Boolean(def.local),
     // An agent's request carries the token that asked: it is carried out only while that token and its agent may ask.
     ...(req.agent ? { agentToken: req.agent.token.id } : {}),
+    // Claimed by the server at once, so no page is ever offered it.
+    ...(lib ? { server: true } : {}),
   });
   if (req.agent) res.locals.agentLog.request = request.id;
-  res.json({ id: request.id, status: request.status });
+  if (lib) return carryOnServer(res, { who, space, found: provider.found, def, input, request, lib });
+  // An agent is told what its request waits for (plan-agent-edit-delete.md, E3).
+  res.json({ id: request.id, status: request.status, ...(req.agent ? { waiting: waitingWords(provider.found.manifest, space, request.status) } : {}) });
 });
+
+// --- carrying out an agent's request on the server (plan-agent-edit-delete.md, decision 4 and E1) ----------------------
+// Whether the server carries out this module's agent requests: a bundled module whose server actions load (server/
+// module-actions.js libraryFor: installed from this deployment's own copy, that very version, declaring actions.server).
+const carriedNow = (found) => Boolean(moduleActions.libraryFor(found));
+// The code for this request, or null to leave it on the queue for a page as before: the module's server actions, for a
+// `write` an agent may ask for (never local, asker-only, destructive or a delete), whose pointers into the module's own
+// objects are all in the request's space (an environment object marked for the space keeps the page path).
+function serverCarries(found, def, input, spaceId) {
+  if (!agentMayAsk(def)) return null;
+  const lib = moduleActions.libraryFor(found);
+  if (!lib) return null;
+  for (const [field, type] of Object.entries(def.input || {})) {
+    if (!actionOwnKind(found.manifest.id, type)) continue;
+    const v = input[field];
+    if (v && (v.scope !== 'space' || v.space !== spaceId)) return null;
+  }
+  return lib;
+}
+// What a request still waiting is waiting for, in words.
+function waitingWords(manifest, space, status) {
+  const name = manifest ? modules.shownName(manifest) : `the ${word('module')}`;
+  const where = space?.name ? `"${String(space.name).slice(0, 80)}"` : `this ${word('space')}`;
+  return status === 'claimed'
+    ? `${name} is open in ${where} and is carrying it out now.`
+    : `Waiting for someone who may change ${name} to open it in ${where}. Nothing has changed yet.`;
+}
+// The zone a server-carried request is written in (as object-sync reads a write with no zone): TZ, else UTC.
+const ACTION_TZ = (() => {
+  try { return process.env.TZ ? (Intl.DateTimeFormat(undefined, { timeZone: process.env.TZ }), process.env.TZ) : 'UTC'; } catch { return 'UTC'; }
+})();
+const ACTION_CHANGED = 'That changed while it was being done, so nothing was changed. Read it again and ask again.';
+
+// Carries out the agent's request `request` (made claimed by the server) and answers the agent: the module's handler runs
+// in its worker and vm (server/module-actions.js) on a copy of the module's data in the space as the agent may read it,
+// then every value it answers is written here, in one synchronous step, through putModuleValue exactly as a person's page
+// write is (moduleAccessAt as the agent: the Agent column's write, the module on there, its guards, hidden fields, copies,
+// size caps, object-sync and the live changes), each under the module's write limit as the agent, each only if nothing
+// changed it since the handler read it. One refused write puts back the ones before it, so a request is done whole or not
+// at all. The request is then finished once (completeServer); a request ended meanwhile (its agent's right taken away)
+// writes nothing. Answers 200 { id, status: 'done', ok: true, ref?, note? }, or the refusal's status with
+// { id, status: 'done', ok: false, error }: the module's own sentence (422), a guard's or the rights' (their status), a
+// change meanwhile (409), or "<Module> could not carry that out: <why>." (500, 503 when busy).
+async function carryOnServer(res, { who, space, found, def, input, request, lib }) {
+  const env = currentEnvironment();
+  const inSpace = spaceContext.getStore();
+  const manifest = found.manifest;
+  const id = manifest.id;
+  const shown = modules.shownName(manifest);
+  const end = (status, result) => {
+    const finished = moduleBus.completeServer(request.id, result);
+    const r = finished ? result : (request.result || { ok: false, error: AGENT_ASK_ENDED }); // ended meanwhile: its own sentence
+    const note = oneLineNote(r.data?.note);
+    return res.status(r.ok ? 200 : finished ? status : 409).json({
+      id: request.id, status: 'done', ok: Boolean(r.ok), ...(r.ok ? {} : { error: oneLineNote(r.error) || `${shown} could not do that.` }), ...(r.ok && r.ref ? { ref: r.ref } : {}), ...(note ? { note } : {}),
+    });
+  };
+  const fault = (why) => end(why === 'busy' ? 503 : 500, { ok: false, error: `${shown} could not carry that out: ${moduleActionFault(why)}.` });
+  const first = moduleAccessAt(found, who, 'space', space, 'own');
+  if (first.error) return end(first.status, { ok: false, error: first.error });
+  const scopeKey = first.ctx.scopeKey;
+  // What the handler may read: this module's data in this space, as the agent may read it (no copy whose original it may
+  // not see, no hidden field), and each key's version, so a write is made only over what it read.
+  const data = Object.create(null);
+  const versions = new Map();
+  for (const row of withoutHiddenCopies(who, manifest, scopeKey, moduleData.list(id, scopeKey))) {
+    data[row.key] = hideItem(row, first.ctx.hide).value;
+    versions.set(row.key, row.version);
+  }
+  const dataText = JSON.stringify(data);
+  if (dataText.length > MODULE_ACTION_LIMITS.dataBytes) return fault('size');
+  const agent = who.user;
+  const ctxText = JSON.stringify({ from: request.from, by: agent.displayName, byKey: agent.key, credit: { name: agent.displayName, key: agent.key }, now: Date.now(), tz: ACTION_TZ, space: { id: space.id }, action: def.name });
+  const answer = await moduleActions.run({ code: lib.code, filename: lib.filename, action: def.name, inputText: JSON.stringify(input), ctxText, dataText });
+  const after = () => {
+    // Ended meanwhile (Revoke, Turn off, taken off the space): nothing is written.
+    if (request.cancelled || request.status !== 'claimed') return end(409, { ok: false, error: AGENT_ASK_ENDED });
+    if (!agentAskStands(request)) return end(403, { ok: false, error: AGENT_ASK_ENDED });
+    // Everything asked again as it is now: the module (the very version that ran), the space and the agent's rights there.
+    const now = modules.enabled(id);
+    if (!now || now.entry.version !== found.entry.version || !moduleActions.libraryFor(now)) return end(409, { ok: false, error: ACTION_CHANGED });
+    const here = store.spaceById(space.id);
+    try { busPlace(who, id, 'space', space.id, 'write'); } catch (err) { if (!err.status) throw err; return end(err.status, { ok: false, error: err.message }); }
+    const at = here ? moduleAccessAt(now, who, 'space', here, 'own') : { status: 404, error: `no such ${word('space')}` };
+    if (at.error) return end(at.status, { ok: false, error: at.error });
+    const ctx = at.ctx;
+    const outcome = moduleActionOutcome(answer, { own: (ref) => refShape(ref) && ref.module === id && ref.scope === 'space' && ref.space === space.id && now.manifest.refs.produces.some((p) => p.kind === ref.kind) });
+    if (outcome.fault) {
+      console.warn(`${env.slug ? `[${env.slug}] ` : ''}${id}:${def.name} could not be carried out on the server (${outcome.fault}).`);
+      return fault(outcome.fault);
+    }
+    if (outcome.refused !== undefined) return end(422, { ok: false, error: outcome.refused || `${shown} could not do that.` });
+    for (const w of outcome.writes) {
+      let current;
+      try { current = moduleData.get(id, scopeKey, w.key); } catch (err) { if (!(err instanceof StoreError)) throw err; return end(400, { ok: false, error: err.message }); }
+      if ((current?.version || 0) !== (versions.get(w.key) || 0)) return end(409, { ok: false, error: ACTION_CHANGED });
+    }
+    const applied = [];
+    for (const w of outcome.writes) {
+      let refusal = null;
+      const slow = overLimit(id, ctx.by, 'write');
+      if (slow) refusal = { status: 429, error: limitMessage() };
+      else {
+        const had = moduleData.get(id, scopeKey, w.key);
+        try {
+          const out = putModuleValue(ctx, w.key, w.value, { expected: versions.get(w.key) || 0, tz: ACTION_TZ });
+          if (out.error) refusal = { status: out.status, error: out.error };
+          else applied.push({ key: w.key, had, item: out.item });
+        } catch (err) {
+          if (err instanceof StoreError) refusal = { status: err.status, error: err.message };
+          else {
+            console.error(`${env.slug ? `[${env.slug}] ` : ''}${id}:${def.name}: a write on the server failed: ${err.stack || err.message}`);
+            // putModuleValue may throw after it stored the value (objectSync.afterWrite): put it back too.
+            const stored = moduleData.get(id, scopeKey, w.key);
+            if (stored && stored.version !== (had?.version || 0)) applied.push({ key: w.key, had, item: stored });
+            refusal = { status: 500, error: `${shown} could not carry that out: the server could not save it.` };
+          }
+        }
+      }
+      if (refusal) {
+        undoCarried(ctx, applied);
+        return end(refusal.status, { ok: false, error: refusal.error });
+      }
+    }
+    return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}) });
+  };
+  return envContext.run(env, () => (inSpace ? spaceContext.run(inSpace, after) : after()));
+}
+// Puts back what a server-carried request wrote before one of its writes was refused (newest first): the value as it was,
+// or no value where it made one, and tells other modules as a write does (objectSync.afterWrite).
+function undoCarried(ctx, applied) {
+  const id = ctx.manifest.id;
+  for (const a of [...applied].reverse()) {
+    try {
+      if (a.had) {
+        const back = moduleData.put(id, ctx.scopeKey, a.key, a.had.value, { by: ctx.by });
+        objectSync.afterWrite({ module: id, scopeKey: ctx.scopeKey, key: a.key, before: a.item.value, after: back.value, by: ctx.by, tz: ACTION_TZ });
+      } else {
+        moduleData.remove(id, ctx.scopeKey, a.key, { by: ctx.by });
+        objectSync.afterWrite({ module: id, scopeKey: ctx.scopeKey, key: a.key, before: a.item.value, after: null, by: ctx.by, tz: ACTION_TZ });
+      }
+    } catch (err) {
+      console.error(`${id}: a write made for a refused request could not be put back (${a.key}): ${err.message}`);
+    }
+  }
+}
 
 // How a request this person made in this space went (plan-object-handoff.md, step 9: Chat's note after Keep and Send
 // to...), read as the module SDK's wait does: ask again every half second or so for a few seconds. Only the person who
@@ -8981,23 +9144,33 @@ const ACTION_NOTE_MAX = 300;
 const oneLineNote = (v) => (typeof v === 'string' ? v.replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, ACTION_NOTE_MAX) : '');
 // For an agent no chat permission is asked (plan-agent-matrix.md, decision 9): only its own request, in a module whose read
 // the Agent column still has; a person still needs chatRead.
-app.get('/api/spaces/:id/action/:requestId', (req, res) => {
+// The request this person asked for in this space, as the status route and its wait read it: { who, space, request }, or
+// null when the answer (a refusal, "no such request") has been sent.
+function ownRequestFor(req, res) {
   const found = chatSpaceFor(req, res, req.agent ? null : 'chatRead');
-  if (!found) return;
+  if (!found) return null;
   const { who, space } = found;
-  if (!who.user) return res.status(403).json({ error: `${word('guest', { many: true, cap: true })} can't see how a request went` });
-  if (!/^[1-9][0-9]{0,15}$/.test(req.params.requestId)) return res.status(400).json({ error: 'a request id is a whole number' });
+  if (!who.user) return void res.status(403).json({ error: `${word('guest', { many: true, cap: true })} can't see how a request went` });
+  if (!/^[1-9][0-9]{0,15}$/.test(req.params.requestId)) return void res.status(400).json({ error: 'a request id is a whole number' });
   const request = moduleBus.actionById(Number(req.params.requestId));
   const now = Date.now();
   if (!request || request.by !== who.user.key || request.scopeKey !== scopeKeyOf('space', { spaceId: space.id })
     || (request.status === 'done' && now - (request.doneAt || request.at) > BUS_LIMITS.resultMs)) {
-    return res.status(404).json({ error: 'no such request' });
+    return void res.status(404).json({ error: 'no such request' });
   }
   if (req.agent) {
     const provider = modules.enabled(request.provider);
-    if (!provider || !moduleCan(provider.manifest, modulePerms(who, space.id), 'read')) return res.status(404).json({ error: 'no such request' });
+    if (!provider || !moduleCan(provider.manifest, modulePerms(who, space.id), 'read')) return void res.status(404).json({ error: 'no such request' });
   }
+  return { who, space, request };
+}
+// How it went: { id, status }, with `ok` and the module's `error` or `note` (each one line) once done. For an agent's request
+// (plan-agent-edit-delete.md, E1 and E3), also the pointer it made or changed (`ref`) once done, so it can read it back and
+// chain, and the words saying what it waits for (`waiting`) while pending or claimed. A person's answer is only the outcome,
+// as it was (Chat's note reads it).
+function requestOutcome(request, space) {
   const status = moduleBus.statusOf(request);
+  const forAgent = agentAsk(request);
   const out = { id: request.id, status };
   if (status === 'done') {
     out.ok = Boolean(request.result?.ok);
@@ -9005,8 +9178,63 @@ app.get('/api/spaces/:id/action/:requestId', (req, res) => {
     if (!out.ok && error) out.error = error;
     const note = oneLineNote(request.result?.data?.note);
     if (note) out.note = note;
+    if (forAgent && out.ok && refShape(request.result?.ref)) out.ref = plainRef(request.result.ref);
+  } else if (forAgent && (status === 'pending' || status === 'claimed')) {
+    out.waiting = waitingWords(modules.enabled(request.provider)?.manifest || null, space, status);
   }
-  res.json(out);
+  return out;
+}
+app.get('/api/spaces/:id/action/:requestId', (req, res) => {
+  const own = ownRequestFor(req, res);
+  if (!own) return;
+  res.json(requestOutcome(own.request, own.space));
+});
+
+// Waiting for a request (plan-agent-edit-delete.md, E3; MCP wait_for_result): as the status route, but while the request
+// is pending or claimed the answer is held until it is done (or expired), for at most `seconds` (1 to 30, default 30),
+// then given as it stands. Counted as one read. A person or agent holds at most ACTION_WAITS_EACH waits at once (429), the
+// server at most ACTION_WAITS_ALL (503); a wait ends early when its caller goes.
+const ACTION_WAIT_MAX = 30;
+const ACTION_WAITS_EACH = 2;
+const ACTION_WAITS_ALL = 200;
+const actionWaits = new Map(); // `<environment>|<person key>` -> waits held now
+let actionWaitsAll = 0;
+app.get('/api/spaces/:id/action/:requestId/wait', async (req, res) => {
+  const own = ownRequestFor(req, res);
+  if (!own) return;
+  const { who, space, request } = own;
+  let seconds = ACTION_WAIT_MAX;
+  if (req.query.seconds !== undefined) {
+    if (typeof req.query.seconds !== 'string' || !/^[0-9]{1,2}$/.test(req.query.seconds) || Number(req.query.seconds) < 1 || Number(req.query.seconds) > ACTION_WAIT_MAX) {
+      return res.status(400).json({ error: `seconds is a whole number from 1 to ${ACTION_WAIT_MAX}.` });
+    }
+    seconds = Number(req.query.seconds);
+  }
+  const settled = (s) => s === 'done' || s === 'expired';
+  if (settled(moduleBus.statusOf(request))) return res.json(requestOutcome(request, space));
+  const env = currentEnvironment();
+  const mark = `${env.slug || ''}|${who.user.key}`;
+  if ((actionWaits.get(mark) || 0) >= ACTION_WAITS_EACH) {
+    return res.status(429).set('Retry-After', '5').json({ error: `You are already waiting on ${ACTION_WAITS_EACH} requests. Wait for one of them to finish.` });
+  }
+  if (actionWaitsAll >= ACTION_WAITS_ALL) return res.status(503).set('Retry-After', '5').json({ error: 'The server is holding too many waits. Try again in a moment.' });
+  actionWaits.set(mark, (actionWaits.get(mark) || 0) + 1);
+  actionWaitsAll += 1;
+  const bus = env.moduleBus;
+  try {
+    await new Promise((resolve) => {
+      const deadline = Date.now() + seconds * 1000;
+      const tick = setInterval(() => { if (settled(bus.statusOf(request)) || Date.now() >= deadline) stop(); }, 250);
+      const stop = () => { clearInterval(tick); res.off('close', stop); resolve(); };
+      res.on('close', stop);
+    });
+  } finally {
+    const left = (actionWaits.get(mark) || 1) - 1;
+    if (left > 0) actionWaits.set(mark, left); else actionWaits.delete(mark);
+    actionWaitsAll -= 1;
+  }
+  if (res.writableEnded || res.destroyed) return;
+  envContext.run(env, () => res.json(requestOutcome(request, space)));
 });
 
 // --- a module's page reading every space the viewer belongs to ---------------
@@ -13630,6 +13858,7 @@ app.get('/api/modules/stream', (req, res) => {
   });
   // A request for a module to do something: the providing module's frames are told; one claims it.
   const onAction = listenIn(env, (r) => {
+    if (r.server) return; // carried out by the server itself: no page is offered it (plan-agent-edit-delete.md, decision 4)
     if ((r.local || r.askerOnly) && r.by !== (who.user?.key || 'guest')) return; // a view, or what is the asker's, is for the person who asked
     if (!agentAskStands(r)) return; // an agent's request whose agent may no longer ask
     for (const v of views) {
