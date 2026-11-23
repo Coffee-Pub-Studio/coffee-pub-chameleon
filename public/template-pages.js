@@ -77,8 +77,11 @@ export function problemPlaces(problems, fields = [], marks = []) {
 }
 
 // --- Phases -----------------------------------------------------------------------------------------------------------------
-const phaseRow = (p) => `<div class="tp-phase" data-tp-phase="${e(p.id || '')}">`
+// A phase's colour (decision 32): its own, else its place's default (Phases.colorOf), so a new row starts on its default and a save stores it.
+const phaseColour = (p, i) => (globalThis.Phases ? globalThis.Phases.colorOf(p, i) : (/^#[0-9a-f]{6}$/i.test(p.color || '') ? p.color.toLowerCase() : ''));
+const phaseRow = (p, i) => `<div class="tp-phase" data-tp-phase="${e(p.id || '')}">`
   + `<label class="tf-field"><span class="field-label">Name</span><input type="text" data-tp-label maxlength="40" autocomplete="off" value="${e(p.label || '')}"></label>`
+  + `<div class="tf-field tp-phase-colour"><span class="field-label">Colour</span><input type="text" data-colour-field data-tp-color aria-label="Colour" value="${e(phaseColour(p, i))}"></div>`
   + `<label class="tf-field"><span class="field-label">Icon</span><input type="text" data-tp-icon maxlength="40" autocomplete="off" autocapitalize="off" spellcheck="false" value="${e(p.icon || '')}" placeholder="Font Awesome name"></label>`
   + `<label class="sdk-choice-row tp-main"><input type="checkbox" data-tp-main${p.main ? ' checked' : ''}><span class="sdk-choice-text">Main</span></label>`
   + `<span class="tp-actions"><button class="btn btn-small" type="button" data-tp-up aria-label="Move earlier" data-tip="Move earlier">&uarr;</button><button class="btn btn-small" type="button" data-tp-down aria-label="Move later" data-tip="Move later">&darr;</button><button class="btn btn-small btn-danger" type="button" data-tp-remove>Remove</button></span></div>`;
@@ -87,13 +90,13 @@ export function phasesHtml(t, { editable, word }) {
   const measure = (t && t.phaseMeasure) || 'dates';
   const about = (MEASURES.find(([v]) => v === measure) || MEASURES[0])[2];
   if (!editable) {
-    const list = phases.length ? `<ol class="tp-phase-list">${phases.map((p) => `<li>${p.icon ? `${iconTag(p.icon)} ` : ''}${e(p.label)}${p.main ? ' <span class="sdk-status" data-tone="neutral">Main</span>' : ''}</li>`).join('')}</ol>` : '<p class="hint">No phases.</p>';
+    const list = phases.length ? `<ol class="tp-phase-list">${phases.map((p, i) => `<li><span class="tp-phase-swatch" style="--tint: ${e(phaseColour(p, i))}" aria-hidden="true"></span>${p.icon ? `${iconTag(p.icon)} ` : ''}${e(p.label)}${p.main ? ' <span class="sdk-status" data-tone="neutral">Main</span>' : ''}</li>`).join('')}</ol>` : '<p class="hint">No phases.</p>';
     return `<dl class="tf-read">${line('Measured by', `${e(measureName(measure))}. <span class="hint">${e(about)}</span>`)}</dl><h3>Phases</h3>${list}`;
   }
   const options = MEASURES.map(([v, l]) => `<option value="${v}"${v === measure ? ' selected' : ''}>${e(l)}</option>`).join('');
   return `<div class="tf-labels"><h3>Measured by</h3><label class="tf-field"><span class="field-label">What tells a phase is done</span><select data-tp-measure>${options}</select></label>`
     + `<p class="hint" data-tp-measure-about>${e(about)}</p>`
-    + `<h3>Phases</h3><p class="hint">In order. The main one is the one the ${e(word('space'))} is about (up to 12 phases).</p><div class="tp-phases" data-tp-list>${phases.map(phaseRow).join('')}</div>`
+    + `<h3>Phases</h3><p class="hint">In order. The main one is the one the ${e(word('space'))} is about (up to 12 phases).</p><div class="tp-phases" data-tp-list>${phases.map((p, i) => phaseRow(p, i)).join('')}</div>`
     + `<div class="row"><button class="btn btn-small" type="button" data-tp-add>Add a phase</button></div></div>`;
 }
 export function readPhases(root, { editing = true } = {}) {
@@ -104,7 +107,8 @@ export function readPhases(root, { editing = true } = {}) {
     let id = row.dataset.tpPhase || slug(label).replace(/^[^a-z]+/, '') || 'phase';
     while (seen.has(id)) id = `${id.slice(0, 28)}-${Math.random().toString(36).slice(2, 5)}`;
     seen.add(id);
-    return { id, label, ...(row.querySelector('[data-tp-main]').checked ? { main: true } : {}), ...(icon ? { icon } : {}) };
+    const color = (row.querySelector('[data-tp-color]')?.value || '').trim().toLowerCase();
+    return { id, label, ...(row.querySelector('[data-tp-main]').checked ? { main: true } : {}), ...(icon ? { icon } : {}), ...(/^#[0-9a-f]{6}$/.test(color) ? { color } : {}) };
   }).filter((p) => p.label);
   const measure = root.querySelector('[data-tp-measure]')?.value || 'dates';
   return { phases: phases.length ? phases : (editing ? null : []), phaseMeasure: measure };
@@ -347,7 +351,8 @@ export function wirePages(root) {
     else if (t.closest('[data-tp-add]')) {
       const list = root.querySelector('[data-tp-list]');
       if (list.children.length >= 12) return;
-      list.insertAdjacentHTML('beforeend', phaseRow({}));
+      list.insertAdjacentHTML('beforeend', phaseRow({}, list.children.length));
+      colourFields(list.lastElementChild);
       list.lastElementChild.querySelector('[data-tp-label]').focus();
     } else if (t.closest('[data-tr-remove]')) t.closest('.tp-reaction').remove();
     else if (t.closest('[data-tr-add]')) { root.querySelector('[data-tr-list]').insertAdjacentHTML('beforeend', reactionRow({})); root.querySelector('[data-tr-list]').lastElementChild.querySelector('.reaction-glyph').focus(); }

@@ -392,7 +392,10 @@ try {
     assert.deepEqual(problems(minimal({ phases: [phase('a', { main: true }), phase('b', { main: true })] })), ['phases: only one phase can be the main one.']);
     assert.deepEqual(problems(minimal({ phases: Array.from({ length: 13 }, (_, i) => phase(`p${i}`)) })), ['"phases" must be a list of at most 12 phases.']);
     assert.deepEqual(problems(minimal({ phases: [phase('a', { icon: 'no-such-icon-xyz' })] })), ['phases[0]: icon "no-such-icon-xyz" is not a Font Awesome Free solid icon.']);
-    assert.deepEqual(problems(minimal({ phases: [{ id: 'a', label: 'A', note: 1 }] })), ['phases[0]: "note" is not a phase field; a phase takes id, label, main and icon.']);
+    assert.deepEqual(problems(minimal({ phases: [{ id: 'a', label: 'A', note: 1 }] })), ['phases[0]: "note" is not a phase field; a phase takes id, label, main, icon and color.']);
+    // A phase's own colour (decision 32): '#rrggbb', kept lowercased; anything else is dropped, never refused.
+    assert.deepEqual(problems(minimal({ phases: [phase('a', { color: '#AbCdEf' }), phase('b', { color: 'red' })] })), [], 'a colour is never refused');
+    assert.deepEqual(templates.cleanTemplate(minimal({ phases: [phase('a', { color: '#AbCdEf' }), phase('b', { color: 'red' }), phase('c', { color: '#abc' }), phase('d')] })).phases.map((p) => p.color), ['#abcdef', undefined, undefined, undefined], 'kept lowercased, else dropped');
     for (const m of ['dates', 'goals', 'progress']) assert.deepEqual(problems(minimal({ phaseMeasure: m })), [], m);
     assert.deepEqual(problems(minimal({ phaseMeasure: 'weeks' })), ['"phaseMeasure" must be one of dates, goals, progress.']);
     assert.equal(templates.cleanTemplate(minimal()).phaseMeasure, 'dates', 'dates when left out');

@@ -2144,7 +2144,7 @@ const sheetCopy = path.join(tmp, 'phase-sheet.mjs');
 fs.mkdirSync(tmp, { recursive: true });
 fs.copyFileSync(path.join(ROOT, 'public/phase-sheet.js'), sheetCopy);
 fs.copyFileSync(path.join(ROOT, 'public/action-bar.js'), path.join(tmp, 'action-bar.js')); // the sheet imports it
-const { bandShares, todayPercent, rowsOf, plainDays, tintOf, TINTS, factsInSheet, FACT_CHIPS_HIDDEN_AT } = await import(pathToFileURL(sheetCopy).href);
+const { bandShares, todayPercent, rowsOf, plainDays, factsInSheet, FACT_CHIPS_HIDDEN_AT } = await import(pathToFileURL(sheetCopy).href);
 const Phases = createRequire(import.meta.url)('../public/phases.js');
 fs.rmSync(tmp, { recursive: true, force: true });
 const TRAVEL = [{ id: 'planning', label: 'Planning' }, { id: 'booking', label: 'Booking' }, { id: 'buffer', label: 'Buffer' }, { id: 'pre-trip', label: 'Pre-trip' }, { id: 'trip', label: 'Trip', main: true }, { id: 'post-trip', label: 'Post-trip' }];
@@ -2256,9 +2256,9 @@ test('the status strip: the chip and its journey bar, a tool of the space bar\'s
   // when its width changes; dated phases by their days, an open-ended one two weeks past today, the undated ones as stubs.
   assert.ok(html.indexOf('<script src="/journey-layout.js"></script>') > html.indexOf('<script src="/phases.js"></script>') && html.indexOf('<script src="/journey-layout.js"></script>') < html.indexOf('<script type="module" src="/space.js"></script>'), 'space.html loads the layout before the page');
   const track = space.slice(space.indexOf('function layoutJourney('), space.indexOf('// A band\'s name and dates: on hover and focus'));
-  assert.match(track, /const lay = L\.journeyLayout\(dated\.map\(\(b\) => \(\{ n: b\.label, i: phaseIcons\[b\.id\] \|\| '', t: b\.tint, s: b\.start, e: endOf\(b\) \}\)\), today, width, \{ zone: phone \? 14 : 28, offs: offs\.length \}\);/, 'the bar is journeyLayout\'s, a 14px zone on a phone');
+  assert.match(track, /const lay = L\.journeyLayout\(dated\.map\(\(b\) => \(\{ n: b\.label, i: phaseIcons\[b\.id\] \|\| '', t: b\.color, s: b\.start, e: endOf\(b\) \}\)\), today, width, \{ zone: phone \? 14 : 28, offs: offs\.length \}\);/, 'the bar is journeyLayout\'s, a 14px zone on a phone');
   assert.match(track, /const endOf = \(b\) => b\.end \|\| R\.addDays\(today > b\.start \? today : b\.start, OPEN_DAYS_PAST_TODAY\);/, 'an open-ended phase runs two weeks past today');
-  assert.match(track, /band\.dataset\.state = b\.state;\n\s*band\.dataset\.tint = b\.t;/, 'each band carries its state and its phase\'s tint (Phases.tintOf)');
+  assert.match(track, /band\.dataset\.state = b\.state;\n\s*band\.style\.setProperty\('--tint', b\.t\);/, 'each band carries its state and its phase\'s colour (Phases.colorOf) as --tint');
   assert.match(track, /band\.setAttribute\('aria-label', tip\);\n\s*band\.tabIndex = 0;/, 'each band is named and reached by the keyboard');
   assert.match(track, /icon\.className = `fa-solid fa-\$\{b\.i\} sdk-band-icon`;/, 'a band\'s icon, when the template gives one');
   assert.match(track, /pin\.setAttribute\('role', 'img'\);/, 'the pin is named by today\'s date');
@@ -2298,13 +2298,12 @@ test('the status strip: the chip and its journey bar, a tool of the space bar\'s
   assert.match(look, /\.sdk-band\[data-state="current"\] \{ background: var\(--fill-selected\); color: var\(--jr-now\); font-weight: var\(--weight-strong\); \}/, 'today\'s band the selected fill');
   assert.match(look, /--jr-past: 12%;\n\s*--jr-ahead: 22%;/);
   assert.match(look, /\.sdk-strip-dot \{[^}]*background: var\(--tint, var\(--accent-fill\)\);/, 'the chip\'s dot in the tint');
-  assert.match(space, /const here = bands\.find\(\(b\) => b\.current\) \|\| [^\n]*\n\s*const dot = phaseChip\.querySelector\('\.sdk-strip-dot'\);\n\s*if \(measured && R\.tintOf\) dot\.dataset\.tint = R\.tintOf\(measured\.tint\);\n\s*else if \(here\) dot\.dataset\.tint = here\.tint;/, 'the chip\'s dot takes the tint of the phase today is in (or, measured, of the phase now)');
+  assert.match(space, /const here = bands\.find\(\(b\) => b\.current\) \|\| [^\n]*\n\s*const dot = phaseChip\.querySelector\('\.sdk-strip-dot'\);\n\s*if \(measured\) dot\.style\.setProperty\('--tint', measured\.color\);\n\s*else if \(here\) dot\.style\.setProperty\('--tint', here\.color\);/, 'the chip\'s dot takes the tint of the phase today is in (or, measured, of the phase now)');
   for (const m of (look + stripCssOf(css)).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const borders = m[2].split(';').map((d) => d.trim()).filter((d) => /^border(-top|-right|-bottom|-left)?(-color)?\s*:/.test(d));
     for (const d of borders) assert.ok(!/--tint|--accent|currentColor/.test(d), `${m[1].trim()}: a coloured border (${d})`);
   }
-  assert.deepEqual(Phases.TINTS, TINTS, 'the sheet and the rule share one list of tints');
-  assert.deepEqual(Phases.timelineOf(TRAVEL, {}, { created: CREATED }).map((b, i) => b.tint === tintOf(i)), [true, true, true, true, true, true], 'every band\'s tint is the sheet\'s tintOf');
+  assert.deepEqual(Phases.timelineOf(TRAVEL, {}, { created: CREATED }).map((b, i) => b.color === Phases.colorOf({}, i)), [true, true, true, true, true, true], 'every band\'s colour is its place\'s default (Phases.colorOf) while the phase has none');
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(/.test(stripCssOf(css) + look), 'theme tokens only in the strip');
   assert.match(css, /body\.in-space\.in-aside \.subnav \{\n\s*display: none;/, 'no strip row in an aside');
 });
@@ -2339,7 +2338,6 @@ test('the sheet\'s bar: each band\'s share is its days, an open-ended one runs p
   assert.equal(todayPercent(bands[2], 0, today, { rule: Phases }), null, 'never in an undated band');
   assert.equal(todayPercent(bands[1], shares[1].days, '2026-09-20', { rule: Phases }), 50, 'the middle of Booking');
   assert.deepEqual(bandShares([], { today, rule: Phases }), []);
-  assert.deepEqual([0, 7, 8, 9].map(tintOf), [TINTS[0], TINTS[7], TINTS[0], TINTS[1]], 'eight tints, round again');
 });
 
 test('the sheet\'s rows: one per phase in order, dates, length, what may be edited or skipped, the pickers\' bounds', () => {

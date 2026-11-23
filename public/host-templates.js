@@ -13,6 +13,7 @@ import { partsFor } from '/layout-picker.js';
 import { fileText } from '/file-text.js';
 import { confirmDialog } from '/confirm.js';
 import { openHostMenu } from '/host-menu.js';
+import { colourFields } from '/colour-field.js';
 
 const $ = (id) => document.getElementById(id);
 const say = (el, text, error = false) => { el.textContent = text; el.classList.toggle('error', error); el.hidden = !text; };
@@ -420,11 +421,13 @@ wireFields($('te-basics'));
 wireFields($('te-labels'));
 
 const MAX_PHASES = 12;
-function phaseRow(phase = {}) {
+// `i`: the row's place, for the colour a phase with none of its own starts on (Phases.colorOf; decision 32).
+function phaseRow(phase = {}, i = 0) {
   const row = document.createElement('div');
   row.className = 'phase-row';
   row.innerHTML = `<input type="text" data-phase-id maxlength="32" value="${escapeHtml(phase.id || '')}" placeholder="planning" aria-label="Phase id" autocapitalize="off" spellcheck="false">`
     + `<input type="text" data-phase-label maxlength="40" value="${escapeHtml(phase.label || '')}" placeholder="Planning" aria-label="Phase label">`
+    + `<input type="text" data-colour-field data-phase-color aria-label="Phase colour" value="${escapeHtml(window.Phases ? window.Phases.colorOf(phase, i) : '')}">`
     + `<label class="sdk-choice-row"><input type="checkbox" data-phase-main${phase.main ? ' checked' : ''}><span class="sdk-choice-text">Main</span></label>`
     + `<span class="list-tools"><button type="button" class="btn btn-small" data-phase="up" aria-label="Move up"><i class="fa-solid fa-arrow-up" aria-hidden="true"></i></button>`
     + `<button type="button" class="btn btn-small" data-phase="down" aria-label="Move down"><i class="fa-solid fa-arrow-down" aria-hidden="true"></i></button>`
@@ -432,7 +435,8 @@ function phaseRow(phase = {}) {
   return row;
 }
 function renderPhases(phases) {
-  $('te-phases').replaceChildren(...(phases || []).slice(0, MAX_PHASES).map(phaseRow));
+  $('te-phases').replaceChildren(...(phases || []).slice(0, MAX_PHASES).map((p, i) => phaseRow(p, i)));
+  colourFields($('te-phases'));
   $('te-phase-add').disabled = $('te-phases').childElementCount >= MAX_PHASES;
 }
 function readPhases() {
@@ -441,7 +445,8 @@ function readPhases() {
     const label = row.querySelector('[data-phase-label]').value.trim();
     if (!id && !label) return [];
     const main = row.querySelector('[data-phase-main]').checked;
-    return [{ id, label, ...(main ? { main: true } : {}) }];
+    const color = (row.querySelector('[data-phase-color]')?.value || '').trim().toLowerCase();
+    return [{ id, label, ...(main ? { main: true } : {}), ...(/^#[0-9a-f]{6}$/.test(color) ? { color } : {}) }];
   });
 }
 function moveRow(row, dir) {
@@ -452,8 +457,9 @@ function moveRow(row, dir) {
 }
 $('te-phase-add').addEventListener('click', () => {
   if ($('te-phases').childElementCount >= MAX_PHASES) return;
-  const row = phaseRow();
+  const row = phaseRow({}, $('te-phases').childElementCount);
   $('te-phases').append(row);
+  colourFields(row);
   $('te-phase-add').disabled = $('te-phases').childElementCount >= MAX_PHASES;
   row.querySelector('[data-phase-id]').focus();
 });

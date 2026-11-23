@@ -253,13 +253,13 @@
   });
 
   // --- phases --------------------------------------------------------------
-  // A space with phases wears them: each day inside a dated phase has a soft wash of the phase's tint, and the
+  // A space with phases wears them: each day inside a dated phase has a soft wash of the phase's colour, and the
   // phase's first day (and the first day a view shows) names it. The host tells this page when the dates change
   // (host.on('phases'), a save in the sheet or Set up, or someone else's), and the view redraws at once, only when the
   // bands changed. A slow look every five minutes stays as a fallback. Nothing is drawn on the environment page, in a
   // space without phases or on a day in none.
   let phaseBands = [];
-  const bandsKey = (list) => JSON.stringify(list.map((b) => [b.id, b.label, b.tint, b.start, b.end]));
+  const bandsKey = (list) => JSON.stringify(list.map((b) => [b.id, b.label, b.color, b.start, b.end]));
   function readPhases(timeline) {
     const here = host.space();
     if (!here || !host.phases().length || typeof host.util.phaseTimeline !== 'function') return [];
@@ -275,8 +275,8 @@
   // first day the view shows). '' parts when the day is in no phase.
   function phaseFor(key, showName) {
     const ph = phaseOnDay(phaseBands, key);
-    if (!ph || !ph.tint) return { cls: '', name: '', label: '' };
-    return { cls: ` ph ph-${ph.tint}`, name: showName || ph.first ? ph.label : '', label: ph.label };
+    if (!ph || !ph.color) return { cls: '', style: '', name: '', label: '' };
+    return { cls: ' ph', style: ` style="--ph: ${esc(ph.color)}"`, name: showName || ph.first ? ph.label : '', label: ph.label };
   }
   const phaseNameHtml = (ph) => (ph.name ? `<small class="ph-name" title="${esc(ph.name)}">${esc(ph.name)}</small>` : '');
 
@@ -323,7 +323,7 @@
       const list = byDay.get(ymd(day)) || [];
       const shown = isCompact() ? list : list.slice(0, 3);
       const ph = phaseFor(ymd(day), i === 0);
-      html += `<div class="${cellClass(day, ph, today, sel, day.getMonth() !== cursor.getMonth())}" data-day="${ymd(day)}"${ymd(day) === today ? ' aria-current="date"' : ''}${dayKeys(day, roving, ph.label)}>
+      html += `<div class="${cellClass(day, ph, today, sel, day.getMonth() !== cursor.getMonth())}"${ph.style} data-day="${ymd(day)}"${ymd(day) === today ? ' aria-current="date"' : ''}${dayKeys(day, roving, ph.label)}>
         <span class="sdk-cal-n">${day.getDate()}</span>${phaseNameHtml(ph)}<div class="sdk-cal-chips">${shown.map(chipHtml).join('')}</div>
         ${shown.length < list.length ? `<span class="sdk-cal-more">+${list.length - shown.length} more</span>` : ''}</div>`;
     }
@@ -387,7 +387,7 @@
       const day = addDays(start, i);
       const list = byDay.get(ymd(day)) || [];
       const ph = phaseFor(ymd(day), i === 0);
-      html += `<div class="${cellClass(day, ph, today, sel, false)}" data-day="${ymd(day)}"${ymd(day) === today ? ' aria-current="date"' : ''}${dayKeys(day, roving, ph.label)}><span class="sdk-cal-n">${esc(day.toLocaleDateString([], { weekday: 'short' }))} <b>${day.getDate()}</b>${phaseNameHtml(ph)}</span><div class="sdk-cal-chips">${list.map(chipHtml).join('')}</div></div>`;
+      html += `<div class="${cellClass(day, ph, today, sel, false)}"${ph.style} data-day="${ymd(day)}"${ymd(day) === today ? ' aria-current="date"' : ''}${dayKeys(day, roving, ph.label)}><span class="sdk-cal-n">${esc(day.toLocaleDateString([], { weekday: 'short' }))} <b>${day.getDate()}</b>${phaseNameHtml(ph)}</span><div class="sdk-cal-chips">${list.map(chipHtml).join('')}</div></div>`;
     }
     return `<div class="sdk-cal-grid sdk-cal-week">${html}</div>`;
   }
@@ -416,7 +416,7 @@
     const k = ymd(start);
     const ph = phaseFor(k, true);
     // The phase bar and the all-day row are one block that stays at the top of the scroll (the day opens at its first hour).
-    let html = `<div class="daytop">${ph.label ? `<div class="phasehead ph ph-${esc(phaseOnDay(phaseBands, k).tint)}"><small class="ph-name">${esc(ph.label)}</small></div>` : ''}<div class="sdk-cal-allday"><span class="sdk-cal-hr">All day</span><div class="sdk-cal-chips">${allDay.map(chipHtml).join('')}</div></div></div><div class="sdk-cal-hours">`;
+    let html = `<div class="daytop">${ph.label ? `<div class="phasehead ph"${ph.style}><small class="ph-name">${esc(ph.label)}</small></div>` : ''}<div class="sdk-cal-allday"><span class="sdk-cal-hr">All day</span><div class="sdk-cal-chips">${allDay.map(chipHtml).join('')}</div></div></div><div class="sdk-cal-hours">`;
     const now = new Date();
     for (let h = 0; h < 24; h += 1) {
       const at = new Date(start.getFullYear(), start.getMonth(), start.getDate(), h);

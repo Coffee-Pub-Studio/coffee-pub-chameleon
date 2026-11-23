@@ -2585,14 +2585,14 @@ function layoutJourney() {
   const R = phaseRule();
   const { bands, today } = journeySpec;
   const phone = journeyPhone();
-  const key = JSON.stringify([today, Math.round(width * 100), phone, bands.map((b) => [b.id, b.label, b.start, b.end, b.tint, phaseIcons[b.id] || ''])]);
+  const key = JSON.stringify([today, Math.round(width * 100), phone, bands.map((b) => [b.id, b.label, b.start, b.end, b.color, phaseIcons[b.id] || ''])]);
   if (key === journeyDrawn) return;
   journeyDrawn = key;
   const dated = bands.filter((b) => b.dated).sort((x, y) => (x.start < y.start ? -1 : x.start > y.start ? 1 : 0));
   const offs = bands.filter((b) => !b.dated);
   // An open-ended phase runs two weeks past today (or its start, when that is later), as the sheet's bar draws it.
   const endOf = (b) => b.end || R.addDays(today > b.start ? today : b.start, OPEN_DAYS_PAST_TODAY);
-  const lay = L.journeyLayout(dated.map((b) => ({ n: b.label, i: phaseIcons[b.id] || '', t: b.tint, s: b.start, e: endOf(b) })), today, width, { zone: phone ? 14 : 28, offs: offs.length });
+  const lay = L.journeyLayout(dated.map((b) => ({ n: b.label, i: phaseIcons[b.id] || '', t: b.color, s: b.start, e: endOf(b) })), today, width, { zone: phone ? 14 : 28, offs: offs.length });
   const doc = statusTrack.ownerDocument;
   const px = (v) => `${Math.round(v * 100) / 100}px`;
   const out = [];
@@ -2602,7 +2602,7 @@ function layoutJourney() {
     const band = doc.createElement('span');
     band.className = 'sdk-band';
     band.dataset.state = b.state;
-    band.dataset.tint = b.t; // the phase's own colour (Phases.tintOf), as in the sheet
+    band.style.setProperty('--tint', b.t); // the phase's own colour (Phases.colorOf), as in the sheet
     band.dataset.label = b.label.mode;
     band.dataset.tip = tip;
     band.setAttribute('aria-label', tip);
@@ -2657,7 +2657,7 @@ function layoutJourney() {
     const band = doc.createElement('span');
     band.className = 'sdk-band';
     band.dataset.state = 'off';
-    band.dataset.tint = offs[k].tint;
+    band.style.setProperty('--tint', offs[k].color);
     band.dataset.tip = tip;
     band.setAttribute('aria-label', tip);
     band.tabIndex = 0;
@@ -2962,10 +2962,10 @@ function measuredStory() {
   const list = phaseStates.phases;
   const here = list.find((p) => p.current) || null;
   const phasesDone = list.filter((p) => p.done).length;
-  if (!here) return { parts: ['All done', `${phasesDone} of ${list.length}`], tint: list.length - 1, detail: `All ${list.length} phases are done` };
+  if (!here) return { parts: ['All done', `${phasesDone} of ${list.length}`], color: phaseRule().colorOf(list[list.length - 1], list.length - 1), detail: `All ${list.length} phases are done` };
   const counted = phaseStates.measure === 'goals' && here.goals && here.goals.total > 0;
   const tally = counted ? `${here.goals.done} of ${here.goals.total}` : `${phasesDone} of ${list.length}`;
-  return { parts: [here.label, tally], tint: list.indexOf(here), detail: counted ? `${here.goals.done} of ${here.goals.total} goals done in ${here.label}` : `${phasesDone} of ${list.length} phases done` };
+  return { parts: [here.label, tally], color: phaseRule().colorOf(here, list.indexOf(here)), detail: counted ? `${here.goals.done} of ${here.goals.total} goals done in ${here.label}` : `${phasesDone} of ${list.length} phases done` };
 }
 function updatePhaseChip() {
   announcePhases();
@@ -2994,8 +2994,8 @@ function updatePhaseChip() {
   const datedNow = bands.filter((b) => b.dated);
   const here = bands.find((b) => b.current) || datedNow.filter((b) => b.start <= today).pop() || datedNow[0] || null;
   const dot = phaseChip.querySelector('.sdk-strip-dot');
-  if (measured && R.tintOf) dot.dataset.tint = R.tintOf(measured.tint);
-  else if (here) dot.dataset.tint = here.tint; else delete dot.dataset.tint;
+  if (measured) dot.style.setProperty('--tint', measured.color);
+  else if (here) dot.style.setProperty('--tint', here.color); else dot.style.removeProperty('--tint');
   drawStatusTrack(bands, today);
   fitFacts(); // the sentence or the bar may have changed the room
 }

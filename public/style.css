@@ -6915,12 +6915,14 @@ body.chat-window {
    Phases, Additional Reactions and Icons and Modules, and how a module setting's mark reads in every form (module-settings.js). */
 .tp-checks { display: grid; gap: 2px; margin: 4px 0 8px; }
 .tp-phases { display: grid; gap: 8px; margin: 8px 0; }
-.tp-phase { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) auto auto; gap: 8px 12px; align-items: end; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
+.tp-phase { display: grid; grid-template-columns: minmax(0, 2fr) 10rem minmax(0, 1.4fr) auto auto; gap: 8px 12px; align-items: end; padding: 8px 0; border-top: 1px solid var(--border); min-width: 0; }
 .tp-phase:first-child { border-top: none; }
 .tp-phase .tf-field input { width: 100%; min-width: 0; box-sizing: border-box; }
+.tp-phase-colour .sdk-picker { width: 100%; box-sizing: border-box; } /* one width down the list, so the columns line up */
 .tp-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .tp-phase-list { margin: 4px 0 0; padding-left: 1.4em; }
 .tp-phase-list li { padding: 2px 0; overflow-wrap: anywhere; }
+.tp-phase-swatch { display: inline-block; width: 10px; height: 10px; margin-right: var(--space-2); border-radius: var(--radius-min); background: var(--tint, var(--accent)); vertical-align: baseline; } /* the phase's own colour (--tint, decision 32) */
 .tp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; max-height: 12em; overflow-y: auto; }
 .tp-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; height: 34px; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--surface); font-size: var(--text-16, 1rem); }
 #tab-template .tf-labels h4 { margin: 12px 0 2px; font-size: var(--text-13); color: var(--text-dim); font-weight: 600; text-transform: none; letter-spacing: var(--tracking-normal); }
@@ -6965,7 +6967,7 @@ body.chat-window {
 .module-setting .setting-mark .btn { --btn-h: 32px; }
 .module-setting[data-locked] input:disabled, .module-setting[data-locked] select:disabled { opacity: 1; cursor: default; }
 @media (max-width: 640px) {
-  .tp-phase { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .tp-phase { grid-template-columns: minmax(0, 1fr) 10rem; } /* name and colour, then icon and Main, then the buttons */
   .tp-phase .tp-actions { grid-column: 1 / -1; }
   .tp-setting { grid-template-columns: minmax(0, 1fr); }
   .tp-module-head { grid-template-columns: auto minmax(0, 1fr); }

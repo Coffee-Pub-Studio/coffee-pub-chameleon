@@ -275,11 +275,18 @@ await test('setPhaseDate: the last phase takes an end of its own, and gives it u
   assert.deepEqual(P.skipPhase(TRAVEL, ended.dates, 'post-trip', { created: CREATED }), { ok: true, dates: without });
 });
 
-await test('the phases\' colours: one name per place in the template, on every band', () => {
-  assert.deepEqual(P.TINTS, ['blue', 'green', 'teal', 'purple', 'orange', 'pink', 'gold', 'red']);
-  assert.deepEqual([0, 7, 8, -1].map(P.tintOf), ['blue', 'red', 'blue', 'red']);
+await test('the phases\' colours: a phase\'s own, else the default of its place, on every band', () => {
+  assert.deepEqual(P.COLORS, ['#1e5fd0', '#2e9e3e', '#008080', '#7b3fb5', '#f28c28', '#f48fb1', '#ffe135', '#d62828']);
+  assert.deepEqual([0, 7, 8, -1].map((i) => P.colorOf({}, i)), ['#1e5fd0', '#d62828', '#1e5fd0', '#d62828'], 'eight, round again');
+  assert.equal(P.colorOf({ color: '#AbCdEf' }, 3), '#abcdef', 'its own colour, lowercased');
+  assert.equal(P.colorOf({ color: 'red' }, 1), '#2e9e3e', 'anything else is the default of its place');
+  assert.equal(P.colorOf({ color: '#abc' }, 2), '#008080');
   const bands = P.timelineOf(TRAVEL, { trip: { start: '2026-10-01' } }, { created: CREATED });
-  assert.deepEqual(bands.map((b) => b.tint), ['blue', 'green', 'teal', 'purple', 'orange', 'pink'], 'dated or not, a phase keeps its colour');
+  assert.deepEqual(bands.map((b) => b.color), ['#1e5fd0', '#2e9e3e', '#008080', '#7b3fb5', '#f28c28', '#f48fb1'], 'dated or not, a phase keeps its colour');
+  assert.ok(bands.every((b) => !('tint' in b)), 'no tint name on a band');
+  const own = TRAVEL.map((p, i) => (i === 1 ? { ...p, color: '#123456' } : p));
+  assert.equal(P.timelineOf(own, {}, { created: CREATED })[1].color, '#123456', 'a phase\'s own colour is its band\'s');
+  assert.equal(P.cleanPhases(own)[1].color, '#123456');
 });
 
 await test('setPhaseDate: an end on the last dated phase starts the next phase in order; all six Travel phases dated in one pass', () => {
@@ -566,7 +573,7 @@ try {
     const expected = TRAVEL.map((p) => ({ id: p.id, label: p.label, ...(p.main ? { main: true } : {}), icon: ICONS[p.id] }));
     assert.deepEqual((await call(server, 'GET', '/api/branding')).json.phases, expected, 'the travel template\'s phases, in order, main marked, with no restart');
     assert.deepEqual((await asAdmin('GET', '/api/config')).json.phases, expected);
-    assert.deepEqual(P.cleanPhases(expected), TRAVEL.map((p) => ({ id: p.id, label: p.label, main: p.main === true, icon: ICONS[p.id] })), 'the shape the chip cleans');
+    assert.deepEqual(P.cleanPhases(expected), TRAVEL.map((p, i) => ({ id: p.id, label: p.label, main: p.main === true, color: P.COLORS[i], icon: ICONS[p.id] })), 'the shape the chip cleans');
     assert.equal((await asAdmin('PATCH', '/api/settings', { template: 'default' })).status, 200);
     assert.deepEqual((await call(server, 'GET', '/api/branding')).json.phases, [], 'back to none with the Default template');
   });

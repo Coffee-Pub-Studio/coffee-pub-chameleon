@@ -2639,6 +2639,7 @@ async function drawTplPage(kind) {
     drawTplLayout(box, t, editable);
   } else if (kind === 'phases') {
     box.innerHTML = phasesHtml(t, { editable, word });
+    upgradeLists(box); // the colour picker on each phase's colour
   } else if (kind === 'reactions') {
     let settings = null;
     try { settings = (await api('GET', '/api/settings')).settings; } catch { /* the page reads without the environment's set */ }

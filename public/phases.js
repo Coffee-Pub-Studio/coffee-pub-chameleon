@@ -14,10 +14,14 @@
   const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
   const PHASE_ID = /^[a-z][a-z0-9-]*$/;
   // The one colour a phase has everywhere it is drawn (the sheet's bands and rows, Set up's rows, the status strip's
-  // bars, pin and dot, and any module reading host.util.phaseTimeline): its place in the template's list picks one of
-  // the eight theme tints by name (design-theme.md, "Tints"), round again after the eighth. Templates carry no colour.
-  const TINTS = ['blue', 'green', 'teal', 'purple', 'orange', 'pink', 'gold', 'red'];
-  const tintOf = (i) => TINTS[((i % TINTS.length) + TINTS.length) % TINTS.length];
+  // bars, pin and dot, and any module reading host.util.phaseTimeline): its own `color` ('#rrggbb', set on the template's
+  // Phases page with the colour picker), else the colour its place in the template's list gives, from this sequence,
+  // round again after the eighth (decision 32, 2026-11-23).
+  const COLORS = ['#1e5fd0', '#2e9e3e', '#008080', '#7b3fb5', '#f28c28', '#f48fb1', '#ffe135', '#d62828'];
+  const HEX = /^#[0-9a-f]{6}$/i;
+  const colorOf = (phase, i) => (phase && typeof phase.color === 'string' && HEX.test(phase.color)
+    ? phase.color.toLowerCase()
+    : COLORS[(((Number(i) || 0) % COLORS.length) + COLORS.length) % COLORS.length]);
 
   const pad = (n) => String(n).padStart(2, '0');
   // A day, written as YYYY-MM-DD, that is a real calendar day.
@@ -42,10 +46,10 @@
     return dayOf(new Date(value));
   }
 
-  // The template's phases as given, with anything malformed left out.
+  // The template's phases as given, with anything malformed left out, each with its colour (colorOf).
   function cleanPhases(list) {
     return (Array.isArray(list) ? list : []).filter((p) => p && typeof p === 'object' && typeof p.id === 'string' && PHASE_ID.test(p.id))
-      .map((p) => ({ id: p.id, label: typeof p.label === 'string' && p.label.trim() ? p.label.trim() : p.id, main: p.main === true, ...(typeof p.icon === 'string' && /^[a-z0-9-]{1,40}$/.test(p.icon) ? { icon: p.icon } : {}) }));
+      .map((p, i) => ({ id: p.id, label: typeof p.label === 'string' && p.label.trim() ? p.label.trim() : p.id, main: p.main === true, color: colorOf(p, i), ...(typeof p.icon === 'string' && /^[a-z0-9-]{1,40}$/.test(p.icon) ? { icon: p.icon } : {}) }));
   }
   // The stored dates, leniently: only real days under start and end, only phases with at least one of them. This is
   // the shape stored on the space; the rule's refusals are problemOf's.
@@ -116,8 +120,8 @@
     return null;
   }
 
-  // The bands, one per phase in order: { id, label, main, tint, start, end, dated, current }.
-  // `tint` is the phase's colour name (tintOf). `start` and `end` are days (inclusive); `end` is null for an open-ended band; both null and `dated` false for a phase with no dates (zero
+  // The bands, one per phase in order: { id, label, main, color, start, end, dated, current }.
+  // `color` is the phase's colour, '#rrggbb' (colorOf). `start` and `end` are days (inclusive); `end` is null for an open-ended band; both null and `dated` false for a phase with no dates (zero
   // width). `current` is the one band `today` falls in, when a day is given.
   function timelineOf(phases, dates, { today, created } = {}) {
     const list = cleanPhases(phases);
@@ -127,15 +131,15 @@
     const starts = list.map((p, i) => startOf(list, clean, i, createdDay));
     return list.map((phase, i) => {
       const start = starts[i];
-      const tint = tintOf(i);
-      if (!start) return { id: phase.id, label: phase.label, main: phase.main, tint, start: null, end: null, dated: false, current: false };
+      const color = phase.color;
+      if (!start) return { id: phase.id, label: phase.label, main: phase.main, color, start: null, end: null, dated: false, current: false };
       let next = null;
       for (let j = i + 1; j < list.length && !next; j += 1) if (starts[j] && starts[j] > start) next = starts[j];
       let end = next ? addDays(next, -1) : null;
       const own = ownEnd(list, i) && clean[phase.id] ? clean[phase.id].end : null;
       if (own && own >= start && (!end || own < end)) end = own;
       const current = Boolean(day) && day >= start && (!end || day <= end);
-      return { id: phase.id, label: phase.label, main: phase.main, tint, start, end, dated: true, current };
+      return { id: phase.id, label: phase.label, main: phase.main, color, start, end, dated: true, current };
     });
   }
 
@@ -424,5 +428,5 @@
     return out;
   }
 
-  return { TINTS, tintOf, isDay, addDays, daysBetween, dayOf, cleanPhases, cleanDates, problemOf, timelineOf, moveBoundary, setPhaseDate, addDatesFor, skipPhase, coverMain, chipWords, storyParts, storyWords, countdown, whenWords, factsToday };
+  return { COLORS, colorOf, isDay, addDays, daysBetween, dayOf, cleanPhases, cleanDates, problemOf, timelineOf, moveBoundary, setPhaseDate, addDatesFor, skipPhase, coverMain, chipWords, storyParts, storyWords, countdown, whenWords, factsToday };
 }));

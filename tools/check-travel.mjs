@@ -1143,31 +1143,32 @@ test('the current phase is the last band that has started, else the first; an ob
   assert.equal(lib.phaseOf({}, []), null);
 });
 
-test('a day wears its phase: the band it is in, its tint and name; nothing before, between or after', () => {
+test('a day wears its phase: the band it is in, its colour and name; nothing before, between or after', () => {
   const phases = [{ id: 'planning', label: 'Planning' }, { id: 'booking', label: 'Booking' }, { id: 'trip', label: 'Trip', main: true }, { id: 'after', label: 'After' }];
   // Planning from the 1st, Booking from the 10th, the trip 16th to 19th, After from the 25th (open-ended): the 20th to the 24th is a gap.
   const dates = { planning: { start: '2026-10-01' }, booking: { start: '2026-10-10' }, trip: { start: '2026-10-16', end: '2026-10-19' }, after: { start: '2026-10-25' } };
   const bands = Phases.timelineOf(phases, dates, { today: '2026-10-14', created: '2026-09-01' });
   const on = (day) => lib.phaseOnDay(bands, day);
   assert.equal(on('2026-09-30'), null, 'a day before the first phase starts has none');
-  assert.deepEqual(on('2026-10-01'), { id: 'planning', label: 'Planning', tint: 'blue', first: true });
-  assert.deepEqual(on('2026-10-09'), { id: 'planning', label: 'Planning', tint: 'blue', first: false }, 'inside the band, the last day of it');
-  assert.deepEqual(on('2026-10-10'), { id: 'booking', label: 'Booking', tint: 'green', first: true }, 'the next band starts the day after the one before ends');
-  assert.deepEqual(on('2026-10-19'), { id: 'trip', label: 'Trip', tint: 'teal', first: false }, 'the main band\'s last day');
+  assert.deepEqual(on('2026-10-01'), { id: 'planning', label: 'Planning', color: '#1e5fd0', first: true });
+  assert.deepEqual(on('2026-10-09'), { id: 'planning', label: 'Planning', color: '#1e5fd0', first: false }, 'inside the band, the last day of it');
+  assert.deepEqual(on('2026-10-10'), { id: 'booking', label: 'Booking', color: '#2e9e3e', first: true }, 'the next band starts the day after the one before ends');
+  assert.deepEqual(on('2026-10-19'), { id: 'trip', label: 'Trip', color: '#008080', first: false }, 'the main band\'s last day');
   assert.equal(on('2026-10-20'), null, 'the gap after the main phase has none');
   assert.equal(on('2026-10-24'), null);
-  assert.deepEqual(on('2026-10-25'), { id: 'after', label: 'After', tint: 'purple', first: true });
+  assert.deepEqual(on('2026-10-25'), { id: 'after', label: 'After', color: '#7b3fb5', first: true });
   assert.equal(on('2027-03-01').id, 'after', 'the open-ended last phase has no last day');
-  // The tint is the band\'s own (Phases.tintOf): a phase after a dateless one keeps its place in the template.
+  // The colour is the band\'s own (Phases.colorOf): a phase after a dateless one keeps its place in the template.
   const skip = Phases.timelineOf(phases, { booking: { start: '2026-10-10' } }, { created: '2026-09-01' });
-  assert.equal(lib.phaseOnDay(skip, '2026-10-12').tint, 'green', 'booking is second, so green, whatever else is dated');
+  assert.equal(lib.phaseOnDay(skip, '2026-10-12').color, '#2e9e3e', 'booking is second, so green, whatever else is dated');
   assert.equal(lib.phaseOnDay(skip, '2026-10-05').id, 'planning', 'the first phase starts on the created day');
-  // Nothing drawn without phases, with an undated band, a bad day, or a tint the theme does not have.
+  // Nothing drawn without phases, with an undated band, a bad day, or a colour that is not '#rrggbb'.
   assert.equal(lib.phaseOnDay([], '2026-10-12'), null);
   assert.equal(lib.phaseOnDay(undefined, '2026-10-12'), null);
   assert.equal(lib.phaseOnDay(Phases.timelineOf(phases, {}, {}), '2026-10-12'), null, 'no dates, no created day: nothing is dated');
   assert.equal(on('nope'), null);
-  assert.equal(lib.phaseOnDay([{ id: 'x', label: 'X', tint: 'chartreuse', start: '2026-10-01', end: null, dated: true }], '2026-10-02').tint, null, 'an unknown tint draws no colour');
+  assert.equal(lib.phaseOnDay([{ id: 'x', label: 'X', color: 'chartreuse', start: '2026-10-01', end: null, dated: true }], '2026-10-02').color, null, 'a colour that is not a hex draws none');
+  assert.equal(lib.phaseOnDay([{ id: 'x', label: 'X', color: '#ABCDEF', start: '2026-10-01', end: null, dated: true }], '2026-10-02').color, '#abcdef', 'a phase\'s own colour, lowercased');
 });
 
 test('the When choice reaches the whole timeline: a note dated before the trip is drawn, in its own phase', () => {
@@ -1178,7 +1179,7 @@ test('the When choice reaches the whole timeline: a note dated before the trip i
   const note = { id: 'n', kind: 'note', date: '2026-10-15' };
   const days = lib.planDays({ start: span.start, end: span.end }, [note]);
   assert.deepEqual([days[0], days[days.length - 1], days.length], ['2026-10-15', '2026-10-19', 5], 'the plan stretches to the note');
-  assert.equal(lib.phaseOnDay(bands, '2026-10-15').label, 'Pre-trip', 'and the day wears the Pre-trip tint');
+  assert.equal(lib.phaseOnDay(bands, '2026-10-15').label, 'Pre-trip', 'and the day wears the Pre-trip colour');
   assert.equal(lib.phaseOnDay(bands, '2026-10-21').label, 'Post-trip');
   const main = read('travel.js');
   const fn = main.slice(main.indexOf('function placeOptions'), main.indexOf('// The badge for a run of hidden days'));
@@ -1187,11 +1188,12 @@ test('the When choice reaches the whole timeline: a note dated before the trip i
   assert.match(fn, /after\.forEach/, 'and days after the last');
 });
 
-test('the Planner draws a phase as a label in its tint on the day (no wash, design system step 34), the Calendar as a wash and a name, in theme tints', () => {
+test('the Planner draws a phase as a label in its colour on the day (no wash, design system step 34), the Calendar as a wash and a name, in the phase\'s own colour', () => {
   const css = read('travel-lib-cards.css');
-  for (const t of ['blue', 'green', 'teal', 'purple', 'orange', 'pink', 'gold', 'red']) assert.match(css, new RegExp(`\\.ph-${t} \\{ --ph: var\\(--tint-${t}\\); \\}`), `${t} is the theme's tint`);
+  assert.doesNotMatch(css, /\.ph-(blue|green|teal|purple|orange|pink|gold|red)\b/, 'no tint names: the phase\'s own colour is --ph, set on the day');
+  assert.match(read('travel.js'), /el\.style\.setProperty\('--ph', ph\.color\);/, 'the day carries its phase\'s colour as --ph');
   const rules = css.slice(css.indexOf('/* phases:'));
-  assert.match(css, /\.sdk-day-labels > \.sdk-chip-tag\[data-tone="custom"\] \{ --chip-tone: var\(--ph\);/, 'the day\'s phase label takes the tint');
+  assert.match(css, /\.sdk-day-labels > \.sdk-chip-tag\[data-tone="custom"\] \{ --chip-tone: var\(--ph\);/, 'the day\'s phase label takes the phase\'s colour');
   assert.doesNotMatch(css, /\.sdk-day[^{]*\{[^}]*background: [^;]*var\(--ph\)|daychip[^{]*\{[^}]*background: [^;]*var\(--ph\)/, 'no wash on the day\'s head or the strip chip');
   assert.doesNotMatch(rules, /(border|outline|box-shadow)[^;]*var\(--ph\)/, 'a phase never draws a coloured border or outline');
   assert.doesNotMatch(css.slice(css.indexOf('/* phases:')), /#[0-9a-f]{3,8}\b|rgba?\(/i, 'no colour literals in the phase rules');

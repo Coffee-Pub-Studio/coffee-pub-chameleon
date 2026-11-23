@@ -25,11 +25,8 @@ import { actionBar } from './action-bar.js';
 
 export const BAND_MIN = 56; // the least width of a dated band, in px (a one-day phase keeps it; 12 phases scroll sideways)
 const OPEN_DAYS_PAST_TODAY = 14; // how far an open-ended band is drawn past today
-// The bands' tints, by position: eight named tokens (design-theme.md, "Tints"), round again after the eighth. The
-// same list is Phases.TINTS / Phases.tintOf (public/phases.js), which gives every band its `tint`: the sheet, Set up's
-// rows, the status strip and a module's host.util.phaseTimeline all read that one (tools/check-nav.mjs holds the two equal).
-export const TINTS = ['blue', 'green', 'teal', 'purple', 'orange', 'pink', 'gold', 'red'];
-export const tintOf = (i) => TINTS[((i % TINTS.length) + TINTS.length) % TINTS.length];
+// Each band and row is drawn in its phase's own colour: `color` ('#rrggbb') on the phase, which Phases.cleanPhases always
+// fills (its own, else its place's default; Phases.colorOf), set as --tint so the Journey bar family's rules read it.
 
 // How much of the bar each band takes: { id, days, grow }. A dated band's days are its length (an open-ended one runs
 // to two weeks past `today`, or its start); `grow` is its share of the bar (flex-grow), the days themselves. An
@@ -213,7 +210,7 @@ export function openPhaseSheet({ phases, dates, created, today, canEdit = false,
     const band = doc.createElement('li');
     band.className = 'sdk-phase-band'; // the Journey bar family's Set up band (system.css)
     band.dataset.id = p.id;
-    band.dataset.tint = R.tintOf ? R.tintOf(i) : tintOf(i);
+    band.style.setProperty('--tint', p.color);
     band.innerHTML = '<span class="sdk-phase-band-label"></span><span class="sdk-phase-band-span"></span><span class="sdk-phase-band-now" hidden>Now</span><span class="sdk-phase-today" hidden><span class="sdk-phase-today-word">Today</span></span>';
     band.addEventListener('click', () => focusRow(p.id));
     band.addEventListener('mouseenter', () => lit(p.id, true));
@@ -224,7 +221,7 @@ export function openPhaseSheet({ phases, dates, created, today, canEdit = false,
     const row = doc.createElement('li');
     row.className = 'phase-row';
     row.dataset.id = p.id;
-    row.dataset.tint = R.tintOf ? R.tintOf(i) : tintOf(i);
+    row.style.setProperty('--tint', p.color);
     row.innerHTML = `
       <div class="phase-row-name">
         <span class="phase-swatch" aria-hidden="true"></span>

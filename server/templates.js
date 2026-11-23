@@ -48,7 +48,9 @@ const MAX_MODULES = 60;
 // A template's version: a whole number, at most this.
 const MAX_VERSION = 1000000;
 const MAX_PHASES = 12;
-const PHASE_KEYS = ['id', 'label', 'main', 'icon'];
+const PHASE_KEYS = ['id', 'label', 'main', 'icon', 'color'];
+// A phase's own colour, '#rrggbb' (decision 32): kept lowercased when it is one, else dropped (the pages give it its default).
+const PHASE_COLOR_RE = /^#[0-9a-f]{6}$/i;
 const PHASE_MEASURES = ['dates', 'goals', 'progress'];
 // Additions only (decision 12, corrected 2026-11-16): added on top of the environment's own lists, which a template
 // never sees. A repeat of an entry already in an environment's list is dropped where the lists are joined
@@ -365,7 +367,7 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
       let main = false;
       raw.phases.forEach((phase, i) => {
         if (!isObject(phase)) { say(`phases[${i}] must be an object with an id and a label.`); return; }
-        for (const key of Object.keys(phase)) if (!PHASE_KEYS.includes(key)) say(`phases[${i}]: "${shown(key)}" is not a phase field; a phase takes id, label, main and icon.`);
+        for (const key of Object.keys(phase)) if (!PHASE_KEYS.includes(key)) say(`phases[${i}]: "${shown(key)}" is not a phase field; a phase takes id, label, main, icon and color.`);
         if (typeof phase.id !== 'string' || !ID_RE.test(phase.id)) say(`phases[${i}]: an id is lowercase letters, digits and dashes, starting with a letter.`);
         else if (seen.has(phase.id)) say(`phases: "${phase.id}" is listed twice.`);
         else seen.add(phase.id);
@@ -441,7 +443,7 @@ function problemsOf(raw, { file = null, manifests = null, faDir = FA_FREE_SOLID 
 
 function cleanPhases(raw) {
   if (!Array.isArray(raw)) return [];
-  return raw.map((phase) => ({ id: phase.id, label: String(phase.label).trim(), ...(phase.main === true ? { main: true } : {}), ...(phase.icon ? { icon: phase.icon } : {}) }));
+  return raw.map((phase) => ({ id: phase.id, label: String(phase.label).trim(), ...(phase.main === true ? { main: true } : {}), ...(phase.icon ? { icon: phase.icon } : {}), ...(typeof phase.color === 'string' && PHASE_COLOR_RE.test(phase.color) ? { color: phase.color.toLowerCase() } : {}) }));
 }
 
 // One module entry as the server keeps it: only the five keys, each there only when given.

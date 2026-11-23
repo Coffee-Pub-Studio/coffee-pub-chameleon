@@ -41,7 +41,7 @@ import { groupOf } from './composites.js';
 import { confirmDialog } from './confirm.js';
 import { mountSees, fullSees, sameSees } from './ai-sees.js';
 import { loadTemplateChoices, spaceTemplatesOn, fillSelect, optionList, changeQuestion, moduleShift, SAME } from './template-choice.js';
-import { rowsOf, dayWords, plainDays, sameDates, tintOf, rowIconHtml } from './phase-sheet.js';
+import { rowsOf, dayWords, plainDays, sameDates, rowIconHtml } from './phase-sheet.js';
 
 // The name of the Set up button and of the panel's title: "<space word> Configuration" (Trip Configuration), in the
 // template's word; in an aside, the aside's word. `word` is the page's word helper. One helper, so the two say the same.
@@ -615,8 +615,8 @@ export function createSpaceSetup(deps) {
   // timeline stays contiguous; a refusal is one sentence by the row and the input snaps back. Nothing dated yet: the
   // first step, "Start the first phase on". The dates are a draft: they go in Save's PATCH.
   function phasesTabHtml() {
-    const rows = state.phaseList.map((p, i) => `
-          <li class="phase-row" data-id="${esc(p.id)}" data-tint="${state.rule && state.rule.tintOf ? state.rule.tintOf(i) : tintOf(i)}">
+    const rows = state.phaseList.map((p) => `
+          <li class="phase-row" data-id="${esc(p.id)}" style="--tint: ${esc(p.color)}">
             <div class="phase-row-name">
               <span class="phase-swatch" aria-hidden="true"></span>
               ${rowIconHtml(p)}<span class="phase-row-label">${esc(p.label)}</span>
