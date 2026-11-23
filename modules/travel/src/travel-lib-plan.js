@@ -304,39 +304,15 @@
       return item;
     }
 
-    // An object handed in from elsewhere (an import, an AI's answer, another module's idea): on its day when the plan can show
-    // that day. A day past the plan's MAX_DAYS would show nowhere, so it goes under "Unscheduled" with "Dated <day>,
-    // outside the plan" in its notes (plan-object-handoff.md, decision 12). What the person should know is said through
-    // onSaid (the page's note) and comes back with the result.
+    // An object handed in from elsewhere (an import, an AI's answer, another module's idea, the paste sheet's Add to the trip):
+    // on its day when the plan can show that day, else under "Unscheduled" (actHandedIn in travel-lib-actions.js, the rule the
+    // actions use too). What the person should know is said through onSaid (the page's note) and comes back with the result.
     async function addHandedIn(fields, by) {
-      const said = [];
-      let next = fields;
-      if (next.date && !fitsPlan(days(), next.date)) {
-        said.push(`${next.title} is dated ${next.date}, outside the plan's ${MAX_DAYS} days, so it is under Unscheduled.`);
-        next = { ...next, date: null, after: null, arrives: relativeArrives(next.date, next.arrives), notes: [`Dated ${next.date}, outside the plan`, next.notes].filter(Boolean).join('\n\n') };
-      }
-      // On its day, its check-out or its ticket's arrival must fit too, else the plan would grow to 60 days of nothing (with no
-      // trip set, quietly): that one is kept as a notes line instead, and said.
-      if (next.date) {
-        const span = [...days(), next.date].sort();
-        const keepAsLine = (line, what, day) => {
-          next = { ...next, notes: [next.notes, line].filter(Boolean).join('\n\n') };
-          said.push(`${next.title}: ${what}, ${day}, is outside the plan's ${MAX_DAYS} days, so it is in its notes.`);
-        };
-        if (isYmd(next.checkOut) && !fitsPlan(span, next.checkOut)) {
-          const out = next.checkOut;
-          keepAsLine(`Check out: ${out}${next.checkOutTime ? ` ${next.checkOutTime}` : ''}`, 'its check-out', out);
-          next = { ...next, checkOut: null, checkOutTime: null };
-        }
-        if (typeof next.arrives === 'string' && next.arrives.length === 16 && !fitsPlan(span, next.arrives.slice(0, 10))) {
-          const arrives = next.arrives;
-          keepAsLine(arrivesLine(arrives), 'its arrival', arrives.slice(0, 10));
-          next = { ...next, arrives: null };
-        }
-      }
+      const handed = actHandedIn(days(), fields);
+      const said = [...handed.said];
       let item;
       try {
-        item = await addItem(next, by);
+        item = await addItem(handed.fields, by);
       } catch (err) {
         if (!err.item) throw err;
         item = err.item;
@@ -347,16 +323,8 @@
       return { ref: host.objects.make('plan', item.id), ...(words ? { data: { note: words } } : {}) };
     }
 
-    // A journey moved to another day (dragged, "Move to...", earlier or later) takes its ticket's dated arrival along, the same
-    // number of days later or earlier, unless the change says its own arrival (the editor does). Moved off its days (onto the
-    // line, under "Unscheduled"), the arrival is kept relative to the day it left ("06:30+1"), and cleanItem dates it
-    // again on whatever day it is put back on.
-    const withArrival = (item, patch) => {
-      if (!patch || patch.arrives !== undefined || !Object.prototype.hasOwnProperty.call(patch, 'date')) return patch;
-      if (!item.date || patch.date === item.date || typeof item.arrives !== 'string' || item.arrives.length !== 16) return patch;
-      if (!isYmd(patch.date)) return { ...patch, arrives: relativeArrives(item.date, item.arrives) };
-      return { ...patch, arrives: shiftArrives(item.arrives, Math.round((parseYmd(patch.date) - parseYmd(item.date)) / DAY_MS)) };
-    };
+    // A journey moved to another day takes its ticket's dated arrival along (actWithArrival in travel-lib-actions.js).
+    const withArrival = actWithArrival;
 
     async function updateItem(id, patch) {
       const cur = items.get(id);
@@ -557,49 +525,13 @@
       return suggested;
     }
 
-    // What other modules may ask of this one, and what it is when they do.
+    // What other modules may ask of this one, and what it is when they do: the actions library's handlers (ACTION_HANDLERS in
+    // travel-lib-actions.js, the code the server runs for an agent too), carried out here by the SDK (host.actions.fromLibrary),
+    // and the one view, addFromText, which opens the paste sheet on this page.
     function provide() {
       if (!host.actions || !host.actions.provide) return;
       host.actions.provide({
-        addStop: async (input, ctx) => {
-          const by = ctx && ctx.credit ? ctx.credit.name : undefined; // who asked, so an agent's stop is the agent's
-          if (input.ref && input.placeRef) throw new Error('Give a link or a place, not both.');
-          const date = input.date && isYmd(input.date) ? input.date : null;
-          const item = input.ref
-            ? await addLink(input.ref, date, input.title, by)
-            : await addItem(await withPlaceRef(withDetails(input, { kind: 'stop', title: input.title, date, notes: input.notes || '' }), input.placeRef), by);
-          return { ref: host.objects.make('plan', item.id) };
-        },
-        addToDay: async (input, ctx) => {
-          // `item` is what the input was called before the rename (a request queued then is still carried out).
-          const item = await addLink(input.object || input.item, isYmd(input.date) ? input.date : null, undefined, ctx && ctx.credit ? ctx.credit.name : undefined);
-          return { ref: host.objects.make('plan', item.id) };
-        },
-        // A suggestion from anywhere (an AI's typed summary, another module's idea): placed as the right kind of item when its
-        // `kind` is one of the everyday words a journey, a stay or a stop already knows (a flight, a hotel, a sight...); an
-        // missing kind is an ordinary stop, the same as addStop, and any other kind is refused. Found by name and input shape, never by
-        // whoever asks for it.
-        // With `object` (plan-object-handoff.md): the whole object, its details in the plan's own fields (fromObject).
-        acceptSuggestion: async (input, ctx) => {
-          const by = ctx && ctx.credit ? ctx.credit.name : undefined;
-          if (input.object) return addObject(input.object, input.placeRef, by);
-          if (input.kind !== undefined && input.kind !== null && input.kind !== '' && !ACCEPT_KINDS.includes(input.kind)) throw new Error(`That kind is not one the itinerary takes. Use ${ACCEPT_KINDS.slice(0, -1).join(', ')} or ${ACCEPT_KINDS[ACCEPT_KINDS.length - 1]}.`);
-          return addHandedIn(await withPlaceRef(fromSuggestion(input), input.placeRef), by);
-        },
-        // Put a stop that is already on the plan at a saved place (what the editor's Pick from Maps does), or take it off its place.
-        setStopPlace: async (input) => {
-          const cur = input.stop && items.get(input.stop.id);
-          if (!cur) throw new Error("That stop isn't on the itinerary.");
-          if (cur.item.kind !== 'stop') throw new Error('Only a stop can be at a place.');
-          const given = input.placeRef !== undefined && input.placeRef !== null && input.placeRef !== '';
-          // Taken off its place, the stop keeps the name it shows (the editor's Unlink does the same).
-          if (!given) await updateItem(cur.item.id, { placeRef: null });
-          else {
-            const at = await atPlace(input.placeRef);
-            await updateItem(cur.item.id, { placeRef: at.placeRef, place: at.place, ...(!cur.item.address && at.address ? { address: at.address } : {}) });
-          }
-          return { ref: host.objects.make('plan', cur.item.id) };
-        },
+        ...host.actions.fromLibrary(ACTION_HANDLERS, { after: absorb }),
         addFromText: async (input) => {
           if (!composeFromText) throw new Error('Planner - Itinerary is not open');
           composeFromText(String(input.text || ''));
@@ -607,33 +539,38 @@
         },
       });
     }
+    // What only a page does once a request's writes are in: the plan shows them at once, tells the host what each entry points
+    // at and which files it has, asks for the summaries of what is new, moves the main phase's end when the plan has phases
+    // (the space's, which the server's runner leaves), and says the request's note here.
+    async function absorb({ writes, data }) {
+      for (const w of writes) remember(w.key, w.value, w.version);
+      changed();
+      for (const w of writes) {
+        const id = planIdOf(w.key);
+        const cur = id !== null ? items.get(id) : null;
+        if (!cur) continue;
+        const before = w.before ? cleanItem({ ...w.before, id }) : null;
+        const was = before && linkOf(before) ? objectKey(linkOf(before)) : '';
+        if (was !== (linkOf(cur.item) ? objectKey(linkOf(cur.item)) : '')) setLink(id, linkOf(cur.item), cur.item.files);
+        if (((before && before.files) || []).map(objectKey).join() !== (cur.item.files || []).map(objectKey).join()) tellFiles(id, (before && before.files) || [], cur.item.files || []);
+        if (phased()) {
+          const current = withDates(trip);
+          const span = coverTrip(current, coverDaysOf(cur.item), cur.item, templatePhases());
+          if (span && span.end && current && span.end > current.end) await coverDay(span.end).catch(() => {});
+        }
+      }
+      resolveSummaries().catch(() => {});
+      if (data && data.note && tell) tell(data.note);
+    }
     let composeFromText = null;
     function onFromText(fn) { composeFromText = fn; }
     // Who hears what an object handed in needs said (the page's note).
     let tell = null;
     function onSaid(fn) { tell = fn; }
-    // An object of the objects format put on the trip: the one path acceptSuggestion's `object` and the paste sheet's Add to the
-    // trip share, so the cost, the currency and the travellers land as plan-assistant-reboot.md, decision 3, built them.
-    async function addObject(object, placeRef, by) { return addHandedIn(await withPlaceRef(fromObject(object, undefined, await bookingContext()), placeRef), by); }
-    // The Place a request names, as the editor's Pick from Maps takes it (travel.js, placeFieldInit): its pointer, its title
-    // (the stop's `place`) and its address. Refused in plain words when it is not a Maps place, is a person's own, or cannot be read
-    // (one the asker may not see does not resolve; the server has already refused an agent a pointer outside its spaces).
-    async function atPlace(ref) {
-      if (!ref || typeof ref !== 'object' || ref.module !== 'maps' || ref.kind !== 'place' || typeof ref.id !== 'string' || !ref.id) throw new Error('That is not a place saved in Maps.');
-      if (ref.scope === 'person') throw new Error(`That place is private to one person. Share it to the ${host.util.word('space')} first.`);
-      let got = null;
-      try { got = (await host.objects.resolve([ref]))[0]; } catch (err) { got = null; }
-      if (!got || got.error || !got.title) throw new Error("That place can't be found, or you can't see it.");
-      return { placeRef: ref, place: clip(got.title, 120), address: clip(got.subtitle, 200) };
-    }
-    // `fields` at the place `ref` names: the pointer, the place's title as `place`, and its address when the stop has none.
-    // Nothing changes without one. Only a stop is at a place.
-    async function withPlaceRef(fields, ref) {
-      if (ref === undefined || ref === null || ref === '') return fields;
-      if (fields.kind !== 'stop') throw new Error('Only a stop can be at a place. Leave the place out for a journey, a stay or a note.');
-      const at = await atPlace(ref);
-      return { ...fields, placeRef: at.placeRef, place: at.place, ...(!fields.address && at.address ? { address: at.address } : {}) };
-    }
+    // An object of the objects format put on the trip: the one path the paste sheet's Add to the trip takes (acceptSuggestion's
+    // `object` is the same rule in the actions library), so the cost, the currency and the travellers land as
+    // plan-assistant-reboot.md, decision 3, built them.
+    async function addObject(object, by) { return addHandedIn(fromObject(object, undefined, await bookingContext()), by); }
     // The item an object of the objects format becomes (objectFields in travel-lib-object.js), with host.util's plain text and
     // local times. `place` ({ date } or { after }): the Planner's own drop, whose day wins over the object's. `booking`
     // (bookingContext's answer): where a booking's cost and travellers go.
@@ -648,56 +585,9 @@
       try { people = typeof host.people === 'function' ? await host.people() : []; } catch (err) { people = []; }
       return { currency: budget || (trip && trip.currency) || (typeof locale === 'string' ? locale : '') || '', people: Array.isArray(people) ? people : [] };
     }
-    // The item a suggestion becomes ({ title, kind?, content?, place?, date? }, an AI's summary or a summary dropped here):
-    // the right kind when `kind` is one of the everyday words a journey, a stay or a stop already knows, else a stop.
-    function fromSuggestion(input) {
-      // A title is plain text (decision 5); the notes keep their Markdown, which the plan draws.
-      const plainTitle = typeof host.util.plain === 'function' ? host.util.plain(String(input.title ?? ''), { line: true }) : input.title;
-      const title = clip(plainTitle, 120);
-      if (!title) throw new Error('that needs a title');
-      const fields = { title, ...placeFields(input), notes: clip(input.content, 8000), place: clip(input.place, 120) };
-      const kindWord = typeof input.kind === 'string' ? input.kind : '';
-      if (MODES.includes(kindWord)) { fields.kind = 'journey'; fields.mode = kindWord; }
-      else if (STAY_TYPES.includes(kindWord)) { fields.kind = 'stay'; fields.type = kindWord; }
-      else if (STOP_TYPES.includes(kindWord)) { fields.kind = 'stop'; fields.type = kindWord; if (['restaurant', 'cafe', 'bar', 'winery'].includes(kindWord)) fields.category = 'eat'; }
-      else fields.kind = 'stop';
-      return withDetails(input, fields);
-    }
-    // The optional details a flat request may carry, as the form's own fields (the same ones objectFields fills): `time` (HH:MM,
-    // 24-hour; a flight's departure, a stay's check-in), `minutes` or `endTime` (how long; a stay and a note have no length),
-    // `cost` (what the form calls Estimated, so Budget reads it as it reads one typed in), `reference` (the confirmation number).
-    // Each is refused in plain words when it cannot be used. Without any of them the fields come back as they were.
-    function withDetails(input, fields) {
-      const given = (name) => input[name] !== undefined && input[name] !== null && input[name] !== '';
-      if (!['time', 'minutes', 'endTime', 'cost', 'reference'].some(given)) return fields;
-      const out = { ...fields };
-            if (given('time')) {
-        if (!isTime(input.time)) throw new Error('The time must be a clock time as HH:MM, 24-hour, like 14:30.');
-        out.time = input.time;
-      }
-      if (given('minutes') && given('endTime')) throw new Error('Give how long it takes or when it ends, not both.');
-      if (given('minutes') || given('endTime')) {
-        if (fields.kind === 'stay') throw new Error('A stay has no length, so leave out minutes and the end time.');
-        if (given('minutes')) {
-          if (!Number.isInteger(input.minutes) || input.minutes < 1 || input.minutes > MAX_MINUTES) throw new Error(`Minutes must be a whole number from 1 to ${MAX_MINUTES}.`);
-          out.minutes = input.minutes;
-        } else {
-          if (!isTime(input.endTime)) throw new Error('The end time must be a clock time as HH:MM, 24-hour, like 16:00.');
-          if (!isTime(out.time)) throw new Error('An end time needs a start time too.');
-          const long = lengthBetween(out.time, input.endTime);
-          if (!long) throw new Error('The end time must be different from the start time.');
-          out.minutes = long;
-        }
-      }
-      if (given('cost')) {
-        if (typeof input.cost !== 'number' || !Number.isFinite(input.cost) || input.cost < 0 || input.cost > 1e9) throw new Error('The cost must be a number, zero or more, like 120.50.');
-        out.estimate = input.cost > 0 ? input.cost : null;
-      }
-      if (given('reference')) {
-        out.confirm = clip(host.util.plain(String(input.reference), { line: true }), 60);
-      }
-      return out;
-    }
+    // The item a suggestion becomes, and a flat request's details (actSuggestion and actDetails in travel-lib-actions.js).
+    const fromSuggestion = (input) => actSuggestion(input, host.util);
+    const withDetails = (input, fields) => actDetails(input, fields, host.util);
 
     return {
       refreshSummaries: () => resolveSummaries(true), refreshPhases, load, list, onLine, atJoint, sortable, days, byDay, dayOf, jointOf, summaries, suggest, provide, onFromText, onSaid, saveTrip, redateCopies, coverDay, bands, phased, addItem, updateItem, removeItem, removeFile, addRoundTrip, returnFor, outboundFor, extraReturns, removeLeg, applyChanges, moveTo, moveToJoint, previewMove, moveDays, previewClear, clearDay: clearDayOf, nudgeItem, addLink, fromSuggestion, fromObject, addObject, bookingContext, withDetails,

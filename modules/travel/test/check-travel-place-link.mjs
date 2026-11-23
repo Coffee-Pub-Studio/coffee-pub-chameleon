@@ -13,11 +13,14 @@ const read = (n) => fs.readFileSync(new URL(n, src), 'utf8');
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parseYmd = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
-const lib = new Function('ymd', 'parseYmd', `${read('travel-lib.js')}\n${read('travel-lib-object.js')}\n${read('travel-lib-plan.js')}\nreturn { createPlan };`)(ymd, parseYmd);
+const lib = new Function('ymd', 'parseYmd', `${read('travel-lib.js')}\n${read('travel-lib-actions.js')}\n${read('travel-lib-object.js')}\n${read('travel-lib-plan.js')}\nreturn { createPlan };`)(ymd, parseYmd);
+// The SDK's page adapter for an actions library (host.actions.fromLibrary), which the stand-in host hands the plan.
+let sdkActions;
 const hostText = (() => {
   const win = { addEventListener() {}, location: { search: '' } };
   win.parent = win;
   new Function('window', 'document', fs.readFileSync(new URL('../../../public/sdk/host.js', import.meta.url), 'utf8'))(win, { createElement: (tag) => ({ tag }) });
+  sdkActions = win.hostActions;
   return win.hostText;
 })();
 
@@ -51,7 +54,11 @@ const host = {
   },
   files: { link: async () => {}, unlink: async () => {} },
   ui: { toast() {} },
-  actions: { provide: (h) => Object.assign(provided, h) },
+  actions: {
+      // As the SDK: provide hands each handler who asked (here the page's own person) and fromLibrary is the real adapter.
+      provide: (h) => { for (const [k, fn] of Object.entries(h)) provided[k] = (input, c) => fn(input, c || { from: 'test', by: 'Ann', byKey: 'u1', credit: { name: 'Ann', key: 'u1' } }); },
+      fromLibrary: (h, o) => sdkActions.fromLibrary(host, h, { ...o, module: () => ({ id: 'travel', name: 'Planner - Itinerary' }) }),
+    },
 };
 
 const plan = lib.createPlan(host);

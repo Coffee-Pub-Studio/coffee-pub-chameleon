@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 const read = (name) => fs.readFileSync(new URL(`../modules/travel/src/${name}`, import.meta.url), 'utf8');
 // In the build's order: travel-lib.js, then travel-lib-*.js by name.
-const src = read('travel-lib.js') + '\n' + read('travel-lib-object.js') + '\n' + read('travel-lib-plan.js');
+const src = read('travel-lib.js') + '\n' + read('travel-lib-actions.js') + '\n' + read('travel-lib-object.js') + '\n' + read('travel-lib-plan.js');
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parseYmd = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
@@ -18,10 +18,13 @@ const lib = new Function('ymd', 'parseYmd', `${src}\nreturn { ${names.join(', ')
 // The phase timeline rule (public/phases.js), which the SDK gives a module as host.util.phaseTimeline (plan-one-bar.md step 2).
 const Phases = new Function('module', fs.readFileSync(new URL('../public/phases.js', import.meta.url), 'utf8') + '\nreturn module.exports;')({ exports: {} });
 // The SDK's own text and time helpers (host.util.plain and host.util.localWhen in public/sdk/host.js), which the plan is given.
+// The SDK's page adapter for an actions library (host.actions.fromLibrary), which the stand-in host hands the plan.
+let sdkActions;
 const sdkText = (() => {
   const win = { addEventListener() {}, location: { search: '' } };
   win.parent = win;
   new Function('window', 'document', fs.readFileSync(new URL('../public/sdk/host.js', import.meta.url), 'utf8'))(win, { createElement: (tag) => ({ tag }) });
+  sdkActions = win.hostActions;
   return win.hostText;
 })();
 const { plain, localWhen } = sdkText;
@@ -431,7 +434,11 @@ function fakeHost({ failFilesAtStart = false, summaries = [], search = [], readO
       unlink: async (from, ptrs) => { if (failFiles) throw new Error('refused'); const k = objectKey(from); fileLinks.set(k, (fileLinks.get(k) || []).filter((x) => !ptrs.map(objectKey).includes(x))); },
     },
     ui: { toast: (text) => toasts.push(text) },
-    actions: { provide: (h) => Object.assign(provided, h) },
+    actions: {
+      // As the SDK: provide hands each handler who asked (here the page's own person) and fromLibrary is the real adapter.
+      provide: (h) => { for (const [k, fn] of Object.entries(h)) provided[k] = (input, c) => fn(input, c || { from: 'test', by: 'Ann', byKey: 'u1', credit: { name: 'Ann', key: 'u1' } }); },
+      fromLibrary: (h, o) => sdkActions.fromLibrary(t, h, { ...o, module: () => ({ id: 'travel', name: 'Planner - Itinerary' }) }),
+    },
   };
   return { t, store, provided, covered, links, fileLinks, toasts, push: (e) => handlers.change.forEach((fn) => fn(e)) };
 }

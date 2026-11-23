@@ -64,15 +64,31 @@ await test('a guest or departed asker (no key) is credited to the page\'s person
   assert.deepEqual(ctx.credit, { name: 'Ann', key: 'ann' });
 });
 
+// 3. The page adapter for an actions library (host.actions.fromLibrary) hands the handler exactly the credit provide gave it, so a
+// page and the server's runner (which gives the agent's own) credit alike.
+await test('fromLibrary hands the library handler provide\'s credit, unchanged', async () => {
+  const win = { addEventListener() {}, location: { search: '' } };
+  win.parent = win;
+  new Function('window', 'document', sdk)(win, { createElement: (tag) => ({ tag }) });
+  const seen = [];
+  const stand = { util: {}, space: () => ({ id: 's1' }), phases: () => [], storage: { list: async () => [], set: async () => ({ version: 1 }) } };
+  const h = win.hostActions.fromLibrary(stand, { make: (input, ctx) => { seen.push(ctx); return {}; } }, { module: () => ({ id: 'x', name: 'X' }) });
+  await h.make({}, { from: 'chat', by: 'Claude', byKey: 'agent1', credit: { name: 'Claude', key: 'agent1' } });
+  assert.deepEqual(seen[0].credit, { name: 'Claude', key: 'agent1' });
+  assert.deepEqual([seen[0].by, seen[0].byKey], ['Claude', 'agent1']);
+});
+
 // 2. Each module's stamp reads the credit.
 const has = (file, re, what) => test(what, () => assert.match(read(file), re, `${file}: ${what}`));
 const lacks = (file, re, what) => test(what, () => assert.doesNotMatch(read(file), re, `${file}: ${what}`));
 await has('modules/travel/src/travel-lib-plan.js', /by: by \|\| host\.user\.name/, 'travel: addItem stamps the given credit, else the page person');
-await has('modules/travel/src/travel-lib-plan.js', /addStop: async \(input, ctx\)[\s\S]*ctx\.credit\.name/, 'travel: addStop reads the credit');
-await has('modules/travel/src/travel-lib-plan.js', /acceptSuggestion: async \(input, ctx\)[\s\S]*ctx\.credit\.name/, 'travel: acceptSuggestion reads the credit');
-await has('modules/travel/src/travel-lib-plan.js', /addToDay: async \(input, ctx\)/, 'travel: addToDay reads the credit');
-await has('modules/calendar/src/calendar.js', /by: by \|\| info\.user\.name/, 'calendar: createEventOn stamps the given credit');
-await has('modules/calendar/src/calendar.js', /createEvent: async \(input, ctx\)[\s\S]*ctx\.credit\.name/, 'calendar: createEvent reads the credit');
+// Travel and Calendar keep their action rules in an actions library (plan-agent-edit-delete.md, step 2): the page runs it through
+// host.actions.fromLibrary, which hands it provide's credit (3. below), and the server's runner hands it the agent's.
+await has('modules/travel/src/travel-lib-actions.js', /function actAddHandedIn\(plan, fields, ctx\) \{\s*const by = ctx\.credit\.name;/, 'travel: acceptSuggestion\'s entry is the credit\'s');
+await has('modules/travel/src/travel-lib-actions.js', /function actAddPlain\(plan, fields, ctx\) \{\s*const made = actNew\(plan, fields, ctx\.credit\.name, ctx\);/, 'travel: addStop and addToDay credit the asker');
+await has('modules/travel/src/travel-lib-plan.js', /host\.actions\.fromLibrary\(ACTION_HANDLERS/, 'travel: the page carries the library\'s handlers');
+await has('modules/calendar/src/calendar-lib-actions.js', /createEvent\(input, ctx\)[\s\S]*by: ctx\.credit\.name/, 'calendar: createEvent stamps the credit');
+await has('modules/calendar/src/calendar.js', /host\.actions\.fromLibrary\(ACTION_HANDLERS/, 'calendar: the page carries the library\'s handlers');
 await has('modules/polls/src/polls.js', /by: \(ctx && ctx\.credit && ctx\.credit\.name\) \|\| info\.user\.name, byKey: \(ctx && ctx\.credit && ctx\.credit\.key\) \|\| me/, 'polls: createPoll stamps name and key from the credit');
 await has('modules/goals/src/goals.js', /value\.by = by \|\| me/, 'goals: add stamps the given credit');
 await has('modules/goals/src/goals.js', /addGoal: async \(input, ctx\)[\s\S]*addStep: async \(input, ctx\)[\s\S]*addNote: async \(input, ctx\)/, 'goals: the three add actions take ctx');

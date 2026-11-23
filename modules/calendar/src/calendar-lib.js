@@ -168,8 +168,8 @@
   // { plain, localWhen, detailLines, time }; `day` the request's own date, used when the object has none. The answer is an
   // event as stored, { title, allDay, start, end, desc }, or null when there is no day to put it on.
   //   An event runs from `starts` to `ends`, or `starts` plus `minutes`; a day with no time, or `allDay`, is all day, its end the
-  //   last day. A task is all day on its due day; anything else all day on its own date. A timed start is read in this
-  //   browser's time zone (the Calendar stores an instant). The description is plain: the content, then the details the
+  //   last day. A task is all day on its due day; anything else all day on its own date. A timed start is read in `tz` (an
+  //   IANA zone: the request's), else in this browser's time zone (the Calendar stores an instant). The description is plain: the content, then the details the
   //   event has no field for as "Label: value", the place, the links and "External source" for an import, cut at 600.
   const OBJECT_TITLE_MAX = 120;
   const OBJECT_DESC_MAX = 600;
@@ -179,7 +179,7 @@
     const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
     return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
   };
-  function eventFromObject(object, util, day) {
+  function eventFromObject(object, util, day, tz) {
     const o = object && typeof object === 'object' ? object : {};
     const one = (v, n) => util.plain(typeof v === 'string' ? v : '', { line: true }).slice(0, n).trim();
     const details = o.details && typeof o.details === 'object' && !Array.isArray(o.details) ? o.details : {};
@@ -211,15 +211,15 @@
     if (allDay) {
       if (endAt && endAt.date > start.date) { end = endAt.date; skip.push('ends'); }
     } else {
-      const s = new Date(`${start.date}T${start.time}`);
+      const s = instantFrom(start.date, start.time, tz);
       if (Number.isNaN(s.getTime())) return null;
       startValue = s.toISOString();
       let t = null;
       if (endAt && endAt.time) {
-        t = new Date(`${endAt.date}T${endAt.time}`);
+        t = instantFrom(endAt.date, endAt.time, tz);
         // An end with no day of its own that is not after the start runs past midnight: it is the next day's (22:00 to 01:00).
         const endHasDay = /^\s*\d{4}-/.test(String(details.ends));
-        if (!endHasDay && !(t > s)) t = new Date(endAt.date.slice(0, 4), +endAt.date.slice(5, 7) - 1, +endAt.date.slice(8, 10) + 1, +endAt.time.slice(0, 2), +endAt.time.slice(3, 5));
+        if (!endHasDay && !(t > s)) t = instantFrom(ymdOf(addDays(new Date(+endAt.date.slice(0, 4), +endAt.date.slice(5, 7) - 1, +endAt.date.slice(8, 10)), 1)), endAt.time, tz);
         if (!(t > s)) t = null;
         else skip.push('ends');
       }
@@ -255,19 +255,19 @@
   // The one rule for when an event starts and ends, used by the add-event form (save) and by createEvent's own fields, so an
   // event made either way is stored alike. `date` is the first day; `time` and `endTime` are "HH:MM"; `endDate` a day. An
   // all-day event's end is its last day (kept only when after the first); a timed one is stored as instants, read in this
-  // browser's time zone, a blank start time taking 19:00 and a blank end part taking the start's. Answers
-  // { allDay, start, end } or { error } with the sentence the form shows.
-  function eventSpan({ date, time, endDate, endTime, allDay }) {
+  // browser's time zone (or in `tz`, an IANA zone, when one is given: a request's), a blank start time taking 19:00 and a blank
+  // end part taking the start's. Answers { allDay, start, end } or { error } with the sentence the form shows.
+  function eventSpan({ date, time, endDate, endTime, allDay, tz }) {
     if (allDay) {
       if (endDate && endDate < date) return { error: 'The end is before the start.' };
       return { allDay: true, start: date, end: endDate && endDate > date ? endDate : null };
     }
     const at = time || '19:00';
-    const s = new Date(`${date}T${at}`);
+    const s = tz ? instantFrom(date, at, tz) : new Date(`${date}T${at}`);
     if (Number.isNaN(s.getTime())) return { error: 'That time is not valid.' };
     let end = null;
     if (endDate || endTime) {
-      const t = new Date(`${endDate || date}T${endTime || at}`);
+      const t = tz ? instantFrom(endDate || date, endTime || at, tz) : new Date(`${endDate || date}T${endTime || at}`);
       if (Number.isNaN(t.getTime())) return { error: 'That end is not valid.' };
       if (t < s) return { error: 'The end is before the start.' };
       if (t > s) end = t.toISOString();
@@ -275,12 +275,49 @@
     return { allDay: false, start: s.toISOString(), end };
   }
 
-  // What createEvent is asked for, without an `object`: { title, date, time, endTime, endDate, allDay, repeat, remind }, the
-  // choices the form offers. No time (and allDay not false) is an all-day event on `date`, as it always was. Answers the event
-  // as stored, { title, allDay, start, end, desc, remind, repeat }, or { error } with one plain sentence for whoever asked.
+  // --- reminders: any whole number of minutes before it starts, up to 28 days (plan-agent-edit-delete.md, section 5) ---------
+  // 0 is when it starts. The form offers 0, 15, 60 and 1440 first, and Other for the rest; createEvent and updateEvent take the
+  // same numbers.
+  const REMIND_MAX = 28 * 24 * 60;
+  const REMIND_PRESETS = [0, 15, 60, 1440];
+  const remindOk = (v) => Number.isInteger(v) && v >= 0 && v <= REMIND_MAX;
+  const REMIND_SAY = `Say remind as the minutes before it starts: a whole number from 0 (when it starts) to ${REMIND_MAX} (28 days).`;
+  // The notification's words for a lead time: "Starting now", "Starts in 15 minutes", "Starts in an hour", "Starts in 2 hours",
+  // "Starts in 1 hour 30 minutes", "Starts tomorrow", "Starts in 3 days".
+  function remindWords(minutes) {
+    const n = Number(minutes);
+    const many = (k, one, more) => `${k} ${k === 1 ? one : more}`;
+    if (!n) return 'Starting now';
+    if (n === 60) return 'Starts in an hour';
+    if (n === 1440) return 'Starts tomorrow';
+    if (n % 1440 === 0) return `Starts in ${many(n / 1440, 'day', 'days')}`;
+    if (n % 60 === 0) return `Starts in ${many(n / 60, 'hour', 'hours')}`;
+    if (n < 60) return `Starts in ${many(n, 'minute', 'minutes')}`;
+    return `Starts in ${many(Math.floor(n / 60), 'hour', 'hours')} ${many(n % 60, 'minute', 'minutes')}`;
+  }
+  // A lead time in the form's terms: a preset's value, or Other with a number and its unit (days, hours or minutes, the largest
+  // that divides it). And back: the minutes for Other's number and unit, or { error }.
+  function remindForm(minutes) {
+    if (minutes === null || minutes === undefined) return { choice: '', n: '', unit: 1 };
+    if (REMIND_PRESETS.includes(minutes)) return { choice: String(minutes), n: '', unit: 1 };
+    const unit = minutes % 1440 === 0 ? 1440 : minutes % 60 === 0 ? 60 : 1;
+    return { choice: 'other', n: String(minutes / unit), unit };
+  }
+  function remindFromForm(text, unit) {
+    const n = Number(String(text).trim());
+    if (String(text).trim() === '' || !Number.isInteger(n) || n < 1) return { error: 'Say how long before it starts, as a whole number.' };
+    const minutes = n * unit;
+    if (minutes > REMIND_MAX) return { error: 'A reminder can be at most 28 days before it starts.' };
+    return { minutes };
+  }
+
+  // What createEvent is asked for, without an `object`: { title, date, time, endTime, endDate, allDay, repeat, remind, notes },
+  // the choices the form offers. No time (and allDay not false) is an all-day event on `date`, as it always was. Times are read
+  // in `tz` (the request's zone) when one is given. Answers the event as stored, { title, allDay, start, end, desc, remind,
+  // repeat }, or { error } with one plain sentence for whoever asked.
   const EVENT_REPEATS = ['day', 'week', '2weeks', 'month', 'year'];
-  const EVENT_REMINDS = [0, 15, 60, 1440];
-  function eventFromInput(input) {
+  const EVENT_DESC_MAX = 600; // the form's Details
+  function eventFromInput(input, tz) {
     const i = input && typeof input === 'object' ? input : {};
     const given = (v) => v !== undefined && v !== null && v !== '';
     const clock = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -296,9 +333,10 @@
     if (i.allDay === true && (time || endTime)) return { error: 'An all-day event has no times. Leave allDay out, or leave the times out.' };
     if (endTime && !time) return { error: 'Give the start time too (time), as HH:MM.' };
     if (i.allDay === false && !time) return { error: 'An event that is not all day needs a start time (time), as HH:MM.' };
-    const span = eventSpan({ date: i.date, time, endDate: given(i.endDate) ? i.endDate : null, endTime, allDay: !time });
+    const span = eventSpan({ date: i.date, time, endDate: given(i.endDate) ? i.endDate : null, endTime, allDay: !time, tz });
     if (span.error) return span;
     if (given(i.repeat) && !EVENT_REPEATS.includes(i.repeat)) return { error: `Say repeat as ${EVENT_REPEATS.join(', ')}.` };
-    if (given(i.remind) && !EVENT_REMINDS.includes(i.remind)) return { error: 'Say remind as the minutes before it starts: 0, 15, 60 or 1440.' };
-    return { title, ...span, desc: '', remind: given(i.remind) ? i.remind : null, repeat: given(i.repeat) ? { every: i.repeat, until: null } : null };
+    if (given(i.remind) && !remindOk(i.remind)) return { error: REMIND_SAY };
+    const desc = typeof i.notes === 'string' ? i.notes.trim().slice(0, EVENT_DESC_MAX) : '';
+    return { title, ...span, desc, remind: given(i.remind) ? i.remind : null, repeat: given(i.repeat) ? { every: i.repeat, until: null } : null };
   }

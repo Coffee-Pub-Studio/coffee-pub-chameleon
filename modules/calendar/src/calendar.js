@@ -799,8 +799,16 @@
     else if (target.scope === 'spaces') who = `Everyone in ${placeName('spaces', target.spaceId)}`;
     else who = `Everyone in this ${word('environment')}`;
     $('f-remind-hint').textContent = $('f-remind').value === '' ? '' : who + ' gets a notification, if they are allowed to see the calendar.';
+    $('f-remind-other').hidden = $('f-remind').value !== 'other';
   }
-  $('f-remind').addEventListener('change', remindHint);
+  $('f-remind').addEventListener('change', () => {
+    remindHint();
+    // Other: the number to type, starting from an hour.
+    if ($('f-remind').value === 'other') {
+      if (!$('f-remind-n').value) { $('f-remind-n').value = '1'; $('f-remind-unit').value = '60'; }
+      $('f-remind-n').focus();
+    }
+  });
 
   // --- where an event goes ----------------------------------------------------------
   // On the environment page (and as a destination's part) a new event asks where it goes, every time: the
@@ -867,7 +875,7 @@
     repeat: $('f-repeat').value,
     until: $('f-until').value,
     desc: $('f-desc').value,
-    remind: $('f-remind').value,
+    remind: $('f-remind').value === 'other' ? `${$('f-remind-n').value} ${$('f-remind-unit').value}` : $('f-remind').value,
   });
   let lastKey = null; // the key of the event the form was opened on, or saved as: where focus returns
   const returnTo = () => {
@@ -982,7 +990,7 @@
     fillWhere(x);
     // One of the person's other calendars: what it is and when, nothing to remind, repeat or link.
     const outside = Boolean(x && isExternal(x));
-    for (const el of [$('f-remind').closest('.sdk-field'), $('f-repeat-row'), $('f-desc').closest('.sdk-field')]) el.hidden = outside;
+    for (const el of [$('f-remind-row'), $('f-repeat-row'), $('f-desc').closest('.sdk-field')]) el.hidden = outside;
     // A copy of another module's object (the Itinerary's): it says so, and the length, All day and the repeat are the original's.
     $('f-repeat-row').hidden = outside || Boolean(copy);
     $('f-copy').hidden = !copy;
@@ -1011,7 +1019,10 @@
     $('f-end-date').value = ev.end ? (ev.allDay ? ev.end : ymd(endAt)) : '';
     $('f-end').value = endAt ? `${pad(endAt.getHours())}:${pad(endAt.getMinutes())}` : '';
     $('f-desc').value = ev.desc || '';
-    $('f-remind').value = ev.remind === null || ev.remind === undefined ? '' : String(ev.remind);
+    const remindAt = remindForm(ev.remind === undefined ? null : ev.remind);
+    $('f-remind').value = remindAt.choice;
+    $('f-remind-n').value = remindAt.n;
+    $('f-remind-unit').value = String(remindAt.unit);
     // A quick add fills in what it understood: the title, and a time when one was typed.
     if (!x && prefill) {
       if (prefill.title) $('f-title').value = prefill.title;
@@ -1019,7 +1030,7 @@
     }
     $('f-repeat').value = ev.repeat ? ev.repeat.every : '';
     $('f-until').value = ev.repeat && ev.repeat.until ? ev.repeat.until : '';
-    for (const id of ['f-title', 'f-date', 'f-time', 'f-end-date', 'f-end', 'f-allday', 'f-desc', 'f-remind', 'f-repeat', 'f-until']) $(id).disabled = readOnly;
+    for (const id of ['f-title', 'f-date', 'f-time', 'f-end-date', 'f-end', 'f-allday', 'f-desc', 'f-remind', 'f-remind-n', 'f-remind-unit', 'f-repeat', 'f-until']) $(id).disabled = readOnly;
     // The original owns a copy's length and whether it is all day: shown, not changed, and said so.
     const owned = Boolean(copy) && !readOnly;
     for (const id of ['f-allday', 'f-end-date', 'f-end']) $(id).disabled = readOnly || owned;
@@ -1070,7 +1081,7 @@
       const at = next.getTime() + nineAm - lead;
       const until = ev.repeat && ev.repeat.until ? endOfDay(parseYmd(ev.repeat.until)).getTime() : null;
       if (until !== null && at > until) return await stop();
-      const label = ev.remind === 0 ? 'Starting now' : ev.remind === 15 ? 'Starts in 15 minutes' : ev.remind === 60 ? 'Starts in an hour' : 'Starts tomorrow';
+      const label = remindWords(ev.remind);
       await host.schedule({
         key,
         at,
@@ -1117,7 +1128,12 @@
       start = span.start;
       end = span.end;
     }
-    const remind = $('f-remind').value === '' ? null : Number($('f-remind').value);
+    let remind = $('f-remind').value === '' ? null : Number($('f-remind').value);
+    if ($('f-remind').value === 'other') {
+      const other = remindFromForm($('f-remind-n').value, Number($('f-remind-unit').value));
+      if (other.error) { showError(other.error); $('f-remind-n').focus(); return; }
+      remind = other.minutes;
+    }
     let repeat = null;
     if ($('f-repeat').value) {
       const until = $('f-until').value || null;
@@ -1337,17 +1353,13 @@
     clearTimeout(noteTimer);
     noteTimer = setTimeout(() => { $('note').hidden = true; }, 4000);
   }
-  // An all-day event on `date`; `fields` (eventFromObject) gives its own times and description instead.
-  async function createEventOn(title, date, ref, fields, by) {
+  // An all-day event on `date`, made by this person from an object dropped here (createEvent, asked by others, is the actions
+  // library's).
+  async function createEventOn(title, date, ref) {
     const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const when = fields ? { allDay: fields.allDay, start: fields.start, end: fields.end || null, desc: fields.desc || '' } : { allDay: true, start: date, end: null, desc: '' };
-    const ev = { id, title: String(title).slice(0, 120), ...when, remind: fields && fields.remind !== undefined ? fields.remind : null, repeat: fields && fields.repeat ? fields.repeat : null, by: by || info.user.name };
+    const ev = { id, title: String(title).slice(0, 120), allDay: true, start: date, end: null, desc: '', remind: null, repeat: null, by: info.user.name };
     const saved = await host.storage.set('event:' + id, ev, {});
     remember('here', { key: 'event:' + id, value: ev, version: saved.version });
-    // A reminder is set as the form sets it; if it cannot be, the event stays and the asker is told.
-    if (ev.remind !== null) {
-      try { await applyReminder(id, ev, {}); } catch (err) { render(); throw new Error('The event was added, but its reminder could not be set.'); }
-    }
     const made = host.objects.make('event', id);
     // Made from an object dropped or handed over: point at it, so the link shows from both ends.
     if (ref && host.objects.setLinks) host.objects.setLinks(made, [ref]).catch(() => {});
@@ -1399,26 +1411,12 @@
       },
     });
   }
-  // What other modules may ask of this one: put something on the calendar, pointing at `ref` when one is given.
-  // The Agenda leaves them to the calendar beside it, so one page does each once.
+  // What other modules may ask of this one: the actions library's handlers (ACTION_HANDLERS in calendar-lib-actions.js, the
+  // code the server runs for an agent too), carried out here by the SDK (host.actions.fromLibrary), and the one view, addEvent,
+  // which opens the form on this page. The Agenda leaves them to the calendar beside it, so one page does each once.
   if (host.actions && host.actions.provide && part !== 'panel') {
     host.actions.provide({
-      // With `object` (plan-object-handoff.md): an event made of it (eventFromObject in calendar-lib.js), timed when it says
-      // a time. Either way it needs a day: the object's, else `date`.
-      createEvent: async (input, ctx) => {
-        const by = ctx && ctx.credit ? ctx.credit.name : undefined; // who asked: an agent's event is the agent's
-        if (!canEdit) throw new Error('this person cannot add events here');
-        if (input.object && typeof input.object === 'object') {
-          const made = eventFromObject(input.object, host.util, input.date);
-          if (!made) throw new Error('that needs a day to go on the calendar');
-          return createEventOn(made.title || input.title, made.allDay ? made.start : null, input.ref, made, by);
-        }
-        if (!input.date) throw new Error('that needs a day to go on the calendar');
-        // The times, end, repeat and reminder the add-event form has, read in the zone of this page (the person carrying it out).
-        const made = eventFromInput(input);
-        if (made.error) throw new Error(made.error);
-        return createEventOn(made.title, made.start, input.ref, made, by);
-      },
+      ...host.actions.fromLibrary(ACTION_HANDLERS, { after: afterAction }),
       addEvent: async (input) => {
         if (!canAdd()) throw new Error('this person cannot add events here');
         const parsed = input.text && host.util.parseWhen ? host.util.parseWhen(input.text) : { title: input.text || '' };
@@ -1426,6 +1424,24 @@
         return {};
       },
     });
+  }
+  // What only a page does once a request's event is written: it shows at once, its reminder is set (or taken off) as the form
+  // sets it, and an event made from another module's object points at it. A reminder that cannot be set leaves the event and
+  // tells the asker. (The server's runner writes the event and nothing else: a reminder it carries waits for step 4 of
+  // plan-agent-edit-delete.md.)
+  async function afterAction({ action, input, writes }) {
+    for (const w of writes) remember('here', { key: w.key, value: w.value, version: w.version });
+    for (const w of writes) {
+      const id = String(w.key).slice('event:'.length);
+      const ev = w.value;
+      const made = action === 'createEvent';
+      if (!made || ev.remind !== null) {
+        try { await applyReminder(id, ev, {}); } catch (err) { render(); throw new Error(made ? 'The event was added, but its reminder could not be set.' : 'The event was changed, but its reminder could not be set.'); }
+      }
+      // Made from an object dropped or handed over: point at it, so the link shows from both ends.
+      if (made && input && input.ref && host.objects.setLinks) host.objects.setLinks(host.objects.make('event', id), [input.ref]).catch(() => {});
+    }
+    render();
   }
   $('body').addEventListener('click', (e) => {
     // A marker opens its object in its own module; it is never edited here.

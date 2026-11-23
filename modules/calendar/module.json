@@ -1,7 +1,7 @@
 {
   "id": "calendar",
   "name": "Calendar",
-  "version": "1.24.48",
+  "version": "1.24.49",
   "icon": "calendar-days",
   "color": "red",
   "description": "Sessions and events for the whole {environment} and for each {space}, with reminders.",
@@ -120,7 +120,8 @@
           "endDate": "Last day of a multi-day event, as YYYY-MM-DD.",
           "allDay": "True for an all-day event; do not send it with a time.",
           "repeat": "One of: day, week, 2weeks, month, year.",
-          "remind": "Minutes before the start to remind people: 0, 15, 60 or 1440."
+          "remind": "Minutes before the start to remind people: a whole number from 0 (when it starts) to 40320 (28 days), for example 15, 60 or 1440.",
+          "notes": "The event's details. Line breaks are allowed."
         },
         "effect": "write",
         "input": {
@@ -133,12 +134,43 @@
           "endDate": "date?",
           "allDay": "boolean?",
           "repeat": "string?",
-          "remind": "number?"
+          "remind": "number?",
+          "notes": "text?"
         },
         "needs": ["date"],
         "takes": [
           { "kinds": ["event", "*", "text"], "except": ["flight", "train", "bus", "ferry", "car", "hotel", "restaurant", "cafe", "bar", "winery", "sight", "museum", "attraction", "tour", "show"], "as": "an event" }
         ]
+      },
+      {
+        "name": "updateEvent",
+        "label": "Change an event",
+        "description": "Change an event already on the calendar: only the fields given. A copy of another module's object is changed in that module.",
+        "inputHints": {
+          "event": "The event to change, its pointer as search or an earlier answer gives it.",
+          "title": "The new title.",
+          "date": "The new first day, as YYYY-MM-DD; its end moves with it.",
+          "time": "Start time as HH:MM, 24-hour, for example 10:00. An all-day event with a time is no longer all day.",
+          "endTime": "End time as HH:MM, on the same day or on endDate.",
+          "endDate": "Last day of a multi-day event, as YYYY-MM-DD.",
+          "allDay": "True makes it all day and drops its times; false needs a start time.",
+          "repeat": "One of: day, week, 2weeks, month, year.",
+          "remind": "Minutes before the start to remind people: a whole number from 0 (when it starts) to 40320 (28 days).",
+          "notes": "The event's details, which replace the old ones. Line breaks are allowed."
+        },
+        "effect": "write",
+        "input": {
+          "event": "ref:calendar:event",
+          "title": "string?",
+          "date": "date?",
+          "time": "string?",
+          "endTime": "string?",
+          "endDate": "date?",
+          "allDay": "boolean?",
+          "repeat": "string?",
+          "remind": "number?",
+          "notes": "text?"
+        }
       },
       {
         "name": "addEvent",

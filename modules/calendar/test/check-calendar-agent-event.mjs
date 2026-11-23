@@ -42,6 +42,13 @@ test('allDay stated: true is all day, false with a time is timed', () => {
 test('empty optional fields count as left out', () => {
   assert.equal(make({ title: 'T', date: day, time: '', endTime: null, endDate: '', allDay: null }).allDay, true);
 });
+test('remind is any whole number of minutes from 0 (when it starts) to 28 days', () => {
+  for (const m of [0, 1, 5, 15, 45, 60, 90, 1440, 2880, 40320]) assert.equal(make({ title: 'T', date: day, remind: m }).remind, m, String(m));
+});
+test('notes become the event\'s details', () => {
+  assert.equal(make({ title: 'T', date: day, notes: '  Gate B12\nBring the passports  ' }).desc, 'Gate B12\nBring the passports');
+  assert.equal(make({ title: 'T', date: day, notes: 'x'.repeat(700) }).desc.length, 600);
+});
 test('repeat and remind are the form\'s choices', () => {
   const e = make({ title: 'T', date: day, time: '10:00', repeat: '2weeks', remind: 15 });
   assert.deepEqual([e.repeat, e.remind], [{ every: '2weeks', until: null }, 15]);
@@ -62,7 +69,9 @@ test('each refusal says it in plain words', () => {
   refuses({ allDay: false }, 'needs a start time');
   refuses({ endDate: '2026-02-30' }, 'Say the end date as YYYY-MM-DD');
   refuses({ repeat: 'hourly' }, 'Say repeat as');
-  refuses({ remind: 5 }, 'Say remind as');
+  refuses({ remind: -1 }, 'Say remind as the minutes before it starts: a whole number from 0 (when it starts) to 40320 (28 days).');
+  refuses({ remind: 40321 }, 'Say remind as');
+  refuses({ remind: 2.5 }, 'Say remind as');
   refuses({ allDay: 'yes' }, 'true or false');
   assert.ok(make({ title: 'T', date: '2026-13-01' }).error.includes('Say the date as YYYY-MM-DD'));
   assert.ok(make({ title: 'T', date: '20 Nov' }).error.includes('Say the date as YYYY-MM-DD'));
@@ -71,15 +80,18 @@ test('each refusal says it in plain words', () => {
 test('the form and the action share eventSpan', () => {
   const js = read('modules/calendar/src/calendar.js');
   assert.ok(/eventSpan\(\{ date, time: \$\('f-time'\)\.value/.test(js), 'save() uses eventSpan');
-  assert.ok(js.includes('eventFromInput(input)') && js.includes('createEventOn(made.title, made.start, input.ref, made, by)'), 'createEvent uses eventFromInput and createEventOn');
+  const actions = read('modules/calendar/src/calendar-lib-actions.js');
+  assert.ok(actions.includes('made = eventFromInput(input, ctx.tz);'), 'createEvent uses eventFromInput, in the request\'s zone');
+  assert.ok(js.includes('host.actions.fromLibrary(ACTION_HANDLERS, { after: afterAction })'), 'the page carries the library\'s createEvent');
   assert.ok(!/new Date\(`\$\{date\}T\$\{time\}`\)/.test(js), 'no second copy of the start rule in the page');
   assert.deepEqual(eventSpan({ date: day, time: '', endDate: '', endTime: '', allDay: false }), { allDay: false, start: at(day, '19:00'), end: null }, 'the form\'s 19:00 default');
 });
 test('the manifest declares the inputs, the old ones unchanged', () => {
   const m = JSON.parse(read('modules/calendar/module.json'));
   const a = m.actions.provides.find((x) => x.name === 'createEvent');
-  assert.deepEqual(a.input, { title: 'string', date: 'date?', ref: 'ref?', object: 'object?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?' });
-  assert.ok(Object.keys(a.input).length <= 10, 'the host reads at most ten inputs');
+  assert.deepEqual(a.input, { title: 'string', date: 'date?', ref: 'ref?', object: 'object?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?', notes: 'text?' });
+  assert.ok(Object.keys(a.input).length <= 20, 'the host reads at most twenty inputs');
+  assert.ok(/40320/.test(a.inputHints.remind), 'the hint gives the range');
   assert.deepEqual(a.needs, ['date']);
   assert.ok(a.description.length <= 200 && /[.]$/.test(a.description));
   assert.deepEqual(Object.keys(a.inputHints).sort(), Object.keys(a.input).filter((k) => k !== 'ref' && k !== 'object').sort());
