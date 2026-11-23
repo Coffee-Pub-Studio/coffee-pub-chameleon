@@ -198,15 +198,15 @@ Thomas, 2026-11-13, after trying the merged call title bar build (#767) and seei
     - **Not in the side column.** The large button does not show for Top of the column, Bottom of the column, Left of the chat, or Right of the chat when it is built. There the title bar's **Start call** is the only one.
     - The earlier wording of decision 28 is kept above, marked superseded, so the history reads.
 
-33. **Two kinds of workspace, named Customizable Workspace and Fixed Workspace (the two names are Thomas's).** In his words: "If they are two kinds of the same thing we should NAME them accordingly."
+33. **Two kinds of workspace, named Customizable Workspace and Fixed Workspace (the two names are Thomas's).** (The Modules tab rules that follow in 34 and 35 are changed by decision 38; the names stand.) In his words: "If they are two kinds of the same thing we should NAME them accordingly."
     - **Customizable Workspace** is today's canvas: a person arranges any number of modules in it, names it and puts it on their own bar. Today's **Workspace** and the saved layouts a person hearts are Customizable Workspaces.
     - **Fixed Workspace** is a workspace whose content and behaviour the admin, a moderator or our software controls: Conference, Calendar, Map, Whiteboards and Documents. The person cannot configure it. This is what the plan so far calls a fixed layout (decision 3); the ids and routes do not change.
     - The Names section of `CLAUDE.md` is Thomas's and still lacks both names. This plan does not edit it (see "Doc facts").
-34. **The Modules tab of a Fixed Workspace shows only the switches that workspace offers.**
+34. **The Modules tab of a Fixed Workspace shows only the switches that workspace offers.** (Changed by decision 38.)
     - The switches come from a schema (decision 35). With none, the tab says plainly that there is nothing to configure. Suggested sentence: "There is nothing to configure here."
     - The canvas arrangement controls do not apply in a Fixed Workspace and are not offered there: Arrange, Layouts, the module menu **Open for you**, and adding or removing modules on the canvas.
     - Why, in Thomas's words: for Calendar, Map and Conference "there's nothing you'd want to run next to that".
-35. **The schema is one list in our software (the host), per Fixed Workspace** (Thomas chose option A of three).
+35. **The schema is one list in our software (the host), per Fixed Workspace** (Thomas chose option A of three). (Changed by decision 38: the list stays, and its settings show on the Modules tab of the panel.)
     - It names which module settings appear on that workspace's Modules tab. Today Calendar offers the To-do switch, **Show To-do in the Calendar**: the `inCalendar` setting of the To-do module, which uses `needsModule: calendar` and the panel flag `showWhenSetting` (#783). Map, Conference, Whiteboards and Documents offer none.
     - A module cannot add controls to a Fixed Workspace on its own. The two rejected options were modules declaring it in their manifest, and each page drawing its own.
     - Adding a switch to a Fixed Workspace later is a one-line change in the list, in our software.
@@ -221,6 +221,22 @@ Thomas, 2026-11-23, answering "How should planners get a dedicated tab?" with "P
 37. **One planner gets a fixed layout: Planner - Projects.** Planner - Projects (module id `schedule`) gets one dedicated fixed layout, opened large like Calendar and Map. Itinerary (`travel`) and Goals (`goals`) get no tab and stay in the Workspace until Thomas asks. This changes decision 19: there are now seven fixed layouts, and the only planner with a preset is Planner - Projects. Reason: the other planners would not benefit from a whole-workspace view. Options he saw and did not choose: one Planner tab whose template picks the planner; a tab for each planner; no new tab (a bigger Planner in the Workspace).
 
 Built: a try build for decision 37 is in flight on branch `claude/projects-tab`. Its rules: the tab shows only where the module is on in the space, guests get none, the shipped Projects template shows it, the other shipped templates do not, and existing spaces get it appended.
+
+Thomas, 2026-11-23, after a usability look at the Space Configuration panel (Set up, `public/space-setup.js`). His three points: it is not clear that the Modules tab changes the settings of a space; the tab names are not accurate or well organized; and there is too much on many tabs, which could be focused tabs. The look found all three: the Modules tab's switches, Arrange and Layouts are personal (they open or close a module on this person's own canvas and are stored as their own layout; they do not turn a module on for the space) yet sit first in a panel titled "<Space> Configuration" beside real space settings; the tab changes meaning in a Fixed Workspace; "Settings" holds eight unrelated things; and "Layouts" names two different things four tabs apart. His words on the proposal: "I read and agree with the larger plan." He chose "One big build" over three small steps and over a plan first (DECIDED):
+
+38. **Set up is reorganized into six focused tabs, and the personal controls leave it.** This replaces decisions 33 to 35 (the Modules tab by kind of workspace) and the tab list in [plan-setup-panel.md](plan-setup-panel.md).
+    - **The title stays** "<Space> Configuration". **Six tabs, in this order, one job each.** Where a template gives a word, the tab uses it (for Members, Phases and Modules).
+      - **Details:** picture, name, description, template, launch link and icon, the published calendar switch, and Delete last in a danger section.
+      - **Members:** the members list, who can enter, waiting to come in, guests see costs, and the invite and guest links.
+      - **Phases:** the phase dates and the budget. With no phases the budget goes under Details, as `budgetTabOf` does today.
+      - **Call:** join on entry, position, layout, faces in the call.
+      - **Layout:** the tab-order list (show, hide, order, **Opens first**) and **First visit**. The heading now called "Layouts" there is renamed "Tabs in the bar".
+      - **Modules:** one section per module's own settings, tags, Turn AI off, What AI may see, and the settings a Fixed Workspace's module shows (decision 35's list stays, shown here).
+    - **The personal controls leave Set up entirely:** Open for you, Arrange (Panel and Window mode, Unstack all, Snap, Grid, Clean up) and the layout picker (pick, favorite, rename, save, New layout). They live in the existing **Layout** button's menu, opened as a popover with no Save frame, so nobody mistakes them for space settings. The old Modules tab (code id `show`) is removed. "There is nothing to configure here" goes away, because the question is no longer asked per workspace. Phones lose nothing: these controls are already outside Set up there.
+    - **Roles.** Owners and the admin see all six tabs. A moderator sees Phases, Call, Layout and Modules; what a moderator may change today does not widen. A member has no Set up and keeps the Layout button. A tab that would be empty for a role is left out, and Phases is left out when the template has no phases.
+    - **Save cue.** Each tab says once at its top whether its changes are "Saved with Save" or "Happen at once" (Members' links, Tags and Delete).
+    - **Built:** one big try build, to start after pull requests #1045 (members and moderators make spaces) and #1047 (the Projects tab) land, because they edit the same files.
+    - **Not decided by Thomas; the builder proposes and reports** (these are not decisions): where a moderator's open and close (closed) switch goes, at the top of Phases or with Layout; whether "Layout" is the final label (the other choice is "What people see"); the exact placement of "Waiting to come in"; and the code ids of the renamed tabs. They appear in the addresses `#show` and `#modules`, the product is unreleased, and they may be renamed cleanly.
 
 ## Names
 
