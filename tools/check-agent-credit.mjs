@@ -99,7 +99,8 @@ await has('modules/budget/src/budget.js', /host\.actions\.fromLibrary\(/, 'budge
 await has('modules/maps/src/maps-lib-g-list-view.js', /placeWhere\(ticks, input, \(ctx && ctx\.credit && ctx\.credit\.key\)/, 'maps: addPlace stamps the credit key');
 await has('modules/maps/src/maps-lib-g-list-view.js', /placeChanged\(p, input, \(ctx && ctx\.credit && ctx\.credit\.key\)/, 'maps: updatePlace stamps the credit key');
 await has('modules/research/src/research-lib.js', /byOf = \(ctx\) => \(ctx && ctx\.credit && ctx\.credit\.name\)/, 'research: byOf reads the credit');
-await has('modules/todo/src/todo.js', /by: \(meta && meta\.credit && meta\.credit\.name\)/, 'to-do: createTask reads the credit');
+await has('modules/research/src/research-lib-actions.js', /function rsNew\(ctx, fields\) \{[\s\S]*by: \(ctx\.credit && ctx\.credit\.name\)/, 'research: saveNote and saveLink stamp the credit');
+await has('modules/todo/src/todo-lib-actions.js', /createTask\(input, ctx\)[\s\S]*by: \(ctx\.credit && ctx\.credit\.name\)/, 'to-do: createTask stamps the credit');
 await has('modules/schedule/src/schedule-lib.js', /ctx\.byKey/, 'planner: scAddedBy reads the asker key');
 await lacks('modules/maps/src/maps-lib-g-list-view.js', /info\.user\.key \|\| \(ctx/, 'maps: the page person no longer comes before the asker');
 await lacks('modules/budget/src/budget.js', /\(ctx && ctx\.by\) \|\| info\.user\.key/, 'budget: the asker\'s name is no longer stored where a key belongs');

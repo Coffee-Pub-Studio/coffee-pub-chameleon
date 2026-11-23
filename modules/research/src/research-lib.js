@@ -338,41 +338,18 @@
       // Who asked: the person behind the request (a Keep in Chat or Assistant), else this page's own person.
       const byOf = (ctx) => (ctx && ctx.credit && ctx.credit.name) || me || '';
       const link = (item, ref) => { if (ref && scope !== 'person') host.objects.setLinks(refOf(item.kind, item.id), [ref]).catch(() => {}); };
+      // What only a page does once a request's note or link is written: it shows at once, and one made about another object
+      // (`ref`) is linked to it.
+      const after = async ({ action, input, writes }) => {
+        for (const w of writes) remember(w.key, w.value, w.version);
+        changed();
+        const made = (action === 'saveNote' || action === 'saveLink') && writes[0] ? split(writes[0].key) : null;
+        if (made && input && input.ref) link({ kind: made[0], id: made[1] }, input.ref);
+      };
       host.actions.provide({
-        // tags is a plain comma- or space-separated string, as the field in the dialog reads it, so any module (or Assistant,
-        // keeping an answer) can offer tags without knowing this module's shape. With `object` (any kind, or a message's
-        // words), the note is made of the object instead (objectNote).
-        saveNote: async (input, ctx) => {
-          const i = input || {};
-          if (i.object && typeof i.object === 'object') {
-            const fields = objectNote(i.object, host.util);
-            if (!fields.title) throw new Error('a note needs a title');
-            const item = await save({ ...fields, by: byOf(ctx) });
-            link(item, i.ref);
-            return { ref: refOf('note', item.id) };
-          }
-          const title = geo.oneLine(i.title, 120);
-          if (!title) throw new Error('a note needs a title');
-          const item = await save({ kind: 'note', title, body: plainText(i.body, 8000), tags: parseTags(i.tags), date: '', icon: noteIcon(i.icon, i.kind), by: byOf(ctx) });
-          link(item, i.ref);
-          return { ref: refOf('note', item.id) };
-        },
-        // With `object` (a link), its title, words, tags and day fill what the flat fields leave out.
-        saveLink: async (input, ctx) => {
-          const i = input || {};
-          if (i.object && typeof i.object === 'object') {
-            const fields = objectLink(i.object, host.util, i);
-            if (!fields) throw new Error('that is not a web address');
-            const item = await save({ ...fields, by: byOf(ctx) });
-            link(item, i.ref);
-            return { ref: refOf('link', item.id) };
-          }
-          const url = cleanUrl(i.url);
-          if (!url) throw new Error('that is not a web address');
-          const item = await save({ kind: 'link', url, title: geo.oneLine(i.title, 120), excerpt: plainText(i.excerpt, 2000), tags: [], date: '', by: byOf(ctx) });
-          link(item, i.ref);
-          return { ref: refOf('link', item.id) };
-        },
+        // saveNote, saveLink, updateNote and updateLink: the actions library (ACTION_HANDLERS in research-lib-actions.js),
+        // carried out here by the SDK (host.actions.fromLibrary).
+        ...host.actions.fromLibrary(ACTION_HANDLERS, { after }),
         // A picture someone sent (Chat's Send to...): the page that sent it uploaded it to this module's own uploads for this
         // place, and `object.details.upload` names the file. It must be there and not a photo already; its thumbnail is made
         // here, and its caption is the picture's name (details.name), else the object's title.

@@ -443,7 +443,8 @@
       if (!t.remind || !t.due || t.done) return await host.cancelSchedule(key, where);
       const at = parseYmd(t.due).getTime() + 9 * 60 * 60 * 1000;
       if (at <= Date.now()) return await host.cancelSchedule(key, where);
-      await host.schedule({ key, at, payload: { id: t.id }, notify: { title: t.title, body: 'Due today' }, ...(where || {}) });
+      // About the task (`ref`): a change the server makes to it for an agent takes this schedule off (todo-lib-actions.js).
+      await host.schedule({ key, at, payload: { id: t.id }, ref: myRef(t.id, where && where.space), notify: { title: t.title, body: 'Due today' }, ...(where || {}) });
     } catch (err) {
       showNote('Saved, but the reminder could not be set: ' + err.message);
       throw err;
@@ -1012,87 +1013,70 @@
     });
   }
 
-  // What other modules may ask of this one about a task it names: link it to something, or set its due date. On the
-  // environment page that may be one of a space's tasks, where the viewer may change it.
+  // What other modules may ask of this one: the actions library's handlers (ACTION_HANDLERS in todo-lib-actions.js, the code the
+  // server runs for an agent too), carried out here by the SDK (host.actions.fromLibrary), and the one view, addTask, which opens
+  // the form on this page. On the environment page a request may be about one of a space's tasks (Calendar's drop on a day, from
+  // the environment's calendar): it is carried out the same way over that space's list, where the viewer may change it.
   const taskFor = (ref) => {
     if (!ref || ref.kind !== 'task') return null;
     if (ref.scope === 'space' && !inSpace) return tasks.get(keyOf('spaces', ref.id, ref.space)) || null;
     return tasks.get('own:' + ref.id) || null;
   };
-  const ownTask = (ref) => {
-    const x = taskFor(ref);
-    if (!x || !writable(x)) throw new Error('that task is not here');
-    return x;
+  // What only a page does once a request's task is written (`scope` and `spaceId` say which list): it shows at once, its reminder
+  // is set or taken off as the form does, and the host is told what it links to.
+  const afterFor = (scope, spaceId) => async ({ writes }) => {
+    for (const w of writes) {
+      remember(scope, { key: w.key, value: w.value, version: w.version }, spaceId);
+      const x = tasks.get(keyOf(scope, String(w.key).slice(5), spaceId));
+      if (!x) continue;
+      syncLinks(x, x.t.links || []);
+      if (w.before || x.t.remind) applyReminder(x.t, whereOf(x)).catch(() => {});
+    }
+    render();
+    resolveLinks();
   };
-  // What other modules may ask of this one. A task made this way links to the object it came from.
+  // A space's list as a host of its own, for the SDK's adapter (window.hostActions, the very one host.actions.fromLibrary runs).
+  function spaceHost(spaceId) {
+    return {
+      util: host.util,
+      space: () => ({ id: spaceId, name: (spaceInfo.get(spaceId) || {}).name || '' }),
+      phases: () => [],
+      people: async () => [],
+      locale: () => (host.locale ? host.locale() : {}),
+      objects: { resolve: (refs) => host.objects.resolve(refs) },
+      storage: {
+        list: (prefix) => host.storage.list(prefix, { scope: 'space', space: spaceId }),
+        set: (key, value, o) => host.storage.set(key, value, { ...(o || {}), space: spaceId }),
+        delete: (key, o) => host.storage.delete(key, { ...(o || {}), space: spaceId }),
+      },
+    };
+  }
+  const ownHandlers = host.actions && host.actions.fromLibrary ? host.actions.fromLibrary(ACTION_HANDLERS, { after: afterFor('own') }) : {};
+  const spaceHandlers = new Map(); // space id -> handlers over that space's list
+  function handlersFor(spaceId) {
+    if (!spaceHandlers.has(spaceId)) {
+      const sdk = window.hostActions;
+      spaceHandlers.set(spaceId, sdk && sdk.fromLibrary ? sdk.fromLibrary(spaceHost(spaceId), ACTION_HANDLERS, { module: () => info.module, after: afterFor('spaces', spaceId) }) : {});
+    }
+    return spaceHandlers.get(spaceId);
+  }
+  // Each of the library's actions, in the list its task is in. A task this page may not change is refused, as before.
+  const carry = (name) => async (input, carried) => {
+    const ref = input && input.task;
+    if (name !== 'createTask') {
+      const x = taskFor(ref);
+      if (!x || !writable(x)) throw new Error('that task is not here');
+      if (x.scope === 'spaces') {
+        const fn = handlersFor(x.spaceId)[name];
+        if (!fn) throw new Error('that task is not here');
+        return fn(input, carried);
+      }
+    }
+    return ownHandlers[name](input, carried);
+  };
   if (host.actions && host.actions.provide) {
     host.actions.provide({
-      // With `object` (plan-object-handoff.md): a task made of it (taskFromObject in todo-lib.js), due on a task's day.
-      // `due` given on its own is the due date whatever the object says.
-      createTask: async (input, meta) => {
-        const made = input.object && typeof input.object === 'object' ? taskFromObject(input.object, host.util) : null;
-        const title = (made && made.title) || String(input.title || '').trim();
-        if (!title) throw new Error('a task needs a title');
-        const wantsDue = input.due || (made && made.due) || null;
-        if (input.remind !== undefined && input.remind !== null && typeof input.remind !== 'boolean') throw new Error('Say whether to remind with true or false.');
-        if (input.remind === true && !wantsDue) throw new Error('A reminder needs a due date.');
-        const t = {
-          id: newId(), title, notes: made ? made.notes : input.notes || '', due: input.due || (made && made.due) || null, remind: false, done: false, doneAt: null,
-          createdAt: Date.now(), by: (meta && meta.credit && meta.credit.name) || 'someone', links: input.ref && linkable(input.ref) ? [input.ref] : [], autoDone: false,
-        };
-        t.remind = input.remind === true; // the form's own rule: a reminder only with a due date, checked above
-        const saved = await put(null, t);
-        if (t.remind) applyReminder(t, saved.where).catch(() => {});
-        render();
-        resolveLinks();
-        return { ref: myRef(t.id) };
-      },
-      linkTask: async (input) => {
-        const x = ownTask(input.task);
-        if (!linkable(input.target)) throw new Error('this list may not link to that');
-        await linkTo(x.key, input.target);
-        return { ref: myRef(x.id, x.spaceId) };
-      },
-      setTaskDue: async (input) => {
-        const x = ownTask(input.task);
-        const t = { ...x.t, due: input.date, remind: x.t.remind };
-        await put(x, t);
-        applyReminder(t, whereOf(x)).catch(() => {});
-        render();
-        return { ref: myRef(x.id, x.spaceId) };
-      },
-      // Change a task's title, notes or reminder, with the edit form's limits (200 and 1000 letters) and its reminder code.
-      updateTask: async (input) => {
-        const x = ownTask(input.task);
-        const has = (k) => input[k] !== undefined && input[k] !== null;
-        if (!has('title') && !has('notes') && !has('remind')) throw new Error('Say what to change: title, notes or remind.');
-        const t = { ...x.t };
-        if (has('title')) {
-          t.title = String(input.title).trim();
-          if (!t.title) throw new Error('A task needs a name.');
-          if (t.title.length > 200) throw new Error('A title can be 200 letters at most.');
-        }
-        if (has('notes')) {
-          t.notes = String(input.notes).trim();
-          if (t.notes.length > 1000) throw new Error('Notes can be 1000 letters at most.');
-        }
-        if (has('remind')) {
-          if (typeof input.remind !== 'boolean') throw new Error('Say whether to remind with true or false.');
-          if (input.remind && !t.due) throw new Error('A reminder needs a due date.');
-          t.remind = input.remind;
-        }
-        await put(x, t);
-        applyReminder(t, whereOf(x)).catch(() => {});
-        render();
-        return { ref: myRef(x.id, x.spaceId) };
-      },
-      setTaskDone: async (input) => {
-        const x = ownTask(input.task);
-        if (typeof input.done !== 'boolean') throw new Error('Say whether the task is done with true or false.');
-        await writeDone(x, input.done);
-        render();
-        return { ref: myRef(x.id, x.spaceId) };
-      },
+      ...Object.fromEntries(Object.keys(ownHandlers).map((name) => [name, carry(name)])),
       addTask: async (input) => {
         if (!canAdd()) throw new Error('this person cannot add tasks here');
         const parsed = input.text && host.util.parseWhen ? host.util.parseWhen(input.text) : { title: input.text || '' };
@@ -1112,6 +1096,30 @@
   resolveLinks();
   // Tell the host about links made before it was told (and only those that changed).
   for (const x of [...tasks.values()].filter((t) => t.scope === 'own' && (t.t.links || []).length).slice(0, 100)) syncLinks(x, x.t.links);
+  // What waits for a page: an agent's request the server carried writes the task marked `remindPending` or `linksPending`
+  // (todo-lib-actions.js todoAnswer), since only a page sets a schedule or tells the host about links. Whoever may change the task
+  // and has the list open sets them here from the task as it is, and takes the marks off; a write that loses to another change
+  // leaves the marks for the next round.
+  const settling = new Set();
+  async function settleWaiting() {
+    for (const x of [...tasks.values()]) {
+      if (!(x.t.remindPending || x.t.linksPending) || !writable(x) || settling.has(x.key)) continue;
+      settling.add(x.key);
+      try {
+        if (x.t.remindPending) await applyReminder(x.t, whereOf(x));
+        if (x.t.linksPending) { syncedLinks.delete(x.key); await syncLinks(x, x.t.links || []); }
+        const t = { ...x.t };
+        delete t.remindPending;
+        delete t.linksPending;
+        await put(x, t);
+      } catch (err) {
+        // changed meanwhile, or the reminder could not be set: tried again on the next round
+      } finally {
+        settling.delete(x.key);
+      }
+    }
+  }
+  settleWaiting();
   // The objects linked to can change or go; look again now and then.
-  const relook = setInterval(() => { if (!$('body')) return void clearInterval(relook); summaries.clear(); resolveLinks(); }, 60000);
+  const relook = setInterval(() => { if (!$('body')) return void clearInterval(relook); summaries.clear(); resolveLinks(); settleWaiting(); }, 60000);
 })();

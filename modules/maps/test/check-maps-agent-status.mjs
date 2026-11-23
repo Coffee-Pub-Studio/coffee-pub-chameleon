@@ -154,6 +154,14 @@ test('manifest: updatePlace is a write on a place', () => {
   assert.equal(a.input.place, 'ref:maps:place');
   for (const k of ['title', 'type', 'category', 'status', 'address', 'notes', 'owners']) assert.ok(a.input[k], k);
 });
+// The bus drops an optional input sent as "" unless the action lists it in `clears` (server/index.js busInput), so "empty
+// clears it" in the hints holds only with these.
+test('manifest: updatePlace clears the status, address, notes and owners when they are sent as ""', () => {
+  assert.deepEqual(acts.updatePlace.clears, ['status', 'address', 'notes', 'owners']);
+  const p = stored();
+  const cleared = change({ status: '', address: '', notes: '', owners: '' }, { ...p, address: 'Rua 1', notes: 'Good' });
+  assert.deepEqual([cleared.status, cleared.address, cleared.notes, cleared.owners, cleared.title], ['', '', '', [], p.title]);
+});
 test('manifest: hints name real inputs, 200 characters or fewer; descriptions are one sentence', () => {
   for (const a of manifest.actions.provides) {
     for (const [k, v] of Object.entries(a.inputHints || {})) {

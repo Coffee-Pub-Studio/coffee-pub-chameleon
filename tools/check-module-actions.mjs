@@ -38,7 +38,10 @@
  *   - the Itinerary and the Calendar carried by the server: acceptSuggestion with a full flight, updatePlan patching only the
  *     gate and terminal, createEvent with a 90 minute reminder and notes (the reminder marked as waiting for a page, and said),
  *     updateEvent clearing the reminder (the schedule a page set from the old event cancelled), each with the module tests'
- *     writes; the same request through an uploaded copy waits and never reaches the runner.
+ *     writes; the same request through an uploaded copy waits and never reaches the runner;
+ *   - To-do carried by the server (step 2b): createTask with a reminder, then updateTask on its pointer at once (notes cleared
+ *     with ""), the reminder marked as waiting for a page and the schedule a page set from the old task cancelled; setTaskDue
+ *     clearing the due date; linkTask and unlinkTask on the Calendar's event; the same request through an uploaded copy waits.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -640,6 +643,86 @@ try {
     assert.equal(JSON.stringify(await travelData()), before, 'nothing written');
     const list = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions;
     assert.equal(list.find((a) => a.action === 'travel:updatePlan').now, false);
+  });
+
+  // --- To-do, carried by the server (plan-agent-edit-delete.md, step 2b) -------------------------------------------------------
+  // An agent of its own (its own 20 writes a minute), added to Camp.
+  const todoAgent = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
+  const campMembers = (await call('GET', `/api/spaces/${camp}`, { cookie: admin })).json.space.members;
+  ok(await call('PATCH', `/api/spaces/${camp}`, { cookie: admin, body: { members: [...campMembers, todoAgent.key] } }), 'the To-do agent joins Camp');
+  await newToken(todoAgent);
+  const todoData = async () => Object.fromEntries((await call('GET', `/api/modules/todo/data?scope=space&space=${camp}`, { cookie: admin })).json.items.map((i) => [i.key, i]));
+  const REMIND_LATER = 'Its reminder is set when someone who can change tasks next opens the to-do list.';
+  let task = null;
+  const soon = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10); // a schedule may be at most a year away
+  await test('To-do: an agent\'s createTask and updateTask are done at once, the second on the first\'s pointer; the reminder waits for a page', async () => {
+    as = todoAgent;
+    const r = await askIn('todo:createTask', { title: 'Pack the car', due: soon, remind: true, notes: 'Roof box' });
+    ok(r, 'createTask');
+    assert.equal(r.json.status, 'done');
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.note, REMIND_LATER);
+    task = r.json.ref;
+    assert.deepEqual([task.module, task.kind, task.space], ['todo', 'task', camp]);
+    const item = (await todoData())[`task:${task.id}`];
+    // The module test's expectations (modules/todo/test/check-todo-actions.mjs).
+    assert.deepEqual({ ...item.value, createdAt: typeof item.value.createdAt }, { id: task.id, title: 'Pack the car', notes: 'Roof box', due: soon, remind: true, done: false, doneAt: null, createdAt: 'number', by: 'Claude', links: [], autoDone: false, remindPending: true });
+    assert.equal(item.by, todoAgent.key, 'the write is the agent\'s');
+    assert.ok(!schedules().some((x) => x.module === 'todo'), 'no schedule is set by the server');
+    // Mia's page sets the reminder, as todo.js applyReminder does (about the task), beside some other schedule.
+    const at = Date.parse(`${soon}T09:00:00Z`);
+    ok(await call('POST', `/api/modules/todo/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: `remind:${task.id}`, at, payload: { id: task.id }, ref: task, notify: { title: 'Pack the car', body: 'Due today' } } }), 'a page sets the reminder');
+    ok(await call('POST', `/api/modules/todo/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: 'other-key', at, payload: {} } }), 'and some other schedule');
+    const up = await askIn('todo:updateTask', { task, title: 'Pack the car early', notes: '' });
+    ok(up, 'updateTask');
+    assert.equal(up.json.ok, true);
+    assert.deepEqual(up.json.ref, task, 'the pointer back');
+    assert.equal(up.json.note, REMIND_LATER);
+    const v = (await todoData())[`task:${task.id}`].value;
+    assert.deepEqual([v.title, v.notes, v.due, v.remind, v.remindPending], ['Pack the car early', '', soon, true, true], 'only the fields given; "" cleared the notes');
+    assert.ok(!schedules().some((x) => x.module === 'todo' && x.key === `remind:${task.id}`), 'the reminder set from the old task will not fire');
+    assert.ok(schedules().some((x) => x.module === 'todo' && x.key === 'other-key'), 'a schedule about nothing it changed stays');
+  });
+
+  await test('To-do: setTaskDue left out clears the due date and the reminder; linkTask and unlinkTask on the Calendar\'s event', async () => {
+    as = todoAgent;
+    const due = await askIn('todo:setTaskDue', { task });
+    ok(due, 'setTaskDue');
+    assert.equal(due.json.ok, true);
+    assert.equal(due.json.note, 'Its reminder is off, since it has no due date.');
+    const v = (await todoData())[`task:${task.id}`].value;
+    assert.deepEqual([v.due, v.remind, v.remindPending], [null, false, true], 'the page takes off what is left of the reminder');
+    const linked = await askIn('todo:linkTask', { task, target: event });
+    ok(linked, 'linkTask');
+    assert.equal(linked.json.ok, true, linked.text);
+    assert.equal(linked.json.note, 'What it links to shows the change when someone who can change tasks next opens the to-do list.');
+    const w = (await todoData())[`task:${task.id}`].value;
+    assert.deepEqual([w.links, w.linksPending], [[event], true]);
+    const off = await askIn('todo:unlinkTask', { task, target: event });
+    ok(off, 'unlinkTask');
+    assert.deepEqual((await todoData())[`task:${task.id}`].value.links, []);
+    const again = await askIn('todo:unlinkTask', { task, target: event });
+    ok(again, 'unlinkTask again', 422);
+    assert.equal(again.json.error, 'That task is not linked to that.');
+  });
+
+  await test('the same request through an uploaded copy of To-do waits for a page and never reaches the runner', async () => {
+    as = todoAgent;
+    const up = path.join(base, 'variants', 'todo-upload');
+    fs.cpSync(path.join(ROOT, 'modules', 'todo'), up, { recursive: true });
+    const m = JSON.parse(fs.readFileSync(path.join(up, 'module.json'), 'utf8'));
+    m.version = '9.9.9';
+    delete m.actions.server;
+    fs.writeFileSync(path.join(up, 'module.json'), JSON.stringify(m, null, 2));
+    ok(await call('POST', '/api/modules', { cookie: admin, raw: zipOf(up), headers: { 'content-type': 'application/zip' } }), 'the upload installs', 201);
+    const before = JSON.stringify(await todoData());
+    const r = await askIn('todo:updateTask', { task, title: 'Waits' });
+    ok(r, 'asked');
+    assert.equal(r.json.status, 'pending');
+    assert.match(r.json.waiting, /^Waiting for someone who may change To-do to open it in "Camp"\./);
+    const kept = busFile().actions.find((a) => a.id === r.json.id);
+    assert.ok(kept && !kept.server && kept.status === 'pending', 'on the queue for a page, not the server\'s');
+    assert.equal(JSON.stringify(await todoData()), before, 'nothing written');
   });
 
   await test('a request the server was carrying when it stopped reads as done and failed after a restart', async () => {

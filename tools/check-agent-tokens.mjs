@@ -151,6 +151,7 @@ function testModuleZip(base) {
   fs.rmSync(path.join(src, 'test'), { recursive: true, force: true });
   const manifest = JSON.parse(fs.readFileSync(path.join(src, 'module.json'), 'utf8'));
   manifest.version = '99.0.0';
+  delete manifest.actions.server; // an upload may not declare it (server/module-actions.js): its requests wait for a page
   manifest.actions.provides.push(
     { name: 'wipeTasks', label: 'Wipe every task', description: 'Remove every task.', effect: 'destructive', input: {} },
     { name: 'quietTask', label: 'Add a quiet task', description: 'Add a task the AI is never offered.', ai: false, input: { title: 'string' } },

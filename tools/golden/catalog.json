@@ -546,6 +546,136 @@
     }
   },
   {
+    "name": "research__updateLink",
+    "module": "research",
+    "action": "updateLink",
+    "label": "Change this link",
+    "description": "Change only the fields given of a web link already in research.",
+    "effect": "write",
+    "input": {
+      "link": "ref:research:link",
+      "title": "string?",
+      "excerpt": "text?",
+      "tags": "string?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "link": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a link shown in this question."
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "excerpt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "tags": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "link",
+        "title",
+        "excerpt",
+        "tags"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "research__updateNote",
+    "module": "research",
+    "action": "updateNote",
+    "label": "Change this note",
+    "description": "Change only the fields given of a note already in research.",
+    "effect": "write",
+    "input": {
+      "note": "ref:research:note",
+      "title": "string?",
+      "body": "text?",
+      "tags": "string?",
+      "icon": "string?",
+      "kind": "string?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a note shown in this question."
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "body": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        },
+        "tags": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "icon": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "required": [
+        "note",
+        "title",
+        "body",
+        "tags",
+        "icon",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "schedule__setDone",
     "module": "schedule",
     "action": "setDone",
@@ -727,11 +857,11 @@
     "module": "todo",
     "action": "setTaskDue",
     "label": "Set this task's due date to its date",
-    "description": "Set a task's due date.",
+    "description": "Set a task's due date, or clear it.",
     "effect": "write",
     "input": {
       "task": "ref:todo:task",
-      "date": "date"
+      "date": "date?"
     },
     "schema": {
       "type": "object",
@@ -742,7 +872,10 @@
           "description": "The number n of a task shown in this question."
         },
         "date": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "description": "A date, YYYY-MM-DD."
         }
@@ -750,6 +883,38 @@
       "required": [
         "task",
         "date"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "todo__unlinkTask",
+    "module": "todo",
+    "action": "unlinkTask",
+    "label": "Unlink this task from it",
+    "description": "Take a task's link to another {object} off, so neither shows the other.",
+    "effect": "write",
+    "input": {
+      "task": "ref:todo:task",
+      "target": "ref"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of a task shown in this question."
+        },
+        "target": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of an object shown in this question."
+        }
+      },
+      "required": [
+        "task",
+        "target"
       ],
       "additionalProperties": false
     }

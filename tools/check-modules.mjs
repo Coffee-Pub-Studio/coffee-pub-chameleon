@@ -809,8 +809,9 @@ test('To-do\'s tasks and Polls\' polls are markers on a calendar, read from the 
   assert.equal(poll.marker, true, 'the poll kind has "marker": true');
   assert.deepEqual(poll.dated, { form: 'instant', title: 'question', start: 'closesAt' }, 'a poll is a timed marker: its question at closesAt (milliseconds)');
   assert.equal(poll.summary.done, 'closed', 'a poll closed by hand (closed: true) has no marker; one closed by its time stays');
-  const todoJs = fs.readFileSync(path.join(ROOT, 'modules/todo/src/todo.js'), 'utf8');
-  assert.match(todoJs, /id: newId\(\), title, notes: made \? made\.notes : input\.notes \|\| '', due: input\.due \|\| \(made && made\.due\) \|\| null, remind: false, done: false/, 'To-do stores title, due (a day, YYYY-MM-DD) and done');
+  // To-do's createTask lives in its actions library (plan-agent-edit-delete.md, step 2b).
+  const todoJs = fs.readFileSync(path.join(ROOT, 'modules/todo/src/todo-lib-actions.js'), 'utf8');
+  assert.match(todoJs, /const due = input\.due \|\| \(made && made\.due\) \|\| null;[\s\S]*id: ctx\.util\.id\(\), title, notes: made \? made\.notes : input\.notes \|\| '', due, remind: input\.remind === true, done: false/, 'To-do stores title, due (a day, YYYY-MM-DD) and done');
   const pollsJs = fs.readFileSync(path.join(ROOT, 'modules/polls/src/polls.js'), 'utf8');
   assert.match(pollsJs, /closed: closing, closesAt: closing \? x\.p\.closesAt : null/, 'Polls stores closed and closesAt; closing by hand sets closed');
   assert.match(pollsJs, /const p = \{\n\s+id: newId\(\),\n\s+question,/, 'and the question as question');

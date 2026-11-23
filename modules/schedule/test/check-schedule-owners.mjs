@@ -71,9 +71,13 @@ test('updateEntry refuses an unknown or ambiguous person and changes nothing', (
 test('updateEntry refuses owners on a milestone', () => assert.equal(upd(ms(), { owners: 'u-ana' }).problem, 'Only work says who is doing it.'));
 test('updateEntry with nothing at all still says what to change', () => assert.match(upd(wk(), {}).problem, /Say what to change/));
 
-test('the page checks owners before it adds, and passes people to updateEntry', () => {
-  assert.match(page, /scOwnersFor\(input\.owners, state\.people/);
-  assert.match(page, /people: state\.people/);
+test('the actions library checks owners before it adds, and passes the people to updateEntry', () => {
+  // The rules moved into src/schedule-lib-actions.js (plan-agent-edit-delete.md, step 2); ctx.people is the space's people.
+  const actions = fs.readFileSync(path.join(dir, 'src', 'schedule-lib-actions.js'), 'utf8');
+  assert.match(actions, /scOwnersFor\(input\.owners, f\.people/);
+  assert.match(actions, /people: f\.people/);
+  assert.match(actions, /people: Array\.isArray\(ctx\.people\) \? ctx\.people/);
+  assert.match(page, /host\.actions\.fromLibrary\(/);
 });
 
 const acts = Object.fromEntries(manifest.actions.provides.map((a) => [a.name, a]));

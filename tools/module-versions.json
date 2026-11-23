@@ -20,28 +20,28 @@
     "hash": "2171de5b04dcfe57"
   },
   "maps": {
-    "version": "0.10.13",
-    "hash": "8ad824627cd69c50"
+    "version": "0.10.14",
+    "hash": "5115819eb42e83cb"
   },
   "polls": {
     "version": "1.15.33",
     "hash": "ab2a6bff3d4a8cfe"
   },
   "research": {
-    "version": "0.4.38",
-    "hash": "5ea0df32e11daa24"
+    "version": "0.4.39",
+    "hash": "80e44ca2ee498382"
   },
   "schedule": {
-    "version": "0.1.9",
-    "hash": "8fb04a3e76e6a2d1"
+    "version": "0.1.10",
+    "hash": "25f955f2ba60cb23"
   },
   "stream": {
     "version": "0.1.16",
     "hash": "0f03de5a254fe51d"
   },
   "todo": {
-    "version": "1.15.36",
-    "hash": "4ec8a10e758dd0f7"
+    "version": "1.15.37",
+    "hash": "05b12ab39c0dcf0d"
   },
   "travel": {
     "version": "0.16.20",
