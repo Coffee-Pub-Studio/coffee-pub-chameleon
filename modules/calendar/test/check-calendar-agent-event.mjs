@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const lib = new Function('ymd', 'parseYmd', `${read('modules/calendar/src/calendar-lib.js')}\nreturn { eventFromInput, eventSpan };`)(() => '', (s) => new Date(s));
-const { eventFromInput: make, eventSpan } = lib;
+const lib = new Function('ymd', 'parseYmd', `${read('modules/calendar/src/calendar-lib.js')}\nreturn { eventFromInput, eventSpan, remindAnchor, REMIND_ALLDAY_FROM };`)(() => '', (s) => new Date(s));
+const { eventFromInput: make, eventSpan, remindAnchor } = lib;
 let n = 0;
 const test = (name, fn) => { try { fn(); n += 1; } catch (e) { console.error('FAIL', name, '\n ', e.message); process.exitCode = 1; } };
 const day = '2026-11-20';
@@ -89,12 +89,28 @@ test('the form and the action share eventSpan', () => {
 test('the manifest declares the inputs, the old ones unchanged', () => {
   const m = JSON.parse(read('modules/calendar/module.json'));
   const a = m.actions.provides.find((x) => x.name === 'createEvent');
-  assert.deepEqual(a.input, { title: 'string', date: 'date?', ref: 'ref?', object: 'object?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?', notes: 'text?' });
+  assert.deepEqual(a.input, { title: 'string', date: 'date?', ref: 'ref?', object: 'object?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?', remindAt: 'string?', notes: 'text?' });
+  assert.ok(a.inputHints.remindAt.length <= 200 && /own clock time/.test(a.inputHints.remindAt), 'remindAt says whose clock');
   assert.ok(Object.keys(a.input).length <= 20, 'the host reads at most twenty inputs');
   assert.ok(/40320/.test(a.inputHints.remind), 'the hint gives the range');
   assert.deepEqual(a.needs, ['date']);
   assert.ok(a.description.length <= 200 && /[.]$/.test(a.description));
   assert.deepEqual(Object.keys(a.inputHints).sort(), Object.keys(a.input).filter((k) => k !== 'ref' && k !== 'object').sort());
   assert.ok(/HH:MM/.test(a.inputHints.time) && /all-day/.test(a.inputHints.time));
+});
+test('one anchor for a lead: a timed event\'s start, an all-day event\'s 9:00, for the page, the form and remindAt', () => {
+  assert.equal(lib.REMIND_ALLDAY_FROM, 9 * 3600e3);
+  assert.equal(remindAnchor(false, at(day, '19:00')).toISOString(), at(day, '19:00'));
+  assert.equal(remindAnchor(true, day).toISOString(), at(day, '09:00'), 'all day: 9:00 in this zone');
+  assert.equal(remindAnchor(true, day, 'Asia/Tokyo').toISOString(), '2026-11-20T00:00:00.000Z', 'or in the request\'s zone');
+  // On the day the clocks go back (Chicago, 1 November 2026) it is midnight plus nine real hours, as the page has always set it.
+  assert.equal(remindAnchor(true, '2026-11-01').toISOString(), '2026-11-01T14:00:00.000Z');
+  const js = read('modules/calendar/src/calendar.js');
+  assert.ok(js.includes('const nineAm = ev.allDay ? REMIND_ALLDAY_FROM : 0;'), 'the page\'s schedule counts from the same 9:00');
+  assert.ok(/function remindWhen\(\)[\s\S]*remindAnchor\(allDay, start\)[\s\S]*`Reminds \$\{/.test(js), 'the form says when it reminds, from the same anchor');
+  assert.ok(/\$\('f-remind-hint'\)\.textContent = [^;]*remindWhen|const when = remindWhen\(\);\s*\$\('f-remind-hint'\)\.textContent/.test(js), 'in the reminder\'s own hint line');
+  const actions = read('modules/calendar/src/calendar-lib-actions.js');
+  assert.ok(/function calRemindAtLead[\s\S]*remindAnchor\(made\.allDay, made\.start/.test(actions), 'remindAt counts from it too');
+  assert.ok(/function calReminderNote[\s\S]*remindAnchor\(ev\.allDay, ev\.start/.test(actions), 'and the answer says the moment from it');
 });
 if (!process.exitCode) console.log(`check-calendar-agent-event: OK (${n} tests)`);
