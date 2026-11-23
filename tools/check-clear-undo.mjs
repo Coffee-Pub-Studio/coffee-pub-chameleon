@@ -535,7 +535,7 @@ try {
     assert.ok(Number.isFinite(heard) && heard < Math.max(300, alone * 2.5), `/healthz waited up to ${heard} ms with 20 streams open (${alone} ms with none) through 2 clears and 2 undos of 1500 objects`);
   });
 
-  await test('live: an update that turns the Planner off (a new permission) during a clear finishes the clear first: the Calendar copies are cleaned (QA N5)', async () => {
+  await test('live: an update that asks for a new permission during a clear keeps the Planner on, so the clear still waits for its Undo: the Calendar copies stay', async () => {
     for (let i = 0; i < 3; i += 1) {
       const put = await call('PUT', data('travel', `plan:n5${i}`), { value: { kind: 'other', id: `n5${i}`, title: `N5 plan ${i}`, date: '2026-10-2' + i, time: '10:00', place: '', category: 'other', done: false } });
       assert.equal(put.status, 200, JSON.stringify(put.json));
@@ -556,9 +556,9 @@ try {
     const r = await fetch(`${server.base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', cookie: jar('admin') }, body: zip });
     const out = await r.json();
     assert.equal(r.status, 201, JSON.stringify(out));
-    assert.deepEqual([out.module.enabled, out.module.needsApproval], [false, true], 'the update waits for approval, so the Planner is off');
-    assert.equal(await copies(), 0, 'the clear was finished before it went off: its copies are gone now, not left behind');
-    assert.ok(!fs.existsSync(path.join(dataDir, 'modules', 'travel', 'trash', `space-${T}.json`)), 'and the hold');
+    assert.deepEqual([out.module.enabled, out.module.needsApproval], [true, true], 'the update keeps the Planner on; its new permission waits for approval');
+    assert.ok(await copies() > 0, 'nothing went off, so the clear still waits for its Undo and its copies stay');
+    assert.ok(fs.existsSync(path.join(dataDir, 'modules', 'travel', 'trash', `space-${T}.json`)), 'and so does the hold');
     fs.rmSync(src, { recursive: true, force: true });
   });
 } catch (err) {
