@@ -96,9 +96,8 @@ async function runList(env) {
   function tone(el, c) {
     el.style.removeProperty('--tone'); el.style.removeProperty('--tone-ink');
     if (c.hex) {
-      const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.hex.slice(i, i + 2), 16));
       el.style.setProperty('--tone', c.hex);
-      el.style.setProperty('--tone-ink', r * 0.299 + g * 0.587 + b * 0.114 > 150 ? '#000000' : '#ffffff');
+      el.style.setProperty('--tone-ink', host.util.readableOn(c.hex).color);
     } else el.style.setProperty('--tone', `var(--tint-${c.tint})`);
   }
   const useCats = (v) => {
@@ -817,7 +816,7 @@ async function runList(env) {
   // One row. Type: host.ui.kindPicker over the library (typing in it searches the names and aliases; the owner's categories are only
   // its group headings), and a type is always set (a place with none stored reads as Custom Location). Icon and colour: two small
   // buttons that each open a list (flyout) below them, the icon's with a search box; the first entry resets it (to the type's icon,
-  // to the category's colour) and the current choice is marked. The place's own choice beats the type's, which beats the category's.
+  // to the category's colour) and the current choice is marked. The colour's second entry opens the shared colour picker. The place's own choice beats the type's, which beats the category's.
   // Visit: four toggle buttons.
   const DEFAULT_TYPE = 'custom';
   let typePicker = null;
@@ -836,7 +835,7 @@ async function runList(env) {
     ib.title = 'Icon';
     const cb = $('f-color');
     tone(cb.querySelector('.look-dot'), look.color);
-    cb.setAttribute('aria-label', `Colour, ${e.color ? tintName(e.color) : 'same as the category'}. Change it`);
+    cb.setAttribute('aria-label', `Colour, ${e.color ? (isHex(e.color) ? e.color.toLowerCase() : tintName(e.color)) : 'same as the category'}. Change it`);
     cb.title = 'Colour';
     hydrate($('f-look'));
   }
@@ -1003,12 +1002,24 @@ async function runList(env) {
   $('f-color').addEventListener('click', () => {
     const e = state.editing;
     if (!e) return;
+    // Two entries: back to the category's colour, or a colour of its own from the shared colour picker (plan-colour-picker.md),
+    // opened on the same button. A chosen colour is kept as '#rrggbb' lower case; the picker has no "none", so the first entry is it.
+    const own = e.color ? asColor(e.color) : null;
     flyout($('f-color'), {
       label: 'Colour',
       search: false,
-      entries: () => [{ id: '', label: 'Same as the category', col: lookOf({ category: e.category, type: e.type }, cats).color, reset: true }, ...TINTS.map((t) => ({ id: t, label: tintName(t), col: { tint: t } }))],
-      current: () => e.color,
-      pick: (id) => { e.color = id; markLook(); },
+      entries: () => [{ id: '', label: 'Same as the category', col: lookOf({ category: e.category, type: e.type }, cats).color, reset: true }, { id: 'choose', label: 'Choose a colour…', ...(own ? { col: own } : { icon: 'palette' }) }],
+      current: () => (e.color ? 'choose' : ''),
+      pick: (id) => {
+        if (!id) { e.color = ''; markLook(); return; }
+        host.ui.colorPicker({ anchor: $('f-color'), value: isHex(e.color) ? e.color.toLowerCase() : undefined, opacity: false, label: 'Place colour' })
+          .then((answer) => {
+            if (!answer || state.editing !== e || !isHex(answer.color)) return;
+            e.color = answer.color.toLowerCase();
+            markLook();
+          })
+          .catch(() => {});
+      },
     });
   });
   // The status buttons are drawn once when the form opens and then only marked, so the keyboard stays where it is.

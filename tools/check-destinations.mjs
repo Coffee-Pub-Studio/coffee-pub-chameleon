@@ -909,7 +909,8 @@ try {
     await putEnv('m-shape', { icon: 'Mug Hot', visit: 5, cat: long30, marks: [] });
     await putEnv('m-many', { marks: [keep] });
     await putEnv('m-tint', { tint: 'teal' });
-    await putEnv('m-tint-bad', { tint: '#00ff00' });
+    await putEnv('m-tint-bad', { tint: '#00ff0' });
+    await putEnv('m-tint-hex', { tint: '#00FF00' });
     await putEnv('m-tint-name', { tint: 'magenta' });
     for (const v of ['want', 'booked', 'visited', 'favorite']) await putEnv(`m-${v}`, { visit: v, marks: [tower] });
     const manyIds = [];
@@ -928,7 +929,7 @@ try {
     assert.deepEqual([all['m-bad'].icon, all['m-bad'].visit, all['m-bad'].category, all['m-bad'].spaces], [undefined, undefined, undefined, undefined], 'an unknown icon, an unknown state, a 31-character category and a non-list are dropped');
     assert.deepEqual([all['m-shape'].icon, all['m-shape'].visit, all['m-shape'].category, all['m-shape'].spaces], [undefined, undefined, long30, undefined], 'a bad icon name and a number are dropped; 30 characters of category is kept; an empty list is left out');
     for (const v of ['want', 'booked', 'visited', 'favorite']) assert.equal(all[`m-${v}`].visit, v, `${v} is kept`);
-    assert.deepEqual([all['m-tint'].color, all['m-tint-bad'].color, all['m-tint-name'].color, all['m-ok'].color], ['teal', undefined, undefined, undefined], 'a place\'s own colour is kept only as one of the eight tint names');
+    assert.deepEqual([all['m-tint'].color, all['m-tint-hex'].color, all['m-tint-bad'].color, all['m-tint-name'].color, all['m-ok'].color], ['teal', '#00ff00', undefined, undefined, undefined], 'a place\'s own colour is kept only as #rrggbb (lower case) or one of the eight tint names');
     assert.equal(all['m-twenty'].spaces.length, 20, 'at most 20 spaces');
     // Searching by space.
     const inKeep = await search(aliceT, `in=${keep}`);

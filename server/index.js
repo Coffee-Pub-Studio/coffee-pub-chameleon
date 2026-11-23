@@ -9782,9 +9782,11 @@ function objectSummary({ manifest, produce, ref, hide }, id, value, withText = f
   if (typeof icon === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(icon) && iconKnown(icon)) summary.icon = icon;
   const visit = field('visit');
   if (typeof visit === 'string' && VISIT_STATES.includes(visit)) summary.visit = visit;
-  // `color`: a place's own colour, one of the eight theme tints by name (plan-places-library.md, step 4); a pin takes it before its category's.
+  // `color`: a place's own colour, '#rrggbb' (lower case) or one of the eight theme tints by name (plan-places-library.md, step 4;
+  // plan-colour-picker.md); a pin takes it before its category's.
   const color = field('color');
   if (typeof color === 'string' && SUMMARY_TINTS.includes(color)) summary.color = color;
+  else if (typeof color === 'string' && /^#[0-9a-f]{6}$/i.test(color)) summary.color = color.toLowerCase();
   // `phase`: the id of the template phase the object names (plan-templates-redesign.md, decision 38), the shape a phase id has;
   // `progress`: a whole number from 0 to 100. Anything else is left out.
   const phase = field('phase');

@@ -356,8 +356,15 @@ await test('what a place is drawn with: place, then type, then category', () => 
   const summary = manifest.refs.produces.find((r) => r.kind === 'place').summary;
   assert.equal(summary.icon, 'icon');
   assert.equal(summary.visit, 'status');
-  assert.equal(summary.color, 'color', 'the summary carries the place\'s own colour (a tint name) for Maps');
-  assert.ok(lib.TINTS.includes(lib.cleanPlace('a', { title: 'x', color: 'pink' }).color) && lib.placeValue(lib.cleanPlace('a', { title: 'x', color: 'pink' })).color === 'pink', 'a colour is stored as a tint name');
+  assert.equal(summary.color, 'color', 'the summary carries the place\'s own colour (#rrggbb, or an older tint name) for Maps');
+  assert.equal(lib.placeValue(lib.cleanPlace('a', { title: 'x', color: '#3366CC' })).color, '#3366cc', 'a chosen colour is stored as #rrggbb, lower case');
+  assert.equal(lib.placeValue(lib.cleanPlace('a', { title: 'x', color: 'pink' })).color, 'pink', 'an older tint name still reads');
+  assert.deepEqual(lib.lookOf(lib.cleanPlace('a', { title: 'x', category: 'food', color: '#3366cc' }), cats).color, { hex: '#3366cc' });
+  // the place's Colour button opens the shared colour picker, no opacity, with a way back to the category's colour
+  const viewSrc = fs.readFileSync(new URL('../modules/maps/src/maps-lib-g-list-view.js', import.meta.url), 'utf8');
+  assert.match(viewSrc, /host\.ui\.colorPicker\(\{ anchor: \$\('f-color'\),[^}]*opacity: false/, 'the Colour button opens host.ui.colorPicker on itself, without opacity');
+  assert.match(viewSrc, /label: 'Same as the category'/);
+  assert.ok(!/TINTS\.map\(\(t\) => \(\{ id: t, label: tintName/.test(viewSrc), 'the chooser no longer offers tint names');
   const pageSrc = fs.readFileSync(new URL('../modules/maps/src/maps-lib-g-list-view.js', import.meta.url), 'utf8');
   assert.match(pageSrc, /colors\[c\.id\] = col\.hex \|\| col\.tint;/, 'categoryColors answers a tint name for the automatic categories');
   assert.equal(summary.category, 'category');
@@ -368,7 +375,7 @@ await test('type, icon, colour and visit status are stored and read back checked
   assert.deepEqual([p.type, p.icon, p.iconOwn, p.color, p.status], ['cafe', 'star', true, 'pink', 'booked']);
   const v = lib.placeValue(p);
   assert.deepEqual([v.type, v.icon, v.iconOwn, v.color, v.status], ['cafe', 'star', true, 'pink', 'booked']);
-  const bad = lib.cleanPlace('a', { title: 'x', type: 'No!', icon: 'Bad Icon', iconOwn: true, color: '#ff0000', status: 'maybe' });
+  const bad = lib.cleanPlace('a', { title: 'x', type: 'No!', icon: 'Bad Icon', iconOwn: true, color: '#ff00zz', status: 'maybe' });
   assert.deepEqual([bad.type, bad.icon, bad.iconOwn, bad.color, bad.status], ['', '', false, '', '']);
   const plain = lib.placeValue(lib.cleanPlace('a', { title: 'x' }));
   for (const k of ['type', 'icon', 'iconOwn', 'color', 'status']) assert.ok(!(k in plain), `${k} is left out when empty`);

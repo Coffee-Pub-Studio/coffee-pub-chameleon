@@ -21,6 +21,7 @@
   // stylesheet's). The place's own colour first, then the category's as the owner set it, then the category's automatic tint.
   function pinColor(summary, catColors) {
     if (summary && TINTS.includes(summary.color)) return { tint: summary.color };
+    if (summary && /^#[0-9a-f]{6}$/.test(String(summary.color))) return { hex: summary.color };
     const raw = summary && summary.category ? String(summary.category).toLowerCase() : '';
     if (!raw) return null;
     const id = OLD_CATEGORIES[raw] || raw;
