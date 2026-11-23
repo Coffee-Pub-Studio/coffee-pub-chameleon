@@ -6,7 +6,8 @@ import '/slot-paste.js'; // paste a picture into any image slot
 import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, markAllDups, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
 import { mountTemplateLayout, templateLayoutModules } from '/template-layout.js';
-import { addSpaceFlow, moduleShift } from '/template-choice.js';
+import { moduleShift } from '/template-choice.js';
+import { openSpaceAdd } from '/space-add.js';
 import { confirmDialog } from '/confirm.js';
 import { fileText } from '/file-text.js';
 import { rowTabs } from '/page-tabs.js';
@@ -191,7 +192,7 @@ function selectTab(name) {
   if (tab === 'users' && users.length) loadFeeds().then(renderUsers);
   if (inTab) {
     at.scrollIntoView({ block: 'start' });
-    // The section's first field, or the control itself (#add-space, "+ New <space>" in the top bar's switcher).
+    // The section's first field, or the control itself (#add-space).
     const field = at.matches('input, select, button, summary') ? at : at.querySelector('input[type="text"]') || at.querySelector('input, select, button, summary');
     if (field) field.focus({ preventScroll: true });
   }
@@ -614,19 +615,10 @@ $('spaces').addEventListener('click', (event) => {
   saveSpaceOrder();
 });
 
+// Add <space>: the one form (space-add.js; the top bar's "+ New <space>" and Home's Add open it too). A refusal reads in the form.
 $('add-space').addEventListener('click', async () => {
-  try {
-    // With the choice on, a small dialog asks for the Template first (template-choice.js); a refusal reads there.
-    await addSpaceFlow({
-      api, word,
-      run: async (chosen) => {
-        const { space } = await api('POST', '/api/spaces', { name: `${word('space', { cap: true })} ${spaces.length}`, description: '', members: [], ...chosen });
-        openSetup(space.id); // into the new space with Set up open: its name, members and picture right away
-      },
-    });
-  } catch (err) {
-    say($('spaces-status'), err.message, true);
-  }
+  const space = await openSpaceAdd({ api, word, owner: true, self: me?.key || '' });
+  if (space) openSetup(space.id); // into the new space with Set up open: its picture and the rest right away
 });
 
 $('add-user').addEventListener('submit', async (event) => {

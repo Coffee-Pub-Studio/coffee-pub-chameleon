@@ -5547,12 +5547,31 @@ app.post('/api/spaces/:id/access-requests/:requestId', requireUser, (req, res) =
   }
   res.json({ ok: true, changed: result.changed, request: { id: result.request.id, state: result.request.state } });
 });
-app.post('/api/spaces', requireOwner, (req, res) => {
-  const { name, description, members, profile, link, linkIcon, template, starter: wanted } = req.body || {};
+// POST /api/spaces: a new space (Thomas, 2026-11-23: "Members and moderators, always"). Every account may make one but an
+// agent: owners and the admin as before, and every member, a moderator among them (a moderator is a member account with a
+// per-space tick, never an account's role, so a moderator anywhere is a member here). No owner switch. A guest has no account
+// (403); an agent is refused by the agent gate before this (its set-up kind has its own POST /api/agent/spaces). A member sends
+// only SPACE_MAKER_FIELDS and people who are not agents; anything else (profile, link, linkIcon, starter) is the owners' (403).
+// A member who makes one is ticked its moderator, before its starter content is written, so they manage it as a moderator.
+const SPACE_MAKER_FIELDS = ['name', 'description', 'members', 'template'];
+app.post('/api/spaces', (req, res) => {
+  const user = currentUser(req);
+  if (!user) {
+    if (hasGuestAccess(req)) return res.status(403).json({ error: `${word('guest', { a: true, cap: true })} can't make ${word('space', { a: true })}.` });
+    return res.status(401).json({ error: 'sign in first' });
+  }
+  if (user.agent) return res.status(403).json({ error: AGENT_CANT });
+  const body = req.body || {};
+  const owner = hasOwnerRights(user);
+  if (!owner) {
+    if (Object.keys(body).some((k) => !SPACE_MAKER_FIELDS.includes(k))) return res.status(403).json({ error: `Only ${word('owner', { many: true })} can set that for a new ${word('space')}.` });
+    if (Array.isArray(body.members) && body.members.some((k) => store.userByKey(k)?.agent)) return res.status(403).json({ error: `Only ${word('owner', { many: true })} can add an agent to ${word('space', { a: true })}.` });
+  }
+  const { name, description, members, profile, link, linkIcon, template, starter: wanted } = body;
   // `starter: false` makes the space without its template's starter content (the demo loader's own space).
   if (wanted !== undefined && typeof wanted !== 'boolean') return res.status(400).json({ error: 'starter must be true or false.' });
-  const user = currentUser(req);
   const made = store.addSpace({ name, description, members, profile, link, linkIcon, template, creator: user.key });
+  if (!owner) store.setSpacePrefs(user.key, made.id, { permissions: { moderator: true } });
   // Its template's starter content, once, as the person who made it (fillStarter). Nothing awaits between the two, so
   // two spaces made at once each get their own, and nothing else reaches a space before it has its starter content.
   fillStarter(made, user, { skip: wanted === false });
@@ -14130,6 +14149,22 @@ app.get('/api/environment/template', requireOwner, (req, res) => {
   res.json({
     ...templateAnswer(env, env.slug),
     choices: templateChoices(env, env.store.templateRecord?.id),
+  });
+});
+// GET /api/environment/space-templates: what the Add <space> form (public/space-add.js) offers anyone who may make a space
+// (every account; POST /api/spaces): { on, environment: { id, name, description } | null, choices: [{ id, name, description }] }.
+// `on` is the owner's switch (Space templates); with it off, no choices. Only the templates a new space may take (none hidden),
+// and only their names and descriptions: nothing of versions, sources or offers.
+app.get('/api/environment/space-templates', requireUser, (req, res) => {
+  const env = currentEnvironment();
+  const on = store.spaceTemplatesOn();
+  const view = templateView(env.store, env);
+  const own = view ? templateFor(env, view.id) : null;
+  const brief = (t) => ({ id: t.id, name: t.name || t.id, description: t.description || '' });
+  res.set('Cache-Control', 'no-store').json({
+    on,
+    environment: view ? { id: view.id, name: view.name || view.id, description: own?.description || '' } : null,
+    choices: on ? templateChoices(env).map(brief) : [],
   });
 });
 

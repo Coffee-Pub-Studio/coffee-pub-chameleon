@@ -38,6 +38,10 @@ export function profileDestinationLabel(id, name = '') {
 
 // Who sees the module update count on the bell: those who can act on it (decision 9), owners and the admin.
 export const seesUpdates = (role) => role === 'owner' || role === 'admin';
+// Who may make a space (Thomas, 2026-11-23; POST /api/spaces decides the same): every account, owners, the admin and members.
+// A moderator is a member account with a per-space tick, so it is 'member' here; a guest has no account role that is one of
+// these, and an agent never has a page. "+ New <space>" (brand.js) and Home's Add card (space.js) show by this.
+export const mayMakeSpace = (role) => role === 'member' || role === 'owner' || role === 'admin';
 
 // The host console's address, from an environment's own (<slug>.<base domain>, the console at admin.<base domain>).
 // Null when it can't be worked out (a single install has no slug and no console).

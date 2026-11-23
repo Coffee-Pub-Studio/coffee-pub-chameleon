@@ -3,7 +3,8 @@
  * check-space-create.mjs -- who is in a new space, and the Home cards (GitHub #239, #225, #226).
  * The creator becomes a member of the space they make (every path: the store and POST /api/spaces), once, with the
  * members asked for kept; the Lobby is untouched. The host admin's stand-in (hostAdmin: true) is the one creator that does
- * not join (#334), and can still be added on purpose. The Home card is one button by role, named for the space, with no
+ * not join (#334), and can still be added on purpose. A member may make one too and is then its moderator (Thomas, 2026-11-23).
+ * The Home card is one button by role, named for the space, with no
  * pop-out button. The routes run against a throwaway server.
  */
 import assert from 'node:assert/strict';
@@ -108,7 +109,16 @@ try {
   r = await call('POST', '/api/spaces', { token: owner, body: { name: 'Twice', members: [olive, mia] } });
   assert.deepEqual(r.json.space.members, [olive, mia], 'a creator already listed is not added twice');
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'app.json'), 'utf8').toString()).spaces?.find?.((x) => x.id === 'lobby')?.members ?? [], [], 'the stored Lobby is untouched');
-  assert.equal((await call('POST', '/api/spaces', { token: await signIn('mia', 'memberpass1234'), body: { name: 'No' } })).status, 403, 'a member cannot add a space');
+  // A member may add one too (Thomas, 2026-11-23), and is its member and its moderator; an owner-only field is refused.
+  const miaToken = await signIn('mia', 'memberpass1234');
+  r = await call('POST', '/api/spaces', { token: miaToken, body: { name: 'Mine', members: [] } });
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(r.json.space.members, [mia], 'a member who adds a space is one of its members');
+  const miaMe = (await call('GET', '/api/me', { token: miaToken })).json.user;
+  assert.equal(miaMe.spaces[r.json.space.id].permissions.moderator, true, 'and its moderator');
+  r = await call('POST', '/api/spaces', { token: miaToken, body: { name: 'No', starter: false } });
+  assert.equal(r.status, 403, 'a member cannot set an owner-only field');
+  assert.match(r.json.error, /^Only owners can set that for a new space\.$/);
   console.log('check-space-create: ok');
 } finally {
   await new Promise((resolve) => { if (child.exitCode !== null) return resolve(); child.once('exit', resolve); child.kill('SIGTERM'); });

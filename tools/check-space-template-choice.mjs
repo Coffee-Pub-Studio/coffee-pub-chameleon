@@ -8,8 +8,8 @@
  *     words in that space change at once (trip -> campaign) and in the other space they do not; choosing "Same as" clears it
  *   - a moderator of the space: the template named on Settings, with no control and no Template choice
  *   - a plain member: no Set up, and the space's own words in the space
- *   - Add <space>: a dialog with the same choice; Add makes the space with that template; "Same as" sends none
- *   - Manage's switch (Space templates): turning it off hides the choice in Set up and in Add (no dialog), and the words go back to the
+ *   - Add <space>: the Add form (public/space-add.js) with the same choice; Add makes the space with that template; "Same as" sends none
+ *   - Manage's switch (Space templates): turning it off hides the choice in Set up and in Add (public/space-add.js), and the words go back to the
  *     environment's at once; turning it on brings the choice (and the spaces' own templates) back
  *   - a refusal: the server's own sentence is read in Set up (and in the Add dialog) when the switch was turned off meanwhile
  *   - no horizontal overflow; the choice is reachable by keyboard (a native select)
@@ -181,16 +181,16 @@ try {
       await tab.waitFor('#home-add-space:not([hidden])');
       await sleep(600);
       await tab.eval(`document.getElementById('home-add-space').click()`);
-      await tab.waitFor('dialog.template-add[open] #template-add-select');
-      const d = await tab.eval(`(() => { const s = document.getElementById('template-add-select'); return { options: [...s.options].map((o) => [o.value, o.textContent]), title: document.getElementById('template-add-title').textContent, focus: document.activeElement === s }; })()`);
+      await tab.waitFor('dialog.space-add[open] #space-add-template');
+      const d = await tab.eval(`(() => { const s = document.getElementById('space-add-template'); return { options: [...s.options].map((o) => [o.value, o.textContent]), title: document.getElementById('space-add-title').textContent, focus: document.activeElement === s }; })()`);
       assert.deepEqual(d.options[0], ['', 'Same as the environment (Travel)']);
       assert.deepEqual(d.options.slice(1).map((o) => o[0]), offered.choices.map((c) => c.id));
       assert.equal(d.title, 'Add Trip');
-      assert.equal(d.focus, true, 'the keyboard starts on the choice');
-      assert.equal(await tab.eval(`(() => { const r = document.querySelector('dialog.template-add').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 1; })()`), true, 'the dialog fits the screen');
-      await tab.eval(`(() => { const s = document.getElementById('template-add-select'); s.value = 'games'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      assert.equal(d.focus, false, 'the keyboard starts on the name, not the choice');
+      assert.equal(await tab.eval(`(() => { const r = document.querySelector('dialog.space-add').getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth + 1; })()`), true, 'the dialog fits the screen');
+      await tab.eval(`(() => { const s = document.getElementById('space-add-template'); s.value = 'games'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       await shot(tab, `add-${width}`);
-      await tab.eval(`document.querySelector('dialog.template-add [data-ok]').click()`);
+      await tab.eval(`document.querySelector('dialog.space-add [data-ok]').click()`);
       await sleep(2000);
       const made = (await api('GET', '/api/spaces')).json.spaces;
       assert.equal(made.length, before + 1);
@@ -203,13 +203,13 @@ try {
       await again.waitFor('#home-add-space:not([hidden])');
       await sleep(600);
       await again.eval(`document.getElementById('home-add-space').click()`);
-      await again.waitFor('dialog.template-add[open]');
-      await again.eval(`document.querySelector('dialog.template-add [data-close].btn').click()`);
+      await again.waitFor('dialog.space-add[open]');
+      await again.eval(`document.querySelector('dialog.space-add [data-close].btn').click()`);
       await sleep(500);
       assert.equal((await api('GET', '/api/spaces')).json.spaces.length, before + 1, 'Cancel made nothing');
       await again.eval(`document.getElementById('home-add-space').click()`);
-      await again.waitFor('dialog.template-add[open]');
-      await again.eval(`document.querySelector('dialog.template-add [data-ok]').click()`);
+      await again.waitFor('dialog.space-add[open]');
+      await again.eval(`document.querySelector('dialog.space-add [data-ok]').click()`);
       await sleep(2000);
       const last = (await api('GET', '/api/spaces')).json.spaces;
       assert.equal(last.length, before + 2);
@@ -245,8 +245,9 @@ try {
       await home.waitFor('#home-add-space:not([hidden])');
       await sleep(600);
       await home.eval(`document.getElementById('home-add-space').click()`);
-      await sleep(1500);
-      assert.equal(await home.eval(`Boolean(document.querySelector('dialog.template-add'))`), false, 'no dialog in Add');
+      await home.waitFor('dialog.space-add[open] #space-add-name');
+      assert.equal(await home.eval(`Boolean(document.getElementById('space-add-template'))`), false, 'no Template choice in Add');
+      await home.eval(`document.querySelector('dialog.space-add .sdk-dialog-foot [data-close]').click()`);
       await home.close();
     }
     const mod = await setupOpen('mia', 390, ctx.trip, '#modules');
@@ -294,16 +295,16 @@ try {
     await home.waitFor('#home-add-space:not([hidden])');
     await sleep(600);
     await home.eval(`document.getElementById('home-add-space').click()`);
-    await home.waitFor('dialog.template-add[open] #template-add-select');
-    await home.eval(`(() => { const s = document.getElementById('template-add-select'); s.value = 'games'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await home.waitFor('dialog.space-add[open] #space-add-template');
+    await home.eval(`(() => { const s = document.getElementById('space-add-template'); s.value = 'games'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
     await setSwitch(false);
     const count = (await api('GET', '/api/spaces')).json.spaces.length;
-    await home.eval(`document.querySelector('dialog.template-add [data-ok]').click()`);
+    await home.eval(`document.querySelector('dialog.space-add [data-ok]').click()`);
     await sleep(1500);
-    const problem = await home.eval(`document.querySelector('dialog.template-add [data-error]').textContent`);
+    const problem = await home.eval(`document.querySelector('dialog.space-add [data-error]').textContent`);
     assert.match(problem, /can't use its own template while that is turned off in this environment/);
     assert.equal((await api('GET', '/api/spaces')).json.spaces.length, count, 'nothing was made');
-    assert.equal(await home.eval(`document.querySelector('dialog.template-add [data-ok]').disabled`), false, 'Add can be pressed again');
+    assert.equal(await home.eval(`document.querySelector('dialog.space-add [data-ok]').disabled`), false, 'Add can be pressed again');
     await shot(home, 'refusal-add-390');
     await home.close();
     await setSwitch(true);

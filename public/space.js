@@ -1,10 +1,10 @@
 // The call page: players see and hear each other.
 import { Room, RoomEvent, Track, createLocalTracks } from '/lib/livekit-client.esm.mjs';
 import { loadBranding, api, noticeToast, renderTopbar, setTopbarLocation, setPresentSpace, setInSpace, openSwitcher as openSpaceSwitcher, refreshNotices, iconClasses, spaceCrumbIcon, hasOwnerRights, word, verb, applyWords, followTheme, getIcons, setSpaceLook, clearSpaceLook } from '/brand.js';
-import { anchorSegments, layoutTabs, tabOverflow, layoutIconChoices, iconMatches, gridStep, pageOpens, isHere, hereCount, asidePlaceholder, whereWords, offStream } from '/primary-nav.js';
+import { anchorSegments, layoutTabs, tabOverflow, layoutIconChoices, iconMatches, gridStep, pageOpens, isHere, hereCount, asidePlaceholder, whereWords, offStream, mayMakeSpace } from '/primary-nav.js';
 import { openPhaseSheet, FACT_CHIPS_HIDDEN_AT } from '/phase-sheet.js';
 import { createSpaceSetup, setupAddress, configurationLabel, fixedWorkspaceOf } from '/space-setup.js';
-import { addSpaceFlow } from '/template-choice.js';
+import { openSpaceAdd } from '/space-add.js';
 import { renderModuleSettings } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
 import { createCanvas } from '/canvas.js';
@@ -642,7 +642,7 @@ async function askAccess(card, method) {
 }
 
 // The row above the space cards (GitHub #233): the home word with its icon, and "Add <space>" for those who may make
-// one (owners and the admin, as the top bar's "New <space>" entry decides: hasOwnerRights). Never for a guest.
+// one (every account: owners, the admin and members, as the top bar's "New <space>" entry decides: mayMakeSpace). Never for a guest.
 function renderSpaceListHead() {
   const title = $('space-list-title');
   if (!title) return;
@@ -654,7 +654,7 @@ function renderSpaceListHead() {
   $('home-add-space-label').textContent = label;
   button.title = label;
   button.setAttribute('aria-label', label);
-  button.hidden = Boolean(guestMode) || !hasOwnerRights(me);
+  button.hidden = Boolean(guestMode) || !mayMakeSpace(me?.role);
   // The Modules column's heading (plan-home-lobby.md, decision 11): the module word, the template's when it sets one.
   const modules = $('home-modules-title');
   if (modules) {
@@ -662,25 +662,19 @@ function renderSpaceListHead() {
     modules.append(document.createTextNode(word('module', { many: true, cap: true })));
   }
 }
-// Add <space>: the request Manage's Add button makes (POST /api/spaces, named "<Space> N"), then straight into the new
-// space with Set up open, so it can be named and set up at once. A failure is said where a join's is.
+// Add <space>: the one form (space-add.js; Manage's Add and the top bar's "+ New <space>" open it too), then straight into the new
+// space with Set up open. A refusal reads in the form; a failure after it is said where a join's is.
 async function addSpace() {
   const button = $('home-add-space');
   if (button.disabled) return;
   button.disabled = true;
   $('join-error').hidden = true;
   try {
-    const count = presenceSpaces.filter((r) => r.mine && !r.isAside).length;
-    // With the choice on, a small dialog asks for the Template first (template-choice.js); a refusal reads there.
-    await addSpaceFlow({
-      api, word,
-      run: async (chosen) => {
-        const { space } = await api('POST', '/api/spaces', { name: `${word('space', { cap: true })} ${count}`, description: '', members: [], ...chosen });
-        await loadPresence(); // the new card, and the record join() reads the name from
-        await joinInvitedSpace(space.id);
-        if (entered && currentSpace?.id === space.id) enterSetup();
-      },
-    });
+    const space = await openSpaceAdd({ api, word, owner: hasOwnerRights(me), self: me?.key || '' });
+    if (!space) return;
+    await loadPresence(); // the new card, and the record join() reads the name from
+    await joinInvitedSpace(space.id);
+    if (entered && currentSpace?.id === space.id && canSetUp()) enterSetup();
   } catch (err) {
     $('join-error').textContent = err.message;
     $('join-error').hidden = false;

@@ -447,7 +447,9 @@ try {
 
   await test('the guest list is the door\'s own: a member\'s lists and creating are denied', async () => {
     const cookie = sam.cookie;
-    assert.equal((await A.call('POST', '/api/spaces', { cookie, body: { name: 'Mine' } })).status, 401);
+    const made = await A.call('POST', '/api/spaces', { cookie, body: { name: 'Mine' } });
+    assert.equal(made.status, 403, 'a guest cannot make a space');
+    assert.match(made.json.error, /^A guest can't make an? \S+\.$/);
     assert.equal((await A.call('GET', '/api/presence', { cookie })).status, 401, 'no space asked: no list');
     assert.equal((await A.call('GET', `/api/presence?space=${a.ids.closed}`, { cookie })).status, 401);
     const p = await A.call('GET', `/api/presence?space=${a.ids.open}`, { cookie });
