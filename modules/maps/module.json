@@ -1,7 +1,7 @@
 {
   "id": "maps",
   "name": "Maps",
-  "version": "0.10.13",
+  "version": "0.10.14",
   "content": "flush",
   "icon": "map-location-dot",
   "color": "pink",
@@ -268,6 +268,7 @@
         "label": "Change this place",
         "description": "Change a saved place's title, type, category, status, address, notes or who it is for.",
         "effect": "write",
+        "clears": ["status", "address", "notes", "owners"],
         "input": {
           "place": "ref:maps:place",
           "title": "string?",
@@ -283,7 +284,7 @@
           "type": "A place type id such as cafe, museum or hotel; it moves the category too unless one is given.",
           "status": "want (want to visit), booked, visited or favorite; empty clears it.",
           "owners": "Replaces whose it is: keys or names as list_members shows them, separated by commas; empty clears.",
-          "notes": "The notes. Line breaks are allowed."
+          "notes": "The notes, which replace the old ones. Line breaks are allowed; empty clears them."
         }
       },
       {

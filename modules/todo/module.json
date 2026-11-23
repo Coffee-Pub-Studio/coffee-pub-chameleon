@@ -1,7 +1,7 @@
 {
   "id": "todo",
   "name": "To-do",
-  "version": "1.15.36",
+  "version": "1.15.37",
   "icon": "list-check",
   "color": "green",
   "description": "A shared to-do list for the whole {environment} and for each {space}, with due dates and reminders.",
@@ -80,6 +80,7 @@
     ]
   },
   "actions": {
+    "server": "src/todo-lib-actions.js",
     "provides": [
       {
         "name": "createTask",
@@ -114,13 +115,30 @@
         }
       },
       {
-        "name": "setTaskDue",
-        "label": "Set this task's due date to its date",
-        "description": "Set a task's due date.",
+        "name": "unlinkTask",
+        "label": "Unlink this task from it",
+        "description": "Take a task's link to another {object} off, so neither shows the other.",
         "effect": "write",
         "input": {
           "task": "ref:todo:task",
-          "date": "date"
+          "target": "ref"
+        },
+        "inputHints": {
+          "target": "What it links to, its pointer as the task's links give it."
+        }
+      },
+      {
+        "name": "setTaskDue",
+        "label": "Set this task's due date to its date",
+        "description": "Set a task's due date, or clear it.",
+        "effect": "write",
+        "clears": ["date"],
+        "input": {
+          "task": "ref:todo:task",
+          "date": "date?"
+        },
+        "inputHints": {
+          "date": "The day it is due, as YYYY-MM-DD. Leave it out or send \"\" to clear it, which also turns its reminder off."
         }
       },
       {
@@ -128,6 +146,7 @@
         "label": "Change this task",
         "description": "Change a to-do task's title, notes or reminder.",
         "effect": "write",
+        "clears": ["notes"],
         "input": {
           "task": "ref:todo:task",
           "title": "string?",
@@ -136,7 +155,7 @@
         },
         "inputHints": {
           "title": "The new title, up to 200 letters.",
-          "notes": "The new notes, up to 1000 letters; empty clears them. Line breaks are allowed.",
+          "notes": "The new notes, up to 1000 letters; \"\" clears them. Line breaks are allowed.",
           "remind": "True reminds at 9:00 on the due date (the task needs one); false cancels the reminder.",
           "task": "Say at least one of title, notes or remind to change."
         }

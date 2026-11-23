@@ -1913,13 +1913,16 @@ try {
     assert.equal((await as('POST', '/api/modules/bundled/todo/install')).status, 201);
     assert.equal((await as('PATCH', '/api/modules/todo', { enabled: true, allSpaces: true })).status, 200);
     const shipped = readJson(path.join(ROOT, 'modules', 'todo', 'module.json'));
+    // The copies below are uploads, which may not declare actions.server (server/module-actions.js): left out of them.
+    const uploaded = { ...shipped, actions: { ...shipped.actions } };
+    delete uploaded.actions.server;
     for (const id of ['t1', 't2', 't3']) assert.equal((await as('PUT', `/api/modules/todo/data/task:${id}?scope=space&space=${side}`, { value: { title: id } })).status, 200);
     // The next version renames task: to job:, as an author would (an uploaded copy of the To-do).
     const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'check-rename-todo-'));
     fs.cpSync(path.join(ROOT, 'modules', 'todo'), copy, { recursive: true });
     const [a, b, c] = shipped.version.split('.').map(Number);
     const next = `${a}.${b}.${c + 1}`;
-    fs.writeFileSync(path.join(copy, 'module.json'), JSON.stringify({ ...shipped, version: next, storage: { renamed: [{ from: 'task:', to: 'job:' }] } }));
+    fs.writeFileSync(path.join(copy, 'module.json'), JSON.stringify({ ...uploaded, version: next, storage: { renamed: [{ from: 'task:', to: 'job:' }] } }));
     const { buildModule } = require('../server/module-build.js');
     const up = await as('POST', '/api/modules', buildModule(copy).zip, 'application/zip');
     fs.rmSync(copy, { recursive: true, force: true });
@@ -1939,7 +1942,7 @@ try {
     const copy2 = fs.mkdtempSync(path.join(os.tmpdir(), 'check-rename-todo-'));
     fs.cpSync(path.join(ROOT, 'modules', 'todo'), copy2, { recursive: true });
     const later = `${a}.${b}.${c + 2}`;
-    fs.writeFileSync(path.join(copy2, 'module.json'), JSON.stringify({ ...shipped, version: later }));
+    fs.writeFileSync(path.join(copy2, 'module.json'), JSON.stringify({ ...uploaded, version: later }));
     const logBefore = server.output().length;
     const up2 = await as('POST', '/api/modules', buildModule(copy2).zip, 'application/zip');
     fs.rmSync(copy2, { recursive: true, force: true });

@@ -213,6 +213,16 @@ const refused = (r, status, error, what) => {
   if (error) assert.equal(r.json?.error, error, `${what}: the sentence`);
 };
 
+// A bundled module uploaded as a module of its own: an upload may not declare actions.server (server/module-actions.js; it would
+// be refused), so the copy leaves it out and its agents' requests wait for a page, as an uploaded module's do.
+const uploadZipOf = (id) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `upload-${id}-`));
+  fs.cpSync(path.join(ROOT, 'modules', id), dir, { recursive: true });
+  const m = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
+  if (m.actions) delete m.actions.server;
+  fs.writeFileSync(path.join(dir, 'module.json'), JSON.stringify(m, null, 2));
+  return buildModule(dir).zip;
+};
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-agent-matrix-'));
 try {
   // AGENT_TOKENS on.
@@ -220,7 +230,7 @@ try {
   const admin = await signIn(server, 'admin', 'admin-password-1');
   ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: true } }), 'Agents on');
   for (const id of ['todo', 'vault']) {
-    ok(await call(server, 'POST', '/api/modules', { cookie: admin, raw: buildModule(path.join(ROOT, 'modules', id)).zip, headers: { 'content-type': 'application/zip' } }), `${id} installs`, 201);
+    ok(await call(server, 'POST', '/api/modules', { cookie: admin, raw: uploadZipOf(id), headers: { 'content-type': 'application/zip' } }), `${id} installs`, 201);
     ok(await call(server, 'PATCH', `/api/modules/${id}`, { cookie: admin, body: { enabled: true } }), `${id} is on`);
   }
   const mia = (await call(server, 'POST', '/api/users', { cookie: admin, body: { login: 'mia', displayName: 'Mia', password: 'mia-password-1', role: 'member' } })).json.user;

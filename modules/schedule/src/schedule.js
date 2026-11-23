@@ -188,8 +188,7 @@
   }
   // The order key after the last entry under `parent`.
   function orderAtEnd(parent) {
-    const sibs = list().filter((e) => (e.parent || null) === (parent || null) && e.order).map((e) => e.order).sort();
-    try { return host.util.order(sibs.length ? sibs[sibs.length - 1] : null, null); } catch (err) { return ''; }
+    return scOrderAtEnd(list(), parent, (x, y) => host.util.order(x, y));
   }
 
   // --- what links to the entries -------------------------------------------------------------------------------------
@@ -682,65 +681,33 @@
   });
 
   // --- what other modules may ask of this one ----------------------------------------------------------------------------------
-  // An add per kind, saved at once. What it was sent is checked first (scActionProblem): a missing title, a day the plan can't
-  // hold, or no day when the plan needs dates is refused with one sentence; nothing opens on anyone's screen.
+  // The actions library's handlers (ACTION_HANDLERS in schedule-lib-actions.js: addMilestone, addWork, addNote, setDone,
+  // updateEntry), carried out here by the SDK (host.actions.fromLibrary). Each request gets what only this page has beside the
+  // runner's ctx: the plan's settings, its words, the outline's order keys and the phases with their names. They run under the
+  // rights of the page that carries them (canEdit).
   const REFUSED = `You may not add to the ${label('plan')} here.`;
-  async function addFrom(kind, input, ctx) {
-    if (!canEdit) throw new Error(REFUSED);
-    const obj = input && input.object && typeof input.object === 'object' ? input.object : null;
-    const flat = obj ? scObjectInput(kind, input, obj) : input;
-    const problem = scActionProblem(kind, flat, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k) });
-    if (problem) throw new Error(problem);
-    // Who added it is the asker's key (a person's key, so "Added by" finds the name), else the signed-in person's.
-    const by = scAddedBy(ctx, info.user.key);
-    // Owners (work only) are checked before anything is made; a person is named by key or by name.
-    let owners = null;
-    if (kind === 'work' && input && input.owners !== undefined && input.owners !== null) {
-      const r = scOwnersFor(input.owners, state.people, { space: word('space') });
-      if (r.problem) throw new Error(r.problem);
-      owners = r.owners;
-    }
-    let e;
-    if (obj) {
-      takePhases();
-      e = scFromObject(kind, input, obj, { entries: list(), phases: state.phases, by }).entry;
-    } else e = scFromAction(kind, input, by);
-    if (owners && owners.length) e = { ...e, owners: scKeys(owners) };
-    const saved = await saveEntry({ ...e, id: host.util.id(), order: orderAtEnd(e.parent) });
-    return { ref: pointer(saved.id) };
-  }
-  // setDone and updateEntry act on an entry that is there, named by `ref` (a pointer to a `plan`). They run under the rights of the
-  // page that carries them (canEdit), check what they are sent with the editor's own rules (scSetDone, scUpdate) and save as an
-  // edit does (saveEntry: the Calendar copy, links and the milestones' done follow). Nothing is opened for a person to finish.
   const CHANGE_REFUSED = `You may not change the ${label('plan')} here.`;
-  function entryFor(input) {
-    const r = input && input.ref;
-    const id = r && typeof r === 'object' && r.module === info.module.id && r.kind === 'plan' && typeof r.id === 'string' ? r.id : '';
-    return (id && state.entries.get(id)) || null;
-  }
-  async function changeEntry(input, make) {
-    if (!canEdit) throw new Error(CHANGE_REFUSED);
-    const had = entryFor(input);
-    if (!had) throw new Error(`That is not on the ${label('plan')}.`);
-    const out = make(had.e);
-    if (out.problem) throw new Error(out.problem);
-    try {
-      await saveEntry(out.entry, had.version);
-    } catch (err) {
-      throw new Error(err && err.status === 409 ? 'Someone else changed it just now. Try again.' : (err && err.message) || 'It could not be saved.');
+  const withPage = (fn) => (input, ctx) => {
+    takePhases();
+    return fn(input, Object.assign(ctx, { settings: { ...state.settings }, label: (k, o) => kindWord(k, o), order: (a, b) => host.util.order(a, b), phases: state.phases }));
+  };
+  // What only a page does once a request's entry is written, as an edit's save does (saveEntry): it shows at once, the host is
+  // told what it was made from, and the milestones' done and progress follow.
+  async function afterAction({ writes }) {
+    for (const w of writes) {
+      const id = String(w.key).slice(SC_PREFIX.length);
+      remember(id, w.value, w.version);
+      host.objects.setLinks(pointer(id), w.value && w.value.ref ? [w.value.ref] : []).catch(() => {});
     }
-    return { ref: pointer(out.entry.id) };
+    await settleMilestones();
+    render();
   }
-  const setDone = (input) => changeEntry(input, (e) => scSetDone(e, input.done, { label: (k) => kindWord(k) }));
-  const updateEntry = (input) => changeEntry(input, (e) => scUpdate(e, input, { datesRequired: state.settings.datesRequired, label: (k) => kindWord(k), people: state.people, space: word('space') }));
-  if (host.actions && host.actions.provide) {
-    host.actions.provide({
-      setDone,
-      updateEntry,
-      addMilestone: (input, ctx) => addFrom('milestone', input, ctx),
-      addWork: (input, ctx) => addFrom('work', input, ctx),
-      addNote: (input, ctx) => addFrom('note', input, ctx),
-    });
+  if (host.actions && host.actions.provide && host.actions.fromLibrary) {
+    const carried = host.actions.fromLibrary(Object.fromEntries(Object.entries(ACTION_HANDLERS).map(([name, fn]) => [name, withPage(fn)])), { after: afterAction });
+    host.actions.provide(Object.fromEntries(Object.entries(carried).map(([name, fn]) => [name, (input, by) => {
+      if (!canEdit) throw new Error(name.startsWith('add') ? REFUSED : CHANGE_REFUSED);
+      return fn(input, by);
+    }])));
   }
   if (host.objects && host.objects.onOpen) {
     host.objects.onOpen((ref) => {

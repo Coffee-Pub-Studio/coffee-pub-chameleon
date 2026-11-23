@@ -15,7 +15,16 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const dir = path.join(root, 'modules/todo');
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
-const code = fs.readFileSync(path.join(dir, 'src/todo.js'), 'utf8').replace('/*__LIB__*/', () => fs.readFileSync(path.join(dir, 'src/todo-lib.js'), 'utf8'));
+const code = fs.readFileSync(path.join(dir, 'src/todo.js'), 'utf8').replace('/*__LIB__*/', () => ['todo-lib.js', 'todo-lib-actions.js'].map((f) => fs.readFileSync(path.join(dir, 'src', f), 'utf8')).join('\n'));
+// The page's library runs in this check's vm, the adapter here: its answers are copied across, as plain objects of this realm.
+const crossRealm = (handlers) => Object.fromEntries(Object.entries(handlers).map(([k, fn]) => [k, (input, ctx) => JSON.parse(JSON.stringify(fn(input, ctx)))]));
+// The SDK's page adapter for an actions library (host.actions.fromLibrary), which the page runs its actions through.
+const sdk = (() => {
+  const win = { addEventListener() {}, removeEventListener() {}, location: { search: '', href: 'http://localhost/' } };
+  win.parent = win;
+  new Function('window', 'document', fs.readFileSync(path.join(root, 'public/sdk/host.js'), 'utf8'))(win, { createElement: (tag) => ({ tag }), currentScript: null });
+  return win.hostActions;
+})();
 
 // A stand-in that answers anything: a function that returns itself, reads as '' and is a thenable-free object.
 const loose = () => new Proxy(function () {}, {
@@ -40,7 +49,10 @@ async function page({ canEdit = true, due = '2099-01-01' } = {}) {
     spaces: async () => [],
     locale: () => ({ words: {} }),
     objects: { make: (kind, id) => ({ module: 'todo', kind, id }), kinds: async () => [], setLinks: async () => {}, onOpen: () => {}, resolve: async () => ({}) },
-    actions: { list: async () => [], provide: (h) => { provided = h; }, request: async () => ({}) },
+    actions: { list: async () => [], provide: (h) => { provided = h; }, request: async () => ({}), fromLibrary: (handlers, o) => sdk.fromLibrary(host, crossRealm(handlers), { ...(o || {}), module: () => ({ id: 'todo', name: 'To-do' }) }) },
+    space: () => null,
+    phases: () => [],
+    people: async () => [],
     events: { subscribe: () => {} },
     on: () => {},
     storage: {
@@ -76,7 +88,7 @@ await test('the manifest declares updateTask and createTask remind', () => {
   assert.deepEqual(a.input, { task: 'ref:todo:task', title: 'string?', notes: 'text?', remind: 'boolean?' });
   assert.equal(a.description, "Change a to-do task's title, notes or reminder.");
   assert.equal(manifest.actions.provides.find((x) => x.name === 'createTask').input.remind, 'boolean?');
-  assert.equal(manifest.actions.provides.find((x) => x.name === 'setTaskDue').input.date, 'date', 'setTaskDue unchanged');
+  assert.equal(manifest.actions.provides.find((x) => x.name === 'setTaskDue').input.date, 'date?', 'setTaskDue: the date may be left out to clear it');
   assert.ok(!manifest.actions.provides.some((x) => /delete/i.test(x.name)), 'no delete action');
 });
 await test('createTask without remind saves remind false, no reminder', async () => {

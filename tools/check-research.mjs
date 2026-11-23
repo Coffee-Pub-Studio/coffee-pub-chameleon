@@ -18,7 +18,9 @@ const names = ['KINDS', 'cleanItem', 'itemValue', 'textOf', 'parseTags', 'cleanT
 // The SDK's own text helpers (host.util.plain, localWhen and detailLines), which an object handed in is mapped with.
 const { plain, localWhen, detailLines } = win.hostText;
 const util = { plain, localWhen, detailLines };
-const lib = new Function('geo', `${fs.readFileSync(new URL('../modules/research/src/research-lib.js', import.meta.url), 'utf8')}\nreturn { ${names.join(', ')} };`)(geo);
+// The model and its actions library (research-lib-actions.js), as the build puts them together.
+const libText = ['research-lib.js', 'research-lib-actions.js'].map((f) => fs.readFileSync(new URL(`../modules/research/src/${f}`, import.meta.url), 'utf8')).join('\n');
+const lib = new Function('geo', `${libText}\nreturn { ${names.join(', ')}, ACTION_HANDLERS };`)(geo);
 
 function fakeHost() {
   const data = new Map();
@@ -32,7 +34,8 @@ function fakeHost() {
       list: async (prefix) => [...data].filter(([k]) => k.startsWith(prefix)).map(([key, x]) => ({ key, value: x.value, version: x.version })),
       set: async (key, value, o) => {
         const cur = data.get(key);
-        if (o && o.version !== undefined && (!cur || cur.version !== o.version)) throw Object.assign(new Error('changed'), { status: 409 });
+        // A version given must be the one stored, 0 when none (as the server holds it).
+        if (o && o.version !== undefined && (cur ? cur.version : 0) !== o.version) throw Object.assign(new Error('changed'), { status: 409 });
         const version = (cur ? cur.version : 0) + 1;
         data.set(key, { value: JSON.parse(JSON.stringify(value)), version });
         return { version };
@@ -46,7 +49,13 @@ function fakeHost() {
       remove: async (id) => { removedFiles.push(id); },
       list: async () => files.map((f) => ({ ...f })),
     },
-    actions: { provide: (h) => Object.assign(handlers, h) },
+    // As the SDK: provide hands each handler who asked (the page's own person when nobody else did, here u1), and fromLibrary is
+    // the real page adapter (public/sdk/host.js), carrying the actions library in this space.
+    actions: {
+      provide: (h) => { for (const [k, fn] of Object.entries(h)) handlers[k] = (input, ctx) => fn(input, ctx && ctx.credit ? ctx : { credit: { name: 'u1', key: 'u1' } }); },
+      fromLibrary: (h, o) => win.hostActions.fromLibrary(host, h, { ...(o || {}), module: () => ({ id: 'research', name: 'Research' }) }),
+    },
+    space: () => ({ id: 'r', name: 'Trip' }),
   };
   return { host, data, handlers, removedFiles, links, files };
 }
