@@ -910,8 +910,10 @@ test('host.menu.show takes onClose and calls it once from the one cleanup', () =
 {
   const rd = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
   const mh = rd('public/module-host.js');
-  assert.match(mh, /async 'ui\.colorGrid'\(\) \{[\s\S]{0,160}return readColourGrid\(\);/, "module-host.js answers 'ui.colorGrid' from the page's copy");
-  assert.match(mh, /async 'ui\.colorGrid\.set'\(\{ colors \} = \{\}\) \{[\s\S]{0,200}return writeColourGrid\(colors\);/, "module-host.js answers 'ui.colorGrid.set'");
+  // A sandboxed frame reads the grid but never changes it (decision 28): the page decides from pageMode (how it mounted the module).
+  assert.match(mh, /async 'ui\.colorGrid'\(\) \{[\s\S]{0,120}const g = await readColourGrid\(\);\s*return pageMode \? g : \{ colors: g\.colors, editable: false \};/, "module-host.js answers 'ui.colorGrid' from the page's copy, not editable in a sandboxed frame");
+  assert.match(mh, /async 'ui\.colorGrid\.set'\(\{ colors \} = \{\}\) \{\s*if \(guestToken \|\| !pageMode\) throw [^\n]*\n\s*return writeColourGrid\(colors\);/, "module-host.js answers 'ui.colorGrid.set', refused from a sandboxed frame");
+  assert.match(mh, /const pageMode = Boolean\(container\);/, 'pageMode is how the page mounted the module (a container, not a frame)');
   assert.ok(mh.indexOf("async 'ui.colorGrid'()") > mh.indexOf("async 'ui.confirm'(o)"), 'the grid handlers sit with ui.confirm');
   assert.match(mh, /api\('GET', '\/api\/me\/color-grid'\)/, 'the page reads the route');
   assert.match(mh, /api\('PUT', '\/api\/me\/color-grid', \{ colors: list \}\)/, 'the page sends only the checked list');
@@ -935,8 +937,8 @@ test('host.menu.show takes onClose and calls it once from the one cleanup', () =
 {
   const rd = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
   const mh = rd('public/module-host.js');
-  assert.match(mh, /async 'ui\.colorRecent'\(\) \{[\s\S]{0,160}return readColourRecent\(\);/, "module-host.js answers 'ui.colorRecent' from the page's copy");
-  assert.match(mh, /async 'ui\.colorRecent\.set'\(\{ colors \} = \{\}\) \{[\s\S]{0,200}return writeColourRecent\(colors\);/, "module-host.js answers 'ui.colorRecent.set'");
+  assert.match(mh, /async 'ui\.colorRecent'\(\) \{[\s\S]{0,120}const r = await readColourRecent\(\);\s*return pageMode \? r : \{ colors: r\.colors, editable: false \};/, "module-host.js answers 'ui.colorRecent' from the page's copy, not editable in a sandboxed frame");
+  assert.match(mh, /async 'ui\.colorRecent\.set'\(\{ colors \} = \{\}\) \{\s*if \(guestToken \|\| !pageMode\) throw [^\n]*\n\s*return writeColourRecent\(colors\);/, "module-host.js answers 'ui.colorRecent.set', refused from a sandboxed frame");
   assert.ok(mh.indexOf("async 'ui.colorRecent'()") > mh.indexOf("async 'ui.colorGrid.set'"), "Recent's handlers sit with the grid's");
   assert.match(mh, /api\('GET', '\/api\/me\/color-recent'\)/, 'the page reads the route');
   assert.match(mh, /api\('PUT', '\/api\/me\/color-recent', \{ colors: list \}\)/, 'the page sends only the checked list');

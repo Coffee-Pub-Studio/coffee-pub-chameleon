@@ -1713,24 +1713,30 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       return promptDialog(cleanPrompt(o));
     },
     // The person's colour grid for the colour picker (host.ui.colorPicker): { colors: [...] | null, editable }, from the page's one copy.
-    // A guest's page has no grid of its own: the starting colours, not editable.
+    // A guest's page has no grid of its own: the starting colours, not editable. A module in a sandboxed frame reads it but never
+    // changes it (plan-colour-picker.md, decision 28): any code in the frame can send these calls, so the page decides from how it
+    // mounted the module (pageMode, an element it was handed, never anything the module sends) and answers editable: false there.
     async 'ui.colorGrid'() {
       if (guestToken) return { colors: null, editable: false };
-      return readColourGrid();
+      const g = await readColourGrid();
+      return pageMode ? g : { colors: g.colors, editable: false };
     },
-    // Saves the whole new list ({ colors }); answers the list kept, or throws the server's sentence.
+    // Saves the whole new list ({ colors }); answers the list kept, or throws the server's sentence. Refused from a sandboxed frame.
     async 'ui.colorGrid.set'({ colors } = {}) {
-      if (guestToken) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
+      if (guestToken || !pageMode) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
       return writeColourGrid(colors);
     },
-    // The person's Recent colours for the colour picker: { colors: [...] | null, editable }, from the page's one copy. A guest keeps none.
+    // The person's Recent colours for the colour picker: { colors: [...] | null, editable }, from the page's one copy. A guest keeps none;
+    // a sandboxed frame reads them, not editable (decision 28).
     async 'ui.colorRecent'() {
       if (guestToken) return { colors: null, editable: false };
-      return readColourRecent();
+      const r = await readColourRecent();
+      return pageMode ? r : { colors: r.colors, editable: false };
     },
-    // Saves the whole new Recent list ({ colors }, newest first); answers the list kept, or throws the server's sentence.
+    // Saves the whole new Recent list ({ colors }, newest first); answers the list kept, or throws the server's sentence. Refused from a
+    // sandboxed frame.
     async 'ui.colorRecent.set'({ colors } = {}) {
-      if (guestToken) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
+      if (guestToken || !pageMode) throw Object.assign(new Error("You can't keep your own colours here."), { status: 403 });
       return writeColourRecent(colors);
     },
     // The object picker (host.objects.pick): a window the page draws, searching with this module's own permissions (the same search as

@@ -2617,15 +2617,15 @@
       return colourGridSeen;
     }, () => (colourGridSeen = { colors: null, editable: false }));
   // The person's Recent colours likewise (decision 27): asked through the page each time a picker opens (ui.colorRecent), kept as last
-  // answered so the next picker draws them at once, and sent whole after a choice (ui.colorRecent.set). Where they can't be kept (no
-  // session, a guest, an agent: not editable) Recent is not shown and nothing is sent. The sends go one after another, each from the
-  // page's list as it is then.
+  // answered so the next picker draws them at once, and sent whole after a choice (ui.colorRecent.set). Where they can't be kept
+  // (not editable) nothing is sent: no session, a guest or an agent has none to show; a module in a sandboxed frame shows the person's
+  // Recent read-only (decision 28). The sends go one after another, each from the page's list as it is then.
   let colourRecentSeen = null;
   const colourRecentAsk = () => Promise.resolve()
     .then(() => call('ui.colorRecent', {}))
     .then((a) => {
       const colors = a && a.colors === null ? null : colourRecentClean(a && a.colors);
-      colourRecentSeen = a && a.editable === true && (a.colors === null || colors) ? { colors, editable: true } : { colors: null, editable: false };
+      colourRecentSeen = a && (a.colors === null || colors) ? { colors, editable: a.editable === true } : { colors: null, editable: false };
       return colourRecentSeen;
     }, () => (colourRecentSeen = { colors: null, editable: false }));
   let colourRecentSaving = Promise.resolve();
@@ -2713,7 +2713,7 @@
       const editable = () => Boolean(own && grid.editable);
       // The person's Recent colours as last seen (none until the page answers); recent: false leaves them out.
       const showsRecent = opt.recent !== false;
-      let recentList = showsRecent && colourRecentSeen && colourRecentSeen.editable ? colourRecentSeen.colors || [] : [];
+      let recentList = showsRecent && colourRecentSeen ? colourRecentSeen.colors || [] : [];
 
       const startHex = colourClean(opt.value) || (own ? (colourGridOrder(gridList())[0] || COLOUR_GRID_START[0]).color : palette[0].colours[0].color);
       let hsv = colourToHsv(startHex);
@@ -3231,7 +3231,7 @@
       // (else the chosen or first one there).
       if (recentGroup) {
         colourRecentAsk().then((r) => {
-          const next = r.editable ? r.colors || [] : [];
+          const next = r.colors || [];
           if (!pop.isConnected || JSON.stringify(next) === JSON.stringify(recentList)) return;
           const was = focusedNow();
           const before = was && recentGroup.contains(was) ? { color: was.dataset.color, opacity: Number(was.dataset.opacity) } : null;
