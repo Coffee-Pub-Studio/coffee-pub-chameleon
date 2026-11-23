@@ -1093,13 +1093,21 @@ function permissionDefaults(d) {
 
 // Whether what an update newly asks for (pendingFor's answer) is only permissions that are off for every role, so
 // approving it gives nobody but owners (and the admin) anything new. Used only by the bundled update at start
-// (updateBundled in index.js); anything else new, or a new permission on for some role, is not.
+// (updateBundled in index.js), which approves such permissions on its own; anything else new, or a new permission on for
+// some role, is not.
 function pendingWidensNothing(pending, permissions) {
   if (!pending || pending.hooks.length || pending.refs.length || pending.events.length || pending.actions.length) return false;
   return pending.permissions.every((key) => {
     const p = (permissions || []).find((x) => x.key === key);
     return Boolean(p) && Object.values(permissionDefaults(p.default)).every((on) => !on);
   });
+}
+
+// Whether a running module ({ manifest, entry }, as enabled() answers) may use a hook: its version asks for it and an owner
+// approved it. An update keeps a module on with what was approved before, so a hook its new version newly asks for is not
+// granted until an owner approves the update in Modules.
+function hookGranted(found, hook) {
+  return Boolean(found?.manifest?.hooks?.[hook]) && (found.entry?.approved?.hooks || []).includes(hook);
 }
 
 class ModuleManager {
@@ -1111,9 +1119,6 @@ class ModuleManager {
     // This environment's words (for the placeholders in a manifest's text) and a module's display name and icon (the
     // owner's, else the template's; null for the manifest's own), set by the environment's build (environment.js).
     this.wordsOf = () => null;
-    // Called with a module's id just before an install, update or rollback turns it off (it asks for something not yet approved),
-    // while it is still on: a Clear waiting for its Undo in it and in what needs it is finished first (server/environment.js).
-    this.beforeOff = () => {};
     this.displayOf = () => ({ name: null, icon: null, ownName: null, ownIcon: null, templateName: null, templateIcon: null });
     // Whether the template a space reads offers a module (store.moduleOffered), set by the environment's build. Unset (a
     // ModuleManager on its own), every module is offered, as under the Default template.
@@ -1343,9 +1348,10 @@ class ModuleManager {
   }
 
   // The permissions enabled modules add to the Roles grid: module.<id>.<key>. `defaults` is keyed by the editable
-  // roles (moderator, member, guest), whatever the stored manifest calls them.
+  // roles (moderator, member, guest), whatever the stored manifest calls them. Only the approved ones: a permission an
+  // update newly asks for is held by nobody, owners included, until an owner approves the update in Modules.
   permissionList() {
-    return this.enabledAll().flatMap(({ manifest }) => manifest.permissions.map((p) => ({
+    return this.enabledAll().flatMap(({ manifest, entry }) => manifest.permissions.filter((p) => (entry.approved?.permissions || []).includes(p.key)).map((p) => ({
       key: `module.${manifest.id}.${p.key}`,
       label: p.label,
       group: `${word('module', { cap: true })}: ${this.shownName(manifest)}`,
@@ -1545,7 +1551,6 @@ class ModuleManager {
       fs.rmSync(staging, { recursive: true, force: true });
     }
 
-    if (existing?.enabled && this.hasPending(this.pendingFor(existing, manifest))) this.beforeOff(manifest.id);
     const now = new Date().toISOString();
     const entry = existing || {
       id: manifest.id, versions: [], enabled: false, allSpaces: false, spaces: [], approved: { permissions: [], hooks: [], refs: [], events: [], actions: [] }, installedAt: now,
@@ -1554,8 +1559,9 @@ class ModuleManager {
     entry.version = manifest.version;
     entry.updatedAt = now;
     entry.source = source; // 'bundled' (shipped with this deployment) or 'upload'
-    // An upgrade that asks for anything new goes back to waiting for approval.
-    if (this.hasPending(this.pendingFor(entry, manifest))) entry.enabled = false;
+    // An update keeps the module as it was: on stays on, with exactly what was approved before (entry.approved is not
+    // touched). Anything the new version newly asks for is not granted until an owner approves it in Modules (view's
+    // needsApproval and pending; update() with enabled: true approves it), so an update never widens access on its own.
     this.registry.modules[manifest.id] = entry;
     this.manifests.delete(`${manifest.id}@${manifest.version}`);
     this.filled.clear();
@@ -1646,12 +1652,9 @@ class ModuleManager {
     const entry = this.get(id);
     if (!entry.versions.includes(version) || version === entry.version) throw new ModuleError('that version is not available');
     if (this.manifestOf(id, version)?.outdated) throw new ModuleError(`${this.shownName(this.manifestOf(id, version))} ${version} was built for an older version of ${productName()}, so it can't be rolled back to.`, 409);
-    const manifest = this.manifestOf(id, version);
-    const pending = this.pendingFor(entry, manifest);
-    if (entry.enabled && this.hasPending(pending)) this.beforeOff(id);
+    // As an update: on stays on with what was approved before; anything newly asked for waits for an owner (see install).
     entry.version = version;
     entry.updatedAt = new Date().toISOString();
-    if (this.hasPending(pending)) entry.enabled = false;
     this.save();
     return this.view(id);
   }
@@ -1704,4 +1707,4 @@ class ModuleManager {
   }
 }
 
-module.exports = { ModuleManager, ModuleError, cleanLive, fillManifest, manifestTexts, cleanManifest, cleanCommands, TINTS, cleanStorage, oldNameIn, OUTDATED, permissionDefaults, pendingWidensNothing, PERMISSION_KEY_RE, readZip, compareVersions, LIMITS };
+module.exports = { ModuleManager, ModuleError, cleanLive, fillManifest, manifestTexts, cleanManifest, cleanCommands, TINTS, cleanStorage, oldNameIn, OUTDATED, permissionDefaults, pendingWidensNothing, hookGranted, PERMISSION_KEY_RE, readZip, compareVersions, LIMITS };

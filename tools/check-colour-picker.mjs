@@ -1075,7 +1075,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     answers.push(await last());
 
     // --- colorField ---
-    await ev(`(() => { const i = __R.getElementById('fld'); window.__ev = []; i.addEventListener('input', () => __ev.push('input')); i.addEventListener('change', () => __ev.push('change')); window.__f = __h.ui.colorField(i, { opacity: false, onChange: (a) => __ev.push(a) }); window.__trig = () => __R.querySelector('.sdk-picker'); return 1; })()`);
+    await ev(`(() => { const i = __R.getElementById('fld'); window.__ev = []; i.addEventListener('input', () => __ev.push('input')); i.addEventListener('change', () => __ev.push('change')); window.__live = []; window.__f = __h.ui.colorField(i, { opacity: false, onChange: (a) => __ev.push(a), onInput: (a) => __live.push(a) }); window.__trig = () => __R.querySelector('.sdk-picker'); return 1; })()`);
     const trig = () => ev(`(() => { const t = window.__trig(); return t ? [t.getAttribute('aria-label'), t.getAttribute('aria-haspopup'), t.getAttribute('aria-expanded'), t.disabled, __R.getElementById('fld').hidden] : null; })()`);
     same(await trig(), ['Row colour, Red, #d62828. Change it', 'dialog', 'false', false, true], `${label}: the colour field's trigger is named "<label>, <name>, <hex>. Change it", has a dialog popup, and hides the input`);
     same(await ev('window.__f.value'), '#d62828', `${label}: the field's value`);
@@ -1094,6 +1094,9 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     await key(send, 'Escape');
     await tick();
     same(await ev(`[window.__ev.length, window.__trig().getAttribute('aria-label'), Boolean(window.__cp())]`), [3, 'Row colour, Teal, #008080. Change it', false], `${label}: Escape in the field sends nothing and puts the trigger back`);
+    // onInput (for showing live): the hue moved once, so it ran with that colour; Escape then runs it once more with the field's own colour.
+    same(await ev(`(() => { const l = window.__live; return [l.length >= 2, l.some((x) => x.color !== '#008080'), l.length ? l[l.length - 1] : null, __R.getElementById('fld').value]; })()`), [true, true, { color: '#008080', opacity: 100 }, '#008080'],
+      `${label}: the field's onInput shows each change live and, on Escape, the field's own colour again, and the input is not changed`);
     // The trigger again while it is open closes it (a toggle).
     await pressOn('window.__trig()');
     await pressOn('window.__trig()');

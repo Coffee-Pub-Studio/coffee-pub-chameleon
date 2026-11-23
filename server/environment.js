@@ -96,7 +96,6 @@ function buildEnvironment(dataDir, { slug = null, admin = null, log = console.lo
   store.agentModuleKeys = () => modules.enabledAll().flatMap(({ manifest }) => agentModuleKeys(manifest));
   // A manifest's text in this environment's words, and a module's display name and icon (server/store.js).
   modules.wordsOf = () => store.resolvedWords();
-  modules.beforeOff = (id) => { for (const m of [id, ...modules.dependentsOf(id)]) moduleHolds.expireModule(m); };
   modules.displayOf = (id) => store.moduleDisplay(id);
   store.moduleIconIds = () => Object.entries(modules.registry.modules).map(([id, e]) => modules.storedManifestOf(id, e.version)?.icon).filter(Boolean);
   // A space's modules are its template's (plan-templates-redesign.md, decision 10): the one check, onInSpace, asks this

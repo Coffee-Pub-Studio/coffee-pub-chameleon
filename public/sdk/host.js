@@ -3385,16 +3385,22 @@
     const watch = typeof MutationObserver === 'function' ? new MutationObserver(sync) : null;
     if (watch) watch.observe(input, { attributes: true, attributeFilter: ['disabled'] });
     let opened = false;
+    // onInput (for showing only, never for saving): each change while the picker is open, as the picker's own onInput; and when the
+    // pick ends with nothing chosen after it was called, once more with what the field holds, so what was shown live goes back.
+    const live = typeof opt.onInput === 'function' ? opt.onInput : null;
+    let shownLive = false;
+    const tellLive = (a) => { if (!live) return; shownLive = true; try { live({ color: a.color, opacity: a.opacity }); } catch (err) { console.error(err); } };
     const open = () => {
       if (input.matches(':disabled') && !opened) return Promise.resolve(null); // a disabled input, or one in a disabled fieldset
-      const asked = showColourPicker({ anchor: trigger, value: value(), opacity: keeps ? alpha : false, palette: opt.palette !== undefined ? palette : undefined, recent: opt.recent, label, onInput: (a) => show(a.color) });
+      const asked = showColourPicker({ anchor: trigger, value: value(), opacity: keeps ? alpha : false, palette: opt.palette !== undefined ? palette : undefined, recent: opt.recent, label, onInput: (a) => { show(a.color); tellLive(a); } });
       if (opened) return asked; // the same trigger again: that was the toggle, the picker is closed
       opened = true;
+      shownLive = false;
       trigger.setAttribute('aria-expanded', 'true');
       return asked.then((a) => {
         opened = false;
         trigger.setAttribute('aria-expanded', 'false');
-        if (!a) { show(value()); return null; }
+        if (!a) { show(value()); if (shownLive) tellLive({ color: value(), opacity: alpha }); return null; }
         const moved = a.color !== held(); // an empty field takes any answer, the palette's first colour too
         const faded = a.opacity !== alpha;
         alpha = a.opacity;
@@ -4115,8 +4121,10 @@
       colorPicker: (o) => showColourPicker(o),
       // A colour field on an <input> (type color or text) the module has: the input stays, hidden, holding '#rrggbb'; a trigger (a
       // swatch, the hex in words, a chevron) opens the picker under it. A choice sets the input and sends `input` and `change`;
-      // onChange({ color, opacity }) gives both (the input never holds the opacity). Follows a disabled input.
-      //   colorField(input, { palette?, opacity?, recent?, label?, onChange? }) -> { value, set(hex), open(), close(), destroy() }
+      // onChange({ color, opacity }) gives both (the input never holds the opacity). Follows a disabled input. onInput({ color, opacity })
+      // is for showing live only, as the picker's: each change while it is open, and once more with the field's own colour when the
+      // pick ends with nothing chosen, so a preview goes back. Save on the input's change (or onChange), never on onInput.
+      //   colorField(input, { palette?, opacity?, recent?, label?, onChange?, onInput? }) -> { value, set(hex), open(), close(), destroy() }
       // Anything but an input throws "host.ui.colorField needs an <input>".
       colorField: (input, o) => colourField(input, o),
       // A view or filter switch, drawn in the toolbar (see host.toolbar.set) -- its most common tool, so

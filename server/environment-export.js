@@ -47,7 +47,7 @@ const APP_LEFT_OUT = ['secrets', 'invites'];
 // give them new passwords.
 // `agent` and `off` mark an agent account and whether it is turned off
 // (plan-agent-access.md), and `kind` a set-up agent (plan-admin-agent.md): kept, its token is not (tokens.json).
-const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'demo', 'agent', 'kind', 'off', 'createdAt'];
+const USER_FIELDS = ['key', 'login', 'displayName', 'role', 'hostAdmin', 'images', 'spaces', 'player', 'callPrefs', 'themeMode', 'theme', 'colorGrid', 'colorRecent', 'demo', 'agent', 'kind', 'off', 'createdAt'];
 const USER_LEFT_OUT = ['passwordHash', 'linkToken', 'mfa', 'externalCalendars', 'calendarFeed', 'firstPassword', 'agreed', 'welcomeSeen'];
 // A person's own record for one space (user.spaces[<space id>]).
 const USER_SPACE_FIELDS = ['images', 'useDefaultImages', 'permissions', 'joined'];
