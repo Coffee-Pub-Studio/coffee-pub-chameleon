@@ -5,14 +5,16 @@
  * Runs on its own, no browser and no server: it slices the real source out of public/sdk/host.js (makeTags), public/module-host.js
  * (the bridge's tags.list and tags.add, cleanTag, the 'tags' stream event) and public/space-setup.js (the Tags section) and runs it
  * against stand-ins, and reads the rest as text. What it holds:
- *   - the tones are the theme's eight tints, the same list in the server (TONES), the SDK, the bridge and the toolbar's TINT;
+ *   - a tag's colour is '#rrggbb' or none (plan-colour-picker.md, decision 30): the SDK and the bridge keep only that, an old tone
+ *     name reads as plain; paintTag draws the fill with readable words (host.util.readableOn), system.css holds no tone list;
  *   - the bridge lets only a module whose manifest says "tags": true in, only in a space, asks the server on its behalf
  *     (`from`) and passes on only a tag of the right shape; the mounts hand the flag over; for-space sends it;
  *   - the stream's 'tags' event reaches only a module that opted in, for its own space, cleaned;
- *   - the SDK keeps the list current from the event, chip() draws a name with textContent, filterOptions() gives a toolbar's options
- *     in the tag's tint, add() refuses a colour that is not a tint before asking, and a server refusal reaches the module as it came;
+ *   - the SDK keeps the list current from the event, chip() draws a name with textContent in the tag's colour, filterOptions() gives a
+ *     toolbar's options, add() refuses a colour that is not #rrggbb before asking, and a server refusal reaches the module as it came;
  *   - no tag text goes through innerHTML (SDK, bridge, Set up);
- *   - Set up's Tags section calls the server's routes, asks before deleting, and shows the server's sentence.
+ *   - Set up's Tags section calls the server's routes, asks before deleting, and shows the server's sentence; its colour is the SDK's
+ *     colour field (no opacity) with "No colour" beside it, and its chips are drawn by the SDK's paintTag.
  *
  *   node tools/check-tags-sdk.mjs
  */
@@ -21,7 +23,7 @@ import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 
 const require = createRequire(import.meta.url);
-const { TONES } = require('../server/tags.js');
+const { cleanColor } = require('../server/tags.js');
 const rd = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const slice = (file, from, to) => {
   const src = rd(file);
@@ -42,26 +44,58 @@ const host = rd('public/sdk/host.js');
 const bridge = rd('public/module-host.js');
 const setup = rd('public/space-setup.js');
 const css = rd('public/sdk/system.css');
-const makeSrc = slice('public/sdk/host.js', "  const TAG_TONES = [", '  host.tags = makeTags();');
+const makeSrc = slice('public/sdk/host.js', '  const TAG_HEX = ', '  host.tags = makeTags();');
+// paintTag and what it stands on: the colour picker's pure block (colourReadableOn) and paintTag itself, run in Node.
+const colourBlock = slice('public/sdk/host.js', '  // colour:start', '  // colour:end');
+const paintSrc = slice('public/sdk/host.js', '  function paintTag(el, color) {', '\n    return el;\n  }');
+const paintTag = new Function(`${colourBlock}\n${paintSrc}\nreturn paintTag;`)();
+const fakeEl = () => {
+  const style = new Map();
+  return {
+    className: '', dataset: {}, children: [], textContent: '', style: { setProperty: (k, v) => style.set(k, v), removeProperty: (k) => style.delete(k), get: (k) => style.get(k) },
+    appendChild(c) { this.children.push(c); return c; },
+    removeAttribute(a) { const k = a.replace(/^data-/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase()); delete this.dataset[k]; },
+  };
+};
 
-test('the tones are the theme\'s eight tints, one list everywhere', () => {
-  const tints = ['gold', 'blue', 'green', 'teal', 'purple', 'red', 'orange', 'pink'];
-  assert.deepEqual([...TONES].sort(), [...tints].sort(), 'server TONES');
-  const list = (src, name) => new Function(`${src}\nreturn ${name};`)();
-  assert.deepEqual([...list(makeSrc.slice(0, makeSrc.indexOf('\n', makeSrc.indexOf('const TAG_TONES'))), 'TAG_TONES')].sort(), [...tints].sort(), 'SDK TAG_TONES');
-  assert.deepEqual([...list(slice('public/module-host.js', 'export const TAG_TONES = Object.freeze([', ']);').replace('export ', ''), 'TAG_TONES')].sort(), [...tints].sort(), 'bridge TAG_TONES');
-  assert.match(rd('public/module-chrome.js'), /const TINT = \/\^\(gold\|blue\|green\|teal\|purple\|red\|orange\|pink\)\$\/;/, 'the toolbar takes the same eight');
-  assert.match(setup, /const TAG_TONES = \['gold', 'blue', 'green', 'teal', 'purple', 'red', 'orange', 'pink'\];/, 'Set up offers the same eight');
-  for (const t of tints) assert.ok(css.includes(`[data-tag-tone="${t}"] { --chip-tone: var(--tint-${t}); }`), `system.css draws ${t}`);
-  assert.equal(/data-tag-tone="[^"]*"\][^}]*#[0-9a-f]{3,8}/i.test(css), false, 'no raw colour for a tag tone');
+test('a tag\'s colour is #rrggbb or none, one rule in the server, the SDK and the bridge; paintTag draws it with readable words', () => {
+  assert.equal(/TONES|tagTone|tag-tone/.test(rd('server/tags.js')), false, 'no tone list in the server');
+  assert.equal(/TAG_TONES|tagTone/.test(makeSrc), false, 'no tone list in the SDK');
+  assert.equal(/TAG_TONES/.test(bridge), false, 'no tone list in the bridge');
+  const tagsPart = slice('public/space-setup.js', '  const TAG_NO_COLOUR = ', '  const TAB_HTML = {');
+  assert.equal(/TAG_TONES|tagTone|select/.test(tagsPart) || /TAG_TONES|tagTone/.test(setup), false, 'no tone dropdown in Set up');
+  assert.equal(/data-tag-tone/.test(css), false, 'system.css draws no tone by name');
+  assert.match(makeSrc, /const TAG_HEX = \/\^#\[0-9a-f\]\{6\}\$\/;/);
+  assert.match(bridge, /export const TAG_HEX = \/\^#\[0-9a-f\]\{6\}\$\/;/);
+  for (const [given, kept] of [['#2F6CBF', '#2f6cbf'], ['#00ff00', '#00ff00'], ['', ''], ['red', null], ['#fff', null]]) {
+    const c = cleanColor(given);
+    assert.equal(kept === null ? Boolean(c.error) : c.color === kept, true, `server: ${given}`);
+  }
+  // The look: a colour is the fill with white or near-black words, whichever reads; no colour is the plain chip.
+  const dark = paintTag(fakeEl(), '#1a237e');
+  assert.equal(dark.dataset.tagFill, '');
+  assert.equal('tone' in dark.dataset, false, 'a coloured tag is not a tone');
+  assert.equal(dark.style.get('--tag-fill'), '#1a237e');
+  assert.equal(dark.style.get('--tag-ink'), '#ffffff');
+  const light = paintTag(fakeEl(), '#ffeb3b');
+  assert.equal(light.style.get('--tag-ink'), '#0a0a0a');
+  for (const plain of ['', 'red', '#FFF', null, undefined, 'url(x)']) {
+    const p = paintTag(paintTag(fakeEl(), '#1a237e'), plain);
+    assert.equal(p.dataset.tone, 'neutral', `plain: ${plain}`);
+    assert.equal('tagFill' in p.dataset, false);
+    assert.equal(p.style.get('--tag-fill'), undefined);
+  }
+  assert.match(css, /\.sdk-chip-tag\[data-tag-fill\] \{\s*background: var\(--tag-fill\);\s*color: var\(--tag-ink\);/);
+  assert.match(css, /\.sdk-chip-dot\[data-tag-fill\] \{ --chip-tone: var\(--tag-fill\);/);
+  assert.match(host, /global\.hostColour = \{[^}]*paintTag \};/, 'a page draws a tag with the same piece');
 });
 
-const cleanSrc = slice('public/module-host.js', 'export const TAG_TONES', 'export const cleanTagList = (list) => (Array.isArray(list) ? list : []).slice(0, 200).map(cleanTag).filter(Boolean);').replace(/export /g, '');
+const cleanSrc = slice('public/module-host.js', 'export const TAG_HEX', 'export const cleanTagList = (list) => (Array.isArray(list) ? list : []).slice(0, 200).map(cleanTag).filter(Boolean);').replace(/export /g, '');
 const { cleanTag, cleanTagList } = new Function(`${cleanSrc}\nreturn { cleanTag, cleanTagList };`)();
 
 test('the bridge passes on only a tag of the right shape', () => {
-  assert.deepEqual(cleanTag({ id: 'abcd1234ef', name: 'ski-trip', color: 'blue', by: 'x', at: 'y' }), { id: 'abcd1234ef', name: 'ski-trip', color: 'blue' });
-  assert.deepEqual(cleanTag({ id: 'abcd1234ef', name: 'été', color: 'pink-ish' }), { id: 'abcd1234ef', name: 'été', color: '' }, 'a colour that is not a tint is plain');
+  assert.deepEqual(cleanTag({ id: 'abcd1234ef', name: 'ski-trip', color: '#2a62b0', by: 'x', at: 'y' }), { id: 'abcd1234ef', name: 'ski-trip', color: '#2a62b0' });
+  for (const c of ['blue', 'pink-ish', '#FFF', '#2A62B0', 7]) assert.deepEqual(cleanTag({ id: 'abcd1234ef', name: 'été', color: c }), { id: 'abcd1234ef', name: 'été', color: '' }, `${c}: a colour that is not #rrggbb is plain`);
   for (const bad of [null, 'x', [], {}, { id: 'ABCD1234', name: 'a' }, { id: 'abc', name: 'a' }, { id: 'abcd1234ef', name: '' }, { id: 'abcd1234ef', name: '<b>x</b>' },
     { id: 'abcd1234ef', name: 'a&b' }, { id: 'abcd1234ef', name: 'x'.repeat(25) }, { id: 'abcd1234ef', name: 'a b' }, { id: 'abcd1234ef', name: 7 }, { id: '../../etc/pass', name: 'a' }]) {
     assert.equal(cleanTag(bad), null, JSON.stringify(bad));
@@ -76,12 +110,12 @@ test('the bridge: only a module that says "tags": true, only in a space, on its 
   const make = (module, scope, spaceId, keyed, guestToken, api) => new Function('module', 'scope', 'spaceId', 'keyed', 'guestToken', 'api', 'word', 'cleanTag', 'cleanTagList', 'URLSearchParams',
     `${place}\nreturn { ${handlers} };`)(module, scope, spaceId, keyed, guestToken, api, (w, o) => (o && o.a ? 'a space' : w), cleanTag, cleanTagList, URLSearchParams);
   const calls = [];
-  const api = async (method, url, body) => { calls.push({ method, url, body }); return method === 'GET' ? { tags: [{ id: 'abcd1234ef', name: 'a', color: 'red' }, { id: 'bad', name: '<i>' }] } : { tag: { id: 'abcd1234ef', name: 'ski', color: '' } }; };
+  const api = async (method, url, body) => { calls.push({ method, url, body }); return method === 'GET' ? { tags: [{ id: 'abcd1234ef', name: 'a', color: '#c0392b' }, { id: 'bad', name: '<i>' }] } : { tag: { id: 'abcd1234ef', name: 'ski', color: '' } }; };
   const h = make({ id: 'docs', tags: true }, 'space', 'sp1', null, null, api);
-  assert.deepEqual(await h['tags.list'](), [{ id: 'abcd1234ef', name: 'a', color: 'red' }], 'a malformed tag is left out');
+  assert.deepEqual(await h['tags.list'](), [{ id: 'abcd1234ef', name: 'a', color: '#c0392b' }], 'a malformed tag is left out');
   assert.equal(calls[0].url, '/api/spaces/sp1/tags?from=docs');
-  assert.deepEqual(await h['tags.add']({ name: 'ski', color: 'blue' }), { id: 'abcd1234ef', name: 'ski', color: '' });
-  assert.deepEqual(calls[1], { method: 'POST', url: '/api/spaces/sp1/tags', body: { from: 'docs', name: 'ski', color: 'blue' } }, 'the module is named by the host, never by the module');
+  assert.deepEqual(await h['tags.add']({ name: 'ski', color: '#2a62b0' }), { id: 'abcd1234ef', name: 'ski', color: '' });
+  assert.deepEqual(calls[1], { method: 'POST', url: '/api/spaces/sp1/tags', body: { from: 'docs', name: 'ski', color: '#2a62b0' } }, 'the module is named by the host, never by the module');
   await h['tags.add']({ name: 'ski' });
   assert.equal('color' in calls[2].body, false);
   await assert.rejects(() => h['tags.add']({ name: 5 }), (e) => e.status === 400);
@@ -116,8 +150,8 @@ test('the bridge: the mounts hand the flag over and for-space sends it; the stre
     new Function('module', 'scope', 'spaceId', 'keyed', 'send', 'cleanTag', 'TAG_OPS', 'd', 'type', `${ev.replace(/return;\n    }$/, '}')}`)(module, scope, spaceId, keyed, (e, x) => sent.push([e, x]), cleanTag, ['added', 'changed', 'removed'], d, 'tags');
     return sent;
   };
-  const tag = { id: 'abcd1234ef', name: 'ski', color: 'red', by: 'secret' };
-  assert.deepEqual(run({ tags: true }, 'space', 'sp1', { op: 'added', spaceId: 'sp1', tag }), [['tags', { op: 'added', tag: { id: 'abcd1234ef', name: 'ski', color: 'red' } }]]);
+  const tag = { id: 'abcd1234ef', name: 'ski', color: '#c0392b', by: 'secret' };
+  assert.deepEqual(run({ tags: true }, 'space', 'sp1', { op: 'added', spaceId: 'sp1', tag }), [['tags', { op: 'added', tag: { id: 'abcd1234ef', name: 'ski', color: '#c0392b' } }]]);
   assert.deepEqual(run({ tags: false }, 'space', 'sp1', { op: 'added', spaceId: 'sp1', tag }), [], 'a module that did not opt in');
   assert.deepEqual(run({ tags: true }, 'space', 'sp1', { op: 'added', spaceId: 'sp2', tag }), [], 'another space');
   assert.deepEqual(run({ tags: true }, 'environment', null, { op: 'added', spaceId: 'sp1', tag }), [], 'an environment page');
@@ -133,62 +167,66 @@ test('the bridge: the mounts hand the flag over and for-space sends it; the stre
 function sdkWith(callImpl) {
   const listeners = new Map();
   const hostStub = { on: (e, fn) => { if (!listeners.has(e)) listeners.set(e, new Set()); listeners.get(e).add(fn); }, util: { word: () => 'object' }, tags: null };
-  const el = () => ({ className: '', dataset: {}, children: [], textContent: '', appendChild(c) { this.children.push(c); return c; } });
-  const document = { createElement: () => el() };
+  const document = { createElement: () => fakeEl() };
   const calls = [];
   const call = async (m, p) => { calls.push([m, p]); return callImpl(m, p); };
-  const make = new Function('host', 'call', 'readyPromise', 'document', 'openMenu', 'closeMenu', 'editorAt', 'env', 'menuStep', 'window', 'menuIcon', `${makeSrc}\nreturn host.tags;`);
-  hostStub.tags = make(hostStub, call, Promise.resolve(), document, null, () => {}, () => null, { root: document, rootElement: {} }, () => 0, {}, async () => '<svg/>');
+  const make = new Function('host', 'call', 'readyPromise', 'document', 'openMenu', 'closeMenu', 'editorAt', 'env', 'menuStep', 'window', 'menuIcon', 'paintTag', `${makeSrc}\nreturn host.tags;`);
+  hostStub.tags = make(hostStub, call, Promise.resolve(), document, null, () => {}, () => null, { root: document, rootElement: {} }, () => 0, {}, async () => '<svg/>', paintTag);
   return { tags: hostStub.tags, calls, hear: (e, d) => { for (const fn of listeners.get(e) || []) fn(d); }, listeners };
 }
 const T = (id, name, color = '') => ({ id, name, color });
 
-test('host.tags: list is kept and current; chip uses textContent; filterOptions are toolbar options in the tag\'s tint', async () => {
-  const s = sdkWith(async (m) => (m === 'tags.list' ? [T('aaaaaaaa11', 'zebra', 'red'), T('bbbbbbbb22', 'apple'), { id: 'x', name: '<b>' }] : null));
+test('host.tags: list is kept and current; chip uses textContent in the tag\'s colour; filterOptions are toolbar options', async () => {
+  const s = sdkWith(async (m) => (m === 'tags.list' ? [T('aaaaaaaa11', 'zebra', '#c0392b'), T('bbbbbbbb22', 'apple'), T('cccccccc33', 'old', 'teal'), { id: 'x', name: '<b>' }] : null));
   assert.equal(s.tags.chip('aaaaaaaa11'), null, 'before list() there is nothing to draw');
   const list = await s.tags.list();
-  assert.deepEqual(list.map((t) => t.name), ['apple', 'zebra'], 'in name order, a bad shape left out');
+  assert.deepEqual(list.map((t) => t.name), ['apple', 'old', 'zebra'], 'in name order, a bad shape left out');
+  assert.equal(list[1].color, '', 'an old tone name is plain');
   await s.tags.list();
   assert.equal(s.calls.filter(([m]) => m === 'tags.list').length, 1, 'kept, not asked again');
   const chip = s.tags.chip('aaaaaaaa11');
   assert.equal(chip.className, 'sdk-chip-tag');
-  assert.equal(chip.dataset.tone, 'custom');
-  assert.equal(chip.dataset.tagTone, 'red');
+  assert.equal('tone' in chip.dataset, false);
+  assert.equal(chip.dataset.tagFill, '');
+  assert.equal(chip.style.get('--tag-fill'), '#c0392b');
+  assert.equal(chip.style.get('--tag-ink'), '#ffffff');
   assert.equal(chip.children[0].textContent, 'zebra', 'the name is text');
   assert.equal(s.tags.chip('bbbbbbbb22').dataset.tone, 'neutral');
   assert.equal(s.tags.chip('nope0000'), null, 'a dead id');
   assert.equal(s.tags.chip({}), null);
-  assert.deepEqual(s.tags.filterOptions({ aaaaaaaa11: 3, bbbbbbbb22: 0, cccccccc33: 9 }), [
+  assert.deepEqual(s.tags.filterOptions({ aaaaaaaa11: 3, bbbbbbbb22: 0, dddddddd99: 9 }), [
     { id: 'bbbbbbbb22', label: 'apple', default: false, count: 0 },
-    { id: 'aaaaaaaa11', label: 'zebra', default: false, count: 3, tint: 'red' },
-  ], 'only tags that are counts, in name order; a plain tag has no tint');
+    { id: 'aaaaaaaa11', label: 'zebra', default: false, count: 3 },
+  ], 'only tags that are counts, in name order; no tint (the toolbar takes tint names, a tag\'s colour is #rrggbb)');
   assert.deepEqual(s.tags.filterOptions(new Map([['bbbbbbbb22', 2]])).map((o) => o.id), ['bbbbbbbb22']);
   assert.deepEqual(s.tags.filterOptions(null), []);
   // The event first, then the module's: rename, recolour, delete, add.
-  s.hear('tags', { op: 'changed', tag: T('bbbbbbbb22', 'banana', 'teal') });
+  s.hear('tags', { op: 'changed', tag: T('bbbbbbbb22', 'banana', '#0b7a84') });
   assert.equal(s.tags.chip('bbbbbbbb22').children[0].textContent, 'banana');
-  assert.equal(s.tags.chip('bbbbbbbb22').dataset.tagTone, 'teal');
-  s.hear('tags', { op: 'removed', tag: T('aaaaaaaa11', 'zebra', 'red') });
+  assert.equal(s.tags.chip('bbbbbbbb22').style.get('--tag-fill'), '#0b7a84');
+  s.hear('tags', { op: 'removed', tag: T('aaaaaaaa11', 'zebra', '#c0392b') });
+  s.hear('tags', { op: 'removed', tag: T('cccccccc33', 'old') });
   assert.equal(s.tags.chip('aaaaaaaa11'), null);
   s.hear('tags', { op: 'added', tag: T('dddddddd44', 'new') });
   assert.deepEqual((await s.tags.list()).map((t) => t.name), ['banana', 'new']);
   s.hear('tags', { op: 'added', tag: { id: 'zz', name: '<i>' } });
   s.hear('tags', { op: 'weird', tag: T('eeeeeeee55', 'no') });
   assert.equal((await s.tags.list()).length, 2, 'a bad event changes nothing');
-  assert.equal((await s.tags.list({ fresh: true })).length, 2);
+  assert.equal((await s.tags.list({ fresh: true })).length, 3, 'fresh is what the server sends');
   assert.equal(s.calls.filter(([m]) => m === 'tags.list').length, 2, 'fresh asks again');
   assert.equal(s.listeners.get('tags').size, 1, 'the SDK listens once, first');
 });
 
-test('host.tags.add asks the page, refuses a colour that is not a tint before asking, and keeps what it made', async () => {
+test('host.tags.add asks the page, refuses a colour that is not #rrggbb before asking, and keeps what it made', async () => {
   const s = sdkWith(async (m, p) => (m === 'tags.list' ? [] : { id: 'ffffffff66', name: p.name, color: p.color }));
   await s.tags.list();
-  const t = await s.tags.add('ski', { color: 'blue' });
-  assert.deepEqual(t, T('ffffffff66', 'ski', 'blue'));
-  assert.deepEqual(s.calls.at(-1), ['tags.add', { name: 'ski', color: 'blue' }]);
+  const t = await s.tags.add('ski', { color: '#2A62B0' });
+  assert.deepEqual(t, T('ffffffff66', 'ski', '#2a62b0'));
+  assert.deepEqual(s.calls.at(-1), ['tags.add', { name: 'ski', color: '#2a62b0' }], 'sent lower case');
   assert.equal(s.tags.chip('ffffffff66').children[0].textContent, 'ski');
   const asked = s.calls.length;
-  await assert.rejects(() => s.tags.add('x', { color: '#ff0000' }), (e) => e.status === 400);
+  await assert.rejects(() => s.tags.add('x', { color: 'blue' }), (e) => e.status === 400);
+  await assert.rejects(() => s.tags.add('x', { color: '#f00' }), (e) => e.status === 400);
   await assert.rejects(() => s.tags.add('x', { color: 'chartreuse' }), (e) => e.status === 400);
   await assert.rejects(() => s.tags.add(42), (e) => e.status === 400);
   assert.equal(s.calls.length, asked, 'nothing was asked');
@@ -278,7 +316,7 @@ test('no tag text goes through innerHTML, and the picker is the SDK\'s own piece
   assert.equal(/innerHTML|insertAdjacentHTML|outerHTML/.test(makeSrc.replace('tick.innerHTML = svg;', '')), false, 'makeTags (the one exception is the tick: the host\'s own check icon, never a tag\'s text)');
   assert.equal((makeSrc.match(/innerHTML/g) || []).length, 1, 'one innerHTML, for the icon');
   assert.equal(/innerHTML|insertAdjacentHTML/.test(slice('public/module-host.js', "    async 'tags.list'() {", "      return tag;\n    },")), false, 'the bridge');
-  const tagsSet = slice('public/space-setup.js', '  const TAG_TONES = [', '  const TAB_HTML = {');
+  const tagsSet = slice('public/space-setup.js', '  const TAG_NO_COLOUR = ', '  const TAB_HTML = {');
   assert.equal(/innerHTML|insertAdjacentHTML/.test(tagsSet.replace(/function tagsSectionHtml[\s\S]*?\n  }\n/, '')), false, 'Set up\'s Tags section (its fixed intro aside)');
   assert.match(makeSrc, /menu\.className = 'sdk-menu sdk-tag-picker'/, 'the menu surface');
   assert.match(makeSrc, /search\.className = 'sdk-search'/, 'the search field');
@@ -291,7 +329,7 @@ test('no tag text goes through innerHTML, and the picker is the SDK\'s own piece
 });
 
 test('Set up\'s Tags section: the server\'s routes, asked before deleting, the server\'s sentence, not for the Lobby', () => {
-  const src = slice('public/space-setup.js', '  const TAG_TONES = [', '  const TAB_HTML = {');
+  const src = slice('public/space-setup.js', '  const TAG_NO_COLOUR = ', '  const TAB_HTML = {');
   assert.match(src, /api\('PATCH', tagsPath\(spaceId, tag\.id\), patch\)/);
   assert.match(src, /api\('DELETE', tagsPath\(spaceId, tag\.id\)\)/);
   assert.match(src, /api\('GET', tagsPath\(space\.id\)\)/);
@@ -303,6 +341,12 @@ test('Set up\'s Tags section: the server\'s routes, asked before deleting, the s
   assert.match(setup, /loadModuleSettings\(space\); if \(!space\.isLobby\) loadTags\(space\);/);
   assert.match(src, /name\.value = t\.name;/);
   assert.match(src, /chip\.textContent = t\.name;/);
+  assert.match(src, /paintTagChip\(chip, t\.color\);/, 'the read-only chip is drawn by the SDK\'s paintTag');
+  assert.match(src, /window\.hostColour\.paintTag\(chip, color\)/);
+  assert.match(src, /window\.hostColour\.field\(colour, \{ opacity: false, none: TAG_NO_COLOUR,/, 'the colour is the SDK\'s colour field, no opacity');
+  assert.match(src, /const TAG_NO_COLOUR = 'No colour';/);
+  assert.match(src, /changeTag\(t, \{ color: '' \}/, '"No colour" sends an empty colour');
+  assert.match(src, /plain\.disabled = !t\.color;/);
   assert.equal(/\.post|POST/.test(src), false, 'a tag is made from a module\'s picker, not here');
 });
 

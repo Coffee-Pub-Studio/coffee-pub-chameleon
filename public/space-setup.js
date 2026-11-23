@@ -707,7 +707,14 @@ export function createSpaceSetup(deps) {
   // Roles grid lets (the "Rename, recolour and delete tags" right: moderators and owners by default, the admin always). Not a
   // draft: each change goes to the server at once (PATCH or DELETE /api/spaces/:id/tags/:tag) and the server decides and
   // answers in a sentence; a tag is made from a module's tag picker, not here. A name is set with textContent or .value.
-  const TAG_TONES = ['gold', 'blue', 'green', 'teal', 'purple', 'red', 'orange', 'pink'];
+  // A tag's colour (plan-colour-picker.md, decision 30) is set with the SDK's colour picker (window.hostColour.field, no opacity),
+  // '#rrggbb', with "No colour" beside it for the plain chip; the chip is drawn by the SDK's paintTag. Without the SDK on the page
+  // the colour stays a text field holding the hex.
+  const TAG_NO_COLOUR = 'No colour';
+  const paintTagChip = (chip, color) => {
+    if (window.hostColour && typeof window.hostColour.paintTag === 'function') window.hostColour.paintTag(chip, color);
+    else chip.dataset.tone = 'neutral';
+  };
   function tagsSectionHtml() {
     return sectionHtml('tags', 'Tags', `<p class="hint">The shared tags of this ${esc(spaceWord())}, used by every ${esc(word('module'))} that has them. A new name or colour shows on everything tagged; deleting a tag takes it off everything.</p><div class="setup-tags" id="setup-tags" role="list"><p class="hint">Loading…</p></div><p class="setup-tags-status status" id="setup-tags-status" role="status" aria-live="polite"></p>`);
   }
@@ -739,8 +746,7 @@ export function createSpaceSetup(deps) {
       if (!may) {
         const chip = doc.createElement('span');
         chip.className = 'sdk-chip-tag';
-        chip.dataset.tone = t.color ? 'custom' : 'neutral';
-        if (t.color) chip.dataset.tagTone = t.color;
+        paintTagChip(chip, t.color);
         chip.textContent = t.name;
         row.appendChild(chip);
         box.appendChild(row);
@@ -753,41 +759,57 @@ export function createSpaceSetup(deps) {
       name.autocomplete = 'off';
       name.value = t.name;
       name.setAttribute('aria-label', `Name of the tag ${t.name}`);
-      name.addEventListener('change', () => changeTag(t, { name: name.value }, name));
-      const tone = doc.createElement('select');
-      tone.className = 'setup-tag-tone';
-      tone.setAttribute('aria-label', `Colour of the tag ${t.name}`);
-      for (const c of ['', ...TAG_TONES]) {
-        const o = doc.createElement('option');
-        o.value = c;
-        o.textContent = c ? c[0].toUpperCase() + c.slice(1) : 'Plain';
-        tone.appendChild(o);
-      }
-      tone.value = t.color || '';
-      tone.addEventListener('change', () => changeTag(t, { color: tone.value }, tone));
+      name.addEventListener('change', () => changeTag(t, { name: name.value }, '.setup-tag-name'));
+      const tone = doc.createElement('span');
+      tone.className = 'setup-tag-field'; // sized by what it shows: the swatch and the hex, or "No colour"
+      const colour = doc.createElement('input');
+      colour.type = 'text';
+      colour.className = 'setup-tag-colour';
+      colour.maxLength = 7;
+      colour.autocomplete = 'off';
+      colour.spellcheck = false;
+      colour.value = t.color || '';
+      colour.setAttribute('aria-label', `Colour of the tag ${t.name}`);
+      colour.addEventListener('change', () => changeTag(t, { color: colour.value.trim() }, '.setup-tag-field .sdk-picker, .setup-tag-colour'));
+      tone.appendChild(colour);
+      const plain = doc.createElement('button');
+      plain.type = 'button';
+      plain.className = 'btn btn-small setup-tag-plain';
+      plain.textContent = TAG_NO_COLOUR;
+      plain.setAttribute('aria-label', `No colour for the tag ${t.name}`);
+      plain.disabled = !t.color;
+      plain.addEventListener('click', () => changeTag(t, { color: '' }, '.setup-tag-field .sdk-picker, .setup-tag-colour'));
       const del = doc.createElement('button');
       del.type = 'button';
       del.className = 'btn btn-small btn-danger';
       del.setAttribute('aria-label', `Delete the tag ${t.name}`);
       del.textContent = 'Delete';
       del.addEventListener('click', () => deleteTag(t));
-      row.append(name, tone, del);
+      row.append(name, tone, plain, del);
       box.appendChild(row);
+      if (window.hostColour) window.hostColour.field(colour, { opacity: false, none: TAG_NO_COLOUR, label: `Colour of the tag ${t.name}` });
     }
   }
-  async function changeTag(tag, patch, field) {
+  // `back`: where the keyboard goes in the tag's row once the list is drawn again (after a colour, and after a refusal).
+  async function changeTag(tag, patch, back) {
     const spaceId = state.space.id;
     try {
       const answer = await api('PATCH', tagsPath(spaceId, tag.id), patch);
       if (!state || state.space.id !== spaceId) return;
       state.tags = state.tags.map((t) => (t.id === tag.id ? { id: answer.tag.id, name: answer.tag.name, color: answer.tag.color } : t)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-      tagsSay(patch.name !== undefined ? `Renamed to ${answer.tag.name}.` : 'Colour changed.');
+      tagsSay(patch.name !== undefined ? `Renamed to ${answer.tag.name}.` : answer.tag.color ? 'Colour changed.' : 'Colour taken off.');
       paintTags();
+      if (patch.color !== undefined) tagFocus(tag.id, back);
     } catch (err) {
       tagsSay(err.message, true); // the server's sentence
       paintTags(); // the field goes back to what is kept
-      if (field) { const again = q(`.setup-tag-row[data-tag="${tag.id}"] ${field.tagName === 'SELECT' ? 'select' : 'input'}`); if (again) again.focus(); }
+      tagFocus(tag.id, back);
     }
+  }
+  function tagFocus(id, sel) {
+    const row = sel ? q(`.setup-tag-row[data-tag="${id}"]`) : null;
+    const again = row && [...row.querySelectorAll(sel)].find((f) => f.getClientRects().length > 0);
+    if (again) again.focus();
   }
   async function deleteTag(tag) {
     const spaceId = state.space.id;
@@ -1977,7 +1999,7 @@ export function createSpaceSetup(deps) {
     phases: '#setup-phase-list input:not(:disabled), #setup-phase-list .phase-add',
     call: '#setup-call-join, #setup-profile',
     layout: '#setup-layout-rows [data-layout-show]:not(:disabled), #setup-first-visit input:checked, #setup-first-visit input:not(:disabled), #setup-open',
-    modules: '#setup-ai-off, #setup-tags input, #setup-tags select, #setup-module-settings input, #setup-module-settings select, #setup-fixed-modules input:not(:disabled)',
+    modules: '#setup-ai-off, #setup-tags input, #setup-module-settings input, #setup-module-settings select, #setup-fixed-modules input:not(:disabled)',
   };
   const shownField = (sel) => [...el.querySelectorAll(sel || ':not(*)')].find((f) => f.getClientRects().length > 0 && !f.disabled) || null;
   function focusFirst() {
