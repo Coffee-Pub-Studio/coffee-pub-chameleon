@@ -21,7 +21,7 @@ const NAMES = ['DL', 'dlCleanText', 'dlTrimBreaks', 'dlCleanLine', 'dlCut', 'dlC
   'dlObjectLinks', 'dlDescribedText', 'dlDecodeText', 'dlEscapeLabel', 'DL_MARKED_MATH', 'DL_MARKED_HOOKS', 'dlPlain', 'dlExportMarkdown', 'dlExportName', 'dlCleanTrash', 'dlTrashKey', 'dlTrashExpired', 'dlBold', 'dlItalic', 'dlCode', 'dlList', 'dlNumbered', 'dlChecklist', 'dlQuote',
   'dlHeading', 'dlLink', 'dlObjectLink', 'dlGrid', 'dlFormula',
   'DL_SAVE', 'dlPlanSave', 'dlIsDirty', 'dlCommitResult', 'dlAutosaveDelay', 'dlWriteWait', 'dlSaveWord',
-  'DL_PAPERS', 'DL_PAPER_DEFAULT', 'dlCleanPaper', 'dlPaperMenuModel', 'dlContrast', 'dlInkFor', 'dlHexRgb',
+  'DL_PAPERS', 'DL_PAPER_DEFAULT', 'dlCleanPaper', 'dlPaperHex', 'dlContrast', 'dlInkFor', 'dlHexRgb',
   'dlPreview', 'dlCleanPreview', 'dlThumbText', 'DL_LISTVIEWS', 'dlCleanListView', 'DL_EDITVIEWS', 'dlEditViewId', 'dlEditViewIsRich',
   'dlTagsKey', 'dlCleanTagIds', 'dlCleanTags', 'dlKnownTagIds', 'dlTagsDelta', 'dlTagsApply', 'dlTagsCommit', 'dlTagCounts', 'dlTagsMatch', 'DL_TAGS_MAX',
   'dlResyncPlan', 'dlResyncAfterHidden', 'DL_VIEW', 'dlCleanView', 'dlViewStore', 'dlViewRead', 'dlViewLabel', 'dlViewSheet', 'dlViewStep', 'dlViewKey',
@@ -678,11 +678,14 @@ test('format: link, object link, grid, formula', () => {
   });
 }
 
-test('page colour: cleaning keeps known ids only, the default otherwise', () => {
+test('page colour: cleaning keeps a named colour or a picked #rrggbb, the default otherwise', () => {
   for (const p of L.DL_PAPERS) assert.equal(L.dlCleanDoc({ ...doc, paper: p.id }).paper, p.id);
   const { paper, ...old } = doc;
   assert.equal(L.dlCleanDoc(old).paper, 'light-white', 'a record without the field is white');
-  for (const v of ['red', 'LIGHT-WHITE', '#000', 'url(x)', '', 5, null, {}, [], 'light-white;x']) assert.equal(L.dlCleanDoc({ ...doc, paper: v }).paper, L.DL_PAPER_DEFAULT, JSON.stringify(v));
+  for (const v of ['#1a2b3c', '#ffffff', '#000000']) assert.equal(L.dlCleanDoc({ ...doc, paper: v }).paper, v, `a picked colour ${v} is kept`);
+  for (const v of ['red', 'LIGHT-WHITE', '#000', '#1A2B3C', '#1a2b3c ', '#1a2b3c;x', '#1a2b3cff', 'url(x)', '', 5, null, {}, [], 'light-white;x']) assert.equal(L.dlCleanDoc({ ...doc, paper: v }).paper, L.DL_PAPER_DEFAULT, JSON.stringify(v));
+  assert.equal(L.dlPaperHex('#1a2b3c'), '#1a2b3c');
+  for (const v of ['light-white', '#ABCDEF', '#abc', 'abcdef', null]) assert.equal(L.dlPaperHex(v), null, JSON.stringify(v));
   assert.equal(L.DL_PAPER_DEFAULT, 'light-white');
   assert.ok(L.DL_PAPERS.length >= 3 && L.DL_PAPERS.length <= 8);
 });
@@ -691,17 +694,9 @@ test('page colour: a save carries it, and a change makes the page dirty', () => 
   assert.equal(L.dlPlanSave(base).record.paper, 'light-white');
   assert.equal(L.dlPlanSave({ ...base, paper: 'dark-slate' }).record.paper, 'dark-slate');
   assert.equal(L.dlPlanSave({ ...base, paper: 'bogus' }).record.paper, 'light-white');
+  assert.equal(L.dlPlanSave({ ...base, paper: '#2f6cbf' }).record.paper, '#2f6cbf', 'a picked colour is saved');
   assert.equal(L.dlIsDirty({ text: 'a', title: 't', paper: 'light-white' }, { text: 'a', title: 't', paper: 'dark-black' }), true);
   assert.equal(L.dlIsDirty({ text: 'a', title: 't', paper: 'light-white' }, { text: 'a', title: 't', paper: 'light-white' }), false);
-});
-test('page colour: the menu model has both groups and every colour once', () => {
-  const m = L.dlPaperMenuModel();
-  assert.deepEqual(m.filter((e) => e.kind === 'heading').map((e) => e.label), ['Light colours', 'Dark colours']);
-  assert.deepEqual(m.filter((e) => e.kind === 'paper').map((e) => e.id).sort(), L.DL_PAPERS.map((p) => p.id).sort());
-  assert.equal(m[0].kind, 'heading');
-  assert.equal(m.find((e) => e.id === 'light-white').label, 'Pure White');
-  const heads = m.map((e, i) => (e.kind === 'heading' ? i : -1)).filter((i) => i >= 0);
-  assert.ok(m.slice(heads[0] + 1, heads[1]).every((e) => L.DL_PAPERS.find((p) => p.id === e.id).family === 'light'));
 });
 test('page colour: the ink reads at 4.5:1 or better on every colour (values read from documents.css)', () => {
   const css = fs.readFileSync(path.join(src, 'documents.css'), 'utf8');

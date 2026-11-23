@@ -357,10 +357,10 @@ try {
     assert.equal(lobby.name, 'Home base', 'the Lobby\'s name, ticked, taken');
     const home = (await call(server, 'beta', 'GET', '/api/modules/for-space?space=lobby', { cookie: owner })).json;
     assert.deepEqual(home.modules.map((m) => m.id), ['calendar'], 'the Planner is not in "Home base"');
-    assert.deepEqual(home.layout, { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'the Lobby reads the environment\'s template: the Planner and the Vault');
+    assert.deepEqual(home.layout, { shape: 'wide-split', areas: ['travel', 'vault', 'todo'] }, 'the Lobby reads the environment\'s template: the Planner, the Vault and To-do');
     // The layout is the template's, on a hosted environment as on a single one: nobody sets it on a space.
     await call(server, 'beta', 'PATCH', '/api/spaces/lobby', { cookie: owner, body: { layout: { shape: 'one', areas: [null] } } });
-    assert.deepEqual((await call(server, 'beta', 'GET', '/api/modules/for-space?space=lobby', { cookie: owner })).json.layout, { shape: 'wide-narrow', areas: ['travel', 'vault'] }, 'and nothing changed');
+    assert.deepEqual((await call(server, 'beta', 'GET', '/api/modules/for-space?space=lobby', { cookie: owner })).json.layout, { shape: 'wide-split', areas: ['travel', 'vault', 'todo'] }, 'and nothing changed');
     assert.equal((await call(server, 'beta', 'GET', '/api/environment', { cookie: owner })).json.template.id, 'travel');
     const history = readJson(path.join(hosted, 'environments', 'beta', 'app.json')).templateHistory;
     assert.deepEqual(history.map((h) => [h.from, h.to, h.by]), [['default', 'travel', 'host']]);

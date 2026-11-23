@@ -361,7 +361,10 @@ try {
     assert.equal(viaNull.status, 200);
     assert.equal('template' in stored(viaNull.json.space.id), false);
     assert.equal((await owner.as('POST', '/api/spaces', { name: 'By owner', template: 'games' })).json.space.template, 'games');
-    assert.equal((await mia.as('POST', '/api/spaces', { name: 'By member', template: 'games' })).status, 403, 'a member cannot add a space at all');
+    const byMember = await mia.as('POST', '/api/spaces', { name: 'By member', template: 'games' });
+    assert.equal(byMember.status, 200, 'a member adds a space with a template offered (Thomas, 2026-11-23)');
+    assert.equal(byMember.json.space.template, 'games');
+    assert.equal((await mia.as('POST', '/api/spaces', { name: 'X', template: 'nope' })).status, 400, 'and only one offered');
   });
 
   await test('reads: GET /api/spaces and /api/spaces/:id carry the template; the owner and a moderator read the look', async () => {

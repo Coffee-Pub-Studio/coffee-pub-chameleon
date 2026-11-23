@@ -6,7 +6,8 @@ import '/slot-paste.js'; // paste a picture into any image slot
 import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, markAllDups, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
 import { mountTemplateLayout, templateLayoutModules } from '/template-layout.js';
-import { addSpaceFlow, moduleShift } from '/template-choice.js';
+import { moduleShift } from '/template-choice.js';
+import { openSpaceAdd } from '/space-add.js';
 import { confirmDialog } from '/confirm.js';
 import { fileText } from '/file-text.js';
 import { rowTabs } from '/page-tabs.js';
@@ -191,7 +192,7 @@ function selectTab(name) {
   if (tab === 'users' && users.length) loadFeeds().then(renderUsers);
   if (inTab) {
     at.scrollIntoView({ block: 'start' });
-    // The section's first field, or the control itself (#add-space, "+ New <space>" in the top bar's switcher).
+    // The section's first field, or the control itself (#add-space).
     const field = at.matches('input, select, button, summary') ? at : at.querySelector('input[type="text"]') || at.querySelector('input, select, button, summary');
     if (field) field.focus({ preventScroll: true });
   }
@@ -614,19 +615,10 @@ $('spaces').addEventListener('click', (event) => {
   saveSpaceOrder();
 });
 
+// Add <space>: the one form (space-add.js; the top bar's "+ New <space>" and Home's Add open it too). A refusal reads in the form.
 $('add-space').addEventListener('click', async () => {
-  try {
-    // With the choice on, a small dialog asks for the Template first (template-choice.js); a refusal reads there.
-    await addSpaceFlow({
-      api, word,
-      run: async (chosen) => {
-        const { space } = await api('POST', '/api/spaces', { name: `${word('space', { cap: true })} ${spaces.length}`, description: '', members: [], ...chosen });
-        openSetup(space.id); // into the new space with Set up open: its name, members and picture right away
-      },
-    });
-  } catch (err) {
-    say($('spaces-status'), err.message, true);
-  }
+  const space = await openSpaceAdd({ api, word, owner: true, self: me?.key || '' });
+  if (space) openSetup(space.id); // into the new space with Set up open: its picture and the rest right away
 });
 
 $('add-user').addEventListener('submit', async (event) => {
@@ -932,20 +924,52 @@ function selectedColors() {
   const theme = selectedTheme() || defaultTheme;
   return theme[selectedMode] || theme.light || theme.dark;
 }
+// The theme's colour fields: the SDK's colour picker on each (window.hostColour, from /sdk/host.js; plan-colour-picker.md, no native
+// colour input anywhere). Each <input id="theme-..."> stays, hidden, holding '#rrggbb'; its trigger shows the colour. A theme colour
+// keeps no opacity (server/store.js cleanColor takes #rrggbb only), so the picker shows no Opacity slider. While a picker is open the
+// colour being dragged is previewed (themeLive, never saved); the colour chosen lands in the input and sends `input`, as before.
+const themeFieldOf = new Map(); // input id -> the colour field on it
+const themeLive = new Map(); // input id -> the colour its open picker shows, not chosen yet
+const themeValue = (id) => themeLive.get(id) ?? $(id).value;
+// Puts a colour in a field without telling anyone (loading a theme, an Auto field's worked-out colour, Auto-fix).
+function setThemeInput(id, hex) {
+  const field = themeFieldOf.get(id);
+  if (!field || !field.set(hex)) $(id).value = hex;
+}
+let themeLiveFrame = 0;
+function previewThemeLive() {
+  if (themeLiveFrame) return;
+  themeLiveFrame = requestAnimationFrame(() => { themeLiveFrame = 0; previewThemeEdit(); });
+}
+// A field's name for the picker: its label's words, read when it is made (the {module} word is filled in by setWords).
+const themeLabelOf = (id) => ($(id).closest('label')?.textContent || '').replace(/\s+/g, ' ').trim() || 'Colour';
+function makeThemeField(id) {
+  const input = $(id);
+  if (!window.hostColour) return; // without the SDK the input stays a text field holding the hex
+  themeFieldOf.get(id)?.destroy();
+  themeFieldOf.set(id, window.hostColour.field(input, {
+    opacity: false,
+    label: themeLabelOf(id),
+    onInput: (a) => {
+      if (a.color === input.value.toLowerCase()) themeLive.delete(id); else themeLive.set(id, a.color);
+      previewThemeLive();
+    },
+  }));
+}
 function loadThemeInputsFrom(colors) {
-  for (const [id, , key] of THEME_FIELDS) $(id).value = colors[key];
+  for (const [id, , key] of THEME_FIELDS) setThemeInput(id, colors[key]);
   for (const [id, , key] of THEME_OPTIONAL_FIELDS) {
     const auto = !colors[key];
     autoBox(id).checked = auto;
     $(id).disabled = auto;
-    if (!auto) $(id).value = colors[key];
+    if (!auto) setThemeInput(id, colors[key]);
   }
 }
 // The set the inputs show now: every base colour, and each optional one or null when it is on Auto.
 function currentThemeSet() {
   const set = {};
-  for (const [id, , key] of THEME_FIELDS) set[key] = $(id).value;
-  for (const [id, , key] of THEME_OPTIONAL_FIELDS) set[key] = isAuto(id) ? null : $(id).value;
+  for (const [id, , key] of THEME_FIELDS) set[key] = themeValue(id);
+  for (const [id, , key] of THEME_OPTIONAL_FIELDS) set[key] = isAuto(id) ? null : themeValue(id);
   return set;
 }
 // Every property the preview has put on :root, so that leaving the preview takes exactly those off again.
@@ -960,12 +984,12 @@ const setPreviewVar = (name, value) => { document.documentElement.style.setPrope
 // persists it. Not previewing, the colors go on only long enough to read the Auto fields' values, and come off again
 // before the page paints.
 function updateThemePreview() {
-  for (const [id, cssVar] of THEME_FIELDS) setPreviewVar(cssVar, $(id).value);
+  for (const [id, cssVar] of THEME_FIELDS) setPreviewVar(cssVar, themeValue(id));
   for (const [id, cssVar, key, formula] of THEME_OPTIONAL_FIELDS) {
     const auto = isAuto(id);
-    setPreviewVar(cssVar, auto ? autoCssFor(key, formula) : $(id).value);
+    setPreviewVar(cssVar, auto ? autoCssFor(key, formula) : themeValue(id));
     const old = TC.LEGACY[key]; // the old token the server also writes for this role (theme-colour.js LEGACY)
-    if (old) setPreviewVar(old, auto ? TC.LEGACY_AUTO[old] : $(id).value);
+    if (old) setPreviewVar(old, auto ? TC.LEGACY_AUTO[old] : themeValue(id));
   }
   // What the server picks for this set (text on the accent and on the status fills, the accent and status colours as text).
   const got = TC.resolve(currentThemeSet(), selectedMode);
@@ -978,9 +1002,9 @@ function updateThemePreview() {
   for (const [id, cssVar, key] of THEME_OPTIONAL_FIELDS) {
     if (!isAuto(id)) continue;
     const old = TC.LEGACY[key];
-    $(id).value = old === '--icon'
+    setThemeInput(id, old === '--icon'
       ? toHex(computedColor('var(--icon, color-mix(in srgb, var(--header-text) 75%, transparent))'))
-      : resolvedVar(old || cssVar);
+      : resolvedVar(old || cssVar));
   }
   if (!previewing) clearThemePreview();
 }
@@ -1059,12 +1083,15 @@ function renderThemeContrast() {
 $('theme-contrast').addEventListener('click', (event) => {
   const fix = event.target.closest('[data-fix-on-accent]');
   if (!fix) return;
-  $('theme-on-accent').value = fix.dataset.fixOnAccent;
+  setThemeInput('theme-on-accent', fix.dataset.fixOnAccent);
   previewThemeEdit();
 });
-for (const [id] of THEME_FIELDS) $(id).addEventListener('input', previewThemeEdit);
+// A colour chosen in a picker: what it showed live is now the field's own.
+const themeChosen = (id) => () => { themeLive.delete(id); previewThemeEdit(); };
+for (const [id] of [...THEME_FIELDS, ...THEME_OPTIONAL_FIELDS]) makeThemeField(id);
+for (const [id] of THEME_FIELDS) $(id).addEventListener('input', themeChosen(id));
 for (const [id] of THEME_OPTIONAL_FIELDS) {
-  $(id).addEventListener('input', previewThemeEdit);
+  $(id).addEventListener('input', themeChosen(id));
   autoBox(id).addEventListener('change', () => {
     $(id).disabled = autoBox(id).checked;
     previewThemeEdit();
@@ -1123,6 +1150,8 @@ function showSelectedTheme() {
   updateThemePreview();
 }
 async function loadThemes() {
+  // The fields whose label holds a word of the environment's ({module}) are named again, now that setWords has filled it in.
+  for (const [id] of [...THEME_FIELDS, ...THEME_OPTIONAL_FIELDS]) if ($(id).closest('label')?.querySelector('[data-word]')) makeThemeField(id);
   const data = await api('GET', '/api/themes');
   themes = data.themes;
   defaultTheme = data.defaultTheme;
@@ -1478,18 +1507,25 @@ function moduleCard(m, shape = 'full') {
   const staleVersions = new Set(m.outdatedVersions || (m.outdated ? [m.version] : []));
   // What a requirement needs to be turned on first (one built for an older version of the product is in needsUpdate instead).
   const nameOf = (r) => escapeHtml(shownName(installedModules.find((x) => x.id === r)) || r);
+  // On, and its update asks for something new: it runs with what was approved before, and each new ask is marked until
+  // an owner approves it (Approve, in its head).
+  const onWaiting = m.enabled && m.needsApproval;
+  const pending = m.pending || {};
+  const isNew = (list, key) => onWaiting && (pending[list] || []).includes(key);
+  const anyNew = (list, keys) => onWaiting && keys.some((k) => (pending[list] || []).includes(k));
+  const newTag = (yes) => (yes ? ' <span class="sdk-status" data-tone="warn">New, not approved yet</span>' : '');
   const asks = [
-    ...m.permissions.map((p) => `<li><strong>${escapeHtml(p.label)}</strong> <span class="hint">permission, appears in Roles</span></li>`),
-    ...(m.hooks.schedule ? ['<li><strong>Run things on a schedule</strong> <span class="hint">reminders and timed events</span></li>'] : []),
-    ...(m.hooks.notify ? ['<li><strong>Send notifications</strong> <span class="hint">to people using it</span></li>'] : []),
-    ...(m.hooks.external ? ['<li><strong>See each person\'s own other calendars</strong> <span class="hint">only to them</span></li>'] : []),
-    ...(m.events && m.events.subscribes.length ? [`<li><strong>Hear what happens in other ${escapeHtml(word('module', { many: true }))}</strong> <span class="hint">${escapeHtml(m.events.subscribes.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: their events, only for people who can see them</span></li>`] : []),
-    ...(m.actions && m.actions.uses.length ? [`<li><strong>Ask other ${escapeHtml(word('module', { many: true }))} to do things</strong> <span class="hint">${escapeHtml(m.actions.uses.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: each request is carried out by the ${escapeHtml(word('module'))} that owns the action</span></li>`] : []),
-    ...(m.refs && m.refs.consumes.length ? [`<li><strong>Link to other ${escapeHtml(word('module', { many: true }))}' ${escapeHtml(word('object', { many: true }))}</strong> <span class="hint">${escapeHtml(m.refs.consumes.map((c) => c.replace(':', ' ')).join(', '))}, shown only to people who can already see them</span></li>`] : []),
+    ...m.permissions.map((p) => `<li><strong>${escapeHtml(p.label)}</strong> <span class="hint">permission, appears in Roles</span>${newTag(isNew('permissions', p.key))}</li>`),
+    ...(m.hooks.schedule ? [`<li><strong>Run things on a schedule</strong> <span class="hint">reminders and timed events</span>${newTag(isNew('hooks', 'schedule'))}</li>`] : []),
+    ...(m.hooks.notify ? [`<li><strong>Send notifications</strong> <span class="hint">to people using it</span>${newTag(isNew('hooks', 'notify'))}</li>`] : []),
+    ...(m.hooks.external ? [`<li><strong>See each person's own other calendars</strong> <span class="hint">only to them</span>${newTag(isNew('hooks', 'external'))}</li>`] : []),
+    ...(m.events && m.events.subscribes.length ? [`<li><strong>Hear what happens in other ${escapeHtml(word('module', { many: true }))}</strong> <span class="hint">${escapeHtml(m.events.subscribes.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: their events, only for people who can see them</span>${newTag(anyNew('events', m.events.subscribes))}</li>`] : []),
+    ...(m.actions && m.actions.uses.length ? [`<li><strong>Ask other ${escapeHtml(word('module', { many: true }))} to do things</strong> <span class="hint">${escapeHtml(m.actions.uses.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: each request is carried out by the ${escapeHtml(word('module'))} that owns the action</span>${newTag(anyNew('actions', m.actions.uses))}</li>`] : []),
+    ...(m.refs && m.refs.consumes.length ? [`<li><strong>Link to other ${escapeHtml(word('module', { many: true }))}' ${escapeHtml(word('object', { many: true }))}</strong> <span class="hint">${escapeHtml(m.refs.consumes.map((c) => c.replace(':', ' ')).join(', '))}, shown only to people who can already see them</span>${newTag(anyNew('refs', m.refs.consumes))}</li>`] : []),
   ];
   const modeTag = m.runMode === 'page' ? '<span class="sdk-status" data-tone="warn">In the page</span>' : '<span class="sdk-status">Sandboxed</span>';
   // The state: one switch (#264); a module built for an older version of the product can't be turned on, so it says so.
-  const control = m.outdated ? '<span class="sdk-status" data-tone="warn">Needs an update</span>' : `${m.needsApproval && !m.enabled ? '<span class="sdk-status" data-tone="warn">Needs approval</span> ' : ''}${enabledSwitch({ id: m.id, attr: 'data-module-enabled', name: shownName(m), on: m.enabled, disabled: !m.enabled && Boolean(m.missing?.length || m.needsUpdate?.length) })}`;
+  const control = m.outdated ? '<span class="sdk-status" data-tone="warn">Needs an update</span>' : `${m.needsApproval ? '<span class="sdk-status" data-tone="warn">Needs approval</span> ' : ''}${onWaiting ? '<button class="btn btn-primary btn-small" data-module-action="approve" type="button">Approve</button> ' : ''}${enabledSwitch({ id: m.id, attr: 'data-module-enabled', name: shownName(m), on: m.enabled, disabled: !m.enabled && Boolean(m.missing?.length || m.needsUpdate?.length) })}`;
   const several = m.versions.length > 1; // the picker lists every kept version, the running one selected
   const name = escapeHtml(shownName(m));
   const head = `
@@ -1501,7 +1537,7 @@ function moduleCard(m, shape = 'full') {
     </div>`;
   const about = `${m.description ? `<p>${escapeHtml(m.description)}</p>` : ''}${m.hooks?.ai === 'optional' && m.id !== AI_MODULE ? `<p class="hint">Can use <a href="#modules/${AI_MODULE}">${escapeHtml(shownNameOf(AI_MODULE))}</a>.</p>` : ''}`;
   const approvals = `
-    <p class="hint">${asks.length ? (m.needsApproval ? 'Asks for these -- enabling approves them:' : 'Approved to:') : 'Asks for nothing beyond showing itself.'}</p>
+    <p class="hint">${asks.length ? (onWaiting ? 'Approved to these, except the ones marked new. It runs without those until you approve them:' : m.needsApproval ? 'Asks for these -- enabling approves them:' : 'Approved to:') : 'Asks for nothing beyond showing itself.'}</p>
     ${asks.length ? `<ul class="module-asks">${asks.join('')}</ul>` : ''}
     <div class="module-runmode">
       <p class="hint"><strong>${m.runMode === 'page' ? 'Runs in the page' : 'Runs sandboxed'}</strong>${m.source === 'bundled' ? ', ships with this server' : ', uploaded'}. ${m.runMode === 'page' ? `It can read and change anything on the page, including what you can see and do. Only allow that for ${escapeHtml(word('module', { a: true }))} you trust.` : `It is walled off in its own frame and can only reach the host through its approved permissions. ${escapeHtml(word('module', { a: true, cap: true }))} in a frame cannot take part in drag and drop between ${escapeHtml(word('module', { many: true }))}.`}</p>
@@ -1539,7 +1575,7 @@ function moduleCard(m, shape = 'full') {
   if (newer) {
     const note = document.createElement('div');
     note.className = 'module-update';
-    note.innerHTML = `<span class="sdk-status" data-tone="warn">Newer version available: ${escapeHtml(newer.version)}. You have ${escapeHtml(m.version)}.</span> <button class="btn btn-primary btn-small" data-bundled-action="install" data-bundled-id="${escapeHtml(newer.id)}" type="button">Update</button> <span class="hint">Your data stays as it is, and you can switch back${shape === 'full' ? ' below' : ` on its tab`}. If it asks for anything new you approve it first.</span>`;
+    note.innerHTML = `<span class="sdk-status" data-tone="warn">Newer version available: ${escapeHtml(newer.version)}. You have ${escapeHtml(m.version)}.</span> <button class="btn btn-primary btn-small" data-bundled-action="install" data-bundled-id="${escapeHtml(newer.id)}" type="button">Update</button> <span class="hint">Your data stays as it is, it stays on if it is on, and you can switch back${shape === 'full' ? ' below' : ` on its tab`}. If it asks for anything new, it runs without that until you approve it.</span>`;
     (el.querySelector('.module-outdated') || el.querySelector('.module-head')).after(note);
   }
   return el;
@@ -1941,7 +1977,7 @@ $('tab-modules').addEventListener('click', async (event) => {
     const { module } = await api('POST', `/api/modules/bundled/${encodeURIComponent(button.dataset.bundledId)}/install`);
     await loadModules();
     await loadRoles();
-    sayModules(`${shownName(module)} ${module.version} installed${module.enabled ? '' : ' -- review it below, then turn it on'}`);
+    sayModules(`${shownName(module)} ${module.version} installed${module.enabled ? (module.needsApproval ? '. It asks for something new: approve it, or it runs without that' : '') : ' -- review it below, then turn it on'}`);
   } catch (err) {
     sayModules(err.message, true);
     button.disabled = false;
@@ -1957,7 +1993,7 @@ $('module-install').addEventListener('click', async () => {
     $('module-file').value = '';
     await loadModules();
     await loadRoles(); // a module's permissions join the Roles grid when it is on
-    say($('modules-status'), `${shownName(module)} ${module.version} installed${module.enabled ? '' : ' -- review it below, then turn it on'}`);
+    say($('modules-status'), `${shownName(module)} ${module.version} installed${module.enabled ? (module.needsApproval ? '. It asks for something new: approve it, or it runs without that' : '') : ' -- review it below, then turn it on'}`);
   } catch (err) {
     say($('modules-status'), err.message, true);
   }
@@ -1984,7 +2020,11 @@ $('tab-modules').addEventListener('click', async (event) => {
   const card = button.closest('.module-card');
   const m = installedModules.find((x) => x.id === card.dataset.id);
   try {
-    if (button.dataset.moduleAction === 'rollback') {
+    if (button.dataset.moduleAction === 'approve') {
+      // On, with an update that asks for something new: approving it is turning it on again (PATCH enabled: true).
+      if (!await confirmDialog({ title: `Approve ${shownName(m)}'s update?`, message: 'This approves what it newly asks for, marked under its name.', action: 'Approve' })) return;
+      await api('PATCH', `/api/modules/${m.id}`, { enabled: true });
+    } else if (button.dataset.moduleAction === 'rollback') {
       const version = card.querySelector('[data-module-version]').value;
       if (version === m.version) return;
       if (!await confirmDialog({ title: `Switch ${shownName(m)} to version ${version}?`, message: 'Its data stays as it is.', action: 'Switch' })) return;

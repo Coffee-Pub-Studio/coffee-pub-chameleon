@@ -67,7 +67,7 @@ Thomas, 2026-10-02, answering the remaining questions.
 13. **`home` is a word key** in `server/words.js`'s `KEYS`, beside `space`, `aside` and `module`. Its default is the capitalised plural of the space word, so nothing changes without a template. CLAUDE.md's Names section needs `home` added; that file is Thomas's to change.
 14. **The breadcrumb shows while in a space**, as the spec draws it. The space bar stops repeating the space's name; the secondary spec is to take that into account.
 15. **A space in the switcher:** entered when you are present nowhere; visited, with an enter button, when you are present elsewhere.
-16. **"+ New <space>"** is for owners and the admin.
+16. **"+ New <space>"** is for owners and the admin. *Changed by decision 36.*
 17. **Moderators** get nothing more in the profile menu; their tools belong in the space bar (the secondary spec). The single-install admin was left to the plan (see the profile menu in phase 1).
 18. **The bell before phase 5**, for members and moderators: the module notices the server already keeps.
 19. **Who's around stays on home**, beside the online people widget in the bar.
@@ -96,6 +96,12 @@ Thomas, 2026-10-02, after the build of step 3.
 
 34. **Private asides show as private to the parent space.** Members of the space an aside was pulled out of may see that it is private (`asidePrivate` in `GET /api/presence`), never who is in it. This goes beyond decision 6 and phase 2, which gave them only `aside: true`; it keeps the "In a private conversation" placeholder.
 35. **Space names and member lists stay visible to anyone signed in**, for now (`GET /api/spaces`, and `spaces` in `GET /api/presence`). Step 3 filters where people are, not which spaces exist or who belongs to them.
+
+Decided (Thomas, 2026-11-23), asked "what happened to their ability to make their own or the moderator doing so?":
+
+36. **Members and moderators make spaces, always.** Every member and every moderator may make a space. There is no owner switch. Guests may not. Agents may not through the ordinary agent routes; the set-up agent keeps its own gated routes ([plan-admin-agent](plan-admin-agent.md)). Every existing limit on making spaces stays. The form is one shared piece, opened from the menu's "+ New <space>" and from Manage's Add. This replaces decision 16 and the "owners and the admin" in the switcher and "+ New" lines of the contract. Reason: Thomas asked what happened to their ability to make their own, or the moderator doing so (he stated no further reason). Options Thomas saw and did not choose: an owner switch in Manage (owners only, owners and moderators, or all members, default owners only); moderators only; leaving it owners only.
+
+Built: a try build is in flight on branch `claude/members-make-spaces`. Until it lands, the lines above that say owners and the admin describe the code on `main`. Open, builder's lean (not decided by Thomas): the person who makes a space becomes its first moderator; confirm when the build reports.
 
 ## The bar
 

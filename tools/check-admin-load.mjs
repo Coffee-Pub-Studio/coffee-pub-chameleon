@@ -124,8 +124,8 @@ async function main() {
             await tab.eval(`location.hash = ${JSON.stringify(hash)}`); await sleep(1200);
             expect(await tab.eval(ready), `${sz}: ${what} is not drawn (${hash})`);
             await sideways(what);
-            // Colours are chosen with the SDK's picker; the only native colour inputs on Manage are the theme editor's (#theme-*).
-            const native = await tab.eval(`[...document.querySelectorAll('input[type=color]')].filter((i) => i.getClientRects().length && !/^theme-/.test(i.id)).map((i) => i.id || i.name || 'an input with no id')`);
+            // Colours are chosen with the SDK's picker everywhere on Manage, the theme editor too: no native colour input is shown.
+            const native = await tab.eval(`[...document.querySelectorAll('input[type=color]')].filter((i) => i.getClientRects().length).map((i) => i.id || i.name || 'an input with no id')`);
             expect(native.length === 0, `${sz}: ${what} shows a native colour input (${native.join(', ')}); use host.ui.colorField`);
             left();
           };
@@ -183,8 +183,10 @@ async function main() {
             await rowFits('env-subtabs', 'the Environment row of tabs');
           }
           if (t === 'theme') {
-            const sw = await tab.eval(`[...document.querySelectorAll('#tab-theme input[type=color]')].map((i) => i.value)`);
-            expect(sw.length > 5 && sw.some((v) => v !== '#000000'), `${size}: the Theme swatches are all black (${sw.length} of them)`);
+            // Each theme colour is a colour field (the SDK's picker trigger) on its hidden input: the triggers show the theme's colours.
+            const sw = await tab.eval(`[...document.querySelectorAll('#tab-theme input[id^="theme-"][type=text]')].map((i) => [i.value, i.previousElementSibling && i.previousElementSibling.classList.contains('sdk-picker') ? i.previousElementSibling.querySelector('.sdk-hex').textContent : ''])`);
+            expect(sw.length > 5 && sw.some(([v]) => v !== '#000000'), `${size}: the Theme swatches are all black (${sw.length} of them)`);
+            expect(sw.every(([v, shown]) => shown && shown === v.toLowerCase()), `${size}: a Theme colour has no picker trigger, or its trigger does not show its colour`);
           }
           if (t === 'modules') {
             for (const p of await tab.eval(`[...document.querySelectorAll('#module-subtabs .subtab')].map((b) => b.dataset.modulePart)`)) {

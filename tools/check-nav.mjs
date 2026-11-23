@@ -37,7 +37,7 @@ const { conferenceAllowed } = await import(pathToFileURL(opensCopy).href);
 // The primary nav's pure parts (plan-primary-nav.md, step 2): the profile menu by role, the switcher, the bell, the breadcrumb.
 const primaryCopy = path.join(tmp, 'primary-nav.mjs');
 fs.copyFileSync(path.join(ROOT, 'public/primary-nav.js'), primaryCopy);
-const { pageAnchor, profileEntries, profileDestinationLabel, seesUpdates, hostConsoleUrl, switcherEntries, switchPick, bellState, crumbSegments, anchorSegments, pageOpens, isHere, steppedOut, hereCount, asidePlaceholder, whereWords, offStream, destinationTools, layoutTabs, tabOverflow, layoutIconChoices, iconMatches, gridStep, tileRefTarget, tileHeading, hashPanel } = await import(pathToFileURL(primaryCopy).href);
+const { pageAnchor, profileEntries, profileDestinationLabel, seesUpdates, mayMakeSpace, hostConsoleUrl, switcherEntries, switchPick, bellState, crumbSegments, anchorSegments, pageOpens, isHere, steppedOut, hereCount, asidePlaceholder, whereWords, offStream, destinationTools, layoutTabs, tabOverflow, layoutIconChoices, iconMatches, gridStep, tileRefTarget, tileHeading, hashPanel } = await import(pathToFileURL(primaryCopy).href);
 // The server's presence by membership (plan-primary-nav.md, step 3), so the pages' reading is held against the real answer.
 const { presenceView } = createRequire(import.meta.url)('../server/presence-view.js');
 fs.rmSync(tmp, { recursive: true, force: true });
@@ -1348,6 +1348,9 @@ test('the profile menu by role: owners get Manage; the single install\'s admin M
   assert.deepEqual(profileEntries({ role: 'guest', destinations: ['calendar'] }), [], 'never a guest');
   assert.equal(seesUpdates('owner') && seesUpdates('admin'), true);
   assert.equal(seesUpdates('member') || seesUpdates('guest') || seesUpdates(undefined), false);
+  // Who may make a space (Thomas, 2026-11-23): every account role; a moderator is a member account. Never a guest.
+  assert.equal(mayMakeSpace('member') && mayMakeSpace('owner') && mayMakeSpace('admin'), true);
+  assert.equal(mayMakeSpace('guest') || mayMakeSpace('moderator') || mayMakeSpace(undefined), false);
   const brand = fs.readFileSync(path.join(ROOT, 'public/brand.js'), 'utf8');
   const menu = brand.slice(brand.indexOf('function accountMenuItems('), brand.indexOf('\n}\n', brand.indexOf('function accountMenuItems(')));
   assert.match(menu, /new Set\(profileFor\(\)\)/, 'the menu under your picture follows profileEntries');
@@ -2877,22 +2880,28 @@ test('the one bar: the switcher in the Spaces slot\'s place, the layout tabs aft
   assert.match(brand, /frame\.id === 'page-overlay-frame' \|\| frame\.hasAttribute\('data-composite'\)/, 'a page in a composite\'s frame is within the space page (no other calendars shown over a call), as the view frame\'s was');
 });
 
-// Add <space> on Home (GitHub #233): a button in the row above the space cards, for owners and the admin only (the same
-// test the top bar's "New <space>" entry makes: hasOwnerRights), never a guest; it makes the space with the request
-// Manage's Add button makes (POST /api/spaces, no new route), then enters it and opens Set up.
-test('Add <space> on Home: owners and the admin, the existing request, then into the space with Set up open', () => {
+// Add <space> on Home (GitHub #233): a button in the row above the space cards, for everyone who may make a space (the same
+// test the top bar's "+ New <space>" entry makes: mayMakeSpace; Thomas, 2026-11-23), never a guest; it opens the one Add form
+// (public/space-add.js), which Manage's Add button and the top bar's entry open too, then enters the space and opens Set up.
+test('Add <space> on Home, in the top bar and in Manage: one form, for every account, then into the space with Set up open', () => {
   const html = fs.readFileSync(path.join(ROOT, 'public/space.html'), 'utf8');
   assert.match(html, /<h2 class="space-list-title" id="space-list-title"><\/h2>\n\s*<\/div>/, 'the row above the cards holds the home word only');
   assert.match(html, /<div class="space-list" id="spaces">[^<]*(<!--[\s\S]*?-->)?\s*<button class="space-choice-add" id="home-add-space" type="button" hidden>[^\n]*<\/button>\n\s*<\/div>/, 'Add <space> is the ghost card inside the grid (hidden until the page knows who is looking)');
   const space = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
   assert.match(space, /const label = `Add \$\{word\('space', \{ cap: true \}\)\}`;/, 'the button reads Add <Space> in the template\'s word');
-  assert.match(space, /button\.hidden = Boolean\(guestMode\) \|\| !hasOwnerRights\(me\);/, 'owners and the admin only, never a guest');
-  assert.match(space, /await api\('POST', '\/api\/spaces', \{ name: `\$\{word\('space', \{ cap: true \}\)\} \$\{count\}`, description: '', members: \[\], \.\.\.chosen \}\)/, 'the request Manage\'s Add button makes, with the template the person chose');
-  assert.match(space, /await addSpaceFlow\(/, 'the Template choice comes first (template-choice.js)');
-  assert.match(space, /await loadPresence\(\);[^\n]*\n\s*await joinInvitedSpace\(space\.id\);\n\s*if \(entered && currentSpace\?\.id === space\.id\) enterSetup\(\);/, 'then into the new space, and Set up opens once in');
+  assert.match(space, /button\.hidden = Boolean\(guestMode\) \|\| !mayMakeSpace\(me\?\.role\);/, 'every account, never a guest');
+  assert.match(space, /const space = await openSpaceAdd\(\{ api, word, owner: hasOwnerRights\(me\), self: me\?\.key \|\| '' \}\);/, 'the one Add form');
+  assert.match(space, /await loadPresence\(\);[^\n]*\n\s*await joinInvitedSpace\(space\.id\);\n\s*if \(entered && currentSpace\?\.id === space\.id && canSetUp\(\)\) enterSetup\(\);/, 'then into the new space, and Set up opens once in');
   assert.match(space, /\$\('home-add-space'\)\?\.addEventListener\('click', addSpace\);/);
   const admin = fs.readFileSync(path.join(ROOT, 'public/admin.js'), 'utf8');
-  assert.match(admin, /await api\('POST', '\/api\/spaces', \{ name: `\$\{word\('space', \{ cap: true \}\)\} \$\{spaces\.length\}`, description: '', members: \[\], \.\.\.chosen \}\)/, 'Manage\'s own request, with the template the person chose');
+  assert.match(admin, /const space = await openSpaceAdd\(\{ api, word, owner: true, self: me\?\.key \|\| '' \}\);\n\s*if \(space\) openSetup\(space\.id\);/, 'Manage\'s Add opens the same form');
+  const brand = fs.readFileSync(path.join(ROOT, 'public/brand.js'), 'utf8');
+  assert.match(brand, /const space = await openSpaceAdd\(\{ api, word: envWord, owner: hasOwnerRights\(account\), self: account\?\.key \|\| '' \}\);/, 'and the top bar\'s "+ New <space>"');
+  assert.match(brand, /id: 'menu-new-space'[^\n]*visible: \(\) => inMenuOnly\(\) && mayMakeSpace\(account\?\.role\), onClick: newSpace/, 'the phone menu\'s entry, for every account');
+  assert.match(brand, /if \(mayMakeSpace\(account\?\.role\)\) items\.push\([^\n]*label: `New \$\{envWord\('space'\)\}`, onPick: newSpace \}\);/, 'the switcher\'s entry, for every account');
+  const form = fs.readFileSync(path.join(ROOT, 'public/space-add.js'), 'utf8');
+  assert.match(form, /api\('POST', '\/api\/spaces', addBody\(/, 'the form asks POST /api/spaces, no other route');
+  assert.doesNotMatch(form, /innerHTML|insertAdjacentHTML|outerHTML/, 'text only');
   const css = fs.readFileSync(path.join(ROOT, 'public/style.css'), 'utf8');
   const sysCss = fs.readFileSync(path.join(ROOT, 'public/sdk/system.css'), 'utf8');
   assert.match(sysCss, /:where\(\.sdk-card-add, \.space-choice-add\) \{[^}]*border: 1px dashed var\(--edge-hairline\);/, 'the ghost card is a dashed hairline (the Cards family in system.css)');

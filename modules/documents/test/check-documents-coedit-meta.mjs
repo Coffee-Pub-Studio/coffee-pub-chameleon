@@ -125,6 +125,9 @@ await test('dlMetaOf, dlMetaFill, dlMetaRead, dlMetaSet, dlMetaSame', () => {
   assert.equal(L.dlMetaSet(d, { title: 'New', evil: 1, paper: 'neon' }), 1, 'only a valid key with a valid value is set');
   assert.equal(L.dlMetaRead(d).title, 'New'); assert.equal(L.dlMetaRead(d).paper, 'light-creme');
   assert.equal(L.dlMetaProblem(d.getMap('meta')), '');
+  assert.equal(L.dlMetaSet(d, { paper: '#2f6cbf' }), 1, 'a picked page colour (#rrggbb) is a valid value');
+  assert.equal(L.dlMetaRead(d).paper, '#2f6cbf'); assert.equal(L.dlMetaProblem(d.getMap('meta')), '');
+  assert.equal(L.dlMetaSet(d, { paper: '#2F6CBF' }), 0, 'a colour that is not lower-case #rrggbb is not set');
 });
 await test('the meta map cannot be turned into a store: more than seven keys is refused whatever they hold', () => {
   const d = new PM.Doc(); const m = d.getMap('meta');

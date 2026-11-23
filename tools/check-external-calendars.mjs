@@ -446,8 +446,8 @@ try {
     assert.equal(older.status, 201, older.text);
     assert.equal(await why(aliceC), `Your owner needs to update Calendar to ${BUNDLED_CALENDAR.version} and approve its ${HOOK} in Manage > Modules.`);
     assert.equal((await call('DELETE', '/api/modules/calendar?keepData=0', { cookie: admin })).status, 200);
-    // The way an existing install goes: on in a version without the hook, then updated to one that asks for it (which
-    // switches it off until approved), then approved by turning it on. Not a fresh install with the hook from the start.
+    // The way an existing install goes: on in a version without the hook, then updated to one that asks for it (it stays
+    // on, without the hook, until approved), then approved. Not a fresh install with the hook from the start.
     const first = await call('POST', '/api/modules', { cookie: admin, raw: moduleZip('ext-cal', {}, '1.0.0') });
     assert.equal(first.status, 201, first.text);
     assert.equal((await call('PATCH', '/api/modules/ext-cal', { cookie: admin, body: { enabled: true } })).status, 200);
@@ -457,7 +457,7 @@ try {
     assert.deepEqual(await sharingOf(), [false, null]);
     const update = await call('POST', '/api/modules', { cookie: admin, raw: moduleZip('ext-cal', { external: true }, '1.1.0') });
     assert.equal(update.status, 201, update.text);
-    assert.deepEqual([update.json.module.version, update.json.module.enabled, update.json.module.pending.hooks], ['1.1.0', false, ['external']], 'the update waits for approval');
+    assert.deepEqual([update.json.module.version, update.json.module.enabled, update.json.module.pending.hooks], ['1.1.0', true, ['external']], 'the update stays on; its new hook waits for approval');
     assert.deepEqual(await list(aliceC), { allowed: false, why: `Your owner needs to approve ext-cal's ${HOOK} in Manage > Modules.`, calendars: [] });
     assert.deepEqual(await sharingOf(), [true, { otherCalendars: { hooks: ['external'], reason: 'Approve ext-cal\'s update in Manage > Modules first.' } }], 'the switch waits on the hook');
     assert.equal(await why(admin), `Approve ext-cal's ${HOOK} in Manage > Modules.`);
@@ -877,7 +877,7 @@ await test('pages: Profile\'s Other calendars section, wired to the routes; the 
   const onFail = refreshCode.slice(refreshCode.indexOf('(err) => {'));
   assert.ok(onFail.includes('const said = rowStatus(id);') && onFail.includes('sayField(said, failure(err), true)'), 'a failed Refresh (a 429 too) is said on its own row');
   assert.doesNotMatch(refreshCode, /external-status/, 'never in the section\'s line under Add');
-  assert.match(read('public/admin.js'), /m\.hooks\.external \? \['<li><strong>See each person\\'s own other calendars<\/strong> <span class="hint">only to them<\/span><\/li>'\]/, 'the admin approves the hook by name');
+  assert.match(read('public/admin.js'), /m\.hooks\.external \? \[`<li><strong>See each person's own other calendars<\/strong> <span class="hint">only to them<\/span>\$\{newTag\(isNew\('hooks', 'external'\)\)\}<\/li>`\]/, 'the admin approves the hook by name, marked new while its update waits');
 });
 
 // Profile's section run as code with a stand-in page and server (GitHub #179, step 0): the form follows the server's
