@@ -4,6 +4,8 @@
 // switch is on and there are templates to choose from) and the people to add from the environment's members (never an agent: an
 // owner adds one in Set up). It asks POST /api/spaces, which decides who may make one; a refusal is read in the form with the
 // server's own sentence, and Add can be pressed again. A member who makes one is its moderator, and the form says so.
+// Add and Cancel are the shared action bar (action-bar.js), locked to the bottom of the dialog: Add is off until something is filled in,
+// Cancel and Escape ask "Discard changes?" while something is, and a click outside never closes it.
 //
 // openSpaceAdd({ api, word, owner, self, doc }) resolves the space the server made ({ id, name, ... }), or null when cancelled.
 //   api(method, url, body) the page's request helper (throws an Error whose message is the server's sentence)
@@ -14,6 +16,7 @@
 // Text only: every name goes in through textContent or .value, never as HTML.
 
 import { optionList, SAME } from '/template-choice.js';
+import { actionBar } from '/action-bar.js';
 
 let open = false;
 
@@ -58,7 +61,6 @@ export async function openSpaceAdd({ api, word, owner = false, self = '', doc = 
     const close = make('button', 'sdk-icon-btn btn-quiet btn-small sdk-dialog-close');
     close.type = 'button';
     close.setAttribute('aria-label', 'Close');
-    close.dataset.close = '';
     const x = make('i', 'fa-solid fa-xmark');
     x.setAttribute('aria-hidden', 'true');
     close.appendChild(x);
@@ -148,21 +150,43 @@ export async function openSpaceAdd({ api, word, owner = false, self = '', doc = 
     problem.dataset.error = '';
     body.append(problem);
 
-    const foot = make('div', 'sdk-dialog-foot');
-    const cancel = make('button', 'btn', 'Cancel');
-    cancel.type = 'button';
+    // Something to lose: anything typed, a template chosen, or a person ticked.
+    const edited = () => name.value !== '' || description.value !== '' || (select !== null && select.value !== SAME) || Boolean(dlg.querySelector('input[data-member]:checked'));
+    let running = false;
+    const bar = actionBar({
+      label: `Add ${spaceWord}`,
+      saveLabel: 'Add',
+      doc,
+      dirty: edited,
+      onCancel: () => done(null),
+      onSave: async () => {
+        if (running) return false;
+        running = true;
+        problem.textContent = '';
+        const members = [...dlg.querySelectorAll('input[data-member]:checked')].map((b) => b.value);
+        try {
+          const answer = await api('POST', '/api/spaces', addBody({ name: name.value, description: description.value, members, template: select ? select.value : SAME }));
+          done(answer.space);
+          return true;
+        } catch (err) {
+          problem.textContent = (err && err.message) || `The ${word('space')} could not be added. Try again.`;
+          setTimeout(() => bar.saveButton.focus(), 0); // after the bar turns Add back on
+          return false;
+        } finally {
+          running = false;
+        }
+      },
+    });
+    const cancel = bar.cancelButton;
+    const ok = bar.saveButton;
     cancel.dataset.close = '';
-    const ok = make('button', 'btn btn-primary', 'Add');
-    ok.type = 'button';
     ok.dataset.ok = '';
-    foot.append(cancel, ok);
-    dlg.append(head, body, foot);
+    dlg.append(head, body, bar.el);
 
     const root = doc.documentElement;
     const was = root.style.overflow;
     const opener = doc.activeElement && doc.activeElement !== doc.body ? doc.activeElement : null;
     let settled = false;
-    let running = false;
     const done = (value) => {
       if (settled) return;
       settled = true;
@@ -173,35 +197,18 @@ export async function openSpaceAdd({ api, word, owner = false, self = '', doc = 
       if (value === null && opener && opener.isConnected) opener.focus();
       resolve(value);
     };
-    const accept = async () => {
-      if (running) return;
-      running = true;
-      ok.disabled = true;
-      problem.textContent = '';
-      const members = [...dlg.querySelectorAll('input[data-member]:checked')].map((b) => b.value);
-      try {
-        const answer = await api('POST', '/api/spaces', addBody({ name: name.value, description: description.value, members, template: select ? select.value : SAME }));
-        done(answer.space);
-      } catch (err) {
-        problem.textContent = (err && err.message) || `The ${word('space')} could not be added. Try again.`;
-        ok.disabled = false;
-        ok.focus();
-      } finally {
-        running = false;
-      }
-    };
-    dlg.addEventListener('cancel', (e) => { e.preventDefault(); if (!running) done(null); });
+    bar.bindEscape(dlg);
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); bar.requestCancel(); });
+    close.addEventListener('click', () => bar.requestCancel());
+    dlg.addEventListener('input', () => bar.refresh());
+    dlg.addEventListener('change', () => bar.refresh());
     dlg.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && e.target === name) { e.preventDefault(); accept(); return; }
+      if (e.key === 'Enter' && e.target === name) { e.preventDefault(); bar.save(); return; }
       if (e.key !== 'Tab') return;
-      const f = [...dlg.querySelectorAll('button, input, select, textarea')].filter((el) => !el.disabled && !el.hidden);
+      const f = [...dlg.querySelectorAll('button, input, select, textarea')].filter((el) => !el.disabled && !el.hidden && !el.closest('[hidden]'));
       if (!f.length) return;
       const i = f.indexOf(doc.activeElement);
       if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); } else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
-    });
-    dlg.addEventListener('click', (e) => {
-      if (e.target === dlg || e.target.closest('[data-close]')) { if (!running) done(null); return; }
-      if (e.target.closest('[data-ok]') && !ok.disabled) accept();
     });
     doc.body.appendChild(dlg);
     root.style.overflow = 'hidden';

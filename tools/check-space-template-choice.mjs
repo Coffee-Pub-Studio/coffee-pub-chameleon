@@ -209,6 +209,8 @@ try {
       assert.equal((await api('GET', '/api/spaces')).json.spaces.length, before + 1, 'Cancel made nothing');
       await again.eval(`document.getElementById('home-add-space').click()`);
       await again.waitFor('dialog.space-add[open]');
+      assert.equal(await again.eval(`document.querySelector('dialog.space-add [data-ok]').disabled`), true, 'Add is off while nothing is filled in (the action bar\'s rule)');
+      await again.eval(`(() => { const i = document.getElementById('space-add-name'); i.value = 'Plain'; i.dispatchEvent(new Event('input', { bubbles: true })); })()`);
       await again.eval(`document.querySelector('dialog.space-add [data-ok]').click()`);
       await sleep(2000);
       const last = (await api('GET', '/api/spaces')).json.spaces;
@@ -247,7 +249,7 @@ try {
       await home.eval(`document.getElementById('home-add-space').click()`);
       await home.waitFor('dialog.space-add[open] #space-add-name');
       assert.equal(await home.eval(`Boolean(document.getElementById('space-add-template'))`), false, 'no Template choice in Add');
-      await home.eval(`document.querySelector('dialog.space-add .sdk-dialog-foot [data-close]').click()`);
+      await home.eval(`document.querySelector('dialog.space-add .action-bar [data-close]').click()`);
       await home.close();
     }
     const mod = await setupOpen('mia', 390, ctx.trip, '#modules');
