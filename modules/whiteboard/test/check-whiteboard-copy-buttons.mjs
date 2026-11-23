@@ -2,7 +2,7 @@
 /*
  * check-whiteboard-copy-buttons.mjs -- Copy and Paste as toolbar buttons (whiteboard.js: toolbarTail), for a phone with no keys and no right-click,
  * in a real browser against a throwaway server (tools/shots.mjs; no LiveKit). Guards: with nothing picked there is no Copy and no Paste; a picked
- * note gives a Copy button; pressing it gives a Paste button; Paste puts a copy of the note on the board and picks it.
+ * note gives a Cut and a Copy button; pressing it gives a Paste button; Paste puts a copy of the note on the board and picks it.
  * With no Chromium it says SKIPPED (set CHROME_PATH); that is not a pass.
  */
 import fs from 'node:fs';
@@ -80,15 +80,23 @@ try {
   await tab.mouse('mousePressed', r.x + r.w / 2, r.y + r.h / 2);
   await tab.mouse('mouseReleased', r.x + r.w / 2, r.y + r.h / 2);
   await sleep(600);
-  check(await has('Copy'), 'a picked shape gives a Copy button');
+  check(await has('Copy') && await has('Cut'), 'a picked shape gives a Cut and a Copy button');
   check(!(await has('Paste')), 'and no Paste yet');
   await tab.click('.mf-toolbar button, button', 'Copy');
   await sleep(700);
   check(await has('Paste'), 'after Copy there is a Paste button');
   await tab.click('.mf-toolbar button, button', 'Paste');
   await sleep(1200);
-  const list = (await blocks()).filter((b) => b.type === 'rect');
+  let list = (await blocks()).filter((b) => b.type === 'rect');
   check(list.length === 2, `Paste puts a copy on the board (${list.length} shapes)`);
+  await tab.click('.mf-toolbar button, button', 'Cut');
+  await sleep(1500);
+  list = (await blocks()).filter((b) => b.type === 'rect');
+  check(list.length === 1, `Cut takes the picked shape off the board (${list.length} left: ${JSON.stringify(list.map((b) => [b.id, b.x, b.y]))})`);
+  await tab.click('.mf-toolbar button, button', 'Paste');
+  await sleep(1200);
+  list = (await blocks()).filter((b) => b.type === 'rect');
+  check(list.length === 2, `and Paste puts it back (${list.length} shapes: ${JSON.stringify(list.map((b) => [b.id, b.x, b.y]))})`);
 } catch (err) {
   failed += 1;
   console.error(`FAIL ${err.stack || err}`);

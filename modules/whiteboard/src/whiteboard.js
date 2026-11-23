@@ -741,22 +741,28 @@
   // (Snap to grid is in the right zone, so it stays at the far right.)
   let arrangeButton = null;
   let presentTool = null;
+  let cutButton = null;
   let copyButton = null;
   let pasteButton = null;
+  // The host calls a button's handler from a loop over a live set, so a button made again inside its own click (the rows change when something is
+  // pasted or cut) is called again by that same click. The clipboard buttons answer one click once.
+  let clipHeld = false;
+  const clipOnce = (fn) => () => { if (clipHeld) return; clipHeld = true; setTimeout(() => { clipHeld = false; }, 0); fn(); };
   function toolbarTail() {
     const wantPresent = [...board.all()].some((b) => wbIsFrame(b));
     const wantDelete = [...sel].some((id) => policy.canDelete(board.get(id)));
     const wantArrange = policy.canEdit && sel.size > 1;
-    // Copy and Paste as buttons (a phone has no keys and no right-click): Copy while something copyable is picked, Paste once something is copied.
+    // Cut, Copy and Paste as buttons (a phone has no keys and no right-click): Cut and Copy while something copyable is picked, Paste once something is copied.
     const wantCopy = policy.canEdit && sel.size > 0 && copyable().length > 0;
     const wantPaste = policy.canCreate() && !presenting && clipboard.has();
     if (presentTool) presentTool.set({ on: Boolean(presenting) });
-    if (Boolean(presentTool) === wantPresent && Boolean(deleteButton) === wantDelete && Boolean(arrangeButton) === wantArrange && Boolean(copyButton) === wantCopy && Boolean(pasteButton) === wantPaste) return;
-    for (const b of [arrangeButton, copyButton, pasteButton, deleteButton, presentTool]) if (b) b.destroy();
-    arrangeButton = copyButton = pasteButton = deleteButton = presentTool = null;
+    if (Boolean(presentTool) === wantPresent && Boolean(deleteButton) === wantDelete && Boolean(arrangeButton) === wantArrange && Boolean(cutButton) === wantCopy && Boolean(copyButton) === wantCopy && Boolean(pasteButton) === wantPaste) return;
+    for (const b of [arrangeButton, cutButton, copyButton, pasteButton, deleteButton, presentTool]) if (b) b.destroy();
+    arrangeButton = cutButton = copyButton = pasteButton = deleteButton = presentTool = null;
     if (wantPresent) presentTool = host.ui.toolbarButton({ id: 'present-tool', label: 'Present the frames', icon: 'play', iconOnly: true, on: Boolean(presenting), onClick: () => presentToggle() });
-    if (wantCopy) copyButton = host.ui.toolbarButton({ id: 'clip-copy', label: 'Copy', icon: 'copy', iconOnly: true, onClick: () => { if (tool.id === 'area' && pictureArea) copyArea(false); else copy(); } });
-    if (wantPaste) pasteButton = host.ui.toolbarButton({ id: 'clip-paste', label: 'Paste', icon: 'paste', iconOnly: true, onClick: () => paste() });
+    if (wantCopy) cutButton = host.ui.toolbarButton({ id: 'clip-cut', label: 'Cut', icon: 'scissors', iconOnly: true, onClick: clipOnce(() => { if (presenting) return; if (tool.id === 'area' && pictureArea) copyArea(true); else copy({ cut: true }); }) });
+    if (wantCopy) copyButton = host.ui.toolbarButton({ id: 'clip-copy', label: 'Copy', icon: 'copy', iconOnly: true, onClick: clipOnce(() => { if (tool.id === 'area' && pictureArea) copyArea(false); else copy(); }) });
+    if (wantPaste) pasteButton = host.ui.toolbarButton({ id: 'clip-paste', label: 'Paste', icon: 'paste', iconOnly: true, onClick: clipOnce(() => paste()) });
     if (wantDelete) deleteButton = host.ui.toolbarButton({ id: 'delete', label: 'Delete', icon: 'trash', iconOnly: true, onClick: () => removeMany([...sel]) });
     if (wantArrange) arrangeButton = host.ui.toolbarButton({ id: 'arrange', label: 'Arrange', icon: 'arrows-left-right-to-line', iconOnly: true, onClick: (e) => arrangeMenu(toolbarAt(e)) });
   }
