@@ -1,7 +1,7 @@
 {
   "id": "goals",
   "name": "Planner - Goals",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "icon": "bullseye",
   "color": "green",
   "description": "Plan goals together: each goal with its steps and how far along it is, dates optional.",
@@ -123,6 +123,44 @@
         "takes": [
           { "kinds": ["note"], "as": "a note" }
         ]
+      },
+      {
+        "name": "updateGoal",
+        "label": "Change a goal, step or note",
+        "description": "Change a goal, a step or a note in the plan, keeping what is not given.",
+        "effect": "write",
+        "input": {
+          "entry": "ref:goals:plan",
+          "title": "string?",
+          "why": "text?",
+          "date": "date?",
+          "owners": "text?",
+          "text": "text?",
+          "goal": "ref:goals:plan?"
+        },
+        "clears": ["why", "date", "owners", "text"],
+        "inputHints": {
+          "entry": "The goal, step or note to change, as a pointer.",
+          "why": "Why it matters, for a goal. Send \"\" to clear it.",
+          "date": "The target day of a goal or the day of a step, as YYYY-MM-DD. Send \"\" to clear it.",
+          "owners": "Who owns a goal: keys or names as list_members shows them, separated by commas; this replaces the list. Send \"\" for none.",
+          "text": "A note's text. Line breaks are allowed. Send \"\" to clear it.",
+          "goal": "The goal a step or a note moves under, as a pointer; it goes to the end."
+        }
+      },
+      {
+        "name": "setGoalDone",
+        "label": "Mark a goal or step done",
+        "description": "Mark a goal or a step done, or not done again.",
+        "effect": "write",
+        "input": {
+          "entry": "ref:goals:plan",
+          "done": "boolean"
+        },
+        "inputHints": {
+          "entry": "The goal or step, as a pointer.",
+          "done": "True for done, false for not done. A goal whose progress is its steps is done when they all are."
+        }
       }
     ]
   },

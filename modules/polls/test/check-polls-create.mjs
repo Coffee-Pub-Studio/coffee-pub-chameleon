@@ -64,13 +64,14 @@ test('the manifest: createPoll is a write with hints, a one-sentence description
   assert.ok(/^[^.]+\.$/.test(a.description), 'one sentence');
   for (const k of ['options', 'multiple', 'closes']) assert.ok(a.inputHints[k] && a.inputHints[k].length <= 200, `hint for ${k}`);
 });
-test('votes stay with people: no action votes or changes a poll, and the screen-only ones stay local', () => {
+test('votes stay with people: no action votes or deletes, and the screen-only ones stay local', () => {
   const names = manifest.actions.provides.map((x) => x.name);
-  assert.deepEqual(names, ['draftPoll', 'createPoll', 'addPoll']);
-  assert.ok(!names.some((x) => /vote|answer|close|delete/i.test(x)));
-  for (const x of manifest.actions.provides.filter((y) => y.name !== 'createPoll')) assert.equal(x.local, true, x.name);
+  assert.deepEqual(names, ['draftPoll', 'createPoll', 'updatePoll', 'addPoll']);
+  assert.ok(!names.some((x) => /vote|answer|delete/i.test(x)));
+  for (const x of manifest.actions.provides.filter((y) => y.name !== 'createPoll' && y.name !== 'updatePoll')) assert.equal(x.local, true, x.name);
   const page = read('modules/polls/src/polls.js');
   const block = page.slice(page.indexOf('host.actions.provide({'), page.indexOf('A poll with a closing time closes'));
-  assert.deepEqual([...block.matchAll(/^ {6}(\w+): async/gm)].map((m) => m[1]), ['draftPoll', 'createPoll', 'addPoll']);
+  assert.deepEqual([...block.matchAll(/^ {6}(\w+): async/gm)].map((m) => m[1]), ['draftPoll', 'addPoll']);
+  assert.match(block, /\.\.\.host\.actions\.fromLibrary\(actionHandlers\(\), \{ after: afterAction \}\)/, 'createPoll and updatePoll are the library\'s');
 });
 console.log(`check-polls-create: ${n} tests`);

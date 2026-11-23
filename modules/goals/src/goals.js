@@ -817,48 +817,25 @@
   });
 
   // ---- what other modules may ask, and being opened from a link ---------------------------------------------------------
-  const ownGoal = (ref) => {
-    const x = L.isOwnRef(ref, info.module.id, info.context.spaceId) ? entries.get(ref.id) : null;
-    if (!x || x.e.kind !== 'goal') throw new Error(`That is not ${label('goal', { a: true })} of this plan.`);
-    return x.e;
-  };
-  const obj = (input) => (input && input.object && typeof input.object === 'object' ? input.object : null);
-  if (host.actions && host.actions.provide) {
-    host.actions.provide({
-      // With `object` (a goal, a step or a note in the objects format), its fields are mapped here (L.fromObject): the goal a step
-      // sits under is the one `details.under` names, else the pointer given; a phase is named, so it is matched to the template's.
-      addGoal: async (input, ctx) => {
-        const o = obj(input);
-        const raw = o ? L.fromObject('goal', o, { phases: phases() }) : { title: input.title, why: input.why, date: input.date };
-        // Owners are checked before anything is made; a person is named by key or by name (the form's own owners: a list of keys).
-        let owners;
-        if (input.owners !== undefined && input.owners !== null) {
-          const r = L.ownersFor(input.owners, people, host.util.word('space'));
-          if (r.problem) throw new Error(r.problem);
-          owners = r.owners;
-        }
-        const id = await add('goal', { ...raw, date: raw.date || input.date, ...(owners && owners.length ? { owners } : {}) }, ctx && ctx.credit && ctx.credit.key);
-        render();
-        return { ref: host.objects.make('plan', id) };
-      },
-      addStep: async (input, ctx) => {
-        const o = obj(input);
-        const raw = o ? L.fromObject('step', o, { entries: [...entries.values()].map((x) => x.e) }) : { title: input.title };
-        const parent = input.goal ? ownGoal(input.goal).id : raw.parent;
-        if (!parent) throw new Error(o ? `Add ${label('goal', { a: true })} first: no ${label('goal')} here is named "${String(raw.under || '').slice(0, 60)}".` : `Say which ${label('goal')} it goes under.`);
-        const id = await add('step', { ...raw, date: raw.date || input.date, parent }, ctx && ctx.credit && ctx.credit.key);
-        render();
-        return { ref: host.objects.make('plan', id) };
-      },
-      addNote: async (input, ctx) => {
-        const o = obj(input);
-        const parent = input.goal ? ownGoal(input.goal).id : null;
-        const raw = o ? L.fromObject('note', o) : { title: input.title, text: input.text };
-        const id = await add('note', { ...raw, text: raw.text || input.text, parent }, ctx && ctx.credit && ctx.credit.key);
-        render();
-        return { ref: host.objects.make('plan', id) };
-      },
+  // The actions library's handlers (ACTION_HANDLERS in goals-lib-actions.js: addGoal, addStep, addNote, updateGoal and
+  // setGoalDone), carried out here by the SDK (host.actions.fromLibrary), each with what this page has beside the runner's ctx:
+  // the plan's settings, host.util's order and label, and the phases' names. Only someone who may edit changes the plan.
+  const withPage = (fn) => (input, ctx) => {
+    if (!canEdit()) throw new Error(`You can't change the ${label('goal', { many: true })} here.`);
+    return fn(input, {
+      ...ctx,
+      settings: { dates: prefs.dates, progressBy: prefs.progressBy },
+      util: Object.freeze({ ...ctx.util, order: host.util.order, label }),
+      space: { ...ctx.space, phases: phases().map((p) => ({ id: p.id, main: Boolean(p.main), label: p.label })) },
     });
+  };
+  // What only a page does once a request's entries are written: they show at once.
+  function afterAction({ writes }) {
+    for (const w of writes) keep(w.key, w.value, w.version);
+    render();
+  }
+  if (host.actions && host.actions.provide) {
+    host.actions.provide(host.actions.fromLibrary(Object.fromEntries(Object.entries(ACTION_HANDLERS).map(([name, fn]) => [name, withPage(fn)])), { after: afterAction }));
   }
   if (host.objects && host.objects.onOpen) host.objects.onOpen((ref) => { if (L.isOwnRef(ref, info.module.id, info.context.spaceId) && entries.has(ref.id)) openEditor({ id: ref.id }); });
 

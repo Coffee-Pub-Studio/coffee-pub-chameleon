@@ -1,7 +1,7 @@
 {
   "id": "polls",
   "name": "Polls",
-  "version": "1.15.32",
+  "version": "1.15.33",
   "icon": "square-poll-vertical",
   "color": "purple",
   "description": "Quick polls and votes for the whole {environment} and for each {space}, with live results.",
@@ -180,6 +180,28 @@
           "options": "The choices, two to 20, each up to 100 letters, separated by commas. No two the same.",
           "multiple": "True lets people choose more than one answer. Leave out for one answer.",
           "closes": "When voting ends: a day as YYYY-MM-DD (closes at noon) or YYYY-MM-DDTHH:MM. Must be in the future."
+        }
+      },
+      {
+        "name": "updatePoll",
+        "label": "Change a poll",
+        "description": "Change a poll's question, choices, answers allowed or closing, keeping what is not given.",
+        "effect": "write",
+        "input": {
+          "poll": "ref:polls:poll",
+          "question": "string?",
+          "options": "text?",
+          "multiple": "boolean?",
+          "closes": "string?",
+          "closed": "boolean?"
+        },
+        "clears": ["closes"],
+        "inputHints": {
+          "poll": "The poll to change, as a pointer.",
+          "options": "The whole list of choices, two to 20, separated by commas. Once someone has voted, give the ones it has in order, then the new ones.",
+          "multiple": "True lets people choose more than one answer, false one. Can't change once someone has voted.",
+          "closes": "When voting ends: YYYY-MM-DD (noon) or YYYY-MM-DDTHH:MM, in the future. Send \"\" to take it off.",
+          "closed": "True ends the poll now; false opens it again."
         }
       },
       {
