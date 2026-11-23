@@ -1478,18 +1478,25 @@ function moduleCard(m, shape = 'full') {
   const staleVersions = new Set(m.outdatedVersions || (m.outdated ? [m.version] : []));
   // What a requirement needs to be turned on first (one built for an older version of the product is in needsUpdate instead).
   const nameOf = (r) => escapeHtml(shownName(installedModules.find((x) => x.id === r)) || r);
+  // On, and its update asks for something new: it runs with what was approved before, and each new ask is marked until
+  // an owner approves it (Approve, in its head).
+  const onWaiting = m.enabled && m.needsApproval;
+  const pending = m.pending || {};
+  const isNew = (list, key) => onWaiting && (pending[list] || []).includes(key);
+  const anyNew = (list, keys) => onWaiting && keys.some((k) => (pending[list] || []).includes(k));
+  const newTag = (yes) => (yes ? ' <span class="sdk-status" data-tone="warn">New, not approved yet</span>' : '');
   const asks = [
-    ...m.permissions.map((p) => `<li><strong>${escapeHtml(p.label)}</strong> <span class="hint">permission, appears in Roles</span></li>`),
-    ...(m.hooks.schedule ? ['<li><strong>Run things on a schedule</strong> <span class="hint">reminders and timed events</span></li>'] : []),
-    ...(m.hooks.notify ? ['<li><strong>Send notifications</strong> <span class="hint">to people using it</span></li>'] : []),
-    ...(m.hooks.external ? ['<li><strong>See each person\'s own other calendars</strong> <span class="hint">only to them</span></li>'] : []),
-    ...(m.events && m.events.subscribes.length ? [`<li><strong>Hear what happens in other ${escapeHtml(word('module', { many: true }))}</strong> <span class="hint">${escapeHtml(m.events.subscribes.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: their events, only for people who can see them</span></li>`] : []),
-    ...(m.actions && m.actions.uses.length ? [`<li><strong>Ask other ${escapeHtml(word('module', { many: true }))} to do things</strong> <span class="hint">${escapeHtml(m.actions.uses.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: each request is carried out by the ${escapeHtml(word('module'))} that owns the action</span></li>`] : []),
-    ...(m.refs && m.refs.consumes.length ? [`<li><strong>Link to other ${escapeHtml(word('module', { many: true }))}' ${escapeHtml(word('object', { many: true }))}</strong> <span class="hint">${escapeHtml(m.refs.consumes.map((c) => c.replace(':', ' ')).join(', '))}, shown only to people who can already see them</span></li>`] : []),
+    ...m.permissions.map((p) => `<li><strong>${escapeHtml(p.label)}</strong> <span class="hint">permission, appears in Roles</span>${newTag(isNew('permissions', p.key))}</li>`),
+    ...(m.hooks.schedule ? [`<li><strong>Run things on a schedule</strong> <span class="hint">reminders and timed events</span>${newTag(isNew('hooks', 'schedule'))}</li>`] : []),
+    ...(m.hooks.notify ? [`<li><strong>Send notifications</strong> <span class="hint">to people using it</span>${newTag(isNew('hooks', 'notify'))}</li>`] : []),
+    ...(m.hooks.external ? [`<li><strong>See each person's own other calendars</strong> <span class="hint">only to them</span>${newTag(isNew('hooks', 'external'))}</li>`] : []),
+    ...(m.events && m.events.subscribes.length ? [`<li><strong>Hear what happens in other ${escapeHtml(word('module', { many: true }))}</strong> <span class="hint">${escapeHtml(m.events.subscribes.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: their events, only for people who can see them</span>${newTag(anyNew('events', m.events.subscribes))}</li>`] : []),
+    ...(m.actions && m.actions.uses.length ? [`<li><strong>Ask other ${escapeHtml(word('module', { many: true }))} to do things</strong> <span class="hint">${escapeHtml(m.actions.uses.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: each request is carried out by the ${escapeHtml(word('module'))} that owns the action</span>${newTag(anyNew('actions', m.actions.uses))}</li>`] : []),
+    ...(m.refs && m.refs.consumes.length ? [`<li><strong>Link to other ${escapeHtml(word('module', { many: true }))}' ${escapeHtml(word('object', { many: true }))}</strong> <span class="hint">${escapeHtml(m.refs.consumes.map((c) => c.replace(':', ' ')).join(', '))}, shown only to people who can already see them</span>${newTag(anyNew('refs', m.refs.consumes))}</li>`] : []),
   ];
   const modeTag = m.runMode === 'page' ? '<span class="sdk-status" data-tone="warn">In the page</span>' : '<span class="sdk-status">Sandboxed</span>';
   // The state: one switch (#264); a module built for an older version of the product can't be turned on, so it says so.
-  const control = m.outdated ? '<span class="sdk-status" data-tone="warn">Needs an update</span>' : `${m.needsApproval && !m.enabled ? '<span class="sdk-status" data-tone="warn">Needs approval</span> ' : ''}${enabledSwitch({ id: m.id, attr: 'data-module-enabled', name: shownName(m), on: m.enabled, disabled: !m.enabled && Boolean(m.missing?.length || m.needsUpdate?.length) })}`;
+  const control = m.outdated ? '<span class="sdk-status" data-tone="warn">Needs an update</span>' : `${m.needsApproval ? '<span class="sdk-status" data-tone="warn">Needs approval</span> ' : ''}${onWaiting ? '<button class="btn btn-primary btn-small" data-module-action="approve" type="button">Approve</button> ' : ''}${enabledSwitch({ id: m.id, attr: 'data-module-enabled', name: shownName(m), on: m.enabled, disabled: !m.enabled && Boolean(m.missing?.length || m.needsUpdate?.length) })}`;
   const several = m.versions.length > 1; // the picker lists every kept version, the running one selected
   const name = escapeHtml(shownName(m));
   const head = `
@@ -1501,7 +1508,7 @@ function moduleCard(m, shape = 'full') {
     </div>`;
   const about = `${m.description ? `<p>${escapeHtml(m.description)}</p>` : ''}${m.hooks?.ai === 'optional' && m.id !== AI_MODULE ? `<p class="hint">Can use <a href="#modules/${AI_MODULE}">${escapeHtml(shownNameOf(AI_MODULE))}</a>.</p>` : ''}`;
   const approvals = `
-    <p class="hint">${asks.length ? (m.needsApproval ? 'Asks for these -- enabling approves them:' : 'Approved to:') : 'Asks for nothing beyond showing itself.'}</p>
+    <p class="hint">${asks.length ? (onWaiting ? 'Approved to these, except the ones marked new. It runs without those until you approve them:' : m.needsApproval ? 'Asks for these -- enabling approves them:' : 'Approved to:') : 'Asks for nothing beyond showing itself.'}</p>
     ${asks.length ? `<ul class="module-asks">${asks.join('')}</ul>` : ''}
     <div class="module-runmode">
       <p class="hint"><strong>${m.runMode === 'page' ? 'Runs in the page' : 'Runs sandboxed'}</strong>${m.source === 'bundled' ? ', ships with this server' : ', uploaded'}. ${m.runMode === 'page' ? `It can read and change anything on the page, including what you can see and do. Only allow that for ${escapeHtml(word('module', { a: true }))} you trust.` : `It is walled off in its own frame and can only reach the host through its approved permissions. ${escapeHtml(word('module', { a: true, cap: true }))} in a frame cannot take part in drag and drop between ${escapeHtml(word('module', { many: true }))}.`}</p>
@@ -1539,7 +1546,7 @@ function moduleCard(m, shape = 'full') {
   if (newer) {
     const note = document.createElement('div');
     note.className = 'module-update';
-    note.innerHTML = `<span class="sdk-status" data-tone="warn">Newer version available: ${escapeHtml(newer.version)}. You have ${escapeHtml(m.version)}.</span> <button class="btn btn-primary btn-small" data-bundled-action="install" data-bundled-id="${escapeHtml(newer.id)}" type="button">Update</button> <span class="hint">Your data stays as it is, and you can switch back${shape === 'full' ? ' below' : ` on its tab`}. If it asks for anything new you approve it first.</span>`;
+    note.innerHTML = `<span class="sdk-status" data-tone="warn">Newer version available: ${escapeHtml(newer.version)}. You have ${escapeHtml(m.version)}.</span> <button class="btn btn-primary btn-small" data-bundled-action="install" data-bundled-id="${escapeHtml(newer.id)}" type="button">Update</button> <span class="hint">Your data stays as it is, it stays on if it is on, and you can switch back${shape === 'full' ? ' below' : ` on its tab`}. If it asks for anything new, it runs without that until you approve it.</span>`;
     (el.querySelector('.module-outdated') || el.querySelector('.module-head')).after(note);
   }
   return el;
@@ -1941,7 +1948,7 @@ $('tab-modules').addEventListener('click', async (event) => {
     const { module } = await api('POST', `/api/modules/bundled/${encodeURIComponent(button.dataset.bundledId)}/install`);
     await loadModules();
     await loadRoles();
-    sayModules(`${shownName(module)} ${module.version} installed${module.enabled ? '' : ' -- review it below, then turn it on'}`);
+    sayModules(`${shownName(module)} ${module.version} installed${module.enabled ? (module.needsApproval ? '. It asks for something new: approve it, or it runs without that' : '') : ' -- review it below, then turn it on'}`);
   } catch (err) {
     sayModules(err.message, true);
     button.disabled = false;
@@ -1957,7 +1964,7 @@ $('module-install').addEventListener('click', async () => {
     $('module-file').value = '';
     await loadModules();
     await loadRoles(); // a module's permissions join the Roles grid when it is on
-    say($('modules-status'), `${shownName(module)} ${module.version} installed${module.enabled ? '' : ' -- review it below, then turn it on'}`);
+    say($('modules-status'), `${shownName(module)} ${module.version} installed${module.enabled ? (module.needsApproval ? '. It asks for something new: approve it, or it runs without that' : '') : ' -- review it below, then turn it on'}`);
   } catch (err) {
     say($('modules-status'), err.message, true);
   }
@@ -1984,7 +1991,11 @@ $('tab-modules').addEventListener('click', async (event) => {
   const card = button.closest('.module-card');
   const m = installedModules.find((x) => x.id === card.dataset.id);
   try {
-    if (button.dataset.moduleAction === 'rollback') {
+    if (button.dataset.moduleAction === 'approve') {
+      // On, with an update that asks for something new: approving it is turning it on again (PATCH enabled: true).
+      if (!await confirmDialog({ title: `Approve ${shownName(m)}'s update?`, message: 'This approves what it newly asks for, marked under its name.', action: 'Approve' })) return;
+      await api('PATCH', `/api/modules/${m.id}`, { enabled: true });
+    } else if (button.dataset.moduleAction === 'rollback') {
       const version = card.querySelector('[data-module-version]').value;
       if (version === m.version) return;
       if (!await confirmDialog({ title: `Switch ${shownName(m)} to version ${version}?`, message: 'Its data stays as it is.', action: 'Switch' })) return;

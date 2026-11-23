@@ -10,7 +10,7 @@ const yauzl = require('yauzl');
 const { AsyncLocalStorage } = require('async_hooks');
 const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
 const QRCode = require('qrcode');
-const { ModuleManager, LIMITS: MODULE_LIMITS, compareVersions, oldNameIn, pendingWidensNothing } = require('./modules');
+const { ModuleManager, LIMITS: MODULE_LIMITS, compareVersions, oldNameIn, pendingWidensNothing, hookGranted } = require('./modules');
 const { buildModule, bundledModules, zipFiles } = require('./module-build');
 const { fillManifest, permissionDefaults } = require('./modules');
 const templates = require('./templates');
@@ -1325,9 +1325,9 @@ async function updateBundled(env) {
       }
       const view = await env.modules.install(zip, { source: 'bundled' });
       let note = '';
-      // Still switched on unless the update asks for something new (install switches it off then); whether it runs also
-      // depends on what it requires, which is updated before it (requirementsFirst).
-      if (wasOn && !env.modules.registry.modules[bundled.id].enabled) {
+      // Still switched on (an update never switches a module off; what it newly asks for is not granted until approved);
+      // whether it runs also depends on what it requires, which is updated before it (requirementsFirst).
+      if (wasOn && view.needsApproval) {
         const { pending } = view;
         if (pendingWidensNothing(pending, view.permissions)) {
           // Turned back on as an owner would (approving its new permissions). If something it requires is not on yet
@@ -1340,7 +1340,7 @@ async function updateBundled(env) {
             note = ` It is off for now: ${err.message}`;
           }
         } else {
-          note = ' It waits for an owner to approve what it newly asks for in Modules.';
+          note = ' It stays on with what was approved before; what it newly asks for waits for an owner to approve it in Modules.';
         }
       }
       console.log(`${where}Updated "${bundled.id}" from ${from} to ${view.version}${outdated ? `: the version installed was built for an older version of ${PRODUCT_NAME}` : ', the version this server ships'}.${note}`);
@@ -8709,6 +8709,7 @@ app.post('/api/spaces/:id/ai/extract', (req, res, next) => {
       return res.status(err.status).json({ error: err.message });
     }
     if (!place.found.manifest.hooks.ai) return res.status(403).json({ error: `this ${word('module')} did not ask for the ai hook` });
+    if (!hookGranted(place.found, 'ai')) return res.status(403).json({ error: hookNotApproved('ai') });
     door = { module: place.found.manifest.id, write: moduleCan(place.found.manifest, place.perms, 'write') };
   }
   const purpose = door ? 'module' : 'chat';
@@ -9388,7 +9389,7 @@ app.get('/feed/:file', (req, res) => {
 // memory only (server/external-calendars.js). A module sees the person's own events only through the admin-approved
 // `external` hook. Nothing here names a provider or a module. settings.otherCalendars allows it (store.otherCalendarsOn:
 // calendarFeeds, the address out's switch, until an owner sets it; plan-space-calendars.md, decision 7).
-const externalModules = () => modules.enabledAll().filter(({ manifest }) => manifest.hooks.external);
+const externalModules = () => modules.enabledAll().filter((found) => hookGranted(found, 'external'));
 const externalAllowed = () => store.otherCalendarsOn() && externalModules().length > 0;
 function refuseExternal(res) {
   if (!store.otherCalendarsOn()) return void res.status(403).json({ error: `Other calendars are off in this ${word('environment')}.` });
@@ -13291,11 +13292,12 @@ app.delete('/api/modules/:id/data/:key', (req, res) => {
 
 // Live changes to one module's data in one scope, pushed as server-sent events.
 // The page hosting the module's frame listens and forwards them into the frame.
-// Hooks: schedule something for later, or tell people now. The module must
-// have declared the hook in its manifest (enabling it approved that).
+// Hooks: schedule something for later, or tell people now. The module must have declared the hook in its manifest
+// and an owner must have approved it (enabling it, or approving its update, does; an update alone does not).
+const hookNotApproved = (hook) => `this ${word('module')} is not approved for the ${hook} hook yet; ${word('owner', { a: true })} approves its update in Manage > ${word('module', { many: true, cap: true })}`;
 function requireHook(ctx, res, hook) {
-  if (ctx.manifest.hooks[hook]) return true;
-  res.status(403).json({ error: `this ${word('module')} did not ask for the ${hook} hook` });
+  if (hookGranted(ctx, hook)) return true;
+  res.status(403).json({ error: ctx.manifest.hooks[hook] ? hookNotApproved(hook) : `this ${word('module')} did not ask for the ${hook} hook` });
   return false;
 }
 function sendHookError(err, res) {
@@ -13305,6 +13307,7 @@ function sendHookError(err, res) {
 app.post('/api/modules/:id/schedule', (req, res) => {
   const ctx = moduleAccess(req, res, 'write');
   if (!ctx || !requireHook(ctx, res, 'schedule')) return;
+  if (req.body?.notify && !requireHook(ctx, res, 'notify')) return;
   if (req.body?.notify && typeof req.body.notify === 'object' && refuseNotifyTo(req.body.notify.to, res)) return;
   // `ref`: the module's own object, in the same place, the schedule is about. Its notification and its firing then reach
   // only those who may see that object: for a copy of another module's object, whoever may read the original (GitHub #857).
