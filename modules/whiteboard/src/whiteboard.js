@@ -127,6 +127,8 @@
 
   // The size and alignment picked for the words of new blocks (null: each type's usual).
   const nextText = { size: null, align: null };
+  // The corner radius and shadow last picked on shapes, for new shapes while the page is open (null: each shape's own usual). Pictures keep their own.
+  const nextStyle = { radius: null, shadow: null };
   // What new tables start with, for this visit only (the Table properties menu with no table picked).
   const nextTable = { align: 'center', valign: 'middle', head: true };
   const takesNext = (def, role) => {
@@ -223,6 +225,7 @@
       if (wbHex(own.fill) && own.fill === next.fill) own.fillOpacity = nextFillOpacity; // a custom fill picked for new blocks, at its opacity
       if (type === CONNECTOR) for (const [k, v] of Object.entries(nextLine)) if (v !== null) own[k] = v;
       if (def.markup) Object.assign(own, wbNextWords(def, nextText));
+      if (type !== 'image') for (const k of Object.keys(nextStyle)) if (def[k] && nextStyle[k] !== null) own[k] = nextStyle[k];
       if (type === 'table') Object.assign(own, nextTable);
       // A frame goes under the other blocks (lib-e-block-frame, wbFrameZ); everything else on top.
       const z = def.container ? wbFrameZ(board.all()) : Math.floor(board.topZ()) + 1;
@@ -738,15 +741,22 @@
   // (Snap to grid is in the right zone, so it stays at the far right.)
   let arrangeButton = null;
   let presentTool = null;
+  let copyButton = null;
+  let pasteButton = null;
   function toolbarTail() {
     const wantPresent = [...board.all()].some((b) => wbIsFrame(b));
     const wantDelete = [...sel].some((id) => policy.canDelete(board.get(id)));
     const wantArrange = policy.canEdit && sel.size > 1;
+    // Copy and Paste as buttons (a phone has no keys and no right-click): Copy while something copyable is picked, Paste once something is copied.
+    const wantCopy = policy.canEdit && sel.size > 0 && copyable().length > 0;
+    const wantPaste = policy.canCreate() && !presenting && clipboard.has();
     if (presentTool) presentTool.set({ on: Boolean(presenting) });
-    if (Boolean(presentTool) === wantPresent && Boolean(deleteButton) === wantDelete && Boolean(arrangeButton) === wantArrange) return;
-    for (const b of [arrangeButton, deleteButton, presentTool]) if (b) b.destroy();
-    arrangeButton = deleteButton = presentTool = null;
+    if (Boolean(presentTool) === wantPresent && Boolean(deleteButton) === wantDelete && Boolean(arrangeButton) === wantArrange && Boolean(copyButton) === wantCopy && Boolean(pasteButton) === wantPaste) return;
+    for (const b of [arrangeButton, copyButton, pasteButton, deleteButton, presentTool]) if (b) b.destroy();
+    arrangeButton = copyButton = pasteButton = deleteButton = presentTool = null;
     if (wantPresent) presentTool = host.ui.toolbarButton({ id: 'present-tool', label: 'Present the frames', icon: 'play', iconOnly: true, on: Boolean(presenting), onClick: () => presentToggle() });
+    if (wantCopy) copyButton = host.ui.toolbarButton({ id: 'clip-copy', label: 'Copy', icon: 'copy', iconOnly: true, onClick: () => { if (tool.id === 'area' && pictureArea) copyArea(false); else copy(); } });
+    if (wantPaste) pasteButton = host.ui.toolbarButton({ id: 'clip-paste', label: 'Paste', icon: 'paste', iconOnly: true, onClick: () => paste() });
     if (wantDelete) deleteButton = host.ui.toolbarButton({ id: 'delete', label: 'Delete', icon: 'trash', iconOnly: true, onClick: () => removeMany([...sel]) });
     if (wantArrange) arrangeButton = host.ui.toolbarButton({ id: 'arrange', label: 'Arrange', icon: 'arrows-left-right-to-line', iconOnly: true, onClick: (e) => arrangeMenu(toolbarAt(e)) });
   }
@@ -1950,7 +1960,9 @@
   // A radius as the menu marks it: a picture's none is 0; a shape with none chosen has its own usual corners (null: no row marked).
   const radiusOf = (b) => (b.radius !== undefined ? b.radius : b.type === 'image' ? 0 : null);
   function setStyle(key, patch) {
-    for (const b of styled(key)) ctx.change(b.id, patch, { save: 'now' });
+    const list = styled(key);
+    for (const b of list) ctx.change(b.id, patch, { save: 'now' });
+    if (list.length && list.every((b) => b.type !== 'image')) nextStyle[key] = patch[key]; // picked on shapes: new shapes start with it
     updatePaint();
   }
   function radiusMenu(where) {
@@ -2526,6 +2538,7 @@
     clipMarked = false; // onCopyEvent sets it again when this copy put the mark on the computer's clipboard
     if (cut) removeMany(list.map((b) => b.id));
     setAdd();
+    toolbarTail(); // the Paste button comes once something is copied
   }
   function placeCopies(copies) {
     if (!policy.canCreate() || !copies.length || presenting) return;

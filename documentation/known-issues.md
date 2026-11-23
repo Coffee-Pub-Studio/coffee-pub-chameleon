@@ -54,7 +54,6 @@ Whiteboard 0.1.68 to 0.1.82 ([userguide-whiteboard](userguides/userguide-whitebo
 - **Marks drawn on a picture before 0.1.80 are not on it yet.** They join it the next time they are saved (moved or changed). Until then they do not move with it.
 - **Holes and blur need a current browser.** They are drawn with a CSS mask. An older browser may show the picture without its holes.
 - **Copy and Cut of an area were not tried with the computer's real clipboard.** What the page hands to the clipboard was checked (a picture of exactly the area); pasting it in another program, and Safari's rules for writing a picture to the clipboard, were not.
-- **A new shape does not remember the corner radius or shadow you last chose.** They are set on a picked shape.
 - **Clicking a picture that is already picked opens its description box.** That is how the board treats a second click on a block with words, and it applies to pictures. Press **Escape** or click elsewhere to close it before pressing a handle.
 
 ## Whiteboard: text formatting from the strip
