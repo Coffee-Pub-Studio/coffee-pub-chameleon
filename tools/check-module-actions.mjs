@@ -566,15 +566,15 @@ try {
   let event = null;
   await test('Calendar: an agent\'s createEvent with a 90 minute reminder and notes is done at once; its reminder waits for a page, and says so', async () => {
     as = agents[9];
-    const r = await askIn('calendar:createEvent', { title: 'Car', date: '2026-11-20', time: '10:00', endTime: '11:30', remind: 90, notes: 'Pick up at the airport' });
+    const r = await askIn('calendar:createEvent', { title: 'Car', date: '2030-11-20', time: '10:00', endTime: '11:30', remind: 90, notes: 'Pick up at the airport' });
     ok(r, 'createEvent');
     assert.equal(r.json.ok, true);
-    assert.equal(r.json.note, 'Its reminder is set the next time someone who can change events opens the calendar.');
+    assert.equal(r.json.note, 'The reminder is for Wednesday 20 November, 8:30 AM, 90 minutes before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
     event = r.json.ref;
     assert.deepEqual([event.module, event.kind, event.space], ['calendar', 'event', camp]);
     const v = (await calData())[`event:${event.id}`].value;
     // The module test's expectations (modules/calendar/test/check-calendar-actions.mjs), read in the server's zone (UTC here).
-    assert.deepEqual(v, { id: event.id, title: 'Car', allDay: false, start: '2026-11-20T10:00:00.000Z', end: '2026-11-20T11:30:00.000Z', desc: 'Pick up at the airport', remind: 90, repeat: null, by: 'Claude', remindPending: true });
+    assert.deepEqual(v, { id: event.id, title: 'Car', allDay: false, start: '2030-11-20T10:00:00.000Z', end: '2030-11-20T11:30:00.000Z', desc: 'Pick up at the airport', remind: 90, repeat: null, by: 'Claude', remindPending: true });
     assert.ok(!schedules().some((x) => x.module === 'calendar'), 'no schedule is set by the server');
   });
 
@@ -592,14 +592,33 @@ try {
     const v = (await calData())[`event:${event.id}`].value;
     assert.equal(v.remind, null);
     assert.equal(v.remindPending, undefined);
-    assert.deepEqual([v.title, v.desc, v.start], ['Car', 'Pick up at the airport', '2026-11-20T10:00:00.000Z'], 'the rest kept');
+    assert.deepEqual([v.title, v.desc, v.start], ['Car', 'Pick up at the airport', '2030-11-20T10:00:00.000Z'], 'the rest kept');
     assert.ok(!schedules().some((x) => x.key === `remind:${event.id}`), 'the old reminder will not fire');
     assert.ok(schedules().some((x) => x.key === 'other-key'), 'a schedule about nothing it changed stays');
     const back = await askIn('calendar:updateEvent', { event, remind: 30, notes: '' });
     ok(back, 'a reminder again, notes cleared');
-    assert.equal(back.json.note, 'Its reminder is set the next time someone who can change events opens the calendar.');
+    assert.equal(back.json.note, 'The reminder is for Wednesday 20 November, 9:30 AM, 30 minutes before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
     const w = (await calData())[`event:${event.id}`].value;
     assert.deepEqual([w.remind, w.remindPending, w.desc], [30, true, '']);
+  });
+
+  await test('Calendar: an agent\'s createEvent with remindAt is done at once, stores the lead time and says the clock time', async () => {
+    as = agents[9];
+    // Thomas's case: 11:00 two days before an all-day event, read in the server's zone (UTC here). An all-day event reminds
+    // from 9:00 on its day, so it is 46 hours before.
+    const r = await askIn('calendar:createEvent', { title: 'Market', date: '2030-11-26', remindAt: '2030-11-24 11:00' });
+    ok(r, 'createEvent with remindAt');
+    assert.equal(r.json.status, 'done');
+    assert.equal(r.json.note, 'The reminder is for Sunday 24 November, 11:00 AM, 46 hours before 9:00 AM on its day (all-day reminders count from 9:00 AM). Its reminder is set the next time someone who can change events opens the calendar.');
+    const v = (await calData())[`event:${r.json.ref.id}`].value;
+    assert.deepEqual([v.allDay, v.start, v.remind, v.remindPending, v.remindAt], [true, '2030-11-26', 2760, true, undefined]);
+    const timed = await askIn('calendar:updateEvent', { event: r.json.ref, time: '19:00', remindAt: '6pm' });
+    ok(timed, 'updateEvent with a time alone');
+    assert.equal(timed.json.note, 'The reminder is for Tuesday 26 November, 6:00 PM, 1 hour before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
+    assert.equal((await calData())[`event:${r.json.ref.id}`].value.remind, 60);
+    const both = await askIn('calendar:createEvent', { title: 'Market', date: '2030-11-26', remind: 15, remindAt: '8am' });
+    ok(both, 'remind and remindAt', 422);
+    assert.equal(both.json.error, 'Give remind or remindAt, not both.');
   });
 
   await test('the same requests through an uploaded copy of the Itinerary wait for a page and never reach the runner', async () => {

@@ -295,6 +295,16 @@
     if (n < 60) return `Starts in ${many(n, 'minute', 'minutes')}`;
     return `Starts in ${many(Math.floor(n / 60), 'hour', 'hours')} ${many(n % 60, 'minute', 'minutes')}`;
   }
+  // What a lead time counts back from: a timed event's start, and for an all-day event 9:00 on its day (the start of the day
+  // plus nine hours). One rule for the page's schedule (calendar.js applyReminder), the form's "Reminds" line and the actions'
+  // remindAt and their answer. `day` and `tz` as instantFrom takes them: an all-day event's day is read in `tz` (the request's
+  // zone), else in this browser's.
+  const REMIND_ALLDAY_FROM = 9 * 60 * 60 * 1000;
+  function remindAnchor(allDay, start, tz) {
+    if (!allDay) return new Date(start);
+    const midnight = instantFrom(start, '00:00', tz);
+    return new Date(midnight.getTime() + REMIND_ALLDAY_FROM);
+  }
   // A lead time in the form's terms: a preset's value, or Other with a number and its unit (days, hours or minutes, the largest
   // that divides it). And back: the minutes for Other's number and unit, or { error }.
   function remindForm(minutes) {
