@@ -1,6 +1,6 @@
 // The call page: players see and hear each other.
 import { Room, RoomEvent, Track, createLocalTracks } from '/lib/livekit-client.esm.mjs';
-import { loadBranding, api, noticeToast, renderTopbar, setTopbarLocation, setPresentSpace, setInSpace, openSwitcher as openSpaceSwitcher, refreshNotices, iconClasses, spaceCrumbIcon, hasOwnerRights, word, verb, applyWords, followTheme, getIcons, setSpaceLook, clearSpaceLook } from '/brand.js';
+import { loadBranding, api, noticeToast, showNote, actionToast, renderTopbar, setTopbarLocation, setPresentSpace, setInSpace, openSwitcher as openSpaceSwitcher, refreshNotices, iconClasses, spaceCrumbIcon, hasOwnerRights, word, verb, applyWords, followTheme, getIcons, setSpaceLook, clearSpaceLook } from '/brand.js';
 import { anchorSegments, layoutTabs, tabOverflow, layoutIconChoices, iconMatches, gridStep, pageOpens, isHere, hereCount, asidePlaceholder, whereWords, offStream, mayMakeSpace } from '/primary-nav.js';
 import { openPhaseSheet, FACT_CHIPS_HIDDEN_AT } from '/phase-sheet.js';
 import { createSpaceSetup, setupAddress, configurationLabel } from '/space-setup.js';
@@ -12,8 +12,8 @@ import { layoutDiffers, sharedRowNotice, COLUMN_IDS } from '/layouts.js';
 import { createLayoutPicker, cleanText } from '/layout-picker.js';
 import { conferenceAllowed, layoutLine, shouldAutoJoin } from '/opens-with.js';
 import { switchListHtml, wireSwitchList } from '/switch-list.js';
-import { createWhoHere } from '/space-people.js';
-import { openLiveStream, liveStreamUrl, peopleFromPresence } from '/space-live.js';
+import { createWhoHere, createFaceStack, TAB_FACES } from '/space-people.js';
+import { openLiveStream, liveStreamUrl, peopleFromPresence, facesOnTab, bringAction, stayedCount } from '/space-live.js';
 import { hotkeyMatches, formatHotkey } from '/hotkeys.js';
 import { initDashboard } from '/dashboard.js';
 import { nav } from '/nav-bar.js';
@@ -1365,12 +1365,14 @@ function openLive(spaceId) {
     onReady: (_ready, isFirst) => {
       const state = presenceState();
       if (spaceId && (state.onCall || state.away)) sayPresence(state);
+      if (spaceId) sayWhere(); // a new stream starts with no tab said
       if (!isFirst) catchUpLiveChat();
       livePending?.resolve();
       livePending = null;
     },
     onChat: liveChatNotice,
     onAside: asideNudge,
+    onBring: bringNudge,
     onState: (state) => {
       chatStream = state;
       paintChatConn();
@@ -1413,7 +1415,7 @@ function closeLive() {
 const liveYou = () => liveStream?.ready?.you || me?.key || null;
 // Who is here, you first: { key, name, you, onCall, away, awayMessage }.
 function livePeople() {
-  return peopleFromPresence(livePeopleList, { you: liveYou(), youName: me?.displayName || '', meOnCall: inCall });
+  return peopleFromPresence(livePeopleList, { you: liveYou(), youName: me?.displayName || '', meOnCall: inCall, meLayout: entered ? myWhere() : null }); // (not before entering: the page is still being set up then
 }
 // One person on the stream by key (a tile's identity), or null.
 function livePerson(key) {
@@ -1432,6 +1434,7 @@ function liveOthersOnCall() {
 function syncCallControl() {
   syncWhoIsInCall();
   whoHere.refresh(); // who is here, in the top bar or the phone's tab bar (space-people.js)
+  paintTabSides(); // and the faces on the layout tabs
   nav.draw('secondary'); // Join the call shows only out of the call
   paintJoinCall();
   paintCallTab(); // and Online is the call item on a phone while on the call
@@ -1544,6 +1547,7 @@ const whoHere = createWhoHere({
   portraitUrl: spacePortraitUrl,
   profileUrl: (key) => imgUrl(key, 'profile'),
   wanted: () => Boolean(currentSpace) && entered,
+  tabOf: (p) => (p.layout ? tabLabelOf(p.layout) : ''),
   events: {
     redraw: () => nav.draw(nav.get('who-here')?.bar || 'secondary'),
   },
@@ -1572,7 +1576,10 @@ whoHere.el.addEventListener('click', (event) => {
   canvas.showBuiltin('conference');
   paintCallTab();
 }, true);
-const whoHereTopWanted = () => Boolean(currentSpace) && !viewingHome && !inAside() && entered && !phoneWidth();
+// Where the layout tabs show, their faces say who is where, so Who is here leaves the top bar (plan-workspaces.md, decision
+// 47); a guest (no tabs) keeps it, and a phone keeps its Online item. tabFacesShown is the layout tabs' (set below).
+let tabFacesShown = () => false;
+const whoHereTopWanted = () => Boolean(currentSpace) && !viewingHome && !inAside() && entered && !phoneWidth() && !tabFacesShown();
 const whoHereTop = { id: 'who-here', bar: 'primary', zone: 'left', group: 'people', groupOrder: 13, order: 1, icon: 'user-group', label: 'Who is here', element: whoHere.el, fit: whoHere.fit, yieldFirst: true, visible: whoHereTopWanted };
 // --- end who is here ---
 
@@ -4118,7 +4125,7 @@ const layoutTabsWanted = () => oneBar() && !inAside() && !phoneWidth() && layout
 let layoutTabsDrawn = ''; // what the tabs show now, so an unchanged list keeps its buttons (and the keyboard on one)
 function renderLayoutTabs() {
   const list = layoutTabList();
-  const key = JSON.stringify(list.map((t) => [t.id, t.icon, t.label, t.temp === true, t.pinned === true]));
+  const key = JSON.stringify([list.map((t) => [t.id, t.icon, t.label, t.temp === true, t.pinned === true]), mayBring()]);
   if (key !== layoutTabsDrawn) {
     layoutTabsDrawn = key;
     const doc = layoutTabsEl.ownerDocument;
@@ -4135,7 +4142,8 @@ function renderLayoutTabs() {
       // A pinned tab wears a small pin: the owner keeps it in the bar, so it has no way to hide it.
       if (t.pinned) { b.title = `${t.label}. Kept in the bar by the ${word('owner')}.`; b.setAttribute('aria-label', `${t.label}, kept in the bar by the ${word('owner')}`); }
       b.innerHTML = `<i class="fa-solid fa-${escapeHtml(t.icon)} fa-fw" aria-hidden="true"></i><span class="core-label">${escapeHtml(t.label)}</span>${t.pinned ? '<i class="fa-solid fa-thumbtack layout-tab-pinned" aria-hidden="true"></i>' : ''}`;
-      if (!t.temp || t.kind === 'system') return [b]; // a fixed layout's tab is turned on by its Favorite, in the Layout menu
+      const side = tabSide(doc, t); // who is on it, and a moderator's caret
+      if (!t.temp || t.kind === 'system') return [b, side]; // a fixed layout's tab is turned on by its Favorite, in the Layout menu
       // A temporary tab (a saved layout shown that is not a favorite): a heart beside it pins it as a favorite.
       const pin = doc.createElement('button');
       pin.type = 'button';
@@ -4144,11 +4152,12 @@ function renderLayoutTabs() {
       pin.setAttribute('aria-label', `Favorite ${t.label}`);
       pin.innerHTML = '<i class="fa-solid fa-heart fa-fw" aria-hidden="true"></i>';
       pin.addEventListener('click', () => { const l = findLayout(t.layout); if (l) setFavorite(l, true); });
-      return [b, pin];
+      return [b, pin, side];
     }).flat();
     layoutTabsEl.replaceChildren(...buttons, layoutTabsMore, favoritesNote);
     if (hadId) (layoutTabsEl.querySelector(`[data-layout-tab="${CSS.escape(hadId)}"]`) || layoutTabsEl.querySelector('[data-layout-tab]'))?.focus();
   }
+  paintTabSides({ draw: false });
   markLayoutTabs();
   nav.draw('primary'); // the tabs changed: the bar fits again (fitBar)
 }
@@ -4170,7 +4179,8 @@ function fitLayoutTabs(avail) {
   const doc = layoutTabsEl.ownerDocument;
   const tabs = [...layoutTabsEl.querySelectorAll(':scope > [data-layout-tab]')];
   const focused = doc.activeElement && layoutTabsEl.contains(doc.activeElement) ? doc.activeElement : null;
-  for (const b of tabs) b.classList.remove('layout-tab-out');
+  const sides = tabs.map((b) => sideOfTab(b.dataset.layoutTab));
+  for (const b of [...tabs, ...sides]) b?.classList.remove('layout-tab-out');
   layoutTabsMore.hidden = true;
   if (!tabs.length || !layoutTabsEl.getClientRects().length) { markLayoutTabs(); return; }
   const w = (el) => el.getBoundingClientRect().width;
@@ -4180,8 +4190,10 @@ function fitLayoutTabs(avail) {
   layoutTabsMore.hidden = true;
   // A pixel spare: the bar counts the left zone in whole pixels (rounded up) when it decides what folds.
   const current = tabs.findIndex((b) => b.dataset.layoutTab === shownLayoutTab());
-  const { out, more: showMore } = tabOverflow({ avail: Math.floor(avail) - 1, gap, widths: tabs.map(w), more, current, workspace: Math.max(0, tabs.findIndex((b) => b.dataset.layoutTab === 'workspace')) });
-  tabs.forEach((b, i) => b.classList.toggle('layout-tab-out', out.includes(i)));
+  // A tab and its faces leave together: its width is both (the faces' button sits close against it).
+  const widths = tabs.map((b, i) => w(b) + (sides[i] && !sides[i].hidden ? w(sides[i]) + gap + parseFloat(doc.defaultView.getComputedStyle(sides[i]).marginLeft || '0') : 0));
+  const { out, more: showMore } = tabOverflow({ avail: Math.floor(avail) - 1, gap, widths, more, current, workspace: Math.max(0, tabs.findIndex((b) => b.dataset.layoutTab === 'workspace')) });
+  tabs.forEach((b, i) => { b.classList.toggle('layout-tab-out', out.includes(i)); sides[i]?.classList.toggle('layout-tab-out', out.includes(i)); });
   layoutTabsMore.hidden = !showMore;
   markLayoutTabs();
   if (focused && focused.closest('.layout-tab-out')) layoutTabsMore.focus();
@@ -4200,6 +4212,7 @@ function pressLayoutTab(id, from = null, { load = true, remember = true } = {}) 
     nav.draw();
     canvas.refreshMenu();
     if (remember) rememberLayout('workspace');
+    sayWhere();
     return;
   }
   // Calendar and Map are system layouts (their `modules`: the composite, docked, filling the canvas), reloaded as saved
@@ -4229,6 +4242,7 @@ function pressLayoutTab(id, from = null, { load = true, remember = true } = {}) 
   rebaseLayout();
   canvas.refreshMenu();
   if (remember) rememberLayout(id);
+  sayWhere();
 }
 
 // Modified (Thomas, 2026-11-11): the layout shown is a saved one and the arrangement is no longer what it was when it was
@@ -4303,12 +4317,17 @@ function placeModified() {
     b.addEventListener('click', () => updateLayout(layout.id));
     layoutModifiedEl.append(' ', b);
   }
-  (tab.nextElementSibling?.classList.contains('layout-tab-pin') ? tab.nextElementSibling : tab).after(layoutModifiedEl);
+  let after = tab; // after the tab's heart and its faces, which belong to it
+  while (after.nextElementSibling?.matches('.layout-tab-pin, .layout-tab-side')) after = after.nextElementSibling;
+  after.after(layoutModifiedEl);
   layoutModifiedEl.hidden = false;
 }
 layoutTabsEl.addEventListener('click', (event) => {
+  const side = event.target.closest('[data-tab-side]');
+  if (side) { openTabPeople(side); return; }
   const button = event.target.closest('[data-layout-tab]');
   if (!button) return;
+  goBackToast?.close(); // pressing a tab is the person's own choice: the Go back after a bring has done its job
   pressLayoutTab(button.dataset.layoutTab, button);
   if (button.isConnected && !button.classList.contains('layout-tab-out')) button.focus();
 });
@@ -4328,7 +4347,243 @@ layoutTabsMore.addEventListener('click', () => {
 // Right after the space switcher, in the views' place (group `views`, after their phone-only entries). Who is here, after
 // them, gives way first (its `yieldFirst`); then the tabs go into their "...", before anything on the right folds.
 nav.register({ id: 'layout-tabs', bar: 'primary', zone: 'left', group: 'views', groupOrder: 12, order: 10, icon: 'columns', label: 'Layouts', element: layoutTabsEl, visible: layoutTabsWanted, fit: fitLayoutTabs });
+tabFacesShown = layoutTabsWanted; // Who is here leaves the top bar where the tabs show their faces
 // --- end the layout tabs ---
+
+// --- presence on tabs (plan-workspaces.md, decision 47) -----------------------------------------------------------------
+// The tab this page shows is part of this person's live state: said with PUT /api/spaces/:id/where on every change of tab
+// and on every new stream (`ready`), a little after the last change (a run of presses says only the last). The presence
+// event then carries everyone's `layout`, and each tab wears the faces of who is on it (a button beside the tab, the
+// shared face stack from space-people.js: three and "+N"). Its press opens who is where, on the shared menu; for an owner,
+// the admin or a moderator, a fixed tab's button also wears a caret and its menu starts with Bring everyone here.
+// A guest says nothing (no tabs); a phone says its tab too (the bring reaches it), and reads who is where in Online's list.
+let whereTimer = 0;
+let whereSaid = ''; // `${stream}|${layout}` the server has
+function sayWhere() {
+  clearTimeout(whereTimer);
+  whereTimer = setTimeout(sendWhere, 250);
+}
+async function sendWhere() {
+  const ready = liveStream?.ready;
+  const space = layoutSpaceId();
+  if (!ready || !space || liveSpaceId !== space || !mayFavorite()) return;
+  const layout = currentLayoutTab;
+  const said = `${ready.stream}|${layout}`;
+  if (said === whereSaid) return;
+  try {
+    await api('PUT', `/api/spaces/${encodeURIComponent(space)}/where`, { layout, stream: ready.stream });
+    whereSaid = said;
+  } catch (err) {
+    // Too many in a minute: said again when the server allows. Anything else is dropped quietly (the tab still shows).
+    if (err.status === 429) { clearTimeout(whereTimer); whereTimer = setTimeout(sendWhere, Math.max(1, err.retryAfter || 5) * 1000); }
+  }
+}
+// My tab as the others read it (the server's sharedWhere): my own saved layout is 'personal'.
+function myWhere() {
+  if (!layoutSpaceId() || guestToken || !mayFavorite()) return null;
+  const id = currentLayoutTab;
+  return findSystemLayout(id) || id === 'workspace' || layoutList.shared.some((l) => l.id === id) ? id : 'personal';
+}
+// The name this person sees for a tab, for the list and the warnings.
+function tabLabelOf(id) {
+  if (id === 'personal') return 'Their own workspace';
+  return layoutTabList().find((t) => t.layout === id)?.label || findSystemLayout(id)?.name || findLayout(id)?.name || '';
+}
+// Bring everyone here: owners, the admin and this space's moderators (the server's canShare), never a guest or in an aside.
+function mayBring() { return Boolean(layoutList.canShare) && !guestToken && !inAside(); }
+function bringable(id) { return id !== 'workspace' && Boolean(findSystemLayout(id)); }
+function sideOfTab(id) { return layoutTabsEl.querySelector(`:scope > [data-tab-side="${CSS.escape(id)}"]`); }
+const tabStacks = new Map(); // layout id -> its face stack
+function tabSide(doc, t) {
+  const b = doc.createElement('button');
+  b.type = 'button';
+  b.className = 'layout-tab-side';
+  b.dataset.tabSide = t.layout;
+  b.setAttribute('aria-haspopup', 'menu');
+  b.setAttribute('aria-expanded', 'false');
+  const stack = createFaceStack({ doc, portraitUrl: spacePortraitUrl, profileUrl: (key) => imgUrl(key, 'profile') });
+  tabStacks.set(t.layout, stack);
+  b.append(stack.el);
+  if (mayBring() && bringable(t.layout)) {
+    const caret = doc.createElement('i');
+    caret.className = 'fa-solid fa-caret-down fa-fw layout-tab-caret';
+    caret.setAttribute('aria-hidden', 'true');
+    b.append(caret);
+  }
+  b.hidden = true;
+  return b;
+}
+// Draw every tab's faces from the live stream's people; the bar fits again when a button came or went.
+function paintTabSides({ draw = true } = {}) {
+  const people = livePeople();
+  let changed = false;
+  for (const side of layoutTabsEl.querySelectorAll(':scope > [data-tab-side]')) {
+    const id = side.dataset.tabSide;
+    const { all, shown, more } = facesOnTab(people, id, TAB_FACES);
+    tabStacks.get(id)?.draw(shown, more);
+    const label = tabLabelOf(id);
+    const caret = Boolean(side.querySelector('.layout-tab-caret'));
+    const hide = !all.length && !caret;
+    if (side.hidden !== hide) { side.hidden = hide; changed = true; }
+    const names = all.map((p) => (p.you ? 'you' : p.name));
+    const said = names.length ? `On ${label}: ${names.length > 4 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ')}` : `${label}: more`;
+    side.setAttribute('aria-label', said);
+    side.title = said;
+  }
+  if (changed && draw) nav.draw('primary');
+}
+// Who is where, on the shared menu, from a tab's faces: for a moderator on a fixed tab, Bring everyone here first; then
+// everyone in the space under the tab they are on, this tab's people first.
+function openTabPeople(side) {
+  const id = side.dataset.tabSide;
+  openHostMenu(side, () => {
+    const people = livePeople();
+    const items = [];
+    if (mayBring() && bringable(id)) {
+      items.push({ label: 'Bring everyone here', icon: 'people-arrows', hint: `Moves everyone to ${tabLabelOf(id)} in ${BRING_SECONDS} seconds`, onPick: () => bringEveryone(id) });
+      items.push({ divider: true });
+    }
+    const groups = new Map();
+    for (const p of people) {
+      const at = p.layout || '';
+      if (!groups.has(at)) groups.set(at, []);
+      groups.get(at).push(p);
+    }
+    const order = [id, ...[...groups.keys()].filter((k) => k !== id && k), ''].filter((k, i, all) => groups.has(k) && all.indexOf(k) === i);
+    items.push({ heading: `In this ${word('space')} (${people.length})` });
+    for (const at of order) {
+      items.push({ heading: at ? tabLabelOf(at) || 'Another tab' : 'Elsewhere' });
+      for (const p of groups.get(at)) items.push({ label: p.you ? `${p.name} (you)` : p.name, icon: p.onCall ? 'video' : 'user', ...(p.onCall ? { tag: 'On the call' } : {}), onPick: () => {} });
+    }
+    return items;
+  });
+}
+// --- end presence on tabs ---
+
+// --- Bring everyone here (plan-workspaces.md, decisions 36 and 48) -------------------------------------------------------
+// The mover (an owner, the admin or a moderator) picks it on a fixed tab's menu: POST .../bring-everyone, their own page
+// shows that tab at once, and a toast counts down with Cancel (DELETE .../bring-everyone stops it for everyone); after the
+// move it says how many stayed where they were. Everyone else in the space with the page open gets `layout-bring` on the
+// live stream: a toast that counts down with Stay here, then the page presses that tab itself (remember: false, so their
+// last layout is not written) and a toast with Go back, which returns to the tab they were on. Nothing happens in an
+// aside (only the call is there), on a tab they can't open, or when they are already on it. The server only passes it on.
+const BRING_SECONDS = 5;
+let pendingBring = null; // the warning showing now: { id, layout, by, toast, timer, tick }
+let myBring = null; // the mover's own countdown: { id, layout, toast, tick, done }
+let goBackToast = null; // after a move: its Go back
+let goBackTo = null; // the tab Go back returns to: the one before the first of a run of brings
+function countdown(seconds, onTick) {
+  const end = Date.now() + seconds * 1000;
+  const left = () => Math.max(1, Math.ceil((end - Date.now()) / 1000)); // never "0 seconds" while it goes
+  onTick(left());
+  return setInterval(() => onTick(left()), 250);
+}
+const secondsWord = (n) => `${n} second${n === 1 ? '' : 's'}`;
+async function bringEveryone(layout) {
+  const space = layoutSpaceId();
+  if (!space || !mayBring()) return;
+  let got;
+  try {
+    got = await api('POST', `/api/spaces/${encodeURIComponent(space)}/bring-everyone`, { layout });
+  } catch (err) {
+    noticeToast(err.message || 'That did not work. Try again.', { kind: 'danger' });
+    return;
+  }
+  const name = tabLabelOf(layout);
+  if (currentLayoutTab !== layout) pressLayoutTab(layout);
+  if (!got.told) { showNote(`Nobody else is here to bring to ${name}.`); return; }
+  const seconds = Number(got.seconds) || BRING_SECONDS;
+  const mine = { id: got.bring, layout, toast: null, tick: 0, done: false };
+  myBring = mine;
+  const stop = () => { clearInterval(mine.tick); mine.done = true; if (myBring === mine) myBring = null; };
+  mine.toast = actionToast({
+    icon: 'people-arrows',
+    title: `Bringing everyone to ${name}`,
+    text: `In ${secondsWord(seconds)}.`,
+    until: Date.now() + seconds * 1000,
+    actions: [{ id: 'cancel', label: 'Cancel' }],
+    onAction: () => {
+      stop();
+      api('DELETE', `/api/spaces/${encodeURIComponent(space)}/bring-everyone`).then(() => showNote('Stopped. Nobody was moved.'), (err) => showNote(err.message || 'It could not be stopped.'));
+      return true;
+    },
+    onClose: () => {
+      if (mine.done) return;
+      stop();
+      // After the move: how many chose to stay, from the tabs the others' pages say (a moment for them to say it).
+      setTimeout(() => {
+        if (layoutSpaceId() !== space) return;
+        const stayed = stayedCount(livePeople(), layout);
+        showNote(stayed ? `${stayed} ${stayed === 1 ? 'person' : 'people'} stayed where they were.` : `Everyone is on ${name}.`);
+      }, 1500);
+    },
+  });
+  mine.tick = countdown(seconds, (n) => mine.toast?.set(`Bringing everyone to ${name}`, `In ${secondsWord(n)}.`));
+}
+function dropPendingBring() {
+  if (!pendingBring) return;
+  clearInterval(pendingBring.tick);
+  clearTimeout(pendingBring.timer);
+  const t = pendingBring.toast;
+  pendingBring = null;
+  t?.close();
+}
+function bringNudge(data) {
+  if (data.type === 'layout-bring-cancel') {
+    if (pendingBring && pendingBring.id === data.bring) {
+      dropPendingBring();
+      showNote(`${data.by || 'Someone'} stopped it. You stay here.`);
+    }
+    if (myBring && myBring.id === data.bring) {
+      clearInterval(myBring.tick);
+      myBring.done = true;
+      myBring.toast?.close();
+      myBring = null;
+      showNote(`${data.by || 'Someone'} stopped it. Nobody was moved.`);
+    }
+    return;
+  }
+  if (!entered || bringAction({ data, spaceId: layoutSpaceId(), aside: inAside(), current: currentLayoutTab, canOpen: Boolean(findSystemLayout(data.layout)) }) !== 'warn') return;
+  dropPendingBring(); // a newer bring replaces a warning still showing
+  const by = String(data.by || 'Someone');
+  const name = tabLabelOf(data.layout);
+  const seconds = Math.min(30, Math.max(1, Number(data.seconds) || BRING_SECONDS));
+  const space = layoutSpaceId();
+  const bring = { id: data.bring, layout: data.layout, by, toast: null, timer: 0, tick: 0 };
+  pendingBring = bring;
+  bring.toast = actionToast({
+    kind: 'warn',
+    icon: 'people-arrows',
+    title: `${by} is bringing everyone to ${name}`,
+    text: `Moving you in ${secondsWord(seconds)}.`,
+    until: Date.now() + seconds * 1000 + 1000,
+    actions: [{ id: 'stay', label: 'Stay here', primary: true }],
+    onAction: () => { if (pendingBring === bring) { pendingBring = null; clearInterval(bring.tick); clearTimeout(bring.timer); } return true; },
+  });
+  bring.tick = countdown(seconds, (n) => bring.toast?.set(`${by} is bringing everyone to ${name}`, `Moving you in ${secondsWord(n)}.`));
+  bring.timer = setTimeout(() => {
+    if (pendingBring !== bring) return;
+    pendingBring = null;
+    clearInterval(bring.tick);
+    bring.toast?.close();
+    if (layoutSpaceId() !== space || inAside() || currentLayoutTab === bring.layout || !findSystemLayout(bring.layout)) return;
+    const from = goBackToast && goBackTo ? goBackTo : currentLayoutTab;
+    goBackToast?.close();
+    pressLayoutTab(bring.layout, null, { remember: false });
+    goBackTo = from;
+    const back = actionToast({
+      icon: 'people-arrows',
+      title: `${by} brought everyone to ${name}`,
+      ms: 30000,
+      actions: [{ id: 'back', label: 'Go back' }],
+      onAction: () => { if (layoutSpaceId() === space) pressLayoutTab(from); return true; },
+      onClose: () => { if (goBackToast === back) { goBackToast = null; goBackTo = null; } },
+    });
+    goBackToast = back;
+  }, seconds * 1000);
+}
+// --- end Bring everyone here ---
+
 // A toast about a space module opens it on the canvas; an environment module opens over the call.
 document.addEventListener('app:notification', (event) => {
   const n = event.detail;

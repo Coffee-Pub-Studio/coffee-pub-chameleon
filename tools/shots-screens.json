@@ -1413,7 +1413,7 @@
    "wait": "[data-layout-tab=\"workspace\"]",
    "steps": [
     {
-     "click": "#who-here-toggle"
+     "click": "#layout-tabs > .layout-tab-side[data-tab-side=\"workspace\"]"
     }
    ],
    "space": true,

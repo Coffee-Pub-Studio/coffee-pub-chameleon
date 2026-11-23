@@ -859,7 +859,10 @@ test('the layout tabs (plan-layout-views.md, steps 2 and 3): after the switcher 
   // The fit: tabOverflow, the keyboard on a tab that leaves to the "..."; the "..." menu on the shared menu.
   const fit = space.slice(space.indexOf('function fitLayoutTabs('), space.indexOf('function pressLayoutTab('));
   assert.match(fit, /const current = tabs\.findIndex\(\(b\) => b\.dataset\.layoutTab === shownLayoutTab\(\)\);/, 'the tab shown is told to the fit');
-  assert.match(fit, /tabOverflow\(\{ avail: Math\.floor\(avail\) - 1, gap, widths: tabs\.map\(w\), more, current, workspace: [^\n]*\}\)/);
+  // A tab's width is its own and its faces' (plan-workspaces.md, decision 47): the two leave into the "..." together.
+  assert.match(fit, /const widths = tabs\.map\(\(b, i\) => w\(b\) \+ \(sides\[i\] && !sides\[i\]\.hidden \? w\(sides\[i\]\)/);
+  assert.match(fit, /tabOverflow\(\{ avail: Math\.floor\(avail\) - 1, gap, widths, more, current, workspace: [^\n]*\}\)/);
+  assert.match(fit, /sides\[i\]\?\.classList\.toggle\('layout-tab-out', out\.includes\(i\)\)/);
   assert.match(fit, /b\.classList\.toggle\('layout-tab-out', out\.includes\(i\)\)/);
   assert.match(fit, /focused\.closest\('\.layout-tab-out'\)\) layoutTabsMore\.focus\(\);/);
   assert.match(space, /openHostMenu\(layoutTabsMore, items\);/);
@@ -928,7 +931,8 @@ test('Rename and Change icon (plan-layout-views.md, step 4): a system row\'s ...
   assert.match(change, /if \(system\) await layoutRequest\('PATCH', systemLayoutUrl\(layoutSpaceId\(\), layoutId\), \{ icon: icon === system\.defaultIcon \? null : icon \}\);\n\s*else await layoutRequest\('PUT', layoutUrl\(layoutSpaceId\(\), layoutId\), \{ icon \}\);/, 'the default icon saved as null, so it follows the default');
   assert.match(change, /await refreshLayouts\(\);/);
   // The tabs redraw on a new icon or name (their key holds both).
-  assert.match(space, /const key = JSON\.stringify\(list\.map\(\(t\) => \[t\.id, t\.icon, t\.label, t\.temp === true, t\.pinned === true\]\)\);/);
+  // (and whether this person may bring everyone here: a fixed tab's faces then wear a caret)
+  assert.match(space, /const key = JSON\.stringify\(\[list\.map\(\(t\) => \[t\.id, t\.icon, t\.label, t\.temp === true, t\.pinned === true\]\), mayBring\(\)\]\);/);
   assert.match(css, /\.layout-icon-grid \{[^}]*overflow-y: auto;/);
   assert.match(css, /\.layout-field-hint \{[^}]*color: var\(--text-dim\);/);
 });
@@ -1101,8 +1105,10 @@ test('Who is here in the top bar (Thomas, 2026-10-14): the space\'s, after the l
   const html = fs.readFileSync(path.join(ROOT, 'public/space.html'), 'utf8');
   // Wider than a phone: an element tool at the end of the top bar's left zone, with its fit, giving way first.
   assert.match(space, /const whoHereTop = \{ id: 'who-here', bar: 'primary', zone: 'left', group: 'people', groupOrder: 13, order: 1, icon: 'user-group', label: 'Who is here', element: whoHere\.el, fit: whoHere\.fit, yieldFirst: true, visible: whoHereTopWanted \};/);
-  // In a space, call or no call; not while Home shows, not in an aside, not on a phone (the tab bar has it there).
-  assert.match(space, /const whoHereTopWanted = \(\) => Boolean\(currentSpace\) && !viewingHome && !inAside\(\) && entered && !phoneWidth\(\);/);
+  // In a space, call or no call; not while Home shows, not in an aside, not on a phone (the tab bar has it there), and not
+  // where the layout tabs show their faces (plan-workspaces.md, decision 47: a guest, who has no tabs, keeps it).
+  assert.match(space, /const whoHereTopWanted = \(\) => Boolean\(currentSpace\) && !viewingHome && !inAside\(\) && entered && !phoneWidth\(\) && !tabFacesShown\(\);/);
+  assert.match(space, /\ntabFacesShown = layoutTabsWanted;/, 'the tabs say when their faces show');
   assert.ok(!/inCall/.test(space.match(/const whoHereTopWanted = [^\n]*/)[0]), 'it does not wait for the call');
   // The top bar wider than a phone, the tab bar on a phone: the same element, registered where it goes.
   assert.match(space, /const people = wide \? whoHereTop : whoHereBar;\n  if \(nav\.get\('who-here'\)\?\.bar !== people\.bar\) nav\.register\(people\);/);
@@ -1202,9 +1208,9 @@ test('who is here reads the live stream: you first, then by name, with who is on
   ];
   const people = peopleFromPresence(list, { you: 'me', meOnCall: true });
   assert.deepEqual(people.map((p) => [p.name, p.you, p.onCall]), [['Me', true, true], ['Al', false, false], ['n', false, true], ['Zoe', false, true]]);
-  assert.deepEqual(people.find((p) => p.key === 'z'), { key: 'z', name: 'Zoe', you: false, onCall: true, away: true, awayMessage: 'tea' });
+  assert.deepEqual(people.find((p) => p.key === 'z'), { key: 'z', name: 'Zoe', you: false, onCall: true, away: true, awayMessage: 'tea', layout: null });
   assert.deepEqual(peopleFromPresence(null), []);
-  assert.deepEqual(peopleFromPresence([], { you: 'me', youName: 'Me' }), [{ key: 'me', name: 'Me', you: true, onCall: false, away: false, awayMessage: '' }], 'before the first presence, just you');
+  assert.deepEqual(peopleFromPresence([], { you: 'me', youName: 'Me' }), [{ key: 'me', name: 'Me', you: true, onCall: false, away: false, awayMessage: '', layout: null }], 'before the first presence, just you');
   assert.deepEqual(hereWords(people, 'space'), { shown: '4 here', said: '4 people in this space, 3 on the call' });
   assert.deepEqual(hereWords(people.slice(0, 1).map((p) => ({ ...p, onCall: false })), 'aside'), { shown: 'Just you', said: 'Just you in this aside' });
   assert.deepEqual([1, 2, 3, 5, 6, 7, 40].map(liveRetryDelay), [2000, 4000, 8000, 32000, 60000, 60000, 60000], 'tried again after 2, 4, 8 ... seconds, at most a minute');

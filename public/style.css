@@ -10234,6 +10234,43 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
 .layout-tabs > .layout-tab:has(> .layout-tab-pinned) { position: relative; }
 .layout-tabs > .layout-tab > .layout-tab-pinned { position: absolute; top: 1px; right: 1px; font-size: 0.55em; opacity: 0.7; pointer-events: none; } /* in the corner: the tab keeps its width */
 .setup-layout-pinned { font-size: 0.75em; color: var(--text-muted); margin-left: 4px; }
+/* Who is on each tab (plan-workspaces.md, decision 47; space.js, paintTabSides): beside each tab, a small button with the
+   faces of the people on it (the shared .sdk-avatar-stack, 20px, three and "+N"), and for an owner, the admin or a
+   moderator a caret on a fixed tab (its menu holds Bring everyone here). It opens who is where. It leaves with its tab
+   into the "..." (.layout-tab-out). */
+.layout-tabs > .layout-tab-side {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 2px);
+  height: var(--tab-h, 32px);
+  margin-left: calc(var(--space-2) * -1);
+  padding: 0 var(--space-1, 2px);
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  --av-surface: var(--surface-bar-top);
+  --av-ring-w: 1.5px;
+  --av-overlap: calc(var(--space-1) * -1); /* a third of a 20px face hidden, so two faces read as two */
+}
+.layout-tabs > .layout-tab-side[hidden] { display: none; }
+.layout-tabs > .layout-tab-side:hover { color: var(--text-primary); background: color-mix(in srgb, var(--tab-ink) 10%, transparent); }
+.layout-tabs > .layout-tab-side:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: -2px; }
+.layout-tabs > .layout-tab-side[aria-expanded="true"] { color: var(--text-primary); }
+.layout-tabs > .layout-tab-side > .tab-faces:empty { display: none; }
+.layout-tabs > .layout-tab-side > .layout-tab-caret { font-size: var(--text-11); }
+.who-here-tab {
+  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+}
 .layout-tabs > .layout-tab-pin > i { opacity: 0.55; }
 .layout-tabs > .layout-tab-pin:hover > i, .layout-tabs > .layout-tab-pin:focus-visible > i { opacity: 1; }
 

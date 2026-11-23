@@ -7753,7 +7753,8 @@ function liveAccess(req, spaceId) {
 function livePeople(spaceId) {
   return live.people(spaceId).map((p) => {
     const u = p.guest ? null : store.userByKey(p.key);
-    return u ? { ...p, name: u.displayName } : p;
+    const out = { ...p, layout: sharedWhere(spaceId, p.layout) };
+    return u ? { ...out, name: u.displayName } : out;
   });
 }
 // Tell the live streams of these spaces (and asides) that who is there changed. Each sends its own list.
@@ -7791,8 +7792,8 @@ function tellLiveSpace(space, data) {
 // { type, ... }:
 //   ready     { you, space, stream }: first, once listening. `you` is the person's key or, for a guest, the id on their
 //             pass (their identity on the call too); `stream` names this stream to PATCH /api/spaces/:id/presence.
-//   presence  { space, people: [{ key, name, guest, onCall, away, awayMessage }] }: everyone there, on connect and on
-//             every change (server/live.js).
+//   presence  { space, people: [{ key, name, guest, onCall, away, awayMessage, layout }] }: everyone there, on connect
+//             and on every change (server/live.js). `layout` is the tab each is on (PUT /api/spaces/:id/where; sharedWhere).
 //   chat, chat-delete, chat-clear, chat-clear-some, chat-visibility, chat-preview, chat-kept, chat-picture: what tellChat
 //             says, each with `space`, for this stream's space and for the Lobby (Home's chat), each only while the
 //             reader may read that chat (chatAccess with chatRead, asked at every event). A private message is never sent;
@@ -7800,6 +7801,8 @@ function tellLiveSpace(space, data) {
 //   aside-pull { spaceId, byOwner, private, from }, aside-started { spaceId, private, members? }, aside-recall { spaceId,
 //             spaceName }, aside-return { spaceId }: the asides' nudges (POST /api/asides, /recall, /return), only to the
 //             people they are for; one for a stream that was reconnecting comes when it opens again, within 30 seconds.
+//   layout-bring { spaceId, bring, layout, by, seconds }, layout-bring-cancel { spaceId, bring, by }: Bring everyone
+//             here (POST and DELETE /api/spaces/:id/bring-everyone), to the others with a stream open; never held.
 //   removed   { reason: 'access', error }: the access no longer holds (asked every STREAM_RECHECK_MS and at once on
 //             liveAccessChanged); { reason: 'kicked' }: a kick (POST /api/users/:key/kick). Then the stream ends.
 // The person is in the space while the stream is open and for the register's grace after (server/live.js). Too many open
@@ -7935,6 +7938,131 @@ app.patch('/api/spaces/:id/presence', (req, res) => {
   countPresenceChange(who, req.params.id);
   if (changed) tellLivePresence([req.params.id]);
   res.json({ ok: true });
+});
+// --- presence on tabs and Bring everyone here (plan-workspaces.md, decisions 36, 47 and 48) ----------------------------
+// Each person's tab (the workspace their page shows) is part of their live stream's state (server/live.js, `layout`), so
+// the tabs can wear the faces of who is on them. PUT /api/spaces/:id/where says it; the presence event carries it.
+// Bring everyone here only fans out a live event: each page warns for BRING_SECONDS, then moves itself (a tab switch on
+// the page), unless the person chose Stay here or is not in this space's stream (an aside has its own). Nothing is stored.
+const BRING_SECONDS = 5;
+// The tab a person is on, as everyone in the space reads it on the presence event: a fixed layout's id or a layout for
+// everyone's id as it is; a person's own saved layout reads as 'personal' (nobody else has that tab, and its id is theirs);
+// null when the page has not said (a guest, a page still loading).
+function sharedWhere(spaceId, layout) {
+  if (!layout) return null;
+  if (SYSTEM_IDS.includes(layout)) return layout;
+  return store.layouts.find(spaceId, layout, null)?.shared ? layout : 'personal';
+}
+// At most PRESENCE_CHANGES_PER_MINUTE tab changes a minute a person in a space (429), counted apart from away and the
+// call, so switching tabs never uses up the minute those need.
+const whereChanges = new Map(); // `${slug}|${space}|${who}` -> change times in the last minute
+function whereWait(who, spaceId) {
+  const key = presenceKey(who, spaceId);
+  const now = Date.now();
+  const recent = (whereChanges.get(key) || []).filter((t) => now - t < 60000);
+  if (recent.length) whereChanges.set(key, recent);
+  else whereChanges.delete(key);
+  if (recent.length < presenceChangesPerMinute) return 0;
+  return Math.max(1, Math.ceil((recent[recent.length - presenceChangesPerMinute] + 60000 - now) / 1000));
+}
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, times] of whereChanges) if (!times.some((t) => now - t < 60000)) whereChanges.delete(key);
+}, 60000).unref();
+// PUT /api/spaces/:id/where { layout, stream? }: the tab this person's page shows in a space. `layout` is a fixed layout
+// that is on here for them (the Workspace included) or a saved layout they can see, as PUT .../last-layout takes; `stream`
+// is the id the live stream gave (`ready`), else every live stream of theirs there. Members of the space, its owners and
+// the admin; never a guest (403: they have no tabs) nor an agent (403). 200 { layout }, and the space's streams get
+// presence when what they read changed; 400 for an id that is not one; 409 with no live stream of theirs there; 429 past
+// PRESENCE_CHANGES_PER_MINUTE tab changes in this space. A closed space or an Aside answers as the layouts routes do.
+app.put('/api/spaces/:id/where', (req, res) => {
+  const found = layoutSpaceFor(req, res);
+  if (!found) return;
+  if (!found.who.user) return res.status(403).json({ error: `${word('guest', { many: true, cap: true })} have no tabs to be on.` });
+  if (found.who.user.agent) return res.status(403).json({ error: AGENT_CANT });
+  const body = isPlainBody(req.body) ? req.body : {};
+  const id = body.layout;
+  const me = found.who.user.key;
+  const known = typeof id === 'string' && store.layouts.knows(found.space.id, id, me) && (!SYSTEM_IDS.includes(id) || systemLayoutsFor(found).some((l) => l.id === id));
+  if (!known) return res.status(400).json({ error: 'There is no such layout here.' });
+  if (body.stream !== undefined && typeof body.stream !== 'string') return res.status(400).json({ error: 'The stream must be the id the live stream gave.' });
+  const wait = whereWait(me, found.space.id);
+  if (wait) return res.status(429).set('Retry-After', String(wait)).json({ error: 'Too many tab changes. Wait a moment.' });
+  const was = sharedWhere(found.space.id, live.layoutOf(me, found.space.id));
+  const changed = live.setLayout(me, found.space.id, id, body.stream || null);
+  if (changed === null) return res.status(409).json({ error: `Open the ${word('space')} first; there is no live stream of yours there.` });
+  const key = presenceKey(me, found.space.id);
+  whereChanges.set(key, [...(whereChanges.get(key) || []), Date.now()]);
+  if (sharedWhere(found.space.id, live.layoutOf(me, found.space.id)) !== was) tellLivePresence([found.space.id]);
+  res.json({ layout: id });
+});
+// The bring under way in each space: { id, by, layout, until }, kept until its warning ends; a new one waits for it.
+const bringings = new Map(); // `${slug}|${space}` -> { id, by, layout, until }
+const bringKey = (spaceId) => `${chatSlug()}|${spaceId}`;
+function bringUnderWay(spaceId) {
+  const key = bringKey(spaceId);
+  const now = bringings.get(key);
+  if (now && now.until <= Date.now()) { bringings.delete(key); return null; }
+  return now || null;
+}
+// A live event to everyone in `space` with a live stream open there now, except `skip` (a person's key). Never held for
+// a stream that is reconnecting: a warning that arrived late would move someone long after it was meant.
+function tellLiveOpen(space, data, skip = null) {
+  let told = 0;
+  for (const p of live.people(space)) {
+    if (p.key === skip || !live.openFor(p.key, space).length) continue;
+    told += 1;
+    try {
+      liveEvents.emit('nudge', p.key, space, data);
+    } catch (err) {
+      console.error(`A live stream's listener failed: ${err.stack || err.message}`);
+    }
+  }
+  return told;
+}
+// Who may bring everyone here, and to what: { found, error }. Owners, the admin and this space's moderators (the people
+// who set the tabs, layoutSpaceFor's canShare); never a member, a guest or an agent.
+function bringAccess(req, res) {
+  const found = layoutSpaceFor(req, res);
+  if (!found) return null;
+  if (!found.who.user || found.who.user.agent || !found.canShare) {
+    res.status(403).json({ error: `Only ${word('owner', { many: true })}, the ${word('admin')} and ${word('moderator', { many: true })} can bring everyone here.` });
+    return null;
+  }
+  return found;
+}
+// POST /api/spaces/:id/bring-everyone { layout }: everyone else in the space with its page open is warned, and moved to
+// `layout` after BRING_SECONDS unless they choose Stay here. `layout` is a fixed layout other than the Workspace (each
+// person's own) that is on here; a saved layout is never brought. 200 { bring, layout, seconds, told } (`told`: how many
+// people the warning went to, the mover not counted); 400 for any other layout; 403 for anyone but the owners, the admin
+// and the space's moderators; 429 while another bring's warning is still running. Live event to the others:
+//   layout-bring { spaceId, bring, layout, by, seconds }
+app.post('/api/spaces/:id/bring-everyone', (req, res) => {
+  const found = bringAccess(req, res);
+  if (!found) return;
+  const layout = isPlainBody(req.body) ? req.body.layout : undefined;
+  if (typeof layout !== 'string' || layout === 'workspace' || !SYSTEM_IDS.includes(layout)) return res.status(400).json({ error: 'Only the fixed workspaces can be shown to everyone.' });
+  if (!systemLayoutsFor(found).some((l) => l.id === layout)) return res.status(400).json({ error: 'That workspace is not on here.' });
+  const busy = bringUnderWay(found.space.id);
+  if (busy) return res.status(429).set('Retry-After', String(Math.max(1, Math.ceil((busy.until - Date.now()) / 1000)))).json({ error: 'Wait a few seconds, then try again.' });
+  const me = found.who.user;
+  const bring = crypto.randomBytes(6).toString('base64url');
+  bringings.set(bringKey(found.space.id), { id: bring, by: me.key, layout, until: Date.now() + BRING_SECONDS * 1000 });
+  const told = tellLiveOpen(found.space.id, { type: 'layout-bring', spaceId: found.space.id, bring, layout, by: me.displayName, seconds: BRING_SECONDS }, me.key);
+  console.log(`${me.displayName} brought everyone in ${found.space.name} to ${layout} (${told} told)`);
+  res.json({ bring, layout, seconds: BRING_SECONDS, told });
+});
+// DELETE /api/spaces/:id/bring-everyone: stops the bring whose warning is still running, for everyone. The same people
+// as POST. 200 { bring }; 409 when there is none to stop (it already ended). Live event to the others:
+//   layout-bring-cancel { spaceId, bring, by }
+app.delete('/api/spaces/:id/bring-everyone', (req, res) => {
+  const found = bringAccess(req, res);
+  if (!found) return;
+  const busy = bringUnderWay(found.space.id);
+  if (!busy) return res.status(409).json({ error: 'There is nothing to stop; everyone has moved already.' });
+  bringings.delete(bringKey(found.space.id));
+  tellLiveOpen(found.space.id, { type: 'layout-bring-cancel', spaceId: found.space.id, bring: busy.id, by: found.who.user.displayName }, found.who.user.key);
+  res.json({ bring: busy.id });
 });
 // Something that changes who may read happened (a guest link turned off or regenerated, a space changed or deleted, a
 // member taken out of a space, a role's permissions or a person's role or ticks in a space changed, a person deleted or
