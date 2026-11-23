@@ -78,6 +78,9 @@ Three corrections to the shape first proposed, found in the code:
 4. **What an agent can never do appears as one plain sentence under the grid, not as greyed rows** (Thomas, 2026-11-20). This replaces the earlier idea of greyed ceiling cells. Delete, roles, tokens, billing and the rest
    of the ceiling are not permissions anyone ticks, and rows for them would show a member as unable to delete their own
    work. The sentence is under the grid, once.
+   Note (2026-11-23): Changed by [plan-agent-edit-delete](plan-agent-edit-delete.md), decision 2: delete is no longer
+   in the never sentence; the Agent column gets an "Ask to delete {objects}" row (`agentDelete`), off by default, and each
+   delete waits for a person's approval.
 5. **Defaults are as agents work today** (Thomas, 2026-11-20): read Chat on, see members on, each module
    row at its member default, **Send chat messages** off, the set-up rows off. Reason: nothing an agent can do changes
    until an owner ticks something, and no agent already working stops.
@@ -137,10 +140,13 @@ Small choices taken at the planner's lean, as the rule for small choices allows 
 - **Agent-only rows**, in a group "Agents": "See who is in {a space}" (`agentMembers`), and for the set-up agent "Make
   {spaces}" (`agentMakeSpaces`), "Rename and change {spaces}" (`agentChangeSpaces`), "Ask to add people"
   (`agentAskPeople`). People's columns show no box on them. A yes from an owner is still needed for every ask about
-  people, whatever the box says (plan-admin-agent, decision 5).
+  people, whatever the box says (plan-admin-agent, decision 5). (Changed by plan-agent-edit-delete.md, decision 2: an
+  `agentDelete` row joins the group, with a box in the Agent column only.)
 - **Defaults** (decision 5): the Agent column starts as an agent is today. `chatRead` on, `chat` off (Post in
   Chat is off for a new agent today; the row reads **Send chat messages**), `agentMembers` on, each module row its member default. The three set-up rows start
   off. Nothing an agent can do changes until an owner ticks something.
+- (Changed by plan-agent-edit-delete.md, decision 2: `agentDelete` joins the rows the `agent` column may tick, so it is
+  not in its `never` list; it stays in the `setup` column's `never` list.)
 - **`GET /api/roles`** gains `columns` (the four, then `agent` when `AGENT_TOKENS` is on, then `setup` when `AGENT_SETUP` is
   on) and `never: { guest: [keys], agent: [keys], setup: [keys] }`. Rows carry `agentOnly: true` for the new group.
   `PATCH /api/roles/agent` or `/setup` while that column is not shown is 404 "no such role". A server without
@@ -162,6 +168,8 @@ Small choices taken at the planner's lean, as the rule for small choices allows 
   (decision 4): "An agent never deletes or clears anything, changes roles, makes tokens or other agents,
   changes this {environment}'s settings, plans or billing, works outside its own {spaces}, goes past its limits, or
   becomes a {moderator}, {owner} or admin." At 390 wide the grid scrolls inside its own box; the page does not.
+  (Changed by plan-agent-edit-delete.md, decision 2: the sentence no longer says an agent never deletes; it says it never
+  deletes without a person's approval.)
 - **The agent's page:** the Post in Chat switch goes; in its place, "What agents may do is set on Roles." with a link to
   Manage > Roles. What it did is unchanged.
 

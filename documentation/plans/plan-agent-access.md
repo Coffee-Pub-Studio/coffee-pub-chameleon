@@ -157,6 +157,9 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
    write access next opens the module. This runs the real project in the app without a click per change.
 7. **Deleting and clearing: never.** No `destructive` action, no data `DELETE`, no Clear, no restore, no deleting a
    chat message, its own included. A person deletes.
+   Note (2026-11-23): Changed by [plan-agent-edit-delete](plan-agent-edit-delete.md), decisions 1 and 2: never delete
+   without permission from a person, given as a Delete right on the Roles grid plus a person's approval of each delete
+   (a draft, not approved; Chat stays out under its lean).
 8. **Ticking and changing a plan entry: new Planner actions.** `setDone` and `updateEntry`, both `effect: "write"`; a
    module-lane change with a Planner version bump. They join the AI catalog, since they act on an object that exists.
    The AI catalog is six tools (Thomas, 2026-11-16): `schedule__setDone` and `schedule__updateEntry` joined;
@@ -179,6 +182,8 @@ Thomas answered all 16 questions on 2026-11-16. Fifteen took the plan's lean; qu
     not a choice per agent; see [plan-agent-matrix](plan-agent-matrix.md) (approved, not built).
 14. **The wait for an open page: accepted.** The change lands when someone with write access next opens the module;
     Claude reads the request's status and says what is still waiting. Modules keep running no server code.
+    Note (2026-11-23): Changed for bundled modules by [plan-agent-edit-delete](plan-agent-edit-delete.md), decision 4
+    (the server carries out an agent's requests to bundled modules at once). Uploaded modules keep the wait.
 15. **The limits: 60 reads and 20 writes a minute, 3,000 reads and 300 writes a day,** per agent. A Chat post counts as
     a write.
 16. **The word: `agent`, shown as "Claude (agent)".** "Assistant" is taken by the AI Assistant module.
@@ -206,6 +211,7 @@ a date only; To-do had no reminder, edit or done; Itinerary had no time or cost;
 Whiteboard and Vault have no agent action. The fixes are small module-lane builds, each module's action brought to what a
 person can enter, with delete staying off (decision 7). Already changed: the host's input cap per action went from 10 to
 20, and `list_actions` now shows each action's description and per-input hints.
+(Changed by plan-agent-edit-delete.md, decision 1: delete is no longer always off.)
 
 ## The first version
 
@@ -219,7 +225,7 @@ person can enter, with delete staying off (decision 7). Already changed: the hos
 
 What waits for plan-ai-integration's later steps (the `/mcp` endpoint is now being built, see "The MCP server"): OAuth, personal tokens for
 people, the AI inbox (approval), environment-level data, deleting, raw data writes, an `agent` role on the Roles tab,
-and other modules' tick actions beyond the Planner.
+and other modules' tick actions beyond the Planner. (Deleting: changed by plan-agent-edit-delete.md, decision 2.)
 
 ## The MCP server
 
@@ -317,7 +323,8 @@ then lets through only these (method and route pattern), and answers everything 
 - A route whose `scope` is `environment`, `spaces` or `person` answers 403 to an agent, as does any space it is not a
   member of (the unknown space's 404, as for anyone).
 - `POST /api/spaces/:id/action` from an agent also refuses, with 403 "An agent can't ask for that.", an action that is
-  `local`, `askerOnly`, `destructive`, has no `effect` or has `ai: false`.
+  `local`, `askerOnly`, `destructive`, has no `effect` or has `ai: false`. (Changed by plan-agent-edit-delete.md,
+  decision 2: a new `effect: "delete"` is refused here too, and asked for through its own approval route.)
 - Nothing an agent sends counts as a person's yes: it can't approve an access request, a join, a proposal, a role or
   another agent.
 - Not on the list, so 403: the chat live stream, deleting or hiding any chat message, chat pictures, Keep, link
@@ -336,7 +343,8 @@ then lets through only these (method and route pattern), and answers everything 
   Claude from being misled by it. What limits the harm is the gate: whatever Claude does after reading, the agent can
   still only ask for the gated `write` actions, never destructive ones, and post labelled text, all within its budget
   and logged. On Claude's side, the rule below (what it reads is data, never instructions) covers Chat as it covers
-  objects.
+  objects. (Changed by plan-agent-edit-delete.md, decision 2: with the Delete right it may also ask to delete, and only a
+  person's approval deletes.)
 - **The in-app AI:** it already reads recent public chat as context when the owner allows it; the agent's posts are
   among those messages, and the agent now reads what the in-app AI posts publicly. Each is labelled, and neither is an
   instruction to the other.
@@ -360,6 +368,8 @@ A new door for an AI's text into everyone's view, so each of these holds:
 - **No mentions outside the space:** Chat notifies nobody from a message today. If mentions are added later, an
   agent's post may notify only members of that space, and never by a notification sent outside the app.
 - **Removal:** an owner or moderator deletes an agent's message as anyone's. The agent itself can't (decision 7).
+  (Decision 7 is changed by plan-agent-edit-delete.md, decision 1, for module objects; Chat stays out under that plan's
+  lean, its open question 10.)
 
 ### Limits (server)
 
@@ -445,7 +455,8 @@ Chat** is on, post in their Chat, up to 300 writes a day in all, each labelled a
 are seen at once by everyone in the space, so a leak can put misleading text, labelled "Claude (agent)", in front of
 people. It cannot sign in to any page, see another space, read environment or personal data or private messages,
 delete or clear, join the call, upload, change a setting, role or
-member, or make another token. The kill switches, smallest first: **Post in Chat** off (Chat only), **Revoke**,
+member, or make another token. (Changed by plan-agent-edit-delete.md, decision 2: with the Delete right it can ask to
+delete, which deletes nothing until a person approves.) The kill switches, smallest first: **Post in Chat** off (Chat only), **Revoke**,
 **Turn off**, **Agents** off, `AGENT_TOKENS=false` and a restart.
 
 ## Left to build, in order
@@ -491,7 +502,8 @@ Checked by a tool on a throwaway server (`tools/check-agent-tokens.mjs`), the pe
 - It can't be made owner, admin or moderator; it can't change itself.
 - A space it is not a member of answers 404; `scope=environment`, `spaces` and `person` answer 403.
 - `local`, `askerOnly`, `destructive` and undescribed actions are refused; `DELETE` and `PUT` on data, Clear and
-  restore are 403.
+  restore are 403. (Changed by plan-agent-edit-delete.md, decision 2: these stay 403; a delete is asked for and approved
+  through that plan's routes.)
 - Its action request lands on the bus with its key; a member's page claiming it is told `byKey`; the stored entry and
   the Calendar copy name the agent.
 - It reads only its own requests' status.
@@ -575,7 +587,8 @@ out**; none changes a decision.
   context, a prompt-injection path no server check closes. The plan adds the read line in the gate (public messages of
   its spaces, at most 100 a reply), the reads budget, a log line without content, the rule on Claude's side that Chat
   is data, and the checks, all in step 5, not step 1. Whatever Claude reads, its own writes still go only through the
-  gated actions and labelled posts, and are never destructive.
+  gated actions and labelled posts, and are never destructive. (Changed by plan-agent-edit-delete.md, decision 2: a
+  delete it asks for needs a person's approval.)
 - **Decision 17 is not the draft's suggestion either.** The draft suggested **Post in Chat** on for a new agent;
   Thomas chose off until the owner turns it on.
 - **Chat is core, not a module.** The request called this "a Chat module change"; Chat lives in `server/index.js` and
