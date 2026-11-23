@@ -165,7 +165,7 @@ Thomas, 2026-11-12, answer to question 1 (DECIDED), after showing two screenshot
 
 Thomas, 2026-11-12, answers to questions 3 and 6 to 12 (DECIDED). Two of them differ from the planner's suggestion (decisions 20 and 21).
 
-19. **Only the six fixed layouts (question 3):** Workspace, Conference, Calendar, Map, Whiteboards, Documents. No preset for Budget, Polls, Vault, Research, Planner, Stream or the others. They are reached through the Workspace, or through a saved layout and a heart.
+19. **(Changed by decision 37.)** **Only the six fixed layouts (question 3):** Workspace, Conference, Calendar, Map, Whiteboards, Documents. No preset for Budget, Polls, Vault, Research, Planner, Stream or the others. They are reached through the Workspace, or through a saved layout and a heart.
 20. **The last layout is remembered on the server, per person and per space (question 6).** Not the browser-only option the planner suggested. Entering a space opens the layout the person last used there. This reverses today's "entering opens on the Workspace" for a person who has a remembered choice. Decision 8 stands: a person with no remembered choice gets today's default. This adds a stored record and a route, so it is a core change (see "The last layout, on the server").
 21. **Guests follow the owner's default (question 7).** Not the always-Conference option the planner suggested. What a guest sees when the owner's default is a layout a guest can hardly use is answered by decision 27: the Workspace.
 22. **Owners, the admin and moderators set the default, the tabs and their order (question 8),** as `defaultLayout` is set today.
@@ -215,6 +215,12 @@ Thomas, 2026-11-13, after trying the merged call title bar build (#767) and seei
 Thomas, 2026-11-15, in issue #829 ("Layout: A moderator can select a workspace and 'Bring Everyone Here'"), and its comment narrowing it (DECIDED, the request only; everything else under "Bring Everyone Here" is a proposal):
 
 36. **Bring Everyone Here.** A moderator can select a workspace and press **Bring Everyone Here**. Only a **Fixed Workspace**, or a workspace that is available to everyone, can be pushed. A person's own Customizable Workspace, and any workspace some people cannot have, are never pushed. This is the "bring everyone" idea that decision 26 left out of version 1, now asked for. Who may do it, who is moved, what they see, and the rest are proposals in the section "Bring Everyone Here", with the open questions at the end.
+
+Thomas, 2026-11-23, answering "How should planners get a dedicated tab?" with "Projects tab only (Recommended)" and, in his words, "not sure the others would benefit from a whole workspace view" (DECIDED):
+
+37. **One planner gets a fixed layout: Planner - Projects.** Planner - Projects (module id `schedule`) gets one dedicated fixed layout, opened large like Calendar and Map. Itinerary (`travel`) and Goals (`goals`) get no tab and stay in the Workspace until Thomas asks. This changes decision 19: there are now seven fixed layouts, and the only planner with a preset is Planner - Projects. Reason: the other planners would not benefit from a whole-workspace view. Options he saw and did not choose: one Planner tab whose template picks the planner; a tab for each planner; no new tab (a bigger Planner in the Workspace).
+
+Built: a try build for decision 37 is in flight on branch `claude/projects-tab`. Its rules: the tab shows only where the module is on in the space, guests get none, the shipped Projects template shows it, the other shipped templates do not, and existing spaces get it appended.
 
 ## Names
 
