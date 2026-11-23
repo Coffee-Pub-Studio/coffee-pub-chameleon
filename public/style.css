@@ -10230,22 +10230,24 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
 .layout-tabs > .layout-modified > .layout-update:hover { color: var(--text); }
 .layout-tabs > .layout-modified > .layout-update:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: 2px; border-radius: var(--radius-small); }
 .layout-tabs > .layout-tab-pin { flex: none; }
-/* A pinned tab (the owner shows it): a small pin after its name; the tab has no way to hide it. */
-.layout-tabs > .layout-tab:has(> .layout-tab-pinned) { position: relative; }
-.layout-tabs > .layout-tab > .layout-tab-pinned { position: absolute; top: 1px; right: 1px; font-size: 0.55em; opacity: 0.7; pointer-events: none; } /* in the corner: the tab keeps its width */
 .setup-layout-pinned { font-size: 0.75em; color: var(--text-muted); margin-left: 4px; }
-/* Who is on each tab (plan-workspaces.md, decision 47; space.js, paintTabSides): beside each tab, a small button with the
-   faces of the people on it (the shared .sdk-avatar-stack, 20px, three and "+N"), and for an owner, the admin or a
-   moderator a caret on a fixed tab (its menu holds Bring everyone here). It opens who is where. It leaves with its tab
-   into the "..." (.layout-tab-out). */
+/* Who is on each tab (plan-workspaces.md, decision 47; space.js, paintTabSides): inside the tab's pill, after its name, the
+   faces of the people on it (the shared .sdk-avatar-stack: 22px faces overlapping 8px, the ring in the bar's colour, three
+   and a muted "+N"), and for an owner, the admin or a moderator a caret on a fixed tab (its menu holds Bring everyone here).
+   The button is the tab's next sibling, drawn over the tab's right end: the tab keeps room for it (--side-w, set from the
+   button's width by paintTabSides) and the button takes that room back with a negative margin, so the tab's height, the
+   bar's size and the fit are as before. A saved layout's tab (a heart sits between) keeps it beside. It leaves with its
+   tab into the "..." (.layout-tab-out). */
 .layout-tabs > .layout-tab-side {
+  position: relative; /* over the tab it sits on */
+  z-index: 1;
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1, 2px);
-  height: var(--tab-h, 32px);
+  gap: var(--space-1);
+  height: var(--tab-h-small);
   margin-left: calc(var(--space-2) * -1);
-  padding: 0 var(--space-1, 2px);
+  padding: 0 var(--space-1);
   border: 0;
   border-radius: var(--radius-small);
   background: transparent;
@@ -10253,14 +10255,20 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
   font: inherit;
   cursor: pointer;
   --av-surface: var(--surface-bar-top);
-  --av-ring-w: 1.5px;
-  --av-overlap: calc(var(--space-1) * -1); /* a third of a 20px face hidden, so two faces read as two */
+  --av-ring: var(--surface-bar-top); /* the bar's own colour, so each face's edge reads where two overlap */
+  --av-ring-w: 2px;
+  --av-overlap: calc(var(--space-2) * -1);
 }
-.layout-tabs > .layout-tab-side[hidden] { display: none; }
+.layout-tabs > .layout-tab:has(+ .layout-tab-side:not([hidden])) { padding-right: calc(var(--side-w, 0px) + var(--space-2) * 2); }
+.layout-tabs > .layout-tab + .layout-tab-side { margin-left: calc((var(--side-w, 0px) + var(--space-2)) * -1); }
+.layout-tabs > .layout-tab-side[hidden],
+.layout-tabs > .layout-tab-side.layout-tab-out { display: none; } /* a tab in the "..." takes its button with it */
 .layout-tabs > .layout-tab-side:hover { color: var(--text-primary); background: color-mix(in srgb, var(--tab-ink) 10%, transparent); }
 .layout-tabs > .layout-tab-side:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)); outline-offset: -2px; }
 .layout-tabs > .layout-tab-side[aria-expanded="true"] { color: var(--text-primary); }
 .layout-tabs > .layout-tab-side > .tab-faces:empty { display: none; }
+.layout-tabs > .layout-tab-side > .tab-faces > .sdk-avatar { --av: 22px; --av-font: var(--text-11); }
+.layout-tabs > .layout-tab-side > .tab-faces > .sdk-badge-micro { color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 18%, var(--surface-bar-top)); box-shadow: 0 0 0 2px var(--surface-bar-top); }
 .layout-tabs > .layout-tab-side > .layout-tab-caret { font-size: var(--text-11); }
 .who-here-tab {
   flex: none;

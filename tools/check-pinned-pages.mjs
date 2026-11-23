@@ -44,7 +44,8 @@ const PINNED = 'The owner keeps this one in the bar.';
   const setup = fs.readFileSync(path.join(ROOT, 'public/space-setup.js'), 'utf8');
   const nav = fs.readFileSync(path.join(ROOT, 'public/primary-nav.js'), 'utf8');
   assert.match(nav, /s\.pinned === true \? \{ pinned: true \} : \{\}/, 'a system tab carries the server\'s pinned');
-  assert.match(space, /layout-tab-pinned/, 'the tab wears the pin');
+  assert.ok(!/layout-tab-pinned/.test(space), 'the tab draws no pin mark');
+  assert.match(space, /Kept in the bar by the/, 'a pinned tab still says so in its title');
   assert.match(space, /if \(l\.id !== 'workspace' && l\.pinned !== true\) \{/, 'a pinned one has no Favorite or Unfavorite');
   assert.ok(!/opensWith/.test(setup.slice(setup.indexOf('export function setupPatch'), setup.indexOf('// The tabs with unsaved changes'))), 'Save never sends Opens with');
   assert.ok(!/'opensWith'/.test(setup.match(/export const MODERATOR_FIELDS = [^\n]*/)[0]), 'a moderator\'s fields do not list Opens with');
@@ -159,11 +160,11 @@ try {
   await test('a member: the first visit opens the template\'s layout, the pinned tabs wear the pin, and a hide is refused with the owner\'s sentence', async () => {
     const tab = await inSpace('sam', 1280);
     const bar = await tab.eval(`(() => ({
-      tabs: [...document.querySelectorAll('.layout-tabs > [data-layout-tab]')].map((b) => ({ id: b.dataset.layoutTab, pin: Boolean(b.querySelector('.layout-tab-pinned')), title: b.title, current: b.getAttribute('aria-current') === 'page' })),
+      tabs: [...document.querySelectorAll('.layout-tabs > [data-layout-tab]')].map((b) => ({ id: b.dataset.layoutTab, pin: /Kept in the bar/.test(b.title), title: b.title, current: b.getAttribute('aria-current') === 'page' })),
       pinButtons: document.querySelectorAll('.layout-tabs [data-hide], .layout-tabs .layout-tab-hide').length,
     }))()`);
     assert.deepEqual(bar.tabs.map((t) => t.id), ['workspace', 'calendar', 'documents'], 'the owner\'s bar, in the owner\'s order');
-    assert.deepEqual(bar.tabs.map((t) => t.pin), [false, true, true], 'Calendar and Documents are pinned; the Workspace is not marked');
+    assert.deepEqual(bar.tabs.map((t) => t.pin), [false, true, true], 'Calendar and Documents are pinned; the Workspace is not marked (by title; no pin is drawn)');
     assert.equal(bar.tabs[1].title, 'Calendar. Kept in the bar by the owner.', 'the tab says why it stays');
     assert.equal(bar.pinButtons, 0, 'no hide control on a tab');
     assert.equal(bar.tabs.find((t) => t.current)?.id, 'documents', 'a first visit opens the template\'s layout');

@@ -24,12 +24,23 @@ export const MAX_FACES = 4;
 // How many faces a layout tab shows before "+N" (plan-workspaces.md, decision 47).
 export const TAB_FACES = 3;
 
+// The eight theme tints (design-theme.md), in the order a person's colour is picked from.
+export const PERSON_TINTS = ['blue', 'green', 'teal', 'purple', 'orange', 'pink', 'gold', 'red'];
+// A person's tint: the same one every time, from their key alone, so their first letter wears one colour on every screen.
+export function personTint(key) {
+  let h = 0;
+  for (const c of String(key || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return PERSON_TINTS[h % PERSON_TINTS.length];
+}
+
+const plain = (url) => `${url}${url.includes('?') ? '&' : '?'}fallback=none`;
 // A portrait (the shared piece both who is here and the tabs draw): an .sdk-avatar of `size` px holding this space's
 // picture, else the profile picture, else the first letter. Decorative (aria-hidden): the name is said by what holds it.
 export function makePortrait(doc, person, size, { portraitUrl, profileUrl }) {
   const circle = doc.createElement('span');
   circle.className = `sdk-avatar sdk-avatar-${size}`;
   circle.setAttribute('aria-hidden', 'true');
+  circle.dataset.tint = personTint(person.key); // the first letter's colour, if there is no picture (system.css, avatars)
   const img = doc.createElement('img');
   img.alt = '';
   img.onerror = () => {
@@ -41,9 +52,10 @@ export function makePortrait(doc, person, size, { portraitUrl, profileUrl }) {
       return;
     }
     img.dataset.fallback = '1';
-    img.src = profileUrl(person.key);
+    // fallback=none: no picture at all, not the server's plate (the page's own surface colour, which on the bar is a blank disc)
+    img.src = plain(profileUrl(person.key));
   };
-  img.src = portraitUrl(person.key);
+  img.src = plain(portraitUrl(person.key));
   circle.append(img);
   return circle;
 }
@@ -66,7 +78,7 @@ export function createFaceStack({ doc = document, portraitUrl, profileUrl }) {
       let entry = kept.get(p.key);
       if (!entry || entry.src !== src) { entry = { src, node: makePortrait(doc, p, 20, { portraitUrl, profileUrl }) }; kept.set(p.key, entry); }
       entry.node.classList.toggle('you', Boolean(p.you));
-      entry.node.style.zIndex = String(faces.length - i);
+      entry.node.style.zIndex = String(i + 1); // each face over the one before, so a first letter is not the one cut
       return entry.node;
     }));
     moreEl.textContent = `+${more}`;

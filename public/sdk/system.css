@@ -1312,6 +1312,10 @@
 
 .sdk-avatar-ini { display: inline; line-height: var(--leading-ui); }
 
+/* A person's own colour (data-tint, one of the eight theme tints, picked from their key by space-people.js, personTint): the
+   fill behind their first letter, so no one is a blank disc. A photo covers it. */
+.sdk-avatar[data-tint] { background: color-mix(in srgb, var(--tint) 34%, var(--av-surface)); }
+
 .sdk-avatar > img {
   display: block;
   width: 100%;
