@@ -3650,11 +3650,14 @@ const agentSpaceOf = (agent, id) => {
 };
 const agentSpaces = (agent) => store.spaces.filter((r) => agentWorksIn(agent, r));
 // A space a set-up agent made and may still change (plan-admin-agent.md, decision 3): marked with its key (until an owner
-// chooses Keep) and with the agent still one of its members. Never the Lobby, never a space a person made.
-const agentMadeOf = (agent, id) => {
+// chooses Keep) and with the agent still one of its members it may enter (userIsIn: a space closed for set up is not one,
+// as for an ordinary agent). Never the Lobby, never a space a person made. `standing` asks membership only, never whether
+// the space is closed for now, so a waiting ask does not end for good while a space is closed for set up (agentAskStands).
+const agentMadeOf = (agent, id, { standing = false } = {}) => {
   if (typeof id !== 'string' || !agent || agent.kind !== 'setup') return null;
   const space = store.spaceById(id);
-  return space && space.id !== LOBBY && space.madeBy === agent.key && space.members.includes(agent.key) ? space : null;
+  if (!space || space.id === LOBBY || space.madeBy !== agent.key) return null;
+  return (standing ? spaceAccess.isMember({ key: agent.key }, space) : userIsIn(agent, space)) ? space : null;
 };
 const agentMadeSpaces = (agent) => store.spaces.filter((r) => agentMadeOf(agent, r.id));
 // Whether a pointer is into one of the agent's spaces.
@@ -5895,7 +5898,7 @@ function approveConnection(req, user, body, appFacts) {
       if (spaces.length) return { status: 400, error: `A set-up agent works only in the ${word('space', { many: true })} it makes, so it takes none.` };
     }
   }
-  for (const space of spaces) if (!space.members.includes(agent.key)) store.updateSpace(space.id, { members: [...space.members, agent.key] });
+  for (const space of spaces) if (!spaceAccess.isMember({ key: agent.key }, space)) store.updateSpace(space.id, { members: [...space.members, agent.key] });
   const env = currentEnvironment();
   const before = env.tokens.wayInOf(agent.key);
   const connection = env.tokens.connect(agent.key, { client: appFacts.client, app: appFacts.name, returnsTo: appFacts.returnsTo, resource: appFacts.resource, scope: appFacts.scope, allowedBy: user.key, lifetime });
@@ -6234,10 +6237,10 @@ const setupPersonOf = (key) => {
   return u && u.role === 'member' && !u.agent && !u.hostAdmin ? u : null;
 };
 // Whether an ask may still be answered: its agent is here, a set-up agent, not turned off, the switches are on, and the
-// space is still one it made (agentMadeOf).
+// space is still one it made (agentMadeOf, standing: closing a space for set up holds an ask, it does not end it).
 const setupAskLive = (a) => {
   const agent = store.userByKey(a.agent);
-  return Boolean(agent && agent.agent && agent.kind === 'setup' && !agent.off && store.settings.agents === true && setupAgentsOn() && agentMadeOf(agent, a.space));
+  return Boolean(agent && agent.agent && agent.kind === 'setup' && !agent.off && store.settings.agents === true && setupAgentsOn() && agentMadeOf(agent, a.space, { standing: true }));
 };
 // Ends the waiting asks that can no longer be answered (a kill switch, a space it no longer made). Read before every look.
 const tidySetupAsks = () => setupRecordsHere().expire((a) => !setupAskLive(a));
@@ -6247,7 +6250,7 @@ const setupWaitingOf = (agent) => { tidySetupAsks(); return setupRecordsHere().w
 function setupAskProblem({ ask, person, on }, space) {
   const who = setupPersonOf(person);
   if (!who) return ask === 'add' ? `An agent can only ask to add ${word('member', { a: true })} of this ${word('environment')}.` : `An agent can only ask about ${word('member', { a: true })} of this ${word('environment')}.`;
-  const inIt = space.members.includes(who.key);
+  const inIt = spaceAccess.isMember({ key: who.key }, space); // who was named, not who asks: listed, closed or not
   if (ask === 'add' && inIt) return `They are in this ${word('space')} already.`;
   if (ask !== 'add' && !inIt) return `They are not in this ${word('space')}.`;
   if (ask === 'moderator') {
