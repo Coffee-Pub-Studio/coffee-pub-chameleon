@@ -110,6 +110,18 @@ Thomas, 2026-11-23 (module access to the grid).
 
     Options he did not take: the page draws the picker over everything for uploaded modules (A2), which closes it fully but is a larger change; and one-step calls only, which limits harm but doesn't close it. This replaces the acceptance of a hostile module rewriting the grid in the contract and in risk 10.
 
+Thomas, 2026-11-22 (the picker everywhere).
+
+29. **The new colour picker is the only way a colour is set, everywhere.** Thomas's answer, relayed by the project manager, was "Yes, all of it". It means:
+    - Manage's theme editor moves onto the picker (this answers open question 5);
+    - the `theme-` exemption is removed from `check-no-colour-input`;
+    - the check scans `modules/` too;
+    - every place a colour is set is listed under "Where a colour is set", each opening the picker or with a reason it doesn't.
+
+    The earlier reason is kept as the record: a theme's colours are design, not data, and the theme editor has its own contrast panel. Thomas chose one picker over that.
+
+    Built as a try build on branch `claude/colour-picker-everywhere`: Manage > Theme's 48 colours open the picker, with no opacity and live preview while dragging; `host.ui.colorField` gained an `onInput` option, for showing only; Documents 0.11.37 opens the picker for Page colour; `check-no-colour-input` scans `modules/`, with one precise rule for MapLibre's style specification.
+
 **What decision 5 lets the plan drop.**
 
 - **Keeping `colour-pick.js`'s exports.** The first draft kept `upgradeColourInputs` and `colourPicker` so their users would not change. Now `colour-pick.js` is removed, and `module-settings.js`, `list-rows.js` and `template-pages.js` call the SDK's colour field directly. `tools/check-template-pages-b.mjs`, which stubs the old import line, changes with them.
@@ -118,6 +130,25 @@ Thomas, 2026-11-23 (module access to the grid).
 - **Today's 16 swatches as the default.** The new default palette is proposed below for Thomas to confirm.
 
 **Rules from `CLAUDE.md` that apply** (not decisions of this plan): the picker itself is drawn in theme tokens only, while the colours inside it are data; reuse the SDK's pieces (the popover, the radio group of swatches, the Pickers block); the SDK is core, so each core step has an independent read and the full `npm run check` runs at release prep; and a new SDK call is one of the things the freeze stops (plan-release, "The freeze").
+
+## Where a colour is set
+
+Decision 29 makes the picker the only way a colour is set; this is every place a colour is set today and what it does.
+
+| Place | Opens the picker | Notes |
+|---|---|---|
+| Manage > Theme, 48 colours | Yes (from this build) | No opacity: the store keeps `#rrggbb` only. Live preview while dragging. |
+| Module `color` settings (Manage, a module's settings page, Profile) | Yes | Through `colour-field.js`, no opacity. |
+| Template pages' `color` settings | Yes | Same. |
+| List rows' colours (Budget categories, Maps categories and place types, Planner markers, Research tags, Planner tags) | Yes | Every manifest list setting goes through `list-rows.js`. |
+| Whiteboard: fill, border, words, line, background, grid | Yes | The grid's other swatches are theme tokens by design. |
+| Documents page colour | Yes (from this build) | Old named colours still draw. |
+| Space Tags colour | No, by design | plan-tags: a tag's colour is a tone name from the theme's fixed set, never a free hex, so light and dark stay right. Changing it is Thomas's call. |
+| Maps: a place's own colour | No, needs the server | Stored as a tint name; the server lets only a tint into a summary (`SUMMARY_TINTS`, `server/index.js`), and pins come from summaries. |
+| Calendar, To-do, Goals, Polls, Vault, Profile's own fields, space settings, host console | Nothing to set | Labels are space Tags; tints come from order or the module. |
+| A module's tint (manifest `color`) | Not set by a person | Chosen by the module author from the 8 tints. |
+
+The planner's lean, not a decision: Documents' page colours follow decision 18 (the person's grid, no preset list). The alternative was passing the 7 page colours as the module's own palette (decision 26).
 
 ## Options for Thomas
 
@@ -501,13 +532,15 @@ Each has the planner's suggestion. The first draft's questions on anchoring, opa
 2. **Answered (decision 11): O2.** **A colour stored without its opacity.** The slider is always shown (decision 8), but a `color` setting and a list row's colour keep `#rrggbb` only, so as drafted their opacity would be thrown away. The options are under "O. A colour stored without its opacity": O1, shown and ignored; O2, shown at 100 and switched off with the line "Opacity isn't kept here."; O3, the setting declares and keeps an opacity (a new manifest field and stored format, before the freeze). Thomas chose O2 on 2026-11-19; O3 can follow later if a setting needs it. Blocks nothing.
 3. **Drawn in the module's page (A1).** The planner's reading of decision 1, which the contract is drafted on. Confirm, or say if the picker should be drawn over the page. Does not block unless changed.
 4. **The eyedropper in version 1?** Suggested: yes, shown only where it works, hidden elsewhere and named in `known-issues.md`. Does not block.
-5. **The theme editor's colour fields.** They are native inputs today. Decision 5 may already cover them ("all previous pickers"). Suggested: leave them out of this plan, since a theme's colours are design, not data, and the theme editor has its own contrast panel; give them the picker in a later step if Thomas wants it. Does not block.
+5. **Answered (decision 29, 2026-11-22): the theme editor moves onto the picker.** The earlier suggestion and its reason are kept as the record. **The theme editor's colour fields.** They are native inputs today. Decision 5 may already cover them ("all previous pickers"). Suggested: leave them out of this plan, since a theme's colours are design, not data, and the theme editor has its own contrast panel; give them the picker in a later step if Thomas wants it. Does not block.
 6. **What ends a pick.** Suggested: a swatch, Enter in the hex field, or a press outside the picker keeps the colour; Escape puts back the colour it opened with. Does not block step 1.
 7. **The words a person reads.** "Hue", "Opacity", "Hex", "Pick from the screen", "Recent", the group names "Light", "Dark", "Strong", "Saturation and brightness" (for a screen reader), and the hex line "Type six hex digits, like #2f6cbf". Suggested as written. Does not block.
 8. **The phone: popover or bottom sheet?** Suggested: the popover, as the approved Pickers family says for a grid, scrolling inside itself in a short module. Does not block step 1.
 9. **New list rows' colours.** Decision 13 gave new list rows the Strong colours in turn, Red first; decision 22 removes the Strong group. Suggested: the starting grid's colours that are neither neutral nor light, in grid order from Red (Red, Dark red, Orange, Brown, Yellow, Green, Dark green, Cyan, Teal, Blue, Dark blue, Purple, Magenta), fixed and not the person's own grid, so a list looks the same for everyone. Blocks step 7 only for `list-rows.js`; until answered, `list-rows.js` keeps the old Strong eight as its own list.
 10. **A way back to the starting colours.** Not asked. Suggested: none in version 1; a person who wants one back adds it. Does not block.
 11. **The 24 starting colours.** The planner's proposal (decision 24), for Thomas to see as a chart. Does not block: step 7 builds with them and a change is an edit to one list and the check.
+12. **Should space Tags move to the picker?** Today a tag's colour is a tone name from the theme's fixed set (plan-tags). Moving it changes plan-tags, the server and `host.tags`. Does not block.
+13. **Should a Maps place's own colour move to the picker?** It needs a server change so a summary's colour can be a strict `#rrggbb` (today only a tint name passes `SUMMARY_TINTS`). Does not block.
 
 ## What the issues say that this plan could not confirm
 
