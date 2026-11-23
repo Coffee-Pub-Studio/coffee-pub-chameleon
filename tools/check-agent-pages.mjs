@@ -881,7 +881,7 @@ async function main() {
       await shot(t, 'setup-agent-mark-manage-1280-dark');
       await press(t, `[data-made-keep="${porto.id}"]`);
       expect(await waitDialog(t, true), 'Keep asked nothing');
-      expect(/^Keep "Porto/.test(await t.eval(`document.querySelector('dialog[open] .sdk-dialog-title').textContent`)) && /Claude can no longer change it/.test(await t.eval(`document.querySelector('dialog[open]').textContent`)), 'the Keep question reads wrong');
+      expect(/^Keep "Porto/.test(await t.eval(`document.querySelector('dialog[open] .sdk-dialog-title').textContent`)) && /the set-up agent can no longer change it/.test(await t.eval(`document.querySelector('dialog[open]').textContent`)), 'the Keep question reads wrong');
       await t.click('dialog[open] button', 'Cancel');
       expect(await waitDialog(t, false) && !(await hiddenOf(t, `#spaces [data-space="${porto.id}"] .made-mark`)), 'Cancel on Keep removed the mark');
       await press(t, `[data-made-keep="${porto.id}"]`);

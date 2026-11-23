@@ -28,7 +28,7 @@ export function drawMadeMark(box, space, { show = true, api, word, onKept = () =
     event.stopPropagation(); // a card enters its space on a click; this is not that
     const ok = await confirmDialog({
       title: `Keep ${space.name ? `"${space.name}"` : `this ${word('space')}`}?`,
-      message: `It stays as it is, and Claude can no longer change it.`,
+      message: `It stays as it is, and the set-up agent can no longer change it.`,
       action: 'Keep',
     });
     if (!ok) return;
