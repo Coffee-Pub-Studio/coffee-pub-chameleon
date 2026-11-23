@@ -27,6 +27,7 @@
 .place-row .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .pinned, .nopos { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-11); color: var(--text-muted); }
 .pinned { color: var(--accent); }
+.find-on-map { flex: none; }
 /* On the selected row (a wash of the accent) the muted words and the accent mark read as the strong text colour: 4.5 to 1 in dark too. */
 .place-row.on :is(.sub, .pinned, .nopos, .scope-mark, .saved-state) { color: var(--text-primary); }
 .owners { display: inline-flex; }

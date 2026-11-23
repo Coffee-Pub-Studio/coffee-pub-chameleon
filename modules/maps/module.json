@@ -1,7 +1,7 @@
 {
   "id": "maps",
   "name": "Maps",
-  "version": "0.10.14",
+  "version": "0.10.15",
   "content": "flush",
   "icon": "map-location-dot",
   "color": "pink",
@@ -305,6 +305,18 @@
           "place": "ref:maps:place",
           "lat": "number",
           "lng": "number"
+        }
+      },
+      {
+        "name": "findPlace",
+        "label": "Look up a place",
+        "description": "Search for a place by name or address and list the matches with name, address, latitude and longitude, changing nothing.",
+        "effect": "write",
+        "input": {
+          "q": "string"
+        },
+        "inputHints": {
+          "q": "A name or an address, such as \"1575 Park Crest Ct, San Jose\". The answer's note lists the matches; if the place search is off it says so."
         }
       },
       {
