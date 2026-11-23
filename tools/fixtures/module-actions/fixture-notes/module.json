@@ -146,6 +146,24 @@
         }
       },
       {
+        "name": "facts",
+        "label": "Facts",
+        "description": "Write down the facts and helpers the handler was given.",
+        "effect": "write",
+        "clears": [
+          "cleared",
+          "count"
+        ],
+        "input": {
+          "own": "ref:fixture-notes:note?",
+          "elsewhere": "ref?",
+          "other": "ref?",
+          "cleared": "text?",
+          "count": "number?",
+          "kept": "string?"
+        }
+      },
+      {
         "name": "noCode",
         "label": "No code",
         "description": "An action whose handler is missing.",

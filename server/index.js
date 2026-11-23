@@ -8484,7 +8484,7 @@ app.post('/api/spaces/:id/chat/:messageId/keep', (req, res) => {
   const p = message.preview;
   let input;
   try {
-    input = busInput(who, keeper.def.input, { url: p.url, ...(p.title ? { title: p.title } : {}), ...(p.description ? { excerpt: p.description } : {}) }, takerOf(who, keeper.manifest, keeper.def, space.id));
+    input = busInput(who, keeper.def, { url: p.url, ...(p.title ? { title: p.title } : {}), ...(p.description ? { excerpt: p.description } : {}) }, takerOf(who, keeper.manifest, keeper.def, space.id));
   } catch (err) {
     if (!err.status) throw err;
     return res.status(err.status).json({ error: err.message });
@@ -8835,7 +8835,7 @@ app.post('/api/spaces/:id/command', (req, res) => {
   if (!def || !def.local) return res.status(404).json({ error: `that ${word('module')} does not offer that action` });
   let input;
   try {
-    input = busInput(who, def.input, { text }, takerOf(who, provider.found.manifest, def, space.id));
+    input = busInput(who, def, { text }, takerOf(who, provider.found.manifest, def, space.id));
   } catch (err) {
     if (!err.status) throw err;
     return res.status(err.status).json({ error: err.message });
@@ -8898,6 +8898,10 @@ app.get('/api/spaces/:id/actions', (req, res) => {
         // What objects it takes (plan-object-handoff.md, "What modules declare"), when it says, each entry with whether
         // this caller holds its permission.
         ...(a.takes ? { takes: takesFor(manifest, a, perms) } : {}),
+        // The inputs it clears when sent as "" (a field left out is kept), and whether its object is a patch (only what it gives
+        // changes; no title needed), when it says (plan-agent-edit-delete.md, "The contract", 1).
+        ...(a.clears ? { clears: a.clears } : {}),
+        ...(a.patch ? { patch: true } : {}),
         // Whether this caller can carry it out here (plan-chat-links.md, decision 10): read access for a local
         // action (already true to be listed), write access for any other; and, with `takes`, some entry they may use.
         may: (a.local ? true : mayWrite()) && (!a.takes || takesFor(manifest, a, perms).some((e) => e.may)),
@@ -8951,7 +8955,7 @@ app.post('/api/spaces/:id/action', async (req, res) => {
   // A refusal of the input (a field missing, an object of a kind the action does not take) is its own status, not a 500.
   let input;
   try {
-    input = busInput(who, def.input, req.body?.input, takerOf(who, provider.found.manifest, def, space.id));
+    input = busInput(who, def, req.body?.input, takerOf(who, provider.found.manifest, def, space.id));
   } catch (err) {
     if (!err.status) throw err;
     return res.status(err.status).json({ error: err.message });
@@ -9059,8 +9063,12 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
   const dataText = JSON.stringify(data);
   if (dataText.length > MODULE_ACTION_LIMITS.dataBytes) return fault('size');
   const agent = who.user;
-  const ctxText = JSON.stringify({ from: request.from, by: agent.displayName, byKey: agent.key, credit: { name: agent.displayName, key: agent.key }, now: Date.now(), tz: ACTION_TZ, space: { id: space.id }, action: def.name });
-  const answer = await moduleActions.run({ code: lib.code, filename: lib.filename, action: def.name, inputText: JSON.stringify(input), ctxText, dataText });
+  // The facts beside the data, as a page's adapter gives them (public/sdk/host.js libraryFacts), and the environment's clock and
+  // words for ctx.util. `carrier` says nothing only a page does is done here (a reminder, a link, a phase's end).
+  const facts = actionFacts(who, space, manifest, input);
+  const ctxText = JSON.stringify({ from: request.from, by: agent.displayName, byKey: agent.key, credit: { name: agent.displayName, key: agent.key }, now: Date.now(), tz: ACTION_TZ, carrier: 'server', ...facts, action: def.name });
+  const localeText = JSON.stringify({ clock: store.settings.clock === '24' ? '24' : '12', words: store.lookOf(space.id).words });
+  const answer = await moduleActions.run({ code: lib.code, filename: lib.filename, action: def.name, inputText: JSON.stringify(input), ctxText, dataText, localeText });
   const after = () => {
     // Ended meanwhile (Revoke, Turn off, taken off the space): nothing is written.
     if (request.cancelled || request.status !== 'claimed') return end(409, { ok: false, error: AGENT_ASK_ENDED });
@@ -9111,9 +9119,93 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
         return end(refusal.status, { ok: false, error: refusal.error });
       }
     }
+    // A schedule about an object this request changed was set by a page from the object as it was (a Calendar reminder: its
+    // time, its title, whether there is one at all), so it is taken off rather than left to fire wrongly; the module's page sets
+    // it again from the object as it is now (the handler marks what waits for that, and its note says so).
+    for (const a of applied) {
+      if (!a.had) continue;
+      const about = ownRefAt(now.manifest, scopeKey, a.key);
+      if (about) moduleHooks.cancelAbout(id, scopeKey, about);
+    }
     return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}) });
   };
   return envContext.run(env, () => (inSpace ? spaceContext.run(inSpace, after) : after()));
+}
+// The pointer a stored key is in a space, by the module's own kinds (refs.produces' keys), or null.
+function ownRefAt(manifest, scopeKey, key) {
+  if (typeof scopeKey !== 'string' || !scopeKey.startsWith('space:') || typeof key !== 'string') return null;
+  for (const p of manifest.refs.produces) {
+    const at = p.key.indexOf('{id}');
+    if (at < 0) continue;
+    const prefix = p.key.slice(0, at);
+    const suffix = p.key.slice(at + 4);
+    if (!key.startsWith(prefix) || !key.endsWith(suffix) || key.length <= prefix.length + suffix.length) continue;
+    return { module: manifest.id, kind: p.kind, id: key.slice(prefix.length, key.length - suffix.length), scope: 'space', space: scopeKey.slice(6) };
+  }
+  return null;
+}
+// The facts a server-carried request's handler is given beside the data: the same plain data the page adapter builds from its
+// host (public/sdk/host.js libraryFacts), read here as the agent (`who`) may read it.
+//   space: { id, name, currency (the space's budget's), defaultCurrency (the server's), phases: [{ id, main }], bands (the
+//     phase timeline, public/phases.js timelineOf, today where the server is; [] without phases) };
+//   people: [{ key, name }], the space's members, as host.people() gives them;
+//   refs: { <objectKey>: { title, subtitle, kind, copy?, original?: { module, name } } } for each pointer in the input (its own
+//     fields), resolved as the agent may see it, through this module as the page's host.objects.resolve does (its own kinds
+//     with no approval to link needed). A pointer into
+//     another space, or an environment object not marked for this one, resolves to { error: 'unavailable' }; one that is gone
+//     or that the agent may not see to { error: 'gone' } or { error: 'hidden' }, with nothing of it.
+function actionFacts(who, space, manifest, input) {
+  const phases = phaseStatesOf(space.id).phases;
+  let bands = [];
+  if (phases.length) {
+    try { bands = phaseRule.timelineOf(phases, space.phases || {}, { today: todayIn(ACTION_TZ), created: space.createdAt }) || []; } catch { bands = []; }
+  }
+  const people = [];
+  for (const key of Array.isArray(space.members) ? space.members : []) {
+    const person = store.userByKey(key);
+    if (person) people.push({ key: person.key, name: String(person.displayName || '') });
+  }
+  const refs = {};
+  for (const v of Object.values(input && typeof input === 'object' ? input : {})) {
+    if (!v || typeof v !== 'object' || Array.isArray(v) || typeof v.module !== 'string' || typeof v.kind !== 'string' || typeof v.id !== 'string') continue;
+    refs[objectKey(v)] = actionRefFact(who, space.id, manifest.id, v);
+  }
+  const budget = space.budget && typeof space.budget.currency === 'string' ? space.budget.currency.trim().toUpperCase() : '';
+  return {
+    space: { id: space.id, name: typeof space.name === 'string' ? space.name : '', currency: budget, defaultCurrency: String(store.settings.currency || 'USD').trim().toUpperCase(), phases: phases.map((p) => ({ id: p.id, main: Boolean(p.main) })), bands: JSON.parse(JSON.stringify(bands)) },
+    people,
+    refs,
+  };
+}
+// One pointer of a server-carried request, as the agent sees it (see actionFacts).
+function actionRefFact(who, spaceId, consumer, ref) {
+  const here = ref.scope === 'space' ? ref.space === spaceId : ref.scope === 'environment' && markedForSpace(ref, spaceId);
+  if (!here) return { error: 'unavailable' };
+  // Through this module, as the page's host.objects.resolve asks; its own kinds need no approval to link to (a module may
+  // always see its own objects, as far as the agent may).
+  const seen = (r) => {
+    try { return resolveRef(who, r, consumer, r.module === consumer ? { skipConsumer: true } : {}); } catch (err) {
+      if (!err.status) throw err;
+      return { error: err.status === 404 ? 'gone' : 'hidden' };
+    }
+  };
+  const s = seen(ref);
+  if (s.error) return { error: s.error };
+  const out = { title: typeof s.title === 'string' ? s.title : '', subtitle: typeof s.subtitle === 'string' ? s.subtitle : '', kind: s.kind || ref.kind };
+  if (s.copy === true && s.twinOf) {
+    const o = seen(s.twinOf);
+    out.copy = true;
+    out.original = { module: s.twinOf.module, name: (!o.error && o.module && o.module.name) || '' };
+  }
+  return out;
+}
+// Whether an environment object is marked for the space `spaceId` (its kind's summary.spaces field names it).
+function markedForSpace(ref, spaceId) {
+  if (typeof ref.module !== 'string' || typeof ref.kind !== 'string' || !REF_ID_RE.test(String(ref.id ?? ''))) return false;
+  const produce = modules.enabled(ref.module)?.manifest.refs.produces.find((p) => p.kind === ref.kind);
+  if (!produce || !produce.summary.spaces) return false;
+  const marks = moduleData.get(ref.module, 'environment', produce.key.replace('{id}', String(ref.id)))?.value?.[produce.summary.spaces];
+  return Array.isArray(marks) && marks.includes(spaceId);
 }
 // Puts back what a server-carried request wrote before one of its writes was refused (newest first): the value as it was,
 // or no value where it made one, and tells other modules as a write does (objectSync.afterWrite).
@@ -10978,16 +11070,26 @@ function realDay(text) {
   return mo >= 1 && mo <= 12 && d >= 1 && new Date(Date.UTC(y, mo - 1, d)).getUTCDate() === d;
 }
 
-// Check an action's input against what the module said it takes; only those fields come out. An `object` field is cleaned
-// by the objects format's checker (plan-object-handoff.md, "The bus's object type"); its kind must be one the action's
-// `takes` (`taker`, from takerOf) takes, with that entry's permission when it names one.
-function busInput(who, shape, input, taker) {
+// Check an action's input against what the module said it takes (`def`, the action as the manifest declares it); only those
+// fields come out. An `object` field is cleaned by the objects format's checker (plan-object-handoff.md, "The bus's object
+// type"); its kind must be one the action's `takes` (`taker`, from takerOf) takes, with that entry's permission when it names
+// one. An action that declares its object a `patch` (an edit's) takes one with no title, and one with no kind (the object's
+// own stays; only details need a kind). Left out, null or "" is no value, except that an input the action lists in `clears`
+// (plan-agent-edit-delete.md, "The contract", 1: "An empty text field clears it") keeps "" (or text that is only spaces) as
+// "", which the action reads as "clear it".
+function busInput(who, def, input, taker) {
+  const shape = def.input || {};
+  const clears = new Set(Array.isArray(def.clears) ? def.clears : []);
   const out = {};
   const given = input && typeof input === 'object' ? input : {};
   for (const [field, type] of Object.entries(shape)) {
     const optional = type.endsWith('?');
     const base = optional ? type.slice(0, -1) : type;
     const v = given[field];
+    if (v === '' && optional && clears.has(field)) {
+      out[field] = '';
+      continue;
+    }
     if (v === undefined || v === null || v === '') {
       if (!optional) throw refError(400, `${field} is needed`);
       continue;
@@ -10996,10 +11098,13 @@ function busInput(who, shape, input, taker) {
       if (typeof v !== 'string') throw refError(400, `${field} must be text`);
       // A `string` is one line (a title, a name): control characters read as spaces. A `text` is what a person types into a
       // multi-line box, so its line breaks and tabs stay (a \r\n or lone \r becomes \n); other control characters read as spaces.
-      out[field] = base === 'string'
+      const text = base === 'string'
         ? v.replace(/\p{Cc}/gu, ' ').trim().slice(0, 200)
         : v.replace(/\r\n?/g, '\n').replace(/(?![\n\t])\p{Cc}/gu, ' ').trim().slice(0, 8000);
-      if (!out[field] && !optional) throw refError(400, `${field} is needed`);
+      if (!text && !optional) throw refError(400, `${field} is needed`);
+      // Only spaces is no value, as "" is: cleared where the action clears it, else left out.
+      if (!text && !clears.has(field)) continue;
+      out[field] = text;
     } else if (base === 'date') {
       if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || !realDay(v)) throw refError(400, `${field} must be a date`);
       out[field] = v;
@@ -11015,9 +11120,13 @@ function busInput(who, shape, input, taker) {
       out[field] = v;
     } else if (base === 'object') {
       if (typeof v !== 'object' || Array.isArray(v)) throw refError(400, `${field} must be ${word('object', { a: true })}`);
-      const kept = objectFormat.cleanHandoff(v);
+      const patch = def.patch === true;
+      const kept = objectFormat.cleanHandoff(v, { patch });
       if (v.kind === 'image' && !(kept && kept.details && kept.details.upload)) throw refError(400, `${field} is a picture, so its details.upload must be the id of a file uploaded to the ${word('module')}`);
-      if (!kept) throw refError(400, `${field} needs a title, and content or details`);
+      if (patch && v.details !== undefined && v.details !== null && !(kept && kept.kind)) throw refError(400, `${field} changes details, so it needs its kind, such as "flight"`);
+      if (!kept) throw refError(400, patch ? `${field} must say what to change: a title, content, details, a date or a place` : `${field} needs a title, and content or details`);
+      // A patch with no kind keeps the object's own, which it already is: no kind to check against `takes`.
+      if (patch && !kept.kind) { out[field] = kept; continue; }
       const entries = objectFormat.takersOf(taker && taker.takes, kept.kind);
       if (!entries.length) throw refError(400, `${taker ? taker.moduleName : `that ${word('module')}`} cannot take ${kindWords(kept.kind)}`);
       if (!entries.some((e) => !e.permission || taker.has(e.permission))) throw refError(403, `you may not add ${kindWords(kept.kind)} to ${taker.moduleName} here`);
@@ -11048,7 +11157,7 @@ app.post('/api/bus/actions/request', busRoute((who, req) => {
   const objectSpace = sc === 'environment' && takesOwnObject(providerId, def) ? actionObjectSpace(providerId, def, input) : null;
   if (objectSpace) busPlace(who, String(providerId), 'space', objectSpace, 'write');
   else if (!def.local) busPlace(who, String(providerId), sc, space, 'write');
-  const request = moduleBus.request({ from, provider: providerId, action: name, input: busInput(who, def.input, input, takerOf(who, provider.found.manifest, def, objectSpace || provider.spaceId)), scopeKey: provider.scopeKey, by: who.user?.key || 'guest', local: def.local, askerOnly: def.askerOnly, space: objectSpace });
+  const request = moduleBus.request({ from, provider: providerId, action: name, input: busInput(who, def, input, takerOf(who, provider.found.manifest, def, objectSpace || provider.spaceId)), scopeKey: provider.scopeKey, by: who.user?.key || 'guest', local: def.local, askerOnly: def.askerOnly, space: objectSpace });
   return { id: request.id, status: request.status };
 }));
 

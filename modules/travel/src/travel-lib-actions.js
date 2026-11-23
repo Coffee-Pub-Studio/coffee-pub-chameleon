@@ -40,16 +40,19 @@
 
   // The plan's first or last day moved out so `item` sits on it (the page's stretchFor): without phases the trip's own dates
   // are written; with phases only the main phase's end could move, which is the space's and not this module's data, so the page
-  // carrying it out moves it after (travel-lib-plan.js absorb) and the server leaves it. A day that would make the plan longer
-  // than MAX_DAYS is left off, and said. Answers { writes, said }.
-  function actStretch(plan, item, by) {
+  // carrying it out moves it after (travel-lib-plan.js absorb). The server's runner (ctx.carrier 'server') leaves it, and says
+  // so. A day that would make the plan longer than MAX_DAYS is left off, and said. Answers { writes, said }.
+  function actStretch(plan, item, ctx) {
     const span = coverTrip(plan.shown, coverDaysOf(item), item, plan.phases);
     const writes = [];
-    if (span && span.start && !plan.phased) writes.push({ key: TRIP_KEY, value: cleanTrip({ ...(plan.trip || {}), start: span.start, end: span.end, by }) });
+    if (span && span.start && !plan.phased) writes.push({ key: TRIP_KEY, value: cleanTrip({ ...(plan.trip || {}), start: span.start, end: span.end, by: ctx.credit.name }) });
     const missed = span && span.outside;
     const said = !missed || !missed.length ? [] : [missed.length > 1
       ? `A plan can be at most ${MAX_DAYS} days long, so those days are left off the plan.`
       : `A plan can be at most ${MAX_DAYS} days long, so that day is left off the plan.`];
+    if (plan.phased && ctx.carrier === 'server' && span && span.end && plan.shown && plan.shown.end && span.end > plan.shown.end) {
+      said.push(`That is after the plan's last day, ${plan.shown.end}, which was not moved. A person can add days to the plan in the itinerary.`);
+    }
     return { writes, said };
   }
 
@@ -59,7 +62,7 @@
     const onTheLine = !fields.date && (fields.after === '' || isYmd(fields.after) || fields.kind === 'lane');
     const item = cleanItem({ ...fields, id, order: fields.order ?? (onTheLine ? jointOrder([...plan.items.values()].filter((i) => !i.date && (i.after || '') === (fields.after || '')), null, null) : actOrder(plan, fields.date)), by });
     if (!item) throw new Error('that needs a title');
-    const stretch = actStretch(plan, item, by);
+    const stretch = actStretch(plan, item, ctx);
     return { item, writes: [actWrite(item), ...stretch.writes], said: stretch.said };
   }
 
@@ -263,6 +266,12 @@
       }
       if (isYmd(input.date)) { patch.date = input.date; patch.after = null; }
       if (input.notes !== undefined && input.notes !== null && input.notes !== '') patch.notes = clip(input.notes, 8000);
+      // An input sent as "" clears that field (the manifest's `clears`), as emptying it in the editor does; one left out is kept.
+      const cleared = (f) => input[f] === '';
+      if (cleared('notes')) patch.notes = '';
+      if (cleared('time')) patch.time = null;
+      if (cleared('minutes')) patch.minutes = null;
+      if (cleared('cost')) patch.estimate = null;
       patch = actDetails(input, { ...patch, kind }, ctx.util, patch.time !== undefined ? patch.time : item.time);
       if (!patch.kind || patch.kind === item.kind) delete patch.kind;
       if (lines) patch.notes = [patch.notes !== undefined ? patch.notes : item.notes, lines].filter(Boolean).join('\n\n');
@@ -270,7 +279,7 @@
         const at = actWithPlace({ kind, address: patch.address !== undefined ? patch.address : item.address }, input.placeRef, ctx);
         Object.assign(patch, { placeRef: at.placeRef, place: at.place, ...(at.address ? { address: at.address } : {}) });
       }
-      if (!Object.keys(patch).length) throw new Error('Say what to change: a title, a day, a time, the notes, the cost, a place, or an object with its details.');
+      if (!Object.keys(patch).length) throw new Error('Say what to change: a title, a day, a time, the notes, the cost, a place, or an object with its details. Send "" to clear the time, minutes, cost or notes.');
       // The editor's checks for what it would save.
       const nextKind = patch.kind || item.kind;
       const returns = legsOf([...plan.items.values()], item.id);
@@ -283,7 +292,7 @@
       const next = cleanItem(merged);
       if (!next) throw new Error('Give it a title.');
       if (JSON.stringify(next) === JSON.stringify(item)) return { ref: actRef(ctx, item.id), data: { note: 'That is already so; nothing changed.' } };
-      const stretch = actStretch(plan, next, ctx.credit.name);
+      const stretch = actStretch(plan, next, ctx);
       const words = stretch.said.join(' ');
       return { writes: [actWrite(next), ...stretch.writes], ref: actRef(ctx, item.id), ...(words ? { data: { note: words } } : {}) };
     },

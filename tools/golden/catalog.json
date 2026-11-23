@@ -1,5 +1,116 @@
 [
   {
+    "name": "calendar__updateEvent",
+    "module": "calendar",
+    "action": "updateEvent",
+    "label": "Change an event",
+    "description": "Change only the fields given of an event already on the calendar.",
+    "effect": "write",
+    "input": {
+      "event": "ref:calendar:event",
+      "title": "string?",
+      "date": "date?",
+      "time": "string?",
+      "endTime": "string?",
+      "endDate": "date?",
+      "allDay": "boolean?",
+      "repeat": "string?",
+      "remind": "number?",
+      "notes": "text?"
+    },
+    "schema": {
+      "type": "object",
+      "properties": {
+        "event": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The number n of an event shown in this question."
+        },
+        "title": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "date": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "A date, YYYY-MM-DD."
+        },
+        "time": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "endTime": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "endDate": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "A date, YYYY-MM-DD."
+        },
+        "allDay": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "repeat": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "remind": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      },
+      "required": [
+        "event",
+        "title",
+        "date",
+        "time",
+        "endTime",
+        "endDate",
+        "allDay",
+        "repeat",
+        "remind",
+        "notes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "maps__setPlacePoint",
     "module": "maps",
     "action": "setPlacePoint",

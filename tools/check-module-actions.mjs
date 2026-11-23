@@ -30,7 +30,15 @@
  *   - a request the server was carrying when it stopped reads as done and failed after a restart;
  *   - an uploaded module (and a newer upload of the fixture itself) keeps the wait: pending with its waiting words,
  *     list_actions says now: false, wait_for_result holds until a page carries it or its seconds run out, at most two
- *     waits at once; MCP lists wait_for_result and the fixture's request is done through ask_for_change.
+ *     waits at once; MCP lists wait_for_result and the fixture's request is done through ask_for_change;
+ *   - the richer ctx (step 1b): ctx.util is the SDK's own helpers (public/sdk/host.js, loaded by the worker), frozen, with the
+ *     environment's clock and words, and no way out through them (no constructor, stack frame or leftover of the SDK); the
+ *     facts (space, people) are exactly the page's shape; refs only for the input's pointers, a pointer into another space or
+ *     one the module may not link to resolving to nothing; an input the action `clears` keeps "", every other refusal stands;
+ *   - the Itinerary and the Calendar carried by the server: acceptSuggestion with a full flight, updatePlan patching only the
+ *     gate and terminal, createEvent with a 90 minute reminder and notes (the reminder marked as waiting for a page, and said),
+ *     updateEvent clearing the reminder (the schedule a page set from the old event cancelled), each with the module tests'
+ *     writes; the same request through an uploaded copy waits and never reaches the runner.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -185,11 +193,13 @@ try {
   const mia = (await call('POST', '/api/users', { cookie: admin, body: { login: 'mia', password: 'mia-password-1', displayName: 'Mia', role: 'member' } })).json.user;
   // Several agents, each with its own 20 writes a minute: the main one, and one for each group of requests below.
   const agents = [];
-  for (let i = 0; i < 7; i += 1) agents.push((await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user);
+  for (let i = 0; i < 11; i += 1) agents.push((await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user);
   const agent = agents[0];
   const camp = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Camp', members: [...agents.map((a) => a.key), mia.key] } })).json.space.id;
   const fort = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Fort', members: [mia.key] } })).json.space.id;
-  for (const id of ['fixture-notes', 'todo']) {
+  // Another of the agents' own spaces, for a pointer into a space that is not the request's.
+  const lodge = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Lodge', members: [...agents.map((a) => a.key), mia.key] } })).json.space.id;
+  for (const id of ['fixture-notes', 'todo', 'travel', 'calendar']) {
     ok(await call('POST', `/api/modules/bundled/${id}/install`, { cookie: admin, body: {} }), `${id} installs`, 201);
     ok(await call('PATCH', `/api/modules/${id}`, { cookie: admin, body: { enabled: true, allSpaces: true } }), `${id} on`);
   }
@@ -431,6 +441,186 @@ try {
     const list = JSON.parse((await rpc('tools/call', { name: 'list_actions', arguments: { space: camp } })).json.result.content[0].text).actions;
     assert.equal(list.find((a) => a.action === 'fixture-notes:addNote').now, true, 'list_actions says now');
     assert.equal(list.find((a) => a.action === 'fixture-notes:addNote').waiting, undefined);
+  });
+
+  // --- the richer ctx: the SDK's helpers, the facts, the refs (step 1b) --------------------------------------------------
+  await test('ctx.util is the SDK\'s own helpers, frozen, and none of them is a way out', async () => {
+    as = agents[7];
+    ok(await probe('escapeUtil'), 'escapeUtil');
+    const seen = (await data())['probe:escapeUtil'].value;
+    assert.equal(seen.frozen, 'frozen');
+    for (const k of ['replaced', 'added', 'swapped']) assert.equal(seen[k], 'kept', k);
+    assert.equal(seen.keys, 'detailLines,id,localWhen,objectKey,parseYmd,plain,time,word,ymd');
+    for (const k of ['window', 'document', 'hostActions', 'hostText', 'createHost', 'hostColour', 'locale']) assert.equal(seen[k], 'undefined', `no ${k}: the rest of the SDK is gone`);
+    for (const k of ['plainCtor', 'wordCtor', 'ymdCtor', 'localWhenProto', 'stackFrames']) assert.equal(seen[k], 'blocked', k);
+    assert.equal(seen.word, 'Spaces', 'the environment\'s words');
+    assert.equal(seen.time, '10:30 PM', 'the environment\'s clock (12-hour)');
+    assert.equal(seen.plain, 'Bold');
+    assert.equal(seen.sameYmd, 'same', 'ymd and parseYmd beside the library are the SDK\'s');
+    ok(await call('PATCH', '/api/settings', { cookie: admin, body: { clock: '24' } }), 'a 24-hour clock');
+    ok(await probe('escapeUtil'), 'escapeUtil again');
+    assert.equal((await data())['probe:escapeUtil'].value.time, '22:30', 'time follows the environment\'s clock');
+    ok(await call('PATCH', '/api/settings', { cookie: admin, body: { clock: '12' } }), 'back to 12-hour');
+  });
+
+  await test('the facts: the space, its people, and refs only for the input\'s pointers, as the agent may see them', async () => {
+    as = agents[7];
+    const lodgeNote = await call('PUT', `/api/modules/fixture-notes/data/note:lodgenote?scope=space&space=${lodge}`, { cookie: miaC, body: { value: { title: 'In the lodge' } } });
+    ok(lodgeNote, 'a note in Lodge');
+    const own = { module: 'fixture-notes', kind: 'note', id: first.ref.id, scope: 'space', space: camp };
+    const elsewhere = { module: 'fixture-notes', kind: 'note', id: 'lodgenote', scope: 'space', space: lodge };
+    const task = { module: 'todo', kind: 'task', id: 't1', scope: 'space', space: camp };
+    const r = await ask('facts', { own, elsewhere, other: task, cleared: '', count: '', kept: '' });
+    ok(r, 'facts');
+    assert.equal(r.json.ok, true, r.text);
+    const f = (await data())['probe:facts'].value;
+    assert.equal(f.carrier, 'server');
+    assert.equal(f.tz, 'UTC');
+    assert.deepEqual(f.keys, ['action', 'by', 'byKey', 'carrier', 'credit', 'from', 'list', 'now', 'people', 'read', 'refs', 'space', 'tz', 'util']);
+    assert.deepEqual(Object.keys(f.space).sort(), ['bands', 'currency', 'defaultCurrency', 'id', 'name', 'phases']);
+    assert.deepEqual([f.space.id, f.space.name, f.space.currency, f.space.defaultCurrency], [camp, 'Camp', '', 'USD']);
+    assert.ok(Array.isArray(f.space.phases) && Array.isArray(f.space.bands));
+    assert.ok(f.people.some((p) => p.key === mia.key && p.name === 'Mia'), 'the space\'s people, by name');
+    assert.ok(f.people.every((p) => Object.keys(p).sort().join() === 'key,name'), 'nothing else of a person');
+    assert.ok(!f.people.some((p) => p.key === 'admin'), 'only the space\'s members');
+    const key = (ref) => [ref.module, ref.kind, ref.id, ref.scope, ref.space || ''].join('|');
+    assert.deepEqual(Object.keys(f.refs).sort(), [key(own), key(elsewhere), key(task)].sort(), 'only the input\'s pointers');
+    assert.deepEqual(f.refs[key(own)], { title: 'By the admin', subtitle: '', kind: 'note' }, 'its own note, as the agent sees it');
+    assert.deepEqual(f.refs[key(elsewhere)], { error: 'unavailable' }, 'a pointer into another space resolves to nothing');
+    assert.deepEqual(f.refs[key(task)], { error: 'hidden' }, 'what the module may not link to resolves to nothing');
+    assert.deepEqual(f.input, { own, elsewhere, other: task, cleared: '', count: '' }, '"" kept for an input the action clears, left out for one it does not');
+  });
+
+  await test('busInput: an input that clears keeps "", every other refusal stands', async () => {
+    as = agents[7];
+    const needed = await ask('addNote', { title: '' });
+    ok(needed, 'a required input sent as ""', 400);
+    assert.equal(needed.json.error, 'title is needed');
+    const spaces = await ask('facts', { cleared: '   ', kept: '   ' });
+    ok(spaces, 'only spaces');
+    assert.deepEqual((await data())['probe:facts'].value.input, { cleared: '' }, 'only spaces clears where the action clears, else is left out');
+    const typed = await ask('facts', { count: 'many' });
+    ok(typed, 'a number that is not one', 400);
+    assert.equal(typed.json.error, 'count must be a number');
+    const list = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions;
+    assert.deepEqual(list.find((a) => a.action === 'fixture-notes:facts').clears, ['cleared', 'count'], 'list_actions says what clears');
+    assert.equal(list.find((a) => a.action === 'travel:updatePlan').patch, true, 'and which object is a patch');
+    assert.deepEqual(list.find((a) => a.action === 'calendar:updateEvent').clears, ['endTime', 'endDate', 'repeat', 'remind', 'notes']);
+    for (const name of ['travel:acceptSuggestion', 'travel:updatePlan', 'calendar:createEvent', 'calendar:updateEvent']) assert.equal(list.find((a) => a.action === name).now, true, `${name}: carried now`);
+  });
+
+  // --- the Itinerary and the Calendar, carried by the server ------------------------------------------------------------
+  const travelData = async () => Object.fromEntries((await call('GET', `/api/modules/travel/data?scope=space&space=${camp}`, { cookie: admin })).json.items.map((i) => [i.key, i]));
+  const calData = async () => Object.fromEntries((await call('GET', `/api/modules/calendar/data?scope=space&space=${camp}`, { cookie: admin })).json.items.map((i) => [i.key, i]));
+  const askIn = (action, input) => call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action, input } });
+  const schedules = () => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'modules', 'schedules.json'), 'utf8')); } catch { return []; } };
+  let flight = null;
+  await test('Itinerary: an agent\'s acceptSuggestion with a full flight is done at once, every field typed, as the page does it', async () => {
+    as = agents[8];
+    const object = { kind: 'flight', title: 'Home', details: { airline: 'United', number: 'UA945', from: { code: 'LIS', name: 'Lisbon' }, to: { code: 'EWR', name: 'Newark' }, departs: '2026-10-03T11:05', arrives: '2026-10-03T14:20', terminal: '1', gate: '14', seat: '22C, 22D', class: 'Economy', reference: 'QX7Y2', cost: 412.8, travellers: ['Mia', 'Cy'] } };
+    const r = await askIn('travel:acceptSuggestion', { title: 'Home', object });
+    ok(r, 'acceptSuggestion');
+    assert.equal(r.json.status, 'done');
+    assert.equal(r.json.ok, true);
+    assert.deepEqual(Object.keys(r.json.ref).sort(), ['id', 'kind', 'module', 'scope', 'space']);
+    assert.deepEqual([r.json.ref.module, r.json.ref.kind, r.json.ref.space], ['travel', 'plan', camp]);
+    const item = (await travelData())[`plan:${r.json.ref.id}`];
+    assert.ok(item, 'stored');
+    const v = item.value;
+    // The module test's expectations (modules/travel/test/check-travel-actions.mjs), with this space's people.
+    assert.deepEqual([v.kind, v.mode, v.operator, v.number, v.fromCode, v.from, v.toCode, v.to, v.date, v.time, v.arrives, v.terminal, v.gate, v.seat, v.travelClass, v.confirm, v.estimate, v.owners],
+      ['journey', 'flight', 'United', 'UA945', 'LIS', 'Lisbon', 'EWR', 'Newark', '2026-10-03', '11:05', '2026-10-03T14:20', '1', '14', '22C, 22D', 'Economy', 'QX7Y2', 412.8, [mia.key]]);
+    assert.equal(v.notes, 'Travellers: Cy', 'a traveller who is not one of the people is a notes line');
+    assert.equal(v.by, 'Claude', 'credited to the agent');
+    assert.equal(item.by, as.key, 'the write is the agent\'s');
+    flight = r.json.ref;
+  });
+
+  await test('Itinerary: updatePlan with an object patch changes only the gate and the terminal', async () => {
+    as = agents[8];
+    const before = (await travelData())[`plan:${flight.id}`].value;
+    const r = await askIn('travel:updatePlan', { entry: flight, object: { kind: 'flight', details: { gate: 'B12', terminal: '2' } } });
+    ok(r, 'updatePlan');
+    assert.equal(r.json.ok, true);
+    assert.deepEqual(r.json.ref, flight);
+    const after = (await travelData())[`plan:${flight.id}`].value;
+    assert.deepEqual([after.gate, after.terminal], ['B12', '2']);
+    for (const k of Object.keys(before)) if (!['gate', 'terminal'].includes(k)) assert.deepEqual(after[k], before[k], k);
+    const noKind = await askIn('travel:updatePlan', { entry: flight, object: { details: { gate: 'C1' } } });
+    ok(noKind, 'a patch with details and no kind', 400);
+    assert.equal(noKind.json.error, 'object changes details, so it needs its kind, such as "flight"');
+    const titleOnly = await askIn('travel:updatePlan', { entry: flight, object: { title: 'Home, United' } });
+    ok(titleOnly, 'a patch with a title and no kind');
+    assert.equal((await travelData())[`plan:${flight.id}`].value.title, 'Home, United');
+    const notTaken = await askIn('travel:updatePlan', { entry: flight, object: { kind: 'task', details: { due: '2026-10-03' } } });
+    ok(notTaken, 'a patch of a kind the action does not take', 400);
+    const whole = await askIn('travel:acceptSuggestion', { title: 'X', object: { kind: 'flight', details: { gate: 'C1' } } });
+    ok(whole, 'an object that is not a patch still needs its title', 400);
+    assert.equal(whole.json.error, 'object needs a title, and content or details');
+    const cleared = await askIn('travel:updatePlan', { entry: flight, notes: '', time: '' });
+    ok(cleared, 'notes and time cleared');
+    const v = (await travelData())[`plan:${flight.id}`].value;
+    assert.deepEqual([v.notes, v.time, v.gate], ['', null, 'B12']);
+  });
+
+  let event = null;
+  await test('Calendar: an agent\'s createEvent with a 90 minute reminder and notes is done at once; its reminder waits for a page, and says so', async () => {
+    as = agents[9];
+    const r = await askIn('calendar:createEvent', { title: 'Car', date: '2026-11-20', time: '10:00', endTime: '11:30', remind: 90, notes: 'Pick up at the airport' });
+    ok(r, 'createEvent');
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.note, 'Its reminder is set the next time someone who can change events opens the calendar.');
+    event = r.json.ref;
+    assert.deepEqual([event.module, event.kind, event.space], ['calendar', 'event', camp]);
+    const v = (await calData())[`event:${event.id}`].value;
+    // The module test's expectations (modules/calendar/test/check-calendar-actions.mjs), read in the server's zone (UTC here).
+    assert.deepEqual(v, { id: event.id, title: 'Car', allDay: false, start: '2026-11-20T10:00:00.000Z', end: '2026-11-20T11:30:00.000Z', desc: 'Pick up at the airport', remind: 90, repeat: null, by: 'Claude', remindPending: true });
+    assert.ok(!schedules().some((x) => x.module === 'calendar'), 'no schedule is set by the server');
+  });
+
+  await test('Calendar: updateEvent clearing the reminder takes it off, and the schedule a page set from the old event goes', async () => {
+    as = agents[9];
+    // Mia's page sets the reminder, as calendar.js applyReminder does.
+    const at = Date.now() + 3 * 24 * 3600 * 1000;
+    ok(await call('POST', `/api/modules/calendar/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: `remind:${event.id}`, at, payload: { id: event.id }, ref: { module: 'calendar', kind: 'event', id: event.id, scope: 'space', space: camp }, notify: { title: 'Car', body: 'Starts in 1 hour 30 minutes' } } }), 'a page sets the reminder');
+    ok(await call('POST', `/api/modules/calendar/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: 'other-key', at, payload: {} } }), 'and some other schedule');
+    assert.ok(schedules().some((x) => x.key === `remind:${event.id}`));
+    const r = await askIn('calendar:updateEvent', { event, remind: '' });
+    ok(r, 'updateEvent');
+    assert.equal(r.json.ok, true);
+    assert.equal(r.json.note, undefined, 'no reminder: nothing waits');
+    const v = (await calData())[`event:${event.id}`].value;
+    assert.equal(v.remind, null);
+    assert.equal(v.remindPending, undefined);
+    assert.deepEqual([v.title, v.desc, v.start], ['Car', 'Pick up at the airport', '2026-11-20T10:00:00.000Z'], 'the rest kept');
+    assert.ok(!schedules().some((x) => x.key === `remind:${event.id}`), 'the old reminder will not fire');
+    assert.ok(schedules().some((x) => x.key === 'other-key'), 'a schedule about nothing it changed stays');
+    const back = await askIn('calendar:updateEvent', { event, remind: 30, notes: '' });
+    ok(back, 'a reminder again, notes cleared');
+    assert.equal(back.json.note, 'Its reminder is set the next time someone who can change events opens the calendar.');
+    const w = (await calData())[`event:${event.id}`].value;
+    assert.deepEqual([w.remind, w.remindPending, w.desc], [30, true, '']);
+  });
+
+  await test('the same requests through an uploaded copy of the Itinerary wait for a page and never reach the runner', async () => {
+    as = agents[10];
+    const up = path.join(base, 'variants', 'travel-upload');
+    fs.cpSync(path.join(ROOT, 'modules', 'travel'), up, { recursive: true });
+    const m = JSON.parse(fs.readFileSync(path.join(up, 'module.json'), 'utf8'));
+    m.version = '9.9.9';
+    delete m.actions.server;
+    fs.writeFileSync(path.join(up, 'module.json'), JSON.stringify(m, null, 2));
+    ok(await call('POST', '/api/modules', { cookie: admin, raw: zipOf(up), headers: { 'content-type': 'application/zip' } }), 'the upload installs', 201);
+    const before = JSON.stringify(await travelData());
+    const r = await askIn('travel:updatePlan', { entry: flight, object: { kind: 'flight', details: { gate: 'Z9' } } });
+    ok(r, 'asked');
+    assert.equal(r.json.status, 'pending');
+    assert.match(r.json.waiting, /^Waiting for someone who may change Planner - Itinerary to open it in "Camp"\./);
+    const kept = busFile().actions.find((a) => a.id === r.json.id);
+    assert.ok(kept && !kept.server && kept.status === 'pending', 'on the queue for a page, not the server\'s');
+    assert.equal(JSON.stringify(await travelData()), before, 'nothing written');
+    const list = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions;
+    assert.equal(list.find((a) => a.action === 'travel:updatePlan').now, false);
   });
 
   await test('a request the server was carrying when it stopped reads as done and failed after a restart', async () => {

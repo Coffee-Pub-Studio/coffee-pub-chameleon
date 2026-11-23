@@ -218,6 +218,17 @@ class ModuleHooks extends EventEmitter {
     return { key, cancelled: before !== this.schedules.length };
   }
 
+  // Cancel every schedule of `module` in `scopeKey` that says it is about `ref` (its `ref`, set by the schedule route). The
+  // keys cancelled. Used when the server changed that object without the module's page (server/index.js carryOnServer).
+  cancelAbout(module, scopeKey, ref) {
+    const same = (r) => Boolean(r) && r.module === ref.module && r.kind === ref.kind && r.id === ref.id && r.scope === ref.scope && (r.space || '') === (ref.space || '');
+    const gone = this.schedules.filter((s) => s.module === module && s.scopeKey === scopeKey && same(s.ref));
+    if (!gone.length) return [];
+    this.schedules = this.schedules.filter((s) => !gone.includes(s));
+    this.write(this.schedulesFile, this.schedules);
+    return gone.map((s) => s.key);
+  }
+
   // Forget everything a module scheduled (on uninstall without keeping data).
   forget(module) {
     this.schedules = this.schedules.filter((s) => s.module !== module);

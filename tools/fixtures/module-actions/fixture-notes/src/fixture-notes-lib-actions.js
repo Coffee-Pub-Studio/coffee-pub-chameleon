@@ -53,6 +53,36 @@ const ACTION_HANDLERS = {
       };
       return import('node:fs').then(() => 'loaded', () => 'blocked').then((dynamicImport) => ({ writes: [{ key: 'probe:escape', value: { ...seen, dynamicImport } }] }));
     }
+    if (what === 'escapeUtil') {
+      // The SDK's helpers (ctx.util, and ymd and parseYmd beside the library) are the context's own: none reaches this process,
+      // the rest of the SDK, or code from strings, and ctx.util can't be changed.
+      const u = ctx.util;
+      const before = u.plain;
+      const replaced = fixtureTry(() => { u.plain = () => 'mine'; return u.plain === before ? 'kept' : 'replaced'; });
+      const added = fixtureTry(() => { u.extra = 1; return u.extra === 1 ? 'added' : 'kept'; });
+      const swapped = fixtureTry(() => { globalThis.__util = {}; return globalThis.__util === u ? 'kept' : 'swapped'; });
+      const seen = {
+        frozen: Object.isFrozen(u) ? 'frozen' : 'open',
+        replaced: replaced === 'blocked' ? 'kept' : replaced,
+        added: added === 'blocked' ? 'kept' : added,
+        swapped: swapped === 'blocked' ? 'kept' : swapped,
+        keys: Object.keys(u).sort().join(','),
+        window: typeof window, document: typeof document, hostActions: typeof hostActions, hostText: typeof hostText, createHost: typeof createHost, hostColour: typeof hostColour, locale: typeof __locale,
+        plainCtor: fixtureTry(() => u.plain.constructor('return typeof process')()),
+        wordCtor: fixtureTry(() => u.word.constructor('return typeof process')()),
+        ymdCtor: fixtureTry(() => ymd.constructor('return typeof process')()),
+        localWhenProto: fixtureTry(() => Object.getPrototypeOf(u.localWhen).constructor('return typeof process')()),
+        stackFrames: fixtureTry(() => {
+          Error.prepareStackTrace = (e, frames) => frames.map((f) => { const fn = f.getFunction && f.getFunction(); return fn ? typeof fn.constructor('return typeof process')() : 'none'; }).join(',');
+          return u.detailLines({ get airline() { return new Error('x').stack; } }).join('');
+        }),
+        word: u.word('space', { many: true, cap: true }),
+        time: u.time('22:30'),
+        plain: u.plain('**Bold**'),
+        sameYmd: ymd === u.ymd && parseYmd === u.parseYmd ? 'same' : 'different',
+      };
+      return { writes: [{ key: 'probe:escapeUtil', value: seen }] };
+    }
     if (what === 'pollute') {
       const before = ({}).polluted;
       Object.prototype.polluted = 'yes';
@@ -79,6 +109,10 @@ const ACTION_HANDLERS = {
     if (what === 'read') return { writes: [{ key: 'probe:read', value: { task: ctx.read('task:t1'), fort: ctx.read('note:fortsecret'), keys: ctx.list('').map((x) => x.key), by: ctx.by, byKey: ctx.byKey, credit: ctx.credit } }] };
     if (what === 'nothing') return undefined;
     throw new Error(`No probe called ${what}.`);
+  },
+  // What the handler was given beside the data, written down as it came (the input, its facts and its carrier).
+  facts(input, ctx) {
+    return { writes: [{ key: 'probe:facts', value: { input, space: ctx.space, people: ctx.people, refs: ctx.refs, carrier: ctx.carrier, tz: ctx.tz, keys: Object.keys(ctx).sort() } }] };
   },
   hidden(input) {
     return { writes: [{ key: 'probe:hidden', value: { title: input.title } }] };

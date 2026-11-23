@@ -294,16 +294,18 @@ const isPlaceholder = (title) => typeof title === 'string' && /^<[^<>]+>$/.test(
 
 // One object as kept. `imported`: from a paste or file (basis "imported", no sources). `handoff`: from another page, so a
 // handoff kind (image) is kept; never set for an AI's answer or an import. `content` may be left out when details are kept.
-function cleanObject(raw, { count = 0, imported = false, handoff = false } = {}) {
+// `patch`: a change to an object already there (an edit action's patch): the title, the content and the details may each be
+// left out, but something must be given (a title, content, details, a date, a place or links).
+function cleanObject(raw, { count = 0, imported = false, handoff = false, patch = false } = {}) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   if (isPlaceholder(raw.title)) return null; // the prompt's own example, written back as it was
   const title = plain(raw.title, MAX_TITLE);
   const content = plain(raw.content, MAX_CONTENT, true);
   const kind = kindOf(raw, handoff);
   const details = kind ? cleanDetails(kind, raw.details) : null;
-  if (!title || (!content && !details)) return null;
+  if (!patch && (!title || (!content && !details))) return null;
   const basis = imported ? 'imported' : (BASES.includes(raw.basis) ? raw.basis : count > 0 ? 'items' : 'general');
-  const summary = { icon: ICONS.includes(raw.icon) ? raw.icon : ICONS[0], title };
+  const summary = { icon: ICONS.includes(raw.icon) ? raw.icon : ICONS[0], ...(title ? { title } : {}) };
   if (content) summary.content = content;
   summary.basis = basis;
   if (kind) summary.kind = kind;
@@ -339,6 +341,7 @@ function cleanObject(raw, { count = 0, imported = false, handoff = false } = {})
     const sources = [...new Set((Array.isArray(raw.sources) ? raw.sources : []).filter((n) => Number.isInteger(n) && n >= 1 && n <= count))].slice(0, MAX_SOURCES);
     if (sources.length) summary.sources = sources;
   }
+  if (patch && !title && !content && !details && !summary.date && !summary.place && !summary.links) return null;
   return summary;
 }
 
@@ -383,9 +386,10 @@ function kindsTaken(manifests) {
 
 // An action's `object` input as the bus carries it: what the format keeps from another page (cleanObject with `handoff`,
 // so a picture's `image` is kept). An AI's item numbers mean nothing here, so `sources` is dropped, and `basis` is kept
-// only as given (an AI answer's object keeps it; a chat message's words have none).
-function cleanHandoff(raw) {
-  const kept = cleanObject(raw, { handoff: true });
+// only as given (an AI answer's object keeps it; a chat message's words have none). `patch`: the action declares its object a
+// patch (an edit's: see cleanObject).
+function cleanHandoff(raw, { patch = false } = {}) {
+  const kept = cleanObject(raw, { handoff: true, patch });
   if (!kept) return null;
   delete kept.sources;
   if (raw.basis === 'imported' || BASES.includes(raw.basis)) kept.basis = raw.basis;

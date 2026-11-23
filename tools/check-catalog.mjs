@@ -65,7 +65,7 @@ await test('every bundled action that is not local and not asker-only says what 
 await test('the bundled catalog is the actions on objects that already exist, as the plan names them', () => {
   // Every qualifying action (not local, not asker-only, described, a write, no whole-object input, no new object) is a tool and
   // is named here (todo__setTaskDone and todo__updateTask: writes on an existing task, required ref input, so they are tools); a module's next one fails with the names below, so the person adding it updates this list and the golden file.
-  const WANT = ['maps__setPlacePoint', 'maps__updatePlace', 'schedule__setDone', 'schedule__updateEntry', 'todo__linkTask', 'todo__setTaskDone', 'todo__setTaskDue', 'todo__updateTask', 'travel__addToDay', 'travel__setStopPlace'];
+  const WANT = ['calendar__updateEvent', 'maps__setPlacePoint', 'maps__updatePlace', 'schedule__setDone', 'schedule__updateEntry', 'todo__linkTask', 'todo__setTaskDone', 'todo__setTaskDue', 'todo__updateTask', 'travel__addToDay', 'travel__setStopPlace'];
   const got = catalog.tools.map((t) => t.name);
   assert.deepEqual(got, WANT, `the actions that qualify as AI tools are now ${got.join(', ')}. If that is meant, add the new ones to WANT here and run node tools/check-catalog.mjs --update (tools/golden/catalog.json); if not, give the action "ai": false or an input that makes a new object.`);
   for (const t of catalog.tools) {
