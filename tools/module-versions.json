@@ -9,7 +9,7 @@
   },
   "calendar": {
     "version": "1.24.50",
-    "hash": "b826a6ce8208763b"
+    "hash": "fae535852c77f9a9"
   },
   "documents": {
     "version": "0.11.37",
@@ -45,7 +45,7 @@
   },
   "travel": {
     "version": "0.16.20",
-    "hash": "b8fc94b2d13e2c9b"
+    "hash": "fadc1d1c79267252"
   },
   "vault": {
     "version": "0.4.9",

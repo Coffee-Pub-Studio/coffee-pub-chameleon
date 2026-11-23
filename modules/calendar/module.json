@@ -146,9 +146,9 @@
       {
         "name": "updateEvent",
         "label": "Change an event",
-        "description": "Change an event already on the calendar: only the fields given. A copy of another module's object is changed in that module.",
+        "description": "Change only the fields given of an event already on the calendar.",
         "inputHints": {
-          "event": "The event to change, its pointer as search or an earlier answer gives it.",
+          "event": "The event to change, its pointer as search or an earlier answer gives it; a copy of another module's object is changed in that module.",
           "title": "The new title.",
           "date": "The new first day, as YYYY-MM-DD; its end moves with it.",
           "time": "Start time as HH:MM, 24-hour, for example 10:00. An all-day event with a time is no longer all day.",

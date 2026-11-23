@@ -114,7 +114,7 @@
       {
         "name": "acceptSuggestion",
         "label": "Add it to the trip, properly typed",
-        "description": "Add a journey, stay or stop by kind; a stop can be at a saved place. Give object for a fully typed one: a flight's airline, number, airports, times, terminal, gate, seat, class, reference, cost.",
+        "description": "Add a journey, stay or stop by its kind, at a saved place or as a fully typed object.",
         "inputHints": {
           "kind": "What it is: flight, train, bus, ferry, car, hotel, restaurant, cafe, bar, winery, sight, museum, attraction, tour, show, event or note. Leave out for a plain stop.",
           "placeRef": "A saved place from Maps, for a stop only. The stop then shows that place's name, and its address if you gave none.",
@@ -163,7 +163,7 @@
       {
         "name": "updatePlan",
         "label": "Change an itinerary entry",
-        "description": "Change a journey, stay, stop or note already on the itinerary: only the fields given. Typed details (a flight's airline, airports, terminal, gate, seat...) go in object.",
+        "description": "Change only the fields given of a journey, stay, stop or note already on the itinerary, with typed details in object.",
         "inputHints": {
           "entry": "The entry to change, its pointer as search or an earlier answer gives it.",
           "object": "A patch { kind, title, details }; the entry's own kind and title keep them. A flight's details: airline, number, from, to, departs, arrives, terminal, gate, seat, class, reference, cost, travellers.",
