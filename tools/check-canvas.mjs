@@ -2688,6 +2688,10 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
       function liveChatNotice(data) { env.chats.push(data); }
       function catchUpLiveChat() { env.catchUps += 1; }
       function asideNudge(data) { env.nudges.push(data); }
+      function bringNudge(data) { env.nudges.push(data); } // Bring everyone here (check-bring-everyone has the rest)
+      function sayWhere() {} // the tab, said on each ready (check-layout-presence)
+      function myWhere() { return null; }
+      const entered = true; // livePeople reads my tab only once entered
       function leaveKicked() { env.kicked += 1; }
       ${block}
       ${paint}
@@ -2737,7 +2741,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
       ['PATCH', '/api/spaces/s1/presence', { onCall: true, stream: 'st-1' }],
       ['PATCH', '/api/spaces/s1/presence', { away: true, awayMessage: 'brb', stream: 'st-1' }],
     ], 'the page says on the call and away with PATCH /api/spaces/:id/presence, naming its stream, in order');
-    assert.deepEqual(run.livePeople()[0], { key: 'me', name: 'Me Myself', you: true, onCall: true, away: false, awayMessage: '' }, 'my own "on the call" is the page\'s say until the stream echoes it');
+    assert.deepEqual(run.livePeople()[0], { key: 'me', name: 'Me Myself', you: true, onCall: true, away: false, awayMessage: '', layout: null }, 'my own "on the call" is the page\'s say until the stream echoes it');
     // A drop after it was live: tried again after 2 seconds; the new stream's ready says the whole state again.
     patches.length = 0;
     sources[0].drop();

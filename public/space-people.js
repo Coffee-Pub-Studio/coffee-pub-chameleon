@@ -21,6 +21,59 @@
 // back to the button on Escape. Nothing here reads the page's globals: space.js hands in what it needs.
 
 export const MAX_FACES = 4;
+// How many faces a layout tab shows before "+N" (plan-workspaces.md, decision 47).
+export const TAB_FACES = 3;
+
+// A portrait (the shared piece both who is here and the tabs draw): an .sdk-avatar of `size` px holding this space's
+// picture, else the profile picture, else the first letter. Decorative (aria-hidden): the name is said by what holds it.
+export function makePortrait(doc, person, size, { portraitUrl, profileUrl }) {
+  const circle = doc.createElement('span');
+  circle.className = `sdk-avatar sdk-avatar-${size}`;
+  circle.setAttribute('aria-hidden', 'true');
+  const img = doc.createElement('img');
+  img.alt = '';
+  img.onerror = () => {
+    if (img.dataset.fallback) {
+      const letter = doc.createElement('span');
+      letter.className = 'sdk-avatar-ini';
+      letter.textContent = String(person.name || '?').trim().charAt(0).toUpperCase() || '?';
+      img.replaceWith(letter);
+      return;
+    }
+    img.dataset.fallback = '1';
+    img.src = profileUrl(person.key);
+  };
+  img.src = portraitUrl(person.key);
+  circle.append(img);
+  return circle;
+}
+
+// The faces of the people on one layout tab (space.js's tab side): an .sdk-avatar-stack of 20px portraits, at most
+// TAB_FACES, then the micro count of the rest. Portraits are kept per person, so a redraw does not fetch them again.
+// Answers { el, draw(faces, more) }; `faces` are people ({ key, name, you, onCall }).
+export function createFaceStack({ doc = document, portraitUrl, profileUrl }) {
+  const el = doc.createElement('span');
+  el.className = 'sdk-avatar-stack tab-faces';
+  el.setAttribute('aria-hidden', 'true');
+  const kept = new Map(); // key -> { src, node }
+  const moreEl = doc.createElement('span');
+  moreEl.className = 'sdk-badge-micro';
+  function draw(faces, more = 0) {
+    const keys = new Set(faces.map((p) => p.key));
+    for (const k of kept.keys()) if (!keys.has(k)) kept.delete(k);
+    el.replaceChildren(...faces.map((p, i) => {
+      const src = portraitUrl(p.key);
+      let entry = kept.get(p.key);
+      if (!entry || entry.src !== src) { entry = { src, node: makePortrait(doc, p, 20, { portraitUrl, profileUrl }) }; kept.set(p.key, entry); }
+      entry.node.classList.toggle('you', Boolean(p.you));
+      entry.node.style.zIndex = String(faces.length - i);
+      return entry.node;
+    }));
+    moreEl.textContent = `+${more}`;
+    if (more > 0) el.append(moreEl);
+  }
+  return { el, draw };
+}
 
 // How many portraits fit in `avail` px (the width available). `base` is the tool's width with no portraits (its
 // padding and its words), `first` what the first portrait adds (itself and the gap after it), `step` what each further
@@ -69,8 +122,9 @@ export function hereLabel(people, where) {
 // The tool. `people()` is who is here now ([{ key, name, you, onCall }], you first: space-live.js, peopleFromPresence);
 // `where()` the environment's word for where I am ("space", or "aside" in one); `portraitUrl(key)` and
 // `profileUrl(key)` the pictures to try, in order, before the first letter; `wanted()` whether it shows at all (in a
-// space and connected); `events.redraw()` draws the bar again.
-export function createWhoHere({ doc = document, people: listPeople = () => [], events = {}, where = () => 'space', portraitUrl, profileUrl, wanted = () => true }) {
+// space and connected); `tabOf(person)` the name of the tab they are on, shown after their name in the list ('' for
+// none: a phone has no tabs of its own, so this is where it reads who is on which); `events.redraw()` draws the bar again.
+export function createWhoHere({ doc = document, people: listPeople = () => [], events = {}, where = () => 'space', portraitUrl, profileUrl, wanted = () => true, tabOf = () => '' }) {
   const el = doc.createElement('span');
   el.className = 'who-here';
   el.innerHTML = `
@@ -106,26 +160,8 @@ export function createWhoHere({ doc = document, people: listPeople = () => [], e
     const id = `${spot}|${person.key}`;
     const kept = portraits.get(id);
     if (kept && kept.src === src) return kept.node;
-    const entry = { src, node: null };
-    const circle = doc.createElement('span');
-    circle.className = `sdk-avatar sdk-avatar-${size}`;
-    circle.setAttribute('aria-hidden', 'true');
-    const img = doc.createElement('img');
-    img.alt = '';
-    img.onerror = () => {
-      if (img.dataset.fallback) {
-        const letter = doc.createElement('span');
-        letter.className = 'sdk-avatar-ini';
-        letter.textContent = String(person.name || '?').trim().charAt(0).toUpperCase() || '?';
-        img.replaceWith(letter);
-        return;
-      }
-      img.dataset.fallback = '1';
-      img.src = profileUrl(person.key);
-    };
-    img.src = src;
-    circle.append(img);
-    entry.node = circle;
+    const entry = { src, node: makePortrait(doc, person, size, { portraitUrl, profileUrl }) };
+    const circle = entry.node;
     portraits.set(id, entry);
     return circle;
   }
@@ -191,6 +227,13 @@ export function createWhoHere({ doc = document, people: listPeople = () => [], e
         you.className = 'who-here-you';
         you.textContent = '(you)';
         li.appendChild(you);
+      }
+      const tab = tabOf(p);
+      if (tab) {
+        const at = doc.createElement('span');
+        at.className = 'who-here-tab';
+        at.textContent = tab;
+        li.appendChild(at);
       }
       if (p.onCall) {
         const on = doc.createElement('span');

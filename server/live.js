@@ -5,9 +5,11 @@
 // /api/status) keep one register per environment and tell the open streams when something changed.
 //
 // Five things are held:
-//   - streams: one entry per open live stream, { id, who, name, guest, space, onCall, openedAt }. `who` is a person's
-//     key or a guest's id; `space` is a space's or an aside's id, or null for a page in no space (Home).
-//   - left: a person whose last stream for a space closed, { who, name, guest, space, openedAt, until }. They still read
+//   - streams: one entry per open live stream, { id, who, name, guest, space, onCall, layout, openedAt }. `who` is a
+//     person's key or a guest's id; `space` is a space's or an aside's id, or null for a page in no space (Home).
+//     `layout` is the tab (workspace) that page shows, as it said with PUT /api/spaces/:id/where (plan-workspaces.md,
+//     decision 47), or null until it says; the route checks the id, the register keeps what it is given.
+//   - left: a person whose last stream for a space closed, { who, name, guest, space, layout, openedAt, until }. They still read
 //     as in that space until `until` (the grace), so a reload or a short drop does not read as leaving. Never on the call.
 //   - away: per person and space, { away, awayMessage }, kept while they are there (a stream or the grace).
 //   - beats: the page heartbeat (POST /api/presence), per person: on the site for siteMs after the last.
@@ -49,7 +51,7 @@ class LiveRegister {
     const at = this.now();
     this.order += 1;
     if (space) this.left.delete(pairKey(who, space));
-    this.streams.set(id, { id, who, name, guest: Boolean(guest), space: space || null, onCall: false, openedAt: at, seq: this.order });
+    this.streams.set(id, { id, who, name, guest: Boolean(guest), space: space || null, onCall: false, layout: null, layoutSeq: 0, openedAt: at, seq: this.order });
     return id;
   }
 
@@ -63,7 +65,7 @@ class LiveRegister {
     if (this.openFor(entry.who, entry.space).length) return { who: entry.who, space: entry.space, until: 0 };
     const until = this.now() + this.graceMs;
     this.order += 1; // among graces, the one left last is where they were
-    this.left.set(pairKey(entry.who, entry.space), { who: entry.who, name: entry.name, guest: entry.guest, space: entry.space, openedAt: entry.openedAt, seq: this.order, until });
+    this.left.set(pairKey(entry.who, entry.space), { who: entry.who, name: entry.name, guest: entry.guest, space: entry.space, layout: entry.layout, openedAt: entry.openedAt, seq: this.order, until });
     return { who: entry.who, space: entry.space, until };
   }
 
@@ -115,6 +117,31 @@ class LiveRegister {
     return changed;
   }
 
+  // The tab `who` shows in `space` (PUT /api/spaces/:id/where): on the stream `streamId` when one is named (theirs, in
+  // that space), else on every stream of theirs there. A string, or null for none. Answers whether what the others read
+  // changed (layoutOf), or null when they have no such stream there.
+  setLayout(who, space, layout, streamId = null) {
+    let targets = this.openFor(who, space);
+    if (streamId) targets = targets.filter((e) => e.id === streamId);
+    if (!targets.length) return null;
+    const was = this.layoutOf(who, space);
+    this.order += 1;
+    for (const e of targets) {
+      e.layout = typeof layout === 'string' && layout ? layout : null;
+      e.layoutSeq = this.order;
+    }
+    return this.layoutOf(who, space) !== was;
+  }
+
+  // The tab `who` shows in `space`: the one their stream there said last (one person may have the space open twice),
+  // the one they had when their last stream closed while its grace runs, else null.
+  layoutOf(who, space) {
+    const open = this.openFor(who, space).filter((e) => e.layout);
+    if (open.length) return open.reduce((best, e) => (e.layoutSeq > best.layoutSeq ? e : best)).layout;
+    if (this.openFor(who, space).length) return null;
+    return this.left.get(pairKey(who, space))?.layout || null;
+  }
+
   // Take `who` out of `space` now, with no grace (a kick): their away there goes too. Their streams there are ended by
   // the caller; this is for the grace that closing them leaves.
   leave(who, space) {
@@ -160,7 +187,7 @@ class LiveRegister {
     return this.beats.has(who);
   }
 
-  // Where `who` is: { space, onCall, away, awayMessage, since, name, guest }, or null when in no space.
+  // Where `who` is: { space, onCall, away, awayMessage, layout, since, name, guest }, or null when in no space.
   placeOf(who) {
     this.sweep();
     const latest = (list) => list.reduce((best, e) => (!best || e.seq > best.seq ? e : best), null);
@@ -169,7 +196,7 @@ class LiveRegister {
     if (!from) return null;
     const onCall = this.openFor(who, from.space).some((e) => e.onCall);
     const away = this.away.get(pairKey(who, from.space)) || { away: false, awayMessage: '' };
-    return { space: from.space, onCall, away: away.away, awayMessage: away.awayMessage, since: from.openedAt, name: from.name, guest: from.guest };
+    return { space: from.space, onCall, away: away.away, awayMessage: away.awayMessage, layout: this.layoutOf(who, from.space), since: from.openedAt, name: from.name, guest: from.guest };
   }
 
   // Everyone in a space: who -> placeOf(who).
@@ -185,12 +212,12 @@ class LiveRegister {
   }
 
   // The people in `space`, as the live stream's presence event lists them: [{ key, name, guest, onCall, away,
-  // awayMessage }], in the order they came.
+  // awayMessage, layout }], in the order they came.
   people(space) {
     return [...this.places()]
       .filter(([, p]) => p.space === space)
       .sort((a, b) => a[1].since - b[1].since)
-      .map(([key, p]) => ({ key, name: p.name, guest: p.guest, onCall: p.onCall, away: p.away, awayMessage: p.awayMessage }));
+      .map(([key, p]) => ({ key, name: p.name, guest: p.guest, onCall: p.onCall, away: p.away, awayMessage: p.awayMessage, layout: p.layout }));
   }
 }
 

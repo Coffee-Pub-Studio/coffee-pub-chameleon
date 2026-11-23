@@ -64,7 +64,7 @@ const same = (a, b, msg) => { assert.deepEqual(a, b, msg); n += 1; };
 
   const a1 = reg.open({ who: 'al', name: 'Al', space: 'keep' });
   same(where('al'), ['keep', false, false, ''], 'a stream open: in the space');
-  same(reg.people('keep'), [{ key: 'al', name: 'Al', guest: false, onCall: false, away: false, awayMessage: '' }], 'listed there');
+  same(reg.people('keep'), [{ key: 'al', name: 'Al', guest: false, onCall: false, away: false, awayMessage: '', layout: null }], 'listed there');
   ok(reg.onSite('al'), 'a stream open is on the site');
 
   // Two tabs: onCall said on one stream goes with that stream; away is the person's in that space.
@@ -128,7 +128,7 @@ const same = (a, b, msg) => { assert.deepEqual(a, b, msg); n += 1; };
 
   // Guests are listed with their name and guest: true.
   const g = reg.open({ who: 'guest-1', name: 'Vic', guest: true, space: 'keep' });
-  same(reg.people('keep').find((p) => p.key === 'guest-1'), { key: 'guest-1', name: 'Vic', guest: true, onCall: false, away: false, awayMessage: '' }, 'a guest');
+  same(reg.people('keep').find((p) => p.key === 'guest-1'), { key: 'guest-1', name: 'Vic', guest: true, onCall: false, away: false, awayMessage: '', layout: null }, 'a guest');
   reg.close(g);
 
   // A nudge for a stream that is reconnecting (step 4): kept for 30 seconds while they are in the grace, handed once to

@@ -1231,6 +1231,54 @@ export function showNote(text, body = '', kind = 'info') {
   pushToast({ kind: NOTE_KINDS[k].kind, icon: NOTE_KINDS[k].icon, title: t, ...(more ? { text: more } : {}), ms: NOTE_KINDS[k].ms });
 }
 
+// A toast with buttons that the page keeps a hold of (Bring everyone here's warning: Stay here; the mover's Cancel; Go
+// back): `actions` is [{ id, label, primary? }], drawn as the invite's are; `onAction(id)` on a press, and the toast goes
+// unless it answers false. It goes after `ms`, or at `until` (a time in ms) whatever the pointer does; `onClose()` once
+// when it goes, however. Answers { set(title, text), close() }: `set` changes its words (a countdown), `close` takes it
+// away. Called while three already show, it waits its turn as any toast does.
+export function actionToast({ kind = 'info', icon = 'circle-info', title = '', text = '', actions = [], ms = 9000, until, onAction = () => {}, onClose = () => {} } = {}) {
+  let toast = null;
+  let gone = false;
+  let words = { title: String(title), text: String(text || '') };
+  const paint = () => {
+    if (!toast) return;
+    const titleEl = toast.el.querySelector('.sdk-toast-title');
+    if (titleEl) titleEl.textContent = words.title;
+    let textEl = toast.el.querySelector('.sdk-toast-text');
+    if (words.text && !textEl) {
+      textEl = document.createElement('span');
+      textEl.className = 'sdk-toast-text';
+      toast.el.querySelector('.sdk-toast-body')?.appendChild(textEl);
+    }
+    if (textEl) { textEl.textContent = words.text; textEl.hidden = !words.text; }
+  };
+  const finish = () => { if (gone) return; gone = true; onClose(); };
+  pushToast({
+    kind,
+    icon,
+    title: words.title,
+    text: words.text,
+    ...(Number.isFinite(until) ? { until } : { ms }),
+    actions: actions.map((a) => `<button type="button" class="btn btn-small${a.primary ? ' btn-primary' : ''}" data-toast-action="${escapeHtml(a.id)}">${escapeHtml(a.label)}</button>`).join(''),
+    onPlaced: (t) => {
+      toast = t;
+      if (gone) { closeToast(t); return; }
+      paint();
+      // It goes by its own clock too (closeToast), so watch for its leaving to say so once.
+      new MutationObserver((_, obs) => { if (t.gone) { obs.disconnect(); finish(); } }).observe(t.el, { attributes: true, attributeFilter: ['data-state'] });
+    },
+    onClick: (e) => {
+      const b = e.target.closest('[data-toast-action]');
+      if (!b) return false;
+      return onAction(b.dataset.toastAction) !== false;
+    },
+  });
+  return {
+    set(nextTitle, nextText = '') { words = { title: String(nextTitle), text: String(nextText || '') }; paint(); },
+    close() { if (toast) closeToast(toast); finish(); },
+  };
+}
+
 // A note for work that is running ("Preparing to print..."): it stays until the returned function is called (a minute at most), then
 // goes. Called before the note is on the screen (three already showing), it goes as soon as it shows.
 export function progressNote(text) {
