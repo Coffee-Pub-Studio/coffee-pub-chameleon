@@ -798,8 +798,39 @@
     else if (!target) who = `Everyone in the ${word('space')} you pick`;
     else if (target.scope === 'spaces') who = `Everyone in ${placeName('spaces', target.spaceId)}`;
     else who = `Everyone in this ${word('environment')}`;
-    $('f-remind-hint').textContent = $('f-remind').value === '' ? '' : who + ' gets a notification, if they are allowed to see the calendar.';
+    const when = remindWhen();
+    $('f-remind-hint').textContent = $('f-remind').value === '' ? '' : `${when ? when + ' ' : ''}${who} gets a notification, if they are allowed to see the calendar.`;
     $('f-remind-other').hidden = $('f-remind').value !== 'other';
+  }
+  // When the reminder comes, as the form holds it now, so "37 hours before" says before what: "Reminds Tue, Nov 24 at 11:00 AM."
+  // (the first time, for a repeat; an all-day event counts from 9:00, calendar-lib.js remindAnchor), on this browser's clock as
+  // the page sets it. '' with no reminder, or while the date, the time or Other's number is not one yet.
+  function remindWhen() {
+    const choice = $('f-remind').value;
+    if (choice === '') return '';
+    let lead = Number(choice);
+    if (choice === 'other') {
+      const other = remindFromForm($('f-remind-n').value, Number($('f-remind-unit').value));
+      if (other.error) return '';
+      lead = other.minutes;
+    }
+    const date = $('f-date').value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return '';
+    const copy = editing && editing.copy ? editing.base : null;
+    const allDay = copy ? Boolean(copy.allDay) : $('f-allday').checked;
+    let start = date;
+    if (!allDay) {
+      const span = copy ? { start: instantFrom(date, $('f-time').value || '19:00', editing.tz).toISOString() } : eventSpan({ date, time: $('f-time').value, allDay: false });
+      if (span.error) return '';
+      start = span.start;
+    }
+    const at = new Date(remindAnchor(allDay, start).getTime() - lead * 60 * 1000);
+    if (Number.isNaN(at.getTime())) return '';
+    return `Reminds ${at.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${timeText(at)}.`;
+  }
+  // The line follows the day, the time, All day and Other's number as they change.
+  for (const id of ['f-date', 'f-time', 'f-allday', 'f-remind-n', 'f-remind-unit']) {
+    for (const type of ['input', 'change']) $(id).addEventListener(type, () => { if ($('f-remind').value !== '') remindHint(); });
   }
   $('f-remind').addEventListener('change', () => {
     remindHint();
@@ -1074,7 +1105,7 @@
     try {
       if (ev.remind === null || ev.remind === undefined) return await stop();
       const lead = ev.remind * 60 * 1000;
-      const nineAm = ev.allDay ? 9 * 60 * 60 * 1000 : 0; // an all-day event reminds relative to 9:00
+      const nineAm = ev.allDay ? REMIND_ALLDAY_FROM : 0; // an all-day event reminds relative to 9:00 (calendar-lib.js remindAnchor)
       const now = Date.now();
       // The first occurrence whose reminder is not already in the past.
       const next = occurrences(ev, new Date(now + lead - 4 * 60 * 1000 - nineAm), new Date(now + 400 * DAY))[0];

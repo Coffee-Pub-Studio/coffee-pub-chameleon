@@ -1,7 +1,7 @@
 {
   "id": "calendar",
   "name": "Calendar",
-  "version": "1.24.50",
+  "version": "1.24.51",
   "icon": "calendar-days",
   "color": "red",
   "description": "Sessions and events for the whole {environment} and for each {space}, with reminders.",
@@ -121,7 +121,8 @@
           "endDate": "Last day of a multi-day event, as YYYY-MM-DD.",
           "allDay": "True for an all-day event; do not send it with a time.",
           "repeat": "One of: day, week, 2weeks, month, year.",
-          "remind": "Minutes before the start to remind people: a whole number from 0 (when it starts) to 40320 (28 days), for example 15, 60 or 1440.",
+          "remind": "Minutes before the start to remind people, from 0 (when it starts) to 40320 (28 days), for example 15, 60 or 1440. An all-day event counts from 9:00 on its day.",
+          "remindAt": "Instead of remind: when to remind people, as a date and time such as 2026-11-24 11:00, or a time on the event's day such as 9am. Times are the event's own clock time.",
           "notes": "The event's details. Line breaks are allowed."
         },
         "effect": "write",
@@ -136,6 +137,7 @@
           "allDay": "boolean?",
           "repeat": "string?",
           "remind": "number?",
+          "remindAt": "string?",
           "notes": "text?"
         },
         "needs": ["date"],
@@ -156,7 +158,8 @@
           "endDate": "Last day of a multi-day event, as YYYY-MM-DD. \"\" clears it.",
           "allDay": "True makes it all day and drops its times; false needs a start time.",
           "repeat": "One of: day, week, 2weeks, month, year. \"\" makes it not repeat.",
-          "remind": "Minutes before the start to remind people: a whole number from 0 (when it starts) to 40320 (28 days). \"\" takes the reminder off.",
+          "remind": "Minutes before the start, from 0 (when it starts) to 40320 (28 days); an all-day event counts from 9:00. A new date keeps the minutes. \"\" takes the reminder off.",
+          "remindAt": "Instead of remind: a date and time such as 2026-11-24 11:00, or a time on the event's day such as 9am. Times are the event's own clock time. Moving the event keeps it as long before.",
           "notes": "The event's details, which replace the old ones. Line breaks are allowed. \"\" clears them."
         },
         "effect": "write",
@@ -171,6 +174,7 @@
           "allDay": "boolean?",
           "repeat": "string?",
           "remind": "number?",
+          "remindAt": "string?",
           "notes": "text?"
         }
       },

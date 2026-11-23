@@ -16,6 +16,7 @@
       "allDay": "boolean?",
       "repeat": "string?",
       "remind": "number?",
+      "remindAt": "string?",
       "notes": "text?"
     },
     "schema": {
@@ -86,6 +87,14 @@
             "null"
           ]
         },
+        "remindAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 200
+        },
         "notes": {
           "type": [
             "string",
@@ -105,6 +114,7 @@
         "allDay",
         "repeat",
         "remind",
+        "remindAt",
         "notes"
       ],
       "additionalProperties": false

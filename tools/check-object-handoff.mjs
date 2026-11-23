@@ -212,7 +212,7 @@ await test('the bundled Research, To-do, Calendar and Polls declare what they ta
   assert.deepEqual(providesOf(todo, 'createTask').input, { title: 'string', notes: 'text?', ref: 'ref?', due: 'date?', remind: 'boolean?', object: 'object?' });
   const calendar = await bundled('calendar');
   assert.deepEqual(providesOf(calendar, 'createEvent').takes, [{ kinds: ['event', '*', 'text'], except: TRAVEL_KINDS.slice(), as: 'an event' }], 'events by name, and any other object or words, never a travel kind');
-  assert.deepEqual(providesOf(calendar, 'createEvent').input, { title: 'string', date: 'date?', ref: 'ref?', object: 'object?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?', notes: 'text?' });
+  assert.deepEqual(providesOf(calendar, 'createEvent').input, { title: 'string', date: 'date?', ref: 'ref?', object: 'object?', time: 'string?', endTime: 'string?', endDate: 'date?', allDay: 'boolean?', repeat: 'string?', remind: 'number?', remindAt: 'string?', notes: 'text?' });
   assert.deepEqual(providesOf(calendar, 'createEvent').needs, ['date'], 'it needs a day: a module filling it in fills the date');
   const polls = await bundled('polls');
   assert.deepEqual(providesOf(polls, 'draftPoll'), { name: 'draftPoll', label: 'Draft a poll from it', input: { object: 'object' }, local: true, takes: [{ kinds: ['poll', 'text'], as: 'a poll', permission: 'create' }] });
