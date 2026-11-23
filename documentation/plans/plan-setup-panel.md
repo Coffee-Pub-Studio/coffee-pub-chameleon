@@ -36,6 +36,8 @@ Links into them: the Home card's `[data-edit]` ("Full settings", `space.js`), it
 | `opens-with` | Opens with | Opens with and the default layout | yes | yes |
 | `modules` | the module word, plural | modules on here, Turn AI off, then a section per module with its settings for this space | all of it | the module settings only |
 
+**Changed 2026-11-23:** the tab list above is replaced by six tabs (Details, Members, Phases, Call, Layout, Modules); see decision 38 in [plan-workspaces.md](plan-workspaces.md).
+
 A member sees no Set up. The Lobby shows no Delete and no member switches, as the page does today. A tab with nothing to show (no phases in the template, no module settings for a moderator) is left out.
 
 **Saving.** Every field is a draft until **Save**. Members and Allow guests stop saving on click. Save sends, in order, and stops at the first refusal: `PATCH /api/spaces/:id` with the changed space fields (one body; a moderator's holds only their three fields), the picture (`PUT` or `DELETE /api/spaces/:id/image`), each changed module switch (`PATCH /api/modules/:id` `{ spaces }`), each changed module's settings (`PUT /api/modules/:id/settings/space`). A refusal keeps the panel open on that tab with the server's sentence and the cursor on the field, and says what did save (as `setupSaidWords` does). After a full save the panel closes and the line under the bar says what was saved. A tab with unsaved changes shows a dot (with "unsaved changes" for a screen reader). **Cancel** drops every draft. **Escape** cancels at once when nothing changed, and asks "Discard your changes?" (Keep editing, Discard) when something did, the same question `host.ui.editor` asks. Clicking outside does nothing.
