@@ -47,17 +47,20 @@
  *      its form sets the input. The popover's background in a frame is not asserted (a separate fix in public/module-host.js).
  *      Every answer seen is { color: #rrggbb, opacity: a whole number from 0 to 100 }. CHROME_PATH names the browser.
  *   3. Chromium, the person's grid (step 7), at 1280 light once the rest has run, through the real route on this check's own server:
- *      the grid has no heading and is the 24 starting colours before any edit; in the sandboxed frame "+" adds the colour showing at 60
- *      percent (named "#hex, 60 percent", drawn over the checked ground), a second "+" adds nothing and says so, a right-click on a
- *      swatch opens the Remove menu and Remove takes it out, Delete on a focused swatch takes another, none of these answers or closes
- *      the picker, and each is on the server (GET /api/me/color-grid); after a reload the frame shows the same grid; in the module running
- *      in the page the same grid shows, and a drag of the colour showing onto the grid adds it (Input.setInterceptDrags, a real drag);
- *      a module's own palette there has no "+", no drag and no Remove; the page's own picker (hostColour) shows the same grid; a save the
- *      page refuses puts the grid back and shows the sentence under it; at 48 there is no "+".
+ *      the grid has no heading and is the 24 starting colours before any edit; in the module running in the page "+" adds the colour
+ *      showing at 60 percent (named "#hex, 60 percent", drawn over the checked ground), a second "+" adds nothing and says so, a
+ *      right-click on a swatch opens the Remove menu and Remove takes it out, Delete on a focused swatch takes another, none of these
+ *      answers or closes the picker, and each is on the server (GET /api/me/color-grid); after a reload the same grid shows, and a drag
+ *      of the colour showing onto the grid adds it (Input.setInterceptDrags, a real drag); a module's own palette there has no "+", no
+ *      drag and no Remove; an uploaded module in its sandboxed frame (decision 28) shows the same grid read-only (no "+", no drag, no
+ *      Remove, Delete and a drop change nothing), and the module's own code sending ui.colorGrid and ui.colorRecent itself is answered
+ *      editable: false while ui.colorGrid.set and ui.colorRecent.set are refused, the server's lists unchanged; the page's own picker
+ *      (hostColour) shows the same grid; a save the page refuses puts the grid back and shows the sentence under it; at 48 there is no "+".
  *   4. Chromium, Recent (decision 27), after the grid, through the real route (GET/PUT /api/me/color-recent): not shown while empty; two
- *      choices in the sandboxed frame are on the server newest first with their opacity; a Recent colour chosen again moves to the front
- *      once; a reload keeps it; with 8 kept a new choice keeps the newest 8; the module in the page and the page's own picker
- *      (hostColour) show the same list; a guest (403) and no session (401) see no Recent and send none. In the module running in the
+ *      choices in the module in the page are on the server newest first with their opacity; a Recent colour chosen again moves to the
+ *      front once; a reload keeps it; with 8 kept a new choice keeps the newest 8; the sandboxed frame shows the same list read-only (no
+ *      "+", no Remove) and a choice there answers normally, shows no error and leaves Recent unchanged; the page's own picker
+ *      (hostColour) shows the same list; a guest (403) and no session (401) see no Recent and send none. In the module running in the
  *      page (case 2) the page's side is a stand-in that keeps the list in the page: each list sent is whole, newest first, at most 8,
  *      no pair twice, and a list that is not clean is not drawn. The Node part checks colourRecentClean and colourRecentAdd.
  * Usage: node tools/check-colour-picker.mjs. Exits 0 when every check passes, 1 with a line per failure.
@@ -1603,81 +1606,90 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     const until = async (get, test, tries = 60) => { let v; for (let i = 0; i < tries; i += 1) { v = await get().catch(() => undefined); if (test(v)) return v; await sleep(100); } return v; };
     const LABELS = `[...document.querySelectorAll('.sdk-cp [aria-label="Colours"] .sdk-swatch')].map((b) => b.getAttribute('aria-label'))`;
     const at = (sel) => `(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`;
+    // The module running in the page (cppage), shaped like openFrame's answer: its expressions run in the page with `document` standing
+    // for the module's shadow root (then the page's own document, for anything drawn outside it), so the same expressions serve both.
+    const openPage = async () => {
+      await send('Page.navigate', { url: `${server.base}/modules/cppage` });
+      ok(await until(() => tab.eval('window.__ready === true'), (v) => v === true, 150), `${label}: the in-page test module did not start`);
+      const btn = await until(() => tab.eval(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getClientRects().length && ((x.getAttribute('aria-label') || '').trim() === 'Colour' || x.textContent.trim() === 'Colour')); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`), (v) => Boolean(v));
+      if (!btn) throw new Error('the in-page module\'s toolbar button "Colour" is not on the page');
+      await tab.eval('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(1))))');
+      const fev = (expr) => tab.eval(`(() => {
+        const D = window.document;
+        const R = [...D.querySelectorAll('*')].find((e) => e.shadowRoot && e.shadowRoot.getElementById('fld')).shadowRoot;
+        const document = { querySelector: (q) => R.querySelector(q) || D.querySelector(q), querySelectorAll: (q) => [...R.querySelectorAll(q), ...D.querySelectorAll(q)], getElementById: (i) => R.getElementById(i), get activeElement() { return R.activeElement || D.activeElement; } };
+        return (${expr});
+      })()`);
+      return { fev, box: { l: 0, t: 0 }, btn };
+    };
 
-    // --- in the sandboxed frame: the 24, "+", a duplicate, the Remove menu, Delete ---
-    let F = await openFrame();
-    await openIn(F);
-    const editableNow = await until(() => F.fev(`Boolean(document.querySelector('.sdk-cp .sdk-cp-add'))`), (v) => v === true);
-    ok(editableNow, `${label}: in the frame the grid shows no "+" (the page did not answer it as editable)`);
-    same(await F.fev(`[document.querySelectorAll('.sdk-cp [aria-label="Colours"] .sdk-cp-head').length, ${LABELS}, document.querySelector('.sdk-cp-add').getAttribute('aria-label'), document.querySelector('.sdk-cp-current').draggable]`), [0, NAMES_ALL, 'Add this colour', true],
-      `${label}: in the frame, before any edit, the grid is the 24 starting colours with no heading, then "+" ("Add this colour"), and the colour showing can be dragged`);
-    await F.fev(`(document.querySelector('.sdk-cp-alpha').focus(), 1)`);
+    // --- in the module running in the page: the 24, "+", a duplicate, the Remove menu, Delete ---
+    let P = await openPage();
+    await openIn(P);
+    const editableNow = await until(() => P.fev(`Boolean(document.querySelector('.sdk-cp .sdk-cp-add'))`), (v) => v === true);
+    ok(editableNow, `${label}: in the module in the page the grid shows no "+" (the page did not answer it as editable)`);
+    same(await P.fev(`[document.querySelectorAll('.sdk-cp [aria-label="Colours"] .sdk-cp-head').length, ${LABELS}, document.querySelector('.sdk-cp-add').getAttribute('aria-label'), document.querySelector('.sdk-cp-current').draggable]`), [0, NAMES_ALL, 'Add this colour', true],
+      `${label}: in the module in the page, before any edit, the grid is the 24 starting colours with no heading, then "+" ("Add this colour"), and the colour showing can be dragged`);
+    await P.fev(`(document.querySelector('.sdk-cp-alpha').focus(), 1)`);
     await key(send, 'Home');
     for (let i = 0; i < 6; i += 1) await key(send, 'PageUp');
-    same(await F.fev(`document.querySelector('.sdk-cp-alpha').getAttribute('aria-valuenow')`), '60', `${label}: the opacity is set to 60 by its keys`);
-    const answersBefore = await F.fev('window.__answers.length');
-    let plus = await F.fev(at('.sdk-cp-add'));
-    await mouse(F.box.l + plus.x, F.box.t + plus.y);
+    same(await P.fev(`document.querySelector('.sdk-cp-alpha').getAttribute('aria-valuenow')`), '60', `${label}: the opacity is set to 60 by its keys`);
+    const answersBefore = await P.fev('window.__answers.length');
+    let plus = await P.fev(at('.sdk-cp-add'));
+    await mouse(P.box.l + plus.x, P.box.t + plus.y);
     const want1 = [...NAMES_ALL.slice(0, 7), '#d62828, 60 percent', ...NAMES_ALL.slice(7)];
-    same(await until(() => F.fev(LABELS), (v) => v && v.length === 25), want1, `${label}: "+" adds the colour showing at 60 percent, in its place by the grid's order (after Red)`);
-    same(await F.fev(`[Boolean(document.querySelector('.sdk-cp')), window.__answers.length, document.querySelector('.sdk-cp-live').textContent, document.activeElement && document.activeElement.getAttribute('aria-label')]`), [true, answersBefore, 'Added #d62828, 60 percent', 'Add this colour'],
+    same(await until(() => P.fev(LABELS), (v) => v && v.length === 25), want1, `${label}: "+" adds the colour showing at 60 percent, in its place by the grid's order (after Red)`);
+    same(await P.fev(`[Boolean(document.querySelector('.sdk-cp')), window.__answers.length, document.querySelector('.sdk-cp-live').textContent, document.activeElement && document.activeElement.getAttribute('aria-label')]`), [true, answersBefore, 'Added #d62828, 60 percent', 'Add this colour'],
       `${label}: "+" keeps the picker open, picks nothing, says what it added, and keeps the focus on "+"`);
-    const see = await F.fev(`(() => { const b = document.querySelector('.sdk-cp .sdk-swatch[aria-label="#d62828, 60 percent"]'); return [b.classList.contains('sdk-cp-see'), /conic-gradient/.test(getComputedStyle(b, '::before').backgroundImage)]; })()`);
+    const see = await P.fev(`(() => { const b = document.querySelector('.sdk-cp .sdk-swatch[aria-label="#d62828, 60 percent"]'); return [b.classList.contains('sdk-cp-see'), /conic-gradient/.test(getComputedStyle(b, '::before').backgroundImage)]; })()`);
     same(see, [true, true], `${label}: a colour below opacity 100 is drawn over the checked ground`);
     same(named(await until(stored, (v) => Array.isArray(v) && v.length === 25)).sort(), [...want1].sort(), `${label}: the add is on the server, the starting colours with it`);
-    plus = await F.fev(at('.sdk-cp-add')); // "+" moved along by one
-    await mouse(F.box.l + plus.x, F.box.t + plus.y);
+    plus = await P.fev(at('.sdk-cp-add')); // "+" moved along by one
+    await mouse(P.box.l + plus.x, P.box.t + plus.y);
     await sleep(200);
-    same(await F.fev(`[${LABELS}.length, document.querySelector('.sdk-cp-live').textContent, document.activeElement && document.activeElement.getAttribute('aria-label')]`), [25, 'Already in your colours', '#d62828, 60 percent'],
+    same(await P.fev(`[${LABELS}.length, document.querySelector('.sdk-cp-live').textContent, document.activeElement && document.activeElement.getAttribute('aria-label')]`), [25, 'Already in your colours', '#d62828, 60 percent'],
       `${label}: "+" again does not add the same colour and opacity twice, says so, and puts the focus on it`);
     same((await stored()).length, 25, `${label}: the duplicate is not on the server`);
     // A right-click on Teal: the Remove menu; Remove takes it out.
-    const teal = await F.fev(at('.sdk-cp .sdk-swatch[aria-label="Teal"]'));
-    await mouse(F.box.l + teal.x, F.box.t + teal.y, 'right');
-    const menu = await until(() => F.fev(`[...document.querySelectorAll('.sdk-menu .sdk-menu-item')].map((b) => b.textContent.trim())`), (v) => Array.isArray(v) && v.length > 0);
+    const teal = await P.fev(at('.sdk-cp .sdk-swatch[aria-label="Teal"]'));
+    await mouse(P.box.l + teal.x, P.box.t + teal.y, 'right');
+    const menu = await until(() => P.fev(`[...document.querySelectorAll('.sdk-menu .sdk-menu-item')].map((b) => b.textContent.trim())`), (v) => Array.isArray(v) && v.length > 0);
     same(menu, ['Remove'], `${label}: a right-click on a swatch opens a menu with one row, Remove`);
-    ok(await F.fev(`Boolean(document.querySelector('.sdk-cp'))`), `${label}: the Remove menu closed the picker`);
-    const rm = await F.fev(at('.sdk-menu .sdk-menu-item'));
-    await mouse(F.box.l + rm.x, F.box.t + rm.y);
+    ok(await P.fev(`Boolean(document.querySelector('.sdk-cp'))`), `${label}: the Remove menu closed the picker`);
+    const rm = await P.fev(at('.sdk-menu .sdk-menu-item'));
+    await mouse(P.box.l + rm.x, P.box.t + rm.y);
     const want2 = want1.filter((x) => x !== 'Teal');
-    same(await until(() => F.fev(LABELS), (v) => v && v.length === 24), want2, `${label}: Remove takes Teal out`);
+    same(await until(() => P.fev(LABELS), (v) => v && v.length === 24), want2, `${label}: Remove takes Teal out`);
     await sleep(100);
-    same(await F.fev(`[Boolean(document.querySelector('.sdk-cp')), Boolean(document.querySelector('.sdk-menu')), window.__answers.length, document.querySelector('.sdk-cp-live').textContent]`), [true, false, answersBefore, 'Removed Teal'],
+    same(await P.fev(`[Boolean(document.querySelector('.sdk-cp')), Boolean(document.querySelector('.sdk-menu')), window.__answers.length, document.querySelector('.sdk-cp-live').textContent]`), [true, false, answersBefore, 'Removed Teal'],
       `${label}: after Remove the menu is gone, the picker is open, nothing was picked, and it says what it removed`);
     same(named(await until(stored, (v) => Array.isArray(v) && v.length === 24)).sort(), [...want2].sort(), `${label}: the remove is on the server`);
     // Shift+F10 on a focused swatch: the Remove menu; Escape closes the menu only, back to the swatch.
-    await F.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Grey"]').focus(), 1)`);
+    await P.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Grey"]').focus(), 1)`);
     await key(send, 'F10', { shift: true });
-    const menu2 = await until(() => F.fev(`Boolean(document.querySelector('.sdk-menu'))`), (v) => v === true, 20);
+    const menu2 = await until(() => P.fev(`Boolean(document.querySelector('.sdk-menu'))`), (v) => v === true, 20);
     ok(menu2, `${label}: Shift+F10 on a swatch opened no Remove menu`);
     await key(send, 'Escape');
     await sleep(150);
-    same(await F.fev(`[Boolean(document.querySelector('.sdk-menu')), Boolean(document.querySelector('.sdk-cp')), document.activeElement && document.activeElement.getAttribute('aria-label'), ${LABELS}.length]`), [false, true, 'Grey', 24],
+    same(await P.fev(`[Boolean(document.querySelector('.sdk-menu')), Boolean(document.querySelector('.sdk-cp')), document.activeElement && document.activeElement.getAttribute('aria-label'), ${LABELS}.length]`), [false, true, 'Grey', 24],
       `${label}: Escape in the Remove menu closes the menu only, the focus back on the swatch, nothing removed`);
     // Delete on a focused swatch removes it; the focus goes to the next one.
-    await F.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Pink"]').focus(), 1)`);
+    await P.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Pink"]').focus(), 1)`);
     await key(send, 'Delete');
     const want3 = want2.filter((x) => x !== 'Pink');
-    same(await until(() => F.fev(LABELS), (v) => v && v.length === 23), want3, `${label}: Delete takes Pink out`);
-    same(await F.fev(`[document.activeElement && document.activeElement.getAttribute('aria-label'), document.querySelector('.sdk-cp-live').textContent, window.__answers.length]`), ['Magenta', 'Removed Pink', answersBefore], `${label}: after Delete the focus is on the next swatch, it says what it removed, and nothing was picked`);
+    same(await until(() => P.fev(LABELS), (v) => v && v.length === 23), want3, `${label}: Delete takes Pink out`);
+    same(await P.fev(`[document.activeElement && document.activeElement.getAttribute('aria-label'), document.querySelector('.sdk-cp-live').textContent, window.__answers.length]`), ['Magenta', 'Removed Pink', answersBefore], `${label}: after Delete the focus is on the next swatch, it says what it removed, and nothing was picked`);
     // Backspace too.
-    await F.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Grey"]').focus(), 1)`);
+    await P.fev(`(document.querySelector('.sdk-cp .sdk-swatch[aria-label="Grey"]').focus(), 1)`);
     await key(send, 'Backspace');
     const want4 = want3.filter((x) => x !== 'Grey');
-    same(await until(() => F.fev(LABELS), (v) => v && v.length === 22), want4, `${label}: Backspace takes Grey out`);
+    same(await until(() => P.fev(LABELS), (v) => v && v.length === 22), want4, `${label}: Backspace takes Grey out`);
     same(named(await until(stored, (v) => Array.isArray(v) && v.length === 22)).sort(), [...want4].sort(), `${label}: Delete and Backspace are on the server`);
     await key(send, 'Escape');
-    same(await until(() => F.fev('window.__answers.at(-1)'), (v) => v === null), null, `${label}: Escape after the edits answers null (the edits stay)`);
+    same(await until(() => P.fev('window.__answers.at(-1)'), (v) => v === null), null, `${label}: Escape after the edits answers null (the edits stay)`);
     answers.push(null);
 
-    // --- a reload keeps it ---
-    F = await openFrame();
-    await openIn(F);
-    same(await until(() => F.fev(LABELS), (v) => v && v.length === 22), want4, `${label}: after a reload the frame shows the grid as kept`);
-    await key(send, 'Escape');
-    answers.push(null);
-
-    // --- a module in the page: the same grid, and a drag of the colour showing onto it ---
+    // --- a reload keeps it, and a drag of the colour showing onto the grid adds to it ---
     await send('Page.navigate', { url: `${server.base}/modules/cppage` });
     const ready = await until(() => tab.eval('window.__ready === true'), (v) => v === true, 150);
     ok(ready, `${label}: the in-page test module did not start`);
@@ -1686,7 +1698,7 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     const dat = (sel) => `(() => { const e = ${DEEP(sel)}[0]; if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`;
     const pbtn = await until(() => tab.eval(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getClientRects().length && ((x.getAttribute('aria-label') || '').trim() === 'Colour' || x.textContent.trim() === 'Colour')); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`), (v) => Boolean(v));
     await mouse(pbtn.x, pbtn.y);
-    same(await until(() => tab.eval(DLABELS), (v) => v && v.length === 22), want4, `${label}: a module in the page shows the same grid`);
+    same(await until(() => tab.eval(DLABELS), (v) => v && v.length === 22), want4, `${label}: after a reload the module in the page shows the grid as kept`);
     await until(() => tab.eval(`${DEEP('.sdk-cp-add')}.length`), (v) => v === 1);
     await tab.eval(`(() => { const i = ${DEEP('.sdk-cp-hexin')}[0]; i.focus(); i.select(); return 1; })()`);
     await send('Input.insertText', { text: '#123456' });
@@ -1732,6 +1744,55 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     await key(send, 'Escape');
     answers.push(await tab.eval('window.__mp'));
 
+    // --- an uploaded module in its sandboxed frame (decision 28): the same grid, read-only ---
+    const gridKept = await stored();
+    const recentKept = async () => (await (await fetch(`${server.base}/api/me/color-recent`, { headers: { cookie: jar } })).json()).colors;
+    const recentBefore = await recentKept();
+    const F = await openFrame();
+    await openIn(F);
+    same(await until(() => F.fev(LABELS), (v) => v && v.length === 23), order5, `${label}: the sandboxed frame shows the same grid`);
+    await sleep(300); // the page's answer is in
+    const ro = await F.fev(`(() => {
+      const add = Boolean(document.querySelector('.sdk-cp-add'));
+      const cur = document.querySelector('.sdk-cp-current');
+      const g = document.querySelector('.sdk-cp [aria-label="Colours"]');
+      const b = g.querySelector('.sdk-swatch');
+      b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      const menu = Boolean(document.querySelector('.sdk-menu'));
+      b.focus();
+      b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+      const dt = new DataTransfer();
+      cur.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      for (const t of ['dragenter', 'dragover', 'drop']) g.dispatchEvent(new DragEvent(t, { bubbles: true, cancelable: true, dataTransfer: dt }));
+      cur.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+      return [add, cur.draggable, menu, g.querySelectorAll('.sdk-swatch').length, Boolean(document.querySelector('.sdk-cp'))];
+    })()`);
+    same(ro, [false, false, false, 23, true], `${label}: in the sandboxed frame the grid has no "+", no drag, no Remove menu, Delete removes nothing and a drop adds nothing`);
+    await sleep(200);
+    await key(send, 'Escape');
+    answers.push(null);
+    // The module's own code sending the host calls itself, as the SDK would (the secret is in its frame's address): it reads both lists,
+    // answered not editable, and both saves are refused, with nothing sent to the server.
+    const RAW = (method, params) => `new Promise((res) => {
+      const tk = new URLSearchParams(location.search).get('tk');
+      const id = 1000000 + Math.floor(Math.random() * 1000000);
+      const on = (e) => { const m = e.data; if (!m || m.host !== 1 || m.id !== id) return; removeEventListener('message', on); res(m.error ? { error: m.error.message, status: m.error.status } : { result: m.result }); };
+      addEventListener('message', on);
+      parent.postMessage({ host: 1, tk, id, method: ${JSON.stringify(method)}, params: ${JSON.stringify(params)} }, '*');
+      setTimeout(() => res('no answer'), 4000);
+    })`;
+    const g1 = await F.fev(RAW('ui.colorGrid', {}));
+    same([g1 && g1.result && g1.result.editable, g1 && g1.result && Array.isArray(g1.result.colors) && g1.result.colors.length], [false, 23], `${label}: from a sandboxed frame ui.colorGrid reads the grid and answers editable: false`);
+    const r1 = await F.fev(RAW('ui.colorRecent', {}));
+    same(r1 && r1.result && r1.result.editable, false, `${label}: from a sandboxed frame ui.colorRecent answers editable: false`);
+    const junk = [{ color: '#010203', opacity: 100 }];
+    const gs = await F.fev(RAW('ui.colorGrid.set', { colors: junk }));
+    same(gs, { error: "You can't keep your own colours here.", status: 403 }, `${label}: a sandboxed frame's own ui.colorGrid.set is refused`);
+    const rs = await F.fev(RAW('ui.colorRecent.set', { colors: junk }));
+    same(rs, { error: "You can't keep your own colours here.", status: 403 }, `${label}: a sandboxed frame's own ui.colorRecent.set is refused`);
+    await sleep(200);
+    same([await stored(), await recentKept()], [gridKept, recentBefore], `${label}: the server's grid and Recent are unchanged by the sandboxed frame`);
+
     // --- the page's own picker (hostColour, Manage's colour fields): the same grid ---
     await send('Page.navigate', { url: `${server.base}/admin.html` });
     await until(() => tab.eval(`document.readyState === 'complete' && typeof window.hostColour === 'object' && typeof window.createHost === 'function'`), (v) => v === true, 100);
@@ -1758,9 +1819,9 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
     // --- at 48 there is no "+" ---
     const full = Array.from({ length: 48 }, (_, i) => ({ color: `#20${(i * 5).toString(16).padStart(2, '0')}40`, opacity: 100 }));
     same((await server_('PUT', { colors: full })).status, 200, `${label}: 48 colours are kept`);
-    F = await openFrame();
-    await openIn(F);
-    same(await until(() => F.fev(`[${LABELS}.length, Boolean(document.querySelector('.sdk-cp-add'))]`), (v) => v && v[0] === 48), [48, false], `${label}: at 48 there is no "+"`);
+    P = await openPage();
+    await openIn(P);
+    same(await until(() => P.fev(`[${LABELS}.length, Boolean(document.querySelector('.sdk-cp-add'))]`), (v) => v && v[0] === 48), [48, false], `${label}: at 48 there is no "+"`);
     await key(send, 'Escape');
     answers.push(null);
 
@@ -1775,10 +1836,9 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
       const e = (color, opacity = 100) => ({ color, opacity });
       const RSEL = (root) => `(() => { if (!${root}.querySelector('.sdk-cp')) return 'no picker open'; const g = ${root}.querySelector('.sdk-cp [aria-label="Recent"]'); return g && !g.hidden ? [...g.querySelectorAll('.sdk-swatch')].map((b) => b.getAttribute('aria-label')) : []; })()`;
       const RLABELS = RSEL('document');
-      const DRLABELS = `(() => { const g = ${DEEP('.sdk-cp [aria-label="Recent"]')}[0]; return g && !g.hidden ? [...g.querySelectorAll('.sdk-swatch')].map((b) => b.getAttribute('aria-label')) : []; })()`;
       const shown = (list) => list.map((c) => (c.opacity === 100 && START.find((x) => x.color === c.color)?.name) || (c.opacity < 100 ? `${c.color}, ${c.opacity} percent` : c.color));
-      // Choose a colour in the frame's picker by typing its hex (and its opacity by the slider's keys), then Enter in the hex field.
-      const chooseInFrame = async (Fr, hex, opacity = 100) => {
+      // Choose a colour in a module's picker (the module in the page, or a frame) by typing its hex (and its opacity by the slider's keys), then Enter in the hex field.
+      const chooseIn = async (Fr, hex, opacity = 100) => {
         await openIn(Fr);
         await sleep(150);
         if (opacity !== 100) {
@@ -1796,52 +1856,70 @@ host.ready().then(() => { window.__host = host; window.__ready = true; });`);
       };
 
       same((await route('PUT', { colors: [] })).status, 200, `${label}: the list is emptied through the route before these cases`);
-      F = await openFrame();
-      await openIn(F);
+      P = await openPage();
+      await openIn(P);
       await sleep(300);
-      same(await F.fev(`[${RLABELS}, Boolean(document.querySelector('.sdk-cp [aria-label="Recent"]')?.hidden)]`), [[], true], `${label}: while it is empty, Recent is not shown`);
+      same(await P.fev(`[${RLABELS}, Boolean(document.querySelector('.sdk-cp [aria-label="Recent"]')?.hidden)]`), [[], true], `${label}: while it is empty, Recent is not shown`);
       await key(send, 'Escape');
       answers.push(null);
-      // Two choices in the sandboxed frame: on the server, newest first, each with its opacity.
-      await chooseInFrame(F, '#d62828');
-      same(await until(kept, (v) => Array.isArray(v) && v.length === 1), [e('#d62828')], `${label}: a choice in the sandboxed frame is on the server`);
-      await chooseInFrame(F, '#1e5fd0', 60);
+      // Two choices in the module in the page: on the server, newest first, each with its opacity.
+      await chooseIn(P, '#d62828');
+      same(await until(kept, (v) => Array.isArray(v) && v.length === 1), [e('#d62828')], `${label}: a choice in the module in the page is on the server`);
+      await chooseIn(P, '#1e5fd0', 60);
       same(await until(kept, (v) => Array.isArray(v) && v.length === 2), [e('#1e5fd0', 60), e('#d62828')], `${label}: a second choice goes to the front, with its opacity`);
-      await openIn(F);
-      same(await until(() => F.fev(RLABELS), (v) => v && v.length === 2), ['#1e5fd0, 60 percent', 'Red'], `${label}: the frame's picker shows Recent newest first, named by colour name or hex and percent`);
+      await openIn(P);
+      same(await until(() => P.fev(RLABELS), (v) => v && v.length === 2), ['#1e5fd0, 60 percent', 'Red'], `${label}: the picker shows Recent newest first, named by colour name or hex and percent`);
       // Red again, from Recent itself: to the front, once, at its own opacity.
-      const red = await F.fev(`(() => { const b = document.querySelector('.sdk-cp [aria-label="Recent"] .sdk-swatch[aria-label="Red"]'); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
-      await mouse(F.box.l + red.x, F.box.t + red.y);
-      same(await until(() => F.fev('window.__answers.at(-1)'), (v) => v && v.color === '#d62828'), e('#d62828'), `${label}: a Recent colour answers its colour and its own opacity`);
+      const red = await P.fev(`(() => { const b = document.querySelector('.sdk-cp [aria-label="Recent"] .sdk-swatch[aria-label="Red"]'); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+      await mouse(P.box.l + red.x, P.box.t + red.y);
+      same(await until(() => P.fev('window.__answers.at(-1)'), (v) => v && v.color === '#d62828'), e('#d62828'), `${label}: a Recent colour answers its colour and its own opacity`);
       answers.push(e('#d62828'));
       same(await until(kept, (v) => Array.isArray(v) && v[0] && v[0].color === '#d62828'), [e('#d62828'), e('#1e5fd0', 60)], `${label}: a colour chosen again moves to the front and is not there twice`);
 
       // A reload keeps it.
-      F = await openFrame();
-      await openIn(F);
-      same(await until(() => F.fev(RLABELS), (v) => v && v.length === 2), ['Red', '#1e5fd0, 60 percent'], `${label}: after a reload the frame shows Recent as kept`);
+      P = await openPage();
+      await openIn(P);
+      same(await until(() => P.fev(RLABELS), (v) => v && v.length === 2), ['Red', '#1e5fd0, 60 percent'], `${label}: after a reload the module in the page shows Recent as kept`);
       await key(send, 'Escape');
       answers.push(null);
 
       // At most 8: eight on the server, a new choice keeps the newest 8.
       const eight = Array.from({ length: 8 }, (_, i) => e(`#40${(i * 16).toString(16).padStart(2, '0')}20`));
       same((await route('PUT', { colors: eight })).status, 200, `${label}: 8 colours are kept`);
-      F = await openFrame();
-      await openIn(F);
-      same(await until(() => F.fev(RLABELS), (v) => v && v.length === 8), shown(eight), `${label}: the frame shows all 8`);
+      P = await openPage();
+      await openIn(P);
+      same(await until(() => P.fev(RLABELS), (v) => v && v.length === 8), shown(eight), `${label}: the module in the page shows all 8`);
       await key(send, 'Escape');
       answers.push(null);
-      await chooseInFrame(F, '#123456');
+      await chooseIn(P, '#123456');
       const capped = await until(kept, (v) => Array.isArray(v) && v[0] && v[0].color === '#123456');
       same(capped, [e('#123456'), ...eight.slice(0, 7)], `${label}: a ninth choice keeps the newest 8, the oldest dropped`);
 
-      // The module in the page and the page's own picker (hostColour, as Manage's colour fields use it): the same Recent.
+      // An uploaded module in its sandboxed frame (decision 28) and the page's own picker (hostColour, as Manage's colour fields use
+      // it): the same Recent. In the frame it is read-only: no "+" in the picker, no Remove menu on a Recent colour, and a choice there
+      // answers normally but does not change Recent.
       const want = shown(capped || []);
-      await send('Page.navigate', { url: `${server.base}/modules/cppage` });
-      ok(await until(() => tab.eval('window.__ready === true'), (v) => v === true, 150), `${label}: the in-page test module did not start`);
-      const pb = await until(() => tab.eval(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.getClientRects().length && ((x.getAttribute('aria-label') || '').trim() === 'Colour' || x.textContent.trim() === 'Colour')); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`), (v) => Boolean(v));
-      await mouse(pb.x, pb.y);
-      same(await until(() => tab.eval(DRLABELS), (v) => v && v.length === 8), want, `${label}: a module in the page shows the same Recent`);
+      const Fm = await openFrame();
+      await openIn(Fm);
+      same(await until(() => Fm.fev(RLABELS), (v) => v && v.length === 8), want, `${label}: the sandboxed frame shows the same Recent`);
+      await sleep(200);
+      const rro = await Fm.fev(`(() => {
+        const b = document.querySelector('.sdk-cp [aria-label="Recent"] .sdk-swatch');
+        b.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+        const menu = Boolean(document.querySelector('.sdk-menu'));
+        b.focus();
+        b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+        return [Boolean(document.querySelector('.sdk-cp-add')), menu, document.querySelectorAll('.sdk-cp [aria-label="Recent"] .sdk-swatch').length];
+      })()`);
+      same(rro, [false, false, 8], `${label}: in the sandboxed frame the picker has no "+", and Recent no Remove menu, and Delete removes nothing`);
+      await key(send, 'Escape');
+      answers.push(null);
+      await chooseIn(Fm, '#abcdef');
+      await sleep(500);
+      same(await kept(), capped, `${label}: a choice in the sandboxed frame answers normally and does not change Recent on the server`);
+      same(await Fm.fev(`[...document.querySelectorAll('.sdk-error')].map((x) => x.textContent).filter(Boolean)`), [], `${label}: the choice in the sandboxed frame shows no error`);
+      await openIn(Fm);
+      same(await until(() => Fm.fev(RLABELS), (v) => v && v.length === 8), want, `${label}: the sandboxed frame's next picker shows Recent unchanged`);
       await key(send, 'Escape');
       answers.push(null);
       await send('Page.navigate', { url: `${server.base}/admin.html` });
