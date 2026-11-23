@@ -4,7 +4,7 @@
 // covers show as gaps, and today's pin stands at the middle of its slice (or in a zone at the end the trip has not
 // reached, or has passed). Label modes by band width, ticks by trip length. Pure: no document, so tools/check-nav.mjs
 // runs it in node; space.js draws the strip from it (window.JourneyLayout.journeyLayout).
-//   phases: [{ n: name, i: icon or '', t: tint, s: 'YYYY-MM-DD' start, e: 'YYYY-MM-DD' end (inclusive) }], dated phases only
+//   phases: [{ n: name, i: icon or '', t: the phase's colour ('#rrggbb'), s: 'YYYY-MM-DD' start, e: 'YYYY-MM-DD' end (inclusive) }], dated phases only
 //   today: 'YYYY-MM-DD'; width: the bar's width in px; opts: { zone (28; 14 on a phone), offs (phases with no dates) }.
 // The text between the markers is the Proposed page's own, word for word: tools/check-nav.mjs fails when the two differ.
 (function (root, factory) {

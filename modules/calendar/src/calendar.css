@@ -10,16 +10,9 @@ body { display: flex; flex-direction: column; overflow: hidden; }
    block (system.css, .sdk-cal-*; the agenda rows are the Cards rows with the kept bar, .sdk-bar-kept). Only the Calendar's own
    layout and its phase wash are here. */
 
-/* phases: a day in a dated phase has a soft wash of the phase's tint (the border stays the neutral one); its first day names it.
+/* phases: a day in a dated phase has a soft wash of the phase's own colour (--ph, set on the cell by calendar.js; the border stays
+   the neutral one); its first day names it.
    The wash is laid under the cell (--cal-wash, the Calendar block), so today, hover and the chosen day mix over it. */
-.ph-blue { --ph: var(--tint-blue); }
-.ph-green { --ph: var(--tint-green); }
-.ph-teal { --ph: var(--tint-teal); }
-.ph-purple { --ph: var(--tint-purple); }
-.ph-orange { --ph: var(--tint-orange); }
-.ph-pink { --ph: var(--tint-pink); }
-.ph-gold { --ph: var(--tint-gold); }
-.ph-red { --ph: var(--tint-red); }
 .phasehead { position: relative; }
 .sdk-cal-cell.ph { --cal-wash: color-mix(in srgb, var(--ph) var(--cal-ph-wash, 16%), var(--surface-field)); }
 .phasehead.ph { background: color-mix(in srgb, var(--ph) var(--cal-ph-wash, 16%), var(--surface-field)); }

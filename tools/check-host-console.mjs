@@ -523,6 +523,9 @@ try {
       await tab.waitFor("/^Saved /.test(document.getElementById('templates-status').textContent)", 'a save from the Phases tab saves every part');
       await tab.go('#templates/tabs-copy/icons');
       await tab.waitFor(`${tab.visible('#te-part-icons')} && document.getElementById('te-icon-set').value === 'dice compass'`, 'the Icons part was saved from another tab');
+      // Each phase row has the colour picker (decision 32), and a save stores each phase's colour: the default of its place while none was picked.
+      assert.equal(await tab.evaluate("[...document.querySelectorAll('#te-phases .phase-row')].every((r) => r.querySelector('.sdk-picker') && /^#[0-9a-f]{6}$/.test(r.querySelector('[data-phase-color]').value))"), true, 'every phase row has its colour field');
+      { const got = await call(port, 'GET', 'admin', '/api/host/templates/tabs-copy', undefined, { cookie }); assert.deepEqual(got.json.template.phases.slice(0, 2).map((p) => p.color), ['#1e5fd0', '#2e9e3e'], got.text); }
       // Add a reaction in the editor: a new row is sent with an id the server accepts, and after the save the focus is on the saved template's link.
       await tab.go('#templates/tabs-copy/reactions');
       await tab.waitFor(tab.visible('#te-part-reactions'), 'the Reactions tab of the copy');

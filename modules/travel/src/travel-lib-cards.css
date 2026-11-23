@@ -356,16 +356,8 @@
 .row.marker.phase .sdk-mk-line > .sdk-mk-note { display: none; }
 /* a card is the shared banded card as it is (system.css): its band and body come from the theme, with no base of the Planner's own */
 
-/* phases: a day in a dated phase takes a soft wash of the phase's tint (header and strip chip), with its name beside the
-   date in a tag filled in the tint; borders stay the neutral ones. The tint names are the theme's (Phases.tintOf). */
-.ph-blue { --ph: var(--tint-blue); }
-.ph-green { --ph: var(--tint-green); }
-.ph-teal { --ph: var(--tint-teal); }
-.ph-purple { --ph: var(--tint-purple); }
-.ph-orange { --ph: var(--tint-orange); }
-.ph-pink { --ph: var(--tint-pink); }
-.ph-gold { --ph: var(--tint-gold); }
-.ph-red { --ph: var(--tint-red); }
+/* phases: a day in a dated phase takes a soft wash of the phase's colour (header and strip chip), with its name beside the
+   date in a tag in that colour; borders stay the neutral ones. The colour is the phase's own, set on the day as --ph (travel.js). */
 
 /* a stop's linked Place, as a chip that opens it */
 .place-chip { max-width: 100%; }

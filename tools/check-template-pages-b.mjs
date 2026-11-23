@@ -187,6 +187,7 @@ await test('Workspace, Phases, Additions: fields when editable, lines when not, 
   assert.doesNotMatch(P.workspaceHtml(tpl, { editable: false, catalog, word }), /<input|<select/);
   const ph = P.phasesHtml(tpl, { editable: true, word });
   assert.equal((ph.match(/data-tp-phase=/g) || []).length, 2);
+  assert.equal((ph.match(/<input type="text" data-colour-field data-tp-color aria-label="Colour"/g) || []).length, 2, 'each phase row has its colour field (decision 32)');
   assert.match(ph, /<option value="goals" selected>/);
   assert.match(P.phasesHtml(tpl, { editable: false, word }), /Measured by[^]*Goals/);
   const set = { reactions: [{ glyph: '❤️', label: 'Heart' }], icons: [{ id: 'star', classes: 'fa-solid fa-star', label: 'star' }] };
@@ -208,7 +209,7 @@ await test('the pages, the strip, the 44 px rules and the marks are in the files
   assert.doesNotMatch(html, /data-tpl-part="more"/, 'the stop-gap page is gone');
   assert.match(read('public/admin.js'), /TPL_PARTS = \['main', 'basics', 'labels', 'workspace', 'phases', 'reactions', 'modules', 'list'\]/);
   const css = read('public/style.css');
-  const phone = css.slice(css.indexOf('.tp-phase { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }') - 60);
+  const phone = css.slice(css.indexOf('.tp-phase { grid-template-columns: minmax(0, 1fr) 10rem; }') - 60);
   assert.match(phone, /\.tp-actions \.btn[^{]*\{ --btn-h: 44px; \}/);
   assert.match(phone, /\.tp-phase \.tp-main, \.tp-module-head \{ min-height: 44px; \}/);
   const form = read('public/module-settings.js');
@@ -379,6 +380,8 @@ async function live() {
           const t = (await api('GET', '/api/environment/templates/mine')).json.template;
           assert.equal(t.phaseMeasure, 'goals');
           assert.deepEqual(t.phases.map((p) => p.label), ['Start', 'Build', 'Wrap up', 'Review']);
+          assert.ok(t.phases.every((p) => /^#[0-9a-f]{6}$/.test(p.color || '')), 'a save stores each phase\'s colour, the default of its place while none was picked');
+          assert.equal(t.phases[3].color, '#7b3fb5', 'the new fourth phase starts on the fourth default');
           assert.equal(t.phases.find((p) => p.main).id, 'build');
           await open('template/default/phases', `${count('#tpl-phases-box input')} === 0 && /Dates/.test(document.querySelector('#tpl-phases-box').textContent)`, 'the Phases of the Default template');
         });

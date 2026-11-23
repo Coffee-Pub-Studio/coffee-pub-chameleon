@@ -3581,7 +3581,8 @@
       // Dates as "2026-09-24" (a local day): text from a Date, and back.
       ymd: (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
       // The phase timeline of the space this module is in (public/phases.js timelineOf, the rule the server runs; see
-      // plan-one-bar.md): one band per template phase in order, [{ id, label, main, start, end, dated, current }],
+      // plan-one-bar.md): one band per template phase in order, [{ id, label, main, color, start, end, dated, current }]
+      // (`color` the phase's own '#rrggbb', or its place's default; words on it take host.util.readableOn(color)),
       // from host.phases() and host.space().phases, the first phase starting on the day the space was created. `o`
       // may give `dates` and `created` (another space's, on an environment page: what host.spaces() lists) and
       // `today` (a day; today by default). [] with no phases. Throws when the rule did not load.
@@ -4312,13 +4313,14 @@
     // when the owner sets, replaces or clears the picture map, this answers the new value and host.on('environment', fn)
     // hears it ({ pictureMap }), so a module redraws what depends on it without a reload.
     get environment() { return { pictureMap: (info && info.environment && info.environment.pictureMap) || null }; },
-    // The environment's template's phases, [{ id, label, main?, icon? }], or [] when it has none, with their state under the
+    // The environment's template's phases, [{ id, label, main?, icon?, color }], or [] when it has none (`color` the phase's own
+    // '#rrggbb', or its place's default, public/phases.js colorOf), with their state under the
     // template's measure. The list has a `measure` property: 'dates' (the default; no state), 'progress' (each phase has
     // `done`, the owner's Done switch) or 'goals' (`done` too, and `goals: { done, total }` while planner entries name the phase: it is
     // done when they all are; else the switch). Under progress and goals the first phase not done has `current: true`.
     // Live: a template edit is in the next hello, a switch or an entry in the next look; host.on('phaseStates', ({ phases,
     // measure })) says when it changed. Answered from the hello, so it is there once host.ready() has resolved.
-    phases: () => Object.assign(info && Array.isArray(info.phases) ? info.phases.slice() : [], { measure: (info && info.phaseMeasure) || 'dates' }),
+    phases: () => Object.assign((info && Array.isArray(info.phases) ? info.phases : []).map((p, i) => (global.Phases ? { ...p, color: global.Phases.colorOf(p, i) } : { ...p })), { measure: (info && info.phaseMeasure) || 'dates' }),
     // The main phase's end moved later to cover `day` (YYYY-MM-DD), every later boundary shifted with it (POST
     // /api/spaces/:id/phases/cover; plan-one-bar.md step 2), for anyone with write in a module on in this space.
     // Resolves with the space's new phases, or null when nothing moved (the day is covered already, is before the
@@ -5893,7 +5895,7 @@
   // A move between docked and floating takes the module's box out of the page and back, which drops an open editor
   // window out of the top layer: show it modal again.
   // The space's phases changed (the host page read them again): keep host.space().phases and createdAt current, and add the
-  // timeline (host.util.phaseTimeline(), tints included) to what the module hears. Registered first, so it runs before the module's.
+  // timeline (host.util.phaseTimeline(), each band with its colour) to what the module hears. Registered first, so it runs before the module's.
   host.on('phases', (e) => {
     if (info && info.space && e && e.phases) {
       info.space.phases = e.phases;

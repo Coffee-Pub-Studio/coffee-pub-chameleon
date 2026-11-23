@@ -456,7 +456,7 @@
     row.dataset.marker = 'phase';
     row.classList.add('phase');
     const lead = g.ends[0] || g.starts[0];
-    row.classList.add(`ph-${lead.tint}`);
+    if (lead.color) row.style.setProperty('--ph', lead.color); // the phase's own colour
     const when = g.starts.length ? g.starts[0].start : g.day; // the day the phase begins, else the day it ends
     const text = parseYmd(when).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
     setIcon(row.querySelector('.sdk-mk-ic [data-icon]'), g.starts.length ? 'flag' : 'flag-checkered');
@@ -552,10 +552,11 @@
       tag.title = item.notes || '';
       tagBox.append(tag);
     }
-    // A day in a dated phase wears the phase's name as a label in its tint (no wash); today says so in words.
+    // A day in a dated phase wears the phase's name as a label in its colour (no wash); today says so in words.
     const ph = phaseOnDay(plan.bands(), day);
-    if (ph && ph.tint) {
-      el.classList.add('in-phase', `ph-${ph.tint}`);
+    if (ph && ph.color) {
+      el.classList.add('in-phase');
+      el.style.setProperty('--ph', ph.color);
       const tag = document.createElement('span');
       tag.className = 'sdk-chip-tag';
       tag.dataset.tone = 'custom';
@@ -1324,7 +1325,7 @@
       chip.classList.toggle('is-empty', empties.has(day));
       chip.classList.toggle('is-today', day === today);
       const ph = phaseOnDay(bandList, day);
-      if (ph && ph.tint) chip.title = ph.label;
+      if (ph && ph.color) chip.title = ph.label;
       fill(chip, { weekday: parseYmd(day).toLocaleDateString([], { weekday: 'short' }), day: parseYmd(day).getDate() });
       // In the trip: a dot in the corner, and the words in the chip's label.
       const words = [parseYmd(day).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }), day === today ? 'today' : '', inTrip(day) ? 'in the trip' : '', ph && ph.label ? ph.label : ''].filter(Boolean);

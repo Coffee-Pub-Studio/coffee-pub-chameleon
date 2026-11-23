@@ -342,7 +342,7 @@
       const x0 = x(s);
       const x1 = Math.max(x(e), x0 + 2);
       const r = svgEl('rect', { class: 'band', x: x0, y: m.t, width: x1 - x0, height: ph });
-      r.style.fill = `var(--tint-${band.tint || 'blue'})`;
+      r.style.fill = band.color || 'var(--accent-fill)'; // the phase's own colour
       svg.append(r);
       if (x1 - x0 > band.label.length * 6.5 + 8) svg.append(svgEl('text', { x: x0 + 4, y: m.t + 11 }, band.label));
     }

@@ -4,12 +4,12 @@
     "hash": "78fa61c739d6f431"
   },
   "budget": {
-    "version": "0.1.29",
-    "hash": "a337cfbb760843eb"
+    "version": "0.1.30",
+    "hash": "a382ce9a256aa2b6"
   },
   "calendar": {
-    "version": "1.24.47",
-    "hash": "7046efc2c52834d0"
+    "version": "1.24.48",
+    "hash": "2e9af8f9dcd81edf"
   },
   "documents": {
     "version": "0.11.37",
@@ -44,8 +44,8 @@
     "hash": "4ec8a10e758dd0f7"
   },
   "travel": {
-    "version": "0.16.17",
-    "hash": "6ee80d35a91bc2f0"
+    "version": "0.16.18",
+    "hash": "8a4c84b462ff5fc3"
   },
   "vault": {
     "version": "0.4.9",
