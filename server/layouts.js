@@ -28,8 +28,8 @@
 // (documentation/plans/plan-layout-picker.md, decision 5): it has no modules, snap or arrange, and a stored shared entry
 // that is not a valid shape is dropped on read (nothing is converted or rewritten until the next save). cleanLayout()
 // is the one shape check, pure; the Layouts class keeps the lists, their limits and the clean-up when a space or a
-// person is removed (server/store.js calls forgetSpace and forgetPerson). The browser's own remembered layout
-// (app.canvas.<space id>) is unchanged and separate. An aside has no layouts: index.js only finds spaces.
+// person is removed (server/store.js calls forgetSpace and forgetPerson). Each workspace's remembered arrangement is
+// server/workspaces.js's, separate from these. An aside has no layouts: index.js only finds spaces.
 
 'use strict';
 

@@ -26,11 +26,17 @@ import { returnPlace } from '/pop-return.js';
 import { MIN_W, MIN_H, SNAP_GAP, gridFor, cellBox, snapCell, leastSpan, clampCell, nearestFree, nextFree, resettle, tidyBoxes, fillBoxes, TIDY_GAP, DOCK_MIN, FLEX_MIN, NARROW, dockLimit, fitDock } from '/snap-grid.js';
 import { composeList, aliasesFor, compositeById, compositesToAsk } from '/composites.js';
 
-// What each space remembers (`app.canvas.<space>`): the modules open when the person last used it,
-// and each module's mode and sizes. `app.canvas` alone is what earlier versions kept for all
-// spaces, and is the starting point for a space with nothing saved yet.
-const STORE_KEY = 'app.canvas';
-const storeKey = (spaceId) => `${STORE_KEY}.${spaceId}`;
+// What each space's Workspace remembers: the modules open when the person last used it, and each module's mode and sizes.
+// A signed-in person's is kept on the server, the Workspace's arrangement among their workspaces (server/workspaces.js;
+// plan-workspaces.md, decision 49): read when the space is entered, written a moment after each change. A guest keeps
+// none on the server, so theirs is in this browser (`app.canvas.<space>`). The page keeps it as `saved` (each module's
+// record by id, and `__open`, `__placed`, `__mode`, `__snap`, `__stacks`); toWire and fromWire turn it into the
+// server's named arrangement and back.
+const GUEST_KEY = (spaceId) => `app.canvas.${spaceId}`;
+const ARRANGE_WAIT = 600; // ms after the last change before the arrangement is written
+const WIRE_RECORD = ['mode', 'dockW', 'box', 'cell', 'placed', 'layout', 'stack', 'at', 'h', 'folded', 'ownW', 'win'];
+const WIRE_ID = /^(dest:)?[a-z][a-z0-9-]{0,31}$/;
+const WIRE_MODULES = 60; // the server's limit on records (WORKSPACE_LIMITS.modules)
 // The module frame's title bar height (--mf-title-h, the moduleframe block of /sdk/system.css: 36px), read where it is used.
 const headH = () => {
   const h = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mf-title-h'));
@@ -47,11 +53,49 @@ function readStore(key) {
   }
 }
 
-function loadSaved(spaceId) {
-  const own = spaceId ? readStore(storeKey(spaceId)) : null;
-  if (own) return own;
-  const { __open, ...rest } = readStore(STORE_KEY) || {};
-  return rest;
+// The page's `saved` as the server's arrangement: known keys only, numbers that are numbers, so a stray value never
+// costs the whole write.
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+const orNull = (v) => (finite(v) ? v : null);
+export function toWire(saved) {
+  const out = {};
+  if (Array.isArray(saved.__open)) out.open = saved.__open.filter((id) => typeof id === 'string' && WIRE_ID.test(id)).slice(0, 40);
+  if (saved.__placed === true) out.placed = true;
+  if (saved.__mode === 'window' || saved.__mode === 'panel') out.mode = saved.__mode;
+  if (saved.__snap && typeof saved.__snap === 'object') {
+    const snap = {};
+    if (typeof saved.__snap.all === 'boolean') snap.all = saved.__snap.all;
+    if (finite(saved.__snap.pitch) && saved.__snap.pitch >= 50 && saved.__snap.pitch <= 320) snap.pitch = saved.__snap.pitch;
+    out.snap = snap;
+  }
+  if (Array.isArray(saved.__stacks)) {
+    out.stacks = saved.__stacks.filter((st) => st && Array.isArray(st.ids) && st.ids.length >= 2 && st.ids.length <= 3 && st.ids.every((id) => typeof id === 'string' && WIRE_ID.test(id))).slice(0, 20)
+      .map((st) => ({ ids: st.ids.slice(), width: orNull(st.width), h: st.ids.map((_, k) => orNull(st.h?.[k])), folded: st.ids.map((_, k) => st.folded?.[k] === true), ownW: st.ids.map((_, k) => orNull(st.ownW?.[k])) }));
+  }
+  const modules = {};
+  for (const [id, rec] of Object.entries(saved)) {
+    if (id.startsWith('__') || !WIRE_ID.test(id) || !rec || typeof rec !== 'object' || Object.keys(modules).length >= WIRE_MODULES) continue;
+    const kept = {};
+    for (const k of WIRE_RECORD) {
+      const v = rec[k];
+      if (v === undefined || v === null || (typeof v === 'number' && !Number.isFinite(v))) continue;
+      if (v && typeof v === 'object' && !Object.values(v).every(finite)) continue;
+      kept[k] = v;
+    }
+    modules[id] = kept;
+  }
+  out.modules = modules;
+  return out;
+}
+export function fromWire(a) {
+  if (!a || typeof a !== 'object') return {};
+  const saved = { ...(a.modules && typeof a.modules === 'object' ? structuredClone(a.modules) : {}) };
+  if (Array.isArray(a.open)) saved.__open = a.open.slice();
+  if (a.placed === true) saved.__placed = true;
+  if (a.mode) saved.__mode = a.mode;
+  if (a.snap) saved.__snap = { ...a.snap };
+  if (Array.isArray(a.stacks)) saved.__stacks = structuredClone(a.stacks);
+  return saved;
 }
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -85,7 +129,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   const columnOwned = (p) => inColumn(p) || Boolean(p.lifted) || Boolean(p.popped);
   // Whether anything is open on the canvas itself (an empty area with its chooser counts).
   const onCanvas = () => [...opened.values()].some((p) => !inColumn(p) && !p.popped) || [...areas.values()].some((a) => !a.el.hidden);
-  let saved = loadSaved(null);
+  let saved = {};
   // Nothing is remembered until a join has restored the space's modules, and not while the space is
   // being torn down: closing every module on the way out must not become the layout.
   let suspended = true;
@@ -186,10 +230,53 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   function persist() {
     if (spaceId && !suspended && !restoring) onArrange?.(); // the arrangement changed (space.js checks for Modified, once a frame)
     if (!spaceId || holdStore || held) return; // an aside remembers nothing; another tab than the Workspace neither
+    if (guest) {
+      try {
+        localStorage.setItem(GUEST_KEY(spaceId), JSON.stringify(saved));
+      } catch {
+        // private mode: modules still work, they just do not remember where they were
+      }
+      return;
+    }
+    // Written once the changes stop (a drag ends, a slider is let go), the last one only, and not when it is what the
+    // server already has (entering writes nothing).
+    const body = { arrangement: toWire(saved) };
+    const text = JSON.stringify(body.arrangement);
+    if (text === arrangedAs) { pendingArrange = null; clearTimeout(arrangeTimer); return; }
+    pendingArrange = { space: spaceId, body, text };
+    clearTimeout(arrangeTimer);
+    arrangeTimer = setTimeout(writeArrangement, ARRANGE_WAIT);
+  }
+  // The Workspace's arrangement on the server (server/workspaces.js). `keepalive` when the page is going away, so the
+  // last change still arrives. A refusal changes nothing on the page: the modules stay as they are.
+  let pendingArrange = null;
+  let arrangeTimer = 0;
+  let arrangedAs = null; // the arrangement the server has for this space, as JSON, once read or written
+  function writeArrangement({ leaving = false } = {}) {
+    clearTimeout(arrangeTimer);
+    const job = pendingArrange;
+    pendingArrange = null;
+    if (!job) return;
+    if (job.space === spaceId) arrangedAs = job.text;
+    const url = `/api/spaces/${encodeURIComponent(job.space)}/workspaces/workspace/arrangement`;
+    if (leaving) {
+      try { fetch(url, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(job.body), keepalive: true, credentials: 'same-origin' }); } catch { /* the page is going */ }
+      return;
+    }
+    api('PUT', url, job.body).catch(() => { if (job.space === spaceId && arrangedAs === job.text) arrangedAs = null; }); // tried again on the next change
+  }
+  window.addEventListener('pagehide', () => writeArrangement({ leaving: true }));
+  // What the Workspace remembers in space `id`: the person's own from the server, a guest's from this browser; {} for none.
+  async function readArrangement(id) {
+    if (guest) return readStore(GUEST_KEY(id)) || {};
     try {
-      localStorage.setItem(storeKey(spaceId), JSON.stringify(saved));
+      const answer = await api('GET', `/api/spaces/${encodeURIComponent(id)}/workspaces`);
+      const own = (answer.workspaces || []).find((w) => w && w.id === 'workspace');
+      const read = fromWire(own && own.arrangement);
+      if (spaceId === id) arrangedAs = JSON.stringify(toWire(read));
+      return read;
     } catch {
-      // private mode: modules still work, they just do not remember where they were
+      return {};
     }
   }
 
@@ -3035,8 +3122,10 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     arrangeOnWide = false; // an arrangement chosen on a phone is the space left's
     closeAllModules();
     note('');
+    writeArrangement(); // the space left's last change, before anything is read for the next
     spaceId = id;
-    saved = loadSaved(id);
+    arrangedAs = null;
+    saved = {};
     modules = [];
     available = [];
     aliases = {};
@@ -3046,10 +3135,14 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     spaceFirstVisit = null;
     entering = Boolean(id);
     if (id) {
+      const reading = readArrangement(id); // asked beside the modules, never refused (none reads as {})
       try {
         const q = new URLSearchParams({ space: id });
         if (guestToken) q.set('guest', guestToken);
         const answer = await api('GET', `/api/modules/for-space?${q}`);
+        const got = await reading;
+        if (spaceId !== id) return; // another space was entered while this one was read
+        saved = got;
         modules = (answer.modules || []).filter((m) => !m.canvas || m.canvas.menu !== false);
         // A composite that asks (the Map: Maps on here is not enough, the space's Map needs a map file; plan-map-places.md
         // step 3) is on only where its destination answers for this space. The same question the one bar's view and the
@@ -3069,6 +3162,9 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
           : { layout: 'workspace', shape: spaceShape };
         showBuiltin(answer.builtin);
       } catch {
+        const got = await reading;
+        if (spaceId !== id) return;
+        saved = got;
         available = [];
       }
     }

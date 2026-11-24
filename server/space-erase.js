@@ -6,6 +6,7 @@
 //   images/spaces/<id>.<ext>              the space's picture
 //   images/<person key>/spaces/<id>/      each person's pictures for it
 //   layouts.json                          its shared and personal layouts and favourites
+//   workspaces.json                       each person's own workspaces in it (with the space's record: store.removeSpace)
 //   chat.json, chat-private.json          its chat history and the private messages (AI threads) in it
 //   attention.json, facts.json            what is asking for attention, what each module reported
 //   tags.json                             the space's tags (server/tags.js)

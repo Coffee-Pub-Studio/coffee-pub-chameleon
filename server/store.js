@@ -6,6 +6,7 @@
 //   images/site/<name>   the server icon and the sign-in background
 //   images/spaces/<id>    a space's picture
 //   layouts.json         saved layouts, shared per space and each person's own (server/layouts.js)
+//   workspaces.json      each person's own workspaces per space and their arrangements (server/workspaces.js)
 // Everything is loaded once and written back whole; a group's worth of users
 // does not need a database.
 
@@ -15,6 +16,7 @@ const crypto = require('crypto');
 const words = require('./words');
 const { shortProductName } = require('./product-name');
 const { Layouts, SYSTEM_IDS: LAYOUT_SYSTEM_IDS, cleanTabs } = require('./layouts');
+const { Workspaces } = require('./workspaces');
 const { LEGACY_ENVIRONMENT_RECORD } = require('./migrate-names');
 const { DEFAULT_REACTION_LIST, DEFAULT_ICON_LIST } = require('./default-lists');
 const { deepFreeze } = require('./deep-freeze');
@@ -784,6 +786,8 @@ class Store {
     this.data = this.load();
     // Saved layouts (plan-saved-layouts.md): their own file, kept in step when a space or a person is removed.
     this.layouts = new Layouts(dir);
+    // Each person's own workspaces and their arrangements (plan-workspaces.md, decision 39): their own file, kept in step likewise.
+    this.workspaces = new Workspaces(dir);
     // The words this environment's template gives (plan-environment-templates.md): none until templates are built,
     // so every key reads the owner's word or the default.
     this.templateWords = null;
@@ -2376,6 +2380,7 @@ class Store {
     for (const aside of this.data.asides) aside.members = aside.members.filter((k) => k !== key);
     this.save();
     this.layouts.forgetPerson(key);
+    this.workspaces.forgetPerson(key);
     fs.rmSync(path.join(this.imagesDir, key), { recursive: true, force: true });
     return user;
   }
@@ -2814,6 +2819,7 @@ class Store {
     for (const i of this.data.invites) i.spaces = i.spaces.filter((s) => s !== id);
     this.save();
     this.layouts.forgetSpace(id);
+    this.workspaces.forgetSpace(id);
     this.removeSpaceImage(id);
     return space;
   }
