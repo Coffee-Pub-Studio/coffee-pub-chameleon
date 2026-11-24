@@ -7661,7 +7661,7 @@ body.in-space .subnav > .nav-left:has(> .sdk-strip:not([hidden])) {
   line-height: 1;
 }
 
-/* Step 1: the six shapes, two rows of three at any width. */
+/* Step 1: the nine shapes, three rows of three at any width. */
 .layout-picker-shapes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

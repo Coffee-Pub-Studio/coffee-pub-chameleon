@@ -9,7 +9,8 @@ import { renderModuleSettings } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
 import { openManageTabs } from '/manage-tabs.js';
 import { createCanvas } from '/canvas.js';
-import { layoutDiffers, sharedRowNotice, COLUMN_IDS } from '/layouts.js';
+import { layoutDiffers, sharedRowNotice, shapeColumns, COLUMN_IDS } from '/layouts.js';
+import { SHAPES, shapeById } from '/layout-shapes.js';
 import { createLayoutPicker, cleanText } from '/layout-picker.js';
 import { conferenceAllowed, layoutLine, shouldAutoJoin } from '/opens-with.js';
 import { switchListHtml, wireSwitchList } from '/switch-list.js';
@@ -3406,9 +3407,13 @@ function tabMenuItems(id) {
     // in each area. Only for those who may share (the owner, the admin and the space's moderators).
     if (mayShare) items.push({ icon: 'user-group', label: 'New layout for everyone', onPick: () => openShapeSheet() });
   }
+  // Edit layout (decision 40): the layout picker on this workspace, for anyone who keeps workspaces (not a guest).
+  if (layoutList.spaceId && mayOwn() && isEditable(id)) {
+    if (items.length) items.push({ divider: true });
+    items.push({ icon: 'table-columns', label: 'Edit layout', onPick: () => editLayout(id) });
+  }
   const own = findOwn(id);
   if (own) {
-    if (items.length) items.push({ divider: true });
     items.push({ icon: 'pen', label: 'Rename', onPick: () => renameWorkspace(own.id) });
     items.push({ icon: 'trash', label: 'Delete', danger: true, onPick: () => openConfirmMenu(menuOpener(), {
       label: 'Delete', confirm: `Delete ${own.name}?`, armed: true, fail: 'It could not be deleted.',
@@ -3664,14 +3669,25 @@ function startRename(layoutId) {
 // pressed); an edited one again if it is shown now. A module an area names that is off here, or that this person can't
 // open, is named as the catalog names it (moduleNameHere), never offered. Save is off, and Escape asks nothing, until
 // something is changed: the start is the record as the picker read it (a stored arrangement it had to move is that).
-function openShapeSheet(layout = null) {
+//
+// Edit layout (plan-workspaces.md, decisions 40 and 45) is the same sheet on one of this person's editable workspaces
+// (`workspace`: 'workspace' or the id of one they added), the one shown: `start` is { record, moved } from
+// workspaceStart(). Yours alone, so no maker's notice; the Workspace has no Name (it is the space's). It opens on the
+// shape as it is on the canvas (step 2), or on step 1 with a line when things were moved off any shape. Save asks first
+// what moves and what closes (confirmLayoutChange), then sends the shape of one the person added (PATCH .../workspaces/:id
+// { name?, shape? }; the Workspace's shape is the person's arrangement only) and places it (canvas.loadLayout: the
+// modules go into their areas, the rest close, and that is the workspace's arrangement from then on).
+function openShapeSheet(layout = null, { workspace = null, start = null } = {}) {
   const id = layoutSpaceId();
-  if (!id || !layoutList.canShare) return;
-  const editing = isShapeLayout(layout) ? layout : null;
-  let backTo = editing ? { more: editing.name } : { label: 'New layout for everyone' };
+  const own = workspace ? findOwn(workspace) : null;
+  const personal = workspace === 'workspace' || Boolean(own);
+  if (!id || (personal ? !mayOwn() || !start : !layoutList.canShare)) return;
+  const editing = !personal && isShapeLayout(layout) ? layout : null;
+  const whose = personal ? (own ? own.name : 'Workspace') : '';
+  let backTo = personal ? { label: 'Edit layout' } : editing ? { more: editing.name } : { label: 'New layout for everyone' };
   const doc = canvasDoc();
-  const title = editing ? `Edit ${editing.name}` : 'New layout for everyone';
-  const startName = editing ? editing.name : '';
+  const title = personal ? `Edit layout: ${whose}` : editing ? `Edit ${editing.name}` : 'New layout for everyone';
+  const startName = personal ? (own ? own.name : '') : editing ? editing.name : '';
   const dlg = doc.createElement('dialog');
   dlg.className = 'layout-sheet layout-shape-sheet';
   dlg.setAttribute('aria-labelledby', 'layout-shape-title');
@@ -3689,30 +3705,43 @@ function openShapeSheet(layout = null) {
   const input = dlg.querySelector('#layout-shape-name');
   const errorEl = dlg.querySelector('#layout-shape-error');
   dlg.querySelector('#layout-shape-title').textContent = title;
-  dlg.querySelector('#layout-shape-lead').textContent = `Everyone in this ${word('space')} can open it. Each person can still change it for themselves.`;
+  dlg.querySelector('#layout-shape-lead').textContent = personal
+    ? 'Yours alone. Saving puts each module into its area; drag them by their title bars afterwards as you like.'
+    : `Everyone in this ${word('space')} can open it. Each person can still change it for themselves.`;
+  // The Workspace is the space's: it keeps its name.
+  if (personal && !own) dlg.querySelector('.layout-field').hidden = true;
   input.value = startName;
   const modules = canvas.list()
     .filter((m) => m && !COLUMN_IDS.includes(m.id) && m.canvas)
     .map((m) => ({ id: m.id, name: m.name, icon: m.icon, ...(canvas.colorOf(m.id) ? { tint: canvas.colorOf(m.id) } : {}) }));
   // What an area names that is not offered here (off in the space, or not for this person): drawn by its name, never offered.
-  const others = (editing ? editing.areas : [])
+  const others = (editing ? editing.areas : personal && start.record ? start.record.areas : [])
     .filter((a) => typeof a === 'string' && !modules.some((m) => m.id === a))
     .map((a) => ({ id: a, name: moduleNameHere(a), icon: 'puzzle-piece' }));
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   let bar = null;
   const picker = createLayoutPicker({
     doc,
-    record: editing ? { shape: editing.shape, areas: editing.areas.slice() } : null,
+    record: editing ? { shape: editing.shape, areas: editing.areas.slice() } : personal && start.record ? { shape: start.record.shape, areas: start.record.areas.slice() } : null,
     modules,
     others,
     parts: canvas.compositeParts(),
-    cantOpen: layoutList.cantOpen,
+    cantOpen: personal ? null : layoutList.cantOpen,
     bar: false,
     label: 'Layout',
     onChange: () => bar?.refresh(),
   });
   dlg.querySelector('#layout-shape-picker').appendChild(picker.el);
   const startRecord = picker.value(); // after the picker's read (carryAreas), so an unchanged sheet is not dirty
+  // Moved off any shape: step 1 first, and a line saying Save places the shape again (so Save is on as it opens).
+  if (personal && start.moved) {
+    picker.setStep(1);
+    const said = doc.createElement('p');
+    said.className = 'layout-field-hint';
+    said.id = 'layout-shape-moved';
+    said.textContent = "You've moved things since this layout was placed. Saving places it again.";
+    dlg.querySelector('#layout-shape-lead').after(said);
+  }
   // Where the keyboard goes back to: Edit's row (its "..."), else New layout for everyone.
   let savedNow = false;
   // Scrolling the sheet closes an open area menu (the sheet's body scrolls here, not the picker's).
@@ -3736,13 +3765,14 @@ function openShapeSheet(layout = null) {
     label: 'Save the layout',
     doc,
     ids: { save: 'layout-shape-save', cancel: 'layout-shape-cancel' },
-    dirty: () => input.value.trim() !== startName.trim() || !same(picker.value(), startRecord),
+    dirty: () => input.value.trim() !== startName.trim() || !same(picker.value(), startRecord) || Boolean(personal && start.moved && picker.value()),
     onCancel: () => { if (dlg.open) dlg.close(); },
     onSave: async () => {
       const name = input.value.trim();
       const record = picker.value();
       showError('');
       picker.refuse('');
+      if (personal) return saveWorkspaceLayout({ workspace, own, name, record, start, startRecord, dlg, showError, input, picker, fileRefusal, done: () => { savedNow = true; } });
       if (!name) { showError('Give the layout a name.'); input.focus(); return false; }
       if (!record) { picker.refuse('Pick a shape first.'); return false; }
       const body = editing
@@ -3784,8 +3814,106 @@ function openShapeSheet(layout = null) {
   doc.body.appendChild(dlg);
   dlg.showModal();
   bar.refresh();
-  input.focus();
+  if (personal && !own) (picker.el.querySelector('.layout-picker-shape[tabindex="0"]') || picker.el.querySelector('.layout-picker-area, button'))?.focus();
+  else input.focus();
   if (editing) input.select();
+}
+
+// --- Edit layout (plan-workspaces.md, decisions 40, 42 and 45) ---------------------------------------------------------
+// The shape last placed on the Workspace by Edit layout here, this visit (its shape is the person's arrangement only, so
+// the server keeps none); else the template's shape stands for it.
+const placedWorkspaceShape = new Map(); // space id -> { shape, areas }
+const asModuleId = (x) => (typeof x === 'string' && x.startsWith('dest:') ? x.slice(5) : x); // a composite reads as its main
+// Where Edit layout starts for workspace `ws`, which is shown: { record, moved }. The canvas's columns (canvas.arrangedNow)
+// are read against the workspace's shape (its own, the one last placed, else the template's), then every other shape: the
+// first whose columns and stacks are the canvas's gives the record, each area holding what is there now (an empty area's
+// placeholder is empty). Nothing open: that shape, its areas empty. Anything floating, or columns no shape has: `moved`,
+// and the record is the workspace's shape (else the first with room) carrying what is open, in column order.
+function workspaceStart(ws) {
+  const own = findOwn(ws);
+  const kept = own ? own.shape : placedWorkspaceShape.get(layoutSpaceId()) || canvas.spaceShape();
+  const base = kept && shapeById(kept.shape) ? kept : null;
+  const now = canvas.arrangedNow();
+  const cols = now.columns.map((c) => c.map(asModuleId));
+  const fits = (def) => { const sc = shapeColumns(def); return sc.length === cols.length && sc.every((c, i) => c.length === cols[i].length); };
+  const open = [...cols.flat().filter(Boolean), ...now.loose.map(asModuleId)];
+  if (!cols.length && !open.length) return { record: base ? { shape: base.shape, areas: base.areas.map(() => null) } : null, moved: false, open };
+  if (!now.loose.length) {
+    const def = [base ? shapeById(base.shape) : null, ...SHAPES].find((d) => d && fits(d));
+    if (def) {
+      const areas = Array.from({ length: def.areas }, () => null);
+      shapeColumns(def).forEach((c, i) => c.forEach((a, j) => { areas[a - 1] = cols[i][j]; }));
+      return { record: { shape: def.id, areas }, moved: false, open };
+    }
+  }
+  const def = base ? shapeById(base.shape) : SHAPES.find((d) => d.areas >= open.length) || SHAPES[SHAPES.length - 1];
+  return { record: { shape: def.id, areas: open.slice() }, moved: true, open };
+}
+// Edit layout from a tab's menu: its workspace is shown first (its own arrangement is the one read and replaced).
+function editLayout(ws) {
+  if (!isEditable(ws) || !mayOwn()) return;
+  if (currentLayoutTab !== ws) pressLayoutTab(ws);
+  openShapeSheet(null, { workspace: ws, start: workspaceStart(ws) });
+}
+// What placing `record` does to what is open now, in words for the question before it (decision 45): each module that
+// closes (no area in the layout), goes into an area of a new shape, moves to another area, goes back into its area
+// (after it was moved off the shape) or opens. [[icon, line]], those that close first.
+function layoutChangeLines(record, start, startRecord) {
+  const lines = { closes: [], moves: [], opens: [] };
+  const was = (id) => (start.moved || !startRecord ? -1 : startRecord.areas.indexOf(id));
+  for (const id of start.open) if (!record.areas.includes(id)) lines.closes.push(['xmark', `${moduleNameHere(id)} closes. It has no area in this layout.`]);
+  record.areas.forEach((id, i) => {
+    if (!id) return;
+    const name = moduleNameHere(id);
+    if (!start.open.includes(id)) lines.opens.push(['plus', `${name} opens in area ${i + 1}.`]);
+    else if (start.moved) lines.moves.push(['arrow-right', `${name} goes back into area ${i + 1}.`]);
+    else if (!startRecord || record.shape !== startRecord.shape) lines.moves.push(['arrow-right', `${name} goes into area ${i + 1} of the new shape.`]);
+    else if (was(id) !== i) lines.moves.push(['arrow-right', `${name} moves to area ${i + 1}.`]);
+  });
+  return lines;
+}
+// The question before Save places the layout: only when something open moves or closes. Answers whether to go on.
+async function confirmLayoutChange(record, start, startRecord) {
+  const lines = layoutChangeLines(record, start, startRecord);
+  if (!lines.closes.length && !lines.moves.length) return true;
+  return confirmDialog({
+    title: 'Place this layout?',
+    message: start.moved ? 'Your modules leave where you moved them and go into the areas.' : 'Your modules go into the areas of this layout.',
+    list: [...lines.closes, ...lines.moves, ...lines.opens],
+    action: 'Place it',
+    kind: lines.closes.length ? 'destructive' : 'plain',
+  }, canvasDoc()).catch(() => false);
+}
+// Save in Edit layout: ask first, send the shape (and a new name) of one the person added, then place it. False keeps the
+// sheet open (asked and declined, or refused: the refusal filed as for a layout for everyone).
+async function saveWorkspaceLayout({ workspace, own, name, record, start, startRecord, dlg, showError, input, picker, fileRefusal, done }) {
+  const id = layoutSpaceId();
+  if (own && !name) { showError('Give the workspace a name.'); input.focus(); return false; }
+  if (!record) { picker.refuse('Pick a shape first.'); return false; }
+  if (!await confirmLayoutChange(record, start, startRecord)) return false;
+  if (own) {
+    const sameShape = JSON.stringify(own.shape) === JSON.stringify(record);
+    const body = { ...(name !== own.name ? { name } : {}), ...(!sameShape ? { shape: record } : {}) };
+    if (Object.keys(body).length) {
+      try {
+        await layoutRequest('PATCH', `/api/spaces/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspace)}`, body);
+      } catch (err) {
+        if (/shape|area|column/i.test(err.message || '')) picker.refuse(err.message); else fileRefusal(err);
+        return false;
+      }
+    }
+  } else {
+    placedWorkspaceShape.set(id, { shape: record.shape, areas: record.areas.slice() });
+  }
+  done();
+  dlg.close();
+  if (layoutSpaceId() !== id) return true;
+  if (currentLayoutTab !== workspace) pressLayoutTab(workspace);
+  canvas.loadLayout(record);
+  if (own) await refreshLayouts();
+  // The keyboard back on the tab's caret (the menu stays shut, so the new arrangement is in view).
+  setTimeout(() => { const caret = tabMenuButton(currentLayoutTab); if (caret && caret.isConnected && caret.getClientRects().length) caret.focus(); }, 0);
+  return true;
 }
 // The keyboard back in the tab menu after the shape sheet: the menu closed as its entry opened the sheet, so it opens again
 // under the shown tab's caret, and the keyboard goes to the row the sheet was opened from, found by its words since the

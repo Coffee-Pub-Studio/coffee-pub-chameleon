@@ -1,6 +1,6 @@
 // The layout picker (documentation/plans/plan-layout-picker.md, step 4; "The picker"): one page piece, drawn the same
 // wherever a layout is set (a template's Default Workspace, step 5; a space's Layouts, step 6). Two steps:
-//   1. Pick a shape: the six shapes of public/layout-shapes.js drawn small, two rows of three, each beside the narrow
+//   1. Pick a shape: the nine shapes of public/layout-shapes.js drawn small, three rows of three, each beside the narrow
 //      chat and call column (a tinted band, decision 1), its areas numbered at the shape's own percentages. A radio
 //      group: one Tab stop, the arrow keys move and pick (primary-nav.js's gridStep), Home and End; Enter or a click
 //      picks and goes on to step 2.
@@ -58,6 +58,9 @@ export const SHAPE_LABELS = Object.freeze({
   'three-equal': 'Three equal',
   'tall-split': 'Two, right split',
   'wide-split': 'Large, right split',
+  'two-large-right-split': 'Two large, right split',
+  'two-large-left-split': 'Two large, left split',
+  quarters: 'Quarters',
 });
 // What a screen reader hears after a shape's label.
 export const SHAPE_ABOUT = Object.freeze({
@@ -67,6 +70,9 @@ export const SHAPE_ABOUT = Object.freeze({
   'three-equal': 'Three areas side by side, the same width.',
   'tall-split': 'One area on the left; two above each other on the right.',
   'wide-split': 'A large area; two above each other, narrow, beside it.',
+  'two-large-right-split': 'Two areas side by side; two above each other on the right. All the same width.',
+  'two-large-left-split': 'Two above each other on the left; two areas side by side beside them. All the same width.',
+  quarters: 'Four areas, two above two, the same size.',
 });
 
 // --- the pure parts (tools/check-layout-picker.mjs runs them in node) ----------------------------------------------------
@@ -355,7 +361,7 @@ export function createLayoutPicker({
     return s;
   };
 
-  // --- step 1: the six shapes ---
+  // --- step 1: the shapes ---
   function drawShapes() {
     shapesEl.replaceChildren();
     for (const def of SHAPES) {

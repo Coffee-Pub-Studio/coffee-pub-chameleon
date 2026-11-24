@@ -122,6 +122,19 @@ const SHAPE_WORDS = {
     if (!a && !(b && c)) return `${b || c} opens narrow on the right, at the ${b ? 'top' : 'bottom'}. The other two areas are empty.`;
     return `${or(a)} opens wide, with ${or(b)} above ${or(c)} narrow beside it.`;
   },
+  // The shapes for wide monitors (plan-workspaces.md, decision 42), all four areas the same width.
+  'two-large-right-split': ([a, b, c, d]) => {
+    if (!a && !b && !c && !d) return 'Four empty areas open: two side by side, and two above each other on the right.';
+    return `${or(a)} and ${or(b)} open side by side, with ${or(c)} above ${or(d)} on the right.`;
+  },
+  'two-large-left-split': ([a, b, c, d]) => {
+    if (!a && !b && !c && !d) return 'Four empty areas open: two above each other on the left, and two side by side.';
+    return `${or(a)} above ${or(b)} open on the left, with ${or(c)} and ${or(d)} side by side beside them.`;
+  },
+  quarters: ([a, b, c, d]) => {
+    if (!a && !b && !c && !d) return 'Four empty areas open, two above two.';
+    return `${or(a)} above ${or(b)} open on the left, and ${or(c)} above ${or(d)} on the right.`;
+  },
 };
 const andList = (names) => (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0] || '');
 const upFirst = (text) => (text ? text[0].toUpperCase() + text.slice(1) : text);
