@@ -3166,6 +3166,10 @@ dialog.sdk-dialog-confirm:not([open]) { display: none; }
 .sdk-welcome strong { color: var(--text-primary); }
 .sdk-welcome a { color: var(--text-link); }
 .sdk-dialog-confirm .sdk-dialog-body > p { margin: 0; color: var(--text-muted); overflow-wrap: anywhere; }
+/* The confirm's list of effects (confirm.js's `list`: one line each with its icon), the same on every page. */
+.sdk-confirm-effects { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.sdk-confirm-effects > li { display: flex; align-items: flex-start; gap: var(--space-3); overflow-wrap: anywhere; }
+.sdk-confirm-effects > li > i { flex: none; margin-top: var(--space-1); color: var(--text-muted); }
 .sdk-dialog-confirm .sdk-dialog-foot {
   margin: 0;
   padding: var(--pad-dialog-y) var(--dlg-pad-x) calc(var(--pad-dialog-y) + env(safe-area-inset-bottom, 0px));

@@ -2,7 +2,7 @@
 /*
  * check-layout-shapes.mjs -- Layout picker, step 1 (documentation/plans/plan-layout-picker.md): the shape list
  * (server/layout-shapes.js), the page's copy (public/layout-shapes.js), cleanShape() and whoCantOpen().
- *   1. The list. Six shapes, in order. Every share is on the grid (100, 50, two-thirds, one-third), each shape's columns
+ *   1. The list. Nine shapes, in order (the plan's six and decision 42's three). Every share is on the grid (100, 50, two-thirds, one-third), each shape's columns
  *      add up to 100, and its area count matches its columns and stacks. The page's copy equals the server's. The server's
  *      list of what can't share a column agrees with public/composites.js and with NEVER_STACKED in server/layouts.js.
  *   2. cleanShape(). Each shape is accepted with modules and with nulls; an unknown shape, a wrong length, an extra key
@@ -32,6 +32,10 @@ const PLAN = [
   { id: 'three-equal', areas: 3, columns: [T, T, T], stacked: [] },
   { id: 'tall-split', areas: 3, columns: [50, 50], stacked: [2, 3] },
   { id: 'wide-split', areas: 3, columns: [200 / 3, T], stacked: [2, 3] },
+  // For wide monitors (plan-workspaces.md, decision 42).
+  { id: 'two-large-right-split', areas: 4, columns: [T, T, T], stacked: [3, 4] },
+  { id: 'two-large-left-split', areas: 4, columns: [T, T, T], stacked: [1, 2] },
+  { id: 'quarters', areas: 4, columns: [50, 50], stacked: [1, 2, 3, 4] },
 ];
 const PLAN_GRID = [100, 50, 200 / 3, 100 / 3];
 
@@ -54,15 +58,16 @@ same(plain(SHAPES), plain(PLAN), 'the server list is the plan table');
 same(plain(page.SHAPES), plain(PLAN), 'the page list is the plan table');
 same(plain(GRID), plain(PLAN_GRID), 'the grid is full, halves and thirds');
 ok(SHAPES.every((s, i) => s.columns.every((c, j) => c === PLAN[i].columns[j])), 'the shares match the plan to the last digit');
-same(SHAPES.map((s) => s.id), ['one', 'two-equal', 'wide-narrow', 'three-equal', 'tall-split', 'wide-split'], 'the six shapes of the sketch, in order');
-same(SHAPES.map((s) => s.areas), [1, 2, 2, 3, 3, 3], 'areas per shape');
+same(SHAPES.map((s) => s.id), ['one', 'two-equal', 'wide-narrow', 'three-equal', 'tall-split', 'wide-split', 'two-large-right-split', 'two-large-left-split', 'quarters'], 'the nine shapes, in order');
+same(SHAPES.map((s) => s.areas), [1, 2, 2, 3, 3, 3, 4, 4, 4], 'areas per shape');
 for (const s of SHAPES) {
   ok(s.columns.every((c) => GRID.some((g) => near(g, c))), `${s.id}: every share is on the grid`);
   ok(near(s.columns.reduce((a, b) => a + b, 0), 100), `${s.id}: columns add up to 100`);
-  const expect = s.areas - s.stacked.length + (s.stacked.length ? 1 : 0);
+  const expect = s.areas - s.stacked.length / 2;
   ok(s.columns.length === expect, `${s.id}: ${s.columns.length} columns for ${s.areas} areas with ${s.stacked.length} stacked`);
-  ok(s.stacked.every((a) => Number.isInteger(a) && a >= 1 && a <= s.areas), `${s.id}: stacked areas are real area numbers`);
-  ok(s.stacked.length === 0 || s.stacked.length === 2, `${s.id}: a stack is two areas`);
+  ok(s.stacked.every((a) => Number.isInteger(a) && a >= 1 && a <= s.areas) && new Set(s.stacked).size === s.stacked.length, `${s.id}: stacked areas are real area numbers, each once`);
+  ok(s.stacked.length % 2 === 0, `${s.id}: a stack is two areas (stacked is in pairs)`);
+  for (let i = 0; i < s.stacked.length; i += 2) ok(s.stacked[i + 1] === s.stacked[i] + 1, `${s.id}: a stack's two areas are numbered one after the other, top first`);
 }
 same(SHAPES.find((s) => s.id === 'tall-split').columns, [50, 50], 'tall-split: two equal columns');
 ok(near(SHAPES.find((s) => s.id === 'wide-split').columns[0], 200 / 3) && near(SHAPES.find((s) => s.id === 'wide-split').columns[1], 100 / 3), 'wide-split: two-thirds and one-third');
@@ -122,6 +127,12 @@ bad({ shape: 'tall-split', areas: [null, 'chat', null] }, "The chat and the call
 good({ shape: 'tall-split', areas: ['documents', 'goals', 'schedule'] }, 'ordinary modules stack');
 
 bad({ shape: 'tall-split', areas: [null, 'dest:calendar', null] }, '"dest:calendar" is not a module you can use here.', 'a composite id is not a module id');
+// The new shapes name where a composite can go instead, or that it can go nowhere.
+bad({ shape: 'two-large-right-split', areas: [null, null, 'maps', null] }, "Maps can't share a column; put it in area 1 or 2.", 'two-large-right-split: Maps stacked');
+bad({ shape: 'two-large-left-split', areas: ['calendar', null, null, null] }, "Calendar can't share a column; put it in area 3 or 4.", 'two-large-left-split: Calendar stacked');
+bad({ shape: 'quarters', areas: [null, null, null, 'calendar'] }, "Calendar can't share a column, and every area of this shape does; pick another shape.", 'quarters: Calendar anywhere');
+good({ shape: 'two-large-left-split', areas: ['goals', 'documents', 'calendar', 'maps'] }, 'two-large-left-split: composites in areas 3 and 4');
+good({ shape: 'quarters', areas: ['goals', 'documents', 'todo', null] }, 'quarters: ordinary modules');
 bad({ shape: 'tall-split', areas: [null, 'calendar', null] }, "Chameleon Calendar can't share a column; put it in area 1.", 'the module name as a person reads it', { names: { calendar: 'Chameleon Calendar' } });
 bad({ shape: 'tall-split', areas: [null, 'calendar', null] }, '"calendar" is not a module you can use here.', 'a module not allowed here gets that sentence, not the stack one', { modules: ['documents'] });
 good({ shape: 'tall-split', areas: [null, 'todo', null] }, 'To-do has its own window: it stacks, the Calendar on or off');

@@ -598,6 +598,9 @@ test('a tab menu\'s own entries (plan-workspaces.md, decisions 39, 40 and 44): t
   assert.match(items, /more: mayChangeLayout\(true\) \|\| maySetDefault\(true\) \? \(anchor\) => layoutRowItems\(l\.id, anchor\) : undefined,/);
   assert.match(items, /if \(mayShare\) items\.push\(\{ icon: 'user-group', label: 'New layout for everyone', onPick: \(\) => openShapeSheet\(\) \}\);/);
   assert.match(items, /const own = findOwn\(id\);\n\s*if \(own\) \{/, 'Rename and Delete only on one the person added');
+  // Edit layout (decisions 40 and 45) on every editable workspace, for anyone who keeps workspaces; the same picker sheet.
+  assert.match(items, /if \(layoutList\.spaceId && mayOwn\(\) && isEditable\(id\)\) \{\n[^\n]*\n\s*items\.push\(\{ icon: 'table-columns', label: 'Edit layout', onPick: \(\) => editLayout\(id\) \}\);/, 'Edit layout on an editable workspace');
+  assert.match(space, /openShapeSheet\(null, \{ workspace: ws, start: workspaceStart\(ws\) \}\)/, 'Edit layout is the layout picker sheet, not a second editor');
   assert.match(items, /label: 'Delete', confirm: `Delete \$\{own\.name\}\?`, armed: true/);
   assert.ok(!/label: 'New layout'|Save as new layout|openSaveLayout|isFavorite|setFavorite/.test(space), 'no layouts or favorites of one\'s own');
   assert.match(space, /const mayChangeLayout = \(shared\) => !guestMode && \(!shared \|\| layoutList\.canShare\);/, 'a guest changes nothing; shared ones only with the right');
@@ -708,9 +711,9 @@ test('layouts for everyone are shapes (plan-layout-picker.md, step 6): New layou
   assert.match(space, /const emptyLayoutList = \(spaceId = null\) => \(\{ spaceId, shared: \[\], system: \[\], own: \[\], ownLimit: 0, cantOpen: null, firstVisit: null,/, 'every empty list has no cantOpen');
   // The sheet: the picker, its own bar off, in a <dialog> on the shared action bar.
   const sheet = space.slice(space.indexOf('function openShapeSheet('), space.indexOf('// Change icon (plan-layout-views.md'));
-  assert.match(sheet, /if \(!id \|\| !layoutList\.canShare\) return;/, 'only for those who may share');
+  assert.match(sheet, /if \(!id \|\| \(personal \? !mayOwn\(\) \|\| !start : !layoutList\.canShare\)\) return;/, 'only for those who may share (Edit layout: anyone who keeps workspaces)');
   assert.match(sheet, /dlg\.className = 'layout-sheet layout-shape-sheet';/);
-  assert.match(sheet, /const picker = createLayoutPicker\(\{[\s\S]*?record: editing \? \{ shape: editing\.shape, areas: editing\.areas\.slice\(\) \} : null,[\s\S]*?parts: canvas\.compositeParts\(\),[\s\S]*?cantOpen: layoutList\.cantOpen,[\s\S]*?bar: false,/, 'the picker on the record, the composite parts here and the maker\'s notice');
+  assert.match(sheet, /const picker = createLayoutPicker\(\{[\s\S]*?record: editing \? \{ shape: editing\.shape, areas: editing\.areas\.slice\(\) \} : personal && start\.record \? [^\n]*,[\s\S]*?parts: canvas\.compositeParts\(\),[\s\S]*?cantOpen: personal \? null : layoutList\.cantOpen,[\s\S]*?bar: false,/, 'the picker on the record, the composite parts here and the maker\'s notice');
   assert.match(sheet, /\.filter\(\(m\) => m && !COLUMN_IDS\.includes\(m\.id\) && m\.canvas\)/, 'areas offer the modules on here with a place on the canvas, never the chat or the call');
   assert.match(sheet, /: \{ name, shared: true, shape: record\.shape, areas: record\.areas \};/, 'New: POST { name, shared: true, shape, areas }');
   assert.match(sheet, /\? \{ \.\.\.\(name !== editing\.name \? \{ name \} : \{\}\), \.\.\.\(!same\(record, startRecord\) \? \{ shape: record\.shape, areas: record\.areas \} : \{\}\) \}/, 'Edit: PUT only what changed, the shape with its areas');

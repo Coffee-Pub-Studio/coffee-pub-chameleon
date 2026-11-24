@@ -2958,6 +2958,17 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     arrangedAs.delete(id);
     if (pendingArrange && pendingArrange.workspace === id) pendingArrange = null;
   }
+  // How the canvas is arranged now, for Edit layout (plan-workspaces.md, decisions 40 and 45): `columns`, the docked
+  // columns left to right, each its holders top first (a module's id, as it reads here, or null for an empty area's
+  // placeholder); `loose`, the modules open but not in a column (floating, in a window of their own). The conference and
+  // the chat are the column's and never counted; nor is a module waiting for room (it still wants its column).
+  function arrangedNow() {
+    const counted = (p) => p.kind !== 'builtin' && !columnOwned(p);
+    const columns = columnsFrom(holders().filter((p) => wantsColumn(p) && (isArea(p) || counted(p))).sort(byOrder))
+      .map((c) => c.mods.map((p) => (isArea(p) ? null : p.id)));
+    const loose = [...opened.values()].filter((p) => counted(p) && !wantsColumn(p)).sort(byOrder).map((p) => p.id);
+    return { columns, loose };
+  }
   // A module's name for the load's note, open or not, installed here or not (one left out has only its id).
   const nameOfLayout = (id) => builtins.get(id)?.name || available.find((x) => x.id === id)?.name || id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' ');
 
@@ -3323,6 +3334,9 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     resumeMemory,
     showWorkspace,
     forgetWorkspace,
+    // Edit layout: how the canvas is arranged now, and the template's shape for the Workspace (null when it has none).
+    arrangedNow,
+    spaceShape: () => spaceShape,
     workspaceShown: () => workspaceId,
     holdingMemory: () => Boolean(held),
     // Whether the canvas is narrow (640 px and below): the Layout panel's Layouts section is not drawn then.

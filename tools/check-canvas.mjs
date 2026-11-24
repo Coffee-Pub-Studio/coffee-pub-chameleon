@@ -876,12 +876,13 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   const parts = [...new Set(COMPOSITES.flatMap((c) => c.parts))];
   const place = (shape, areas, width, opts = {}, canOpen = () => true) => placeShape({ shape, areas }, width, canOpen, { shape: shapeById(shape), ...opts });
   const ids = ['documents', 'goals', 'polls'];
+  const four = [...ids, 'budget']; // enough for the shapes of four areas
   const close = (a, b, tol = 1) => Math.abs(a - b) <= tol;
   // Every shape, at every width the plan names: the columns, their widths from the percentages, the stacks.
   for (const s of SHAPES) {
     for (const W of [1600, 1000, 800, 700, 390]) {
       const label = `${s.id} at ${W}px`;
-      const got = place(s.id, ids.slice(0, s.areas), W);
+      const got = place(s.id, four.slice(0, s.areas), W);
       if (got.shape !== s.id) { fail(F, `${label}: placed nothing`); continue; }
       const phone = W <= 640;
       if (got.narrow !== phone) fail(F, `${label}: narrow is ${got.narrow}`);
@@ -892,11 +893,13 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
         if (c.flex !== (i === 0)) fail(F, `${label}: the first column is the flexible one`);
       });
       if (Math.abs(got.columns.reduce((a, c) => a + c.width, 0) - W) > got.columns.length) fail(F, `${label}: the columns fill the view`);
-      if (got.slots.map((x) => x.id).join() !== ids.slice(0, s.areas).join()) fail(F, `${label}: the modules in area order (${got.slots.map((x) => x.id)})`);
+      if (got.slots.map((x) => x.id).join() !== four.slice(0, s.areas).join()) fail(F, `${label}: the modules in area order (${got.slots.map((x) => x.id)})`);
       if ('dockW' in got.slots[0] || got.slots.slice(1).some((x) => x.column > 0 && !(x.dockW >= DOCK_MIN))) fail(F, `${label}: the flexible column has no width of its own, every other its share (at least DOCK_MIN): ${JSON.stringify(got.slots)}`);
       const stackSlots = got.slots.filter((x) => x.stack);
       if (s.stacked.length) {
-        if (stackSlots.map((x) => x.area).join() !== s.stacked.join() || stackSlots.some((x) => x.h !== 0.5) || stackSlots.map((x) => x.at).join() !== '0,1' || new Set(stackSlots.map((x) => x.stack)).size !== 1) fail(F, `${label}: areas ${s.stacked} are one stack, top first, half the column's height each: ${JSON.stringify(stackSlots)}`);
+        // `stacked` is in pairs: each two areas in turn are one stack, top first (Quarters has two).
+        const pairs = s.stacked.length / 2;
+        if (stackSlots.map((x) => x.area).join() !== s.stacked.join() || stackSlots.some((x) => x.h !== 0.5) || stackSlots.map((x) => x.at).join() !== Array(pairs).fill('0,1').join() || new Set(stackSlots.map((x) => x.stack)).size !== pairs) fail(F, `${label}: areas ${s.stacked} are stacks of two, top first, half the column's height each: ${JSON.stringify(stackSlots)}`);
       } else if (stackSlots.length) fail(F, `${label}: no stack`);
       if (got.empty.length || got.closed.length || got.left.length) fail(F, `${label}: nothing empty or closed`);
       if (phone && got.waiting.length) fail(F, `${label}: nothing waits on a phone`);
