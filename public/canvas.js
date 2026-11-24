@@ -12,7 +12,7 @@
 // when it is popped out: they open in whichever window the canvas is in.
 // See documentation/architecture/architecture-canvas.md.
 
-import { api, markModuleRead, followTheme, word, fill, noticeToast } from '/brand.js';
+import { api, markModuleRead, followTheme, word, fill, noticeToast, actionToast } from '/brand.js';
 import { mountModule, createFrameLift, openClearMenu, clearWithUndo, followClearable, registerDragRelay, createFrameBands, relayStreamToFrame, joinStream } from '/module-host.js';
 import { createModuleFrame } from '/module-frame.js';
 import { mountHostMenu, openHostMenu, hostMenuOpen, refreshHostMenu } from '/host-menu.js';
@@ -225,12 +225,14 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   // nothing is written, and `held` keeps the editable workspace's arrangement as it was, for showWorkspace to put back.
   // { space, saved }: the space it belongs to and a copy of what was remembered.
   let held = null;
+  let undoArrange = null; // Clean up's or Unstack all's Undo while it is offered: { before, after, label, toast, busy } (undoable)
   let workspaceId = 'workspace';
   const arrangements = new Map();
   // An arrangement (Panel Mode or Window Mode) chosen while the window is a phone's, for placeForWidth to put on the
   // canvas once it is wide again (GitHub #268).
   let arrangeOnWide = false;
   function persist() {
+    if (undoArrange && !undoArrange.busy && arrangeSig() !== undoArrange.after) dropUndo(); // any other change ends Undo
     if (spaceId && !suspended && !restoring) onArrange?.(); // the arrangement changed (space.js checks for Modified, once a frame)
     if (!spaceId || holdStore || held) return; // an aside remembers nothing; another tab than the Workspace neither
     if (guest) {
@@ -606,6 +608,122 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     }
     return mods.length;
   }
+  // Clean up in Panel Mode (plan-workspaces.md, decision 41; Thomas, 2026-11-24: "given our changes to panels (stacking
+  // and reordering) cleanup should be an option for them too"): the docked columns as they are, nothing closed and none
+  // moved to another column, through the stacks' own arrange(): the order values given out again with no gaps, every
+  // fixed column the same width (the canvas shared by the columns, the flexible one keeping at least FLEX_MIN, none below
+  // DOCK_MIN), every stack's sections equal heights (evenShares, as Equal heights) and every collapsed section open. A
+  // waiting module keeps its place and waits. Answers how many columns there are.
+  function cleanUpPanels() {
+    if (isNarrow()) return 0;
+    const cols = currentColumns();
+    if (!cols.length) return 0;
+    const live = columnsFrom(dockedModules());
+    const flex = flexOf(live);
+    const fixed = live.filter((c) => c !== flex).length;
+    const room = canvasWidth() - FLEX_MIN;
+    const width = fixed ? clampDock(Math.max(DOCK_MIN, Math.min(Math.floor(canvasWidth() / live.length), Math.floor(room / fixed)))) : 0;
+    const flexIds = new Set(flex ? flex.mods.map((p) => p.id) : []);
+    arrange(cols.map((c) => ({ ...c, even: c.ids.length > 1, width: width && !c.ids.some((id) => flexIds.has(id)) ? width : c.width })));
+    for (const c of cols) {
+      if (c.ids.length > 1) {
+        for (const id of c.ids) if (!areas.has(id) && saved[id]?.folded) saved[id] = { ...saved[id], folded: false };
+        autoFolded.delete(c.stack);
+        keepOpen.delete(c.stack);
+        continue;
+      }
+      // A column of one keeps its width as a docked module does (`dockW`); arrange() sets a stack's.
+      const id = c.ids[0];
+      if (!width || flexIds.has(id)) continue;
+      const a = areas.get(id);
+      if (a) { a.width = width; continue; }
+      const p = opened.get(id);
+      if (p && p.mode === 'dock') p.width = width;
+      if (p && p.kind === 'module') remember(id, { dockW: width });
+    }
+    persist();
+    relayoutStacks();
+    syncDock();
+    update();
+    return cols.length;
+  }
+
+  // Undo for Clean up and Unstack all (plan-workspaces.md, decision 41; the designer's "Undo clean up"): the arrangement
+  // from before, put back once. Offered right after, as the toast's Undo (brand.js's actionToast) and as a row in Arrange,
+  // until the toast goes or anything else changes the arrangement (persist compares arrangeSig with the one the action
+  // left), or another workspace or space is shown. Nothing is closed or opened by it: the records, the order values, the
+  // widths and the floating boxes go back as they were, and the arrangement is saved as any change is (persist).
+  const arrangeSig = () => JSON.stringify([saved, holders().map((p) => [p.id, p.order, p.mode, p.width ?? null, p.waiting === true, isArea(p) ? [p.stack ?? null, p.at ?? null, p.h ?? null] : null])]);
+  function arrangementNow() {
+    return {
+      saved: structuredClone(saved),
+      slots: holders().map((p) => {
+        const f = isArea(p) ? null : floaterOf(p);
+        return { id: p.id, order: p.order, width: p.width, area: isArea(p) ? { stack: p.stack, at: p.at, h: p.h } : null, box: f ? currentBox(f) : null };
+      }),
+    };
+  }
+  function dropUndo() {
+    const was = undoArrange;
+    undoArrange = null;
+    if (was) { was.toast?.close(); refreshMenu(); }
+  }
+  // Run an arrange action (`act`, answering whether it did anything) so it can be undone; `said` is the toast's words.
+  function undoable(act, { said, label }) {
+    dropUndo();
+    const before = arrangementNow();
+    const sigBefore = arrangeSig();
+    act();
+    const after = arrangeSig();
+    if (after === sigBefore) { note('Nothing to clean up.'); return false; }
+    const entry = { before, after, label, toast: null, busy: false };
+    undoArrange = entry;
+    entry.toast = actionToast({
+      icon: 'broom',
+      title: said,
+      ms: 10000,
+      actions: [{ id: 'undo', label: 'Undo', primary: true }],
+      onAction: (id) => { if (id === 'undo') undoTidy(); return true; },
+      onClose: () => { if (undoArrange === entry) { undoArrange = null; refreshMenu(); } },
+    });
+    refreshMenu();
+    return true;
+  }
+  function undoTidy() {
+    const entry = undoArrange;
+    if (!entry) return false;
+    entry.busy = true;
+    const { before } = entry;
+    try {
+      for (const k of Object.keys(saved)) delete saved[k];
+      Object.assign(saved, structuredClone(before.saved));
+      for (const s of before.slots) {
+        const p = slotOf(s.id);
+        if (!p) continue;
+        p.order = s.order;
+        if (s.area) { Object.assign(p, s.area); if (s.width !== undefined) p.width = s.width; continue; }
+        p.width = s.width;
+        const f = floaterOf(p);
+        if (f && s.box) place(f, s.box);
+      }
+      persist();
+      relayoutStacks();
+      syncDock();
+      update();
+    } finally {
+      undoArrange = null;
+      entry.toast?.close();
+    }
+    note('Put back as it was.');
+    refreshMenu();
+    return true;
+  }
+  // Clean up from Arrange: the mode's own (Panels: cleanUpPanels; Windows: cleanUp), with its Undo.
+  function tidyUp() {
+    const windows = arrangeMode() === 'window';
+    return undoable(() => (windows ? cleanUp() : cleanUpPanels()), { said: 'Cleaned up', label: 'Undo clean up' });
+  }
+
   // The grid's size, from the space bar's slider: every snapped module is re-settled into the cells nearest the box it was
   // put in (`placed`), so it keeps about its size in pixels, not its count of cells, and none sits on another where the canvas
   // has room (snap-grid.js's resettle). Going back to the old size gives back the old boxes. While the slider moves
@@ -2936,6 +3054,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   function showWorkspace(id) {
     if (!spaceId || typeof id !== 'string' || !id || (guest && id !== 'workspace')) return false;
     if (id === workspaceId && !held) return false; // shown already
+    dropUndo(); // Undo is the shown workspace's
     const leaving = held ? (held.space === spaceId ? held.saved : null) : saved;
     held = null;
     writeArrangement(); // the one left's last change goes first
@@ -3011,8 +3130,12 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
       { radio: true, checked: !windowMode, icon: 'fa-solid fa-table-columns', label: 'Panels', onPick: () => setArrangeMode('panel') },
       { radio: true, checked: windowMode, icon: 'window-restore', label: 'Windows', onPick: () => setArrangeMode('window') },
     ];
-    // Every stack back to columns of their own (plan-panel-stacking.md, decision 9); only while there is one.
-    if (!windowMode && hasStacks()) items.push({ divider: true }, { icon: 'object-ungroup', label: 'Unstack all', onPick: () => unstackAll() });
+    // Panels: Clean up (decision 41), then every stack back to columns of their own (plan-panel-stacking.md, decision 9),
+    // only while there is one. Both can be undone.
+    if (!windowMode) {
+      items.push({ divider: true }, { icon: 'fa-solid fa-broom', label: 'Clean up', onPick: () => tidyUp() });
+      if (hasStacks()) items.push({ icon: 'object-ungroup', label: 'Unstack all', onPick: () => undoable(unstackAll, { said: 'Unstacked', label: 'Undo unstack all' }) });
+    }
     if (windowMode) {
       items.push({ divider: true }, { toggle: true, checked: snapAllOn(), icon: 'border-all', label: 'Snap to grid', onPick: () => setSnapAll(!snapAllOn()) });
       if (snapAllOn()) {
@@ -3020,8 +3143,10 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
         snapSize.value = String(snapPitch());
         items.push({ element: snapSizeRow });
       }
-      items.push({ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: () => cleanUp() });
+      items.push({ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: () => tidyUp() });
     }
+    // Right after a Clean up or Unstack all, until anything else changes (undoable).
+    if (undoArrange) items.push({ divider: true }, { icon: 'rotate-left', label: undoArrange.label, onPick: () => undoTidy() });
     return items;
   }
   function menuEntries() {
@@ -3161,6 +3286,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     closeAllModules();
     note('');
     writeArrangement(); // the space left's last change, before anything is read for the next
+    dropUndo();
     spaceId = id;
     workspaceId = 'workspace';
     arrangements.clear();
@@ -3315,6 +3441,10 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     snapAllOn,
     dockAll,
     cleanUp,
+    // Clean up in the mode shown, with Undo (the Arrange flyout's), and that Undo while it is offered.
+    tidyUp,
+    undoTidy,
+    canUndoTidy: () => Boolean(undoArrange),
     snapPitch,
     snapPitchRange: () => ({ ...SNAP_PITCH }),
     setSnapPitch,

@@ -514,7 +514,7 @@ test('Online gets the width the rest of the left zone and the right zone leave, 
   assert.match(src, /scheduleFit\(bar\); \/\/ the fit after the pick says where the keyboard goes/, 'a pick from either "..." fits its own bar');
 });
 
-test('the tab menu (plan-workspaces.md, decisions 40 and 44; Thomas, 2026-11-24): the page\'s shared menu under an editable tab\'s caret, Open for you as switches that keep it open, the page\'s entries, then Arrange last as one row whose flyout holds Panels and Windows (Unstack all in Panels; Snap to grid and Clean up in Windows), the note last; no Layout button', () => {
+test('the tab menu (plan-workspaces.md, decisions 40 and 44; Thomas, 2026-11-24): the page\'s shared menu under an editable tab\'s caret, Open for you as switches that keep it open, the page\'s entries, then Arrange last as one row whose flyout holds Panels and Windows (Clean up in both, Unstack all in Panels; Snap to grid in Windows; Undo right after a Clean up or Unstack all), the note last; no Layout button', () => {
   const space = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
   const canvasJs = fs.readFileSync(path.join(ROOT, 'public/canvas.js'), 'utf8');
   const menuJs = fs.readFileSync(path.join(ROOT, 'public/host-menu.js'), 'utf8');
@@ -553,7 +553,12 @@ test('the tab menu (plan-workspaces.md, decisions 40 and 44; Thomas, 2026-11-24)
   const windowOnly = items.slice(items.indexOf('if (windowMode) {'), items.indexOf('function menuEntries() {'));
   assert.match(windowOnly, /\{ toggle: true, checked: snapAllOn\(\), icon: 'border-all', label: 'Snap to grid', onPick: \(\) => setSnapAll\(!snapAllOn\(\)\) \}/);
   assert.match(windowOnly, /if \(snapAllOn\(\)\) \{[\s\S]*?items\.push\(\{ element: snapSizeRow \}\);/);
-  assert.match(windowOnly, /\{ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: \(\) => cleanUp\(\) \}/);
+  assert.match(windowOnly, /\{ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: \(\) => tidyUp\(\) \}/);
+  // Clean up in Panels too (plan-workspaces.md, decision 41), before Unstack all; both can be undone (undoable), and Undo
+  // is a row of the flyout while it is offered.
+  const panelOnly = items.slice(items.indexOf('if (!windowMode) {'), items.indexOf('if (windowMode) {'));
+  assert.match(panelOnly, /items\.push\(\{ divider: true \}, \{ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: \(\) => tidyUp\(\) \}\);\n\s*if \(hasStacks\(\)\) items\.push\(\{ icon: 'object-ungroup', label: 'Unstack all', onPick: \(\) => undoable\(unstackAll, /);
+  assert.match(items, /if \(undoArrange\) items\.push\(\{ divider: true \}, \{ icon: 'rotate-left', label: undoArrange\.label, onPick: \(\) => undoTidy\(\) \}\);\n\s*return items;/);
   assert.ok(!/Dock all|Snap to a grid/.test(items), 'Dock all is Panel Mode now, Snap to a grid reads Snap to grid');
   // The modes: remembered per person per space (__mode; Panel Mode where nothing is stored), Panel Mode docks everything
   // (dockAll), Window Mode floats what can float, new modules follow the mode, a loaded layout sets it.
@@ -2476,7 +2481,7 @@ test('Set up: a right-zone tool after your picture, before the window controls, 
   const membersTab = setup.slice(setup.indexOf('  function membersTabHtml() {'), setup.indexOf('  // Phases (plan-setup-panel.md, step 4)'));
   for (const id of ['setup-members', 'setup-entry', 'setup-request-access', 'setup-waiting', 'setup-guests-see-hidden', 'setup-make-invite', 'setup-guest-link-value']) assert.match(membersTab, new RegExp(`id="${id}"`), `#${id} is on Members`);
   const layoutTab = setup.slice(setup.indexOf('  function layoutTabHtml() {'), setup.indexOf('  // The Modules tab (id `modules`'));
-  assert.match(layoutTab, /const parts = \[layoutsSectionHtml\(\), firstVisitHtml\(\)\];/, 'Layout: Tabs in the bar, then First visit');
+  assert.match(layoutTab, /const parts = \[layoutsSectionHtml\(\), sharedSectionHtml\(\), firstVisitHtml\(\)\];/, 'Layout: Tabs in the bar, Layouts for everyone (Copy one of mine), then First visit');
   assert.match(layoutTab, /if \(!state\.owner && !state\.space\.isLobby\) \{\n\s*parts\.push\(sectionHtml\('open'/, 'and a moderator\'s open and close switch');
   assert.match(setup, /id="setup-layouts-heading">Tabs in the bar<\/h3>/, 'the heading reads Tabs in the bar, not Layouts');
   const modulesTab = setup.slice(setup.indexOf('  function modulesTabHtml() {'), setup.indexOf('  // Tags (plan-tags.md'));
@@ -2643,7 +2648,21 @@ test('Set up Layouts (plan-workspaces.md, step 3): the owner\'s order and hide a
   // the panel's markup and code
   const setup = fs.readFileSync(path.join(ROOT, 'public/space-setup.js'), 'utf8');
   assert.match(setup, /<h3 class="setup-heading" id="setup-layouts-heading">Tabs in the bar<\/h3>/);
-  assert.match(setup, /const parts = \[layoutsSectionHtml\(\), firstVisitHtml\(\)\];/, 'on the Layout tab, which a moderator has too');
+  assert.match(setup, /const parts = \[layoutsSectionHtml\(\), sharedSectionHtml\(\), firstVisitHtml\(\)\];/, 'on the Layout tab, which a moderator has too');
+  // Copy one of mine (plan-workspaces.md, decisions 39 and 49): only for those who may make a layout for everyone, the
+  // person's own workspaces (never the Workspace) in the page's shared menu, one with a shape POSTed as a layout for
+  // everyone under its name; one with no shape or a taken name is offered disabled with why; none at all says so plainly.
+  assert.match(setup, /<h3 class="setup-heading" id="setup-shared-heading">Layouts for everyone<\/h3>/);
+  assert.match(setup, /id="setup-copy-mine" aria-haspopup="menu"[^>]*><i class="fa-solid fa-copy" aria-hidden="true"><\/i> Copy one of mine<\/button>/);
+  assert.match(setup, /box\.hidden = !layouts\.canShare;/, 'only for those who may make a layout for everyone');
+  const copyCode = setup.slice(setup.indexOf('  async function copyMine(button) {'), setup.indexOf('    const stop = q(\'#setup-opens-with-layout-stop\');'));
+  assert.match(copyCode, /api\('GET', `\/api\/spaces\/\$\{encodeURIComponent\(space\.id\)\}\/workspaces`\)/);
+  assert.match(copyCode, /w\.id !== 'workspace'/, 'the Workspace is the space\'s, not one of mine');
+  assert.match(copyCode, /You have no workspace of your own here to copy\./);
+  assert.match(copyCode, /openHostMenu\(button, items\);/, 'the page\'s shared menu');
+  assert.match(copyCode, /api\('POST', `\/api\/spaces\/\$\{encodeURIComponent\(space\.id\)\}\/layouts`, \{ shared: true, name: w\.name, shape: w\.shape\.shape, areas: w\.shape\.areas \}\)/);
+  assert.match(copyCode, /disabled: true, hint: 'It has no layout yet\. Pick one with Edit layout\.'/);
+  assert.match(saveCue('layout'), /Copy one of mine happens at once\./);
   for (const words of ['Show in the bar', 'Opens first', 'Move up', 'Move down', 'The Workspace is always shown.']) assert.ok(setup.includes(words), words);
   assert.match(setup, /data-move="up" aria-label="Move \$\{name\} up"/, 'real buttons with names that say which');
   assert.match(setup, /role="switch" data-layout-show=/, 'a switch');

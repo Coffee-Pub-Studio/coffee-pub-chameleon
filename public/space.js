@@ -3117,7 +3117,7 @@ nav.register({ id: 'aside-rejoin', bar: 'primary', zone: 'right', group: 'aside'
 // in order, and leaves the mode; Cancel and Escape leave it and drop the edits, asking "Discard your changes?" first
 // when something was edited; a click outside does nothing. A member has no Set up. /?setup=<id>#<tab> opens it from an
 // address (openSetupFor, step 6), as do the space card's Set up link on Home and Manage's Edit link.
-const spaceSetup = createSpaceSetup({ tabOverflow, openMenu: openHostMenu, api, word, verb, icons: getIcons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, renderModuleSettings });
+const spaceSetup = createSpaceSetup({ tabOverflow, openMenu: openHostMenu, api, word, verb, icons: getIcons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, renderModuleSettings, onLayouts: (id) => { if (layoutSpaceId() === id) refreshLayouts(); } });
 let settingUp = false;
 const setupNameInput = document.createElement('input');
 setupNameInput.type = 'text';
