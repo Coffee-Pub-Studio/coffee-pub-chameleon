@@ -5,6 +5,7 @@
  *   GET    /api/spaces/:id/workspaces                           200 { workspaces: [the Workspace, then those added], limits }
  *   POST   /api/spaces/:id/workspaces { name, shape? }          201 { workspace }
  *   PATCH  /api/spaces/:id/workspaces/:workspaceId { name?, shape? }  200 { workspace }
+ *   PUT    /api/spaces/:id/workspaces/order { ids }               200 { workspaces } (Manage tabs, decision 43)
  *   DELETE /api/spaces/:id/workspaces/:workspaceId              204
  *   PUT    /api/spaces/:id/workspaces/:workspaceId/arrangement { arrangement }  200 { id, at, arrangement }
  * In-process: the arrangement check (every key, bad values, the caps), the Workspaces class (round trip, limits, names,
@@ -119,6 +120,14 @@ const BIG = { modules: Object.fromEntries(Array.from({ length: 59 }, (_, i) => [
   same(back.map((w) => [w.id, w.arrangement]), [['workspace', FULL], [a.id, { open: ['budget'] }]], 'each workspace keeps its own arrangement, read back by a new instance');
   assert.throws(() => ws.arrange('s1', 'pat', 'wnosuch', {}), (e) => e.status === 404); n += 1;
   assert.throws(() => ws.arrange('s1', 'sam', a.id, {}), (e) => e.status === 404); n += 1; // not sam's
+  const b = ws.add('s1', 'pat', { name: 'Second' });
+  same(ws.reorder('s1', 'pat', [b.id, a.id]).map((w) => w.id), ['workspace', b.id, a.id], 'reordered: the Workspace first, then the new order');
+  same(new Workspaces(dir).list('s1', 'pat').map((w) => [w.id, w.arrangement]), [['workspace', FULL], [b.id, null], [a.id, { open: ['budget'] }]], 'kept, each with its own arrangement');
+  for (const ids of [[a.id], [a.id, a.id], [a.id, b.id, 'wnosuch'], ['workspace', a.id]]) {
+    assert.throws(() => ws.reorder('s1', 'pat', ids), (e) => e instanceof WorkspaceError && e.status === 409 && SENTENCE.test(e.message)); n += 1;
+  }
+  same(ws.reorder('s1', 'sam', []).map((w) => w.id), ['workspace'], 'none added: an empty order is the list as it is');
+  ws.remove('s1', 'pat', b.id);
   same(ws.change('s1', 'pat', a.id, { name: 'Plans' }).name, 'Plans', 'renamed');
   assert.throws(() => ws.change('s1', 'pat', 'workspace', { name: 'X' }), (e) => e.status === 404); n += 1;
   for (let i = 1; i < WORKSPACE_LIMITS.added; i++) ws.add('s1', 'pat', { name: `W${i}` });
@@ -160,7 +169,7 @@ const BIG = { modules: Object.fromEntries(Array.from({ length: 59 }, (_, i) => [
   const routes = [];
   const app = Object.fromEntries(['get', 'post', 'patch', 'delete', 'put'].map((m) => [m, (p, h) => routes.push({ m, p, h })]));
   mountWorkspaces(app, { store: () => ({}), spaceFor: () => ({ who: { user: { key: 'a1', agent: true } }, space: { id: 's1' } }), shapeOptions: () => ({}), word: (k, o) => (o?.many ? `${o.cap ? k[0].toUpperCase() + k.slice(1) : k}s` : k) });
-  same(routes.map((r) => `${r.m.toUpperCase()} ${r.p}`), ['GET /api/spaces/:id/workspaces', 'POST /api/spaces/:id/workspaces', 'PATCH /api/spaces/:id/workspaces/:workspaceId', 'DELETE /api/spaces/:id/workspaces/:workspaceId', 'PUT /api/spaces/:id/workspaces/:workspaceId/arrangement'], 'the five routes, in order');
+  same(routes.map((r) => `${r.m.toUpperCase()} ${r.p}`), ['GET /api/spaces/:id/workspaces', 'POST /api/spaces/:id/workspaces', 'PUT /api/spaces/:id/workspaces/order', 'PATCH /api/spaces/:id/workspaces/:workspaceId', 'DELETE /api/spaces/:id/workspaces/:workspaceId', 'PUT /api/spaces/:id/workspaces/:workspaceId/arrangement'], 'the six routes, in order');
   for (const r of routes) {
     let status = 0; let body = null;
     const res = { status(s) { status = s; return this; }, json(b) { body = b; return this; }, end() { return this; } };
@@ -239,6 +248,16 @@ try {
   await expect("nor delete it", 404, 'DELETE', `${W()}/${mine.id}`, { token: T.owner });
   await expect('renamed', 200, 'PATCH', `${W()}/${mine.id}`, { token: T.member, body: { name: 'Desk' } });
   await expect('a free canvas', 200, 'PATCH', `${W()}/${mine.id}`, { token: T.member, body: { shape: null } });
+  // Manage tabs (decision 43): a person puts only their own added tabs in order; the Workspace keeps its place.
+  const two = (await expect('a second one', 201, 'POST', W(), { token: T.member, body: { name: 'Two' } })).json.workspace;
+  const three = (await expect('a third one', 201, 'POST', W(), { token: T.member, body: { name: 'Three' } })).json.workspace;
+  const ordered = await expect('reordered', 200, 'PUT', `${W()}/order`, { token: T.member, body: { ids: [three.id, mine.id, two.id] } });
+  same(ordered.json.workspaces.map((w) => w.id), ['workspace', three.id, mine.id, two.id], 'the answer is the list in the new order, the Workspace first');
+  same((await call('GET', W(), { token: T.member })).json.workspaces.map((w) => w.id), ['workspace', three.id, mine.id, two.id], 'and it is kept');
+  same((await call('GET', W(), { token: T.member })).json.workspaces[0].arrangement, { open: ['chat'], placed: true }, "the Workspace's own arrangement is untouched");
+  same((await call('GET', W(), { token: T.member })).json.workspaces.find((w) => w.id === mine.id).arrangement, FULL, "and so is each one's");
+  same((await call('GET', W(), { token: T.mod })).json.workspaces.map((w) => w.id), ['workspace'], "another person's list is untouched");
+  same((await expect('the moderator has none to order', 200, 'PUT', `${W()}/order`, { token: T.mod, body: { ids: [] } })).json.workspaces.map((w) => w.id), ['workspace'], 'an empty order with none added is fine');
   // Refusals, each with its status and one sentence, nothing changed.
   const before = stored();
   for (const [label, status, method, url, body, token = T.member] of [
@@ -251,6 +270,14 @@ try {
     ['arrange no such', 404, 'PUT', ARR('wzzzzzz'), { arrangement: {} }], ['arrange without the key', 400, 'PUT', ARR('workspace'), { open: [] }],
     ['arrange with more keys', 400, 'PUT', ARR('workspace'), { arrangement: {}, other: 1 }], ['a bad arrangement', 400, 'PUT', ARR('workspace'), { arrangement: { mode: 'popped' } }],
     ['too large an arrangement', 400, 'PUT', ARR('workspace'), { arrangement: BIG }],
+    ['order without ids', 400, 'PUT', `${W()}/order`, { order: [] }], ['order with more keys', 400, 'PUT', `${W()}/order`, { ids: [], x: 1 }],
+    ['order ids not a list', 400, 'PUT', `${W()}/order`, { ids: 'all' }], ['order ids not text', 400, 'PUT', `${W()}/order`, { ids: [1, 2, 3] }],
+    ['order with the Workspace', 400, 'PUT', `${W()}/order`, { ids: ['workspace', three.id, mine.id, two.id] }],
+    ['order with a repeat', 400, 'PUT', `${W()}/order`, { ids: [two.id, two.id, mine.id] }],
+    ['order missing one', 409, 'PUT', `${W()}/order`, { ids: [two.id, mine.id] }], ['order with one not added', 409, 'PUT', `${W()}/order`, { ids: [two.id, mine.id, 'wzzzzzz'] }],
+    ['order with another person\'s', 409, 'PUT', `${W()}/order`, { ids: [three.id, mine.id, two.id] }, T.mod],
+    ['order by someone outside', 403, 'PUT', `${W()}/order`, { ids: [] }, T.other], ['order signed out', 401, 'PUT', `${W()}/order`, { ids: [] }, null],
+    ['order in no such space', 404, 'PUT', `${W('nosuchsp')}/order`, { ids: [] }],
     ['someone outside the space', 403, 'GET', W(), undefined, T.other], ['someone outside writes', 403, 'PUT', ARR('workspace'), { arrangement: {} }, T.other],
     ['nobody signed in', 401, 'GET', W(), undefined, null], ['an aside id', 404, 'GET', W('zzzz9999'), undefined], ['a space that is not there', 404, 'PUT', ARR('workspace', 'nosuchsp'), { arrangement: {} }],
   ]) await expect(label, status, method, url, { body, token: token || undefined });
@@ -261,6 +288,7 @@ try {
     same(r.json.error, "Guests don't keep workspaces of their own.", `${who}: the sentence`);
     await expect(`${who} writes`, 403, 'PUT', url.replace('/workspaces', '/workspaces/workspace/arrangement'), { ...opts, body: { arrangement: {} } });
     await expect(`${who} adds`, 403, 'POST', url, { ...opts, body: { name: 'X' } });
+    await expect(`${who} orders`, 403, 'PUT', url.replace('/workspaces', '/workspaces/order'), { ...opts, body: { ids: [] } });
   }
   // The cap on added workspaces.
   for (let i = 1; i < 10; i++) await expect(`add ${i}`, 201, 'POST', W(), { token: T.owner, body: { name: `W${i}` } });

@@ -7,6 +7,7 @@ import { createSpaceSetup, setupAddress, configurationLabel } from '/space-setup
 import { openSpaceAdd } from '/space-add.js';
 import { renderModuleSettings } from '/module-settings.js';
 import { actionBar } from '/action-bar.js';
+import { openManageTabs } from '/manage-tabs.js';
 import { createCanvas } from '/canvas.js';
 import { layoutDiffers, sharedRowNotice, COLUMN_IDS } from '/layouts.js';
 import { createLayoutPicker, cleanText } from '/layout-picker.js';
@@ -3597,6 +3598,38 @@ async function deleteWorkspace(workspaceId) {
   layoutNote(`Deleted ${own.name}.`);
   await refreshLayouts();
 }
+// Manage tabs (plan-workspaces.md, decision 43; public/manage-tabs.js): the owner's tabs, locked, and this person's own,
+// to put in order or remove. Save removes first (DELETE .../workspaces/:id, as Delete in a tab's menu does), then sends
+// the order of those kept (PUT .../workspaces/order) when it changed. The tabs are drawn again from the server's list.
+function manageTabs() {
+  const id = layoutSpaceId();
+  if (!id || !mayOwn()) return;
+  const owners = layoutTabList().filter((t) => t.kind === 'system' && !t.temp);
+  const before = layoutList.own.map((w) => w.id);
+  openManageTabs({
+    doc: canvasDoc(),
+    owners,
+    own: layoutList.own,
+    ownerWord: word('owner'),
+    spaceWord: word('space'),
+    canSetUp: layoutList.canSetDefault || layoutList.canShare,
+    opener: menuOpener(),
+    onSave: async ({ order, removed }) => {
+      try {
+        for (const gone of removed) {
+          if (currentLayoutTab === gone) pressLayoutTab('workspace');
+          await layoutRequest('DELETE', `/api/spaces/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(gone)}`);
+          canvas.forgetWorkspace(gone);
+        }
+        const left = before.filter((w) => !removed.includes(w));
+        if (order.some((w, i) => w !== left[i])) await layoutRequest('PUT', `/api/spaces/${encodeURIComponent(id)}/workspaces/order`, { ids: order });
+      } finally {
+        await refreshLayouts();
+      }
+      layoutNote(removed.length ? `Your tabs are saved. Removed ${removed.length === 1 ? 'one workspace' : `${removed.length} workspaces`}.` : 'Your tabs are in their new order.');
+    },
+  });
+}
 function startRename(layoutId) {
   const layout = findLayout(layoutId);
   if (!layout) return;
@@ -4220,7 +4253,8 @@ layoutTabsEl.addEventListener('contextmenu', (event) => {
   openTabMenu(id);
 });
 // The "..." (the tab bar's menu): the tabs that did not fit, in their order, each with its icon; then New workspace for
-// everyone signed in who may keep one (plan-workspaces.md, decisions 39 and 43), while they have fewer than the limit.
+// everyone signed in who may keep one (plan-workspaces.md, decisions 39 and 43), while they have fewer than the limit, and
+// Manage tabs (decision 43, manageTabs).
 const mayAddWorkspace = () => mayOwn() && Boolean(layoutList.spaceId) && layoutList.spaceId === layoutSpaceId() && !inAside();
 layoutTabsMore.addEventListener('click', () => {
   const out = new Set([...layoutTabsEl.querySelectorAll(':scope > [data-layout-tab].layout-tab-out')].map((b) => b.dataset.layoutTab));
@@ -4238,6 +4272,7 @@ layoutTabsMore.addEventListener('click', () => {
     items.push(full
       ? { icon: 'plus', label: 'New workspace', disabled: true, hint: `You have ${layoutList.ownLimit} here. Delete one first.` }
       : { icon: 'plus', label: 'New workspace', onPick: () => { tabMenuOpener = layoutTabsMore; openNewWorkspace(); } });
+    items.push({ icon: 'sliders', label: 'Manage tabs', onPick: () => { tabMenuOpener = layoutTabsMore; manageTabs(); } });
   }
   tabMenuOpener = layoutTabsMore;
   openHostMenu(layoutTabsMore, items);

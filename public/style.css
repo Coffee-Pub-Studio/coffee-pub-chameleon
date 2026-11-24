@@ -2173,6 +2173,57 @@ body.in-space .subnav {
   max-width: none;
 }
 
+/* Manage tabs (space.js, manageTabs; public/manage-tabs.js): the layout sheet holding Set up's tab rows, the owner's
+   locked and the person's own with Move up, Move down and Remove. In a narrow sheet the buttons wrap under the name. */
+.manage-tabs-section + .manage-tabs-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.manage-tabs-line {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+  line-height: var(--leading-body);
+}
+
+.manage-tabs-locked {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+}
+
+.manage-tabs-sheet .setup-layout-move {
+  flex-wrap: wrap;
+}
+
+.manage-tabs-sheet .layout-form-error {
+  max-width: none;
+}
+
+.manage-tabs-live:empty {
+  display: none;
+}
+
+.manage-tabs-live {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: var(--text-12);
+}
+
+@media (max-width: 640px) {
+  .manage-tabs-sheet .setup-layout-move {
+    width: 100%;
+  }
+
+  .manage-tabs-sheet .setup-layout-move .btn {
+    --btn-h: 44px;
+    flex: 1 1 auto;
+  }
+}
+
 .layout-shape-picker {
   min-width: 0;
 }
