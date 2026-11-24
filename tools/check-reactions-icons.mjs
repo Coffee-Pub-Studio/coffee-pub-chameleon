@@ -482,9 +482,12 @@ try {
   });
 
   await test('a save that sends back the icon it has already is taken, though only in use now; a changed one is checked', async () => {
-    assert.equal((await call('PATCH', '/api/settings', { template: 'project' })).status, 200);
+    // An icon only a template offers (the Projects tab made diagram-project every layout's own, so it is never "only in use").
+    assert.equal((await call('POST', '/api/environment/templates', { from: 'project', id: 'anchorcopy', name: 'Anchor copy' })).status, 201);
+    assert.equal((await call('PATCH', '/api/environment/templates/anchorcopy', { iconSet: ['anchor'] })).status, 200);
+    assert.equal((await call('PATCH', '/api/settings', { template: 'anchorcopy' })).status, 200);
     const sp = (await call('POST', '/api/spaces', { name: 'Kept' })).json.space.id;
-    const dp = 'diagram-project';
+    const dp = 'anchor';
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: dp })).status, 200);
     assert.equal((await call('PATCH', `/api/spaces/${sp}`, { linkIcon: dp })).status, 200);
     assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: dp })).status, 200);
@@ -520,12 +523,16 @@ try {
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
     assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: null })).status, 200);
     for (const id of [sp, otherSpace]) assert.equal((await call('DELETE', `/api/spaces/${id}`)).status, 200);
+    assert.equal((await call('DELETE', '/api/environment/templates/anchorcopy')).status < 300, true);
   });
 
   await test('the icon only one entry keeps is that entry\'s: another layout, or another person\'s system layout, can\'t take it', async () => {
-    assert.equal((await call('PATCH', '/api/settings', { template: 'project' })).status, 200);
+    // An icon only a template offers (the Projects tab made diagram-project every layout's own, so it is never "only in use").
+    assert.equal((await call('POST', '/api/environment/templates', { from: 'project', id: 'anchorcopy', name: 'Anchor copy' })).status, 201);
+    assert.equal((await call('PATCH', '/api/environment/templates/anchorcopy', { iconSet: ['anchor'] })).status, 200);
+    assert.equal((await call('PATCH', '/api/settings', { template: 'anchorcopy' })).status, 200);
     const sp = (await call('POST', '/api/spaces', { name: 'Shared' })).json.space.id;
-    const dp = 'diagram-project';
+    const dp = 'anchor';
     const a = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'A', shared: true, shape: 'one', areas: [null], icon: dp });
     const b = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'B', shared: true, shape: 'one', areas: [null] });
     assert.deepEqual([a.status, b.status], [201, 201], `${a.text} ${b.text}`);
@@ -548,6 +555,7 @@ try {
       token = admin;
     }
     assert.equal((await call('DELETE', `/api/spaces/${sp}`)).status, 200);
+    assert.equal((await call('DELETE', '/api/environment/templates/anchorcopy')).status < 300, true);
   });
 
   await test('a stored or imported link icon that is no Font Awesome icon is never published; a new space\'s link icon is checked', async () => {
