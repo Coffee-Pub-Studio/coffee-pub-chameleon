@@ -1390,16 +1390,16 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if ((setUp.match(/placeSubnav\(\)/g) || []).length < 2) fail('public/space.js', 'popping out and back must re-place the space bar for the window it is now in (placeSubnav())');
   // On a narrow canvas a switch on a module open but hidden behind the view shows it, never closes it (switching the
   // conference off hangs up).
-  const click = canvasJs.slice(canvasJs.indexOf('  function flipShown(id'), canvasJs.indexOf('  function layoutMenuItems() {'));
+  const click = canvasJs.slice(canvasJs.indexOf('  function flipShown(id'), canvasJs.indexOf('  function arrangeItems() {'));
   if (!/hiddenByView\(id\)\) setView\(id\)/.test(click)) fail('public/canvas.js', 'a switch on a module hidden behind the narrow canvas\'s view must show it (setView), not close it');
   if (!/checked: shown\(def\.id\)/.test(canvasJs)) fail('public/canvas.js', 'a switch reads off while its module is hidden behind the narrow canvas\'s view');
-  // The Layout menu is the Layout button's popover (plan-workspaces.md, decision 38): the personal controls left Set up.
-  if (/modules-toggle/.test(spaceJs)) fail('public/space.js', 'no #modules-toggle: the Layout button is #layout-menu');
-  if (!/nav\.register\(\{ id: 'layout-menu',[^\n]*onClick: \(\) => openLayoutMenu\(\) \}\);/.test(spaceJs) || !/canvas\.openMenu\(anchor\);/.test(spaceJs)) fail('public/space.js', 'the Layout button opens the canvas\'s menu under it (canvas.openMenu)');
+  // The menu is each editable workspace tab's (plan-workspaces.md, decisions 40 and 44): the Layout button is gone.
+  if (/modules-toggle|id: 'layout-menu'/.test(spaceJs)) fail('public/space.js', 'no #modules-toggle and no Layout button: the menu is on the tab');
+  if (!/canvas\.openMenu\(caret, \(\) => tabMenuItems\(id\)\);/.test(spaceJs)) fail('public/space.js', 'an editable tab\'s caret opens the canvas\'s menu under it (canvas.openMenu)');
   if (/mountMenu|canShowTab/.test(spaceJs)) fail('public/space.js', 'Set up draws no menu of modules (no Modules tab of personal controls)');
-  if (!/openHostMenu\(trigger, layoutMenuItems\);/.test(canvasJs)) fail('public/canvas.js', 'the Layout menu is the page\'s shared menu (host-menu.js openHostMenu), drawn from layoutMenuItems()');
-  for (const needle of ["{ heading: 'Open for you' }", "{ heading: 'Arrange' }", "label: 'Panel Mode'", "label: 'Window Mode'", "label: 'Snap to grid'", "label: 'Clean up'"]) if (!canvasJs.includes(needle)) fail('public/canvas.js', `the Layout menu has ${needle}`);
-  const arrangeItems = canvasJs.slice(canvasJs.indexOf("{ heading: 'Arrange' }"), canvasJs.indexOf("const extra = typeof menuItems"));
+  if (!/openHostMenu\(trigger, menuEntries\);/.test(canvasJs)) fail('public/canvas.js', 'the tab menu is the page\'s shared menu (host-menu.js openHostMenu), drawn from menuEntries()');
+  for (const needle of ["{ heading: 'Open for you' }", "{ heading: 'Arrange' }", "label: 'Panels'", "label: 'Windows'", "label: 'Snap to grid'", "label: 'Clean up'"]) if (!canvasJs.includes(needle)) fail('public/canvas.js', `the tab menu has ${needle}`);
+  const arrangeItems = canvasJs.slice(canvasJs.indexOf('  function arrangeItems() {'), canvasJs.indexOf('  function menuEntries() {'));
   if (!/if \(windowMode\) \{[\s\S]*label: 'Snap to grid'[\s\S]*label: 'Clean up'[\s\S]*\}/.test(arrangeItems)) fail('public/canvas.js', 'Snap to grid and Clean up are offered in Window Mode only');
   if (!/const arrangeMode = \(\) => \(saved\.__mode === 'window' \? 'window' : 'panel'\);/.test(canvasJs)) fail('public/canvas.js', 'the arrange mode is remembered with the space\'s layout (__mode), Panel Mode unless said otherwise');
   if (/guest-mic-note/.test(spaceHtml + spaceJs)) fail('public/space.html', 'entering never joins the call, so the guest form must not say the browser will ask for the microphone');
@@ -2282,7 +2282,7 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
     const sync = spaceJs.slice(spaceJs.indexOf('function syncConferenceView()'), spaceJs.indexOf('const POPUP_BLOCKED'));
     if (!sync || /stopCall|hangUp|closeBuiltin|leftCall/.test(sync)) fail(F, 'showing and leaving the Conference layout never hangs up or closes the call (syncConferenceView)');
     const press = spaceJs.slice(spaceJs.indexOf('function pressLayoutTab('), spaceJs.indexOf('// Modified (Thomas, 2026-11-11)'));
-    if (!/currentLayoutTab = 'workspace';\n    syncConferenceView\(\);[^\n]*\n    canvas\.resumeMemory\(\);/.test(press)) fail(F, 'back on the Workspace the canvas is shown again before its arrangement is put back');
+    if (!/currentLayoutTab = id;\n    syncConferenceView\(\);[^\n]*\n    canvas\.showWorkspace\(id\);/.test(press)) fail(F, 'back on an editable workspace the canvas is shown again before its arrangement is put back');
     if (!/canvas\.holdMemory\(\);/.test(press) || !/if \(id !== 'conference'\) syncConferenceView\(\);\n  try \{\n    if \(load\) canvas\.loadLayout\(layout\);\n  \} finally \{\n    noteUnderFavorites = false;\n    if \(id === 'conference'\) syncConferenceView\(\);/.test(press) || !/if \(id === 'conference'\) layoutNote\('Conference layout\.'\);/.test(press)) fail(F, 'the Conference tab holds the Workspace\'s memory as every other tab does, then shows the Conference layout and says so; another tab gets the canvas back before it loads');
     if (/stopCall|hangUp|closeBuiltin\('conference'\)/.test(press)) fail(F, 'pressing a layout tab never hangs up');
   }

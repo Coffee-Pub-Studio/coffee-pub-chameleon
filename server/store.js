@@ -2685,7 +2685,7 @@ class Store {
           }
           draft.defaultLayout = patch.defaultLayout;
         } else {
-          const layout = this.layouts.listOf(id, null).find((l) => l.id === patch.defaultLayout);
+          const layout = this.layouts.sharedOf(id).find((l) => l.id === patch.defaultLayout);
           if (!layout) throw new StoreError(`This ${this.word('space')} has no shared layout with that id.`, 404);
           draft.defaultLayout = layout.id;
         }
@@ -2792,7 +2792,7 @@ class Store {
   syncDefaultLayout(id) {
     const space = this.data.spaces.find((r) => r.id === id);
     if (!space || !space.defaultLayout || SYSTEM_DEFAULTS.includes(space.defaultLayout)) return;
-    if (this.layouts.listOf(id, null).some((l) => l.id === space.defaultLayout)) return;
+    if (this.layouts.sharedOf(id).some((l) => l.id === space.defaultLayout)) return;
     delete space.defaultLayout;
     this.save();
   }
@@ -2802,7 +2802,7 @@ class Store {
   defaultLayoutOf(id) {
     const space = this.spaceById(id);
     if (!space || !space.defaultLayout || SYSTEM_DEFAULTS.includes(space.defaultLayout)) return null;
-    return this.layouts.find(id, space.defaultLayout, null)?.layout || null;
+    return this.layouts.find(id, space.defaultLayout)?.layout || null;
   }
 
   removeSpace(id) {

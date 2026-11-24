@@ -94,7 +94,11 @@ const BIG = { modules: Object.fromEntries(Array.from({ length: 59 }, (_, i) => [
   same(toWire(fromWire(FULL)), FULL, 'a round trip loses nothing the server keeps');
   // The page reads and writes through the routes, and keeps nothing in the browser for a signed-in person.
   ok(/api\('GET', `\/api\/spaces\/\$\{encodeURIComponent\(id\)\}\/workspaces`\)/.test(src), 'the page reads its workspaces from the server');
-  ok(src.includes('/workspaces/workspace/arrangement`') && /keepalive: true/.test(src), 'and writes the Workspace\'s arrangement, the last change kept as the page goes');
+  ok(src.includes('/workspaces/${encodeURIComponent(job.workspace)}/arrangement`') && /keepalive: true/.test(src), 'and writes each workspace\'s own arrangement, the last change kept as the page goes');
+  // Every editable workspace remembers its own (plan-workspaces.md, decisions 39 and 49): read by id, swapped by showWorkspace,
+  // one added and never arranged starting empty.
+  ok(/else if \(got\) arrangements\.set\(w\.id, got\);/.test(src), 'the added workspaces\' arrangements are read with the Workspace\'s');
+  ok(/function showWorkspace\(id\) \{/.test(src) && /saved = back \? structuredClone\(back\) : id === 'workspace' \? \{\} : \{ __open: \[\], __placed: true \};/.test(src), 'showWorkspace swaps the arrangement; a new one starts empty');
   ok(/if \(guest\) \{\n\s*try \{\n\s*localStorage\.setItem\(GUEST_KEY\(spaceId\)/.test(src) && (src.match(/localStorage\.setItem/g) || []).length === 1, 'only a guest\'s arrangement is kept in the browser');
 }
 

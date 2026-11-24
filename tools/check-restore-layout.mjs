@@ -159,16 +159,18 @@ try {
     assert.equal((await asAdmin({ tabs: { hide: [] } })).status, 200);
   });
 
-  await test('a saved layout that was deleted falls back quietly to the default', async () => {
-    const made = await api('mia', 'POST', `/api/spaces/${ctx.trip}/layouts`, { name: 'Mine', modules: [{ id: 'budget', mode: 'dock', dockW: 360 }], snap: { all: false, pitch: 130 } });
+  await test('a workspace of her own (plan-workspaces.md, decisions 39 and 49) opens as last, with its own arrangement; deleted, the default comes back quietly', async () => {
+    const made = await api('mia', 'POST', `/api/spaces/${ctx.trip}/workspaces`, { name: 'Mine' });
     assert.equal(made.status, 201, JSON.stringify(made.json));
-    const id = made.json.layout.id;
+    const id = made.json.workspace.id;
+    assert.equal((await api('mia', 'PUT', `/api/spaces/${ctx.trip}/workspaces/${id}/arrangement`, { arrangement: { open: ['budget'], placed: true, mode: 'panel', modules: { budget: { mode: 'dock', dockW: 360 } } } })).status, 200, 'its own arrangement');
     assert.equal((await api('mia', 'PUT', `/api/spaces/${ctx.trip}/last-layout`, { layout: id })).status, 200);
     const tab = await enter('mia');
-    assert.equal(await shown(tab), id, 'a saved layout is opened as last');
+    assert.equal(await shown(tab), id, 'her workspace is opened as last');
+    assert.deepEqual(await tab.eval(`[...document.querySelectorAll('.module-docked[data-module]')].map((s) => s.dataset.module)`), ['budget'], 'with its own arrangement');
     assert.equal(await puts(tab), 0);
-    assert.equal((await api('mia', 'DELETE', `/api/spaces/${ctx.trip}/layouts/${id}`)).status, 204, 'deleted');
-    assert.equal((await layoutsAs('mia')).last, undefined, 'the server dropped it');
+    assert.equal((await api('mia', 'DELETE', `/api/spaces/${ctx.trip}/workspaces/${id}`)).status, 204, 'deleted');
+    assert.equal((await layoutsAs('mia')).last, undefined, 'the server passes it over');
     assert.equal((await api('mia', 'PUT', `/api/spaces/${ctx.trip}/workspaces/workspace/arrangement`, { arrangement: null })).status, 200, 'her remembered Workspace forgotten, as above');
     const again = await enter('mia');
     assert.equal(await shown(again), 'conference', 'the default');

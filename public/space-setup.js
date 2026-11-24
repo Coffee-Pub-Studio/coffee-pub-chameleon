@@ -18,8 +18,8 @@
 //   modules   the module word: Turn AI off and What AI may see (an owner's), Tags, then a section per module with its
 //             settings for this space (module-settings.js, its draft mode) and the switches a Fixed Workspace offers for
 //             it (the server's list, server/fixed-workspaces.js, answered with GET /api/spaces/:id/layouts)
-// What is personal (Open for you, Arrange, the layout picker) is not here: it is the Layout button's menu (canvas.js,
-// space.js layoutMenuItems), because it changes only this person's own canvas.
+// What is personal (Open for you, Arrange, the layout picker) is not here: it is the menu on a workspace's tab (canvas.js,
+// space.js tabMenuItems), because it changes only this person's own canvas.
 // An owner and the admin see all six; a moderator sees Phases, Call, Layout and Modules (the server lets a moderator PATCH
 // exactly `phases`, `defaultLayout`, `tabs`, `closed`, `budget` and the call's settings, and set a space's module settings);
 // a member has no Set up. Phases is left out when the template has none; no other tab comes and goes.
@@ -429,7 +429,7 @@ const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // --- the panel ----------------------------------------------------------------------------------------------------
 
-// `deps`: { tabOverflow, openMenu, api, word, verb, icons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, doc, layoutVerb,
+// `deps`: { tabOverflow, openMenu, api, word, verb, icons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, doc,
 // renderModuleSettings }. Returns { open(opts), close(), done(), cancel(), isOpen(), select(tab), el }. `open({ space,
 // owner, moderator, phases, rule, today, tab, onDone, onSaved, onDeleted, onLinks, onTab, onLeave, nameInput })`:
 // `space` the space's record, `phases` the template's phases (a list) and `rule` the Phases object (public/phases.js),
@@ -1279,9 +1279,8 @@ export function createSpaceSetup(deps) {
     q('#setup-first-visit-layouts').innerHTML = choices.map((c) => `<label class="setup-choice"><input type="radio" name="setup-first-visit" value="${escapeHtml(c.id)}"><i class="fa-solid fa-${escapeHtml(c.icon)} fa-fw" aria-hidden="true"></i><span class="setup-choice-name">${escapeHtml(c.name)}</span></label>`).join('');
     radioChecks();
     const note = q('#setup-layout-note');
-    // A layout for everyone is made with the layout picker, New layout for everyone in the Layout button's menu (plan-layout-picker.md, step 6).
-    const menuWord = typeof deps.layoutVerb === 'function' ? deps.layoutVerb() : 'Layout';
-    note.textContent = layouts.shared.length ? '' : `A shared layout can be picked too: make one with New layout for everyone, in the ${menuWord} menu.`;
+    // A layout for everyone is made with the layout picker, New layout for everyone in the menu on the Workspace's tab (plan-layout-picker.md, step 6).
+    note.textContent = layouts.shared.length ? '' : 'A shared layout can be picked too: make one with New layout for everyone, in the menu on the Workspace tab.';
     note.hidden = !note.textContent;
     paintLayoutLine();
   }

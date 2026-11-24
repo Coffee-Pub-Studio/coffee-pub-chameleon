@@ -293,14 +293,9 @@ try {
     const want = member.system.filter((l) => l.tab !== false).map((l) => l.id);
     assert.deepEqual(bar.slice(0, want.length), want, 'the bar is in the owner\'s order');
     const r = await fetch(`${server.base}/api/spaces/${ctx.trip}/layouts/${hideId}/favorite`, { method: 'PUT', headers: { cookie: cookieOf('sam') } });
-    assert.equal(r.status, 409, 'the owner\'s hide wins');
+    assert.equal(r.status, 404, 'there is no favorite to turn a hidden tab on with (plan-workspaces.md, decision 44)');
     assert.equal(await tab.eval(`Boolean(document.querySelector('[data-nav-tool="setup"]')?.getClientRects().length)`), false, 'a member has no Set up (decision 38)');
-    assert.equal(await tab.eval(`Boolean(document.getElementById('layout-menu')?.getClientRects().length)`), true, 'and keeps the Layout button');
-    await tab.click('#layout-menu');
-    await sleep(600);
-    const row = await tab.eval(`(() => { const r = [...document.querySelectorAll('.host-menu .host-menu-item')].reverse().find((b) => b.querySelector('.host-menu-label')?.textContent.trim() === ${JSON.stringify(member.system.find((l) => l.id === hideId)?.name || '')}); return r ? r.textContent : null; })()`);
-    if (row !== null) assert.match(row, /Hidden in Set up/, 'the hidden layout\'s row in the Layout menu says why it has no tab');
-    await tab.key('Escape');
+    assert.equal(await tab.eval(`Boolean(document.querySelector('[data-tab-menu="workspace"]')?.getClientRects().length)`), true, 'and has the Workspace tab\'s menu');
   });
   await test('Layouts: a moderator has the section and the same save; the Layout menu row of a hidden layout says why and its Favorite is off', async () => {
     const tab = await inSpace('mia', 1280);
@@ -316,39 +311,43 @@ try {
     if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, 'layouts-moderator-1280.png'), await tab.shoot(false)); }
   });
 
-  // The Layout button (decision 38): the personal controls left Set up for the Layout button's menu, a popover under it with no
-  // Save, for everyone in the space. Each entry acts at once on this person's own canvas.
+  // The tab menu (plan-workspaces.md, decisions 38, 40 and 44): the personal controls left Set up for the menu on the
+  // Workspace's tab, a popover under its caret with no Save, for everyone in the space. Each entry acts at once.
+  const caretSel = '[data-tab-menu="workspace"]';
   const layoutMenu = async (tab) => {
-    await tab.click('#layout-menu');
+    await tab.click(caretSel);
     await tab.waitFor('.host-menu:not(.host-menu-inline) .host-menu-item');
     await sleep(500);
     return tab.eval(`(() => {
       const m = document.querySelector('.host-menu:not(.host-menu-inline)');
-      const b = document.getElementById('layout-menu').getBoundingClientRect();
+      const b = document.querySelector('${caretSel}').getBoundingClientRect();
       const r = m.getBoundingClientRect();
       return {
         heads: [...m.querySelectorAll('.host-menu-heading')].map((h) => h.textContent.trim()),
         labels: [...m.querySelectorAll('.host-menu-item')].map((e) => e.querySelector('.host-menu-label')?.textContent.trim() || ''),
         save: Boolean(m.querySelector('.action-bar, [id$="-save"]')),
-        expanded: document.getElementById('layout-menu').getAttribute('aria-expanded'),
-        below: r.top >= b.bottom - 1, covers: r.top < b.bottom && r.bottom > b.top && r.left < b.right && r.right > b.left,
+        expanded: document.querySelector('${caretSel}').getAttribute('aria-expanded'),
+        covers: r.top < b.bottom && r.bottom > b.top && r.left < b.right && r.right > b.left,
         inSetup: Boolean(m.closest('#space-setup')),
       };
     })()`);
   };
-  // The row with these words; the last one, since a layout (Calendar) comes after a module of the same name in Open for you.
+  // The row with these words; the last one.
   const rowOf = (label) => `[...document.querySelectorAll('.host-menu:not(.host-menu-inline) .host-menu-item')].reverse().find((e) => e.querySelector('.host-menu-label')?.textContent.trim() === ${JSON.stringify(label)})`;
+  const flyRow = (label) => `[...document.querySelectorAll('.host-menu-flyout .host-menu-item')].find((e) => e.querySelector('.host-menu-label')?.textContent.trim() === ${JSON.stringify(label)})`;
   for (const as of ['sam', 'mia']) {
-    await test(`the Layout button (${as === 'sam' ? 'a member' : 'a moderator'}): a popover under it with Open for you, Arrange and Layouts, no Save; each acts at once`, async () => {
+    await test(`the Workspace tab's menu (${as === 'sam' ? 'a member' : 'a moderator'}): a popover under its caret with Open for you first and Arrange last, no Save; each acts at once`, async () => {
       const tab = await inSpace(as, 1280);
       const m = await layoutMenu(tab);
-      assert.deepEqual(m.heads.slice(0, 3), ['Open for you', 'Arrange', 'Layouts'], `the sections: ${JSON.stringify(m.heads)}`);
+      assert.equal(m.heads[0], 'Open for you', `the sections: ${JSON.stringify(m.heads)}`);
+      assert.equal(m.heads[m.heads.length - 1], 'Arrange', 'Arrange last');
       assert.equal(m.save, false, 'no Save frame: nothing waits');
       assert.equal(m.inSetup, false, 'a popover, not the Set up panel');
-      assert.equal(m.expanded, 'true', 'the button says its menu is open');
-      assert.equal(m.covers, false, 'the menu never covers its button');
-      for (const w of ['Panel Mode', 'Window Mode', 'Workspace', 'New layout', 'Save as new layout']) assert.ok(m.labels.includes(w), `${w} is offered`);
-      if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, `layout-menu-${as}-1280.png`), await tab.shoot(false)); }
+      assert.equal(m.expanded, 'true', 'the caret says its menu is open');
+      assert.equal(m.covers, false, 'the menu never covers its caret');
+      assert.ok(m.labels.includes('Panels'), 'Arrange names the mode');
+      for (const w of ['New layout', 'Save as new layout', 'Rename', 'Delete']) assert.ok(!m.labels.includes(w), `${w} is not offered on the Workspace`);
+      if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); fs.writeFileSync(path.join(SHOTS, `tab-menu-${as}-1280.png`), await tab.shoot(false)); }
       // Open for you: a switch opens (or shows) a module on this person's canvas at once, and the menu stays open.
       const mod = await tab.eval(`(() => { const r = ${rowOf('Polls')}; return r ? { on: r.getAttribute('aria-checked') } : null; })()`);
       assert.ok(mod, 'Polls is in Open for you');
@@ -357,25 +356,24 @@ try {
       assert.equal(await tab.eval(`window.hostModules.isOpen('polls')`), mod.on !== 'true', 'Polls opened (or closed) at once');
       assert.equal(await tab.eval(`Boolean(document.querySelector('.host-menu:not(.host-menu-inline)'))`), true, 'the menu stays open after a switch');
       assert.equal(await tab.eval(`${rowOf('Polls')}.getAttribute('aria-checked')`), mod.on === 'true' ? 'false' : 'true', 'and shows what happened');
-      // Arrange: Window Mode at once, then Panel Mode back.
-      await tab.eval(`${rowOf('Window Mode')}.click()`);
+      // Arrange: its row's flyout; Windows at once, then Panels back.
+      await tab.eval(`${rowOf('Panels')}.click()`);
+      await sleep(500);
+      await tab.eval(`${flyRow('Windows')}.click()`);
       await sleep(600);
-      assert.equal(await tab.eval(`window.hostModules.arrangeMode()`), 'window', 'Window Mode at once');
-      await tab.eval(`${rowOf('Panel Mode')}.click()`);
+      assert.equal(await tab.eval(`window.hostModules.arrangeMode()`), 'window', 'Windows at once');
+      await layoutMenu(tab);
+      await tab.eval(`${rowOf('Windows')}.click()`);
+      await sleep(500);
+      await tab.eval(`${flyRow('Panels')}.click()`);
       await sleep(600);
-      assert.equal(await tab.eval(`window.hostModules.arrangeMode()`), 'panel', 'Panel Mode at once');
-      // Escape closes it, the keyboard back on the button.
+      assert.equal(await tab.eval(`window.hostModules.arrangeMode()`), 'panel', 'Panels at once');
+      // Escape closes it, the keyboard back on the caret.
+      await layoutMenu(tab);
       await tab.key('Escape');
       await sleep(300);
       assert.equal(await tab.eval(`Boolean(document.querySelector('.host-menu:not(.host-menu-inline)'))`), false, 'Escape closes it');
-      assert.equal(await tab.eval(`document.activeElement?.id`), 'layout-menu', 'and the keyboard is back on the button');
-      // Layouts: a layout with a tab in the bar is shown at once (the last of them, so not the one shown now).
-      const target = await tab.eval(`(() => { const t = [...document.querySelectorAll('#layout-tabs > [data-layout-tab]')].filter((b) => b.dataset.layoutTab !== 'workspace' && !b.getAttribute('aria-current')).pop(); return t ? { id: t.dataset.layoutTab, name: t.textContent.trim() } : null; })()`);
-      assert.ok(target, 'a layout other than the Workspace has a tab');
-      await layoutMenu(tab);
-      await tab.eval(`${rowOf(target.name)}.click()`);
-      await sleep(1500);
-      assert.equal(await tab.eval(`document.querySelector('[data-layout-tab="${target.id}"]')?.getAttribute('aria-current')`), 'page', `${target.name} is shown at once`);
+      assert.equal(await tab.eval(`document.activeElement?.dataset?.tabMenu`), 'workspace', 'and the keyboard is back on the caret');
     });
   }
 
@@ -396,13 +394,13 @@ try {
     await openSetup(sam);
     const samTabs = await tabsOf(sam);
     assert.deepEqual(samTabs.filter((t) => t !== 'phases'), MODERATOR.filter((t) => t !== 'phases'), `the maker's tabs: ${JSON.stringify(samTabs)}`);
-    // A guest: no Set up, and the Layout button.
+    // A guest: no Set up.
     const link = await fetch(`${server.base}/api/spaces/${ctx.trip}/guest-link`, { method: 'POST', headers: { cookie: cookieOf('admin'), 'content-type': 'application/json', origin: server.base }, body: '{}' }).then((r) => r.json());
     const token = link.space && link.space.guestToken;
     if (token) {
       const guest = await open(`/guest/${token}`, 'none', 1280);
       await sleep(2500);
-      const g = await guest.eval(`({ setup: Boolean(document.querySelector('[data-nav-tool="setup"]')?.getClientRects().length), layout: Boolean(document.getElementById('layout-menu')?.getClientRects().length), url: location.pathname })`);
+      const g = await guest.eval(`({ setup: Boolean(document.querySelector('[data-nav-tool="setup"]')?.getClientRects().length), url: location.pathname })`);
       assert.equal(g.setup, false, `a guest has no Set up (${g.url})`);
     }
   });

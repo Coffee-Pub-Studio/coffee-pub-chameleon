@@ -6,12 +6,12 @@
  *     comes from the <space>'s template."), no switches, for an owner (the admin) and a moderator, at 1280 and 390
  *   - Set up's Tabs in the bar section marks a shown Fixed Workspace as pinned (the Workspace and a hidden one carry no mark)
  *   - a member's tab bar: a pinned tab wears the pin and has the owner's sentence in its title; the page offers no hide for
- *     it (the Layout menu's Favorite and Unfavorite are not drawn for it: read in check-nav); a stale page's attempt is
+ *     it (there are no favorites, plan-workspaces.md decision 44); a stale page's attempt is
  *     refused by the server with its sentence, which the page shows as it is
  *   - a first visit opens the template's Opens first: that layout is the tab shown, with the template's layout behind it
  *   - a phone (390): the line and the Layouts rows keep 44 px targets and the panel does not scroll sideways
  * Run it under the shared browser lock. With no Chromium it says SKIPPED (set CHROME_PATH); that is not a pass.
- *   - the Layout menu (the Layout button's popover): a pinned row wears the pin and its ... has no Favorite or Unfavorite
+ *   - (the Layout menu is gone, plan-workspaces.md decision 44: its pinned row with it)
  * PINNED_PAGES_SHOTS=<dir> writes the screenshots it takes.
  */
 import fs from 'node:fs';
@@ -46,7 +46,7 @@ const PINNED = 'The owner keeps this one in the bar.';
   assert.match(nav, /s\.pinned === true \? \{ pinned: true \} : \{\}/, 'a system tab carries the server\'s pinned');
   assert.ok(!/layout-tab-pinned/.test(space), 'the tab draws no pin mark');
   assert.match(space, /Kept in the bar by the/, 'a pinned tab still says so in its title');
-  assert.match(space, /if \(l\.id !== 'workspace' && l\.pinned !== true\) \{/, 'a pinned one has no Favorite or Unfavorite');
+  assert.ok(!/setFavorite|function systemRowItems/.test(space), 'nothing on the page hides a tab for oneself (no favorites, plan-workspaces.md decision 44)');
   assert.ok(!/opensWith/.test(setup.slice(setup.indexOf('export function setupPatch'), setup.indexOf('// The tabs with unsaved changes'))), 'Save never sends Opens with');
   assert.ok(!/'opensWith'/.test(setup.match(/export const MODERATOR_FIELDS = [^\n]*/)[0]), 'a moderator\'s fields do not list Opens with');
   assert.match(space, /layoutNote\(err\.message \|\| 'That did not work\. Try again\.'\)/, 'a refused attempt shows the server\'s sentence as it is');
@@ -176,28 +176,11 @@ try {
     assert.equal(modStale.status, 409);
     assert.equal(modStale.json.error, 'To take this one out of the bar, hide it for everyone in Set up.', 'those who set the bar are told where');
     const fav = await call('sam', 'DELETE', `/api/spaces/${ctx.trip}/layouts/calendar/favorite`);
-    assert.equal(fav.status, 409);
-    assert.equal(fav.json.error, PINNED);
+    assert.equal(fav.status, 404, 'the favorite routes are gone');
     const seen = (await call('sam', 'GET', `/api/spaces/${ctx.trip}/layouts`)).json;
     assert.deepEqual(seen.system.filter((l) => l.pinned).map((l) => l.id).sort(), ['calendar', 'documents', 'workspace']);
     assert.deepEqual(seen.firstVisit, { layout: 'documents', shape: { shape: 'two-equal', areas: ['calendar', null] } }, 'the first visit is the template\'s layout');
     await shot(tab, 'tab-bar-1280.png');
-  });
-  await test('the Layout menu: a pinned layout\'s row has the pin, and its ... has Rename and Change icon but no Favorite or Unfavorite', async () => {
-    const tab = await inSpace('admin', 1280); // the Layout menu is the Layout button's popover, in any workspace
-    await tab.click('#layout-menu');
-    await tab.waitFor('body > .host-menu .host-menu-item');
-    await sleep(1200);
-    const rows = await tab.eval(`[...document.querySelectorAll('.host-menu-item[role=menuitemradio]')].map((b) => ({ label: b.querySelector('.host-menu-label')?.textContent.trim(), mark: Boolean(b.querySelector('.host-menu-mark')), more: Boolean(b.parentElement?.querySelector('.host-menu-more')) }))`);
-    const cal = rows.find((r) => r.label === 'Calendar');
-    assert.ok(cal && cal.mark, 'Calendar is pinned: its row wears a mark');
-    assert.ok(!rows.find((r) => r.label === 'Workspace').mark, 'the Workspace has none');
-    await tab.eval(`document.querySelector('.host-menu-more[aria-label="More for Calendar"]').click()`);
-    await sleep(500);
-    const entries = await tab.eval(`[...document.querySelectorAll('.host-menu-item')].map((b) => b.querySelector('.host-menu-label')?.textContent.trim()).filter(Boolean)`);
-    assert.ok(entries.includes('Rename') && entries.includes('Change icon'), `Rename and Change icon stay (${entries.join(', ')})`);
-    assert.ok(!entries.includes('Favorite') && !entries.includes('Unfavorite'), 'no hide: neither Favorite nor Unfavorite');
-    await shot(tab, 'layout-menu-pinned-1280.png');
   });
   await test('a member on a phone: the page does not scroll sideways', async () => {
     const tab = await inSpace('sam', 390);

@@ -70,7 +70,7 @@ test('the styles: locked to the bottom, the safe area, tokens only, 44 px on a p
 const SURFACES = [
   { name: 'the phase sheet', file: 'public/phase-sheet.js', from: 'export function openPhaseSheet(' },
   { name: 'the Set up panel', file: 'public/space-setup.js', from: 'export function createSpaceSetup(' },
-  { name: 'the layout sheet', file: 'public/space.js', from: 'function openLayoutSheet(', to: 'function openSaveLayout(' },
+  { name: 'the layout sheet', file: 'public/space.js', from: 'function openLayoutSheet(', to: 'function openNewWorkspace(' },
   { name: 'the layout icon sheet', file: 'public/space.js', from: 'function openIconSheet(', to: 'function startChangeIcon(' },
   { name: 'the shape sheet (New layout for everyone, Edit)', file: 'public/space.js', from: 'function openShapeSheet(', to: '// Change icon (plan-layout-views.md' },
   { name: 'the layout picker', file: 'public/layout-picker.js', from: 'export function createLayoutPicker(' },
@@ -163,7 +163,7 @@ test('the Set up panel: Save and Cancel are the panel\'s bar, not the top bar\'s
 });
 
 test('the layout sheet: Save is the submit button, Enter saves, Save and Rename share the sheet', () => {
-  const code = between(read('public/space.js'), 'function openLayoutSheet(', 'function openSaveLayout() {');
+  const code = between(read('public/space.js'), 'function openLayoutSheet(', 'function openNewWorkspace() {');
   assert.match(code, /submit: true,/);
   assert.match(code, /form\.addEventListener\('submit', \(event\) => \{\s*\n\s*event\.preventDefault\(\);\s*\n\s*bar\.save\(\);/);
 });

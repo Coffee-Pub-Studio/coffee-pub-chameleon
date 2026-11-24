@@ -2,7 +2,7 @@
 // server with real files (tools/fixtures/vault/*): every type opened in its window (a picture, an mp3, a small video, a Markdown file with
 // planted HTML, a PDF in the sandboxed viewer, a PDF kept as download only, a file whose bytes are gone, a file that was removed), Previous and
 // Next, Info, the cap of four windows and its sentence, an open file brought forward, Close all, Esc and where focus goes, Rename and Remove from
-// the window's menu, what a member who may not change the file is offered, the Layout menu's Close all on a space's canvas, a phone's one sheet,
+// the window's menu, what a member who may not change the file is offered, the tab menu's Close all on a space's canvas, a phone's one sheet,
 // and the colours' contrast in the dark and the light theme.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,14 +17,14 @@ const FRONT = `(document.querySelector('.fv-win.is-front .mf-titlebar-title') ||
 const SENTENCE = 'Close a window to open another.';
 
 // A space no longer opens with a module (its template decides), so a check that needs the Vault on the canvas opens it as a person
-// does: the Layout button's menu, Open for you, the Vault's switch.
+// does: the Workspace tab's menu, Open for you, the Vault's switch.
 async function openVault(tab) {
   if (await tab.eval(`!!__q('[data-module-root=vault]')`)) return;
-  await tab.click('#layout-menu');
+  await tab.click('[data-tab-menu="workspace"]');
   await tab.waitFor('body > .host-menu .host-menu-item', 'Vault', 15000);
   await tab.click('body > .host-menu .host-menu-item', 'Vault');
   await tab.waitFor('[data-module-root=vault] >>> .vt-row', '', 15000);
-  await tab.click('#layout-menu'); // the menu away again
+  await tab.click('[data-tab-menu="workspace"]'); // the menu away again
   await sleep(500);
 }
 
@@ -272,7 +272,7 @@ export async function viewerCases({ S, api, say, fail, browser, until, open, dat
     say(`a member who may not download: ${tools.join(', ')}`);
   } finally { await tab.close(); await api('PATCH', '/api/roles/member', { 'module.vault.download': true }, 'admin'); }
 
-  // ---- a space's canvas: a window opens over the modules; the Layout menu closes them all ----
+  // ---- a space's canvas: a window opens over the modules; the tab menu closes them all ----
   tab = new Tab(browser.cdp, S.ctx);
   await tab.open(1280, 'dark', true);
   {
@@ -284,14 +284,14 @@ export async function viewerCases({ S, api, say, fail, browser, until, open, dat
       await tab.eval(`__q('[data-module-root=vault] >>> .vt-row .sdk-open', 'plain.pdf').click()`);
       const winOn = await until(tab, WINS, (v) => v === 1, 8000);
       if (winOn !== 1) fail('a file did not open in a window over the space\'s canvas');
-      await tab.click('#layout-menu');
+      await tab.click('[data-tab-menu="workspace"]');
       await until(tab, `[...document.querySelectorAll('[role=menuitem]')].some((e) => /Close all/.test(e.innerText))`, Boolean);
       const hasClose = await tab.eval(`[...document.querySelectorAll('[role=menuitem]')].some((e) => /Close all/.test(e.innerText))`);
-      if (!hasClose) fail('the Layout menu has no Close all while a file window is open');
+      if (!hasClose) fail('the tab menu has no Close all while a file window is open');
       await tab.eval(`[...document.querySelectorAll('[role=menuitem]')].find((e) => /Close all/.test(e.innerText)).click()`);
       await until(tab, WINS, (v) => v === 0);
-      if ((await tab.eval(WINS)) !== 0) fail('Close all in the Layout menu left a window open');
-      say('space canvas: the window opens over the modules; the Layout menu\'s Close all closes it');
+      if ((await tab.eval(WINS)) !== 0) fail('Close all in the tab menu left a window open');
+      say('space canvas: the window opens over the modules; the tab menu\'s Close all closes it');
     } finally { await tab.close(); }
   }
 

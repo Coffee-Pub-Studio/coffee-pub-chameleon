@@ -390,12 +390,8 @@ try {
   await expect('tab off for a hidden one', 409, 'PATCH', `${SYS}/documents`, { token: T.member, body: { tab: false } });
   await expect('tab with a name, hidden', 409, 'PATCH', `${SYS}/documents`, { token: T.member, body: { tab: true, name: 'x' } });
   same((await call('GET', L(A), { token: T.member })).json.system.find((l) => l.id === 'documents').name, 'Papers', 'a refusal changes nothing');
-  r = await expect('favorite a hidden one', 409, 'PUT', `${L(A)}/documents/favorite`, { token: T.member });
-  same(r.json.error, 'The owner has hidden this layout.');
-  await expect('unfavorite a hidden one', 409, 'DELETE', `${L(A)}/documents/favorite`, { token: T.member });
-  await expect('favorite a shown one', 200, 'PUT', `${L(A)}/whiteboard/favorite`, { token: T.member });
-  await expect('favorite a missing one (Map, no Maps)', 404, 'PUT', `${L(A)}/map/favorite`, { token: T.member });
-  await expect('Workspace is always shown', 400, 'DELETE', `${L(A)}/workspace/favorite`, { token: T.member });
+  // Favorites are gone (plan-workspaces.md, decision 44): no route keeps them.
+  same((await call('PUT', `${L(A)}/whiteboard/favorite`, { token: T.member })).status, 404, 'no favorite route');
   // The precedence: the owner shows a tab again; the person's own hide (stored before) is still theirs, and a hide the
   // person made while it was hidden never happened.
   await expect('the owner shows Documents again', 200, 'PATCH', P(A), { token: T.owner, body: { tabs: { order: tabs.order } } });
@@ -404,7 +400,6 @@ try {
   same(got.system.find((l) => l.id === 'documents').name, 'Papers', 'their name for it is still theirs');
   // A person's own hide of a pinned tab is refused, whichever route sends it, and the order is the owner's.
   await expect('hide Calendar for me', 409, 'PATCH', `${SYS}/calendar`, { token: T.member, body: { tab: false } });
-  await expect('unfavorite Calendar for me', 409, 'DELETE', `${L(A)}/calendar/favorite`, { token: T.member });
   await expect('the owner reorders', 200, 'PATCH', P(A), { token: T.owner, body: { tabs: { order: ['calendar', 'documents'] } } });
   same((await call('GET', L(A), { token: T.member })).json.system.map((l) => [l.id, l.tab]), [['calendar', true], ['documents', true], ['workspace', true], ['conference', true], ['whiteboard', true]], 'the order is the owner\'s; every shown tab is on for the member');
   // Workspace can be anywhere in the order, and is never hidden.
