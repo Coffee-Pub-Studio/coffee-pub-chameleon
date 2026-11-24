@@ -290,6 +290,23 @@ class Workspaces {
     this.save();
   }
 
+  // Puts the workspaces the person added in a new order (Manage tabs, plan-workspaces.md decision 43): `ids` is every id
+  // they added here, each once, already checked for its type. 409 when it names a different set (the list changed since it
+  // was read). The Workspace's own record is not a tab of theirs and stays where it is. Returns the list, as list().
+  reorder(spaceId, userKey, ids) {
+    if (this.unreadable) this.save();
+    const list = this.listFor(spaceId, userKey, false);
+    const added = list.filter((w) => w.id !== WORKSPACE_ID);
+    const byId = new Map(added.map((w) => [w.id, w]));
+    if (ids.length !== added.length || new Set(ids).size !== ids.length || !ids.every((id) => byId.has(id))) throw new WorkspaceError('Your workspaces here have changed. Open Manage tabs again and try once more.', 409);
+    if (added.length) {
+      const own = list.filter((w) => w.id === WORKSPACE_ID);
+      list.splice(0, list.length, ...own, ...ids.map((id) => byId.get(id)));
+      this.save();
+    }
+    return this.list(spaceId, userKey);
+  }
+
   // Writes a workspace's arrangement (already cleaned; null forgets it). The Workspace's record is made on its first write
   // and dropped again when its arrangement is forgotten. 404 for an id the person has not added.
   arrange(spaceId, userKey, id, arrangement) {
@@ -380,6 +397,22 @@ function mountWorkspaces(app, deps) {
     if (shape.error) return res.status(400).json({ error: shape.error });
     try {
       res.status(201).json({ workspace: store().workspaces.add(p.space.id, p.me, { name: name.name, shape: shape.shape }) });
+    } catch (err) { fail(err, res); }
+  });
+
+  // PUT { ids } (Manage tabs, decision 43): every workspace the person added here, each once, in their new order. 200
+  // { workspaces } as GET lists them. 400 for anything but { ids } as a list of distinct ids, or for the Workspace in it (the
+  // owner's tabs keep the owner's order); 409 when the ids are not exactly the ones the person added here.
+  app.put(`${base}/order`, (req, res) => {
+    const p = personIn(req, res);
+    if (!p) return;
+    const b = body(req);
+    if (!b || !Array.isArray(b.ids) || Object.keys(b).length !== 1) return res.status(400).json({ error: 'Send { ids }: the workspaces you added, in their new order.' });
+    if (b.ids.length > WORKSPACE_LIMITS.added || !b.ids.every((id) => typeof id === 'string')) return res.status(400).json({ error: 'Each id is the id of a workspace you added.' });
+    if (b.ids.includes(WORKSPACE_ID)) return res.status(400).json({ error: `The Workspace is the ${word('space')}'s, so it stays where the ${word('owner')} put it.` });
+    if (new Set(b.ids).size !== b.ids.length) return res.status(400).json({ error: 'Name each workspace once.' });
+    try {
+      res.json({ workspaces: store().workspaces.reorder(p.space.id, p.me, b.ids) });
     } catch (err) { fail(err, res); }
   });
 

@@ -74,6 +74,7 @@ const SURFACES = [
   { name: 'the layout icon sheet', file: 'public/space.js', from: 'function openIconSheet(', to: 'function startChangeIcon(' },
   { name: 'the shape sheet (New layout for everyone, Edit)', file: 'public/space.js', from: 'function openShapeSheet(', to: '// Change icon (plan-layout-views.md' },
   { name: 'the layout picker', file: 'public/layout-picker.js', from: 'export function createLayoutPicker(' },
+  { name: 'Manage tabs', file: 'public/manage-tabs.js', from: 'export function openManageTabs(' },
 ];
 
 for (const s of SURFACES) {

@@ -4403,6 +4403,10 @@ span.message-vis {
   overscroll-behavior: contain;
 }
 
+/* In the body's column the title keeps its own height: the head's flex: 1 (beside a close button) would otherwise stretch it
+   down a full-screen sheet on a phone. */
+.layout-form-body > .layout-sheet-title { flex: none; }
+
 .phase-sheet-body {
   flex: 1 1 auto;
   display: flex;
