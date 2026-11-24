@@ -1274,7 +1274,6 @@
   --av: 32px;
   --av-font: var(--text-13);
   --av-surface: var(--surface-panel);
-  --av-ring: var(--av-surface);
   --av-ring-w: var(--space-0);
   --av-overlap: calc(var(--space-2) * -1);
 }
@@ -1332,7 +1331,7 @@
   align-items: center;
 }
 
-.sdk-avatar-stack > .sdk-avatar { box-shadow: 0 0 0 var(--av-ring-w) var(--av-ring); }
+.sdk-avatar-stack > .sdk-avatar { box-shadow: 0 0 0 var(--av-ring-w) var(--av-surface); }
 .sdk-avatar-stack > .sdk-avatar + .sdk-avatar { margin-left: var(--av-overlap); }
 
 /* The rest of the people: a micro count at the end of the stack, over the last circle's lower right. Numbers only. */
@@ -1342,7 +1341,7 @@
   right: auto;
   align-self: flex-end;
   margin-left: calc(var(--space-2) * -1);
-  box-shadow: 0 0 0 var(--av-ring-w) var(--av-ring);
+  box-shadow: 0 0 0 var(--av-ring-w) var(--av-surface);
 }
 /* avatars:end */
 

@@ -94,7 +94,7 @@ const same = (got, want, label) => { assert.deepEqual(got, want, label); n += 1;
   const block = css.slice(css.indexOf('.layout-tabs > .layout-tab-side {'), css.indexOf('.who-here-tab {') + 300);
   ok(block.length > 300 && !/#[0-9a-f]{3,8}\b|rgba?\(/i.test(block), 'the faces\' styles use the theme tokens, no raw colours');
   ok(/\.layout-tabs > \.layout-tab-side\[hidden\],\n\.layout-tabs > \.layout-tab-side\.layout-tab-out \{ display: none; \}/.test(css), 'an empty tab shows no faces, nor does a tab in the "..."');
-  ok(/\.tab-faces > \.sdk-avatar \{ --av: 22px;/.test(css) && /--av-overlap: calc\(var\(--space-2\) \* -1\)/.test(css), 'faces are 22px, overlapping 8px, inside the tab\'s pill');
+  ok(/\.tab-faces > \.sdk-avatar \{ --av: 22px;/.test(css) && /--av-overlap: calc\(var\(--space-2\) \* -1\)/.test(fs.readFileSync(path.join(ROOT, 'public/sdk/system.css'), 'utf8')), 'faces are 22px, overlapping 8px, inside the tab\'s pill');
   ok(/personTint\(person\.key\)/.test(peopleJs) && /fallback=none/.test(peopleJs), 'no picture: the first letter on the person\'s own tint, never the server plate');
 }
 

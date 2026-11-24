@@ -10254,10 +10254,7 @@ body:not(.in-aside) .side-column.call-area.call-right > .side-column-chat {
   color: var(--text-muted);
   font: inherit;
   cursor: pointer;
-  --av-surface: var(--surface-bar-top);
-  --av-ring: var(--surface-bar-top); /* the bar's own colour, so each face's edge reads where two overlap */
-  --av-ring-w: 2px;
-  --av-overlap: calc(var(--space-2) * -1);
+  --av-surface: var(--surface-bar-top); /* the bar's own colour: it is also each face's ring, so the edge reads where two overlap */
 }
 .layout-tabs > .layout-tab:has(+ .layout-tab-side:not([hidden])) { padding-right: calc(var(--side-w, 0px) + var(--space-2) * 2); }
 .layout-tabs > .layout-tab + .layout-tab-side { margin-left: calc((var(--side-w, 0px) + var(--space-2)) * -1); }
