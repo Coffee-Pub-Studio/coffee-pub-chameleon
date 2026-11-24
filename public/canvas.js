@@ -26,7 +26,7 @@ import { returnPlace } from '/pop-return.js';
 import { MIN_W, MIN_H, SNAP_GAP, gridFor, cellBox, snapCell, leastSpan, clampCell, nearestFree, nextFree, resettle, tidyBoxes, fillBoxes, TIDY_GAP, DOCK_MIN, FLEX_MIN, NARROW, dockLimit, fitDock } from '/snap-grid.js';
 import { composeList, aliasesFor, compositeById, compositesToAsk } from '/composites.js';
 
-// What each space remembers (`app.canvas.<space>`; brand.js moves the old `app.panels` keys): the modules open when the person last used it,
+// What each space remembers (`app.canvas.<space>`): the modules open when the person last used it,
 // and each module's mode and sizes. `app.canvas` alone is what earlier versions kept for all
 // spaces, and is the starting point for a space with nothing saved yet.
 const STORE_KEY = 'app.canvas';
