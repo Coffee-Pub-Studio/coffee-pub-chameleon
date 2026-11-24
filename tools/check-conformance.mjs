@@ -197,14 +197,20 @@ const COLLECT = String.raw`(() => {
 })()`;
 
 // ---- the contexts ----
-async function openTab(browser, S, size, mode, url, { call = false, before = null } = {}) {
+async function openTab(browser, S, size, mode, url, { call = false, before = null, as = 'mia' } = {}) {
   const tab = new Tab(browser.cdp, S.ctx);
   await tab.open(size, mode, call);
   await cssOn(tab); // before the page loads: on a loaded space page CSS.enable can take longer than the protocol's wait
-  for (const c of S.cookies.mia) await browser.cdp.send('Network.setCookie', { name: c.name, value: c.value, url: S.base, httpOnly: true }, tab.sid);
+  for (const c of S.cookies[as]) await browser.cdp.send('Network.setCookie', { name: c.name, value: c.value, url: S.base, httpOnly: true }, tab.sid);
   if (before) await browser.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: before }, tab.sid);
   await browser.cdp.send('Page.navigate', { url: S.base + fill(url, S.ctx) }, tab.sid);
   return tab;
+}
+// What a person's Workspace (mia's unless named) opens with in the trip: her arrangement on the server (server/workspaces.js), the modules `open` in order.
+async function arrangeAs(S, open, as = 'mia') {
+  const cookie = S.cookies[as].map((c) => `${c.name}=${c.value}`).join('; ');
+  const r = await fetch(`${S.base}/api/spaces/${S.ctx.trip}/workspaces/workspace/arrangement`, { method: 'PUT', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ arrangement: { open } }) });
+  if (!r.ok) throw new Error(`mia's arrangement was refused: ${r.status} ${await r.text()}`);
 }
 // Measured once the page holds still: ready, and two readings 300 ms apart the same.
 async function settled(tab, wantWindows = 1) {
@@ -566,8 +572,8 @@ async function main() {
     // 1. The Workspace, wide and light: everything open (the canvas's own remembered list), docked as far as they fit.
     jobs.push(['Workspace, 1280', async () => {
       const open = ['dest:calendar', 'dest:map', 'research', 'travel', 'budget', 'polls', 'assistant'];
-      const before = `try { localStorage.setItem('app.canvas.${S.ctx.trip}', ${JSON.stringify(JSON.stringify({ __open: open }))}); } catch (e) {}`;
-      const tab = await openTab(browser, S, 1280, 'light', '/#join={trip}', { call: true, before });
+      await arrangeAs(S, open, 'sam'); // sam's Workspace, on the server (server/workspaces.js): a person of its own, so no other job meets it
+      const tab = await openTab(browser, S, 1280, 'light', '/#join={trip}', { call: true, as: 'sam' });
       try {
         await tab.waitFor('.mf-titlebar .mf-titlebar-title', '', 45000);
         await sleep(2500);
@@ -595,7 +601,7 @@ async function main() {
         if (!r1.ok || !r2.ok) { failures.push({ context: 'Docked gutter', window: id, what: 'could not install the module', got: `${r1.status} ${r2.status}`, should: 'ok' }); return; }
       }
       const open = ['research', 'budget', 'documents'];
-      const before = `try { localStorage.setItem('app.canvas.${S.ctx.trip}', ${JSON.stringify(JSON.stringify({ __open: open }))}); } catch (e) {}`;
+      await arrangeAs(S, open, 'admin'); // the admin's Workspace, on the server: a person of its own, so no other job meets it
       const MEASURE = `(() => {
         const R = (e) => e.getBoundingClientRect();
         const frames = [...document.querySelectorAll('.module-docked > .mod-content > .mf')].sort((a, b) => R(a).left - R(b).left);
@@ -622,8 +628,7 @@ async function main() {
         const ctx = `Docked gutter, 1280 px, ${mode}`;
         const tab = new Tab(browser.cdp, S.ctx);
         await tab.open(1280, mode, true);
-        for (const c of S.cookies.mia) await browser.cdp.send('Network.setCookie', { name: c.name, value: c.value, url: S.base, httpOnly: true }, tab.sid);
-        await browser.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: before }, tab.sid);
+        for (const c of S.cookies.admin) await browser.cdp.send('Network.setCookie', { name: c.name, value: c.value, url: S.base, httpOnly: true }, tab.sid);
         await browser.cdp.send('Page.navigate', { url: S.base + fill('/#join={trip}', S.ctx) }, tab.sid);
         try {
           await tab.waitFor('.mf-titlebar .mf-titlebar-title', '', 45000);

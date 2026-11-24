@@ -169,6 +169,7 @@ const FILE_LEFT_OUT = [
   /^agent-setup(\.unreadable-\d+)?\.json$/, // set-up agents' asks and undo records (server/setup-records.js): the host's backup only
   (name) => name === LEGACY_ENVIRONMENT_RECORD, // the older name of app.json: only app.json speaks for the environment
   /^tmp\//,
+  /^workspaces\.json$/, // each person's own workspaces and arrangements (server/workspaces.js): personal state, the host's backup only
   new RegExp(`^modules/${MODULE_ID}/library/[^/]+\\.shares\\.json$`),
   // Each person's own module data, held clears and uploads: private to that person, so not the owner's to carry.
   new RegExp(`^modules/${MODULE_ID}/(data|trash)/person-[^/]+$`),

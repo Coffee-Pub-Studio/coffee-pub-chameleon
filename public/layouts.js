@@ -14,7 +14,7 @@
 // stack from the top: 0, 1, 2, with no gap), `h` (its share of the column's height, 0.1 to 0.9, the stack's shares
 // summing to 1) and `folded` (true while the person has collapsed it). They are listed one after the other, top first,
 // where the column is in the column order; the column's width is each one's `dockW`. A module with no `stack` is a column
-// of its own. The person's own remembered layout (canvas.js, `app.canvas.<space>`) keeps the same four keys on each
+// of its own. The Workspace's remembered arrangement (canvas.js; server/workspaces.js) keeps the same four keys on each
 // module's record. The stack's arithmetic (grouping, heights, the divider, the short canvas) is here too.
 
 import { MIN_W, MIN_H, DOCK_MIN, NARROW, gridFor, cellBox, resettle, fitDock } from '/snap-grid.js';

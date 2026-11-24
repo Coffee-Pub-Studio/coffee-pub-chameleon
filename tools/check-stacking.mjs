@@ -49,6 +49,21 @@ const STATE = `(() => ({
   canvasH: document.getElementById('canvas').clientHeight,
 }))()`;
 
+// The page's remembered shape (`saved`: records by id and `__open`, `__placed`, `__mode`, `__snap`, `__stacks`) and the
+// server's named arrangement, both ways (public/canvas.js's toWire and fromWire).
+const TOP = { __open: 'open', __placed: 'placed', __mode: 'mode', __snap: 'snap', __stacks: 'stacks' };
+function wireOf(saved) {
+  const out = { modules: {} };
+  for (const [k, v] of Object.entries(saved)) { if (TOP[k]) out[TOP[k]] = v; else out.modules[k] = v; }
+  return out;
+}
+function savedOf(a) {
+  if (!a) return {};
+  const out = { ...(a.modules || {}) };
+  for (const [k, w] of Object.entries(TOP)) if (w in a) out[k] = a[w];
+  return out;
+}
+
 async function main() {
   const bin = findBrowser();
   if (!bin) { say('SKIPPED. No Chromium found (set CHROME_PATH). This is not a pass; nothing was measured.'); return 0; }
@@ -59,7 +74,8 @@ async function main() {
     server = boot.server;
     const S = { base: server.base, ctx: boot.ctx, cookies: boot.cookies };
     browser = await launch(bin);
-    const KEY = `app.canvas.${S.ctx.trip}`;
+    // The Workspace's arrangement is the person's on the server (server/workspaces.js), written a moment after each change.
+    const WS = `/api/spaces/${S.ctx.trip}/workspaces`;
     const only = process.argv.find((a) => a.startsWith('--mode='))?.slice(7);
     // Each look by another person of the trip, so nothing one tab left (its presence on the trip) meets the next.
     for (const [mode, who] of (only ? [only] : ['light', 'dark']).map((m) => [m, m === 'dark' ? 'sam' : 'mia'])) {
@@ -76,7 +92,8 @@ async function main() {
       tab.cdp.listeners.push(listen);
       const L = `[${mode}]`;
       const state = () => tab.eval(STATE);
-      const stored = async () => JSON.parse(await tab.eval(`localStorage.getItem(${JSON.stringify(KEY)}) || '{}'`));
+      const stored = async () => { await sleep(900); return savedOf(JSON.parse(await tab.eval(`fetch(${JSON.stringify(WS)}).then((r) => r.json()).then((a) => JSON.stringify((a.workspaces || []).find((w) => w.id === 'workspace')?.arrangement || null))`))); };
+      const store = (saved) => tab.eval(`fetch(${JSON.stringify(`${WS}/workspace/arrangement`)}, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: ${JSON.stringify(JSON.stringify({ arrangement: wireOf(saved) }))} }).then((r) => r.status)`);
       const size = async (w, h = 900) => { await tab.cdp.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: false }, tab.sid); await sleep(1200); };
       const key = async (k, shift = false) => {
         for (const type of ['keyDown', 'keyUp']) await tab.cdp.send('Input.dispatchKeyEvent', { type, key: k, code: k, windowsVirtualKeyCode: KEYS[k], modifiers: shift ? 8 : 0, ...(k === 'Enter' && type === 'keyDown' ? { text: '\r' } : {}) }, tab.sid);
@@ -109,7 +126,8 @@ async function main() {
       // Enter the trip with a remembered layout of these modules, docked (Panel Mode, what nothing remembered reads as).
       const enter = async (open, records = {}) => {
         await driveScreen(tab, { id: 'storage', as: who, url: '/healthz', wait: 'body' }, S.base, S.cookies, S.ctx);
-        await tab.eval(`localStorage.setItem(${JSON.stringify(KEY)}, ${JSON.stringify(JSON.stringify({ __open: open, ...records }))})`);
+        const put = await store({ __open: open, ...records });
+        if (put !== 200) throw new Error(`the arrangement was refused: ${put}`);
         try {
           await driveScreen(tab, { id: 'workspace', as: who, url: '/#join={trip}', wait: '#canvas .module-docked', call: true }, S.base, S.cookies, S.ctx);
         } catch (e) {
@@ -486,7 +504,7 @@ async function main() {
         expect(!('__stacks' in (await stored())), `${L} the stacks put away are still kept after they came back`);
         // A phone keeps the stack's remembered width: reloading at 390 px (where a column is clamped) and then at 1280 gives the same dockW.
         const widths = async () => { const r = await stored(); return ['maps', 'polls'].map((id) => r[id]?.dockW).join(); };
-        await tab.eval(`(() => { const k = ${JSON.stringify(KEY)}; const r = JSON.parse(localStorage.getItem(k) || '{}'); for (const id of ['maps', 'polls']) if (r[id]) r[id].dockW = 460; localStorage.setItem(k, JSON.stringify(r)); })()`);
+        { const r = await stored(); for (const id of ['maps', 'polls']) if (r[id]) r[id].dockW = 460; await store(r); }
         await tab.cdp.send('Page.reload', {}, tab.sid);
         await tab.waitFor('#canvas .module-docked.in-stack');
         await sleep(1500);

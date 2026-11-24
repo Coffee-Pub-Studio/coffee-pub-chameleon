@@ -48,6 +48,7 @@ const { whoCantOpen, canOpenArea } = require('./layout-shapes');
 const { createScanner } = require('./vault-scan');
 const pdfViewer = require('./pdf-viewer');
 const { mountVaultShares } = require('./vault-share');
+const { mountWorkspaces } = require('./workspaces');
 const { watchArrival, slowSenders } = require('./arrival');
 const { Ai, AiError, listModelsFor, managedOffer, MANAGED_PROVIDERS } = require('./ai');
 const objectFormat = require('./object-format');
@@ -7438,6 +7439,10 @@ function layoutFavorite(on) {
 }
 app.put('/api/spaces/:id/layouts/:layoutId/favorite', layoutFavorite(true));
 app.delete('/api/spaces/:id/layouts/:layoutId/favorite', layoutFavorite(false));
+
+// A person's own workspaces in a space and each one's arrangement (plan-workspaces.md, decisions 39 and 49; server/workspaces.js):
+// the same finder as the layouts routes, so an aside, a closed space and a space the person is not in answer as they do there.
+mountWorkspaces(app, { store: () => store, spaceFor: layoutSpaceFor, shapeOptions: sharedShapeOptions, word });
 
 // --- chat history --------------------------------------------------------------------------------
 // A message is posted here, kept (see server/chat-history.js for what is kept and for how long) and told live on the

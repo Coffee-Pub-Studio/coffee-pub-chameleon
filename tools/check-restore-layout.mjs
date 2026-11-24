@@ -148,6 +148,9 @@ try {
     assert.equal((await api('mia', 'PUT', `/api/spaces/${ctx.trip}/last-layout`, { layout: 'calendar' })).status, 200);
     assert.equal((await asAdmin({ tabs: { hide: ['calendar'] } })).status, 200);
     assert.equal((await layoutsAs('mia')).last, undefined, 'the server no longer answers it');
+    // Her Workspace's arrangement follows her to any browser (server/workspaces.js) and, remembered, wins over the default
+    // (firstVisitLayout); forgotten here, so what is checked is the fallback itself.
+    assert.equal((await api('mia', 'PUT', `/api/spaces/${ctx.trip}/workspaces/workspace/arrangement`, { arrangement: null })).status, 200);
     const tab = await enter('mia');
     assert.equal(await shown(tab), 'conference', 'the default');
     assert.equal(await puts(tab), 0);
@@ -166,6 +169,7 @@ try {
     assert.equal(await puts(tab), 0);
     assert.equal((await api('mia', 'DELETE', `/api/spaces/${ctx.trip}/layouts/${id}`)).status, 204, 'deleted');
     assert.equal((await layoutsAs('mia')).last, undefined, 'the server dropped it');
+    assert.equal((await api('mia', 'PUT', `/api/spaces/${ctx.trip}/workspaces/workspace/arrangement`, { arrangement: null })).status, 200, 'her remembered Workspace forgotten, as above');
     const again = await enter('mia');
     assert.equal(await shown(again), 'conference', 'the default');
     assert.equal(await puts(again), 0);
@@ -175,7 +179,7 @@ try {
     const made = await api('admin', 'POST', '/api/spaces', { name: 'Plain', template: 'default' });
     assert.equal(made.status, 200, JSON.stringify(made.json));
     const plain = made.json.space.id;
-    const state = (tab) => tab.eval(`({ areas: document.querySelectorAll('.module-area').length, choices: document.querySelectorAll('.module-area .host-menu-item').length, modules: [...document.querySelectorAll('.module-docked[data-module]')].map((s) => s.dataset.module).filter((id) => id !== 'chat' && id !== 'conference'), placed: JSON.parse(localStorage.getItem(Object.keys(localStorage).find((k) => k.endsWith(${JSON.stringify(plain)})) || 'null') || '{}').__placed === true })`);
+    const state = (tab) => tab.eval(`({ areas: document.querySelectorAll('.module-area').length, choices: document.querySelectorAll('.module-area .host-menu-item').length, modules: [...document.querySelectorAll('.module-docked[data-module]')].map((s) => s.dataset.module).filter((id) => id !== 'chat' && id !== 'conference'), placed: await new Promise((r) => setTimeout(r, 900)).then(() => fetch(${JSON.stringify(`/api/spaces/${plain}/workspaces`)})).then((r) => r.json()).then((a) => (a.workspaces || []).find((w) => w.id === 'workspace')?.arrangement?.placed === true) })`);
     const tab = await open(`/#join=${plain}`, 'admin');
     await tab.waitFor('#layout-tabs [data-layout-tab]');
     await sleep(1500);
@@ -201,15 +205,16 @@ try {
     await reload(tab);
     s = await state(tab);
     assert.deepEqual([s.areas, s.modules], [0, []], 'closed again: their own arrangement, a blank canvas, not the area');
-    // A phone has no placeholder: a new person there gets the chat as the view, and the same on every visit.
-    const phone = await open(`/#join=${plain}`, 'admin', 390); // a browser context of its own: nothing remembered
+    // A phone has no placeholder: the chat is the view, and the same on every visit. The person's own choice follows them
+    // there (their Workspace's arrangement is on the server), so it is still a choice made.
+    const phone = await open(`/#join=${plain}`, 'admin', 390); // a browser context of its own
     await sleep(3500);
     const p1 = await state(phone);
-    assert.deepEqual([p1.areas, p1.modules, p1.placed], [0, [], false], 'a phone: no area, no module, nothing chosen');
+    assert.deepEqual([p1.areas, p1.modules, p1.placed], [0, [], true], 'a phone: no area, no module, the choice kept');
     await phone.cdp.send('Page.reload', {}, phone.sid);
     await sleep(3500);
     const p2 = await state(phone);
-    assert.deepEqual([p2.areas, p2.modules, p2.placed], [0, [], false], 'a phone, again: the same');
+    assert.deepEqual([p2.areas, p2.modules, p2.placed], [0, [], true], 'a phone, again: the same');
   });
 
   await test('a guest follows the owner\'s default (the Workspace for a tab they cannot have), has no fixed tab, writes nothing', async () => {
