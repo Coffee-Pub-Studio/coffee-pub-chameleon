@@ -1403,7 +1403,19 @@ for (const m of (css + '\n' + chromeBlock).replace(/\/\*[\s\S]*?\*\//g, '').matc
   if (!/openHostMenu\(trigger, menuEntries\);/.test(canvasJs)) fail('public/canvas.js', 'the tab menu is the page\'s shared menu (host-menu.js openHostMenu), drawn from menuEntries()');
   for (const needle of ["{ heading: 'Open for you' }", "{ heading: 'Arrange' }", "label: 'Panels'", "label: 'Windows'", "label: 'Snap to grid'", "label: 'Clean up'"]) if (!canvasJs.includes(needle)) fail('public/canvas.js', `the tab menu has ${needle}`);
   const arrangeItems = canvasJs.slice(canvasJs.indexOf('  function arrangeItems() {'), canvasJs.indexOf('  function menuEntries() {'));
-  if (!/if \(windowMode\) \{[\s\S]*label: 'Snap to grid'[\s\S]*label: 'Clean up'[\s\S]*\}/.test(arrangeItems)) fail('public/canvas.js', 'Snap to grid and Clean up are offered in Window Mode only');
+  if (!/if \(windowMode\) \{[\s\S]*label: 'Snap to grid'[\s\S]*label: 'Clean up'[\s\S]*\}/.test(arrangeItems)) fail('public/canvas.js', 'Snap to grid is offered in Window Mode only, with its Clean up');
+  if (!/if \(!windowMode\) \{\n\s*items\.push\(\{ divider: true \}, \{ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: \(\) => tidyUp\(\) \}\);/.test(arrangeItems)) fail('public/canvas.js', 'Clean up is offered in Panel Mode too (plan-workspaces.md, decision 41)');
+  // Clean up in Panels and its Undo (decision 41): the stacks' own arrange() with even heights and one width, the folded
+  // sections opened, nothing closed; Undo puts the arrangement from before back once, through the shared toast
+  // (brand.js's actionToast) and a row in Arrange, and any other change ends it.
+  const panels = canvasJs.slice(canvasJs.indexOf('  function cleanUpPanels() {'), canvasJs.indexOf('  // Undo for Clean up and Unstack all'));
+  if (!/arrange\(cols\.map\(\(c\) => \(\{ \.\.\.c, even: c\.ids\.length > 1, width: /.test(panels)) fail('public/canvas.js', 'cleanUpPanels() goes through arrange(), even heights in every stack and one width');
+  if (!/folded: false/.test(panels) || /closeModule|setMode\(/.test(panels)) fail('public/canvas.js', 'cleanUpPanels() opens folded sections and closes or floats nothing');
+  const undo = canvasJs.slice(canvasJs.indexOf('  // Undo for Clean up and Unstack all'), canvasJs.indexOf('  // The grid\'s size, from the space bar\'s slider'));
+  if (!/actionToast\(\{[\s\S]*actions: \[\{ id: 'undo', label: 'Undo', primary: true \}\]/.test(undo)) fail('public/canvas.js', 'Clean up\'s Undo is the shared toast\'s (actionToast) Undo');
+  if (!/return undoable\(\(\) => \(windows \? cleanUp\(\) : cleanUpPanels\(\)\), \{ said: 'Cleaned up', label: 'Undo clean up' \}\);/.test(undo)) fail('public/canvas.js', 'tidyUp() runs the mode\'s Clean up, undoably');
+  if (!/if \(undoArrange && !undoArrange\.busy && arrangeSig\(\) !== undoArrange\.after\) dropUndo\(\);/.test(canvasJs)) fail('public/canvas.js', 'any other change to the arrangement ends Undo (persist)');
+  if (!/dropUndo\(\); \/\/ Undo is the shown workspace's/.test(canvasJs)) fail('public/canvas.js', 'another workspace shown ends Undo');
   if (!/const arrangeMode = \(\) => \(saved\.__mode === 'window' \? 'window' : 'panel'\);/.test(canvasJs)) fail('public/canvas.js', 'the arrange mode is remembered with the space\'s layout (__mode), Panel Mode unless said otherwise');
   if (/guest-mic-note/.test(spaceHtml + spaceJs)) fail('public/space.html', 'entering never joins the call, so the guest form must not say the browser will ask for the microphone');
 }

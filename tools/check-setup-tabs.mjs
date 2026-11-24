@@ -6,7 +6,8 @@
  *     who made a space) Phases | Call | Layout | Modules; a member and a guest no Set up at all; no `show` tab anywhere
  *   - each setting on its tab, and each tab's one save cue at its top ("Saved with Save", and what happens at once)
  *   - every tab shows at 1280 and 1024 wide; at 390 the six fit the sheet without sideways scroll (the rest in the "...")
- *   - the Layout tab: Tabs in the bar (keyboard moves, hide, Opens first, Save) and First visit, marking the Layout tab unsaved
+ *   - the Layout tab: Tabs in the bar (keyboard moves, hide, Opens first, Save) and First visit, marking the Layout tab unsaved;
+ *     Layouts for everyone's Copy one of mine (nothing to copy said plainly, a workspace with a shape copied, one without disabled)
  *   - the Layout button for a member and a moderator: a popover with Open for you, Arrange and Layouts, each acting at once
  *   - addresses /?setup=<id>#<tab> open that tab; a refused field opens the tab that holds it, the keyboard on it
  *   - Manage is a gear button in the top bar for the admin, not in the profile menu, and not there for a member
@@ -141,7 +142,7 @@ try {
     layout: ['#setup-layout-rows', '#setup-first-visit'],
     modules: ['#setup-ai-off', '#setup-ai-sees-follow', '#setup-tags', '#setup-module-settings', '#setup-fixed-modules'],
   };
-  const CUES = { details: 'Saved with Save. Delete happens at once.', members: 'Saved with Save. Waiting to come in and Links happen at once.', phases: /^Saved with Save\./, call: 'Saved with Save.', layout: 'Saved with Save.', modules: 'Saved with Save. Tags and deleting a file happen at once.' };
+  const CUES = { details: 'Saved with Save. Delete happens at once.', members: 'Saved with Save. Waiting to come in and Links happen at once.', phases: /^Saved with Save\./, call: 'Saved with Save.', layout: 'Saved with Save. Copy one of mine happens at once.', modules: 'Saved with Save. Tags and deleting a file happen at once.' };
   await test('an owner: each setting is on its tab, and each tab says its save cue once at its top', async () => {
     const tab = await inSpace('admin', 1280);
     await openSetup(tab);
@@ -158,13 +159,13 @@ try {
     assert.equal(await tab.eval(`/Open for you|Panel Mode|Window Mode|New layout for everyone$|There is nothing to configure/.test(document.getElementById('space-setup').innerText)`), false, 'none of their words either');
   });
 
-  await test('Layout tab: Tabs in the bar, then First visit with Opens with as a read-only line; changing First visit marks Layout unsaved', async () => {
+  await test('Layout tab: Tabs in the bar, Layouts for everyone, then First visit with Opens with as a read-only line; changing First visit marks Layout unsaved', async () => {
     const tab = await inSpace('admin', 1280);
     await openSetup(tab);
     await tab.click('#setup-tab-layout');
     await sleep(900);
     const s = await tab.eval(`({ heads: [...document.querySelectorAll('#setup-content-layout .setup-heading')].map((h) => h.textContent), dot: !document.querySelector('#setup-tab-layout .setup-tab-dot').hidden })`);
-    assert.deepEqual(s.heads.slice(0, 2), ['Tabs in the bar', 'First visit']);
+    assert.deepEqual(s.heads.slice(0, 3), ['Tabs in the bar', 'Layouts for everyone', 'First visit']);
     assert.equal(s.dot, false, 'nothing changed yet');
     // Opens with is read only (plan-templates-redesign.md, step 8): one line with the template's list and why, no switches.
     const line = await tab.eval(`({ text: document.getElementById('setup-opens-with')?.textContent, inputs: document.querySelectorAll('#setup-opens-with input, #setup-opens-with button').length, why: document.getElementById('setup-opens-with-hint')?.textContent })`);
@@ -231,7 +232,8 @@ try {
     assert.ok(rows.slice(1).every((r) => !r.showDisabled), 'the others can be turned off');
     const heads = await tab.eval(`[...document.querySelectorAll('#setup-content-layout .setup-heading')].map((h) => h.textContent)`);
     assert.equal(heads[0], 'Tabs in the bar');
-    assert.equal(heads[1], 'First visit');
+    assert.equal(heads[1], 'Layouts for everyone');
+    assert.equal(heads[2], 'First visit');
     const words = await tab.eval(`document.getElementById('setup-layout-rows').textContent.replace(/\\s+/g, ' ')`);
     for (const w of ['Show in the bar', 'Opens first', 'Move up', 'Move down', 'The Workspace is always shown.']) assert.ok(words.includes(w), w);
     const groups = await tab.eval(`[...new Set([...document.querySelectorAll('#space-setup input[type=radio][name=setup-first-visit]')].map((r) => r.name))].length`);
@@ -520,6 +522,38 @@ try {
       assert.ok(Math.abs(above - first.swR) <= 3, `the module switches line up with the switches above (${first.swR} vs ${above})`);
     });
   }
+
+  // Copy one of mine (plan-workspaces.md, decisions 39 and 49): with no workspace of their own, the line under the button says so
+  // and nothing is sent; then one with a shape is copied as a layout for everyone under its name (its row shows, and every
+  // member's list has it), and one with no shape is offered but can't be picked. A member has no Set up, so no copy.
+  await test('Layout tab: Copy one of mine refuses plainly with nothing to copy, copies a workspace with a shape as a layout for everyone, and offers one with no shape disabled', async () => {
+    const tab = await inSpace('admin', 1280);
+    await openSetup(tab);
+    await tab.click('#setup-tab-layout');
+    await sleep(700);
+    assert.equal(await tab.eval(`document.getElementById('setup-shared-section').hidden`), false, 'the admin may make a layout for everyone');
+    await tab.click('#setup-copy-mine');
+    await sleep(900);
+    assert.match(await tab.eval(`document.getElementById('setup-copy-status').textContent`), /^You have no workspace of your own here to copy\./);
+    assert.equal(await tab.eval(`document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item').length`), 0, 'no menu with nothing in it');
+    const ws = (body) => tab.eval(`fetch('/api/spaces/${ctx.trip}/workspaces', { method: 'POST', headers: { 'content-type': 'application/json' }, body: ${JSON.stringify(JSON.stringify(body))} }).then((r) => r.status)`);
+    assert.equal(await ws({ name: 'Copy desk', shape: { shape: 'two-equal', areas: ['travel', 'maps'] } }), 201);
+    assert.equal(await ws({ name: 'Bare desk' }), 201);
+    await tab.click('#setup-copy-mine');
+    await tab.waitFor('body > .host-menu:not(.host-menu-inline) .host-menu-item');
+    await sleep(300);
+    const items = await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].map((b) => ({ text: b.querySelector('.host-menu-label')?.textContent.trim(), off: b.disabled }))`);
+    assert.deepEqual(items, [{ text: 'Copy desk', off: false }, { text: 'Bare desk', off: true }], 'the person\'s own workspaces, never the Workspace; one with no layout can\'t be copied');
+    await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].find((b) => b.textContent.includes('Copy desk')).click()`);
+    await sleep(1200);
+    assert.equal(await tab.eval(`document.getElementById('setup-copy-status').textContent`), 'Copy desk is now a layout for everyone.');
+    assert.ok((await tab.eval(`[...document.querySelectorAll('#setup-shared-rows .setup-layout-name')].map((n) => n.textContent)`)).includes('Copy desk'), 'its row shows');
+    const shared = (await (await fetch(`${server.base}/api/spaces/${ctx.trip}/layouts`, { headers: { cookie: cookies.mia.map((c) => `${c.name}=${c.value}`).join('; ') } })).json()).shared;
+    const got = shared.find((l) => l.name === 'Copy desk');
+    assert.ok(got && got.shape === 'two-equal' && JSON.stringify(got.areas) === JSON.stringify(['travel', 'maps']), `the layout for everyone has the workspace's shape: ${JSON.stringify(got)}`);
+    assert.equal(await tab.eval(`document.getElementById('setup-tab-layout').querySelector('.setup-tab-dot').hidden`), true, 'it happened at once: nothing to save');
+    await tab.close();
+  });
 
   if (SHOTS) {
     fs.mkdirSync(SHOTS, { recursive: true });

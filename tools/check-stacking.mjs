@@ -25,6 +25,7 @@
 //      width again; after Unstack all the keyboard is back on the tab's caret.
 //  14. Windows puts the stacks away and Panels brings them back, with their heights and collapse, beside an ordinary
 //      column; after a reload in between; closed up when a member was closed meanwhile.
+//  15. Clean up in Panels (the same flyout) evens a stack in place; its Undo (the toast's, and a row in Arrange) puts it back once.
 // It cannot check a real tablet's touch, a screen reader, or a call (no LiveKit here).
 // Usage: node tools/check-stacking.mjs [--mode=light|dark]. With no Chromium it says SKIPPED and exits 0 (a skip, never a pass).
 import fs from 'node:fs';
@@ -465,6 +466,25 @@ async function main() {
         s = await state();
         expect(sameStack(whole(s), two), `${L} a stack of two came back as ${whole(s)}, not ${two}`);
         expect(!('__stacks' in (await stored())), `${L} the stacks put away are still kept after they came back`);
+        // 15. Clean up in Panels and its Undo (plan-workspaces.md, decision 41): the uneven stack of two gets equal heights, nothing
+        // closes and nothing changes column; the Arrange flyout and a toast then offer Undo, which puts the heights back once.
+        const tidyCols = (await state()).docked.map((d) => `${d.id}:${d.col}`).join();
+        await arrangeTo('Clean up');
+        s = await state();
+        const mapsH = s.docked.find((d) => d.id === 'maps')?.h; const pollsH = s.docked.find((d) => d.id === 'polls')?.h;
+        expect(Math.abs(mapsH - pollsH) <= 2 && s.docked.map((d) => `${d.id}:${d.col}`).join() === tidyCols, `${L} Clean up in Panels did not even the stack in place: ${JSON.stringify(s.docked)} (before ${tidyCols})`);
+        { const r = await stored(); expect(Math.abs((r.maps?.h || 0) - 0.5) < 0.01 && Math.abs((r.polls?.h || 0) - 0.5) < 0.01, `${L} Clean up's equal heights were not saved: ${JSON.stringify({ maps: r.maps, polls: r.polls })}`); }
+        expect(await tab.eval(`Boolean(document.querySelector('.sdk-toast [data-toast-action="undo"]'))`), `${L} Clean up shows no toast with Undo`);
+        await showArrange();
+        expect((await menuItems()).some((x) => x.text === 'Undo clean up' && !x.off), `${L} Arrange offers no Undo clean up right after a Clean up`);
+        await closeMenus();
+        await tab.eval(`document.querySelector('.sdk-toast [data-toast-action="undo"]').click()`);
+        await sleep(1200);
+        s = await state();
+        expect(sameStack(whole(s), two), `${L} Undo after Clean up brought back ${whole(s)}, not ${two}`);
+        await showArrange();
+        expect(!(await menuItems()).some((x) => x.text === 'Undo clean up'), `${L} Undo clean up is still offered after Undo`);
+        await closeMenus();
         // A phone keeps the stack's remembered width: reloading at 390 px (where a column is clamped) and then at 1280 gives the same dockW.
         const widths = async () => { const r = await stored(); return ['maps', 'polls'].map((id) => r[id]?.dockW).join(); };
         { const r = await stored(); for (const id of ['maps', 'polls']) if (r[id]) r[id].dockW = 460; await store(r); }
@@ -484,7 +504,7 @@ async function main() {
         expect(await widths() === '460,460', `${L} after 390 px and a reload at 1280 the stack's stored width is ${await widths()}, not 460,460`);
 
         if (errors.length) failures.push(`${L} the page threw: ${errors.slice(0, 3).join(' | ')}`);
-        say(`${mode}: stacked by menu and drag, divider 8 px within 156 px by pointer and keys, collapse and the last one open, a fourth refused, one column of the limit, out by the drag, reload, close to one, composites refused, short canvas, phone, Unstack all, Windows and back`);
+        say(`${mode}: stacked by menu and drag, divider 8 px within 156 px by pointer and keys, collapse and the last one open, a fourth refused, one column of the limit, out by the drag, reload, close to one, composites refused, short canvas, phone, Unstack all, Windows and back, Clean up and Undo`);
       } finally {
         tab.cdp.listeners = tab.cdp.listeners.filter((f) => f !== listen);
         await tab.close();
