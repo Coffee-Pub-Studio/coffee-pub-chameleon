@@ -1,13 +1,14 @@
 
   // Polls' actions: what an agent or another module may ask of it (plan-agent-edit-delete.md, decision 4 and step 2). One copy
-  // of each rule, run on the page (host.actions.fromLibrary, polls.js) and, once the server gives what it reads, by the
+  // of each rule, run on the page (host.actions.fromLibrary, polls.js) and by the
   // server's runner (server/module-actions.js). No page in it: each handler reads the polls and their votes through `ctx` and
   // answers what to write. A throw is the refusal; its message is the sentence the asker reads. It expects polls-lib.js in
   // scope (the build puts every polls-lib*.js together).
   //
   // Beside the runner's ctx it reads `ctx.settings`, the module's settings as host.settings.get() gives them
-  // ({ addableByDefault, closeAfterDays }), which the page hands it (polls.js) and the server's runner does not give yet, so
-  // Polls declares no actions.server: without them a poll made on the server would start as if both were off.
+  // ({ addableByDefault, closeAfterDays }); the page hands them (polls.js) and the server's runner gives them too.
+  // One thing only the page does: telling the space in Chat that a poll has closed (polls.js announceClosed). The server
+  // carries every action out at once and can't tell it yet, so updatePoll refuses `closed: true` there (ctx.carrier 'server').
 
   const pollActGiven = (v) => v !== undefined && v !== null;
   const pollActRef = (ctx, id) => ({ module: 'polls', kind: 'poll', id, scope: 'space', space: ctx.space.id });
@@ -67,7 +68,10 @@
       if (input.closes === '') next.closesAt = null;
       else if (pollActGiven(input.closes)) next.closesAt = pollClosesOf(input.closes, ctx.now, ctx.tz);
       if (pollActGiven(input.closed) && typeof input.closed !== 'boolean') throw new Error('Say whether it is closed with true or false.');
-      if (input.closed === true && !wasClosed) { next.closed = true; next.announced = true; }
+      if (input.closed === true && !wasClosed) {
+        if (ctx.carrier === 'server') throw new Error('Ending a poll tells the space in Chat, which can\'t be done from here yet. Ask a person to press End poll, or give it a closing time with closes.');
+        next.closed = true; next.announced = true;
+      }
       if (input.closed === false && wasClosed) {
         next.closed = false;
         if (!pollActGiven(input.closes)) next.closesAt = null;
