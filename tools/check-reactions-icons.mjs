@@ -370,7 +370,7 @@ try {
     const sp = (await call('POST', '/api/spaces', { name: 'In use', linkIcon: removed.link })).json.space.id;
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: removed.home })).status, 200);
     assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: removed.display })).status, 200);
-    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Kept', modules: [], icon: removed.layout });
+    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Kept', shared: true, shape: 'one', areas: [null], icon: removed.layout });
     assert.equal(made.status, 201, made.text);
     assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: removed.system })).status, 200);
     const fewer = editedIcons.filter((i) => !Object.values(removed).includes(i.id));
@@ -391,7 +391,7 @@ try {
       ['home icon', await call('PATCH', '/api/settings', { homeIcon: removed.link }), 'unknown home icon'],
       ['link icon', await call('PATCH', `/api/spaces/${space}`, { linkIcon: removed.link }), LINK_REFUSED],
       ['display icon', await call('PATCH', '/api/modules/chat', { displayIcon: removed.home }), `There is no icon called ${removed.home} in this environment's icons.`],
-      ['saved layout', await call('POST', `/api/spaces/${sp}/layouts`, { name: 'New', modules: [], icon: removed.layout }), 'Pick an icon from the list.'],
+      ['saved layout', await call('POST', `/api/spaces/${sp}/layouts`, { name: 'New', shared: true, shape: 'one', areas: [null], icon: removed.layout }), 'Pick an icon from the list.'],
       ['system layout', await call('PATCH', `/api/spaces/${space}/layouts/system/workspace`, { icon: removed.system }), 'Pick an icon from the list.'],
     ]) assert.deepEqual([r.status, r.json?.error], [400, sentence], label);
     // Tidy: the built-in set again (Start again), and nothing in use.
@@ -424,7 +424,7 @@ try {
     }
     const homeBefore = (await call('GET', '/api/settings')).json.settings.homeIcon ?? null;
     const linkBefore = (await call('GET', `/api/spaces/${sp}`)).json.space.linkIcon;
-    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Picker', modules: [] });
+    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Picker', shared: true, shape: 'one', areas: [null] });
     assert.equal(made.status, 201, made.text);
     const refused = [];
     for (const id of env) {
@@ -488,7 +488,7 @@ try {
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: dp })).status, 200);
     assert.equal((await call('PATCH', `/api/spaces/${sp}`, { linkIcon: dp })).status, 200);
     assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: dp })).status, 200);
-    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Mine', modules: [], icon: dp });
+    const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Mine', shared: true, shape: 'one', areas: [null], icon: dp });
     assert.equal(made.status, 201, made.text);
     const lid = made.json.layout.id;
     assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp })).status, 200);
@@ -511,7 +511,7 @@ try {
       ['system layout', await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: 'hippo' }), 'Pick an icon from the list.'],
     ]) assert.deepEqual([r.status, r.json?.error], [400, sentence], label);
     // Another layout or space can't borrow the icon only this one keeps.
-    const other = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Other', modules: [], icon: dp });
+    const other = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Other', shared: true, shape: 'one', areas: [null], icon: dp });
     assert.deepEqual([other.status, other.json?.error], [400, 'Pick an icon from the list.']);
     const otherSpace = (await call('POST', '/api/spaces', { name: 'Other space' })).json.space.id;
     assert.deepEqual(await call('PATCH', `/api/spaces/${otherSpace}`, { linkIcon: dp }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED]);
@@ -526,8 +526,8 @@ try {
     assert.equal((await call('PATCH', '/api/settings', { template: 'project' })).status, 200);
     const sp = (await call('POST', '/api/spaces', { name: 'Shared' })).json.space.id;
     const dp = 'diagram-project';
-    const a = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'A', modules: [], icon: dp });
-    const b = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'B', modules: [] });
+    const a = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'A', shared: true, shape: 'one', areas: [null], icon: dp });
+    const b = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'B', shared: true, shape: 'one', areas: [null] });
     assert.deepEqual([a.status, b.status], [201, 201], `${a.text} ${b.text}`);
     assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp })).status, 200, 'the admin\'s own system layout entry');
     const made = await call('POST', '/api/users', { login: 'mel', displayName: 'Mel', role: 'member', password: 'mel-password-1' });
@@ -600,7 +600,7 @@ try {
     assert.equal(madeWith.status, 200, madeWith.text);
     assert.deepEqual(await call('POST', '/api/spaces', { name: 'Not made', linkIcon: 'anchor' }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED]);
     assert.equal((await call('DELETE', `/api/spaces/${madeWith.json.space.id}`)).status, 200);
-    const layout = (sp, icon) => call('POST', `/api/spaces/${sp}/layouts`, { name: `L ${icon}`, modules: [], icon });
+    const layout = (sp, icon) => call('POST', `/api/spaces/${sp}/layouts`, { name: `L ${icon}`, shared: true, shape: 'one', areas: [null], icon });
     for (const [sp, icon, status] of [[own, 'anchor', 201], [own, 'suitcase-rolling', 201], [own, 'hippo', 400], [space, 'suitcase-rolling', 201], [space, 'anchor', 400]]) {
       const r = await layout(sp, icon);
       assert.equal(r.status, status, `${icon}: ${r.text}`);

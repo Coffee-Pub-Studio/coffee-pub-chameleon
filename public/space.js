@@ -63,8 +63,8 @@ subnav.innerHTML = `
 topbarEl.appendChild(subnav);
 nav.attach('secondary', subnav); // its tools are registered further down, once the state their `visible` reads exists
 // The layout tab whose layout the canvas holds (plan-layout-views.md, steps 2 and 3): 'workspace', a fixed layout's id (calendar, map, conference, whiteboard, documents)
-// or a favorite saved layout's id. Every view is a layout: Calendar and Map are their composite on the canvas, loaded
-// as a saved layout is. The Workspace's tools (the Layout menu, Full screen, Pop out) show on every tab (workspaceShown,
+// a layout for everyone's id, or a workspace this person added. Every view is a layout: Calendar and Map are their
+// composite on the canvas, loaded as a shared layout is. The Workspace's tools (Full screen, Pop out) show on every tab (workspaceShown,
 // below). For the visit only: entering a space resets it. (setView() further down is the
 // conference's own layout, another thing.)
 let currentLayoutTab = 'workspace';
@@ -73,14 +73,13 @@ let conferenceWas = false; // the Conference layout is drawn now (syncConference
 // the browser's record for the space (readColumnPref, applyColumnPref) and written with every choice (saveColumnPref).
 // An aside has no record and keeps these.
 let columnPref = { collapsed: false, callPosition: 'top', callFloat: false, conferencePosition: 'beside', conferenceCallOnly: false };
-// The Layout menu (plan-layout-menu.md; Thomas, 2026-10-13: the page's shared menu, host-menu.js, not a panel of its
-// own): one icon button, Layout (the environment's `layout` verb), beside Set up in the top bar wider than a phone,
-// registered with Set up further down. canvas.js draws the menu from its items (Show, Arrange) and the Layouts section
-// here (layoutMenuItems, further down), with this note as its last row: a short line canvas.js writes (onNote): a
+// The tab menu (plan-workspaces.md, decision 40; the page's shared menu, host-menu.js): a caret on each editable
+// workspace's tab, wider than a phone (the Layout button is gone, decision 44). canvas.js draws the menu from its items
+// (Open for you, Arrange) and the page's (tabMenuItems, further down), with this note as its last row: a short line canvas.js writes (onNote): a
 // module that waits for a column because the window is too narrow, or how many Panel Mode could dock
 // (plan-docked-limit.md). Empty, it takes no room; it stays in the page so a screen reader hears it as it changes.
 // On a phone #modules-menu is the tab bar instead (canvas.js fills it; registered after placeSubnav() below, which
-// decides phone or wide), the button is not drawn, and there is no menu.
+// decides phone or wide), there are no tabs, and there is no menu.
 const noteHolder = document.createElement('div');
 noteHolder.innerHTML = '<p class="module-chooser-note" id="modules-menu-note" role="status"></p>';
 const menuNote = noteHolder.firstElementChild;
@@ -1225,14 +1224,13 @@ const canvas = createCanvas({
   guest: guestMode, // a door guest has no token to send, but is a guest
   onNote: (text) => layoutNote(text),
   onPopBlocked: () => setStatus(POPUP_BLOCKED, true),
-  // The Layouts section is read again each time the menu opens, and drawn from layoutMenuItems() with the note last.
+  // The layouts are read again each time a tab's menu opens (tabMenuItems draws its Layouts section).
   onMenu: (open) => { if (open) refreshLayouts(); },
   onArrange: () => arrangementChanged(),
   // A person opens a module while the Conference layout hides the canvas (a link in the chat, a switch in the Layout
   // menu, a fact in the status strip): the Workspace comes back first, so it opens where it can be seen. The call stays
   // on and goes back to the column. Never for a module asking for another by itself (canvas.js, personOpens).
   onOpening: () => { if (currentLayoutTab === 'conference') pressLayoutTab('workspace'); },
-  menuItems: () => layoutMenuItems(),
   noteEl: menuNote,
   // A composite's page (the Calendar and Map tabs' too) gets the handoff a page over the call gets, and its links home
   // stay in this page (overlayParams, homeLinksIn, below).
@@ -1538,7 +1536,7 @@ function askForTap() {
 // than a phone it is the top bar's (`whoHereTop`): an element tool at the end of its left zone, after the space switcher
 // and the layout tabs, before the Workspace's tools, Layout, the bell and your picture, in a space call or no call, never
 // in an aside (the aside's tools leave the top bar too) nor while Home is shown (Home's own Who's around says it there).
-// Short of room it gives way first (`yieldFirst`, nav-bar.js's fitLeft), before the favorite tabs: the names become the
+// Short of room it gives way first (`yieldFirst`, nav-bar.js's fitLeft), before the layout tabs: the names become the
 // count, portraits drop, then it shows only the icon and the short count. On a phone it is the count in the tab bar,
 // before Leave (plan-phone-space-bar.md), in an aside too; its list opens above it there.
 const whoHere = createWhoHere({
@@ -3065,16 +3063,15 @@ placeStatusStrip(phoneWidth());
 // --- the one bar: the switcher (plan-one-bar.md, decisions 1, 6, 9 and 10, step 7) -----------------------------------
 // In a space the top bar's left zone is the space's name with the switcher's caret as one control (`space-switcher`,
 // in the breadcrumb's place: the breadcrumb is not drawn beside it wider than a phone, and the Spaces slot leaves the
-// bar, setInSpace), then the layout tabs (Workspace, Calendar, Map and the favorites: plan-layout-views.md, further
-// down); the phase chip is the status strip's, under the bar (plan-space-status-strip.md). Calendar and Map are layouts: their composite on the canvas, beside the always-on
+// bar, setInSpace), then the layout tabs (the owner's, then the workspaces this person added: plan-layout-views.md,
+// plan-workspaces.md, further down); the phase chip is the status strip's, under the bar (plan-space-status-strip.md). Calendar and Map are layouts: their composite on the canvas, beside the always-on
 // column, with no Away. A guest's bar is the name alone (the breadcrumb); an aside's is the switcher, Rejoin call (the
 // right zone) and your picture. On a phone (step 8) the one row is the switcher (the breadcrumb is not drawn beside it
 // at any width), the bell and the menu (the chip is the status strip's line under it); there are no layout tabs there: the tab
 // bar holds a tab per module open, Calendar and Map as their composites' tabs (canvas.js), and the column is not drawn.
 const oneBar = () => Boolean(currentSpace) && !viewingHome && !guestToken && me?.role !== 'guest';
-// The Workspace's tools (the Layout menu, Full screen, Pop out, a module's: nav-bar.js, `workspace: 'only'`) show on
-// every layout tab, the Workspace, Calendar, Map and each favorite alike: "the layout menu stays where it is and as it
-// is" (plan-layout-views.md, decision 5, step 3). Only an aside hides them (an aside has no layouts); on a phone the tab
+// The Workspace's tools (Full screen, Pop out, a module's: nav-bar.js, `workspace: 'only'`) show on every layout tab
+// alike (plan-layout-views.md, decision 5, step 3). Only an aside hides them (an aside has no layouts); on a phone the tab
 // bar keeps them (decision 3). A module's own tools come and go with the module focused: on the Calendar and Map tabs
 // the composite is the only module, so only its own show. Read by the registry on every draw.
 const workspaceShown = () => phoneWidth() || !inAside();
@@ -3118,7 +3115,7 @@ nav.register({ id: 'aside-rejoin', bar: 'primary', zone: 'right', group: 'aside'
 // in order, and leaves the mode; Cancel and Escape leave it and drop the edits, asking "Discard your changes?" first
 // when something was edited; a click outside does nothing. A member has no Set up. /?setup=<id>#<tab> opens it from an
 // address (openSetupFor, step 6), as do the space card's Set up link on Home and Manage's Edit link.
-const spaceSetup = createSpaceSetup({ tabOverflow, openMenu: openHostMenu, api, word, verb, icons: getIcons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, layoutVerb: () => verb('layout'), renderModuleSettings });
+const spaceSetup = createSpaceSetup({ tabOverflow, openMenu: openHostMenu, api, word, verb, icons: getIcons, switchListHtml, wireSwitchList, layoutLine, escapeHtml, renderModuleSettings });
 let settingUp = false;
 const setupNameInput = document.createElement('input');
 setupNameInput.type = 'text';
@@ -3240,7 +3237,7 @@ function setupSaved(space, said, saved = []) {
   loadPresence();
   updateCrumb();
   if (saved.includes('template') || saved.includes('call')) refreshSpaceLook(); // a change of the space's template: its words and phases follow at once
-  if (saved.includes('defaultLayout') || saved.includes('tabs')) refreshLayouts(); // the Layout menu's Default mark follows the first visit, the bar the owner's tabs
+  if (saved.includes('defaultLayout') || saved.includes('tabs')) refreshLayouts(); // the tab menu's Default mark follows the first visit, the bar the owner's tabs
   if (said) saySetup(said);
 }
 // After Delete (the panel's own question; it does not wait for Save): the space is gone, so this page leaves it and
@@ -3279,20 +3276,6 @@ document.addEventListener('keydown', (event) => {
 // 'space', so no divider between them; Thomas, 2026-10-13: "Settings should go right before the window controls"). On a
 // phone `place` is not read and it keeps its place in the menu (groupOrder 85, before the bell's 90 and you 999).
 nav.register({ id: 'setup', bar: 'primary', zone: 'right', group: 'space', groupOrder: 85, order: 1, place: 'end', icon: 'sliders', label: setupLabel(), toggleable: true, active: false, visible: setupShown, onClick: () => (settingUp ? spaceSetup.cancel() : enterSetup({ tab: '' })) });
-// The Layout button (plan-workspaces.md, decision 38; plan-layout-menu.md): just before Set up, wider than a phone, for
-// everyone in a space or an aside, a guest and a member too. It opens the Layout menu under it (canvas.openMenu: the
-// page's shared menu, a popover with no Save): Open for you, Arrange, Open files and the Layouts section
-// (layoutMenuItems below), each acting at once on this person's own canvas. Its count is the unread in modules not shown
-// (canvas.js update). On a phone the tab bar is the list and this button is not drawn. Folded into the top bar's "...",
-// the menu opens under the "...".
-const layoutButtonShown = () => Boolean(currentSpace) && !viewingHome && !phoneWidth();
-function openLayoutMenu() {
-  const own = nav.elementOf('layout-menu');
-  const anchor = own && own.getClientRects().length ? own : nav.elementOf('topbar-more') || own;
-  canvas.openMenu(anchor);
-}
-nav.register({ id: 'layout-menu', bar: 'primary', zone: 'right', group: 'space', groupOrder: 85, order: 0.5, place: 'end', icon: 'object-group', label: verb('layout'), visible: layoutButtonShown, onClick: () => openLayoutMenu() });
-nav.elementOf('layout-menu')?.setAttribute('aria-haspopup', 'menu');
 // Set up's tooltip and name for a screen reader: "<space word> Configuration" (Room Configuration, Trip Configuration), in
 // the template's word. Home and an aside have no Set up button.
 // Registered again once the environment's words are in, and when the page enters a space or an aside.
@@ -3302,30 +3285,21 @@ function setupLabel() {
 function paintSetupLabel() {
   const tool = nav.get('setup');
   if (tool && tool.label !== setupLabel()) nav.register({ ...tool, label: setupLabel() });
-  const layout = nav.get('layout-menu'); // the Layout button's name is the environment's `layout` verb
-  if (layout && layout.label !== verb('layout')) nav.register({ ...layout, label: verb('layout') });
 }
 // --- end Set up ---
 
-// --- the Layout menu's Layouts section (plan-saved-layouts.md, step 3; Thomas, 2026-10-13: in the shared menu) --------
-// The layouts of the space you are in: GET /api/spaces/:id/layouts answers { system, mine, shared, defaultLayout,
-// canShare, canSetDefault, favorites }. The section's entries (layoutMenuItems, drawn by canvas.js at the end of the
-// Layout menu): a heading, the system layouts (plan-layout-views.md, step 2: the Workspace, Calendar and Map, each its
-// icon and name, a press shows it as its tab does, and for Calendar and Map a ... with Favorite or Unfavorite, which
-// keeps or takes away its tab), then the shared layouts, then your own, each an entry that loads it (canvas.loadLayout)
-// and leaves the menu open, with a ... that offers, for everyone signed in, Favorite or Unfavorite (a favorite is a tab;
-// no limit, decision 13); for an owner on a shared layout, Make default or Stop using as default (decision 4); and on a layout
-// you may change (your own, or a shared one for owners, the admin and the space's moderators), Replace with this layout
-// (your own) or Edit (a shared one: a layout for everyone is a shape, changed only with the layout picker,
-// plan-layout-picker.md decision 5), Rename and Delete (asked once, in the menu's own confirm row). A favorite's entry
-// shows a small heart, the default one the word Default; a shared one, for those who may edit it, the maker's notice
-// under its name ("Guests won't see To-do."; decisions 17, 19 and 20). Then New layout and Save as new layout, which open
-// a small sheet (openLayoutSheet) asking a name for a layout of your own; Rename opens the same sheet. For those who may
-// share, New layout for everyone opens the layout picker (openShapeSheet). A guest loads shared layouts only. The
-// server keeps the limits (10 of your own and 10 shared in a space, names up to 40 characters, each name once in its
-// list) and says what it refuses; its sentence is shown as it is. Not drawn on a narrow canvas, in an aside, or for a
-// guest with nothing to load.
-let layoutList = { spaceId: null, mine: [], shared: [], system: [], cantOpen: null, firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
+// --- the layouts and workspaces of the space (plan-saved-layouts.md, step 3; plan-workspaces.md, decisions 39, 40, 44) -----
+// GET /api/spaces/:id/layouts answers { system, shared, defaultLayout, canShare, canSetDefault, firstVisit, last }: the
+// fixed layouts (the tabs) and the layouts for everyone. GET /api/spaces/:id/workspaces answers this person's own
+// workspaces (server/workspaces.js): the ones they added are tabs after the owner's (`own`: { id, name, shape }). A guest
+// has none. Each editable tab (the Workspace and one the person added) wears a caret whose menu (tabMenuItems, drawn by
+// canvas.js around Open for you and Arrange) holds the Layouts section: the layouts for everyone, each loading as its tab
+// does, with a ... for an owner (Make default or Stop using as default) and for those who may share (Edit, Rename, Change
+// icon, Delete); New layout for everyone (the layout picker, openShapeSheet); then Rename and Delete on a workspace the
+// person added. A person's own saved layouts and favorites are gone (decision 44): a person adds a workspace instead, from
+// the tabs' "..." (New workspace). The server keeps the limits and says what it refuses; its sentence is shown as it is.
+const emptyLayoutList = (spaceId = null) => ({ spaceId, shared: [], system: [], own: [], ownLimit: 0, cantOpen: null, firstVisit: null, defaultLayout: null, last: null, canShare: false, canSetDefault: false });
+let layoutList = emptyLayoutList();
 let layoutAsk = 0; // the latest request for the list; an older answer arriving late is dropped
 const layoutSpaceId = () => (currentSpace && !currentSpace.isAside ? currentSpace.id : null); // an aside has no layouts
 const layoutUrl = (id, layoutId = '') => `/api/spaces/${encodeURIComponent(id)}/layouts${layoutId ? `/${encodeURIComponent(layoutId)}` : ''}${guestToken ? `?guest=${encodeURIComponent(guestToken)}` : ''}`;
@@ -3364,10 +3338,13 @@ const nameFromServer = (id) => (layoutList.names && Object.prototype.hasOwnPrope
 const moduleNameHere = (id) => cleanText(moduleHere(id)?.name || '') || cleanText(nameFromServer(id)) || cleanText(String(id));
 // Making a shared layout the space's default is the owners' and the admin's, as Opens with is (decision 4).
 const maySetDefault = (shared) => !guestMode && shared && layoutList.canSetDefault;
-const findLayout = (id) => layoutList.shared.find((l) => l.id === id) || layoutList.mine.find((l) => l.id === id) || null;
-// Favorites are each signed-in person's own; a guest keeps none (decision 4). No limit (plan-layout-views.md, decision 13).
-const mayFavorite = () => !guestToken && Boolean(me?.key) && me.role !== 'guest';
-const isFavorite = (id) => layoutList.favorites.includes(id);
+const findLayout = (id) => layoutList.shared.find((l) => l.id === id) || null;
+// Workspaces of one's own, and the last layout, are each signed-in person's; a guest keeps none.
+const mayOwn = () => !guestToken && Boolean(me?.key) && me.role !== 'guest';
+// A workspace this person added (plan-workspaces.md, decision 39), by id, else null.
+const findOwn = (id) => layoutList.own.find((w) => w.id === id) || null;
+// An editable workspace: the Workspace or one this person added. Its tab has a menu; it remembers its own arrangement.
+const isEditable = (id) => id === 'workspace' || Boolean(findOwn(id));
 const findSystemLayout = (id) => layoutList.system.find((l) => l.id === id) || null;
 
 // Reads the list again (the menu opening, after a change) and draws it: the menu's section (while it is open) and the
@@ -3376,132 +3353,82 @@ async function refreshLayouts() {
   const id = layoutSpaceId();
   const ask = ++layoutAsk;
   if (!id) {
-    layoutList = { spaceId: null, mine: [], shared: [], system: [], cantOpen: null, firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
+    layoutList = emptyLayoutList();
     renderLayouts();
     return;
   }
   try {
-    const got = await layoutRequest('GET', layoutUrl(id));
+    const [got, own] = await Promise.all([
+      layoutRequest('GET', layoutUrl(id)),
+      mayOwn() ? layoutRequest('GET', `/api/spaces/${encodeURIComponent(id)}/workspaces`).catch(() => null) : null,
+    ]);
     if (ask !== layoutAsk || layoutSpaceId() !== id) return;
-    layoutList = { spaceId: id, mine: got.mine || [], shared: got.shared || [], system: Array.isArray(got.system) ? got.system : [], cantOpen: got.cantOpen && typeof got.cantOpen === 'object' && !Array.isArray(got.cantOpen) ? got.cantOpen : null, names: got.cantOpen && got.names && typeof got.names === 'object' && !Array.isArray(got.names) ? got.names : null, firstVisit: got.firstVisit && typeof got.firstVisit.layout === 'string' ? got.firstVisit : null, defaultLayout: got.defaultLayout || null, favorites: Array.isArray(got.favorites) ? got.favorites : [], last: typeof got.last === 'string' && got.last ? got.last : null, canShare: Boolean(got.canShare), canSetDefault: Boolean(got.canSetDefault) };
+    const added = (own && Array.isArray(own.workspaces) ? own.workspaces : []).filter((w) => w && typeof w.id === 'string' && w.id !== 'workspace' && typeof w.name === 'string')
+      .map((w) => ({ id: w.id, name: w.name, shape: w.shape || null }));
+    layoutList = { spaceId: id, own: added, ownLimit: Number(own?.limits?.added) || 0, shared: got.shared || [], system: Array.isArray(got.system) ? got.system : [], cantOpen: got.cantOpen && typeof got.cantOpen === 'object' && !Array.isArray(got.cantOpen) ? got.cantOpen : null, names: got.cantOpen && got.names && typeof got.names === 'object' && !Array.isArray(got.names) ? got.names : null, firstVisit: got.firstVisit && typeof got.firstVisit.layout === 'string' ? got.firstVisit : null, defaultLayout: got.defaultLayout || null, last: typeof got.last === 'string' && got.last ? got.last : null, canShare: Boolean(got.canShare), canSetDefault: Boolean(got.canSetDefault) };
   } catch {
     if (ask !== layoutAsk) return;
-    layoutList = { spaceId: id, mine: [], shared: [], system: [], cantOpen: null, firstVisit: null, defaultLayout: null, favorites: [], last: null, canShare: false, canSetDefault: false };
+    layoutList = emptyLayoutList(id);
   }
   renderLayouts();
 }
 function renderLayouts() {
   renderLayoutTabs(); // the top bar's layout tabs, from the same list
-  // The tab shown was unfavorited or deleted: back to the Workspace, which is the one that remembers.
+  // The tab shown was deleted or turned off: back to the Workspace.
   if (currentLayoutTab !== 'workspace' && layoutList.spaceId && layoutList.spaceId === layoutSpaceId() && !layoutTabList().some((t) => t.layout === currentLayoutTab) && !findLayout(currentLayoutTab)) pressLayoutTab('workspace', null, { remember: false });
   canvas.refreshMenu(); // and the menu's Layouts section, while it is open
 }
 
-// The Layouts section's entries, in the shared menu's item shape (host-menu.js): what canvas.js draws after Arrange.
-// Nothing where there is nothing to load or save (an aside; a guest with no shared layouts) or on a narrow canvas.
-function layoutMenuItems() {
-  const { mine, shared } = layoutList;
-  const canSave = Boolean(layoutList.spaceId) && !guestMode;
-  const empty = !layoutList.spaceId || (!canSave && !shared.length);
-  if (empty || canvas.isNarrow()) return [];
-  const entry = (l, isShared) => ({
-    icon: userLayoutIcon(l, isShared),
-    label: l.name,
-    // The maker's notice (plan-layout-picker.md, decisions 17, 19 and 20): who won't see which module, a line under the
-    // name, read after it; only for those who may edit a layout for everyone, and never on the canvas.
-    ...(isShared && sharedRowLine(l) ? { hint: sharedRowLine(l), clamp: true } : {}),
-    mark: isFavorite(l.id) ? 'heart' : undefined,
-    tag: l.id === layoutList.defaultLayout ? 'Default' : undefined,
-    keepOpen: true,
-    radio: true,
-    checked: l.id === currentLayoutTab, // the layout shown now
-    onPick: () => { pressLayoutTab(l.id); },
-    more: mayFavorite() || mayChangeLayout(isShared) || maySetDefault(isShared) ? (anchor) => layoutRowItems(l.id, anchor) : undefined,
-  });
-  const items = [{ heading: 'Layouts' }];
-  // The system layouts first (plan-layout-views.md, steps 2 and 4): a press shows it as its tab does; its ... (anyone
-  // signed in: the choices are their own) holds Favorite or Unfavorite for Calendar and Map (their tab; the Workspace's
-  // always stays), then Rename and Change icon (systemRowItems). Never Delete: a system layout stays.
-  for (const l of layoutList.system) {
-    const pinned = l.id !== 'workspace' && l.pinned === true; // the owner keeps it in the bar
-    const ownerHid = l.shown === false; // the owner took it out of the bar: it stays here to choose, and says why it has no tab
-    items.push({
-      icon: /^[a-z0-9-]{1,40}$/.test(l.icon || '') ? l.icon : 'object-group',
-      label: l.name,
-      mark: pinned ? 'thumbtack' : undefined,
-      tag: ownerHid ? 'Hidden in Set up' : l.id !== 'workspace' && l.id === layoutList.firstVisit?.layout ? 'Default' : undefined, // Calendar or Map as the first visit (Set up)
-      radio: true,
-      checked: l.id === currentLayoutTab,
-      onPick: () => pressLayoutTab(l.id),
-      more: mayFavorite() ? () => systemRowItems(l.id) : undefined,
-    });
-  }
-  // Modified: right under the layout shown, with Update where this person may change it (otherwise the word alone). A
-  // layout for everyone is a shape, changed with Edit only: its Modified is the word alone (plan-layout-picker.md, decision 5).
-  const withModified = (l, isShared) => {
-    items.push(entry(l, isShared));
-    if (layoutModified && l.id === currentLayoutTab) {
-      items.push(mayChangeLayout(isShared) && !isShared
-        ? { icon: 'arrows-rotate', label: 'Update', tag: 'Modified', keepOpen: true, onPick: () => updateLayout(l.id) }
-        : { label: 'Modified', disabled: true });
+// The page's entries in an editable tab's menu (host-menu.js's item shape; canvas.js draws Open for you before them and
+// Arrange after). `id` is the tab's workspace. The Layouts section: the layouts for everyone, then New layout for everyone
+// for those who may share; nothing for a guest with none to load. Then Rename and Delete on a workspace the person added
+// (decision 40; the Workspace is the space's, so it has neither).
+function tabMenuItems(id) {
+  const { shared } = layoutList;
+  const items = [];
+  const mayShare = Boolean(layoutList.spaceId) && !guestMode && layoutList.canShare;
+  if (layoutList.spaceId && (shared.length || mayShare)) {
+    items.push({ heading: 'Layouts' });
+    for (const l of shared) {
+      items.push({
+        icon: userLayoutIcon(l),
+        label: l.name,
+        // The maker's notice (plan-layout-picker.md, decisions 17, 19 and 20): who won't see which module, a line under the
+        // name, read after it; only for those who may edit a layout for everyone, and never on the canvas.
+        ...(sharedRowLine(l) ? { hint: sharedRowLine(l), clamp: true } : {}),
+        tag: l.id === layoutList.defaultLayout ? 'Default' : undefined,
+        onPick: () => { pressLayoutTab(l.id); },
+        more: mayChangeLayout(true) || maySetDefault(true) ? (anchor) => layoutRowItems(l.id, anchor) : undefined,
+      });
     }
-  };
-  for (const l of shared) withModified(l, true);
-  for (const l of mine) withModified(l, false);
-  if (!shared.length && !mine.length && canSave) items.push({ label: 'No saved layouts yet.', disabled: true });
-  if (canSave) {
-    items.push({ icon: 'plus', label: 'New layout', onPick: () => openSaveLayout({ blank: true }) });
-    items.push({ icon: 'floppy-disk', label: 'Save as new layout', onPick: () => openSaveLayout() });
+    // A layout for everyone is made with the layout picker (plan-layout-picker.md, decisions 4 and 5): a shape and a module
+    // in each area. Only for those who may share (the owner, the admin and the space's moderators).
+    if (mayShare) items.push({ icon: 'user-group', label: 'New layout for everyone', onPick: () => openShapeSheet() });
   }
-  // A layout for everyone is made with the layout picker (plan-layout-picker.md, decisions 4 and 5): a shape and a module
-  // in each area. Only for those who may share (the owner, the admin and the space's moderators).
-  if (canSave && layoutList.canShare) items.push({ icon: 'user-group', label: 'New layout for everyone', onPick: () => openShapeSheet() });
+  const own = findOwn(id);
+  if (own) {
+    if (items.length) items.push({ divider: true });
+    items.push({ icon: 'pen', label: 'Rename', onPick: () => renameWorkspace(own.id) });
+    items.push({ icon: 'trash', label: 'Delete', danger: true, onPick: () => openConfirmMenu(menuOpener(), {
+      label: 'Delete', confirm: `Delete ${own.name}?`, armed: true, fail: 'It could not be deleted.',
+      onConfirm: () => deleteWorkspace(own.id),
+    }) });
+  }
   return items;
 }
 
-// A saved layout's row icon: the one chosen for it (Change icon), else, as before, the two people of a shared layout
-// or the Layout button's for your own (the server answers the Layout button's for one stored without an icon).
-const userLayoutIcon = (l, isShared) => (/^[a-z0-9-]{1,40}$/.test(l.icon || '') && l.icon !== 'object-group' ? l.icon : isShared ? 'user-group' : 'object-group');
+// A layout for everyone's row icon: the one chosen for it (Change icon), else the two people.
+const userLayoutIcon = (l) => (/^[a-z0-9-]{1,40}$/.test(l.icon || '') && l.icon !== 'object-group' ? l.icon : 'user-group');
 
-// A system layout's ... (plan-layout-views.md, step 4): Favorite or Unfavorite for Calendar and Map (never the
-// Workspace, whose tab always stays), a divider, then Rename and Change icon, each this person's own. No Delete.
-function systemRowItems(systemId) {
-  const l = findSystemLayout(systemId);
-  if (!l || !mayFavorite()) return [];
-  const entries = [];
-  // A pinned one (the owner shows it) has no hide: it stays in the bar for everyone, so there is no Favorite or Unfavorite.
-  if (l.id !== 'workspace' && l.pinned !== true) {
-    // The owner's hide wins (the server says 409): no way to turn its tab back on here, and the row says why.
-    entries.push(l.shown === false
-      ? { icon: 'heart', regular: true, label: 'Favorite', disabled: true, tag: 'Hidden in Set up' }
-      : l.tab !== false
-        ? { icon: 'heart', label: 'Unfavorite', onPick: () => setFavorite(l, false) }
-        : { icon: 'heart', regular: true, label: 'Favorite', onPick: () => setFavorite(l, true) });
-    entries.push({ divider: true });
-  }
-  entries.push(
-    { icon: 'pen', label: 'Rename', onPick: () => startRename(l.id) },
-    { icon: 'icons', label: 'Change icon', onPick: () => startChangeIcon(l.id) },
-  );
-  return entries;
-}
-
-// A layout's ...: Favorite or Unfavorite first, for everyone signed in (plan-favorite-layouts.md; no limit,
-// plan-layout-views.md decision 13); then, for an owner on a shared layout, Make default or
-// Stop using as default (decision 4); then, on a layout you may change, Replace with this layout, Rename, Delete (asked
-// once, in the menu's own confirm row under the Layout button). A divider between each run.
+// A layout for everyone's ...: for an owner, Make default or Stop using as default (decision 4); then, for those who may
+// share, Edit, Rename, Change icon and Delete (asked once, in the menu's own confirm row). A divider between the two runs.
 function layoutRowItems(layoutId, anchor = null) {
   const layout = findLayout(layoutId);
   if (!layout) return [];
-  const shared = layoutList.shared.includes(layout);
-  // The confirm opens by the row's "..." that was pressed; if that is gone (the list drew again), the Layout button.
-  const trigger = () => (anchor && anchor.isConnected ? anchor : nav.elementOf('layout-menu'));
+  const shared = true;
+  // The confirm opens by the row's "..." that was pressed; if that is gone (the list drew again), the tab's caret.
+  const trigger = () => (anchor && anchor.isConnected ? anchor : menuOpener());
   const entries = [];
-  if (mayFavorite()) {
-    entries.push(isFavorite(layoutId)
-      ? { icon: 'heart', label: 'Unfavorite', onPick: () => setFavorite(layout, false) }
-      : { icon: 'heart', regular: true, label: 'Favorite', onPick: () => setFavorite(layout, true) });
-  }
   if (maySetDefault(shared)) {
     if (entries.length) entries.push({ divider: true });
     entries.push(layoutList.defaultLayout === layoutId
@@ -3512,10 +3439,8 @@ function layoutRowItems(layoutId, anchor = null) {
   if (entries.length) entries.push({ divider: true });
   return [
     ...entries,
-    // A layout for everyone is a shape: Edit opens the picker on it. Your own is free-form: Replace writes the canvas over it.
-    shared
-      ? { icon: 'table-columns', label: 'Edit', onPick: () => openShapeSheet(layout) }
-      : { icon: 'arrows-rotate', label: 'Replace with this layout', onPick: () => replaceLayout(layoutId) },
+    // A layout for everyone is a shape: Edit opens the picker on it.
+    { icon: 'table-columns', label: 'Edit', onPick: () => openShapeSheet(layout) },
     { icon: 'pen', label: 'Rename', onPick: () => startRename(layoutId) },
     { icon: 'icons', label: 'Change icon', onPick: () => startChangeIcon(layoutId) },
     { icon: 'trash', label: 'Delete', danger: true, onPick: () => openConfirmMenu(trigger(), {
@@ -3527,27 +3452,6 @@ function layoutRowItems(layoutId, anchor = null) {
       },
     }) },
   ];
-}
-
-// Favorite (`on`) or Unfavorite: PUT or DELETE /api/spaces/:id/layouts/:layoutId/favorite, which answers this person's
-// favorites and the layout ({ favorites, layout }: for Calendar and Map, its `tab`). The list and the tabs are drawn
-// again, and the menu's note says what changed. A layout gone meanwhile (404) or any
-// refusal: the server's sentence, and the list read again.
-async function setFavorite(layout, on) {
-  const id = layoutSpaceId();
-  if (!id) return;
-  try {
-    const { favorites, layout: answered } = await layoutRequest(on ? 'PUT' : 'DELETE', `/api/spaces/${encodeURIComponent(id)}/layouts/${encodeURIComponent(layout.id)}/favorite`);
-    if (layoutSpaceId() !== id || layoutList.spaceId !== id) return;
-    layoutList.favorites = Array.isArray(favorites) ? favorites : [];
-    const system = findSystemLayout(layout.id);
-    if (system) system.tab = answered && typeof answered.tab === 'boolean' ? answered.tab : on;
-    layoutNote(on ? `${layout.name} is a favorite.` : `${layout.name} is no longer a favorite.`);
-    renderLayouts();
-  } catch (err) {
-    layoutNote(err.message || 'That did not work. Try again.');
-    await refreshLayouts();
-  }
 }
 
 // Makes a shared layout what a first visit opens, or stops (`layoutId` null: the Workspace again): PATCH /api/spaces/:id
@@ -3566,32 +3470,13 @@ async function setDefaultLayout(layoutId, layout) {
   await refreshLayouts();
 }
 
-// Replaces a layout's modules and places with the canvas as it is now. From the Save sheet, its "Replace it" (a taken
-// name): `sheet` is that sheet, which shows the refusal and closes on success.
-async function replaceLayout(layoutId, sheet = null) {
-  const id = layoutSpaceId();
-  if (!id) return;
-  const captured = canvas.captureLayout();
-  try {
-    const { layout } = await layoutRequest('PUT', layoutUrl(id, layoutId), captured);
-    if (sheet) sheet.close();
-    layoutNote(`${layout.name} now holds this layout.`);
-    if (layoutId === currentLayoutTab) { layoutBase = captured; setModified(false); }
-    await refreshLayouts();
-  } catch (err) {
-    if (sheet) sheet.error(err.message); else layoutNote(err.message);
-  }
-}
-
-// The small sheet (a <dialog>) for New layout, Save as new layout and Rename: Name, the server's refusal under it, and the
-// action bar (action-bar.js): Save, off until the name changed, and Cancel. These are your own layouts: a layout for
-// everyone is a shape, made and changed with the layout picker (openShapeSheet; plan-layout-picker.md, decision 5), so
-// this sheet has no switch for everyone. A click outside does nothing; Escape or Cancel closes it, asking "Discard
-// changes?" when something was typed; Enter in the name saves. `onSave(name, sheet)` does the work and closes the sheet
-// (sheet.close) or shows what went wrong (sheet.error, with `replaceId` for a taken name: "Replace it" beside the sentence). Opened from the Layout button, which takes the
-// keyboard back when the sheet closes. `emptyName` (Rename on a system layout): the name an empty field stands for,
-// its default; the field's placeholder shows it, a line under it says so, and an empty name saves as that default.
-function openLayoutSheet({ title, name = '', emptyName = '', onSave }) {
+// The small sheet (a <dialog>) for New workspace and Rename (a workspace the person added, or a layout for everyone):
+// Name, the server's refusal under it, and the action bar (action-bar.js): Save, off until the name changed, and Cancel.
+// A click outside does nothing; Escape or Cancel closes it, asking "Discard changes?" when something was typed; Enter in
+// the name saves. `onSave(name, sheet)` does the work and closes the sheet (sheet.close) or shows what went wrong
+// (sheet.error). `what` is the word in its sentences ('workspace' or 'layout'). The keyboard goes back to the control it
+// was opened from (menuOpener: the tab's caret, or the tabs' "...") when the sheet closes.
+function openLayoutSheet({ title, name = '', what = 'layout', onSave }) {
   const doc = canvasDoc();
   const dlg = doc.createElement('dialog');
   dlg.className = 'layout-sheet';
@@ -3609,25 +3494,18 @@ function openLayoutSheet({ title, name = '', emptyName = '', onSave }) {
   const input = dlg.querySelector('#layout-name');
   const errorEl = dlg.querySelector('#layout-form-error');
   input.value = name;
-  if (emptyName) {
-    input.placeholder = emptyName;
-    const hint = dlg.querySelector('#layout-name-hint');
-    hint.textContent = `Leave it empty for ${emptyName}.`;
-    hint.hidden = false;
-    input.setAttribute('aria-describedby', hint.id);
-  }
-  const opener = nav.elementOf('layout-menu'); // the sheet was opened from the Layout menu
+  const opener = menuOpener(); // the sheet was opened from a tab's menu or the tabs' "..."
   let failed = false; // the last save was refused (sheet.error)
   const bar = actionBar({
     submit: true,
-    label: 'Save the layout',
+    label: `Save the ${what}`,
     doc,
     ids: { save: 'layout-save', cancel: 'layout-cancel' },
     dirty: () => input.value.trim() !== name.trim(),
     onCancel: () => sheet.close(),
     onSave: async () => {
       const value = input.value.trim();
-      if (!value && !emptyName) { sheet.error('Give the layout a name.'); return false; }
+      if (!value) { sheet.error(`Give the ${what} a name.`); return false; }
       failed = false;
       await onSave(value, sheet);
       return !failed;
@@ -3636,18 +3514,10 @@ function openLayoutSheet({ title, name = '', emptyName = '', onSave }) {
   form.appendChild(bar.el);
   const sheet = {
     close: () => { if (dlg.open) dlg.close(); },
-    error: (text, replaceId = null) => {
+    error: (text) => {
       failed = true;
       errorEl.hidden = false;
       errorEl.textContent = text;
-      if (replaceId) {
-        const b = doc.createElement('button');
-        b.type = 'button';
-        b.className = 'layout-replace-it';
-        b.textContent = 'Replace it';
-        b.addEventListener('click', () => replaceLayout(replaceId, sheet));
-        errorEl.append(' ', b);
-      }
       input.focus();
     },
   };
@@ -3670,48 +3540,73 @@ function openLayoutSheet({ title, name = '', emptyName = '', onSave }) {
   input.select();
   return sheet;
 }
-// New layout (`blank`): a layout of your own with no module open, the arrangement mode and snap as they are now. Save as
-// new layout: the canvas as it is, as a layout of your own. Both ask the name in the same sheet, save with POST, then
-// show the new layout (it becomes the one shown: a Save as new layout leaves the canvas as it is, a New layout empties
-// it). A layout for everyone is New layout for everyone (openShapeSheet).
-function openSaveLayout({ blank = false } = {}) {
+// New workspace (plan-workspaces.md, decisions 39 and 44): a workspace of this person's own, named here, starting empty
+// (no shape, nothing open). POST /api/spaces/:id/workspaces { name }, then its tab is shown. The server keeps the limit
+// (10 added in a space) and refuses a name the person already uses there; its sentence is shown under the name.
+function openNewWorkspace() {
   const id = layoutSpaceId();
-  if (!id) return;
+  if (!id || !mayOwn()) return;
   openLayoutSheet({
-    title: blank ? 'New layout' : 'Save as new layout',
+    title: 'New workspace',
+    what: 'workspace',
     onSave: async (name, sheet) => {
-      const now = canvas.captureLayout();
-      const captured = blank ? { modules: [], arrange: now.arrange, ...(now.snap ? { snap: now.snap } : {}) } : now;
       try {
-        const { layout } = await layoutRequest('POST', layoutUrl(id), { name, ...captured });
+        const { workspace } = await layoutRequest('POST', `/api/spaces/${encodeURIComponent(id)}/workspaces`, { name });
         sheet.close();
-        layoutNote(blank ? `Created ${layout.name}.` : `Saved ${layout.name}.`);
         await refreshLayouts();
-        if (layoutSpaceId() === id) pressLayoutTab(layout.id, null, { load: blank });
+        if (layoutSpaceId() === id && workspace) {
+          pressLayoutTab(workspace.id);
+          layoutNote(`Added ${workspace.name}. Open what you need from its tab's menu.`);
+        }
       } catch (err) {
-        sheet.error(err.message, err.status === 409 ? err.id : null);
+        sheet.error(err.message);
       }
     },
   });
 }
-// Rename: the same sheet with the name filled in; Enter saves, Escape leaves it as it was. A system layout (the
-// Workspace, Calendar, Map: plan-layout-views.md, step 4) is renamed for this person alone, PATCH
-// .../layouts/system/:id; an empty name (the field cleared) puts its default name back ({ name: null }). A saved
-// layout is renamed with PUT .../layouts/:id, as before (a name is required). The tab and the menu row are drawn again.
-const systemLayoutUrl = (id, systemId) => `/api/spaces/${encodeURIComponent(id)}/layouts/system/${encodeURIComponent(systemId)}`;
+// Rename a workspace the person added: PATCH .../workspaces/:id { name }. A layout for everyone: PUT .../layouts/:id
+// { name }. The tab and the menu are drawn again.
+function renameWorkspace(workspaceId) {
+  const own = findOwn(workspaceId);
+  if (!own) return;
+  openLayoutSheet({
+    title: 'Rename',
+    name: own.name,
+    what: 'workspace',
+    onSave: async (name, sheet) => {
+      if (name === own.name) { sheet.close(); return; }
+      try {
+        await layoutRequest('PATCH', `/api/spaces/${encodeURIComponent(layoutSpaceId())}/workspaces/${encodeURIComponent(workspaceId)}`, { name });
+        sheet.close();
+        await refreshLayouts();
+      } catch (err) {
+        sheet.error(err.message);
+      }
+    },
+  });
+}
+// Delete a workspace the person added (asked once, in the menu's confirm row): DELETE .../workspaces/:id. Shown now, the
+// Workspace is shown first, so its arrangement is the one written last; then the canvas forgets it and the tabs redraw.
+async function deleteWorkspace(workspaceId) {
+  const own = findOwn(workspaceId);
+  const id = layoutSpaceId();
+  if (!own || !id) return;
+  if (currentLayoutTab === workspaceId) pressLayoutTab('workspace');
+  await layoutRequest('DELETE', `/api/spaces/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceId)}`);
+  canvas.forgetWorkspace(workspaceId);
+  layoutNote(`Deleted ${own.name}.`);
+  await refreshLayouts();
+}
 function startRename(layoutId) {
-  const system = findSystemLayout(layoutId);
-  const layout = system || findLayout(layoutId);
+  const layout = findLayout(layoutId);
   if (!layout) return;
   openLayoutSheet({
     title: 'Rename',
     name: layout.name,
-    emptyName: system ? system.defaultName || '' : '',
     onSave: async (name, sheet) => {
       if (name === layout.name) { sheet.close(); return; }
       try {
-        if (system) await layoutRequest('PATCH', systemLayoutUrl(layoutSpaceId(), layoutId), { name: name || null });
-        else await layoutRequest('PUT', layoutUrl(layoutSpaceId(), layoutId), { name });
+        await layoutRequest('PUT', layoutUrl(layoutSpaceId(), layoutId), { name });
         sheet.close();
         await refreshLayouts();
       } catch (err) {
@@ -3731,7 +3626,7 @@ function startRename(layoutId) {
 // { name, shared: true, shape, areas } (POST), or on Edit only what changed (PUT: the name, and the shape with its areas
 // together). A refusal is filed where it belongs: the sentences about the shape and its areas under the shape, in the
 // picker; the rest (the name, the limit of 10, a refused right) under the name. Every sentence is shown as text.
-// `layout` is the shared layout to edit, or null for a new one. Opened from the Layout menu's Layouts section, which opens
+// `layout` is the shared layout to edit, or null for a new one. Opened from a tab menu's Layouts section, which opens
 // again when the sheet closes, the keyboard on the row it was opened from (backToLayouts). A new layout is shown at once (its tab is
 // pressed); an edited one again if it is shown now. A module an area names that is off here, or that this person can't
 // open, is named as the catalog names it (moduleNameHere), never offered. Save is off, and Escape asks nothing, until
@@ -3859,16 +3754,16 @@ function openShapeSheet(layout = null) {
   input.focus();
   if (editing) input.select();
 }
-// The keyboard back in the Layout menu after the shape sheet: the menu closed as its entry opened the sheet, so it opens again
-// under its button (the Layout button, else the top bar's "..." it folded into), and the keyboard goes to the row the sheet
-// was opened from, found by its words since the list is drawn anew (`more`: a layout's "..." by the layout's name;
-// `label`: an entry), else the menu's first entry, else the button.
+// The keyboard back in the tab menu after the shape sheet: the menu closed as its entry opened the sheet, so it opens again
+// under the shown tab's caret, and the keyboard goes to the row the sheet was opened from, found by its words since the
+// list is drawn anew (`more`: a layout's "..." by the layout's name; `label`: an entry), else the menu's first entry, else
+// the caret. Not when the tab shown now has no menu (the new layout's tab was pressed): its tab takes the keyboard.
 function backToLayouts({ more = '', label = '' } = {}) {
   const shown = (b) => Boolean(b) && b.isConnected && b.getClientRects().length > 0;
-  const own = nav.elementOf('layout-menu');
-  const button = shown(own) ? own : shown(nav.elementOf('topbar-more')) ? nav.elementOf('topbar-more') : null;
-  if (!button) return;
-  if (!canvas.menuOpen()) openLayoutMenu();
+  const caret = isEditable(currentLayoutTab) ? tabMenuButton(currentLayoutTab) : null;
+  if (!shown(caret)) { tabButton(currentLayoutTab)?.focus(); return; }
+  const button = caret;
+  if (!canvas.menuOpen()) openTabMenu(currentLayoutTab);
   const box = button.ownerDocument.querySelector('.host-menu:not(.host-menu-inline)');
   const rows = box ? [...box.querySelectorAll('.host-menu-item, .host-menu-more')].filter(shown) : [];
   const words = (b) => (b.querySelector('.host-menu-label')?.textContent || '').trim();
@@ -3960,7 +3855,7 @@ function openIconSheet({ title, current = '', defaultIcon = '', onSave }) {
     if (search.value) { search.value = ''; search.dispatchEvent(new Event('input')); }
     pick(grid.querySelector(`[data-icon-choice="${CSS.escape(defaultIcon)}"]`), true);
   });
-  const opener = nav.elementOf('layout-menu'); // the sheet was opened from the Layout menu
+  const opener = menuOpener(); // the sheet was opened from a tab's menu
   let failed = false;
   const bar = actionBar({
     submit: true,
@@ -4002,23 +3897,20 @@ function openIconSheet({ title, current = '', defaultIcon = '', onSave }) {
   (grid.querySelector('[data-icon-choice][tabindex="0"]') || search).focus();
   return sheet;
 }
-// Change icon on a layout's row: a system layout's through PATCH .../layouts/system/:id (its default icon saved as
-// null, so it follows the default), a saved layout's through PUT .../layouts/:id { icon }. Then the list again: the
-// tab and the menu row wear the new icon.
+// Change icon on a layout for everyone's row: PUT .../layouts/:id { icon }. Then the list again: the tab and the menu row
+// wear the new icon.
 function startChangeIcon(layoutId) {
-  const system = findSystemLayout(layoutId);
-  const layout = system || findLayout(layoutId);
+  const layout = findLayout(layoutId);
   if (!layout) return;
-  const current = /^[a-z0-9-]{1,40}$/.test(layout.icon || '') ? layout.icon : system ? system.defaultIcon || 'object-group' : 'object-group';
+  const current = /^[a-z0-9-]{1,40}$/.test(layout.icon || '') ? layout.icon : 'object-group';
   openIconSheet({
     title: `Change icon: ${layout.name}`,
     current,
-    defaultIcon: system ? system.defaultIcon || '' : '',
+    defaultIcon: '',
     onSave: async (icon, sheet) => {
       if (icon === current) { sheet.close(); return; }
       try {
-        if (system) await layoutRequest('PATCH', systemLayoutUrl(layoutSpaceId(), layoutId), { icon: icon === system.defaultIcon ? null : icon });
-        else await layoutRequest('PUT', layoutUrl(layoutSpaceId(), layoutId), { icon });
+        await layoutRequest('PUT', layoutUrl(layoutSpaceId(), layoutId), { icon });
         sheet.close();
         layoutNote(`${layout.name} has a new icon.`);
         await refreshLayouts();
@@ -4031,17 +3923,19 @@ function startChangeIcon(layoutId) {
 
 // --- the layout tabs (plan-layout-views.md, steps 2 and 3) ----------------------------------------------------------
 // Every view is a layout: in the top bar's left zone, right after the space switcher, one tab per layout (layoutTabs()
-// in primary-nav.js): the Workspace, then Calendar and Map while the server lists them for this space and their tab is
-// kept, then this person's favorite saved layouts in the order they were favorited, with no limit. Each wears the top
-// bar's link look, its icon and its name, `aria-current="page"` on the one shown; each is a button of its own, reached
-// by Tab in order, shown by Enter or Space. A press shows its layout: the Workspace puts back this person's own
-// remembered arrangement; any other tab loads its layout through canvas.loadLayout, the path a saved layout takes:
-// Calendar and Map are the system layouts `calendar` and `map` (one docked module, `calendar` or `maps`, which reads as
-// the composite `dest:calendar` or `dest:map` filling the canvas). Only the Workspace remembers (decision 15): while
-// another tab is shown the canvas writes nothing (canvas.holdMemory), so the Workspace comes back as it was; the
-// Layout menu, Full screen and Pop out stay on every tab (workspaceShown). When the bar is tight
-// the tabs leave from the right into a "..." after the last one shown (tabOverflow()), which opens the shared menu
-// listing them, each with its icon; the Workspace and the tab shown never leave. That happens first, before anything
+// in primary-nav.js): the owner's tabs (the Workspace and the fixed layouts on here, in the owner's order), then the
+// workspaces this person added (plan-workspaces.md, decision 39), in the order they were added. Each wears the top bar's
+// link look, its icon and its name, `aria-current="page"` on the one shown; each is a button of its own, reached by Tab
+// in order, shown by Enter or Space. A press shows its layout: an editable workspace (the Workspace or one added) puts
+// back this person's own arrangement of it (canvas.showWorkspace: each remembers its own); a fixed tab loads its layout
+// through canvas.loadLayout, the path a layout for everyone takes: Calendar and Map are the system layouts `calendar` and
+// `map` (one docked module, `calendar` or `maps`, which reads as the composite `dest:calendar` or `dest:map` filling the
+// canvas). While a fixed tab is shown the canvas writes nothing (canvas.holdMemory), so the editable workspace comes back
+// as it was. An editable tab wears a caret (.layout-tab-menu) that opens its menu (openTabMenu: Open for you, Layouts,
+// Rename and Delete on one added, Arrange last); right-click, the menu key or a long press on the tab opens it too. The
+// tabs' "..." after the last tab shown lists the tabs that did not fit (tabOverflow()), each with its icon, then New
+// workspace for everyone signed in who may keep one; it shows while a tab is out or New workspace is offered. The
+// Workspace and the tab shown never leave. That happens first, before anything
 // folds (nav-bar.js's fitLeft; only Who is here, after them, gives way before they do, Thomas 2026-10-14). No tabs for a guest, in an aside, while home is shown,
 // or on a phone (640px and below: the tab bar holds the composites as module tabs). A load that leaves something out
 // says so under the tab for 6 seconds (#layout-favorites-note, seen) and to #layout-announce (heard, layoutNote).
@@ -4054,8 +3948,8 @@ const layoutTabsMore = document.createElement('button');
 layoutTabsMore.type = 'button';
 layoutTabsMore.id = 'layout-tabs-more';
 layoutTabsMore.className = 'core-link layout-tabs-more';
-layoutTabsMore.dataset.tip = 'More layouts';
-layoutTabsMore.setAttribute('aria-label', 'More layouts');
+layoutTabsMore.dataset.tip = 'More tabs';
+layoutTabsMore.setAttribute('aria-label', 'More tabs');
 layoutTabsMore.setAttribute('aria-haspopup', 'menu');
 layoutTabsMore.setAttribute('aria-expanded', 'false');
 layoutTabsMore.hidden = true;
@@ -4084,7 +3978,7 @@ function showFavoritesNote(text) {
 const shownLayoutTab = () => currentLayoutTab;
 // A first visit that opens on Calendar or Map (canvas.restore()'s answer; plan-layout-views.md, step 5): once the space's
 // layouts are read, its tab is pressed as a person would, so the Workspace stays behind, remembered. Not when the space
-// was left meanwhile, another tab was pressed, or the tab is not there (turned off, or this person unfavorited it).
+// was left meanwhile, another tab was pressed, or the tab is not there (turned off, or the workspace deleted).
 function showFirstVisitTab(id, spaceId) {
   if (!id || currentLayoutTab !== 'workspace' || layoutSpaceId() !== spaceId || layoutList.spaceId !== spaceId) return;
   // Restoring is not a change: nothing is written (remember: false). A saved layout has no tab until it is shown.
@@ -4095,7 +3989,7 @@ function showFirstVisitTab(id, spaceId) {
 // A guest and an Aside have none (a guest follows the owner's default). Else null, quietly: the first visit rules apply.
 function restorableLast() {
   const id = layoutList.spaceId && layoutList.spaceId === layoutSpaceId() ? layoutList.last : null;
-  if (!id || guestToken || guestMode || !mayFavorite()) return null;
+  if (!id || guestToken || guestMode || !mayOwn()) return null;
   if (id === 'workspace') return id;
   return layoutTabList().some((t) => t.layout === id) || findLayout(id) ? id : null;
 }
@@ -4103,7 +3997,7 @@ function restorableLast() {
 // it. Never for a guest, and never for a restore. A refusal is dropped quietly: the layout is shown all the same.
 function rememberLayout(id) {
   const space = layoutSpaceId();
-  if (!space || guestToken || guestMode || !mayFavorite() || layoutList.spaceId !== space || layoutList.last === id) return;
+  if (!space || guestToken || guestMode || !mayOwn() || layoutList.spaceId !== space || layoutList.last === id) return;
   const before = layoutList.last;
   layoutList.last = id;
   layoutRequest('PUT', `/api/spaces/${encodeURIComponent(space)}/last-layout`, { layout: id }).catch(() => {
@@ -4113,19 +4007,22 @@ function rememberLayout(id) {
 function layoutTabList() {
   return layoutTabs({
     system: layoutList.spaceId === layoutSpaceId() ? layoutList.system : [],
-    favorites: mayFavorite() && layoutList.spaceId === layoutSpaceId() ? layoutList.favorites : [],
-    layouts: [...layoutList.shared, ...layoutList.mine],
+    own: mayOwn() && layoutList.spaceId === layoutSpaceId() ? layoutList.own : [],
+    layouts: layoutList.shared,
     current: shownLayoutTab(),
     guest: Boolean(guestToken) || me?.role === 'guest',
     aside: inAside(),
     space: layoutSpaceId() || '',
   });
 }
-const layoutTabsWanted = () => oneBar() && !inAside() && !phoneWidth() && layoutTabList().length > 0;
+// A guest's bar has no tabs but the Workspace's own (plan-workspaces.md, decision 44: the Layout button is gone, and its
+// menu is the Workspace tab's), with no faces and no "...".
+const guestTabs = () => Boolean(currentSpace) && !viewingHome && (Boolean(guestToken) || guestMode || me?.role === 'guest');
+const layoutTabsWanted = () => (oneBar() || guestTabs()) && !inAside() && !phoneWidth() && layoutTabList().length > 0;
 let layoutTabsDrawn = ''; // what the tabs show now, so an unchanged list keeps its buttons (and the keyboard on one)
 function renderLayoutTabs() {
   const list = layoutTabList();
-  const key = JSON.stringify([list.map((t) => [t.id, t.icon, t.label, t.temp === true, t.pinned === true]), mayBring()]);
+  const key = JSON.stringify([list.map((t) => [t.id, t.icon, t.label, t.temp === true, t.pinned === true, isEditable(t.layout)]), mayBring()]);
   if (key !== layoutTabsDrawn) {
     layoutTabsDrawn = key;
     const doc = layoutTabsEl.ownerDocument;
@@ -4143,16 +4040,18 @@ function renderLayoutTabs() {
       if (t.pinned) { b.title = `${t.label}. Kept in the bar by the ${word('owner')}.`; b.setAttribute('aria-label', `${t.label}, kept in the bar by the ${word('owner')}`); }
       b.innerHTML = `<i class="fa-solid fa-${escapeHtml(t.icon)} fa-fw" aria-hidden="true"></i><span class="core-label">${escapeHtml(t.label)}</span>`;
       const side = tabSide(doc, t); // who is on it, and a moderator's caret
-      if (!t.temp || t.kind === 'system') return [b, side]; // a fixed layout's tab is turned on by its Favorite, in the Layout menu
-      // A temporary tab (a saved layout shown that is not a favorite): a heart beside it pins it as a favorite.
-      const pin = doc.createElement('button');
-      pin.type = 'button';
-      pin.className = 'core-link layout-tab-pin';
-      pin.dataset.tip = 'Favorite';
-      pin.setAttribute('aria-label', `Favorite ${t.label}`);
-      pin.innerHTML = '<i class="fa-solid fa-heart fa-fw" aria-hidden="true"></i>';
-      pin.addEventListener('click', () => { const l = findLayout(t.layout); if (l) setFavorite(l, true); });
-      return [b, pin, side];
+      if (!isEditable(t.layout)) return [b, side];
+      // An editable workspace's menu (plan-workspaces.md, decision 40): a caret of its own, after the faces.
+      const caret = doc.createElement('button');
+      caret.type = 'button';
+      caret.className = 'layout-tab-menu';
+      caret.dataset.tabMenu = t.layout;
+      caret.dataset.tip = `${t.label} menu`;
+      caret.setAttribute('aria-label', `${t.label} menu`);
+      caret.setAttribute('aria-haspopup', 'menu');
+      caret.setAttribute('aria-expanded', 'false');
+      caret.innerHTML = '<i class="fa-solid fa-chevron-down fa-fw" aria-hidden="true"></i>';
+      return [b, side, caret];
     }).flat();
     layoutTabsEl.replaceChildren(...buttons, layoutTabsMore, favoritesNote);
     if (hadId) (layoutTabsEl.querySelector(`[data-layout-tab="${CSS.escape(hadId)}"]`) || layoutTabsEl.querySelector('[data-layout-tab]'))?.focus();
@@ -4180,21 +4079,25 @@ function fitLayoutTabs(avail) {
   const tabs = [...layoutTabsEl.querySelectorAll(':scope > [data-layout-tab]')];
   const focused = doc.activeElement && layoutTabsEl.contains(doc.activeElement) ? doc.activeElement : null;
   const sides = tabs.map((b) => sideOfTab(b.dataset.layoutTab));
-  for (const b of [...tabs, ...sides]) b?.classList.remove('layout-tab-out');
-  layoutTabsMore.hidden = true;
+  const carets = tabs.map((b) => tabMenuButton(b.dataset.layoutTab));
+  for (const b of [...tabs, ...sides, ...carets]) b?.classList.remove('layout-tab-out');
+  const always = mayAddWorkspace(); // New workspace is in the "...": it always shows
+  layoutTabsMore.hidden = !always;
   if (!tabs.length || !layoutTabsEl.getClientRects().length) { markLayoutTabs(); return; }
   const w = (el) => el.getBoundingClientRect().width;
   const gap = parseFloat(doc.defaultView.getComputedStyle(layoutTabsEl).columnGap) || 0;
   layoutTabsMore.hidden = false;
   const more = w(layoutTabsMore);
-  layoutTabsMore.hidden = true;
+  layoutTabsMore.hidden = !always;
   // A pixel spare: the bar counts the left zone in whole pixels (rounded up) when it decides what folds.
   const current = tabs.findIndex((b) => b.dataset.layoutTab === shownLayoutTab());
-  // A tab and its faces leave together: its width is both (the faces' button sits close against it).
-  const widths = tabs.map((b, i) => w(b) + (sides[i] && !sides[i].hidden ? w(sides[i]) + gap + parseFloat(doc.defaultView.getComputedStyle(sides[i]).marginLeft || '0') : 0));
-  const { out, more: showMore } = tabOverflow({ avail: Math.floor(avail) - 1, gap, widths, more, current, workspace: Math.max(0, tabs.findIndex((b) => b.dataset.layoutTab === 'workspace')) });
-  tabs.forEach((b, i) => { b.classList.toggle('layout-tab-out', out.includes(i)); sides[i]?.classList.toggle('layout-tab-out', out.includes(i)); });
-  layoutTabsMore.hidden = !showMore;
+  // A tab, its faces and its caret leave together: its width is all three (the two buttons sit over the tab's end).
+  const after = (el) => (el && !el.hidden ? w(el) + gap + parseFloat(doc.defaultView.getComputedStyle(el).marginLeft || '0') : 0);
+  const widths = tabs.map((b, i) => w(b) + after(sides[i]) + after(carets[i]));
+  const room = always ? Math.floor(avail) - 1 - more - gap : Math.floor(avail) - 1; // the "..." is there whatever fits
+  const { out, more: showMore } = tabOverflow({ avail: room, gap, widths, more: always ? 0 : more, current, workspace: Math.max(0, tabs.findIndex((b) => b.dataset.layoutTab === 'workspace')) });
+  tabs.forEach((b, i) => { b.classList.toggle('layout-tab-out', out.includes(i)); sides[i]?.classList.toggle('layout-tab-out', out.includes(i)); carets[i]?.classList.toggle('layout-tab-out', out.includes(i)); });
+  layoutTabsMore.hidden = !(showMore || always);
   markLayoutTabs();
   if (focused && focused.closest('.layout-tab-out')) layoutTabsMore.focus();
 }
@@ -4203,28 +4106,28 @@ function fitLayoutTabs(avail) {
 function pressLayoutTab(id, from = null, { load = true, remember = true } = {}) {
   const tab = layoutTabList().find((t) => t.layout === id);
   if (!tab && id !== 'workspace' && !findLayout(id) && !findSystemLayout(id)) return;
-  if (id === 'workspace') {
-    currentLayoutTab = 'workspace';
+  if (isEditable(id)) {
+    currentLayoutTab = id;
     syncConferenceView(); // the canvas is back before its modules open in it
-    canvas.resumeMemory(); // the Workspace's own arrangement, as it was before another tab was pressed
+    canvas.showWorkspace(id); // its own arrangement, as it was left (each editable workspace remembers its own)
     rebaseLayout();
     renderLayoutTabs(); // the temporary tab goes
     nav.draw();
     canvas.refreshMenu();
-    if (remember) rememberLayout('workspace');
+    if (remember) rememberLayout(id);
     sayWhere();
     return;
   }
   // Calendar and Map are system layouts (their `modules`: the composite, docked, filling the canvas), reloaded as saved
-  // on every press (decision 15); a favorite is a saved layout. Both load the same way. A layout for everyone is a shape
+  // on every press (decision 15). A layout for everyone loads the same way. A layout for everyone is a shape
   // ({ shape, areas }; plan-layout-picker.md, step 6): canvas.loadLayout places it by loadShape, an area this person
   // can't open closed up (a guest's answer reads such an area as empty, which closes up for a guest too).
   const layout = findSystemLayout(id) || findLayout(id);
   if (!layout || !(Array.isArray(layout.modules) || isShapeLayout(layout))) return;
-  canvas.holdMemory(); // only the Workspace remembers: from here on nothing is written until it is shown again
+  canvas.holdMemory(); // only an editable workspace remembers: nothing is written until one is shown again
   currentLayoutTab = id;
   layoutBase = null;
-  renderLayoutTabs(); // a layout that is not a favorite gets its temporary tab
+  renderLayoutTabs(); // a layout for everyone gets its temporary tab
   nav.draw();
   showFavoritesNote('');
   favoritesNoteAt = from;
@@ -4245,11 +4148,11 @@ function pressLayoutTab(id, from = null, { load = true, remember = true } = {}) 
   sayWhere();
 }
 
-// Modified (Thomas, 2026-11-11): the layout shown is a saved one and the arrangement is no longer what it was when it was
-// shown. `layoutBase` is the arrangement a moment after the layout was shown (the canvas fits a load to the window, so
-// the stored definition itself would differ at once); layoutDiffers() (layouts.js) compares it with the canvas now, once a
-// frame after a change (never per mouse move). Update writes the canvas over the layout (PUT, the routes' own rules).
-// Nothing is stored; a guest, the Workspace, Calendar and Map (fixed or remembered by themselves) never show it.
+// Modified (Thomas, 2026-11-11): the layout shown is a layout for everyone and the arrangement is no longer what it was
+// when it was shown. `layoutBase` is the arrangement a moment after the layout was shown (the canvas fits a load to the
+// window, so the stored definition itself would differ at once); layoutDiffers() (layouts.js) compares it with the canvas
+// now, once a frame after a change (never per mouse move). The word alone: a layout for everyone is changed with Edit.
+// Nothing is stored; a guest, the editable workspaces and the fixed tabs (remembered by themselves, or fixed) never show it.
 let layoutBase = null;
 let layoutModified = false;
 let layoutBaseTimer = 0;
@@ -4285,55 +4188,42 @@ function checkModified() {
   const now = layoutDiffers(layoutBase, cap);
   if (now !== layoutModified) setModified(now);
 }
-async function updateLayout(layoutId) {
-  const id = layoutSpaceId();
-  const layout = findLayout(layoutId);
-  if (!id || !layout || isShapeLayout(layout)) return; // a layout for everyone is changed with Edit (the picker)
-  const captured = canvas.captureLayout();
-  try {
-    await layoutRequest('PUT', layoutUrl(id, layoutId), captured);
-    layoutBase = captured;
-    layoutNote(`Updated ${layout.name}.`);
-    setModified(false);
-    await refreshLayouts();
-  } catch (err) {
-    layoutNote(err.message || 'That did not work. Try again.');
-  }
-}
-// The mark beside the tab shown: "Modified" and, where this person may change the layout, the Update link.
+// The mark beside the tab shown: "Modified".
 function placeModified() {
   const layout = layoutModified ? findLayout(currentLayoutTab) : null;
   const tab = layout ? layoutTabsEl.querySelector(`:scope > [data-layout-tab="${CSS.escape(layout.id)}"]`) : null;
   if (!layout || !tab) { layoutModifiedEl.hidden = true; return; }
-  const shared = layoutList.shared.includes(layout);
+  // The word alone: a layout for everyone is a shape, changed with Edit (plan-layout-picker.md, decision 5).
   layoutModifiedEl.replaceChildren(layoutModifiedEl.ownerDocument.createTextNode('Modified'));
-  // Update writes the canvas over the layout: your own only. A layout for everyone is a shape, changed with Edit (decision 5).
-  if (mayChangeLayout(shared) && !shared) {
-    const b = layoutModifiedEl.ownerDocument.createElement('button');
-    b.type = 'button';
-    b.className = 'layout-update';
-    b.textContent = 'Update';
-    b.setAttribute('aria-label', `Update ${layout.name}`);
-    b.addEventListener('click', () => updateLayout(layout.id));
-    layoutModifiedEl.append(' ', b);
-  }
-  let after = tab; // after the tab's heart and its faces, which belong to it
-  while (after.nextElementSibling?.matches('.layout-tab-pin, .layout-tab-side')) after = after.nextElementSibling;
+  let after = tab; // after the tab's faces and caret, which belong to it
+  while (after.nextElementSibling?.matches('.layout-tab-side, .layout-tab-menu')) after = after.nextElementSibling;
   after.after(layoutModifiedEl);
   layoutModifiedEl.hidden = false;
 }
 layoutTabsEl.addEventListener('click', (event) => {
   const side = event.target.closest('[data-tab-side]');
   if (side) { openTabPeople(side); return; }
+  const caret = event.target.closest('[data-tab-menu]');
+  if (caret) { openTabMenu(caret.dataset.tabMenu); return; }
   const button = event.target.closest('[data-layout-tab]');
   if (!button) return;
   goBackToast?.close(); // pressing a tab is the person's own choice: the Go back after a bring has done its job
   pressLayoutTab(button.dataset.layoutTab, button);
   if (button.isConnected && !button.classList.contains('layout-tab-out')) button.focus();
 });
-// The "...": the tabs that did not fit, in their order, each with its icon, on the shared menu (Enter, the arrows).
+// Right-click, the menu key (Shift+F10) or a long press on an editable tab: its menu, as the caret opens it.
+layoutTabsEl.addEventListener('contextmenu', (event) => {
+  const button = event.target.closest('[data-layout-tab], [data-tab-menu]');
+  const id = button ? button.dataset.layoutTab || button.dataset.tabMenu : '';
+  if (!id || !isEditable(id)) return;
+  event.preventDefault();
+  openTabMenu(id);
+});
+// The "..." (the tab bar's menu): the tabs that did not fit, in their order, each with its icon; then New workspace for
+// everyone signed in who may keep one (plan-workspaces.md, decisions 39 and 43), while they have fewer than the limit.
+const mayAddWorkspace = () => mayOwn() && Boolean(layoutList.spaceId) && layoutList.spaceId === layoutSpaceId() && !inAside();
 layoutTabsMore.addEventListener('click', () => {
-  const out = new Set([...layoutTabsEl.querySelectorAll(':scope > .layout-tab-out')].map((b) => b.dataset.layoutTab));
+  const out = new Set([...layoutTabsEl.querySelectorAll(':scope > [data-layout-tab].layout-tab-out')].map((b) => b.dataset.layoutTab));
   const shown = shownLayoutTab();
   const items = layoutTabList().filter((t) => out.has(t.layout)).map((t) => ({
     icon: t.icon,
@@ -4342,12 +4232,66 @@ layoutTabsMore.addEventListener('click', () => {
     checked: t.layout === shown,
     onPick: () => pressLayoutTab(t.layout, layoutTabsMore),
   }));
+  if (mayAddWorkspace()) {
+    const full = layoutList.ownLimit > 0 && layoutList.own.length >= layoutList.ownLimit;
+    if (items.length) items.push({ divider: true });
+    items.push(full
+      ? { icon: 'plus', label: 'New workspace', disabled: true, hint: `You have ${layoutList.ownLimit} here. Delete one first.` }
+      : { icon: 'plus', label: 'New workspace', onPick: () => { tabMenuOpener = layoutTabsMore; openNewWorkspace(); } });
+  }
+  tabMenuOpener = layoutTabsMore;
   openHostMenu(layoutTabsMore, items);
 });
+// An editable tab's own buttons, by workspace id.
+const tabButton = (id) => layoutTabsEl.querySelector(`:scope > [data-layout-tab="${CSS.escape(id)}"]`);
+const tabMenuButton = (id) => layoutTabsEl.querySelector(`:scope > [data-tab-menu="${CSS.escape(id)}"]`);
+// The control a tab's menu or the tabs' "..." was last opened from, while it is still drawn; else the caret of the tab
+// shown, else that tab. A sheet opened from the menu gives the keyboard back to it.
+let tabMenuOpener = null;
+function menuOpener() {
+  const shown = (b) => Boolean(b) && b.isConnected && b.getClientRects().length > 0;
+  if (shown(tabMenuOpener)) return tabMenuOpener;
+  const caret = tabMenuButton(currentLayoutTab);
+  return shown(caret) ? caret : tabButton(currentLayoutTab) || layoutTabsMore;
+}
+// Opens an editable tab's menu under its caret (canvas.openMenu: Open for you, then tabMenuItems, then Arrange). The menu
+// acts on the workspace shown, so a tab that is not shown is shown first. A tab in the "..." comes back into the bar as it
+// is shown (the tab shown never leaves), so its caret is there to open from.
+function openTabMenu(id) {
+  if (!isEditable(id)) return;
+  if (currentLayoutTab !== id) pressLayoutTab(id);
+  nav.draw('primary'); // fitted again, so the caret is drawn where it is now
+  const caret = tabMenuButton(id);
+  if (!caret || !caret.getClientRects().length) return;
+  tabMenuOpener = caret;
+  canvas.openMenu(caret, () => tabMenuItems(id));
+}
+// A long press on an editable tab, by touch (no right-click there): its menu, and the press is not also a click.
+let tabPress = null;
+layoutTabsEl.addEventListener('pointerdown', (event) => {
+  if (event.pointerType !== 'touch') return;
+  const button = event.target.closest('[data-layout-tab]');
+  if (!button || !isEditable(button.dataset.layoutTab)) return;
+  const id = button.dataset.layoutTab;
+  clearTimeout(tabPress?.timer);
+  tabPress = { x: event.clientX, y: event.clientY, fired: false, timer: setTimeout(() => { tabPress.fired = true; openTabMenu(id); }, 500) };
+});
+const endTabPress = (event) => {
+  if (!tabPress) return;
+  if (event.type === 'pointermove' && Math.hypot(event.clientX - tabPress.x, event.clientY - tabPress.y) < 10) return;
+  clearTimeout(tabPress.timer);
+  if (!tabPress.fired) tabPress = null;
+};
+for (const type of ['pointerup', 'pointercancel', 'pointermove']) layoutTabsEl.addEventListener(type, endTabPress);
+layoutTabsEl.addEventListener('click', (event) => {
+  if (!tabPress?.fired) return;
+  tabPress = null;
+  event.stopImmediatePropagation(); // the long press opened the menu: the lift is not a press of the tab
+}, true);
 // Right after the space switcher, in the views' place (group `views`, after their phone-only entries). Who is here, after
 // them, gives way first (its `yieldFirst`); then the tabs go into their "...", before anything on the right folds.
 nav.register({ id: 'layout-tabs', bar: 'primary', zone: 'left', group: 'views', groupOrder: 12, order: 10, icon: 'columns', label: 'Layouts', element: layoutTabsEl, visible: layoutTabsWanted, fit: fitLayoutTabs });
-tabFacesShown = layoutTabsWanted; // Who is here leaves the top bar where the tabs show their faces
+tabFacesShown = () => oneBar() && layoutTabsWanted(); // Who is here leaves the top bar where the tabs show their faces
 // --- end the layout tabs ---
 
 // --- presence on tabs (plan-workspaces.md, decision 47) -----------------------------------------------------------------
@@ -4366,7 +4310,7 @@ function sayWhere() {
 async function sendWhere() {
   const ready = liveStream?.ready;
   const space = layoutSpaceId();
-  if (!ready || !space || liveSpaceId !== space || !mayFavorite()) return;
+  if (!ready || !space || liveSpaceId !== space || !mayOwn()) return;
   const layout = currentLayoutTab;
   const said = `${ready.stream}|${layout}`;
   if (said === whereSaid) return;
@@ -4380,7 +4324,7 @@ async function sendWhere() {
 }
 // My tab as the others read it (the server's sharedWhere): my own saved layout is 'personal'.
 function myWhere() {
-  if (!layoutSpaceId() || guestToken || !mayFavorite()) return null;
+  if (!layoutSpaceId() || guestToken || !mayOwn()) return null;
   const id = currentLayoutTab;
   return findSystemLayout(id) || id === 'workspace' || layoutList.shared.some((l) => l.id === id) ? id : 'personal';
 }
@@ -4415,7 +4359,8 @@ function tabSide(doc, t) {
 }
 // Draw every tab's faces from the live stream's people; the bar fits again when a button came or went.
 function paintTabSides({ draw = true } = {}) {
-  const people = livePeople();
+  // A guest's Workspace tab wears no faces. Others read a workspace I added as 'personal'; on my own bar my face is on its tab.
+  const people = (oneBar() ? livePeople() : []).map((p) => (p.you && p.layout === 'personal' && findOwn(currentLayoutTab) ? { ...p, layout: currentLayoutTab } : p));
   let changed = false;
   for (const side of layoutTabsEl.querySelectorAll(':scope > [data-tab-side]')) {
     const id = side.dataset.tabSide;
@@ -4425,12 +4370,15 @@ function paintTabSides({ draw = true } = {}) {
     const caret = Boolean(side.querySelector('.layout-tab-caret'));
     const hide = !all.length && !caret;
     if (side.hidden !== hide) { side.hidden = hide; changed = true; }
-    // The tab before it keeps room for it (style.css, .layout-tab-side): the width the button takes, once it can be measured.
+    // The tab before it keeps room for it and for an editable tab's caret after it (style.css, .layout-tab-side and
+    // .layout-tab-menu): the width the two take, once it can be measured.
     const owner = side.previousElementSibling;
+    const menuButton = side.nextElementSibling?.matches('[data-tab-menu]') ? side.nextElementSibling : null;
     if (owner?.matches('[data-layout-tab]')) {
-      const w = hide ? 0 : Math.round(side.getBoundingClientRect().width);
-      if (hide) { owner.style.removeProperty('--side-w'); side.style.removeProperty('--side-w'); }
-      else if (w && owner.style.getPropertyValue('--side-w') !== `${w}px`) { owner.style.setProperty('--side-w', `${w}px`); side.style.setProperty('--side-w', `${w}px`); changed = true; }
+      const w = (hide ? 0 : Math.round(side.getBoundingClientRect().width)) + (menuButton ? Math.round(menuButton.getBoundingClientRect().width) : 0);
+      const marked = [owner, side, menuButton].filter(Boolean);
+      if (!w) { for (const el of marked) el.style.removeProperty('--side-w'); }
+      else if (owner.style.getPropertyValue('--side-w') !== `${w}px`) { for (const el of marked) el.style.setProperty('--side-w', `${w}px`); changed = true; }
     }
     const names = all.map((p) => (p.you ? 'you' : p.name));
     const said = names.length ? `On ${label}: ${names.length > 4 ? `${names.slice(0, 3).join(', ')} and ${names.length - 3} more` : names.join(', ')}` : `${label}: more`;

@@ -18,13 +18,13 @@
 //   9. A phone (390 px): no stack is drawn (one view at a time, no divider, no collapse, no stack entries), the stack is
 //      kept in what is remembered, and it is drawn again when the window is wide.
 //  10. A short canvas collapses the lowest section by itself and opens it again when the height returns.
-//  11. A saved layout carries the stack (the server keeps it), and loading it, and a reload, give the same stack back.
-//  12. Unstack all, in the Layout menu (the Layout button's popover), puts every module of every stack in a column of its own.
+//  11. (A person's own saved layouts are gone, plan-workspaces.md decision 44: the Workspace's arrangement keeps the stack.)
+//  12. Unstack all, in the Workspace tab menu's Arrange flyout, puts every module of every stack in a column of its own.
 //  13. Inside a stack Tab goes top section, divider, next section; nothing in a module starts again when the page's order
 //      follows the stack; a drag inside a stack keeps the shares; Escape stops a drag; a module out of a stack has its own
-//      width again; after Unstack all the keyboard is on Panel Mode.
-//  14. Window Mode puts the stacks away and Panel Mode brings them back, with their heights and collapse, beside an ordinary
-//      column; after a reload in between; closed up when a member was closed meanwhile; layouts saved meanwhile are kept.
+//      width again; after Unstack all the keyboard is back on the tab's caret.
+//  14. Windows puts the stacks away and Panels brings them back, with their heights and collapse, beside an ordinary
+//      column; after a reload in between; closed up when a member was closed meanwhile.
 // It cannot check a real tablet's touch, a screen reader, or a call (no LiveKit here).
 // Usage: node tools/check-stacking.mjs [--mode=light|dark]. With no Chromium it says SKIPPED and exits 0 (a skip, never a pass).
 import fs from 'node:fs';
@@ -120,8 +120,10 @@ async function main() {
         await sleep(450);
         return drawn;
       };
-      // The Layout menu (the modules' switches, Arrange, Layouts): the popover under the top bar's Layout button, closed with Escape.
-      const showTab = async () => { await tab.eval(`document.getElementById('layout-menu').click()`); await tab.waitFor('.host-menu:not(.host-menu-inline) .host-menu-item'); await sleep(300); };
+      // The Workspace tab's menu (the modules' switches, Layouts, Arrange last; plan-workspaces.md, decision 40): the popover
+      // under the tab's caret, closed with Escape. Arrange's row opens its flyout (the two modes and what each offers).
+      const showTab = async () => { await tab.eval(`document.querySelector('[data-tab-menu="workspace"]').click()`); await tab.waitFor('.host-menu:not(.host-menu-inline) .host-menu-item'); await sleep(300); };
+      const showArrange = async () => { await showTab(); await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline):not(.host-menu-flyout) .host-menu-item')].reverse().find((b) => /^(Panels|Windows)$/.test(b.querySelector('.host-menu-label')?.textContent.trim() || '')).click()`); await tab.waitFor('.host-menu-flyout .host-menu-item'); await sleep(300); };
       const openFromLayoutMenu = async (name) => { await showTab(); await pick(name); await closeMenus(); await sleep(400); };
       // Enter the trip with a remembered layout of these modules, docked (Panel Mode, what nothing remembered reads as).
       const enter = async (open, records = {}) => {
@@ -388,25 +390,13 @@ async function main() {
         s = await state();
         expect(s.groups.includes('Stacked: Maps, Polls, Research'), `${L} back at 1280 the stack is not drawn again: ${JSON.stringify(s.groups)}`);
 
-        // A saved layout carries the stack (plan step 6; server/layouts.js keeps stack, at, h, folded): saved from the Layout menu,
-        // it is what the server answers, and loading it after Unstack all, and again after a reload, gives the same stack.
         const shape = (st) => st.docked.filter((d) => d.stacked).sort((a, b) => a.top - b.top).map((d) => `${d.id}:${d.h}`).join();
         const want = shape(await state());
-        await showTab();
-        await pick('Save as new layout');
-        await tab.waitFor('dialog.layout-sheet[open] input');
-        await tab.eval(`(() => { const i = document.querySelector('dialog.layout-sheet[open] input:not([type]), dialog.layout-sheet[open] input[type=text]'); i.value = 'Stacked'; i.dispatchEvent(new Event('input', { bubbles: true })); [...document.querySelectorAll('dialog.layout-sheet[open] button')].find((b) => b.textContent.trim() === 'Save').click(); })()`);
-        await sleep(1200);
-        const lists = await tab.eval(`fetch('/api/spaces/${S.ctx.trip}/layouts').then((r) => r.json())`);
-        const savedLayout = [...(lists.mine || []), ...(lists.shared || [])].find((x) => x.name === 'Stacked');
-        const members = (savedLayout?.modules || []).filter((m) => m.stack);
-        expect(members.map((m) => `${m.id}:${m.at}`).join() === 'maps:0,polls:1,research:2' && new Set(members.map((m) => m.stack)).size === 1 && Math.abs(members.reduce((a, m) => a + m.h, 0) - 1) <= 0.01 && members.every((m) => typeof m.folded === 'boolean'), `${L} the saved layout does not carry the stack: ${JSON.stringify(savedLayout?.modules)}`);
-        await closeMenus();
 
-        // Unstack all (the Layout menu's Arrange): every module in a column of its own; past the limit the last one waits, floating.
-        await showTab();
+        // Unstack all (the tab menu's Arrange flyout): every module in a column of its own; past the limit the last one waits, floating.
+        await showArrange();
         expect((await menuItems()).some((x) => x.text === 'Unstack all' && !x.off), `${L} Arrange has no Unstack all while there is a stack`);
-        // By the keyboard in light, by the pointer in dark: either way the keyboard stays in Arrange, on Panel Mode.
+        // By the keyboard in light, by the pointer in dark: either way the menu closes and the keyboard is back on the tab's caret.
         if (mode === 'light') {
           await tab.eval(`[...document.querySelectorAll('body > .host-menu:not(.host-menu-inline) .host-menu-item')].find((b) => b.textContent.trim() === 'Unstack all').focus()`);
           await key('Enter');
@@ -417,43 +407,21 @@ async function main() {
           await sleep(450);
         }
         const focusAt = await tab.eval(`document.activeElement?.closest('.host-menu:not(.host-menu-inline)') ? document.activeElement.textContent.trim() : (document.activeElement?.id || document.activeElement?.tagName)`);
-        expect(focusAt === 'Panel Mode', `${L} after Unstack all the keyboard is on "${focusAt}", not Panel Mode in Arrange`);
+        const onCaret = await tab.eval(`document.activeElement?.dataset?.tabMenu === 'workspace'`);
+        expect(onCaret, `${L} after Unstack all the keyboard is on "${focusAt}", not the Workspace tab's caret`);
         s = await state();
         expect(!s.groups.length && !s.docked.some((d) => d.stacked) && s.floats.includes('research') && /too narrow for another column/.test(s.said), `${L} Unstack all: ${JSON.stringify({ groups: s.groups, floats: s.floats, said: s.said })}`);
-        expect((await menuItems()).some((x) => x.text === 'Unstack all' && x.off), `${L} Unstack all is still offered with no stack left`);
+        await showArrange();
+        expect(!(await menuItems()).some((x) => x.text === 'Unstack all'), `${L} Unstack all is still offered with no stack left`);
         await closeMenus();
-        await showTab();
-        await pick('Stacked');
-        await sleep(1200);
-        await closeMenus();
-        s = await state();
-        const near = (a, b) => { const x = a.split(','); const y = b.split(','); return x.length === y.length && x.every((v, i) => v.split(':')[0] === y[i].split(':')[0] && Math.abs(Number(v.split(':')[1]) - Number(y[i].split(':')[1])) <= 2); };
-        expect(near(shape(s), want), `${L} loading the saved layout gives ${shape(s)}, not ${want}`);
-        await tab.cdp.send('Page.reload', {}, tab.sid);
-        await tab.waitFor('#canvas .module-docked.in-stack');
-        await sleep(2500);
-        expect(near(shape(await state()), want), `${L} after a reload the loaded stack is ${shape(await state())}, not ${want}`);
+        expect(Boolean(want), `${L} there was a stack to put away`);
 
         // 14. Window Mode and back (Thomas, 2026-11-09): the stacks come back, with their order, heights and collapse, beside the
         // ordinary column; after a reload in between; closed up when a member was closed meanwhile; the layout saved in
         // between and after is one the server keeps.
-        const arrangeTo = async (label) => { await showTab(); await pick(label); await closeMenus(); await sleep(900); };
+        const arrangeTo = async (label) => { await showArrange(); await tab.eval(`[...document.querySelectorAll('.host-menu-flyout .host-menu-item')].find((b) => b.querySelector('.host-menu-label')?.textContent.trim() === ${JSON.stringify('LABEL')}).click()`.replace('LABEL', label)); await sleep(450); await closeMenus(); await sleep(900); };
         const whole = (st) => st.docked.filter((d) => d.stacked).sort((a, b) => a.top - b.top).map((d) => `${d.id}:${d.h}:${d.folded}`).join();
         const sameStack = (a, b) => { const x = a.split(','); const y = b.split(','); return Boolean(a) && x.length === y.length && x.every((v, i) => { const [ia, ha, fa] = v.split(':'); const [ib, hb, fb] = y[i].split(':'); return ia === ib && fa === fb && Math.abs(Number(ha) - Number(hb)) <= 2; }); };
-        const saveLayout = async (name) => {
-          await showTab();
-          await pick('Save as new layout');
-          await tab.waitFor('dialog.layout-sheet[open] input');
-          await tab.eval(`(() => { const i = document.querySelector('dialog.layout-sheet[open] input:not([type]), dialog.layout-sheet[open] input[type=text]'); i.value = ${JSON.stringify(name)}; i.dispatchEvent(new Event('input', { bubbles: true })); [...document.querySelectorAll('dialog.layout-sheet[open] button')].find((b) => b.textContent.trim() === 'Save').click(); })()`);
-          await sleep(1200);
-          await closeMenus();
-          const all = await tab.eval(`fetch('/api/spaces/${S.ctx.trip}/layouts').then((r) => r.json())`);
-          // A layout just saved is shown as a tab of its own, and a layout shown writes nothing back to the Workspace's memory
-          // (decision 15): back to the Workspace, which is what the rest of this part is about.
-          await tab.click('[data-layout-tab="workspace"]');
-          await sleep(1200);
-          return [...(all.mine || []), ...(all.shared || [])].find((x) => x.name === name) || null;
-        };
         // Only the Workspace remembers its arrangement (a loaded layout is its own tab and writes nothing back, decision 15), and
         // Window Mode keeps the stacks it puts away in that memory: so this part starts from a Workspace of its own, the stack of
         // three stored (as a person's stack is), entered and shown by the Workspace tab, not the layout loaded above.
@@ -467,40 +435,35 @@ async function main() {
         await sleep(300);
         const three = whole(await state());
         expect(/research:36:true$/.test(three) && !(await state()).docked.find((d) => d.id === 'travel').stacked, `${L} the stack to put away is not three with Research collapsed beside the Itinerary: ${three}`);
-        await arrangeTo('Window Mode');
+        await arrangeTo('Windows');
         s = await state();
         expect(!s.groups.length && ['maps', 'polls', 'research'].every((id) => s.floats.includes(id)), `${L} Window Mode did not float the stack's modules: ${JSON.stringify(s)}`);
         const away = await stored();
         expect(Array.isArray(away.__stacks) && away.__stacks[0]?.ids?.join() === 'maps,polls,research' && !['maps', 'polls', 'research'].some((id) => 'stack' in (away[id] || {})), `${L} the stack is not kept aside in the remembered layout (and off the floating modules): ${JSON.stringify(away.__stacks)}`);
-        const floatingSaved = await saveLayout('Windows');
-        expect(floatingSaved && floatingSaved.modules.every((m) => !('stack' in m)), `${L} a layout saved in Window Mode was not kept as a plain one: ${JSON.stringify(floatingSaved)}`);
-        await arrangeTo('Panel Mode');
+        await arrangeTo('Panels');
         s = await state();
         expect(sameStack(whole(s), three) && !s.docked.find((d) => d.id === 'travel').stacked && s.groups.length === 1, `${L} Panel Mode brought back ${whole(s)}, not ${three}`);
         // A reload in Window Mode, then Panel Mode.
-        await arrangeTo('Window Mode');
+        await arrangeTo('Windows');
         await tab.cdp.send('Page.reload', {}, tab.sid);
         await tab.waitFor('.module-floating[data-module="maps"]');
         await sleep(2500);
-        await arrangeTo('Panel Mode');
+        await arrangeTo('Panels');
         s = await state();
         expect(sameStack(whole(s), three), `${L} after a reload in Window Mode, Panel Mode brought back ${whole(s)}, not ${three}`);
         // A member closed meanwhile: the other two come back as a stack of two, uneven as they were.
-        await arrangeTo('Window Mode');
+        await arrangeTo('Windows');
         await tab.eval(`document.querySelector('.module-floating[data-module="research"] .mf-close-btn').click()`);
         await sleep(400);
-        await arrangeTo('Panel Mode');
+        await arrangeTo('Panels');
         s = await state();
         const two = whole(s);
         expect(/^maps:\d+:false,polls:\d+:false$/.test(two) && s.groups.includes('Stacked: Maps, Polls') && Math.abs(s.docked.find((d) => d.id === 'maps').h - s.docked.find((d) => d.id === 'polls').h) > 20, `${L} with Research closed in Window Mode, Panel Mode brought back ${two}`);
         // A stack of two, there and back.
-        await arrangeTo('Window Mode');
-        await arrangeTo('Panel Mode');
+        await arrangeTo('Windows');
+        await arrangeTo('Panels');
         s = await state();
         expect(sameStack(whole(s), two), `${L} a stack of two came back as ${whole(s)}, not ${two}`);
-        const backSaved = await saveLayout('Back');
-        const back2 = (backSaved?.modules || []).filter((m) => m.stack);
-        expect(back2.map((m) => `${m.id}:${m.at}`).join() === 'maps:0,polls:1' && Math.abs(back2.reduce((a, m) => a + (m.h || 0), 0) - 1) <= 0.01, `${L} the layout saved after Panel Mode does not carry the stack as the server keeps it: ${JSON.stringify(backSaved?.modules)}`);
         expect(!('__stacks' in (await stored())), `${L} the stacks put away are still kept after they came back`);
         // A phone keeps the stack's remembered width: reloading at 390 px (where a column is clamped) and then at 1280 gives the same dockW.
         const widths = async () => { const r = await stored(); return ['maps', 'polls'].map((id) => r[id]?.dockW).join(); };
@@ -521,7 +484,7 @@ async function main() {
         expect(await widths() === '460,460', `${L} after 390 px and a reload at 1280 the stack's stored width is ${await widths()}, not 460,460`);
 
         if (errors.length) failures.push(`${L} the page threw: ${errors.slice(0, 3).join(' | ')}`);
-        say(`${mode}: stacked by menu and drag, divider 8 px within 156 px by pointer and keys, collapse and the last one open, a fourth refused, one column of the limit, out by the drag, reload, close to one, composites refused, short canvas, phone, a saved layout's stack, Unstack all, Window Mode and back`);
+        say(`${mode}: stacked by menu and drag, divider 8 px within 156 px by pointer and keys, collapse and the last one open, a fourth refused, one column of the limit, out by the drag, reload, close to one, composites refused, short canvas, phone, Unstack all, Windows and back`);
       } finally {
         tab.cdp.listeners = tab.cdp.listeners.filter((f) => f !== listen);
         await tab.close();

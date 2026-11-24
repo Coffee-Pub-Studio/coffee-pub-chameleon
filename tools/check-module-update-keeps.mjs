@@ -117,7 +117,7 @@ try {
   const layouts = async () => (await call('GET', `/api/spaces/${T}/layouts`)).json;
   const savedLayout = async (lid) => {
     const l = await layouts();
-    return [...(l.mine || []), ...(l.shared || [])].find((x) => x.id === lid);
+    return (l.shared || []).find((x) => x.id === lid);
   };
 
   let layoutId = null;
@@ -145,7 +145,7 @@ try {
     assert.equal((await call('PATCH', '/api/roles/member', { [firstKey]: memberTick })).status, 200);
     assert.equal((await call('PUT', dataUrl, { value: { title: 'kept across updates' } })).status, 200);
     dataBefore = (await call('GET', dataUrl)).json;
-    const saved = await call('POST', `/api/spaces/${T}/layouts`, { name: 'Update keeps', modules: [{ id, mode: 'dock', dockW: 360 }], snap: { all: false, pitch: 130 } });
+    const saved = await call('POST', `/api/spaces/${T}/layouts`, { name: 'Update keeps', shared: true, shape: 'one', areas: [id] });
     assert.equal(saved.status, 201, JSON.stringify(saved.json));
     layoutId = saved.json.layout.id;
     layoutBefore = await savedLayout(layoutId);
