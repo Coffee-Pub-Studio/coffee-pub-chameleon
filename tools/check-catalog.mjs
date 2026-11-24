@@ -140,8 +140,12 @@ await test('an empty optional text is absent; a wrong pointer number names the k
   const day = catalog.tools.find((t) => t.name === 'travel__addToDay');
   assert.deepEqual(checkToolInput(day, { object: 1, date: '' }), { ok: true, input: { object: 1 } });
   assert.deepEqual(checkToolInput(day, { object: 1, date: '   ' }), { ok: true, input: { object: 1 } });
-  // setTaskDue's date is optional (left out clears the due date): "" is absent, and a day that is not one is still wrong.
-  assert.deepEqual(checkToolInput(due, { task: 1, date: '' }), { ok: true, input: { task: 1 } });
+  // setTaskDue's date is one it declares in `clears`: "" is kept, so the clear reaches the action (plan-agent-server-actions.md,
+  // section 6), null is absent, and a day that is not one is still wrong.
+  assert.deepEqual(due.clears, ['date']);
+  assert.deepEqual(checkToolInput(due, { task: 1, date: '' }), { ok: true, input: { task: 1, date: '' } });
+  assert.deepEqual(checkToolInput(due, { task: 1, date: null }), { ok: true, input: { task: 1 } });
+  assert.ok(new RegExp(due.schema.properties.date.pattern).test('') && new RegExp(due.schema.properties.date.pattern).test('2026-05-12'), 'its schema takes "" and a day');
   assert.equal(checkToolInput(due, { task: 1, date: 'soon' }).error, 'date must be a date, YYYY-MM-DD.');
   const point = catalog.tools.find((t) => t.name === 'maps__setPlacePoint');
   assert.equal(checkToolInput(point, { place: 1, lat: '', lng: 2 }).error, 'lat must be a number.', 'an empty required one is wrong, not absent');

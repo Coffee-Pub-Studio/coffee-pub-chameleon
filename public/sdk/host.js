@@ -2091,6 +2091,78 @@
     return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
   }
 
+  // One of a module's own renameable words from a set of them (its manifest's `labels` as a place reads them, host.locale().labels):
+  // the twin of utilWord, for host.util.label and a library's ctx.util.label. A key the set does not hold answers `o.fallback`
+  // when given, else the key itself.
+  function utilLabel(labels, key, o) {
+    const set = labels;
+    const w = set && typeof set === 'object' && Object.prototype.hasOwnProperty.call(set, key) && set[key] && typeof set[key].one === 'string' && typeof set[key].many === 'string' ? set[key] : null;
+    if (!w) return o && typeof o.fallback === 'string' ? o.fallback : String(key);
+    const text = o && o.a ? (typeof w.a === 'string' && w.a ? w.a : `${/^[aeiou]/i.test(w.one) ? 'an' : 'a'} ${w.one}`) : o && o.many ? w.many : w.one;
+    return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
+  }
+  // host.util.geo and a library's ctx.util.geo: places on the earth, for the modules that have them (a place, a map): coordinates
+  // checked and read, and the link that opens a spot in the person's own maps app. Pure (no network, no page), so a check and the
+  // server's runner can run it; frozen, since every module and library shares this one copy.
+  const utilGeo = Object.freeze((() => {
+    const inRange = (lat, lng) => Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+    const round6 = (n) => Math.round(n * 1e6) / 1e6;
+    // Text on one line, without control characters, at most `max` long.
+    const oneLine = (s, max) => String(s == null ? '' : s).replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+    // A latitude or longitude typed in a field (`max` is 90 or 180): a number in range, or null.
+    const coord = (text, max) => {
+      const t = String(text == null ? '' : text).trim().replace(',', '.');
+      if (!/^[-+]?\d{1,3}(\.\d+)?$/.test(t)) return null;
+      const n = Number(t);
+      return Math.abs(n) <= max ? n : null;
+    };
+    // What was typed or pasted: a pair of coordinates ("38.7075, -9.1364"), or a map link that carries them (a geo: link,
+    // ?ll= or ?q= or ?mlat=&mlon=, /@lat,lng, #map=zoom/lat/lng, !3dLAT!4dLNG). { lat, lng } or null.
+    const parsePoint = (text) => {
+      const t = String(text == null ? '' : text).trim();
+      if (!t) return null;
+      const NUM = '(-?\\d{1,3}(?:\\.\\d+)?)';
+      const pair = (re) => {
+        const m = t.match(re);
+        if (!m) return null;
+        const lat = Number(m[1]);
+        const lng = Number(m[2]);
+        return inRange(lat, lng) ? { lat: round6(lat), lng: round6(lng) } : null;
+      };
+      if (/^[-+]?\d/.test(t) && !/[a-z]/i.test(t)) return pair(new RegExp(`^${NUM}\\s*[,;\\s]\\s*${NUM}$`));
+      return (
+        pair(new RegExp(`^geo:${NUM},${NUM}`, 'i')) ||
+        pair(new RegExp(`[?&](?:ll|q|query|center|sll)=${NUM}(?:,|%2C)\\s*${NUM}`, 'i')) ||
+        pair(new RegExp(`[?&]mlat=${NUM}&(?:amp;)?mlon=${NUM}`, 'i')) ||
+        pair(new RegExp(`!3d${NUM}!4d${NUM}`)) ||
+        pair(new RegExp(`/@${NUM},${NUM}`)) ||
+        pair(new RegExp(`#map=\\d{1,2}(?:\\.\\d+)?/${NUM}/${NUM}`))
+      );
+    };
+    const fmt = (n) => (Math.round(n * 1e5) / 1e5).toFixed(5);
+    // "38.70750, -9.13640"
+    const coordsText = (lat, lng) => `${fmt(lat)}, ${fmt(lng)}`;
+    // The link that opens a spot in the person's own maps app: the platform's own link on Apple devices (`apple`
+    // true), a geo: link on Android, which hands it to the maps app, and an ordinary web link everywhere else. A
+    // desktop browser has nothing registered for geo:, so it would open nothing (Windows shows a blank page).
+    // Directions are that app's business.
+    const android = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
+    const mapsLink = (lat, lng, name, apple) => {
+      const n = oneLine(name, 80).replace(/[()]/g, ' ');
+      if (apple) return `https://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent(n || 'Place')}`;
+      if (android()) return `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(n || 'Place')})`;
+      return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`;
+    };
+    // The same for a place with only a name or an address: the maps app searches for it.
+    const mapsSearch = (text, apple) => {
+      const q = encodeURIComponent(oneLine(text, 160));
+      if (apple) return `https://maps.apple.com/?q=${q}`;
+      if (android()) return `geo:0,0?q=${q}`;
+      return `https://www.openstreetmap.org/search?query=${q}`;
+    };
+    return { inRange, round6, oneLine, coord, parsePoint, coordsText, mapsLink, mapsSearch };
+  })());
+
   // env: { call(method, params) -> Promise, root, rootElement, elementAt({x, y}), localPoint(clientX, clientY),
   // applyTheme(theme) }.
   // Returns { host, emit }: `emit` is how the host pushes an event to the module.
@@ -3550,13 +3622,7 @@
       // it renames it, else the manifest's. The twin of word: label('event') "meeting", label('event', { many: true, cap:
       // true }) "Meetings", label('event', { a: true }) "a meeting". A key the manifest does not declare (or before
       // ready) answers `fallback` when given, else the key itself. Plain text: set it with textContent, never as HTML.
-      label: (key, o) => {
-        const set = locale().labels;
-        const w = set && typeof set === 'object' && Object.prototype.hasOwnProperty.call(set, key) && set[key] && typeof set[key].one === 'string' && typeof set[key].many === 'string' ? set[key] : null;
-        if (!w) return o && typeof o.fallback === 'string' ? o.fallback : String(key);
-        const text = o && o.a ? (typeof w.a === 'string' && w.a ? w.a : `${/^[aeiou]/i.test(w.one) ? 'an' : 'a'} ${w.one}`) : o && o.many ? w.many : w.one;
-        return o && o.cap ? text.charAt(0).toLocaleUpperCase('en') + text.slice(1) : text;
-      },
+      label: (key, o) => utilLabel(locale().labels, key, o),
       // Fill every element marked data-word="<code name>" in `root` (an element, a fragment or the module's root) with
       // its word, as the host's own pages do: data-word-form takes any of many, cap and a, space-separated.
       // <span data-word="owner" data-word-form="a cap"></span> reads "An owner". Answers `root`.
@@ -3652,64 +3718,7 @@
       parseYmd: utilParseYmd,
       // Places on the earth, for the modules that have them (a place, a map): coordinates checked and read, and the link
       // that opens a spot in the person's own maps app. Pure, so a check can run it without a browser.
-      geo: (() => {
-        const inRange = (lat, lng) => Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-        const round6 = (n) => Math.round(n * 1e6) / 1e6;
-        // Text on one line, without control characters, at most `max` long.
-        const oneLine = (s, max) => String(s == null ? '' : s).replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
-        // A latitude or longitude typed in a field (`max` is 90 or 180): a number in range, or null.
-        const coord = (text, max) => {
-          const t = String(text == null ? '' : text).trim().replace(',', '.');
-          if (!/^[-+]?\d{1,3}(\.\d+)?$/.test(t)) return null;
-          const n = Number(t);
-          return Math.abs(n) <= max ? n : null;
-        };
-        // What was typed or pasted: a pair of coordinates ("38.7075, -9.1364"), or a map link that carries them (a geo: link,
-        // ?ll= or ?q= or ?mlat=&mlon=, /@lat,lng, #map=zoom/lat/lng, !3dLAT!4dLNG). { lat, lng } or null.
-        const parsePoint = (text) => {
-          const t = String(text == null ? '' : text).trim();
-          if (!t) return null;
-          const NUM = '(-?\\d{1,3}(?:\\.\\d+)?)';
-          const pair = (re) => {
-            const m = t.match(re);
-            if (!m) return null;
-            const lat = Number(m[1]);
-            const lng = Number(m[2]);
-            return inRange(lat, lng) ? { lat: round6(lat), lng: round6(lng) } : null;
-          };
-          if (/^[-+]?\d/.test(t) && !/[a-z]/i.test(t)) return pair(new RegExp(`^${NUM}\\s*[,;\\s]\\s*${NUM}$`));
-          return (
-            pair(new RegExp(`^geo:${NUM},${NUM}`, 'i')) ||
-            pair(new RegExp(`[?&](?:ll|q|query|center|sll)=${NUM}(?:,|%2C)\\s*${NUM}`, 'i')) ||
-            pair(new RegExp(`[?&]mlat=${NUM}&(?:amp;)?mlon=${NUM}`, 'i')) ||
-            pair(new RegExp(`!3d${NUM}!4d${NUM}`)) ||
-            pair(new RegExp(`/@${NUM},${NUM}`)) ||
-            pair(new RegExp(`#map=\\d{1,2}(?:\\.\\d+)?/${NUM}/${NUM}`))
-          );
-        };
-        const fmt = (n) => (Math.round(n * 1e5) / 1e5).toFixed(5);
-        // "38.70750, -9.13640"
-        const coordsText = (lat, lng) => `${fmt(lat)}, ${fmt(lng)}`;
-        // The link that opens a spot in the person's own maps app: the platform's own link on Apple devices (`apple`
-        // true), a geo: link on Android, which hands it to the maps app, and an ordinary web link everywhere else. A
-        // desktop browser has nothing registered for geo:, so it would open nothing (Windows shows a blank page).
-        // Directions are that app's business.
-        const android = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent || '');
-        const mapsLink = (lat, lng, name, apple) => {
-          const n = oneLine(name, 80).replace(/[()]/g, ' ');
-          if (apple) return `https://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent(n || 'Place')}`;
-          if (android()) return `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(n || 'Place')})`;
-          return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`;
-        };
-        // The same for a place with only a name or an address: the maps app searches for it.
-        const mapsSearch = (text, apple) => {
-          const q = encodeURIComponent(oneLine(text, 160));
-          if (apple) return `https://maps.apple.com/?q=${q}`;
-          if (android()) return `geo:0,0?q=${q}`;
-          return `https://www.openstreetmap.org/search?query=${q}`;
-        };
-        return { inRange, round6, oneLine, coord, parsePoint, coordsText, mapsLink, mapsSearch };
-      })(),
+      geo: utilGeo,
     },
 
     // Interface the modules share, drawn the same everywhere and following the theme.
@@ -5996,7 +6005,7 @@
   // the very code server/module-actions.js runs for an agent's request to a bundled module that declares it (actions.server).
   // host.actions.fromLibrary(ACTION_HANDLERS, o) answers handlers for host.actions.provide that run it here exactly as the
   // runner does there, so a page and the server give the same answer:
-  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, carrier, space, action, read(key), list(prefix) }, `carrier`
+  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, carrier, space, settings, action, read(key), list(prefix) }, `carrier`
   //     'page' here ('server' on the runner, which does nothing only a page does: a handler says so in its note), `credit` the one
   //     provide gives (the asker when the server knows them), read and list synchronous, over this module's data here as it
   //     was when the request was taken (each a copy), plus the facts below;
@@ -6007,11 +6016,12 @@
   //     server checks it as any write of this page's; one refused write puts back the ones before it, and nothing is left
   //     half done. A value changed meanwhile is refused with the runner's own sentence.
   // The facts, the same plain data the runner hands a library: `space` { id, name, currency, defaultCurrency, phases: [{ id,
-  // main }], bands } (`currency` the space's budget's, `defaultCurrency` the server's; bands: host.util.phaseTimeline(), []
-  // without phases), `people` [{ key, name }], `refs` { <objectKey>: { title,
+  // label, main }], bands } (`currency` the space's budget's, `defaultCurrency` the server's; `label` the phase's name as the space
+  // shows it; bands: host.util.phaseTimeline(), [] without phases), `people` [{ key, name }], `refs` { <objectKey>: { title,
   // subtitle, kind, copy?, original? } } for each pointer in the input, as this person may see it (`original`, for a copy:
-  // { module, name } of what it copies), and `util`: the SDK's plain, localWhen, detailLines, time, ymd, parseYmd,
-  // objectKey, id and word, the only functions it gets.
+  // { module, name } of what it copies), `settings` the module's settings as host.settings.get() gives them ({} when they can't be
+  // read), and `util`: the SDK's plain, localWhen, detailLines, time, ymd, parseYmd, objectKey, id, word, label, order and rollup,
+  // the only functions it gets, and geo, the frozen place helpers.
   // `o.after({ action, input, writes: [{ key, value, version, before }], ref, data })` runs once the writes are in, for what
   // only a page does (redraw at once, tell the host about links, set a reminder); a throw from it is the request's answer,
   // the writes kept. `o.only` (names) keeps only those handlers.
@@ -6092,22 +6102,29 @@
     const loc = typeof host.locale === 'function' ? host.locale() || {} : {};
     const deflt = typeof loc.currency === 'string' ? loc.currency.trim().toUpperCase() : '';
     return {
-      space: { id: sp ? sp.id : null, name: sp && typeof sp.name === 'string' ? sp.name : '', currency: budget, defaultCurrency: deflt, phases: phases.map((p) => ({ id: p.id, main: Boolean(p.main) })), bands: libraryCopy(bands) },
+      space: { id: sp ? sp.id : null, name: sp && typeof sp.name === 'string' ? sp.name : '', currency: budget, defaultCurrency: deflt, phases: phases.map((p) => ({ id: p.id, label: typeof p.label === 'string' ? p.label : '', main: Boolean(p.main) })), bands: libraryCopy(bands) },
       people: (Array.isArray(people) ? people : []).filter((p) => p && typeof p.key === 'string').map((p) => ({ key: p.key, name: String(p.name || '') })),
       refs,
     };
   }
-  // The SDK helpers a handler may call (`ctx.util`): plain functions of their arguments, the same ones the runner hands it.
-  const LIBRARY_UTIL = ['plain', 'localWhen', 'detailLines', 'time', 'ymd', 'parseYmd', 'objectKey', 'id', 'word'];
-  const libraryUtil = (util) => Object.freeze(Object.fromEntries(LIBRARY_UTIL.filter((k) => typeof util[k] === 'function').map((k) => [k, util[k]])));
-  // The same helpers with no page: `time` on `locale.clock` ('12' or '24') and `word` from `locale.words` (an environment's, as
-  // host.locale().words gives them; the defaults for any it leaves out). What server/module-actions-worker.js hands a module's
+  // The SDK helpers a handler may call (`ctx.util`): plain functions of their arguments, the same ones the runner hands it, and
+  // `geo`, the frozen set of place helpers (host.util.geo). `order` and `rollup` are the outline's (host.util.order, rollup) and
+  // `label` the module's own renameable words as this place reads them (host.util.label).
+  const LIBRARY_UTIL = ['plain', 'localWhen', 'detailLines', 'time', 'ymd', 'parseYmd', 'objectKey', 'id', 'word', 'label', 'order', 'rollup'];
+  const libraryUtil = (util) => Object.freeze({
+    ...Object.fromEntries(LIBRARY_UTIL.filter((k) => typeof util[k] === 'function').map((k) => [k, util[k]])),
+    ...(util.geo === utilGeo ? { geo: utilGeo } : {}),
+  });
+  // The same helpers with no page: `time` on `locale.clock` ('12' or '24'), `word` from `locale.words` (an environment's, as
+  // host.locale().words gives them; the defaults for any it leaves out) and `label` from `locale.labels` (the module's words as the
+  // space's template renames them, as host.locale().labels gives them). What server/module-actions-worker.js hands a module's
   // actions library on the server, built from this very file.
   const libraryUtilFor = (locale) => {
     const loc = locale && typeof locale === 'object' ? locale : {};
     const clock = loc.clock === '24' ? '24' : '12';
     const words = loc.words && typeof loc.words === 'object' ? loc.words : {};
-    return libraryUtil({ plain: plainText, localWhen, detailLines, time: (hhmm) => utilTime(hhmm, clock), ymd: utilYmd, parseYmd: utilParseYmd, objectKey: utilObjectKey, id: utilId, word: (key, o) => utilWord(words, key, o) });
+    const labels = loc.labels && typeof loc.labels === 'object' ? loc.labels : {};
+    return libraryUtil({ plain: plainText, localWhen, detailLines, time: (hhmm) => utilTime(hhmm, clock), ymd: utilYmd, parseYmd: utilParseYmd, objectKey: utilObjectKey, id: utilId, word: (key, o) => utilWord(words, key, o), label: (key, o) => utilLabel(labels, key, o), order: outlineOrder, rollup: outlineRollup, geo: utilGeo });
   };
   // One request carried out with the library's handler `fn` (see above). `carried` is what provide gives: { from, by, byKey, credit }.
   async function carryLibrary(host, name, fn, input, carried, o) {
@@ -6124,7 +6141,9 @@
     let tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (err) { tz = 'UTC'; }
     const credit = carried.credit || { name: '', key: '' };
-    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, carrier: 'page', space: facts.space, people: facts.people, refs: facts.refs, action: name });
+    let settings = {};
+    try { settings = host.settings && typeof host.settings.get === 'function' ? (await host.settings.get()) || {} : {}; } catch (err) { settings = {}; }
+    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, carrier: 'page', space: facts.space, people: facts.people, refs: facts.refs, settings: libraryPlain(settings) ? settings : {}, action: name });
     ctx.read = (key) => (typeof key === 'string' && data.has(key) ? libraryCopy(data.get(key)) : null);
     ctx.list = (prefix) => {
       const p = typeof prefix === 'string' ? prefix : '';

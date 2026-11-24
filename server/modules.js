@@ -503,8 +503,10 @@ function cleanTakes(raw, action, permissionKeys) {
   });
 }
 
-// The input types an action may declare in `clears`.
-const CLEARABLE_TYPES = ['string', 'text', 'number', 'date'];
+// The input types an action may declare in `clears`: `ref` covers every pointer type (`ref` and `ref:<module>:<kind>`), so a
+// pointer can be cleared (plan-agent-server-actions.md, section 6: Goals moving a note back to the top level).
+const CLEARABLE_TYPES = ['string', 'text', 'number', 'date', 'ref'];
+const clearableType = (base) => CLEARABLE_TYPES.includes(base) || base.startsWith('ref:');
 
 // `permissionKeys`: the keys of the module's own permissions, which a `takes` entry may name.
 function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
@@ -580,7 +582,7 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
     if (p.askerOnly && p.local === true) throw new ModuleError(`module.json: action "${name}" is local, which is already for the asker only`);
     // `clears` (plan-agent-edit-delete.md, "The contract", 1: "An empty text field clears it; a field left out is kept"): the
     // optional inputs a request may send as "" to clear them. The bus hands the action "" for those and leaves every other ""
-    // out, as before. Only a string, text, number or date can be cleared.
+    // out, as before. Only a string, text, number, date or pointer can be cleared.
     const clears = [];
     if (p.clears !== undefined) {
       if (!Array.isArray(p.clears) || p.clears.some((f) => typeof f !== 'string')) throw new ModuleError(`module.json: action "${name}" clears must be a list of its input names`);
@@ -588,7 +590,7 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
         const type = Object.prototype.hasOwnProperty.call(input, f) ? input[f] : null;
         if (!type) throw new ModuleError(`module.json: action "${name}" clears "${f}", which is not one of its inputs`);
         if (!type.endsWith('?')) throw new ModuleError(`module.json: action "${name}" clears "${f}", which is required; only an optional input can be cleared`);
-        if (!CLEARABLE_TYPES.includes(type.slice(0, -1))) throw new ModuleError(`module.json: action "${name}" clears "${f}"; only ${CLEARABLE_TYPES.join(', ')} inputs can be cleared`);
+        if (!clearableType(type.slice(0, -1))) throw new ModuleError(`module.json: action "${name}" clears "${f}"; only ${CLEARABLE_TYPES.join(', ')} inputs can be cleared`);
         if (!clears.includes(f)) clears.push(f);
       }
     }

@@ -26,7 +26,8 @@ const PRELUDE = "for (const name of ['console', 'Atomics', 'SharedArrayBuffer', 
 // helpers are the context's own functions (their constructor is the context's Function, which makes no code). What the
 // library is then left with: `ymd` and `parseYmd` beside it (travel-lib.js and calendar-lib.js call them), and `__util`, the
 // frozen helpers RUN hands the handler as ctx.util (hostActions.util: plain, localWhen, detailLines, time, ymd, parseYmd,
-// objectKey, id, word, with `time` on the environment's clock and `word` from its words, as `__locale` gives them). The
+// objectKey, id, word, label, order, rollup and geo, with `time` on the environment's clock, `word` from its words and `label`
+// from the module's labels, as `__locale` gives them; `geo` is the SDK's frozen place helpers, which reach no network). The
 // stand-in window, and with it the rest of the SDK (hostActions, createHost, hostText), is taken away before the library runs.
 const SDK_BEFORE = "globalThis.window = { addEventListener() {}, removeEventListener() {}, location: { search: '', href: 'http://localhost/' } }; globalThis.window.parent = globalThis.window; globalThis.document = { createElement: (tag) => ({ tag }), currentScript: null };";
 const SDK_AFTER = `
