@@ -1493,6 +1493,50 @@ function enabledSwitch({ id, attr, name, on, disabled = false }) {
   return `<label class="sdk-choice-row module-toggle"><input type="checkbox" class="sdk-switch" role="switch" ${attr}="${escapeHtml(id)}" aria-label="${escapeHtml(name)} enabled"${on ? ' checked' : ''}${disabled ? ' disabled' : ''}> Enabled</label>`;
 }
 
+// An uploaded module's check and, if it carries actions for agents, the admin's approval to run them on the server (plan-agent-server-actions.md,
+// section 8 and 9). Findings come grouped by the check that made them, advice only; the first 12 show and the rest sit under
+// "Show all". Only the admin approves (on a hosted server, the host's administrator); an owner sees that it waits.
+const FINDINGS_SHOWN = 12;
+const mayApproveServerRun = () => Boolean(me && me.role === 'admin' && (!environment.hosted || environment.hostAdmin));
+function findingGroups(list) {
+  const groups = new Map();
+  for (const f of list) {
+    if (!groups.has(f.check)) groups.set(f.check, []);
+    groups.get(f.check).push(f);
+  }
+  return [...groups].map(([check, items]) => `<div class="module-finding-group"><strong>${escapeHtml(check)}</strong><ul>${items.map((f) => `<li>${escapeHtml(f.text)}${f.file ? ` <span class="hint">${escapeHtml(f.file)}${f.line ? `:${escapeHtml(String(f.line))}` : ''}</span>` : ''}</li>`).join('')}</ul></div>`).join('');
+}
+function uploadedChecks(m) {
+  if (m.source === 'bundled') return '';
+  const list = m.findings || [];
+  const parts = [];
+  if (list.length) {
+    const rest = list.slice(FINDINGS_SHOWN);
+    parts.push(`<div class="module-findings"><p class="hint"><strong>The check found ${list.length} ${list.length === 1 ? 'thing' : 'things'} to look at.</strong> It is advice only; ${escapeHtml(word('module', { a: true }))} with findings still installs.</p>${findingGroups(list.slice(0, FINDINGS_SHOWN))}${rest.length ? `<details class="module-findings-more"><summary>Show all ${list.length}</summary>${findingGroups(rest)}</details>` : ''}</div>`);
+  }
+  const run = m.serverRun;
+  if (run) {
+    const admin = mayApproveServerRun();
+    const hash = run.sha256 ? run.sha256.slice(0, 12) : null;
+    const lines = [`<p class="hint"><strong>Actions for agents on the server</strong></p>`];
+    if (hash) lines.push(`<p class="hint">Library hash <code class="module-hash">${escapeHtml(hash)}</code>, version ${escapeHtml(m.version)}.</p>`);
+    else lines.push('<p class="hint">The server could not read this version\'s library, so it can\'t be approved.</p>');
+    if (run.approved) {
+      lines.push(`<p><span class="sdk-status" data-tone="ok">Approved to run on the server</span> <span class="hint">by ${escapeHtml(run.by || 'the admin')}${run.at ? `, ${escapeHtml(new Date(run.at).toLocaleDateString())}` : ''}</span></p>`);
+      if (!run.wall && run.why) lines.push(`<p class="module-why" role="note">${escapeHtml(run.why)}</p>`);
+      if (admin) lines.push('<div class="row"><button class="btn" data-module-action="server-run-withdraw" type="button">Withdraw</button></div>');
+    } else {
+      if (!run.wall && run.why) lines.push(`<p class="module-why" role="note">${escapeHtml(run.why)}</p>`);
+      if (admin) {
+        lines.push(`<p class="hint module-warning">This runs the uploaded code on the server, inside the sandbox: a process with no network, files or settings. You approve this version, ${escapeHtml(m.version)}, and this library hash${hash ? `, ${escapeHtml(hash)}` : ''}. A new version needs approving again. Approve only code you trust.</p>`);
+        lines.push(`<div class="row"><button class="btn btn-primary" data-module-action="server-run-approve"${hash ? '' : ' disabled'} type="button">Let agents run this ${escapeHtml(word('module'))}'s actions on the server</button></div>`);
+      } else lines.push('<p class="hint module-waiting">Waiting for the admin to approve running it on the server.</p>');
+    }
+    parts.push(`<div class="module-serverrun" data-hash="${escapeHtml(run.sha256 || '')}">${lines.join('')}</div>`);
+  }
+  return parts.join('');
+}
+
 // An installed module's card, in one of four shapes (#264):
 //   'row'  on the Configuration tab, for a module that is on: its head (the switch), notes and what it does; its name
 //          opens its tab, where the rest is;
@@ -1544,7 +1588,7 @@ function moduleCard(m, shape = 'full') {
     <div class="module-runmode">
       <p class="hint"><strong>${m.runMode === 'page' ? 'Runs in the page' : 'Runs sandboxed'}</strong>${m.source === 'bundled' ? ', ships with this server' : ', uploaded'}. ${m.runMode === 'page' ? `It can read and change anything on the page, including what you can see and do. Only allow that for ${escapeHtml(word('module', { a: true }))} you trust.` : `It is walled off in its own frame and can only reach the host through its approved permissions. ${escapeHtml(word('module', { a: true, cap: true }))} in a frame cannot take part in drag and drop between ${escapeHtml(word('module', { many: true }))}.`}</p>
       ${m.source === 'bundled' || m.outdated || hostOnlyHidden() ? '' : `<button class="btn" data-module-runmode="${m.runMode === 'page' ? 'sandbox' : 'page'}" type="button">${m.runMode === 'page' ? 'Switch back to sandboxed' : 'Run in the page...'}</button>`}
-    </div>`;
+    </div>${uploadedChecks(m)}`;
   const actions = `
     <div class="row">
       ${m.scope.includes('space') && !m.outdated && m.lobby === false ? `<span class="hint">${escapeHtml(notInLobby())}</span>` : ''}
@@ -2026,6 +2070,17 @@ $('tab-modules').addEventListener('click', async (event) => {
       // On, with an update that asks for something new: approving it is turning it on again (PATCH enabled: true).
       if (!await confirmDialog({ title: `Approve ${shownName(m)}'s update?`, message: 'This approves what it newly asks for, marked under its name.', action: 'Approve' })) return;
       await api('PATCH', `/api/modules/${m.id}`, { enabled: true });
+    } else if (button.dataset.moduleAction === 'server-run-approve') {
+      const sha256 = card.querySelector('.module-serverrun').dataset.hash;
+      if (!await confirmDialog({ title: `Let agents run ${shownName(m)} on the server?`, message: `This runs the uploaded code on the server, inside the sandbox. You approve version ${m.version} and library hash ${sha256.slice(0, 12)}. A new version needs approving again.`, action: 'Approve' })) return;
+      try {
+        await api('POST', `/api/modules/${m.id}/server-run`, { version: m.version, sha256 });
+      } catch (err) {
+        if (err.status === 409) { await loadModules(); sayModules('This version changed since you looked at it; look at it again.', true); return; }
+        throw err;
+      }
+    } else if (button.dataset.moduleAction === 'server-run-withdraw') {
+      await api('DELETE', `/api/modules/${m.id}/server-run`);
     } else if (button.dataset.moduleAction === 'rollback') {
       const version = card.querySelector('[data-module-version]').value;
       if (version === m.version) return;
