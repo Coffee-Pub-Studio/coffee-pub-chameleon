@@ -352,7 +352,7 @@ const BUNDLED_DIR = path.join(__dirname, '..', 'modules');
 // 4): its code only ever comes from here, the deployment's own modules, never from what an environment has installed.
 const moduleActions = createModuleActions({ bundledDir: BUNDLED_DIR, network: ACTION_RUNNER_NETWORK.trim().toLowerCase() || 'auto' });
 if (!moduleActions.network.known) console.warn(`ACTION_RUNNER_NETWORK is "${ACTION_RUNNER_NETWORK}", which is not auto or namespace: read as auto.`);
-if (moduleActions.network.mode === 'namespace' && !moduleActions.network.namespace) console.warn('ACTION_RUNNER_NETWORK is namespace, but this server can\'t make a network namespace (unshare is missing or not allowed), so no module\'s server action will run.');
+console.log(moduleActions.network.line);
 // (Up here for the same reason: environmentFor() gives a module's display icon its built-in icons, at module load.)
 // The two panes that ship with the app, listed beside the installed modules. They are always on and
 // cannot be removed (for now); their permissions are the built-in ones on the Roles tab.

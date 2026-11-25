@@ -108,18 +108,28 @@ function networkSeal() {
   }
   return sealFound;
 }
-// ACTION_RUNNER_NETWORK: 'namespace' runs nothing without a network namespace; anything else uses one where there is one.
+// ACTION_RUNNER_NETWORK (plan-agent-server-actions.md, decision 3 and section 8): a run uses a network namespace wherever
+// the server can make one, under either word, and a bundled module runs with the lockdown alone where it can't. 'namespace'
+// is the switch for uploaded modules: only with it, and a namespace the server really made, may an uploaded module's
+// request run, and then only inside the namespace. Unset or 'auto': an uploaded module's request never runs.
 const NETWORK_MODES = ['auto', 'namespace'];
 
 // The SDK every page loads (public/sdk/host.js): its pure helpers are what a library gets as ctx.util, built from this very
 // file in the run's own context (server/module-actions-worker.js), so a page and the server run one copy of each.
 const SDK_FILE = path.join(__dirname, '..', 'public', 'sdk', 'host.js');
 
-function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'module-actions-worker.js'), sdkFile = SDK_FILE, network = 'auto' }) {
+function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'module-actions-worker.js'), sdkFile = SDK_FILE, network = 'auto', sealOf = networkSeal }) {
   // How a run is kept off the network (see networkSeal): { mode, namespace: whether a run gets a network namespace }.
   const mode = NETWORK_MODES.includes(network) ? network : 'auto';
-  const seal = networkSeal();
-  const networkState = Object.freeze({ mode, namespace: Boolean(seal), known: mode === network || !network });
+  const seal = sealOf(); // the checks pass a stand-in
+  const uploadedMayRun = mode === 'namespace' && Boolean(seal);
+  // The one start-up line that says which of the three holds (server/index.js prints it).
+  const line = uploadedMayRun
+    ? 'Modules\' server actions: bundled modules run in a network namespace; uploaded modules may run, with the admin\'s approval.'
+    : mode !== 'namespace'
+      ? 'Modules\' server actions: bundled modules run' + (seal ? ' in a network namespace' : ' with the lockdown only') + '; uploaded modules\' actions are off, because ACTION_RUNNER_NETWORK is not namespace.'
+      : 'Modules\' server actions: bundled modules run with the lockdown only; uploaded modules\' actions are off, because this server can\'t make a network namespace (see the seccomp profile in deploy/).';
+  const networkState = Object.freeze({ mode, namespace: Boolean(seal), uploadedMayRun, line, known: mode === network || !network });
   const codeCache = new Map(); // `${id}@${version}` -> { code, file } | null
   // Read once: it is the deployment's own file and changes only with a new deployment. Null when it can't be read, and then
   // every run is a fault ('sdk'), never a run without the helpers.
@@ -174,11 +184,12 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
   // One run: { text } (the handler's answer as JSON text) or { fault } (start, sdk, network, library, timeout, memory, crashed,
   // busy, missing, result, size, unanswered). `localeText` is { clock, words, labels } as JSON: the environment's clock and
   // words and the module's labels in the space, for ctx.util's time, word and label. Never throws.
-  async function run({ code, filename, action, inputText, ctxText, dataText, sharedText = '{}', localeText = '{}' }) {
+  async function run({ code, filename, action, inputText, ctxText, dataText, sharedText = '{}', localeText = '{}', uploaded = false }) {
     const sdkSource = sdk();
     if (!sdkSource) return { fault: 'sdk' };
-    // Asked to run only in a network namespace, and this server has none to give: nothing runs.
-    if (mode === 'namespace' && !seal) return { fault: 'network' };
+    // An uploaded module's code runs only behind the kernel wall: `namespace` asked for and a namespace made at start-up.
+    // Never the lockdown alone. A bundled module runs without a namespace where there is none.
+    if (uploaded && !uploadedMayRun) return { fault: 'network' };
     try { await turn(); } catch { return { fault: 'busy' }; }
     try {
       return await new Promise((resolve) => {
