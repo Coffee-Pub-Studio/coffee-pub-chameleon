@@ -1,0 +1,46 @@
+{
+  "id": "weather",
+  "name": "Weather",
+  "version": "0.1.0",
+  "icon": "cloud-sun",
+  "description": "The weather on the days of a {module} that has days, such as a trip. Choose a service and the temperature unit on this {module}'s Manage tab. This {module} has no window of its own.",
+  "author": "Coffee Pub",
+  "scope": [
+    "environment"
+  ],
+  "hooks": {
+    "weather": true
+  },
+  "settings": [
+    {
+      "key": "service",
+      "label": "Service",
+      "type": "choice",
+      "adapters": "weather",
+      "scope": "environment",
+      "default": "none",
+      "help": "Where the weather on each day comes from. None: no weather is shown and nothing is sent out. Only services that are free for commercial use are offered. A service is used only after the administrator of this server has accepted its terms, once for the whole server: until then nothing is sent out, whatever is chosen here. Only a signed-in administrator can accept them, never software; the credit is always shown with the weather.",
+      "options": [
+        { "value": "none", "label": "None" }
+      ]
+    },
+    {
+      "key": "units",
+      "label": "Temperatures",
+      "type": "choice",
+      "scope": "environment",
+      "default": "c",
+      "help": "Show temperatures in Celsius or Fahrenheit.",
+      "options": [
+        { "value": "c", "label": "Celsius" },
+        { "value": "f", "label": "Fahrenheit" }
+      ]
+    },
+    {
+      "key": "iconStyle",
+      "label": "Icon style",
+      "type": "note",
+      "help": "There is one icon style, the weather icons of the design system. A choice will be offered here when a second style exists."
+    }
+  ]
+}
