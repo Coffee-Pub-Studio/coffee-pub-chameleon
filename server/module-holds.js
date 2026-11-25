@@ -54,7 +54,12 @@ class ModuleHolds {
     // Set by the server: runIn(fn) runs a timer's work in this environment; onExpire(hold) finishes a clear whose time is over.
     this.runIn = (fn) => fn();
     this.onExpire = null;
+    // Set by the server: onKeyedExpire(hold) finishes an agent's change whose undo time is over (its files).
+    this.onKeyedExpire = null;
     this.sweep();
+    // Keyed holds past their time are swept once the server has set onKeyedExpire (it calls sweepKeyed), then hourly.
+    this.keyedTimer = setInterval(() => { if (!this.stopped) this.runIn(() => this.sweepKeyed()); }, 3600000);
+    if (this.keyedTimer.unref) this.keyedTimer.unref();
   }
 
   fileFor(id, scopeKey) {
@@ -136,7 +141,7 @@ class ModuleHolds {
   // Whether a hold here keeps this upload (the upload sweeps and a file's delete leave it alone).
   holdsFile(id, scopeKey, fid) {
     const h = this.read(id, scopeKey);
-    return Boolean(h && h.files.includes(fid));
+    return Boolean(h && h.files.includes(fid)) || this.keyedHoldsFile(id, scopeKey, fid);
   }
 
   // The hold goes, and the clear is finished (onExpire): its files, what other modules kept of its objects.
@@ -162,6 +167,7 @@ class ModuleHolds {
   // are; whoever reads this folder next (a new ModuleHolds) finishes them.
   stop() {
     this.stopped = true;
+    clearInterval(this.keyedTimer);
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
   }
@@ -216,7 +222,8 @@ class ModuleHolds {
     }
   }
 
-  // A deleted space's holds go with it, unfinished (its data, files and links go by their own steps). Answers how many.
+  // A deleted space's holds go with it, unfinished (its data, files and links go by their own steps), its keyed holds too.
+  // Answers how many.
   forgetSpace(spaceId) {
     if (!SPACE_RE.test(spaceId)) return 0;
     let gone = 0;
@@ -225,8 +232,144 @@ class ModuleHolds {
       if (fs.existsSync(this.fileFor(id, `space:${spaceId}`))) gone += 1;
       this.drop(id, `space:${spaceId}`);
     }
+    for (const h of this.keyedList()) {
+      if (h.scopeKey !== `space:${spaceId}`) continue;
+      this.dropKeyed(h.module, h.id);
+      gone += 1;
+    }
     return gone;
+  }
+
+  // --- keyed holds (plan-agent-edit-delete.md, "The contract", 4) ---------------------------------------------------
+  // What one agent's change to one object took, held for its Undo for AGENT_UNDO_DAYS: the object's value before an edit,
+  // or the object and what went with it (its children, the holders in other modules that object-sync removed or marked)
+  // before a delete. One file per change, DATA_DIR/modules/<id>/trash/agent/<change id>.json:
+  //   { id, module, scopeKey, key, kind: 'edited' | 'deleted', by, tz, at, expiresAt, items: [{ key, value, version,
+  //     updatedAt, by }], holders: [{ module, scopeKey, key, value, version, updatedAt, by, removed, links? }], files: [] }
+  // Written before the change (a temporary file, then a rename), so a stop between the two leaves the object as it was and
+  // an Undo with nothing to undo; it survives a restart; one that can't be read is set aside as <name>.bad and said once.
+  // A hold past its time goes (onKeyedExpire is told, so the files only it kept go too). A hold bigger than KEYED_MAX_BYTES
+  // is not kept (holdKeyed answers null: the change can't be undone); past KEYED_TOTAL_BYTES in the environment, the oldest
+  // go first.
+
+  keyedFile(id, changeId) {
+    return ID_RE.test(String(id)) && KEYED_ID_RE.test(String(changeId)) ? path.join(this.dir, id, 'trash', 'agent', `${changeId}.json`) : null;
+  }
+
+  // Holds what a change will take. `days` is how long. Answers { bytes } when held, null when too big to keep.
+  holdKeyed(id, changeId, { scopeKey, key, kind, items, holders = [], files = [], by = '', tz = null, days }, now = Date.now()) {
+    const file = this.keyedFile(id, changeId);
+    if (!file || !nameOfScope(scopeKey)) throw new Error('bad place for a hold');
+    const h = {
+      id: changeId,
+      module: id,
+      scopeKey,
+      key: String(key),
+      kind,
+      by: String(by).slice(0, 40),
+      tz: typeof tz === 'string' ? tz.slice(0, 64) : null,
+      at: new Date(now).toISOString(),
+      expiresAt: new Date(now + days * 24 * 3600000).toISOString(),
+      files: [...new Set(files)],
+      items,
+      holders,
+    };
+    const text = JSON.stringify(h);
+    if (Buffer.byteLength(text) > KEYED_MAX_BYTES) return null;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(`${file}.tmp`, text, { mode: 0o600 });
+    fs.renameSync(`${file}.tmp`, file);
+    this.trimKeyed(changeId);
+    return { bytes: Buffer.byteLength(text) };
+  }
+
+  // The keyed hold of a change, or null (none, past its time, or unreadable).
+  readKeyed(id, changeId, now = Date.now()) {
+    const file = this.keyedFile(id, changeId);
+    if (!file) return null;
+    let h;
+    try { h = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (err) {
+      if (err.code !== 'ENOENT') this.quarantineKeyed(file);
+      return null;
+    }
+    if (!h || typeof h !== 'object' || !Array.isArray(h.items) || h.id !== changeId || !nameOfScope(h.scopeKey)) { this.quarantineKeyed(file); return null; }
+    if (!(Date.parse(h.expiresAt) > now)) { this.expireKeyed(id, changeId, h); return null; }
+    return { ...h, files: Array.isArray(h.files) ? h.files : [], holders: Array.isArray(h.holders) ? h.holders : [] };
+  }
+
+  // The hold goes (an Undo took it back, or its change went), and nothing more is done.
+  dropKeyed(id, changeId) {
+    const file = this.keyedFile(id, changeId);
+    if (file) { fs.rmSync(file, { force: true }); fs.rmSync(`${file}.tmp`, { force: true }); }
+  }
+
+  // The hold goes because its time is over: onKeyedExpire(hold) finishes what it kept waiting (its files).
+  expireKeyed(id, changeId, h) {
+    this.dropKeyed(id, changeId);
+    if (h && typeof this.onKeyedExpire === 'function') {
+      try { this.onKeyedExpire(h); } catch (err) { this.log(`A held change of ${id} could not be finished: ${err.message}`); }
+    }
+  }
+
+  quarantineKeyed(file) {
+    try {
+      fs.renameSync(file, `${file}.bad`);
+      this.log(`A held agent's change (${file}) could not be read, so it was renamed .bad. It can't be undone, and any files it named are left where they are.`);
+    } catch (err) {
+      this.log(`A held agent's change (${file}) could not be read or renamed: ${err.message}`);
+    }
+  }
+
+  // Every keyed hold on disk, as { module, id, scopeKey, at, expiresAt, bytes, files }, oldest first; those past their
+  // time go on the way (onKeyedExpire), unreadable ones are set aside.
+  keyedList(now = Date.now()) {
+    const out = [];
+    for (const id of moduleFolders(this.dir)) {
+      const dir = path.join(this.dir, id, 'trash', 'agent');
+      let names = [];
+      try { names = fs.readdirSync(dir); } catch { continue; }
+      for (const n of names) {
+        if (n.endsWith('.json.tmp')) { fs.rmSync(path.join(dir, n), { force: true }); continue; }
+        const m = /^([a-f0-9]{16})\.json$/.exec(n);
+        if (!m) continue;
+        let bytes = 0;
+        try { bytes = fs.statSync(path.join(dir, n)).size; } catch { continue; }
+        const h = this.readKeyed(id, m[1], now);
+        if (h) out.push({ module: id, id: m[1], scopeKey: h.scopeKey, at: h.at, expiresAt: h.expiresAt, bytes, files: h.files });
+      }
+    }
+    return out.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+  }
+
+  // Past KEYED_TOTAL_BYTES, the oldest holds go (never `keep`, the one just written), unfinished: their changes then read
+  // as too old to undo, and their files go as when a hold runs out.
+  trimKeyed(keep = null) {
+    const list = this.keyedList();
+    let total = list.reduce((n, h) => n + h.bytes, 0);
+    for (const h of list) {
+      if (total <= KEYED_TOTAL_BYTES) break;
+      if (h.id === keep) continue;
+      const held = this.readKeyed(h.module, h.id);
+      this.expireKeyed(h.module, h.id, held);
+      total -= h.bytes;
+    }
+  }
+
+  // Whether a keyed hold in this place keeps this upload (a deleted object's file waits for its Undo).
+  keyedHoldsFile(id, scopeKey, fid) {
+    return this.keyedList().some((h) => h.module === id && h.scopeKey === scopeKey && h.files.includes(fid));
+  }
+
+  // Every keyed hold past its time goes (at start, and once an hour while the server runs).
+  sweepKeyed(now = Date.now()) {
+    this.keyedList(now);
   }
 }
 
-module.exports = { ModuleHolds, HOLD_SECONDS };
+// A keyed hold's file name is its change's id (server/agent-records.js); the caps on what is held (the plan's 256 KB a
+// change, 50 MB an environment).
+const KEYED_ID_RE = /^[a-f0-9]{16}$/;
+const KEYED_MAX_BYTES = 256 * 1024;
+const KEYED_TOTAL_BYTES = 50 * 1024 * 1024;
+
+module.exports = { ModuleHolds, HOLD_SECONDS, KEYED_MAX_BYTES, KEYED_TOTAL_BYTES };

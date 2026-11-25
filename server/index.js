@@ -87,8 +87,9 @@ const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView, LIFETIMES, DEFAULT_LIFETIME: DEFAULT_TOKEN_LIFETIME } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
-const { AGENT_ROUTES, SETUP_LIMITS, SETUP_ASKS, SETUP_ASK_DAYS, SETUP_UNDO_DAYS, agentMayAsk } = require('./agent-routes');
-const { SetupError, writtenByOthers } = require('./setup-records');
+const { AGENT_ROUTES, SETUP_LIMITS, SETUP_ASKS, AGENT_ASK_DAYS, AGENT_UNDO_DAYS, agentMayAsk } = require('./agent-routes');
+const { RecordsError, writtenByOthers } = require('./agent-records');
+const { createDeletePath, UNDO_WHY } = require('./delete-path');
 const { createMcp, isMcpPath, isToolCall } = require('./mcp');
 const { createOauth } = require('./oauth');
 const { DEFAULT_THEME, Store, StoreError, AGENT_CANT_BE, SLOTS, PARTICIPANT_SLOTS, CHARACTER_SLOTS, SPACE_PROFILES, SPACE_PROFILE_SLOTS, LEGACY_SLOTS, ROLE_PERMISSIONS, hasOwnerRights, IMAGE_TYPES, MAX_IMAGE_BYTES, LOBBY, randomToken, cleanText, cleanLogin, UNNAMED_ENVIRONMENT, MAX_EXTERNAL_CALENDARS, displayNameProblem } = require('./store');
@@ -426,6 +427,24 @@ const iconSvgs = proxyFor('iconSvgs');
 const moduleActivity = proxyFor('moduleActivity');
 const externalCalendars = proxyFor('externalCalendars');
 function noteActivity(...args) { return currentEnvironment().noteActivity(...args); }
+// The shared delete path and the Undo of an agent's change (server/delete-path.js; plan-agent-edit-delete.md, steps 4 and 5),
+// given what it needs by name. Each is looked up when it runs, so the order these are defined in below does not matter.
+const deletePath = createDeletePath({
+  moduleData, moduleHolds, moduleHooks, moduleLinks, moduleUploads, StoreError,
+  moduleGuards, objectSync,
+  takesCopies: (m) => takesCopies(m),
+  copyRemoveRefusal: (ctx, key) => copyRemoveRefusal(ctx, key),
+  guardsAt: (ctx) => guardsAt(ctx),
+  personalAt: (ctx) => personalAt(ctx),
+  guardWho: (ctx) => guardWho(ctx),
+  storedValue: (ctx) => storedValue(ctx),
+  removeFilesOf: (ctx, removed) => removeFilesOf(ctx, removed),
+  filesNamedBy: (m, items) => filesNamedBy(m, items),
+  ownRefAt: (m, scopeKey, key) => ownRefAt(m, scopeKey, key),
+  produceOf: (id, kind) => modules.enabled(id)?.manifest.refs.produces.find((p) => p.kind === kind) || null,
+  enabledModule: (id) => modules.enabled(id),
+  putModuleValue: (ctx, key, value, o) => putModuleValue(ctx, key, value, o),
+});
 
 // The product host, the console host and the reserved names (server/domains.js), read before anything is written, so a
 // setting that stops the start leaves the data folder as it was.
@@ -777,6 +796,11 @@ function environmentFor(slug) {
   // So is a Clear whose Undo time ran out (server/module-holds.js): finishHold runs in this environment.
   env.moduleHolds.runIn = (fn) => envContext.run(env, fn);
   env.moduleHolds.onExpire = (hold) => finishHold(hold);
+  // An agent's change whose undo time ran out takes its held files with it (server/delete-path.js finishKeyed); an agent's
+  // change record that goes takes its hold (server/agent-records.js onDrop).
+  env.moduleHolds.onKeyedExpire = (hold) => deletePath.finishKeyed(hold);
+  env.agentRecords.onDrop = (c) => env.moduleHolds.dropKeyed(c.object.module, c.id);
+  env.moduleHolds.runIn(() => env.moduleHolds.sweepKeyed());
   // A space's own template is read from this environment's catalog; the space the request is about comes from spaceContext.
   env.store.templateById = (id) => templateFor(env, id);
   // A space's template is read again whenever the host's templates change, as well as this environment's own data and modules.
@@ -5784,7 +5808,7 @@ app.delete('/api/users/:key', requireOwner, (req, res) => {
   store.removeUser(req.params.key);
   currentEnvironment().tokens.revoke(req.params.key); // an agent's token goes with it; its objects and messages keep their `by`
   endAgentAsks(); // and what it asked for that no page carried out yet
-  currentEnvironment().setupRecords.forgetAgent(req.params.key); // a set-up agent's asks and undo records go with it
+  currentEnvironment().agentRecords.forgetAgent(req.params.key); // a set-up agent's asks and undo records go with it
   attention.forgetPerson(req.params.key);
   liveAccessChanged(); // their streams end now
   res.json({ ok: true });
@@ -5857,7 +5881,7 @@ function endConnection(connection, { by = null, reused = false } = {}) {
   if (!connection || !env.tokens.endConnection(connection.id)) return;
   connectionLine(env, connection, reused ? 'reused' : 'ended', by);
   endAgentAsks();
-  setupRecordsHere().expire((a) => a.agent === connection.user);
+  agentRecordsHere().expire((a) => a.agent === connection.user);
 }
 // Whether a connection's agent may work now, so a token is worth issuing: the gate's own checks of the agent.
 function connectionUsable(connection) {
@@ -5934,7 +5958,7 @@ function approveConnection(req, user, body, appFacts) {
   if (before && before.kind === 'connection') connectionLine(env, before, 'ended', user.key);
   connectionLine(env, connection, 'connected', user.key);
   endAgentAsks(); // what the earlier token or connection asked for ends with it
-  setupRecordsHere().expire((a) => a.agent === agent.key);
+  agentRecordsHere().expire((a) => a.agent === agent.key);
   if (spaces.length) liveAccessChanged();
   return { connection };
 }
@@ -5963,7 +5987,7 @@ app.post('/api/users/:key/token', requireOwner, (req, res) => {
   const { token, record } = currentEnvironment().tokens.make(agent.key, 'agent', lifetime);
   if (ended) connectionLine(currentEnvironment(), ended, 'ended', currentUser(req).key);
   endAgentAsks(); // what the earlier token asked for ends with it
-  setupRecordsHere().expire((a) => a.agent === agent.key); // a set-up agent's waiting asks too
+  agentRecordsHere().expire((a) => a.agent === agent.key); // a set-up agent's waiting asks too
   res.status(201).set('Cache-Control', 'no-store').json({ token, lifetime: record.lifetime, expiresAt: record.expiresAt });
 });
 // DELETE: revokes whichever it has, its token or its connection, at once: { ok: true, revoked } (false when it had none).
@@ -5974,7 +5998,7 @@ app.delete('/api/users/:key/token', requireOwner, (req, res) => {
   const revoked = currentEnvironment().tokens.revoke(agent.key);
   if (ended) connectionLine(currentEnvironment(), ended, 'ended', currentUser(req).key);
   endAgentAsks(); // what it asked for that no page carried out yet ends with the token
-  setupRecordsHere().expire((a) => a.agent === agent.key); // a set-up agent's waiting asks too
+  agentRecordsHere().expire((a) => a.agent === agent.key); // a set-up agent's waiting asks too
   res.set('Cache-Control', 'no-store').json({ ok: true, revoked });
 });
 // What the agent did: the last 100 lines of its log, newest first, before `before` (a time) when given:
@@ -6001,7 +6025,7 @@ app.get('/api/users/:key/asks', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
   tidySetupAsks();
-  res.set('Cache-Control', 'no-store').json({ asks: setupRecordsHere().asksOf(agent.key).map(askForOwner) });
+  res.set('Cache-Control', 'no-store').json({ asks: agentRecordsHere().asksOf(agent.key).filter((x) => x.ask !== 'delete').map(askForOwner) }); // a delete ask: step 6
 });
 // POST /api/users/:key/asks/:id { decision: "approve" | "decline" }: an owner's answer. Approving does what it asks, as this
 // owner, in the same step. The same answer twice changes nothing; the other answer, or an ask that is over, is 409. An ask
@@ -6011,7 +6035,7 @@ app.post('/api/users/:key/asks/:id', requireOwner, (req, res) => {
   if (!agent) return;
   const decision = req.body?.decision;
   if (decision !== 'approve' && decision !== 'decline') return res.status(400).json({ error: 'decision is approve or decline.' });
-  const records = setupRecordsHere();
+  const records = agentRecordsHere();
   tidySetupAsks();
   const id = String(req.params.id);
   let result;
@@ -6021,7 +6045,7 @@ app.post('/api/users/:key/asks/:id', requireOwner, (req, res) => {
       const problem = space ? setupAskProblem(a, space) : `That ${word('space')} is gone.`;
       if (problem) {
         records.expire((x) => x.id === a.id);
-        throw new SetupError(problem, 409);
+        throw new RecordsError(problem, 409);
       }
       // The store calls a person's Set up runs: the members list, taking one off, the moderator tick.
       if (a.ask === 'add') store.updateSpace(space.id, { members: [...space.members, a.person] });
@@ -6029,7 +6053,7 @@ app.post('/api/users/:key/asks/:id', requireOwner, (req, res) => {
       else store.setSpacePrefs(a.person, space.id, { permissions: { moderator: a.on } });
     });
   } catch (err) {
-    if (err instanceof SetupError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof RecordsError) return res.status(err.status).json({ error: err.message });
     throw err;
   }
   if (result.changed && decision === 'approve') liveAccessChanged();
@@ -6051,37 +6075,47 @@ function setupUndoProblem(c) {
 }
 const SETUP_FIELD_OUT = { name: 'name', description: 'description', linkIcon: 'icon' };
 const fieldsOut = (f) => Object.fromEntries(Object.entries(f || {}).map(([k, v]) => [SETUP_FIELD_OUT[k], v]));
-// GET /api/users/:key/changes: { changes: [{ id, change: "made" | "changed", space: { id, name }, at, before?, after?,
-// undone, undoneAt?, undoable, why? }] }, newest first, for SETUP_UNDO_DAYS. `before` and `after` name the fields (name,
-// description, icon) a change set; `why` says in one sentence why one can't be undone now.
+// GET /api/users/:key/changes: { changes: [...], days, limits? }, newest first, for AGENT_UNDO_DAYS, for either kind of
+// agent (plan-agent-edit-delete.md, "The contract", 4). A set-up agent's: { id, change: "made" | "changed", space: { id,
+// name }, at, before?, after?, text, undone, undoneAt?, undoable, why? }, `before` and `after` naming the fields (name,
+// description, icon) a change set, and `limits` what it has left today. An ordinary agent's (agentChangeOut): { id, change:
+// "added" | "edited" | "deleted", space, object, moduleName, title, at, text, undone, undoneAt?, undoneBy?, undoable,
+// why? }. `why` says in one sentence why one can't be undone now; `text` says the change in words.
 app.get('/api/users/:key/changes', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
-  const changes = setupRecordsHere().changesOf(agent.key).map((c) => {
+  const me = moduleViewer(req);
+  const changes = agentRecordsHere().changesOf(agent.key).map((c) => {
+    if (c.object) return agentChangeOut(c, me, { withSpace: true });
     const why = setupUndoProblem(c);
     return {
       id: c.id, change: c.change, space: { id: c.space, name: store.spaceById(c.space)?.name ?? null }, at: isoOf(c.at),
       ...(c.change === 'changed' ? { before: fieldsOut(c.before), after: fieldsOut(c.after) } : {}),
+      text: setupChangeText(agent, c),
       undone: Boolean(c.undoneAt), ...(c.undoneAt ? { undoneAt: isoOf(c.undoneAt) } : {}),
       undoable: !why, ...(why ? { why } : {}),
     };
   });
   const used = currentEnvironment().agentLog.usedToday(agent.key); // what it has left today, for its page
-  res.set('Cache-Control', 'no-store').json({ changes, days: SETUP_UNDO_DAYS, limits: { made: { perDay: SETUP_LIMITS.made, usedToday: used.made }, changes: { perDay: SETUP_LIMITS.changes, usedToday: used.changes } } });
+  res.set('Cache-Control', 'no-store').json({ changes, days: AGENT_UNDO_DAYS, ...(agentKindOf(agent) === 'setup' ? { limits: { made: { perDay: SETUP_LIMITS.made, usedToday: used.made }, changes: { perDay: SETUP_LIMITS.changes, usedToday: used.changes } } } : {}) });
 });
-// POST /api/users/:key/changes/:id/undo: an owner undoes one of the agent's changes. A made space is deleted, with everything
-// kept for it (as Set up's Delete), only when setupUndoProblem allows; a change puts back the earlier values of the fields that
-// still hold what it set. 404 for no such change or one past its days; 409 with the reason it can't be undone now.
-// { ok: true, change: "made" | "changed", space: { id, name } | null }.
+// POST /api/users/:key/changes/:id/undo: an owner undoes one of the agent's changes. A set-up agent's: a made space is
+// deleted, with everything kept for it (as Set up's Delete), only when setupUndoProblem allows; a change puts back the earlier
+// values of the fields that still hold what it set; { ok: true, change: "made" | "changed", space: { id, name } | null }. An
+// ordinary agent's object change is undone as this owner (undoAgentObject): { ok: true, change, object }. 404 for no such
+// change or one past its days; 409 with the reason it can't be undone now (the sentences of server/delete-path.js UNDO_WHY);
+// the module's own refusal (403, 429) as it would refuse this owner's own write.
 app.post('/api/users/:key/changes/:id/undo', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
   const env = currentEnvironment();
+  const found = env.agentRecords.change(String(req.params.id));
+  if (found && found.agent === agent.key && found.object) return undoAgentObject(req, res, found, (c) => c.agent === agent.key);
   let after = null;
   try {
-    const done = env.setupRecords.undo(String(req.params.id), agent.key, currentUser(req).key, (c) => {
+    const done = env.agentRecords.undo(String(req.params.id), (c) => c.agent === agent.key && !c.object, currentUser(req).key, (c) => {
       const problem = setupUndoProblem(c);
-      if (problem) throw new SetupError(problem, 409);
+      if (problem) throw new RecordsError(problem, 409);
       if (c.change === 'made') {
         eraseSpace(env, c.space); // everything kept for it, its asks and changes too (server/space-erase.js)
         moduleLive.forgetSpace(c.space);
@@ -6094,10 +6128,201 @@ app.post('/api/users/:key/changes/:id/undo', requireOwner, (req, res) => {
     liveAccessChanged();
     res.json({ ok: true, change: done.change, space: after ? { id: after.id, name: after.name } : null });
   } catch (err) {
-    if (err instanceof SetupError) return res.status(err.status).json({ error: err.message });
+    if (err instanceof RecordsError) return res.status(err.status).json({ error: err.message });
     throw err;
   }
 });
+
+// --- an ordinary agent's changes to objects: the records, the review list and Undo (plan-agent-edit-delete.md, step 5) ----
+// The agent's adds and edits are recorded where the server writes them: carryOnServer (a bundled module's server actions)
+// and a page's PUT tied to the agent's claimed request (agentWriteTie: an uploaded module, or any module a page carries). An
+// edit's earlier value is held first (server/delete-path.js holdEdit, a keyed hold); an add holds nothing. A delete is
+// recorded by an approval, which is step 6 (not built): deletePath.removeObject with `hold` is its seam.
+
+// A set-up change in words, for its list.
+function setupChangeText(agent, c) {
+  const name = store.spaceById(c.space)?.name;
+  const what = name ? `the ${word('space')} "${String(name).slice(0, 80)}"` : `a ${word('space')}`;
+  return `${agentShownName(agent)} ${c.change === 'made' ? 'made' : 'changed'} ${what}`;
+}
+// How an agent is shown in words: "Claude (agent)", "Claude (set-up agent)".
+const agentShownName = (agent) => `${agent?.displayName || 'An agent'} (${agent && agentKindOf(agent) === 'setup' ? 'set-up agent' : 'agent'})`;
+
+// The title of the object a change is about: as it is now, else as it was held (an object that is gone shows its title as it
+// was), else none. Never the raw id.
+function agentChangeTitle(c, found) {
+  if (!found) return '';
+  const produce = found.manifest.refs.produces.find((p) => p.kind === c.object.kind);
+  if (!produce) return '';
+  const ref = { module: c.object.module, kind: c.object.kind, id: c.object.id, scope: 'space', space: c.space };
+  const stored = moduleData.get(c.object.module, `space:${c.space}`, c.object.key);
+  let value = stored ? stored.value : null;
+  if (value == null && c.change !== 'added') value = moduleHolds.readKeyed(c.object.module, c.id)?.items?.[0]?.value ?? null;
+  if (value == null) return '';
+  try { return String(objectSummary({ manifest: found.manifest, produce, ref }, c.object.id, value)?.title || '').slice(0, 120); } catch { return ''; }
+}
+// An ordinary agent's object change in words ("Claude (agent) changed the task "Book the taxi" in To-do, in Lisbon 2027").
+function agentChangeText(c, found, title, withSpace) {
+  const agent = store.userByKey(c.agent);
+  const produce = found ? found.manifest.refs.produces.find((p) => p.kind === c.object.kind) : null;
+  const kind = String(produce?.name || c.object.kind).toLowerCase();
+  const thing = c.change === 'added' ? `${/^[aeiou]/.test(kind) ? 'an' : 'a'} ${kind}` : `the ${kind}`;
+  const verb = { added: 'added', edited: 'changed', deleted: 'deleted' }[c.change];
+  const where = found ? modules.shownName(found.manifest) : `a ${word('module')}`;
+  const space = withSpace ? store.spaceById(c.space)?.name : null;
+  return `${agentShownName(agent)} ${verb} ${thing}${title ? ` "${title}"` : ''} in ${where}${space ? `, in ${String(space).slice(0, 80)}` : ''}`;
+}
+// One object change as a list shows it to `who` (moduleViewer's): its words, and whether `who` may undo it now (`why`, one
+// sentence, when not: the change's own reason, or the module's refusal of their write there).
+function agentChangeOut(c, who, { withSpace = false } = {}) {
+  const found = modules.enabled(c.object.module) || null;
+  const title = agentChangeTitle(c, found);
+  const hold = c.change === 'added' ? null : moduleHolds.readKeyed(c.object.module, c.id);
+  const problem = deletePath.undoProblem(c, hold);
+  let why = problem ? UNDO_WHY[problem] : null;
+  const space = store.spaceById(c.space);
+  if (!why && (!found || !space)) why = UNDO_WHY.gone;
+  if (!why) {
+    const at = moduleAccessAt(found, who, 'space', space, 'own');
+    if (at.error) why = at.error;
+  }
+  const undoer = c.undoneBy ? store.userByKey(c.undoneBy) : null;
+  return {
+    id: c.id, change: c.change, agent: { key: c.agent, name: store.userByKey(c.agent)?.displayName ?? null },
+    space: { id: c.space, name: space?.name ?? null },
+    object: { module: c.object.module, kind: c.object.kind, id: c.object.id, scope: 'space', space: c.space },
+    moduleName: found ? modules.shownName(found.manifest) : null, title, at: isoOf(c.at),
+    text: agentChangeText(c, found, title, withSpace),
+    undone: Boolean(c.undoneAt), ...(c.undoneAt ? { undoneAt: isoOf(c.undoneAt) } : {}),
+    ...(c.undoneBy ? { undoneBy: { key: c.undoneBy, name: undoer?.displayName ?? null } } : {}),
+    undoable: !why, ...(why ? { why } : {}),
+  };
+}
+// Undoes the object change `c` as the signed-in person, through the module's own checks as them (moduleAccessAt, the write
+// limit, then server/delete-path.js undoChange), and names it in the module's activity list. `match(c)` is the route's reach
+// (its agent, its space). Answers 200 { ok: true, change, object }, 404, 409 with the sentence, or the module's refusal.
+function undoAgentObject(req, res, given, match) {
+  const user = currentUser(req);
+  const who = moduleViewer(req);
+  const tz = typeof req.body?.tz === 'string' ? req.body.tz : null;
+  try {
+    const done = agentRecordsHere().undo(given.id, match, user.key, (c) => {
+      const found = modules.enabled(c.object.module);
+      const space = store.spaceById(c.space);
+      if (!found || !space) throw new RecordsError(UNDO_WHY.gone, 409);
+      const at = moduleAccessAt(found, who, 'space', space, 'own');
+      if (at.error) throw new RecordsError(at.error, at.status);
+      const slow = overLimit(found.manifest.id, at.ctx.by, 'write');
+      if (slow) throw Object.assign(new RecordsError(limitMessage(), 429), { retrySeconds: slow.retrySeconds });
+      let refused;
+      try { refused = deletePath.undoChange(at.ctx, c, { tz }); } catch (err) {
+        if (!(err instanceof StoreError)) throw err;
+        throw new RecordsError(err.status === 409 ? UNDO_WHY.changed : err.message, err.status);
+      }
+      if (refused) throw new RecordsError(refused.error, refused.status);
+      noteActivity(found.manifest.id, `undid ${agentShownName(store.userByKey(c.agent))}'s change`, at.ctx.by, at.ctx.scopeKey);
+    });
+    res.json({ ok: true, change: done.change, object: { module: done.object.module, kind: done.object.kind, id: done.object.id, scope: 'space', space: done.space } });
+  } catch (err) {
+    if (!(err instanceof RecordsError)) throw err;
+    if (err.retrySeconds) res.set('Retry-After', String(err.retrySeconds));
+    res.status(err.status).json({ error: err.message });
+  }
+}
+// Whether `user` may approve an agent's ask and see and undo its changes in the space `spaceId` (decision 5): owners and the
+// admin anywhere, and that space's moderators. Never an agent.
+function agentReviewer(user, spaceId) {
+  if (!user || user.agent) return false;
+  return hasOwnerRights(user) || Boolean(store.spaceFlags(user.key, spaceId).moderator);
+}
+const AGENT_REVIEW_ONLY = `Only ${word('owner', { many: true })}, the admin and this ${word('space')}'s ${word('moderator', { many: true })} see what agents changed here.`;
+// GET /api/spaces/:id/agent-review: { waiting: [], done: [...] } for this space's approvers: the asks waiting here (an
+// ordinary agent's delete asks; step 6 of the plan, so none yet) and every agent's object changes here, newest first, as
+// agentChangeOut gives them, for AGENT_UNDO_DAYS. A set-up agent's asks about people stay on its own page (owners only).
+app.get('/api/spaces/:id/agent-review', requireUser, (req, res) => {
+  const user = currentUser(req);
+  const space = store.spaceById(String(req.params.id));
+  if (!space) return res.status(404).json({ error: `no such ${word('space')}` });
+  if (req.agent || !agentReviewer(user, space.id)) return res.status(403).json({ error: AGENT_REVIEW_ONLY });
+  const me = moduleViewer(req);
+  const done = agentRecordsHere().changesIn(space.id).map((c) => agentChangeOut(c, me));
+  res.set('Cache-Control', 'no-store').json({ waiting: [], done, days: AGENT_UNDO_DAYS });
+});
+// POST /api/spaces/:id/changes/:changeId/undo: this space's approver undoes an agent's change here, only one they could make
+// themselves (undoAgentObject). 404 for no such change in this space.
+app.post('/api/spaces/:id/changes/:changeId/undo', requireUser, (req, res) => {
+  const user = currentUser(req);
+  const space = store.spaceById(String(req.params.id));
+  if (!space) return res.status(404).json({ error: `no such ${word('space')}` });
+  if (req.agent || !agentReviewer(user, space.id)) return res.status(403).json({ error: AGENT_REVIEW_ONLY });
+  const c = agentRecordsHere().change(String(req.params.changeId));
+  if (!c || !c.object || c.space !== space.id) return res.status(404).json({ error: `No such change. A change can be undone for ${AGENT_UNDO_DAYS} days.` });
+  undoAgentObject(req, res, c, (x) => x.space === space.id && Boolean(x.object));
+});
+
+// The agent `user` (an ordinary agent's account) whose claimed request this page write is for, when the write can be tied
+// to it (plan-agent-edit-delete.md, "How an add or an edit is recorded"): `for` names the asker and `request` its id, as the
+// SDK's runner sends on every write it makes while carrying a request (public/module-host.js carriedFor). The checks are
+// carriedFor's: this module's request, claimed by this carrier, within the claim's minute, for the very place the write lands,
+// the agent still able to ask, at most 10 objects a request (a create counted by carriedFor, `asker`; an edit here). Null otherwise:
+// the write is the carrier's own and is not in the list.
+function agentWriteTie(ctx, given, requestId, key, asker) {
+  if (!given || typeof given !== 'string' || !ctx.who.user) return null;
+  const agent = store.userByKey(given);
+  if (!agent || !agent.agent || agentKindOf(agent) !== 'agent') return null;
+  const id = typeof requestId === 'string' && /^[1-9][0-9]{0,15}$/.test(requestId) ? Number(requestId) : Number.isSafeInteger(requestId) ? requestId : 0;
+  if (!(id > 0)) return null;
+  if (!ownRefAt(ctx.manifest, ctx.scopeKey, key)) return null;
+  const exists = Boolean(moduleData.get(ctx.manifest.id, ctx.scopeKey, key));
+  if (!exists) {
+    const held = asker === given ? moduleBus.actionById(id) : null;
+    return held && held.by === given ? { agent, request: held } : null;
+  }
+  const held = moduleBus.carrying(id, ctx.manifest.id, ctx.who.user.key, ctx.scopeKey);
+  if (!held || held.by !== given || held.local || held.cancelled || !agentAskStands(held)) return null;
+  // An overwrite names nobody (carriedFor), so it takes nothing of the claim's share; the edits recorded for one request are
+  // capped here instead, at the same number.
+  return agentRecordsHere().changesOf(agent.key).filter((c) => c.request === held.id).length < AGENT_TIE_MAX ? { agent, request: held } : null;
+}
+const AGENT_TIE_MAX = 10; // as the bus's LIMITS.carriedWrites
+// Before an agent's writes to `keys` where ctx writes: for each of the module's own objects, a change id, and for one that is
+// there, its earlier value held (an edit). Never throws: a hold that can't be written is said in the log, and that change
+// is recorded as not undoable.
+function agentChangesBefore(ctx, keys, agent) {
+  if (!agent || !agent.agent || agentKindOf(agent) !== 'agent' || !String(ctx.scopeKey).startsWith('space:')) return [];
+  const records = agentRecordsHere();
+  const pending = [];
+  for (const key of keys) {
+    const ref = ownRefAt(ctx.manifest, ctx.scopeKey, key);
+    if (!ref) continue;
+    const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, key);
+    const changeId = records.newId();
+    let held = false;
+    if (had) {
+      try { held = deletePath.holdEdit(ctx, key, had, { changeId, by: agent.key, days: AGENT_UNDO_DAYS }); } catch (err) { console.warn(`An agent's change could not be held for an undo: ${err.message}`); }
+    }
+    pending.push({ key, ref, had: Boolean(had), changeId, held });
+  }
+  return pending;
+}
+// After them: each write made is recorded (added or edited) with its version now; a hold whose write was not made goes.
+function agentChangesAfter(ctx, pending, applied, { agent, request }) {
+  for (const p of pending) {
+    const a = applied.find((x) => x.key === p.key);
+    if (!a || !a.item) { moduleHolds.dropKeyed(ctx.manifest.id, p.changeId); continue; }
+    const kept = agentRecordsHere().noteObject({
+      id: p.changeId, agent: agent.key, space: ctx.scopeKey.slice(6), change: p.had ? 'edited' : 'added',
+      object: { module: p.ref.module, kind: p.ref.kind, id: p.ref.id, scope: 'space', key: p.key }, versionAfter: a.item.version, held: p.had ? p.held : false,
+      ...(request ? { request } : {}),
+    });
+    if (!kept) moduleHolds.dropKeyed(ctx.manifest.id, p.changeId);
+  }
+}
+// Nothing was written after all: the holds go.
+function agentChangesAbandon(ctx, pending) {
+  for (const p of pending) moduleHolds.dropKeyed(ctx.manifest.id, p.changeId);
+}
+
 // The agent's own view of itself, through its token only: who it is, when its token ends, its spaces, its limits with what
 // it has used today, and `permissions`: the keys ticked in the Agent column that a route on the gate's list needs (so a
 // client can tell what it may call; a module's own rows are not here, the actions list's `may` says those).
@@ -6217,7 +6442,7 @@ app.post('/api/agent/spaces', (req, res) => {
   // Its template's starter content, once, as a person's Set up writes it: by the agent, with the template's rights (the
   // set-up agent's own column holds no module row).
   fillStarter(made, agent, { templateRights: true });
-  currentEnvironment().setupRecords.noteChange({ agent: agent.key, space: made.id, change: 'made' }); // an owner may undo it
+  currentEnvironment().agentRecords.noteChange({ agent: agent.key, space: made.id, change: 'made' }); // an owner may undo it
   res.json({ space: { id: made.id, name: made.name } });
 });
 // PATCH /api/agent/spaces/:id { name?, description?, icon? }: a change to a space the agent made, only these three.
@@ -6245,7 +6470,7 @@ app.patch('/api/agent/spaces/:id', (req, res) => {
   res.locals.agentLog = { change: sent.map((k) => SETUP_CHANGE_WORDS[k]).join(',') };
   // The fields' earlier values, for an owner's undo (plan-admin-agent.md, "Undo, by a person"); never in the log.
   const after = Object.fromEntries(Object.keys(patch).map((k) => [k, changed[k] ?? '']));
-  currentEnvironment().setupRecords.noteChange({ agent: agent.key, space: space.id, change: 'changed', before, after });
+  currentEnvironment().agentRecords.noteChange({ agent: agent.key, space: space.id, change: 'changed', before, after });
   res.json({ space: { id: changed.id, name: changed.name, description: changed.description, icon: changed.linkIcon } });
 });
 
@@ -6253,13 +6478,13 @@ app.patch('/api/agent/spaces/:id', (req, res) => {
 // A set-up agent sees the environment's members (never a guest, an agent, an owner or the admin; decision 4) and asks an
 // owner to add one to a space it made, take one off, or tick or untick one as its moderator. Nothing about people happens
 // until an owner or the admin approves (decision 5), whatever the Roles grid's "Ask to add people" box says: the box lets
-// it ask, never do. An ask waits SETUP_ASK_DAYS, at most SETUP_LIMITS.waiting at once for each agent, and ends at once when
+// it ask, never do. An ask waits AGENT_ASK_DAYS, at most SETUP_LIMITS.waiting at once for each agent, and ends at once when
 // a kill switch is used (Turn off, Revoke or a new token, Set-up agents or Agents off, AGENT_SETUP off), the agent is
 // deleted, or the space stops being one it made (Keep, taken off its members, deleted). Approving runs the store call a
 // person's Set up runs, as that owner. The agent's own direct changes (making a space, renaming it, its description, its
-// icon) keep their earlier values for SETUP_UNDO_DAYS (server/setup-records.js) so an owner can undo them; the agent itself
+// icon) keep their earlier values for AGENT_UNDO_DAYS (server/agent-records.js) so an owner can undo them; the agent itself
 // never undoes or deletes (plan-agent-access.md, decision 7).
-const setupRecordsHere = () => currentEnvironment().setupRecords;
+const agentRecordsHere = () => currentEnvironment().agentRecords;
 // The environment's member accounts a set-up agent may name (decision 4): role member, a person, not the host admin's stand-in.
 const setupPersonOf = (key) => {
   const u = typeof key === 'string' ? store.userByKey(key) : null;
@@ -6272,8 +6497,8 @@ const setupAskLive = (a) => {
   return Boolean(agent && agent.agent && agent.kind === 'setup' && !agent.off && store.settings.agents === true && setupAgentsOn() && agentMadeOf(agent, a.space, { standing: true }));
 };
 // Ends the waiting asks that can no longer be answered (a kill switch, a space it no longer made). Read before every look.
-const tidySetupAsks = () => setupRecordsHere().expire((a) => !setupAskLive(a));
-const setupWaitingOf = (agent) => { tidySetupAsks(); return setupRecordsHere().waitingOf(agent.key); };
+const tidySetupAsks = () => agentRecordsHere().expire((a) => !setupAskLive(a));
+const setupWaitingOf = (agent) => { tidySetupAsks(); return agentRecordsHere().waitingOf(agent.key); };
 // Why an ask can't be asked or done as it stands, in one sentence, or null. The same rule when the agent asks and when an
 // owner approves (then the ask ends with the sentence).
 function setupAskProblem({ ask, person, on }, space) {
@@ -6308,7 +6533,7 @@ const askForOwner = (a) => ({
   person: { key: a.person, name: store.userByKey(a.person)?.displayName ?? null },
   space: { id: a.space, name: store.spaceById(a.space)?.name ?? null },
   text: setupAskText(a),
-  expiresAt: isoOf(setupRecordsHere().endsAt(a)),
+  expiresAt: isoOf(agentRecordsHere().endsAt(a)),
   ...(a.decidedBy ? { decidedBy: { key: a.decidedBy, name: store.userByKey(a.decidedBy)?.displayName ?? null } } : {}),
 });
 function tellOwnersOfAsk(a) {
@@ -6343,9 +6568,9 @@ app.post('/api/agent/spaces/:id/asks', (req, res) => {
   tidySetupAsks();
   let made;
   try {
-    made = setupRecordsHere().addAsk({ agent: agent.key, space: space.id, ask: body.ask, person: body.person, on: body.on }, SETUP_LIMITS.waiting);
+    made = agentRecordsHere().addAsk({ agent: agent.key, space: space.id, ask: body.ask, person: body.person, on: body.on }, SETUP_LIMITS.waiting);
   } catch (err) {
-    if (!(err instanceof SetupError)) throw err;
+    if (!(err instanceof RecordsError)) throw err;
     if (err.retrySeconds) res.set('Retry-After', String(err.retrySeconds));
     return res.status(err.status).json({ error: err.message });
   }
@@ -6359,7 +6584,7 @@ app.get('/api/agent/asks/:id', (req, res) => {
   const agent = setupAgentOf(req, res);
   if (!agent) return;
   tidySetupAsks();
-  const a = setupRecordsHere().ask(String(req.params.id));
+  const a = agentRecordsHere().ask(String(req.params.id));
   if (!a || a.agent !== agent.key) return res.status(404).json({ error: 'No such ask.' });
   res.set('Cache-Control', 'no-store').json({ ask: askForAgent(a) });
 });
@@ -8960,6 +9185,26 @@ app.post('/api/spaces/:id/command', (req, res) => {
   res.json({ id: request.id, status: request.status, module: chosen.module, moduleName: chosen.moduleName, message });
 });
 
+// What an agent is told about an action's typed object input (plan-agent-edit-delete.md, "The contract", 5): `hints` with
+// the host's own hint for an object input the manifest gives none for, and `objectKinds`, the kinds it takes ([{ kind,
+// details: { <field>: <type> } }], the types as the objects format's DETAILS names them; `{ kind: "*" }` for any kind, whose
+// details object_format gives). Nothing for an action with no object input.
+const objectHint = () => `A typed ${word('object')}: { kind, title, details }; see objectKinds.`;
+function agentObjectHelp(a) {
+  const fields = Object.entries(a.input || {}).filter(([, t]) => typeof t === 'string' && t.replace(/\?$/, '') === 'object').map(([f]) => f);
+  const hints = a.inputHints ? { ...a.inputHints } : {};
+  if (!fields.length) return Object.keys(hints).length ? { hints } : {};
+  for (const f of fields) if (typeof hints[f] !== 'string' || !hints[f]) hints[f] = objectHint();
+  const named = new Set();
+  let any = false;
+  if (Array.isArray(a.takes)) {
+    for (const e of a.takes) for (const k of Array.isArray(e.kinds) ? e.kinds : []) { if (k === '*') any = true; else if (objectFormat.KINDS.includes(k)) named.add(k); }
+  } else any = true;
+  const objectKinds = objectFormat.KINDS.filter((k) => named.has(k)).map((k) => ({ kind: k, details: { ...objectFormat.DETAILS[k] } }));
+  if (any) objectKinds.push({ kind: '*' });
+  return { hints, objectKinds };
+}
+
 // Actions placed modules offer in this space, so Chat can Keep and route without naming a module.
 // For an agent the list asks no chat permission, only each module's own read (plan-agent-matrix.md, decision 9), so the
 // Agent column's Send chat messages and read Chat rows stop posting and reading only; a person still needs chatRead.
@@ -8992,7 +9237,7 @@ app.get('/api/spaces/:id/actions', (req, res) => {
         // What it does and what each input wants, when the manifest says, for a person or an AI client choosing.
         ...(a.description ? { description: a.description } : {}),
         input: a.input,
-        ...(a.inputHints ? { hints: a.inputHints } : {}),
+        ...(req.agent ? agentObjectHelp(a) : (a.inputHints ? { hints: a.inputHints } : {})),
         local: Boolean(a.local),
         // Only the caller's own page of the module carries it out (what it makes is theirs), when they next open it.
         ...(a.askerOnly ? { askerOnly: true } : {}),
@@ -9202,6 +9447,8 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
       try { current = moduleData.get(id, scopeKey, w.key); } catch (err) { if (!(err instanceof StoreError)) throw err; return end(400, { ok: false, error: err.message }); }
       if ((current?.version || 0) !== (versions.get(w.key) || 0)) return end(409, { ok: false, error: ACTION_CHANGED });
     }
+    // The review list's records (plan-agent-edit-delete.md, step 5): an edit's earlier value is held before it is written.
+    const pending = agentChangesBefore(ctx, outcome.writes.map((w) => w.key), agent);
     const applied = [];
     for (const w of outcome.writes) {
       let refusal = null;
@@ -9226,6 +9473,7 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
       }
       if (refusal) {
         undoCarried(ctx, applied);
+        agentChangesAbandon(ctx, pending);
         return end(refusal.status, { ok: false, error: refusal.error });
       }
     }
@@ -9234,11 +9482,15 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     // reminder: its time, its title, whether there is one at all), so it is taken off first rather than left to fire wrongly;
     // the handler answers it again if one should stand. One refusal puts back everything, the writes included.
     const changed = applied.filter((a) => a.had).map((a) => ownRefAt(now.manifest, scopeKey, a.key)).filter(Boolean);
-    const effects = actionEffects().apply({ effects: outcome.effects, who, space: here, found: now, ctx, changed });
+    // An edit or add is recorded for the review list only once its effects stood too; refused (or failed), its holds go.
+    let effects;
+    try { effects = actionEffects().apply({ effects: outcome.effects, who, space: here, found: now, ctx, changed }); } catch (err) { agentChangesAbandon(ctx, pending); throw err; }
     if (effects.refusal) {
       undoCarried(ctx, applied);
+      agentChangesAbandon(ctx, pending);
       return end(effects.refusal.status, { ok: false, error: effects.refusal.error });
     }
+    agentChangesAfter(ctx, pending, applied, { agent, request: request.id });
     return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}), ...(Object.keys(effects.done).length ? { effects: effects.done } : {}) });
   };
   return envContext.run(env, () => (inSpace ? spaceContext.run(inSpace, after) : after()));
@@ -11854,7 +12106,10 @@ app.delete('/api/modules/:id/uploads/:fid', (req, res) => {
   // The person who added a file, or an administrator, removes it. (A module decides who may remove its items; this is the guard on the bytes.)
   if (meta.by !== ctx.by && !hasOwnerRights(ctx.who.user)) return res.status(403).json({ error: 'only the person who added it can remove it' });
   // A file a Clear holds for its Undo comes back with it, so it stays until that time is over.
-  if (moduleHolds.holdsFile(ctx.manifest.id, ctx.scopeKey, req.params.fid)) return res.status(409).json({ error: 'That file can\'t be removed while the clear that took it can still be undone.' });
+  if (moduleHolds.holdsFile(ctx.manifest.id, ctx.scopeKey, req.params.fid)) {
+    const clear = moduleHolds.read(ctx.manifest.id, ctx.scopeKey)?.files.includes(req.params.fid);
+    return res.status(409).json({ error: clear ? 'That file can\'t be removed while the clear that took it can still be undone.' : 'That file can\'t be removed while an agent\'s change that took it can still be undone.' });
+  }
   moduleUploads.remove(ctx.manifest.id, ctx.scopeKey, req.params.fid);
   res.json({ ok: true });
 });
@@ -13688,11 +13943,20 @@ app.put('/api/modules/:id/data/:key', (req, res) => {
   const slow = overLimit(ctx.manifest.id, ctx.by, 'write');
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
   const asker = carriedForWrite(ctx, req.body?.for, req.body?.request, req.params.key);
+  // A write made for an agent's request this page carries is in the review list (agentWriteTie), its earlier value held first.
+  const tie = agentWriteTie(ctx, req.body?.for, req.body?.request, req.params.key, asker);
+  const pending = tie ? agentChangesBefore(ctx, [req.params.key], tie.agent) : [];
   try {
     const out = putModuleValue(ctx, req.params.key, req.body?.value, { expected: Number.isInteger(req.body?.version) ? req.body.version : null, tz: req.body?.tz, asker });
-    if (out.error) return res.status(out.status).json({ error: out.error, ...('current' in out ? { current: out.current } : {}) });
+    if (out.error) {
+      agentChangesAbandon(ctx, pending);
+      return res.status(out.status).json({ error: out.error, ...('current' in out ? { current: out.current } : {}) });
+    }
+    if (tie) agentChangesAfter(ctx, pending, [{ key: req.params.key, item: out.item }], { agent: tie.agent, request: tie.request.id });
     res.json({ item: hideItem(out.item, ctx.hide) });
   } catch (err) {
+    // A write that stored its value and then threw (object-sync) is not recorded: its hold goes with the rest.
+    agentChangesAbandon(ctx, pending);
     sendModuleConflict(err, res, ctx.hide);
   }
 });
@@ -13956,6 +14220,8 @@ const UNDO_GONE = {
   replaced: 'A later clear replaced it.',
   over: 'The time to undo that clear is over.',
 };
+// One object goes, through the shared delete path (server/delete-path.js): the copy rule, the guards, the hidden fields,
+// what belongs to it, other modules told, schedules about it cancelled, its files.
 app.delete('/api/modules/:id/data/:key', (req, res) => {
   const ctx = moduleAccess(req, res, 'own');
   if (!ctx) return;
@@ -13963,32 +14229,9 @@ app.delete('/api/modules/:id/data/:key', (req, res) => {
   if (slow) return void res.set('Retry-After', String(slow.retrySeconds)).status(429).json({ error: limitMessage() });
   try {
     const expected = req.query.version !== undefined ? Number(req.query.version) : null;
-    // A copy (GitHub #857): removed (hidden from its module for good) only by whoever may change its original.
-    const copyRefused = takesCopies(ctx.manifest) ? copyRemoveRefusal(ctx, req.params.key) : null;
-    if (copyRefused?.hidden) return res.json({ key: req.params.key, deleted: true, version: 0 }); // as a key that is not there
-    if (copyRefused) return res.status(copyRefused.status).json({ error: copyRefused.error });
-    const had = moduleData.get(ctx.manifest.id, ctx.scopeKey, req.params.key);
-    const guards = guardsAt(ctx);
-    // A person removes their own data; guards that don't read still refuse it.
-    const refused = guards && (!personalAt(ctx) || guards.invalid) ? moduleGuards.checkDelete(guards, { key: req.params.key, before: had ? had.value : null, who: guardWho(ctx), read: storedValue(ctx) }) : null;
-    if (refused) return res.status(refused.status).json({ error: refused.error });
-    // What belongs to it (a rule's `parent`: a poll's votes) goes with it, closed or not.
-    const all = had && guards ? moduleData.list(ctx.manifest.id, ctx.scopeKey) : [];
-    const children = new Set(moduleGuards.childrenOf(guards, req.params.key, all.map((item) => item.key)));
-    const childItems = all.filter((item) => children.has(item.key));
-    // A writer who can't see the hidden fields can't remove what holds any, nor what goes with it.
-    const hiddenRefused = had ? moduleGuards.hiddenDeleteRefusal(had.value, ctx.hide, childItems.map((item) => item.value)) : null;
-    if (hiddenRefused) return res.status(hiddenRefused.status).json({ error: hiddenRefused.error });
-    const removed = moduleData.remove(ctx.manifest.id, ctx.scopeKey, req.params.key, { expected: Number.isInteger(expected) ? expected : null, by: ctx.by });
-    if (had) {
-      objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: req.params.key, before: had.value, after: null, by: ctx.by, tz: req.query.tz });
-      for (const child of childItems) {
-        moduleData.remove(ctx.manifest.id, ctx.scopeKey, child.key, { by: ctx.by });
-        objectSync.afterWrite({ module: ctx.manifest.id, scopeKey: ctx.scopeKey, key: child.key, before: child.value, after: null, by: ctx.by, tz: req.query.tz });
-      }
-      removeFilesOf(ctx, [{ key: req.params.key, value: had.value }, ...all.filter((item) => children.has(item.key))]);
-    }
-    res.json(removed);
+    const out = deletePath.removeObject(ctx, req.params.key, { expected: Number.isInteger(expected) ? expected : null, tz: typeof req.query.tz === 'string' ? req.query.tz : null });
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.json(out.removed);
   } catch (err) {
     sendModuleConflict(err, res, ctx.hide);
   }
