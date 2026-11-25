@@ -7,6 +7,13 @@
 //   links:     [{ add: { from, to } } | { remove: { from, to } }]                              at most LIMITS.links
 //   schedules: [{ set: { key, at, about, notify?, repeat?, payload? } } | { cancel: { key } }]  at most LIMITS.schedules
 //   notify:    [{ title, body?, about?, to? }]                                                   at most LIMITS.notify
+//   phaseEnd:  { date }                                                                          one day, YYYY-MM-DD
+//
+// `phaseEnd` moves the space's main phase's end later to cover that day, by the rule a page's host.phasesCover uses (POST
+// /api/spaces/:id/phases/cover, public/phases.js coverMain: only the end moves, every later boundary with it, and never
+// earlier). Only an action whose manifest says `phaseEnd: true` may answer it. It is done after the schedules and before
+// the notice, and put back with everything else when something after it is refused. An agent whose rights do not let it
+// move the space's dates keeps its writes: the end stays where it was and the request's note says why.
 //
 // `effectsOf` checks the shape (known fields only, counts, sizes, the module's own pointers), for outcomeOf; a wrong shape
 // is a fault of the module's code. `createActionEffects(deps).apply` then holds each one to what the routes a page uses
@@ -33,13 +40,21 @@ const SCHEDULE_KEY_RE = /^[A-Za-z0-9_.:/-]{1,128}$/;
 const pointerLike = (r) => onlyKeys(r, POINTER_KEYS) && ['module', 'kind', 'id', 'scope'].every((k) => typeof r[k] === 'string' && r[k] && r[k].length <= 128)
   && (r.space === undefined || (typeof r.space === 'string' && r.space.length <= 128));
 const text = (v, max) => v === undefined || v === null || (typeof v === 'string' && v.length <= max);
+// One real day of the calendar, written YYYY-MM-DD ("2026-02-30" is not one).
+const realDay = (v) => {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const at = Date.parse(`${v}T00:00:00Z`);
+  return Number.isFinite(at) && new Date(at).toISOString().slice(0, 10) === v;
+};
 const noteLike = (v, keys) => onlyKeys(v, keys) && typeof v.title === 'string' && Boolean(v.title.trim()) && v.title.length <= 400 && text(v.body, 2000) && text(v.to, 64);
 
-// The effects in a handler's answer, checked: { fault } | { links, schedules, notify } (each a list, [] when not answered).
-// `own(ref)` says whether a pointer is one of the module's own kinds in the request's space. The faults: 'links',
-// 'schedules', 'notify' (more than the count), 'linkEnd' (a link not from the module's own object), 'about' (a schedule or
-// notice about something not its own), 'result' (any other shape).
-function effectsOf(result, { own }) {
+// The effects in a handler's answer, checked: { fault } | { links, schedules, notify, phaseEnd? } (each a list, [] when not
+// answered; `phaseEnd` { date }, there only when answered). `own(ref)` says whether a pointer is one of the module's own kinds in the
+// request's space; `phaseEnd` whether the action may move the main phase's end. The faults: 'links', 'schedules', 'notify'
+// (more than the count), 'linkEnd' (a link not from the module's own object), 'about' (a schedule or notice about
+// something not its own), 'phaseEnd' (the action's manifest does not say it may), 'phaseDay' (not one day), 'result' (any
+// other shape).
+function effectsOf(result, { own, phaseEnd: mayEnd = false }) {
   const listOf = (name) => {
     const v = result[name];
     if (v === undefined || v === null) return [];
@@ -90,7 +105,15 @@ function effectsOf(result, { own }) {
     if (n.about !== undefined && n.about !== null && (!pointerLike(n.about) || !own(n.about))) return { fault: 'about' };
     notify.push({ title: n.title, ...(typeof n.body === 'string' ? { body: n.body } : {}), ...(n.to ? { to: n.to } : {}), ...(n.about ? { about: n.about } : {}) });
   }
-  return { links, schedules, notify };
+  // One phase's end, one day: exactly { date }, a real day. Never a phase's id, a start or a list.
+  let phaseEnd = null;
+  if (result.phaseEnd !== undefined && result.phaseEnd !== null) {
+    if (!mayEnd) return { fault: 'phaseEnd' };
+    if (!plainObject(result.phaseEnd) || Object.keys(result.phaseEnd).length !== 1 || !Object.hasOwn(result.phaseEnd, 'date')) return { fault: 'result' };
+    if (!realDay(result.phaseEnd.date)) return { fault: 'phaseDay' };
+    phaseEnd = { date: result.phaseEnd.date };
+  }
+  return { links, schedules, notify, ...(phaseEnd ? { phaseEnd } : {}) };
 }
 
 // The faults above in words, after "<Module> could not carry that out: " (server/module-actions.js faultWords).
@@ -100,13 +123,18 @@ const EFFECT_FAULT_WORDS = {
   notify: () => `it tried to send more than ${LIMITS.notify} notice at once`,
   linkEnd: () => `it tried to link from something that is not its own in this ${word('space')}`,
   about: () => `it tried to set a reminder or send a notice about something that is not its own in this ${word('space')}`,
+  phaseEnd: () => `it tried to move this ${word('space')}'s dates, which that action may not`,
+  phaseDay: () => `it named a last day that is not a day written as YYYY-MM-DD`,
 };
 
 // `deps`, all from server/index.js, each the very function or service the routes use (the services its per-environment
 // proxies): { moduleLinks, moduleHooks, modules, resolveRef, copySight, copyChangeText, hookGranted, overLimit,
-// limitMessage, isLibraryFileRef, refFileSeen, markedForSpace, refShape, plainRef, objectKey }.
+// limitMessage, isLibraryFileRef, refFileSeen, markedForSpace, refShape, plainRef, objectKey, phaseCover }.
+// `phaseCover` is the cover route's own rule, { refusal(who, space), move(space, day), putBack(spaceId, dates) }: `refusal`
+// the sentence when `who` may not move the space's dates (null when they may), `move` answers { moved: false } or { moved:
+// true, label, before } once the end is moved (it throws its refusals with a status), `putBack` stores the dates as they were.
 function createActionEffects(deps) {
-  const { moduleLinks, moduleHooks, modules, resolveRef, copySight, copyChangeText, hookGranted, overLimit, limitMessage, isLibraryFileRef, refFileSeen, markedForSpace, refShape, plainRef, objectKey } = deps;
+  const { moduleLinks, moduleHooks, modules, resolveRef, copySight, copyChangeText, hookGranted, overLimit, limitMessage, isLibraryFileRef, refFileSeen, markedForSpace, refShape, plainRef, objectKey, phaseCover } = deps;
   // Every refusal is one sentence that starts by saying nothing was changed, then why.
   const sentence = (why) => `Nothing was changed: ${String(why || '').replace(/[.\s]+$/, '')}.`;
   const refuse = (status, why) => ({ refusal: { status, error: sentence(why) } });
@@ -120,7 +148,10 @@ function createActionEffects(deps) {
   // request's writes changed (not made); a schedule about one was set from the object as it was, so it is taken off first,
   // and the handler answers it again if one should stand. Answers { refusal: { status, error } } with everything here put
   // back, or { done } with what was done, as the request's outcome keeps it:
-  //   { links?: { added, removed }, schedules?: { set: [key], cancelled: [key] }, notified?: n }
+  //   { links?: { added, removed }, schedules?: { set: [key], cancelled: [key] }, notified?: n,
+  //     phaseEnd?: { moved: true, end } | { moved: false, why } }
+  // (`phaseEnd` only when the end moved, or when the asker's rights kept it where it was: then `note` beside `done` is the
+  // sentence for the request's note).
   function apply({ effects, who, space, found, ctx, changed = [] }) {
     const { manifest } = found;
     const id = manifest.id;
@@ -144,8 +175,10 @@ function createActionEffects(deps) {
 
     const linkUndo = new Map(); // objectKey(from) -> { from, items }: the links it held before this request
     const scheduleUndo = new Map(); // schedule key -> the stored schedule as it was, or null
+    let phaseUndo = null; // the space's dates as they were before this request moved the main phase's end
     const undo = () => {
       try {
+        if (phaseUndo) phaseCover.putBack(space.id, phaseUndo.dates);
         for (const { from, items } of linkUndo.values()) moduleLinks.putBack(from, items);
         if (scheduleUndo.size) moduleHooks.putBack(id, scopeKey, [...scheduleUndo.entries()].map(([key, record]) => ({ key, record })));
       } catch (err) {
@@ -233,6 +266,31 @@ function createActionEffects(deps) {
       setKeys.push(s.key);
     }
 
+    // --- the main phase's end ------------------------------------------------------------------------------------------
+    // After everything that can be refused but the notice, and put back like the rest. The asker's rights first: without
+    // them the request stands and its note says why the end was not moved (a refusal with a reason, not a wait).
+    let phaseDone = null;
+    let phaseNote = '';
+    if (effects.phaseEnd) {
+      const day = effects.phaseEnd.date;
+      const noRight = phaseCover.refusal(who, space);
+      if (noRight) {
+        phaseDone = { moved: false, why: noRight };
+        phaseNote = `The last day was not moved to ${day}: ${noRight}`;
+      } else {
+        if (overLimit(id, ctx.by, 'write')) return fail({ refusal: { status: 429, error: limitMessage() } });
+        try {
+          const out = phaseCover.move(space, day);
+          if (out.moved) {
+            phaseUndo = { dates: out.before };
+            phaseDone = { moved: true, end: day };
+          }
+        } catch (err) {
+          return fail(thrown(err));
+        }
+      }
+    }
+
     // --- the notice, last: nothing after it can fail ------------------------------------------------------------------------
     let notified = null;
     for (const n of effects.notify) {
@@ -261,8 +319,9 @@ function createActionEffects(deps) {
       ...(added || removed ? { links: { added, removed } } : {}),
       ...(setKeys.length || cancelled.length ? { schedules: { set: setKeys, cancelled } } : {}),
       ...(notified !== null ? { notified } : {}),
+      ...(phaseDone ? { phaseEnd: phaseDone } : {}),
     };
-    return { done };
+    return { done, ...(phaseNote ? { note: phaseNote } : {}) };
   }
 
   return { apply };

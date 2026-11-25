@@ -205,6 +205,7 @@
         "label": "Effects",
         "description": "Answer the writes, links, schedules and notice the plan names.",
         "effect": "write",
+        "phaseEnd": true,
         "input": {
           "plan": "text",
           "ms": "number?"

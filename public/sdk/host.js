@@ -6129,8 +6129,8 @@
   //     provide gives (the asker when the server knows them), read and list synchronous, over this module's data here as it
   //     was when the request was taken (each a copy), plus the facts below;
   //   - its answer is held to the runner's rules (at most LIBRARY_WRITES writes, each exactly { key, value }, no delete, a
-  //     pointer only to this module's own object here, `data` plain and small, and `links`, `schedules` and `notify` as
-  //     server/action-effects.js takes them: libraryEffects below); a throw is a refusal, its message the sentence the
+  //     pointer only to this module's own object here, `data` plain and small, and `links`, `schedules`, `notify` and
+  //     `phaseEnd` as server/action-effects.js takes them: libraryEffects below); a throw is a refusal, its message the sentence the
   //     asker reads, on one line;
   //   - each write goes through host.storage.set with the version the handler read (none: it must still be absent), so the
   //     server checks it as any write of this page's; one refused write puts back the ones before it, and nothing is left
@@ -6157,7 +6157,7 @@
   function libraryOutcome(answer, own, name) {
     const fault = (why) => new Error(`${name} could not carry that out: ${why}.`);
     const result = answer === undefined || answer === null ? {} : answer;
-    if (!libraryPlain(result) || Object.keys(result).some((k) => !['writes', 'ref', 'data', 'links', 'schedules', 'notify'].includes(k))) throw fault('it answered something the server can\'t use');
+    if (!libraryPlain(result) || Object.keys(result).some((k) => !['writes', 'ref', 'data', 'links', 'schedules', 'notify', 'phaseEnd'].includes(k))) throw fault('it answered something the server can\'t use');
     const given = result.writes === undefined || result.writes === null ? [] : result.writes;
     if (!Array.isArray(given)) throw fault('it answered something the server can\'t use');
     if (given.length > LIBRARY_WRITES) throw fault(`it tried to change more than ${LIBRARY_WRITES} things at once`);
@@ -6227,7 +6227,16 @@
       if (n.about !== undefined && n.about !== null && (!pointer(n.about) || !own(n.about))) throw fault('it tried to set a reminder or send a notice about something that is not its own here');
       return libraryCopy({ title: n.title, ...(typeof n.body === 'string' ? { body: n.body } : {}), ...(n.to ? { to: n.to } : {}), ...(n.about ? { about: n.about } : {}) });
     });
-    return { links, schedules, notify };
+    // The main phase's end: exactly { date }, one real day (the runner also holds it to the action's manifest, `phaseEnd`).
+    let phaseEnd = null;
+    if (result.phaseEnd !== undefined && result.phaseEnd !== null) {
+      const d = result.phaseEnd;
+      if (!libraryPlain(d) || Object.keys(d).length !== 1 || !Object.prototype.hasOwnProperty.call(d, 'date')) throw bad();
+      const at = typeof d.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.date) ? new Date(`${d.date}T00:00:00Z`) : null;
+      if (!at || Number.isNaN(at.getTime()) || at.toISOString().slice(0, 10) !== d.date) throw fault('it named a last day that is not a day written as YYYY-MM-DD');
+      phaseEnd = { date: d.date };
+    }
+    return { links, schedules, notify, ...(phaseEnd ? { phaseEnd } : {}) };
   }
   // The pointers in a request's input (its own fields, as the bus checks them): what `refs` describes.
   const libraryPointers = (input) => Object.values(input && typeof input === 'object' ? input : {})
@@ -6355,6 +6364,17 @@
         if (x.op === 'cancel') { await host.cancelSchedule(x.key); continue; }
         await host.schedule({ key: x.key, at: x.at, ref: x.about, ...(x.payload !== undefined ? { payload: x.payload } : {}), ...(x.notify ? { notify: x.notify } : {}), ...(x.repeat ? { repeat: x.repeat } : {}) });
         undone.push(() => host.cancelSchedule(x.key));
+      }
+      // The main phase's end, through the host's cover route (host.phasesCover), which holds it to this person's rights:
+      // without them (403) the request stands and its note says why, as the runner's does. Any other refusal undoes the
+      // request. A notice that fails after it leaves the end moved: a page can't move it back.
+      if (fx.phaseEnd && typeof host.phasesCover === 'function') {
+        try { await host.phasesCover(fx.phaseEnd.date); } catch (err) {
+          if (!err || err.status !== 403) throw err;
+          const why = `The last day was not moved to ${fx.phaseEnd.date}: ${libraryLine(err.message)}`;
+          const had = libraryPlain(outcome.data) ? outcome.data : {};
+          outcome.data = { ...had, note: [had.note, why].filter((t) => typeof t === 'string' && t).join(' ') };
+        }
       }
       for (const n of fx.notify) await host.notify({ title: n.title, ...(n.body !== undefined ? { body: n.body } : {}), ...(n.to ? { to: n.to } : {}) });
     } catch (err) {

@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.22",
+  "version": "0.16.23",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -101,6 +101,7 @@
           "notes": "The notes. Line breaks are allowed."
         },
         "effect": "write",
+        "phaseEnd": true,
         "input": {
           "title": "string",
           "date": "date?",
@@ -118,6 +119,7 @@
         "label": "Put it on the trip's itinerary",
         "description": "Put {an object} that already exists on the trip's itinerary, on the day given if there is one.",
         "effect": "write",
+        "phaseEnd": true,
         "input": {
           "object": "ref",
           "date": "date?"
@@ -138,6 +140,7 @@
           "object": "{ kind, title, details }. A flight's details: airline, number, from and to ({ code, name }), departs, arrives, terminal, gate, seat, class, reference, cost, currency, travellers."
         },
         "effect": "write",
+        "phaseEnd": true,
         "input": {
           "title": "string",
           "kind": "string?",
@@ -189,6 +192,7 @@
           "placeRef": "A saved place from Maps, for a stop only. The stop then shows that place's name, and its address if it has none."
         },
         "effect": "write",
+        "phaseEnd": true,
         "clears": ["time", "minutes", "cost", "notes"],
         "patch": true,
         "input": {
