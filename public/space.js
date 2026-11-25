@@ -24,6 +24,7 @@ import { openHostMenu, openConfirmMenu, closeHostMenu, setGuestPass } from '/mod
 import { confirmDialog } from '/confirm.js';
 import { welcomeOnArrival } from '/welcome-note.js';
 import { drawMadeMark } from '/made-mark.js';
+import { mountSpaceReview, reviewAddress } from '/agent-review.js';
 import { foldCallToolbar, callTitle, callTime, callDuration } from '/call-toolbar.js';
 
 // Elements by id, wherever the canvas currently lives (the page or the pop-out
@@ -3289,6 +3290,31 @@ function paintSetupLabel() {
   if (tool && tool.label !== setupLabel()) nav.register({ ...tool, label: setupLabel() });
 }
 // --- end Set up ---
+
+// --- the space's Agents view (plan-agent-edit-delete.md, step 7) --------------------------------------------------------------
+// For this space's approvers (those who may set it up: owners, the admin and its moderators), never in an aside or for a guest:
+// an "Agents" entry beside Set up while agents asked or changed something here, its count the asks waiting (agent-review.js).
+// A bell line about an ask opens it at that ask: app:open-agent-review from brand.js, or /?agents=<space>#ask-<id> by address.
+const agentReview = mountSpaceReview({ nav, api, word, hour12: () => undefined, space: () => (entered && !viewingHome ? currentSpace : null), mayReview: () => canSetUp() });
+async function openReviewFor(spaceId, ask = '') {
+  if (!spaceId || currentSpace?.id !== spaceId || !entered) {
+    if (!spaceId) return;
+    await joinInvitedSpace(spaceId);
+  }
+  if (entered && currentSpace?.id === spaceId && canSetUp()) agentReview.open(ask);
+}
+document.addEventListener('app:open-agent-review', (event) => {
+  const { space, ask } = event.detail || {};
+  if (!space) {
+    // The bell's own line: this space's view when something waits here, else the bell does its own thing.
+    if (entered && canSetUp() && nav.isVisible(nav.get('agent-review'))) { event.preventDefault(); agentReview.open(); }
+    return;
+  }
+  event.preventDefault();
+  openReviewFor(space, ask);
+});
+document.addEventListener('app:unread', () => { if (entered) agentReview.refresh(); }); // a new ask comes with a bell line
+document.addEventListener('visibilitychange', () => { if (!document.hidden && entered) agentReview.refresh(); });
 
 // --- the layouts and workspaces of the space (plan-saved-layouts.md, step 3; plan-workspaces.md, decisions 39, 40, 44) -----
 // GET /api/spaces/:id/layouts answers { system, shared, defaultLayout, canShare, canSetDefault, firstVisit, last }: the
@@ -6639,6 +6665,7 @@ function leaveSpaceNow(said = `left the ${word('space')}`) {
   setStatus(said);
   forgetSpace();
   currentSpace = null;
+  agentReview.forget();
   heldLook = null;
   useEnvironmentLook(); // Home's words and phases are the environment's
   currentLayoutTab = 'workspace'; // the tab is remembered for the visit only
@@ -7077,6 +7104,7 @@ function enterSpace({ joinCall = false } = {}) {
     loadLinkKeeper(currentSpace.id); // who keeps links here, and whether this person may (plan-chat-links.md)
   }
   canvas.updateMenu();
+  agentReview.refresh(); // the Agents entry, for this space's approvers
   // A fresh request, else the remembered layout, else what this space or environment opens with, else the chat and the modules.
   // The conference among them opens in "Not in a call": entering never joins, and the microphone is asked for only on a join.
   const firstTab = canvas.restore({ last: restorableLast() }); // the tab to show: this person's last layout, else the owner's default when it is a fixed layout
@@ -9230,6 +9258,7 @@ async function init() {
   // tab. The query leaves the address at once (the fragment stays while the panel shows that tab), so a reload or Back
   // does not open it again.
   const setupAsked = setupAddress(location.search, location.hash);
+  const reviewAsked = setupAsked ? null : reviewAddress(location.search, location.hash);
   const invited = /^#join=([a-z0-9]{4,16})$/.exec(location.hash);
   let entering = null; // the join or setup just started: the welcome note waits for it, so it never opens over it
   if (setupAsked) {
@@ -9241,6 +9270,13 @@ async function init() {
     // Following an invitation from another page: "/#join=<space>" goes straight into that space.
     history.replaceState(null, '', location.pathname + location.search);
     entering = joinInvitedSpace(invited[1]);
+  } else if (reviewAsked) {
+    // An agent's ask from the bell (plan-agent-edit-delete.md, step 7): "/?agents=<space>#ask-<id>" enters that space and opens its
+    // Agents view at the ask. The address is put back at once, so a reload does not open it again.
+    const rest = new URLSearchParams(location.search);
+    rest.delete('agents');
+    history.replaceState(null, '', `${location.pathname}${rest.toString() ? `?${rest}` : ''}`);
+    entering = openReviewFor(reviewAsked.space, reviewAsked.ask);
   } else if (!guestMode && rememberedSpace()) {
     // A reload: back into the space this tab was in. Joining checks it is still there; presence
     // does not have to have answered first.

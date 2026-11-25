@@ -5,6 +5,7 @@
 // Text only, everywhere: every value from the API or the log (a name, an address, a route, an action, a message) goes in through
 // textContent, never as markup (tools/check-agent-pages.mjs drives a script-looking name and address through it).
 import { confirmDialog } from '/confirm.js';
+import { createReview } from '/agent-review.js';
 
 const MAX_NAME = 40;
 const POLL_MS = 10000; // how often the live "Connected" line asks while it is on screen
@@ -140,6 +141,7 @@ export function logLine(entry, { spaceName = () => '', moduleName: lookup = () =
   else if (e.route === CHAT_ROUTE && e.method === 'GET') text = `Read Chat${where}`;
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 200) text = `Posted in Chat${where}`;
   else if (e.route === CHAT_ROUTE && e.method === 'POST' && status === 403) text = `Refused post${where}`;
+  else if (typeof e.text === 'string' && e.text) text = `${e.text}${where}${typeof e.outcome === 'string' && e.outcome ? `, ${e.outcome}` : ''}`; // a delete ask: the server's words, then how it went
   else if (e.route === '/api/spaces/:id/action') text = `Ask for ${actionWords(e.action)}${where}`;
   else if (e.route === '/api/agent/spaces' && e.change === 'made' && status === 200) text = e.space ? `Made the ${word('space')} ${spaceName(e.space) || 'that is gone'}` : `Made ${word('space', { a: true })}`;
   else if (e.route === '/api/agent/spaces/:id/asks' && ASK_WORDS[e.change] && status === 202) text = `${ASK_WORDS[e.change](word)} ${e.space && spaceName(e.space) ? `the ${word('space')} ${spaceName(e.space)}` : word('space', { a: true })}`;
@@ -576,7 +578,7 @@ export function mountAgentPage(ctx) {
       token = got.token;
       connection = got.connection || null;
       if (guide) guide.setUsed(t.lastUsedAt || null);
-      if (agent.kind === 'setup' && !document.querySelector('dialog[open]')) { loadAsks(); loadChanges(); } // a new ask shows without a reload
+      if (!document.querySelector('dialog[open]')) { loadAsks(); loadChanges(); } // a new ask shows without a reload
       $('[data-agent-used]').textContent = t.lastUsedAt ? `Last used ${whenText(t.lastUsedAt, ctx.hour12())}${t.lastAddress ? ` from ${t.lastAddress}` : ''}` : 'Not used yet.';
     } catch { /* the line keeps what it said */ }
   }
@@ -589,75 +591,46 @@ export function mountAgentPage(ctx) {
   function onVisible() { if (!document.hidden && agent) refreshUse(); }
 
   const setupUrl = (what) => `/api/users/${encodeURIComponent(agent.key)}/${what}`;
-  const WHEN_NOTE = (iso) => { const t = whenText(iso, ctx.hour12()); return t ? `Runs out ${t}` : ''; };
 
-  // Waiting for you: the asks still waiting, each with Approve and Decline. A 409 comes back as a plain sentence, shown under the
-  // list; the list is then drawn again from the server, so what ran out is gone.
+  // Waiting for you and What it changed, drawn by the shared piece (agent-review.js) for both kinds of agent: the asks still
+  // waiting, each with Approve and Decline (a delete asks first, in the approval dialog), and the changes of the last days, each
+  // with Undo or the server's reason it can't be undone now. A 409 comes back as a plain sentence, shown under its list; the
+  // lists are then drawn again from the server, so what ran out is gone.
+  const review = createReview({
+    api: (...args) => ctx.api(...args),
+    say: (el, text, error) => ctx.say(el, text, error),
+    hour12: () => ctx.hour12(),
+    word: ctx.word,
+    answerUrl: (a) => setupUrl(`asks/${encodeURIComponent(a.id)}`),
+    undoUrl: (c) => setupUrl(`changes/${encodeURIComponent(c.id)}/undo`),
+    textOf: (c) => (c.object ? String(c.text || '') : changeText(c, ctx.word)), // a set-up change reads as its log does
+    beforeUndo: (c) => (c.change === 'made' ? confirmDialog({ title: `Remove this ${ctx.word('space')}?`, message: 'Everything in it goes.', action: 'Remove', kind: 'final' }) : true),
+    onChanged: () => { loadAsks(); loadChanges(); loadLog(false); },
+  });
   async function loadAsks() {
-    if (!agent || agent.kind !== 'setup') return;
+    if (!agent) return;
     const key = agent.key;
     let answer;
     try { answer = await ctx.api('GET', setupUrl('asks')); } catch (err) { $('[data-agent-asks-status]').textContent = err.message; return; }
     if (!agent || agent.key !== key) return;
-    const list = $('[data-agent-asks]');
-    const waiting = (answer.asks || []).filter((a) => a.state === 'waiting');
-    list.replaceChildren();
-    for (const a of waiting) {
-      const li = make('li', 'agent-ask');
-      li.dataset.agentAsk = a.id;
-      const what = make('span', 'agent-ask-what');
-      what.append(make('span', '', String(a.text || '')), make('span', 'agent-ask-when', [a.at ? `Asked ${agoText(a.at)}` : '', a.expiresAt ? WHEN_NOTE(a.expiresAt) : ''].filter(Boolean).join(' · ')));
-      const buttons = make('span', 'agent-ask-buttons');
-      for (const [decision, label, cls] of [['approve', 'Approve', 'btn btn-primary btn-small'], ['decline', 'Decline', 'btn btn-small']]) {
-        const b = make('button', cls, label);
-        b.type = 'button';
-        b.dataset.agentAnswer = decision;
-        b.dataset.ask = a.id;
-        buttons.append(b);
-      }
-      li.append(what, buttons);
-      list.append(li);
-    }
-    $('[data-agent-asks-empty]').hidden = waiting.length > 0;
-    if (changeLimits) paintLimits(waiting.length);
-    else limitsWaiting = waiting.length;
+    const waiting = review.drawWaiting($('[data-agent-asks]'), answer.asks || [], $('[data-agent-asks-status]'));
+    $('[data-agent-asks-empty]').hidden = waiting > 0;
+    if (changeLimits) paintLimits(waiting);
+    else limitsWaiting = waiting;
   }
   let limitsWaiting = 0;
 
-  // The changes it made in the last days, each with Undo: disabled, with the server's `why`, when it can't be undone now.
   async function loadChanges() {
-    if (!agent || agent.kind !== 'setup') return;
+    if (!agent) return;
     const key = agent.key;
     let answer;
     try { answer = await ctx.api('GET', setupUrl('changes')); } catch (err) { $('[data-agent-changes-status]').textContent = err.message; return; }
     if (!agent || agent.key !== key) return;
     changeLimits = answer.limits || null;
-    const list = $('[data-agent-changes]');
-    list.replaceChildren();
     const days = Number.isInteger(answer.days) ? answer.days : 7;
     $('[data-agent-changes-hint]').textContent = `A change can be undone for ${days} days. Undoing a change puts back what was there.`;
-    for (const c of answer.changes || []) {
-      const li = make('li', `agent-change${c.undone ? ' is-undone' : ''}`);
-      li.dataset.agentChange = c.id;
-      const what = make('span', 'agent-change-what');
-      const when = [whenText(c.at, ctx.hour12()), c.undone ? `Undone${c.undoneAt ? ` ${agoText(c.undoneAt)}` : ''}` : ''].filter(Boolean).join(' · ');
-      what.append(make('span', 'agent-change-text', changeText(c, ctx.word)), make('span', 'agent-change-when', when));
-      if (!c.undone && !c.undoable && c.why) { const why = make('span', 'agent-change-when', c.why); why.dataset.agentWhy = ''; what.append(why); }
-      li.append(what);
-      if (!c.undone) {
-        const buttons = make('span', 'agent-change-buttons');
-        const b = make('button', 'btn btn-small', 'Undo');
-        b.type = 'button';
-        b.dataset.agentUndo = c.id;
-        b.dataset.made = c.change === 'made' ? '1' : '';
-        b.disabled = !c.undoable;
-        if (!c.undoable && c.why) b.title = c.why;
-        buttons.append(b);
-        li.append(buttons);
-      }
-      list.append(li);
-    }
-    $('[data-agent-changes-empty]').hidden = list.children.length > 0;
+    const n = review.drawDone($('[data-agent-changes]'), answer.changes || [], $('[data-agent-changes-status]'));
+    $('[data-agent-changes-empty]').hidden = n > 0;
     paintLimits(limitsWaiting);
   }
 
@@ -672,34 +645,6 @@ export function mountAgentPage(ctx) {
       `Waiting for you: ${waiting}`,
     ].filter(Boolean);
     list.replaceChildren(...lines.map((t) => make('li', '', t)));
-  }
-
-  async function answerAsk(id, decision) {
-    const status = $('[data-agent-asks-status]');
-    status.textContent = '';
-    for (const b of document.querySelectorAll(`#agent-page [data-ask="${CSS.escape(id)}"]`)) b.disabled = true;
-    try {
-      await ctx.api('POST', setupUrl(`asks/${encodeURIComponent(id)}`), { decision });
-      ctx.say(status, decision === 'approve' ? 'Approved' : 'Declined');
-    } catch (err) {
-      ctx.say(status, err.message, true); // the server's plain sentence (409: answered, run out or not possible)
-    }
-    await loadAsks();
-    await loadChanges();
-  }
-
-  async function undoChange(id, made) {
-    const status = $('[data-agent-changes-status]');
-    status.textContent = '';
-    if (made && !await confirmDialog({ title: `Remove this ${ctx.word('space')}?`, message: 'Everything in it goes.', action: 'Remove', kind: 'final' })) return;
-    try {
-      await ctx.api('POST', setupUrl(`changes/${encodeURIComponent(id)}/undo`));
-      ctx.say(status, 'Undone');
-    } catch (err) {
-      ctx.say(status, err.message, true);
-    }
-    await loadChanges();
-    loadLog(false);
   }
 
   async function loadLog(more) {
@@ -756,12 +701,6 @@ export function mountAgentPage(ctx) {
     }
   }
 
-  document.querySelector('#agent-page').addEventListener('click', (event) => {
-    const answer = event.target.closest('[data-agent-answer]');
-    if (answer && agent) { answerAsk(answer.dataset.ask, answer.dataset.agentAnswer); return; }
-    const undo = event.target.closest('[data-agent-undo]');
-    if (undo && agent && !undo.disabled) undoChange(undo.dataset.agentUndo, undo.dataset.made === '1');
-  });
   document.querySelector('#agent-page').addEventListener('click', async (event) => {
     const button = event.target.closest('[data-agent]');
     if (!button || !agent) return;

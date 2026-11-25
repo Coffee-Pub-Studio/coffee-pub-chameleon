@@ -380,7 +380,7 @@ try {
     const bell = async (cookie) => (await call('GET', '/api/notifications', { cookie })).json;
     const mine2 = await bell(admin);
     assert.equal(mine2.asks, 1);
-    assert.ok(mine2.notifications.some((x) => x.title === 'Claude (agent) asks to delete the poll "Lunch by the sea" in Polls, in Camp.' && x.href === `/admin#agent/${agent.key}`), JSON.stringify(mine2.notifications.map((x) => x.title)));
+    assert.ok(mine2.notifications.some((x) => x.title === 'Claude (agent) asks to delete the poll "Lunch by the sea" in Polls, in Camp.' && x.href === `/?agents=${camp}#ask-${pollAsk}`), JSON.stringify(mine2.notifications.map((x) => x.title)));
     const hers = await bell(miaC);
     assert.equal(hers.asks, 0);
     assert.ok(!hers.notifications.some((x) => /asks to delete/.test(x.title)), 'a member is told nothing');

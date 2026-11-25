@@ -254,6 +254,7 @@ const byId = (id) => document.getElementById(id) || headerEl?.querySelector(`#${
 let account;
 let freshModules = 0; // modules this server ships that are not installed yet: Manage > Modules lists them as Available
 let updatesWaiting = 0; // module updates available, for owners and the admin (GET /api/modules)
+let asksWaiting = 0; // the agents' delete asks waiting for this person's answer (GET /api/notifications' `asks`)
 let presentSpace = null; // the space this page is present in (an aside's parent in an aside); the space page says so
 let inSpace = false; // the space page showing a space (plan-one-bar.md, step 7): its one bar has the switcher in the Spaces slot's place
 // A page whose tabs are in the top bar (renderPageBar(), a control marked data-top-bar: Manage, #262): the bar is the
@@ -361,6 +362,7 @@ async function loadAccount() {
   nav.draw(); // both bars: a page bar's Manage link waits on the role too
   if (account) loadWelcome().then((v) => { if (v) nav.draw(); }); // the Welcome entry waits on there being a note
   if (account && seesUpdates(account.role)) loadUpdateBadge();
+  if (asksWaiting) paintManageBadge(); // the asks came before the role
   paintBell();
 }
 
@@ -879,7 +881,7 @@ function paintUnread() {
 // primary-nav.js).
 function bellNow() {
   const unread = Object.values(unreadByModule).reduce((sum, n) => sum + (Number(n) || 0), 0);
-  return bellState({ unread, updates: updatesWaiting, role: account?.role, moduleWord: envWord('module') });
+  return bellState({ unread, updates: updatesWaiting, asks: asksWaiting, role: account?.role, moduleWord: envWord('module') });
 }
 function paintBell() {
   const bell = byId('notifications-bell');
@@ -915,6 +917,15 @@ function noticeTime(at) {
 // A notice from the host itself (about the bundled modules) carries href "/admin#<tab>": it opens that tab of Manage.
 // A request to enter a space (href "/?setup=<space>#members"): the notice opens that space's Set up, where the waiting list is.
 const setupHrefOf = (n) => (typeof n.href === 'string' && /^\/\?setup=[A-Za-z0-9_-]{1,64}#members$/.test(n.href) ? n.href : '');
+// An agent's delete ask (href "/?agents=<space>#ask-<id>"): the notice opens that space's Agents view at the ask (space.js takes
+// app:open-agent-review when it can show it without leaving; otherwise the address does it).
+const reviewHrefOf = (n) => (typeof n.href === 'string' && /^\/\?agents=[A-Za-z0-9_-]{1,64}(#ask-[a-f0-9]{1,32})?$/.test(n.href) ? n.href : '');
+function openReviewHref(href) {
+  const url = new URL(href, location.origin);
+  const detail = { space: url.searchParams.get('agents'), ask: url.hash.replace(/^#ask-/, '') };
+  if (!document.dispatchEvent(new CustomEvent('app:open-agent-review', { detail, cancelable: true }))) return;
+  window.location.href = href;
+}
 const manageTabOf = (n) => (typeof n.href === 'string' && n.href.startsWith('/admin#') ? n.href.slice(7) : '');
 function noticeHtml(n) {
   const icon = String(n.icon || 'bell');
@@ -922,7 +933,8 @@ function noticeHtml(n) {
   const when = noticeTime(n.at);
   const tab = manageTabOf(n);
   const setup = setupHrefOf(n);
-  return `<li class="bell-notice"${tab ? ` data-manage="${escapeHtml(tab)}" role="link" tabindex="0"` : setup ? ` data-setup="${escapeHtml(setup)}" role="link" tabindex="0"` : ''}><i class="${escapeHtml(iconClass)} fa-fw bell-notice-icon" aria-hidden="true"></i><span class="bell-notice-text"><strong>${escapeHtml(n.title || '')}</strong>${n.body ? `<span class="bell-notice-body">${escapeHtml(n.body)}</span>` : ''}<span class="bell-notice-from">${escapeHtml(n.moduleName || n.module || '')}${when ? ` · ${escapeHtml(when)}` : ''}</span></span></li>`;
+  const review = reviewHrefOf(n);
+  return `<li class="bell-notice"${tab ? ` data-manage="${escapeHtml(tab)}" role="link" tabindex="0"` : setup ? ` data-setup="${escapeHtml(setup)}" role="link" tabindex="0"` : review ? ` data-review="${escapeHtml(review)}" role="link" tabindex="0"` : ''}><i class="${escapeHtml(iconClass)} fa-fw bell-notice-icon" aria-hidden="true"></i><span class="bell-notice-text"><strong>${escapeHtml(n.title || '')}</strong>${n.body ? `<span class="bell-notice-body">${escapeHtml(n.body)}</span>` : ''}<span class="bell-notice-from">${escapeHtml(n.moduleName || n.module || '')}${when ? ` · ${escapeHtml(when)}` : ''}</span></span></li>`;
 }
 // A notice that arrives while the list is open goes to its top, read at once (the list is what reads them). True when
 // it was shown there.
@@ -948,9 +960,10 @@ export async function refreshNotices() {
   try {
     const res = await fetch('/api/notifications');
     if (!res.ok) return;
-    const { byModule } = await res.json();
+    const { byModule, asks } = await res.json();
     for (const key of Object.keys(unreadByModule)) unreadByModule[key] = 0;
     Object.assign(unreadByModule, byModule || {});
+    setAsksWaiting(asks);
     paintUnread();
   } catch {
     // the next event or load brings them
@@ -1025,6 +1038,12 @@ async function toggleNotices(bell) {
   if (!noticesOpen || noticesOpen.list !== list) return; // closed while it was asking
   const { updates } = bellNow();
   const parts = ['<div class="bell-head">Notifications</div>'];
+  if (asksWaiting) {
+    // The agents' asks: in a space, its Agents view (space.js answers app:open-agent-review); else, for owners and the admin,
+    // Manage's Users tab, where each agent's page lists them. A moderator elsewhere reads the line and the notices under it.
+    const words = `${asksWaiting} ${asksWaiting === 1 ? 'ask from an agent waits' : 'asks from agents wait'} for you`;
+    parts.push(`<a class="bell-updates" href="#" data-bell-asks><i class="fa-solid fa-robot fa-fw" aria-hidden="true"></i><span>${escapeHtml(words)}</span></a>`);
+  }
   if (updates) {
     parts.push(`<a class="bell-updates" href="${escapeHtml(keepingQuery('/admin#modules'))}"><i class="fa-solid fa-puzzle-piece fa-fw" aria-hidden="true"></i><span>${updates} ${escapeHtml(envWord('module'))} update${updates === 1 ? '' : 's'} available</span></a>`);
   }
@@ -1039,16 +1058,26 @@ async function toggleNotices(bell) {
   list.innerHTML = parts.join('');
   noticesOpen.loaded = true;
   const openNotice = (event) => {
-    const li = event.target.closest?.('.bell-notice[data-manage], .bell-notice[data-setup]');
+    const li = event.target.closest?.('.bell-notice[data-manage], .bell-notice[data-setup], .bell-notice[data-review]');
     if (!li || (event.type === 'keydown' && event.key !== 'Enter')) return;
     event.preventDefault();
     closeNotices();
     if (li.dataset.setup) window.location.href = li.dataset.setup;
+    else if (li.dataset.review) openReviewHref(li.dataset.review);
     else openManage(li.dataset.manage);
   };
   list.addEventListener('click', openNotice);
   list.addEventListener('keydown', openNotice);
-  const link = list.querySelector('.bell-updates');
+  const asksLine = list.querySelector('[data-bell-asks]');
+  if (asksLine) {
+    asksLine.addEventListener('click', (event) => {
+      event.preventDefault();
+      closeNotices();
+      if (!document.dispatchEvent(new CustomEvent('app:open-agent-review', { detail: { space: null, ask: '' }, cancelable: true }))) return;
+      if (hasOwnerRights(account)) openManage('users');
+    });
+  }
+  const link = list.querySelector('.bell-updates:not([data-bell-asks])');
   if (link) {
     link.addEventListener('click', (event) => {
       event.preventDefault();
@@ -1202,6 +1231,7 @@ function showToast(n) {
     onOpen: () => {
       if (manageTabOf(n)) return openManage(manageTabOf(n));
       if (setupHrefOf(n)) { window.location.href = setupHrefOf(n); return; }
+      if (reviewHrefOf(n)) { openReviewHref(reviewHrefOf(n)); return; }
       // The call page handles opening a space module's panel; anything else goes to the module's page.
       const handled = !document.dispatchEvent(new CustomEvent('app:notification', { detail: n, cancelable: true }));
       if (!handled && n.scope === 'environment') window.location.href = `/modules/${encodeURIComponent(n.module)}`;
@@ -1377,7 +1407,9 @@ async function startNotifications() {
     const res = await fetch('/api/notifications');
     if (res.status === 401) watchThemeWithoutStream(); // no account (a keyed page): no stream either
     if (!res.ok) return;
-    Object.assign(unreadByModule, (await res.json()).byModule);
+    const first = await res.json();
+    Object.assign(unreadByModule, first.byModule);
+    setAsksWaiting(first.asks);
     paintUnread();
   } catch {
     return;
@@ -1434,6 +1466,7 @@ async function startNotifications() {
     src.addEventListener('notification', (ev) => {
       try {
         const n = JSON.parse(ev.data);
+        if (reviewHrefOf(n)) refreshNotices(); // a new ask from an agent: its count comes with the counts
         if (addToOpenNotices(n)) return; // the open list shows it, read
         unreadByModule[n.module] = (unreadByModule[n.module] || 0) + 1;
         paintUnread();
@@ -1505,12 +1538,20 @@ export function setUpdateBadge(count) {
 }
 // What needs a look in Manage > Modules: updates plus new modules, as a green count on Manage (the top bar button, the
 // phone menu, a page bar's link) and on that tab. Nothing at zero. The words repeat the number for a screen reader.
-export function manageBadgeLabel(updates, fresh) {
-  return [updates ? `${updates} ${updates === 1 ? 'update' : 'updates'} available` : '', fresh ? `${fresh} available` : ''].filter(Boolean).join(', ');
+export function manageBadgeLabel(updates, fresh, asks = 0) {
+  return [updates ? `${updates} ${updates === 1 ? 'update' : 'updates'} available` : '', fresh ? `${fresh} available` : '', asks ? `${asks} ${asks === 1 ? 'ask' : 'asks'} waiting for you` : ''].filter(Boolean).join(', ');
+}
+// Manage's count is for owners and the admin (only they have Manage): the agents' asks waiting for them join it.
+function setAsksWaiting(n) {
+  const next = Math.max(0, Number(n) || 0);
+  if (next === asksWaiting) return;
+  asksWaiting = next;
+  paintManageBadge();
 }
 function paintManageBadge() {
-  const n = updatesWaiting + freshModules;
-  const opts = n ? { tone: 'ok', label: manageBadgeLabel(updatesWaiting, freshModules) } : {};
+  const asks = hasOwnerRights(account) ? asksWaiting : 0;
+  const n = updatesWaiting + freshModules + asks;
+  const opts = n ? { tone: 'ok', label: manageBadgeLabel(updatesWaiting, freshModules, asks) } : {};
   for (const id of ['manage-tool', 'admin-link', 'page-bar-manage']) nav.setBadge(id, n, opts);
 }
 export function setManageBadge(updates, fresh) {

@@ -171,12 +171,16 @@ export function tileRefTarget(ref, { page = '', module = '' } = {}) {
 
 // The bell (decisions 9 and 18): its count is the unread module notices, and for owners and the admin the module
 // updates too. `moduleWord` is the environment's word for a module.
-export function bellState({ unread = 0, updates = 0, role = null, moduleWord = '' } = {}) {
+// `asks`: the agents' delete asks waiting for this person's answer (GET /api/notifications' `asks`; plan-agent-edit-delete.md,
+// "The bell and the badge"), counted for whoever the server counts them for, and named only when there are some.
+export function bellState({ unread = 0, updates = 0, asks = 0, role = null, moduleWord = '' } = {}) {
   const u = Math.max(0, Number(unread) || 0);
   const m = seesUpdates(role) ? Math.max(0, Number(updates) || 0) : 0;
+  const a = Math.max(0, Number(asks) || 0);
   let title = `Notifications, ${u} unread`;
   if (seesUpdates(role)) title += `, ${m} ${moduleWord} update${m === 1 ? '' : 's'}`;
-  return { count: u + m, updates: m, title };
+  if (a) title += `, ${a} ${a === 1 ? 'ask' : 'asks'} waiting for you`;
+  return { count: u + m + a, updates: m, asks: a, title };
 }
 
 // The breadcrumb after the Spaces slot (decision 14): nothing on home; in a space, its name, current; in an aside, the
