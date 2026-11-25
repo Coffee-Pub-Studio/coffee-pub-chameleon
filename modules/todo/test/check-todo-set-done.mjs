@@ -94,7 +94,7 @@ await test('the manifest offers setTaskDone like its siblings', () => {
   const due = manifest.actions.provides.find((x) => x.name === 'setTaskDue');
   assert.equal(a.effect, due.effect);
   assert.equal(a.input.task, due.input.task);
-  assert.equal(manifest.actions.provides.filter((x) => /edit|delete/i.test(x.name)).length, 0, 'no edit or delete action');
+  assert.equal(manifest.actions.provides.filter((x) => /edit|delete/i.test(x.name) && x.effect !== 'delete').length, 0, 'no edit or direct delete action');
 });
 await test('done true stores done and doneAt on task:<id> and cancels the reminder', async () => {
   const p = await page();

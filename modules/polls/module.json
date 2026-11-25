@@ -1,7 +1,7 @@
 {
   "id": "polls",
   "name": "Polls",
-  "version": "1.15.34",
+  "version": "1.15.35",
   "icon": "square-poll-vertical",
   "color": "purple",
   "description": "Quick polls and votes for the whole {environment} and for each {space}, with live results.",
@@ -212,6 +212,15 @@
         "local": true,
         "input": {
           "text": "string"
+        }
+      },
+      {
+        "name": "deletePoll",
+        "label": "Delete a poll",
+        "description": "Delete one poll and the votes on it.",
+        "effect": "delete",
+        "input": {
+          "poll": "ref:polls:poll"
         }
       }
     ],

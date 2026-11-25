@@ -1,7 +1,7 @@
 {
   "id": "travel",
   "name": "Planner - Itinerary",
-  "version": "0.16.23",
+  "version": "0.16.24",
   "icon": "suitcase-rolling",
   "color": "teal",
   "description": "Plan together: a day-by-day itinerary that draws in the events, tasks and polls your {space} already has.",
@@ -220,6 +220,15 @@
         "local": true,
         "input": {
           "text": "string"
+        }
+      },
+      {
+        "name": "deletePlan",
+        "label": "Delete an itinerary entry",
+        "description": "Delete one stop, journey, stay or note from the itinerary.",
+        "effect": "delete",
+        "input": {
+          "plan": "ref:travel:plan"
         }
       }
     ],

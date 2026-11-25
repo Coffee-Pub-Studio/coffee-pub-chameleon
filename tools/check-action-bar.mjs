@@ -182,7 +182,9 @@ test('the layout sheet: Save is the submit button, Enter saves, Save and Rename 
 // The Add <space> dialog (public/template-choice.js) is a choice, as the confirm is: one Template select, nothing half-edited to lose, and a click outside it is Cancel.
 // The object picker (public/object-pick.js, host.objects.pick) is a choice, not an edit surface: nothing in it is saved, and a click outside it is the answer "nothing chosen", as the confirm's.
 // The agent's token dialog (public/agent-page.js, showToken) shows a token once, with Copy and Done: nothing in it is saved, and it closes on Done and Escape only, never on a click outside it.
-const EXCEPTIONS = new Set(['public/design-system/prototype-vault-dialogs.js', 'public/agent-page.js', 'public/sdk/host.js', 'public/action-bar.js', 'public/confirm.js', 'public/prompt.js', 'public/object-pick.js', 'public/template-choice.js', 'public/module-actions.js', 'public/design-system/legacy/system-v1/proposed-dialogs.js']);
+// The agents' review (public/agent-review.js): the approval dialog is a question (Decline or Delete, nothing half-edited), and the
+// space's Agents view is a list whose every button acts at once; both close on Close and Escape only, never on a click outside.
+const EXCEPTIONS = new Set(['public/design-system/prototype-vault-dialogs.js', 'public/agent-page.js', 'public/agent-review.js', 'public/sdk/host.js', 'public/action-bar.js', 'public/confirm.js', 'public/prompt.js', 'public/object-pick.js', 'public/template-choice.js', 'public/module-actions.js', 'public/design-system/legacy/system-v1/proposed-dialogs.js']);
 const files = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === 'vendor' || e.name === 'node_modules' ? [] : files(`${dir}/${e.name}`)) : [`${dir}/${e.name}`]));
 test('the sweep: every script in public/ that opens a modal dialog or closes one on its backdrop uses the action bar', () => {
   const offenders = [];

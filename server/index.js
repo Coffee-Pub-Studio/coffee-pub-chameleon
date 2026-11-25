@@ -6774,14 +6774,13 @@ function deleteAsksWaitingFor(user) {
   for (const space of store.spaces) if (agentReviewer(user, space.id)) n += records.deleteAsksWaitingIn(space.id).filter(deleteAskLive).length;
   return n;
 }
-// One bell line to each person who may approve it. An owner's opens the agent's page; a moderator's has no page to open
-// until the space's review view is built (plan step 7: it then opens that view at this ask).
+// One bell line to each person who may approve it, opening the space's Agents view at this ask (public/agent-review.js).
 function tellApproversOfDeleteAsk(a, found, space) {
   try {
     const all = agentReviewersOf(space).filter((u) => !moduleAccessAt(found, { user: u, guestSpace: null }, 'space', space, 'own').error);
     for (const u of all) {
       const title = deleteAskText(a, found, deleteAskTitle(a, found, { user: u, guestSpace: null }), true);
-      moduleHooks.announce([u.key], { title, body: 'Approve or decline it. Nothing is deleted until someone does.', ...(hasOwnerRights(u) ? { href: `/admin#agent/${encodeURIComponent(a.agent)}` } : {}) });
+      moduleHooks.announce([u.key], { title, body: 'Approve or decline it. Nothing is deleted until someone does.', href: `/?agents=${encodeURIComponent(space.id)}#ask-${encodeURIComponent(a.id)}` });
     }
   } catch (err) { console.warn('could not tell the approvers of an agent\'s delete ask:', err.message); }
 }
