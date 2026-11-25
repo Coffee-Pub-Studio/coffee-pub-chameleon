@@ -42,6 +42,21 @@
  *   - To-do carried by the server (step 2b): createTask with a reminder, then updateTask on its pointer at once (notes cleared
  *     with ""), the reminder marked as waiting for a page and the schedule a page set from the old task cancelled; setTaskDue
  *     clearing the due date; linkTask and unlinkTask on the Calendar's event; the same request through an uploaded copy waits.
+ *   - plan-agent-server-actions.md steps 1 and 2: ctx.settings are what GET settings/values answers (person settings at their
+ *     default); ctx.util gains label (the manifest's words, then the template's), order, rollup and geo, frozen and with no way
+ *     out; ctx.space.phases carry their labels (the travel template, which this copy's templates let offer the fixture); a
+ *     handler's data beyond its note reaches the agent in the answer, request_status, wait_for_result and MCP, capped; a ref
+ *     input may be declared in `clears`, and "" then clears it through the bus and the gate; checkToolInput keeps "" for a
+ *     declared clear.
+ *   - plan-agent-server-actions.md steps 4 and 5 (server/action-effects.js): a handler's answer may name links (add, remove),
+ *     schedules (set, cancel) and one notice, which the server carries out as the agent in the same step as the writes and
+ *     records in the request's outcome (`effects`); more than 5 links, 5 schedules or 1 notice, an unknown field, a link not
+ *     from the module's own object here, a schedule or notice about someone else's object are faults; a link to an object
+ *     in a space the agent is not in, in another of its spaces, to a kind the module is not approved to link to, to nothing,
+ *     a notice to the environment or a stranger, a module without the schedule or notify hook, are each refused with one
+ *     sentence; whenever a later effect fails the writes, the links and the schedules before it (those taken off because
+ *     their object changed included) are put back exactly; a closed space, or one closed while the handler ran, gets
+ *     nothing; the handler still reaches no network.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -72,7 +87,16 @@ const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-module-actions-'));
 const app = path.join(base, 'app');
 fs.mkdirSync(path.join(app, 'modules'), { recursive: true });
 fs.cpSync(path.join(ROOT, 'server'), path.join(app, 'server'), { recursive: true });
-for (const name of ['public', 'templates', 'node_modules', 'package.json']) fs.symlinkSync(path.join(ROOT, name), path.join(app, name));
+for (const name of ['public', 'node_modules', 'package.json']) fs.symlinkSync(path.join(ROOT, name), path.join(app, name));
+// The templates as shipped, but the travel template also offers the fixture and renames its `note` word, so a handler's phase
+// names and ctx.util.label can be tried under a template with phases.
+fs.cpSync(path.join(ROOT, 'templates'), path.join(app, 'templates'), { recursive: true });
+{
+  const file = path.join(app, 'templates', 'travel.json');
+  const t = JSON.parse(fs.readFileSync(file, 'utf8'));
+  t.modules['fixture-notes'] = { labels: { note: { one: 'log', many: 'logs' } } };
+  fs.writeFileSync(file, JSON.stringify(t, null, 2));
+}
 // Every module this server ships (the templates name them), beside the fixture.
 for (const id of fs.readdirSync(path.join(ROOT, 'modules'))) {
   if (fs.existsSync(path.join(ROOT, 'modules', id, 'module.json'))) fs.symlinkSync(path.join(ROOT, 'modules', id), path.join(app, 'modules', id));
@@ -155,6 +179,9 @@ function variant(name, edit) {
   return dir;
 }
 
+// The fixture again, bundled under another id, with no hook and no approval to link to anything (the effects' refusals).
+fs.cpSync(variant('plain', (m) => { m.id = 'fixture-plain'; m.name = 'Fixture plain'; delete m.hooks; m.refs.consumes = []; }), path.join(app, 'modules', 'fixture-plain'), { recursive: true });
+
 const dir = path.join(base, 'data');
 const ENV = { ADMIN_PASSWORD: 'admin-password-1', AGENT_TOKENS: 'true' };
 const busFile = () => JSON.parse(fs.readFileSync(path.join(dir, 'modules', 'bus.json'), 'utf8'));
@@ -190,13 +217,50 @@ try {
     assert.equal(out.eval, 'blocked', 'no code from strings');
   });
 
+  await test('effects on a page: the SDK\'s adapter takes the same answer, makes the same calls in order, and takes them back when one fails', async () => {
+    const { onPage } = await import('./module-actions-harness.mjs');
+    const { effectsOf } = require(path.join(ROOT, 'server', 'action-effects.js'));
+    const own = (id) => ({ module: 'todo', kind: 'task', id, scope: 'space', space: 's1' });
+    const other = { module: 'calendar', kind: 'event', id: 'e1', scope: 'space', space: 's1' };
+    const answer = {
+      writes: [{ key: 'task:t9', value: { title: 'New' } }],
+      links: [{ add: { from: own('t9'), to: other } }, { remove: { from: own('t9'), to: own('t1') } }],
+      schedules: [{ set: { key: 'remind:t9', at: 4102444800000, about: own('t9'), payload: { id: 't9' }, notify: { title: 'New', body: 'Due today' } } }, { cancel: { key: 'remind:t1' } }],
+      notify: [{ title: 'A new task', body: 'New', about: own('t9') }],
+    };
+    const world = { space: { id: 's1', name: 'Camp' }, rows: { 'task:t1': { title: 'Old' } } };
+    const calls = [];
+    const page = await onPage('todo', 'go', {}, world, { handlers: { go: () => answer }, calls });
+    assert.deepEqual(page.writes, [{ key: 'task:t9', value: { title: 'New' } }]);
+    assert.deepEqual(page.effects, effectsOf(answer, { own: (r) => r.module === 'todo' && r.space === 's1' }), 'the page reads the answer exactly as the server does');
+    assert.deepEqual(calls, [
+      { call: 'setLinks', from: own('t9'), to: [other], kind: 'event', op: 'add' },
+      { call: 'setLinks', from: own('t9'), to: [own('t1')], kind: 'task', op: 'remove' },
+      { call: 'schedule', key: 'remind:t9', at: 4102444800000, ref: own('t9'), payload: { id: 't9' }, notify: { title: 'New', body: 'Due today' } },
+      { call: 'cancelSchedule', key: 'remind:t1' },
+      { call: 'notify', title: 'A new task', body: 'New' },
+    ], 'links, then schedules, then the notice');
+    // The notice refused: the links are taken back out, the schedule it set is cancelled and the write is put back.
+    const failed = [];
+    const refused = await onPage('todo', 'go', {}, { ...world, refuseEffect: (kind) => kind === 'notify' }, { handlers: { go: () => answer }, calls: failed });
+    assert.deepEqual(refused, { refused: 'you may not do this' });
+    assert.deepEqual(failed.slice(4).map((c) => [c.call, c.op || c.key]), [['cancelSchedule', 'remind:t9'], ['setLinks', 'add'], ['setLinks', 'remove']], 'undone, newest first');
+    // The same caps and the same sentences as the runner's.
+    const many = { links: [0, 1, 2, 3, 4, 5].map((i) => ({ add: { from: own('t1'), to: own(`x${i}`) } })) };
+    assert.deepEqual(await onPage('todo', 'go', {}, world, { handlers: { go: () => many }, name: 'To-do' }), { refused: 'To-do could not carry that out: it tried to change more than 5 links at once.' });
+    const notMine = { schedules: [{ set: { key: 'k', at: 1, about: other } }] };
+    assert.deepEqual(await onPage('todo', 'go', {}, world, { handlers: { go: () => notMine }, name: 'To-do' }), { refused: 'To-do could not carry that out: it tried to set a reminder or send a notice about something that is not its own here.' });
+    const extra = { notify: [{ title: 'x', as: 'admin' }] };
+    assert.deepEqual(await onPage('todo', 'go', {}, world, { handlers: { go: () => extra }, name: 'To-do' }), { refused: 'To-do could not carry that out: it answered something the server can\'t use.' });
+  });
+
   server = await startServer(dir, ENV);
   const admin = await signIn('admin', 'admin-password-1');
   ok(await call('PATCH', '/api/settings', { cookie: admin, body: { agents: true } }), 'Agents on');
   const mia = (await call('POST', '/api/users', { cookie: admin, body: { login: 'mia', password: 'mia-password-1', displayName: 'Mia', role: 'member' } })).json.user;
   // Several agents, each with its own 20 writes a minute: the main one, and one for each group of requests below.
   const agents = [];
-  for (let i = 0; i < 11; i += 1) agents.push((await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user);
+  for (let i = 0; i < 14; i += 1) agents.push((await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user);
   const agent = agents[0];
   const camp = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Camp', members: [...agents.map((a) => a.key), mia.key] } })).json.space.id;
   const fort = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Fort', members: [mia.key] } })).json.space.id;
@@ -453,7 +517,7 @@ try {
     const seen = (await data())['probe:escapeUtil'].value;
     assert.equal(seen.frozen, 'frozen');
     for (const k of ['replaced', 'added', 'swapped']) assert.equal(seen[k], 'kept', k);
-    assert.equal(seen.keys, 'detailLines,id,localWhen,objectKey,parseYmd,plain,time,word,ymd');
+    assert.equal(seen.keys, 'detailLines,geo,id,label,localWhen,objectKey,order,parseYmd,plain,rollup,time,word,ymd');
     for (const k of ['window', 'document', 'hostActions', 'hostText', 'createHost', 'hostColour', 'locale']) assert.equal(seen[k], 'undefined', `no ${k}: the rest of the SDK is gone`);
     for (const k of ['plainCtor', 'wordCtor', 'ymdCtor', 'localWhenProto', 'stackFrames']) assert.equal(seen[k], 'blocked', k);
     assert.equal(seen.word, 'Spaces', 'the environment\'s words');
@@ -479,7 +543,7 @@ try {
     const f = (await data())['probe:facts'].value;
     assert.equal(f.carrier, 'server');
     assert.equal(f.tz, 'UTC');
-    assert.deepEqual(f.keys, ['action', 'by', 'byKey', 'carrier', 'credit', 'from', 'list', 'now', 'people', 'read', 'refs', 'space', 'tz', 'util']);
+    assert.deepEqual(f.keys, ['action', 'by', 'byKey', 'carrier', 'credit', 'from', 'list', 'now', 'people', 'read', 'refs', 'settings', 'space', 'tz', 'util']);
     assert.deepEqual(Object.keys(f.space).sort(), ['bands', 'currency', 'defaultCurrency', 'id', 'name', 'phases']);
     assert.deepEqual([f.space.id, f.space.name, f.space.currency, f.space.defaultCurrency], [camp, 'Camp', '', 'USD']);
     assert.ok(Array.isArray(f.space.phases) && Array.isArray(f.space.bands));
@@ -510,6 +574,148 @@ try {
     assert.equal(list.find((a) => a.action === 'travel:updatePlan').patch, true, 'and which object is a patch');
     assert.deepEqual(list.find((a) => a.action === 'calendar:updateEvent').clears, ['endTime', 'endDate', 'repeat', 'remind', 'notes']);
     for (const name of ['travel:acceptSuggestion', 'travel:updatePlan', 'calendar:createEvent', 'calendar:updateEvent']) assert.equal(list.find((a) => a.action === name).now, true, `${name}: carried now`);
+  });
+
+  // --- the context's settings, label, order, rollup, geo and phase names; data back; pointer clears (plan-agent-server-actions.md, steps 1 and 2)
+  await test('ctx.settings are the module\'s as GET settings/values answers them, each person setting at its default', async () => {
+    as = agents[11];
+    ok(await call('PUT', `/api/modules/fixture-notes/settings/space?space=${camp}`, { cookie: admin, body: { values: { greeting: 'Ahoy' } } }), 'the space\'s greeting');
+    ok(await call('PUT', '/api/modules/fixture-notes/settings/environment', { cookie: admin, body: { values: { tone: 'warm' } } }), 'the environment\'s tone');
+    ok(await call('PUT', `/api/modules/fixture-notes/settings/person?space=${camp}`, { cookie: miaC, body: { values: { mine: false } } }), 'Mia\'s own');
+    const r = await ask('helpers', {});
+    ok(r, 'helpers');
+    const h = (await data())['probe:helpers'].value;
+    assert.deepEqual(h.settings, { tone: 'warm', greeting: 'Ahoy', mine: true }, 'the environment\'s and the space\'s values, a person setting\'s default');
+    // The route a page reads them from, for someone with no person setting of their own (the admin): the same values.
+    const page = await call('GET', `/api/modules/fixture-notes/settings/values?scope=space&space=${camp}`, { cookie: admin });
+    ok(page, 'settings/values');
+    assert.deepEqual(page.json.values, h.settings, 'the route and the runner answer the same (one function)');
+    const other = await ask('helpers', {}, lodge);
+    ok(other, 'helpers in Lodge');
+    assert.deepEqual((await data(lodge))['probe:helpers'].value.settings, { tone: 'warm', greeting: 'Hello', mine: true }, 'another space\'s own (the default)');
+  });
+
+  await test('ctx.util gains label, order, rollup and geo, pure and frozen; ctx.space.phases carry their labels', async () => {
+    as = agents[11];
+    const h = (await data())['probe:helpers'].value;
+    assert.equal(h.keys, 'detailLines,geo,id,label,localWhen,objectKey,order,parseYmd,plain,rollup,time,word,ymd');
+    assert.equal(h.label, 'Jottings', 'the module\'s own word, as the manifest names it');
+    assert.equal(h.labelA, 'a jotting');
+    assert.equal(h.labelUnknown, 'thing', 'a key it does not declare answers the fallback');
+    assert.ok(/^[0-9A-Za-z]+$/.test(h.order[0]) && h.order[1] > h.order[0] && h.order[2] === 'before', `order: ${h.order}`);
+    assert.equal(h.orderBad, 'blocked', 'a before that does not sort first throws, as on a page');
+    assert.deepEqual(h.rollup, { a: { done: 2, total: 2 }, c: { done: 1, total: 1 } });
+    assert.deepEqual(h.rollupBy, { a: { done: 0, total: 2 }, c: { done: 0, total: 1 } });
+    assert.deepEqual(h.point, { lat: 38.7075, lng: -9.1364 });
+    assert.equal(h.coords, '38.70750, -9.13640');
+    assert.equal(h.link, 'https://www.openstreetmap.org/?mlat=38.7&mlon=-9.1#map=17/38.7/-9.1', 'no navigator: the ordinary web link');
+    assert.equal(h.navigator, 'undefined');
+    assert.equal(h.geoFrozen, 'frozen');
+    assert.equal(h.geoKept, 'kept');
+    for (const k of ['geoCtor', 'orderCtor']) assert.equal(h[k], 'blocked', `${k}: no code from strings through a helper`);
+    assert.deepEqual(h.phases, [], 'no template phases: none');
+    // A template with phases: each carries its label, as the space shows it.
+    ok(await call('PATCH', '/api/settings', { cookie: admin, body: { template: 'travel' } }), 'the travel template');
+    try {
+      const shown = (await call('GET', '/api/branding')).json.phases;
+      ok(await ask('helpers', {}), 'helpers under travel');
+      const phases = (await data())['probe:helpers'].value.phases;
+      assert.ok(phases.length > 0, 'the travel template has phases');
+      assert.deepEqual(phases, shown.map((p) => ({ id: p.id, label: p.label, main: Boolean(p.main) })), '{ id, label, main } for each, in order');
+      assert.equal((await data())['probe:helpers'].value.label, 'Logs', 'label follows the template\'s renaming');
+    } finally {
+      ok(await call('PATCH', '/api/settings', { cookie: admin, body: { template: 'default' } }), 'back to the default template');
+    }
+  });
+
+  await test('a handler\'s data reaches the agent: the answer, request_status, wait_for_result and MCP', async () => {
+    as = agents[13];
+    // `data.note` is the answer's `note`; the rest of the handler's data comes as `data`.
+    const want = { count: 3, list: ['a', 'b'], nested: { ok: true } };
+    const r = await ask('answerData', {});
+    ok(r, 'answerData');
+    assert.deepEqual(r.json, { id: r.json.id, status: 'done', ok: true, note: 'Here it is.', data: want });
+    const status = await call('GET', `/api/spaces/${camp}/action/${r.json.id}`, T());
+    assert.deepEqual(status.json, { id: r.json.id, status: 'done', ok: true, note: 'Here it is.', data: want }, 'request_status');
+    const waited = await call('GET', `/api/spaces/${camp}/action/${r.json.id}/wait?seconds=1`, T());
+    ok(waited, 'the wait route');
+    assert.deepEqual(waited.json.data, want, 'wait_for_result');
+    const rpc = (method, params) => call('POST', '/mcp', { ...T(), body: { jsonrpc: '2.0', id: 1, method, params } });
+    const viaMcp = JSON.parse((await rpc('tools/call', { name: 'ask_for_change', arguments: { space: camp, action: 'fixture-notes:answerData', input: {} } })).json.result.content[0].text);
+    assert.deepEqual(viaMcp.data, want, 'ask_for_change');
+    const mcpWait = JSON.parse((await rpc('tools/call', { name: 'wait_for_result', arguments: { space: camp, request: viaMcp.id, seconds: 1 } })).json.result.content[0].text);
+    assert.deepEqual(mcpWait.data, want, 'wait_for_result through MCP');
+    const mcpStatus = JSON.parse((await rpc('tools/call', { name: 'request_status', arguments: { space: camp, request: viaMcp.id } })).json.result.content[0].text);
+    assert.deepEqual(mcpStatus.data, want, 'request_status through MCP');
+    faultSentence(await ask('answerData', { big: true }), 'it answered more than the server takes');
+    const failed = await probe('throw');
+    assert.equal(failed.json.data, undefined, 'a refusal carries no data');
+    const noteOnly = await ask('addNote', { title: 'Note only' });
+    assert.equal(noteOnly.json.note, 'Added.');
+    assert.equal(noteOnly.json.data, undefined, 'data that is only the note is not repeated');
+    // A person's own request reads only the outcome, as it did: no data.
+    const mine = await call('POST', `/api/spaces/${camp}/action`, { cookie: miaC, body: { action: 'fixture-notes:answerData', input: {} } });
+    ok(mine, 'Mia asks');
+    assert.equal(mine.json.data, undefined, 'a person\'s request waits for a page and answers no data');
+  });
+
+  await test('a pointer input can be cleared: ref in clears, the bus and the gate keep "" and the handler clears it', async () => {
+    as = agents[12];
+    const { cleanManifest, readZip } = require(path.join(ROOT, 'server', 'modules.js'));
+    const files = await readZip(zipOf(FIXTURE));
+    const raw = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'module.json'), 'utf8'));
+    assert.deepEqual(cleanManifest(structuredClone(raw), files).actions.provides.find((a) => a.name === 'setLink').clears, ['linkTo', 'body'], 'a ref:<module>:<kind>? input may be cleared');
+    const plainRef = structuredClone(raw);
+    plainRef.actions.provides.find((a) => a.name === 'facts').clears.push('other');
+    assert.deepEqual(cleanManifest(plainRef, files).actions.provides.find((a) => a.name === 'facts').clears, ['cleared', 'count', 'other'], 'a plain ref? input may be cleared');
+    const notThat = structuredClone(raw);
+    notThat.actions.provides.find((a) => a.name === 'answerData').clears = ['big'];
+    assert.throws(() => cleanManifest(notThat, files), /clears "big"; only string, text, number, date, ref inputs can be cleared/);
+    const target = (await ask('addNote', { title: 'Target' })).json.ref;
+    const holder = (await ask('addNote', { title: 'Holder', linkTo: target, body: 'Some words' })).json.ref;
+    assert.deepEqual((await data())[`note:${holder.id}`].value.linkTo, target);
+    const cleared = await ask('setLink', { note: holder, linkTo: '', body: '' });
+    ok(cleared, 'setLink with ""');
+    assert.equal(cleared.json.ok, true, cleared.text);
+    assert.equal(cleared.json.note, 'Unlinked.');
+    assert.deepEqual(cleared.json.data, { cleared: true });
+    const after = (await data())[`note:${holder.id}`].value;
+    assert.equal(after.linkTo, undefined, 'the pointer is cleared');
+    assert.equal(after.body, undefined, 'and the text');
+    const kept = await ask('setLink', { note: holder, linkTo: target });
+    ok(kept, 'setLink back');
+    assert.deepEqual((await data())[`note:${holder.id}`].value.linkTo, target);
+    const left = await ask('setLink', { note: holder });
+    ok(left, 'left out');
+    assert.deepEqual((await data())[`note:${holder.id}`].value.linkTo, target, 'a pointer left out is kept');
+    // The gate still checks a pointer that is given: one into a space that is not the agent's is refused.
+    const fortRef = { module: 'fixture-notes', kind: 'note', id: 'fortsecret', scope: 'space', space: fort };
+    const outside = await ask('setLink', { note: holder, linkTo: fortRef });
+    assert.ok(outside.status === 403 || outside.status === 404, `a pointer outside: ${outside.status}`);
+    // A ref the action does not clear: "" is no value, and a required one is still needed.
+    const notCleared = await ask('renameNote', { note: '', title: 'X' });
+    ok(notCleared, 'a required pointer sent as ""', 400);
+    assert.equal(notCleared.json.error, 'note is needed');
+    assert.deepEqual((await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions.find((a) => a.action === 'fixture-notes:setLink').clears, ['linkTo', 'body'], 'list_actions says so');
+  });
+
+  await test('the in-app AI keeps "" for a declared clear (checkToolInput), and drops it for any other', async () => {
+    const { cleanManifest, readZip } = require(path.join(ROOT, 'server', 'modules.js'));
+    const { buildCatalog, checkToolInput } = require(path.join(ROOT, 'server', 'action-catalog.js'));
+    const files = await readZip(zipOf(FIXTURE));
+    const m = cleanManifest(JSON.parse(fs.readFileSync(path.join(FIXTURE, 'module.json'), 'utf8')), files);
+    const tool = buildCatalog([m]).tools.find((t) => t.name === 'fixture-notes__setLink');
+    assert.ok(tool, 'setLink is a tool');
+    assert.deepEqual(tool.clears, ['linkTo', 'body']);
+    assert.equal(tool.schema.properties.body.minLength, undefined, 'a cleared text may be ""');
+    assert.match(tool.schema.properties.body.description, /Send "" to clear it\./);
+    assert.deepEqual([].concat(tool.schema.properties.linkTo.type), ['integer', 'null'], 'a pointer keeps its one real type');
+    assert.deepEqual(checkToolInput(tool, { note: 1, linkTo: null, body: '' }), { ok: true, input: { note: 1, body: '' } }, '"" kept for a declared clear');
+    assert.deepEqual(checkToolInput(tool, { note: 1, linkTo: '', body: '  ' }), { ok: true, input: { note: 1, linkTo: '', body: '' } }, 'a pointer too, and only spaces is ""');
+    assert.deepEqual(checkToolInput(tool, { note: 1, linkTo: null, body: null }), { ok: true, input: { note: 1 } }, 'null is still left out');
+    const add = buildCatalog([m]).tools.find((t) => t.name === 'fixture-notes__renameNote');
+    assert.deepEqual(add.clears, []);
+    assert.equal(checkToolInput(add, { note: '', title: 'X' }).ok, false, 'a required pointer is never cleared');
   });
 
   // --- the Itinerary and the Calendar, carried by the server ------------------------------------------------------------
@@ -704,6 +910,249 @@ try {
     const again = await askIn('todo:unlinkTask', { task, target: event });
     ok(again, 'unlinkTask again', 422);
     assert.equal(again.json.error, 'That task is not linked to that.');
+  });
+
+  // --- links, schedules and a notice in the answer (plan-agent-server-actions.md, section 2, steps 4 and 5) -----------------
+  // The fixture declares the schedule and notify hooks and may link to the Calendar's events; fixture-plain, the same code
+  // bundled under another id, has no hook and may link to nothing. The `effects` action answers whatever its plan names.
+  ok(await call('POST', '/api/modules/bundled/fixture-plain/install', { cookie: admin, body: {} }), 'fixture-plain installs', 201);
+  ok(await call('PATCH', '/api/modules/fixture-plain', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'fixture-plain on');
+  const fxAgents = [];
+  for (let i = 0; i < 5; i += 1) {
+    const a = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
+    fxAgents.push(a);
+    await newToken(a);
+  }
+  for (const id of [camp, lodge]) {
+    const members = (await call('GET', `/api/spaces/${id}`, { cookie: admin })).json.space.members;
+    ok(await call('PATCH', `/api/spaces/${id}`, { cookie: admin, body: { members: [...members, ...fxAgents.map((a) => a.key)] } }), 'the effects agents join');
+  }
+  const fx = (plan, { module = 'fixture-notes', ms, space = camp } = {}) => call('POST', `/api/spaces/${space}/action`, { ...T(), body: { action: `${module}:effects`, input: { plan: JSON.stringify(plan), ...(ms ? { ms } : {}) } } });
+  const noteRef = (id, space = camp, module = 'fixture-notes') => ({ module, kind: 'note', id, scope: 'space', space });
+  const noteWrite = (id, title = id) => ({ key: `note:${id}`, value: { title, byKey: as.key, by: 'Claude' } });
+  const linksNow = () => { try { return JSON.parse(fs.readFileSync(path.join(dir, 'modules', 'links.json'), 'utf8')); } catch { return []; } };
+  const sorted = (list, f) => [...list].sort((a, b) => f(a).localeCompare(f(b)));
+  const linkKey = (l) => JSON.stringify([l.from, l.to]);
+  // Everything a request can touch, to compare before and after a refusal: the notes, the links, the schedules and Mia's notices.
+  const everything = async (module = 'fixture-notes') => {
+    const items = (await call('GET', `/api/modules/${module}/data?scope=space&space=${camp}`, { cookie: miaC })).json.items;
+    return {
+      data: Object.fromEntries(items.map((i) => [i.key, i.value])),
+      links: sorted(linksNow(), linkKey),
+      schedules: sorted(schedules(), (s) => s.id),
+      notices: (await call('GET', '/api/notifications', { cookie: miaC })).json.notifications.length,
+    };
+  };
+  const refusedWhole = async (r, status, sentence, before, module) => {
+    ok(r, sentence, status);
+    assert.equal(r.json.status, 'done');
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.error, sentence);
+    assert.equal(r.json.effects, undefined, 'no effects are reported');
+    assert.deepEqual(await everything(module), before, 'nothing was changed');
+  };
+  const inAnHour = () => Date.now() + 3600 * 1000;
+
+  await test('effects: links, a schedule and a notice in one answer are done by the server, as the agent, and recorded', async () => {
+    as = fxAgents[0];
+    const noticesBefore = (await call('GET', '/api/notifications', { cookie: miaC })).json.notifications.length;
+    const at = inAnHour();
+    const r = await fx({
+      writes: [noteWrite('fxa', 'Alpha'), noteWrite('fxb', 'Beta')],
+      ref: noteRef('fxa'),
+      links: [{ add: { from: noteRef('fxa'), to: noteRef('fxb') } }, { add: { from: noteRef('fxa'), to: event } }],
+      schedules: [{ set: { key: 'remind:fxa', at, about: noteRef('fxa'), payload: { id: 'fxa' }, notify: { title: 'Alpha is due', body: 'Soon' } } }],
+      notify: [{ title: 'New note', body: 'Alpha', about: noteRef('fxa') }],
+    });
+    ok(r, 'effects');
+    assert.equal(r.json.ok, true);
+    assert.deepEqual(r.json.effects, { links: { added: 2, removed: 0 }, schedules: { set: ['remind:fxa'], cancelled: [] }, notified: 2 }, 'the space\'s two people (Mia and the admin who made it) are told, no agent');
+    const mine = linksNow().filter((l) => l.from.module === 'fixture-notes' && l.from.id === 'fxa');
+    assert.deepEqual(sorted(mine, linkKey).map((l) => [l.to.module, l.to.id, l.by]), sorted([{ k: 'calendar', id: event.id }, { k: 'fixture-notes', id: 'fxb' }], (x) => x.k).map((x) => [x.k, x.id, as.key]), 'both links, in the agent\'s name');
+    const s = schedules().find((x) => x.module === 'fixture-notes' && x.key === 'remind:fxa');
+    assert.deepEqual([s.at, s.by, s.spaceId, s.scopeKey, s.ref, s.payload, s.notify], [at, as.key, camp, `space:${camp}`, noteRef('fxa'), { id: 'fxa' }, { to: 'space', title: 'Alpha is due', body: 'Soon' }], 'the schedule, about the note, in the agent\'s name');
+    const notices = (await call('GET', '/api/notifications', { cookie: miaC })).json.notifications;
+    assert.equal(notices.length, noticesBefore + 1, 'Mia is told once');
+    assert.deepEqual([notices[0].module, notices[0].title, notices[0].body, notices[0].by, notices[0].spaceId], ['fixture-notes', 'New note', 'Alpha', as.key, camp], 'the notice, in the agent\'s name');
+    const status = await call('GET', `/api/spaces/${camp}/action/${r.json.id}`, T());
+    assert.deepEqual(status.json.effects, r.json.effects, 'request_status keeps what was done');
+    assert.deepEqual(busFile().actions.find((a) => a.id === r.json.id).result.effects, r.json.effects, 'and so does the stored request');
+    // Mia's page sees the link as any link.
+    const seen = await call('GET', `/api/objects/links?from=fixture-notes&dir=from&ref=${encodeURIComponent(JSON.stringify(noteRef('fxa')))}`, { cookie: miaC });
+    ok(seen, 'a page reads the links');
+    // Adding a link it already holds, and removing one it does not, change nothing and are not counted.
+    const again = await fx({ links: [{ add: { from: noteRef('fxa'), to: noteRef('fxb') } }, { remove: { from: noteRef('fxb'), to: noteRef('fxa') } }] });
+    ok(again, 'again');
+    assert.equal(again.json.effects, undefined);
+    const off = await fx({ links: [{ remove: { from: noteRef('fxa'), to: noteRef('fxb') } }], schedules: [{ cancel: { key: 'remind:fxa' } }, { cancel: { key: 'never-set' } }] });
+    ok(off, 'remove and cancel');
+    assert.deepEqual(off.json.effects, { links: { added: 0, removed: 1 }, schedules: { set: [], cancelled: ['remind:fxa'] } });
+    assert.ok(!schedules().some((x) => x.module === 'fixture-notes' && x.key === 'remind:fxa'));
+    assert.deepEqual(linksNow().filter((l) => l.from.module === 'fixture-notes' && l.from.id === 'fxa').map((l) => l.to.module), ['calendar'], 'the other link stays');
+  });
+
+  await test('effects: more than 5 links, 5 schedules or 1 notice, or a shape the server does not know, is refused and nothing changes', async () => {
+    as = fxAgents[1];
+    const before = await everything();
+    const w = [noteWrite('fxcap')];
+    const link = (i) => ({ add: { from: noteRef('fxa'), to: noteRef(`x${i}`) } });
+    const sched = (i) => ({ set: { key: `k${i}`, at: inAnHour(), about: noteRef('fxa') } });
+    const cases = [
+      [{ writes: w, links: [0, 1, 2, 3, 4, 5].map(link) }, 'it tried to change more than 5 links at once'],
+      [{ writes: w, schedules: [0, 1, 2, 3, 4, 5].map(sched) }, 'it tried to set or cancel more than 5 reminders at once'],
+      [{ writes: w, notify: [{ title: 'One' }, { title: 'Two' }] }, 'it tried to send more than 1 notice at once'],
+      [{ writes: w, links: [{ add: { from: noteRef('fxa'), to: noteRef('fxb'), as: 'admin' } }] }, 'it answered something the server can\'t use'],
+      [{ writes: w, links: [{ add: { from: noteRef('fxa'), to: noteRef('fxb') }, remove: { from: noteRef('fxa'), to: event } }] }, 'it answered something the server can\'t use'],
+      [{ writes: w, links: [{ add: { from: { ...noteRef('fxa'), by: mia.key }, to: noteRef('fxb') } }] }, 'it answered something the server can\'t use'],
+      [{ writes: w, schedules: [{ set: { key: 'k', at: inAnHour(), about: noteRef('fxa'), by: mia.key } }] }, 'it answered something the server can\'t use'],
+      [{ writes: w, schedules: [{ set: { key: 'k', at: inAnHour(), about: noteRef('fxa') } }, { cancel: { key: 'k' } }] }, 'it answered something the server can\'t use'],
+      [{ writes: w, schedules: [{ set: { key: 'bad key', at: inAnHour(), about: noteRef('fxa') } }] }, 'it answered something the server can\'t use'],
+      [{ writes: w, schedules: [{ set: { key: 'k', at: inAnHour(), about: noteRef('fxa'), payload: 'x'.repeat(4100) } }] }, 'it answered something the server can\'t use'],
+      [{ writes: w, notify: [{ title: 'One', module: 'todo' }] }, 'it answered something the server can\'t use'],
+      [{ writes: w, notify: { title: 'One' } }, 'it answered something the server can\'t use'],
+      [{ writes: w, effects: { links: [] } }, 'it answered something the server can\'t use'],
+      // Someone else's object: a link from another module's object, or from a note in another space; a schedule or a notice
+      // about one.
+      [{ writes: w, links: [{ add: { from: task, to: noteRef('fxa') } }] }, 'it tried to link from something that is not its own in this space'],
+      [{ writes: w, links: [{ remove: { from: event, to: noteRef('fxa') } }] }, 'it tried to link from something that is not its own in this space'],
+      [{ writes: w, links: [{ add: { from: noteRef('lodgenote', lodge), to: noteRef('fxa') } }] }, 'it tried to link from something that is not its own in this space'],
+      [{ writes: w, schedules: [{ set: { key: 'k', at: inAnHour(), about: task } }] }, 'it tried to set a reminder or send a notice about something that is not its own in this space'],
+      [{ writes: w, schedules: [{ set: { key: 'k', at: inAnHour() } }] }, 'it tried to set a reminder or send a notice about something that is not its own in this space'],
+      [{ writes: w, notify: [{ title: 'One', about: noteRef('fortsecret', fort) }] }, 'it tried to set a reminder or send a notice about something that is not its own in this space'],
+    ];
+    for (const [plan, words] of cases) {
+      faultSentence(await fx(plan), words);
+      assert.deepEqual(await everything(), before, `nothing was changed: ${words}`);
+    }
+  });
+
+  await test('effects: what the agent may not see or reach is refused with one sentence, and the writes are put back', async () => {
+    as = fxAgents[2];
+    ok(await call('PUT', `/api/modules/fixture-notes/data/note:lodgenote?scope=space&space=${lodge}`, { cookie: miaC, body: { value: { title: 'In the Lodge' } } }), 'a note in the Lodge');
+    const before = await everything();
+    const w = [noteWrite('fxc')];
+    const from = noteRef('fxc'); // made by this very request
+    const HERE = 'Nothing was changed: a link can only be to an object in this space.';
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from, to: noteRef('fortsecret', fort) } }] }), 403, HERE, before);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from, to: noteRef('lodgenote', lodge) } }] }), 403, HERE, before);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from, to: { module: 'fixture-notes', kind: 'note', id: 'fxa', scope: 'environment' } } }] }), 403, HERE, before);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from, to: task } }] }), 403, 'Nothing was changed: that module has not been approved to link to those objects.', before);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from, to: noteRef('nosuchnote') } }] }), 404, 'Nothing was changed: that object is no longer there.', before);
+    await refusedWhole(await fx({ links: [{ add: { from: noteRef('nosuchnote'), to: noteRef('fxa') } }] }), 404, 'Nothing was changed: that object is no longer there.', before);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from, to: { module: 'fixture-notes', kind: 'note', id: 'fxa', scope: 'person' } } }] }), 400, 'Nothing was changed: personal objects are private, so they are not linked.', before);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from, to: from } }] }), 400, 'Nothing was changed: an object is not linked to itself.', before);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from, to: { module: 'fixture-notes', kind: 'note', id: '../x y', scope: 'space', space: camp } } }] }), 400, 'Nothing was changed: Fixture notes named an object to link that is not a valid pointer.', before);
+    await refusedWhole(await fx({ writes: w, schedules: [{ set: { key: 'k', at: inAnHour(), about: noteRef('nosuchnote') } }] }), 404, 'Nothing was changed: that object is no longer there.', before);
+    await refusedWhole(await fx({ writes: w, notify: [{ title: 'One', about: noteRef('nosuchnote') }] }), 404, 'Nothing was changed: that object is no longer there.', before);
+    const TO = 'Nothing was changed: a notice from an agent\'s request goes to this space or to one of its members.';
+    await refusedWhole(await fx({ writes: w, notify: [{ title: 'To everyone', to: 'environment' }] }), 400, TO, before);
+    await refusedWhole(await fx({ writes: w, notify: [{ title: 'To a stranger', to: 'nobody-here' }] }), 400, TO, before);
+    await refusedWhole(await fx({ writes: w, schedules: [{ set: { key: 'k', at: inAnHour(), about: from, notify: { title: 'Later', to: 'environment' } } }] }), 400, TO, before);
+    await refusedWhole(await fx({ writes: w, schedules: [{ set: { key: 'k', at: 'not a time', about: from } }] }), 400, 'Nothing was changed: "at" must be a time (milliseconds or an ISO date).', before);
+    await refusedWhole(await fx({ writes: w, schedules: [{ set: { key: 'k', at: Date.now() + 800 * 24 * 3600 * 1000, about: from } }] }), 400, 'Nothing was changed: that is more than a year away.', before);
+    // A notice to one member of the space is theirs alone.
+    const one = await fx({ notify: [{ title: 'For Mia', to: mia.key }] });
+    ok(one, 'to a member');
+    assert.deepEqual(one.json.effects, { notified: 1 });
+  });
+
+  await test('effects: a module without the hook, or not approved to link, is refused; a link between its own objects still works', async () => {
+    as = fxAgents[4];
+    const P = 'fixture-plain';
+    const before = await everything(P);
+    const w = [noteWrite('pa'), noteWrite('pb')];
+    const pa = noteRef('pa', camp, P);
+    await refusedWhole(await fx({ writes: w, schedules: [{ set: { key: 'k', at: inAnHour(), about: pa } }] }, { module: P }), 403, 'Nothing was changed: Fixture plain did not ask for the schedule hook.', before, P);
+    await refusedWhole(await fx({ writes: w, schedules: [{ cancel: { key: 'k' } }] }, { module: P }), 403, 'Nothing was changed: Fixture plain did not ask for the schedule hook.', before, P);
+    await refusedWhole(await fx({ writes: w, notify: [{ title: 'One' }] }, { module: P }), 403, 'Nothing was changed: Fixture plain did not ask for the notify hook.', before, P);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from: pa, to: event } }] }, { module: P }), 403, 'Nothing was changed: that module has not been approved to link to those objects.', before, P);
+    await refusedWhole(await fx({ writes: w, links: [{ add: { from: pa, to: noteRef('fxa') } }] }, { module: P }), 403, 'Nothing was changed: that module has not been approved to link to those objects.', before, P);
+    // A link between its own objects needs no approval and no hook.
+    const r = await fx({ writes: w, links: [{ add: { from: pa, to: noteRef('pb', camp, P) } }] }, { module: P });
+    ok(r, 'its own link');
+    assert.deepEqual(r.json.effects, { links: { added: 1, removed: 0 } });
+  });
+
+  await test('effects: when a later effect fails, the writes, the links and the schedules before it are all put back', async () => {
+    as = fxAgents[0]; // Alpha's maker
+    // A page's schedule about Alpha, which a change to Alpha takes off; and Alpha's link to the Calendar's event.
+    ok(await call('POST', `/api/modules/fixture-notes/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: 'page:fxa', at: inAnHour(), payload: { id: 'fxa' }, ref: noteRef('fxa'), notify: { title: 'Alpha', body: 'From a page' } } }), 'a page sets a schedule about Alpha');
+    ok(await call('POST', `/api/modules/fixture-notes/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: 'page:keep', at: inAnHour(), payload: {} } }), 'and one about nothing');
+    const before = await everything();
+    assert.ok(before.schedules.some((s) => s.key === 'page:fxa') && before.links.some((l) => l.from.id === 'fxa' && l.to.module === 'calendar'));
+    const alpha = { ...before.data['note:fxa'], title: 'Alpha, renamed' };
+    const plan = (last) => ({
+      writes: [{ key: 'note:fxa', value: alpha }, noteWrite('fxd')],
+      links: [{ add: { from: noteRef('fxd'), to: noteRef('fxa') } }, { remove: { from: noteRef('fxa'), to: event } }, { add: { from: noteRef('fxa'), to: noteRef('fxb') } }],
+      schedules: [{ set: { key: 'remind:fxd', at: inAnHour(), about: noteRef('fxd') } }, { set: { key: 'page:keep', at: inAnHour() + 5000, about: noteRef('fxd') } }, { cancel: { key: 'page:fxa' } }],
+      ...last,
+    });
+    // The last schedule can't be set (its time has passed); then the notice can't be sent (not to this space).
+    const late = plan({});
+    late.schedules = [...late.schedules.slice(0, 2), { set: { key: 'remind:late', at: Date.now() - 3600 * 1000, about: noteRef('fxa') } }];
+    await refusedWhole(await fx(late), 400, 'Nothing was changed: that time has already passed.', before);
+    await refusedWhole(await fx(plan({ notify: [{ title: 'Renamed', to: 'environment' }] })), 400, 'Nothing was changed: a notice from an agent\'s request goes to this space or to one of its members.', before);
+    // A write refused by the module's guards, after which no effect is tried.
+    const guarded = plan({});
+    guarded.writes.push({ key: 'zzz:9', value: {} });
+    const g = await fx(guarded);
+    ok(g, 'a key the guards do not name', 400);
+    assert.deepEqual(await everything(), before, 'nothing was changed');
+    // The same plan with nothing wrong is done whole.
+    const done = await fx(plan({ notify: [{ title: 'Renamed' }] }));
+    ok(done, 'the whole plan');
+    assert.deepEqual(done.json.effects, { links: { added: 2, removed: 1 }, schedules: { set: ['remind:fxd', 'page:keep'], cancelled: ['page:fxa'] }, notified: 2 });
+    const after = await everything();
+    assert.equal(after.data['note:fxa'].title, 'Alpha, renamed');
+    assert.deepEqual(sorted(after.schedules.filter((s) => s.module === 'fixture-notes'), (s) => s.key).map((s) => [s.key, s.by, s.ref?.id || null]), [['page:keep', as.key, 'fxd'], ['remind:fxd', as.key, 'fxd']]);
+  });
+
+  await test('effects: in a space closed for set up, or closed while the handler ran, nothing is linked, scheduled or sent', async () => {
+    as = fxAgents[3];
+    const lodgeState = async () => ({
+      data: (await call('GET', `/api/modules/fixture-notes/data?scope=space&space=${lodge}`, { cookie: admin })).json.items.map((i) => i.key).sort(),
+      links: linksNow().filter((l) => l.from.space === lodge || l.to.space === lodge).length,
+      schedules: schedules().filter((s) => s.spaceId === lodge).length,
+      notices: (await call('GET', '/api/notifications', { cookie: miaC })).json.notifications.length,
+    });
+    const plan = { writes: [noteWrite('fxl')], links: [{ add: { from: noteRef('fxl', lodge), to: noteRef('lodgenote', lodge) } }], schedules: [{ set: { key: 'remind:fxl', at: inAnHour(), about: noteRef('fxl', lodge), notify: { title: 'Lodge' } } }], notify: [{ title: 'In the Lodge' }] };
+    const before = await lodgeState();
+    ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { closed: true } }), 'the Lodge closes');
+    const ids = busIds();
+    const shut = await fx(plan, { space: lodge });
+    assert.ok(shut.status === 403 || shut.status === 404, `a closed space: ${shut.status} ${shut.text}`);
+    assert.deepEqual(busIds(), ids, 'no request was made');
+    assert.deepEqual(await lodgeState(), before, 'nothing in the closed space');
+    ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { closed: false } }), 'the Lodge opens');
+    const slow = fx(plan, { space: lodge, ms: 700 });
+    await sleep(250);
+    ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { closed: true } }), 'the Lodge closes while the handler runs');
+    const r = await slow;
+    assert.ok(r.status === 403 || r.status === 404, `closed meanwhile: ${r.status} ${r.text}`);
+    assert.equal(r.json.ok, false);
+    assert.deepEqual(await lodgeState(), before, 'nothing was changed');
+    ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { closed: false } }), 'the Lodge opens again');
+    const open = await fx(plan, { space: lodge });
+    ok(open, 'open again');
+    assert.deepEqual(open.json.effects, { links: { added: 1, removed: 0 }, schedules: { set: ['remind:fxl'], cancelled: [] }, notified: 2 });
+  });
+
+  await test('effects: the handler still has no network, no environment and no way to load a module', async () => {
+    as = fxAgents[1];
+    const r = await probe('network');
+    ok(r, 'the probe');
+    assert.deepEqual((await data())['probe:network'].value, { fetch: 'undefined', XMLHttpRequest: 'undefined', WebSocket: 'undefined', EventSource: 'undefined', navigator: 'undefined', require: 'undefined', process: 'undefined', env: 'blocked', imports: 'blocked,blocked,blocked,blocked,blocked,blocked' });
+    // What it answers is data: a function, a getter or a pointer to a service in `links`, `schedules` or `notify` is not carried out.
+    const { effectsOf } = require(path.join(ROOT, 'server', 'action-effects.js'));
+    const own = (ref) => ref.module === 'fixture-notes' && ref.space === 'here';
+    const mine = { module: 'fixture-notes', kind: 'note', id: 'a', scope: 'space', space: 'here' };
+    assert.deepEqual(effectsOf({}, { own }), { links: [], schedules: [], notify: [] });
+    assert.equal(effectsOf({ links: [{ add: { from: mine, to: Object.create({ module: 'x' }) } }] }, { own }).fault, 'result');
+    assert.equal(effectsOf({ links: [{ add: { from: { ...mine, id: 7 }, to: mine } }] }, { own }).fault, 'result');
+    assert.equal(effectsOf({ schedules: [{ set: { key: 'k', at: Infinity, about: mine } }] }, { own }).fault, 'result');
+    assert.equal(effectsOf({ schedules: [{ set: { key: 'k', at: 1, about: mine, repeat: { every: 'day', run: 'x' } } }] }, { own }).fault, 'result');
+    assert.equal(effectsOf({ notify: [{ title: '   ' }] }, { own }).fault, 'result');
+    assert.equal(effectsOf({ notify: [{ title: 'x'.repeat(401) }] }, { own }).fault, 'result');
   });
 
   await test('the same request through an uploaded copy of To-do waits for a page and never reaches the runner', async () => {

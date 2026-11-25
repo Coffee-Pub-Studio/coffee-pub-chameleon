@@ -6,18 +6,19 @@
  * tools/module-actions-harness.mjs, expecting the same answer. Then addGoal, addStep and addNote as before (a step moves its
  * goal's progress in the same request), updateGoal (only the fields given, "" clears, a step moved under another goal) and
  * setGoalDone (a goal whose progress is its steps has no tick of its own), and what the page hands beside the runner's ctx:
- * the plan's settings, host.util's order and label, the phases' names. Goals declares no actions.server: the runner gives none
- * of those yet. Exits 1 on failure.
+ * the plan's settings, host.util's order and label, the phases' names. The runner's ctx has them too now (plan-agent-server-
+ * actions.md, step 1: ctx.settings, ctx.util.order and label), and Goals declares actions.server: every handler is run both ways, the runner with carrier 'server', and gives the same answer. Exits 1 on failure.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { both, onPage, handlersOf, library } from '../../../tools/module-actions-harness.mjs';
+import { onPage, onRunner, handlersOf, library } from '../../../tools/module-actions-harness.mjs';
 
 let n = 0;
 const test = async (name, fn) => { try { await fn(); n += 1; } catch (e) { process.exitCode = 1; console.error(`FAIL ${name}\n${e.stack || e}`); } };
 const timeless = (writes) => (writes || []).slice().sort((a, b) => (a.key < b.key ? -1 : 1)).map((w) => ({ key: w.key, value: { ...w.value, createdAt: typeof w.value.createdAt } }));
 async function same(action, input, world) {
-  const r = await both('goals', action, input, world, { name: 'Planner - Goals', kinds: ['plan'] });
+  // The runner as the server's own: carrier 'server', so a handler that leaves work for a page must say so (none may).
+  const r = { page: await onPage('goals', action, input, world, { name: 'Planner - Goals', kinds: ['plan'] }), runner: await onRunner('goals', action, input, world, { ...{ name: 'Planner - Goals', kinds: ['plan'] }, carrier: 'server' }) };
   assert.ok(!r.runner.fault, `${action}: the runner faulted (${r.runner.fault})`);
   if (r.page.refused !== undefined || r.runner.refused !== undefined) {
     assert.equal(r.runner.refused, r.page.refused, `${action}: the same refusal`);
@@ -49,7 +50,7 @@ const onThePage = (action, input, o, rows = ROWS) => onPage('goals', action, inp
 await test('addGoal: the same both ways, credited to the asker\'s key, owners by name', async () => {
   const r = await same('addGoal', { title: 'Ship it', why: 'Because', date: '2027-01-02', owners: 'ana reyes, u-bo' }, world());
   assert.deepEqual(keys(r), ['plan:n1']);
-  assert.deepEqual({ ...written(r, 'n1'), createdAt: 0 }, { kind: 'goal', title: 'Ship it', parent: null, date: '2027-01-02', shownDate: '2027-01-02', why: 'Because', owners: ['u-ana', 'u-bo'], done: false, progress: 0, createdAt: 0, by: 'agent1' });
+  assert.deepEqual({ ...written(r, 'n1'), createdAt: 0 }, { kind: 'goal', title: 'Ship it', parent: null, order: 'X', date: '2027-01-02', shownDate: '2027-01-02', why: 'Because', owners: ['u-ana', 'u-bo'], done: false, progress: 0, createdAt: 0, by: 'agent1' }, 'ctx.util.order both ways: after its last sibling (W)');
   assert.deepEqual(r.ref, ref('n1'));
   await refuses('addGoal', { title: 'Ship it', owners: 'Zed' }, world(), 'That person is not in this space. Use list_members to see who is.');
   await refuses('addGoal', { title: ' ' }, world(), 'Give it a title.');
@@ -157,7 +158,7 @@ await test('on the page: the plan\'s settings, host.util\'s order and label, and
   assert.match(page, /phases: phases\(\)\.map\(\(p\) => \(\{ id: p\.id, main: Boolean\(p\.main\), label: p\.label \}\)\)/);
 });
 
-await test('the manifest: updateGoal and setGoalDone, within the caps; no actions.server yet', async () => {
+await test('the manifest: updateGoal and setGoalDone, within the caps; actions.server is the library', async () => {
   const m = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
   const act = (name) => m.actions.provides.find((a) => a.name === name);
   assert.deepEqual(act('updateGoal').input, { entry: 'ref:goals:plan', title: 'string?', why: 'text?', date: 'date?', owners: 'text?', text: 'text?', goal: 'ref:goals:plan?' });
@@ -166,7 +167,7 @@ await test('the manifest: updateGoal and setGoalDone, within the caps; no action
     assert.match(a.description, /^[^.]+\.$/, `${a.name}: one sentence`);
     for (const [k, v] of Object.entries(a.inputHints || {})) assert.ok(k in a.input && v.length <= 200, `${a.name}.${k}`);
   }
-  assert.equal(m.actions.server, undefined, 'carried on the page until the runner gives what the handlers read');
+  assert.equal(m.actions.server, 'src/goals-lib-actions.js', 'carried out on the server too');
   const lib = library('goals').js;
   for (const name of m.actions.provides.filter((a) => !a.local).map((a) => a.name)) assert.match(lib, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
 });

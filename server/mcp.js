@@ -168,7 +168,7 @@ const TOOLS = [
   {
     name: 'ask_for_change',
     title: 'Ask a module for a change',
-    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }, under its own rules and your rights; read the action\'s description and hints in list_actions first. Where list_actions says now: true, it is done at once: the answer has ok, ref (what it made or changed) or the module\'s error; otherwise it waits for a person to open that module (see request_status, wait_for_result). Adds and edits are direct; the people who run the space see them and may undo them for seven days. Counts as a write.',
+    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }, under its rules and your rights; read its description and hints in list_actions first. Where list_actions says now: true, it is done at once: the answer has ok, ref (what it changed), note and data (when the module says more) or the module\'s error. Otherwise it waits (up to seven days) for a person to open that module, as waiting says; see request_status, wait_for_result. Adds and edits are direct; the people who run the space may undo them for seven days. Counts as a write.',
     inputSchema: object({
       space: SPACE,
       action: { type: 'string', minLength: 3, maxLength: 100, description: '<module>:<name>, from list_actions.' },
@@ -180,7 +180,7 @@ const TOOLS = [
   {
     name: 'request_status',
     title: 'How a request went',
-    description: 'How one of your own requests from ask_for_change went: pending or claimed (with waiting, saying what it waits for), done (with ok, and error or note, and ref, the pointer of what it made or changed) or expired. Kept for ten minutes after it finished.',
+    description: 'How one of your own requests from ask_for_change went: pending or claimed (with waiting, saying what it waits for), done (with ok, and error or note, ref, the pointer of what it made or changed, and data, what the module says back when it says more) or expired. Kept for ten minutes after it finished.',
     inputSchema: object({ space: SPACE, request: { type: 'integer', minimum: 1, description: 'The request id ask_for_change gave.' } }, ['space', 'request']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/action/${seg(a.request)}` }),

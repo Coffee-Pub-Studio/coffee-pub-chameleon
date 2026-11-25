@@ -503,8 +503,10 @@ function cleanTakes(raw, action, permissionKeys) {
   });
 }
 
-// The input types an action may declare in `clears`.
-const CLEARABLE_TYPES = ['string', 'text', 'number', 'date'];
+// The input types an action may declare in `clears`: `ref` covers every pointer type (`ref` and `ref:<module>:<kind>`), so a
+// pointer can be cleared (plan-agent-server-actions.md, section 6: Goals moving a note back to the top level).
+const CLEARABLE_TYPES = ['string', 'text', 'number', 'date', 'ref'];
+const clearableType = (base) => CLEARABLE_TYPES.includes(base) || base.startsWith('ref:');
 
 // `permissionKeys`: the keys of the module's own permissions, which a `takes` entry may name.
 function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
@@ -580,7 +582,7 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
     if (p.askerOnly && p.local === true) throw new ModuleError(`module.json: action "${name}" is local, which is already for the asker only`);
     // `clears` (plan-agent-edit-delete.md, "The contract", 1: "An empty text field clears it; a field left out is kept"): the
     // optional inputs a request may send as "" to clear them. The bus hands the action "" for those and leaves every other ""
-    // out, as before. Only a string, text, number or date can be cleared.
+    // out, as before. Only a string, text, number, date or pointer can be cleared.
     const clears = [];
     if (p.clears !== undefined) {
       if (!Array.isArray(p.clears) || p.clears.some((f) => typeof f !== 'string')) throw new ModuleError(`module.json: action "${name}" clears must be a list of its input names`);
@@ -588,7 +590,7 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
         const type = Object.prototype.hasOwnProperty.call(input, f) ? input[f] : null;
         if (!type) throw new ModuleError(`module.json: action "${name}" clears "${f}", which is not one of its inputs`);
         if (!type.endsWith('?')) throw new ModuleError(`module.json: action "${name}" clears "${f}", which is required; only an optional input can be cleared`);
-        if (!CLEARABLE_TYPES.includes(type.slice(0, -1))) throw new ModuleError(`module.json: action "${name}" clears "${f}"; only ${CLEARABLE_TYPES.join(', ')} inputs can be cleared`);
+        if (!clearableType(type.slice(0, -1))) throw new ModuleError(`module.json: action "${name}" clears "${f}"; only ${CLEARABLE_TYPES.join(', ')} inputs can be cleared`);
         if (!clears.includes(f)) clears.push(f);
       }
     }
@@ -768,6 +770,44 @@ function cleanGeocoder(raw, settings) {
   const out = { provider: raw.provider, address: raw.address, save: known(raw.save, 'boolean') ? raw.save : '', custom: typeof raw.custom === 'string' ? raw.custom.slice(0, 40) : 'custom', providers: {} };
   for (const [k, v] of Object.entries(raw.providers && typeof raw.providers === 'object' ? raw.providers : {}).slice(0, 5)) {
     if (!/^[a-z][a-z0-9-]{0,23}$/.test(k) || !v || typeof v.address !== 'string' || !/^https:\/\/[^\s]{1,300}$/.test(v.address)) throw new ModuleError(`module.json: geocoder provider "${k}" needs an https address`);
+    out.providers[k] = { address: v.address, credit: text(v.credit, 100), name: text(v.name, 30) || k };
+  }
+  return out;
+}
+
+// A module whose days get the weather from the server (documentation/plans/plan-itinerary-weather.md): which of its settings
+// choose the service (`provider`, a choice; `address`, a url, used when the provider is `custom`; `key`, an optional secret;
+// `units`, an optional choice of c or f), the preset services (https only, at most 5), and where the server reads the days'
+// places in the module's own stored data: `stops` (the stored values under `prefix`, each with a `day`, optionally a `time`
+// and an `order`, and a `place` pointer to an object whose summary has a position) and `main` (one stored `key` with the
+// main place as text in `place`, and optionally the first and last day in `from` and `to`).
+const WEATHER_FIELD = /^[a-zA-Z][a-zA-Z0-9]{0,29}$/;
+const WEATHER_KEY = /^[a-z][a-zA-Z0-9:_-]{0,59}$/;
+function cleanWeather(raw, settings, scope) {
+  if (!raw || typeof raw !== 'object') return null;
+  const known = (k, type) => typeof k === 'string' && settings.some((d) => d.key === k && d.type === type && (d.scope || 'environment') === 'environment');
+  if (!known(raw.provider, 'choice') || !known(raw.address, 'url')) throw new ModuleError('module.json: weather needs a `provider` choice setting and an `address` url setting, both for the environment');
+  if (raw.key !== undefined && !known(raw.key, 'secret')) throw new ModuleError('module.json: weather `key` must name a secret setting');
+  if (raw.units !== undefined && !known(raw.units, 'choice')) throw new ModuleError('module.json: weather `units` must name a choice setting');
+  if (!Array.isArray(scope) || !scope.includes('space')) throw new ModuleError('module.json: weather needs the "space" scope');
+  const field = (v, what, optional) => {
+    if (optional && (v === undefined || v === null || v === '')) return '';
+    if (typeof v !== 'string' || !WEATHER_FIELD.test(v)) throw new ModuleError(`module.json: weather ${what} must be a field name`);
+    return v;
+  };
+  const st = raw.stops && typeof raw.stops === 'object' ? raw.stops : null;
+  const mn = raw.main && typeof raw.main === 'object' ? raw.main : null;
+  if (!st && !mn) throw new ModuleError('module.json: weather needs `stops` or `main`, to say where a day is');
+  if (st && (typeof st.prefix !== 'string' || !WEATHER_KEY.test(st.prefix))) throw new ModuleError('module.json: weather stops need a `prefix`, the start of their stored keys');
+  if (mn && (typeof mn.key !== 'string' || !WEATHER_KEY.test(mn.key))) throw new ModuleError('module.json: weather main needs a `key`, the stored key it is read from');
+  const out = {
+    provider: raw.provider, address: raw.address, key: raw.key || '', units: raw.units || '',
+    custom: typeof raw.custom === 'string' ? raw.custom.slice(0, 40) : 'custom', providers: {},
+    stops: st ? { prefix: st.prefix, day: field(st.day, 'stops `day`'), time: field(st.time, 'stops `time`', true), order: field(st.order, 'stops `order`', true), place: field(st.place, 'stops `place`') } : null,
+    main: mn ? { key: mn.key, place: field(mn.place, 'main `place`', true), from: field(mn.from, 'main `from`', true), to: field(mn.to, 'main `to`', true) } : null,
+  };
+  for (const [k, v] of Object.entries(raw.providers && typeof raw.providers === 'object' ? raw.providers : {}).slice(0, 5)) {
+    if (!/^[a-z][a-z0-9-]{0,23}$/.test(k) || !v || typeof v.address !== 'string' || !/^https:\/\/[^\s]{1,300}$/.test(v.address)) throw new ModuleError(`module.json: weather provider "${k}" needs an https address`);
     out.providers[k] = { address: v.address, credit: text(v.credit, 100), name: text(v.name, 30) || k };
   }
   return out;
@@ -1057,6 +1097,7 @@ function cleanManifest(raw, files) {
   if (raw.starter === true && !scope.includes('space')) throw new ModuleError('module.json: starter needs the "space" scope, since starter content is written into a new space');
   const starter = raw.starter === true;
   const geocoder = cleanGeocoder(raw.geocoder, settings);
+  const weather = cleanWeather(raw.weather, settings, scope);
   const regionSource = cleanRegionSource(raw.regionSource, settings);
   const pictureMap = cleanPictureMap(raw.pictureMap, settings);
   const uploads = cleanUploads(raw.uploads);
@@ -1095,7 +1136,7 @@ function cleanManifest(raw, files) {
   if (raw.content !== undefined && raw.content !== 'padded' && raw.content !== 'flush') throw new ModuleError('module.json: content must be "padded" or "flush"');
   const content = raw.content === 'flush' ? 'flush' : 'padded';
 
-  return { id, name, version, description: text(raw.description, 200), author: text(raw.author, 60), icon, color, scope, surfaces, permissions, hooks, refs, storage, guards, events, actions, commands, access, settings, requires, geocoder, uploads, library, regionSource, pictureMap, lookups, budget, tags, content, install, live, labels, starter };
+  return { id, name, version, description: text(raw.description, 200), author: text(raw.author, 60), icon, color, scope, surfaces, permissions, hooks, refs, storage, guards, events, actions, commands, access, settings, requires, geocoder, weather, uploads, library, regionSource, pictureMap, lookups, budget, tags, content, install, live, labels, starter };
 }
 
 // The sentence for a zip's pages that draw or restyle what the host draws (server/module-layout.js), or null when they do not.
@@ -1298,6 +1339,7 @@ class ModuleManager {
       try { manifest.labels = cleanLabels(manifest.labels, (sentence) => new ModuleError(sentence)); } catch { manifest.labels = {}; }
       manifest.starter = manifest.starter === true && manifest.scope.includes('space');
       try { manifest.geocoder = cleanGeocoder(manifest.geocoder, manifest.settings); } catch { manifest.geocoder = null; }
+      try { manifest.weather = cleanWeather(manifest.weather, manifest.settings, manifest.scope); } catch { manifest.weather = null; }
       try { manifest.regionSource = cleanRegionSource(manifest.regionSource, manifest.settings); } catch { manifest.regionSource = null; }
       try { manifest.pictureMap = cleanPictureMap(manifest.pictureMap, manifest.settings); } catch { manifest.pictureMap = null; }
       try { manifest.uploads = cleanUploads(manifest.uploads); } catch { manifest.uploads = null; }
@@ -1740,4 +1782,4 @@ class ModuleManager {
   }
 }
 
-module.exports = { ModuleManager, ModuleError, cleanLive, fillManifest, manifestTexts, cleanManifest, cleanCommands, TINTS, cleanStorage, oldNameIn, OUTDATED, permissionDefaults, pendingWidensNothing, hookGranted, PERMISSION_KEY_RE, readZip, compareVersions, LIMITS };
+module.exports = { ModuleManager, ModuleError, cleanWeather, cleanLive, fillManifest, manifestTexts, cleanManifest, cleanCommands, TINTS, cleanStorage, oldNameIn, OUTDATED, permissionDefaults, pendingWidensNothing, hookGranted, PERMISSION_KEY_RE, readZip, compareVersions, LIMITS };

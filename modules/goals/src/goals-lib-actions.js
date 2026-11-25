@@ -1,12 +1,11 @@
 
 // Planner - Goals' actions: what an agent or another module may ask of it (plan-agent-edit-delete.md, decision 4 and step 2).
-// One copy of each rule, run on the page (host.actions.fromLibrary, goals.js) and, once the server gives what it reads, by the
+// One copy of each rule, run on the page (host.actions.fromLibrary, goals.js) and by the
 // server's runner (server/module-actions.js). No page in it: each handler reads the plan through `ctx` and answers what to
 // write, the entry itself and the goal whose progress it moves (as goals.js add, update and syncEntry write them). A throw is
 // the refusal; its message is the sentence the asker reads. It expects goals-lib.js (GoalsLib) in scope.
 //
-// Beside the runner's ctx it reads what the page hands it (goals.js) and the server's runner does not give yet, so Goals
-// declares no actions.server:
+// Beside the runner's ctx it reads what the page hands it (goals.js); the server's runner gives each of them too:
 //   ctx.settings      the plan's settings as host.settings.get() gives them ({ dates, progressBy }): whether dates show
 //                     (shownDate) and whether a goal's progress is its steps or its own tick;
 //   ctx.util.order    host.util.order, a new entry's place after its siblings (without it an entry has no order: it sorts last);

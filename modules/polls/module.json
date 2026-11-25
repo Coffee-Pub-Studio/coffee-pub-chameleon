@@ -153,6 +153,7 @@
     ]
   },
   "actions": {
+    "server": "src/polls-lib-actions.js",
     "provides": [
       {
         "name": "draftPoll",

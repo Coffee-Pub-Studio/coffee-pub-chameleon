@@ -229,6 +229,25 @@ class ModuleHooks extends EventEmitter {
     return gone.map((s) => s.key);
   }
 
+  // The stored schedule of `module` in `scopeKey` under `key` (a copy), or null; those that say they are about `ref`
+  // (copies); and schedules put back as they were: each of `list` ({ key, record }) is replaced by its record, or taken
+  // off where the record is null. For a request that is undone whole (server/action-effects.js).
+  record(module, scopeKey, key) {
+    const s = this.schedules.find((x) => x.id === this.id(module, scopeKey, key));
+    return s ? JSON.parse(JSON.stringify(s)) : null;
+  }
+
+  about(module, scopeKey, ref) {
+    const same = (r) => Boolean(r) && r.module === ref.module && r.kind === ref.kind && r.id === ref.id && r.scope === ref.scope && (r.space || '') === (ref.space || '');
+    return this.schedules.filter((s) => s.module === module && s.scopeKey === scopeKey && same(s.ref)).map((s) => JSON.parse(JSON.stringify(s)));
+  }
+
+  putBack(module, scopeKey, list) {
+    const ids = new Set(list.map((x) => this.id(module, scopeKey, x.key)));
+    this.schedules = [...this.schedules.filter((s) => !ids.has(s.id)), ...list.filter((x) => x.record).map((x) => x.record)];
+    this.write(this.schedulesFile, this.schedules);
+  }
+
   // Forget everything a module scheduled (on uninstall without keeping data).
   forget(module) {
     this.schedules = this.schedules.filter((s) => s.module !== module);
