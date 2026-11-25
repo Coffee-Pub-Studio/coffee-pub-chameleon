@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -62,6 +62,7 @@
     "clear": "clear"
   },
   "actions": {
+    "server": "src/schedule-lib-actions.js",
     "provides": [
       {
         "name": "addMilestone",

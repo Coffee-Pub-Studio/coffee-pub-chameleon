@@ -543,7 +543,18 @@ test('the tab menu (plan-workspaces.md, decisions 40 and 44; Thomas, 2026-11-24)
   assert.ok(items.indexOf("{ heading: 'Open for you' }") < items.indexOf('const extra = typeof menuExtra') && items.indexOf('const extra') < items.indexOf("{ heading: 'Arrange' }") && items.indexOf("{ heading: 'Arrange' }") < items.indexOf('if (noteEl) items.push({ element: noteEl });'), 'Open for you, the page\'s entries, Arrange, the note');
   assert.match(items, /label: windowMode \? 'Windows' : 'Panels', ariaLabel: `Arrange: \$\{windowMode \? 'Windows' : 'Panels'\}`, items: arrangeItems \}/, 'Arrange is one row naming the mode, its flyout the modes');
   // Show: a switch per module (toggle items, the shared switch look), on while the module is shown, flipping it.
-  assert.match(items, /items\.push\(\{ toggle: true, checked: shown\(m\.id\), icon: m\.icon, tint: colorOf\(m\.id\), label: m\.name, \.\.\.\(m\.description \? \{ hint: m\.description, clamp: true \} : \{\}\), badge: unreadOf\(m\.id\), onPick: \(\) => flipShown\(m\.id\) \}\);/);
+  // Manage tabs after a failed Save (issue #1091, item 2): the sheet takes the server's list again (reload, read after
+  // onSave's finally has refreshed it), so a workspace removed before the failure is not listed, nor sent again.
+  const manageJs = fs.readFileSync(path.join(ROOT, 'public/manage-tabs.js'), 'utf8');
+  assert.match(manageJs, /if \(reload\) \{\n\s*try \{ takeFresh\(await reload\(\)\); \}/, 'a failed Save reads the list again');
+  assert.match(manageJs, /draft = \[\.\.\.draft\.filter\(\(d\) => has\(fresh, d\.id\)\)/, 'the draft keeps only what is still there');
+  assert.match(manageJs, /kept = fresh;/, 'and Save compares against the fresh list');
+  assert.match(space.slice(space.indexOf('function manageTabs('), space.indexOf('function startRename(')), /reload: async \(\) => layoutList\.own,/, 'the page gives it the list refreshed after the failure');
+  // New workspace opens the shape picker for it after the name (issue #1091, item 10; decision 49 pairs it with Edit layout).
+  const newWs = space.slice(space.indexOf('function openNewWorkspace('), space.indexOf('function openShapeSheet('));
+  assert.match(newWs, /pressLayoutTab\(workspace\.id\);\n[^\n]*\n\s*editLayout\(workspace\.id\);/, 'its tab is shown, then Edit layout\'s shape sheet opens for it');
+  assert.match(space.slice(space.indexOf('function editLayout('), space.indexOf('function editLayout(') + 300), /openShapeSheet\(null, \{ workspace: ws, start: workspaceStart\(ws\) \}\);/, 'the same sheet, with { workspace, start }');
+  assert.match(items, /items\.push\(\{ toggle: true, checked: shown\(m\.id\), icon: m\.icon, tint: colorOf\(m\.id\), label: m\.name, \.\.\.\(m\.description \? \{ tip: m\.description \} : \{\}\), badge: unreadOf\(m\.id\), onPick: \(\) => flipShown\(m\.id\) \}\);/);
   // Arrange (not on a narrow canvas), its flyout: Panels and Windows as a set (radio items, the chosen one checked), then
   // in Panels Unstack all while something is stacked, in Windows Snap to grid (a switch), the grid's size while it is
   // on, and Clean up.
@@ -682,9 +693,10 @@ test('the default layout (plan-saved-layouts.md, step 4): Make default in a shar
   assert.doesNotMatch(settings, /Turn one on or off on the/, 'the old line under the list is gone from Settings');
   assert.match(settings, /\$\{state\.owner \? ` <span id="setup-modules-note">\$\{esc\(modulesWord\(true\)\)\} are turned on for the whole \$\{esc\(word\('environment'\)\)\} in Manage\.<\/span>` : ''\}/, 'the Modules tab says, by the module settings and only to owners and the admin, where modules are turned on');
   assert.doesNotMatch(settingsHtml, /Switch one on|marked on for every/, 'the Modules hint no longer offers a switch');
-  // #237: a module is reviewed with its one-line description beside its name: the tab menu's Open for you rows (hint, clamped,
-  // read after the name) and the composite keeps it. (The Set up panel's own read-only list is gone.)
-  assert.match(canvasJs, /\.\.\.\(m\.description \? \{ hint: m\.description, clamp: true \} : \{\}\)/, 'the tab menu\'s Open for you rows carry the description');
+  // #237, then issue #1091 item 4 (the tab menu was long): the tab menu's Open for you rows show names only, and a module's
+  // one-line description is the row's tooltip (tip); the composite keeps it. (The Set up panel's own read-only list is gone.)
+  assert.match(canvasJs, /\.\.\.\(m\.description \? \{ tip: m\.description \} : \{\}\)/, 'the tab menu\'s Open for you rows carry the description as their tooltip');
+  assert.doesNotMatch(canvasJs.slice(canvasJs.indexOf('function menuEntries('), canvasJs.indexOf('let menuTrigger')), /hint:/, 'and draw no description line under the name');
   assert.match(fs.readFileSync(path.join(ROOT, 'public/host-menu.js'), 'utf8'), /aria-describedby/, 'the menu reads the description after the name');
   assert.match(fs.readFileSync(path.join(ROOT, 'public/composites.js'), 'utf8'), /icon: m\.icon, description: m\.description,/, 'a composite keeps its main\'s description');
   assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'public/style.css'), 'utf8'), /\.setup-module-(about|list|text)/, 'the list\'s styles went with it');
@@ -820,7 +832,9 @@ test('the layout tabs (plan-layout-views.md, steps 2 and 3): after the switcher 
   assert.match(fit, /const current = tabs\.findIndex\(\(b\) => b\.dataset\.layoutTab === shownLayoutTab\(\)\);/, 'the tab shown is told to the fit');
   // A tab's width is its own and its faces' (plan-workspaces.md, decision 47): the two leave into the "..." together.
   assert.match(fit, /const widths = tabs\.map\(\(b, i\) => w\(b\) \+ after\(sides\[i\]\) \+ after\(carets\[i\]\)\);/, 'a tab, its faces and its caret leave together');
-  assert.match(fit, /tabOverflow\(\{ avail: room, gap, widths, more: always \? 0 : more, current, workspace: [^\n]*\}\)/, 'the "..." is always there while New workspace is offered');
+  assert.match(fit, /tabOverflow\(\{ avail: room, gap, widths, more, keepMore: always, current, workspace: [^\n]*\}\)/, 'the "..." is always there while New workspace is offered');
+  // Issue #1091, item 3: the "..." and its gap are counted once (tabOverflow's keepMore), never also taken off the room.
+  assert.match(fit, /const room = avail - 1;\n/, 'the room is the width given, a pixel spare, and nothing taken off for the "..."');
   assert.match(fit, /sides\[i\]\?\.classList\.toggle\('layout-tab-out', out\.includes\(i\)\)/);
   assert.match(fit, /b\.classList\.toggle\('layout-tab-out', out\.includes\(i\)\)/);
   assert.match(fit, /focused\.closest\('\.layout-tab-out'\)\) layoutTabsMore\.focus\(\);/);
@@ -975,6 +989,25 @@ test('tabOverflow() (plan-layout-views.md, decisions 14 and 17; Thomas, 2026-10-
       if (!onlyPinned) assert.ok(used <= avail + 0.5, `at ${avail} px what shows fits`);
     }
   }
+  // keepMore (New workspace is in the "...", so it always shows): the "..." and its one gap are counted once, also while
+  // every tab fits (issue #1091, item 3: the gap was counted twice, and a tab that fitted left).
+  const withMore = all + 2 + 30;
+  assert.deepEqual(tabOverflow({ avail: withMore, gap: 2, widths, more: 30, keepMore: true }), { out: [], count: 4, more: true }, 'every tab and the "...": exactly the width');
+  assert.deepEqual(tabOverflow({ avail: withMore - 1, gap: 2, widths, more: 30, keepMore: true }), { out: [3], count: 3, more: true }, 'a pixel short: the last tab leaves');
+  assert.deepEqual(tabOverflow({ avail: 100 + 90 + 60 + 2 * 2 + 2 + 30, gap: 2, widths, more: 30, keepMore: true }), { out: [3], count: 3, more: true }, 'three and the "...", the gap counted once');
+  assert.deepEqual(tabOverflow({ avail: 0, gap: 2, widths: [100, 90], more: 30, current: 1, keepMore: true }), { out: [], count: 2, more: true }, 'nothing may leave, and the "..." still shows');
+  for (let avail = 0; avail <= withMore + 5; avail += 1) {
+    const { out } = tabOverflow({ avail, gap: 2, widths, more: 30, keepMore: true });
+    const shown = widths.map((_, i) => i).filter((i) => !out.includes(i));
+    const used = shown.reduce((sum, i) => sum + widths[i], 0) + 2 * (shown.length - 1) + 2 + 30;
+    if (shown.length > 1) assert.ok(used <= avail + 0.5, `keepMore at ${avail} px: what shows fits`);
+    if (out.length) assert.ok(used + 2 + widths[out[0]] > avail + 0.5, `keepMore at ${avail} px: the next tab would not fit (nothing leaves early)`);
+  }
+  // A zone's natural width counts its children's margins (issue #1091, item 3: the branding's -16px and 6px were left
+  // out, so the left zone read 10 px wider than drawn and the layout tabs folded early).
+  const navSrc = fs.readFileSync(path.join(ROOT, 'public/nav-bar.js'), 'utf8');
+  const natural = navSrc.slice(navSrc.indexOf('function naturalWidth('), navSrc.indexOf('// The phone\'s fold'));
+  assert.match(natural, /w \+= c\.getBoundingClientRect\(\)\.width \+ px\(cs\.marginLeft\) \+ px\(cs\.marginRight\);/, 'each child counts with its margins');
 });
 
 test('the top bar\'s space segment and the Spaces slot wear the top bar\'s link look (core-link), and nothing restyles them on a wider screen', () => {

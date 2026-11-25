@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /*
- * check-research-actions.mjs -- Research's actions library (src/research-lib-actions.js, ACTION_HANDLERS) through the SDK's page
- * adapter (host.actions.fromLibrary) on a stand-in host, from tools/module-actions-harness.mjs: saveNote and saveLink as before
- * (credited to the asker), and the new updateNote and updateLink (only the fields given, "" clearing the title, the text or the
- * tags, the editor's sentences, a pointer that is not this space's refused). Then the server's runner on the same library, which
- * cannot carry it yet: the library needs `geo` beside it (host.util.geo), which the runner's context does not give, so the
- * manifest declares no actions.server. Exits 1 on failure.
+ * check-research-actions.mjs -- Research's actions library (src/research-lib-actions.js, ACTION_HANDLERS), run the two ways it is
+ * carried out (plan-agent-server-actions.md, step 7): through the server's runner (its worker process and vm, then its outcomeOf
+ * check, with carrier 'server') and through the SDK's page adapter (host.actions.fromLibrary) on a stand-in host, both from
+ * tools/module-actions-harness.mjs, expecting the same writes, pointer, note, links and refusals. saveNote and saveLink (credited to
+ * the asker; one made about another object answers its link), updateNote and updateLink (only the fields given, "" clearing the
+ * title, the text or the tags, the editor's sentences, a pointer that is not this space's refused). The place helpers are
+ * ctx.util.geo both ways. Exits 1 on failure.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -15,16 +16,25 @@ import { onPage, onRunner, library } from '../../../tools/module-actions-harness
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules/research/module.json'), 'utf8'));
-// The SDK's geo helpers, as the page hands the library `geo` (research.js: const geo = host.util.geo).
-const win = { addEventListener() {}, removeEventListener() {}, location: { search: '', href: 'http://localhost/' } };
-win.parent = win;
-new Function('window', 'document', fs.readFileSync(path.join(ROOT, 'public/sdk/host.js'), 'utf8'))(win, { createElement: (tag) => ({ tag }), currentScript: null });
-const geo = win.createHost({ call: async () => ({}), root: { appendChild() {} }, rootElement: {} }).host.util.geo;
-const handlers = () => new Function('geo', `${library('research').js}\nreturn ACTION_HANDLERS;`)(geo);
 
 let n = 0;
 const test = async (name, fn) => { try { await fn(); n += 1; } catch (e) { process.exitCode = 1; console.error(`FAIL ${name}\n${e.stack || e}`); } };
-const page = (action, input, world) => onPage('research', action, input, world, { handlers: handlers(), name: 'Research' });
+// A write's `at` is the time of the run, which differs between the two.
+const timeless = (writes) => (writes || []).slice().sort((a, b) => (a.key < b.key ? -1 : 1)).map((w) => ({ key: w.key, value: { ...w.value, at: typeof w.value.at } }));
+// Both ways, the runner as the server's own (carrier 'server'): the same answer, else the test fails. The page's answer is returned.
+async function page(action, input, world) {
+  const r = { page: await onPage('research', action, input, world, { name: 'Research' }), runner: await onRunner('research', action, input, world, { kinds: ['note', 'link', 'photo', 'answer'], carrier: 'server' }) };
+  assert.ok(!r.runner.fault && !r.page.fault, `${action}: a fault (${r.runner.fault || r.page.fault})`);
+  if (r.page.refused !== undefined || r.runner.refused !== undefined) {
+    assert.equal(r.runner.refused, r.page.refused, `${action}: the same refusal`);
+    return r.page;
+  }
+  assert.deepEqual(timeless(r.runner.writes), timeless(r.page.writes), `${action}: the same writes`);
+  assert.deepEqual(r.runner.ref, r.page.ref, `${action}: the same pointer`);
+  assert.deepEqual(r.runner.data, r.page.data, `${action}: the same note`);
+  assert.deepEqual(r.runner.effects, r.page.effects, `${action}: the same links`);
+  return r.page;
+}
 const refuses = async (action, input, world, words) => assert.equal((await page(action, input, world)).refused, words);
 const written = (r, key) => (r.writes.find((w) => w.key === key) || {}).value;
 const SPACE = { id: 's1', name: 'Lisbon 2027' };
@@ -34,9 +44,9 @@ const NOTE = { kind: 'note', title: 'Pasteis', tags: ['food'], date: '', by: 'An
 const LINK = { kind: 'link', title: 'Time Out', tags: ['food'], date: '', by: 'Ann', at: '2026-11-01T10:00:00.000Z', text: 'Nata', sub: 'timeout.com', url: 'https://timeout.com/lisbon', excerpt: 'Nata' };
 const rows = () => ({ 'note:a': NOTE, 'link:b': LINK });
 
-await test('the manifest: updateNote and updateLink as the plan has them, one sentence each, no server yet', () => {
+await test('the manifest: carried by the server, updateNote and updateLink as the plan has them, one sentence each', () => {
   const a = (name) => manifest.actions.provides.find((x) => x.name === name);
-  assert.equal(manifest.actions.server, undefined, 'carried by a page: the runner has no geo');
+  assert.equal(manifest.actions.server, 'src/research-lib-actions.js');
   assert.deepEqual(a('updateNote').input, { note: 'ref:research:note', title: 'string?', body: 'text?', tags: 'string?', icon: 'string?', kind: 'string?' });
   assert.deepEqual(a('updateLink').input, { link: 'ref:research:link', title: 'string?', excerpt: 'text?', tags: 'string?' });
   assert.deepEqual(a('updateNote').clears, ['title', 'body', 'tags']);
@@ -96,9 +106,28 @@ await test('updateLink changes the title, the excerpt and the tags, only those g
   await refuses('updateLink', { link: ref('link', 'zz'), title: 'x' }, world(rows()), "That link isn't in this research.");
 });
 
-await test('the server\'s runner cannot carry it yet: the library needs geo, which its context lacks', async () => {
-  const r = await onRunner('research', 'saveNote', { title: 'X' }, world(), { kinds: ['note', 'link'] });
-  assert.equal(r.refused, 'geo is not defined');
+await test('a note or link made about another object answers its link; Research keeps no pointer', async () => {
+  const about = { module: 'todo', kind: 'task', id: 't1', scope: 'space', space: 's1' };
+  const r = await page('saveNote', { title: 'About the task', ref: about }, world());
+  assert.deepEqual(r.effects.links, [{ op: 'add', from: ref('note', 'n1'), to: about }]);
+  assert.equal(written(r, 'note:n1').ref, undefined, 'not stored on the note');
+  const l = await page('saveLink', { url: 'https://example.org/a', ref: about }, world());
+  assert.deepEqual(l.effects.links, [{ op: 'add', from: ref('link', 'n1'), to: about }]);
+  const o = await page('saveNote', { title: 'x', object: { kind: 'note', title: 'From an object' }, ref: about }, world());
+  assert.deepEqual(o.effects.links, [{ op: 'add', from: ref('note', 'n1'), to: about }]);
+  const plain = await page('saveNote', { title: 'Alone' }, world());
+  assert.deepEqual(plain.effects.links, []);
+  const upd = await page('updateNote', { note: ref('note', 'a'), title: 'Pasteis 2' }, world(rows()));
+  assert.deepEqual(upd.effects.links, [], 'a change makes no link');
+});
+
+await test('nothing is left for a page: the library reads no carrier, and the page links nothing after a request', () => {
+  const lib = fs.readFileSync(path.join(ROOT, 'modules/research/src/research-lib-actions.js'), 'utf8');
+  assert.ok(!/ctx\.carrier/.test(lib));
+  const model = fs.readFileSync(path.join(ROOT, 'modules/research/src/research-lib.js'), 'utf8');
+  const after = model.slice(model.indexOf('const after = async'), model.indexOf('host.actions.provide({'));
+  assert.ok(after && !/setLinks/.test(after), 'the page\'s after hook only shows the writes');
+  assert.ok(library('research').js.includes('ACTION_HANDLERS'));
 });
 
 if (process.exitCode) { console.error(`check-research-actions: failed (${n} passed)`); process.exit(1); }

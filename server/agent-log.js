@@ -16,6 +16,9 @@
 //   change  a set-up agent's change (plan-admin-agent.md, "The log"): "made", or what a change to a space it made touched,
 //           of "renamed", "described" and "icon", joined by commas ("renamed,icon"), or an ask about a person ("ask:add",
 //           "ask:remove", "ask:moderator", alone); else null. Never a name, a description or who the ask is about.
+//           An ordinary agent's delete ask is "ask:delete" (plan-agent-edit-delete.md, "The contract", 3), with
+//   ask     the ask's id (16 hex characters), so its page can say how the ask went; on no other line. Never the object, its
+//           title or the agent's reason.
 //   event   a sign-in connection's start or end (server/oauth.js, plan-mcp-oauth.md): "connected" (an owner allowed an app),
 //           "ended" (an owner revoked it, made a token, or connected the agent again) or "reused" (an old code or refresh
 //           token was used again, so it ended); on no other line. With it, `app` (the name the app gave, plain text, at most 60
@@ -41,7 +44,7 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { deepFreeze } = require('./deep-freeze');
-const { SETUP_CHANGES, SETUP_ASK_CHANGES } = require('./agent-routes');
+const { SETUP_CHANGES, SETUP_ASK_CHANGES, DELETE_ASK_CHANGE } = require('./agent-routes');
 
 const AGENT_LIMITS = deepFreeze({
   read: { perMinute: 60, perDay: 3000 },
@@ -63,7 +66,7 @@ const EVENTS = ['connected', 'ended', 'reused'];
 // A `change` as it may be written: "made", or one or more of the other change words, each once, joined by commas.
 const cleanChange = (v) => {
   if (typeof v !== 'string' || !v || v.length > 60) return null;
-  if (SETUP_ASK_CHANGES.includes(v)) return v; // an ask, alone on its line
+  if (SETUP_ASK_CHANGES.includes(v) || v === DELETE_ASK_CHANGE) return v; // an ask, alone on its line
   const parts = v.split(',');
   if (parts.some((p) => !SETUP_CHANGES.includes(p)) || new Set(parts).size !== parts.length) return null;
   if (parts.includes('made') && parts.length > 1) return null;
@@ -237,7 +240,7 @@ class AgentLog {
         if (KINDS.includes(l.kind) && l.status !== 429) c[l.kind] += 1;
         const change = cleanChange(l.change);
         // An ask is not a change: it changes nothing until an owner says yes, and its own cap is the asks waiting.
-        if (change && l.status === 200 && !SETUP_ASK_CHANGES.includes(change)) c[change === 'made' ? 'made' : 'changes'] += 1;
+        if (change && l.status === 200 && !SETUP_ASK_CHANGES.includes(change) && change !== DELETE_ASK_CHANGE) c[change === 'made' ? 'made' : 'changes'] += 1;
       }
     }
     this.counts.set(agent, c);
@@ -312,6 +315,8 @@ class AgentLog {
       address: typeof entry.address === 'string' && net.isIP(entry.address) ? entry.address : null, // an IP address, never free text
       kind: KINDS.includes(entry.kind) ? entry.kind : null,
       change: cleanChange(entry.change),
+      // A delete ask's id, on its own line only.
+      ...(entry.change === DELETE_ASK_CHANGE && typeof entry.ask === 'string' && /^[a-f0-9]{16}$/.test(entry.ask) ? { ask: entry.ask } : {}),
       // Only on a connection's own line, so every other line keeps its fields.
       ...(EVENTS.includes(entry.event) ? { event: entry.event, app: text(entry.app, 60), by: typeof entry.by === 'string' && KEY_RE.test(entry.by) ? entry.by : null } : {}),
     };

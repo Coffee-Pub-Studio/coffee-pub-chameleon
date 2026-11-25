@@ -8,10 +8,10 @@
  *      list of { id, show }; the first shown row opens first; the environment's template when the space has none of
  *      its own), then the owner owns them.
  *   3. The pin rule. A Fixed Workspace the owner shows is pinned: `pinned` is true on the system layouts, and nobody
- *      hides it for themselves, by any route (PATCH .../layouts/system/:id; the favorite routes are gone, plan-workspaces.md decision 44), whoever
- *      asks: a member, a moderator), 409 "The owner keeps this one in the bar."; a stored hide is ignored and never
- *      rewritten; the Workspace is always shown; the owner's own hide still wins and says its own sentence; a pin
- *      survives a template switch and a deleted template; a guest has no layouts to hide.
+ *      hides it for themselves: there is no route for it (PATCH .../layouts/system/:id is gone, issue #1091; the favorite
+ *      routes are gone, plan-workspaces.md decision 44), whoever asks; an old stored hide is dropped on read; the
+ *      Workspace is always shown; the owner's own hide still wins; a pin survives a template switch and a deleted
+ *      template; a guest has no layouts to hide.
  *   4. Last layout: a pinned-away (hidden by the owner) layout is passed over, the record stays, and it comes back.
  * Part 1 runs in-process; part 2 against throwaway servers.
  */
@@ -32,8 +32,6 @@ let n = 0;
 const same = (got, want, label) => { assert.deepEqual(got, want, label); n += 1; };
 const ok = (cond, label) => { assert.ok(cond, label); n += 1; };
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `check-pinned-${name}-`));
-const PINNED = 'The owner keeps this one in the bar.';
-const TAKE_OUT = 'To take this one out of the bar, hide it for everyone in Set up.';
 
 // --- part 1: the store -----------------------------------------------------------------------------------------------
 {
@@ -184,37 +182,24 @@ try {
   // -- 3. the pin rule: every route a person has to hide a tab
   seen = await sysOf(B.id, T.member);
   same(Object.values(seen).map((l) => [l.id, l.pinned]), [['workspace', true], ['calendar', true], ['conference', true], ['whiteboard', true], ['documents', true]], 'with nothing hidden, every fixed one is pinned');
-  for (const who of ['member', 'mod']) {
-    for (const id of ['calendar', 'conference', 'whiteboard', 'documents']) {
-      const want = who === 'mod' ? TAKE_OUT : PINNED; // those who set the bar are told where; a member is told who keeps it
-      const r = await expect(`${who} hides ${id}`, 409, 'PATCH', SYS(B.id, id), { token: T[who], body: { tab: false } });
-      assert.equal(r.json.error, want);
+  // No route hides, renames or re-icons a tab for oneself (issue #1091), whoever asks.
+  for (const [who, token] of [['member', T.member], ['mod', T.mod], ['admin', admin], ['nobody', undefined]]) {
+    for (const id of ['workspace', 'calendar', 'documents']) {
+      for (const body of [{ tab: false }, { name: 'Sneaky' }, { icon: 'couch' }]) {
+        await expect(`${who} PATCHes ${id} ${JSON.stringify(body)}`, 404, 'PATCH', SYS(B.id, id), { token, body });
+      }
     }
   }
-  // The same refusal with other fields beside it: nothing is written (the name stays), and a malformed tab is a plain 400.
-  await expect('hide with a rename', 409, 'PATCH', SYS(B.id, 'calendar'), { token: T.member, body: { tab: false, name: 'Sneaky' } });
-  same((await sysOf(B.id, T.member)).calendar.name, 'Calendar', 'a refusal changes nothing');
-  for (const bad of ['false', 0, null, [false]]) await expect(`tab ${JSON.stringify(bad)}`, 400, 'PATCH', SYS(B.id, 'calendar'), { token: T.member, body: { tab: bad } });
+  same((await sysOf(B.id, T.member)).calendar.name, 'Calendar', 'nothing changed');
   same((await sysOf(B.id, T.member)).calendar.pinned, true, 'and it is still pinned');
-  assert.equal((await expect('the admin hides one', 409, 'PATCH', SYS(B.id, 'calendar'), { token: admin, body: { tab: false } })).json.error, TAKE_OUT, 'the admin is told where');
-  const w = await expect('hide the Workspace', 400, 'PATCH', SYS(B.id, 'workspace'), { token: T.member, body: { tab: false } });
-  assert.equal(w.json.error, 'The Workspace is always shown.');
-  // Turning one on is harmless (it is on).
-  same((await expect('tab on', 200, 'PATCH', SYS(B.id, 'calendar'), { token: T.member, body: { tab: true } })).json.layout.tab, true, 'tab true on a pinned one is a 200 that changes nothing');
-  // Renames and icons stay the person's own.
-  same((await expect('rename', 200, 'PATCH', SYS(B.id, 'calendar'), { token: T.member, body: { name: 'Plans' } })).json.layout.name, 'Plans', 'a person still renames a pinned tab');
-  // A space the person is not in, and a guest.
-  await expect('someone outside', 404, 'PATCH', SYS(C.id, 'calendar'), { token: T.other, body: { tab: false } });
-  await expect('no one signed in', 401, 'PATCH', SYS(B.id, 'calendar'), { body: { tab: false } });
   const link = (await expect('guest link', 200, 'POST', `/api/spaces/${B.id}/guest-link`, { token: admin, body: {} })).json.space.guestToken;
   const asGuest = `?guest=${encodeURIComponent(link)}`;
-  await expect('a guest hides one', 403, 'PATCH', `${SYS(B.id, 'calendar')}${asGuest}`, { body: { tab: false } });
+  await expect('a guest hides one', 404, 'PATCH', `${SYS(B.id, 'calendar')}${asGuest}`, { body: { tab: false } });
   same((await expect('a guest reads', 200, 'GET', `${L(B.id)}${asGuest}`)).json.system, [], 'a guest has no layouts to hide');
 
-  // The owner's own hide wins and says its own sentence; showing it again pins it again.
+  // The owner's own hide wins; showing it again pins it again.
   await expect('owner hides Documents', 200, 'PATCH', `/api/spaces/${B.id}`, { token: T.mod, body: { tabs: { hide: ['documents'] } } });
   same([(await sysOf(B.id, T.member)).documents.pinned, (await sysOf(B.id, T.member)).documents.tab], [false, false], 'hidden by the owner: not pinned, not in the bar');
-  assert.equal((await expect('person hides what the owner hid', 409, 'PATCH', SYS(B.id, 'documents'), { token: T.member, body: { tab: false } })).json.error, 'The owner has hidden this layout.');
   await expect('owner shows it again', 200, 'PATCH', `/api/spaces/${B.id}`, { token: T.mod, body: { tabs: null } });
   same((await sysOf(B.id, T.member)).documents.pinned, true, 'shown again, pinned again');
 
@@ -235,7 +220,6 @@ try {
   same(gone.json.spaces, ['Alpha'], 'the answer names the space that moved');
   seen = await sysOf(A.id, T.member);
   same([seen.calendar.pinned, seen.documents.pinned, seen.conference.pinned, seen.conference.shown], [true, true, false, false], 'a deleted template keeps the owner\'s bar');
-  await expect('a pinned one is still refused', 409, 'PATCH', SYS(A.id, 'calendar'), { token: T.member, body: { tab: false } });
   same((await expect('for-space', 200, 'GET', `/api/modules/for-space?space=${A.id}`, { token: T.member })).json.layout, { shape: 'one', areas: [null] }, 'and it starts as the environment\'s template says (the Default\'s)');
 
   // -- 4. last layout: a layout the owner hides is passed over, kept, and comes back
@@ -246,7 +230,7 @@ try {
   await expect('owner shows it', 200, 'PATCH', `/api/spaces/${B.id}`, { token: admin, body: { tabs: null } });
   same((await expect('read', 200, 'GET', L(B.id), { token: T.member })).json.last, 'whiteboard', 'and back, the record never rewritten');
 
-  // -- a stored hide is ignored and never rewritten
+  // -- an old stored hide (the retired per-person `system` key) is dropped on read
   const layoutsFile = path.join(dir, 'layouts.json');
   await stop(srv);
   const file = JSON.parse(fs.readFileSync(layoutsFile, 'utf8'));
@@ -258,8 +242,8 @@ try {
   for (const [who, login] of [['member', 'mia'], ['admin', 'admin']]) T2[who] = (await call('POST', '/api/login', { body: { login, password: login === 'admin' ? 'testpass1234' : 'memberpass1234' } })).json.token;
   seen = await sysOf(B.id, T2.member);
   same([seen.documents.tab, seen.documents.pinned, seen.documents.shown], [true, true, true], 'a stored hide of a pinned tab is ignored');
-  await expect('another write', 200, 'PATCH', SYS(B.id, 'documents'), { token: T2.member, body: { name: 'Papers' } });
-  same(JSON.parse(fs.readFileSync(layoutsFile, 'utf8')).spaces[B.id].system[keys.member].documents.tab, false, 'and it is not rewritten');
+  await expect('another write', 200, 'PUT', `/api/spaces/${B.id}/last-layout`, { token: T2.member, body: { layout: 'calendar' } });
+  ok(!('system' in JSON.parse(fs.readFileSync(layoutsFile, 'utf8')).spaces[B.id]), 'and the next save leaves it out');
   await expect('owner hides it', 200, 'PATCH', `/api/spaces/${B.id}`, { token: T2.admin, body: { tabs: { hide: ['documents'] } } });
   same((await sysOf(B.id, T2.member)).documents.tab, false, 'hidden by the owner: out of the bar');
   await expect('owner shows it', 200, 'PATCH', `/api/spaces/${B.id}`, { token: T2.admin, body: { tabs: null } });

@@ -43,6 +43,11 @@ const AGENT_ROUTES = Object.freeze([
   { kind: 'agent', method: 'get', path: '/api/spaces/:id/action/:requestId', counts: 'read', place: 'spaceParam', needs: 'always' },
   // Waiting up to 30 seconds for its own request (plan-agent-edit-delete.md, E3: MCP wait_for_result), as the status above.
   { kind: 'agent', method: 'get', path: '/api/spaces/:id/action/:requestId/wait', counts: 'read', place: 'spaceParam', needs: 'always' },
+  // Asking a person to delete one object (plan-agent-edit-delete.md, decision 2 and "The contract", 3): the ask changes
+  // nothing; a person approves or declines it through their own routes, which are never on this list. And its own ask's
+  // state (MCP ask_to_delete, ask_status).
+  { kind: 'agent', method: 'post', path: '/api/spaces/:id/delete-asks', counts: 'write', place: 'spaceParam', needs: 'agentDelete' },
+  { kind: 'agent', method: 'get', path: '/api/agent/asks/:id', counts: 'read', place: 'none', needs: 'always' },
   { kind: 'agent', method: 'get', path: '/api/spaces/:id/chat', counts: 'read', place: 'spaceParam', needs: 'chatRead' },
   { kind: 'agent', method: 'post', path: '/api/spaces/:id/chat', counts: 'write', place: 'spaceParam', needs: 'chat' },
   { kind: 'agent', method: 'post', path: '/mcp', counts: 'mcp', place: 'none', needs: 'always' },
@@ -69,6 +74,8 @@ const AGENT_ROUTES = Object.freeze([
 // `column` names the one agent column that has a box on it.
 const AGENT_ONLY_PERMISSIONS = Object.freeze([
   Object.freeze({ key: 'agentMembers', label: 'See who is in {a space}', group: 'Agents', agentOnly: true, column: 'agent' }),
+  // Off by default; with it an agent may ask, never delete: a person approves each ask (plan-agent-edit-delete.md, decision 2).
+  Object.freeze({ key: 'agentDelete', label: 'Ask to delete {objects}', group: 'Agents', agentOnly: true, column: 'agent' }),
   Object.freeze({ key: 'agentMakeSpaces', label: 'Make {spaces}', group: 'Agents', agentOnly: true, column: 'setup' }),
   Object.freeze({ key: 'agentChangeSpaces', label: 'Rename and change {spaces}', group: 'Agents', agentOnly: true, column: 'setup' }),
   Object.freeze({ key: 'agentAskPeople', label: 'Ask to add people', group: 'Agents', agentOnly: true, column: 'setup' }),
@@ -77,11 +84,11 @@ const AGENT_ONLY_PERMISSIONS = Object.freeze([
 // The built-in rows the Agent column may ever tick. Every other built-in row is never an agent's (the call, pictures,
 // reactions, screen share, asides, private calls, mute, kick, guest links, tags, AI, the images). Module rows are worked
 // out from the manifests (agentModuleKeys).
-const AGENT_BUILT_IN = Object.freeze(['chatRead', 'chat', 'agentMembers']);
+const AGENT_BUILT_IN = Object.freeze(['chatRead', 'chat', 'agentMembers', 'agentDelete']);
 
-// The Agent column as agents work today (decision 5): read Chat and see members on, Send chat messages off. Module rows
+// The Agent column as agents work today (decision 5): read Chat and see members on, Send chat messages and Ask to delete off. Module rows
 // start at their member default (store.roleSetRaw).
-const AGENT_DEFAULTS = Object.freeze({ chatRead: true, chat: false, agentMembers: true });
+const AGENT_DEFAULTS = Object.freeze({ chatRead: true, chat: false, agentMembers: true, agentDelete: false });
 
 // The rows the set-up agent's column may ever tick: only its own. Every other row, built-in or a module's, is never the
 // set-up agent's (it reads nothing in a space). They start off (plan-agent-matrix.md, decision 5): nothing it can do
@@ -99,6 +106,9 @@ const SETUP_LIMITS = Object.freeze({ made: 5, changes: 30, waiting: 10 });
 // icon; an ordinary agent's added, edited or deleted object) for AGENT_UNDO_DAYS (plan-agent-edit-delete.md, question 4:
 // one number for both kinds).
 const SETUP_ASKS = Object.freeze(['add', 'remove', 'moderator']);
+// An ordinary agent's delete asks (plan-agent-edit-delete.md, "The contract", 3): at most `waiting` at once and `perDay` in
+// 24 hours for each agent, and after a person declines one the same object can't be asked about for `cooldownDays`.
+const DELETE_ASK_LIMITS = Object.freeze({ waiting: 10, perDay: 30, cooldownDays: 7 });
 const AGENT_ASK_DAYS = 7;
 const AGENT_UNDO_DAYS = 7;
 
@@ -106,6 +116,8 @@ const AGENT_UNDO_DAYS = 7;
 // `ask:<what>`, alone on its line.
 const SETUP_CHANGES = Object.freeze(['made', 'renamed', 'described', 'icon']);
 const SETUP_ASK_CHANGES = Object.freeze(SETUP_ASKS.map((a) => `ask:${a}`));
+// An ordinary agent's delete ask on its log line: never the object, its title or the reason.
+const DELETE_ASK_CHANGE = 'ask:delete';
 
 const KINDS = ['agent', 'setup'];
 const METHODS = ['get', 'post', 'patch'];
@@ -115,8 +127,16 @@ const PLACES = ['none', 'spaceParam', 'spaceScope', 'linkRef', 'resolveRefs', 'm
 const TICKABLE = Object.freeze({ agent: AGENT_BUILT_IN, setup: SETUP_BUILT_IN });
 
 // What an agent may ask a module for through the action route (plan-agent-access.md, decision 5): a `write`, never local,
-// asker-only, destructive, without an effect, or kept from AI (`ai: false`). The actions list shows an agent only these.
+// asker-only, destructive, a delete, without an effect, or kept from AI (`ai: false`). A delete action is asked for through
+// its own route and waits for a person (isDeleteAction, below).
 const agentMayAsk = (def) => Boolean(def) && !def.local && !def.askerOnly && def.effect === 'write' && def.ai !== false;
+
+// A delete action: declared `effect: "delete"` (server/modules.js holds it to one required pointer to the module's own kind).
+const isDeleteAction = (def) => Boolean(def) && def.effect === 'delete';
+// The kind a delete action deletes ("ref:travel:plan" -> "plan").
+const deleteKindOf = (def) => (isDeleteAction(def) ? String(Object.values(def.input || {})[0] || '').replace(/\?$/, '').split(':')[2] || null : null);
+// The module's delete action for `kind`, or null: a kind without one is never deletable by an agent.
+const deleteActionFor = (manifest, kind) => (manifest?.actions?.provides || []).find((a) => deleteKindOf(a) === kind && typeof kind === 'string') || null;
 
 // The module rows an agent column may tick for one manifest: those that guard something an agent can reach. Its data's
 // read and write guards (access.read, access.write; never personWrite, since an agent reads and asks only in a space), and
@@ -171,4 +191,4 @@ function assertAgentRoutes(list = AGENT_ROUTES) {
 
 assertAgentRoutes();
 
-module.exports = { AGENT_ROUTES, AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, SETUP_BUILT_IN, SETUP_DEFAULTS, SETUP_LIMITS, SETUP_CHANGES, SETUP_ASK_CHANGES, SETUP_ASKS, AGENT_ASK_DAYS, AGENT_UNDO_DAYS, agentMayAsk, agentModuleKeys, agentRouteProblems, assertAgentRoutes };
+module.exports = { AGENT_ROUTES, AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, SETUP_BUILT_IN, SETUP_DEFAULTS, SETUP_LIMITS, SETUP_CHANGES, SETUP_ASK_CHANGES, SETUP_ASKS, DELETE_ASK_LIMITS, DELETE_ASK_CHANGE, AGENT_ASK_DAYS, AGENT_UNDO_DAYS, agentMayAsk, isDeleteAction, deleteKindOf, deleteActionFor, agentModuleKeys, agentRouteProblems, assertAgentRoutes };

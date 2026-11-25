@@ -32,7 +32,7 @@ const { cleanReport: cleanAttention } = require('./attention');
 const { cleanFacts, iconKnown } = require('./facts');
 const { TagError } = require('./tags');
 const { FIXED_WORKSPACE_SETTINGS } = require('./fixed-workspaces');
-const { LayoutError, cleanLayout, cleanSystemPatch, tabsOf, SYSTEM_IDS, SYSTEM_ICONS } = require('./layouts');
+const { LayoutError, cleanLayout, tabsOf, SYSTEM_IDS, SYSTEM_ICONS } = require('./layouts');
 const { ModuleLimits } = require('./module-limits');
 const { ModuleSettings, SettingError } = require('./module-settings');
 const { effectiveLabels } = require('./module-labels');
@@ -87,7 +87,7 @@ const themeCssLib = require('./theme-css');
 const { eraseSpace } = require('./space-erase');
 const { tokenView, LIFETIMES, DEFAULT_LIFETIME: DEFAULT_TOKEN_LIFETIME } = require('./tokens');
 const { AGENT_LIMITS, routeTrie, refusedRoute, matchRoute, safeModule } = require('./agent-log');
-const { AGENT_ROUTES, SETUP_LIMITS, SETUP_ASKS, AGENT_ASK_DAYS, AGENT_UNDO_DAYS, agentMayAsk } = require('./agent-routes');
+const { AGENT_ROUTES, SETUP_LIMITS, SETUP_ASKS, DELETE_ASK_LIMITS, DELETE_ASK_CHANGE, AGENT_ASK_DAYS, AGENT_UNDO_DAYS, agentMayAsk, isDeleteAction, deleteKindOf, deleteActionFor } = require('./agent-routes');
 const { RecordsError, writtenByOthers } = require('./agent-records');
 const { createDeletePath, UNDO_WHY } = require('./delete-path');
 const { createMcp, isMcpPath, isToolCall } = require('./mcp');
@@ -3929,7 +3929,7 @@ function agentGate(req, res, next) {
       const extra = res.locals.agentLog || {};
       // The space a set-up agent just made is named by the route (extra.space), and kept only when it is one it made.
       const space = (rule && rule.space) || (typeof extra.space === 'string' && agentMadeOf(agent, extra.space) ? extra.space : null);
-      env.agentLog.write({ ...line(), space, action: extra.action, request: extra.request, message: extra.message, change: extra.change, status: res.statusCode, kind });
+      env.agentLog.write({ ...line(), space, action: extra.action, request: extra.request, message: extra.message, change: extra.change, ask: extra.ask, status: res.statusCode, kind });
     };
     res.once('finish', writeLine);
     res.once('close', writeLine);
@@ -6015,24 +6015,37 @@ app.get('/api/users/:key/agent-log', requireOwner, (req, res) => {
   // A sign-in connection's line names who allowed or ended it: { key, name } (the name as it is now).
   const page = currentEnvironment().agentLog.entriesOf(agent.key, { before });
   const named = (e) => (typeof e.by === 'string' ? { ...e, by: { key: e.by, name: store.userByKey(e.by)?.displayName || 'someone' } } : e);
-  res.set('Cache-Control', 'no-store').json({ ...page, entries: page.entries.map(named) });
+  // A delete ask's line (`ask`, its id) says what was asked and how it went, from the record: `text` ("Asked to delete a task
+  // in To-do") and `outcome` ("approved by Ana", "declined", "expired", "undone by Thomas"; none while it waits). Never a title.
+  const asked = (e) => {
+    const a = typeof e.ask === 'string' ? agentRecordsHere().ask(e.ask) : null;
+    if (!a || a.ask !== 'delete' || a.agent !== agent.key) return e;
+    const outcome = deleteAskOutcome(a);
+    return { ...e, text: deleteAskLogText(a), ...(outcome ? { outcome } : {}) };
+  };
+  res.set('Cache-Control', 'no-store').json({ ...page, entries: page.entries.map(named).map(asked) });
 });
-// A set-up agent's asks and changes, for owners and the admin (plan-admin-agent.md, step 2; the routes the agent uses and
-// the rules are with its own routes, below). An ordinary agent has none: its lists are empty and an answer to one is 404.
-// GET /api/users/:key/asks: { asks: [{ id, ask, person: { key, name }, space: { id, name }, on?, state, at, expiresAt,
-// decidedAt?, decidedBy?, text }] }, newest first, answered ones for 30 days.
+// An agent's asks and changes, for owners and the admin (plan-admin-agent.md, step 2; plan-agent-edit-delete.md, "The
+// contract", 4; the routes the agent uses and the rules are with its own routes, below).
+// GET /api/users/:key/asks: { asks: [...] }, newest first, answered ones for 30 days. A set-up agent's: { id, ask, person:
+// { key, name }, space: { id, name }, on?, state, at, expiresAt, decidedAt?, decidedBy?, text }. An ordinary agent's delete
+// asks: as deleteAskOut gives them (`ask: "delete"`, the object in words, never a raw id).
 app.get('/api/users/:key/asks', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
   tidySetupAsks();
-  res.set('Cache-Control', 'no-store').json({ asks: agentRecordsHere().asksOf(agent.key).filter((x) => x.ask !== 'delete').map(askForOwner) }); // a delete ask: step 6
+  const me = moduleViewer(req);
+  res.set('Cache-Control', 'no-store').json({ asks: agentRecordsHere().asksOf(agent.key).map((a) => (a.ask === 'delete' ? deleteAskOut(a, me, { withSpace: true }) : askForOwner(a))) });
 });
 // POST /api/users/:key/asks/:id { decision: "approve" | "decline" }: an owner's answer. Approving does what it asks, as this
 // owner, in the same step. The same answer twice changes nothing; the other answer, or an ask that is over, is 409. An ask
-// that can no longer be done as it stands ends (expired) with a 409 saying why. { ok, changed, ask }.
+// that can no longer be done as it stands ends (expired) with a 409 saying why. { ok, changed, ask }. A delete ask is
+// answered as POST /api/spaces/:id/asks/:askId answers it (answerDeleteAsk: `version` with an approval).
 app.post('/api/users/:key/asks/:id', requireOwner, (req, res) => {
   const agent = agentNamed(req, res);
   if (!agent) return;
+  const asked = agentRecordsHere().ask(String(req.params.id));
+  if (asked && asked.agent === agent.key && asked.ask === 'delete') return answerDeleteAsk(req, res, asked, { withSpace: true });
   const decision = req.body?.decision;
   if (decision !== 'approve' && decision !== 'decline') return res.status(400).json({ error: 'decision is approve or decline.' });
   const records = agentRecordsHere();
@@ -6137,7 +6150,7 @@ app.post('/api/users/:key/changes/:id/undo', requireOwner, (req, res) => {
 // The agent's adds and edits are recorded where the server writes them: carryOnServer (a bundled module's server actions)
 // and a page's PUT tied to the agent's claimed request (agentWriteTie: an uploaded module, or any module a page carries). An
 // edit's earlier value is held first (server/delete-path.js holdEdit, a keyed hold); an add holds nothing. A delete is
-// recorded by an approval, which is step 6 (not built): deletePath.removeObject with `hold` is its seam.
+// recorded by a person's approval of the agent's ask (answerDeleteAsk, below), with what it took held.
 
 // A set-up change in words, for its list.
 function setupChangeText(agent, c) {
@@ -6222,6 +6235,7 @@ function undoAgentObject(req, res, given, match) {
       if (refused) throw new RecordsError(refused.error, refused.status);
       noteActivity(found.manifest.id, `undid ${agentShownName(store.userByKey(c.agent))}'s change`, at.ctx.by, at.ctx.scopeKey);
     });
+    if (done.ask) agentRecordsHere().markUndone(done.ask); // an approved delete put back: its ask reads undone
     res.json({ ok: true, change: done.change, object: { module: done.object.module, kind: done.object.kind, id: done.object.id, scope: 'space', space: done.space } });
   } catch (err) {
     if (!(err instanceof RecordsError)) throw err;
@@ -6235,18 +6249,21 @@ function agentReviewer(user, spaceId) {
   if (!user || user.agent) return false;
   return hasOwnerRights(user) || Boolean(store.spaceFlags(user.key, spaceId).moderator);
 }
+const AGENT_ASKS_ONLY = `Only ${word('owner', { many: true })}, the admin and this ${word('space')}'s ${word('moderator', { many: true })} answer what agents ask here.`;
 const AGENT_REVIEW_ONLY = `Only ${word('owner', { many: true })}, the admin and this ${word('space')}'s ${word('moderator', { many: true })} see what agents changed here.`;
-// GET /api/spaces/:id/agent-review: { waiting: [], done: [...] } for this space's approvers: the asks waiting here (an
-// ordinary agent's delete asks; step 6 of the plan, so none yet) and every agent's object changes here, newest first, as
-// agentChangeOut gives them, for AGENT_UNDO_DAYS. A set-up agent's asks about people stay on its own page (owners only).
+// GET /api/spaces/:id/agent-review: { waiting: [...], done: [...] } for this space's approvers: the delete asks waiting
+// here, oldest first, as deleteAskOut gives them, and every agent's object changes here, newest first, as agentChangeOut
+// gives them, for AGENT_UNDO_DAYS. A set-up agent's asks about people stay on its own page (owners only).
 app.get('/api/spaces/:id/agent-review', requireUser, (req, res) => {
   const user = currentUser(req);
   const space = store.spaceById(String(req.params.id));
   if (!space) return res.status(404).json({ error: `no such ${word('space')}` });
   if (req.agent || !agentReviewer(user, space.id)) return res.status(403).json({ error: AGENT_REVIEW_ONLY });
   const me = moduleViewer(req);
+  tidySetupAsks();
+  const waiting = agentRecordsHere().deleteAsksWaitingIn(space.id).map((a) => deleteAskOut(a, me));
   const done = agentRecordsHere().changesIn(space.id).map((c) => agentChangeOut(c, me));
-  res.set('Cache-Control', 'no-store').json({ waiting: [], done, days: AGENT_UNDO_DAYS });
+  res.set('Cache-Control', 'no-store').json({ waiting, done, days: AGENT_UNDO_DAYS });
 });
 // POST /api/spaces/:id/changes/:changeId/undo: this space's approver undoes an agent's change here, only one they could make
 // themselves (undoAgentObject). 404 for no such change in this space.
@@ -6493,6 +6510,7 @@ const setupPersonOf = (key) => {
 // Whether an ask may still be answered: its agent is here, a set-up agent, not turned off, the switches are on, and the
 // space is still one it made (agentMadeOf, standing: closing a space for set up holds an ask, it does not end it).
 const setupAskLive = (a) => {
+  if (a.ask === 'delete') return deleteAskLive(a);
   const agent = store.userByKey(a.agent);
   return Boolean(agent && agent.agent && agent.kind === 'setup' && !agent.off && store.settings.agents === true && setupAgentsOn() && agentMadeOf(agent, a.space, { standing: true }));
 };
@@ -6578,15 +6596,288 @@ app.post('/api/agent/spaces/:id/asks', (req, res) => {
   tellOwnersOfAsk(made);
   res.status(202).json({ ask: { id: made.id, state: 'waiting' } });
 });
-// GET /api/agent/asks/:id: { ask: { id, ask, person, space, on?, state, at, decidedAt? } }, one of its own asks; state is
-// waiting, approved, declined or expired. Another agent's ask, or none, is 404.
+// GET /api/agent/asks/:id: one of the agent's own asks, either kind of agent's. A set-up agent's: { ask: { id, ask, person,
+// space, on?, state, at, decidedAt? } }; an ordinary agent's delete ask: { ask: { id, ask: "delete", object, space, state, at,
+// expiresAt, decidedAt? } }. state is waiting, approved, declined, expired or undone (an approved delete a person put back).
+// Another agent's ask, or none, is 404. Never who answered, a title or a value.
 app.get('/api/agent/asks/:id', (req, res) => {
-  const agent = setupAgentOf(req, res);
-  if (!agent) return;
+  if (!req.agent) return currentUser(req) ? res.status(403).json({ error: "This is for an agent's token only." }) : res.status(401).json({ error: 'sign in first' });
+  const agent = req.agent.user;
   tidySetupAsks();
   const a = agentRecordsHere().ask(String(req.params.id));
   if (!a || a.agent !== agent.key) return res.status(404).json({ error: 'No such ask.' });
-  res.set('Cache-Control', 'no-store').json({ ask: askForAgent(a) });
+  res.set('Cache-Control', 'no-store').json({ ask: a.ask === 'delete' ? deleteAskForAgent(a) : askForAgent(a) });
+});
+
+// --- an ordinary agent's delete asks, and a person's answer (plan-agent-edit-delete.md, step 6; "The contract", 2, 3, 6) ---
+// A delete is never direct. With the Roles grid's "Ask to delete" row ticked in the Agent column (agentDelete, off by
+// default) an agent may ask to delete one object of a kind whose module declares a delete action; the ask changes nothing.
+// A person who could delete that object themselves (an owner, the admin, or that space's moderator, held to the module's
+// write permission and guards as them) approves or declines that one ask through their own session; an agent's token never
+// reaches those routes (they are not on the gate's list, and each refuses req.agent). Approving deletes exactly the asked
+// key at the asked version, through the shared delete path as the approver, with what it took held for an Undo, in one
+// synchronous step from the check to the write. Nothing here waits for a page (decision 8).
+const AGENT_ONLY = "This is for an agent's token only.";
+const DELETE_VIA_ASK = 'Ask for that with ask_to_delete; a person must approve it.';
+const deleteAskGone = () => `That ${word('space')} is gone.`;
+// Whether a waiting delete ask still stands for good: its agent is here, an ordinary agent, not turned off, agents are on,
+// and it is still on the space's members (closing the space for set up holds an ask, it does not end it). A kill switch
+// (Turn off, Revoke, a new token) ends the agent's asks where it is used.
+function deleteAskLive(a) {
+  const agent = store.userByKey(a.agent);
+  if (!agentTokensOn || store.settings.agents !== true || !agent || !agent.agent || agentKindOf(agent) !== 'agent' || agent.off) return false;
+  const space = store.spaceById(a.space);
+  return Boolean(space) && !space.isLobby && spaceAccess.isMember({ key: agent.key }, space); // listed, closed for now or not
+}
+// The module's word for the kind an ask or a change is about ("task"), lower case.
+const kindWord = (found, kind) => String(found?.manifest.refs.produces.find((p) => p.kind === kind)?.name || kind).toLowerCase();
+const aKind = (kind) => `${/^[aeiou]/.test(kind) ? 'an' : 'a'} ${kind}`;
+// Why a delete ask can't be approved as things stand, or null: { error, status, end } where `end` says the ask is over for
+// good (it then ends as expired). The same rules the ask passed when it was made, asked again for the agent as it is now.
+function deleteAskProblem(a) {
+  const agent = store.userByKey(a.agent);
+  const space = store.spaceById(a.space);
+  if (!space) return { end: true, status: 409, error: deleteAskGone() };
+  const name = agentShownName(agent);
+  const noLonger = { end: true, status: 409, error: `${name} may no longer ask to delete that.` };
+  if (!deleteAskLive(a) || !store.roleSet('agent').agentDelete) return noLonger;
+  // A space closed for set up: the agent does not work there for now, so nothing is done for it there either.
+  if (spaceAccess.isClosed(space)) return { end: false, status: 409, error: `${closedSentence()} Answer this when it is open again.` };
+  const found = modules.enabled(a.object.module);
+  if (!found || !deleteActionFor(found.manifest, a.object.kind)) return noLonger;
+  if (moduleAccessAt(found, { user: agent, guestSpace: null }, 'space', space, 'own').error) return noLonger;
+  return null;
+}
+// The object's title for a person who may read the module there: as it is now, else as it was held by the approved delete.
+function deleteAskTitle(a, found, who) {
+  const space = store.spaceById(a.space);
+  if (!found || !space || !who || moduleAccessAt(found, who, 'space', space, 'read').error) return '';
+  const produce = found.manifest.refs.produces.find((p) => p.kind === a.object.kind);
+  if (!produce) return '';
+  let value = moduleData.get(a.object.module, `space:${a.space}`, a.object.key)?.value ?? null;
+  if (value == null) {
+    const change = agentRecordsHere().changesIn(a.space).find((c) => c.ask === a.id);
+    value = change ? moduleHolds.readKeyed(a.object.module, change.id)?.items?.[0]?.value ?? null : null;
+  }
+  if (value == null) return '';
+  const ref = { module: a.object.module, kind: a.object.kind, id: a.object.id, scope: 'space', space: a.space };
+  try { return String(objectSummary({ manifest: found.manifest, produce, ref }, a.object.id, value)?.title || '').slice(0, 120); } catch { return ''; }
+}
+// The ask as a person reads it: 'Claude (agent) asks to delete the task "Book the taxi" in To-do, in Lisbon 2027.'
+function deleteAskText(a, found, title, withSpace) {
+  const where = found ? modules.shownName(found.manifest) : `a ${word('module')}`;
+  const space = withSpace ? store.spaceById(a.space)?.name : null;
+  return `${agentShownName(store.userByKey(a.agent))} asks to delete the ${kindWord(found, a.object.kind)}${title ? ` "${title}"` : ''} in ${where}${space ? `, in ${String(space).slice(0, 80)}` : ''}.`;
+}
+// The ask on the agent's log, with no content: "Asked to delete a task in To-do".
+function deleteAskLogText(a) {
+  const found = modules.enabled(a.object.module) || null;
+  return `Asked to delete ${aKind(kindWord(found, a.object.kind))} in ${found ? modules.shownName(found.manifest) : `a ${word('module')}`}`;
+}
+// How it went, for the log's line: "approved by Ana", "declined", "expired", "undone by Thomas"; '' while it waits.
+function deleteAskOutcome(a) {
+  const nameOf = (key) => plainName(store.userByKey(key)?.displayName || 'someone');
+  if (a.state === 'approved') return `approved by ${nameOf(a.decidedBy)}`;
+  if (a.state === 'undone') {
+    const change = agentRecordsHere().changesOf(a.agent).find((c) => c.ask === a.id);
+    return change?.undoneBy ? `undone by ${nameOf(change.undoneBy)}` : 'undone';
+  }
+  return a.state === 'waiting' ? '' : a.state;
+}
+// What the agent reads of its own delete ask: keys and ids only. Never who answered, a title or a value.
+const deleteAskForAgent = (a) => ({
+  id: a.id, ask: 'delete', object: { module: a.object.module, kind: a.object.kind, id: a.object.id, scope: 'space', space: a.space }, space: a.space,
+  state: a.state, at: isoOf(a.at), expiresAt: isoOf(agentRecordsHere().endsAt(a)), ...(a.decidedAt ? { decidedAt: isoOf(a.decidedAt) } : {}),
+});
+// One delete ask as a list shows it to `who` (moduleViewer's): the object as the server resolves it now, never what the
+// agent said of it: { id, ask: "delete", agent: { key, name }, space: { id, name }, object, moduleName, kind (the module's
+// word), title, madeBy?: { key, name }, version (send it back with an approval), reason? (the agent's own words), goesWith:
+// { children, holders }, links, state, at, expiresAt, decidedAt?, decidedBy?, text, decidable, why? }. `title`, `madeBy`,
+// `goesWith` and `links` only for a person who may read the module there. `why` says in one sentence why `who` can't approve
+// it now (it can still be declined while it waits).
+function deleteAskOut(a, who, { withSpace = false } = {}) {
+  const found = modules.enabled(a.object.module) || null;
+  const space = store.spaceById(a.space);
+  const title = deleteAskTitle(a, found, who);
+  const scopeKey = `space:${a.space}`;
+  const stored = found && space ? moduleData.get(a.object.module, scopeKey, a.object.key) : null;
+  const reads = Boolean(found && space && who && !moduleAccessAt(found, who, 'space', space, 'read').error);
+  let why = null;
+  if (a.state === 'waiting') {
+    const problem = deleteAskProblem(a);
+    if (problem) why = problem.error;
+    else if (!stored || stored.version !== a.version) why = deleteAskStale(a);
+    else {
+      const at = moduleAccessAt(found, who, 'space', space, 'own');
+      if (at.error) why = at.error;
+      else {
+        // The module's own refusal of this person's delete (a copy they may not change, a guard), asked without deleting.
+        const refused = deletePath.removeRefusal(at.ctx, a.object.key);
+        if (refused) why = refused.error;
+      }
+    }
+  }
+  const maker = reads && stored && typeof stored.by === 'string' ? store.userByKey(stored.by) : null;
+  const ref = { module: a.object.module, kind: a.object.kind, id: a.object.id, scope: 'space', space: a.space };
+  const decider = a.decidedBy ? store.userByKey(a.decidedBy) : null;
+  return {
+    id: a.id, ask: 'delete', agent: { key: a.agent, name: store.userByKey(a.agent)?.displayName ?? null },
+    space: { id: a.space, name: space?.name ?? null }, object: ref,
+    moduleName: found ? modules.shownName(found.manifest) : null, kind: kindWord(found, a.object.kind), title,
+    ...(maker ? { madeBy: { key: maker.key, name: maker.agent ? `${maker.displayName}${agentMark(maker)}` : maker.displayName } } : {}),
+    version: a.version, ...(a.reason ? { reason: a.reason } : {}),
+    ...(reads && stored ? { goesWith: deletePath.goesWith(found.manifest, scopeKey, a.object.key), links: moduleLinks.to(ref).length } : {}),
+    state: a.state, at: isoOf(a.at), expiresAt: isoOf(agentRecordsHere().endsAt(a)),
+    ...(a.decidedAt ? { decidedAt: isoOf(a.decidedAt) } : {}),
+    ...(a.decidedBy ? { decidedBy: { key: a.decidedBy, name: decider?.displayName ?? null } } : {}),
+    text: deleteAskText(a, found, title, withSpace),
+    decidable: a.state === 'waiting' && !why, ...(why ? { why } : {}),
+  };
+}
+const deleteAskStale = (a) => `That changed since ${plainName(store.userByKey(a.agent)?.displayName || 'the agent')} asked. Nothing was deleted.`;
+// Who may approve a delete ask in `space` at all (decision 5): the people with owner rights, and that space's moderators.
+const agentReviewersOf = (space) => store.users.filter((u) => !u.agent && (hasOwnerRights(u) || moderates(u, space)));
+// How many delete asks wait for `user`'s answer: those in a space they review. For the bell's count (GET /api/notifications).
+function deleteAsksWaitingFor(user) {
+  if (!user || user.agent) return 0;
+  const records = agentRecordsHere();
+  let n = 0;
+  for (const space of store.spaces) if (agentReviewer(user, space.id)) n += records.deleteAsksWaitingIn(space.id).filter(deleteAskLive).length;
+  return n;
+}
+// One bell line to each person who may approve it. An owner's opens the agent's page; a moderator's has no page to open
+// until the space's review view is built (plan step 7: it then opens that view at this ask).
+function tellApproversOfDeleteAsk(a, found, space) {
+  try {
+    const all = agentReviewersOf(space).filter((u) => !moduleAccessAt(found, { user: u, guestSpace: null }, 'space', space, 'own').error);
+    for (const u of all) {
+      const title = deleteAskText(a, found, deleteAskTitle(a, found, { user: u, guestSpace: null }), true);
+      moduleHooks.announce([u.key], { title, body: 'Approve or decline it. Nothing is deleted until someone does.', ...(hasOwnerRights(u) ? { href: `/admin#agent/${encodeURIComponent(a.agent)}` } : {}) });
+    }
+  } catch (err) { console.warn('could not tell the approvers of an agent\'s delete ask:', err.message); }
+}
+// POST /api/spaces/:id/delete-asks { object: { module, kind, id, scope: "space", space }, reason? } (an ordinary agent's
+// token only): asks a person to delete one object. 202 { ask: { id, state: "waiting", expiresAt } }; nothing is deleted.
+// `reason` is the agent's own short words for the approver, plain text, kept to 200 characters. Any other key is 400.
+app.post('/api/spaces/:id/delete-asks', (req, res) => {
+  if (!req.agent) return currentUser(req) ? res.status(403).json({ error: AGENT_ONLY }) : res.status(401).json({ error: 'sign in first' });
+  const agent = req.agent.user;
+  if (agentKindOf(agent) !== 'agent') return res.status(403).json({ error: AGENT_CANT });
+  // Asked again here, whatever the gate did: the row, and the space being one of its own.
+  if (!store.roleSet('agent').agentDelete) return res.status(403).json({ error: AGENT_CANT });
+  const space = agentSpaceOf(agent, req.params.id);
+  if (!space) return res.status(404).json({ error: `no such ${word('space')}` });
+  const body = req.body;
+  if (!req.is('application/json') || !body || typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ error: 'Send { object, reason } as JSON.' });
+  if (Object.keys(body).some((k) => !['object', 'reason'].includes(k))) return res.status(400).json({ error: 'Only object, reason can be sent.' });
+  const o = body.object;
+  const POINTER = `object is a pointer: { module, kind, id, scope: "space", space }.`;
+  if (!o || typeof o !== 'object' || Array.isArray(o) || Object.keys(o).some((k) => !['module', 'kind', 'id', 'scope', 'space'].includes(k))) return res.status(400).json({ error: POINTER });
+  if (typeof o.module !== 'string' || !/^[a-z0-9-]{1,40}$/.test(o.module) || typeof o.kind !== 'string' || !/^[a-z][a-z0-9-]{0,39}$/.test(o.kind) || typeof o.id !== 'string' || !REF_ID_RE.test(o.id)) return res.status(400).json({ error: POINTER });
+  // Only an object of this very space: never the environment's, a person's or another space's.
+  if (o.scope !== 'space' || o.space !== space.id) return res.status(403).json({ error: `An agent can only ask to delete ${word('object', { a: true })} in the ${word('space')} it asks in.` });
+  if (body.reason !== undefined && typeof body.reason !== 'string') return res.status(400).json({ error: 'reason is plain text, up to 200 characters.' });
+  const reason = body.reason === undefined ? '' : body.reason.replace(/[\s\p{Cc}]+/gu, ' ').trim().slice(0, 200); // plain text, cut at 200
+  // The module is on there, and the Agent column has its read and write rows.
+  const who = { user: agent, guestSpace: null };
+  const found = modules.enabled(o.module);
+  if (!found) return res.status(404).json({ error: `no such ${word('module')}` });
+  const def = deleteActionFor(found.manifest, o.kind);
+  res.locals.agentLog = { action: def ? `${found.manifest.id}:${def.name}` : `${found.manifest.id}:`, change: DELETE_ASK_CHANGE };
+  for (const need of ['read', 'own']) {
+    const at = moduleAccessAt(found, who, 'space', space, need);
+    if (at.error) return res.status(at.status).json({ error: at.error });
+  }
+  if (!def) return res.status(403).json({ error: `An agent can't ask to delete that kind of ${word('object')}.` });
+  const produce = found.manifest.refs.produces.find((p) => p.kind === o.kind);
+  const scopeKey = `space:${space.id}`;
+  const key = produce.key.replace('{id}', o.id);
+  const ref = { module: o.module, kind: o.kind, id: o.id, scope: 'space', space: space.id };
+  const stored = moduleData.get(o.module, scopeKey, key);
+  const original = takesCopies(found.manifest) ? copySight(who).originalOf(ref) : null;
+  if (!stored || (original && copySight(who).hides(ref))) return res.status(404).json({ error: "That isn't there." });
+  if (original) {
+    const from = modules.enabled(original.module);
+    return res.status(409).json({ error: `That is a copy; ask to delete it in ${from ? modules.shownName(from.manifest) : `its own ${word('module')}`}.` });
+  }
+  tidySetupAsks();
+  let made;
+  try {
+    made = agentRecordsHere().addDeleteAsk({ agent: agent.key, space: space.id, object: { module: o.module, kind: o.kind, id: o.id, scope: 'space', key }, version: stored.version, reason }, DELETE_ASK_LIMITS);
+  } catch (err) {
+    if (!(err instanceof RecordsError)) throw err;
+    if (err.retrySeconds) res.set('Retry-After', String(err.retrySeconds));
+    return res.status(err.status).json({ error: err.until ? `${err.message} Don't ask again before ${new Date(err.until).toISOString().slice(0, 10)}.` : err.message });
+  }
+  res.locals.agentLog.ask = made.id;
+  tellApproversOfDeleteAsk(made, found, space);
+  res.status(202).json({ ask: { id: made.id, state: 'waiting', expiresAt: isoOf(agentRecordsHere().endsAt(made)) } });
+});
+// A person's answer to the delete ask `a`: { decision: "approve" | "decline", version?, tz? }. `version` (the one the list
+// gave) goes with an approval: the object is deleted only while it is still at the version the agent asked about and the
+// person saw. 200 { ok: true, ask, change? } (`change` as agentChangeOut gives the delete, with its Undo). 400 for a bad
+// body; 403 when this person may not delete that object themselves (the ask still waits for someone who may); 409 with one
+// sentence when it was answered already, has run out, or can no longer be done (it then ends as expired); 429 over the
+// module's write limit.
+function answerDeleteAsk(req, res, a, { withSpace = false } = {}) {
+  const user = currentUser(req);
+  const who = moduleViewer(req);
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((k) => !['decision', 'version', 'tz'].includes(k))) return res.status(400).json({ error: 'Send { decision, version } as JSON.' });
+  const decision = body.decision;
+  if (decision !== 'approve' && decision !== 'decline') return res.status(400).json({ error: 'decision is approve or decline.' });
+  if (decision === 'approve' && !Number.isSafeInteger(body.version)) return res.status(400).json({ error: 'Send the version the ask showed with an approval.' });
+  const tz = typeof body.tz === 'string' && body.tz.length <= 64 ? body.tz : null;
+  const records = agentRecordsHere();
+  tidySetupAsks();
+  let change = null;
+  let result;
+  try {
+    result = records.decide(a.id, a.agent, decision, user.key, (ask) => {
+      const end = (error, status = 409) => { records.expire((x) => x.id === ask.id); return new RecordsError(error, status); };
+      const problem = deleteAskProblem(ask);
+      if (problem) throw problem.end ? end(problem.error, problem.status) : new RecordsError(problem.error, problem.status);
+      const found = modules.enabled(ask.object.module);
+      const space = store.spaceById(ask.space);
+      // The approver's own rights: the module's write permission where the object is, then its guards (the delete path).
+      const at = moduleAccessAt(found, who, 'space', space, 'own');
+      if (at.error) throw new RecordsError(at.error, at.status);
+      const stored = moduleData.get(ask.object.module, at.ctx.scopeKey, ask.object.key);
+      if (!stored || stored.version !== ask.version || body.version !== ask.version) throw end(deleteAskStale(ask));
+      const slow = overLimit(found.manifest.id, at.ctx.by, 'write');
+      if (slow) throw Object.assign(new RecordsError(limitMessage(), 429), { retrySeconds: slow.retrySeconds });
+      const changeId = records.newId();
+      let out;
+      try {
+        out = deletePath.removeObject(at.ctx, ask.object.key, { expected: ask.version, tz, hold: { changeId, by: ask.agent, days: AGENT_UNDO_DAYS } });
+      } catch (err) {
+        if (!(err instanceof StoreError)) throw err;
+        throw err.status === 409 ? end(deleteAskStale(ask)) : new RecordsError(err.message, err.status);
+      }
+      if (out.error) throw new RecordsError(out.error, out.status);
+      if (!out.had) throw end(deleteAskStale(ask));
+      change = records.noteObject({ id: changeId, agent: ask.agent, space: ask.space, change: 'deleted', object: ask.object, versionAfter: out.removed.version, held: out.held === true, ask: ask.id });
+      if (!change) moduleHolds.dropKeyed(found.manifest.id, changeId);
+      // Both people are named: the line is the agent's, and says who approved.
+      noteActivity(found.manifest.id, `deleted ${aKind(kindWord(found, ask.object.kind))}, approved by ${plainName(user.displayName)}`, ask.agent, at.ctx.scopeKey);
+    });
+  } catch (err) {
+    if (!(err instanceof RecordsError)) throw err;
+    if (err.retrySeconds) res.set('Retry-After', String(err.retrySeconds));
+    return res.status(err.status).json({ error: err.message });
+  }
+  res.set('Cache-Control', 'no-store').json({ ok: true, ask: deleteAskOut(result.ask, who, { withSpace }), ...(change ? { change: agentChangeOut(change, who, { withSpace }) } : {}) });
+}
+// POST /api/spaces/:id/asks/:askId { decision: "approve" | "decline", version }: this space's approver answers a delete ask
+// here (answerDeleteAsk). 404 for no such ask in this space; an agent's token is 403.
+app.post('/api/spaces/:id/asks/:askId', requireUser, (req, res) => {
+  const user = currentUser(req);
+  const space = store.spaceById(String(req.params.id));
+  if (!space) return res.status(404).json({ error: `no such ${word('space')}` });
+  if (req.agent || !agentReviewer(user, space.id)) return res.status(403).json({ error: AGENT_ASKS_ONLY });
+  const a = agentRecordsHere().ask(String(req.params.askId));
+  if (!a || a.ask !== 'delete' || a.space !== space.id) return res.status(404).json({ error: 'No such ask.' });
+  answerDeleteAsk(req, res, a);
 });
 
 // The MCP door for agents (server/mcp.js): POST /mcp and GET /mcp (405), through the agent gate like every route above.
@@ -7335,23 +7626,20 @@ function sendLayoutError(err, res) {
 // person has the conference (modulePerms(...).conference: a call service, the environment's switch and the permission,
 // all folded in by store.roleSet); Whiteboards, Documents and Projects (the `schedule` module, Planner - Projects) while their
 // module is on in the space, on the canvas and
-// readable by this person. Each carries this person's own name, icon and tab choices (store.layouts.systemOf), else its
-// defaults. `shown` is false when the owner hid it (`tabs.hide`); the owner's hide wins, so `tab` is false then whatever the
-// person chose. `pinned` is true while it is shown: the owner keeps it in the bar for everyone and nobody hides it for
-// themselves (`tab` equals `shown`). A guest has none.
+// readable by this person. Each carries its own name and icon (nobody renames or re-icons the owner's tabs; `name` equals
+// `defaultName`, `icon` `defaultIcon`). `shown` is false when the owner hid it (`tabs.hide`). `pinned` is true while it is
+// shown: the owner keeps it in the bar for everyone and nobody hides it for themselves (`tab` equals `shown`). A guest has none.
 //   { id, kind: 'system', name, icon, tab, shown, pinned, defaultName, defaultIcon, modules, settings? }
 // `settings` (the Fixed Workspaces only, never the Workspace): the switches its Modules tab offers, from the schema in
 // server/fixed-workspaces.js (fixedSettingsFor); [] when there is nothing to configure.
 function systemLayoutsFor(found) {
   if (!found.who.user) return [];
-  const mine = store.layouts.systemOf(found.space.id, found.who.user.key);
   const hidden = tabsOf(found.space.tabs);
   const make = (id, defaultName, defaultIcon, modulesOf) => {
-    const own = mine[id] || {};
     const shown = !hidden.hide.includes(id);
     // The pin rule (plan-templates-redesign.md, decision 9): a Fixed Workspace the owner shows is pinned, in the bar for
-    // everyone, so a person's own hide of it (a stored `tab: false`) is ignored, never rewritten. The Workspace is always shown.
-    return { id, kind: 'system', name: own.name || defaultName, icon: own.icon || defaultIcon, tab: shown, shown, pinned: shown, defaultName, defaultIcon, modules: modulesOf, ...(id === 'workspace' ? {} : { settings: fixedSettingsFor(found, id) }) };
+    // everyone. The Workspace is always shown.
+    return { id, kind: 'system', name: defaultName, icon: defaultIcon, tab: shown, shown, pinned: shown, defaultName, defaultIcon, modules: modulesOf, ...(id === 'workspace' ? {} : { settings: fixedSettingsFor(found, id) }) };
   };
   const made = new Map([['workspace', make('workspace', 'Workspace', SYSTEM_ICONS.workspace, [])]]);
   for (const [id, dest, moduleId] of [['calendar', 'calendar', 'calendar'], ['map', 'map', 'maps']]) {
@@ -7549,7 +7837,6 @@ app.post('/api/spaces/:id/layouts', (req, res) => {
   const out = cleanLayout(req.body, { icons: layoutIconIds(found.space.id), shapeOptions: sharedShapeOptions(found.space) });
   if (out.error) return res.status(400).json(layoutProblems(out));
   const { layout } = out;
-  if (layout.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   try {
     res.status(201).json({ layout: store.layouts.add(found.space.id, found.who.user.key, layout) });
   } catch (err) {
@@ -7570,11 +7857,11 @@ app.put('/api/spaces/:id/layouts/:layoutId', (req, res) => {
   if (!there) return res.status(404).json({ error: 'There is no such layout here.' });
   if (!found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   // The icon it has already is taken back unchanged (it may be one a template switched away offered); a new one is checked.
-  const out = cleanLayout(req.body, { partial: true, shared: there.shared, shapeOptions: there.shared ? sharedShapeOptions(found.space) : null, icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
+  const out = cleanLayout(req.body, { partial: true, shapeOptions: sharedShapeOptions(found.space), icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
   if (out.error) return res.status(400).json(layoutProblems(out));
   const patch = out.layout;
   if (!Object.keys(patch).length) {
-    const error = there.shared ? 'Send a new name, or a shape and its areas to replace the layout with.' : `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.`;
+    const error = 'Send a new name, or a shape and its areas to replace the layout with.';
     return res.status(400).json({ error, problems: [error], parts: [null] });
   }
   try {
@@ -7600,36 +7887,6 @@ app.delete('/api/spaces/:id/layouts/:layoutId', (req, res) => {
     // Deleting the default layout clears the space's defaultLayout; its Opens with stays as it was.
     if (there.shared) store.syncDefaultLayout(found.space.id);
     res.status(204).end();
-  } catch (err) {
-    sendLayoutError(err, res);
-  }
-});
-
-// A person's own name, icon and tab for a system layout in a space (plan-layout-views.md, step 1): { name?, icon?, tab? },
-// name and icon null going back to the default. 200 { layout } (the system layout as GET lists it); 400 for a bad name or
-// icon, or tab false on the Workspace; 403 for a guest; 404 for an id that is not on in this space; 409 for a tab the owner hid, and 409 for tab false on a shown fixed layout (pinned).
-// The owner hid a fixed layout (the space's tabs.hide): a person cannot turn its tab on or off, 409.
-const ownerHidSentence = () => `The ${word('owner')} has hidden this layout.`;
-// The owner shows a fixed layout (it is not in tabs.hide): it is pinned, so a person's own hide of it is refused, 409.
-// Those who may set the bar (owners, the admin, moderators) are told where to take it out; a member, who keeps it.
-const pinnedSentence = (found) => (found.canShare ? 'To take this one out of the bar, hide it for everyone in Set up.' : `The ${word('owner')} keeps this one in the bar.`);
-const ownerHid = (found, id) => tabsOf(found.space.tabs).hide.includes(id);
-app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
-  const found = layoutSpaceFor(req, res);
-  if (!found) return;
-  if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
-  const id = req.params.systemId;
-  if (!systemLayoutsFor(found).some((l) => l.id === id)) return res.status(404).json({ error: 'There is no such layout here.' });
-  // As a saved layout's: the icon this person has on it already is taken back unchanged; a new one is checked.
-  const had = store.layouts.systemOf(found.space.id, found.who.user.key)[id]?.icon;
-  const { patch, error } = cleanSystemPatch(req.body, { icons: [...layoutIconIds(found.space.id), ...(typeof had === 'string' ? [had] : [])] });
-  if (error) return res.status(400).json({ error });
-  if (patch.tab === false && id === 'workspace') return res.status(400).json({ error: 'The Workspace is always shown.' });
-  if (patch.tab !== undefined && ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });
-  if (patch.tab === false) return res.status(409).json({ error: pinnedSentence(found) });
-  try {
-    store.layouts.setSystem(found.space.id, found.who.user.key, id, patch);
-    res.json({ layout: systemLayoutsFor(found).find((l) => l.id === id) });
   } catch (err) {
     sendLayoutError(err, res);
   }
@@ -9227,6 +9484,19 @@ app.get('/api/spaces/:id/actions', (req, res) => {
       return writable;
     };
     for (const a of manifest.actions.provides) {
+      // A delete action (plan-agent-edit-delete.md, "The contract", 7) is an agent's alone: never a person's (their page
+      // deletes), and for an agent it is asked through its own route and approved by a person, one ask at a time.
+      if (isDeleteAction(a)) {
+        if (req.agent && agentKindOf(req.agent.user) === 'agent') {
+          actions.push({
+            action: `${manifest.id}:${a.name}`, module: manifest.id, moduleName: shown.name || manifest.name, name: a.name, label: a.label,
+            description: `${a.description ? `${a.description} ` : ''}Use ask_to_delete; a person approves each one.`,
+            input: a.input, local: false, effect: 'delete', approval: 'each', kind: deleteKindOf(a),
+            may: Boolean(store.roleSet('agent').agentDelete) && mayWrite(), now: false,
+          });
+        }
+        continue;
+      }
       if (req.agent && !agentMayAsk(a)) continue; // an agent is shown only what it may ask for (plan-agent-access.md)
       actions.push({
         action: `${manifest.id}:${a.name}`,
@@ -9278,11 +9548,14 @@ app.post('/api/spaces/:id/action', async (req, res) => {
     return res.status(err.status || 404).json({ error: err.message });
   }
   const def = provider.found.manifest.actions.provides.find((a) => a.name === name);
+  // A delete action is never carried out as a request: a person's page deletes, and an agent asks a person (ask_to_delete).
+  if (isDeleteAction(def) && !req.agent) return res.status(404).json({ error: `that ${word('module')} does not offer that action` });
   if (!def) return res.status(404).json({ error: `that ${word('module')} does not offer that action` });
   // An agent asks only for a `write` that is not local, asker-only, destructive or kept from AI (plan-agent-access.md,
   // decision 5); its log line names the action, never its input.
   if (req.agent) {
     res.locals.agentLog = { action: `${provider.found.manifest.id}:${def.name}` };
+    if (isDeleteAction(def)) return res.status(403).json({ error: DELETE_VIA_ASK });
     if (!agentMayAsk(def)) return res.status(403).json({ error: AGENT_CANT_ASK });
     // Every pointer it sends is into one of its own spaces (decision 3): never the environment's, a person's or another
     // space's, so an action can't be used to learn what is there.
@@ -11412,6 +11685,7 @@ app.get('/api/bus/actions', busRoute((who, req) => {
     const own = manifest.id === from;
     if (own && req.query.self !== '1') continue;
     for (const a of manifest.actions.provides) {
+      if (isDeleteAction(a)) continue; // an agent's alone, asked through its own route
       if (!takes(a.input)) continue;
       const taken = a.takes ? takesFor(manifest, a, viewerPerms) : null;
       if (taken && !taken.some((e) => e.may)) continue;
@@ -11532,7 +11806,7 @@ app.post('/api/bus/actions/request', busRoute((who, req) => {
   if (overLimit(asker.found.manifest.id, who.user?.key, 'action')) throw refError(429, limitMessage());
   const provider = busPlace(who, String(providerId || ''), sc, space, 'read');
   const def = provider.found.manifest.actions.provides.find((a) => a.name === name);
-  if (!def) throw refError(404, `that ${word('module')} does not offer that action`);
+  if (!def || isDeleteAction(def)) throw refError(404, `that ${word('module')} does not offer that action`);
   if (!mayUse(asker.found, providerId, name)) throw refError(403, `that ${word('module')} has not been approved to ask for that`);
   // Asking for a change takes the right to make it: from a page in the environment, about an object in a space, the
   // right to change the module in that space (decision 21); otherwise in the place the asker is in, as before.
@@ -14315,7 +14589,8 @@ app.get('/api/notifications', requireUser, (req, res) => {
     .map((n) => ({ ...n, ...sourceOf(n.module) }));
   const byModule = {};
   for (const n of list) if (!n.read) byModule[n.module] = (byModule[n.module] || 0) + 1;
-  res.json({ notifications: list, byModule, unread: Object.values(byModule).reduce((a, b) => a + b, 0) });
+  // `asks`: the agents' delete asks waiting for this person's answer (plan-agent-edit-delete.md, "The bell and the badge").
+  res.json({ notifications: list, byModule, unread: Object.values(byModule).reduce((a, b) => a + b, 0), asks: deleteAsksWaitingFor(currentUser(req)) });
 });
 app.post('/api/notifications/read', requireUser, (req, res) => {
   moduleHooks.markRead(currentUser(req).key, { module: typeof req.body?.module === 'string' ? req.body.module : null, id: typeof req.body?.id === 'string' ? req.body.id : null });

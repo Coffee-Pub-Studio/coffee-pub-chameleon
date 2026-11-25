@@ -75,6 +75,7 @@ const READS = {
   '/api/spaces/:id/actions': () => 'Listed what it can ask for',
   '/api/spaces/:id/action/:requestId': () => 'Checked on a request',
   '/api/spaces/:id/action/:requestId/wait': () => 'Waited on a request',
+  '/api/spaces/:id/delete-asks': (w) => `Asked a person to delete ${w('object', { a: true })}`,
   '/mcp': () => 'Connected through MCP', // initialize, tools/list, ping and a client's GET that answers 405
   // The set-up agent's (plan-admin-agent.md). Making and changing a space are worded by their `change` in logLine.
   '/api/agent/templates': () => 'Read the templates it may use',
@@ -93,7 +94,7 @@ const ASK_WORDS = { 'ask:add': () => 'Asked to add a person to', 'ask:remove': (
 const CHAT_ROUTE = '/api/spaces/:id/chat';
 // The methods the gate lets through on each route; any other method on it was refused. A read route is GET (HEAD too); the
 // action and objects/resolve routes are POST; Chat is GET or POST.
-const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'], '/mcp': ['GET', 'POST'], '/api/agent/spaces': ['POST'], '/api/agent/spaces/:id': ['PATCH'], '/api/agent/spaces/:id/asks': ['POST'] };
+const ROUTE_METHODS = { '/api/objects/resolve': ['POST'], '/api/spaces/:id/action': ['POST'], '/api/spaces/:id/delete-asks': ['POST'], [CHAT_ROUTE]: ['GET', 'POST'], '/mcp': ['GET', 'POST'], '/api/agent/spaces': ['POST'], '/api/agent/spaces/:id': ['PATCH'], '/api/agent/spaces/:id/asks': ['POST'] };
 const methodFits = (route, method) => (ROUTE_METHODS[route] || ['GET', 'HEAD']).includes(String(method || '').toUpperCase());
 const known = (route) => typeof route === 'string' && Object.hasOwn(READS, route);
 // "addMilestone" -> "add milestone"; the module's id before the colon is left out.

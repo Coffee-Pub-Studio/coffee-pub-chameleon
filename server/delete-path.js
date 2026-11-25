@@ -3,7 +3,7 @@
 // step 4, and "The contract", 4).
 //
 // One delete function for one module object: a person's page delete (DELETE /api/modules/:id/data/:key), the Undo of an
-// agent's `added`, and, once step 6 is built, an approved delete ask. Each is run as the person it is for (`ctx`, from
+// agent's `added`, and a person's approval of an agent's delete ask (step 6). Each is run as the person it is for (`ctx`, from
 // moduleAccess or moduleAccessAt), so whoever deletes is held to the module's rules as they are: a copy of another module's
 // object only by whoever may change its original (#857), the module's guards (`checkDelete`), the hidden fields, and what
 // belongs to the object (a rule's `parent`: a poll's votes) going with it. Then other modules hear of it (object-sync: a
@@ -115,6 +115,30 @@ function createDeletePath(d) {
     return { removed, had, children: [...children], held };
   }
 
+  // Why ctx's person may not delete `key`, asked without deleting anything: the refusals removeObject would answer (a copy
+  // they may not change, a guard, a hidden field), or null. For a list that says whether a person may approve a delete.
+  function removeRefusal(ctx, key) {
+    const id = ctx.manifest.id;
+    const copyRefused = d.takesCopies(ctx.manifest) ? d.copyRemoveRefusal(ctx, key) : null;
+    if (copyRefused) return { status: copyRefused.hidden ? 404 : copyRefused.status, error: copyRefused.hidden ? "That isn't there." : copyRefused.error };
+    const had = d.moduleData.get(id, ctx.scopeKey, key);
+    const guards = d.guardsAt(ctx);
+    const refused = guards && (!d.personalAt(ctx) || guards.invalid) ? d.moduleGuards.checkDelete(guards, { key, before: had ? had.value : null, who: d.guardWho(ctx), read: d.storedValue(ctx) }) : null;
+    if (refused) return { status: refused.status, error: refused.error };
+    const all = had && guards ? d.moduleData.list(id, ctx.scopeKey) : [];
+    const children = new Set(d.moduleGuards.childrenOf(guards, key, all.map((item) => item.key)));
+    const hidden = had ? d.moduleGuards.hiddenDeleteRefusal(had.value, ctx.hide, all.filter((item) => children.has(item.key)).map((item) => item.value)) : null;
+    return hidden ? { status: hidden.status, error: hidden.error } : null;
+  }
+
+  // What goes with the object at `key` when it is deleted, as counts: { children } (what belongs to it: a poll's votes) and
+  // { holders } (objects in other modules that go or are marked because they hold it).
+  function goesWith(manifest, scopeKey, key) {
+    const guards = d.guardsAt({ manifest });
+    const keys = guards ? d.moduleData.list(manifest.id, scopeKey).map((item) => item.key) : [];
+    return { children: guards ? d.moduleGuards.childrenOf(guards, key, keys).length : 0, holders: holdersOf(d.ownRefAt(manifest, scopeKey, key)).length };
+  }
+
   // Holds the value at `key` before an agent's write changes it (`edited`): { held } (false when too big to keep). An added
   // object holds nothing.
   function holdEdit(ctx, key, had, { changeId, by, days, tz = null }) {
@@ -164,14 +188,12 @@ function createDeletePath(d) {
       d.moduleHolds.dropKeyed(id, c.id);
       return null;
     }
-    // A delete: the person must be able to write the object back as it was (the module's guards, as them).
+    // A delete: the person must be one who could have made that change, so one the module's guards would let delete the
+    // object as it was (an owner or the admin puts back someone else's object, which they could not create in that name).
     const guards = d.guardsAt(ctx);
-    if (guards) {
-      const keys = () => d.moduleData.list(id, ctx.scopeKey).map((item) => item.key);
-      for (const item of hold.items) {
-        const checked = d.moduleGuards.checkPut(guards, { key: item.key, before: null, value: item.value, who: d.guardWho(ctx), read: d.storedValue(ctx), keys, personal: false });
-        if (checked.error) return { status: checked.status, error: checked.error };
-      }
+    if (guards && hold.items.length) {
+      const refused = d.moduleGuards.checkDelete(guards, { key: hold.items[0].key, before: hold.items[0].value, who: d.guardWho(ctx), read: d.storedValue(ctx) });
+      if (refused) return { status: refused.status, error: refused.error };
     }
     const result = d.moduleData.restoreMany(id, ctx.scopeKey, hold.items, { by: ctx.by });
     if (result.taken.length) return { status: 409, error: UNDO_WHY.taken };
@@ -210,7 +232,7 @@ function createDeletePath(d) {
     }
   }
 
-  return { removeObject, holdEdit, undoProblem, undoChange, finishKeyed, holdersOf };
+  return { removeObject, removeRefusal, goesWith, holdEdit, undoProblem, undoChange, finishKeyed, holdersOf };
 }
 
 module.exports = { createDeletePath, UNDO_WHY };
