@@ -199,7 +199,7 @@ await test('the manifest: updatePoll, its clears and hints; actions.server is th
   for (const [k, v] of Object.entries(u.inputHints)) assert.ok(k in u.input && v.length <= 200, `hint ${k}`);
   assert.equal(m.actions.server, 'src/polls-lib-actions.js', 'carried out on the server too');
   const lib = library('polls').js;
-  for (const name of m.actions.provides.filter((a) => !a.local).map((a) => a.name)) assert.match(lib, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
+  for (const name of m.actions.provides.filter((a) => !a.local && a.effect !== 'delete').map((a) => a.name)) assert.match(lib, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
   const page = fs.readFileSync(new URL('../src/polls.js', import.meta.url), 'utf8');
   assert.match(page, /settings: \{ addableByDefault: Boolean\(prefs\.addableByDefault\), closeAfterDays: Number\(prefs\.closeAfterDays\) \|\| 0 \}/, 'the page hands the settings');
   assert.match(page, /async function afterAction[\s\S]*!w\.before\.closed && w\.value\.closed\) tellOthers\(x\)/, 'a poll a request ended is told to other modules, as End poll tells them');

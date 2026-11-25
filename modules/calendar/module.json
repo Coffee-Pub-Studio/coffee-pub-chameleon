@@ -1,7 +1,7 @@
 {
   "id": "calendar",
   "name": "Calendar",
-  "version": "1.24.52",
+  "version": "1.24.53",
   "icon": "calendar-days",
   "color": "red",
   "description": "Sessions and events for the whole {environment} and for each {space}, with reminders.",
@@ -184,6 +184,15 @@
         "local": true,
         "input": {
           "text": "string"
+        }
+      },
+      {
+        "name": "deleteEvent",
+        "label": "Delete an event",
+        "description": "Delete one event, the whole series if it repeats.",
+        "effect": "delete",
+        "input": {
+          "event": "ref:calendar:event"
         }
       }
     ],
