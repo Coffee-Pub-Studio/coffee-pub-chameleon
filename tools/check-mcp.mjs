@@ -396,12 +396,13 @@ try {
     }
     const env = (await call(server, 'GET', '/api/modules/maps/data?scope=environment', { cookie: admin })).json.items.find((i) => i.key === 'place:p1');
     assert.deepEqual([env.value.status, env.value.spaces], ['booked', [S1]]);
-    // What is not for this agent's spaces is refused as before.
+    // What is not for this agent's spaces is refused: resolving it as before, and a change pointing at it with the server's
+    // sentence (Maps is carried by the server, so it is refused at once, never queued: GitHub #1117).
     for (const ref of [{ module: 'maps', kind: 'place', id: 'p3', scope: 'person' }, { module: 'maps', kind: 'place', id: 'p4', scope: 'environment' }, { module: 'maps', kind: 'place', id: 'p5', scope: 'environment' }]) {
       const out = result(await tool(server, 'resolve_objects', { from: 'maps', refs: [ref] }, C), `resolve ${ref.id}`);
       assert.deepEqual([out.isError, out.text], [true, "An agent can't do that."], ref.id);
       const change = result(await tool(server, 'ask_for_change', { space: S1, action: 'maps:updatePlace', input: { place: ref, status: 'booked' } }, C), `change ${ref.id}`);
-      assert.deepEqual([change.isError, change.text], [true, "An agent can't do that."], `change ${ref.id}`);
+      assert.deepEqual([change.isError, change.text], [true, 'A change here can only point to this space or to things kept for everyone.'], `change ${ref.id}`);
     }
     // An agent of another space sees none of them.
     const B = await makeAgent('Other', [S2]);

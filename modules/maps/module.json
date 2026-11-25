@@ -1,7 +1,7 @@
 {
   "id": "maps",
   "name": "Maps",
-  "version": "0.10.17",
+  "version": "0.10.18",
   "content": "flush",
   "icon": "map-location-dot",
   "color": "pink",
@@ -263,7 +263,8 @@
           "address": "The street address. With no lat and lng it is looked up, and one clear match sets the position; otherwise the note lists the matches.",
           "notes": "The notes. Line breaks are allowed."
         },
-        "lookups": { "address": "geocode" }
+        "lookups": { "address": "geocode" },
+        "skipLookupWhen": ["lat", "lng"]
       },
       {
         "name": "updatePlace",

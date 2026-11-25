@@ -155,7 +155,11 @@ export async function onRunner(id, action, input, world, o = {}) {
   const space = world.space && world.space.id;
   // The place search before the run, as server/index.js actionLookups cuts it: the declared inputs' text, at most 6 results.
   const looks = (o.lookups || lookupsOf(id))[action];
-  if (looks) {
+  // Every input the action's skipLookupWhen names given: no search, each list empty.
+  const skip = (((manifestOf(id).actions || {}).provides || []).find((a) => a.name === action) || {}).skipLookupWhen;
+  const skipped = Array.isArray(skip) && skip.every((f) => input[f] !== undefined && input[f] !== null && input[f] !== '');
+  if (looks && skipped) ctx.lookups = Object.fromEntries(Object.keys(looks).map((f) => [f, []]));
+  else if (looks) {
     const line = (v, max) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
     ctx.lookups = Object.fromEntries(Object.keys(looks).map((f) => [f, typeof input[f] === 'string' && line(input[f], 200).length >= 2 ? (world.geocode || []).filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng)).slice(0, 6).map((r) => ({ title: line(r.title, 200), sub: line(r.sub, 300), lat: r.lat, lng: r.lng, key: line(r.key, 128) })) : []]));
   }

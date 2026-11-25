@@ -9597,11 +9597,18 @@ app.post('/api/spaces/:id/action', async (req, res) => {
     // Every pointer it sends is into one of its own spaces (decision 3): never the environment's, a person's or another
     // space's, so an action can't be used to learn what is there.
     const given = req.body?.input && typeof req.body.input === 'object' ? req.body.input : {};
+    // A module the server carries it for takes a pointer to its own objects only in this space, or to one of the
+    // environment's marked for this space; any other is refused here, never left waiting for a page (decision 8).
+    const carried = carriedNow(provider.found);
     for (const [field, type] of Object.entries(def.input || {})) {
       const base = String(type).replace(/\?$/, '');
       if (base !== 'ref' && !base.startsWith('ref:')) continue;
       const v = Object.hasOwn(given, field) ? given[field] : undefined;
       if (v === undefined || v === null || v === '') continue;
+      if (carried && actionOwnKind(provider.found.manifest.id, type)) {
+        if (!pointsHere(v, space.id)) return res.status(403).json({ error: POINTS_OUTSIDE });
+        continue;
+      }
       if (!agentSeesRef(req.agent.user, v)) return res.status(403).json({ error: AGENT_CANT });
     }
   }
@@ -9622,6 +9629,7 @@ app.post('/api/spaces/:id/action', async (req, res) => {
   // An agent's request to a bundled module with server actions is carried out here and now, as the agent (decision 4 of
   // plan-agent-edit-delete.md); everything above, the gate before it included, has already held it to what the agent may.
   const lib = req.agent ? serverCarries(provider.found, def, input, space.id) : null;
+  if (lib === POINTS_OUTSIDE) return res.status(403).json({ error: POINTS_OUTSIDE });
   if (lib && JSON.stringify(input).length > MODULE_ACTION_LIMITS.inputBytes) {
     return res.status(413).json({ error: `That request is too large for ${modules.shownName(provider.found.manifest)} to carry out.` });
   }
@@ -9654,10 +9662,15 @@ app.post('/api/spaces/:id/action', async (req, res) => {
 // Whether the server carries out this module's agent requests: a bundled module whose server actions load (server/
 // module-actions.js libraryFor: installed from this deployment's own copy, that very version, declaring actions.server).
 const carriedNow = (found) => Boolean(moduleActions.libraryFor(found));
-// The code for this request, or null to leave it on the queue for a page as before: the module's server actions, for a
-// `write` an agent may ask for (never local, asker-only, destructive or a delete), whose pointers into the module's own
-// objects are all in the request's space, or the environment's and marked for that space (the handler reads those with
-// ctx.read(key, 'environment'); any other keeps the page path).
+// The refusal of a pointer a server-carried module can't take: never queued for a page (decision 8 of plan-agent-edit-delete.md).
+const POINTS_OUTSIDE = 'A change here can only point to this space or to things kept for everyone.';
+// Whether a pointer is into the space `spaceId`, or to an environment object marked for it (the handler reads those with
+// ctx.read(key, 'environment')).
+const pointsHere = (v, spaceId) => Boolean(v && typeof v === 'object' && (v.scope === 'space' ? v.space === spaceId : v.scope === 'environment' && markedForSpace(v, spaceId)));
+// The code for this request, or null to leave it on the queue for a page (a module with no server actions here: an upload,
+// or one that declares none): the module's server actions, for a `write` an agent may ask for (never local, asker-only,
+// destructive or a delete). POINTS_OUTSIDE when a pointer into the module's own objects is neither in the request's space
+// nor the environment's and marked for it (the route has refused those already; this holds it after busInput too).
 function serverCarries(found, def, input, spaceId) {
   if (!agentMayAsk(def)) return null;
   const lib = moduleActions.libraryFor(found);
@@ -9665,7 +9678,7 @@ function serverCarries(found, def, input, spaceId) {
   for (const [field, type] of Object.entries(def.input || {})) {
     if (!actionOwnKind(found.manifest.id, type)) continue;
     const v = input[field];
-    if (v && !(v.scope === 'space' ? v.space === spaceId : v.scope === 'environment' && markedForSpace(v, spaceId))) return null;
+    if (v && !pointsHere(v, spaceId)) return POINTS_OUTSIDE;
   }
   return lib;
 }
@@ -9987,10 +10000,14 @@ function sharedKindAt(manifest, key) {
 // the input holds fewer than two characters. All that leaves the server is that input's own text (one line, at most
 // ACTION_LOOKUP.query characters) as the service's `q`: no position, nothing else of the request, nothing of the agent,
 // the space or the module's data. Each search counts as one of the agent's reads and one of the module's searches.
+// Nothing at all is searched when every input the action's skipLookupWhen names is given: each list is then empty.
 const ACTION_LOOKUP = Object.freeze({ results: 6, query: 200, title: 200, sub: 300 });
 async function actionLookups(found, who, space, def, input) {
   const fields = Object.keys(def.lookups || {});
   if (!fields.length) return { lookups: null };
+  // Every input the action's skipLookupWhen names is given (Maps' addPlace with lat and lng): no search, and no read spent.
+  const given = (f) => input[f] !== undefined && input[f] !== null && input[f] !== '';
+  if (def.skipLookupWhen && def.skipLookupWhen.every(given)) return { lookups: Object.fromEntries(fields.map((f) => [f, []])) };
   const { manifest } = found;
   const id = manifest.id;
   const line = (v, max) => String(v ?? '').replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
