@@ -5,8 +5,8 @@
  * outcomeOf check) and through the SDK's page adapter (host.actions.fromLibrary) on a stand-in host, both from
  * tools/module-actions-harness.mjs, expecting the same answer. Then: createTask, updateTask (only the fields given, notes
  * cleared with ""), setTaskDue setting and clearing the due date (the reminder off with it), setTaskDone, linkTask and the new
- * unlinkTask, each refusal with the form's sentence, and what the server's run marks for a page (remindPending, linksPending)
- * and says in its note. Exits 1 on failure.
+ * unlinkTask, each refusal with the form's sentence, and the reminder's schedule and the link changes each answers beside its
+ * write, which either carrier does at once (nothing is marked for a page). Exits 1 on failure.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -30,6 +30,7 @@ async function same(action, input, world) {
   assert.deepEqual(flat(r.runner.writes), flat(r.page.writes), `${action}: the same writes`);
   assert.deepEqual(r.runner.ref, r.page.ref, `${action}: the same pointer`);
   assert.deepEqual(r.runner.data, r.page.data, `${action}: the same note`);
+  assert.deepEqual(r.runner.effects.links, r.page.effects.links, `${action}: the same link changes`);
   return r.page;
 }
 const server = (action, input, world) => onRunner('todo', action, input, world, { kinds: ['task'], now: NOW, carrier: 'server' });
@@ -122,24 +123,39 @@ await test('linkTask and unlinkTask: a link added, taken off with its rule, and 
   await refuses('unlinkTask', { task: ref('a'), target: PLACE }, world(rows()), 'That task is not linked to that.');
 });
 
-await test('carried on the server: what only a page does is marked for it, and said', async () => {
-  const r = await server('updateTask', { task: ref('a'), title: 'Buy more tape' }, world(rows()));
-  assert.deepEqual(r.writes[0].value, { ...TAPE, title: 'Buy more tape', remindPending: true });
-  assert.equal(r.data.note, 'Its reminder is set when someone who can change tasks next opens the to-do list.');
-  const done = await server('setTaskDone', { task: ref('a'), done: true }, world(rows()));
-  assert.equal(done.writes[0].value.remindPending, true, 'its old reminder is taken off by a page');
-  assert.equal(done.data, undefined, 'a done task has no reminder to say');
-  const plain = await server('updateTask', { task: ref('a'), notes: 'x' }, world({ 'task:a': { ...TAPE, remind: false } }));
-  assert.equal(plain.writes[0].value.remindPending, undefined, 'no reminder before or after: nothing waits');
-  const link = await server('unlinkTask', { task: ref('a'), target: EVENT }, world({ 'task:a': { ...TAPE, remind: false } }));
-  assert.equal(link.writes[0].value.linksPending, true);
-  assert.equal(link.data.note, 'What it links to shows the change when someone who can change tasks next opens the to-do list.');
-  const made = await server('createTask', { title: 'Call', due: '2099-02-02', remind: true }, world());
-  assert.deepEqual([made.writes[0].value.remindPending, made.writes[0].value.linksPending], [true, undefined]);
-  const kept = await server('updateTask', { task: ref('a'), notes: 'y' }, world({ 'task:a': { ...TAPE, remind: false, linksPending: true } }));
-  assert.equal(kept.writes[0].value.linksPending, true, 'a mark not yet taken off stays');
-  const page = await same('updateTask', { task: ref('a'), notes: 'y' }, world({ 'task:a': { ...TAPE, remindPending: true, linksPending: true } }));
-  assert.deepEqual([written(page, 'task:a').remindPending, written(page, 'task:a').linksPending], [undefined, undefined], 'a page does both at once: no marks');
+await test('the reminder and the links are answered beside the write, so the server does them at once: nothing is marked', async () => {
+  const DUE = '2026-12-01'; // within the year ahead of NOW (September 2026)
+  const tokyo = (action, input, w) => onRunner('todo', action, input, w, { kinds: ['task'], now: NOW, carrier: 'server', tz: 'Asia/Tokyo' });
+  const remindAt = Date.parse('2026-12-01T00:00:00Z'); // 9:00 on the due date in Tokyo
+  const set = (id, title) => [{ op: 'set', key: `remind:${id}`, at: remindAt, about: ref(id), payload: { id }, notify: { title, body: 'Due today' } }];
+  const due = { ...TAPE, due: DUE };
+  const r = await tokyo('updateTask', { task: ref('a'), title: 'Buy more tape' }, world({ 'task:a': due }));
+  assert.deepEqual([r.writes[0].value, r.data], [{ ...due, title: 'Buy more tape' }, undefined], 'no mark, nothing said');
+  assert.deepEqual([r.effects.schedules, r.effects.links], [set('a', 'Buy more tape'), []], 'the reminder set again with the new title (the server took the old one off)');
+  const done = await tokyo('setTaskDone', { task: ref('a'), done: true }, world({ 'task:a': due }));
+  assert.deepEqual(done.effects.schedules, [{ op: 'cancel', key: 'remind:a' }], 'done: taken off');
+  const off = await tokyo('setTaskDue', { task: ref('a') }, world({ 'task:a': due }));
+  assert.deepEqual([off.effects.schedules, off.data.note], [[{ op: 'cancel', key: 'remind:a' }], 'Its reminder is off, since it has no due date.']);
+  const passed = await tokyo('updateTask', { task: ref('a'), notes: 'x' }, world({ 'task:a': { ...TAPE, due: '2026-09-01' } }));
+  assert.deepEqual(passed.effects.schedules, [{ op: 'cancel', key: 'remind:a' }], 'a reminder already passed is not set');
+  const made = await tokyo('createTask', { title: 'Call', due: DUE, remind: true }, world());
+  assert.deepEqual(made.effects.schedules, set('n1', 'Call'), 'a new task: set');
+  const quiet = await tokyo('createTask', { title: 'Call', due: DUE }, world());
+  assert.deepEqual(quiet.effects.schedules, [], 'a new task without a reminder: nothing to cancel');
+  // The links: one add or remove each, from the task, to what it is linked to in this space.
+  const unlink = await tokyo('unlinkTask', { task: ref('a'), target: EVENT }, world({ 'task:a': due }));
+  assert.deepEqual(unlink.effects.links, [{ op: 'remove', from: ref('a'), to: EVENT }]);
+  const link = await tokyo('linkTask', { task: ref('a'), target: PLACE }, world({ 'task:a': due }));
+  assert.deepEqual(link.effects.links, [{ op: 'add', from: ref('a'), to: PLACE }]);
+  const withRef = await tokyo('createTask', { title: 'Call', ref: EVENT }, world());
+  assert.deepEqual(withRef.effects.links, [{ op: 'add', from: ref('n1'), to: EVENT }]);
+  const elsewhere = { module: 'calendar', kind: 'event', id: 'e9', scope: 'environment' };
+  const env = await tokyo('linkTask', { task: ref('a'), target: elsewhere }, { ...world({ 'task:a': due }), summaries: [...SUMMARIES, { ref: elsewhere, title: 'Holiday', kind: 'event' }] });
+  assert.deepEqual([env.writes[0].value.links.length, env.effects.links], [2, []], 'outside this space: kept on the task, linked by a page (todo.js syncLinks)');
+  // A page carries the same answer through its own host calls; no catch-up is left on it.
+  const js = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'todo.js'), 'utf8');
+  assert.ok(!/remindPending|linksPending|settleWaiting/.test(js), 'no catch-up on the page');
+  assert.ok(js.includes('const at = todoRemindAt(t, undefined, Date.now());'), 'the form sets its reminder by the same rule');
 });
 
 if (process.exitCode) { console.error(`check-todo-actions: failed (${n} passed)`); process.exit(1); }

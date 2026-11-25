@@ -12,6 +12,10 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
+// Due dates within the year ahead the host schedules (server/module-hooks.js), so a reminder is set.
+const dayAhead = (n) => new Date(Date.now() + n * 24 * 3600000).toISOString().slice(0, 10);
+const SOON = dayAhead(60);
+const SOON2 = dayAhead(61);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const dir = path.join(root, 'modules/todo');
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
@@ -34,7 +38,7 @@ const loose = () => new Proxy(function () {}, {
   set: () => true,
 });
 
-async function page({ canEdit = true, due = '2099-01-01' } = {}) {
+async function page({ canEdit = true, due = SOON } = {}) {
   const store = new Map();
   const writes = [];
   const cancelled = [];
@@ -93,7 +97,7 @@ await test('the manifest declares updateTask and createTask remind', () => {
 });
 await test('createTask without remind saves remind false, no reminder', async () => {
   const p = await page();
-  await p.provided.createTask({ title: ' Call ', due: '2099-02-02' });
+  await p.provided.createTask({ title: ' Call ', due: SOON2 });
   await tick();
   const w = p.writes.at(-1);
   assert.equal(w.value.remind, false);
@@ -102,7 +106,7 @@ await test('createTask without remind saves remind false, no reminder', async ()
 });
 await test('createTask with remind true and a due date saves it and sets the reminder', async () => {
   const p = await page();
-  await p.provided.createTask({ title: 'Call', due: '2099-02-02', remind: true });
+  await p.provided.createTask({ title: 'Call', due: SOON2, remind: true });
   await tick();
   assert.equal(p.writes.at(-1).value.remind, true);
   assert.equal(p.scheduled.length, 1);
@@ -125,7 +129,7 @@ await test('updateTask changes the title, trimmed, and keeps the rest', async ()
   const w = p.writes.at(-1);
   assert.equal(w.key, 'task:a');
   assert.equal(w.value.title, 'Buy gaffer tape');
-  assert.equal(w.value.due, '2099-01-01');
+  assert.equal(w.value.due, SOON);
   assert.equal(w.value.remind, true);
   assert.equal(w.opts.version, 1);
   await tick();

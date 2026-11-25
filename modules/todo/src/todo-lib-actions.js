@@ -4,16 +4,13 @@
   // write. A throw is the refusal; its message is the sentence the asker reads. It expects todo-lib.js in scope (the build puts
   // every todo-lib*.js together): taskFromObject, isTaskDay, TASK_TITLE_MAX and TASK_NOTES_MAX.
   //
-  // What only a page does about a task: its reminder is a schedule (todo.js applyReminder), and what it links to is told to the
-  // host so the other object lists it (todo.js syncLinks). Carried out on the server (ctx.carrier 'server'), a task whose reminder
-  // or links may have changed is marked (`remindPending`, `linksPending`): the server has taken off any schedule about the task it
-  // changed, and the to-do list sets the reminder and the links again from the task as it is now the next time someone who can
-  // change tasks opens it (todo.js settleWaiting), taking the marks off. The request's note says so. Carried out on a page, the
-  // page does both at once (its after hook) and there are no marks.
+  // Beside the write, a handler answers what the host does about the task (plan-agent-server-actions.md, section 2): its
+  // reminder's schedule (set for the task as written, or cancelled) and its links as add and remove changes, so the other
+  // object lists it. Whoever carries the request out does them at once, the server as the agent or a page as its person; the
+  // server has already taken off any schedule about a task the request changed. On a module's environment page, for the
+  // environment's own list (no space), the page does both itself (todo.js afterFor).
 
   const TODO_MAX_LINKS = 5;
-  const TODO_REMIND_LATER = 'Its reminder is set when someone who can change tasks next opens the to-do list.';
-  const TODO_LINKS_LATER = 'What it links to shows the change when someone who can change tasks next opens the to-do list.';
   const todoGiven = (v) => v !== undefined && v !== null && v !== '';
   const todoRef = (ctx, id) => ({ module: 'todo', kind: 'task', id, scope: 'space', space: ctx.space.id });
   const todoPointer = (r) => Boolean(r) && typeof r === 'object' && !Array.isArray(r) && typeof r.module === 'string' && typeof r.kind === 'string' && typeof r.id === 'string';
@@ -37,20 +34,65 @@
     if (!t || typeof t !== 'object' || Array.isArray(t)) throw new Error('that task is not here');
     return { ...t, id: ref.id };
   }
-  // The answer for a task written as `next` (`before` as it was, or null for a new one), with the marks above and the notes.
+  // Midnight starting `day` ("YYYY-MM-DD") in `tz` (an IANA zone: whoever carries it out), in milliseconds; else in this
+  // process's zone.
+  function todoMidnight(day, tz) {
+    const [y, m, d] = day.split('-').map(Number);
+    let parts = null;
+    try { parts = tz ? new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }) : null; } catch (err) { parts = null; }
+    if (!parts) return new Date(y, m - 1, d).getTime();
+    const want = Date.UTC(y, m - 1, d);
+    let guess = want;
+    // The wall clock reads like the instant moved by the zone's offset: find that instant, twice for a clock change.
+    for (let i = 0; i < 2; i += 1) {
+      const g = {};
+      for (const p of parts.formatToParts(new Date(guess))) g[p.type] = Number(p.value);
+      guess -= Date.UTC(g.year, g.month - 1, g.day, g.hour === 24 ? 0 : g.hour, g.minute, g.second) - want;
+    }
+    return guess;
+  }
+  const TODO_REMIND_FROM = 9 * 60 * 60 * 1000; // 9:00 on the due date: midnight plus nine hours, as the page has always set it
+  const TODO_AHEAD = 365 * 24 * 60 * 60 * 1000; // the host takes a schedule at most a year ahead (server/module-hooks.js)
+  // When task `t`'s reminder comes, in milliseconds, or null when none does (no reminder, no due date, done, or passed).
+  function todoRemindAt(t, tz, now) {
+    if (!t || !t.remind || !isTaskDay(t.due) || t.done) return null;
+    const at = todoMidnight(t.due, tz) + TODO_REMIND_FROM;
+    return at > now && at <= now + TODO_AHEAD ? at : null;
+  }
+  // What the host does about task `next` (`before` as it was, or null for a new one): { schedules?, links? }, nothing on the
+  // environment's own list.
+  function todoEffects(ctx, before, next) {
+    if (!ctx.space || !ctx.space.id) return {};
+    const out = {};
+    const key = `remind:${next.id}`;
+    const at = todoRemindAt(next, ctx.tz, Number(ctx.now) || Date.now());
+    if (at !== null) out.schedules = [{ set: { key, at, about: todoRef(ctx, next.id), payload: { id: next.id }, notify: { title: next.title, body: 'Due today' } } }];
+    else if (before) out.schedules = [{ cancel: { key } }];
+    // The links answered are those to objects in this space, the ones the server may link for an agent (server/action-effects.js);
+    // a page also tells the host the rest (todo.js syncLinks).
+    const linkable = (r) => r.scope === 'space' && r.space === ctx.space.id;
+    const was = todoLinksOf(before).filter(linkable);
+    const now = todoLinksOf(next).filter(linkable);
+    const keys = (list) => new Set(list.map((r) => ctx.util.objectKey(r)));
+    const had = keys(was);
+    const has = keys(now);
+    const from = todoRef(ctx, next.id);
+    const links = [
+      ...was.filter((r) => !has.has(ctx.util.objectKey(r))).map((r) => ({ remove: { from, to: todoLinkOf(r) } })),
+      ...now.filter((r) => !had.has(ctx.util.objectKey(r))).map((r) => ({ add: { from, to: todoLinkOf(r) } })),
+    ];
+    if (links.length) out.links = links;
+    return out;
+  }
+  // The answer for a task written as `next` (`before` as it was, or null for a new one): the write, what the host does about it,
+  // and the note.
+  const TODO_REMIND_FAR = 'A reminder can be set at most a year ahead, so this one is not set yet; set it again within the year.';
   function todoAnswer(ctx, before, next, said) {
     const out = { ...next };
-    delete out.remindPending;
-    delete out.linksPending;
-    const notes = said ? [said] : [];
-    if (ctx.carrier === 'server') {
-      const linksChanged = todoKeys(todoLinksOf(out), ctx.util) !== todoKeys(todoLinksOf(before), ctx.util);
-      if (out.remind || (before && (before.remind || before.remindPending))) out.remindPending = true;
-      if (linksChanged || (before && before.linksPending)) out.linksPending = true;
-      if (out.remind && out.due && !out.done) notes.push(TODO_REMIND_LATER);
-      if (linksChanged) notes.push(TODO_LINKS_LATER);
-    }
-    return { writes: [{ key: `task:${out.id}`, value: out }], ref: todoRef(ctx, out.id), ...(notes.length ? { data: { note: notes.join(' ') } } : {}) };
+    const now = Number(ctx.now) || Date.now();
+    const far = Boolean(out.remind && isTaskDay(out.due) && !out.done && todoMidnight(out.due, ctx.tz) + TODO_REMIND_FROM > now + TODO_AHEAD);
+    const notes = [said, far ? TODO_REMIND_FAR : ''].filter(Boolean);
+    return { writes: [{ key: `task:${out.id}`, value: out }], ref: todoRef(ctx, out.id), ...todoEffects(ctx, before, out), ...(notes.length ? { data: { note: notes.join(' ') } } : {}) };
   }
 
   const ACTION_HANDLERS = {
