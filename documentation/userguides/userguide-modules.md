@@ -112,7 +112,7 @@ An enabled module adds its permissions to the **Roles** tab, in a group named fo
 
 ## Upgrade and roll back
 
-Upload a newer version of the same module and it replaces the active one. Chameleon keeps the newest three versions. The card has a version picker with the running one selected; choose another and **Switch to this version** goes back, or forward again. The module's saved data stays as it is either way. An upgrade or switch that asks for something you have not yet approved comes back disabled, and shows **Approve and enable**.
+Upload a newer version of the same module and it replaces the active one. Chameleon keeps the newest three versions. The card has a version picker with the running one selected; choose another and **Switch to this version** goes back, or forward again. The module's saved data stays as it is either way. A module that was on stays on after an upgrade or a switch, with its data, layouts and Roles ticks, and runs with exactly what you approved before. If the new version asks for more, the card shows **Approve**: a new permission is in nobody's Roles and a new hook is refused until you approve it.
 
 ## Disable and uninstall
 

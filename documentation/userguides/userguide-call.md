@@ -130,7 +130,7 @@ order and the pin are remembered in your browser. A person whose camera is off s
 
 ## Who is here
 
-At the end of the top bar's left side, after the layout tabs, is who is in the space now: small square pictures of the
+On a wide screen the people in the space show on the layout tabs, and this control is left for a guest, an aside and the phone's **Online** list (see [Tabs and workspaces](userguide-workspaces.md), "Who is on which tab"). Where it shows, at the end of the top bar's left side, it is who is in the space now: small square pictures of the
 people here, you first, up to four, then "+2" for the rest, and who they are in a few words: "Just you", "You and Alex",
 "You, Alex and Sam" or "You and 4 others". A camera mark is on those on the call. Click it for the list, headed "In this
 space (5)": everyone here, you first with "(you)", and the camera with "on the call" beside those on it. It changes as
@@ -203,22 +203,7 @@ chat box is hidden.
   what is unread. The Calendar and the To-do show as one switch, **Calendar**, and Maps and Places as one, **Maps**
   (when the main one is off, the module beside it is listed on its own). The call and the chat are not in the list;
   they are in the column.
-- **Arrange**: **Panel Mode** docks modules as columns beside each other; **Window Mode** makes them windows floating
-  over the Workspace. Choosing one moves every module that can move, and modules opened later follow the mode. In
-  Window Mode there are also:
-  - **Snap to grid**, which puts every floating module on a grid and keeps new ones on it, and **Grid size** (shown
-    while it is on), which sets how fine the grid is. As you slide, the modules move to the cells nearest where they
-    were and keep about the same size, without landing on each other while there is room; slide back and they return.
-    Switching it off lets them float freely.
-  - **Clean up**, which tiles the floating modules to fill the Workspace, none on another, each keeping its side of the
-    window. With the grid on they are whole cells. Clean up again changes nothing. Docked modules and modules in
-    their own window are left alone.
-
-  In Panel Mode there is also **Unstack all**, which gives every module in a stack a column of its own (it is
-  off while nothing is stacked). Window Mode puts stacks away and Panel Mode brings them back (see "Stacking
-  modules" below).
-- **Layouts**: the Workspace and the other layouts the space shows (Calendar, Map, Conference, Whiteboards and Documents), then the space's shared layouts, then your own, with **New layout** and
-  **Save as new layout** at the end (see "Saved layouts" below).
+- **Arrange** and **Layouts** are no longer here. The Layout button, favorites and your own saved layouts are gone. Arrange is in the menu on a workspace's tab (**Arrange last**: **Panels**, **Windows**, **Clean up**, **Unstack all**, **Snap to grid**, **Grid size**, **Undo**), and the layouts are tabs. See [Tabs and workspaces](userguide-workspaces.md).
 
 **In a Fixed Workspace.** Calendar, Map, Conference, Whiteboards and Documents are fixed: nobody arranges them, so the **Modules** tab does not offer the arrangement controls there (**Arrange**, **Layouts**, **Open for you**, adding or taking away a module). It shows only the switches that layout has, or says "There is nothing to configure here." Today only Calendar has one, **Show in the Calendar**, the To-do module's own setting, shown while the To-do module and the Calendar are on, and changed by owners and the admin. The Workspace and the saved layouts are Customizable Workspaces and keep the full tab.
 
@@ -271,57 +256,9 @@ The Workspace tells you what happened: "Polls was stacked under To-do.", "Polls 
 
 Not every module can be in a stack. The call and Chat, and the modules that are several in one, such as the Calendar and the Map, never are. Their menu has no **Stack with...**, or has it greyed. On a phone (640 pixels wide and below) there are no columns and so no stacks; a stack you made on a wider window is kept and comes back when the window is wide again.
 
-## Saved layouts
+## Layouts and tabs
 
-Save the way the Workspace is arranged, give it a name, and put it back in one press.
-
-To save one:
-
-1. Arrange the Workspace the way you want it. A layout keeps stacks, with their heights and collapses.
-2. Press **Set up** and, on the **Modules** tab, under **Layouts**, choose **Save as new layout** (the Workspace as it is now) or **New layout** (an empty one, with no module open).
-3. Type a **Name**. Owners, the admin and the space's moderators can also switch on **For everyone in this space** to
-   save a shared layout.
-4. Choose **Save**. The menu says "Saved <name>." (or "Created <name>." for a new one), and the layout is the one shown. If you already have a layout with that name, it offers **Replace
-   it**.
-
-**Modified and Update.** When the layout shown is a saved one and you then move, open or close a module, a row **Modified** appears right under it. Where you may change that layout (your own, or a shared one for owners, the admin and moderators), the row reads **Update**: choosing it saves the Workspace over the layout. Otherwise it is only the word, and the layout is left as it was.
-
-To load one, press its name. The menu stays open. Modules the layout doesn't name close; a module in its own window
-comes back to the Workspace. Floating modules are placed to fit this window, snapped ones settle on the grid, and
-docked modules the window has no column for wait (see below). If a module in the layout isn't on in this space, it is
-left out and the menu says so. The loaded layout becomes the one this space remembers for you.
-
-Every layout has a **⋮** for anyone signed in. It starts with **Favorite** or **Unfavorite** (see "Favorite layouts"
-below). On a layout you may change it also offers **Replace with this layout** (it then holds the Workspace as it is
-now), **Rename**, **Change icon** and **Delete**, which asks first. Anyone may save their own layouts, up to 10 in a
-space; owners, the admin and the space's moderators may save, change and delete the shared ones, up to 10; guests see the
-shared ones and may only load them, with nothing to save or change. Names are up to 40 characters. With none saved, the section reads "No saved layouts yet." There
-are no layouts in the narrow layout or in an aside.
-
-**The space's first visit.** Owners and the admin can choose **Make default** in a shared layout's **⋮**, and **Stop
-using as default** to stop. The default is marked "Default". Someone entering the space for the first time gets it,
-with its places; a guest gets it on every visit. After that, each person's own remembered layout wins. See "First
-visit" under "Set up" in [Spaces](userguide-spaces.md).
-
-### Favorite layouts
-
-Make the layouts you use most a favorite, and each becomes a tab in the top bar, right after **Workspace**, **Calendar**
-and **Map**, so one press shows it. Anyone signed in can keep favorites, of their own layouts and of the space's shared
-ones, with no limit. Your favorites are yours alone, kept for each space, and follow you to another computer. Guests
-can't keep favorites.
-
-To make a layout a favorite:
-
-1. Press **Set up**, on the **Modules** tab.
-2. Under **Layouts**, press the **⋮** beside the layout.
-3. Choose **Favorite**. The menu says "<name> is a favorite.", and a small heart shows after the layout's name.
-
-Its tab now shows in the top bar, with its icon and name. To stop, choose **Unfavorite** in the same **⋮**. The menu
-says "<name> is no longer a favorite." Deleting a layout takes it out of everyone's favorites.
-
-The tabs are in the order you made them favorites. When the bar has no room for all of them, the ones that don't fit go
-into a **…** after the last tab, from the right; the tab you are on and the Workspace stay. The layouts in the **…** are
-still in the **Layouts** list on the **Modules** tab, marked by their hearts. Tabs are not shown in the narrow layout, in an aside, or to a guest.
+Each layout is a tab along the top, and you can add workspaces of your own. Owners, the admin and moderators can also make a layout for everyone. All of it, with how to arrange the modules in a workspace, is in [Tabs and workspaces](userguide-workspaces.md).
 
 ## When the Workspace is too narrow for another column
 

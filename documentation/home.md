@@ -19,6 +19,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
   the compose file, with their defaults.
 - [The call](userguides/userguide-call.md) -- joining a space, the always-on column of call and chat, the
   controls, layouts, reactions, away, and the pop-out window.
+- [Tabs and workspaces](userguides/userguide-workspaces.md) -- the tabs along the top, adding your own workspaces, the tab menu, Manage tabs, Bring everyone here and layouts for everyone.
 - [Accounts, roles and permissions](userguides/userguide-accounts.md) -- who can do what, guests,
   invites, and personal links.
 - [Spaces](userguides/userguide-spaces.md) -- Home, the top bar, the status strip, phases, Set up, and stepping aside.
@@ -66,7 +67,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
 - [Canvas architecture](architecture/architecture-canvas.md) -- the canvas: its grid of modules, docked
   and floating, and the layout rules.
 - [Access architecture](architecture/architecture-access.md) -- who may enter a space, the agreements gate, the guest door, request access, and their routes.
-- [Agent access architecture](architecture/architecture-agent-access.md) -- agent accounts, their tokens, the route gate, the limits and log, copies and restores, and the asker carried through the bus.
+- [Agent access architecture](architecture/architecture-agent-access.md) -- agent accounts, their tokens, the route gate, the limits and log, copies and restores, the asker carried through the bus, the server runner for agents' module actions, and delete asks.
 - [Documents architecture](architecture/architecture-documents.md) -- the module's stored keys, the edit lock, saving, tags and the licence rules.
 - [Whiteboard architecture](architecture/architecture-whiteboard.md) -- the module's libraries, the block format, how it saves and hears changes, undo, pictures and its checks.
 - [Module window architecture](architecture/architecture-module-window.md) -- the titlebar, toolbar and
@@ -75,6 +76,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
   registry.
 - [Environments architecture](architecture/architecture-environments.md) -- one host, many environments:
   the seam, the host console, the roles, the Names migration and templates (the format, the resolver, starter content, the phases' measure and the call settings).
+- [Weather architecture](architecture/architecture-weather.md) -- where the weather on a day comes from, what is kept and what leaves the server.
 - [AI architecture](architecture/architecture-ai.md) -- how the AI is asked: the prompt registry, what is sent and what it may see, who may ask, refunds, records, the key and the address guard.
 - [The demo seeder and the checks](architecture/architecture-demo-site.md) -- filling a server with demo data (five demos, one for each template), adding one from the host console, a demo site that resets itself, the checks added since 0.4, the page-load checks, the roadmap sync and the testing rule.
 

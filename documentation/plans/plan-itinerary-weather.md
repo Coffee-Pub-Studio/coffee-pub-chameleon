@@ -5,9 +5,19 @@ core); experience-design builds the day header's weather piece in the SDK and th
 module lane for the Itinerary, a patch bump each); quality-assurance reads the server half as a privacy change when Thomas calls a
 feedback or production build; content-manager documents.
 
-**Status:** Draft, 2026-11-25. Nothing in it is built. From GitHub issue #1080 (Planner: Show the weather on each itinerary
+**Status:** Draft, 2026-11-25; steps 1 to 5 are built (see Progress). From GitHub issue #1080 (Planner: Show the weather on each itinerary
 day). Thomas, 2026-11-23: "add itinerary enhancement: map the weather to the days." Thomas has decided only that this is wanted;
 everything else below is a recommendation he has not yet seen, so it is listed under "Recommendations", not "Decisions".
+
+**Progress (2026-11-25, read against `main` at `fa5ea4bd`).** Steps 1 to 5 are built and merged; step 6 is not part of this plan.
+
+1. The lookup and its cache, `server/weather.js` and `tools/check-weather.mjs` (#1096).
+2. The declaration, the route and the Itinerary's settings (#1101; Itinerary 0.16.21). The redirect gap named in step 1's review is closed: a hop off the admin's origin is checked and asked at exactly the addresses checked.
+3. `host.ui.dayWeather` (#1106), on the Design System page.
+4. The Itinerary draws it, with `host.weather.days` (#1110; Itinerary 0.16.22).
+5. The agent read, `read_weather` (#1109).
+
+Built as Thomas decided on 2026-11-25 (never a paid service): provider adapters in `server/weather-providers/` replace the Open-Meteo preset, the custom address and the key (#1118); no adapter is registered yet, so nothing can be chosen but **None**. Not built: the owner's "Weather is working" test button, and the MET Norway adapter (see TODO). Open: whether weather should be its own route part rather than code in `server/index.js`. No real service was ever reached.
 
 ## What it is today
 
@@ -213,7 +223,7 @@ S (an hour or less), M (a few hours), L (a day).
 5. **The agent read** (server-development, core, S). `read_weather` in `server/mcp.js`, its entry in `documentation/api/api-agents.md`
    by content-manager at documentation time, and the check in `tools/check-mcp.mjs`.
 6. **The story strip reuses it** (later, only when plan-space-story-strip step 9 is built; not part of this plan). That step takes
-   its provider and cache from step 1, drops `WEATHER_ADDRESS` and `WEATHER_KEY`, and asks for one position, the trip's main place.
+   its provider and cache from step 1, asks for one position, the trip's main place.
 
 ## Verify
 

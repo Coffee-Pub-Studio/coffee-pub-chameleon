@@ -30,6 +30,8 @@ A **stack** is a column of the canvas that holds two or more docked modules one 
 
 ## Decisions
 
+Changed by decisions 40 and 41 of [plan-workspaces](plan-workspaces.md) (Thomas, 2026-11-23): decision 9 is replaced. Unstack all moves from the Layout menu to the Arrange part of a workspace tab's menu, and Clean up now also works for Panels.
+
 Thomas, 2026-11-02, answering "Agreed" to the draft's ten questions:
 
 1. **The shape is a vertical split with a draggable divider and a collapse on each section** (Option B). It matches "stacked", keeps every module's frame, menu and events unchanged, and does not hide the short module the stack is for. Tabs may come later as another view.

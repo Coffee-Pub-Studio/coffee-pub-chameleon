@@ -30,8 +30,8 @@ The bar at the top of every page takes you around the environment. What is in it
 - **The space's name with an arrow.** Click it for the same menu of your spaces, with **Leave space** at the end.
   In an aside it shows the aside's own name; picking the space it came from in the menu does what **Rejoin call**
   does: everyone goes back to that space's call. A long name is cut short with "…"; hover over it for the whole name.
-- **The layout tabs**: **Workspace**, **Calendar**, **Map** and your favorite layouts (see "Layout tabs" below).
-- **Who is here**: the people in the space (see [The call](userguide-call.md), "Who is here").
+- **The layout tabs**: **Workspace**, the owner's other tabs and the workspaces you added, with small pictures of who is on each (see "Layout tabs" below and [Tabs and workspaces](userguide-workspaces.md)).
+- **Who is here**: the people in the space, on guests' and asides' bars and the phone's Online list; on a wide screen their pictures are on the tabs (see [The call](userguide-call.md), "Who is here").
 - On the right, the bell, your picture, then, for owners and the admin, **Manage** (a gear button), then **Set up**
   (see "Set up" below) and last **Full screen** and **Pop out**. **Set up** is there for every member of the space,
   not only those who may change it: its first tab, **Modules**, shows and hides modules and arranges them (see
@@ -49,9 +49,9 @@ default light or dark look.
 
 Every view of a space is a layout, and each layout is a tab. They sit right after the space's name. There are two kinds:
 
-- **Customizable Workspaces**: the **Workspace** and the saved layouts you have made a favorite. A person arranges any
+- **Customizable Workspaces**: the **Workspace** and the workspaces you add. A person arranges any
   number of modules in them.
-- **Fixed Workspaces**: **Calendar**, **Map**, **Conference**, **Whiteboards** and **Documents**. Nobody arranges them;
+- **Fixed Workspaces**: **Calendar**, **Map**, **Conference**, **Whiteboards**, **Documents** and **Projects**. Nobody arranges them;
   each shows what it is. Their **Modules** tab in Set up offers only the switches that layout has (see
   [The call](userguide-call.md), "The Modules tab").
 
@@ -67,15 +67,13 @@ The tabs, in the order the owner chose (by default this one):
   the conference on, and your role allows it). The call and the chat fill the page; see [The call](userguide-call.md),
   "Call position". Nobody joins by pressing it.
 - **Whiteboards** and **Documents** are there while that module is on in the space and you may read it.
-- After them, each saved layout you have made a favorite, in the order you favorited them. There is no limit.
+- After them, the workspaces you added, in your order (see [Tabs and workspaces](userguide-workspaces.md)).
 
 Press a tab to show it. Except on the Conference layout, the call and the chat stay where they are, in the column beside the work area (see
-[The call](userguide-call.md)), whichever tab is shown. On Set up's **Modules** tab, under **Layouts**, the **⋮** on a row
-offers **Favorite** or **Unfavorite** (the Fixed Workspaces can be taken off the tabs; the Workspace always stays),
-**Rename** and **Change icon**. Your names, icons and favorites are yours alone, kept for each space. A guest has no
-tabs, and neither has an aside.
+[The call](userguide-call.md)), whichever tab is shown. The small arrow on the Workspace and on a workspace you added opens its menu. A guest has no
+tabs (only a menu arrow on the Workspace), and neither has an aside.
 
-**The owner sets the bar.** Owners, the admin and the space's moderators choose, under **Layouts** on Set up's **Settings** tab, which layouts show in the bar for everyone in the space, in what order, and which one opens first (see "Set up" below). A person can hide more tabs for themselves, rename them and change their icons, but cannot bring back one the owner hid or change the order.
+**The owner sets the bar.** Owners, the admin and the space's moderators choose, under **Layouts** on Set up's **Settings** tab, which layouts show in the bar for everyone in the space, in what order, and which one opens first (see "Set up" below). A person can't hide, rename or reorder the owner's tabs; they can reorder and remove the workspaces they added (see **Manage tabs** in [Tabs and workspaces](userguide-workspaces.md)).
 
 ### The profile menu
 
