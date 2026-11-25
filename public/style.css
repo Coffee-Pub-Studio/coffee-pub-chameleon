@@ -6823,6 +6823,16 @@ body.chat-window {
 .flight-forget input { flex: 1 1 160px; min-width: 0; }
 .flight-forget .btn { flex: none; }
 
+/* The Weather terms section (host console and admin page): one row per service, its name and whether it is accepted, the credit
+   and the link to its terms, then the checkbox with Accept, or Withdraw. */
+.weather-terms-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.weather-terms-row { display: flex; flex-direction: column; gap: var(--space-2); padding-block: var(--space-3); }
+.weather-terms-row + .weather-terms-row { border-top: 1px solid var(--edge-hairline); }
+.weather-terms-row p { margin: 0; }
+.weather-terms-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.weather-terms-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.weather-terms-actions .btn { flex: none; }
+
 /* A masked password field with its Show/Hide button (brand.js wires any button[data-reveal]). */
 .reveal-row { flex-wrap: nowrap; }
 .reveal-row input { flex: 1; min-width: 0; }

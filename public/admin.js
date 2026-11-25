@@ -2,6 +2,7 @@ import { loadBranding, api, wireOverlayBack, renderTopbar, renderPageBar, escape
 import { pickBackground } from '/background-picker.js';
 import { basicsHtml, labelsHtml, readBasics, readLabels, wireFields, showChosenIcon } from '/template-fields.js';
 import { wireFlightSchedule } from '/flight-schedule.js';
+import { wireWeatherTerms } from '/weather-terms.js';
 import '/slot-paste.js'; // paste a picture into any image slot
 import { workspaceHtml, readWorkspace, phasesHtml, readPhases, additionsHtml, readAdditions, markAllDups, modulesHtml, readModules, moduleLabelsHtml, readModuleLabels, upgradeLists, wirePages } from '/template-pages.js';
 import { renderOffer, switchConfirm, madeSentence } from '/template-offer.js';
@@ -1518,6 +1519,7 @@ function moduleCard(m, shape = 'full') {
     ...m.permissions.map((p) => `<li><strong>${escapeHtml(p.label)}</strong> <span class="hint">permission, appears in Roles</span>${newTag(isNew('permissions', p.key))}</li>`),
     ...(m.hooks.schedule ? [`<li><strong>Run things on a schedule</strong> <span class="hint">reminders and timed events</span>${newTag(isNew('hooks', 'schedule'))}</li>`] : []),
     ...(m.hooks.notify ? [`<li><strong>Send notifications</strong> <span class="hint">to people using it</span>${newTag(isNew('hooks', 'notify'))}</li>`] : []),
+    ...(m.hooks.weather ? [`<li><strong>Use a weather service</strong> <span class="hint">the ${escapeHtml(word('module'))} asks for weather where its days are; the service is chosen in Weather</span>${newTag(isNew('hooks', 'weather'))}</li>`] : []),
     ...(m.hooks.external ? [`<li><strong>See each person's own other calendars</strong> <span class="hint">only to them</span>${newTag(isNew('hooks', 'external'))}</li>`] : []),
     ...(m.events && m.events.subscribes.length ? [`<li><strong>Hear what happens in other ${escapeHtml(word('module', { many: true }))}</strong> <span class="hint">${escapeHtml(m.events.subscribes.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: their events, only for people who can see them</span>${newTag(anyNew('events', m.events.subscribes))}</li>`] : []),
     ...(m.actions && m.actions.uses.length ? [`<li><strong>Ask other ${escapeHtml(word('module', { many: true }))} to do things</strong> <span class="hint">${escapeHtml(m.actions.uses.map((c) => c === '*' ? `any ${word('module')}` : c.replace(':', ' ')).join(', '))}: each request is carried out by the ${escapeHtml(word('module'))} that owns the action</span>${newTag(anyNew('actions', m.actions.uses))}</li>`] : []),
@@ -2977,6 +2979,7 @@ $('env-delete-cancel').addEventListener('click', async () => {
 
 // The flight schedule (plan-flight-lookup.md, step 5), on the Modules tab of a single install only.
 const flightSchedule = wireFlightSchedule('/api/flight-schedule');
+let weatherTerms = null; // the Weather terms section, wired once the environment says whether it is hosted
 
 async function init() {
   renderTopbar();
@@ -3042,6 +3045,8 @@ async function init() {
     tplReady = true;
     await loadTemplate();
     if (!environment.hosted) await flightSchedule.load(); // a hosted server's is the host console's: no section here
+    weatherTerms = wireWeatherTerms('/api/weather/terms', environment.hosted ? 'hosted' : 'single'); // an owner sees the status; only a single install's administrator accepts
+    await weatherTerms.load();
     if (firstHash && !TABS.includes(firstHash) && !ENV_PARTS.includes(firstHash)) selectTab(firstHash); // a section drawn just now
     setInterval(refreshLive, 5000);
   } catch (err) {

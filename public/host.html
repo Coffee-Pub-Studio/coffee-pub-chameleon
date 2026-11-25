@@ -493,7 +493,7 @@
           </div>
         </section>
 
-        <!-- ======== Server: the host, your two-step sign-in, host admins, AI, Maps, the flight schedule ======== -->
+        <!-- ======== Server: the host, your two-step sign-in, host admins, AI, Maps, the flight schedule, the weather terms ======== -->
         <section class="hc-section" id="section-server" data-section="server" aria-labelledby="server-title" hidden>
           <div class="hc-head"><h1 class="hc-title" id="server-title" tabindex="-1">Server</h1></div>
           <nav class="subtabs hc-jump hc-jump-row" id="server-jump" aria-label="Parts of the server">
@@ -503,6 +503,7 @@
             <button class="subtab" type="button" data-part="ai-panel">AI</button>
             <button class="subtab" type="button" data-part="shared-panel">Maps</button>
             <button class="subtab" type="button" data-part="flight-schedule-section">Flight schedule</button>
+            <button class="subtab" type="button" data-part="weather-terms-section">Weather terms</button>
           </nav>
           <div class="hc-parts">
             <section class="sdk-panel hc-part" id="server-host" tabindex="-1" aria-labelledby="server-host-title">
@@ -621,6 +622,19 @@
               </form>
               <div class="row danger-row"><button class="btn btn-small btn-danger" id="flight-clear" type="button">Clear all</button></div>
             </section>
+
+            <!-- The weather terms (plan-weather-part.md, step 2): accepted once for the whole host; drawn by /weather-terms.js on /api/host/weather/terms. -->
+            <section class="sdk-panel hc-part sdk-groups" tabindex="-1" id="weather-terms-section" hidden>
+        <div class="sdk-stack">
+        <div class="section-head">
+          <h2>Weather terms</h2>
+          <span class="status" id="weather-terms-status" role="status" aria-live="polite"></span>
+        </div>
+        <p class="sdk-hint">A weather service's terms are accepted once, by the administrator, for the whole server. Until they are, nothing is asked of that service.</p>
+        <p class="sdk-hint" id="weather-terms-note" hidden></p>
+        <ul class="weather-terms-list" id="weather-terms-list"></ul>
+        </div>
+      </section>
           </div>
 
           <template id="tpl-ai-service">
