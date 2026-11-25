@@ -730,6 +730,8 @@ test('layouts for everyone are shapes (plan-layout-picker.md, step 6): New layou
   const sheet = space.slice(space.indexOf('function openShapeSheet('), space.indexOf('// Change icon (plan-layout-views.md'));
   assert.match(sheet, /if \(!id \|\| \(personal \? !mayOwn\(\) \|\| !start : !layoutList\.canShare\)\) return;/, 'only for those who may share (Edit layout: anyone who keeps workspaces)');
   assert.match(sheet, /dlg\.className = 'layout-sheet layout-shape-sheet';/);
+  assert.match(sheet, /bar: false,\n\s*step: 1,/, 'the editor always opens on step 1, Pick a shape (the current shape chosen)');
+  assert.ok(!/picker\.setStep\(/.test(sheet), 'no opening skips step 1');
   assert.match(sheet, /const picker = createLayoutPicker\(\{[\s\S]*?record: editing \? \{ shape: editing\.shape, areas: editing\.areas\.slice\(\) \} : personal && start\.record \? [^\n]*,[\s\S]*?parts: canvas\.compositeParts\(\),[\s\S]*?cantOpen: personal \? null : layoutList\.cantOpen,[\s\S]*?bar: false,/, 'the picker on the record, the composite parts here and the maker\'s notice');
   assert.match(sheet, /\.filter\(\(m\) => m && !COLUMN_IDS\.includes\(m\.id\) && m\.canvas\)/, 'areas offer the modules on here with a place on the canvas, never the chat or the call');
   assert.match(sheet, /: \{ name, shared: true, shape: record\.shape, areas: record\.areas \};/, 'New: POST { name, shared: true, shape, areas }');
