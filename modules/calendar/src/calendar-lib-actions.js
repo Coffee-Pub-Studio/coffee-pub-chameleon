@@ -8,15 +8,36 @@
 
   const calRef = (ctx, id) => ({ module: 'calendar', kind: 'event', id, scope: 'space', space: ctx.space.id });
   const calGiven = (v) => v !== undefined && v !== null && v !== '';
-  // A reminder is a schedule only a page sets (calendar.js applyReminder). Carried out on the server (ctx.carrier 'server'), an
-  // event with a reminder is marked `remindPending` and the page that next opens it sets it and takes the mark off (calendar.js
-  // setWaitingReminders); the server takes off the reminder the event had (it was set from the event as it was). Never silent:
-  // the request's note says so. Carried out on a page, the page sets it at once (afterAction) and there is no mark.
-  const CAL_REMIND_LATER = 'Its reminder is set the next time someone who can change events opens the calendar.';
-  function calReminder(ev, ctx) {
-    if (ctx.carrier === 'server' && ev.remind !== null && ev.remind !== undefined) { ev.remindPending = true; return CAL_REMIND_LATER; }
-    delete ev.remindPending;
-    return '';
+  // A reminder is a schedule the host runs (plan-agent-server-actions.md, section 2): the handler answers it beside the write,
+  // set for the event as written or cancelled, and whoever carries the request out sets it at once, the server as the agent or
+  // a page as its person, from the one rule in calendar-lib.js (reminderOf). The server has already taken off any schedule about
+  // an event the request changed. On a module's environment page (no space) the page sets it itself (calendar.js afterAction).
+  const calRemindKey = (id) => `remind:${id}`;
+  function calSchedules(id, ev, ctx, made) {
+    if (!ctx.space || !ctx.space.id) return {};
+    const r = reminderOf(ev, ctx.tz, Number(ctx.now) || Date.now());
+    if (!r) return made ? {} : { schedules: [{ cancel: { key: calRemindKey(id) } }] };
+    const zone = zoneOk(ctx.tz) ? ctx.tz : undefined;
+    const set = {
+      key: calRemindKey(id),
+      at: r.at,
+      about: calRef(ctx, id),
+      payload: { id },
+      notify: { title: String(ev.title || '').trim() || 'Event', body: r.body },
+      ...(r.every ? { repeat: { every: r.every, until: r.until, ...(zone ? { tz: zone } : {}) } } : {}),
+    };
+    return { schedules: [{ set }] };
+  }
+  // An event made from another module's object (`input.ref`) points at it, so the link shows from both ends: answered as a
+  // link when the object is in this space and the asker may see it (the request's facts), so the server makes it at once;
+  // any other the page links itself, as before (calendar.js afterAction).
+  function calLinks(id, input, ctx) {
+    const r = input && input.ref;
+    if (!ctx.space || !ctx.space.id || !r || typeof r !== 'object' || r.scope !== 'space' || r.space !== ctx.space.id) return {};
+    if (typeof r.module !== 'string' || typeof r.kind !== 'string' || typeof r.id !== 'string' || (r.module === 'calendar' && r.id === id)) return {};
+    const seen = (ctx.refs || {})[ctx.util.objectKey(r)];
+    if (!seen || seen.error) return {};
+    return { links: [{ add: { from: calRef(ctx, id), to: { module: r.module, kind: r.kind, id: r.id, scope: 'space', space: r.space } } }] };
   }
   // A clock time of a Date as "HH:MM".
   const calClock = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -103,11 +124,14 @@
       : ev.repeat ? ' It comes as long before each repeat.' : '';
     return { text: `The reminder is for ${calMoment(at, ctx)}${how}${then}`, comes: !passed || Boolean(ev.repeat) };
   }
-  // The answer's note: the reminder's moment, then, on the server, that it waits for a page (unless none will come).
+  // The answer's note: the reminder's moment, and, when it is more than a year off, that it is not set (the host schedules at
+  // most a year ahead; calendar-lib.js reminderOf).
+  const CAL_REMIND_FAR = 'A reminder can be set at most a year ahead, so this one is not set yet; set it again within the year.';
   function calNote(ev, ctx) {
     const said = calReminderNote(ev, ctx);
-    const later = calReminder(ev, ctx);
-    const note = [said.text, said.comes ? later : ''].filter(Boolean).join(' ');
+    const now = Number(ctx.now) || Date.now();
+    const far = said.comes && !reminderOf(ev, ctx.tz, now) && remindAnchor(ev.allDay, ev.start, calZone(ctx.tz)).getTime() - ev.remind * 60000 > now + 365 * DAY;
+    const note = [said.text, far ? CAL_REMIND_FAR : ''].filter(Boolean).join(' ');
     return note ? { data: { note } } : {};
   }
 
@@ -138,7 +162,7 @@
       if (calGiven(input.remindAt)) made.remind = calRemindAtLead(input.remindAt, made, ctx);
       const id = ctx.util.id();
       const ev = { id, title: String(made.title).slice(0, 120), allDay: made.allDay, start: made.start, end: made.end || null, desc: made.desc || '', remind: made.remind, repeat: made.repeat, by: ctx.credit.name };
-      return { writes: [{ key: `event:${id}`, value: ev }], ref: calRef(ctx, id), ...calNote(ev, ctx) };
+      return { writes: [{ key: `event:${id}`, value: ev }], ref: calRef(ctx, id), ...calNote(ev, ctx), ...calSchedules(id, ev, ctx, true), ...calLinks(id, input, ctx) };
     },
     // Change an event already on the calendar: only the fields given, with the form's own checks and sentences. A new day moves
     // its end with it; a time makes an all-day event timed; allDay true drops the times. A repeat keeps its Until while it repeats
@@ -185,6 +209,6 @@
       if (!repeat) delete ev.skips;
       const same = ['title', 'allDay', 'start', 'end', 'desc', 'remind'].every((k) => JSON.stringify(ev[k]) === JSON.stringify(cur[k])) && JSON.stringify(repeat) === JSON.stringify(cur.repeat || null);
       if (same) return { ref: calRef(ctx, ref.id), data: { note: 'That is already so; nothing changed.' } };
-      return { writes: [{ key: `event:${ref.id}`, value: ev }], ref: calRef(ctx, ref.id), ...calNote(ev, ctx) };
+      return { writes: [{ key: `event:${ref.id}`, value: ev }], ref: calRef(ctx, ref.id), ...calNote(ev, ctx), ...calSchedules(ref.id, ev, ctx, false) };
     },
   };

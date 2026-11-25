@@ -440,9 +440,9 @@
   async function applyReminder(t, where) {
     const key = 'remind:' + t.id;
     try {
-      if (!t.remind || !t.due || t.done) return await host.cancelSchedule(key, where);
-      const at = parseYmd(t.due).getTime() + 9 * 60 * 60 * 1000;
-      if (at <= Date.now()) return await host.cancelSchedule(key, where);
+      // When it comes is todo-lib-actions.js todoRemindAt, the rule an agent's request answers on either carrier.
+      const at = todoRemindAt(t, undefined, Date.now());
+      if (at === null) return await host.cancelSchedule(key, where);
       // About the task (`ref`): a change the server makes to it for an agent takes this schedule off (todo-lib-actions.js).
       await host.schedule({ key, at, payload: { id: t.id }, ref: myRef(t.id, where && where.space), notify: { title: t.title, body: 'Due today' }, ...(where || {}) });
     } catch (err) {
@@ -1022,15 +1022,17 @@
     if (ref.scope === 'space' && !inSpace) return tasks.get(keyOf('spaces', ref.id, ref.space)) || null;
     return tasks.get('own:' + ref.id) || null;
   };
-  // What only a page does once a request's task is written (`scope` and `spaceId` say which list): it shows at once, its reminder
-  // is set or taken off as the form does, and the host is told what it links to.
+  // What only a page does once a request's task is written (`scope` and `spaceId` say which list): it shows at once and the host
+  // is told all it links to (the answer linked those in its space already: todo-lib-actions.js todoEffects). Its reminder came in
+  // the answer too, except for the environment's own list (no space), where this page sets it as the form does.
   const afterFor = (scope, spaceId) => async ({ writes }) => {
+    const envList = scope === 'own' && !inSpace;
     for (const w of writes) {
       remember(scope, { key: w.key, value: w.value, version: w.version }, spaceId);
       const x = tasks.get(keyOf(scope, String(w.key).slice(5), spaceId));
       if (!x) continue;
       syncLinks(x, x.t.links || []);
-      if (w.before || x.t.remind) applyReminder(x.t, whereOf(x)).catch(() => {});
+      if (envList && (w.before || x.t.remind)) applyReminder(x.t, whereOf(x)).catch(() => {});
     }
     render();
     resolveLinks();
@@ -1043,7 +1045,13 @@
       phases: () => [],
       people: async () => [],
       locale: () => (host.locale ? host.locale() : {}),
-      objects: { resolve: (refs) => host.objects.resolve(refs) },
+      objects: {
+        resolve: (refs) => host.objects.resolve(refs),
+        setLinks: (from, to, o) => host.objects.setLinks(from, to, { ...(o || {}), space: spaceId }),
+      },
+      // The reminder an answer sets or cancels, in that space.
+      schedule: (spec) => host.schedule({ ...spec, space: spaceId }),
+      cancelSchedule: (key) => host.cancelSchedule(key, { space: spaceId }),
       storage: {
         list: (prefix) => host.storage.list(prefix, { scope: 'space', space: spaceId }),
         set: (key, value, o) => host.storage.set(key, value, { ...(o || {}), space: spaceId }),
@@ -1096,30 +1104,6 @@
   resolveLinks();
   // Tell the host about links made before it was told (and only those that changed).
   for (const x of [...tasks.values()].filter((t) => t.scope === 'own' && (t.t.links || []).length).slice(0, 100)) syncLinks(x, x.t.links);
-  // What waits for a page: an agent's request the server carried writes the task marked `remindPending` or `linksPending`
-  // (todo-lib-actions.js todoAnswer), since only a page sets a schedule or tells the host about links. Whoever may change the task
-  // and has the list open sets them here from the task as it is, and takes the marks off; a write that loses to another change
-  // leaves the marks for the next round.
-  const settling = new Set();
-  async function settleWaiting() {
-    for (const x of [...tasks.values()]) {
-      if (!(x.t.remindPending || x.t.linksPending) || !writable(x) || settling.has(x.key)) continue;
-      settling.add(x.key);
-      try {
-        if (x.t.remindPending) await applyReminder(x.t, whereOf(x));
-        if (x.t.linksPending) { syncedLinks.delete(x.key); await syncLinks(x, x.t.links || []); }
-        const t = { ...x.t };
-        delete t.remindPending;
-        delete t.linksPending;
-        await put(x, t);
-      } catch (err) {
-        // changed meanwhile, or the reminder could not be set: tried again on the next round
-      } finally {
-        settling.delete(x.key);
-      }
-    }
-  }
-  settleWaiting();
   // The objects linked to can change or go; look again now and then.
-  const relook = setInterval(() => { if (!$('body')) return void clearInterval(relook); summaries.clear(); resolveLinks(); settleWaiting(); }, 60000);
+  const relook = setInterval(() => { if (!$('body')) return void clearInterval(relook); summaries.clear(); resolveLinks(); }, 60000);
 })();
