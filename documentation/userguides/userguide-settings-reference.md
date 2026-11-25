@@ -112,6 +112,16 @@ An agent is an account for an assistant such as Claude, with a token instead of 
 |---|---|---|
 | `AGENT_TOKENS` | unset (off); a commented line in the file | `true` lets each environment's owner turn on **Agents** in Manage, then make agents and tokens. Anything else is off: no agent can be made, and a token already made answers as an unknown value. A value that is neither `true` nor `false` is off and logs a warning. Changing it needs the container recreated. |
 
+## Modules that act for agents
+
+Modules that come with Chameleon carry out an agent's requests in a process with no network. For a module you uploaded, that happens only behind a kernel network wall and after the admin approves it ([Getting Started](userguide-getting-started.md), "Let uploaded modules act for agents (optional)").
+
+| Setting | Default | What it does |
+|---|---|---|
+| `ACTION_RUNNER_NETWORK` | unset; `namespace` in `docker-compose.yml` | `namespace` lets an uploaded module's actions run, and only inside a network namespace the server made when it started. Bundled modules use a namespace where there is one and the process's lockdown alone where there is not, whatever the value. Unset or `auto`: an uploaded module's actions never run. The start-up log says which of the three cases holds. |
+
+Beside it in the file, a commented `security_opt` line names the seccomp profile `deploy/seccomp-action-runner.json` that lets a Docker container make that namespace. The image installs `util-linux-misc` for `unshare`. Do not mount `docker.sock` into the container.
+
 ## Other
 
 `SHARE_UNLOCKS_PER_MINUTE` (default `60`) caps how many share-link password checks an environment does a minute. It is

@@ -103,8 +103,8 @@ Documents 0.7 to 0.11.36 ([userguide-documents](userguides/userguide-documents.m
 
 Written on `fa5ea4bd` from the builders' reports of the pull requests #1065 to #1116, read as code; none of it was seen in a real client. A real MCP client, a hosted server with two environments and a real Docker container were not tried.
 
-- **A pointer to another of the agent's spaces waits for a page.** `serverCarries` sends a request to the page queue when a pointer is to another space (issue #1117). Workaround: ask from the space the object is in.
-- **A default Docker deploy has no kernel network boundary for the runner.** The lockdown holds in every deploy; the network namespace needs a kernel that allows one, and Docker's default seccomp profile is believed to refuse it (not tested). Workaround: none needed for bundled modules (they run with the lockdown alone); set `ACTION_RUNNER_NETWORK=namespace` only where the kernel allows a namespace.
+- **A default Docker deploy has no network wall for uploaded modules until the deploy is changed.** The lockdown holds in every deploy, and bundled modules need nothing more. Uploaded modules' actions for agents run only inside a network namespace, which Docker's default seccomp profile does not allow. Workaround: set `ACTION_RUNNER_NETWORK: "namespace"` and use `deploy/seccomp-action-runner.json` as the container's `security_opt` (see [the deploy guide](userguides/userguide-getting-started.md)); a kernel that allows no user namespaces at all cannot do this, and then uploaded modules' actions stay off and the log says so. Not tried in a real Docker container, with a real kernel and this profile, or with busybox's `unshare` in `node:22-alpine` (the image now installs `util-linux-misc` instead).
+- **The runner runs as the server's own user, and a namespace does not stop a unix socket.** An uploaded module's code is held by Node's permission model, the lockdown and the network namespace, not by a separate user, container or kernel profile of its own. A flaw in Node or V8 that runs native code would not be held. A path-based unix socket (for example `docker.sock`) is not stopped by the namespace; only the lockdown stops it. Workaround: never mount `docker.sock` into the Chameleon container, and approve only code you trust (the admin's approval is the real gate).
 - **An agent's phase move and its environment-scope changes are not in Undo.** They show in the request's `effects`, but **What it changed** records writes in the space only.
 - **A Calendar or To-do reminder more than a year ahead is never set later.** The note says "A reminder can be set at most a year ahead, so this one is not set yet; set it again within the year." Nothing sets it afterwards.
 - **A poll closing by its time with no Polls page open is not announced to other modules** (the `closed` event To-do's rules use) until a page next opens. The bell notice "Poll closed" is sent at the time. Polls made before 1.15.34 with a closing time have no schedule.
@@ -116,11 +116,11 @@ Written on `fa5ea4bd` from the builders' reports of the pull requests #1065 to #
 
 ## Weather: gaps
 
-- **There is no "Weather is working" test button** on the Itinerary's configuration page.
-- **A failing weather service is asked again on every request,** bounded by the limit of 30 a minute.
+- **There is no "Weather is working" test button** on the Weather module's page.
+- **A failing weather service is asked again on the next request,** bounded by the limit of 30 a minute, unless it answered 429 or 403, when that position is left alone for 30 minutes.
 - **Redrawing the Itinerary replays the weather icon's fade-in** (reduced motion turns it off), and a negative temperature prints with a hyphen, not a minus sign.
 - **Place search still follows redirects without an address check and sends the repository address in its `User-Agent`** (`server/geocode.js`); the weather lookup does not.
-- Not verified: the real weather service, a sandboxed module frame, a guest, Fahrenheit, a real phone or screen reader.
+- Not verified: the real weather service (MET Norway was never reached; its terms need a person to accept them first), a sandboxed module frame, a guest, Fahrenheit, a real phone or screen reader.
 
 ## Layout tabs and workspaces: gaps
 
@@ -164,7 +164,6 @@ Agent access, steps 1 to 4 ([architecture-agent-access](architecture/architectur
 - **A restore can carry `chatPost` on an agent while Agents is off.** An owner's copy keeps `chatPost`. The agent then has it on, but its token does nothing until **Agents** is turned on, so it has no effect. Turn **Post in Chat** off on the agent's page if you do not want it on again with Agents.
 - **An agent is not held to the terms or the NDA.** On a server with `TERMS_FILE` or `NDA_FILE` set, a person must agree before anything else; an agent is let past (`agreementExempt`), since it can't agree. Whether it should be is not decided. Workaround: none needed; the owner who made the agent has agreed, and the agent reaches only what a member reaches.
 - **OAuth sign-in is not built.** The Claude apps connect with a token header, which works (proven by Thomas on 2026-11-20; [Connecting Claude](userguides/userguide-connecting-claude.md)). There is no "Sign in" flow for them, so a person has to make a token and paste it as a header.
-- **A request can still wait for an open page.** Every bundled module carries an agent's request on the server at once, but an uploaded module's requests, and a request that points at another of the agent's spaces, wait until a person who may change that module has it open (up to seven days). Workaround: open the module. See "Agent actions on the server: gaps".
 
 ## Pages and the back-forward cache
 

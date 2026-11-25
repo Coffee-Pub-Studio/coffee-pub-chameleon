@@ -8,10 +8,16 @@ routes are [api-modules](../api/api-modules.md). This document is what you can o
 
 ## Model
 
-A module is front-end only. Nothing in a zip is ever run by the server: every file type is allowlisted,
-and the zip is read entirely in memory against hard limits before a single byte is written. A module
+A module's page is front-end only. The server runs no part of a zip as a program: every file type is
+allowlisted, and the zip is read entirely in memory against hard limits before a single byte is written. A page
 runs in a sandboxed frame and reaches Chameleon only through a host bridge, so accepting a zip from someone
 else is bounded by that sandbox and by the admin's approval, not by trust in the author.
+
+There is one exception, and it is opt-in twice. A module that declares `actions.server` has a library of
+handlers the server runs, in a separate process with no network, so an agent's request needs no open page. For a
+bundled module that is this deployment's own code. For an uploaded module it runs only when the admin has
+approved that exact version and library and the server has the network wall; see "The module check" and "Approving
+an uploaded module's actions" below, and [architecture-agent-access](architecture-agent-access.md), "The server runner".
 
 ## On disk
 
@@ -89,6 +95,22 @@ chose. Two permissions naming the same old key are refused: `module.json: permis
 which permission "<first>" already replaces`.
 
 **Marks, labels and starter** (plan-templates-redesign, step 3). `cleanManifest` also reads three additions: a setting's `template` mark (`driven` or `default`; refused on a `secret`, `file`, `files`, `url` or `note` and, as `driven`, on a person's own setting), `labels` (`cleanLabels()` in `server/module-labels.js`: at most 20 words by key, held to the level and role word rules, so no markup or control character can reach a page) and `starter` (a boolean, only with the `space` scope). A **service-only** module (no surface of any kind and an `ai` hook, which today means the AI Assistant) is exempt from needing a `page` for the `environment` scope or a `canvas` for the `space` scope. `hooks.ai: true` needs `requires: ["assistant"]`; the reserved id `ai` is gone. A template reaches a module only through these three: its module entry is limited to `name`, `icon`, `settings` (only marked keys), `labels` (only declared keys) and `starter` (only for a module that opts in), so a template never touches a module's permissions, uploads, refs, actions, hooks, events, destinations, secrets or files, which is how a third party's module can take part without widening its own access. The contract is [api-modules](../api/api-modules.md), "Module manifest"; the settings layer and the resolver are in [architecture-environments](architecture-environments.md), "The manifest marks, labels and starter". A stored manifest edited by hand reads its labels and starter no further than these rules allow.
+
+## The module check
+
+`server/module-check.js` (`checkModule`) is the one function that decides what an install is refused for and what the admin is shown. `install()` in `server/modules.js` calls it for every install, upload and bundled alike; `tools/validate-module.mjs` calls it on an author's machine ([api-writing-modules](../api/api-writing-modules.md)); nothing else decides, so the two cannot disagree. It is pure: no `DATA_DIR`, no environment, no network, and it never runs a module's code (a library is parsed with `vm.Script`, never run).
+
+It runs six checks (`manifest`, `permissions`, `colours`, `words`, `host reuse`, `action library`), each finding graded `refuse` or `advise`. A `refuse` finding refuses the install with 400, the first sentence in `error` and every finding in `findings`. An `advise` finding never does: the install goes on and the findings are kept with that version in the registry (`entry.findings`, at most 50, each at most 200 characters), and the module's view carries them. A bundled module is checked the same way but is not held to the upload-only refusals (`via: 'bundled'`), keeps no findings, and skips only the action library's list of forbidden names (`ownCode`), because the repository's own hostile test library names every one on purpose. `tools/check-modules.mjs` runs every bundled module through the check without that option and fails on any `refuse` finding.
+
+The rules are shared, not copied. The colour rule is `server/colour-rule.js` (with `server/css-reading.js`), the words and old-names rule is `server/words-rule.js` and the layout rules are `server/module-layout.js`; `check-no-raw-colours`, `check-names` and `check-module-layout` import them and keep their own allow-lists and repository-wide reach, so a rule changes in one place. A static check on a library is early help and not a boundary: a determined author can write code the list of names does not catch, which is why the runner's process, not the list, is what is trusted.
+
+## Approving an uploaded module's actions
+
+The approval is the admin's, not an owner's, and it is of a version and a hash. `approveServerRun` in `server/modules.js` stores `serverRun: { version, sha256, by, at }` in the module's registry entry, which is per environment. It refuses unless the `version` and `sha256` the admin looked at are the installed ones now (409), so nothing is approved that was not seen. `sha256` is the hash of the exact text `libraryFrom` builds from the installed copy's library files (`serverLibraryOf` in `server/module-build.js`); `server/module-actions.js` (`carriageOf`) reads that library from the installed copy and hashes it on every run, and `run` hashes the text it is about to send once more, so a changed byte anywhere is a refusal (`approval`) and not a run. A new version, a rollback, turning the module off and uninstalling each delete the approval.
+
+The runner will not run an uploaded module's code unless `ACTION_RUNNER_NETWORK=namespace` and the start-up test made a network namespace, and then only inside that namespace (a `network` fault otherwise). Uploaded runs take at most 2 of the 4 running places and 8 of the 16 waiting ones. The runner also refuses, whatever the manifest says, an uploaded module's place search, environment writes and phase-end move. When the runner cannot carry a module's request, the action route refuses at once with a sentence (`carriageWhy` in `server/index.js`); nothing waits for a page. The routes and sentences are in [Modules API](../api/api-modules.md), "Uploaded modules and the server".
+
+**What the admin is trusting.** The approval says "run this code". The runner is a separate Node process with the permission model on, no network and the lockdown; it is not a separate user, container or kernel boundary, and it runs as the server's own user. A flaw in Node or V8 that runs native code would not be held, and a namespace alone does not stop a path-based unix socket (the lockdown does).
 
 ## Modules that ship with Chameleon
 

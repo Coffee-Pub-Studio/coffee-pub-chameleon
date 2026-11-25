@@ -54,6 +54,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
 
 - [OBS view links](api/api-obs-view.md) -- the URL contract for a player's OBS page.
 - [Module SDK](api/api-module-sdk.md) -- writing a module: the manifest, the SDK, and the sandbox.
+- [Writing a module](api/api-writing-modules.md) -- the short path for an author outside this repository: the folder, building, checking, and what the admin approves.
 - [Modules API](api/api-modules.md) -- the routes for installing, managing and running modules.
 - [Agents API](api/api-agents.md) -- what an agent's token may call, its limits, and the routes an owner uses to make and manage agents.
 - [Welcome note API](api/api-welcome-note.md) -- the routes and the text cleaner behind the welcome note.
@@ -76,7 +77,7 @@ Known defects and their workarounds are in [Known issues](known-issues.md).
   registry.
 - [Environments architecture](architecture/architecture-environments.md) -- one host, many environments:
   the seam, the host console, the roles, the Names migration and templates (the format, the resolver, starter content, the phases' measure and the call settings).
-- [Weather architecture](architecture/architecture-weather.md) -- where the weather on a day comes from, what is kept and what leaves the server.
+- [Weather architecture](architecture/architecture-weather.md) -- where the weather on a day comes from, the Weather module and its terms, what is kept and what leaves the server.
 - [AI architecture](architecture/architecture-ai.md) -- how the AI is asked: the prompt registry, what is sent and what it may see, who may ask, refunds, records, the key and the address guard.
 - [The demo seeder and the checks](architecture/architecture-demo-site.md) -- filling a server with demo data (five demos, one for each template), adding one from the host console, a demo site that resets itself, the checks added since 0.4, the page-load checks, the roadmap sync and the testing rule.
 
