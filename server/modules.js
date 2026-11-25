@@ -867,7 +867,8 @@ function cleanWeather(raw, settings, scope) {
   const def = settings.find((d) => d.key === raw.provider);
   if (Array.isArray(def.options)) {
     for (const p of weatherProviders.list()) {
-      if (!def.options.some((o) => o.value === p.id)) def.options.push({ value: p.id, label: p.name, ...(p.credit ? { help: p.credit } : {}) });
+      const help = [p.credit, p.terms ? `Choosing it accepts its terms: ${p.terms}` : ''].filter(Boolean).join(' ');
+      if (!def.options.some((o) => o.value === p.id)) def.options.push({ value: p.id, label: p.name, ...(help ? { help } : {}) });
     }
   }
   return out;

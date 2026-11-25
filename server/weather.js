@@ -13,6 +13,10 @@
 // whole percent or null, and when it was fetched. Never who asked, which space or environment, what was asked for as a whole,
 // or the service's address. A forecast day is good for 3 hours, a day before today for 24; a day older than 40 days is
 // dropped, and at most 20,000 days are kept, the oldest fetched going first. Kept in memory, written a moment after a change.
+// Beside the days, per rounded position only, when the service was last asked and what its answer said about asking again
+// (`asks`: { at, until, modified, answer }): the service's Expires (never ask again before it), its Last-Modified (sent back
+// as If-Modified-Since, and a 304 keeps what is kept), and the fetch stamp of the days that answer gave. Dropped a day after
+// `until`.
 'use strict';
 
 const fs = require('fs');
@@ -33,6 +37,8 @@ const HOUR = 3600 * 1000;
 const FORECAST_GOOD_MS = 3 * HOUR;
 const PAST_GOOD_MS = 24 * HOUR;
 const DAY_MS = 86400000;
+const MAX_WAIT_MS = 24 * HOUR; // an Expires further off than this is taken as this
+const REFUSED_WAIT_MS = 30 * 60 * 1000; // after a 429 or 403, no ask of that position for this long
 
 // The weather every adapter answers in: one of eight words (what the SDK draws) and the plain words that go with it.
 const WORD_TEXT = {
@@ -143,14 +149,24 @@ function providerUrl(provider, lat, lon, from, to) {
 // is held (server/link-preview.js), and it is then asked at exactly the addresses that were checked (getOnce, which
 // connects to them and never looks the name up a second time, so a name cannot answer public to the check and private to
 // the ask); at most 3. The user-agent is the product and its version only, with no contact address, as a link preview
-// sends. `fetchImpl`, `lookup` and `getImpl` are replaced only by tools/check-weather.mjs.
-async function askWeather(provider, lat, lon, from, to, { now = Date.now(), fetchImpl = fetch, lookup, getImpl = getOnce } = {}) {
+// sends, unless the adapter's `headers()` gives the one its service asks for (MET Norway: with the repository's address).
+// `ifModifiedSince`: the Last-Modified of the answer that is kept, sent back so an unchanged forecast answers 304 (and then
+// the days are {} and `meta.notModified` is true). `meta`, when given, is filled in: `expires` (ms, from the answer's
+// Expires, or 0), `modified` (its Last-Modified, or ''), `status` (the status of a refusal). `fetchImpl`, `lookup` and
+// `getImpl` are replaced only by tools/check-weather.mjs.
+async function askWeather(provider, lat, lon, from, to, { now = Date.now(), fetchImpl = fetch, lookup, getImpl = getOnce, ifModifiedSince = '', meta = {} } = {}) {
   const a = cleanDay(from);
   const b = cleanDay(to);
   if (!a || !b || a > b) throw new WeatherError('those are not days in order', 'range');
   if (dayState(a, now) === 'outOfRange' || dayState(b, now) === 'outOfRange') throw new WeatherError(`weather is only asked from ${BACK_DAYS} days back to ${AHEAD_DAYS} days ahead`, 'range');
   const httpsOnly = !provider.allowHttp;
   const first = providerUrl(provider, lat, lon, a, b);
+  const headers = { Accept: 'application/json', 'User-Agent': userAgent(), ...adapterHeaders(provider) };
+  const ims = cleanHttpDate(ifModifiedSince);
+  if (ims) headers['If-Modified-Since'] = ims;
+  meta.expires = 0;
+  meta.modified = '';
+  meta.notModified = false;
   const deadline = Date.now() + FETCH_MS;
   const signal = AbortSignal.timeout(FETCH_MS);
   let current = first;
@@ -167,12 +183,12 @@ async function askWeather(provider, lat, lon, from, to, { now = Date.now(), fetc
         throw new WeatherError('the weather service could not be reached', 'unreachable');
       }
       if (res.cut) throw new WeatherError('the weather service answered too much', 'big');
-      const loc = res.headers && res.headers.location;
-      got = { status: res.status, location: Array.isArray(loc) ? loc[0] : loc, text: () => res.body.toString('utf8') };
+      const h = (name) => { const v = res.headers && res.headers[name]; return (Array.isArray(v) ? v[0] : v) || null; };
+      got = { status: res.status, location: h('location'), header: h, text: () => res.body.toString('utf8') };
     } else {
       let res;
       try {
-        res = await fetchImpl(current.href, { headers: { Accept: 'application/json', 'User-Agent': userAgent() }, signal, redirect: 'manual' });
+        res = await fetchImpl(current.href, { headers, signal, redirect: 'manual' });
       } catch (err) {
         if (signal.aborted || (err && (err.name === 'TimeoutError' || err.name === 'AbortError'))) throw new WeatherError('the weather service took too long', 'timeout');
         throw new WeatherError('the weather service could not be reached', 'unreachable');
@@ -180,6 +196,7 @@ async function askWeather(provider, lat, lon, from, to, { now = Date.now(), fetc
       got = {
         status: res.status,
         location: res.headers.get('location'),
+        header: (name) => res.headers.get(name),
         text: async () => {
           const declared = Number(res.headers.get('content-length'));
           if (Number.isFinite(declared) && declared > MAX_BODY) throw new WeatherError('the weather service answered too much', 'big');
@@ -190,6 +207,11 @@ async function askWeather(provider, lat, lon, from, to, { now = Date.now(), fetc
           }
         },
       };
+    }
+    if (got.status === 304 && ims) {
+      meta.notModified = true;
+      readAsks(got, meta, ims);
+      return {};
     }
     if (got.status >= 300 && got.status < 400) {
       if (!got.location) throw new WeatherError(`the weather service answered ${got.status}`, 'status');
@@ -209,7 +231,13 @@ async function askWeather(provider, lat, lon, from, to, { now = Date.now(), fetc
       current = next;
       continue;
     }
-    if (got.status < 200 || got.status >= 300) throw new WeatherError(`the weather service answered ${got.status}`, 'status');
+    if (got.status < 200 || got.status >= 300) {
+      meta.status = got.status;
+      throw new WeatherError(`the weather service answered ${got.status}`, 'status');
+    }
+    // 203: the service says this version of its answer is going away (MET Norway's terms ask for it to be logged).
+    if (got.status === 203 && !warned203.has(provider.id)) { warned203.add(provider.id); console.warn(`the weather service (${provider.id}) says its answer is deprecated (203); its adapter needs updating.`); }
+    readAsks(got, meta, '');
     const text = await got.text();
     let json;
     try { json = JSON.parse(text); } catch { throw new WeatherError('the weather service did not answer with weather', 'bad'); }
@@ -221,6 +249,35 @@ async function askWeather(provider, lat, lon, from, to, { now = Date.now(), fetc
     return wanted;
   }
   throw new WeatherError('the weather service sent the ask elsewhere too many times', 'redirects');
+}
+
+const warned203 = new Set();
+
+// The headers an adapter asks to send, kept to plain header names and printable values; never a cookie or an authorization.
+function adapterHeaders(provider) {
+  if (typeof provider.headers !== 'function') return {};
+  const out = {};
+  let raw;
+  try { raw = provider.headers(); } catch { return out; }
+  for (const [k, v] of Object.entries(raw && typeof raw === 'object' ? raw : {})) {
+    if (!/^[A-Za-z][A-Za-z0-9-]{0,40}$/.test(k) || /^(cookie|authorization|host|if-modified-since)$/i.test(k)) continue;
+    if (typeof v === 'string' && /^[\x20-\x7e]{1,200}$/.test(v)) out[k] = v;
+  }
+  return out;
+}
+
+// An HTTP date as the service gave it, or '' when it is not one.
+function cleanHttpDate(v) {
+  const s = typeof v === 'string' ? v.trim() : '';
+  return s.length <= 64 && /^[\x20-\x7e]+$/.test(s) && Number.isFinite(Date.parse(s)) ? s : '';
+}
+
+// What an answer says about asking again: its Expires and its Last-Modified (a 304 that gives none keeps the one sent).
+function readAsks(got, meta, sent) {
+  const header = typeof got.header === 'function' ? got.header : () => null;
+  const exp = Date.parse(header('expires') || '');
+  meta.expires = Number.isFinite(exp) ? exp : 0;
+  meta.modified = cleanHttpDate(header('last-modified')) || sent;
 }
 
 // The body as text, given up past `max` bytes.
@@ -253,6 +310,8 @@ class WeatherCache {
     this.now = now;
     this.saveMs = saveMs;
     this.days = null; // Map("lat,lon|day" -> record), read on first use
+    this.asks = new Map(); // Map("lat,lon" -> { at, until, modified, answer }), read with the days
+    this.asking = new Map(); // Map("lat,lon" -> the ask under way), in memory only: two asks at once become one
     this.timer = null;
   }
 
@@ -277,8 +336,57 @@ class WeatherCache {
     }
     read.sort((x, y) => x[1].got - y[1].got); // in the order they were fetched, as prune expects
     for (const [k, rec] of read) this.days.set(k, rec);
+    const asks = raw && raw.asks && typeof raw.asks === 'object' && !Array.isArray(raw.asks) ? raw.asks : {};
+    for (const [k, a] of Object.entries(asks).slice(0, MAX_DAYS)) {
+      const rec = cleanAsk(a);
+      if (rec && /^-?\d{1,2}\.\d{2},-?\d{1,3}\.\d{2}$/.test(k)) this.asks.set(k, rec);
+    }
     this.prune();
     return this.days;
+  }
+
+  // What the last ask of the service for this position said: { at, until, modified, answer }, or null.
+  askOf(lat, lon) {
+    const pos = positionKey(lat, lon);
+    this.all();
+    return (pos && this.asks.get(pos)) || null;
+  }
+
+  // Whether the service may be asked for this position now: not before the last answer's Expires, nor before `minAskMs`
+  // after the last ask, nor within 30 minutes of a refusal.
+  mayAsk(lat, lon) {
+    const a = this.askOf(lat, lon);
+    return !a || this.now() >= a.until;
+  }
+
+  // Note an ask of the service for this position. `meta`: askWeather's; `minAskMs`: the adapter's; `answer`: the fetch stamp
+  // of the days the answer gave (kept by remember), or the earlier one when the answer was 304.
+  noteAsk(lat, lon, meta, minAskMs, answer) {
+    const pos = positionKey(lat, lon);
+    if (!pos) return;
+    const now = this.now();
+    let until = now + (Number.isFinite(minAskMs) ? minAskMs : 0);
+    if (meta.status === 429 || meta.status === 403) until = Math.max(until, now + REFUSED_WAIT_MS);
+    if (Number.isFinite(meta.expires) && meta.expires > until) until = meta.expires;
+    until = Math.min(until, now + MAX_WAIT_MS);
+    const before = this.askOf(lat, lon);
+    const keep = meta.status ? before : null; // a refusal keeps what the last good answer said
+    this.asks.delete(pos);
+    this.asks.set(pos, { at: now, until, modified: keep ? keep.modified : meta.modified || '', answer: keep ? keep.answer : answer || 0 });
+    this.prune();
+    this.save();
+  }
+
+  // A 304: what the last answer gave for this position is the service's answer still, so it is fresh again from now.
+  refresh(lat, lon, answer) {
+    const pos = positionKey(lat, lon);
+    if (!pos || !answer) return 0;
+    const now = this.now();
+    for (const [k, rec] of [...this.all()]) {
+      if (k.startsWith(`${pos}|`) && rec.got === answer) { this.days.delete(k); this.days.set(k, { ...rec, got: now }); }
+    }
+    this.save();
+    return now;
   }
 
   // A kept day that is still good, or null. Good: a day before today for 24 hours, today and after for 3.
@@ -290,7 +398,11 @@ class WeatherCache {
     if (!rec) return null;
     const now = this.now();
     const good = d < todayOf(now) ? PAST_GOOD_MS : FORECAST_GOOD_MS;
-    return now - rec.got <= good && rec.got <= now + HOUR ? rec : null;
+    if (rec.got > now + HOUR) return null;
+    if (now - rec.got <= good) return rec;
+    // Older, but the service may not be asked again yet and this is what its last answer gave: still its answer.
+    const a = this.asks.get(pos);
+    return a && now < a.until && a.answer === rec.got ? rec : null;
   }
 
   // Keep what the service answered for one position (cleanDays's days).
@@ -306,6 +418,7 @@ class WeatherCache {
     }
     this.prune();
     this.save();
+    return got;
   }
 
   // Drop days older than 40 days (looked for at most once a server day), then the oldest fetched past the cap. The map is in
@@ -322,6 +435,12 @@ class WeatherCache {
     for (const k of m.keys()) {
       if (m.size <= MAX_DAYS) break;
       m.delete(k);
+    }
+    const now = this.now();
+    for (const [k, a] of this.asks) if (a.until + DAY_MS < now) this.asks.delete(k);
+    for (const k of this.asks.keys()) {
+      if (this.asks.size <= MAX_DAYS) break;
+      this.asks.delete(k);
     }
   }
 
@@ -340,7 +459,7 @@ class WeatherCache {
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       const tmp = `${this.file}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify({ days: Object.fromEntries(this.days) }));
+      fs.writeFileSync(tmp, JSON.stringify({ days: Object.fromEntries(this.days), asks: Object.fromEntries(this.asks) }));
       fs.renameSync(tmp, this.file);
     } catch (err) {
       console.error('could not save the weather:', err.message);
@@ -364,6 +483,36 @@ function cleanRecord(r) {
   return { code, high: round1(high), low: round1(low), rain: Number.isFinite(rain) ? Math.min(100, Math.max(0, Math.round(rain))) : null, got: Math.round(got) };
 }
 
+// An ask as kept: { at, until, modified, answer }, each the right kind. Null when it is not one.
+function cleanAsk(a) {
+  if (!a || typeof a !== 'object') return null;
+  const at = Number(a.at);
+  const until = Number(a.until);
+  const answer = Number(a.answer);
+  if (!Number.isFinite(at) || at <= 0 || !Number.isFinite(until) || until <= 0) return null;
+  return { at: Math.round(at), until: Math.round(until), modified: cleanHttpDate(a.modified), answer: Number.isFinite(answer) && answer > 0 ? Math.round(answer) : 0 };
+}
+
+// The days of a run the service would be asked for: inside the window, not kept, and inside what the adapter gives (a
+// forecast-only service is never asked for a past day, nor any service for a day past its `aheadDays`).
+function daysToAsk(cache, provider, lat, lon, days) {
+  if (!provider) return [];
+  const now = cache.now();
+  const today = todayOf(now);
+  const last = Number.isInteger(provider.aheadDays) ? addDays(today, provider.aheadDays) : null;
+  return days.filter((d) => {
+    const state = dayState(d, now);
+    if (state === 'outOfRange' || cache.get(lat, lon, d)) return false;
+    if (state === 'past' && provider.pastDays === false) return false;
+    return !(last && d > last);
+  });
+}
+
+// Whether answering these days would ask the service now (the route counts only an ask against the limit).
+function wouldAsk(cache, provider, lat, lon, days) {
+  return daysToAsk(cache, provider, lat, lon, days).length > 0 && cache.mayAsk(lat, lon);
+}
+
 // The weather for one position over a run of days, from what is kept first and, for the days still wanted inside the
 // window, one ask of the service for the run from the first to the last of them. `provider`: a registered adapter or
 // null (nothing is chosen: nothing goes out, and the caller answers `configured: false` before getting here). Returns
@@ -381,14 +530,31 @@ async function weatherDays(cache, provider, lat, lon, days, { units = 'c', fetch
     else wanted.push(d);
   }
   let failed = null;
-  if (wanted.length && provider) {
-    const sorted = [...wanted].sort();
-    try {
-      const got = await askWeather(provider, lat, lon, sorted[0], sorted[sorted.length - 1], { now, fetchImpl, lookup, getImpl });
-      cache.remember(lat, lon, got);
-    } catch (err) {
-      failed = err instanceof WeatherError ? err : new WeatherError('the weather service could not be read', 'unreachable');
+  const toAsk = daysToAsk(cache, provider, lat, lon, wanted).sort();
+  const pos = positionKey(lat, lon);
+  if (toAsk.length && pos && (cache.asking.has(pos) || cache.mayAsk(lat, lon))) {
+    // One ask at a time for a position: a second asker waits for the first's answer rather than asking again.
+    let asking = cache.asking.get(pos);
+    if (!asking) {
+      asking = (async () => {
+        const last = cache.askOf(lat, lon);
+        const kept = last && last.modified && last.answer && [...cache.all()].some(([k, r]) => k.startsWith(`${pos}|`) && r.got === last.answer);
+        const meta = {};
+        try {
+          const got = await askWeather(provider, lat, lon, toAsk[0], toAsk[toAsk.length - 1], { now, fetchImpl, lookup, getImpl, ifModifiedSince: kept ? last.modified : '', meta });
+          const answer = meta.notModified ? cache.refresh(lat, lon, last.answer) : cache.remember(lat, lon, got);
+          cache.noteAsk(lat, lon, meta, provider.minAskMs, answer);
+          return null;
+        } catch (err) {
+          if (meta.status) cache.noteAsk(lat, lon, meta, 0, 0);
+          return err instanceof WeatherError ? err : new WeatherError('the weather service could not be read', 'unreachable');
+        } finally {
+          cache.asking.delete(pos);
+        }
+      })();
+      cache.asking.set(pos, asking);
     }
+    failed = await asking;
   }
   for (const d of wanted) {
     const rec = cache.get(lat, lon, d);
@@ -398,6 +564,6 @@ async function weatherDays(cache, provider, lat, lon, days, { units = 'c', fetch
 }
 
 module.exports = {
-  WeatherCache, WeatherError, askWeather, weatherDays, cleanDays, dayAnswer, dayState, daysBetween, positionKey, providerUrl,
+  WeatherCache, WeatherError, askWeather, weatherDays, wouldAsk, cleanDays, dayAnswer, dayState, daysBetween, positionKey, providerUrl,
   WORD_TEXT, WORDS, FILE_NAME, BACK_DAYS, AHEAD_DAYS, DROP_DAYS, MAX_DAYS, MAX_BODY, FETCH_MS, FORECAST_GOOD_MS, PAST_GOOD_MS,
 };

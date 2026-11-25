@@ -39,7 +39,7 @@ const { effectiveLabels } = require('./module-labels');
 const { GeocodeCache, askService, keyOf: keyOfPlace, ENOUGH } = require('./geocode');
 const { FlightSchedule, FlightLookupError, findFlights, parseNumber: parseFlightNumber } = require('./flight-lookup');
 const weatherProviders = require('./weather-providers');
-const { WeatherCache, weatherDays, dayState: weatherDayState, daysBetween: weatherDaysBetween, positionKey: weatherPositionKey } = require('./weather');
+const { WeatherCache, weatherDays, wouldAsk: weatherWouldAsk, dayState: weatherDayState, daysBetween: weatherDaysBetween, positionKey: weatherPositionKey } = require('./weather');
 const airportList = require('./airports');
 const { RegionCutJobs, RegionCutError } = require('./region-cut');
 const { pmtilesInfo, pmtilesWhyNot } = require('./pmtiles-header');
@@ -13574,7 +13574,7 @@ app.get('/api/modules/:id/weather', async (req, res) => {
     runs.get(k).days.push(d);
   }
   // Only an ask of the service counts: an answer wholly from what is kept does not.
-  if ([...runs.values()].some((r) => r.days.some((d) => !weatherCache.get(r.lat, r.lon, d))) && !count()) return;
+  if ([...runs.values()].some((r) => weatherWouldAsk(weatherCache, setup.provider, r.lat, r.lon, r.days)) && !count()) return;
   let failed = false;
   let some = false;
   await Promise.all([...runs.values()].map(async (r) => {
