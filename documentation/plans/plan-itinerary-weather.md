@@ -5,9 +5,19 @@ core); experience-design builds the day header's weather piece in the SDK and th
 module lane for the Itinerary, a patch bump each); quality-assurance reads the server half as a privacy change when Thomas calls a
 feedback or production build; content-manager documents.
 
-**Status:** Draft, 2026-11-25. Nothing in it is built. From GitHub issue #1080 (Planner: Show the weather on each itinerary
+**Status:** Draft, 2026-11-25; steps 1 to 5 are built (see Progress). From GitHub issue #1080 (Planner: Show the weather on each itinerary
 day). Thomas, 2026-11-23: "add itinerary enhancement: map the weather to the days." Thomas has decided only that this is wanted;
 everything else below is a recommendation he has not yet seen, so it is listed under "Recommendations", not "Decisions".
+
+**Progress (2026-11-25, read against `main` at `fa5ea4bd`).** Steps 1 to 5 are built and merged; step 6 is not part of this plan.
+
+1. The lookup and its cache, `server/weather.js` and `tools/check-weather.mjs` (#1096).
+2. The declaration, the route and the Itinerary's settings (#1101; Itinerary 0.16.21). The redirect gap named in step 1's review is closed: a hop off the admin's origin is checked and asked at exactly the addresses checked.
+3. `host.ui.dayWeather` (#1106), on the Design System page.
+4. The Itinerary draws it, with `host.weather.days` (#1110; Itinerary 0.16.22).
+5. The agent read, `read_weather` (#1109).
+
+Thomas decided that no paid service is bundled and that the Open-Meteo preset is being removed: the admin supplies the address of a weather service. The documents say so ([architecture-weather](../architecture/architecture-weather.md)); the code and this plan's text below still name the preset until that change lands. Not built: the owner's "Weather is working" test button. Open: whether weather should be its own route part rather than code in `server/index.js`. The real service was never reached and its terms were not read.
 
 ## What it is today
 

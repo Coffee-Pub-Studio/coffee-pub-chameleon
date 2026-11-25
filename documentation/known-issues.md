@@ -99,6 +99,36 @@ Documents 0.7 to 0.11.36 ([userguide-documents](userguides/userguide-documents.m
 - **Paste from Word keeps only the words** (#800): its formatting is never read, by design (see the guide); the issue asks for more.
 - **Print and Save as Markdown file** were read from the code and not tried in a real print dialog or in Safari or Firefox (0.11.18).
 
+## Agent actions on the server: gaps
+
+Written on `fa5ea4bd` from the builders' reports of the pull requests #1065 to #1116, read as code; none of it was seen in a real client. A real MCP client, a hosted server with two environments and a real Docker container were not tried.
+
+- **A pointer to another of the agent's spaces waits for a page.** `serverCarries` sends a request to the page queue when a pointer is to another space (issue #1117). Workaround: ask from the space the object is in.
+- **A default Docker deploy has no kernel network boundary for the runner.** The lockdown holds in every deploy; the network namespace needs a kernel that allows one, and Docker's default seccomp profile is believed to refuse it (not tested). Workaround: none needed for bundled modules (they run with the lockdown alone); set `ACTION_RUNNER_NETWORK=namespace` only where the kernel allows a namespace.
+- **An agent's phase move and its environment-scope changes are not in Undo.** They show in the request's `effects`, but **What it changed** records writes in the space only.
+- **A Calendar or To-do reminder more than a year ahead is never set later.** The note says "A reminder can be set at most a year ahead, so this one is not set yet; set it again within the year." Nothing sets it afterwards.
+- **A poll closing by its time with no Polls page open is not announced to other modules** (the `closed` event To-do's rules use) until a page next opens. The bell notice "Poll closed" is sent at the time. Polls made before 1.15.34 with a closing time have no schedule.
+- **On the environment page (no space)** the page sets reminders and links itself. To-do and Calendar links to objects outside the space are stored but the server does not link them.
+- **The bell can count a delete ask twice** until the list is opened: once as an unread notice, once as a waiting ask.
+- **Calendar and Itinerary edges.** `updateEvent` refuses an environment event; the objects format stores a flight number as "UA945" where the editor saves "UA 945"; a person can still edit a Calendar copy in the form, which moves the original (only agents' actions refuse copies); old `item:` plan keys are ignored.
+- **Maps' agent search runs even when a position is given,** which costs one of the agent's reads, and the library checks no 1000-bookmark cap (issue #1117).
+- **A research link with an unusual address is dropped on read.** Research reads addresses with its own reader, which refuses a user name, an unusual numeric host (`1.2.3`) and a host written in a script other than Latin, Greek, Cyrillic, Chinese, Japanese or Korean. A link stored with such a host disappears (very rare).
+
+## Weather: gaps
+
+- **There is no "Weather is working" test button** on the Itinerary's configuration page.
+- **A failing weather service is asked again on every request,** bounded by the limit of 30 a minute.
+- **Redrawing the Itinerary replays the weather icon's fade-in** (reduced motion turns it off), and a negative temperature prints with a hyphen, not a minus sign.
+- **Place search still follows redirects without an address check and sends the repository address in its `User-Agent`** (`server/geocode.js`); the weather lookup does not.
+- Not verified: the real weather service, a sandboxed module frame, a guest, Fahrenheit, a real phone or screen reader.
+
+## Layout tabs and workspaces: gaps
+
+- **Not verified:** a person moved by Bring everyone here during a real call (no LiveKit), pop-out windows, long press on a touch tablet, a screen reader, and widths 641 to 1000 px.
+- **The larger shape "Large, two splits"** (one big area and two stacks) is not built.
+- **`check-setup-tabs` is flaky on a clean `main`** (the case "What AI may see, Only these": the Set up tab did not appear).
+- Items 9, 11 and 12 of issue #1091 stay open as known limits.
+
 ## Checks
 
 These fail on `main` (`67998604`) and none was caused by the work since; a change that touches them should name the failure and move on. Read again for this entry, 2026-11-16.
@@ -134,7 +164,7 @@ Agent access, steps 1 to 4 ([architecture-agent-access](architecture/architectur
 - **A restore can carry `chatPost` on an agent while Agents is off.** An owner's copy keeps `chatPost`. The agent then has it on, but its token does nothing until **Agents** is turned on, so it has no effect. Turn **Post in Chat** off on the agent's page if you do not want it on again with Agents.
 - **An agent is not held to the terms or the NDA.** On a server with `TERMS_FILE` or `NDA_FILE` set, a person must agree before anything else; an agent is let past (`agreementExempt`), since it can't agree. Whether it should be is not decided. Workaround: none needed; the owner who made the agent has agreed, and the agent reaches only what a member reaches.
 - **OAuth sign-in is not built.** The Claude apps connect with a token header, which works (proven by Thomas on 2026-11-20; [Connecting Claude](userguides/userguide-connecting-claude.md)). There is no "Sign in" flow for them, so a person has to make a token and paste it as a header.
-- **A request waits for an open page.** What an agent asks for is carried out only when a person who may change that module next has it open (up to seven days). Workaround: open the module.
+- **A request can still wait for an open page.** Every bundled module carries an agent's request on the server at once, but an uploaded module's requests, and a request that points at another of the agent's spaces, wait until a person who may change that module has it open (up to seven days). Workaround: open the module. See "Agent actions on the server: gaps".
 
 ## Pages and the back-forward cache
 
