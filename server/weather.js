@@ -1,16 +1,17 @@
-// The weather on a day (documentation/plans/plan-itinerary-weather.md, step 1): asked from the server of an
-// Open-Meteo-compatible service the admin chose, and kept for a while so one answer serves every space going to the same town.
+// The weather on a day (documentation/plans/plan-itinerary-weather.md, step 1): asked from the server of a registered weather
+// service (an adapter in server/weather-providers/, see its index.js for the contract and THE RULE: only a service that is free
+// for commercial use is ever registered, never a paid one), and kept for a while so one answer serves every space going to the
+// same town.
 //
-// What goes out: a position rounded to 2 decimals (about 1 km), a first and a last day, the daily fields wanted, the time zone
-// left to the service ("auto", so each day is the place's own day) and, when the admin gave one, the service's key. Never a
-// name, an address, a space, an environment, a person or anything a person typed. Nothing goes out when no service is chosen:
-// the caller only asks with an address.
+// What goes out: a position rounded to 2 decimals (about 1 km) and a first and a last day, in the address the adapter builds.
+// Never a name, an address, a space, an environment, a person or anything a person typed. Nothing goes out when no service is
+// chosen: the caller only asks with an adapter.
 //
 // What is kept: DATA_DIR/weather.json, at the host's level (beside flight-schedule.json; on a single install, beside the
 // environment's own files, and never in an environment's copy). An object keyed by rounded position and day, each
-// `{ code, high, low, rain, got }`: the service's weather code, the high and low in Celsius (one decimal), the chance of rain in
+// `{ code, high, low, rain, got }`: the weather word (one of WORDS), the high and low in Celsius (one decimal), the chance of rain in
 // whole percent or null, and when it was fetched. Never who asked, which space or environment, what was asked for as a whole,
-// or the service's address or key. A forecast day is good for 3 hours, a day before today for 24; a day older than 40 days is
+// or the service's address. A forecast day is good for 3 hours, a day before today for 24; a day older than 40 days is
 // dropped, and at most 20,000 days are kept, the oldest fetched going first. Kept in memory, written a moment after a change.
 'use strict';
 
@@ -32,40 +33,12 @@ const HOUR = 3600 * 1000;
 const FORECAST_GOOD_MS = 3 * HOUR;
 const PAST_GOOD_MS = 24 * HOUR;
 const DAY_MS = 86400000;
-const DAILY = 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max';
 
-// The service's weather codes (WMO 4677, as Open-Meteo gives them): the short word the SDK draws, and the plain words.
-const CODES = {
-  0: ['clear', 'Clear sky'],
-  1: ['partly', 'Mostly clear'],
-  2: ['partly', 'Partly cloudy'],
-  3: ['cloudy', 'Cloudy'],
-  45: ['fog', 'Fog'],
-  48: ['fog', 'Freezing fog'],
-  51: ['drizzle', 'Light drizzle'],
-  53: ['drizzle', 'Drizzle'],
-  55: ['drizzle', 'Heavy drizzle'],
-  56: ['drizzle', 'Freezing drizzle'],
-  57: ['drizzle', 'Heavy freezing drizzle'],
-  61: ['rain', 'Light rain'],
-  63: ['rain', 'Rain'],
-  65: ['rain', 'Heavy rain'],
-  66: ['rain', 'Freezing rain'],
-  67: ['rain', 'Heavy freezing rain'],
-  71: ['snow', 'Light snow'],
-  73: ['snow', 'Snow'],
-  75: ['snow', 'Heavy snow'],
-  77: ['snow', 'Snow grains'],
-  80: ['rain', 'Light showers'],
-  81: ['rain', 'Showers'],
-  82: ['rain', 'Heavy showers'],
-  85: ['snow', 'Snow showers'],
-  86: ['snow', 'Heavy snow showers'],
-  95: ['storm', 'Thunderstorm'],
-  96: ['storm', 'Thunderstorm with hail'],
-  99: ['storm', 'Thunderstorm with heavy hail'],
+// The weather every adapter answers in: one of eight words (what the SDK draws) and the plain words that go with it.
+const WORD_TEXT = {
+  clear: 'Clear sky', partly: 'Partly cloudy', cloudy: 'Cloudy', fog: 'Fog', drizzle: 'Drizzle', rain: 'Rain', snow: 'Snow', storm: 'Thunderstorm',
 };
-const WORDS = ['clear', 'partly', 'cloudy', 'fog', 'drizzle', 'rain', 'snow', 'storm'];
+const WORDS = Object.keys(WORD_TEXT);
 
 class WeatherError extends Error {
   // `kind`: blocked (an address that may not be asked), range (a day outside the window), timeout, status, big, bad
@@ -122,82 +95,66 @@ function positionKey(lat, lon) {
   return `${round2(la).toFixed(2)},${round2(lo).toFixed(2)}`;
 }
 
-// The days in an Open-Meteo-shaped answer, as { "YYYY-MM-DD": { code, high, low, rain } } in Celsius. A day missing its
-// code or a temperature is left out, not guessed; an unknown code is left out too.
-function parseWeather(json) {
-  const daily = json && typeof json === 'object' && json.daily && typeof json.daily === 'object' ? json.daily : null;
-  if (!daily || !Array.isArray(daily.time)) return {};
-  const units = (json.daily_units && typeof json.daily_units === 'object') ? json.daily_units : {};
-  const fahrenheit = /F/.test(String(units.temperature_2m_max || ''));
-  const toC = (n) => (fahrenheit ? ((n - 32) * 5) / 9 : n);
-  const col = (a, b) => (Array.isArray(daily[a]) ? daily[a] : Array.isArray(daily[b]) ? daily[b] : []);
-  const codes = col('weather_code', 'weathercode');
-  const highs = col('temperature_2m_max');
-  const lows = col('temperature_2m_min');
-  const rains = col('precipitation_probability_max');
-  const num = (v) => (v === null || v === undefined || v === '' ? NaN : Number(v));
+// The days an adapter's parse gave, as { "YYYY-MM-DD": { code, high, low, rain } }, each checked: a day that is not a real
+// day, a word that is not one of WORDS or a temperature that is not a believable number is left out, not guessed.
+function cleanDays(raw) {
   const out = {};
-  daily.time.slice(0, 400).forEach((t, i) => {
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [t, r] of Object.entries(raw).slice(0, 400)) {
     const day = cleanDay(t);
-    const code = num(codes[i]);
-    const high = num(highs[i]);
-    const low = num(lows[i]);
-    if (!day || !Number.isInteger(code) || !CODES[code] || !Number.isFinite(high) || !Number.isFinite(low)) return;
-    if (Math.abs(high) > 200 || Math.abs(low) > 200) return;
-    const r = num(rains[i]);
-    out[day] = { code, high: round1(toC(high)), low: round1(toC(low)), rain: Number.isFinite(r) ? Math.min(100, Math.max(0, Math.round(r))) : null };
-  });
+    if (!day || !r || typeof r !== 'object' || !WORDS.includes(r.code)) continue;
+    const high = Number(r.high);
+    const low = Number(r.low);
+    if (r.high === null || r.low === null || !Number.isFinite(high) || !Number.isFinite(low) || Math.abs(high) > 200 || Math.abs(low) > 200) continue;
+    const rain = r.rain === null || r.rain === undefined || r.rain === '' ? NaN : Number(r.rain);
+    out[day] = { code: r.code, high: round1(high), low: round1(low), rain: Number.isFinite(rain) ? Math.min(100, Math.max(0, Math.round(rain))) : null };
+  }
   return out;
 }
 
 // A kept day as the page and the agent get it: the short word, the plain words, the high and low as whole degrees in
 // `units` ('c' or 'f'), the chance of rain.
 function dayAnswer(rec, units = 'c') {
-  const [code, words] = CODES[rec.code] || ['cloudy', 'Cloudy'];
+  const code = WORD_TEXT[rec.code] ? rec.code : 'cloudy';
+  const words = WORD_TEXT[code];
   const deg = (c) => Math.round(units === 'f' ? (c * 9) / 5 + 32 : c);
   return { code, words, high: deg(rec.high), low: deg(rec.low), rain: Number.isFinite(rec.rain) ? rec.rain : null };
 }
 
-// The address asked, from the admin's address, a position and a run of days. Throws a WeatherError when it is not one.
-function serviceUrl(address, key, lat, lon, from, to, { httpsOnly = false } = {}) {
-  let u;
-  try { u = new URL(String(address || '')); } catch { throw new WeatherError('the weather address is not an address', 'blocked'); }
-  if (httpsOnly ? u.protocol !== 'https:' : !/^https?:$/.test(u.protocol)) throw new WeatherError(httpsOnly ? 'the weather address must be https' : 'the weather address must be http or https', 'blocked');
-  if (u.username || u.password) throw new WeatherError('the weather address may not carry a password', 'blocked');
+// The address asked, from the adapter, a position and a run of days. Throws a WeatherError when it is not one.
+function providerUrl(provider, lat, lon, from, to) {
   const pos = positionKey(lat, lon);
   if (!pos) throw new WeatherError('that is not a position', 'range');
   const [la, lo] = pos.split(',');
-  u.search = '';
-  u.searchParams.set('latitude', la);
-  u.searchParams.set('longitude', lo);
-  u.searchParams.set('daily', DAILY);
-  u.searchParams.set('timezone', 'auto');
-  u.searchParams.set('start_date', from);
-  u.searchParams.set('end_date', to);
-  if (key) u.searchParams.set('apikey', String(key));
+  let u;
+  try { u = new URL(String(provider.request(la, lo, from, to) || '')); } catch { throw new WeatherError('the weather address is not an address', 'blocked'); }
+  const httpsOnly = !provider.allowHttp;
+  if (httpsOnly ? u.protocol !== 'https:' : !/^https?:$/.test(u.protocol)) throw new WeatherError(httpsOnly ? 'the weather address must be https' : 'the weather address must be http or https', 'blocked');
+  if (u.username || u.password) throw new WeatherError('the weather address may not carry a password', 'blocked');
   return u;
 }
 
 // Ask the service for one position and one run of days, `from` through `to`, all inside the window (30 days back to 13
-// ahead; anything beyond is refused, never asked). `address` is the admin's (a preset's or the custom one), `key` the
-// secret setting's value or ''. `httpsOnly` for a preset. Returns parseWeather's days. Throws a WeatherError.
+// ahead; anything beyond is refused, never asked). `provider` is a registered adapter. Returns its parse, checked (cleanDays).
+// Throws a WeatherError.
 //
-// The address the admin chose is asked as it is (a service run on one's own network is allowed). A redirect to anywhere
-// else (another host or port) must be http(s) (https for a preset) and resolve to public addresses only, as a link preview
+// The adapter's address is asked as it is. A redirect to anywhere else (another host or port) must be https (http too only
+// for the test stand-in) and resolve to public addresses only, as a link preview
 // is held (server/link-preview.js), and it is then asked at exactly the addresses that were checked (getOnce, which
 // connects to them and never looks the name up a second time, so a name cannot answer public to the check and private to
 // the ask); at most 3. The user-agent is the product and its version only, with no contact address, as a link preview
 // sends. `fetchImpl`, `lookup` and `getImpl` are replaced only by tools/check-weather.mjs.
-async function askWeather(address, key, lat, lon, from, to, { httpsOnly = false, now = Date.now(), fetchImpl = fetch, lookup, getImpl = getOnce } = {}) {
+async function askWeather(provider, lat, lon, from, to, { now = Date.now(), fetchImpl = fetch, lookup, getImpl = getOnce } = {}) {
   const a = cleanDay(from);
   const b = cleanDay(to);
   if (!a || !b || a > b) throw new WeatherError('those are not days in order', 'range');
   if (dayState(a, now) === 'outOfRange' || dayState(b, now) === 'outOfRange') throw new WeatherError(`weather is only asked from ${BACK_DAYS} days back to ${AHEAD_DAYS} days ahead`, 'range');
-  const first = serviceUrl(address, key, lat, lon, a, b, { httpsOnly });
+  const httpsOnly = !provider.allowHttp;
+  const first = providerUrl(provider, lat, lon, a, b);
   const deadline = Date.now() + FETCH_MS;
   const signal = AbortSignal.timeout(FETCH_MS);
   let current = first;
-  let pinned = null; // the checked addresses of `current`, when it is not the admin's own service
+  let pinned = null; // the checked addresses of `current`, when it is not the adapter's own address
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
     // One ask: { status, location, text }.
     let got;
@@ -256,8 +213,9 @@ async function askWeather(address, key, lat, lon, from, to, { httpsOnly = false,
     const text = await got.text();
     let json;
     try { json = JSON.parse(text); } catch { throw new WeatherError('the weather service did not answer with weather', 'bad'); }
-    if (!json || typeof json !== 'object' || !json.daily) throw new WeatherError('the weather service did not answer with weather', 'bad');
-    const days = parseWeather(json);
+    if (!json || typeof json !== 'object') throw new WeatherError('the weather service did not answer with weather', 'bad');
+    let days;
+    try { days = cleanDays(provider.parse(json)); } catch { throw new WeatherError('the weather service did not answer with weather', 'bad'); }
     const wanted = {};
     for (const d of daysBetween(a, b)) if (days[d]) wanted[d] = days[d];
     return wanted;
@@ -335,7 +293,7 @@ class WeatherCache {
     return now - rec.got <= good && rec.got <= now + HOUR ? rec : null;
   }
 
-  // Keep what the service answered for one position (parseWeather's days).
+  // Keep what the service answered for one position (cleanDays's days).
   remember(lat, lon, days) {
     const pos = positionKey(lat, lon);
     if (!pos || !days) return;
@@ -397,21 +355,21 @@ class WeatherCache {
 // A record as kept: only its five fields, each the right kind. Null when it is not one.
 function cleanRecord(r) {
   if (!r || typeof r !== 'object') return null;
-  const code = Number(r.code);
+  const code = r.code;
   const high = Number(r.high);
   const low = Number(r.low);
   const got = Number(r.got);
-  if (!Number.isInteger(code) || !CODES[code] || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(got) || got <= 0) return null;
+  if (!WORD_TEXT[code] || !Number.isFinite(high) || !Number.isFinite(low) || !Number.isFinite(got) || got <= 0) return null;
   const rain = r.rain === null || r.rain === undefined ? null : Number(r.rain);
   return { code, high: round1(high), low: round1(low), rain: Number.isFinite(rain) ? Math.min(100, Math.max(0, Math.round(rain))) : null, got: Math.round(got) };
 }
 
 // The weather for one position over a run of days, from what is kept first and, for the days still wanted inside the
-// window, one ask of the service for the run from the first to the last of them. `service`: { address, key, httpsOnly } or
+// window, one ask of the service for the run from the first to the last of them. `provider`: a registered adapter or
 // null (nothing is chosen: nothing goes out, and the caller answers `configured: false` before getting here). Returns
 // { "YYYY-MM-DD": { state, ...dayAnswer } } with `state` one of forecast, past, outOfRange, unavailable (the service failed
 // or left the day out, and nothing good is kept). `failed`: the WeatherError, when the service was asked and failed.
-async function weatherDays(cache, service, lat, lon, days, { units = 'c', fetchImpl, lookup, getImpl } = {}) {
+async function weatherDays(cache, provider, lat, lon, days, { units = 'c', fetchImpl, lookup, getImpl } = {}) {
   const now = cache.now();
   const out = {};
   const wanted = [];
@@ -423,10 +381,10 @@ async function weatherDays(cache, service, lat, lon, days, { units = 'c', fetchI
     else wanted.push(d);
   }
   let failed = null;
-  if (wanted.length && service && service.address) {
+  if (wanted.length && provider) {
     const sorted = [...wanted].sort();
     try {
-      const got = await askWeather(service.address, service.key || '', lat, lon, sorted[0], sorted[sorted.length - 1], { httpsOnly: Boolean(service.httpsOnly), now, fetchImpl, lookup, getImpl });
+      const got = await askWeather(provider, lat, lon, sorted[0], sorted[sorted.length - 1], { now, fetchImpl, lookup, getImpl });
       cache.remember(lat, lon, got);
     } catch (err) {
       failed = err instanceof WeatherError ? err : new WeatherError('the weather service could not be read', 'unreachable');
@@ -440,6 +398,6 @@ async function weatherDays(cache, service, lat, lon, days, { units = 'c', fetchI
 }
 
 module.exports = {
-  WeatherCache, WeatherError, askWeather, weatherDays, parseWeather, dayAnswer, dayState, daysBetween, positionKey, serviceUrl,
-  CODES, WORDS, FILE_NAME, BACK_DAYS, AHEAD_DAYS, DROP_DAYS, MAX_DAYS, MAX_BODY, FETCH_MS, FORECAST_GOOD_MS, PAST_GOOD_MS,
+  WeatherCache, WeatherError, askWeather, weatherDays, cleanDays, dayAnswer, dayState, daysBetween, positionKey, providerUrl,
+  WORD_TEXT, WORDS, FILE_NAME, BACK_DAYS, AHEAD_DAYS, DROP_DAYS, MAX_DAYS, MAX_BODY, FETCH_MS, FORECAST_GOOD_MS, PAST_GOOD_MS,
 };

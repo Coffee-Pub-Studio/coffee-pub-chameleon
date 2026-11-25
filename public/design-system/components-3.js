@@ -255,7 +255,7 @@ window.DS_NOT_MOUNTED = window.DS_NOT_MOUNTED || [];
       desc: 'host.ui.dayWeather mounted by the real SDK in each day\'s label row, one day per state the weather route answers. Only Forecast and What it was draw; Too far ahead, No place, Not available and Weather off draw nothing, so their label rows hold only the marker. The first day\'s popover is open (host.menu.show). At a phone width each shows the icon and the high only.',
       body: '<div class="dsf-live"><div id="wx" style="display:grid;gap:10px;max-width:560px"></div></div>',
       script: `
-        var answer = { configured: true, credit: 'Weather by Open-Meteo.com', units: 'c', days: {
+        var answer = { configured: true, credit: '', units: 'c', days: {
           '2026-12-03': { state: 'forecast', code: 'rain', words: 'Light rain', high: 18, low: 9, rain: 40 },
           '2026-12-04': { state: 'forecast', code: 'partly', words: 'Partly cloudy', high: 21, low: 12, rain: 10 },
           '2026-11-20': { state: 'past', code: 'snow', words: 'Light snow', high: 1, low: -4, rain: null },

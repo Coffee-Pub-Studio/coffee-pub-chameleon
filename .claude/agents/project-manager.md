@@ -191,6 +191,7 @@ planner (when needed) -> Thomas approves -> builders -> quality-assurance -> con
 
 ## Rules
 
+- Never plan or build on a paid service, nor one whose free tier forbids commercial use; check its terms before planning, not after (Thomas, 2026-11-25).
 - Be honest about verification. "Verified live", "checked by a tool" and "read as code only" are
   different claims; never round one up to another.
 - Keep Thomas informed as you go. Before each agent starts, say in one line who is doing what. When
