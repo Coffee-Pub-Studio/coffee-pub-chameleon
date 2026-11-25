@@ -17,7 +17,7 @@ everything else below is a recommendation he has not yet seen, so it is listed u
 4. The Itinerary draws it, with `host.weather.days` (#1110; Itinerary 0.16.22).
 5. The agent read, `read_weather` (#1109).
 
-Thomas decided that no paid service is bundled and that the Open-Meteo preset is being removed: the admin supplies the address of a weather service. The documents say so ([architecture-weather](../architecture/architecture-weather.md)); the code and this plan's text below still name the preset until that change lands. Not built: the owner's "Weather is working" test button. Open: whether weather should be its own route part rather than code in `server/index.js`. The real service was never reached and its terms were not read.
+Built as Thomas decided on 2026-11-25 (never a paid service): provider adapters in `server/weather-providers/` replace the Open-Meteo preset, the custom address and the key (#1118); no adapter is registered yet, so nothing can be chosen but **None**. Not built: the owner's "Weather is working" test button, and the MET Norway adapter (see TODO). Open: whether weather should be its own route part rather than code in `server/index.js`. No real service was ever reached.
 
 ## What it is today
 
@@ -223,7 +223,7 @@ S (an hour or less), M (a few hours), L (a day).
 5. **The agent read** (server-development, core, S). `read_weather` in `server/mcp.js`, its entry in `documentation/api/api-agents.md`
    by content-manager at documentation time, and the check in `tools/check-mcp.mjs`.
 6. **The story strip reuses it** (later, only when plan-space-story-strip step 9 is built; not part of this plan). That step takes
-   its provider and cache from step 1, drops `WEATHER_ADDRESS` and `WEATHER_KEY`, and asks for one position, the trip's main place.
+   its provider and cache from step 1, asks for one position, the trip's main place.
 
 ## Verify
 

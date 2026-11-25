@@ -140,10 +140,10 @@ Everything still comes from phases and facts; nothing new is written by the stri
 
 **The source.** Two free services fit, both as known when drafting, for the builder to confirm against their current terms:
 
-- **Open-Meteo:** no key for non-commercial use, about 10,000 calls a day; a paid key for commercial use; a forecast up to 16 days; a historical archive from which usual temperatures for a month can be worked out; open source and can be run on one's own server; CC BY 4.0, so its name must be shown.
+- **Open-Meteo:** not free for commercial use, so it is never used (Thomas, 2026-11-25: never a paid service).
 - **MET Norway (api.met.no):** no key; asks for an identifying User-Agent and that answers be cached as its headers say; about 9 days ahead; CC BY 4.0.
 
-**Lean: an Open-Meteo-compatible address in an environment variable,** as place search takes a Photon-compatible one. `WEATHER_ADDRESS` (unset: no weather anywhere, so every install behaves as before) and `WEATHER_KEY` (optional, for a paid plan). A hosted install that charges for environments is commercial use and needs the paid key or its own Open-Meteo; Thomas to decide.
+**Decided (Thomas, 2026-11-25): the strip reuses the weather lookup through the registered provider adapters; no paid service is ever used.** See [plan-itinerary-weather](plan-itinerary-weather.md). No weather unless an adapter is registered and chosen, so every install behaves as before.
 
 **How it is asked and kept.** The server asks, never a browser. It sends only the position, rounded to 2 decimals (about 1 km), and the day; never the place's name, the space, the environment or a person. Answers are kept in `DATA_DIR/weather.json` at the host's level, as the flight schedule is, keyed by rounded position and day: a forecast for 3 hours, usual temperatures for 30 days. One answer serves every space going to the same town.
 
@@ -182,7 +182,7 @@ Options weighed:
 - `place`: optional, `{ name, lat, lon }`, which marks it as a place the host may ask the weather for;
 - `object`: optional, an object reference opened on press; without it, the module opens.
 
-**On the server:** `PUT /api/spaces/:id/facts/:module` (requires `write` in that module in that space; 400 with a sentence for a bad shape), `DELETE` the same, and `GET /api/spaces/:id/facts` answering only the modules this person may read there: `{ modules: [{ module, name, facts, at }] }`. Kept in `DATA_DIR/facts.json` per environment, per space and module, never who sent it; a report older than 30 days is dropped. Weather: `GET /api/spaces/:id/weather?module=<id>&fact=<id>` takes the place from that stored fact, answers `{ day, high, low, condition, words, credit }`, or 204 when there is no place, no `WEATHER_ADDRESS` or the day is out of reach.
+**On the server:** `PUT /api/spaces/:id/facts/:module` (requires `write` in that module in that space; 400 with a sentence for a bad shape), `DELETE` the same, and `GET /api/spaces/:id/facts` answering only the modules this person may read there: `{ modules: [{ module, name, facts, at }] }`. Kept in `DATA_DIR/facts.json` per environment, per space and module, never who sent it; a report older than 30 days is dropped. Weather: `GET /api/spaces/:id/weather?module=<id>&fact=<id>` takes the place from that stored fact, answers `{ day, high, low, condition, words, credit }`, or 204 when there is no place, no registered provider adapter chosen or the day is out of reach.
 
 **Caps and order.** The strip draws at most three facts at its widest (a lean; Thomas has not set the number), plus the count. The order is the space's choice (below), else the template's, else the order modules answer in. Facts that do not fit drop from the end; the count never drops.
 
@@ -208,7 +208,7 @@ Steps 1 to 6 can start now; 7 and 8 wait for the answers marked **blocks**. Each
 6. **The Planner reports money and the next booking** (experience-design; low). From Money and Bookings, on load and after each change; a patch bump of `travel` in `module.json` and `tools/module-versions.json`. Spent only, to start. The budget target is a new trip field (decision 5), so it is a separate step, 7.
 7. **The budget target** (server-development for the field and its check; experience-design for the Set up control, owner or moderator only, and the Planner's `spent` fact reading it). Blocks on where the field is stored (Not decided). A new field is more than a try build's patch bump; Thomas to name the kind of build (suggestion: a feedback build).
 8. **Choosing what shows** (server-development for the space field, the template field and its fingerprint; experience-design for the Set up section, which also holds the destination pick when the Planner reports several places). Medium: the template fingerprint. Blocks on who chooses.
-9. **Weather** (server-development; medium: an outside service, privacy, a key). `server/weather.js`, `WEATHER_ADDRESS` and `WEATHER_KEY` read at start, the cache, the route, a check with a stand-in provider; then experience-design draws it and the Planner reports the destination as a `place` (another patch bump). Blocks on the provider and how the Planner marks the destination.
+9. **Weather** (server-development). The strip reuses the weather lookup (`server/weather.js`) through the registered provider adapters (`server/weather-providers/`); no paid service is ever used. The cache, the route and a check with a stand-in provider are built by [plan-itinerary-weather](plan-itinerary-weather.md); then experience-design draws it and the Planner reports the destination as a `place`.
 10. **Usual temperatures before the forecast** (server-development; later, only if Thomas wants it).
 
 ## Verify
@@ -221,7 +221,7 @@ Steps 1 to 6 can start now; 7 and 8 wait for the answers marked **blocks**. Each
 
 - **Stale facts.** A fact is as fresh as the last time someone opened its module. Money changed by a drop from another module, or a linked object changed elsewhere, shows the old figure until the Planner is opened. Dates are worded by the host, so they do not go stale; amounts can.
 - **Crowding and height.** Three facts, a sentence and a track with names in one 44 px line is a lot, and 16 px more of every view is taken from the canvas on every wide screen. The caps and the slim line hold it; Thomas may want fewer facts. Whether plain B is visual enough is for Thomas to judge on the built strip.
-- **Weather's terms.** Open-Meteo's free use is non-commercial; a hosted, paid install needs a key or its own server. The credit must be shown somewhere a person can find.
+- **Weather's terms.** Only an adapter for a service that is free for commercial use may be registered. The credit must be shown somewhere a person can find.
 - **Privacy.** A trip's destination goes to a third party from the server. Rounded and without names, but Thomas may want Manage to say that weather is on and who provides it.
 - **The template fingerprint.** Adding `strip` to `FIELDS` changes every template's fingerprint unless handled as `verbs` was.
 - **Channels drifting.** Facts are durable and about this space; a "Saved" or "Ann added a hotel" must never become one. The step-5 check of the status strip plan should cover facts too.
@@ -233,14 +233,14 @@ Steps 1 to 6 can start now; 7 and 8 wait for the answers marked **blocks**. Each
 3. Facts are the space's, not each person's; a personal figure (your share of the costs) is left out.
 4. Pressing a fact opens its module or object. The status strip plan said the strip opens nothing but the sheet for phases; this reads that as about phases only.
 5. The Planner is the only fact source in the first builds.
-6. No weather unless `WEATHER_ADDRESS` is set, so every install behaves as before.
+6. No weather unless a provider adapter is registered and chosen, so every install behaves as before.
 7. The 44 px height is for the wide strip; the slim line keeps the 28 px of the built strip and the phone is unchanged.
 
 ## Not decided
 
 Each of these is Thomas's to answer; those marked **blocks** stop a step until answered. Each carries a suggestion, which is not a decision.
 
-1. **Weather provider and its terms.** **Blocks step 9.** Open-Meteo's free use is non-commercial; a hosted install that charges for environments is commercial and needs its paid key or its own Open-Meteo. Suggestion: an Open-Meteo-compatible address in `WEATHER_ADDRESS` with an optional `WEATHER_KEY`, off when unset; the builder confirms the current terms, and the credit is shown in the weather popover. MET Norway is the keyless fallback (about 9 days, an identifying User-Agent, cached as its headers say). Also whether Manage says weather is on and who provides it (suggestion: yes).
+1. **Weather provider and its terms.** Decided (Thomas, 2026-11-25): the strip reuses the weather lookup through the registered provider adapters; no paid service is ever used. The credit is shown in the weather popover.
 2. **Who chooses what shows.** **Blocks step 8.** The owner per space in Set up (moderators too), the template only, or each person. Suggestion: the owner, with the template's list as the default for new spaces.
 3. **Celsius or Fahrenheit.** Blocks the weather's words. Suggestion: an environment setting for the unit, defaulting from the language; a per-person choice later if wanted.
 4. **Where the budget target is stored.** **Blocks step 7.** The trip's data in the Planner (written from the Planner's form) or the space record (written from Set up). Suggestion: the space record, so Set up can write it for an owner or moderator without the Planner open.
