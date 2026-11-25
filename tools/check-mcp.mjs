@@ -45,7 +45,7 @@ const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
 const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const ONLY_AGENTS = "This is for an agent's token only.";
-const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'wait_for_result', 'read_chat', 'post_chat'];
+const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'object_format', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'wait_for_result', 'read_chat', 'post_chat'];
 const SETUP_TOOL_NAMES = ['me', 'list_templates', 'list_icons', 'list_people', 'make_space', 'change_space', 'ask_owner', 'ask_status'];
 const CANT = "An agent can't do that.";
 // The 401 on /mcp names the sign-in server's metadata (server/oauth.js, plan-mcp-oauth.md); a REST route's 401 does not.

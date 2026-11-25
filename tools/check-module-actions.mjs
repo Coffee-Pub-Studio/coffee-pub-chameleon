@@ -773,42 +773,49 @@ try {
   });
 
   let event = null;
-  await test('Calendar: an agent\'s createEvent with a 90 minute reminder and notes is done at once; its reminder waits for a page, and says so', async () => {
+  // A day within the year ahead the host schedules (server/module-hooks.js), and how the answer names it (the server's zone, UTC).
+  const calDay = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const calSays = (() => {
+    const d = new Date(`${calDay}T00:00:00Z`);
+    return `${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][d.getUTCDay()]} ${d.getUTCDate()} ${['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][d.getUTCMonth()]}`;
+  })();
+  const calRemind = () => schedules().find((x) => x.module === 'calendar' && x.key === `remind:${event.id}`);
+  await test('Calendar: an agent\'s createEvent with a 90 minute reminder and notes is done at once, its reminder set by the server', async () => {
     as = agents[9];
-    const r = await askIn('calendar:createEvent', { title: 'Car', date: '2030-11-20', time: '10:00', endTime: '11:30', remind: 90, notes: 'Pick up at the airport' });
+    const r = await askIn('calendar:createEvent', { title: 'Car', date: calDay, time: '10:00', endTime: '11:30', remind: 90, notes: 'Pick up at the airport' });
     ok(r, 'createEvent');
     assert.equal(r.json.ok, true);
-    assert.equal(r.json.note, 'The reminder is for Wednesday 20 November, 8:30 AM, 90 minutes before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
+    assert.equal(r.json.note, `The reminder is for ${calSays}, 8:30 AM, 90 minutes before it starts.`);
     event = r.json.ref;
     assert.deepEqual([event.module, event.kind, event.space], ['calendar', 'event', camp]);
     const v = (await calData())[`event:${event.id}`].value;
     // The module test's expectations (modules/calendar/test/check-calendar-actions.mjs), read in the server's zone (UTC here).
-    assert.deepEqual(v, { id: event.id, title: 'Car', allDay: false, start: '2030-11-20T10:00:00.000Z', end: '2030-11-20T11:30:00.000Z', desc: 'Pick up at the airport', remind: 90, repeat: null, by: 'Claude', remindPending: true });
-    assert.ok(!schedules().some((x) => x.module === 'calendar'), 'no schedule is set by the server');
+    assert.deepEqual(v, { id: event.id, title: 'Car', allDay: false, start: `${calDay}T10:00:00.000Z`, end: `${calDay}T11:30:00.000Z`, desc: 'Pick up at the airport', remind: 90, repeat: null, by: 'Claude' });
+    const s = calRemind();
+    assert.ok(s, 'the server set the reminder at once');
+    assert.deepEqual([s.at, s.notify.title, s.notify.body, s.payload, s.ref.id], [Date.parse(`${calDay}T08:30:00Z`), 'Car', 'Starts in 1 hour 30 minutes', { id: event.id }, event.id]);
   });
 
-  await test('Calendar: updateEvent clearing the reminder takes it off, and the schedule a page set from the old event goes', async () => {
+  await test('Calendar: updateEvent clearing the reminder takes it off; a new one is set at once', async () => {
     as = agents[9];
-    // Mia's page sets the reminder, as calendar.js applyReminder does.
     const at = Date.now() + 3 * 24 * 3600 * 1000;
-    ok(await call('POST', `/api/modules/calendar/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: `remind:${event.id}`, at, payload: { id: event.id }, ref: { module: 'calendar', kind: 'event', id: event.id, scope: 'space', space: camp }, notify: { title: 'Car', body: 'Starts in 1 hour 30 minutes' } } }), 'a page sets the reminder');
-    ok(await call('POST', `/api/modules/calendar/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: 'other-key', at, payload: {} } }), 'and some other schedule');
-    assert.ok(schedules().some((x) => x.key === `remind:${event.id}`));
+    ok(await call('POST', `/api/modules/calendar/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: 'other-key', at, payload: {} } }), 'some other schedule');
+    assert.ok(calRemind());
     const r = await askIn('calendar:updateEvent', { event, remind: '' });
     ok(r, 'updateEvent');
     assert.equal(r.json.ok, true);
-    assert.equal(r.json.note, undefined, 'no reminder: nothing waits');
+    assert.equal(r.json.note, undefined, 'no reminder: nothing said');
     const v = (await calData())[`event:${event.id}`].value;
     assert.equal(v.remind, null);
-    assert.equal(v.remindPending, undefined);
-    assert.deepEqual([v.title, v.desc, v.start], ['Car', 'Pick up at the airport', '2030-11-20T10:00:00.000Z'], 'the rest kept');
-    assert.ok(!schedules().some((x) => x.key === `remind:${event.id}`), 'the old reminder will not fire');
+    assert.deepEqual([v.title, v.desc, v.start], ['Car', 'Pick up at the airport', `${calDay}T10:00:00.000Z`], 'the rest kept');
+    assert.ok(!calRemind(), 'the old reminder will not fire');
     assert.ok(schedules().some((x) => x.key === 'other-key'), 'a schedule about nothing it changed stays');
     const back = await askIn('calendar:updateEvent', { event, remind: 30, notes: '' });
     ok(back, 'a reminder again, notes cleared');
-    assert.equal(back.json.note, 'The reminder is for Wednesday 20 November, 9:30 AM, 30 minutes before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
+    assert.equal(back.json.note, `The reminder is for ${calSays}, 9:30 AM, 30 minutes before it starts.`);
     const w = (await calData())[`event:${event.id}`].value;
-    assert.deepEqual([w.remind, w.remindPending, w.desc], [30, true, '']);
+    assert.deepEqual([w.remind, w.remindPending, w.desc], [30, undefined, '']);
+    assert.equal(calRemind().at, Date.parse(`${calDay}T09:30:00Z`), 'set again, from the event as changed');
   });
 
   await test('Calendar: an agent\'s createEvent with remindAt is done at once, stores the lead time and says the clock time', async () => {
@@ -818,12 +825,12 @@ try {
     const r = await askIn('calendar:createEvent', { title: 'Market', date: '2030-11-26', remindAt: '2030-11-24 11:00' });
     ok(r, 'createEvent with remindAt');
     assert.equal(r.json.status, 'done');
-    assert.equal(r.json.note, 'The reminder is for Sunday 24 November, 11:00 AM, 46 hours before 9:00 AM on its day (all-day reminders count from 9:00 AM). Its reminder is set the next time someone who can change events opens the calendar.');
+    assert.equal(r.json.note, 'The reminder is for Sunday 24 November, 11:00 AM, 46 hours before 9:00 AM on its day (all-day reminders count from 9:00 AM). A reminder can be set at most a year ahead, so this one is not set yet; set it again within the year.');
     const v = (await calData())[`event:${r.json.ref.id}`].value;
-    assert.deepEqual([v.allDay, v.start, v.remind, v.remindPending, v.remindAt], [true, '2030-11-26', 2760, true, undefined]);
+    assert.deepEqual([v.allDay, v.start, v.remind, v.remindPending, v.remindAt], [true, '2030-11-26', 2760, undefined, undefined]);
     const timed = await askIn('calendar:updateEvent', { event: r.json.ref, time: '19:00', remindAt: '6pm' });
     ok(timed, 'updateEvent with a time alone');
-    assert.equal(timed.json.note, 'The reminder is for Tuesday 26 November, 6:00 PM, 1 hour before it starts. Its reminder is set the next time someone who can change events opens the calendar.');
+    assert.equal(timed.json.note, 'The reminder is for Tuesday 26 November, 6:00 PM, 1 hour before it starts. A reminder can be set at most a year ahead, so this one is not set yet; set it again within the year.');
     assert.equal((await calData())[`event:${r.json.ref.id}`].value.remind, 60);
     const both = await askIn('calendar:createEvent', { title: 'Market', date: '2030-11-26', remind: 15, remindAt: '8am' });
     ok(both, 'remind and remindAt', 422);
@@ -858,55 +865,59 @@ try {
   ok(await call('PATCH', `/api/spaces/${camp}`, { cookie: admin, body: { members: [...campMembers, todoAgent.key] } }), 'the To-do agent joins Camp');
   await newToken(todoAgent);
   const todoData = async () => Object.fromEntries((await call('GET', `/api/modules/todo/data?scope=space&space=${camp}`, { cookie: admin })).json.items.map((i) => [i.key, i]));
-  const REMIND_LATER = 'Its reminder is set when someone who can change tasks next opens the to-do list.';
   let task = null;
   const soon = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10); // a schedule may be at most a year away
-  await test('To-do: an agent\'s createTask and updateTask are done at once, the second on the first\'s pointer; the reminder waits for a page', async () => {
+  const todoRemind = () => schedules().find((x) => x.module === 'todo' && x.key === `remind:${task.id}`);
+  const linksOf = async (from) => (await call('GET', `/api/objects/links?from=todo&dir=from&ref=${encodeURIComponent(JSON.stringify(from))}`, { cookie: miaC })).json;
+  await test('To-do: an agent\'s createTask and updateTask are done at once, the second on the first\'s pointer; the server sets the reminder', async () => {
     as = todoAgent;
     const r = await askIn('todo:createTask', { title: 'Pack the car', due: soon, remind: true, notes: 'Roof box' });
     ok(r, 'createTask');
     assert.equal(r.json.status, 'done');
     assert.equal(r.json.ok, true);
-    assert.equal(r.json.note, REMIND_LATER);
+    assert.equal(r.json.note, undefined, 'nothing waits, so nothing to say');
     task = r.json.ref;
     assert.deepEqual([task.module, task.kind, task.space], ['todo', 'task', camp]);
     const item = (await todoData())[`task:${task.id}`];
     // The module test's expectations (modules/todo/test/check-todo-actions.mjs).
-    assert.deepEqual({ ...item.value, createdAt: typeof item.value.createdAt }, { id: task.id, title: 'Pack the car', notes: 'Roof box', due: soon, remind: true, done: false, doneAt: null, createdAt: 'number', by: 'Claude', links: [], autoDone: false, remindPending: true });
+    assert.deepEqual({ ...item.value, createdAt: typeof item.value.createdAt }, { id: task.id, title: 'Pack the car', notes: 'Roof box', due: soon, remind: true, done: false, doneAt: null, createdAt: 'number', by: 'Claude', links: [], autoDone: false });
     assert.equal(item.by, todoAgent.key, 'the write is the agent\'s');
-    assert.ok(!schedules().some((x) => x.module === 'todo'), 'no schedule is set by the server');
-    // Mia's page sets the reminder, as todo.js applyReminder does (about the task), beside some other schedule.
-    const at = Date.parse(`${soon}T09:00:00Z`);
-    ok(await call('POST', `/api/modules/todo/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: `remind:${task.id}`, at, payload: { id: task.id }, ref: task, notify: { title: 'Pack the car', body: 'Due today' } } }), 'a page sets the reminder');
-    ok(await call('POST', `/api/modules/todo/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: 'other-key', at, payload: {} } }), 'and some other schedule');
+    // 9:00 on the due date, in the server's zone (UTC here), as todo.js applyReminder sets it.
+    const s = todoRemind();
+    assert.ok(s, 'the server set the reminder at once');
+    assert.deepEqual([s.at, s.notify.title, s.notify.body, s.ref.id], [Date.parse(`${soon}T09:00:00Z`), 'Pack the car', 'Due today', task.id]);
+    ok(await call('POST', `/api/modules/todo/schedule?scope=space&space=${camp}`, { cookie: miaC, body: { key: 'other-key', at: s.at, payload: {} } }), 'and some other schedule');
     const up = await askIn('todo:updateTask', { task, title: 'Pack the car early', notes: '' });
     ok(up, 'updateTask');
     assert.equal(up.json.ok, true);
     assert.deepEqual(up.json.ref, task, 'the pointer back');
-    assert.equal(up.json.note, REMIND_LATER);
     const v = (await todoData())[`task:${task.id}`].value;
-    assert.deepEqual([v.title, v.notes, v.due, v.remind, v.remindPending], ['Pack the car early', '', soon, true, true], 'only the fields given; "" cleared the notes');
-    assert.ok(!schedules().some((x) => x.module === 'todo' && x.key === `remind:${task.id}`), 'the reminder set from the old task will not fire');
+    assert.deepEqual([v.title, v.notes, v.due, v.remind, v.remindPending], ['Pack the car early', '', soon, true, undefined], 'only the fields given; "" cleared the notes');
+    assert.equal(todoRemind().notify.title, 'Pack the car early', 'the reminder set again from the task as changed');
     assert.ok(schedules().some((x) => x.module === 'todo' && x.key === 'other-key'), 'a schedule about nothing it changed stays');
   });
 
-  await test('To-do: setTaskDue left out clears the due date and the reminder; linkTask and unlinkTask on the Calendar\'s event', async () => {
+  await test('To-do: setTaskDue left out clears the due date and the reminder; linkTask and unlinkTask on the Calendar\'s event, linked by the server', async () => {
     as = todoAgent;
     const due = await askIn('todo:setTaskDue', { task });
     ok(due, 'setTaskDue');
     assert.equal(due.json.ok, true);
     assert.equal(due.json.note, 'Its reminder is off, since it has no due date.');
     const v = (await todoData())[`task:${task.id}`].value;
-    assert.deepEqual([v.due, v.remind, v.remindPending], [null, false, true], 'the page takes off what is left of the reminder');
+    assert.deepEqual([v.due, v.remind, v.remindPending], [null, false, undefined]);
+    assert.ok(!todoRemind(), 'the reminder is off');
     const linked = await askIn('todo:linkTask', { task, target: event });
     ok(linked, 'linkTask');
     assert.equal(linked.json.ok, true, linked.text);
-    assert.equal(linked.json.note, 'What it links to shows the change when someone who can change tasks next opens the to-do list.');
+    assert.equal(linked.json.note, undefined);
     const w = (await todoData())[`task:${task.id}`].value;
-    assert.deepEqual([w.links, w.linksPending], [[event], true]);
+    assert.deepEqual([w.links, w.linksPending], [[event], undefined]);
+    const held = await linksOf(task);
+    assert.ok(JSON.stringify(held).includes(event.id), `the host holds the link at once: ${JSON.stringify(held)}`);
     const off = await askIn('todo:unlinkTask', { task, target: event });
     ok(off, 'unlinkTask');
     assert.deepEqual((await todoData())[`task:${task.id}`].value.links, []);
+    assert.ok(!JSON.stringify(await linksOf(task)).includes(event.id), 'and lets it go at once');
     const again = await askIn('todo:unlinkTask', { task, target: event });
     ok(again, 'unlinkTask again', 422);
     assert.equal(again.json.error, 'That task is not linked to that.');

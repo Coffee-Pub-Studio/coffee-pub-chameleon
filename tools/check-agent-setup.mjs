@@ -599,9 +599,9 @@ try {
     const text = fs.readFileSync(path.join(single, 'agent-log', A.user.key, `${dayToday()}.jsonl`), 'utf8');
     for (const words of [mia.key, 'Mia', 'Porto']) assert.ok(!text.includes(words), `"${words}" is not in the log`);
     assert.equal((await call(server, 'GET', '/api/agent/me', A.T)).json.limits.changes.usedToday, 0, 'asks are not changes');
-    const stored = fs.readFileSync(path.join(single, 'agent-setup.json'), 'utf8');
+    const stored = fs.readFileSync(path.join(single, 'agent-records.json'), 'utf8');
     assert.ok(!stored.includes('Mia'), 'the asks file keeps keys, never a person\'s name');
-    assert.equal(fs.statSync(path.join(single, 'agent-setup.json')).mode & 0o777, 0o600, 'private to the server');
+    assert.equal(fs.statSync(path.join(single, 'agent-records.json')).mode & 0o777, 0o600, 'private to the server');
   });
 
   await test('Set-up agents off: the set-up agent\'s token is 401 and none can be made, its asks end; an ordinary agent is unchanged', async () => {
@@ -652,7 +652,7 @@ try {
     const pond = await madeBy(W, 'Pond');
     ok(await ask(W, pond.id, { ask: 'add', person: mia.key }), 'asked', 202);
     await server.stop();
-    const file = path.join(single, 'agent-setup.json');
+    const file = path.join(single, 'agent-records.json');
     const stored = JSON.parse(fs.readFileSync(file, 'utf8'));
     const old = Date.now() - 8 * 86400000;
     const waiting = stored.asks.find((a) => a.agent === W.user.key && a.state === 'waiting');

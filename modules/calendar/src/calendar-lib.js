@@ -305,6 +305,52 @@
     const midnight = instantFrom(start, '00:00', tz);
     return new Date(midnight.getTime() + REMIND_ALLDAY_FROM);
   }
+  // An event's reminder as the host schedules it, one rule for the page's form (calendar.js applyReminder) and the actions on
+  // either carrier (calendar-lib-actions.js calSchedules): { at, every, until, body } for the first reminder not already more
+  // than 4 minutes past (`every` and `until` for a repeat: the host schedules each next one itself; `until` the end of the
+  // repeat's last day, null for none), or null when none comes (no reminder, every one passed, or the first more than a year
+  // off: the host takes a schedule at most 366 days ahead, server/module-hooks.js). Read in `tz` (the zone of whoever carries it out; else this process's): an all-day event's day, the repeat's Until,
+  // and the steps of a timed repeat on its own clock (a copy's `tz`, else `tz`), so a server in another zone sets the very
+  // moment the person's page would. `now` in milliseconds.
+  function reminderOf(ev, tz, now) {
+    if (!ev || ev.remind === null || ev.remind === undefined) return null;
+    const zone = zoneOk(tz) ? tz : undefined;
+    const own = !ev.allDay && zoneOk(ev.tz) ? ev.tz : zone;
+    const lead = ev.remind * 60 * 1000;
+    const from = now - 4 * 60 * 1000;
+    const horizon = now + 365 * DAY;
+    const every = ev.repeat && EVENT_REPEATS.includes(ev.repeat.every) ? ev.repeat.every : null;
+    const untilAt = every && isObjectDay(ev.repeat.until) ? instantFrom(ymdOf(addDays(parseYmd(ev.repeat.until), 1)), '00:00', zone).getTime() - 1 : null;
+    const skips = every && Array.isArray(ev.skips) ? ev.skips : null;
+    // One occurrence's start on the event's own clock (a wall Date), and back to the real moment it counts from: midnight
+    // plus nine hours for an all-day one (remindAnchor), the start for a timed one.
+    const wall = (d) => (own ? wallIn(d, own) : d);
+    const first = ev.allDay ? parseYmd(ev.start) : wall(new Date(ev.start));
+    if (!first || Number.isNaN(first.getTime())) return null;
+    const dayOf = (w) => instantFrom(ymdOf(w), '00:00', zone).getTime();
+    const anchorOf = (w, i) => (ev.allDay ? dayOf(w) + REMIND_ALLDAY_FROM
+      : i === 0 ? new Date(ev.start).getTime() : instantFrom(ymdOf(w), `${pad(w.getHours())}:${pad(w.getMinutes())}`, own).getTime());
+    let i = 0;
+    if (every) {
+      // Skip ahead rather than walk every step since the first one (as occurrences does).
+      const days = (from + lead - anchorOf(first, 0)) / DAY;
+      const per = every === 'day' ? 1 : every === 'week' ? 7 : every === '2weeks' ? 14 : every === 'month' ? 31 : 366;
+      i = Math.max(0, Math.floor(days / per) - 1);
+    }
+    for (let n = 0; n < 1500; n += 1, i += 1) {
+      const w = every ? occurrenceAt(first, every, i) : first;
+      const anchor = anchorOf(w, i);
+      const base = ev.allDay ? anchor - REMIND_ALLDAY_FROM : anchor;
+      const at = anchor - lead;
+      if (at >= horizon || (untilAt !== null && base > untilAt)) return null;
+      if (at >= from && !(skips && skips.includes(ymdOf(w)))) {
+        if (untilAt !== null && at > untilAt) return null;
+        return { at, every, until: untilAt, body: remindWords(ev.remind) };
+      }
+      if (!every) return null;
+    }
+    return null;
+  }
   // A lead time in the form's terms: a preset's value, or Other with a number and its unit (days, hours or minutes, the largest
   // that divides it). And back: the minutes for Other's number and unit, or { error }.
   function remindForm(minutes) {

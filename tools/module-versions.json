@@ -8,8 +8,8 @@
     "hash": "649b0046a68c4af7"
   },
   "calendar": {
-    "version": "1.24.51",
-    "hash": "4da525bf106aecbf"
+    "version": "1.24.52",
+    "hash": "4536dd807ce9a794"
   },
   "documents": {
     "version": "0.11.37",
@@ -24,8 +24,8 @@
     "hash": "c7ef1de56c3d0420"
   },
   "polls": {
-    "version": "1.15.33",
-    "hash": "a8d573313059fbac"
+    "version": "1.15.34",
+    "hash": "1ea934f0b82d8f7b"
   },
   "research": {
     "version": "0.4.40",
@@ -40,12 +40,12 @@
     "hash": "0f03de5a254fe51d"
   },
   "todo": {
-    "version": "1.15.37",
-    "hash": "05b12ab39c0dcf0d"
+    "version": "1.15.38",
+    "hash": "bb2f055ab80d2f8a"
   },
   "travel": {
-    "version": "0.16.20",
-    "hash": "fadc1d1c79267252"
+    "version": "0.16.21",
+    "hash": "ef8c87a09716a971"
   },
   "vault": {
     "version": "0.4.9",
