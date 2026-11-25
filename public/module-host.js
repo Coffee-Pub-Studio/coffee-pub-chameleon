@@ -2252,6 +2252,11 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
     async 'geocode.used'({ key }) {
       return api('POST', url('/geocode/use', scopeOf()), { key: String(key ?? '') });
     },
+    // The weather on this space's days (a module that declares `weather`): GET /api/modules/:id/weather for the days asked.
+    async 'weather.days'({ from, to }) {
+      const day = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined);
+      return api('GET', url('/weather', scopeOf('space'), { from: day(from), to: day(to) }));
+    },
     // Lookups answered by the server (a module that declares `"lookups": ["flight"]`): a flight from the schedule this server
     // learned from saved flights, an airport by its code, and teaching it a saved flight. Only `flight` exists today.
     async 'lookup.flight'({ number, date }) {

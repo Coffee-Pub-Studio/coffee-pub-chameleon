@@ -1661,6 +1661,7 @@
       markCurrent(today ? today.dataset.day : null);
     }
     topNext = false;
+    if (state.view === 'days') wantWeather();
     loadLinks().catch(() => {});
     refocusNewRow();
   }
@@ -1682,6 +1683,29 @@
   const objectControl = (id) => root.querySelector(`.row[data-id="${CSS.escape(id)}"] [data-action="move-menu"]`) || root.querySelector(`[data-action="edit-item"][data-id="${CSS.escape(id)}"]`);
   let queued = false;
   const redraw = () => { if (queued) return; queued = true; Promise.resolve().then(() => { queued = false; render(); reportFacts(); }); };
+
+  // The weather on each day's header (plan-itinerary-weather.md, step 4; travel-lib-weather.js keeps the answer and says when to
+  // ask). One ask per draw at most, for the plan's dated span; host.ui.dayWeather draws a day in its label row, and only a
+  // `forecast` or `past` day draws anything. A day that has nothing keeps its header as it was.
+  const weather = createWeather({ ask: (span) => host.weather.days(span), onAnswer: () => drawWeather() });
+  const weatherPieces = new WeakMap(); // a day's .sdk-day-labels -> its host.ui.dayWeather
+  function drawWeather() {
+    if (!host.ui || typeof host.ui.dayWeather !== 'function') return;
+    for (const dayEl of root.querySelectorAll('.sdk-day[data-day]')) {
+      const box = dayEl.querySelector('.sdk-day-labels');
+      if (!box || !dayEl.dataset.day) continue;
+      const o = weatherFor(weather.answer, dayEl.dataset.day);
+      const piece = weatherPieces.get(box);
+      if (piece) piece.set(o);
+      else if (o.day) weatherPieces.set(box, host.ui.dayWeather(box, o));
+      hide(box, !box.children.length);
+    }
+  }
+  function wantWeather() {
+    if (!host.weather || typeof host.weather.days !== 'function' || state.view !== 'days') return;
+    drawWeather();
+    weather.want(weatherSpan(plan.days(), ymd(new Date())), weatherPlaces(plan.list(), plan.trip));
+  }
 
   // What the space's status strip shows from the Planner (host.facts; #216): the money spent, against the space's budget
   // target when an owner set one in Set up (host.space().budget), and the next journey or stay with its day as `when`,
@@ -3443,7 +3467,7 @@
     state.people = await host.people().catch(() => []);
     await lookBudget();
     try { useMarkerTypes(await host.settings.get()); } catch (err) { useMarkerTypes(null); }
-    host.settings.onChange((v) => { useMarkerTypes(v); if (kindField) kindField.setGroups(kindGroups()); if (state.loaded) redraw(); checkFlightLookup(); });
+    host.settings.onChange((v) => { weather.reset(); useMarkerTypes(v); if (kindField) kindField.setGroups(kindGroups()); if (state.loaded) redraw(); checkFlightLookup(); });
     checkFlightLookup();
     state.loaded = true;
     // Warm the icons the page draws, so the first draw is not empty.

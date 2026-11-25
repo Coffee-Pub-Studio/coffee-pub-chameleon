@@ -4662,6 +4662,14 @@
       used: (key) => call('geocode.used', { key }),
     },
 
+    // The weather on a space's days, asked of the server (for a module whose manifest declares `weather`; the Itinerary).
+    // days({ from?, to? }) -> { configured, credit, units, days: { 'YYYY-MM-DD': { state, code, words, high, low, rain } } }, or
+    // { configured: false } when no service is chosen. Left out, `from` and `to` are the trip's own days. Throws with the server's
+    // status (502 when the service failed, 429 over the limit). Draw a day with host.ui.dayWeather.
+    weather: {
+      days: (o) => call('weather.days', { from: o && o.from, to: o && o.to }),
+    },
+
     // Lookups asked of the server (for a module whose manifest declares `"lookups": ["flight"]`):
     //   flight(number, date)        -> { flights: [{ object, line, sameWeekday, lastSeen }] }, empty when nothing is known;
     //                                  throws with the server's error ("bad number", "bad date", or the limit's sentence)
