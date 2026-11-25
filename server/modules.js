@@ -507,6 +507,7 @@ function cleanTakes(raw, action, permissionKeys) {
 // pointer can be cleared (plan-agent-server-actions.md, section 6: Goals moving a note back to the top level).
 const CLEARABLE_TYPES = ['string', 'text', 'number', 'date', 'ref'];
 const ACTION_LOOKUPS_MAX = 2; // inputs one action may have the server look up before its handler runs
+const ACTION_LOOKUPS_SKIP_MAX = 4; // inputs an action's skipLookupWhen may name
 const PAGE_ONLY_MAX = 12; // library files a module may keep out of what the server's runner loads (actions.pageOnly)
 const clearableType = (base) => CLEARABLE_TYPES.includes(base) || base.startsWith('ref:');
 
@@ -631,11 +632,23 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = [], kinds = []) {
       if (count > ACTION_LOOKUPS_MAX) throw new ModuleError(`module.json: action "${name}" looks up more than ${ACTION_LOOKUPS_MAX} inputs`);
       if (count && (p.local === true || told.effect === 'delete')) throw new ModuleError(`module.json: action "${name}" is ${p.local === true ? 'local' : 'a delete'}, so it has no lookups`);
     }
+    // `skipLookupWhen` (GitHub #1117): a list of the action's own inputs; when every one is given (not left out, null or ""),
+    // the server makes none of the action's lookups (each would cost the agent a read it does not need: Maps' addPlace with
+    // lat and lng). Only beside `lookups`, at most ACTION_LOOKUPS_SKIP_MAX names.
+    let skipLookupWhen = null;
+    if (p.skipLookupWhen !== undefined) {
+      if (!Object.keys(lookups).length) throw new ModuleError(`module.json: action "${name}" has no lookups, so it has no skipLookupWhen`);
+      if (!Array.isArray(p.skipLookupWhen) || !p.skipLookupWhen.length || p.skipLookupWhen.length > ACTION_LOOKUPS_SKIP_MAX) throw new ModuleError(`module.json: action "${name}" skipLookupWhen must be a list of 1 to ${ACTION_LOOKUPS_SKIP_MAX} of its inputs`);
+      for (const f of p.skipLookupWhen) {
+        if (typeof f !== 'string' || !Object.prototype.hasOwnProperty.call(input, f)) throw new ModuleError(`module.json: action "${name}" skipLookupWhen names "${String(f).slice(0, 40)}", which is not one of its inputs`);
+      }
+      skipLookupWhen = [...new Set(p.skipLookupWhen)];
+    }
     // `phaseEnd` (plan-agent-server-actions.md, section 2): the action's handler may answer `phaseEnd: { date }`, which moves the
     // space's main phase's end later to cover that day (server/action-effects.js). Only a `write` that is not local says so.
     if (p.phaseEnd !== undefined && typeof p.phaseEnd !== 'boolean') throw new ModuleError(`module.json: action "${name}" phaseEnd must be true or false`);
     if (p.phaseEnd === true && (told.effect !== 'write' || p.local === true)) throw new ModuleError(`module.json: action "${name}" may move the main phase's end only as a write that is not local`);
-    actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...(clears.length ? { clears } : {}), ...(p.patch === true ? { patch: true } : {}), ...(Object.keys(lookups).length ? { lookups } : {}), ...(p.phaseEnd === true ? { phaseEnd: true } : {}), ...told });
+    actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...(clears.length ? { clears } : {}), ...(p.patch === true ? { patch: true } : {}), ...(Object.keys(lookups).length ? { lookups } : {}), ...(skipLookupWhen ? { skipLookupWhen } : {}), ...(p.phaseEnd === true ? { phaseEnd: true } : {}), ...told });
   }
   // `server` (plan-agent-edit-delete.md, decision 4): the module's own library whose handlers the server runs for an agent's
   // requests (server/module-actions.js). Honoured for a bundled module only; install refuses an upload that declares it.

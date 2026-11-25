@@ -233,6 +233,8 @@ fs.cpSync(variant('shared', (m) => {
   m.geocoder = { provider: 'searchProvider', address: 'search', save: 'saveResults', custom: 'custom', providers: {} };
   m.actions.provides.push({ name: 'find', label: 'Find', description: 'Write down the place search the server did.', effect: 'write', input: { address: 'string?', title: 'string?', notes: 'text?' }, lookups: { address: 'geocode' } });
   m.actions.provides.push({ name: 'shared', label: 'Shared', description: 'Write down the environment objects the handler may read.', effect: 'write', input: { key: 'string?', address: 'string?' } });
+  // A pointer to its own objects (GitHub #1117): only one in this space or marked for it reaches the runner.
+  m.actions.provides.push({ name: 'pointAt', label: 'Point at', description: 'Take a pointer to one of its own objects.', effect: 'write', input: { note: 'ref:fixture-shared:note?', memo: 'ref:fixture-shared:memo?' } });
 }), path.join(app, 'modules', 'fixture-shared'), { recursive: true });
 
 const dir = path.join(base, 'data');
@@ -1595,6 +1597,27 @@ try {
     assert.equal(effectsOf({ notify: [{ title: 'x'.repeat(401) }] }, { own }).fault, 'result');
   });
 
+  // GitHub #1117, item 1: a pointer to another of the agent's spaces is refused at once for a module the server carries,
+  // and nothing is queued; an uploaded copy keeps the page path for the very same request.
+  const OUTSIDE = 'A change here can only point to this space or to things kept for everyone.';
+  let lodgeTask = null;
+  await test('To-do on the server: a pointer to a task in another of the agent\'s spaces is refused, nothing queued', async () => {
+    as = todoAgent;
+    const lodgeMembers = (await call('GET', `/api/spaces/${lodge}`, { cookie: admin })).json.space.members;
+    ok(await call('PATCH', `/api/spaces/${lodge}`, { cookie: admin, body: { members: [...lodgeMembers, todoAgent.key] } }), 'the To-do agent joins the Lodge');
+    const made = await call('POST', `/api/spaces/${lodge}/action`, { ...T(), body: { action: 'todo:createTask', input: { title: 'In the Lodge' } } });
+    ok(made, 'a task in the Lodge');
+    lodgeTask = made.json.ref;
+    assert.equal(lodgeTask.space, lodge);
+    const before = JSON.stringify(await todoData());
+    const ids = busIds();
+    const r = await askIn('todo:updateTask', { task: lodgeTask, title: 'Moved' });
+    ok(r, 'refused', 403);
+    assert.deepEqual(r.json, { error: OUTSIDE });
+    assert.deepEqual(busIds(), ids, 'nothing queued for a page');
+    assert.equal(JSON.stringify(await todoData()), before, 'nothing written');
+  });
+
   await test('the same request through an uploaded copy of To-do waits for a page and never reaches the runner', async () => {
     as = todoAgent;
     const up = path.join(base, 'variants', 'todo-upload');
@@ -1612,6 +1635,12 @@ try {
     const kept = busFile().actions.find((a) => a.id === r.json.id);
     assert.ok(kept && !kept.server && kept.status === 'pending', 'on the queue for a page, not the server\'s');
     assert.equal(JSON.stringify(await todoData()), before, 'nothing written');
+    // The pointer into the Lodge the server refused is the page's to judge here, as before.
+    const there = await askIn('todo:updateTask', { task: lodgeTask, title: 'Moved' });
+    ok(there, 'asked with a pointer into the Lodge');
+    assert.equal(there.json.status, 'pending');
+    const queued = busFile().actions.find((a) => a.id === there.json.id);
+    assert.ok(queued && !queued.server && queued.status === 'pending', 'on the queue for a page, unchanged');
   });
 
   await test('a request the server was carrying when it stopped reads as done and failed after a restart', async () => {
@@ -1685,7 +1714,7 @@ try {
   ok(await call('POST', '/api/modules/bundled/fixture-shared/install', { cookie: admin, body: {} }), 'fixture-shared installs', 201);
   ok(await call('PATCH', '/api/modules/fixture-shared', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'fixture-shared on');
   const shAgents = [];
-  for (let i = 0; i < 7; i += 1) {
+  for (let i = 0; i < 8; i += 1) {
     const a = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
     shAgents.push(a);
     await newToken(a);
@@ -1789,6 +1818,45 @@ try {
     // More than the count, across both places.
     const many = [...Array.from({ length: 6 }, (_, i) => envNote(`m${i}`, [camp])), ...Array.from({ length: 5 }, (_, i) => ({ key: `note:n${i}`, value: { title: 'n', byKey: as.key, by: 'Claude' } }))];
     await nothingChanged(await sx({ writes: many }), 500, `${SHN}it tried to change more than 10 things at once.`, before);
+  });
+
+  // GitHub #1117, item 1 (decision 8: nothing waits for a page): a pointer to the module's own objects that is not in this
+  // space nor an environment object marked for it is refused with one sentence, and no request is made for a page.
+  as = shAgents[7];
+  await test('hostile pointers to a server-carried module\'s own objects: another space, the environment unmarked, a person\'s, refused and nothing queued', async () => {
+    const OUTSIDE = 'A change here can only point to this space or to things kept for everyone.';
+    ok(await call('PUT', `/api/modules/${SH}/data/note:lodgeonly?scope=environment`, { cookie: admin, body: { value: { title: 'Lodge only', spaces: [lodge] } } }), 'an environment note for the Lodge only');
+    ok(await call('PUT', `/api/modules/${SH}/data/note:bare?scope=environment`, { cookie: admin, body: { value: { title: 'Marked for none' } } }), 'an environment note marked for no space');
+    ok(await call('PUT', `/api/modules/${SH}/data/memo:mm?scope=environment`, { cookie: admin, body: { value: { title: 'A memo' } } }), 'an environment memo (a kind with no marks)');
+    ok(await call('PUT', `/api/modules/${SH}/data/note:inlodge?scope=space&space=${lodge}`, { cookie: admin, body: { value: { title: 'In the Lodge' } } }), 'a note in the Lodge');
+    const pointAt = (input) => call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: `${SH}:pointAt`, input } });
+    const before = await shAll();
+    const cases = [
+      ['another of the agent\'s spaces', { note: { module: SH, kind: 'note', id: 'inlodge', scope: 'space', space: lodge } }],
+      ['a space the agent is not in', { note: { module: SH, kind: 'note', id: 'x1', scope: 'space', space: fort } }],
+      ['an environment note marked for another of its spaces only', { note: envRef('lodgeonly') }],
+      ['an environment note marked for a space it is not in', { note: envRef('fortonly') }],
+      ['an environment note marked for none', { note: envRef('bare') }],
+      ['an environment object of a kind with no marks', { memo: { module: SH, kind: 'memo', id: 'mm', scope: 'environment' } }],
+      ['a person\'s own', { note: { module: SH, kind: 'note', id: 'p1', scope: 'person' } }],
+      ['the host\'s', { note: { module: SH, kind: 'note', id: 'h1', scope: 'host' } }],
+      ['not a pointer', { note: 'note:e1' }],
+    ];
+    for (const [what, input] of cases) {
+      const ids = busIds();
+      const r = await pointAt(input);
+      ok(r, what, 403);
+      assert.deepEqual(r.json, { error: OUTSIDE }, what);
+      assert.deepEqual(busIds(), ids, `${what}: nothing queued for a page`);
+    }
+    assert.deepEqual(await shAll(), before, 'nothing was changed');
+    // The control: an environment note marked for this space is the server's to carry (the fixture has no handler for it).
+    const ids = busIds();
+    const here = await pointAt({ note: envRef('e1') });
+    assert.equal(here.json.status, 'done', here.text);
+    assert.notEqual(here.json.error, OUTSIDE);
+    const carried = busFile().actions.find((a) => a.id === here.json.id);
+    assert.ok(carried && carried.server && !ids.includes(carried.id), 'carried by the server, never a page\'s');
   });
 
   as = shAgents[2];
@@ -2033,6 +2101,16 @@ try {
       assert.deepEqual(stored.value.spaces, [camp], 'an environment place marks the request\'s space');
       assert.equal(stored.by, mapsAgent.key, 'written as the agent');
       assert.match(one.json.note, /^Placed at One Cafe/);
+      // A position given beside the address (GitHub #1117, item 4: skipLookupWhen): nothing is searched and no read spent.
+      const r0 = (await used()).reads.usedToday;
+      const reads = (await used()).reads.usedToday;
+      const asking = reads - r0; // what reading the count itself costs
+      const placed = await add({ title: 'Given', address: 'One Main Street 9', lat: 40.1, lng: -8.2 });
+      ok(placed, 'a position given');
+      assert.equal(placed.json.ok, true, placed.text);
+      assert.deepEqual(asked, ['One Main Street 1'], 'no search for it');
+      assert.deepEqual((await placeOf(placed.json.ref)).value.point, { lat: 40.1, lng: -8.2 });
+      assert.equal((await used()).reads.usedToday - reads, asking, 'no read spent on a search it would not use');
       // Several: no position, and the note lists them.
       const many = await add({ title: 'Lunch', address: 'Many Main Street 2', in: 'space' });
       ok(many, 'several matches');
