@@ -60,6 +60,10 @@ const SPACE = { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}$', description: '
 const MODULE = { type: 'string', pattern: '^[a-z0-9-]{1,40}$', description: 'The module id, like schedule or todo.' };
 const FROM = { type: 'string', pattern: '^[a-z0-9-]{1,40}$', description: 'The id of the module asking: you see what that module may link to.' };
 const REF = { type: 'object', description: 'An object pointer, as other answers give it: { module, kind, id, scope: "space", space }.' };
+// read_weather's module: the Itinerary, the one module that declares `weather` (plan-itinerary-weather.md, "Agents": the
+// module is fixed, so the agent names only the space and the days).
+const WEATHER_MODULE = 'travel';
+const WEATHER_DAY = { type: 'string', maxLength: 10, description: 'A day, YYYY-MM-DD.' };
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const WRITES = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
 const seg = (v) => encodeURIComponent(String(v));
@@ -102,6 +106,14 @@ const TOOLS = [
     plan: (a) => (a.key !== undefined
       ? { method: 'GET', path: `/api/modules/${seg(a.module)}/data/${seg(a.key)}${query({ scope: 'space', space: a.space })}` }
       : { method: 'GET', path: `/api/modules/${seg(a.module)}/data${query({ scope: 'space', space: a.space, prefix: a.prefix })}` }),
+  },
+  {
+    name: 'read_weather',
+    title: 'Read the weather',
+    description: 'The weather on a space\'s trip days, from its Itinerary: { configured, credit, units, days: { "YYYY-MM-DD": { state, code, words, high, low, rain } } }. from and to default to the trip\'s first and last day, at most 60 days. { configured: false } means weather is not configured here, so there is none to read. state is forecast, past, outOfRange, noPlace or unavailable; a day beyond the window (more than 13 days ahead or 30 back) or with no place carries only its state. Counts as one read.',
+    inputSchema: object({ space: SPACE, from: WEATHER_DAY, to: WEATHER_DAY }, ['space']),
+    annotations: READ_ONLY,
+    plan: (a) => ({ method: 'GET', path: `/api/modules/${WEATHER_MODULE}/weather${query({ scope: 'space', space: a.space, from: a.from, to: a.to })}` }),
   },
   {
     name: 'search_objects',

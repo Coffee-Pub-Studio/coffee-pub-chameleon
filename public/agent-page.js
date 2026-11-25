@@ -65,6 +65,7 @@ const READS = {
   '/api/modules/:id/context': (w) => `Read what ${w('module', { a: true })} is for`,
   '/api/modules/:id/data': (_w, name) => (name ? `Read ${name} data` : 'Read data'),
   '/api/modules/:id/data/:key': (_w, name) => (name ? `Read ${name} data` : 'Read data'),
+  '/api/modules/:id/weather': (_w, name) => (name ? `Read ${name} weather` : 'Read the weather'),
   '/api/objects/search': (w) => `Searched ${w('object', { many: true })}`,
   '/api/objects/links': (w) => `Read what ${w('object', { a: true })} links to`,
   '/api/objects/kinds': (w) => `Read the kinds of ${w('object')}`,

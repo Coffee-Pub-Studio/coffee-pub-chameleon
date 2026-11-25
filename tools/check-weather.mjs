@@ -16,8 +16,11 @@
  * place search: the manifest's declaration; nothing sent with no provider (and the stand-ins see nothing); a day's place (its
  * first stop at a saved place, else the trip's main place, else none); the exact requests the stand-ins received (a rounded
  * position and days; the main place's text to the place search and nothing else); the range; who may read (a member, a
- * guest by the module's view permission, nobody in a closed space, not an agent, not a person in another space); the key
- * never answered by any route nor written in the open; the limit; a failing service; a picture map is not checked here.
+ * guest by the module's view permission, nobody in a closed space, not a person in another space); the key never answered by
+ * any route nor written in the open; the limit; a failing service; a picture map is not checked here.
+ * And the agent read (step 5): an agent's token reads the route through the gate (the Agent column's view row, its own spaces,
+ * never a closed one), the MCP tool read_weather answers the same days, each call one read and one log line naming the route,
+ * and neither ever holds the key.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -566,15 +569,12 @@ await live('no place: a trip with no stop at a place and no main place that is f
   assert.equal(wxSeen.length, 0);
 });
 
-await live('who may read: the module\'s view permission, the space, never an agent', async () => {
+await live('who may read: the module\'s view permission, the space', async () => {
   wxSeen.length = 0; geoSeen.length = 0;
   assert.equal((await weatherOf(S.trip, {})).status, 401, 'nobody');
   const notIn = await weatherOf(S.trip, { token: S.otto });
   assert.ok(notIn.status === 403 || notIn.status === 404, `a person who is not in the space: ${notIn.status}`);
   assert.equal(notIn.json.days, undefined);
-  const agent = await weatherOf(S.trip, { token: S.agent });
-  assert.equal(agent.status, 403, 'an agent');
-  assert.equal(agent.json.days, undefined);
   assert.equal((await call('GET', `/api/modules/travel/weather?scope=environment`, { token: S.mia })).status, 400, 'not for the environment');
   assert.equal((await call('GET', `/api/modules/maps/weather?scope=space&space=${S.trip}`, { token: S.mia })).status, 404, 'a module with no weather');
   assert.match((await call('GET', `/api/modules/maps/weather?scope=space&space=${S.trip}`, { token: S.mia })).json.error, /has no weather/);
@@ -604,6 +604,81 @@ await live('who may read: the module\'s view permission, the space, never an age
   assert.equal((await weatherOf(S.trip, {}, `&from=${plus(4)}&to=${plus(6)}${guestQ}`)).json.days, undefined, 'nor a guest');
   assert.equal(wxSeen.length + geoSeen.length, 0, 'nothing is asked for a closed space');
   ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: false } }), 'the space is open again');
+});
+
+// The agent read (plan-itinerary-weather.md, step 5): GET /api/modules/:id/weather is on the gate's list (read, spaceScope,
+// module), and the MCP tool read_weather wraps it.
+const mcp = (name, args) => fetch(`${base}/mcp`, {
+  method: 'POST',
+  headers: { accept: 'application/json, text/event-stream', 'content-type': 'application/json', authorization: `Bearer ${S.agent}` },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
+}).then(async (r) => { const text = await r.text(); const j = JSON.parse(text); const c = j.result.content[0].text; let json = null; try { json = JSON.parse(c); } catch { /* a sentence */ } return { status: r.status, raw: text, isError: j.result.isError === true, text: c, json }; });
+const readsToday = async () => ok(await call('GET', '/api/agent/me', { token: S.agent }), 'the agent\'s own limits').json.limits.reads.usedToday;
+const agentLines = () => {
+  const d = path.join(dataDir, 'agent-log');
+  if (!fs.existsSync(d)) return [];
+  return fs.readdirSync(d).flatMap((k) => { const f = path.join(d, k, `${today}.jsonl`); return fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []; });
+};
+
+await live('an agent reads the weather through the gate, and through read_weather', async () => {
+  wxSeen.length = 0; geoSeen.length = 0;
+  const person = ok(await weatherOf(S.trip, { token: S.mia }), 'a member\'s answer').json;
+  const before = await readsToday();
+  const linesBefore = agentLines().length;
+  const direct = ok(await weatherOf(S.trip, { token: S.agent }), 'the agent reads the route').json;
+  assert.deepEqual(direct, person, 'the agent gets what a member gets');
+  assert.equal(await readsToday(), before + 2, 'the read (and the me that read it) each count once');
+  const line = agentLines().slice(linesBefore).find((l) => l.route === '/api/modules/:id/weather');
+  assert.ok(line, 'the read is in the owner\'s log as the route');
+  assert.deepEqual([line.method, line.module, line.space, line.kind, line.status], ['GET', 'travel', S.trip, 'read', 200]);
+  assert.ok(!JSON.stringify(line).includes('Light rain') && !JSON.stringify(line).includes('"high"'), 'the log holds no weather');
+  // read_weather: the same days, one read (the tool call is counted as the route it wraps, never twice).
+  const b2 = await readsToday();
+  const t = await mcp('read_weather', { space: S.trip });
+  assert.equal(t.status, 200);
+  assert.equal(t.isError, false, t.text);
+  assert.deepEqual(t.json, person, 'read_weather answers what the route does');
+  assert.equal(await readsToday(), b2 + 2, 'read_weather is one read (and the me one more)');
+  const ranged = await mcp('read_weather', { space: S.trip, from: plus(1), to: plus(2) });
+  assert.deepEqual(Object.keys(ranged.json.days), [plus(1), plus(2)], 'from and to');
+  const far = await mcp('read_weather', { space: S.trip, from: plus(40), to: plus(41) });
+  assert.deepEqual(far.json.days, { [plus(40)]: { state: 'outOfRange' }, [plus(41)]: { state: 'outOfRange' } }, 'a day beyond the window carries only its state');
+  assert.equal(wxSeen.length + geoSeen.length, 0, 'what is kept is answered, nothing is asked');
+  const bad = await mcp('read_weather', { space: S.trip, from: 'tomorrow' });
+  assert.equal(bad.isError, true);
+  assert.match(bad.text, /YYYY-MM-DD/, 'the route\'s own sentence');
+  assert.equal((await mcp('read_weather', { space: S.trip, module: 'maps' })).isError, true, 'the module is fixed');
+  // A space it is not in: the gate's 404 "no such space", as for every agent read (it never learns the space exists).
+  const notIn = await weatherOf(S.other, { token: S.agent });
+  assert.equal(notIn.status, 404, 'a space the agent is not in');
+  assert.deepEqual(notIn.json, { error: 'no such space' });
+  const tNotIn = await mcp('read_weather', { space: S.other });
+  assert.equal(tNotIn.isError, true, 'read_weather in a space it is not in');
+  assert.equal(tNotIn.text, 'no such space', 'the route\'s sentence');
+  // An unticked view row in the Agent column: 403.
+  ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { 'module.travel.view': false } }), 'the agent may no longer see the trip');
+  const unticked = await weatherOf(S.trip, { token: S.agent });
+  assert.equal(unticked.status, 403, 'an agent without the view row');
+  assert.equal(unticked.json.days, undefined);
+  assert.equal((await mcp('read_weather', { space: S.trip })).isError, true, 'nor through read_weather');
+  ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { 'module.travel.view': true } }), 'the agent may again');
+  // A closed space: refused, and nothing is asked.
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: true } }), 'the space is closed');
+  wxSeen.length = 0; geoSeen.length = 0;
+  const shut = await weatherOf(S.trip, { token: S.agent }, `&from=${plus(4)}&to=${plus(6)}`);
+  assert.equal(shut.status, 404, 'an agent in a closed space: as a space it is not in');
+  assert.deepEqual(shut.json, { error: 'no such space' });
+  const tShut = await mcp('read_weather', { space: S.trip, from: plus(4), to: plus(6) });
+  assert.equal(tShut.isError, true, 'read_weather in a closed space');
+  assert.equal(wxSeen.length + geoSeen.length, 0, 'nothing is asked for a closed space');
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: false } }), 'the space is open again');
+  // Not configured: { configured: false }, said as the route says it.
+  ok(await setTravel({ weatherProvider: 'none' }), 'no provider');
+  assert.deepEqual((await mcp('read_weather', { space: S.trip })).json, { configured: false });
+  ok(await setTravel({ weatherProvider: 'custom' }), 'the custom service again');
+  // The key: never in the answer of either.
+  assert.ok(!(await weatherOf(S.trip, { token: S.agent })).text.includes(SECRET), 'the route answers the agent the key');
+  assert.ok(!(await mcp('read_weather', { space: S.trip })).raw.includes(SECRET), 'read_weather answers the key');
 });
 
 await live('the key is never answered, and never written in the open', async () => {

@@ -45,7 +45,7 @@ const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
 const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const ONLY_AGENTS = "This is for an agent's token only.";
-const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'object_format', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'wait_for_result', 'read_chat', 'post_chat'];
+const TOOL_NAMES = ['me', 'read_context', 'read_data', 'read_weather', 'search_objects', 'object_links', 'object_kinds', 'object_format', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'wait_for_result', 'read_chat', 'post_chat'];
 const SETUP_TOOL_NAMES = ['me', 'list_templates', 'list_icons', 'list_people', 'make_space', 'change_space', 'ask_owner', 'ask_status'];
 const CANT = "An agent can't do that.";
 // The 401 on /mcp names the sign-in server's metadata (server/oauth.js, plan-mcp-oauth.md); a REST route's 401 does not.
@@ -228,6 +228,12 @@ try {
     assert.match(tools.find((t) => t.name === 'request_status').description, /waiting/, 'request_status says what it waits for');
     assert.match(tools.find((t) => t.name === 'post_chat').description, /permissions in me includes chat/, 'post_chat says it needs chat in me\'s permissions');
     assert.match(tools.find((t) => t.name === 'me').description, /permissions/, 'me says it carries permissions');
+    // plan-itinerary-weather.md, step 5: read_weather names the space and the days only, and says what an empty answer means.
+    const weather = tools.find((t) => t.name === 'read_weather');
+    assert.deepEqual([Object.keys(weather.inputSchema.properties), weather.inputSchema.required, weather.annotations.readOnlyHint], [['space', 'from', 'to'], ['space'], true]);
+    assert.match(weather.description, /configured: false \} means weather is not configured/, 'read_weather says what configured: false means');
+    assert.match(weather.description, /beyond the window .* or with no place carries only its state/, 'read_weather says what a day with only a state is');
+    assert.match(weather.description, /one read/, 'read_weather says it is one read');
   });
 
   await test('tools/call me answers what GET /api/agent/me does', async () => {

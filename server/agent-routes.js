@@ -28,6 +28,8 @@ const AGENT_ROUTES = Object.freeze([
   { kind: 'agent', method: 'get', path: '/api/modules/:id/context', counts: 'read', place: 'spaceScope', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/modules/:id/data', counts: 'read', place: 'spaceScope', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/modules/:id/data/:key', counts: 'read', place: 'spaceScope', needs: 'module' },
+  // A day's weather, from a module that declares `weather` (plan-itinerary-weather.md, step 5; MCP read_weather).
+  { kind: 'agent', method: 'get', path: '/api/modules/:id/weather', counts: 'read', place: 'spaceScope', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/objects/search', counts: 'read', place: 'spaceScope', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/objects/links', counts: 'read', place: 'linkRef', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/objects/kinds', counts: 'read', place: 'none', needs: 'always' },
