@@ -10414,6 +10414,20 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
 .agent-ask-when, .agent-change-when { color: var(--text-dim); font-size: var(--text-12); }
 .agent-ask-buttons, .agent-change-buttons { display: flex; flex: none; gap: 8px; }
 .agent-change.is-undone .agent-change-what > :first-child { color: var(--text-muted); }
+/* The shared review piece (agent-review.js): the agent's own words under an ask, a reason greyed in a button's place, the ask a
+   bell line opened, the space's Agents view (the object picker's shell) and the approval dialog's quote. */
+.agent-ask-said { color: var(--text-muted); font-size: var(--text-13); }
+.agent-review-why { align-self: center; max-width: 18em; color: var(--text-muted); font-size: var(--text-13); }
+.agent-ask.is-asked { background: var(--fill-selected); border-radius: var(--radius-small); padding-left: var(--space-2); padding-right: var(--space-2); }
+dialog.sdk-dialog-pick.agent-review-sheet { height: fit-content; }
+.agent-review-body { overflow-y: auto; overscroll-behavior: contain; gap: var(--space-4); }
+.agent-review-part { display: flex; flex-direction: column; gap: var(--space-1); }
+.agent-review-part > .hint, .agent-review-part > .status { margin: 0; }
+.agent-review-part > .status:empty { display: none; }
+.agent-review-heading { margin: 0; font-size: var(--text-14); font-weight: var(--weight-strong); }
+.agent-approve-said { margin: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.agent-approve-said > figcaption { color: var(--text-muted); font-size: var(--text-13); }
+.agent-approve-said > blockquote { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-small); background: var(--surface-field); color: var(--text-primary); overflow-wrap: anywhere; }
 /* The mark on a space a set-up agent made, with its Keep button (made-mark.js): on Manage's list and on Home. */
 .made-mark-box { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 .made-mark-box[hidden] { display: none; }
@@ -10424,6 +10438,8 @@ a.guest-space:focus-visible { outline: 2px solid var(--focus-ring, var(--accent)
   .agent-ask, .agent-change { flex-direction: column; align-items: stretch; }
   .agent-ask-buttons .btn, .agent-change-buttons .btn, .made-mark-box .btn { --btn-h: 44px; }
   .agent-ask-buttons .btn { flex: 1 1 0; }
+  .agent-review-why { max-width: none; align-self: flex-start; }
+  dialog.sdk-dialog-pick.agent-review-sheet { height: 100dvh; }
 }
 
 /* The approval page for an app asking to connect (connect-app.html, connect-app.js). One panel; the form is the page's fields. */

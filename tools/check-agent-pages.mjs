@@ -37,6 +37,10 @@ import path from 'node:path';
 import { stopBrowser } from './browser-launch.mjs';
 import { findBrowser, launch, freePort, startServer, stopServer, Tab, sleep } from './shots.mjs';
 import { PASSWORD, TODAY } from './shots-seed.mjs';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { buildModule } = require('../server/module-build.js');
 
 const say = (...a) => console.log('check-agent-pages:', ...a);
 const failures = [];
@@ -102,7 +106,7 @@ async function main() {
   if (SHOTS) fs.mkdirSync(SHOTS, { recursive: true });
   const dirs = [];
   const tmp = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-pages-')); dirs.push(d); return d; };
-  let server = null; let plain = null; let browser = null; let exp = null; let setup = null;
+  let server = null; let plain = null; let browser = null; let exp = null; let setup = null; let rev = null;
   try {
     plain = await startServer(tmp(), await freePort(), 'first', { AGENT_TOKENS: '' });
     const dataDir = tmp();
@@ -394,7 +398,7 @@ async function main() {
       const roles = (await call('admin', 'GET', '/api/roles')).json;
       expect(roles.columns.join() === 'owner,moderator,member,guest,agent', `the server's columns are ${roles.columns}`);
       const neverAgent = new Set(roles.never.agent);
-      const SENTENCE = "An agent never deletes or erases anything, changes roles, makes tokens or other agents, changes this environment's settings or billing, uses the host console, works outside its own spaces, or becomes a moderator, owner or admin.";
+      const SENTENCE = "An agent never deletes or erases anything itself. With Ask to delete ticked it may ask, and nothing goes until an owner, the admin or that space's moderator approves each one. It never changes roles, makes tokens or other agents, changes this environment's settings or billing, uses the host console, works outside its own spaces, or becomes a moderator, owner or admin.";
       for (const [width, mode] of [[1280, 'dark'], [390, 'dark']]) {
         const t = await open(width, mode, 'admin');
         await go(t, '/admin#roles');
@@ -780,7 +784,7 @@ async function main() {
         const panel = (title) => [...document.querySelectorAll('#agent-page .panel')].find((p) => (p.querySelector('h2') || {}).textContent === title);
         const shown = (title) => { const p = panel(title); return !!p && !p.hidden && p.getClientRects().length > 0; };
         return {
-          waiting: shown('Waiting for you'), undo: shown('Changes you can undo'), can: shown('What it can do'), chat: shown('Chat'),
+          waiting: shown('Waiting for you'), undo: shown('What it changed'), can: shown('What it can do'), chat: shown('Chat'),
           asks: [...document.querySelectorAll('[data-agent-ask]')].map((li) => ({ text: li.querySelector('.agent-ask-what > span').textContent, buttons: [...li.querySelectorAll('button')].map((b) => b.textContent) })),
           changes: [...document.querySelectorAll('[data-agent-change]')].map((li) => ({ text: li.querySelector('.agent-change-text').textContent, undo: !!li.querySelector('[data-agent-undo]') && !li.querySelector('[data-agent-undo]').disabled })),
           limits: [...document.querySelectorAll('[data-agent-limits] li')].map((l) => l.textContent),
@@ -815,7 +819,8 @@ async function main() {
       // An ordinary agent's page has none of this.
       const ord = (await adm('POST', '/api/users', { agent: true, displayName: 'Reader' })).json.user;
       await go(t, `/admin#agent/${ord.key}`);
-      expect(await waitText(t, '[data-agent-title]', 'Reader (agent)') && await hiddenOf(t, '[data-agent-asks]') && await hiddenOf(t, '[data-agent-changes]') && !(await hiddenOf(t, '[data-agent-connect]')), 'the ordinary agent\'s page shows the set-up agent\'s lists');
+      // An ordinary agent's page has both lists too (plan-agent-edit-delete.md, step 7), empty, and none of the set-up limits.
+      expect(await waitText(t, '[data-agent-title]', 'Reader (agent)') && !(await hiddenOf(t, '[data-agent-asks-empty]')) && !(await hiddenOf(t, '[data-agent-changes-empty]')) && await hiddenOf(t, '[data-agent-limits]') && !(await hiddenOf(t, '[data-agent-connect]')), 'the ordinary agent\'s page does not show its two lists, or shows the set-up limits');
       expect(/Add this agent to a space/.test(await t.eval(`document.querySelector('[data-agent-connect] [data-agent-route-view="code"]').textContent`)), 'the ordinary agent\'s guide lost its first step');
       // The set-up agent's guide has the environment-variable choice too: the placeholder on the page, the real token only in the window.
       await go(t, `/admin#agent/${other.key}`);
@@ -894,8 +899,8 @@ async function main() {
       // After Keep, Undo of that made space is off, with the server's reason.
       await go(t, page);
       await t.waitFor('[data-agent-change]');
-      const kept = await t.eval(`(() => { const li = [...document.querySelectorAll('[data-agent-change]')].find((x) => x.querySelector('.agent-change-text').textContent.startsWith('Made the space Porto')); const b = li && li.querySelector('[data-agent-undo]'); return li ? { disabled: !!b && b.disabled, why: (li.querySelector('[data-agent-why]') || {}).textContent || '' } : null; })()`);
-      expect(kept && kept.disabled && kept.why === 'An owner chose Keep for this space, so it stays.', `a kept space's Undo reads ${JSON.stringify(kept)}`);
+      const kept = await t.eval(`(() => { const li = [...document.querySelectorAll('[data-agent-change]')].find((x) => x.querySelector('.agent-change-text').textContent.startsWith('Made the space Porto')); const b = li && li.querySelector('[data-agent-undo]'); return li ? { button: !!b, why: (li.querySelector('[data-agent-why]') || {}).textContent || '' } : null; })()`);
+      expect(kept && !kept.button && kept.why === 'An owner chose Keep for this space, so it stays.', `a kept space's Undo reads ${JSON.stringify(kept)}`);
       // The mark on Home: owners see it and Keep; a member does not. Keep there does not enter the space.
       const mHome = await open(1280, 'dark', 'mia', setup);
       await go(mHome, '/');
@@ -934,6 +939,194 @@ async function main() {
       await ph.close();
       expect(t.problems.length === 0, `set-up agent's page: ${t.problems.join('; ')}`);
     }
+    // The review of what an ordinary agent asks and changed (plan-agent-edit-delete.md, step 7; public/agent-review.js): the space's
+    // Agents entry with its count and its view (Waiting for you, What it changed), opened by the bell line's address at the ask; the
+    // approval dialog (what goes with it, who made it, the agent's words; Delete and Decline); Approve deletes exactly that object,
+    // Undo puts it back, Decline ends the ask; a moderator the module's guards refuse sees why in Approve's place, and a change that
+    // can't be undone shows why in Undo's place; the bell and Manage count the asks; the agent's page has both lists and What it did
+    // reads the ask with how it went. 1280 and 390, dark and light. Run on its own throwaway server.
+    {
+      const dir = tmp();
+      rev = await startServer(dir, await freePort(), 'first', { AGENT_TOKENS: 'true' });
+      await signIn('admin', rev);
+      const adm = (method, url, body) => call('admin', method, url, body, rev);
+      expect((await adm('PATCH', '/api/settings', { agents: true })).status === 200, 'review: could not turn Agents on');
+      for (const [login, displayName] of [['mia', 'Mia'], ['max', 'Max']]) expect((await adm('POST', '/api/users', { login, displayName, role: 'member', password: PASSWORD })).status === 201, `review: could not make ${login}`);
+      const users = (await adm('GET', '/api/users')).json.users;
+      const mia = users.find((u) => u.login === 'mia');
+      const max = users.find((u) => u.login === 'max');
+      const agent = (await adm('POST', '/api/users', { agent: true, displayName: 'Claude' })).json.user;
+      const camp = (await adm('POST', '/api/spaces', { name: 'Camp', members: [agent.key, mia.key, max.key] })).json.space.id;
+      expect((await adm('PATCH', `/api/users/${max.key}/spaces/${camp}`, { permissions: { moderator: true } })).status === 200, 'review: Max is not a moderator');
+      for (const id of ['polls', 'todo']) {
+        expect((await adm('POST', `/api/modules/bundled/${id}/install`, {})).status === 201, `review: ${id} did not install`);
+        expect((await adm('PATCH', `/api/modules/${id}`, { enabled: true, allSpaces: true })).status === 200, `review: ${id} is not on`);
+      }
+      // Polls with a delete action, as an upload of the next version (step 8 declares the bundled modules' own).
+      const src = path.join(dir, 'upload-polls');
+      fs.cpSync(path.join(process.cwd(), 'modules', 'polls'), src, { recursive: true });
+      const manifest = JSON.parse(fs.readFileSync(path.join(src, 'module.json'), 'utf8'));
+      manifest.actions.provides.push({ name: 'deletePoll', label: 'Delete a poll', description: 'Deletes a poll and its votes.', effect: 'delete', input: { poll: 'ref:polls:poll' } });
+      manifest.version = '99.0.0';
+      delete manifest.actions.server;
+      fs.writeFileSync(path.join(src, 'module.json'), JSON.stringify(manifest));
+      const up = await fetch(`${rev.base}/api/modules`, { method: 'POST', headers: { 'content-type': 'application/zip', origin: rev.base, cookie: jars[`${rev.base}|admin`].map((c) => `${c.name}=${c.value}`).join('; ') }, body: buildModule(src).zip });
+      expect(up.status === 201, `review: the polls upload was ${up.status}`);
+      expect((await adm('PATCH', '/api/roles/agent', { agentDelete: true })).status === 200, 'review: could not tick Ask to delete');
+      await signIn('mia', rev); await signIn('max', rev);
+      const put = (as, key, value) => call(as, 'PUT', `/api/modules/polls/data/${encodeURIComponent(key)}?scope=space&space=${camp}`, { value }, rev);
+      const poll = (id, question) => ({ id, question, options: [{ id: 'a', label: 'Yes' }, { id: 'b', label: 'No' }], byKey: mia.key, by: 'Mia', multi: false, addable: false, closed: false, closesAt: null });
+      expect((await put('mia', 'poll:p1', poll('p1', 'Lunch by the sea'))).status === 200 && (await put('mia', 'poll:p2', poll('p2', 'Dinner at eight'))).status === 200, 'review: the polls were not made');
+      expect((await put('max', `vote:p1:${max.key}`, { options: ['a'], name: 'Max' })).status === 200, 'review: the vote was not made');
+      const token = (await adm('POST', `/api/users/${agent.key}/token`)).json.token;
+      const bot = (method, url, body) => call('__none', method, url, body, rev, token);
+      const ref = (id) => ({ module: 'polls', kind: 'poll', id, scope: 'space', space: camp });
+      const a1 = await bot('POST', `/api/spaces/${camp}/delete-asks`, { object: ref('p1'), reason: 'The lunch moved to Friday, so this poll is old.' });
+      const a2 = await bot('POST', `/api/spaces/${camp}/delete-asks`, { object: ref('p2') });
+      expect(a1.status === 202 && a2.status === 202, `review: the asks were ${a1.status}, ${a2.status}`);
+      const made = await bot('POST', `/api/spaces/${camp}/action`, { action: 'todo:createTask', input: { title: 'Book the taxi' } });
+      expect(made.status === 200 && made.json.ok, `review: createTask was ${made.status}`);
+      const taskRef = made.json.ref;
+      expect((await bot('POST', `/api/spaces/${camp}/action`, { action: 'todo:createTask', input: { title: 'Pack the tent' } })).status === 200, 'review: the second task');
+      // Someone changes "Book the taxi" after the agent: its add can no longer be undone, and says why.
+      const tasks = Object.fromEntries((await adm('GET', `/api/modules/todo/data?scope=space&space=${camp}`)).json.items.map((i) => [i.key, i]));
+      const tk = `task:${taskRef.id}`;
+      expect((await call('mia', 'PUT', `/api/modules/todo/data/${encodeURIComponent(tk)}?scope=space&space=${camp}`, { value: { ...tasks[tk].value, title: 'Book the taxi for six' } }, rev)).status === 200, 'review: Mia could not change the task');
+      const answerBell = (await adm('GET', '/api/notifications')).json;
+      const line = answerBell.notifications.find((x) => /asks to delete the poll "Lunch by the sea" in Polls, in Camp\./.test(x.title));
+      expect(answerBell.asks === 2 && line && line.href === `/?agents=${camp}#ask-${a1.json.ask.id}`, `review: the bell counts ${answerBell.asks}, its line opens ${line && line.href}`);
+      const view = (tab) => tab.eval(`(() => {
+        const d = document.querySelector('dialog[data-agent-review][open]'); if (!d) return null;
+        return {
+          title: d.querySelector('.sdk-dialog-title').textContent,
+          heads: [...d.querySelectorAll('.agent-review-heading')].map((h) => h.textContent),
+          asks: [...d.querySelectorAll('[data-agent-ask]')].map((li) => ({ id: li.dataset.agentAsk, text: li.querySelector('.agent-ask-what > span').textContent, buttons: [...li.querySelectorAll('button')].map((b) => b.textContent), why: (li.querySelector('[data-agent-why]') || {}).textContent || '', asked: li.classList.contains('is-asked') })),
+          done: [...d.querySelectorAll('[data-agent-change]')].map((li) => ({ id: li.dataset.agentChange, text: li.querySelector('.agent-change-text').textContent, undo: !!li.querySelector('[data-agent-undo]'), why: (li.querySelector('[data-agent-why]') || {}).textContent || '' })),
+        };
+      })()`);
+      const openView = async (tab, url) => { await go(tab, url); await tab.waitFor('dialog[data-agent-review][open] [data-agent-ask]', '', 30000).catch(() => {}); await sleep(300); };
+      const reviewUrl = `/?agents=${camp}#ask-${a1.json.ask.id}`;
+      for (const [width, mode] of [[1280, 'dark'], [1280, 'light'], [390, 'dark'], [390, 'light']]) {
+        const t = await open(width, mode, 'admin', rev);
+        await openView(t, reviewUrl);
+        const v = await view(t);
+        expect(!!v && v.title === 'Agents' && v.heads.join('|') === 'Waiting for you|What it changed', `review ${width} ${mode}: the view is ${JSON.stringify(v && [v.title, v.heads])}`);
+        if (v) {
+          expect(v.asks.length === 2 && v.asks.every((a) => a.buttons.join() === 'Approve,Decline'), `review ${width} ${mode}: the asks are ${JSON.stringify(v.asks)}`);
+          expect(v.asks.some((a) => a.id === a1.json.ask.id && a.asked && a.text === 'Claude (agent) asks to delete the poll "Lunch by the sea" in Polls.'), `review ${width} ${mode}: the bell's ask is not marked, or reads ${JSON.stringify(v.asks.map((a) => a.text))}`);
+          const taxi = v.done.find((c) => /added a task "Book the taxi for six" in To-do/.test(c.text));
+          const tent = v.done.find((c) => /added a task "Pack the tent" in To-do/.test(c.text));
+          expect(taxi && !taxi.undo && taxi.why === 'That has been changed since, so undo would lose that change.' && tent && tent.undo, `review ${width} ${mode}: the changes are ${JSON.stringify(v.done)}`);
+        }
+        expect(await wide(t) <= 0, `review ${width} ${mode}: the page scrolls sideways`);
+        if (width === 390) for (const sel of ['dialog[data-agent-review] [data-agent-answer="approve"]', 'dialog[data-agent-review] [data-agent-answer="decline"]', 'dialog[data-agent-review] [data-agent-undo]']) expect(await hit(t, sel) >= 44, `review 390: ${sel} is ${await hit(t, sel)} px tall`);
+        await shot(t, `review-view-${width}-${mode}`, false);
+        // The approval dialog: what it is, where, who made it, what goes with it, the agent's words; Close answers nothing.
+        await press(t, `dialog[data-agent-review] [data-agent-answer="approve"][data-ask="${a1.json.ask.id}"]`);
+        await t.waitFor('dialog.agent-approve[open]').catch(() => {});
+        const q = await t.eval(`(() => { const d = document.querySelector('dialog.agent-approve[open]'); return d ? { title: d.querySelector('.sdk-dialog-title').textContent, lines: [...d.querySelectorAll('.sdk-confirm-effects li')].map((l) => l.textContent), said: (d.querySelector('blockquote') || {}).textContent || '', who: (d.querySelector('figcaption') || {}).textContent || '', buttons: [...d.querySelectorAll('.sdk-dialog-foot button')].map((b) => b.textContent), focus: document.activeElement.textContent } : null; })()`);
+        expect(q && q.title === 'Delete the poll "Lunch by the sea"?' && q.lines.join('|') === 'In Polls, in Camp|Made by Mia|1 thing that belongs to it goes too' && q.said === 'The lunch moved to Friday, so this poll is old.' && q.who === 'Claude (agent) says:' && q.buttons.join() === 'Decline,Delete' && q.focus === 'Decline', `review ${width} ${mode}: the approval reads ${JSON.stringify(q)}`);
+        if (width === 390) expect(await hit(t, 'dialog.agent-approve [data-approve-answer="approve"]') >= 44, 'review 390: Delete is under 44 px');
+        await shot(t, `review-approve-${width}-${mode}`, false);
+        await t.click('dialog.agent-approve .sdk-dialog-close');
+        expect(await t.eval(`!document.querySelector('dialog.agent-approve') && !!document.querySelector('dialog[data-agent-review][open]')`), `review ${width} ${mode}: Close did not leave the view open with nothing answered`);
+        // A moderator the module's guards refuse: the reason in Approve's place, Decline still there.
+        const m = await open(width, mode, 'max', rev);
+        await openView(m, reviewUrl);
+        const mv = await view(m);
+        const mine = mv && mv.asks.find((a) => a.id === a1.json.ask.id);
+        expect(mine && mine.buttons.join() === 'Decline' && mine.why.length > 5, `review ${width} ${mode}: Max's ask reads ${JSON.stringify(mine)}`);
+        await shot(m, `review-why-${width}-${mode}`, false);
+        expect(m.problems.length === 0, `review ${width} ${mode} (Max): ${m.problems.join('; ')}`);
+        await m.close();
+        // The bell: its count has the asks, its list a line for them.
+        await t.eval(`document.querySelector('dialog[data-agent-review] .sdk-dialog-close').click()`);
+        await sleep(200);
+        const bellOf = () => t.eval(`(() => { const b = document.getElementById('notifications-bell'); return b ? { n: (b.querySelector('.sdk-badge-micro') || {}).textContent || '', label: b.getAttribute('aria-label') || '' } : null; })()`);
+        const b = await bellOf();
+        expect(b && /2 asks waiting for you/.test(b.label) && Number(b.n) >= 2, `review ${width} ${mode}: the bell reads ${JSON.stringify(b)}`);
+        const agentsEntry = await t.eval(`(() => { const e = document.getElementById('agent-review'); return e && e.getClientRects().length ? [e.getAttribute('aria-label') || e.textContent, (e.querySelector('.sdk-badge-micro, .sdk-badge') || {}).textContent || ''].join('|') : ''; })()`);
+        if (width === 1280) expect(/Agents, 2 asks waiting for you\|2$/.test(agentsEntry), `review: the Agents entry reads "${agentsEntry}"`);
+        await t.eval(`document.getElementById('notifications-bell').click()`);
+        await t.waitFor('#notifications-list [data-bell-asks]').catch(() => {});
+        expect(/2 asks from agents wait for you/.test(await text(t, '#notifications-list')), `review ${width} ${mode}: the bell's list has no line for the asks`);
+        await shot(t, `review-bell-${width}-${mode}`, false);
+        expect(t.problems.length === 0, `review ${width} ${mode}: ${t.problems.join('; ')}`);
+        await t.close();
+        // The Roles sentence, light too (the dark ones are the grid block's).
+        if (mode === 'light') {
+          const r = await open(width, mode, 'admin', rev);
+          await go(r, '/admin#roles');
+          await r.waitFor('#roles-table tbody tr');
+          await r.eval(`document.getElementById('roles-agent-never').scrollIntoView({ block: 'center' })`);
+          await shot(r, `review-roles-${width}-${mode}`, false);
+          await r.close();
+        }
+      }
+      // The whole round at 1280: Delete deletes exactly that poll (its vote with it) and says so; Undo puts it back; Decline ends the other.
+      {
+        const t = await open(1280, 'dark', 'admin', rev);
+        await openView(t, reviewUrl);
+        await press(t, `dialog[data-agent-review] [data-agent-answer="approve"][data-ask="${a1.json.ask.id}"]`);
+        await t.waitFor('dialog.agent-approve[open]');
+        await t.click('dialog.agent-approve [data-approve-answer="approve"]');
+        for (let i = 0; i < 50 && await t.eval(`!!document.querySelector('dialog.agent-approve')`); i += 1) await sleep(100);
+        const left = Object.keys(Object.fromEntries((await adm('GET', `/api/modules/polls/data?scope=space&space=${camp}`)).json.items.map((i) => [i.key, 1])));
+        expect(!left.includes('poll:p1') && !left.includes(`vote:p1:${max.key}`) && left.includes('poll:p2'), `review: after Delete the polls are ${left.join(', ')}`);
+        expect(await waitText(t, 'dialog[data-agent-review]', 'Deleted'), 'review: the view did not say Deleted');
+        for (let i = 0; i < 50 && !(await t.eval(`[...document.querySelectorAll('dialog[data-agent-review] .agent-change-text')].some((x) => /deleted the poll "Lunch by the sea"/.test(x.textContent))`)); i += 1) await sleep(100);
+        const v = await view(t);
+        const gone = v && v.done.find((c) => /Claude \(agent\) deleted the poll "Lunch by the sea" in Polls/.test(c.text));
+        expect(gone && gone.undo && v.asks.length === 1, `review: after Delete the view is ${JSON.stringify(v)}`);
+        await shot(t, 'review-done-1280-dark', false);
+        await press(t, `dialog[data-agent-review] [data-agent-undo="${gone && gone.id}"]`);
+        for (let i = 0; i < 50 && !(await adm('GET', `/api/modules/polls/data?scope=space&space=${camp}`)).json.items.some((x) => x.key === 'poll:p1'); i += 1) await sleep(100);
+        const back = (await adm('GET', `/api/modules/polls/data?scope=space&space=${camp}`)).json.items.map((x) => x.key);
+        expect(back.includes('poll:p1') && back.includes(`vote:p1:${max.key}`), `review: Undo put back ${back.join(', ')}`);
+        expect(await waitText(t, 'dialog[data-agent-review]', 'Undone'), 'review: Undo said nothing');
+        await press(t, `dialog[data-agent-review] [data-agent-answer="decline"][data-ask="${a2.json.ask.id}"]`);
+        expect(await waitText(t, 'dialog[data-agent-review]', 'Declined'), 'review: Decline said nothing');
+        const states = Object.fromEntries((await adm('GET', `/api/users/${agent.key}/asks`)).json.asks.map((a) => [a.id, a.state]));
+        expect(states[a1.json.ask.id] === 'undone' && states[a2.json.ask.id] === 'declined', `review: the asks end ${JSON.stringify(states)}`);
+        expect(t.problems.length === 0, `review round: ${t.problems.join('; ')}`);
+        await t.close();
+      }
+      // The agent's page: both lists for an ordinary agent, and What it did reads the ask with how it went.
+      {
+        const t = await open(1280, 'dark', 'admin', rev);
+        await go(t, `/admin#agent/${agent.key}`);
+        await t.waitFor('[data-agent-change]').catch(() => {});
+        await t.waitFor('[data-agent-log] .agent-log-what').catch(() => {});
+        const log = await t.eval(`[...document.querySelectorAll('[data-agent-log] .agent-log-what')].map((l) => l.textContent)`);
+        expect(log.some((l) => /^Asked to delete a poll in Polls in Camp, undone by admin$/i.test(l)) && log.includes('Asked to delete a poll in Polls in Camp, declined'), `review: What it did reads ${JSON.stringify(log)}`);
+        const changes = await t.eval(`[...document.querySelectorAll('[data-agent-change] .agent-change-text')].map((x) => x.textContent)`);
+        expect(changes.some((c) => /deleted the poll "Lunch by the sea" in Polls, in Camp/.test(c)) && changes.some((c) => /added a task "Pack the tent" in To-do, in Camp/.test(c)), `review: the agent's page lists ${JSON.stringify(changes)}`);
+        await shot(t, 'review-agent-page-1280-dark');
+        expect(t.problems.length === 0, `review agent page: ${t.problems.join('; ')}`);
+        await t.close();
+      }
+      // Manage counts the asks for owners and the admin.
+      {
+        const a3 = await bot('POST', `/api/spaces/${camp}/delete-asks`, { object: ref('p1') });
+        expect(a3.status === 202, `review: the third ask was ${a3.status}`);
+        const t = await open(1280, 'dark', 'admin', rev);
+        await go(t, '/admin#users');
+        await sleep(1500);
+        const badge = await t.eval(`(() => { const b = document.querySelector('#page-bar-manage .sdk-badge, #page-bar-manage .sdk-badge-micro, #manage-tool .sdk-badge, #manage-tool .sdk-badge-micro, #admin-link .sdk-badge, #admin-link .sdk-badge-micro'); return b ? (b.getAttribute('aria-label') || b.textContent) : ''; })()`);
+        expect(/1 ask waiting for you/.test(badge), `review: Manage's badge reads "${badge}"`);
+        // Approved on the agent's page: the same dialog, through the owners' route, then a "Deleted." toast with Undo.
+        await go(t, `/admin#agent/${agent.key}`);
+        await t.waitFor(`[data-agent-answer="approve"][data-ask="${a3.json.ask.id}"]`);
+        await press(t, `[data-agent-answer="approve"][data-ask="${a3.json.ask.id}"]`);
+        await t.waitFor('dialog.agent-approve[open]');
+        await t.click('dialog.agent-approve [data-approve-answer="approve"]');
+        expect(await waitText(t, '.sdk-toasts', 'Deleted.') && await waitText(t, '[data-agent-asks-status]', 'Deleted'), 'review: the agent\'s page did not say Deleted with an Undo toast');
+        expect(!(await adm('GET', `/api/modules/polls/data?scope=space&space=${camp}`)).json.items.some((x) => x.key === 'poll:p1'), 'review: the agent\'s page approval did not delete');
+        await shot(t, 'review-agent-page-toast-1280-dark', false);
+        expect(t.problems.length === 0, `review agent page approval: ${t.problems.join('; ')}`);
+        await t.close();
+      }
+    }
     // An address that names no agent opens the list.
     {
       const t = await open(1280, 'dark', 'admin');
@@ -951,6 +1144,7 @@ async function main() {
     await stopServer(plain);
     await stopServer(exp);
     await stopServer(setup);
+    await stopServer(rev);
     for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
   }
   if (failures.length) { for (const f of failures) console.error('check-agent-pages: ' + f); return 1; }
