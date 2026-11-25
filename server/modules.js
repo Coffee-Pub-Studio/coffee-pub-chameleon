@@ -15,6 +15,7 @@ const path = require('path');
 const yauzl = require('yauzl');
 const { productName } = require('./product-name');
 const { StoreError, LOBBY } = require('./store');
+const weatherProviders = require('./weather-providers');
 const { word, fill } = require('./words');
 const { DESTINATION_IDS, DESTINATION_PARTS } = require('./destinations');
 const objectFormat = require('./object-format');
@@ -834,8 +835,8 @@ function cleanGeocoder(raw, settings) {
 }
 
 // A module whose days get the weather from the server (documentation/plans/plan-itinerary-weather.md): which of its settings
-// choose the service (`provider`, a choice; `address`, a url, used when the provider is `custom`; `key`, an optional secret;
-// `units`, an optional choice of c or f), the preset services (https only, at most 5), and where the server reads the days'
+// chooses the service (`provider`, a choice; the module declares `none` and the server adds each registered adapter of
+// server/weather-providers/ as a choice), `units` (an optional choice of c or f), and where the server reads the days'
 // places in the module's own stored data: `stops` (the stored values under `prefix`, each with a `day`, optionally a `time`
 // and an `order`, and a `place` pointer to an object whose summary has a position) and `main` (one stored `key` with the
 // main place as text in `place`, and optionally the first and last day in `from` and `to`).
@@ -844,8 +845,7 @@ const WEATHER_KEY = /^[a-z][a-zA-Z0-9:_-]{0,59}$/;
 function cleanWeather(raw, settings, scope) {
   if (!raw || typeof raw !== 'object') return null;
   const known = (k, type) => typeof k === 'string' && settings.some((d) => d.key === k && d.type === type && (d.scope || 'environment') === 'environment');
-  if (!known(raw.provider, 'choice') || !known(raw.address, 'url')) throw new ModuleError('module.json: weather needs a `provider` choice setting and an `address` url setting, both for the environment');
-  if (raw.key !== undefined && !known(raw.key, 'secret')) throw new ModuleError('module.json: weather `key` must name a secret setting');
+  if (!known(raw.provider, 'choice')) throw new ModuleError('module.json: weather needs a `provider` choice setting for the environment');
   if (raw.units !== undefined && !known(raw.units, 'choice')) throw new ModuleError('module.json: weather `units` must name a choice setting');
   if (!Array.isArray(scope) || !scope.includes('space')) throw new ModuleError('module.json: weather needs the "space" scope');
   const field = (v, what, optional) => {
@@ -859,14 +859,16 @@ function cleanWeather(raw, settings, scope) {
   if (st && (typeof st.prefix !== 'string' || !WEATHER_KEY.test(st.prefix))) throw new ModuleError('module.json: weather stops need a `prefix`, the start of their stored keys');
   if (mn && (typeof mn.key !== 'string' || !WEATHER_KEY.test(mn.key))) throw new ModuleError('module.json: weather main needs a `key`, the stored key it is read from');
   const out = {
-    provider: raw.provider, address: raw.address, key: raw.key || '', units: raw.units || '',
-    custom: typeof raw.custom === 'string' ? raw.custom.slice(0, 40) : 'custom', providers: {},
+    provider: raw.provider, units: raw.units || '',
     stops: st ? { prefix: st.prefix, day: field(st.day, 'stops `day`'), time: field(st.time, 'stops `time`', true), order: field(st.order, 'stops `order`', true), place: field(st.place, 'stops `place`') } : null,
     main: mn ? { key: mn.key, place: field(mn.place, 'main `place`', true), from: field(mn.from, 'main `from`', true), to: field(mn.to, 'main `to`', true) } : null,
   };
-  for (const [k, v] of Object.entries(raw.providers && typeof raw.providers === 'object' ? raw.providers : {}).slice(0, 5)) {
-    if (!/^[a-z][a-z0-9-]{0,23}$/.test(k) || !v || typeof v.address !== 'string' || !/^https:\/\/[^\s]{1,300}$/.test(v.address)) throw new ModuleError(`module.json: weather provider "${k}" needs an https address`);
-    out.providers[k] = { address: v.address, credit: text(v.credit, 100), name: text(v.name, 30) || k };
+  // Each registered adapter is a choice of the provider setting (once each: the manifest is cleaned more than once).
+  const def = settings.find((d) => d.key === raw.provider);
+  if (Array.isArray(def.options)) {
+    for (const p of weatherProviders.list()) {
+      if (!def.options.some((o) => o.value === p.id)) def.options.push({ value: p.id, label: p.name, ...(p.credit ? { help: p.credit } : {}) });
+    }
   }
   return out;
 }
@@ -899,7 +901,9 @@ function cleanSettings(raw) {
     }
     if (type === 'choice') {
       def.options = (Array.isArray(r.options) ? r.options.slice(0, 12) : []).map((o) => ({ value: typeof o?.value === 'string' ? o.value.trim().slice(0, 40) : '', label: text(o?.label, 40), help: longText(o?.help, 600) })).filter((o) => o.value).map((o) => ({ value: o.value, label: o.label || o.value, ...(o.help ? { help: o.help } : {}) }));
-      if (def.options.length < 2) throw new ModuleError(`module.json: setting "${key}" needs at least two options`);
+      // A choice whose other options are the server's own (the weather services it has registered) may name just one.
+      if (r.adapters === 'weather') def.adapters = 'weather';
+      if (def.options.length < (def.adapters ? 1 : 2)) throw new ModuleError(`module.json: setting "${key}" needs at least two options`);
       def.default = def.options.some((o) => o.value === r.default) ? r.default : def.options[0].value;
       const dif = r.defaultIfSet;
       if (dif && typeof dif.key === 'string' && /^[a-z][a-zA-Z0-9]{0,23}$/.test(dif.key) && def.options.some((o) => o.value === dif.value)) def.defaultIfSet = { key: dif.key, value: dif.value };

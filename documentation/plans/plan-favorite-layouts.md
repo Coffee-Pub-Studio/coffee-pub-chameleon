@@ -15,6 +15,8 @@
 
 ## Decisions
 
+Changed by decision 44 of [plan-workspaces](plan-workspaces.md) (Thomas, 2026-11-23): favoriting is killed, so decisions 1 to 13 here are replaced. A workspace a person adds is a tab; there is no heart and no personal pin.
+
 Thomas, 2026-10-04, from the request:
 
 1. **A Favorite entry in a layout's …,** which toggles between favorite and not favorite.

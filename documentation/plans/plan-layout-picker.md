@@ -43,6 +43,8 @@ So most of the canvas side exists. The six shapes can almost be drawn with today
 
 ## Decisions
 
+Changed by decisions 39, 42 and 45 of [plan-workspaces](plan-workspaces.md) (Thomas, 2026-11-23): decision 15 (no personal layouts from the picker) is replaced, since a person's added workspace is a shape made with the picker. Decision 9 (the six shapes are the set) and decision 11 (the grid) change if more shapes are added.
+
 Thomas, 2026-11-18.
 
 1. **The left column is the chat and call column.** It is always there and can't be mapped. Chat and the call sit there, not on the canvas, at any width above a phone (`placeBuiltins`, `public/canvas.js`). The call moves only by the person's call position (Top, Bottom, Left of the chat, Right of the chat, Floating window, In the workspace, Its own window); the Conference layout has its own set. Neither can stack or be saved in a layout's arrangement. Reason: it is the always-on column every layout already has (plan-one-bar decision 2), and a layout arranges only the canvas beside it.

@@ -7,11 +7,25 @@ model for the runner and the write scopes, security); experience-design builds e
 lane, a patch bump each); quality-assurance reads the runner changes as a security change when Thomas calls a feedback or
 production build.
 
-**Status:** Draft, 2026-11-23. Nothing in it is built. Uploaded modules decided the same day (decision 2). The request, Thomas, 2026-11-23: "in general i want to move away
+**Status:** Draft, 2026-11-23, built through step 10 (see Progress). Uploaded modules decided the same day (decision 2); step 11 is not built. The request, Thomas, 2026-11-23: "in general i want to move away
 from 'waits until someone [opens the module]...' for the reasons we have already discussed. I do not want this same
 decision to come up one module at a time... this is for all things. An agent is not useful if you also have to be in the
 app for it to get real-time updates." The gaps below are the ones the builders of steps 1, 2a and 2b of
 plan-agent-edit-delete reported, checked against the code on `origin/main` at `244b327d`.
+
+**Progress (2026-11-25, read against `main` at `fa5ea4bd`).** Steps 1 to 10 are built and merged; step 11 (uploaded modules on the server) is not, and the check at the end of "Left to build" is not yet added. The sections "What it is today" and "The gaps the builders found" below describe `main` at `244b327d`, before these steps.
+
+1. Context: `ctx.settings`, `ctx.util.label`, `order`, `rollup`, `geo`, phases as `{ id, label, main }` (#1086).
+2. Data back to the agent (without `note`, at most 8000 bytes), pointer clears and the AI's clears (#1086).
+3. Polls, Goals and Budget on the server (#1088).
+4 and 5. Links, schedules and a notice in the answer, with exact undo (#1099).
+6. Polls close and announce on the server through a `close:<id>` schedule, and Polls declares the `schedule` hook (#1103; Polls 1.15.34); Calendar's and To-do's reminders and links are set by the server at once (#1104; Calendar 1.24.52, To-do 1.15.38).
+7. Research and Planner - Projects on the server (#1105; Research 0.4.40, Planner - Projects 0.1.11). The runner has no `URL`, so Research reads addresses with a pure reader (`rsUrl`) that refuses a user name, an unusual numeric host and a host written in another script than Latin, Greek, Cyrillic, Chinese, Japanese or Korean.
+8. The Itinerary's last day moves on the server (`phaseEnd`, #1114; Itinerary 0.16.23). It is capped at 366 days a call, on the route too.
+9. The sandbox lockdown (GitHub #1100), writes outside the space and the server-side place search (#1115), with `ACTION_RUNNER_NETWORK`.
+10. Maps on the server (#1116; Maps 0.10.17), with `actions.pageOnly` and the page adapter carrying environment writes, reads and lookups.
+
+Open after step 10: a request that points at another of the agent's spaces still waits for a page (it should be refused plainly, issue #1117, item 1); an upload that declares `lookups` is not refused at install; and a default Docker deploy has no kernel network boundary, which needs a deploy decision before step 11. The contract as built is in [api-modules](../api/api-modules.md), "Actions the server carries", and [architecture-agent-access](../architecture/architecture-agent-access.md), "The server runner".
 
 ## Why
 

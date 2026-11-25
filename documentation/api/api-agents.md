@@ -58,6 +58,8 @@ All of these are `GET` and `POST` routes that exist for modules, with the same a
 | `GET /api/objects/search` | The same. Summaries of the objects the asking module `from` may link to. |
 | `GET /api/objects/links` | The `ref` (a JSON pointer) must be into one of its spaces (403 `An agent can't do that.` for a pointer with another scope, 404 for a space it is not in). Links that go outside its spaces are left out of the answer. |
 | `GET /api/objects/kinds` | None; the kinds of object the modules declare. |
+| `GET /api/objects/format/schema` | None; the JSON Schema of a typed object (`{ kind, title, details }`): every kind and the fields and types of its details. Read it before sending an `object` input. |
+| `GET /api/modules/:id/weather` | `scope=space&space=<id>` required, a space of the agent's; the module's own `read` permission (403 when the Agent column's view row for it is off). Answers as it does a member ([Weather](api-modules.md#weather)); `{ configured: false }` means weather is not set up. Counts as one read, and only an ask that reaches an outside service counts against the `weather` limit, on the agent's key. A space the agent is not in, or a closed one, is 404 as for every agent read. |
 | `POST /api/objects/resolve` | Every pointer in `refs` (the first 50 are read) must be into one of its spaces. |
 | `GET /api/spaces/:id/actions` | Lists only the actions an agent may ask for (below). Needs the member role's `chatRead` (403 `your role cannot do that` without it). |
 
@@ -96,7 +98,7 @@ It answers `{ "message": { "id", "at", "by", "who", "text", "agent": true, "prev
 
 **`POST /api/spaces/:id/action`** with `{ "action": "<module>:<name>", "input": { ... } }`. For example `{ "action": "schedule:setDone", "input": { "ref": { ... }, "done": true } }`. It answers `{ "id": <request id>, "status": "pending" }`.
 
-The request waits on the server until a person who may change that module has it open in that space; that person's page carries it out under the module's own rules and says how it went. Modules run no server code, so nothing is written until then (up to seven days). The agent reads the outcome with the next route.
+What happens next depends on the module. A **bundled module that declares `actions.server`** has the server carry the request out at once, under the module's own rules and the agent's rights ([Actions the server carries](api-modules.md#actions-the-server-carries)): the answer is `{ "id", "status": "done", "ok": true, ... }` already, with `ref` (the pointer of what it made or changed), `data` and `note` when the module says more. Nothing waits for a page. All the bundled modules with agent actions declare it. An **uploaded module** (and a request that points outside the agent's space and what is kept for it) waits on the server until a person who may change that module has it open in that space; that person's page carries it out under the module's own rules and says how it went (up to seven days). The agent reads the outcome with the next routes. A bundled request is refused to a page's claim, so a page never carries it twice.
 
 What an agent may ask for is an action that is `effect: "write"` in its module's manifest and is not `local`, not `askerOnly`, not `ai: false`. It checks, in this order:
 
@@ -112,7 +114,7 @@ What an agent may ask for is an action that is `effect: "write"` in its module's
 | 400, 403 | the module's sentence | `input` fails the action's declared shape (a field missing, an object of the wrong kind). |
 | 429 | `too many requests in a minute, slow down` | The action route's own limit. |
 
-The bundled actions an agent can use today are those marked `write` in `modules/*/module.json`; the Planner - Projects ones are `addMilestone`, `addWork`, `addNote`, `setDone` and `updateEntry` (below). The To-do module's `setTaskDone` marks a task done or opens it again; like any action it waits for a person with To-do open (#966).
+The bundled actions an agent can use today are those marked `write` in `modules/*/module.json`; the Planner - Projects ones are `addMilestone`, `addWork`, `addNote`, `setDone` and `updateEntry` (below). The To-do module's `setTaskDone` marks a task done or opens it again; like any action it is carried out by the server at once.
 
 **`GET /api/spaces/:id/action/:requestId`** tells the agent how its own request went, for ten minutes after it finished:
 
@@ -120,7 +122,36 @@ The bundled actions an agent can use today are those marked `write` in `modules/
 { "id": 41, "status": "done", "ok": true, "note": "Added." }
 ```
 
-`status` is `pending` (waiting for a page), `claimed` (a page has taken it), `done` or `expired` (nobody took it in time). When `done`: `ok` is true or false; `error` is the module's one-line sentence when it failed; `note` is a short line the module may send back. Both are at most 300 characters and one line. It needs the member role's `chatRead` too. The request is read only by the agent that asked (anyone else's, an unknown one or one from another place is 404 `no such request`); `requestId` is a whole number (400 otherwise).
+`status` is `pending` (waiting for a page), `claimed` (a page has taken it), `done` or `expired` (nobody took it in time). While it is `pending` or `claimed` an agent also gets `waiting`, one plain sentence saying what it waits for. When `done`: `ok` is true or false; `error` is the module's one-line sentence when it failed; `note` is a short line the module may send back, both at most 300 characters and one line. For an agent, when `ok`: `ref` is the pointer of what the request made or changed, `data` is what the module says back when it says more (without `note`, at most 8000 bytes), and, for a request the server carried, `effects` says what it did beside the writes (links, schedules, a notice, the phase end). It needs the member role's `chatRead` too. The request is read only by the agent that asked (anyone else's, an unknown one or one from another place is 404 `no such request`); `requestId` is a whole number (400 otherwise).
+
+**`GET /api/spaces/:id/action/:requestId/wait?seconds=1..30`** answers as the status route does, as soon as the request is done or expired, or as it stands when `seconds` (default 30) have passed. It counts as one read. `seconds` that is not a whole number from 1 to 30 is 400 `seconds is a whole number from 1 to 30.` An agent holds at most 2 waits at once (429 `You are already waiting on 2 requests. Wait for one of them to finish.`, with `Retry-After`) and the server at most 200 (503 `The server is holding too many waits. Try again in a moment.`).
+
+**What an agent sees of an action.** `GET /api/spaces/:id/actions` gives each action's name, label, description and input. For an agent it also gives `clears` (inputs it may send as `""` to clear them; one left out is kept), `patch: true` (an object input changes only what it gives), `objectKinds` for each object-typed input (the kinds it takes, with their details fields and types, `"*"` for any; see `GET /api/objects/format/schema`) and a default hint, `now: true` when the server makes it at once (else `waiting` says what it waits for), and, for a delete action, `effect: "delete"` with `approval: "each"`: it is not for the action route, use a delete ask (below). A person's list is unchanged.
+
+### Delete asks
+
+An agent never deletes. With **Ask to delete** ticked in the Agent column of the Roles grid (the `agentDelete` row, off by default; ticked, it applies to every ordinary agent), it may ask a person to delete one object, and nothing goes until an owner, the admin or that space's moderator approves that one ask. A delete action in a module is `effect: "delete"` in its manifest ([Modules API](api-modules.md)); the actions are: Planner - Projects `deleteEntry`, Itinerary `deletePlan`, Calendar `deleteEvent`, To-do `deleteTask`, Polls `deletePoll`, Goals `deleteEntry`, Budget `deleteCost`, Maps `deletePlace` and Research `deleteNote` and `deleteLink`. A set-up agent has no delete asks.
+
+**`POST /api/spaces/:id/delete-asks`** (an ordinary agent's token only) with `{ "object": { "module", "kind", "id", "scope": "space", "space" }, "reason"? }`. `reason` is plain text, cut to 200 characters. It answers 202 `{ "ask": { "id", "state": "waiting", "expiresAt" } }`. Nothing is deleted. An ask waits 7 days. Caps: 10 waiting, 30 a day, a 7-day cooldown on an object after a decline; one waiting ask per object across all agents.
+
+| Status | Error | When |
+|---|---|---|
+| 400 | `Send { object, reason } as JSON.` | No JSON object body. |
+| 400 | `Only object, reason can be sent.` | Another field. |
+| 400 | the pointer sentence | `object` is not a pointer with exactly `module`, `kind`, `id`, `scope` and `space`. |
+| 400 | `reason is plain text, up to 200 characters.` | `reason` is not text. |
+| 403 | `An agent can't do that.` | A set-up agent, or **Ask to delete** is off. |
+| 403 | `An agent can only ask to delete <an object> in the <space> it asks in.` | `scope` is not `space`, or `space` is another. |
+| 403 | `An agent can't ask to delete that kind of <object>.` | The module has no delete action for that kind, or the agent's role may not. |
+| 404 | `That isn't there.` | The object is gone or hidden from the agent. |
+| 409 | `That is a copy; ask to delete it in <module name>.` | A Calendar copy. |
+| 429, 409 | the records store's sentence | The caps above; a cooldown adds "Don't ask again before <date>." |
+
+**`GET /api/agent/asks/:id`** is the agent's own ask: `{ "ask": { "id", "ask": "delete", "object", "space", "state", "at", "expiresAt", "decidedAt"? } }`. `state` is `waiting`, `approved` (it was deleted), `declined`, `expired` (it ran out, or the object changed after the ask) or `undone` (a person put it back). Never a title, the reason or who answered. Another agent's ask, or none, is 404 `No such ask.` (This route also serves the set-up agent's own asks, with its own shape.)
+
+**A person answers** with `POST /api/spaces/:id/asks/:askId` (owners, the admin and the space's moderators; an agent's token is 403) and `{ "decision": "approve" | "decline", "version"?, "tz"? }`. An approval needs the `version` the ask showed (400 `Send the version the ask showed with an approval.`). `POST /api/users/:key/asks/:id` (owners) answers the same way from the agent's page. An approval carries the delete out through the module's own delete path, as the approver (the module's delete guard checks their right) and with a hold, so Undo works for 7 days. A stale version ends the ask (409 `That changed since <agent name> asked. Nothing was deleted.`); a closed space keeps it waiting; each ask is answered once, the same answer twice changes nothing, the other answer is 409. The module's activity line reads "deleted a poll, approved by <name>". The bell: one line to each owner, the admin and each moderator with the module's write permission, opening the space's Agents view at that ask; `GET /api/notifications` gains `asks`, the count waiting for the person.
+
+**`GET /api/spaces/:id/agent-review`** (owners, the admin, the space's moderators) answers `{ waiting, done, days }`: the delete asks waiting here, oldest first (title, `madeBy`, what goes with it and links only for a person who may read the module there), and every agent's object changes here, newest first, for 7 days, each `{ id, change: "added" | "edited" | "deleted", space, object, moduleName, title, at, text, undone, undoneAt?, undoneBy?, undoable, why? }`. **`POST /api/spaces/:id/changes/:changeId/undo`** (the same people) puts one back, only if they could make that change themselves; 404 for no such change; 409 with one sentence when it cannot be undone now (`That has been changed since, so undo would lose that change.`, `Something new is there now.`, `That was undone already.`, `That is too old to undo.`, `That is gone.`, `Too large to undo.`). Each undo adds an activity line. `GET /api/users/:key/changes` and `.../changes/:id/undo` serve both kinds of agent for owners. The record keeps keys and ids only, never a value, in `agent-records.json`.
 
 ### The Planner's actions
 
@@ -224,15 +255,23 @@ All arguments are strict: an argument the tool doesn't list is an error. `space`
 | `me` | none | `GET /api/agent/me` | read |
 | `read_context` | `space`, `module` | `GET /api/modules/:id/context?scope=space` | read |
 | `read_data` | `space`, `module`, `key?`, `prefix?` | `GET /api/modules/:id/data/:key` with `key`, else `GET /api/modules/:id/data` | read |
+| `read_weather` | `space`, `from?`, `to?` (a day, `YYYY-MM-DD`, at most 10 characters) | `GET /api/modules/travel/weather?scope=space` | read |
 | `search_objects` | `space`, `from`, `q?`, `kind?`, `has?` (`place` or `amount`) | `GET /api/objects/search` | read |
 | `object_links` | `ref`, `from`, `dir?` (`to`, the default, or `from`) | `GET /api/objects/links` | read |
 | `object_kinds` | `from` | `GET /api/objects/kinds` | read |
+| `object_format` | none | `GET /api/objects/format/schema` | read |
 | `resolve_objects` | `refs` (1 to 50), `from` | `POST /api/objects/resolve` | read |
+| `list_members` | `space` | `GET /api/spaces/:id/members` | read; needs `agentMembers` |
 | `list_actions` | `space` | `GET /api/spaces/:id/actions` | read |
-| `ask_for_change` | `space`, `action`, `input?` | `POST /api/spaces/:id/action` | write; waits for a person |
+| `ask_for_change` | `space`, `action`, `input?` | `POST /api/spaces/:id/action` | write; done at once for a module the server carries |
 | `request_status` | `space`, `request` (a whole number) | `GET /api/spaces/:id/action/:requestId` | read |
+| `wait_for_result` | `space`, `request`, `seconds?` (1 to 30, default 30) | `GET /api/spaces/:id/action/:requestId/wait` | read; at most 2 waits at once |
+| `ask_to_delete` | `space`, `object` (a pointer), `reason?` | `POST /api/spaces/:id/delete-asks` | write; needs **Ask to delete** (`agentDelete`) |
+| `ask_status` | `id` | `GET /api/agent/asks/:id` | read |
 | `read_chat` | `space`, `before?` | `GET /api/spaces/:id/chat` | read |
 | `post_chat` | `space`, `text` | `POST /api/spaces/:id/chat` | write; needs **Post in Chat** |
+
+`read_weather` fixes the module to the Itinerary (`travel`); its errors are the route's own sentences. `ask_to_delete` is annotated destructive, since a person may delete what it names. A set-up agent is shown only its own tools (`me`, `list_templates`, `list_icons`, `list_people`, `make_space`, `change_space`, `ask_owner` and `ask_status`).
 
 `tools/list` gives each tool's `name`, `title`, `description`, `inputSchema` and `annotations` (`readOnlyHint` true for the reads). Each wrapped route answers as in Part 1, with the same narrowing and refusals.
 
@@ -267,3 +306,5 @@ A tool call costs one read or one write, as its tool column says, counted and lo
 `tools/check-agent-tokens.mjs`, `tools/check-agent-asker.mjs`, `tools/check-agent-pages.mjs`, `tools/check-agent-chat.mjs` and `tools/check-agent-chat-page.mjs`, and for Part 4 `tools/check-mcp.mjs` (see [the architecture](../architecture/architecture-agent-access.md), "Checks"). The Chat section was written from `server/index.js`, `server/chat-history.js` and `server/agent-log.js` on `4fb7b467`, read as code; the Chat checks did not run in the container used (the server would not start there: a template names Font Awesome icons that the installed set lacks), so none of it is seen to pass here. The earlier parts were checked on `67998604` (`check-agent-tokens`, 33 passed; `check-agent-asker`, 12 passed); `check-agent-pages` did not run to the end then either. A real call from a cloud session through a proxy to a hosted server was not tried, and the plan says so too.
 
 Part 4 was written from `server/mcp.js` and the header of `tools/check-mcp.mjs`, read as code. `check-mcp` was not run for this page. No real MCP client (Claude Code or an app) was connected to a server.
+
+The server-carried actions, delete asks, `read_weather` and the new tools were written on `fa5ea4bd` from the code's own comments and the descriptions of the pull requests that built them (#1065 to #1116), read as code. They are covered by `tools/check-module-actions.mjs`, `tools/check-agent-delete-asks.mjs`, `tools/check-agent-review.mjs`, `tools/check-weather.mjs` and `tools/check-mcp.mjs`, which the builders reported passing; none was run for this page. Not verified by anyone: a real MCP client, a hosted server with two environments, limits under real concurrent load, and a real Docker container's sandbox.

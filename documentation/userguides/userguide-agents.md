@@ -11,19 +11,21 @@ It can:
 - Read the objects of the spaces it is a member of (the plan, the to-dos, the notes) as a member does.
 - Read the public messages in the Chat of those spaces, always. It never sees a private message.
 - Post a plain-text message in Chat, only while you have turned on **Post in Chat** for it (see below).
-- Ask a module to add or change something, when the module offers that as a change it can make. In Planner - Projects: add a milestone, a piece of work or a note, tick a milestone or work done, and change an entry's title, days or notes. In the To-do: mark a task done or open it again.
+- Ask a module to add or change something, when the module offers that as a change it can make: for example add a milestone or tick one off in Planner - Projects, add a stop or change a flight's gate in the Itinerary, add or change an event in the Calendar, or end a poll. The change is made at once and the agent is told how it went.
+- Ask a person to delete one object, only while you have turned on **Ask to delete** for it (see below).
+- Read the weather on a trip's days, when the admin has set up a weather service for the Itinerary.
 
 It can't:
 
 - Sign in, join the call, or use any page.
-- Delete anything, clear a module, restore a copy, upload a file, or change a setting, a role or a member.
+- Delete anything by itself, clear a module, restore a copy, upload a file, or change a setting, a role or a member. It can only ask a person to delete one object, and nothing goes until a person approves that ask.
 - See any space it hasn't been added to, the Lobby, or anyone's private data.
 - Delete or change a message in Chat, send a private message, use a command or ask the AI. It can only read the public messages and, if you allow it, post.
 - Make another token.
 
 An agent has a member's rights and no more. If you take a permission from members on the Roles tab, the agent loses it too. It also needs **Send chat messages** on the member role to ask for a change, as any member does.
 
-It makes no change by itself the moment it asks. A request waits until a person who may change that module has it open; their page then carries it out under the module's own rules. So a milestone the assistant adds shows up the next time someone with the right opens the plan. The log says the request was made; the plan shows when it was done.
+A change an agent asks for is made at once, under the module's own rules and the agent's rights, with no page open. If a rule refuses it, the agent is told in one sentence and nothing changes; a change that is half done is put back. The agent's edits are not approved one by one, but you can see and undo them (see "What it changed" below). A module you uploaded yourself still waits until a person who may change it has it open.
 
 ## Turn agents on
 
@@ -94,6 +96,29 @@ The quickest stops, smallest first: **Revoke** the token, **Turn off** the agent
 
 Under **Turn off or delete**, choose **Delete** and type the agent's name to confirm. Its token stops working. What it added to a plan or list stays, and keeps its name.
 
+## Let it ask to delete
+
+An agent never deletes by itself. To let it ask:
+
+1. Open **Manage**, then the **Roles** tab.
+2. In the **Agents** group, tick **Ask to delete** (it names your environment's word for objects) in the **Agent** column. It is off to begin with.
+
+With it on, the agent can ask a person to delete one object, for example one poll or one task, and give a short reason. Nothing is deleted until an owner, the admin or that space's moderator approves that one ask. The agent can have 10 asks waiting and make 30 a day; after you decline an ask it can't ask about that object for 7 days. An ask not answered in 7 days ends.
+
+### Answer an ask
+
+You are told in three places: the bell shows "N asks from agents wait for you" (and one line for each ask), a space shows an **Agents** entry beside **Set up** with a badge, and the agent's page shows **Waiting for you**. The **Agents** entry is shown only to that space's owners, the admin and its moderators, and only while something waits or changed in the last 7 days.
+
+1. Open the bell line, or choose **Agents** in the space.
+2. Under **Waiting for you**, choose **Approve** or **Decline** on an ask.
+3. **Approve** opens "Delete the <kind> "<title>"?": what it is, where it is, who asked, what goes with it, how many objects link to it and the agent's reason. Choose **Delete** to delete it, or **Decline**. Close or Escape answers nothing.
+
+If you can't approve it (the module's own rules don't let you delete that object), the reason shows greyed where **Approve** would be, and you can still **Decline**. If the object changed after the agent asked, the ask ends with "That changed since <agent> asked. Nothing was deleted." Each ask is answered once.
+
+### What it changed
+
+Under **What it changed** (on the space's **Agents** view and on the agent's page) is everything an agent added, edited or deleted in the last 7 days, newest first, each with **Undo**. Undo puts the earlier value back, or the deleted object back with what went with it, and works only if nobody changed it since; if it can't, the reason shows in grey ("That has been changed since, so undo would lose that change."). A change can be undone by someone who could have made it themselves.
+
 ## What it did
 
 At the bottom of the agent's page, **What it did** lists what the agent has done, newest first, in plain words, each with the time and the address it came from:
@@ -122,7 +147,7 @@ On the agent's page, change the name and choose **Save name**.
 ## Good to know
 
 - A member can't see agents' tokens or logs, and an agent's token can't reach Manage.
-- The change an agent asks for appears when someone with the right opens the module, not before. If a plan looks unchanged, open it.
+- A change an agent asks for is made when it asks, not when someone opens the module (an uploaded module is the exception). If a plan looks unchanged, check **What it did** and **What it changed**.
 - What the assistant does with what it reads is up to it. Anything people write in a space can end up in front of it, so make an agent a member only of spaces whose content you are happy for it to read.
 - Next, [Connecting Claude](userguide-connecting-claude.md).
 - The routes are in the [Agents API](../api/api-agents.md); how it is built is in [Agent access architecture](../architecture/architecture-agent-access.md).

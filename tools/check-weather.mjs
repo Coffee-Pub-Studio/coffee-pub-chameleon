@@ -2,25 +2,26 @@
 /*
  * check-weather.mjs -- the weather lookup on its own (server/weather.js; documentation/plans/plan-itinerary-weather.md, step 1),
  * against a stand-in HTTP service on this machine (no real network):
- *   - reading an Open-Meteo-shaped answer into day records, and the code table (every code has one of the SDK's words);
+ *   - checking what an adapter's parse gave (a day, a word of the SDK's eight, a believable temperature) and the words table;
  *   - the window: 30 days back to 13 ahead, nothing beyond, and a run outside it is refused before anything is sent;
- *   - what is sent: a position rounded to 2 decimals, the run of days, the fields, the time zone, the key when there is one,
+ *   - what is sent: a position rounded to 2 decimals, the run of days,
  *     the user-agent, and nothing else (no name, no space, no person);
  *   - the cache: good 3 hours for a forecast day and 24 for a past day, a day older than 40 days dropped, the 20,000-day cap
  *     (the oldest fetched going first), written to DATA_DIR/weather.json and read back, holding nothing identifying;
  *   - a failing service, a slow one, an oversized body, a non-weather answer, a redirect kept on the service, a redirect to a
  *     private address refused (as a link preview refuses it), a redirect elsewhere asked at exactly the addresses that were
- *     checked (never looked up a second time), too many redirects, and https only for a preset.
+ *     checked (never looked up a second time), too many redirects, and https only for an adapter that does not say otherwise.
  *   - the user-agent: the product and its version only, no contact address.
  * And the route on a real server (step 2), GET /api/modules/:id/weather, with stand-ins for the weather service and the
  * place search: the manifest's declaration; nothing sent with no provider (and the stand-ins see nothing); a day's place (its
  * first stop at a saved place, else the trip's main place, else none); the exact requests the stand-ins received (a rounded
  * position and days; the main place's text to the place search and nothing else); the range; who may read (a member, a
- * guest by the module's view permission, nobody in a closed space, not a person in another space); the key never answered by
- * any route nor written in the open; the limit; a failing service; a picture map is not checked here.
+ * guest by the module's view permission, nobody in a closed space, not a person in another space); the limit; a failing service; a picture map is not checked here.
  * And the agent read (step 5): an agent's token reads the route through the gate (the Agent column's view row, its own spaces,
  * never a closed one), the MCP tool read_weather answers the same days, each call one read and one log line naming the route,
- * and neither ever holds the key.
+ * and neither leaves any service address or key (there is none to leave).
+ * The adapter used throughout is the test stand-in (server/weather-providers/test-standin.js); no real service is registered, and
+ * the check asserts the Itinerary offers none but None.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -36,7 +37,7 @@ const W = require('../server/weather.js');
 const { getOnce } = require('../server/link-preview.js');
 const pkg = require('../package.json');
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { WeatherCache, WeatherError, askWeather, weatherDays, parseWeather, dayAnswer, dayState, daysBetween, positionKey, CODES, WORDS } = W;
+const { WeatherCache, WeatherError, askWeather, weatherDays, cleanDays, dayAnswer, dayState, daysBetween, positionKey, WORD_TEXT, WORDS } = W;
 
 let n = 0;
 const test = async (name, fn) => {
@@ -44,18 +45,9 @@ const test = async (name, fn) => {
 };
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'weather-'));
 const NOW = Date.parse('2026-12-01T10:00:00Z');
-const answer = (days, extra = {}) => ({
-  latitude: 48.86, longitude: 2.29, timezone: 'Europe/Paris',
-  daily_units: { time: 'iso8601', weather_code: 'wmo code', temperature_2m_max: '°C', temperature_2m_min: '°C', precipitation_probability_max: '%' },
-  daily: {
-    time: days.map((d) => d[0]),
-    weather_code: days.map((d) => d[1]),
-    temperature_2m_max: days.map((d) => d[2]),
-    temperature_2m_min: days.map((d) => d[3]),
-    precipitation_probability_max: days.map((d) => d[4]),
-  },
-  ...extra,
-});
+// The stand-in's answer, from rows of [day, code, high, low, rain]; a number is the check's shorthand for a word.
+const NUM = { 0: 'clear', 1: 'partly', 3: 'cloudy', 45: 'fog', 51: 'drizzle', 61: 'rain', 71: 'snow', 95: 'storm' };
+const answer = (rows) => ({ days: rows.map(([day, code, high, low, rain]) => ({ day, code: typeof code === 'number' ? NUM[code] || 'bogus' : code, high, low, rain })) });
 
 // The stand-in service: answers by what the test sets, and keeps every request it received.
 const seen = [];
@@ -65,41 +57,53 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 const ADDRESS = `http://127.0.0.1:${port}/v1/forecast`;
 const json = (body, status = 200, headers = {}) => (req, res) => { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(typeof body === 'string' ? body : JSON.stringify(body)); };
-const ask = (from, to, opts = {}) => askWeather(opts.address || ADDRESS, opts.key || '', 48.858372, 2.294481, from, to, { now: NOW, ...opts });
+process.env.WEATHER_TEST_STANDIN = ADDRESS;
+const STANDIN = require('../server/weather-providers/test-standin.js');
+// An adapter asking `address` (the stand-in's way of building it), with `extra` set on it.
+const at = (address, extra = {}) => ({ ...STANDIN, ...extra, request: (la, lo, f, t) => { const u = new URL(address); u.search = ''; for (const [k, v] of Object.entries({ lat: la, lon: lo, from: f, to: t })) u.searchParams.set(k, v); return u.href; } });
+const ask = (from, to, opts = {}) => askWeather(opts.provider || STANDIN, 48.858372, 2.294481, from, to, { now: NOW, ...opts });
 const refused = async (p, kind) => {
   try { await p; } catch (err) { assert.ok(err instanceof WeatherError, `a WeatherError, not ${err && err.message}`); assert.equal(err.kind, kind, err.message); return err; }
   assert.fail(`expected a refusal (${kind})`);
 };
 
-await test('reading an answer', () => {
-  const days = parseWeather(answer([
-    ['2026-12-01', 61, 12.34, 5.06, 40],
-    ['2026-12-02', 0, 14, 6, null],
-    ['2026-12-03', 1234, 14, 6, 10], // an unknown code: left out
-    ['2026-12-04', 3, null, 6, 10], // no high: left out
-    ['not a day', 3, 10, 5, 0],
-    ['2026-12-05', 95, 20, 15, 140], // a chance past 100 is held at 100
-  ]));
-  assert.deepEqual(days, {
-    '2026-12-01': { code: 61, high: 12.3, low: 5.1, rain: 40 },
-    '2026-12-02': { code: 0, high: 14, low: 6, rain: null },
-    '2026-12-05': { code: 95, high: 20, low: 15, rain: 100 },
+await test('checking what an adapter gave', () => {
+  const days = cleanDays({
+    '2026-12-01': { code: 'rain', high: 12.34, low: 5.06, rain: 40 },
+    '2026-12-02': { code: 'clear', high: 14, low: 6, rain: null },
+    '2026-12-03': { code: 'bogus', high: 14, low: 6, rain: 10 }, // not one of the words: left out
+    '2026-12-04': { code: 'cloudy', high: null, low: 6, rain: 10 }, // no high: left out
+    'not a day': { code: 'cloudy', high: 10, low: 5, rain: 0 },
+    '2026-12-05': { code: 'storm', high: 20, low: 15, rain: 140 }, // a chance past 100 is held at 100
+    '2026-12-06': { code: 'snow', high: 900, low: 1, rain: 1 }, // not a believable temperature
   });
-  assert.deepEqual(parseWeather(null), {});
-  assert.deepEqual(parseWeather({ daily: { time: 'x' } }), {});
-  // The older field name, and an answer in Fahrenheit is kept as Celsius.
-  const f = parseWeather({ daily_units: { temperature_2m_max: '°F' }, daily: { time: ['2026-12-01'], weathercode: [2], temperature_2m_max: [50], temperature_2m_min: [32] } });
-  assert.deepEqual(f, { '2026-12-01': { code: 2, high: 10, low: 0, rain: null } });
+  assert.deepEqual(days, {
+    '2026-12-01': { code: 'rain', high: 12.3, low: 5.1, rain: 40 },
+    '2026-12-02': { code: 'clear', high: 14, low: 6, rain: null },
+    '2026-12-05': { code: 'storm', high: 20, low: 15, rain: 100 },
+  });
+  assert.deepEqual(cleanDays(null), {});
+  assert.deepEqual(cleanDays('x'), {});
+  // The stand-in's own reading: a word it does not know is left out; an answer that is not its own throws.
+  assert.deepEqual(STANDIN.parse(answer([['2026-12-01', 61, 12, 5, 40], ['2026-12-02', 1234, 1, 1, 1]])), { '2026-12-01': { code: 'rain', high: 12, low: 5, rain: 40 } });
+  assert.throws(() => STANDIN.parse({ hello: 1 }));
 });
 
-await test('the code table', () => {
-  for (const [code, [word, words]] of Object.entries(CODES)) {
-    assert.ok(WORDS.includes(word), `code ${code}: ${word} is one of the SDK's words`);
-    assert.ok(words && words.length <= 40 && /^[A-Z][a-z ]+$/.test(words), `code ${code}: plain words`);
-  }
-  for (const w of WORDS) assert.ok(Object.values(CODES).some(([x]) => x === w), `${w} is used`);
-  assert.deepEqual(dayAnswer({ code: 61, high: 22.4, low: 13.6, rain: 40 }), { code: 'rain', words: 'Light rain', high: 22, low: 14, rain: 40 });
-  assert.deepEqual(dayAnswer({ code: 0, high: 22, low: 0, rain: null }, 'f'), { code: 'clear', words: 'Clear sky', high: 72, low: 32, rain: null });
+await test('the words table, and no service registered', () => {
+  assert.deepEqual(Object.keys(WORD_TEXT), WORDS);
+  for (const [word, words] of Object.entries(WORD_TEXT)) assert.ok(words && words.length <= 40 && /^[A-Z][a-z ]+$/.test(words), `${word}: plain words`);
+  assert.equal(WORDS.length, 8);
+  assert.deepEqual(dayAnswer({ code: 'rain', high: 22.4, low: 13.6, rain: 40 }), { code: 'rain', words: 'Rain', high: 22, low: 14, rain: 40 });
+  assert.deepEqual(dayAnswer({ code: 'clear', high: 22, low: 0, rain: null }, 'f'), { code: 'clear', words: 'Clear sky', high: 72, low: 32, rain: null });
+  // The registry: with the stand-in's variable unset, no adapter is registered at all (a fresh process answers this).
+  const out = require('node:child_process').execFileSync(process.execPath, ['-e', "const r=require('./server/weather-providers'); console.log(JSON.stringify(r.list().map(p=>p.id)))"], { cwd: ROOT, env: { PATH: process.env.PATH } }).toString().trim();
+  assert.equal(out, '[]', 'no adapter is registered unless the check asks for the stand-in');
+  assert.ok(STANDIN.name.startsWith('Test') && /not a weather service/.test(STANDIN.name), 'the stand-in does not look like a product');
+  const { valid } = require('../server/weather-providers');
+  assert.ok(valid(STANDIN));
+  assert.ok(!valid({ ...STANDIN, needsKey: true }), 'an adapter needing a key is not registered');
+  assert.ok(!valid({ ...STANDIN, parse: null }));
+  assert.ok(!valid({ ...STANDIN, id: 'Bad Id' }));
 });
 
 await test('the window', () => {
@@ -122,25 +126,22 @@ await test('the window', () => {
 await test('what is sent, and only that', async () => {
   seen.length = 0;
   reply = json(answer([['2026-11-30', 3, 10, 4, 20], ['2026-12-01', 61, 12, 5, 40], ['2026-12-02', 0, 14, 6, 0], ['2026-12-03', 0, 14, 6, 0]]));
-  const days = await ask('2026-11-30', '2026-12-02', { key: 'k-123' });
+  const days = await ask('2026-11-30', '2026-12-02');
   assert.deepEqual(Object.keys(days), ['2026-11-30', '2026-12-01', '2026-12-02'], 'only the days asked for');
   assert.equal(seen.length, 1);
   const u = new URL(seen[0].url, 'http://x');
   assert.equal(u.pathname, '/v1/forecast');
-  assert.deepEqual(Object.fromEntries(u.searchParams), {
-    latitude: '48.86', longitude: '2.29', daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
-    timezone: 'auto', start_date: '2026-11-30', end_date: '2026-12-02', apikey: 'k-123',
-  });
+  // The adapter is given a position rounded to 2 decimals and the days, and nothing else.
+  assert.deepEqual(Object.fromEntries(u.searchParams), { lat: '48.86', lon: '2.29', from: '2026-11-30', to: '2026-12-02' });
   // The product and its version, and no contact address: nothing that says who runs this server.
   assert.match(seen[0].headers['user-agent'], new RegExp(`^[\\x21-\\x7e]+/${pkg.version.replace(/[.]/g, '\\.')}$`));
   assert.ok(!/https?:|@|\(/.test(seen[0].headers['user-agent']), 'no address in the user-agent');
   assert.equal(seen[0].headers.cookie, undefined);
-  // No key: no key sent. The admin's own query is replaced, never added to.
-  seen.length = 0;
-  await askWeather(`${ADDRESS}?name=Paris`, '', 48.858372, 2.294481, '2026-12-01', '2026-12-01', { now: NOW });
-  const q = new URL(seen[0].url, 'http://x').searchParams;
-  assert.equal(q.get('apikey'), null);
-  assert.equal(q.get('name'), null);
+  // An adapter that is given more than it should is not given it: request gets four arguments, a position and two days.
+  assert.equal(STANDIN.request.length, 4);
+  const given = [];
+  await ask('2026-12-01', '2026-12-01', { provider: { ...STANDIN, request: (...args) => { given.push(args); return STANDIN.request(...args); } } });
+  assert.deepEqual(given, [['48.86', '2.29', '2026-12-01', '2026-12-01']]);
 });
 
 await test('nothing beyond the window is asked', async () => {
@@ -148,10 +149,10 @@ await test('nothing beyond the window is asked', async () => {
   await refused(ask('2026-12-10', '2026-12-15'), 'range');
   await refused(ask('2026-10-31', '2026-11-02'), 'range');
   await refused(ask('2026-12-02', '2026-12-01'), 'range');
-  await refused(askWeather(ADDRESS, '', 95, 0, '2026-12-01', '2026-12-01', { now: NOW }), 'range');
-  await refused(ask('2026-12-01', '2026-12-01', { address: 'ftp://127.0.0.1/' }), 'blocked');
-  await refused(ask('2026-12-01', '2026-12-01', { address: `http://u:p@127.0.0.1:${port}/` }), 'blocked');
-  await refused(ask('2026-12-01', '2026-12-01', { httpsOnly: true }), 'blocked'); // a preset is https only
+  await refused(askWeather(STANDIN, 95, 0, '2026-12-01', '2026-12-01', { now: NOW }), 'range');
+  await refused(ask('2026-12-01', '2026-12-01', { provider: at('ftp://127.0.0.1/') }), 'blocked');
+  await refused(ask('2026-12-01', '2026-12-01', { provider: at(`http://u:p@127.0.0.1:${port}/`) }), 'blocked');
+  await refused(ask('2026-12-01', '2026-12-01', { provider: at(ADDRESS, { allowHttp: false }) }), 'blocked'); // an adapter is https only unless it says otherwise
   assert.equal(seen.length, 0, 'the stand-in saw nothing');
 });
 
@@ -163,9 +164,9 @@ await test('a failing service', async () => {
   reply = json({ hello: 1 });
   await refused(ask('2026-12-01', '2026-12-01'), 'bad');
   // Too much: declared, and sent without saying.
-  reply = json(JSON.stringify({ daily: { time: [] }, pad: 'x'.repeat(W.MAX_BODY) }));
+  reply = json(JSON.stringify({ days: [], pad: 'x'.repeat(W.MAX_BODY) }));
   await refused(ask('2026-12-01', '2026-12-01'), 'big');
-  reply = (req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write(`{"daily":{"time":[]},"pad":"${'x'.repeat(W.MAX_BODY)}`); res.end('"}'); };
+  reply = (req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write(`{"days":[],"pad":"${'x'.repeat(W.MAX_BODY)}`); res.end('"}'); };
   const chunked = (req, res) => { res.writeHead(200, { 'content-type': 'application/json', 'transfer-encoding': 'chunked' }); for (let i = 0; i < 50; i += 1) res.write('x'.repeat(10 * 1024)); res.end(); };
   await refused(ask('2026-12-01', '2026-12-01'), 'big');
   reply = chunked;
@@ -175,7 +176,7 @@ await test('a failing service', async () => {
   await new Promise((r) => shut.listen(0, '127.0.0.1', r));
   const gone = `http://127.0.0.1:${shut.address().port}/`;
   await new Promise((r) => shut.close(r));
-  await refused(ask('2026-12-01', '2026-12-01', { address: gone }), 'unreachable');
+  await refused(ask('2026-12-01', '2026-12-01', { provider: at(gone) }), 'unreachable');
   // Too slow: the whole ask is given up (a stand-in fetch, so the check does not wait 6 seconds).
   const slow = (url, opts) => new Promise((_, reject) => { opts.signal.addEventListener('abort', () => reject(Object.assign(new Error('late'), { name: 'TimeoutError' }))); });
   const realTimeout = AbortSignal.timeout;
@@ -188,7 +189,7 @@ await test('redirects', async () => {
   const good = answer([['2026-12-01', 0, 10, 2, 0]]);
   // On the same service: followed.
   reply = (req, res) => (req.url.startsWith('/v1/forecast') ? json('', 302, { location: `/moved${req.url.slice(12)}` })(req, res) : json(good)(req, res));
-  assert.deepEqual(await ask('2026-12-01', '2026-12-01'), { '2026-12-01': { code: 0, high: 10, low: 2, rain: 0 } });
+  assert.deepEqual(await ask('2026-12-01', '2026-12-01'), { '2026-12-01': { code: 'clear', high: 10, low: 2, rain: 0 } });
   // Elsewhere, to a private address: refused before anything is asked there.
   seen.length = 0;
   reply = json('', 302, { location: `http://127.0.0.2:${port}/v1/forecast` });
@@ -218,13 +219,13 @@ await test('redirects', async () => {
   await ask('2026-12-01', '2026-12-01', { fetchImpl: spy, getImpl: toStandIn, lookup: publicLookup });
   assert.ok(fetched.length === 1 && fetched[0].startsWith(ADDRESS), 'only the service itself is asked through fetch');
   // Elsewhere and then on again: each hop is checked and pinned; too much there is refused; a failure there is unreachable.
-  reply = (req, res) => (req.url.startsWith('/v1/other') ? json(JSON.stringify({ daily: { time: [] }, pad: 'x'.repeat(W.MAX_BODY) }))(req, res) : json('', 302, { location: 'http://weather.example/v1/other' })(req, res));
+  reply = (req, res) => (req.url.startsWith('/v1/other') ? json(JSON.stringify({ days: [], pad: 'x'.repeat(W.MAX_BODY) }))(req, res) : json('', 302, { location: 'http://weather.example/v1/other' })(req, res));
   await refused(ask('2026-12-01', '2026-12-01', { getImpl: toStandIn, lookup: publicLookup }), 'big');
   reply = json('', 302, { location: 'http://weather.example/v1/other' });
   await refused(ask('2026-12-01', '2026-12-01', { getImpl: async () => { throw Object.assign(new Error('no'), { code: 'unreachable' }); }, lookup: publicLookup }), 'unreachable');
   reply = (req, res) => (req.url.startsWith('/v1/other') ? json('', 302, { location: 'http://inner.example/x' })(req, res) : json('', 302, { location: 'http://weather.example/v1/other' })(req, res));
   await refused(ask('2026-12-01', '2026-12-01', { getImpl: toStandIn, lookup: async (name) => [{ address: name === 'inner.example' ? '192.168.1.5' : '93.184.216.34', family: 4 }] }), 'blocked');
-  // To another kind of address, and for a preset to plain http.
+  // To another kind of address, and for an adapter to plain http.
   reply = json('', 302, { location: 'file:///etc/passwd' });
   await refused(ask('2026-12-01', '2026-12-01'), 'blocked');
   // Round and round.
@@ -235,8 +236,8 @@ await test('redirects', async () => {
 await test('the cache: ages, the window, what is kept', async () => {
   let now = NOW;
   const c = new WeatherCache(dir, { now: () => now, saveMs: 10 });
-  c.remember(48.858372, 2.294481, { '2026-11-30': { code: 3, high: 9, low: 3, rain: 10 }, '2026-12-01': { code: 61, high: 12, low: 5, rain: 40 } });
-  assert.deepEqual(c.get(48.86, 2.29, '2026-12-01'), { code: 61, high: 12, low: 5, rain: 40, got: NOW }, 'kept by the rounded position');
+  c.remember(48.858372, 2.294481, { '2026-11-30': { code: 'cloudy', high: 9, low: 3, rain: 10 }, '2026-12-01': { code: 'rain', high: 12, low: 5, rain: 40 } });
+  assert.deepEqual(c.get(48.86, 2.29, '2026-12-01'), { code: 'rain', high: 12, low: 5, rain: 40, got: NOW }, 'kept by the rounded position');
   assert.equal(c.get(48.87, 2.29, '2026-12-01'), null, 'another place');
   now = NOW + 3 * 3600 * 1000 - 1;
   assert.ok(c.get(48.86, 2.29, '2026-12-01'), 'a forecast day is good for 3 hours');
@@ -247,7 +248,7 @@ await test('the cache: ages, the window, what is kept', async () => {
   assert.equal(c.get(48.86, 2.29, '2026-11-30'), null, 'for 24 hours');
   // A day older than 40 days is dropped.
   now = NOW;
-  c.remember(10, 10, { '2026-10-23': { code: 0, high: 1, low: 0, rain: 0 }, '2026-10-22': { code: 0, high: 1, low: 0, rain: 0 }, '2026-10-21': { code: 0, high: 1, low: 0, rain: 0 } });
+  c.remember(10, 10, { '2026-10-23': { code: 'clear', high: 1, low: 0, rain: 0 }, '2026-10-22': { code: 'clear', high: 1, low: 0, rain: 0 }, '2026-10-21': { code: 'clear', high: 1, low: 0, rain: 0 } });
   assert.equal(c.all().has('10.00,10.00|2026-10-21'), false, 'older than 40 days: not kept');
   assert.equal(c.all().has('10.00,10.00|2026-10-22'), true);
   now = NOW + 86400000;
@@ -262,12 +263,12 @@ await test('the cache: ages, the window, what is kept', async () => {
     assert.match(k, /^-?\d+\.\d{2},-?\d+\.\d{2}\|\d{4}-\d{2}-\d{2}$/, 'a key is a rounded position and a day');
     assert.deepEqual(Object.keys(r).sort(), ['code', 'got', 'high', 'low', 'rain'], 'a record holds only its five fields');
   }
-  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|code|high|low|rain|got|null)"|null/g, '')), 'no name, word or address in the file');
+  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|code|high|low|rain|got|null|clear|partly|cloudy|fog|drizzle|snow|storm)"|"rain"|null/g, '')), 'no name, word or address in the file');
   // Read back by a new cache.
   const back = new WeatherCache(dir, { now: () => now });
-  assert.deepEqual(back.get(48.86, 2.29, '2026-12-01'), { code: 61, high: 12, low: 5, rain: 40, got: NOW });
+  assert.deepEqual(back.get(48.86, 2.29, '2026-12-01'), { code: 'rain', high: 12, low: 5, rain: 40, got: NOW });
   // A file that is not ours starts empty and says so; a bad record is skipped.
-  fs.writeFileSync(path.join(dir, 'weather.json'), JSON.stringify({ days: { 'Paris|2026-12-01': { code: 0, high: 1, low: 0, rain: 0, got: NOW }, '1.00,1.00|2026-12-01': { code: 0, high: 1, low: 0, got: NOW, name: 'Ann' } } }));
+  fs.writeFileSync(path.join(dir, 'weather.json'), JSON.stringify({ days: { 'Paris|2026-12-01': { code: 'clear', high: 1, low: 0, rain: 0, got: NOW }, '1.00,1.00|2026-12-01': { code: 'clear', high: 1, low: 0, got: NOW, name: 'Ann' } } }));
   const odd = new WeatherCache(dir, { now: () => now });
   assert.equal(odd.size(), 1);
   assert.deepEqual(Object.keys(odd.get(1, 1, '2026-12-01')).sort(), ['code', 'got', 'high', 'low', 'rain'], 'a stray field is not kept');
@@ -285,7 +286,7 @@ await test('the cap', () => {
   let now = NOW;
   const capDir = fs.mkdtempSync(path.join(os.tmpdir(), 'weather-cap-'));
   const c = new WeatherCache(capDir, { now: () => now, saveMs: 10 });
-  const day = { '2026-12-01': { code: 0, high: 1, low: 0, rain: 0 } };
+  const day = { '2026-12-01': { code: 'clear', high: 1, low: 0, rain: 0 } };
   // 20,000 positions, one day each, each fetched a moment later than the one before; then 5 more.
   for (let i = 0; i < W.MAX_DAYS + 5; i += 1) { now = NOW + i; c.remember(Math.floor(i / 300) - 45, (i % 300) / 2 - 75, day); }
   assert.equal(c.size(), W.MAX_DAYS);
@@ -297,34 +298,34 @@ await test('the cap', () => {
 await test('a run of days: kept first, one ask for the rest', async () => {
   const runDir = fs.mkdtempSync(path.join(os.tmpdir(), 'weather-run-'));
   const c = new WeatherCache(runDir, { now: () => NOW, saveMs: 10 });
-  c.remember(48.86, 2.29, { '2026-12-01': { code: 0, high: 20, low: 10, rain: 0 } });
+  c.remember(48.86, 2.29, { '2026-12-01': { code: 'clear', high: 20, low: 10, rain: 0 } });
   seen.length = 0;
   reply = json(answer([['2026-12-02', 61, 12, 5, 40], ['2026-12-03', 3, 11, 4, 10]]));
   const days = ['2026-10-01', '2026-12-01', '2026-12-02', '2026-12-03', '2026-12-04', '2026-12-20'];
-  const { days: out, failed } = await weatherDays(c, { address: ADDRESS }, 48.858, 2.2945, days, { units: 'c' });
+  const { days: out, failed } = await weatherDays(c, STANDIN, 48.858, 2.2945, days, { units: 'c' });
   assert.equal(failed, null);
   assert.deepEqual(out, {
     '2026-10-01': { state: 'outOfRange' },
     '2026-12-01': { state: 'forecast', code: 'clear', words: 'Clear sky', high: 20, low: 10, rain: 0 },
-    '2026-12-02': { state: 'forecast', code: 'rain', words: 'Light rain', high: 12, low: 5, rain: 40 },
+    '2026-12-02': { state: 'forecast', code: 'rain', words: 'Rain', high: 12, low: 5, rain: 40 },
     '2026-12-03': { state: 'forecast', code: 'cloudy', words: 'Cloudy', high: 11, low: 4, rain: 10 },
     '2026-12-04': { state: 'unavailable' }, // the service left it out
     '2026-12-20': { state: 'outOfRange' },
   });
   assert.equal(seen.length, 1, 'one ask');
   const q = new URL(seen[0].url, 'http://x').searchParams;
-  assert.equal(q.get('start_date'), '2026-12-02');
-  assert.equal(q.get('end_date'), '2026-12-04');
+  assert.equal(q.get('from'), '2026-12-02');
+  assert.equal(q.get('to'), '2026-12-04');
   // Asked again: all kept, nothing sent. The service failing leaves the kept days and says unavailable for the rest.
   seen.length = 0;
   reply = json({ error: true }, 500);
-  const again = await weatherDays(c, { address: ADDRESS }, 48.858, 2.2945, ['2026-12-01', '2026-12-02', '2026-12-05'], { units: 'f' });
+  const again = await weatherDays(c, STANDIN, 48.858, 2.2945, ['2026-12-01', '2026-12-02', '2026-12-05'], { units: 'f' });
   assert.equal(again.days['2026-12-01'].high, 68);
   assert.equal(again.days['2026-12-05'].state, 'unavailable');
   assert.equal(again.failed.kind, 'status');
   assert.equal(seen.length, 1);
   seen.length = 0;
-  await weatherDays(c, { address: ADDRESS }, 48.858, 2.2945, ['2026-12-01', '2026-12-02']);
+  await weatherDays(c, STANDIN, 48.858, 2.2945, ['2026-12-01', '2026-12-02']);
   assert.equal(seen.length, 0, 'all kept: nothing sent');
   // No service: nothing goes out.
   const none = await weatherDays(c, null, 1, 1, ['2026-12-01']);
@@ -340,36 +341,38 @@ await test('the module holds no link to a person', () => {
 });
 
 // --- the manifest's declaration ---------------------------------------------------------------------------------------------
-await test('the declaration: settings of the right kind, https presets, where a day is', () => {
+await test('the declaration: settings of the right kind, where a day is, registered adapters as choices', () => {
   const { cleanWeather, ModuleError } = require('../server/modules.js');
-  const settings = [
-    { key: 'p', type: 'choice', scope: 'environment' }, { key: 'a', type: 'url', scope: 'environment' }, { key: 'k', type: 'secret', scope: 'environment' },
-    { key: 'u', type: 'choice', scope: 'environment' }, { key: 't', type: 'text', scope: 'environment' }, { key: 'sp', type: 'choice', scope: 'space' },
+  const mk = () => [
+    { key: 'p', type: 'choice', scope: 'environment', options: [{ value: 'none', label: 'None' }] }, { key: 'u', type: 'choice', scope: 'environment' },
+    { key: 't', type: 'text', scope: 'environment' }, { key: 'sp', type: 'choice', scope: 'space' },
   ];
-  const good = { provider: 'p', address: 'a', key: 'k', units: 'u', providers: { 'open-meteo': { name: 'Open-Meteo', address: 'https://api.open-meteo.com/v1/forecast', credit: 'Weather by Open-Meteo.com' } }, stops: { prefix: 'plan:', day: 'date', time: 'time', order: 'order', place: 'placeRef' }, main: { key: 'trip:main', place: 'destination', from: 'start', to: 'end' } };
+  const settings = mk();
+  const good = { provider: 'p', units: 'u', stops: { prefix: 'plan:', day: 'date', time: 'time', order: 'order', place: 'placeRef' }, main: { key: 'trip:main', place: 'destination', from: 'start', to: 'end' } };
   const scope = ['environment', 'space'];
   assert.equal(cleanWeather(undefined, settings, scope), null, 'none by default');
-  assert.deepEqual(cleanWeather(good, settings, scope), { ...good, custom: 'custom' });
-  assert.deepEqual(cleanWeather({ provider: 'p', address: 'a', main: { key: 'trip:main' } }, settings, scope), { provider: 'p', address: 'a', key: '', units: '', custom: 'custom', providers: {}, stops: null, main: { key: 'trip:main', place: '', from: '', to: '' } });
-  const bad = (raw, re, sc = scope) => assert.throws(() => cleanWeather(raw, settings, sc), (err) => err instanceof ModuleError && re.test(err.message), JSON.stringify(raw).slice(0, 80));
+  assert.deepEqual(cleanWeather(good, settings, scope), good);
+  // The registered adapter (here the stand-in) is a choice of the provider setting, once however often it is cleaned.
+  cleanWeather(good, settings, scope);
+  assert.deepEqual(settings[0].options.map((o) => o.value), ['none', 'standin']);
+  assert.deepEqual(cleanWeather({ provider: 'p', main: { key: 'trip:main' } }, mk(), scope), { provider: 'p', units: '', stops: null, main: { key: 'trip:main', place: '', from: '', to: '' } });
+  const bad = (raw, re, sc = scope) => assert.throws(() => cleanWeather(raw, mk(), sc), (err) => err instanceof ModuleError && re.test(err.message), JSON.stringify(raw).slice(0, 80));
   bad({ ...good, provider: 't' }, /`provider` choice setting/);
-  bad({ ...good, provider: 'sp' }, /for the environment/);
-  bad({ ...good, address: 'nope' }, /`address` url setting/);
-  bad({ ...good, key: 't' }, /`key` must name a secret setting/);
+  bad({ ...good, provider: 'sp' }, /`provider` choice setting/);
   bad({ ...good, units: 'a' }, /`units` must name a choice setting/);
-  bad({ ...good, providers: { x: { address: 'http://plain.example/' } } }, /needs an https address/);
   bad({ ...good, stops: undefined, main: undefined }, /`stops` or `main`/);
   bad({ ...good, stops: { prefix: 'plan:', day: 'date' } }, /stops `place` must be a field name/);
   bad({ ...good, stops: { ...good.stops, day: '__proto__' } }, /field name/);
   bad({ ...good, main: { key: '../x' } }, /main needs a `key`/);
   bad(good, /"space" scope/, ['environment']);
-  assert.equal(Object.keys(cleanWeather({ ...good, providers: Object.fromEntries('abcdefg'.split('').map((c) => [c, { address: 'https://x.example/' }])) }, settings, scope).providers).length, 5, 'at most 5 presets');
-  // The Itinerary's own declaration reads, and none is the default.
+  // The Itinerary's own declaration reads, none is the default, and no service, address or key is in it.
   const travel = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'travel', 'module.json'), 'utf8'));
   const provider = travel.settings.find((d) => d.key === travel.weather.provider);
   assert.equal(provider.default, 'none');
-  assert.equal(travel.settings.find((d) => d.key === travel.weather.key).type, 'secret');
-  assert.ok(Object.values(travel.weather.providers).every((v) => v.address.startsWith('https://')));
+  assert.deepEqual(provider.options.map((o) => o.value), ['none'], 'the Itinerary names no service: the server offers the registered ones');
+  assert.deepEqual(Object.keys(travel.weather).sort(), ['main', 'provider', 'stops', 'units']);
+  assert.ok(!travel.settings.some((d) => /^weather(Address|Key)$/.test(d.key)), 'no address or key to type');
+  assert.ok(!/open-?meteo|apikey|https?:\/\/api\./i.test(JSON.stringify(travel)), 'no service named or addressed');
 });
 
 // --- the route, on a real server ------------------------------------------------------------------------------------------
@@ -380,7 +383,7 @@ const wx = http.createServer((req, res) => {
   wxSeen.push({ url: req.url, headers: req.headers });
   if (wxFails) { res.writeHead(500); return res.end(); }
   const q = new URL(req.url, 'http://x').searchParams;
-  json(answer(daysBetween(q.get('start_date'), q.get('end_date')).map((d) => [d, 61, 12.4, 5.2, 40])))(req, res);
+  json(answer(daysBetween(q.get('from'), q.get('to')).map((d) => [d, 61, 12.4, 5.2, 40])))(req, res);
 });
 const geoSeen = [];
 const geo = http.createServer((req, res) => {
@@ -396,7 +399,7 @@ const GEO = `http://127.0.0.1:${geo.address().port}/api`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'weather-route-'));
 const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
   cwd: ROOT,
-  env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret', ADMIN_PASSWORD: 'testpass1234', AGENT_TOKENS: 'true', LIVEKIT_API_URL: `http://127.0.0.1:${lk.address().port}` },
+  env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret', ADMIN_PASSWORD: 'testpass1234', AGENT_TOKENS: 'true', WEATHER_TEST_STANDIN: WX, LIVEKIT_API_URL: `http://127.0.0.1:${lk.address().port}` },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverOut = '';
@@ -428,7 +431,7 @@ const call = async (method, urlPath, { body, token, cookie } = {}) => {
 const ok = (r, what, status = 200) => { assert.equal(r.status, status, `${what}: ${r.status} ${r.text.slice(0, 300)}`); return r; };
 const today = new Date().toISOString().slice(0, 10);
 const plus = (k) => new Date(Date.parse(`${today}T00:00:00Z`) + k * 86400000).toISOString().slice(0, 10);
-const SECRET = 'wx-key-9f3b2c71d5';
+const SECRET = `127.0.0.1:${wx.address().port}`; // the service's address: never answered, never written down
 const S = {};
 const weatherOf = (space, who, q = '') => call('GET', `/api/modules/travel/weather?scope=space&space=${space}${q}`, who);
 const setTravel = (values) => call('PUT', '/api/modules/travel/settings/environment', { token: S.admin, body: { values } });
@@ -475,10 +478,9 @@ await live('no provider chosen: not configured, and nothing is sent anywhere', a
   wxSeen.length = 0; geoSeen.length = 0;
   const r = ok(await weatherOf(S.trip, { token: S.mia }), 'the weather, none chosen');
   assert.deepEqual(r.json, { configured: false });
-  // Not even with a place search chosen, a custom address typed and a key kept: the provider is still none.
+  // Not even with a place search chosen: the provider is still none.
   ok(await call('PUT', '/api/modules/maps/settings/environment', { token: S.admin, body: { values: { searchProvider: 'custom', search: GEO } } }), 'the place search is chosen');
-  ok(await setTravel({ weatherAddress: WX, weatherKey: SECRET }), 'an address and a key, the provider still none');
-  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'still none').json, { configured: false });
+    assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'still none').json, { configured: false });
   assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(0)}&to=${plus(5)}`), 'still none, with days').json, { configured: false });
   assert.equal(wxSeen.length, 0, 'the weather service saw nothing');
   assert.equal(geoSeen.length, 0, 'the place search saw nothing');
@@ -486,21 +488,24 @@ await live('no provider chosen: not configured, and nothing is sent anywhere', a
 });
 
 await live('a trip\'s days: the first stop at a saved place, else the main place; only rounded positions and days go out', async () => {
-  ok(await setTravel({ weatherProvider: 'custom' }), 'the custom service is chosen');
+  ok(await setTravel({ weatherProvider: 'standin' }), 'the stand-in is chosen');
+  const none = await setTravel({ weatherProvider: 'custom' });
+  assert.equal(none.status, 400, 'a service that is not registered is not a choice');
+  assert.equal((await setTravel({ weatherAddress: 'https://x.example/' })).status, 400, 'there is no address to type');
+  assert.equal((await setTravel({ weatherKey: 'k' })).status, 400, 'there is no key to keep');
   wxSeen.length = 0; geoSeen.length = 0;
   const r = ok(await weatherOf(S.trip, { token: S.mia }), 'the weather of the trip\'s own days');
   assert.equal(r.json.configured, true);
   assert.equal(r.json.units, 'c');
   assert.equal(r.json.credit, '');
   assert.deepEqual(Object.keys(r.json.days), [plus(1), plus(2), plus(3)], 'the trip\'s first to last day');
-  for (const d of Object.values(r.json.days)) assert.deepEqual(d, { state: 'forecast', code: 'rain', words: 'Light rain', high: 12, low: 5, rain: 40 });
+  for (const d of Object.values(r.json.days)) assert.deepEqual(d, { state: 'forecast', code: 'rain', words: 'Rain', high: 12, low: 5, rain: 40 });
   // What the weather service received: Porto for day 1 (the earliest stop with a position), the main place for days 2 and 3.
-  const sent = wxSeen.map((x) => params(x)).sort((a, b) => a.latitude.localeCompare(b.latitude));
-  const daily = 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max';
+  const sent = wxSeen.map((x) => params(x)).sort((a, b) => a.lat.localeCompare(b.lat));
   assert.deepEqual(sent, [
-    { latitude: '38.72', longitude: '-9.14', daily, timezone: 'auto', start_date: plus(2), end_date: plus(3), apikey: SECRET },
-    { latitude: '41.15', longitude: '-8.61', daily, timezone: 'auto', start_date: plus(1), end_date: plus(1), apikey: SECRET },
-  ], 'exactly a rounded position, the days, the fields, the time zone and the key');
+    { lat: '38.72', lon: '-9.14', from: plus(2), to: plus(3) },
+    { lat: '41.15', lon: '-8.61', from: plus(1), to: plus(1) },
+  ], 'exactly a rounded position and the days');
   for (const x of wxSeen) {
     assert.deepEqual(Object.keys(x.headers).filter((h) => !['host', 'connection', 'accept', 'user-agent', 'accept-language', 'sec-fetch-mode', 'accept-encoding'].includes(h)), [], 'no other header');
     assert.equal(x.headers.cookie, undefined);
@@ -539,8 +544,8 @@ await live('the range: 30 days back to 13 ahead, at most 60 days, real days', as
   assert.equal(r.days[plus(14)].state, 'outOfRange');
   assert.deepEqual(r.days[plus(14)], { state: 'outOfRange' });
   for (const x of wxSeen.map(params)) {
-    assert.ok(x.start_date >= plus(-30) && x.end_date <= plus(13), `nothing beyond the window is asked (${x.start_date} to ${x.end_date})`);
-    assert.deepEqual(Object.keys(x).sort(), ['apikey', 'daily', 'end_date', 'latitude', 'longitude', 'start_date', 'timezone']);
+    assert.ok(x.from >= plus(-30) && x.to <= plus(13), `nothing beyond the window is asked (${x.from} to ${x.to})`);
+    assert.deepEqual(Object.keys(x).sort(), ['from', 'lat', 'lon', 'to']);
   }
   wxSeen.length = 0;
   const far = ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(40)}&to=${plus(45)}`), 'far ahead').json;
@@ -592,7 +597,7 @@ await live('who may read: the module\'s view permission, the space', async () =>
   ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.maps.view': false } }), 'members may no longer see Maps');
   wxSeen.length = 0;
   ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(1)}&to=${plus(1)}`), 'a member without Maps');
-  assert.ok(wxSeen.every((x) => params(x).latitude === '38.72'), 'only the main place is asked for, never the hidden place');
+  assert.ok(wxSeen.every((x) => params(x).lat === '38.72'), 'only the main place is asked for, never the hidden place');
   ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.maps.view': true } }), 'members may again');
   // A closed space: a member is refused, and nothing is asked.
   ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: true } }), 'the space is closed');
@@ -631,7 +636,7 @@ await live('an agent reads the weather through the gate, and through read_weathe
   const line = agentLines().slice(linesBefore).find((l) => l.route === '/api/modules/:id/weather');
   assert.ok(line, 'the read is in the owner\'s log as the route');
   assert.deepEqual([line.method, line.module, line.space, line.kind, line.status], ['GET', 'travel', S.trip, 'read', 200]);
-  assert.ok(!JSON.stringify(line).includes('Light rain') && !JSON.stringify(line).includes('"high"'), 'the log holds no weather');
+  assert.ok(!JSON.stringify(line).includes('Rain') && !JSON.stringify(line).includes('"high"'), 'the log holds no weather');
   // read_weather: the same days, one read (the tool call is counted as the route it wraps, never twice).
   const b2 = await readsToday();
   const t = await mcp('read_weather', { space: S.trip });
@@ -675,13 +680,13 @@ await live('an agent reads the weather through the gate, and through read_weathe
   // Not configured: { configured: false }, said as the route says it.
   ok(await setTravel({ weatherProvider: 'none' }), 'no provider');
   assert.deepEqual((await mcp('read_weather', { space: S.trip })).json, { configured: false });
-  ok(await setTravel({ weatherProvider: 'custom' }), 'the custom service again');
-  // The key: never in the answer of either.
-  assert.ok(!(await weatherOf(S.trip, { token: S.agent })).text.includes(SECRET), 'the route answers the agent the key');
-  assert.ok(!(await mcp('read_weather', { space: S.trip })).raw.includes(SECRET), 'read_weather answers the key');
+  ok(await setTravel({ weatherProvider: 'standin' }), 'the stand-in again');
+  // The address: never in the answer of either.
+  assert.ok(!(await weatherOf(S.trip, { token: S.agent })).text.includes(SECRET), 'the route answers the agent the address');
+  assert.ok(!(await mcp('read_weather', { space: S.trip })).raw.includes(SECRET), 'read_weather answers the address');
 });
 
-await live('the key is never answered, and never written in the open', async () => {
+await live('the service\'s address is never answered, and never written in the open', async () => {
   const routes = [
     ['GET', `/api/modules/travel/weather?scope=space&space=${S.trip}`], ['GET', '/api/modules'], ['GET', '/api/modules/travel/settings/values?scope=environment'],
     ['GET', `/api/modules/travel/settings/values?scope=space&space=${S.trip}`], ['GET', `/api/modules/for-space?space=${S.trip}`], ['GET', '/api/modules/activity'], ['GET', '/api/modules/nav'],
@@ -693,18 +698,18 @@ await live('the key is never answered, and never written in the open', async () 
     for (const [method, url] of routes) {
       const r = await call(method, url, { token });
       if (r.status === 200) read += 1;
-      assert.ok(!r.text.includes(SECRET), `${method} ${url} answers the key`);
+      assert.ok(!r.text.includes(SECRET), `${method} ${url} answers the address`);
     }
   }
   assert.ok(read >= 8, `the routes were really read (${read})`);
   const set = ok(await call('GET', '/api/modules/travel/settings/values?scope=environment', { token: S.admin }), 'the settings').json;
-  assert.deepEqual(set.values.weatherKey, { set: true }, 'the settings say only that a key is kept');
-  // Nor by the answer to saving it, or to changing another setting beside it.
-  for (const values of [{ weatherKey: SECRET }, { weatherUnits: 'c' }]) assert.ok(!ok(await setTravel(values), 'a save').text.includes(SECRET), 'saving answers the key');
+  assert.equal(set.values.weatherKey, undefined, 'there is no key setting');
+  assert.equal(set.values.weatherAddress, undefined, 'there is no address setting');
+  assert.ok(!ok(await setTravel({ weatherUnits: 'c' }), 'a save').text.includes(SECRET), 'saving answers the address');
   // On disk: nowhere in the open, and weather.json holds only positions, days and numbers.
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
-  for (const f of walk(dataDir)) assert.ok(!fs.readFileSync(f).includes(SECRET), `${path.relative(dataDir, f)} holds the key in the open`);
-  assert.ok(!serverOut.includes(SECRET), 'the server\'s output does not hold the key');
+  for (const f of walk(dataDir)) assert.ok(!fs.readFileSync(f).includes(SECRET), `${path.relative(dataDir, f)} holds the address in the open`);
+  assert.ok(!serverOut.includes(SECRET), 'the server\'s output does not hold the address');
 });
 
 await live('a failing service: 502 with nothing kept, the kept days otherwise; the limit', async () => {
@@ -746,7 +751,7 @@ await live('what is kept: positions, days and numbers only', async () => {
     assert.match(k, /^-?\d+\.\d{2},-?\d+\.\d{2}\|\d{4}-\d{2}-\d{2}$/);
     assert.deepEqual(Object.keys(r).sort(), ['code', 'got', 'high', 'low', 'rain']);
   }
-  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|code|high|low|rain|got|null)"|null/g, '')), 'no name, word or address in the file');
+  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|code|high|low|rain|got|null|clear|partly|cloudy|fog|drizzle|snow|storm)"|"rain"|null/g, '')), 'no name, word or address in the file');
   assert.ok(!raw.includes('41.146938') && !raw.includes('38.787586'), 'no exact position');
 });
 

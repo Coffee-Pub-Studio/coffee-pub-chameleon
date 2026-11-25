@@ -22,6 +22,19 @@ plan is the whole fix, one contract for editing and deleting, not a stopgap. It 
 [plan-agent-access](plan-agent-access.md) and decision 4 of [plan-agent-matrix](plan-agent-matrix.md) (pointer notes are
 on both).
 
+**Progress (2026-11-25, read against `main` at `fa5ea4bd`).** Steps 1 to 8 are built and merged; step 9 (QA and documentation) is the documentation in [api-agents](../api/api-agents.md), "Delete asks", and [architecture-agent-access](../architecture/architecture-agent-access.md); this pass saw no QA report.
+
+1. The server runner (#1065), with `wait_for_result` for uploaded modules.
+2. The edit actions and each module's actions library, as 2a (#1068: Itinerary 0.16.19, Calendar 1.24.49, the page adapter `host.actions.fromLibrary`) and the runner's ctx as 1b (#1070), which turned the server on for Itinerary and Calendar. The other modules followed under [plan-agent-server-actions](plan-agent-server-actions.md).
+3. The objects format reaches the agent: `object_format` and `objectKinds` (#1097).
+4. The shared delete path and keyed holds (#1097).
+5. One store and the change records, `agent-records.js` (#1097).
+6. Delete asks and approval (#1108): the `agentDelete` Roles row, `effect: "delete"`, the routes, the bell line, `ask_to_delete` and `ask_status`.
+7. The pages (#1113): `public/agent-review.js`, the space's **Agents** view, the approval dialog and the bell.
+8. Ten delete actions in nine modules (#1112).
+
+Not built or decided: a Roles row to narrow the Itinerary's phase end for agents (the right is the cover route's rule today; Thomas's call); a phase move by an agent is in the request's `effects` but not in the review list's Undo; environment-scope changes by an agent are not in the Undo either. Decision 8 was recorded twice on 2026-11-23: here as "every agent action runs on the server" and, in the workspaces decisions' pull request, as "the Itinerary's phase end rule stays as built". The build of [plan-agent-server-actions](plan-agent-server-actions.md) step 8 moves the end on the server for an agent, so the second wording is not carried here; Thomas should confirm.
+
 ## Decisions
 
 Only what Thomas decided. The planner's leans are under "Options" and "What is not decided".

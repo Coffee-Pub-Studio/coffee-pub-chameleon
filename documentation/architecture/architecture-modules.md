@@ -104,15 +104,14 @@ keep the module's stored keys matching the version running: `server/module-data.
 `from`, overlaps or would move keys back.
 
 **Bundled modules keep up with the server.** On each start, every module that came with this deployment is updated
-to the version the server ships whenever the update asks for nothing new to approve; one that asks for more waits
-for an owner, and the installed version keeps running meanwhile. Uploaded modules are never touched. (Since step 7;
+to the version the server ships. A module that was on stays on; what it asks for beyond what was approved is not granted until an owner approves it, as above. Uploaded modules are never touched. (Since step 7;
 before, only an outdated bundled module was updated on start, see [architecture-environments](architecture-environments.md).)
 
 Files are written to a staging folder next to the final location and moved into place with a single
 rename, so a failure never leaves a half-installed version. A new module is created disabled. An
-upgrade keeps `enabled`, `allSpaces` and `spaces`, then compares what the new manifest asks for with
-`approved`; anything new turns `enabled` off. Rollback changes only the active `version` and applies
-the same check. After each install, only the newest three versions are kept, never removing the active
+upgrade keeps `enabled`, `allSpaces`, `spaces`, the module's data, layouts and Roles ticks, then compares what the new manifest asks for with
+`approved`. A module that was on stays on and runs with exactly what was approved before: a new permission is in nobody's Roles and a new hook is refused until an owner presses **Approve** on its card (#1044). Rollback changes only the active `version` and applies
+the same rule. After each install, only the newest three versions are kept, never removing the active
 one.
 
 ## Approval
