@@ -394,6 +394,25 @@ await host.geocode.used(results[0].key);     // the person picked it: the server
 
 The server looks in the places it has saved first, and asks the service the owner chose only when fewer than five match; the answers are saved if the owner allows it. Searches count against the module's rate limit.
 
+### The weather on a day (`host.weather.days`, `host.ui.dayWeather`)
+
+A module whose manifest declares `weather` ([api-modules](api-modules.md), "Weather") asks the server for the weather of its days, so the page never contacts an outside service:
+
+```js
+const { configured, credit, units, days } = await host.weather.days({ from: '2026-11-25', to: '2026-12-02' });
+// days: { 'YYYY-MM-DD': { state, code, words, high, low, rain } }  state: forecast, past, outOfRange, noPlace or unavailable
+```
+
+It is routed through the host to `GET /api/modules/:id/weather` for the space, written like `host.geocode.search`; a sandboxed frame has an opaque origin and no cookies, and a direct fetch would also miss a guest's token. `{ configured: false }` (no service chosen, or a picture map) means draw nothing.
+
+**`host.ui.dayWeather(el, { day, units, credit })`** draws a day's weather on a day header and returns `{ element, set({ day?, units?, credit? }), destroy() }`. `el` is the day's `.sdk-day-labels` row; the piece appends a `button.sdk-day-weather` as its last child, and only while there is something to draw.
+
+- Only `state` `forecast` and `past` draw, and only when both `high` and `low` are numbers. `outOfRange`, `noPlace`, `unavailable`, a missing day or `{ configured: false }` draw nothing and remove what was there. `set()` redraws only when the facts changed. Temperatures are rounded and never converted.
+- The button shows an icon for the day's word (sun, cloud-sun, cloud, smog, cloud-rain, cloud-showers-heavy, snowflake, cloud-bolt) and "18° / 9°". At 640 px and narrower it shows the icon and "18°", with a 44 px hit area.
+- The screen-reader name and the tooltip read "Forecast: light rain, high 18, low 9, 40 percent chance of rain" or "What it was: light snow, high 1, low -4". Pressing it opens a popover with a heading, the words with "High 18°C, low 9°C", the rain chance (a forecast only) and the credit. Past days use the muted colour. Colours are theme roles only; the fade-in is off under reduced motion.
+
+The Design System page shows it in the "Day cards and day chips" family, once for each state.
+
 ### Flight lookup
 
 A module whose manifest declares `"lookups": ["flight"]` (see [api-modules](api-modules.md), "Flight lookup") may ask the server for flights it has learned from flights saved before on this server, and for an airport by its code. Nothing outside the server is asked. The Planner uses it for **Look up a flight**.
@@ -982,6 +1001,28 @@ A module that needs a handshake like this declares both sides in `actions`, with
 **Rules that ask other modules.** A rule can also ask another module to do something with what an object reports. The To-do offers, for each action another module provides (from `host.actions.list()`), "Module: what it does" whenever every required field can be filled from the event: a `date` field from the event's `date`, a `string` or `text` field from its `summary`, a plain `ref` field from the object that reported. So a poll that declares a `date` (its winning option's date) and a Calendar that provides `createEvent` are enough for a closed poll to put the winning date on the calendar, with neither module naming the other. The module that follows asks under the person's own rights. The first page to save the rule as fired asks, so however many people have the To-do open the request is made once; that needs `actions.uses` approved by an owner.
 
 **Links on parts of an object.** An object can hold links of its own for its parts. A poll option takes a link (drop an object on it) and the poll passes the winning option's link out as `pick` when it closes. Tell Chameleon what the whole object points at with `host.objects.setLinks`, so those objects list it under what links to them.
+
+### Carrying out actions from a library (`host.actions.fromLibrary`)
+
+A bundled module that has the server carry out an agent's requests (`actions.server` in `module.json`, see [api-modules](api-modules.md), "Actions the server carries") keeps its action rules in one plain library, `src/<id>-lib-actions.js`, defining `const ACTION_HANDLERS = { <action>: (input, ctx) => ({ writes, ref?, data?, links?, schedules?, notify?, phaseEnd? }) }`. The page runs the very same code with:
+
+```js
+host.actions.provide({
+  ...host.actions.fromLibrary(ACTION_HANDLERS, { after, only, kinds, lookups }),
+  myView: async (input) => { /* a handler only the page can do */ },
+});
+```
+
+`fromLibrary` returns handlers for `host.actions.provide`. Any module may use it, an uploaded one too (it keeps the wait for an open page, and the page carries the request out this way). A page and the server give the same writes, pointer, note and refusals; the module's tests run every handler both ways and require identical results.
+
+- **`ctx`** is the runner's, with `carrier: 'page'` (the runner's is `'server'`) and `read` and `list` over this module's data here as it was when the request was taken, each a copy and each with its version. The facts (`space`, `people`, `refs`, `settings`, `util`) are the same plain data the runner hands a library.
+- **The rules** are the runner's, with the same sentences: at most 10 writes, each `{ key, value }`; no delete; a pointer only to the module's own objects; `data` plain and at most 8000 bytes; `links`, `schedules`, `notify` and `phaseEnd` with the same caps. A throw is a refusal and its message is the sentence the asker reads, on one line.
+- **Writes** go through `host.storage.set` with the version the handler read, so the server checks each as any write of this page's. All or nothing: one refused write puts back the ones before it, and a value that changed meanwhile gets the runner's sentence ("That changed while it was being done, so nothing was changed. Read it again and ask again.").
+- **Options.** `after({ action, input, writes: [{ key, value, version, before, scope? }], ref, data })` runs once the writes are in, for what only a page does (redraw at once, tell the host about links, set a reminder); a throw from it is the request's answer and the writes are kept, and `before` in each write holds what was there, so the edit stays undoable. `only` (a list of action names) keeps only those handlers. `kinds: [{ kind, key, marks? }]` names the module's own kinds that a write with `scope: 'environment'` may touch (`key` is `'<prefix>{id}<suffix>'`, `marks` the field that holds the space marks). `lookups: { <action>: { <input>: 'geocode' } }` fills `ctx.lookups.<input>` from `host.geocode.search`, cut as the server cuts it (one line, at most 200 characters, none for under 2, at most 6 `{ title, sub, lat, lng, key }`); a 429 refuses the request, any other failure gives `[]`.
+- **Outside the space.** `ctx.read(key, 'environment')` and `ctx.list(prefix, 'environment')` see only the module's kinds that carry marks, marked for this space. A write with `scope: 'environment'` is held as the server holds it, and goes through `host.storage.set(key, value, { version, scope: 'environment' })`. A write with `scope: 'person'` is refused for an agent's request with the server's sentence ("An agent has no places of its own; save it for this space or for everyone."), refused for another person's request ("Only that person can save it for themselves."), and allowed for the page person's own request with what was there held for undo.
+- **Who asked.** `provide` hands each handler `{ from, by, byKey, credit, mine, agent }`: `mine` says the request is this page person's own and `agent` says an agent asked, so a handler or `fromLibrary` can refuse a person's write for an agent's request. A request an agent made carries `agent: true` in a claim and in the live stream.
+
+A library that holds code the server cannot run (a map library needs `TextDecoder`) goes in `actions.pageOnly` in the manifest: the page loads it, the runner leaves it out.
 
 ### A dashboard widget
 
