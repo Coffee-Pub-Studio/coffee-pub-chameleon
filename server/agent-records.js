@@ -8,9 +8,9 @@
 //                 before?, after?                           (a set-up change: made, changed)
 //                 object: { module, kind, id, scope, key }, versionAfter, held, request?, ask? }] }  (added, edited, deleted)
 // A set-up ask (`ask`: add, remove or moderator; `on` for the moderator tick) is about one person (`person`, a key) in a space
-// the agent made. A delete ask (`ask`: delete) is about one object at one version; it is stored here, but asking and
-// answering one is step 6 of the plan, not built yet. `state` is waiting, approved, declined, expired or undone; a waiting
-// ask past AGENT_ASK_DAYS reads as expired, swept or not. Nothing in an ask changes anything until a person approves it
+// the agent made. A delete ask (`ask`: delete) is about one object at one version (the key's version when it was asked), with
+// the agent's own short reason; keys and ids only, never the object's content. `state` is waiting, approved, declined,
+// expired or undone (an approved delete a person undid); a waiting ask past AGENT_ASK_DAYS reads as expired, swept or not. Nothing in an ask changes anything until a person approves it
 // (server/index.js runs the change).
 // A set-up change is `made` (the agent made the space) or `changed` (it renamed it, or changed its description or icon):
 // `before` holds the fields' earlier values and `after` what the change set. An object change is `added`, `edited` or
@@ -245,6 +245,51 @@ class AgentRecords {
     return { ...a };
   }
 
+  // A new delete ask: { agent, space, object: { module, kind, id, scope: 'space', key }, version, reason? }. Throws
+  // RecordsError 409 when an ask to delete that object is waiting (any agent's) or a person declined one in the last
+  // `cooldownDays` (with `until`, when it may be asked again), 429 when the agent has `waiting` waiting or has asked `perDay`
+  // times in 24 hours (with `retrySeconds`), 503 when the file is full. Returns a copy.
+  addDeleteAsk({ agent, space, object, version: at, reason }, { waiting: cap, perDay, cooldownDays }, now = Date.now()) {
+    this.tidy(now);
+    const made = cleanAsk({ id: this.newId(), agent, space, ask: 'delete', object, version: at, reason, at: now, state: 'waiting' });
+    if (!made) throw new RecordsError('No such ask.', 400);
+    const same = (a) => a.ask === 'delete' && a.space === space && a.object.module === made.object.module && a.object.key === made.object.key;
+    if (this.asks.some((a) => same(a) && this.stateOf(a, now) === 'waiting')) throw new RecordsError('There is already an ask to delete that.', 409);
+    const declined = this.asks.filter((a) => same(a) && a.state === 'declined' && now - (a.decidedAt || a.at) < cooldownDays * DAY).sort((a, b) => (b.decidedAt || b.at) - (a.decidedAt || a.at))[0];
+    if (declined) {
+      const err = new RecordsError('A person declined deleting that.', 409);
+      err.until = (declined.decidedAt || declined.at) + cooldownDays * DAY;
+      throw err;
+    }
+    const mine = this.asks.filter((a) => a.ask === 'delete' && a.agent === agent);
+    const waiting = mine.filter((a) => this.stateOf(a, now) === 'waiting').sort((a, b) => a.at - b.at);
+    const today = mine.filter((a) => now - a.at < DAY).sort((a, b) => a.at - b.at);
+    if (waiting.length >= cap || today.length >= perDay) {
+      const err = new RecordsError('The agent has done as much as it may for now.', 429);
+      const frees = waiting.length >= cap ? this.endsAt(waiting[0]) : today[0].at + DAY;
+      err.retrySeconds = Math.max(1, Math.ceil((frees - now) / 1000));
+      throw err;
+    }
+    if (this.asks.length >= MAX_ASKS) throw new RecordsError('Asks cannot be taken right now. Tell whoever runs this server.', 503);
+    this.asks.push(made);
+    this.commit(() => { this.asks.pop(); });
+    return copyOf(made);
+  }
+
+  // The delete asks waiting in `space` (every agent's), oldest first.
+  deleteAsksWaitingIn(space, now = Date.now()) {
+    return this.asks.filter((a) => a.ask === 'delete' && a.space === space && this.stateOf(a, now) === 'waiting').sort((a, b) => a.at - b.at).map(copyOf);
+  }
+
+  // An approved delete was undone by a person: its ask reads `undone` from now on.
+  markUndone(id) {
+    const a = this.asks.find((x) => x.id === id && x.ask === 'delete' && x.state === 'approved');
+    if (!a) return false;
+    a.state = 'undone';
+    try { this.save(); } catch (err) { this.log(`The agents' asks could not be written: ${err.message}`); }
+    return true;
+  }
+
   ask(id) {
     const a = this.asks.find((x) => x.id === id);
     return a ? { ...copyOf(a), state: this.stateOf(a) } : null;
@@ -264,12 +309,13 @@ class AgentRecords {
 
   // Answers an ask: `decision` approve or decline, `by` the person's key. `apply()` runs the change for an approval, in the
   // same step (nothing awaits between them), before anything is written; it throws to refuse, and then nothing changes.
-  // The same answer again changes nothing ({ changed: false }); the other answer, or an ask that is over, is a 409.
+  // The same answer again changes nothing ({ changed: false }); the other answer, or an ask that is over, is a 409. A delete
+  // ask is answered once: any second answer, the same one too, is a 409 (plan-agent-edit-delete.md, "The contract", 6).
   decide(id, agent, decision, by, apply = () => {}, now = Date.now()) {
     const a = this.asks.find((x) => x.id === id && x.agent === agent);
     if (!a) throw new RecordsError('No such ask.', 404);
     const want = decision === 'approve' ? 'approved' : 'declined';
-    if (a.state === want) return { ask: copyOf(a), changed: false };
+    if (a.state === want && a.ask !== 'delete') return { ask: copyOf(a), changed: false };
     if (this.stateOf(a, now) === 'expired') {
       this.expire((x) => x === a, now);
       throw new RecordsError('That ask has run out.', 409);

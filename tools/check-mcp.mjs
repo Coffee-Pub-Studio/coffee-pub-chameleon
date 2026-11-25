@@ -45,7 +45,7 @@ const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
 const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const ONLY_AGENTS = "This is for an agent's token only.";
-const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'object_format', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'wait_for_result', 'read_chat', 'post_chat'];
+const TOOL_NAMES = ['me', 'read_context', 'read_data', 'search_objects', 'object_links', 'object_kinds', 'object_format', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'wait_for_result', 'ask_to_delete', 'ask_status', 'read_chat', 'post_chat'];
 const SETUP_TOOL_NAMES = ['me', 'list_templates', 'list_icons', 'list_people', 'make_space', 'change_space', 'ask_owner', 'ask_status'];
 const CANT = "An agent can't do that.";
 // The 401 on /mcp names the sign-in server's metadata (server/oauth.js, plan-mcp-oauth.md); a REST route's 401 does not.
@@ -630,7 +630,7 @@ try {
       assert.match((await rpc(server, 'initialize', { protocolVersion: '2025-06-18' }, O.T)).json.result.instructions, /^You are an agent/);
       const theirTools = (await rpc(server, 'tools/list', {}, O.T)).json.result.tools.map((t) => t.name);
       assert.deepEqual(theirTools, TOOL_NAMES, 'the ordinary agent\'s tools are unchanged');
-      for (const name of SETUP_TOOL_NAMES.filter((x) => x !== 'me')) assert.ok(!theirTools.includes(name), `the ordinary agent is not listed ${name}`);
+      for (const name of SETUP_TOOL_NAMES.filter((x) => x !== 'me' && x !== 'ask_status')) assert.ok(!theirTools.includes(name), `the ordinary agent is not listed ${name}`); // ask_status is both kinds'
     });
 
     await test('set-up agent: an unticked row is the gate\'s 403 as a tool error; the reads go', async () => {
@@ -730,9 +730,13 @@ try {
 
     await test('an ordinary agent can\'t call the set-up tools, nor a set-up agent a module or Chat tool', async () => {
       const spaces = (await call(server, 'GET', '/api/spaces', { cookie: admin })).json.spaces.length;
-      for (const [name, args] of [['make_space', { name: 'Sneaky', template }], ['change_space', { space: theirs, name: 'Sneaky' }], ['list_people', {}], ['list_templates', {}], ['ask_owner', { space: theirs, ask: 'add', person: tom.key }], ['ask_status', { id: 'abc' }]]) {
+      for (const [name, args] of [['make_space', { name: 'Sneaky', template }], ['change_space', { space: theirs, name: 'Sneaky' }], ['list_people', {}], ['list_templates', {}], ['ask_owner', { space: theirs, ask: 'add', person: tom.key }]]) {
         rpcError(await tool(server, name, args, O.T), 200, -32602, `the ordinary agent: ${name}`);
       }
+      // ask_status is both kinds' (plan-agent-edit-delete.md, step 6): each reads only its own asks.
+      const own = result(await tool(server, 'ask_status', { id: 'abc' }, O.T), 'the ordinary agent: ask_status');
+      assert.deepEqual([own.isError, own.text], [true, 'No such ask.']);
+      rpcError(await tool(server, 'ask_to_delete', { space: made.id, object: { module: 'todo', kind: 'task', id: 'x', scope: 'space', space: made.id } }, S.T), 200, -32602, 'the set-up agent: ask_to_delete');
       for (const [name, args] of [['read_chat', { space: made.id }], ['post_chat', { space: made.id, text: 'hi' }], ['read_data', { space: made.id, module: 'todo' }], ['list_actions', { space: made.id }], ['ask_for_change', { space: made.id, action: 'todo:createTask', input: { title: 'x' } }], ['list_members', { space: made.id }], ['read_context', { space: made.id, module: 'todo' }], ['search_objects', { space: made.id, from: 'todo' }], ['object_kinds', { from: 'todo' }]]) {
         rpcError(await tool(server, name, args, S.T), 200, -32602, `the set-up agent: ${name}`);
       }

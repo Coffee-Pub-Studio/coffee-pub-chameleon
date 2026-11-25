@@ -175,7 +175,7 @@ await test('description, effect and ai are refused with one sentence when wrong'
   assert.equal(refusal([act({ description: 'x'.repeat(MAX_DESCRIPTION + 1) })]), `400|module.json: action "doIt" description is at most ${MAX_DESCRIPTION} characters.`);
   assert.equal(refusal([act({ description: '  \n ' })]), '400|module.json: action "doIt" description is empty; say in one sentence what it does.');
   assert.equal(refusal([act({ description: 3 })]), '400|module.json: action "doIt" description must be text: one sentence saying what it does.');
-  assert.equal(refusal([act({ effect: 'read' })]), '400|module.json: action "doIt" effect must be write or destructive.');
+  assert.equal(refusal([act({ effect: 'read' })]), '400|module.json: action "doIt" effect must be write, destructive or delete.');
   assert.equal(refusal([act({ local: true, effect: 'write' })]), '400|module.json: action "doIt" is local, which changes nothing, so it has no effect.');
   assert.equal(refusal([act({ ai: 'yes' })]), '400|module.json: action "doIt" ai must be true or false.');
   assert.equal(refusal([act({ local: true, ai: true })]), '400|module.json: action "doIt" is local, so it is never offered to the AI.');
