@@ -5277,7 +5277,8 @@
             const me = (info && info.user) || {};
             const byKey = claim.action.byKey || null;
             const credit = byKey ? { name: String(claim.action.by || ''), key: byKey } : { name: String(me.name || ''), key: String(me.key || '') };
-            const out = await fn(claim.action.input, { from: claim.action.from, by: claim.action.by, byKey, credit });
+            // `mine`: the request is this page person's own; `agent`: an agent asked for it (a write for the person is then refused).
+            const out = await fn(claim.action.input, { from: claim.action.from, by: claim.action.by, byKey, credit, mine: claim.action.mine === true, agent: claim.action.agent === true });
             result = { ok: true, ref: out && out.ref, ...(out && out.data !== undefined ? { data: out.data } : {}) };
           } catch (err) {
             result = { ok: false, error: String((err && err.message) || err) };
@@ -6124,11 +6125,12 @@
   // the very code server/module-actions.js runs for an agent's request to a bundled module that declares it (actions.server).
   // host.actions.fromLibrary(ACTION_HANDLERS, o) answers handlers for host.actions.provide that run it here exactly as the
   // runner does there, so a page and the server give the same answer:
-  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, carrier, space, settings, action, read(key), list(prefix) }, `carrier`
+  //   - `ctx` is the runner's: { from, by, byKey, credit, now, tz, carrier, space, settings, lookups?, action, read(key, scope?),
+  //     list(prefix, scope?) }, `carrier`
   //     'page' here ('server' on the runner, which does nothing only a page does: a handler says so in its note), `credit` the one
   //     provide gives (the asker when the server knows them), read and list synchronous, over this module's data here as it
   //     was when the request was taken (each a copy), plus the facts below;
-  //   - its answer is held to the runner's rules (at most LIBRARY_WRITES writes, each exactly { key, value }, no delete, a
+  //   - its answer is held to the runner's rules (at most LIBRARY_WRITES writes, each { key, value, scope? }, no delete, a
   //     pointer only to this module's own object here, `data` plain and small, and `links`, `schedules`, `notify` and
   //     `phaseEnd` as server/action-effects.js takes them: libraryEffects below); a throw is a refusal, its message the sentence the
   //     asker reads, on one line;
@@ -6142,19 +6144,51 @@
   // { module, name } of what it copies), `settings` the module's settings as host.settings.get() gives them ({} when they can't be
   // read), and `util`: the SDK's plain, localWhen, detailLines, time, ymd, parseYmd, objectKey, id, word, label, order and rollup,
   // the only functions it gets, and geo, the frozen place helpers.
-  // `o.after({ action, input, writes: [{ key, value, version, before }], ref, data })` runs once the writes are in, for what
+  // Outside the space (plan-agent-server-actions.md, sections 3 and 4), as the runner: `ctx.read(key, 'environment')` and
+  // `ctx.list(prefix, 'environment')` read the module's environment objects marked for this space (of its kinds in `o.kinds`
+  // that name `marks`); a write `{ key, value, scope: 'environment' }` is held to those kinds, must mark this space and keep
+  // every other space's mark, and goes through host.storage.set(key, value, { version, scope }); a write with scope 'person'
+  // is refused for an agent's request with the runner's own 403 sentence, and for anyone's but the page person's own; and an
+  // action named in `o.lookups` ({ <action>: { <input>: 'geocode' } }, its manifest's `lookups`) gets `ctx.lookups.<input>`,
+  // the place search for that input's text through host.geocode.search, cut to the runner's 6 of { title, sub, lat, lng, key }.
+  // `o.kinds` is the module's refs.produces as [{ kind, key, marks? }] (`marks` its summary's `spaces` field).
+  // `o.after({ action, input, writes: [{ key, value, version, before, scope? }], ref, data })` runs once the writes are in, for what
   // only a page does (redraw at once, tell the host about links, set a reminder); a throw from it is the request's answer,
   // the writes kept. `o.only` (names) keeps only those handlers.
   const LIBRARY_WRITES = 10; // as server/module-actions.js LIMITS.writes
   const LIBRARY_SENTENCE = 200; // as its LIMITS.sentence
   const LIBRARY_DATA = 8000; // as its LIMITS.answerDataBytes
   const LIBRARY_CHANGED = 'That changed while it was being done, so nothing was changed. Read it again and ask again.';
+  // The module's own kinds a handler's writes outside the space are held to (fromLibrary's o.kinds, as its manifest's
+  // refs.produces names them): [{ kind, key: '<prefix>{id}<suffix>', marks?: <the field that holds its space marks> }].
+  const LIBRARY_REF_ID = /^[A-Za-z0-9_-]{1,64}$/; // as the server's REF_ID_RE
+  const libraryKinds = (list) => (Array.isArray(list) ? list : []).filter((k) => libraryPlain(k) && typeof k.kind === 'string' && typeof k.key === 'string' && k.key.includes('{id}'))
+    .map((k) => ({ kind: k.kind, key: k.key, ...(typeof k.marks === 'string' && k.marks ? { marks: k.marks } : {}) }));
+  // The kind whose key `key` is one object of, among `kinds`, or null.
+  function libraryKindAt(kinds, key) {
+    if (typeof key !== 'string') return null;
+    for (const k of kinds) {
+      const at = k.key.indexOf('{id}');
+      const prefix = k.key.slice(0, at);
+      const suffix = k.key.slice(at + 4);
+      if (key.startsWith(prefix) && key.endsWith(suffix) && key.length >= prefix.length + suffix.length && LIBRARY_REF_ID.test(key.slice(prefix.length, key.length - suffix.length))) return k;
+    }
+    return null;
+  }
   const libraryLine = (v) => String(v == null ? '' : v).replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, LIBRARY_SENTENCE);
   const libraryPlain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
   const libraryCopy = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
   // What a handler answered, held to the runner's rules (server/module-actions.js outcomeOf): { writes, ref, data } or a throw
-  // with the sentence. `own(ref)` says whether a pointer is this module's own object here; `name` is the module's.
-  function libraryOutcome(answer, own, name) {
+  // with the sentence. `own(ref)` says whether a pointer is this module's own object here; `name` is the module's. A write may
+  // say `scope`: 'environment' (the module's environment data, held to its marks by carryLibrary, as the server holds it) or
+  // 'person' (the page person's own data, never an agent's: carryLibrary refuses it). `o.shared(ref)` and `o.person(ref)`
+  // answer the stored key of an environment or person pointer of one of the module's own kinds, or null: such a pointer is
+  // the module's own only when this very answer writes that key in that scope.
+  function libraryOutcome(answer, own, name, o) {
+    const sharedKey = o && typeof o.shared === 'function' ? o.shared : () => null;
+    // The runner's words: "in this <space>", with the environment's word for a space (o.word, host.util.word).
+    const here = `in this ${o && typeof o.word === 'function' ? o.word('space') : 'space'}`;
+    const personKey = o && typeof o.person === 'function' ? o.person : () => null;
     const fault = (why) => new Error(`${name} could not carry that out: ${why}.`);
     const result = answer === undefined || answer === null ? {} : answer;
     if (!libraryPlain(result) || Object.keys(result).some((k) => !['writes', 'ref', 'data', 'links', 'schedules', 'notify', 'phaseEnd'].includes(k))) throw fault('it answered something the server can\'t use');
@@ -6166,14 +6200,19 @@
     for (const w of given) {
       if (!libraryPlain(w)) throw fault('it answered something the server can\'t use');
       if (Object.prototype.hasOwnProperty.call(w, 'delete')) throw fault('it tried to delete something, which needs a person\'s approval');
-      if (Object.keys(w).some((k) => k !== 'key' && k !== 'value')) throw fault('it tried to write outside its own data here');
-      if (typeof w.key !== 'string' || !w.key || w.key.length > 128 || seen.has(w.key) || w.value === undefined) throw fault('it answered something the server can\'t use');
-      seen.add(w.key);
-      writes.push({ key: w.key, value: libraryCopy(w.value) });
+      if (Object.keys(w).some((k) => k !== 'key' && k !== 'value' && k !== 'scope')) throw fault(`it tried to write outside its own data ${here}`);
+      const scope = w.scope === undefined || w.scope === null ? 'space' : w.scope;
+      if (!['space', 'environment', 'person'].includes(scope)) throw fault(`it tried to write outside its own data ${here}`);
+      if (typeof w.key !== 'string' || !w.key || w.key.length > 128 || seen.has(`${scope} ${w.key}`) || w.value === undefined) throw fault('it answered something the server can\'t use');
+      seen.add(`${scope} ${w.key}`);
+      // A space write stays exactly { key, value }, as the runner's; only a write elsewhere says its scope.
+      writes.push({ key: w.key, value: libraryCopy(w.value), ...(scope !== 'space' ? { scope } : {}) });
     }
     let ref = null;
     if (result.ref !== undefined && result.ref !== null) {
-      if (!libraryPlain(result.ref) || !own(result.ref)) throw fault('it pointed at something that is not its own here');
+      const writes_ = (scope, key) => Boolean(key) && writes.some((w) => w.scope === scope && w.key === key);
+      const mine = libraryPlain(result.ref) && (own(result.ref) || writes_('environment', sharedKey(result.ref)) || writes_('person', personKey(result.ref)));
+      if (!mine) throw fault(`it pointed at something that is not its own ${here}`);
       ref = libraryCopy(result.ref);
     }
     let data;
@@ -6182,13 +6221,13 @@
       if (text.length > LIBRARY_DATA) throw fault('it answered more than the server takes');
       data = JSON.parse(text);
     }
-    return { writes, ref, ...(data !== undefined ? { data } : {}), effects: libraryEffects(result, own, fault) };
+    return { writes, ref, ...(data !== undefined ? { data } : {}), effects: libraryEffects(result, own, fault, here) };
   }
   // The links, schedules and notice in an answer, held to the runner's rules (server/action-effects.js effectsOf): known
   // fields only, at most 5 link changes, 5 schedules and 1 notice, a link from and a schedule or notice about this module's
   // own object here. { links: [{ op, from, to }], schedules: [{ op, key, at?, about?, notify?, repeat?, payload? }], notify }.
   const LIBRARY_EFFECTS = { links: 5, schedules: 5, notify: 1 };
-  function libraryEffects(result, own, fault) {
+  function libraryEffects(result, own, fault, here = 'in this space') {
     const bad = () => fault('it answered something the server can\'t use');
     const only = (v, keys) => libraryPlain(v) && Object.keys(v).every((k) => keys.includes(k));
     const pointer = (r) => only(r, ['module', 'kind', 'id', 'scope', 'space']) && ['module', 'kind', 'id', 'scope'].every((k) => typeof r[k] === 'string' && r[k] && r[k].length <= 128) && (r.space === undefined || (typeof r.space === 'string' && r.space.length <= 128));
@@ -6205,7 +6244,7 @@
     const links = rawLinks.map((l) => {
       const op = one(l, 'add', 'remove');
       if (!only(l[op], ['from', 'to']) || !pointer(l[op].from) || !pointer(l[op].to)) throw bad();
-      if (!own(l[op].from)) throw fault('it tried to link from something that is not its own here');
+      if (!own(l[op].from)) throw fault(`it tried to link from something that is not its own ${here}`);
       return libraryCopy({ op, from: l[op].from, to: l[op].to });
     });
     const keys = new Set();
@@ -6216,7 +6255,7 @@
       keys.add(v.key);
       if (op === 'cancel') return { op, key: v.key };
       if (!(typeof v.at === 'number' && Number.isFinite(v.at)) && !(typeof v.at === 'string' && v.at.length <= 64)) throw bad();
-      if (!pointer(v.about) || !own(v.about)) throw fault('it tried to set a reminder or send a notice about something that is not its own here');
+      if (!pointer(v.about) || !own(v.about)) throw fault(`it tried to set a reminder or send a notice about something that is not its own ${here}`);
       if (v.notify !== undefined && v.notify !== null && !note(v.notify, ['to', 'title', 'body'])) throw bad();
       if (v.repeat !== undefined && v.repeat !== null && !(only(v.repeat, ['every', 'until', 'tz']) && typeof v.repeat.every === 'string')) throw bad();
       if (v.payload !== undefined && JSON.stringify(v.payload).length > 4000) throw bad();
@@ -6224,7 +6263,7 @@
     });
     const notify = rawNotify.map((n) => {
       if (!note(n, ['to', 'title', 'body', 'about'])) throw bad();
-      if (n.about !== undefined && n.about !== null && (!pointer(n.about) || !own(n.about))) throw fault('it tried to set a reminder or send a notice about something that is not its own here');
+      if (n.about !== undefined && n.about !== null && (!pointer(n.about) || !own(n.about))) throw fault(`it tried to set a reminder or send a notice about something that is not its own ${here}`);
       return libraryCopy({ title: n.title, ...(typeof n.body === 'string' ? { body: n.body } : {}), ...(n.to ? { to: n.to } : {}), ...(n.about ? { about: n.about } : {}) });
     });
     // The main phase's end: exactly { date }, one real day (the runner also holds it to the action's manifest, `phaseEnd`).
@@ -6311,17 +6350,63 @@
     const data = new Map();
     const versions = new Map();
     for (const r of rows || []) { data.set(r.key, r.value); versions.set(r.key, r.version || 0); }
+    // The module's environment objects marked for this space, as the runner hands them (ctx.read(key, 'environment')): only
+    // its own kinds that carry space marks (o.kinds, as its manifest's refs.produces names them), only those marked here, and
+    // nothing on a page with no space. Read as this person may; none when they can't.
+    const kinds = libraryKinds(o && o.kinds);
+    const marked = kinds.filter((k) => k.marks);
+    const shared = new Map();
+    const sharedVersions = new Map();
+    const envNow = new Map(); // every environment key read, with its version: a write over one it could not read is a change meanwhile
+    if (here !== null && marked.length) {
+      let envRows = [];
+      try { envRows = (await host.storage.list('', { scope: 'environment' })) || []; } catch (err) { envRows = []; }
+      for (const r of envRows) {
+        envNow.set(r.key, r.version || 0);
+        const kind = libraryKindAt(marked, r.key);
+        const marks = kind && libraryPlain(r.value) ? r.value[kind.marks] : null;
+        if (!Array.isArray(marks) || !marks.includes(here)) continue;
+        shared.set(r.key, r.value);
+        sharedVersions.set(r.key, r.version || 0);
+      }
+    }
     const facts = await libraryFacts(host, input);
+    const word = typeof util.word === 'function' ? util.word : (key, wo) => (wo && wo.many ? `${key}s` : key);
+    // The place searches the action declares (o.lookups[name], its manifest's `lookups`), done before the handler as the
+    // runner's are: the input's text on one line, at most 200 characters, searched through this page's host.geocode.search
+    // (the module's own place search, the server's saved places first), at most 6 { title, sub, lat, lng, key }. None for
+    // under 2 characters or when the search answers nothing or fails; a limit reached (429) refuses the request.
+    const looks = o && o.lookups && libraryPlain(o.lookups[name]) ? Object.keys(o.lookups[name]).filter((f) => o.lookups[name][f] === 'geocode') : [];
+    let lookups = null;
+    if (looks.length) {
+      lookups = {};
+      const line = (v, max) => String(v == null ? '' : v).replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+      for (const field of looks) {
+        lookups[field] = [];
+        const q = input && typeof input[field] === 'string' ? line(input[field], 200) : '';
+        if (q.length < 2 || !host.geocode || typeof host.geocode.search !== 'function') continue;
+        let out = null;
+        try { out = await host.geocode.search(q); } catch (err) {
+          if (err && err.status === 429) throw Object.assign(new Error(libraryLine(err.message) || `${moduleName} could not do that.`), { status: 429 });
+          out = null;
+        }
+        const found = out && Array.isArray(out.results) ? out.results : [];
+        lookups[field] = found.filter((r) => r && Number.isFinite(r.lat) && Number.isFinite(r.lng)).slice(0, 6)
+          .map((r) => ({ title: line(r.title, 200), sub: line(r.sub, 300), lat: r.lat, lng: r.lng, key: line(r.key, 128) }));
+      }
+    }
     let tz = 'UTC';
     try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch (err) { tz = 'UTC'; }
     const credit = carried.credit || { name: '', key: '' };
     let settings = {};
     try { settings = host.settings && typeof host.settings.get === 'function' ? (await host.settings.get()) || {} : {}; } catch (err) { settings = {}; }
-    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, carrier: 'page', space: facts.space, people: facts.people, refs: facts.refs, settings: libraryPlain(settings) ? settings : {}, action: name });
-    ctx.read = (key) => (typeof key === 'string' && data.has(key) ? libraryCopy(data.get(key)) : null);
-    ctx.list = (prefix) => {
+    const ctx = libraryCopy({ from: carried.from || null, by: carried.by || null, byKey: carried.byKey || null, credit: { name: String(credit.name || ''), key: String(credit.key || '') }, now: Date.now(), tz, carrier: 'page', space: facts.space, people: facts.people, refs: facts.refs, settings: libraryPlain(settings) ? settings : {}, ...(lookups ? { lookups } : {}), action: name });
+    const from = (scope) => (scope === 'environment' ? shared : data);
+    ctx.read = (key, scope) => (typeof key === 'string' && from(scope).has(key) ? libraryCopy(from(scope).get(key)) : null);
+    ctx.list = (prefix, scope) => {
       const p = typeof prefix === 'string' ? prefix : '';
-      return [...data.keys()].filter((k) => k.startsWith(p)).map((k) => ({ key: k, value: libraryCopy(data.get(k)) }));
+      const rows_ = from(scope);
+      return [...rows_.keys()].filter((k) => k.startsWith(p)).map((k) => ({ key: k, value: libraryCopy(rows_.get(k)) }));
     };
     ctx.util = libraryUtil(util);
     let answer;
@@ -6330,21 +6415,67 @@
     } catch (err) {
       throw new Error(libraryLine(err && typeof err.message === 'string' ? err.message : err) || `${moduleName} could not do that.`);
     }
-    const outcome = libraryOutcome(answer, own, moduleName);
+    const keyOf = (ref, list) => {
+      if (!libraryPlain(ref) || ref.module !== mod.id || typeof ref.id !== 'string' || !LIBRARY_REF_ID.test(ref.id)) return null;
+      const k = list.find((x) => x.kind === ref.kind);
+      return k ? k.key.replace('{id}', ref.id) : null;
+    };
+    const outcome = libraryOutcome(answer, own, moduleName, {
+      shared: (ref) => (ref.scope === 'environment' && !ref.space ? keyOf(ref, marked) : null),
+      person: (ref) => (ref.scope === 'person' && !ref.space ? keyOf(ref, kinds) : null),
+      word,
+    });
+    const fault = (why) => new Error(`${moduleName} could not carry that out: ${why}.`);
+    // A write for the person: an agent has no data of its own (the runner's 403 and sentence), and a request from someone else
+    // never writes into the page person's own data. Refused before anything is written.
+    if (outcome.writes.some((w) => w.scope === 'person')) {
+      if (carried.agent === true) throw Object.assign(new Error(`An agent has no places of its own; save it for this ${word('space')} or for everyone.`), { status: 403 });
+      const me = host.user && typeof host.user.key === 'string' ? host.user.key : '';
+      const mine = carried.mine === true || carried.byKey === undefined || (Boolean(me) && carried.byKey === me);
+      if (!mine) throw Object.assign(new Error('Only that person can save it for themselves.'), { status: 403 });
+    }
+    // Writes outside the space, held as the runner holds them (server/index.js carryOnServer): one of the module's own kinds
+    // that carry space marks, a value that marks this space, over what the handler read, and never changing which other
+    // spaces it is marked for (a new one marks this space alone).
+    for (const w of outcome.writes) {
+      if (w.scope !== 'environment') continue;
+      if (!marked.length || here === null) throw fault(`it tried to write outside its own data in this ${word('space')}`);
+      const kind = libraryKindAt(marked, w.key);
+      if (!kind) throw fault(`it tried to write ${word('environment')} data other than its own ${word('object', { many: true })} that are marked for ${word('space', { many: true })}`);
+      const marksOf = (v) => (libraryPlain(v) && Array.isArray(v[kind.marks]) ? v[kind.marks] : null);
+      const marks = marksOf(w.value);
+      if (!marks || marks.some((m) => typeof m !== 'string') || !marks.includes(here)) throw fault(`it tried to write ${word('environment')} data that is not marked for this ${word('space')}`);
+      if ((envNow.get(w.key) || 0) !== (sharedVersions.get(w.key) || 0)) throw Object.assign(new Error(LIBRARY_CHANGED), { status: 409 });
+      const others = (list) => [...new Set((list || []).filter((m) => m !== here))].sort().join('\n');
+      if (others(marks) !== others(shared.has(w.key) ? marksOf(shared.get(w.key)) : [])) throw fault(`it tried to change which other ${word('space', { many: true })} ${word('environment')} data is marked for`);
+    }
     const applied = [];
-    // Puts back what was written, newest first: the value as it was, or no value where there was none.
+    // Puts back what was written, newest first: the value as it was, or no value where there was none, where it was written.
     const putBack = async () => {
       for (const a of [...applied].reverse()) {
+        const at = a.scope ? { scope: a.scope } : {};
         try {
-          if (a.before !== null) await host.storage.set(a.key, a.before, { version: a.version });
-          else await host.storage.delete(a.key, { version: a.version });
+          if (a.before !== null) await host.storage.set(a.key, a.before, { ...at, ...(a.scope === 'person' ? {} : { version: a.version }) });
+          else await host.storage.delete(a.key, { ...at, ...(a.scope === 'person' ? {} : { version: a.version }) });
         } catch (e) { /* changed again meanwhile: left as it is */ }
       }
     };
     for (const w of outcome.writes) {
       try {
-        const saved = await host.storage.set(w.key, w.value, { version: versions.get(w.key) || 0 });
-        applied.push({ key: w.key, value: w.value, version: saved && saved.version, before: data.has(w.key) ? libraryCopy(data.get(w.key)) : null });
+        let saved;
+        let before;
+        if (w.scope === 'person') {
+          // The person's own data is not read for the handler: what is there now is held to put back, and the write is made over it.
+          const had = await host.storage.get(w.key, { scope: 'person' }).catch(() => null);
+          before = had && had.value !== undefined ? libraryCopy(had.value) : null;
+          saved = await host.storage.set(w.key, w.value, { scope: 'person' });
+        } else {
+          const seen = w.scope === 'environment' ? sharedVersions : versions;
+          const was = w.scope === 'environment' ? shared : data;
+          before = was.has(w.key) ? libraryCopy(was.get(w.key)) : null;
+          saved = await host.storage.set(w.key, w.value, { version: seen.get(w.key) || 0, ...(w.scope ? { scope: w.scope } : {}) });
+        }
+        applied.push({ key: w.key, value: w.value, version: saved && saved.version, before, ...(w.scope ? { scope: w.scope } : {}) });
       } catch (err) {
         await putBack();
         throw new Error(err && err.status === 409 ? LIBRARY_CHANGED : libraryLine(err && err.message) || `${moduleName} could not do that.`);

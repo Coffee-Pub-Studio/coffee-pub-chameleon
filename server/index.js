@@ -11683,7 +11683,9 @@ const busRoute = (fn) => (req, res) => {
 const publicEvent = (e) => ({ id: e.id, at: e.at, module: e.module, name: e.name, ref: e.ref, data: e.data });
 // `by` is the asker's name; `byKey` is the asker's key (null for a guest or someone no longer here), which a module reads as
 // `ctx.byKey` and may store or look up as a person (plan-agent-access.md, decision 9).
-const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action, input: a.input, by: store.userByKey(a.by)?.displayName || 'someone', byKey: store.userByKey(a.by) ? a.by : null });
+// `agent: true` on an agent's request, so the page that carries it refuses a write into its own person's data
+// (public/sdk/host.js carryLibrary), as the server's runner refuses it.
+const publicAction = (a) => ({ id: a.id, at: a.at, from: a.from, name: a.action, input: a.input, by: store.userByKey(a.by)?.displayName || 'someone', byKey: store.userByKey(a.by) ? a.by : null, ...(agentAsk(a) ? { agent: true } : {}) });
 // A request an agent asked for (plan-agent-access.md, "What a leaked token can do") is carried out only while the agent may
 // still ask: AGENT_TOKENS and the environment's Agents switch on, the agent here, an agent and not turned off, holding a token
 // that has not reached its end and is the very token that asked (a new token ends what the old one asked for), and still a

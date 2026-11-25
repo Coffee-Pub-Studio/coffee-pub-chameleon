@@ -82,6 +82,15 @@
  *     asked when no service is chosen; one request leaves the server, carrying the declared input's text and nothing else
  *     of the request, the agent or the space; the handler gets at most 6 small results as plain data, no function to ask
  *     again with, and an action that declares none gets nothing; each search is one of the agent's reads.
+ *   - plan-agent-server-actions.md step 10. The same cases on both carriers: environment reads, environment writes and their
+ *     refusals (no mark, another space's, another kind, an object not marked here, a pointer it does not write) and a write
+ *     for the person give the server's sentences through the SDK's page adapter too (tools/module-actions-harness.mjs onPage),
+ *     a person's own request may write their own data and another person's may not, and ctx.lookups on a page is cut as the
+ *     server cuts it. actions.pageOnly keeps the module's own library files out of what the runner loads (Maps' map library).
+ *     Maps on the server with a stand-in place search: addPlace by address with one clear match sets the position, several
+ *     leave it without one and list them, none says so, the search off says so and sends nothing; an environment place
+ *     marks the request's space; a place for the person is refused for the agent with its sentence and nothing is written;
+ *     updatePlace and setPlacePoint on the environment place by its pointer; every Maps action an agent may ask is done now.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -246,6 +255,24 @@ try {
     }
   });
 
+  await test('actions.pageOnly: the module\'s own library files the runner leaves out; refused for anything else', async () => {
+    const { cleanManifest, readZip } = require(path.join(ROOT, 'server', 'modules.js'));
+    const { libraryOf } = require(path.join(ROOT, 'server', 'module-build.js'));
+    const files = await readZip(zipOf(FIXTURE));
+    const raw = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'module.json'), 'utf8'));
+    const withPageOnly = (list) => { const m = structuredClone(raw); m.actions.pageOnly = list; return () => cleanManifest(m, files); };
+    assert.deepEqual(withPageOnly(['src/fixture-notes-lib-draw.js'])().actions.pageOnly, ['src/fixture-notes-lib-draw.js']);
+    for (const bad of [['src/fixture-notes-lib-actions.js'], ['src/other-lib-draw.js'], ['../x.js'], 'src/fixture-notes-lib-draw.js', [42], Array.from({ length: 13 }, (_, i) => `src/fixture-notes-lib-x${i}.js`)]) {
+      assert.throws(withPageOnly(bad), /actions\.pageOnly must list at most 12 of the module's own library files/, `refused: ${JSON.stringify(bad).slice(0, 60)}`);
+    }
+    // Maps: what the runner loads leaves the map's drawing code out, and every handler is still there.
+    const maps = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'maps', 'module.json'), 'utf8'));
+    const cut = libraryOf(path.join(ROOT, 'modules', 'maps'), 'maps', { leaveOut: maps.actions.pageOnly });
+    assert.deepEqual(cut.files, ['src/maps-lib-actions.js', 'src/maps-lib-f-list-model.js']);
+    assert.ok(cut.js.length < 200 * 1024, 'no map library in it');
+    assert.ok(libraryOf(path.join(ROOT, 'modules', 'maps'), 'maps').files.includes('src/maps-lib-a-maplibre.js'), 'the page still gets every file');
+  });
+
   await test('the runner\'s process reads no file and starts no process, whatever runs in it', async () => {
     const { MODULE_ACTION_RUN_FLAGS } = require(path.join(ROOT, 'server', 'module-actions.js'));
     const probe = path.join(base, 'probe.cjs');
@@ -383,7 +410,7 @@ try {
     const many = { links: [0, 1, 2, 3, 4, 5].map((i) => ({ add: { from: own('t1'), to: own(`x${i}`) } })) };
     assert.deepEqual(await onPage('todo', 'go', {}, world, { handlers: { go: () => many }, name: 'To-do' }), { refused: 'To-do could not carry that out: it tried to change more than 5 links at once.' });
     const notMine = { schedules: [{ set: { key: 'k', at: 1, about: other } }] };
-    assert.deepEqual(await onPage('todo', 'go', {}, world, { handlers: { go: () => notMine }, name: 'To-do' }), { refused: 'To-do could not carry that out: it tried to set a reminder or send a notice about something that is not its own here.' });
+    assert.deepEqual(await onPage('todo', 'go', {}, world, { handlers: { go: () => notMine }, name: 'To-do' }), { refused: 'To-do could not carry that out: it tried to set a reminder or send a notice about something that is not its own in this space.' });
     const extra = { notify: [{ title: 'x', as: 'admin' }] };
     assert.deepEqual(await onPage('todo', 'go', {}, world, { handlers: { go: () => extra }, name: 'To-do' }), { refused: 'To-do could not carry that out: it answered something the server can\'t use.' });
   });
@@ -1658,7 +1685,7 @@ try {
   ok(await call('POST', '/api/modules/bundled/fixture-shared/install', { cookie: admin, body: {} }), 'fixture-shared installs', 201);
   ok(await call('PATCH', '/api/modules/fixture-shared', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'fixture-shared on');
   const shAgents = [];
-  for (let i = 0; i < 5; i += 1) {
+  for (let i = 0; i < 7; i += 1) {
     const a = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
     shAgents.push(a);
     await newToken(a);
@@ -1810,6 +1837,79 @@ try {
     assert.deepEqual(await shAll(), made, 'its earlier value is back');
   });
 
+  as = shAgents[5];
+  await test('the same answers on both carriers: environment reads and writes, their refusals and a write for the person, on the server and through the SDK\'s page adapter', async () => {
+    const { onPage } = await import('./module-actions-harness.mjs');
+    const { libraryOf } = require(path.join(ROOT, 'server', 'module-build.js'));
+    const shDir = path.join(app, 'modules', SH);
+    const handlers = new Function(`${libraryOf(shDir, SH).js}\nreturn ACTION_HANDLERS;`)();
+    const shManifest = JSON.parse(fs.readFileSync(path.join(shDir, 'module.json'), 'utf8'));
+    const produces = shManifest.refs.produces.map((p) => ({ kind: p.kind, key: p.key, ...(p.summary.spaces ? { marks: p.summary.spaces } : {}) }));
+    const now = await shAll();
+    const versions = Object.fromEntries(Object.entries(await envItems()).map(([k, i]) => [k, i.version]));
+    // The page's world is the server's as it is now: this space's data, and every environment object (the adapter reads only
+    // those marked here, as the server hands them).
+    const world = { space: { id: camp, name: 'Camp' }, rows: now.camp, shared: now.environment };
+    const page = (plan, o = {}) => onPage(SH, 'effects', { plan: JSON.stringify(plan) }, world, { handlers, produces, name: 'Fixture shared', credit: { name: 'Claude (agent)', key: as.key }, ...o });
+    const cases = [
+      ['no mark', { writes: [envNote('p1', [])] }],
+      ['another space\'s mark only', { writes: [envNote('p1', [fort])] }],
+      ['a new one marking another space', { writes: [envNote('p1', [camp, lodge])] }],
+      ['another kind', { writes: [{ key: 'memo:p1', scope: 'environment', value: { title: 'm', spaces: [camp] } }] }],
+      ['a key of no kind', { writes: [{ key: 'probe:p1', scope: 'environment', value: { spaces: [camp] } }] }],
+      ['an object not marked here', { writes: [envNote('fortonly', [camp, fort])] }],
+      ['a write for the person', { writes: [{ key: 'note:mine', scope: 'person', value: { title: 'mine' } }] }],
+      ['a pointer to an environment object it does not write', { writes: [envNote('p2', [camp])], ref: envRef('p3') }],
+    ];
+    for (const [what, plan] of cases) {
+      const r = await sx(plan);
+      assert.equal(r.json.ok, false, `${what}: refused on the server`);
+      const p = await page(plan);
+      assert.equal(p.refused, r.json.error, `${what}: the page gives the server's sentence`);
+    }
+    assert.deepEqual(await shAll(), now, 'nothing was changed by the refusals');
+    // The person's own data stays the page person's own: refused for an agent's request (above), made for their own.
+    const mine = await page({ writes: [{ key: 'note:mine', scope: 'person', value: { title: 'mine' } }] }, { asker: 'self' });
+    assert.deepEqual(mine.writes, [{ key: 'note:mine', value: { title: 'mine' }, scope: 'person' }]);
+    const other = await page({ writes: [{ key: 'note:mine', scope: 'person', value: { title: 'mine' } }] }, { asker: 'other', credit: { name: 'Mia', key: mia.key } });
+    assert.deepEqual(other, { refused: 'Only that person can save it for themselves.', status: 403 }, 'never from someone else\'s request');
+    // A write that stands: the same writes and the same pointer both ways, and what a handler reads back the same.
+    const plan = { writes: [envNote('both1', [camp])], ref: envRef('both1') };
+    const p = await page(plan);
+    const r = await sx(plan);
+    ok(r, 'made on the server');
+    assert.deepEqual(p.writes, [plan.writes[0]], 'the page writes it with its scope');
+    assert.deepEqual(r.json.ref, p.ref, 'the same pointer');
+    const reads = await onPage(SH, 'shared', { key: 'note:e1' }, world, { handlers, produces, name: 'Fixture shared' });
+    const seenPage = reads.writes.find((w) => w.key === 'probe:shared').value;
+    ok(await call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: `${SH}:shared`, input: { key: 'note:e1' } } }), 'shared');
+    const seenServer = (await shItems(`scope=space&space=${camp}`))['probe:shared'].value;
+    assert.deepEqual(seenPage.keys, now && Object.keys(now.environment).filter((k) => /^note:/.test(k) && Array.isArray(now.environment[k].spaces) && now.environment[k].spaces.includes(camp)).sort(), 'the page reads the environment objects marked here');
+    assert.deepEqual(seenPage.keys, seenServer.keys.filter((k) => k !== 'note:both1'), 'and the server the same (with the one it made since)');
+    assert.deepEqual(seenPage.one, seenServer.one);
+    assert.equal(versions['note:e1'] > 0, true);
+  });
+
+  as = shAgents[6];
+  await test('the place search on both carriers: ctx.lookups from the page\'s host.geocode.search is cut as the server cuts it', async () => {
+    const { onPage } = await import('./module-actions-harness.mjs');
+    const { libraryOf } = require(path.join(ROOT, 'server', 'module-build.js'));
+    const handlers = new Function(`${libraryOf(path.join(app, 'modules', SH), SH).js}\nreturn ACTION_HANDLERS;`)();
+    const long = (i) => ({ title: `Cafe ${i} ${'x'.repeat(400)}`, sub: `Rua ${'y'.repeat(400)}`, lat: 38.7 + i / 100, lng: -9.1 - i / 100, key: `osm:${i}`, osm: 'amenity:cafe', source: 'service' });
+    const world = { space: { id: camp, name: 'Camp' }, rows: {}, geocode: Array.from({ length: 8 }, (_, i) => long(i)) };
+    const got = (await onPage(SH, 'find', { address: 'Rua Augusta 1' }, world, { handlers, lookups: { find: { address: 'geocode' } }, name: 'Fixture shared' })).writes[0].value;
+    assert.equal(got.has, true);
+    assert.equal(got.lookups.address.length, 6, 'at most 6');
+    assert.deepEqual(Object.keys(got.lookups.address[0]), ['title', 'sub', 'lat', 'lng', 'key'], 'only these');
+    assert.equal(got.lookups.address[0].title.length, 200);
+    assert.equal(got.lookups.address[0].sub.length, 300);
+    assert.equal(got.plain, true);
+    const short = (await onPage(SH, 'find', { address: 'R' }, world, { handlers, lookups: { find: { address: 'geocode' } }, name: 'Fixture shared' })).writes[0].value;
+    assert.deepEqual(short.lookups, { address: [] }, 'one character: nothing searched');
+    const none = (await onPage(SH, 'shared', {}, world, { handlers, lookups: { find: { address: 'geocode' } }, name: 'Fixture shared' })).writes[0].value;
+    assert.equal(none.lookups, false, 'an action that declares none gets nothing');
+  });
+
   as = shAgents[3];
   await test('the place search: nothing asked with no service; only the declared text leaves; small plain results; no way to ask again', async () => {
     // A stand-in for the outside service, which keeps everything it is sent.
@@ -1885,6 +1985,92 @@ try {
     } finally {
       if (service.listening) await new Promise((r) => service.close(r));
       ok(await call('PUT', `/api/modules/${SH}/settings/environment`, { cookie: admin, body: { values: { searchProvider: 'none', search: '' } } }), 'no service again');
+    }
+  });
+
+  // --- Maps on the server (plan-agent-server-actions.md, step 10): its actions library, the place search before the run ------
+  ok(await call('POST', '/api/modules/bundled/maps/install', { cookie: admin, body: {} }), 'Maps installs', 201);
+  ok(await call('PATCH', '/api/modules/maps', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'Maps on');
+  const mapsAgent = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
+  await newToken(mapsAgent);
+  {
+    const members = (await call('GET', `/api/spaces/${camp}`, { cookie: admin })).json.space.members;
+    ok(await call('PATCH', `/api/spaces/${camp}`, { cookie: admin, body: { members: [...members, mapsAgent.key] } }), 'the Maps agent joins Camp');
+  }
+  as = mapsAgent;
+  await test('Maps: addPlace by address on the server, with a stand-in place search: one clear match, several, none, the search off; where it is kept; a place for the person', async () => {
+    const asked = [];
+    const feature = (name, lat, lng, id) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [lng, lat] }, properties: { name, street: 'Main Street', city: 'Springfield', country: 'Somewhere', osm_type: 'N', osm_id: id, osm_key: 'amenity', osm_value: 'cafe' } });
+    const service = http.createServer((req, res) => {
+      const q = new URL(req.url, 'http://127.0.0.1').searchParams.get('q') || '';
+      asked.push(q);
+      const features = /^One /.test(q) ? [feature('One Cafe', 38.71, -9.13, 1), feature('One Cafe', 38.71002, -9.13002, 2)]
+        : /^Many /.test(q) ? [feature('Many Cafe', 39.9, -83.8, 3), feature('Many Cafe', 39.8, -89.6, 4)] : [];
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ features }));
+    });
+    await new Promise((r) => service.listen(0, '127.0.0.1', r));
+    const add = (input) => call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: 'maps:addPlace', input } });
+    const places = async (scope) => Object.fromEntries((await call('GET', `/api/modules/maps/data?${scope === 'environment' ? 'scope=environment' : `scope=space&space=${camp}`}`, { cookie: admin })).json.items.map((i) => [i.key, i]));
+    const placeOf = async (ref) => (await places(ref.scope))[`place:${ref.id}`];
+    try {
+      // The search off: nothing leaves the server, the place is saved without a position and the note says why.
+      const off = await add({ title: 'Off', address: 'One Main Street' });
+      ok(off, 'the search off');
+      assert.equal(off.json.status, 'done', 'carried by the server: nothing waits for a page');
+      assert.equal(off.json.ok, true, off.text);
+      assert.equal(off.json.note, 'Saved without a position, since place search is off. An admin chooses one in the Maps settings.');
+      assert.equal(asked.length, 0, 'nothing was sent');
+      ok(await call('PUT', '/api/modules/maps/settings/environment', { cookie: admin, body: { values: { searchProvider: 'custom', search: `http://127.0.0.1:${service.address().port}/api` } } }), 'the admin chooses a service');
+      // One clear match: the position is set, the place is everyone's and marked for this space, made by the agent.
+      const one = await add({ title: 'Breakfast', address: 'One Main Street 1' });
+      ok(one, 'one match');
+      assert.equal(one.json.ok, true, one.text);
+      assert.deepEqual(asked, ['One Main Street 1'], 'only the address left the server');
+      assert.equal(one.json.ref.scope, 'environment');
+      const stored = await placeOf(one.json.ref);
+      assert.deepEqual(stored.value.point, { lat: 38.71, lng: -9.13 });
+      assert.deepEqual(stored.value.spaces, [camp], 'an environment place marks the request\'s space');
+      assert.equal(stored.by, mapsAgent.key, 'written as the agent');
+      assert.match(one.json.note, /^Placed at One Cafe/);
+      // Several: no position, and the note lists them.
+      const many = await add({ title: 'Lunch', address: 'Many Main Street 2', in: 'space' });
+      ok(many, 'several matches');
+      assert.equal(many.json.ref.scope, 'space');
+      assert.equal((await placeOf(many.json.ref)).value.point, undefined);
+      assert.match(many.json.note, /^Saved without a position: the address matches more than one place\. Give one with setPlacePoint\. 1\. Many Cafe/);
+      assert.equal(many.json.data.results.length, 2);
+      // None: no pin, and it says so.
+      const none = await add({ title: 'Dinner', address: 'Nowhere Lane 3' });
+      ok(none, 'no match');
+      assert.equal((await placeOf(none.json.ref)).value.point, undefined);
+      assert.equal(none.json.note, 'Saved without a position: found nothing for "Nowhere Lane 3". Give one with setPlacePoint.');
+      // findPlace: the matches as the note, nothing written.
+      const before = { env: await places('environment'), space: await places('space') };
+      const find = await call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: 'maps:findPlace', input: { q: 'Many Main Street' } } });
+      ok(find, 'findPlace');
+      assert.match(find.json.note, /^1\. Many Cafe/);
+      // A place for the person: refused for an agent with the sentence, and nothing written.
+      for (const where of ['person', 'environment person']) {
+        const mine = await add({ title: 'Mine', in: where });
+        ok(mine, `in: ${where}`, 403);
+        assert.equal(mine.json.error, 'An agent has no places of its own; save it for this space or for everyone.');
+      }
+      assert.deepEqual({ env: await places('environment'), space: await places('space') }, before, 'nothing was written');
+      // The environment place it made, changed and given a position through its pointer, its marks as they were.
+      const up = await call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: 'maps:updatePlace', input: { place: none.json.ref, title: 'Late dinner' } } });
+      ok(up, 'updatePlace');
+      const pt = await call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: 'maps:setPlacePoint', input: { place: none.json.ref, lat: 41.1, lng: -8.6 } } });
+      ok(pt, 'setPlacePoint');
+      const after = await placeOf(none.json.ref);
+      assert.equal(after.value.title, 'Late dinner');
+      assert.deepEqual(after.value.point, { lat: 41.1, lng: -8.6 });
+      assert.deepEqual(after.value.spaces, [camp]);
+      const listed = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions.filter((a) => a.module === 'maps' && a.may !== false);
+      assert.ok(listed.length && listed.every((a) => a.now !== false), 'list_actions: every Maps action an agent may ask is done now');
+    } finally {
+      await new Promise((r) => service.close(r));
+      ok(await call('PUT', '/api/modules/maps/settings/environment', { cookie: admin, body: { values: { searchProvider: 'none', search: '' } } }), 'no service again');
     }
   });
 

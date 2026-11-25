@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * check-maps-find-position.mjs -- a saved place with an address and no position (Maps issue 1077): the "Find on map" control,
- * the agent's findPlace action and the quiet search when the list opens. Runs the list model (src/maps-lib-f-list-model.js) on
+ * the agent's findPlace action (src/maps-lib-actions.js; its runs both ways are in check-maps-actions.mjs) and the quiet search when the list opens. Runs the list model (src/maps-lib-f-list-model.js) on
  * its own, reads the page's wiring (src/maps-lib-g-list-view.js), the markup and the manifest. No page, no host, no network.
  * Usage: node modules/maps/test/check-maps-find-position.mjs. Exits 1 on any failure.
  */
@@ -59,14 +59,15 @@ test('the manifest declares findPlace for an agent: a write, not local, one inpu
   assert.ok(a.inputHints.q);
   assert.ok(a.description.length <= 200);
 });
-test('findPlace is carried out by the page, only while a place search is set up, and sends nothing when it is off', () => {
-  const at = view.indexOf('findPlace: async');
-  assert.ok(at > 0, 'a handler');
-  const body = view.slice(at, view.indexOf('searchPlaces: async', at));
-  assert.ok(body.includes('if (!state.search) throw new Error(\'Place search is off.'), 'it says the search is off');
-  assert.ok(body.indexOf('state.search') < body.indexOf('searchFor('), 'the check comes before any search');
-  assert.ok(body.includes('findNote('), 'the matches come as the note an agent reads');
-  assert.ok(!view.includes('handlers.findPlace'), 'it is not tied to a space');
+test('findPlace is the actions library\'s, its search the server\'s before the run (lookups), and the page carries it through the same library', () => {
+  const a = manifest.actions.provides.find((x) => x.name === 'findPlace');
+  assert.deepEqual(a.lookups, { q: 'geocode' }, 'the server searches q before the handler');
+  const lib = read('src/maps-lib-actions.js');
+  const body = lib.slice(lib.indexOf('  findPlace(input, ctx) {'));
+  assert.ok(body.indexOf('mapsActionSearchOn(') < body.indexOf('ctx.lookups'), 'the check that search is off comes first');
+  assert.ok(body.includes('M.findNote('), 'the matches come as the note an agent reads');
+  assert.ok(view.includes("...library(['findPlace'])"), 'the page carries it through the library, in a space or not');
+  assert.ok(!view.includes('findPlace: async'), 'no second copy on the page');
 });
 
 test('the row offers Find on map only for an address with no position, where search is on and the person may change it', () => {

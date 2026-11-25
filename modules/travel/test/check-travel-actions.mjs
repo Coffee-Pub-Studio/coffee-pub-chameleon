@@ -228,8 +228,8 @@ await test('the page adapter holds a handler to the runner\'s rules', async () =
   const ask = async (a) => (await onPage('travel', a, {}, world(), { handlers, name: 'Planner - Itinerary' })).refused;
   assert.equal(await ask('many'), 'Planner - Itinerary could not carry that out: it tried to change more than 10 things at once.');
   assert.equal(await ask('del'), 'Planner - Itinerary could not carry that out: it tried to delete something, which needs a person\'s approval.');
-  assert.equal(await ask('away'), 'Planner - Itinerary could not carry that out: it tried to write outside its own data here.');
-  assert.equal(await ask('notOwn'), 'Planner - Itinerary could not carry that out: it pointed at something that is not its own here.');
+  assert.equal(await ask('away'), 'Planner - Itinerary could not carry that out: it tried to write outside its own data in this space.');
+  assert.equal(await ask('notOwn'), 'Planner - Itinerary could not carry that out: it pointed at something that is not its own in this space.');
   assert.equal(await ask('extra'), 'Planner - Itinerary could not carry that out: it answered something the server can\'t use.');
   assert.equal(await ask('throws'), 'No. Really no.', 'a refusal is one line');
 });

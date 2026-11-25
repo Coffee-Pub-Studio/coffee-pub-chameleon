@@ -146,7 +146,8 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
       const shipped = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
       if (shipped && shipped.id === manifest.id && shipped.version === entry.version && shipped.version === manifest.version
         && shipped.actions && shipped.actions.server === declared) {
-        const lib = libraryOf(dir, manifest.id);
+        // Without the files only the page needs (actions.pageOnly, as shipped): what the handlers need, and nothing to draw.
+        const lib = libraryOf(dir, manifest.id, { leaveOut: Array.isArray(shipped.actions.pageOnly) ? shipped.actions.pageOnly : [] });
         if (lib.files.includes(declared)) out = { code: lib.js, filename: `modules/${manifest.id}/${declared}` };
       }
     } catch {
