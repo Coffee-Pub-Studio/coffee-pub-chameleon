@@ -107,6 +107,13 @@ const ACTION_HANDLERS = {
     if (what === 'unknownKey') return { writes: [{ key: 'zzz:1', value: {} }] };
     if (what === 'partial') return { writes: [{ key: 'probe:partial', value: { ok: 1 } }, { key: 'zzz:2', value: {} }] };
     if (what === 'read') return { writes: [{ key: 'probe:read', value: { task: ctx.read('task:t1'), fort: ctx.read('note:fortsecret'), keys: ctx.list('').map((x) => x.key), by: ctx.by, byKey: ctx.byKey, credit: ctx.credit } }] };
+    if (what === 'network') {
+      // Nothing that reaches a network is in the handler's reach: no fetch, socket or request object, and no module loads.
+      const seen = { fetch: typeof fetch, XMLHttpRequest: typeof XMLHttpRequest, WebSocket: typeof WebSocket, EventSource: typeof EventSource, navigator: typeof navigator, require: typeof require, process: typeof process, env: fixtureTry(() => Object.keys(process.env).length) };
+      const load = (name) => import(name).then(() => 'loaded', () => 'blocked');
+      return Promise.all(['node:net', 'node:http', 'node:https', 'node:dns', 'node:dgram', 'https://example.com/x.js'].map(load))
+        .then((imports) => ({ writes: [{ key: 'probe:network', value: { ...seen, imports: imports.join(',') } }] }));
+    }
     if (what === 'nothing') return undefined;
     throw new Error(`No probe called ${what}.`);
   },
@@ -158,6 +165,14 @@ const ACTION_HANDLERS = {
     if (input.body === '') delete next.body;
     else if (typeof input.body === 'string') next.body = input.body;
     return { writes: [{ key, value: next }], ref: input.note, data: { note: input.linkTo === '' ? 'Unlinked.' : 'Linked.', cleared: input.linkTo === '' } };
+  },
+  // Whatever the plan names (JSON: { writes?, links?, schedules?, notify?, ref?, extra? }), answered as it is, so the check
+  // can try every effect the server carries out, and every one it must refuse. `ms` waits first.
+  effects(input) {
+    const until = Date.now() + (typeof input.ms === 'number' ? input.ms : 0);
+    while (Date.now() < until) { /* wait */ }
+    const plan = JSON.parse(input.plan);
+    return { ...plan, data: { note: 'Planned.' } };
   },
   hidden(input) {
     return { writes: [{ key: 'probe:hidden', value: { title: input.title } }] };

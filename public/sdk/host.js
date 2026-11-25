@@ -6010,8 +6010,9 @@
   //     provide gives (the asker when the server knows them), read and list synchronous, over this module's data here as it
   //     was when the request was taken (each a copy), plus the facts below;
   //   - its answer is held to the runner's rules (at most LIBRARY_WRITES writes, each exactly { key, value }, no delete, a
-  //     pointer only to this module's own object here, `data` plain and small); a throw is a refusal, its message the
-  //     sentence the asker reads, on one line;
+  //     pointer only to this module's own object here, `data` plain and small, and `links`, `schedules` and `notify` as
+  //     server/action-effects.js takes them: libraryEffects below); a throw is a refusal, its message the sentence the
+  //     asker reads, on one line;
   //   - each write goes through host.storage.set with the version the handler read (none: it must still be absent), so the
   //     server checks it as any write of this page's; one refused write puts back the ones before it, and nothing is left
   //     half done. A value changed meanwhile is refused with the runner's own sentence.
@@ -6037,7 +6038,7 @@
   function libraryOutcome(answer, own, name) {
     const fault = (why) => new Error(`${name} could not carry that out: ${why}.`);
     const result = answer === undefined || answer === null ? {} : answer;
-    if (!libraryPlain(result) || Object.keys(result).some((k) => !['writes', 'ref', 'data'].includes(k))) throw fault('it answered something the server can\'t use');
+    if (!libraryPlain(result) || Object.keys(result).some((k) => !['writes', 'ref', 'data', 'links', 'schedules', 'notify'].includes(k))) throw fault('it answered something the server can\'t use');
     const given = result.writes === undefined || result.writes === null ? [] : result.writes;
     if (!Array.isArray(given)) throw fault('it answered something the server can\'t use');
     if (given.length > LIBRARY_WRITES) throw fault(`it tried to change more than ${LIBRARY_WRITES} things at once`);
@@ -6062,7 +6063,52 @@
       if (text.length > LIBRARY_DATA) throw fault('it answered more than the server takes');
       data = JSON.parse(text);
     }
-    return { writes, ref, ...(data !== undefined ? { data } : {}) };
+    return { writes, ref, ...(data !== undefined ? { data } : {}), effects: libraryEffects(result, own, fault) };
+  }
+  // The links, schedules and notice in an answer, held to the runner's rules (server/action-effects.js effectsOf): known
+  // fields only, at most 5 link changes, 5 schedules and 1 notice, a link from and a schedule or notice about this module's
+  // own object here. { links: [{ op, from, to }], schedules: [{ op, key, at?, about?, notify?, repeat?, payload? }], notify }.
+  const LIBRARY_EFFECTS = { links: 5, schedules: 5, notify: 1 };
+  function libraryEffects(result, own, fault) {
+    const bad = () => fault('it answered something the server can\'t use');
+    const only = (v, keys) => libraryPlain(v) && Object.keys(v).every((k) => keys.includes(k));
+    const pointer = (r) => only(r, ['module', 'kind', 'id', 'scope', 'space']) && ['module', 'kind', 'id', 'scope'].every((k) => typeof r[k] === 'string' && r[k] && r[k].length <= 128) && (r.space === undefined || (typeof r.space === 'string' && r.space.length <= 128));
+    const text = (v, max) => v === undefined || v === null || (typeof v === 'string' && v.length <= max);
+    const note = (v, keys) => only(v, keys) && typeof v.title === 'string' && Boolean(v.title.trim()) && v.title.length <= 400 && text(v.body, 2000) && text(v.to, 64);
+    const listOf = (name) => { const v = result[name]; if (v === undefined || v === null) return []; if (!Array.isArray(v)) throw bad(); return v; };
+    const one = (v, a, b) => { if (!libraryPlain(v) || Object.keys(v).length !== 1 || !(Object.prototype.hasOwnProperty.call(v, a) || Object.prototype.hasOwnProperty.call(v, b))) throw bad(); return Object.prototype.hasOwnProperty.call(v, a) ? a : b; };
+    const rawLinks = listOf('links');
+    const rawSchedules = listOf('schedules');
+    const rawNotify = listOf('notify');
+    if (rawLinks.length > LIBRARY_EFFECTS.links) throw fault(`it tried to change more than ${LIBRARY_EFFECTS.links} links at once`);
+    if (rawSchedules.length > LIBRARY_EFFECTS.schedules) throw fault(`it tried to set or cancel more than ${LIBRARY_EFFECTS.schedules} reminders at once`);
+    if (rawNotify.length > LIBRARY_EFFECTS.notify) throw fault(`it tried to send more than ${LIBRARY_EFFECTS.notify} notice at once`);
+    const links = rawLinks.map((l) => {
+      const op = one(l, 'add', 'remove');
+      if (!only(l[op], ['from', 'to']) || !pointer(l[op].from) || !pointer(l[op].to)) throw bad();
+      if (!own(l[op].from)) throw fault('it tried to link from something that is not its own here');
+      return libraryCopy({ op, from: l[op].from, to: l[op].to });
+    });
+    const keys = new Set();
+    const schedules = rawSchedules.map((x) => {
+      const op = one(x, 'set', 'cancel');
+      const v = x[op];
+      if (!only(v, op === 'set' ? ['key', 'at', 'about', 'notify', 'repeat', 'payload'] : ['key']) || typeof v.key !== 'string' || !/^[A-Za-z0-9_.:/-]{1,128}$/.test(v.key) || keys.has(v.key)) throw bad();
+      keys.add(v.key);
+      if (op === 'cancel') return { op, key: v.key };
+      if (!(typeof v.at === 'number' && Number.isFinite(v.at)) && !(typeof v.at === 'string' && v.at.length <= 64)) throw bad();
+      if (!pointer(v.about) || !own(v.about)) throw fault('it tried to set a reminder or send a notice about something that is not its own here');
+      if (v.notify !== undefined && v.notify !== null && !note(v.notify, ['to', 'title', 'body'])) throw bad();
+      if (v.repeat !== undefined && v.repeat !== null && !(only(v.repeat, ['every', 'until', 'tz']) && typeof v.repeat.every === 'string')) throw bad();
+      if (v.payload !== undefined && JSON.stringify(v.payload).length > 4000) throw bad();
+      return libraryCopy({ op, key: v.key, at: v.at, about: v.about, ...(v.notify ? { notify: v.notify } : {}), ...(v.repeat ? { repeat: v.repeat } : {}), ...(v.payload !== undefined ? { payload: v.payload } : {}) });
+    });
+    const notify = rawNotify.map((n) => {
+      if (!note(n, ['to', 'title', 'body', 'about'])) throw bad();
+      if (n.about !== undefined && n.about !== null && (!pointer(n.about) || !own(n.about))) throw fault('it tried to set a reminder or send a notice about something that is not its own here');
+      return libraryCopy({ title: n.title, ...(typeof n.body === 'string' ? { body: n.body } : {}), ...(n.to ? { to: n.to } : {}), ...(n.about ? { about: n.about } : {}) });
+    });
+    return { links, schedules, notify };
   }
   // The pointers in a request's input (its own fields, as the bus checks them): what `refs` describes.
   const libraryPointers = (input) => Object.values(input && typeof input === 'object' ? input : {})
@@ -6158,24 +6204,48 @@
     }
     const outcome = libraryOutcome(answer, own, moduleName);
     const applied = [];
+    // Puts back what was written, newest first: the value as it was, or no value where there was none.
+    const putBack = async () => {
+      for (const a of [...applied].reverse()) {
+        try {
+          if (a.before !== null) await host.storage.set(a.key, a.before, { version: a.version });
+          else await host.storage.delete(a.key, { version: a.version });
+        } catch (e) { /* changed again meanwhile: left as it is */ }
+      }
+    };
     for (const w of outcome.writes) {
       try {
         const saved = await host.storage.set(w.key, w.value, { version: versions.get(w.key) || 0 });
         applied.push({ key: w.key, value: w.value, version: saved && saved.version, before: data.has(w.key) ? libraryCopy(data.get(w.key)) : null });
       } catch (err) {
-        // Put back what was written before, newest first: the value as it was, or no value where there was none.
-        for (const a of [...applied].reverse()) {
-          try {
-            if (a.before !== null) await host.storage.set(a.key, a.before, { version: a.version });
-            else await host.storage.delete(a.key, { version: a.version });
-          } catch (e) { /* changed again meanwhile: left as it is */ }
-        }
+        await putBack();
         throw new Error(err && err.status === 409 ? LIBRARY_CHANGED : libraryLine(err && err.message) || `${moduleName} could not do that.`);
       }
     }
+    // The links, schedules and notice the handler answered, done here through this page's own host calls (the routes hold
+    // each to this person's rights), after the writes and in the runner's order, the notice last. One that fails takes the
+    // links back out, cancels the schedules this request set and puts the writes back, as the runner does.
+    const fx = outcome.effects;
+    const undone = [];
+    try {
+      for (const l of fx.links) {
+        await host.objects.setLinks(l.from, [l.to], { kind: l.to.kind, op: l.op });
+        undone.push(() => host.objects.setLinks(l.from, [l.to], { kind: l.to.kind, op: l.op === 'add' ? 'remove' : 'add' }));
+      }
+      for (const x of fx.schedules) {
+        if (x.op === 'cancel') { await host.cancelSchedule(x.key); continue; }
+        await host.schedule({ key: x.key, at: x.at, ref: x.about, ...(x.payload !== undefined ? { payload: x.payload } : {}), ...(x.notify ? { notify: x.notify } : {}), ...(x.repeat ? { repeat: x.repeat } : {}) });
+        undone.push(() => host.cancelSchedule(x.key));
+      }
+      for (const n of fx.notify) await host.notify({ title: n.title, ...(n.body !== undefined ? { body: n.body } : {}), ...(n.to ? { to: n.to } : {}) });
+    } catch (err) {
+      for (const back of undone.reverse()) { try { await back(); } catch (e) { /* left as it is */ } }
+      await putBack();
+      throw new Error(libraryLine(err && err.message) || `${moduleName} could not do that.`);
+    }
     // On a module's environment page (no space: ctx.space.id is null) the pointer a handler made is to this page's own place.
     const ref = outcome.ref && here === null && host.objects && typeof host.objects.make === 'function' ? host.objects.make(outcome.ref.kind, outcome.ref.id) : outcome.ref;
-    if (o && typeof o.after === 'function') await o.after({ action: name, input, writes: applied, ref, data: outcome.data });
+    if (o && typeof o.after === 'function') await o.after({ action: name, input, writes: applied, ref, data: outcome.data, effects: fx });
     return { ...(ref ? { ref } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}) };
   }
   // Handlers for provide, one for each of the library's (or of o.only).

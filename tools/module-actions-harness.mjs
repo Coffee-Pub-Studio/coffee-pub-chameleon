@@ -54,6 +54,11 @@ const objectKey = (r) => [r.module, r.kind, r.id, r.scope, r.space || ''].join('
 export function standInHost(world, id) {
   const store = new Map(Object.entries(world.rows || {}).map(([k, v]) => [k, { value: v, version: 1 }]));
   const util = { ...freshUtil(id), phaseTimeline: () => world.bands || [] };
+  const calls = [];
+  const effect = (kind, spec) => {
+    if (world.refuseEffect && world.refuseEffect(kind, spec)) throw Object.assign(new Error('you may not do this'), { status: 403 });
+    calls.push({ call: kind, ...JSON.parse(JSON.stringify(spec)) });
+  };
   const host = {
     util,
     space: () => world.space || null,
@@ -61,7 +66,11 @@ export function standInHost(world, id) {
     people: async () => world.people || [],
     locale: () => ({ currency: world.currency || '' }),
     settings: { get: async () => JSON.parse(JSON.stringify(world.settings || {})) },
-    objects: { resolve: async (refs) => refs.map((r) => (world.summaries || []).find((s) => objectKey(s.ref) === objectKey(r)) || { error: 'gone' }) },
+    // What the adapter does beside the writes, written down as it was called (world.refuseEffect(kind, spec) refuses one).
+    schedule: async (spec) => { effect('schedule', spec); return { key: spec.key }; },
+    cancelSchedule: async (key) => { effect('cancelSchedule', { key }); return { key, cancelled: true }; },
+    notify: async (spec) => { effect('notify', spec); return { delivered: 1 }; },
+    objects: { setLinks: async (from, to, o) => { effect('setLinks', { from, to, ...(o || {}) }); return { links: to.length }; }, resolve: async (refs) => refs.map((r) => (world.summaries || []).find((s) => objectKey(s.ref) === objectKey(r)) || { error: 'gone' }) },
     storage: {
       list: async (prefix) => [...store].filter(([k]) => k.startsWith(prefix || '')).map(([key, v]) => ({ key, value: JSON.parse(JSON.stringify(v.value)), version: v.version })),
       set: async (key, value, o = {}) => {
@@ -75,23 +84,30 @@ export function standInHost(world, id) {
       delete: async (key) => { store.delete(key); },
     },
   };
-  return { host, store };
+  return { host, store, calls };
 }
 
 const carried = (credit) => ({ from: 'agent', by: credit.name, byKey: credit.key, credit });
 
-// Through the page adapter: { writes: [{ key, value }], ref, data } or { refused }.
+// Through the page adapter: { writes: [{ key, value }], ref, data, effects } or { refused }. `effects` is what the handler
+// answered beside its writes ({ links, schedules, notify }, as the runner's outcomeOf gives them), and `o.calls`, when
+// given (an array), is filled with the host calls the adapter made for them, in order ({ call: 'setLinks' | 'schedule' | 'cancelSchedule' |
+// 'notify', ...what it was given }).
 export async function onPage(id, action, input, world, o = {}) {
   const credit = o.credit || { name: 'Claude (agent)', key: 'agent1' };
-  const { host, store } = standInHost(world, id);
+  const { host, store, calls } = standInHost(world, id);
   const before = new Map([...store].map(([k, v]) => [k, v.version]));
-  const handlers = sdk.hostActions.fromLibrary(host, o.handlers || handlersOf(id), { module: () => ({ id, name: o.name || id }), ...(o.after ? { after: o.after } : {}) });
+  let effects = { links: [], schedules: [], notify: [] };
+  const after = async (done) => { effects = done.effects; if (o.after) await o.after(done); };
+  const handlers = sdk.hostActions.fromLibrary(host, o.handlers || handlersOf(id), { module: () => ({ id, name: o.name || id }), after });
   if (!handlers[action]) return { fault: 'missing' };
   try {
     const out = await handlers[action](JSON.parse(JSON.stringify(input)), carried(credit));
     const writes = [...store].filter(([k, v]) => before.get(k) !== v.version).map(([key, v]) => ({ key, value: v.value }));
-    return { writes, ref: out.ref || null, ...(out.data !== undefined ? { data: out.data } : {}) };
+    if (Array.isArray(o.calls)) o.calls.push(...calls);
+    return { writes, ref: out.ref || null, ...(out.data !== undefined ? { data: out.data } : {}), effects };
   } catch (err) {
+    if (Array.isArray(o.calls)) o.calls.push(...calls);
     return { refused: err.message };
   }
 }

@@ -89,7 +89,13 @@
         }
       }
     ],
-    "consumes": []
+    "consumes": [
+      "calendar:event"
+    ]
+  },
+  "hooks": {
+    "schedule": true,
+    "notify": true
   },
   "actions": {
     "server": "src/fixture-notes-lib-actions.js",
@@ -192,6 +198,16 @@
           "note": "ref:fixture-notes:note",
           "linkTo": "ref:fixture-notes:note?",
           "body": "text?"
+        }
+      },
+      {
+        "name": "effects",
+        "label": "Effects",
+        "description": "Answer the writes, links, schedules and notice the plan names.",
+        "effect": "write",
+        "input": {
+          "plan": "text",
+          "ms": "number?"
         }
       },
       {
