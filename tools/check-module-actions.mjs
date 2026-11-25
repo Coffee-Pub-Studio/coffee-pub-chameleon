@@ -42,6 +42,12 @@
  *   - To-do carried by the server (step 2b): createTask with a reminder, then updateTask on its pointer at once (notes cleared
  *     with ""), the reminder marked as waiting for a page and the schedule a page set from the old task cancelled; setTaskDue
  *     clearing the due date; linkTask and unlinkTask on the Calendar's event; the same request through an uploaded copy waits.
+ *   - plan-agent-server-actions.md steps 1 and 2: ctx.settings are what GET settings/values answers (person settings at their
+ *     default); ctx.util gains label (the manifest's words, then the template's), order, rollup and geo, frozen and with no way
+ *     out; ctx.space.phases carry their labels (the travel template, which this copy's templates let offer the fixture); a
+ *     handler's data beyond its note reaches the agent in the answer, request_status, wait_for_result and MCP, capped; a ref
+ *     input may be declared in `clears`, and "" then clears it through the bus and the gate; checkToolInput keeps "" for a
+ *     declared clear.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -72,7 +78,16 @@ const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-module-actions-'));
 const app = path.join(base, 'app');
 fs.mkdirSync(path.join(app, 'modules'), { recursive: true });
 fs.cpSync(path.join(ROOT, 'server'), path.join(app, 'server'), { recursive: true });
-for (const name of ['public', 'templates', 'node_modules', 'package.json']) fs.symlinkSync(path.join(ROOT, name), path.join(app, name));
+for (const name of ['public', 'node_modules', 'package.json']) fs.symlinkSync(path.join(ROOT, name), path.join(app, name));
+// The templates as shipped, but the travel template also offers the fixture and renames its `note` word, so a handler's phase
+// names and ctx.util.label can be tried under a template with phases.
+fs.cpSync(path.join(ROOT, 'templates'), path.join(app, 'templates'), { recursive: true });
+{
+  const file = path.join(app, 'templates', 'travel.json');
+  const t = JSON.parse(fs.readFileSync(file, 'utf8'));
+  t.modules['fixture-notes'] = { labels: { note: { one: 'log', many: 'logs' } } };
+  fs.writeFileSync(file, JSON.stringify(t, null, 2));
+}
 // Every module this server ships (the templates name them), beside the fixture.
 for (const id of fs.readdirSync(path.join(ROOT, 'modules'))) {
   if (fs.existsSync(path.join(ROOT, 'modules', id, 'module.json'))) fs.symlinkSync(path.join(ROOT, 'modules', id), path.join(app, 'modules', id));
@@ -196,7 +211,7 @@ try {
   const mia = (await call('POST', '/api/users', { cookie: admin, body: { login: 'mia', password: 'mia-password-1', displayName: 'Mia', role: 'member' } })).json.user;
   // Several agents, each with its own 20 writes a minute: the main one, and one for each group of requests below.
   const agents = [];
-  for (let i = 0; i < 11; i += 1) agents.push((await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user);
+  for (let i = 0; i < 14; i += 1) agents.push((await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user);
   const agent = agents[0];
   const camp = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Camp', members: [...agents.map((a) => a.key), mia.key] } })).json.space.id;
   const fort = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Fort', members: [mia.key] } })).json.space.id;
@@ -453,7 +468,7 @@ try {
     const seen = (await data())['probe:escapeUtil'].value;
     assert.equal(seen.frozen, 'frozen');
     for (const k of ['replaced', 'added', 'swapped']) assert.equal(seen[k], 'kept', k);
-    assert.equal(seen.keys, 'detailLines,id,localWhen,objectKey,parseYmd,plain,time,word,ymd');
+    assert.equal(seen.keys, 'detailLines,geo,id,label,localWhen,objectKey,order,parseYmd,plain,rollup,time,word,ymd');
     for (const k of ['window', 'document', 'hostActions', 'hostText', 'createHost', 'hostColour', 'locale']) assert.equal(seen[k], 'undefined', `no ${k}: the rest of the SDK is gone`);
     for (const k of ['plainCtor', 'wordCtor', 'ymdCtor', 'localWhenProto', 'stackFrames']) assert.equal(seen[k], 'blocked', k);
     assert.equal(seen.word, 'Spaces', 'the environment\'s words');
@@ -479,7 +494,7 @@ try {
     const f = (await data())['probe:facts'].value;
     assert.equal(f.carrier, 'server');
     assert.equal(f.tz, 'UTC');
-    assert.deepEqual(f.keys, ['action', 'by', 'byKey', 'carrier', 'credit', 'from', 'list', 'now', 'people', 'read', 'refs', 'space', 'tz', 'util']);
+    assert.deepEqual(f.keys, ['action', 'by', 'byKey', 'carrier', 'credit', 'from', 'list', 'now', 'people', 'read', 'refs', 'settings', 'space', 'tz', 'util']);
     assert.deepEqual(Object.keys(f.space).sort(), ['bands', 'currency', 'defaultCurrency', 'id', 'name', 'phases']);
     assert.deepEqual([f.space.id, f.space.name, f.space.currency, f.space.defaultCurrency], [camp, 'Camp', '', 'USD']);
     assert.ok(Array.isArray(f.space.phases) && Array.isArray(f.space.bands));
@@ -510,6 +525,148 @@ try {
     assert.equal(list.find((a) => a.action === 'travel:updatePlan').patch, true, 'and which object is a patch');
     assert.deepEqual(list.find((a) => a.action === 'calendar:updateEvent').clears, ['endTime', 'endDate', 'repeat', 'remind', 'notes']);
     for (const name of ['travel:acceptSuggestion', 'travel:updatePlan', 'calendar:createEvent', 'calendar:updateEvent']) assert.equal(list.find((a) => a.action === name).now, true, `${name}: carried now`);
+  });
+
+  // --- the context's settings, label, order, rollup, geo and phase names; data back; pointer clears (plan-agent-server-actions.md, steps 1 and 2)
+  await test('ctx.settings are the module\'s as GET settings/values answers them, each person setting at its default', async () => {
+    as = agents[11];
+    ok(await call('PUT', `/api/modules/fixture-notes/settings/space?space=${camp}`, { cookie: admin, body: { values: { greeting: 'Ahoy' } } }), 'the space\'s greeting');
+    ok(await call('PUT', '/api/modules/fixture-notes/settings/environment', { cookie: admin, body: { values: { tone: 'warm' } } }), 'the environment\'s tone');
+    ok(await call('PUT', `/api/modules/fixture-notes/settings/person?space=${camp}`, { cookie: miaC, body: { values: { mine: false } } }), 'Mia\'s own');
+    const r = await ask('helpers', {});
+    ok(r, 'helpers');
+    const h = (await data())['probe:helpers'].value;
+    assert.deepEqual(h.settings, { tone: 'warm', greeting: 'Ahoy', mine: true }, 'the environment\'s and the space\'s values, a person setting\'s default');
+    // The route a page reads them from, for someone with no person setting of their own (the admin): the same values.
+    const page = await call('GET', `/api/modules/fixture-notes/settings/values?scope=space&space=${camp}`, { cookie: admin });
+    ok(page, 'settings/values');
+    assert.deepEqual(page.json.values, h.settings, 'the route and the runner answer the same (one function)');
+    const other = await ask('helpers', {}, lodge);
+    ok(other, 'helpers in Lodge');
+    assert.deepEqual((await data(lodge))['probe:helpers'].value.settings, { tone: 'warm', greeting: 'Hello', mine: true }, 'another space\'s own (the default)');
+  });
+
+  await test('ctx.util gains label, order, rollup and geo, pure and frozen; ctx.space.phases carry their labels', async () => {
+    as = agents[11];
+    const h = (await data())['probe:helpers'].value;
+    assert.equal(h.keys, 'detailLines,geo,id,label,localWhen,objectKey,order,parseYmd,plain,rollup,time,word,ymd');
+    assert.equal(h.label, 'Jottings', 'the module\'s own word, as the manifest names it');
+    assert.equal(h.labelA, 'a jotting');
+    assert.equal(h.labelUnknown, 'thing', 'a key it does not declare answers the fallback');
+    assert.ok(/^[0-9A-Za-z]+$/.test(h.order[0]) && h.order[1] > h.order[0] && h.order[2] === 'before', `order: ${h.order}`);
+    assert.equal(h.orderBad, 'blocked', 'a before that does not sort first throws, as on a page');
+    assert.deepEqual(h.rollup, { a: { done: 2, total: 2 }, c: { done: 1, total: 1 } });
+    assert.deepEqual(h.rollupBy, { a: { done: 0, total: 2 }, c: { done: 0, total: 1 } });
+    assert.deepEqual(h.point, { lat: 38.7075, lng: -9.1364 });
+    assert.equal(h.coords, '38.70750, -9.13640');
+    assert.equal(h.link, 'https://www.openstreetmap.org/?mlat=38.7&mlon=-9.1#map=17/38.7/-9.1', 'no navigator: the ordinary web link');
+    assert.equal(h.navigator, 'undefined');
+    assert.equal(h.geoFrozen, 'frozen');
+    assert.equal(h.geoKept, 'kept');
+    for (const k of ['geoCtor', 'orderCtor']) assert.equal(h[k], 'blocked', `${k}: no code from strings through a helper`);
+    assert.deepEqual(h.phases, [], 'no template phases: none');
+    // A template with phases: each carries its label, as the space shows it.
+    ok(await call('PATCH', '/api/settings', { cookie: admin, body: { template: 'travel' } }), 'the travel template');
+    try {
+      const shown = (await call('GET', '/api/branding')).json.phases;
+      ok(await ask('helpers', {}), 'helpers under travel');
+      const phases = (await data())['probe:helpers'].value.phases;
+      assert.ok(phases.length > 0, 'the travel template has phases');
+      assert.deepEqual(phases, shown.map((p) => ({ id: p.id, label: p.label, main: Boolean(p.main) })), '{ id, label, main } for each, in order');
+      assert.equal((await data())['probe:helpers'].value.label, 'Logs', 'label follows the template\'s renaming');
+    } finally {
+      ok(await call('PATCH', '/api/settings', { cookie: admin, body: { template: 'default' } }), 'back to the default template');
+    }
+  });
+
+  await test('a handler\'s data reaches the agent: the answer, request_status, wait_for_result and MCP', async () => {
+    as = agents[13];
+    // `data.note` is the answer's `note`; the rest of the handler's data comes as `data`.
+    const want = { count: 3, list: ['a', 'b'], nested: { ok: true } };
+    const r = await ask('answerData', {});
+    ok(r, 'answerData');
+    assert.deepEqual(r.json, { id: r.json.id, status: 'done', ok: true, note: 'Here it is.', data: want });
+    const status = await call('GET', `/api/spaces/${camp}/action/${r.json.id}`, T());
+    assert.deepEqual(status.json, { id: r.json.id, status: 'done', ok: true, note: 'Here it is.', data: want }, 'request_status');
+    const waited = await call('GET', `/api/spaces/${camp}/action/${r.json.id}/wait?seconds=1`, T());
+    ok(waited, 'the wait route');
+    assert.deepEqual(waited.json.data, want, 'wait_for_result');
+    const rpc = (method, params) => call('POST', '/mcp', { ...T(), body: { jsonrpc: '2.0', id: 1, method, params } });
+    const viaMcp = JSON.parse((await rpc('tools/call', { name: 'ask_for_change', arguments: { space: camp, action: 'fixture-notes:answerData', input: {} } })).json.result.content[0].text);
+    assert.deepEqual(viaMcp.data, want, 'ask_for_change');
+    const mcpWait = JSON.parse((await rpc('tools/call', { name: 'wait_for_result', arguments: { space: camp, request: viaMcp.id, seconds: 1 } })).json.result.content[0].text);
+    assert.deepEqual(mcpWait.data, want, 'wait_for_result through MCP');
+    const mcpStatus = JSON.parse((await rpc('tools/call', { name: 'request_status', arguments: { space: camp, request: viaMcp.id } })).json.result.content[0].text);
+    assert.deepEqual(mcpStatus.data, want, 'request_status through MCP');
+    faultSentence(await ask('answerData', { big: true }), 'it answered more than the server takes');
+    const failed = await probe('throw');
+    assert.equal(failed.json.data, undefined, 'a refusal carries no data');
+    const noteOnly = await ask('addNote', { title: 'Note only' });
+    assert.equal(noteOnly.json.note, 'Added.');
+    assert.equal(noteOnly.json.data, undefined, 'data that is only the note is not repeated');
+    // A person's own request reads only the outcome, as it did: no data.
+    const mine = await call('POST', `/api/spaces/${camp}/action`, { cookie: miaC, body: { action: 'fixture-notes:answerData', input: {} } });
+    ok(mine, 'Mia asks');
+    assert.equal(mine.json.data, undefined, 'a person\'s request waits for a page and answers no data');
+  });
+
+  await test('a pointer input can be cleared: ref in clears, the bus and the gate keep "" and the handler clears it', async () => {
+    as = agents[12];
+    const { cleanManifest, readZip } = require(path.join(ROOT, 'server', 'modules.js'));
+    const files = await readZip(zipOf(FIXTURE));
+    const raw = JSON.parse(fs.readFileSync(path.join(FIXTURE, 'module.json'), 'utf8'));
+    assert.deepEqual(cleanManifest(structuredClone(raw), files).actions.provides.find((a) => a.name === 'setLink').clears, ['linkTo', 'body'], 'a ref:<module>:<kind>? input may be cleared');
+    const plainRef = structuredClone(raw);
+    plainRef.actions.provides.find((a) => a.name === 'facts').clears.push('other');
+    assert.deepEqual(cleanManifest(plainRef, files).actions.provides.find((a) => a.name === 'facts').clears, ['cleared', 'count', 'other'], 'a plain ref? input may be cleared');
+    const notThat = structuredClone(raw);
+    notThat.actions.provides.find((a) => a.name === 'answerData').clears = ['big'];
+    assert.throws(() => cleanManifest(notThat, files), /clears "big"; only string, text, number, date, ref inputs can be cleared/);
+    const target = (await ask('addNote', { title: 'Target' })).json.ref;
+    const holder = (await ask('addNote', { title: 'Holder', linkTo: target, body: 'Some words' })).json.ref;
+    assert.deepEqual((await data())[`note:${holder.id}`].value.linkTo, target);
+    const cleared = await ask('setLink', { note: holder, linkTo: '', body: '' });
+    ok(cleared, 'setLink with ""');
+    assert.equal(cleared.json.ok, true, cleared.text);
+    assert.equal(cleared.json.note, 'Unlinked.');
+    assert.deepEqual(cleared.json.data, { cleared: true });
+    const after = (await data())[`note:${holder.id}`].value;
+    assert.equal(after.linkTo, undefined, 'the pointer is cleared');
+    assert.equal(after.body, undefined, 'and the text');
+    const kept = await ask('setLink', { note: holder, linkTo: target });
+    ok(kept, 'setLink back');
+    assert.deepEqual((await data())[`note:${holder.id}`].value.linkTo, target);
+    const left = await ask('setLink', { note: holder });
+    ok(left, 'left out');
+    assert.deepEqual((await data())[`note:${holder.id}`].value.linkTo, target, 'a pointer left out is kept');
+    // The gate still checks a pointer that is given: one into a space that is not the agent's is refused.
+    const fortRef = { module: 'fixture-notes', kind: 'note', id: 'fortsecret', scope: 'space', space: fort };
+    const outside = await ask('setLink', { note: holder, linkTo: fortRef });
+    assert.ok(outside.status === 403 || outside.status === 404, `a pointer outside: ${outside.status}`);
+    // A ref the action does not clear: "" is no value, and a required one is still needed.
+    const notCleared = await ask('renameNote', { note: '', title: 'X' });
+    ok(notCleared, 'a required pointer sent as ""', 400);
+    assert.equal(notCleared.json.error, 'note is needed');
+    assert.deepEqual((await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions.find((a) => a.action === 'fixture-notes:setLink').clears, ['linkTo', 'body'], 'list_actions says so');
+  });
+
+  await test('the in-app AI keeps "" for a declared clear (checkToolInput), and drops it for any other', async () => {
+    const { cleanManifest, readZip } = require(path.join(ROOT, 'server', 'modules.js'));
+    const { buildCatalog, checkToolInput } = require(path.join(ROOT, 'server', 'action-catalog.js'));
+    const files = await readZip(zipOf(FIXTURE));
+    const m = cleanManifest(JSON.parse(fs.readFileSync(path.join(FIXTURE, 'module.json'), 'utf8')), files);
+    const tool = buildCatalog([m]).tools.find((t) => t.name === 'fixture-notes__setLink');
+    assert.ok(tool, 'setLink is a tool');
+    assert.deepEqual(tool.clears, ['linkTo', 'body']);
+    assert.equal(tool.schema.properties.body.minLength, undefined, 'a cleared text may be ""');
+    assert.match(tool.schema.properties.body.description, /Send "" to clear it\./);
+    assert.deepEqual([].concat(tool.schema.properties.linkTo.type), ['integer', 'null'], 'a pointer keeps its one real type');
+    assert.deepEqual(checkToolInput(tool, { note: 1, linkTo: null, body: '' }), { ok: true, input: { note: 1, body: '' } }, '"" kept for a declared clear');
+    assert.deepEqual(checkToolInput(tool, { note: 1, linkTo: '', body: '  ' }), { ok: true, input: { note: 1, linkTo: '', body: '' } }, 'a pointer too, and only spaces is ""');
+    assert.deepEqual(checkToolInput(tool, { note: 1, linkTo: null, body: null }), { ok: true, input: { note: 1 } }, 'null is still left out');
+    const add = buildCatalog([m]).tools.find((t) => t.name === 'fixture-notes__renameNote');
+    assert.deepEqual(add.clears, []);
+    assert.equal(checkToolInput(add, { note: '', title: 'X' }).ok, false, 'a required pointer is never cleared');
   });
 
   // --- the Itinerary and the Calendar, carried by the server ------------------------------------------------------------

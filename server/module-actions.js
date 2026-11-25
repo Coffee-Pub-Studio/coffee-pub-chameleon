@@ -8,13 +8,17 @@
 // with one handler for every action an agent may ask the module for. `ctx` is the page adapter's (public/sdk/host.js
 // host.actions.fromLibrary), as plain data plus three kinds of function:
 //   { from, by, byKey, credit: { name, key }, now, tz, carrier: 'server', action,
-//     space: { id, name, currency, defaultCurrency, phases: [{ id, main }], bands }, people: [{ key, name }],
-//     refs: { <objectKey>: { title, subtitle, kind, copy?, original?: { module, name } } | { error } },
+//     space: { id, name, currency, defaultCurrency, phases: [{ id, label, main }], bands }, people: [{ key, name }],
+//     refs: { <objectKey>: { title, subtitle, kind, copy?, original?: { module, name } } | { error } }, settings,
 //     read(key), list(prefix), util }
 // The asker is the agent and so is the credit; read and list see only this module's data in the request's space, as the agent
 // may read it; the facts (space, people, refs) are server/index.js actionFacts, refs only for the input's own pointers as the
-// agent may see them. `util` is the SDK's pure helpers, frozen (hostActions.util: plain, localWhen, detailLines, time, ymd,
-// parseYmd, objectKey, id, word; `time` on the environment's clock and `word` in its words), and `ymd` and `parseYmd` are
+// agent may see them. `settings` are the module's settings in that space as host.settings.get() gives them (server/index.js
+// moduleSettingValues, which GET /api/modules/:id/settings/values answers with), each person setting at its default since an
+// agent has none of its own. `util` is the SDK's pure helpers, frozen (hostActions.util: plain, localWhen, detailLines, time,
+// ymd, parseYmd, objectKey, id, word, label, order, rollup and geo; `time` on the environment's clock, `word` in its words,
+// `label` the module's own words as the space's template renames them, `order` and `rollup` the outline's, `geo` the frozen
+// place helpers, which reach no network), and `ymd` and `parseYmd` are
 // beside the library as on a page: the worker builds them from public/sdk/host.js itself before the library runs, so a page
 // and the server run one copy. `carrier` is 'server' (a page's is 'page'): nothing only a page does is done here (a reminder's
 // schedule, a link, a phase's end), and a handler says so in its note. A handler answers what to write (at most
@@ -120,8 +124,8 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
   };
 
   // One run: { text } (the handler's answer as JSON text) or { fault } (start, sdk, library, timeout, memory, crashed, busy,
-  // missing, result, size, unanswered). `localeText` is { clock, words } as JSON: the environment's, for ctx.util's time and
-  // word. Never throws.
+  // missing, result, size, unanswered). `localeText` is { clock, words, labels } as JSON: the environment's clock and
+  // words and the module's labels in the space, for ctx.util's time, word and label. Never throws.
   async function run({ code, filename, action, inputText, ctxText, dataText, localeText = '{}' }) {
     const sdkSource = sdk();
     if (!sdkSource) return { fault: 'sdk' };

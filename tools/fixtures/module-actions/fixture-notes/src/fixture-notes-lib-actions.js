@@ -114,6 +114,51 @@ const ACTION_HANDLERS = {
   facts(input, ctx) {
     return { writes: [{ key: 'probe:facts', value: { input, space: ctx.space, people: ctx.people, refs: ctx.refs, carrier: ctx.carrier, tz: ctx.tz, keys: Object.keys(ctx).sort() } }] };
   },
+  // The settings, the newer helpers (label, order, rollup, geo) and the phases' names, written down as they came.
+  helpers(input, ctx) {
+    const u = ctx.util;
+    const first = u.order(null, null);
+    const entries = [{ id: 'a' }, { id: 'b', parent: 'a', done: true }, { id: 'c', parent: 'a' }, { id: 'd', parent: 'c', done: true }];
+    const geoChanged = fixtureTry(() => { u.geo.parsePoint = () => null; return 'changed'; });
+    const value = {
+      settings: ctx.settings,
+      keys: Object.keys(u).sort().join(','),
+      label: u.label('note', { many: true, cap: true }),
+      labelA: u.label('note', { a: true }),
+      labelUnknown: u.label('nothing', { fallback: 'thing' }),
+      order: [first, u.order(first, null), u.order(null, first) < first ? 'before' : 'after'],
+      orderBad: fixtureTry(() => u.order('b', 'a')),
+      rollup: u.rollup(entries),
+      rollupBy: u.rollup(entries, { done: (e) => e.id === 'c' }),
+      point: u.geo.parsePoint('38.7075, -9.1364'),
+      coords: u.geo.coordsText(38.7075, -9.1364),
+      link: u.geo.mapsLink(38.7, -9.1, 'Lisbon', false),
+      geoFrozen: Object.isFrozen(u.geo) ? 'frozen' : 'open',
+      geoKept: geoChanged === 'blocked' || u.geo.parsePoint('1,2') !== null ? 'kept' : 'changed',
+      geoCtor: fixtureTry(() => u.geo.parsePoint.constructor('return typeof process')()),
+      orderCtor: fixtureTry(() => u.order.constructor('return typeof process')()),
+      navigator: typeof navigator,
+      phases: ctx.space.phases,
+    };
+    return { writes: [{ key: 'probe:helpers', value }] };
+  },
+  // A little data back to the agent, and nothing changed; `big` answers more than the server takes.
+  answerData(input) {
+    if (input.big) return { data: { note: 'Too much.', text: 'x'.repeat(9000) } };
+    return { data: { note: 'Here it is.', count: 3, list: ['a', 'b'], nested: { ok: true } } };
+  },
+  // Point a note at another, or clear the pointer with "" (the action clears linkTo).
+  setLink(input, ctx) {
+    const key = `note:${input.note.id}`;
+    const note = ctx.read(key);
+    if (!note) throw new Error('There is no such note.');
+    const next = { ...note };
+    if (input.linkTo === '') delete next.linkTo;
+    else if (input.linkTo) next.linkTo = input.linkTo;
+    if (input.body === '') delete next.body;
+    else if (typeof input.body === 'string') next.body = input.body;
+    return { writes: [{ key, value: next }], ref: input.note, data: { note: input.linkTo === '' ? 'Unlinked.' : 'Linked.', cleared: input.linkTo === '' } };
+  },
   hidden(input) {
     return { writes: [{ key: 'probe:hidden', value: { title: input.title } }] };
   },

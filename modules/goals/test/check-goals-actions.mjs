@@ -6,8 +6,8 @@
  * tools/module-actions-harness.mjs, expecting the same answer. Then addGoal, addStep and addNote as before (a step moves its
  * goal's progress in the same request), updateGoal (only the fields given, "" clears, a step moved under another goal) and
  * setGoalDone (a goal whose progress is its steps has no tick of its own), and what the page hands beside the runner's ctx:
- * the plan's settings, host.util's order and label, the phases' names. Goals declares no actions.server: the runner gives none
- * of those yet. Exits 1 on failure.
+ * the plan's settings, host.util's order and label, the phases' names. The runner's ctx has them too now (plan-agent-server-
+ * actions.md, step 1: ctx.settings, ctx.util.order and label), though Goals declares no actions.server yet. Exits 1 on failure.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -49,7 +49,7 @@ const onThePage = (action, input, o, rows = ROWS) => onPage('goals', action, inp
 await test('addGoal: the same both ways, credited to the asker\'s key, owners by name', async () => {
   const r = await same('addGoal', { title: 'Ship it', why: 'Because', date: '2027-01-02', owners: 'ana reyes, u-bo' }, world());
   assert.deepEqual(keys(r), ['plan:n1']);
-  assert.deepEqual({ ...written(r, 'n1'), createdAt: 0 }, { kind: 'goal', title: 'Ship it', parent: null, date: '2027-01-02', shownDate: '2027-01-02', why: 'Because', owners: ['u-ana', 'u-bo'], done: false, progress: 0, createdAt: 0, by: 'agent1' });
+  assert.deepEqual({ ...written(r, 'n1'), createdAt: 0 }, { kind: 'goal', title: 'Ship it', parent: null, order: 'X', date: '2027-01-02', shownDate: '2027-01-02', why: 'Because', owners: ['u-ana', 'u-bo'], done: false, progress: 0, createdAt: 0, by: 'agent1' }, 'ctx.util.order both ways: after its last sibling (W)');
   assert.deepEqual(r.ref, ref('n1'));
   await refuses('addGoal', { title: 'Ship it', owners: 'Zed' }, world(), 'That person is not in this space. Use list_members to see who is.');
   await refuses('addGoal', { title: ' ' }, world(), 'Give it a title.');

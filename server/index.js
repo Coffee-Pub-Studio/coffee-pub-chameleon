@@ -9129,7 +9129,8 @@ const ACTION_CHANGED = 'That changed while it was being done, so nothing was cha
 // size caps, object-sync and the live changes), each under the module's write limit as the agent, each only if nothing
 // changed it since the handler read it. One refused write puts back the ones before it, so a request is done whole or not
 // at all. The request is then finished once (completeServer); a request ended meanwhile (its agent's right taken away)
-// writes nothing. Answers 200 { id, status: 'done', ok: true, ref?, note? }, or the refusal's status with
+// writes nothing. Answers 200 { id, status: 'done', ok: true, ref?, note?, data? } (`data` the handler's own beyond its note,
+// agentData; plain and at most MODULE_ACTION_LIMITS.answerDataBytes as JSON, checked by outcomeOf), or the refusal's status with
 // { id, status: 'done', ok: false, error }: the module's own sentence (422), a guard's or the rights' (their status), a
 // change meanwhile (409), or "<Module> could not carry that out: <why>." (500, 503 when busy).
 async function carryOnServer(res, { who, space, found, def, input, request, lib }) {
@@ -9143,7 +9144,7 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     const r = finished ? result : (request.result || { ok: false, error: AGENT_ASK_ENDED }); // ended meanwhile: its own sentence
     const note = oneLineNote(r.data?.note);
     return res.status(r.ok ? 200 : finished ? status : 409).json({
-      id: request.id, status: 'done', ok: Boolean(r.ok), ...(r.ok ? {} : { error: oneLineNote(r.error) || `${shown} could not do that.` }), ...(r.ok && r.ref ? { ref: r.ref } : {}), ...(note ? { note } : {}),
+      id: request.id, status: 'done', ok: Boolean(r.ok), ...(r.ok ? {} : { error: oneLineNote(r.error) || `${shown} could not do that.` }), ...(r.ok && r.ref ? { ref: r.ref } : {}), ...(note ? { note } : {}), ...(r.ok && agentData(r.data) !== undefined ? { data: agentData(r.data) } : {}),
     });
   };
   const fault = (why) => end(why === 'busy' ? 503 : 500, { ok: false, error: `${shown} could not carry that out: ${moduleActionFault(why)}.` });
@@ -9163,9 +9164,13 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
   const agent = who.user;
   // The facts beside the data, as a page's adapter gives them (public/sdk/host.js libraryFacts), and the environment's clock and
   // words for ctx.util. `carrier` says nothing only a page does is done here (a reminder, a link, a phase's end).
+  // `settings` are the module's as host.settings.get() gives them in this space, with each person setting's default (an agent has
+  // none of its own); `labels` the module's words as the space's template renames them (host.locale().labels), for ctx.util.label.
   const facts = actionFacts(who, space, manifest, input);
-  const ctxText = JSON.stringify({ from: request.from, by: agent.displayName, byKey: agent.key, credit: { name: agent.displayName, key: agent.key }, now: Date.now(), tz: ACTION_TZ, carrier: 'server', ...facts, action: def.name });
-  const localeText = JSON.stringify({ clock: store.settings.clock === '24' ? '24' : '12', words: store.lookOf(space.id).words });
+  const settings = moduleSettingValues(manifest, { spaceId: space.id, userKey: null });
+  const ctxText = JSON.stringify({ from: request.from, by: agent.displayName, byKey: agent.key, credit: { name: agent.displayName, key: agent.key }, now: Date.now(), tz: ACTION_TZ, carrier: 'server', ...facts, settings, action: def.name });
+  const look = store.lookOf(space.id);
+  const localeText = JSON.stringify({ clock: store.settings.clock === '24' ? '24' : '12', words: look.words, labels: effectiveLabels(manifest, look.labels[manifest.id]) });
   const answer = await moduleActions.run({ code: lib.code, filename: lib.filename, action: def.name, inputText: JSON.stringify(input), ctxText, dataText, localeText });
   const after = () => {
     // Ended meanwhile (Revoke, Turn off, taken off the space): nothing is written.
@@ -9244,7 +9249,7 @@ function ownRefAt(manifest, scopeKey, key) {
 }
 // The facts a server-carried request's handler is given beside the data: the same plain data the page adapter builds from its
 // host (public/sdk/host.js libraryFacts), read here as the agent (`who`) may read it.
-//   space: { id, name, currency (the space's budget's), defaultCurrency (the server's), phases: [{ id, main }], bands (the
+//   space: { id, name, currency (the space's budget's), defaultCurrency (the server's), phases: [{ id, label, main }], bands (the
 //     phase timeline, public/phases.js timelineOf, today where the server is; [] without phases) };
 //   people: [{ key, name }], the space's members, as host.people() gives them;
 //   refs: { <objectKey>: { title, subtitle, kind, copy?, original?: { module, name } } } for each pointer in the input (its own
@@ -9270,7 +9275,7 @@ function actionFacts(who, space, manifest, input) {
   }
   const budget = space.budget && typeof space.budget.currency === 'string' ? space.budget.currency.trim().toUpperCase() : '';
   return {
-    space: { id: space.id, name: typeof space.name === 'string' ? space.name : '', currency: budget, defaultCurrency: String(store.settings.currency || 'USD').trim().toUpperCase(), phases: phases.map((p) => ({ id: p.id, main: Boolean(p.main) })), bands: JSON.parse(JSON.stringify(bands)) },
+    space: { id: space.id, name: typeof space.name === 'string' ? space.name : '', currency: budget, defaultCurrency: String(store.settings.currency || 'USD').trim().toUpperCase(), phases: phases.map((p) => ({ id: p.id, label: typeof p.label === 'string' ? p.label : '', main: Boolean(p.main) })), bands: JSON.parse(JSON.stringify(bands)) },
     people,
     refs,
   };
@@ -9332,6 +9337,15 @@ function undoCarried(ctx, applied) {
 // characters, for BUS_LIMITS.resultMs after it finished.
 const ACTION_NOTE_MAX = 300;
 const oneLineNote = (v) => (typeof v === 'string' ? v.replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, ACTION_NOTE_MAX) : '');
+// A module's answer data as an agent is given it (plan-agent-server-actions.md, section 5): its `note` is the answer's own
+// `note`, so an object's other fields come as `data` (none left: no `data`); any other plain value as it is. Already plain
+// JSON of at most 8000 bytes (outcomeOf for the server's runner, /api/bus/actions/complete for a page).
+function agentData(data) {
+  if (data === undefined || data === null) return undefined;
+  if (typeof data !== 'object' || Array.isArray(data)) return data;
+  const { note, ...rest } = data;
+  return Object.keys(rest).length ? rest : undefined;
+}
 // For an agent no chat permission is asked (plan-agent-matrix.md, decision 9): only its own request, in a module whose read
 // the Agent column still has; a person still needs chatRead.
 // The request this person asked for in this space, as the status route and its wait read it: { who, space, request }, or
@@ -9355,8 +9369,8 @@ function ownRequestFor(req, res) {
   return { who, space, request };
 }
 // How it went: { id, status }, with `ok` and the module's `error` or `note` (each one line) once done. For an agent's request
-// (plan-agent-edit-delete.md, E1 and E3), also the pointer it made or changed (`ref`) once done, so it can read it back and
-// chain, and the words saying what it waits for (`waiting`) while pending or claimed. A person's answer is only the outcome,
+// (plan-agent-edit-delete.md, E1 and E3), also the pointer it made or changed (`ref`) and the module's own `data`
+// (plan-agent-server-actions.md, section 5) once done, so it can read it back and chain, and the words saying what it waits for (`waiting`) while pending or claimed. A person's answer is only the outcome,
 // as it was (Chat's note reads it).
 function requestOutcome(request, space) {
   const status = moduleBus.statusOf(request);
@@ -9369,6 +9383,9 @@ function requestOutcome(request, space) {
     const note = oneLineNote(request.result?.data?.note);
     if (note) out.note = note;
     if (forAgent && out.ok && refShape(request.result?.ref)) out.ref = plainRef(request.result.ref);
+    // The handler's or the page's own data beside its note (agentData), so an agent can chain on it.
+    const data = forAgent && out.ok ? agentData(request.result?.data) : undefined;
+    if (data !== undefined) out.data = data;
   } else if (forAgent && (status === 'pending' || status === 'claimed')) {
     out.waiting = waitingWords(modules.enabled(request.provider)?.manifest || null, space, status);
   }
@@ -13123,13 +13140,20 @@ function sharedValue(manifest, def) {
   if (def.type === 'file') return listModuleFiles(manifest, def.folder)[0] || '';
   return hostRegistry.sharedFolderAddress(manifest.id, manifest.regionSource.folder);
 }
+// The values a module reads for a viewer in a place: environment, space and person settings together (a person's own with
+// `userKey`, else each person setting's default), a shared setting's real value the host's, and a setting not offered its
+// default. One function for GET /api/modules/:id/settings/values and a server-carried request's ctx.settings (carryOnServer,
+// where an agent has no person settings of its own, so `userKey` is null), so both answer the same thing.
+function moduleSettingValues(manifest, { spaceId, userKey }) {
+  const values = moduleSettings.effective(manifest, { spaceId: spaceId || null, userKey: userKey || null });
+  for (const d of manifest.settings || []) if (settingIsShared(manifest, d)) values[d.key] = sharedValue(manifest, d);
+  for (const d of manifest.settings || []) if (!settingOffered(d, d.scope === 'space' ? spaceId : null)) values[d.key] = d.default; // not offered: its value is ignored
+  return values;
+}
 app.get('/api/modules/:id/settings/values', (req, res) => {
   const ctx = moduleAccess(req, res, 'read');
   if (!ctx) return;
-  const values = moduleSettings.effective(ctx.manifest, { spaceId: ctx.spaceId, userKey: ctx.who.user?.key || null });
-  for (const d of ctx.manifest.settings || []) if (settingIsShared(ctx.manifest, d)) values[d.key] = sharedValue(ctx.manifest, d);
-  for (const d of ctx.manifest.settings || []) if (!settingOffered(d, d.scope === 'space' ? ctx.spaceId : null)) values[d.key] = d.default; // not offered: its value is ignored
-  res.json({ values });
+  res.json({ values: moduleSettingValues(ctx.manifest, { spaceId: ctx.spaceId, userKey: ctx.who.user?.key || null }) });
 });
 
 // Who may change the settings of a scope, and where they are kept; sends the error itself and returns null when not.
