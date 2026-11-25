@@ -16,8 +16,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { userAgent, REPOSITORY_URL } = require('./product-name');
-const { publicAddresses } = require('./link-preview');
+const { userAgent } = require('./product-name');
+const { publicAddresses, getOnce } = require('./link-preview');
 
 const FILE_NAME = 'weather.json';
 const FETCH_MS = 6000; // the whole ask, redirects included
@@ -184,33 +184,66 @@ function serviceUrl(address, key, lat, lon, from, to, { httpsOnly = false } = {}
 //
 // The address the admin chose is asked as it is (a service run on one's own network is allowed). A redirect to anywhere
 // else (another host or port) must be http(s) (https for a preset) and resolve to public addresses only, as a link preview
-// is held (server/link-preview.js); at most 3. `fetchImpl` and `lookup` are replaced only by tools/check-weather.mjs.
-async function askWeather(address, key, lat, lon, from, to, { httpsOnly = false, now = Date.now(), fetchImpl = fetch, lookup } = {}) {
+// is held (server/link-preview.js), and it is then asked at exactly the addresses that were checked (getOnce, which
+// connects to them and never looks the name up a second time, so a name cannot answer public to the check and private to
+// the ask); at most 3. The user-agent is the product and its version only, with no contact address, as a link preview
+// sends. `fetchImpl`, `lookup` and `getImpl` are replaced only by tools/check-weather.mjs.
+async function askWeather(address, key, lat, lon, from, to, { httpsOnly = false, now = Date.now(), fetchImpl = fetch, lookup, getImpl = getOnce } = {}) {
   const a = cleanDay(from);
   const b = cleanDay(to);
   if (!a || !b || a > b) throw new WeatherError('those are not days in order', 'range');
   if (dayState(a, now) === 'outOfRange' || dayState(b, now) === 'outOfRange') throw new WeatherError(`weather is only asked from ${BACK_DAYS} days back to ${AHEAD_DAYS} days ahead`, 'range');
   const first = serviceUrl(address, key, lat, lon, a, b, { httpsOnly });
+  const deadline = Date.now() + FETCH_MS;
   const signal = AbortSignal.timeout(FETCH_MS);
   let current = first;
+  let pinned = null; // the checked addresses of `current`, when it is not the admin's own service
   for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-    let res;
-    try {
-      res = await fetchImpl(current.href, { headers: { Accept: 'application/json', 'User-Agent': userAgent({ contact: REPOSITORY_URL }) }, signal, redirect: 'manual' });
-    } catch (err) {
-      if (signal.aborted || (err && (err.name === 'TimeoutError' || err.name === 'AbortError'))) throw new WeatherError('the weather service took too long', 'timeout');
-      throw new WeatherError('the weather service could not be reached', 'unreachable');
+    // One ask: { status, location, text }.
+    let got;
+    if (pinned) {
+      let res;
+      try {
+        res = await getImpl(current, pinned, MAX_BODY, 'application/json', { timeoutMs: FETCH_MS, deadline });
+      } catch (err) {
+        if (err && err.code === 'timeout') throw new WeatherError('the weather service took too long', 'timeout');
+        throw new WeatherError('the weather service could not be reached', 'unreachable');
+      }
+      if (res.cut) throw new WeatherError('the weather service answered too much', 'big');
+      const loc = res.headers && res.headers.location;
+      got = { status: res.status, location: Array.isArray(loc) ? loc[0] : loc, text: () => res.body.toString('utf8') };
+    } else {
+      let res;
+      try {
+        res = await fetchImpl(current.href, { headers: { Accept: 'application/json', 'User-Agent': userAgent() }, signal, redirect: 'manual' });
+      } catch (err) {
+        if (signal.aborted || (err && (err.name === 'TimeoutError' || err.name === 'AbortError'))) throw new WeatherError('the weather service took too long', 'timeout');
+        throw new WeatherError('the weather service could not be reached', 'unreachable');
+      }
+      got = {
+        status: res.status,
+        location: res.headers.get('location'),
+        text: async () => {
+          const declared = Number(res.headers.get('content-length'));
+          if (Number.isFinite(declared) && declared > MAX_BODY) throw new WeatherError('the weather service answered too much', 'big');
+          try { return await readCapped(res, MAX_BODY); } catch (err) {
+            if (err instanceof WeatherError) throw err;
+            if (signal.aborted) throw new WeatherError('the weather service took too long', 'timeout');
+            throw new WeatherError('the weather service could not be read', 'unreachable');
+          }
+        },
+      };
     }
-    if (res.status >= 300 && res.status < 400) {
-      const location = res.headers.get('location');
-      if (!location) throw new WeatherError(`the weather service answered ${res.status}`, 'status');
+    if (got.status >= 300 && got.status < 400) {
+      if (!got.location) throw new WeatherError(`the weather service answered ${got.status}`, 'status');
       if (hop === MAX_REDIRECTS) throw new WeatherError('the weather service sent the ask elsewhere too many times', 'redirects');
       let next;
-      try { next = new URL(location, current); } catch { throw new WeatherError('the weather service sent the ask to a bad address', 'blocked'); }
+      try { next = new URL(got.location, current); } catch { throw new WeatherError('the weather service sent the ask to a bad address', 'blocked'); }
       if ((httpsOnly ? next.protocol !== 'https:' : !/^https?:$/.test(next.protocol)) || next.username || next.password) throw new WeatherError('the weather service sent the ask to an address that is not allowed', 'blocked');
-      if (next.origin !== first.origin) {
+      if (next.origin === first.origin) pinned = null;
+      else {
         try {
-          await publicAddresses(next.hostname.replace(/^\[|\]$/g, ''), { deadline: Date.now() + FETCH_MS, tooLong: 'the weather service took too long', ...(lookup ? { lookup } : {}) });
+          pinned = await publicAddresses(next.hostname.replace(/^\[|\]$/g, ''), { deadline, tooLong: 'the weather service took too long', ...(lookup ? { lookup } : {}) });
         } catch (err) {
           if (err && err.code === 'timeout') throw new WeatherError('the weather service took too long', 'timeout');
           throw new WeatherError('the weather service sent the ask to an address that is not allowed', 'blocked');
@@ -219,15 +252,8 @@ async function askWeather(address, key, lat, lon, from, to, { httpsOnly = false,
       current = next;
       continue;
     }
-    if (!res.ok) throw new WeatherError(`the weather service answered ${res.status}`, 'status');
-    const declared = Number(res.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > MAX_BODY) throw new WeatherError('the weather service answered too much', 'big');
-    let text;
-    try { text = await readCapped(res, MAX_BODY); } catch (err) {
-      if (err instanceof WeatherError) throw err;
-      if (signal.aborted) throw new WeatherError('the weather service took too long', 'timeout');
-      throw new WeatherError('the weather service could not be read', 'unreachable');
-    }
+    if (got.status < 200 || got.status >= 300) throw new WeatherError(`the weather service answered ${got.status}`, 'status');
+    const text = await got.text();
     let json;
     try { json = JSON.parse(text); } catch { throw new WeatherError('the weather service did not answer with weather', 'bad'); }
     if (!json || typeof json !== 'object' || !json.daily) throw new WeatherError('the weather service did not answer with weather', 'bad');
@@ -385,7 +411,7 @@ function cleanRecord(r) {
 // null (nothing is chosen: nothing goes out, and the caller answers `configured: false` before getting here). Returns
 // { "YYYY-MM-DD": { state, ...dayAnswer } } with `state` one of forecast, past, outOfRange, unavailable (the service failed
 // or left the day out, and nothing good is kept). `failed`: the WeatherError, when the service was asked and failed.
-async function weatherDays(cache, service, lat, lon, days, { units = 'c', fetchImpl, lookup } = {}) {
+async function weatherDays(cache, service, lat, lon, days, { units = 'c', fetchImpl, lookup, getImpl } = {}) {
   const now = cache.now();
   const out = {};
   const wanted = [];
@@ -400,7 +426,7 @@ async function weatherDays(cache, service, lat, lon, days, { units = 'c', fetchI
   if (wanted.length && service && service.address) {
     const sorted = [...wanted].sort();
     try {
-      const got = await askWeather(service.address, service.key || '', lat, lon, sorted[0], sorted[sorted.length - 1], { httpsOnly: Boolean(service.httpsOnly), now, fetchImpl, lookup });
+      const got = await askWeather(service.address, service.key || '', lat, lon, sorted[0], sorted[sorted.length - 1], { httpsOnly: Boolean(service.httpsOnly), now, fetchImpl, lookup, getImpl });
       cache.remember(lat, lon, got);
     } catch (err) {
       failed = err instanceof WeatherError ? err : new WeatherError('the weather service could not be read', 'unreachable');
