@@ -114,11 +114,18 @@ if (!q.has('bare')) {
   if (state === 'conflict') D[2].items[1].conflict = 'Christy';
   if (state === 'dragging') { D[2].items[1].dragging = true; D[2].items[3].drop = 'before'; D[3].drop = 'into'; }
 
+  // A day's weather (CONTRACT.md, "Day weather"): the SDK's host.ui.dayWeather, last in the day's label row. Only a forecast or
+  // a past day has one; a day with no place, out of range, or a service that is off draws nothing. Its styles are system.css's.
+  const weather = (w) => (w ? `<span class="sdk-day-labels"><button class="sdk-day-weather" type="button" data-state="${w.state}" aria-haspopup="menu" aria-expanded="false" aria-label="${w.said}"><span class="ic" aria-hidden="true"></span><span class="sdk-day-weather-high" aria-hidden="true">${w.high}°</span><span class="sdk-day-weather-low" aria-hidden="true"> / ${w.low}°</span></button></span>` : '');
+  D[0].w = { state: 'past', high: 19, low: 13, said: 'What it was: rain, high 19, low 13' };
+  D[1].w = { state: 'forecast', high: 22, low: 14, said: 'Forecast: partly cloudy, high 22, low 14, 20 percent chance of rain' };
+  D[2].w = { state: 'forecast', high: 24, low: 15, said: 'Forecast: clear sky, high 24, low 15' };
+  // D[3]: no stop with a place and no main place: nothing. D[4]: further ahead than two weeks: nothing.
   const day = (d, i) => {
     if (d.ideas) return `<section class="day ideas" id="day-ideas" data-day="" data-index="0"><header class="day-head"><span class="day-date" data-slot="date">Ideas</span><span class="day-of">no day yet</span><span class="day-count">${d.items.length || ''}</span></header><ol class="items">${d.items.map(item).join('') || '<li class="day-empty">Ideas with no day yet live here.</li>'}</ol><form class="add-row" data-day=""><input name="title" type="text" maxlength="200" placeholder="Add an idea" aria-label="Add an idea"><button class="btn btn-primary" type="submit" data-action="add-item" aria-label="Add">${ic('plus')}</button></form></section>`;
     const list = d.items.map((it) => (it.gap ? gap(it.gap) : item(it))).join('');
     return `<section class="day${d.today ? ' today' : ''}${d.drop ? ' drop-target' : ''}" id="day-${d.date}" data-day="${d.date}" data-index="${i + 1}">
-      <header class="day-head"><span class="day-date" data-slot="date">${d.label}</span><span class="day-of">day ${i + 1} of ${D.length}</span><span class="day-count">${d.items.filter((x) => !x.gap).length || ''}</span></header>
+      <header class="day-head"><span class="day-date" data-slot="date">${d.label}</span><span class="day-of">day ${i + 1} of ${D.length}</span><span class="day-count">${d.items.filter((x) => !x.gap).length || ''}</span>${weather(d.w)}</header>
       <ol class="items">${list || '<li class="day-empty">Nothing planned yet. Add something below, or drag it here.</li>'}</ol>
       ${d.suggest ? `<div class="suggestions"><div class="suggestions-title">Other modules have</div>${d.suggest.map((s) => `<div class="suggestion" data-ref="${s.ref}"><span class="ic" data-icon="${s.module.icon}">${ic(s.module.icon)}</span><span class="suggestion-main"><b>${s.title}</b> · ${s.module.name}</span><button class="btn" type="button" data-action="add-suggestion">Add</button></div>`).join('')}</div>` : ''}<form class="add-row" data-day="${d.date}"><input name="title" type="text" maxlength="200" placeholder="Add a stop, a stay or a note" aria-label="Add to ${d.label}"><button class="btn btn-primary" type="submit" data-action="add-item" aria-label="Add">${ic('plus')}</button></form>
     </section>`;
