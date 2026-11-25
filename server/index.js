@@ -32,7 +32,7 @@ const { cleanReport: cleanAttention } = require('./attention');
 const { cleanFacts, iconKnown } = require('./facts');
 const { TagError } = require('./tags');
 const { FIXED_WORKSPACE_SETTINGS } = require('./fixed-workspaces');
-const { LayoutError, cleanLayout, cleanSystemPatch, tabsOf, SYSTEM_IDS, SYSTEM_ICONS } = require('./layouts');
+const { LayoutError, cleanLayout, tabsOf, SYSTEM_IDS, SYSTEM_ICONS } = require('./layouts');
 const { ModuleLimits } = require('./module-limits');
 const { ModuleSettings, SettingError } = require('./module-settings');
 const { effectiveLabels } = require('./module-labels');
@@ -7626,23 +7626,20 @@ function sendLayoutError(err, res) {
 // person has the conference (modulePerms(...).conference: a call service, the environment's switch and the permission,
 // all folded in by store.roleSet); Whiteboards, Documents and Projects (the `schedule` module, Planner - Projects) while their
 // module is on in the space, on the canvas and
-// readable by this person. Each carries this person's own name, icon and tab choices (store.layouts.systemOf), else its
-// defaults. `shown` is false when the owner hid it (`tabs.hide`); the owner's hide wins, so `tab` is false then whatever the
-// person chose. `pinned` is true while it is shown: the owner keeps it in the bar for everyone and nobody hides it for
-// themselves (`tab` equals `shown`). A guest has none.
+// readable by this person. Each carries its own name and icon (nobody renames or re-icons the owner's tabs; `name` equals
+// `defaultName`, `icon` `defaultIcon`). `shown` is false when the owner hid it (`tabs.hide`). `pinned` is true while it is
+// shown: the owner keeps it in the bar for everyone and nobody hides it for themselves (`tab` equals `shown`). A guest has none.
 //   { id, kind: 'system', name, icon, tab, shown, pinned, defaultName, defaultIcon, modules, settings? }
 // `settings` (the Fixed Workspaces only, never the Workspace): the switches its Modules tab offers, from the schema in
 // server/fixed-workspaces.js (fixedSettingsFor); [] when there is nothing to configure.
 function systemLayoutsFor(found) {
   if (!found.who.user) return [];
-  const mine = store.layouts.systemOf(found.space.id, found.who.user.key);
   const hidden = tabsOf(found.space.tabs);
   const make = (id, defaultName, defaultIcon, modulesOf) => {
-    const own = mine[id] || {};
     const shown = !hidden.hide.includes(id);
     // The pin rule (plan-templates-redesign.md, decision 9): a Fixed Workspace the owner shows is pinned, in the bar for
-    // everyone, so a person's own hide of it (a stored `tab: false`) is ignored, never rewritten. The Workspace is always shown.
-    return { id, kind: 'system', name: own.name || defaultName, icon: own.icon || defaultIcon, tab: shown, shown, pinned: shown, defaultName, defaultIcon, modules: modulesOf, ...(id === 'workspace' ? {} : { settings: fixedSettingsFor(found, id) }) };
+    // everyone. The Workspace is always shown.
+    return { id, kind: 'system', name: defaultName, icon: defaultIcon, tab: shown, shown, pinned: shown, defaultName, defaultIcon, modules: modulesOf, ...(id === 'workspace' ? {} : { settings: fixedSettingsFor(found, id) }) };
   };
   const made = new Map([['workspace', make('workspace', 'Workspace', SYSTEM_ICONS.workspace, [])]]);
   for (const [id, dest, moduleId] of [['calendar', 'calendar', 'calendar'], ['map', 'map', 'maps']]) {
@@ -7840,7 +7837,6 @@ app.post('/api/spaces/:id/layouts', (req, res) => {
   const out = cleanLayout(req.body, { icons: layoutIconIds(found.space.id), shapeOptions: sharedShapeOptions(found.space) });
   if (out.error) return res.status(400).json(layoutProblems(out));
   const { layout } = out;
-  if (layout.shared && !found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   try {
     res.status(201).json({ layout: store.layouts.add(found.space.id, found.who.user.key, layout) });
   } catch (err) {
@@ -7861,11 +7857,11 @@ app.put('/api/spaces/:id/layouts/:layoutId', (req, res) => {
   if (!there) return res.status(404).json({ error: 'There is no such layout here.' });
   if (!found.canShare) return res.status(403).json({ error: sharedLayoutRefusal() });
   // The icon it has already is taken back unchanged (it may be one a template switched away offered); a new one is checked.
-  const out = cleanLayout(req.body, { partial: true, shared: there.shared, shapeOptions: there.shared ? sharedShapeOptions(found.space) : null, icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
+  const out = cleanLayout(req.body, { partial: true, shapeOptions: sharedShapeOptions(found.space), icons: [...layoutIconIds(found.space.id), ...(typeof there.layout?.icon === 'string' ? [there.layout.icon] : [])] });
   if (out.error) return res.status(400).json(layoutProblems(out));
   const patch = out.layout;
   if (!Object.keys(patch).length) {
-    const error = there.shared ? 'Send a new name, or a shape and its areas to replace the layout with.' : `Send a new name, or the ${word('module', { many: true })} and snap to replace the layout with.`;
+    const error = 'Send a new name, or a shape and its areas to replace the layout with.';
     return res.status(400).json({ error, problems: [error], parts: [null] });
   }
   try {
@@ -7891,36 +7887,6 @@ app.delete('/api/spaces/:id/layouts/:layoutId', (req, res) => {
     // Deleting the default layout clears the space's defaultLayout; its Opens with stays as it was.
     if (there.shared) store.syncDefaultLayout(found.space.id);
     res.status(204).end();
-  } catch (err) {
-    sendLayoutError(err, res);
-  }
-});
-
-// A person's own name, icon and tab for a system layout in a space (plan-layout-views.md, step 1): { name?, icon?, tab? },
-// name and icon null going back to the default. 200 { layout } (the system layout as GET lists it); 400 for a bad name or
-// icon, or tab false on the Workspace; 403 for a guest; 404 for an id that is not on in this space; 409 for a tab the owner hid, and 409 for tab false on a shown fixed layout (pinned).
-// The owner hid a fixed layout (the space's tabs.hide): a person cannot turn its tab on or off, 409.
-const ownerHidSentence = () => `The ${word('owner')} has hidden this layout.`;
-// The owner shows a fixed layout (it is not in tabs.hide): it is pinned, so a person's own hide of it is refused, 409.
-// Those who may set the bar (owners, the admin, moderators) are told where to take it out; a member, who keeps it.
-const pinnedSentence = (found) => (found.canShare ? 'To take this one out of the bar, hide it for everyone in Set up.' : `The ${word('owner')} keeps this one in the bar.`);
-const ownerHid = (found, id) => tabsOf(found.space.tabs).hide.includes(id);
-app.patch('/api/spaces/:id/layouts/system/:systemId', (req, res) => {
-  const found = layoutSpaceFor(req, res);
-  if (!found) return;
-  if (!found.who.user) return res.status(403).json({ error: guestLayoutRefusal() });
-  const id = req.params.systemId;
-  if (!systemLayoutsFor(found).some((l) => l.id === id)) return res.status(404).json({ error: 'There is no such layout here.' });
-  // As a saved layout's: the icon this person has on it already is taken back unchanged; a new one is checked.
-  const had = store.layouts.systemOf(found.space.id, found.who.user.key)[id]?.icon;
-  const { patch, error } = cleanSystemPatch(req.body, { icons: [...layoutIconIds(found.space.id), ...(typeof had === 'string' ? [had] : [])] });
-  if (error) return res.status(400).json({ error });
-  if (patch.tab === false && id === 'workspace') return res.status(400).json({ error: 'The Workspace is always shown.' });
-  if (patch.tab !== undefined && ownerHid(found, id)) return res.status(409).json({ error: ownerHidSentence() });
-  if (patch.tab === false) return res.status(409).json({ error: pinnedSentence(found) });
-  try {
-    store.layouts.setSystem(found.space.id, found.who.user.key, id, patch);
-    res.json({ layout: systemLayoutsFor(found).find((l) => l.id === id) });
   } catch (err) {
     sendLayoutError(err, res);
   }

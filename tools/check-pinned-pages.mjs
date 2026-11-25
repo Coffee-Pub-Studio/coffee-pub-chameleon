@@ -6,8 +6,7 @@
  *     comes from the <space>'s template."), no switches, for an owner (the admin) and a moderator, at 1280 and 390
  *   - Set up's Tabs in the bar section marks a shown Fixed Workspace as pinned (the Workspace and a hidden one carry no mark)
  *   - a member's tab bar: a pinned tab wears the pin and has the owner's sentence in its title; the page offers no hide for
- *     it (there are no favorites, plan-workspaces.md decision 44); a stale page's attempt is
- *     refused by the server with its sentence, which the page shows as it is
+ *     it (there are no favorites, plan-workspaces.md decision 44), and the server has no route for one (issue #1091)
  *   - a first visit opens the template's Opens first: that layout is the tab shown, with the template's layout behind it
  *   - a phone (390): the line and the Layouts rows keep 44 px targets and the panel does not scroll sideways
  * Run it under the shared browser lock. With no Chromium it says SKIPPED (set CHROME_PATH); that is not a pass.
@@ -36,7 +35,6 @@ const test = async (name, fn) => {
   try { await fn(); n += 1; } catch (err) { failed += 1; console.error(`FAIL ${name}\n${err.stack || err}`); }
 };
 const SHOTS = process.env.PINNED_PAGES_SHOTS || '';
-const PINNED = 'The owner keeps this one in the bar.';
 
 // What the page says, read as code: the pin and the line are drawn from the server's `pinned` and the template's list.
 {
@@ -157,7 +155,7 @@ try {
     await shot(tab, 'set-up-layouts-390.png');
   });
 
-  await test('a member: the first visit opens the template\'s layout, the pinned tabs wear the pin, and a hide is refused with the owner\'s sentence', async () => {
+  await test('a member: the first visit opens the template\'s layout, the pinned tabs wear the pin, and no route hides one', async () => {
     const tab = await inSpace('sam', 1280);
     const bar = await tab.eval(`(() => ({
       tabs: [...document.querySelectorAll('.layout-tabs > [data-layout-tab]')].map((b) => ({ id: b.dataset.layoutTab, pin: /Kept in the bar/.test(b.title), title: b.title, current: b.getAttribute('aria-current') === 'page' })),
@@ -168,13 +166,8 @@ try {
     assert.equal(bar.tabs[1].title, 'Calendar. Kept in the bar by the owner.', 'the tab says why it stays');
     assert.equal(bar.pinButtons, 0, 'no hide control on a tab');
     assert.equal(bar.tabs.find((t) => t.current)?.id, 'documents', 'a first visit opens the template\'s layout');
-    // The server side of the same rule, as a stale page would meet it: the sentence is the owner's word, shown as it is.
-    const stale = await call('sam', 'PATCH', `/api/spaces/${ctx.trip}/layouts/system/calendar`, { tab: false });
-    assert.equal(stale.status, 409);
-    assert.equal(stale.json.error, PINNED);
-    const modStale = await call('mia', 'PATCH', `/api/spaces/${ctx.trip}/layouts/system/calendar`, { tab: false });
-    assert.equal(modStale.status, 409);
-    assert.equal(modStale.json.error, 'To take this one out of the bar, hide it for everyone in Set up.', 'those who set the bar are told where');
+    // The server side of the same rule: there is no route that hides a tab for oneself (issue #1091).
+    for (const who of ['sam', 'mia']) assert.equal((await call(who, 'PATCH', `/api/spaces/${ctx.trip}/layouts/system/calendar`, { tab: false })).status, 404, `${who}: no per-person tab route`);
     const fav = await call('sam', 'DELETE', `/api/spaces/${ctx.trip}/layouts/calendar/favorite`);
     assert.equal(fav.status, 404, 'the favorite routes are gone');
     const seen = (await call('sam', 'GET', `/api/spaces/${ctx.trip}/layouts`)).json;

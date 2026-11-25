@@ -13,7 +13,7 @@
 // share is off the grid, and when a shape's columns do not add up to 100.
 //
 // The stored shape, the same in a template and in a shared layout: { shape: "<id>", areas: ["<module id>" | null, ...] }.
-// cleanShape() is the one check, pure, as cleanLayout() is for a free-form layout.
+// cleanShape() is the one check, pure; cleanLayout() (server/layouts.js) wraps it for a layout for everyone.
 'use strict';
 
 const words = require('./words');
@@ -44,8 +44,8 @@ const MODULE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 // The chat and the call are the column on the left; they can't be in an area (decision 1).
 const COLUMN_IDS = Object.freeze(['chat', 'conference']);
 // What can't share a column in a stacked area: the composites (public/composites.js) and what stands in for them.
-// This is wider than stackable() in server/layouts.js, which refuses only the conference, Chat and `dest:*` ids, because
-// a shape names modules, and a module reads as a composite while the composite is on:
+// The conference and Chat never stack either: they are the column (COLUMN_IDS), refused in any area. A shape names modules,
+// and a module reads as a composite while the composite is on:
 //   calendar        folds into dest:calendar only where the Calendar is on. To-do is always an ordinary module with its own
 //                   window (plan-todo-list.md); the Calendar's To-do panel is the `inCalendar` setting, not a fold.
 //   maps            is a composite only where the Map answered (`ask: true` there: it needs a map file), which the server

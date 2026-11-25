@@ -20,8 +20,7 @@
  *     or by glyph, an icon by id) is dropped there, and the template's save is not refused for it; they show only while
  *     the template is read, and a switch never copies them into, or changes, the environment's lists;
  *   - an icon the owner adds may be the home icon; a removed built-in one may not (400);
- *   - a removed icon still in use (the home icon, a space's link icon, a module's display icon, a saved layout's icon, a
- *     system layout's icon) is drawn from `inUseIcons`, never offered in `icons`, the module keeps its display icon, and a
+ *   - a removed icon still in use (the home icon, a space's link icon, a module's display icon, a saved layout's icon) is drawn from `inUseIcons`, never offered in `icons`, the module keeps its display icon, and a
  *     new pick of it is refused (400) while sending back the one a record has already is taken;
  *   - the lists survive a restart as saved (they are filled once, never again);
  *   - icons in use after a template switch, the bound of 200 on them, stored ids that are no Font Awesome icon, a space on
@@ -365,14 +364,13 @@ try {
   });
 
   await test('a removed icon still in use is drawn from inUseIcons, never offered, and a new pick of it is refused', async () => {
-    const removed = { home: 'ghost', link: 'dungeon', display: 'ring', layout: 'puzzle-piece', system: 'wand-sparkles' };
+    const removed = { home: 'ghost', link: 'dungeon', display: 'ring', layout: 'puzzle-piece' };
     for (const id of Object.values(removed)) assert.ok(ids(editedIcons).includes(id), `${id} is offered before`);
     const sp = (await call('POST', '/api/spaces', { name: 'In use', linkIcon: removed.link })).json.space.id;
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: removed.home })).status, 200);
     assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: removed.display })).status, 200);
     const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Kept', shared: true, shape: 'one', areas: [null], icon: removed.layout });
     assert.equal(made.status, 201, made.text);
-    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: removed.system })).status, 200);
     const fewer = editedIcons.filter((i) => !Object.values(removed).includes(i.id));
     const saved = await call('PATCH', '/api/settings', { icons: fewer });
     assert.equal(saved.status, 200, saved.text);
@@ -392,12 +390,10 @@ try {
       ['link icon', await call('PATCH', `/api/spaces/${space}`, { linkIcon: removed.link }), LINK_REFUSED],
       ['display icon', await call('PATCH', '/api/modules/chat', { displayIcon: removed.home }), `There is no icon called ${removed.home} in this environment's icons.`],
       ['saved layout', await call('POST', `/api/spaces/${sp}/layouts`, { name: 'New', shared: true, shape: 'one', areas: [null], icon: removed.layout }), 'Pick an icon from the list.'],
-      ['system layout', await call('PATCH', `/api/spaces/${space}/layouts/system/workspace`, { icon: removed.system }), 'Pick an icon from the list.'],
     ]) assert.deepEqual([r.status, r.json?.error], [400, sentence], label);
     // Tidy: the built-in set again (Start again), and nothing in use.
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
     assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: null })).status, 200);
-    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: null })).status, 200);
     assert.equal((await call('DELETE', `/api/spaces/${sp}`)).status, 200);
     assert.deepEqual((await branding()).inUseIcons, [], 'once unused, drawn no more');
   });
@@ -441,15 +437,12 @@ try {
       if (l.status !== 200) refused.push(`linkIcon ${id}: ${l.status} ${l.text}`);
       const u = await call('PUT', `/api/spaces/${sp}/layouts/${made.json.layout.id}`, { icon: id });
       if (u.status !== 200) refused.push(`layout icon ${id}: ${u.status} ${u.text}`);
-      const y = await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: id });
-      if (y.status !== 200) refused.push(`system layout icon ${id}: ${y.status} ${y.text}`);
     }
     assert.deepEqual(refused, [], `${label}: a picker offered what the save refused`);
     // Back as it was; a home icon only in use (not offered now) can't be picked again, so it goes back to the template's.
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: homeBefore === null || env.includes(homeBefore) ? homeBefore : null })).status, 200);
     assert.equal((await call('PATCH', `/api/spaces/${sp}`, { linkIcon: linkBefore })).status, 200);
     assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: null })).status, 200);
-    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: null })).status, 200);
     assert.ok([200, 204].includes((await call('DELETE', `/api/spaces/${sp}/layouts/${made.json.layout.id}`)).status));
   };
 
@@ -494,7 +487,6 @@ try {
     const made = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Mine', shared: true, shape: 'one', areas: [null], icon: dp });
     assert.equal(made.status, 201, made.text);
     const lid = made.json.layout.id;
-    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp })).status, 200);
     assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
     assert.equal(ids((await branding()).icons).includes(dp), false, 'no longer offered');
     // Unchanged: each save is taken, as a page that sends the whole record does.
@@ -503,7 +495,6 @@ try {
       ['link icon', await call('PATCH', `/api/spaces/${sp}`, { linkIcon: dp, name: 'Kept again' })],
       ['display icon', await call('PATCH', '/api/modules/chat', { displayIcon: dp })],
       ['saved layout', await call('PUT', `/api/spaces/${sp}/layouts/${lid}`, { name: 'Mine again', icon: dp })],
-      ['system layout', await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp, name: 'Desk' })],
     ]) assert.equal(r.status, 200, `${label}, unchanged: ${r.text}`);
     // Changed to an icon nothing offers: refused, each with its sentence.
     for (const [label, r, sentence] of [
@@ -511,14 +502,12 @@ try {
       ['link icon', await call('PATCH', `/api/spaces/${sp}`, { linkIcon: 'hippo' }), LINK_REFUSED],
       ['display icon', await call('PATCH', '/api/modules/chat', { displayIcon: 'hippo' }), "There is no icon called hippo in this environment's icons."],
       ['saved layout', await call('PUT', `/api/spaces/${sp}/layouts/${lid}`, { icon: 'hippo' }), 'Pick an icon from the list.'],
-      ['system layout', await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: 'hippo' }), 'Pick an icon from the list.'],
     ]) assert.deepEqual([r.status, r.json?.error], [400, sentence], label);
     // Another layout or space can't borrow the icon only this one keeps.
     const other = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'Other', shared: true, shape: 'one', areas: [null], icon: dp });
     assert.deepEqual([other.status, other.json?.error], [400, 'Pick an icon from the list.']);
     const otherSpace = (await call('POST', '/api/spaces', { name: 'Other space' })).json.space.id;
     assert.deepEqual(await call('PATCH', `/api/spaces/${otherSpace}`, { linkIcon: dp }).then((r) => [r.status, r.json?.error]), [400, LINK_REFUSED]);
-    assert.deepEqual(await call('PATCH', `/api/spaces/${otherSpace}/layouts/system/workspace`, { icon: dp }).then((r) => [r.status, r.json?.error]), [400, 'Pick an icon from the list.'], 'another space\'s system layout');
     // Tidy.
     assert.equal((await call('PATCH', '/api/settings', { homeIcon: null })).status, 200);
     assert.equal((await call('PATCH', '/api/modules/chat', { displayIcon: null })).status, 200);
@@ -526,7 +515,7 @@ try {
     assert.equal((await call('DELETE', '/api/environment/templates/anchorcopy')).status < 300, true);
   });
 
-  await test('the icon only one entry keeps is that entry\'s: another layout, or another person\'s system layout, can\'t take it', async () => {
+  await test('the icon only one entry keeps is that entry\'s: another layout can\'t take it', async () => {
     // An icon only a template offers (the Projects tab made diagram-project every layout's own, so it is never "only in use").
     assert.equal((await call('POST', '/api/environment/templates', { from: 'project', id: 'anchorcopy', name: 'Anchor copy' })).status, 201);
     assert.equal((await call('PATCH', '/api/environment/templates/anchorcopy', { iconSet: ['anchor'] })).status, 200);
@@ -536,24 +525,10 @@ try {
     const a = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'A', shared: true, shape: 'one', areas: [null], icon: dp });
     const b = await call('POST', `/api/spaces/${sp}/layouts`, { name: 'B', shared: true, shape: 'one', areas: [null] });
     assert.deepEqual([a.status, b.status], [201, 201], `${a.text} ${b.text}`);
-    assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp })).status, 200, 'the admin\'s own system layout entry');
-    const made = await call('POST', '/api/users', { login: 'mel', displayName: 'Mel', role: 'member', password: 'mel-password-1' });
-    assert.equal(made.status, 201, made.text);
-    assert.equal((await call('PATCH', `/api/spaces/${sp}`, { members: [made.json.user.key] })).status, 200);
     assert.equal((await call('PATCH', '/api/settings', { template: 'default' })).status, 200);
     const pb = await call('PUT', `/api/spaces/${sp}/layouts/${b.json.layout.id}`, { name: 'B', icon: dp });
     assert.deepEqual([pb.status, pb.json?.error], [400, 'Pick an icon from the list.'], 'a layout PUT with an icon only another layout in the space holds');
     assert.equal((await call('PUT', `/api/spaces/${sp}/layouts/${a.json.layout.id}`, { name: 'A', icon: dp })).status, 200, 'the layout that holds it, unchanged');
-    const admin = token;
-    try {
-      token = (await call('POST', '/api/login', { login: 'mel', password: 'mel-password-1' })).json.token;
-      assert.ok(token, 'the member signed in');
-      const sys = await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: dp });
-      assert.deepEqual([sys.status, sys.json?.error], [400, 'Pick an icon from the list.'], 'a member\'s system layout: the admin\'s entry holds it, not theirs');
-      assert.equal((await call('PATCH', `/api/spaces/${sp}/layouts/system/workspace`, { icon: 'dragon' })).status, 200, 'an offered one');
-    } finally {
-      token = admin;
-    }
     assert.equal((await call('DELETE', `/api/spaces/${sp}`)).status, 200);
     assert.equal((await call('DELETE', '/api/environment/templates/anchorcopy')).status < 300, true);
   });
@@ -615,9 +590,6 @@ try {
       if (status === 400) assert.equal(r.json?.error, 'Pick an icon from the list.');
       else assert.ok([200, 204].includes((await call('DELETE', `/api/spaces/${sp}/layouts/${r.json.layout.id}`)).status));
     }
-    const sys = await call('PATCH', `/api/spaces/${own}/layouts/system/workspace`, { icon: 'hippo' });
-    assert.deepEqual([sys.status, sys.json?.error], [400, 'Pick an icon from the list.'], 'a system layout\'s icon too');
-    assert.equal((await call('PATCH', `/api/spaces/${own}/layouts/system/workspace`, { icon: 'anchor' })).status, 200);
     await pickerEqualsSave(own, 'a space on its own template');
     await pickerEqualsSave(space, 'a space on the environment\'s template');
     // The environment on Learning, a space on Travel.

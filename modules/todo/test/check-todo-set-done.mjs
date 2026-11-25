@@ -13,6 +13,10 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 
+// Due dates within the year ahead the host schedules (server/module-hooks.js), so a reminder is set.
+const dayAhead = (n) => new Date(Date.now() + n * 24 * 3600000).toISOString().slice(0, 10);
+const SOON = dayAhead(60);
+const SOON2 = dayAhead(61);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const dir = path.join(root, 'modules/todo');
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
@@ -40,7 +44,7 @@ async function page({ canEdit = true } = {}) {
   const writes = [];
   const cancelled = [];
   const scheduled = [];
-  store.set('task:a', { value: { id: 'a', title: 'Buy tape', notes: '', due: '2099-01-01', remind: true, done: false, doneAt: null, createdAt: 1, by: 'x', links: [] }, version: 1 });
+  store.set('task:a', { value: { id: 'a', title: 'Buy tape', notes: '', due: SOON, remind: true, done: false, doneAt: null, createdAt: 1, by: 'x', links: [] }, version: 1 });
   let provided = null;
   const own = {
     root: { getElementById: () => loose() },

@@ -9,7 +9,7 @@
  *   2. The owner's tabs. A space's `tabs` { order?, hide? }: the shape check (cleanTabs, strict for a PATCH, lenient on
  *      read), the space record, who may write it (owners, the admin and a moderator of that space), what GET
  *      .../layouts answers for each kind of viewer (the order, `shown`, `tabs` only for who may set them, a guest none),
- *      the precedence with a person's own tab (the owner's hide wins; a person may hide more, rename and re-icon), the
+ *      that a person changes none of them (no rename, re-icon or hide of one's own: the route is gone, issue #1091), the
  *      closed-space rules, and the environment export and import round trip.
  * The shape checks and the lists run in-process; the routes run against throwaway servers.
  */
@@ -374,32 +374,20 @@ try {
   ok(!('tabs' in got), 'a member still gets no tabs');
   same((await call('GET', L(A), { token: T.mod })).json.tabs, { order: tabs.order, hide: tabs.hide }, 'a moderator gets the owner\'s record');
   same((await call('GET', `${L(A)}${asGuest}`)).json.system, [], 'a guest still has none');
-  // The person's own choices: rename and re-icon any tab; hide more; not hide what is already hidden; not reorder.
+  // A person changes none of the owner's tabs (issue #1091): no route renames, re-icons or hides one for oneself.
   const SYS = `${L(A)}/system`;
-  r = await expect('rename Documents (hidden)', 200, 'PATCH', `${SYS}/documents`, { token: T.member, body: { name: 'Papers', icon: 'couch' } });
-  same([r.json.layout.name, r.json.layout.icon, r.json.layout.shown, r.json.layout.tab], ['Papers', 'couch', false, false], 'a person may rename and re-icon a hidden tab; it stays hidden');
-  r = await expect('rename Conference', 200, 'PATCH', `${SYS}/conference`, { token: T.member, body: { name: 'Call page' } });
-  same(r.json.layout.name, 'Call page', 'rename a shown one');
-  // The pin rule (plan-templates-redesign.md, decision 9): what the owner shows is pinned, so a person cannot hide more.
-  r = await expect('hide more', 409, 'PATCH', `${SYS}/whiteboard`, { token: T.member, body: { tab: false } });
-  same(r.json.error, 'The owner keeps this one in the bar.', 'the pinned sentence');
+  for (const [id, body] of [['documents', { name: 'Papers', icon: 'couch' }], ['conference', { name: 'Call page' }], ['whiteboard', { tab: false }], ['documents', { tab: true }]]) {
+    same((await call('PATCH', `${SYS}/${id}`, { token: T.member, body })).status, 404, `no route for ${id} ${JSON.stringify(body)}`);
+  }
   same((await call('GET', L(A), { token: T.member })).json.system.find((l) => l.id === 'whiteboard').pinned, true, 'a shown one is pinned');
   same((await call('GET', L(A), { token: T.member })).json.system.find((l) => l.id === 'documents').pinned, false, 'a hidden one is not');
-  r = await expect('tab on for a hidden one', 409, 'PATCH', `${SYS}/documents`, { token: T.member, body: { tab: true } });
-  same(r.json.error, 'The owner has hidden this layout.', 'the sentence');
-  await expect('tab off for a hidden one', 409, 'PATCH', `${SYS}/documents`, { token: T.member, body: { tab: false } });
-  await expect('tab with a name, hidden', 409, 'PATCH', `${SYS}/documents`, { token: T.member, body: { tab: true, name: 'x' } });
-  same((await call('GET', L(A), { token: T.member })).json.system.find((l) => l.id === 'documents').name, 'Papers', 'a refusal changes nothing');
+  same((await call('GET', L(A), { token: T.member })).json.system.find((l) => l.id === 'documents').name, 'Documents', 'each keeps its own name');
   // Favorites are gone (plan-workspaces.md, decision 44): no route keeps them.
   same((await call('PUT', `${L(A)}/whiteboard/favorite`, { token: T.member })).status, 404, 'no favorite route');
-  // The precedence: the owner shows a tab again; the person's own hide (stored before) is still theirs, and a hide the
-  // person made while it was hidden never happened.
+  // The owner shows a tab again: it is pinned again; the order is the owner's.
   await expect('the owner shows Documents again', 200, 'PATCH', P(A), { token: T.owner, body: { tabs: { order: tabs.order } } });
   got = (await call('GET', L(A), { token: T.member })).json;
   same(got.system.map((l) => [l.id, l.tab]), [['conference', true], ['workspace', true], ['calendar', true], ['whiteboard', true], ['documents', true]], 'shown again, and so pinned again');
-  same(got.system.find((l) => l.id === 'documents').name, 'Papers', 'their name for it is still theirs');
-  // A person's own hide of a pinned tab is refused, whichever route sends it, and the order is the owner's.
-  await expect('hide Calendar for me', 409, 'PATCH', `${SYS}/calendar`, { token: T.member, body: { tab: false } });
   await expect('the owner reorders', 200, 'PATCH', P(A), { token: T.owner, body: { tabs: { order: ['calendar', 'documents'] } } });
   same((await call('GET', L(A), { token: T.member })).json.system.map((l) => [l.id, l.tab]), [['calendar', true], ['documents', true], ['workspace', true], ['conference', true], ['whiteboard', true]], 'the order is the owner\'s; every shown tab is on for the member');
   // Workspace can be anywhere in the order, and is never hidden.
