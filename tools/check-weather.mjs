@@ -9,7 +9,15 @@
  *   - the cache: good 3 hours for a forecast day and 24 for a past day, a day older than 40 days dropped, the 20,000-day cap
  *     (the oldest fetched going first), written to DATA_DIR/weather.json and read back, holding nothing identifying;
  *   - a failing service, a slow one, an oversized body, a non-weather answer, a redirect kept on the service, a redirect to a
- *     private address refused (as a link preview refuses it), too many redirects, and https only for a preset.
+ *     private address refused (as a link preview refuses it), a redirect elsewhere asked at exactly the addresses that were
+ *     checked (never looked up a second time), too many redirects, and https only for a preset.
+ *   - the user-agent: the product and its version only, no contact address.
+ * And the route on a real server (step 2), GET /api/modules/:id/weather, with stand-ins for the weather service and the
+ * place search: the manifest's declaration; nothing sent with no provider (and the stand-ins see nothing); a day's place (its
+ * first stop at a saved place, else the trip's main place, else none); the exact requests the stand-ins received (a rounded
+ * position and days; the main place's text to the place search and nothing else); the range; who may read (a member, a
+ * guest by the module's view permission, nobody in a closed space, not an agent, not a person in another space); the key
+ * never answered by any route nor written in the open; the limit; a failing service; a picture map is not checked here.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,10 +25,14 @@ import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const W = require('../server/weather.js');
-const { REPOSITORY_URL } = require('../server/product-name.js');
+const { getOnce } = require('../server/link-preview.js');
+const pkg = require('../package.json');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { WeatherCache, WeatherError, askWeather, weatherDays, parseWeather, dayAnswer, dayState, daysBetween, positionKey, CODES, WORDS } = W;
 
 let n = 0;
@@ -116,7 +128,9 @@ await test('what is sent, and only that', async () => {
     latitude: '48.86', longitude: '2.29', daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
     timezone: 'auto', start_date: '2026-11-30', end_date: '2026-12-02', apikey: 'k-123',
   });
-  assert.match(seen[0].headers['user-agent'], new RegExp(`/\\S+ \\(\\+${REPOSITORY_URL.replace(/[.]/g, '\\.')}\\)$`));
+  // The product and its version, and no contact address: nothing that says who runs this server.
+  assert.match(seen[0].headers['user-agent'], new RegExp(`^[\\x21-\\x7e]+/${pkg.version.replace(/[.]/g, '\\.')}$`));
+  assert.ok(!/https?:|@|\(/.test(seen[0].headers['user-agent']), 'no address in the user-agent');
   assert.equal(seen[0].headers.cookie, undefined);
   // No key: no key sent. The admin's own query is replaced, never added to.
   seen.length = 0;
@@ -183,9 +197,30 @@ await test('redirects', async () => {
   // takes the public name to the stand-in service).
   reply = json('', 302, { location: 'http://weather.example/v1/other' });
   await refused(ask('2026-12-01', '2026-12-01', { lookup: async () => [{ address: '10.1.2.3', family: 4 }] }), 'blocked');
-  const toStandIn = (url, opts) => fetch(url.replace('http://weather.example', `http://127.0.0.1:${port}`), opts);
+  // To a public one: followed, and asked at exactly the addresses that were checked (the name is not looked up again). The
+  // stand-in for that ask takes the checked address to the stand-in service, and keeps what it was given.
+  const pins = [];
+  const toStandIn = (target, addresses, ...rest) => { pins.push({ href: target.href, addresses }); return getOnce(new URL(target.href.replace('http://weather.example', `http://127.0.0.1:${port}`)), ['127.0.0.1'], ...rest); };
+  let lookups = 0;
+  const publicLookup = async () => { lookups += 1; return [{ address: '93.184.216.34', family: 4 }]; };
   reply = (req, res) => (req.url.startsWith('/v1/other') ? json(good)(req, res) : json('', 302, { location: 'http://weather.example/v1/other' })(req, res));
-  assert.equal(Object.keys(await ask('2026-12-01', '2026-12-01', { fetchImpl: toStandIn, lookup: async () => [{ address: '93.184.216.34', family: 4 }] })).length, 1);
+  seen.length = 0;
+  assert.equal(Object.keys(await ask('2026-12-01', '2026-12-01', { getImpl: toStandIn, lookup: publicLookup })).length, 1);
+  assert.deepEqual(pins, [{ href: 'http://weather.example/v1/other', addresses: ['93.184.216.34'] }], 'asked at the checked addresses');
+  assert.equal(lookups, 1, 'looked up once, by the check');
+  assert.match(seen[1].headers['user-agent'], new RegExp(`^[\\x21-\\x7e]+/${pkg.version.replace(/[.]/g, '\\.')}$`));
+  // The ask elsewhere never goes through fetch (which would look the name up itself).
+  const fetched = [];
+  const spy = (url, opts) => { fetched.push(url); return fetch(url, opts); };
+  await ask('2026-12-01', '2026-12-01', { fetchImpl: spy, getImpl: toStandIn, lookup: publicLookup });
+  assert.ok(fetched.length === 1 && fetched[0].startsWith(ADDRESS), 'only the service itself is asked through fetch');
+  // Elsewhere and then on again: each hop is checked and pinned; too much there is refused; a failure there is unreachable.
+  reply = (req, res) => (req.url.startsWith('/v1/other') ? json(JSON.stringify({ daily: { time: [] }, pad: 'x'.repeat(W.MAX_BODY) }))(req, res) : json('', 302, { location: 'http://weather.example/v1/other' })(req, res));
+  await refused(ask('2026-12-01', '2026-12-01', { getImpl: toStandIn, lookup: publicLookup }), 'big');
+  reply = json('', 302, { location: 'http://weather.example/v1/other' });
+  await refused(ask('2026-12-01', '2026-12-01', { getImpl: async () => { throw Object.assign(new Error('no'), { code: 'unreachable' }); }, lookup: publicLookup }), 'unreachable');
+  reply = (req, res) => (req.url.startsWith('/v1/other') ? json('', 302, { location: 'http://inner.example/x' })(req, res) : json('', 302, { location: 'http://weather.example/v1/other' })(req, res));
+  await refused(ask('2026-12-01', '2026-12-01', { getImpl: toStandIn, lookup: async (name) => [{ address: name === 'inner.example' ? '192.168.1.5' : '93.184.216.34', family: 4 }] }), 'blocked');
   // To another kind of address, and for a preset to plain http.
   reply = json('', 302, { location: 'file:///etc/passwd' });
   await refused(ask('2026-12-01', '2026-12-01'), 'blocked');
@@ -301,5 +336,346 @@ await test('the module holds no link to a person', () => {
   assert.ok(!/\b(req|user|login|space|environment|ctx)\b/.test(src), 'no request, user, space or environment in the code');
 });
 
+// --- the manifest's declaration ---------------------------------------------------------------------------------------------
+await test('the declaration: settings of the right kind, https presets, where a day is', () => {
+  const { cleanWeather, ModuleError } = require('../server/modules.js');
+  const settings = [
+    { key: 'p', type: 'choice', scope: 'environment' }, { key: 'a', type: 'url', scope: 'environment' }, { key: 'k', type: 'secret', scope: 'environment' },
+    { key: 'u', type: 'choice', scope: 'environment' }, { key: 't', type: 'text', scope: 'environment' }, { key: 'sp', type: 'choice', scope: 'space' },
+  ];
+  const good = { provider: 'p', address: 'a', key: 'k', units: 'u', providers: { 'open-meteo': { name: 'Open-Meteo', address: 'https://api.open-meteo.com/v1/forecast', credit: 'Weather by Open-Meteo.com' } }, stops: { prefix: 'plan:', day: 'date', time: 'time', order: 'order', place: 'placeRef' }, main: { key: 'trip:main', place: 'destination', from: 'start', to: 'end' } };
+  const scope = ['environment', 'space'];
+  assert.equal(cleanWeather(undefined, settings, scope), null, 'none by default');
+  assert.deepEqual(cleanWeather(good, settings, scope), { ...good, custom: 'custom' });
+  assert.deepEqual(cleanWeather({ provider: 'p', address: 'a', main: { key: 'trip:main' } }, settings, scope), { provider: 'p', address: 'a', key: '', units: '', custom: 'custom', providers: {}, stops: null, main: { key: 'trip:main', place: '', from: '', to: '' } });
+  const bad = (raw, re, sc = scope) => assert.throws(() => cleanWeather(raw, settings, sc), (err) => err instanceof ModuleError && re.test(err.message), JSON.stringify(raw).slice(0, 80));
+  bad({ ...good, provider: 't' }, /`provider` choice setting/);
+  bad({ ...good, provider: 'sp' }, /for the environment/);
+  bad({ ...good, address: 'nope' }, /`address` url setting/);
+  bad({ ...good, key: 't' }, /`key` must name a secret setting/);
+  bad({ ...good, units: 'a' }, /`units` must name a choice setting/);
+  bad({ ...good, providers: { x: { address: 'http://plain.example/' } } }, /needs an https address/);
+  bad({ ...good, stops: undefined, main: undefined }, /`stops` or `main`/);
+  bad({ ...good, stops: { prefix: 'plan:', day: 'date' } }, /stops `place` must be a field name/);
+  bad({ ...good, stops: { ...good.stops, day: '__proto__' } }, /field name/);
+  bad({ ...good, main: { key: '../x' } }, /main needs a `key`/);
+  bad(good, /"space" scope/, ['environment']);
+  assert.equal(Object.keys(cleanWeather({ ...good, providers: Object.fromEntries('abcdefg'.split('').map((c) => [c, { address: 'https://x.example/' }])) }, settings, scope).providers).length, 5, 'at most 5 presets');
+  // The Itinerary's own declaration reads, and none is the default.
+  const travel = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'travel', 'module.json'), 'utf8'));
+  const provider = travel.settings.find((d) => d.key === travel.weather.provider);
+  assert.equal(provider.default, 'none');
+  assert.equal(travel.settings.find((d) => d.key === travel.weather.key).type, 'secret');
+  assert.ok(Object.values(travel.weather.providers).every((v) => v.address.startsWith('https://')));
+});
+
+// --- the route, on a real server ------------------------------------------------------------------------------------------
+// Stand-ins: the weather service (answers every day asked, by the clock), the place search (Photon-shaped) and LiveKit.
+const wxSeen = [];
+let wxFails = false;
+const wx = http.createServer((req, res) => {
+  wxSeen.push({ url: req.url, headers: req.headers });
+  if (wxFails) { res.writeHead(500); return res.end(); }
+  const q = new URL(req.url, 'http://x').searchParams;
+  json(answer(daysBetween(q.get('start_date'), q.get('end_date')).map((d) => [d, 61, 12.4, 5.2, 40])))(req, res);
+});
+const geoSeen = [];
+const geo = http.createServer((req, res) => {
+  geoSeen.push({ url: req.url, headers: req.headers });
+  const q = new URL(req.url, 'http://x').searchParams.get('q') || '';
+  const features = /lisbon/i.test(q) ? [{ geometry: { type: 'Point', coordinates: [-9.139337, 38.722252] }, properties: { name: 'Lisbon', country: 'Portugal', osm_type: 'R', osm_id: 5400890 } }] : [];
+  json({ features })(req, res);
+});
+const lk = http.createServer((req, res) => { req.resume(); req.on('end', () => json({ participants: [] })(req, res)); });
+for (const sv of [wx, geo, lk]) await new Promise((r) => sv.listen(0, '127.0.0.1', r));
+const WX = `http://127.0.0.1:${wx.address().port}/v1/forecast`;
+const GEO = `http://127.0.0.1:${geo.address().port}/api`;
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'weather-route-'));
+const child = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
+  cwd: ROOT,
+  env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: 'devsecretdevsecret', ADMIN_PASSWORD: 'testpass1234', AGENT_TOKENS: 'true', LIVEKIT_API_URL: `http://127.0.0.1:${lk.address().port}` },
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+let serverOut = '';
+const stop = () => new Promise((resolve) => { if (child.exitCode !== null) return resolve(); child.once('exit', resolve); child.kill('SIGTERM'); });
+const fail = async (name, err) => { console.error(`check-weather: ${name}: ${err.stack || err.message}`); await stop(); process.exit(1); };
+const live = async (name, fn) => { try { await fn(); n += 1; } catch (err) { await fail(name, err); } };
+let base = '';
+try {
+  const sPort = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`the server did not start in time:\n${serverOut}`)), 20000);
+    const onData = (d) => { serverOut += d; const m = /listening on :(\d+)/.exec(serverOut); if (m) { clearTimeout(timer); resolve(Number(m[1])); } };
+    child.stdout.on('data', onData);
+    child.stderr.on('data', onData);
+    child.once('exit', (code) => { clearTimeout(timer); reject(new Error(`the server stopped (${code}):\n${serverOut}`)); });
+  });
+  base = `http://127.0.0.1:${sPort}`;
+} catch (err) { await fail('the server starts', err); }
+const call = async (method, urlPath, { body, token, cookie } = {}) => {
+  const headers = { accept: 'application/json' };
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (cookie) headers.cookie = cookie;
+  const res = await fetch(base + urlPath, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await res.text();
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+  return { status: res.status, json: parsed, text, cookie: (res.headers.get('set-cookie') || '').split(';')[0] };
+};
+const ok = (r, what, status = 200) => { assert.equal(r.status, status, `${what}: ${r.status} ${r.text.slice(0, 300)}`); return r; };
+const today = new Date().toISOString().slice(0, 10);
+const plus = (k) => new Date(Date.parse(`${today}T00:00:00Z`) + k * 86400000).toISOString().slice(0, 10);
+const SECRET = 'wx-key-9f3b2c71d5';
+const S = {};
+const weatherOf = (space, who, q = '') => call('GET', `/api/modules/travel/weather?scope=space&space=${space}${q}`, who);
+const setTravel = (values) => call('PUT', '/api/modules/travel/settings/environment', { token: S.admin, body: { values } });
+const put = (module, space, key, value, token = S.admin) => call('PUT', `/api/modules/${module}/data/${encodeURIComponent(key)}?scope=space&space=${space}`, { token, body: { value } });
+const params = (r) => Object.fromEntries(new URL(r.url, 'http://x').searchParams);
+
+await live('the route: a trip, its places and the settings', async () => {
+  S.admin = ok(await call('POST', '/api/login', { body: { login: 'admin', password: 'testpass1234' } }), 'the admin signs in').json.token;
+  for (const m of ['maps', 'travel']) {
+    ok(await call('POST', `/api/modules/bundled/${m}/install`, { token: S.admin, body: {} }), `${m} installs`, 201);
+    ok(await call('PATCH', `/api/modules/${m}`, { token: S.admin, body: { enabled: true } }), `${m} turns on`);
+  }
+  ok(await call('PATCH', '/api/settings', { token: S.admin, body: { agents: true } }), 'agents on');
+  const mk = async (login) => ok(await call('POST', '/api/users', { token: S.admin, body: { login, displayName: login, role: 'member', password: 'memberpass1234' } }), `${login} is made`, 201).json.user.key;
+  const keys = { mia: await mk('mia'), otto: await mk('otto'), lena: await mk('lena') };
+  const agent = ok(await call('POST', '/api/users', { token: S.admin, body: { agent: true } }), 'an agent is made', 201).json.user;
+  S.agent = ok(await call('POST', `/api/users/${agent.key}/token`, { token: S.admin }), 'the agent gets a token', 201).json.token;
+  const make = async (name, members) => {
+    const id = ok(await call('POST', '/api/spaces', { token: S.admin, body: { name, members } }), `${name} is made`).json.space.id;
+    ok(await call('PATCH', `/api/spaces/${id}`, { token: S.admin, body: { members, entry: 'guests' } }), `${name} takes its members`);
+    return id;
+  };
+  S.trip = await make('Portugal', [keys.mia, keys.lena, agent.key]);
+  S.other = await make('Elsewhere', [keys.otto]);
+  for (const who of ['mia', 'otto', 'lena']) S[who] = ok(await call('POST', '/api/login', { body: { login: who, password: 'memberpass1234' } }), `${who} signs in`).json.token;
+  // The trip: its main place is "Lisbon"; day 1 has two stops at saved places (the earlier one in Porto), day 2 a stop with
+  // no saved place, day 3 nothing. The places carry exact positions; only rounded ones may ever go out.
+  ok(await put('maps', S.trip, 'place:porto', { title: 'Livraria Lello', category: 'sights', address: 'R. das Carmelitas 144, Porto', point: { lat: 41.146938, lng: -8.614865 }, notes: 'Secret note', owners: [], by: keys.mia }), 'a place in Porto');
+  ok(await put('maps', S.trip, 'place:sintra', { title: 'Pena Palace', category: 'sights', address: 'Sintra', point: { lat: 38.787586, lng: -9.390595 }, notes: '', owners: [], by: keys.mia }), 'a place in Sintra');
+  ok(await put('maps', S.trip, 'place:nowhere', { title: 'Somewhere', category: 'other', address: '', notes: '', owners: [], by: keys.mia }), 'a place with no position');
+  ok(await put('travel', S.trip, 'trip:main', { title: 'Our Portugal trip', destination: 'Lisbon', start: plus(1), end: plus(3), notes: 'Private words', currency: 'EUR', by: keys.mia, v: 2 }), 'the trip');
+  const ref = (id) => ({ module: 'maps', kind: 'place', id, scope: 'space', space: S.trip });
+  const stop = (id, o) => put('travel', S.trip, `plan:${id}`, { kind: 'stop', title: `Stop ${id}`, category: 'do', place: 'A name a person typed', address: '', notes: '', order: 1000, owners: [], by: keys.mia, ...o });
+  ok(await stop('a', { date: plus(1), time: '15:00', placeRef: ref('sintra') }), 'a stop in Sintra, later');
+  ok(await stop('b', { date: plus(1), time: '09:30', placeRef: ref('porto') }), 'a stop in Porto, earlier');
+  ok(await stop('c', { date: plus(1), time: '08:00', placeRef: ref('nowhere') }), 'a stop at a place with no position, earliest');
+  ok(await stop('d', { date: plus(2), time: '10:00' }), 'a stop with no saved place');
+  const m = ok(await call('GET', '/api/modules', { token: S.admin }), 'the modules').json;
+  const travel = (m.modules || m).find((x) => x.id === 'travel');
+  assert.ok(travel, 'the Itinerary is listed');
+});
+
+await live('no provider chosen: not configured, and nothing is sent anywhere', async () => {
+  wxSeen.length = 0; geoSeen.length = 0;
+  const r = ok(await weatherOf(S.trip, { token: S.mia }), 'the weather, none chosen');
+  assert.deepEqual(r.json, { configured: false });
+  // Not even with a place search chosen, a custom address typed and a key kept: the provider is still none.
+  ok(await call('PUT', '/api/modules/maps/settings/environment', { token: S.admin, body: { values: { searchProvider: 'custom', search: GEO } } }), 'the place search is chosen');
+  ok(await setTravel({ weatherAddress: WX, weatherKey: SECRET }), 'an address and a key, the provider still none');
+  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'still none').json, { configured: false });
+  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(0)}&to=${plus(5)}`), 'still none, with days').json, { configured: false });
+  assert.equal(wxSeen.length, 0, 'the weather service saw nothing');
+  assert.equal(geoSeen.length, 0, 'the place search saw nothing');
+  assert.equal(fs.existsSync(path.join(dataDir, 'weather.json')), false, 'nothing is kept');
+});
+
+await live('a trip\'s days: the first stop at a saved place, else the main place; only rounded positions and days go out', async () => {
+  ok(await setTravel({ weatherProvider: 'custom' }), 'the custom service is chosen');
+  wxSeen.length = 0; geoSeen.length = 0;
+  const r = ok(await weatherOf(S.trip, { token: S.mia }), 'the weather of the trip\'s own days');
+  assert.equal(r.json.configured, true);
+  assert.equal(r.json.units, 'c');
+  assert.equal(r.json.credit, '');
+  assert.deepEqual(Object.keys(r.json.days), [plus(1), plus(2), plus(3)], 'the trip\'s first to last day');
+  for (const d of Object.values(r.json.days)) assert.deepEqual(d, { state: 'forecast', code: 'rain', words: 'Light rain', high: 12, low: 5, rain: 40 });
+  // What the weather service received: Porto for day 1 (the earliest stop with a position), the main place for days 2 and 3.
+  const sent = wxSeen.map((x) => params(x)).sort((a, b) => a.latitude.localeCompare(b.latitude));
+  const daily = 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max';
+  assert.deepEqual(sent, [
+    { latitude: '38.72', longitude: '-9.14', daily, timezone: 'auto', start_date: plus(2), end_date: plus(3), apikey: SECRET },
+    { latitude: '41.15', longitude: '-8.61', daily, timezone: 'auto', start_date: plus(1), end_date: plus(1), apikey: SECRET },
+  ], 'exactly a rounded position, the days, the fields, the time zone and the key');
+  for (const x of wxSeen) {
+    assert.deepEqual(Object.keys(x.headers).filter((h) => !['host', 'connection', 'accept', 'user-agent', 'accept-language', 'sec-fetch-mode', 'accept-encoding'].includes(h)), [], 'no other header');
+    assert.equal(x.headers.cookie, undefined);
+    assert.equal(x.headers.authorization, undefined);
+    assert.match(x.headers['user-agent'], new RegExp(`^[\\x21-\\x7e]+/${pkg.version.replace(/[.]/g, '\\.')}$`));
+    assert.ok(!/Portugal|Lisbon|Lello|Pena|Sintra|mia|Stop|typed|Private|Secret note/i.test(decodeURIComponent(x.url)), 'no name, text or person in the ask');
+    assert.ok(!decodeURIComponent(x.url).includes(S.trip), 'no space in the ask');
+  }
+  // What the place search received: the main place's text, once, and nothing else of the trip.
+  assert.equal(geoSeen.length, 1, 'one search for the main place');
+  assert.deepEqual(params(geoSeen[0]), { q: 'Lisbon', limit: '10' });
+  assert.equal(geoSeen[0].headers.cookie, undefined);
+  // Asked again: all kept, nothing sent to either.
+  wxSeen.length = 0; geoSeen.length = 0;
+  const again = ok(await weatherOf(S.trip, { token: S.lena }), 'asked again');
+  assert.deepEqual(again.json, r.json);
+  assert.equal(wxSeen.length + geoSeen.length, 0, 'nothing is asked twice');
+  // Fahrenheit is the page's unit only: from what is kept, nothing asked.
+  ok(await setTravel({ weatherUnits: 'f' }), 'Fahrenheit');
+  const f = ok(await weatherOf(S.trip, { token: S.mia }), 'in Fahrenheit').json;
+  assert.equal(f.units, 'f');
+  assert.deepEqual([f.days[plus(1)].high, f.days[plus(1)].low], [54, 41]);
+  assert.equal(wxSeen.length, 0);
+  ok(await setTravel({ weatherUnits: 'c' }), 'Celsius again');
+});
+
+await live('the range: 30 days back to 13 ahead, at most 60 days, real days', async () => {
+  wxSeen.length = 0;
+  const r = ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(-31)}&to=${plus(14)}`), 'a long run').json;
+  assert.equal(Object.keys(r.days).length, 46);
+  assert.equal(r.days[plus(-31)].state, 'outOfRange');
+  assert.equal(r.days[plus(-30)].state, 'past');
+  assert.equal(r.days[plus(-1)].state, 'past');
+  assert.equal(r.days[plus(0)].state, 'forecast');
+  assert.equal(r.days[plus(13)].state, 'forecast');
+  assert.equal(r.days[plus(14)].state, 'outOfRange');
+  assert.deepEqual(r.days[plus(14)], { state: 'outOfRange' });
+  for (const x of wxSeen.map(params)) {
+    assert.ok(x.start_date >= plus(-30) && x.end_date <= plus(13), `nothing beyond the window is asked (${x.start_date} to ${x.end_date})`);
+    assert.deepEqual(Object.keys(x).sort(), ['apikey', 'daily', 'end_date', 'latitude', 'longitude', 'start_date', 'timezone']);
+  }
+  wxSeen.length = 0;
+  const far = ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(40)}&to=${plus(45)}`), 'far ahead').json;
+  assert.ok(Object.values(far.days).every((d) => d.state === 'outOfRange'));
+  assert.equal(wxSeen.length, 0, 'a day out of range is never asked');
+  for (const [q, re] of [[`&from=${plus(0)}&to=${plus(60)}`, /at most 60 days/], [`&from=${plus(3)}&to=${plus(1)}`, /must not be after/], ['&from=2026-02-30', /YYYY-MM-DD/], ['&to=tomorrow', /YYYY-MM-DD/]]) {
+    const bad = await weatherOf(S.trip, { token: S.mia }, q);
+    assert.equal(bad.status, 400, q);
+    assert.match(bad.json.error, re);
+  }
+  assert.equal(Object.keys(ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(0)}&to=${plus(59)}`), '60 days').json.days).length, 60);
+});
+
+await live('no place: a trip with no stop at a place and no main place that is found', async () => {
+  ok(await put('travel', S.other, 'trip:main', { title: 'A walk', destination: 'Atlantis', start: plus(1), end: plus(2), notes: '', currency: 'EUR', by: '', v: 2 }), 'a trip to nowhere known');
+  wxSeen.length = 0; geoSeen.length = 0;
+  const r = ok(await weatherOf(S.other, { token: S.otto }), 'its weather').json;
+  assert.deepEqual(r.days, { [plus(1)]: { state: 'noPlace' }, [plus(2)]: { state: 'noPlace' } });
+  assert.equal(wxSeen.length, 0, 'no place: the weather service is not asked');
+  assert.equal(geoSeen.length, 1);
+  await weatherOf(S.other, { token: S.otto });
+  assert.equal(geoSeen.length, 1, 'a main place that was not found is not searched for again at once');
+  // A stop that points at a place in another space gives no position here.
+  ok(await put('travel', S.other, 'plan:x', { kind: 'stop', title: 'Borrowed', category: 'do', date: plus(1), order: 1000, owners: [], placeRef: { module: 'maps', kind: 'place', id: 'porto', scope: 'space', space: S.trip } }), 'a stop pointing into another space');
+  assert.equal(ok(await weatherOf(S.other, { token: S.otto }), 'its weather').json.days[plus(1)].state, 'noPlace');
+  assert.equal(wxSeen.length, 0);
+});
+
+await live('who may read: the module\'s view permission, the space, never an agent', async () => {
+  wxSeen.length = 0; geoSeen.length = 0;
+  assert.equal((await weatherOf(S.trip, {})).status, 401, 'nobody');
+  const notIn = await weatherOf(S.trip, { token: S.otto });
+  assert.ok(notIn.status === 403 || notIn.status === 404, `a person who is not in the space: ${notIn.status}`);
+  assert.equal(notIn.json.days, undefined);
+  const agent = await weatherOf(S.trip, { token: S.agent });
+  assert.equal(agent.status, 403, 'an agent');
+  assert.equal(agent.json.days, undefined);
+  assert.equal((await call('GET', `/api/modules/travel/weather?scope=environment`, { token: S.mia })).status, 400, 'not for the environment');
+  assert.equal((await call('GET', `/api/modules/maps/weather?scope=space&space=${S.trip}`, { token: S.mia })).status, 404, 'a module with no weather');
+  assert.match((await call('GET', `/api/modules/maps/weather?scope=space&space=${S.trip}`, { token: S.mia })).json.error, /has no weather/);
+  // A guest sees the days by the module's view permission; with it taken away, nothing.
+  const link = ok(await call('POST', `/api/spaces/${S.trip}/guest-link`, { token: S.admin, body: {} }), 'a guest link').json.space.guestToken;
+  const guestQ = `&guest=${encodeURIComponent(link)}`;
+  const seenByGuest = ok(await weatherOf(S.trip, {}, guestQ), 'the guest reads the weather').json;
+  assert.equal(seenByGuest.days[plus(1)].state, 'forecast');
+  ok(await call('PATCH', '/api/roles/guest', { token: S.admin, body: { 'module.travel.view': false } }), 'guests may no longer see the trip');
+  assert.equal((await weatherOf(S.trip, {}, guestQ)).status, 403, 'a guest without the view permission');
+  ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.travel.view': false } }), 'members may no longer see the trip');
+  assert.equal((await weatherOf(S.trip, { token: S.mia })).status, 403, 'a member without the view permission');
+  ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.travel.view': true } }), 'members may again');
+  // A member who may not see Maps gets no position from a stop's place: the day falls back to the main place.
+  ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.maps.view': false } }), 'members may no longer see Maps');
+  wxSeen.length = 0;
+  ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(1)}&to=${plus(1)}`), 'a member without Maps');
+  assert.ok(wxSeen.every((x) => params(x).latitude === '38.72'), 'only the main place is asked for, never the hidden place');
+  ok(await call('PATCH', '/api/roles/member', { token: S.admin, body: { 'module.maps.view': true } }), 'members may again');
+  // A closed space: a member is refused, and nothing is asked.
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: true } }), 'the space is closed');
+  wxSeen.length = 0; geoSeen.length = 0;
+  const shut = await weatherOf(S.trip, { token: S.mia }, `&from=${plus(4)}&to=${plus(6)}`);
+  assert.equal(shut.status, 403, 'a member of a closed space');
+  assert.match(shut.json.error, /closed for set up/);
+  assert.equal(shut.json.days, undefined);
+  assert.equal((await weatherOf(S.trip, {}, `&from=${plus(4)}&to=${plus(6)}${guestQ}`)).json.days, undefined, 'nor a guest');
+  assert.equal(wxSeen.length + geoSeen.length, 0, 'nothing is asked for a closed space');
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: false } }), 'the space is open again');
+});
+
+await live('the key is never answered, and never written in the open', async () => {
+  const routes = [
+    ['GET', `/api/modules/travel/weather?scope=space&space=${S.trip}`], ['GET', '/api/modules'], ['GET', '/api/modules/travel/settings/values?scope=environment'],
+    ['GET', `/api/modules/travel/settings/values?scope=space&space=${S.trip}`], ['GET', `/api/modules/for-space?space=${S.trip}`], ['GET', '/api/modules/activity'], ['GET', '/api/modules/nav'],
+    ['GET', `/api/modules/travel/context?scope=space&space=${S.trip}`],
+    ['GET', `/api/modules/travel/data?scope=space&space=${S.trip}`], ['GET', '/api/settings'], ['GET', '/api/me'], ['GET', '/api/activity'],
+  ];
+  let read = 0;
+  for (const token of [S.admin, S.mia]) {
+    for (const [method, url] of routes) {
+      const r = await call(method, url, { token });
+      if (r.status === 200) read += 1;
+      assert.ok(!r.text.includes(SECRET), `${method} ${url} answers the key`);
+    }
+  }
+  assert.ok(read >= 8, `the routes were really read (${read})`);
+  const set = ok(await call('GET', '/api/modules/travel/settings/values?scope=environment', { token: S.admin }), 'the settings').json;
+  assert.deepEqual(set.values.weatherKey, { set: true }, 'the settings say only that a key is kept');
+  // Nor by the answer to saving it, or to changing another setting beside it.
+  for (const values of [{ weatherKey: SECRET }, { weatherUnits: 'c' }]) assert.ok(!ok(await setTravel(values), 'a save').text.includes(SECRET), 'saving answers the key');
+  // On disk: nowhere in the open, and weather.json holds only positions, days and numbers.
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  for (const f of walk(dataDir)) assert.ok(!fs.readFileSync(f).includes(SECRET), `${path.relative(dataDir, f)} holds the key in the open`);
+  assert.ok(!serverOut.includes(SECRET), 'the server\'s output does not hold the key');
+});
+
+await live('a failing service: 502 with nothing kept, the kept days otherwise; the limit', async () => {
+  // Two days at a place nothing is kept for yet.
+  for (const [id, k] of [['e', 8], ['g', 9]]) ok(await put('travel', S.trip, `plan:${id}`, { kind: 'stop', title: 'Later', category: 'do', date: plus(k), order: 1000, owners: [], placeRef: { module: 'maps', kind: 'place', id: 'sintra', scope: 'space', space: S.trip } }), 'a stop in Sintra');
+  wxFails = true;
+  const none = await weatherOf(S.trip, { token: S.lena }, `&from=${plus(8)}&to=${plus(9)}`);
+  assert.equal(none.status, 502);
+  assert.deepEqual(none.json, { error: 'weather is not available right now' });
+  const some = ok(await weatherOf(S.trip, { token: S.lena }, `&from=${plus(3)}&to=${plus(9)}`), 'some days kept').json;
+  assert.equal(some.days[plus(3)].state, 'forecast');
+  assert.equal(some.days[plus(9)].state, 'unavailable');
+  assert.deepEqual(some.days[plus(9)], { state: 'unavailable' });
+  // An answer wholly from what is kept is not counted: 40 of them pass. An ask of the service is: 30 a minute a person.
+  for (let i = 0; i < 40; i += 1) assert.equal((await weatherOf(S.trip, { token: S.lena }, `&from=${plus(1)}&to=${plus(3)}`)).status, 200, `kept answer ${i + 1}`);
+  ok(await call('POST', '/api/users', { token: S.admin, body: { login: 'nora', displayName: 'nora', role: 'member', password: 'memberpass1234' } }), 'nora is made', 201);
+  const nora = ok(await call('POST', '/api/login', { body: { login: 'nora', password: 'memberpass1234' } }), 'nora signs in').json.token;
+  const me = ok(await call('GET', '/api/me', { token: nora }), 'nora').json;
+  const members = ok(await call('GET', `/api/spaces/${S.trip}`, { token: S.admin }), 'the space').json.space.members;
+  ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { members: [...members, me.user ? me.user.key : me.key] } }), 'nora joins');
+  wxSeen.length = 0;
+  const statuses = [];
+  for (let i = 0; i < 32; i += 1) statuses.push((await weatherOf(S.trip, { token: nora }, `&from=${plus(9)}&to=${plus(9)}`)).status);
+  assert.deepEqual(statuses.slice(0, 30), new Array(30).fill(502), '30 asks pass the limit');
+  assert.deepEqual(statuses.slice(30), [429, 429], 'the next are refused');
+  assert.equal(wxSeen.length, 30, 'and the service is asked no more');
+  const told = await weatherOf(S.trip, { token: nora }, `&from=${plus(9)}&to=${plus(9)}`);
+  assert.match(told.json.error, /is busy\. Wait \d+ seconds?/);
+  assert.equal((await weatherOf(S.trip, { token: nora }, `&from=${plus(1)}&to=${plus(3)}`)).status, 200, 'what is kept is still answered');
+  wxFails = false;
+});
+
+await live('what is kept: positions, days and numbers only', async () => {
+  await stop();
+  const raw = fs.readFileSync(path.join(dataDir, 'weather.json'), 'utf8');
+  const saved = JSON.parse(raw);
+  assert.ok(Object.keys(saved.days).length >= 3, 'the days were written when the server stopped');
+  for (const [k, r] of Object.entries(saved.days)) {
+    assert.match(k, /^-?\d+\.\d{2},-?\d+\.\d{2}\|\d{4}-\d{2}-\d{2}$/);
+    assert.deepEqual(Object.keys(r).sort(), ['code', 'got', 'high', 'low', 'rain']);
+  }
+  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|code|high|low|rain|got|null)"|null/g, '')), 'no name, word or address in the file');
+  assert.ok(!raw.includes('41.146938') && !raw.includes('38.787586'), 'no exact position');
+});
+
+await stop();
+for (const sv of [wx, geo, lk]) sv.close();
 server.close();
 console.log(`check-weather: OK (${n} groups)`);
