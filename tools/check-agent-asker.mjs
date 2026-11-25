@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /*
  * check-agent-asker.mjs -- the bus carries the asker (documentation/plans/plan-agent-access.md, step 4, decision 9), against
- * real servers on throwaway DATA_DIRs, with the bundled Planner (schedule) and Calendar:
+ * real servers on throwaway DATA_DIRs, with the Planner (schedule) uploaded as a module of its own, so a page carries its
+ * requests (the bundled Planner's run on the server), and the bundled Calendar, which takes the Planner's copies:
  *   - a request records the asker's key; what a page carrying it out is told has `by` (the name) and `byKey` (the key);
  *   - a page's data write may carry `for: <asker key>, request: <id>` as a HINT. The server holds the request and uses it only
  *     for a PUT that creates a new key, from the person whose page claimed it (not a guest, not their own request) within the
@@ -21,9 +22,11 @@ import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const { buildModule } = createRequire(import.meta.url)(path.join(ROOT, 'server', 'module-build.js'));
 const NOT_YOURS = 'That request is not yours to carry out.';
 const NOT_ASKER = 'That is not the person who asked.';
 const CANT = "An agent can't do that.";
@@ -56,10 +59,10 @@ async function startServer(dataDir, env = {}) {
   return server;
 }
 
-function call(server, method, urlPath, { body, cookie, token, host } = {}) {
-  const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+function call(server, method, urlPath, { body, cookie, token, host, zip } = {}) {
+  const payload = zip || (body === undefined ? null : Buffer.from(JSON.stringify(body)));
   const headers = { host: host ? `${host}.localhost:${server.port}` : `127.0.0.1:${server.port}`, accept: 'application/json' };
-  if (payload) { headers['content-type'] = 'application/json'; headers['content-length'] = payload.length; }
+  if (payload) { headers['content-type'] = zip ? 'application/zip' : 'application/json'; headers['content-length'] = payload.length; }
   if (cookie) headers.cookie = cookie;
   if (token) headers.authorization = `Bearer ${token}`;
   return new Promise((resolve, reject) => {
@@ -90,8 +93,28 @@ const refused = (r, status, error, what) => {
   if (error) assert.equal(r.json?.error, error, `${what}: the sentence`);
 };
 
+// The bundled Planner uploaded as a module of its own: an upload may not declare actions.server, so the copy leaves it out and
+// its agents' requests wait for a page to claim them (the bundled one's run on the server, plan-agent-server-actions step 7).
+// It keeps its mirror, so its plans are still copied into the Calendar.
+let plannerZip = null;
+const plannerUpload = () => {
+  if (plannerZip) return plannerZip;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-agent-asker-planner-'));
+  try {
+    fs.cpSync(path.join(ROOT, 'modules', 'schedule'), dir, { recursive: true });
+    const m = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
+    delete m.actions.server;
+    fs.writeFileSync(path.join(dir, 'module.json'), JSON.stringify(m, null, 2));
+    plannerZip = buildModule(dir).zip;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  return plannerZip;
+};
+
 // One place to work in: a server (or a hosted environment, `host`), the owner's cookie, the Planner and Calendar on in a space.
-async function setUp(server, { host, cookie, tag }) {
+// `uploader` adds the Planner: the owner on a single install, the host's admin when hosted (only the host adds an upload there).
+async function setUp(server, { host, cookie, tag, uploader = cookie }) {
   const as = (cookieOf2, method, url, body) => call(server, method, url, { host, cookie: cookieOf2, body });
   ok(await as(cookie, 'PATCH', '/api/settings', { agents: true }), `${tag}: Agents on`);
   const person = async (login, name) => {
@@ -105,7 +128,8 @@ async function setUp(server, { host, cookie, tag }) {
   assert.equal(agent.displayName, 'Claude');
   const space = (await as(cookie, 'POST', '/api/spaces', { name: 'Camp', members: [agent.key, mia.key] })).json.space.id;
   const other = (await as(cookie, 'POST', '/api/spaces', { name: 'Elsewhere', members: [ben.key] })).json.space.id;
-  for (const id of ['schedule', 'calendar']) ok(await as(cookie, 'POST', `/api/modules/bundled/${id}/install`, {}), `${tag}: ${id} installs`, 201);
+  ok(await call(server, 'POST', '/api/modules', { host, cookie: uploader, zip: plannerUpload() }), `${tag}: the Planner uploads`, 201);
+  ok(await as(cookie, 'POST', '/api/modules/bundled/calendar/install', {}), `${tag}: calendar installs`, 201);
   for (const id of ['schedule', 'calendar']) ok(await as(cookie, 'PATCH', `/api/modules/${id}`, { enabled: true, allSpaces: true }), `${tag}: ${id} on`);
   const token = (await as(cookie, 'POST', `/api/users/${agent.key}/token`)).json.token;
   const miaCookie = await signIn(server, 'mia', 'mia-password-1', host);
@@ -164,6 +188,7 @@ try {
     R1 = await askByAgent(w, 'Pitch the tents');
     const stored = busFile(single).actions.find((a) => a.id === R1);
     assert.equal(stored.by, w.agent.key, 'the bus records the key');
+    assert.equal(stored.status, 'pending', 'it waits for a page to claim it');
     const list = await pending(w, admin);
     ok(list, 'pending');
     const seen = list.json.actions.find((a) => a.id === R1);
@@ -420,8 +445,8 @@ try {
   }
   const acmeOwner = await signIn(server, 'owner', 'owner-password-1', 'acme');
   const betaOwner = await signIn(server, 'owner', 'owner-password-1', 'beta');
-  const acme = await setUp(server, { host: 'acme', cookie: acmeOwner, tag: 'acme' });
-  const beta = await setUp(server, { host: 'beta', cookie: betaOwner, tag: 'beta' });
+  const acme = await setUp(server, { host: 'acme', cookie: acmeOwner, tag: 'acme', uploader: await signIn(server, 'boss', 'host-password-1', 'acme') });
+  const beta = await setUp(server, { host: 'beta', cookie: betaOwner, tag: 'beta', uploader: await signIn(server, 'boss', 'host-password-1', 'beta') });
   await test('hosted: the asker is carried inside one environment, and an id or a person from another is no use', async () => {
     const A = await askByAgent(acme, 'Acme thing');
     const B = await askByPerson(beta, beta.miaCookie, 'Beta thing');
