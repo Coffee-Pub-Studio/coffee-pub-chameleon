@@ -26,5 +26,5 @@ Only when an owner has chosen a service and no picture map is set. To the weathe
 - Every redraw rebuilds the day headers, so the piece's fade-in plays again; reduced motion turns it off.
 - `server/geocode.js` still follows redirects with a plain `fetch` and no address check, and sends the repository address in its `User-Agent`.
 - A negative temperature prints with a hyphen, not a minus sign.
-- Whether weather should be its own route part rather than code in `server/index.js` is open ([TODO](../TODO.md)).
+- Whether weather should be its own route part rather than code in `server/index.js` is open.
 - The real service's terms and field names were not read, and the real service was never reached (no network in the builder's environment): the lookup is checked only against a stand-in service.
