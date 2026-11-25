@@ -29,17 +29,27 @@
 // main phase's end moved later to cover that day, only for an action whose manifest says `phaseEnd: true`). A throw is a
 // refusal, and its message is the sentence the agent reads.
 //
+// Outside the space (plan-agent-server-actions.md, sections 3 and 4, step 9). A write may say `scope: 'environment'`: the
+// server then makes it in the module's environment data, only for one of the module's own kinds that carry space marks
+// (refs.produces' summary.spaces), only when its value marks the request's space, and never changing which other spaces
+// it is marked for; `read(key, 'environment')` and `list(prefix, 'environment')` give the handler those objects that are
+// marked for this space, and nothing else of the environment. `scope: 'person'` refuses the request: an agent has no data
+// of its own. And an action may declare `lookups: { <input>: 'geocode' }`: the server searches that input's text with the
+// module's place search before the run and the handler reads the answer as ctx.lookups.<input> (at most 6 of { title,
+// sub, lat, lng, key }). The run itself has no network and no way to ask for another search.
+//
 // This file loads the code (only ever from the deployment's own modules/ folder, never from what is installed in
 // DATA_DIR, and only while the installed module is that very bundled version), runs it in a process of its own with a
-// memory ceiling and Node's permission model, in a vm context with a time limit (server/module-actions-worker.js), and
-// checks what it answered. It writes
+// memory ceiling and Node's permission model, with Node's socket calls taken away (server/module-actions-lockdown.js) and,
+// where the kernel allows, in a network namespace of its own (networkSeal, below), in a vm context with a time limit
+// (server/module-actions-worker.js), and checks what it answered. It writes
 // nothing: server/index.js applies the writes through the same checked write path a person's page uses (putModuleValue),
 // as the agent, with the agent's own rights. Uploaded modules never come here: their code is not ours, and vm is no
 // security boundary, so they keep the wait for an open page.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { libraryOf } = require('./module-build');
 const { word } = require('./words');
 const { effectsOf, EFFECT_FAULT_WORDS } = require('./action-effects');
@@ -64,19 +74,52 @@ const LIMITS = Object.freeze({
 // what libraryOf puts in the page).
 const SERVER_FILE_RE = (id) => new RegExp(`^src/${id.replace(/[^a-z0-9-]/g, '')}-lib(-[a-z0-9-]+)?\\.js$`);
 
-// The flags of a run's process: its heap, no code from strings anywhere in it, and the permission model reading only its
-// own script (the flag's name is --permission from Node 22.13, --experimental-permission before).
+// The flags of a run's process: its heap, no code from strings anywhere in it, the permission model reading only its own
+// script and the lockdown (the flag's name is --permission from Node 22.13, --experimental-permission before), no inspector
+// on a signal where Node has the flag, and the lockdown loaded before the script (server/module-actions-lockdown.js: no
+// socket, name lookup or inspector through Node, whatever then runs in the process; GitHub #1100).
 const PERMISSION_FLAG = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';
+const SIGNAL_FLAGS = process.allowedNodeEnvironmentFlags.has('--disable-sigusr1') ? ['--disable-sigusr1'] : [];
+const LOCKDOWN_FILE = path.join(__dirname, 'module-actions-lockdown.js');
 const runFlags = (workerFile) => [
   `--max-old-space-size=${LIMITS.heapMb}`, `--max-semi-space-size=${LIMITS.semiMb}`, '--disallow-code-generation-from-strings',
-  PERMISSION_FLAG, `--allow-fs-read=${workerFile}`, '--no-warnings', workerFile,
+  PERMISSION_FLAG, `--allow-fs-read=${workerFile}`, `--allow-fs-read=${LOCKDOWN_FILE}`, ...SIGNAL_FLAGS, '--no-warnings', '--require', LOCKDOWN_FILE, workerFile,
 ];
+
+// A network namespace of its own for a run's process, where the kernel gives this server one: { command, args } to start
+// the process through (`unshare`, which then becomes the process itself, so it is killed as before), or null. Inside it
+// there is no interface but a loopback that is down, so no address is reachable, the server's own 127.0.0.1 included:
+// held by the kernel, whatever the process does. Tried once: with a user namespace (-r, what a server that is not root
+// needs), then without (root with the right to make namespaces). A usual Docker container allows neither (its default
+// seccomp profile refuses new namespaces), and then the lockdown above is what holds. Linux only.
+const UNSHARE_PATHS = ['/usr/bin/unshare', '/bin/unshare', '/usr/sbin/unshare', '/sbin/unshare'];
+let sealFound;
+function networkSeal() {
+  if (sealFound !== undefined) return sealFound;
+  sealFound = null;
+  if (process.platform !== 'linux') return sealFound;
+  const command = UNSHARE_PATHS.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
+  if (!command) return sealFound;
+  for (const flag of ['-rn', '-n']) {
+    try {
+      const r = spawnSync(command, [flag, process.execPath, '-e', 'process.stdout.write("sealed")'], { env: {}, cwd: os.tmpdir(), encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+      if (r.status === 0 && r.stdout === 'sealed') { sealFound = Object.freeze({ command, args: Object.freeze([flag]) }); break; }
+    } catch { /* not this way */ }
+  }
+  return sealFound;
+}
+// ACTION_RUNNER_NETWORK: 'namespace' runs nothing without a network namespace; anything else uses one where there is one.
+const NETWORK_MODES = ['auto', 'namespace'];
 
 // The SDK every page loads (public/sdk/host.js): its pure helpers are what a library gets as ctx.util, built from this very
 // file in the run's own context (server/module-actions-worker.js), so a page and the server run one copy of each.
 const SDK_FILE = path.join(__dirname, '..', 'public', 'sdk', 'host.js');
 
-function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'module-actions-worker.js'), sdkFile = SDK_FILE }) {
+function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'module-actions-worker.js'), sdkFile = SDK_FILE, network = 'auto' }) {
+  // How a run is kept off the network (see networkSeal): { mode, namespace: whether a run gets a network namespace }.
+  const mode = NETWORK_MODES.includes(network) ? network : 'auto';
+  const seal = networkSeal();
+  const networkState = Object.freeze({ mode, namespace: Boolean(seal), known: mode === network || !network });
   const codeCache = new Map(); // `${id}@${version}` -> { code, file } | null
   // Read once: it is the deployment's own file and changes only with a new deployment. Null when it can't be read, and then
   // every run is a fault ('sdk'), never a run without the helpers.
@@ -127,12 +170,14 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
     if (next) next(); else running -= 1;
   };
 
-  // One run: { text } (the handler's answer as JSON text) or { fault } (start, sdk, library, timeout, memory, crashed, busy,
-  // missing, result, size, unanswered). `localeText` is { clock, words, labels } as JSON: the environment's clock and
+  // One run: { text } (the handler's answer as JSON text) or { fault } (start, sdk, network, library, timeout, memory, crashed,
+  // busy, missing, result, size, unanswered). `localeText` is { clock, words, labels } as JSON: the environment's clock and
   // words and the module's labels in the space, for ctx.util's time, word and label. Never throws.
-  async function run({ code, filename, action, inputText, ctxText, dataText, localeText = '{}' }) {
+  async function run({ code, filename, action, inputText, ctxText, dataText, sharedText = '{}', localeText = '{}' }) {
     const sdkSource = sdk();
     if (!sdkSource) return { fault: 'sdk' };
+    // Asked to run only in a network namespace, and this server has none to give: nothing runs.
+    if (mode === 'namespace' && !seal) return { fault: 'network' };
     try { await turn(); } catch { return { fault: 'busy' }; }
     try {
       return await new Promise((resolve) => {
@@ -147,7 +192,7 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
           resolve(v);
         };
         try {
-          child = spawn(process.execPath, runFlags(workerFile), { cwd: os.tmpdir(), env: {}, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
+          child = spawn(seal ? seal.command : process.execPath, seal ? [...seal.args, process.execPath, ...runFlags(workerFile)] : runFlags(workerFile), { cwd: os.tmpdir(), env: {}, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true });
         } catch {
           return resolve({ fault: 'start' });
         }
@@ -170,24 +215,26 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
           finish({ fault: signal === 'SIGABRT' || exitCode === 134 ? 'memory' : 'crashed' });
         });
         child.stdin.on('error', () => { /* the process ended before it read everything: its exit says why */ });
-        child.stdin.end(JSON.stringify({ code, filename, action, inputText, ctxText, dataText, sdk: sdkSource, localeText, timeoutMs: LIMITS.timeMs }));
+        child.stdin.end(JSON.stringify({ code, filename, action, inputText, ctxText, dataText, sharedText, sdk: sdkSource, localeText, timeoutMs: LIMITS.timeMs }));
       });
     } finally {
       done();
     }
   }
 
-  return { libraryFor, run };
+  return { libraryFor, run, network: networkState };
 }
 
-// What a handler answered, checked: { refused: sentence } | { fault } | { writes: [{ key, value }], ref, data, effects:
-// { links, schedules, notify, phaseEnd? } } (the effects as server/action-effects.js effectsOf checks them).
-// `own(ref)` says whether a pointer is one of the module's own kinds in the request's space; `phaseEnd` whether the action
-// may move the main phase's end (its manifest says so). Nothing in the answer is trusted: only these fields, of these
-// types, within these sizes.
+// What a handler answered, checked: { refused: sentence } | { fault } | { denied: 'person' } (a write for the person, which
+// an agent has none of) | { writes: [{ key, value, scope?: 'environment' }], ref, data, effects: { links, schedules,
+// notify, phaseEnd? } } (the effects as server/action-effects.js effectsOf checks them).
+// `own(ref)` says whether a pointer is one of the module's own kinds in the request's space; `shared(ref)` answers the
+// stored key of an environment pointer of one of its own kinds that carry space marks, or null; `phaseEnd` whether the
+// action may move the main phase's end (its manifest says so). Nothing in the answer is trusted: only these fields, of
+// these types, within these sizes.
 const plainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 const oneLine = (v) => String(v).replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, LIMITS.sentence);
-function outcomeOf(answer, { own, phaseEnd = false }) {
+function outcomeOf(answer, { own, shared = null, phaseEnd = false }) {
   if (!answer || typeof answer.text !== 'string') return { fault: answer && answer.fault ? answer.fault : 'unanswered' };
   if (answer.text.length > LIMITS.resultBytes) return { fault: 'size' };
   let parsed;
@@ -207,17 +254,25 @@ function outcomeOf(answer, { own, phaseEnd = false }) {
     if (!plainObject(w)) return { fault: 'result' };
     // Ready for step 4 of the plan, not built: a delete is never a handler's (an approved delete is the server's own path).
     if (Object.hasOwn(w, 'delete')) return { fault: 'delete' };
-    // A write names a key and a value and nothing else: no module, scope, space or person, so it can only ever land in
-    // this module's data in the request's space.
-    if (Object.keys(w).some((k) => k !== 'key' && k !== 'value')) return { fault: 'place' };
-    if (typeof w.key !== 'string' || !w.key || w.key.length > 128 || seen.has(w.key)) return { fault: 'result' };
+    // A write names a key and a value, and may name a scope: no module, space or person, so it lands in this module's data
+    // in the request's space, or (scope 'environment', plan-agent-server-actions.md section 4) in the module's environment
+    // data, which the server then holds to the module's own kinds marked for that space. An agent has no data of its own,
+    // so a write for the person (scope 'person') refuses the whole request.
+    if (Object.keys(w).some((k) => k !== 'key' && k !== 'value' && k !== 'scope')) return { fault: 'place' };
+    const scope = w.scope === undefined || w.scope === null ? 'space' : w.scope;
+    if (scope === 'person') return { denied: 'person' };
+    if (scope !== 'space' && scope !== 'environment') return { fault: 'place' };
+    if (typeof w.key !== 'string' || !w.key || w.key.length > 128 || seen.has(`${scope} ${w.key}`)) return { fault: 'result' };
     if (w.value === undefined) return { fault: 'result' };
-    seen.add(w.key);
-    writes.push({ key: w.key, value: w.value });
+    seen.add(`${scope} ${w.key}`);
+    // A space write stays exactly { key, value }, as a page's adapter has it; only an environment write says its scope.
+    writes.push({ key: w.key, value: w.value, ...(scope === 'environment' ? { scope } : {}) });
   }
   let ref = null;
   if (result.ref !== undefined && result.ref !== null) {
-    if (!plainObject(result.ref) || !own(result.ref)) return { fault: 'ref' };
+    // The module's own object in the request's space, or the environment object this very answer writes.
+    const key = plainObject(result.ref) && !own(result.ref) && shared ? shared(result.ref) : null;
+    if (!plainObject(result.ref) || !(own(result.ref) || (key && writes.some((w) => w.scope === 'environment' && w.key === key)))) return { fault: 'ref' };
     ref = result.ref;
   }
   let data;
@@ -241,12 +296,16 @@ const FAULT_WORDS = {
   library: () => 'its code did not load',
   sdk: () => 'the helpers its code uses did not load',
   start: () => 'its code could not be started',
+  network: () => 'the server could not shut its code off from the network',
   crashed: () => 'its code stopped',
   missing: () => 'it has no server code for that action',
   result: () => 'it answered something the server can\'t use',
   size: () => 'it answered more than the server takes',
   writes: () => `it tried to change more than ${LIMITS.writes} things at once`,
   place: () => `it tried to write outside its own data in this ${word('space')}`,
+  shared: () => `it tried to write ${word('environment')} data other than its own ${word('object', { many: true })} that are marked for ${word('space', { many: true })}`,
+  unmarked: () => `it tried to write ${word('environment')} data that is not marked for this ${word('space')}`,
+  marks: () => `it tried to change which other ${word('space', { many: true })} ${word('environment')} data is marked for`,
   delete: () => 'it tried to delete something, which needs a person\'s approval',
   ref: () => `it pointed at something that is not its own in this ${word('space')}`,
   unanswered: () => 'it gave no answer',
@@ -254,4 +313,4 @@ const FAULT_WORDS = {
 };
 const faultWords = (fault) => (FAULT_WORDS[fault] || FAULT_WORDS.unanswered)();
 
-module.exports = { createModuleActions, outcomeOf, faultWords, MODULE_ACTION_LIMITS: LIMITS, MODULE_ACTION_RUN_FLAGS: runFlags, SERVER_FILE_RE };
+module.exports = { createModuleActions, outcomeOf, faultWords, MODULE_ACTION_LIMITS: LIMITS, MODULE_ACTION_RUN_FLAGS: runFlags, MODULE_ACTION_NETWORK_SEAL: networkSeal, SERVER_FILE_RE };

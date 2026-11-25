@@ -66,6 +66,22 @@
  *     asker whose rights do not let it move the dates keeps its writes and reads why in the note (the effects' own apply,
  *     with the right taken away); the Itinerary's addStop past the plan's last day moves it with no note; the cover route
  *     a page uses answers as before, with the same 366 days.
+ *   - plan-agent-server-actions.md step 9 and GitHub #1100. The runner's process opens no socket: a hostile script started
+ *     with the runner's own flags (tools/fixtures/module-actions/network-probe.cjs, outside any vm context) tries TCP, a unix
+ *     socket, listening, http, fetch, WebSocket, tls, http2, UDP, name lookups, the resolver, the inspector, a signal to
+ *     itself, process.binding, a worker, a child process, a descriptor and putting a taken-away call back, against a real
+ *     server on 127.0.0.1, and the build fails if one gets through (the same script without the lockdown does connect, so
+ *     the probe is real); where this machine gives a network namespace, the kernel alone stops every address too; a server
+ *     told to run only in a namespace runs nothing without one.
+ *     Writes outside the space: an environment write is made only for the module's own kind that carries space marks, with
+ *     a value that marks the request's space, as the agent, and can be read back; without the mark, for another kind,
+ *     naming another module, marking or unmarking another space, over an object the space is not marked on, in a module
+ *     with no environment data, or past the count, it is refused and nothing changes; a write for the person is refused
+ *     with its sentence; a refusal after an environment write puts it back with the rest.
+ *     The place search: an action's `lookups` is kept only for a string input of a module with a geocoder; nothing is
+ *     asked when no service is chosen; one request leaves the server, carrying the declared input's text and nothing else
+ *     of the request, the agent or the space; the handler gets at most 6 small results as plain data, no function to ask
+ *     again with, and an action that declares none gets nothing; each search is one of the agent's reads.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -193,6 +209,23 @@ function variant(name, edit) {
 // the main phase's end (the effects' refusals).
 fs.cpSync(variant('plain', (m) => { m.id = 'fixture-plain'; m.name = 'Fixture plain'; delete m.hooks; m.refs.consumes = []; for (const a of m.actions.provides) delete a.phaseEnd; }), path.join(app, 'modules', 'fixture-plain'), { recursive: true });
 
+// And again as a module with environment data: its notes carry space marks (`spaces`), a second kind (memo) carries none,
+// it has a place search (the settings a geocoder needs) and two more actions: `find` (declares a lookup) and `shared`.
+fs.cpSync(variant('shared', (m) => {
+  m.id = 'fixture-shared'; m.name = 'Fixture shared'; delete m.hooks; m.refs.consumes = [];
+  m.scope = ['space', 'environment'];
+  m.surfaces.page = { entry: 'canvas.html' };
+  m.refs.produces[0].summary.spaces = 'spaces';
+  m.refs.produces.push({ kind: 'memo', name: 'Memo', key: 'memo:{id}', summary: { title: 'title' } });
+  m.guards.keys.push({ key: 'memo:{id}' });
+  m.settings.push({ key: 'searchProvider', label: 'Place search', type: 'choice', scope: 'environment', default: 'none', options: [{ value: 'none', label: 'None' }, { value: 'custom', label: 'My own address' }] });
+  m.settings.push({ key: 'search', label: 'Search address', type: 'url', scope: 'environment', default: '' });
+  m.settings.push({ key: 'saveResults', label: 'Save places', type: 'boolean', scope: 'environment', default: false });
+  m.geocoder = { provider: 'searchProvider', address: 'search', save: 'saveResults', custom: 'custom', providers: {} };
+  m.actions.provides.push({ name: 'find', label: 'Find', description: 'Write down the place search the server did.', effect: 'write', input: { address: 'string?', title: 'string?', notes: 'text?' }, lookups: { address: 'geocode' } });
+  m.actions.provides.push({ name: 'shared', label: 'Shared', description: 'Write down the environment objects the handler may read.', effect: 'write', input: { key: 'string?', address: 'string?' } });
+}), path.join(app, 'modules', 'fixture-shared'), { recursive: true });
+
 const dir = path.join(base, 'data');
 const ENV = { ADMIN_PASSWORD: 'admin-password-1', AGENT_TOKENS: 'true' };
 const busFile = () => JSON.parse(fs.readFileSync(path.join(dir, 'modules', 'bus.json'), 'utf8'));
@@ -226,6 +259,96 @@ try {
     assert.equal(out.worker, 'ERR_ACCESS_DENIED', 'no worker');
     assert.equal(out.env, 0, 'no environment variables');
     assert.equal(out.eval, 'blocked', 'no code from strings');
+  });
+
+  // --- the runner's process and the network (GitHub #1100; plan-agent-server-actions.md, step 9) ---------------------------
+  const PROBE = path.join(ROOT, 'tools', 'fixtures', 'module-actions', 'network-probe.cjs');
+  const PERMISSION = process.allowedNodeEnvironmentFlags.has('--permission') ? '--permission' : '--experimental-permission';
+  // A real server on 127.0.0.1 and a real unix socket, and the hostile script run against them: its outcomes, by name.
+  const hostile = async (command, args) => {
+    const hits = [];
+    const web = http.createServer((req, res) => { hits.push(req.url); res.end('reached'); });
+    const sock = path.join(base, `probe-${Date.now()}.sock`);
+    const unix = (await import('node:net')).createServer((c) => { hits.push('unix'); c.end(); });
+    await new Promise((r) => web.listen(0, '127.0.0.1', r));
+    await new Promise((r) => unix.listen(sock, r));
+    try {
+      const child = spawn(command, [...args, String(web.address().port), sock], { env: {}, cwd: os.tmpdir(), stdio: ['pipe', 'pipe', 'pipe'] });
+      let text = '';
+      let errors = '';
+      child.stdout.on('data', (d) => { text += d; });
+      child.stderr.on('data', (d) => { errors += d; });
+      child.stdin.end();
+      await new Promise((r) => child.once('close', r));
+      let out = null;
+      try { out = JSON.parse(text.trim()); } catch { out = null; }
+      assert.ok(out, `the probe answered: ${text.slice(0, 300)} ${errors.slice(0, 600)}`);
+      return { out, hits };
+    } finally {
+      web.closeAllConnections();
+      await new Promise((r) => web.close(r));
+      await new Promise((r) => unix.close(r));
+    }
+  };
+  const through = (out) => Object.entries(out).filter(([, v]) => v.startsWith('CONNECTED')).map(([k, v]) => `${k}: ${v}`);
+
+  await test('the runner\'s process opens no socket: a hostile script with the runner\'s flags reaches nothing on 127.0.0.1', async () => {
+    const { MODULE_ACTION_RUN_FLAGS } = require(path.join(ROOT, 'server', 'module-actions.js'));
+    // The probe is real: with the permission model alone (the flags before this step) it connects, listens and looks up.
+    const before = await hostile(process.execPath, ['--disallow-code-generation-from-strings', PERMISSION, `--allow-fs-read=${PROBE}`, PROBE]);
+    for (const way of ['tcp', 'unix', 'listen', 'http', 'fetch', 'udp', 'lookup']) assert.ok(before.out[way].startsWith('CONNECTED'), `without the lockdown, ${way} gets through (${before.out[way]}): the probe tries what it says`);
+    assert.ok(before.hits.length > 0, 'and the listening server saw it');
+    // With the runner's flags, nothing does.
+    const flags = MODULE_ACTION_RUN_FLAGS(PROBE);
+    assert.ok(flags.includes('--require') && flags.some((f) => f.endsWith('module-actions-lockdown.js')), 'the runner\'s flags load the lockdown first');
+    const now = await hostile(process.execPath, flags);
+    assert.deepEqual(through(now.out), [], 'no way to a socket is left');
+    assert.equal(Object.keys(now.out).length, Object.keys(before.out).length, 'every way was tried');
+    assert.deepEqual(now.hits, [], 'the listening server saw nothing');
+    for (const way of ['tcp', 'unix', 'listen', 'http', 'fetch', 'tls', 'http2', 'udp', 'udpBind', 'lookup', 'lookupPromise', 'resolver', 'inspector', 'signal', 'binding', 'worker', 'child', 'descriptor']) {
+      assert.equal(now.out[way], 'stopped:ERR_ACCESS_DENIED', `${way} is refused outright`);
+    }
+    assert.equal(now.out.restore, 'stopped:fixed', 'a call taken away can\'t be put back');
+  });
+
+  await test('where the kernel gives a network namespace, it alone keeps every address out of reach', async () => {
+    const { MODULE_ACTION_NETWORK_SEAL } = require(path.join(ROOT, 'server', 'module-actions.js'));
+    const seal = MODULE_ACTION_NETWORK_SEAL();
+    if (!seal) { console.log('check-module-actions: this machine gives no network namespace (unshare missing or not allowed); the kernel layer was not tried, the lockdown was.'); return; }
+    // Without the lockdown, so only the namespace stands between the script and the server.
+    const r = await hostile(seal.command, [...seal.args, process.execPath, '--disallow-code-generation-from-strings', PERMISSION, `--allow-fs-read=${PROBE}`, PROBE]);
+    for (const way of ['tcp', 'http', 'fetch', 'tls', 'http2', 'udp']) assert.ok(r.out[way].startsWith('stopped:'), `${way} does not reach 127.0.0.1 from the namespace (${r.out[way]})`);
+    assert.deepEqual(r.hits.filter((h) => h !== 'unix'), [], 'the listening server saw no request');
+  });
+
+  await test('a run goes through the lockdown and the namespace; told to need a namespace, it runs nothing without one', async () => {
+    const { createModuleActions, MODULE_ACTION_NETWORK_SEAL } = require(path.join(ROOT, 'server', 'module-actions.js'));
+    const seal = MODULE_ACTION_NETWORK_SEAL();
+    const message = { code: 'const ACTION_HANDLERS = { go: (input, ctx) => ({ writes: [{ key: "a", value: [ctx.read("k"), ctx.read("k", "environment"), ctx.list("", "environment").length] }] }) };', filename: 'x.js', action: 'go', inputText: '{}', ctxText: '{}', dataText: '{"k":1}', sharedText: '{"k":2}' };
+    for (const network of ['auto', 'namespace']) {
+      const runner = createModuleActions({ bundledDir: path.join(app, 'modules'), network });
+      assert.equal(runner.network.namespace, Boolean(seal));
+      const answer = await runner.run(message);
+      if (network === 'namespace' && !seal) { assert.deepEqual(answer, { fault: 'network' }, 'nothing runs'); continue; }
+      assert.deepEqual(JSON.parse(answer.text), { result: { writes: [{ key: 'a', value: [1, 2, 1] }] } }, `${network}: the handler ran and read both places`);
+    }
+    assert.equal(createModuleActions({ bundledDir: path.join(app, 'modules'), network: 'nonsense' }).network.known, false, 'an unknown word is said, and read as auto');
+  });
+
+  await test('an action\'s lookups: kept for a string input of a module with a place search, refused otherwise', async () => {
+    const { cleanManifest, readZip } = require(path.join(ROOT, 'server', 'modules.js'));
+    const sharedDir = path.join(app, 'modules', 'fixture-shared');
+    const files = await readZip(zipOf(sharedDir));
+    const raw = JSON.parse(fs.readFileSync(path.join(sharedDir, 'module.json'), 'utf8'));
+    const withFind = (edit) => { const m = structuredClone(raw); edit(m, m.actions.provides.find((a) => a.name === 'find')); return () => cleanManifest(m, files); };
+    assert.deepEqual(withFind(() => {})().actions.provides.find((a) => a.name === 'find').lookups, { address: 'geocode' });
+    assert.throws(withFind((m) => { delete m.geocoder; }), /action "find" looks up a place, so the module needs a "geocoder"/);
+    assert.throws(withFind((m, a) => { a.lookups = { nowhere: 'geocode' }; }), /looks up "nowhere", which is not one of its inputs/);
+    assert.throws(withFind((m, a) => { a.lookups = { address: 'fetch' }; }), /lookup for "address" must be "geocode"/);
+    assert.throws(withFind((m, a) => { a.input.count = 'number?'; a.lookups = { count: 'geocode' }; }), /only a string or text input can be looked up/);
+    assert.throws(withFind((m, a) => { a.lookups = ['address']; }), /lookups must be an object of input name to "geocode"/);
+    assert.throws(withFind((m, a) => { a.lookups = { address: 'geocode', title: 'geocode', notes: 'geocode' }; }), /looks up more than 2 inputs/);
+    assert.throws(withFind((m, a) => { a.local = true; delete a.effect; delete a.description; }), /is local, so it has no lookups/);
   });
 
   await test('effects on a page: the SDK\'s adapter takes the same answer, makes the same calls in order, and takes them back when one fails', async () => {
@@ -1528,6 +1651,241 @@ try {
       assert.deepEqual(w.json.ref, ref, 'with the page\'s pointer');
     }
     assert.ok(Date.now() - t < 5000, 'the waits ended when it was done');
+  });
+
+  // --- writes outside the space, and the place search (plan-agent-server-actions.md, sections 3 and 4, step 9) ---------------
+  // fixture-shared is the fixture with environment data: its notes carry space marks (`spaces`), its memos carry none.
+  ok(await call('POST', '/api/modules/bundled/fixture-shared/install', { cookie: admin, body: {} }), 'fixture-shared installs', 201);
+  ok(await call('PATCH', '/api/modules/fixture-shared', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'fixture-shared on');
+  const shAgents = [];
+  for (let i = 0; i < 5; i += 1) {
+    const a = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
+    shAgents.push(a);
+    await newToken(a);
+  }
+  for (const id of [camp, lodge]) {
+    const members = (await call('GET', `/api/spaces/${id}`, { cookie: admin })).json.space.members;
+    ok(await call('PATCH', `/api/spaces/${id}`, { cookie: admin, body: { members: [...members, ...shAgents.map((a) => a.key)] } }), 'the agents for this part join');
+  }
+  const SH = 'fixture-shared';
+  const SHN = 'Fixture shared could not carry that out: ';
+  const sx = (plan, { module = SH, space = camp } = {}) => call('POST', `/api/spaces/${space}/action`, { ...T(), body: { action: `${module}:effects`, input: { plan: JSON.stringify(plan) } } });
+  const shItems = async (query) => Object.fromEntries((await call('GET', `/api/modules/${SH}/data?${query}`, { cookie: admin })).json.items.map((i) => [i.key, i]));
+  const envItems = () => shItems('scope=environment');
+  const shAll = async () => {
+    const pick = (items) => Object.fromEntries(Object.entries(items).map(([k, i]) => [k, i.value]));
+    return { environment: pick(await envItems()), camp: pick(await shItems(`scope=space&space=${camp}`)), lodge: pick(await shItems(`scope=space&space=${lodge}`)) };
+  };
+  const envNote = (id, marks, extra = {}) => ({ key: `note:${id}`, scope: 'environment', value: { title: id, byKey: as.key, by: 'Claude', ...(marks ? { spaces: marks } : {}), ...extra } });
+  const envRef = (id) => ({ module: SH, kind: 'note', id, scope: 'environment' });
+  const nothingChanged = async (r, status, sentence, before) => {
+    ok(r, sentence, status);
+    assert.equal(r.json.status, 'done');
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.error, sentence);
+    assert.deepEqual(await shAll(), before, 'nothing was changed, in the environment or the space');
+  };
+  // An environment note only Fort is marked on, made by the admin: the agents are not in Fort.
+  ok(await call('PUT', `/api/modules/${SH}/data/note:fortonly?scope=environment`, { cookie: admin, body: { value: { title: 'Fort only', spaces: [fort] } } }), 'the admin makes an environment note for Fort');
+
+  as = shAgents[0];
+  await test('an environment write that marks the request\'s space is made, as the agent, with its pointer, and read back', async () => {
+    const r = await sx({ writes: [{ key: 'note:s1', value: { title: 's1', byKey: as.key, by: 'Claude' } }, envNote('e1', [camp])], ref: envRef('e1') });
+    ok(r, 'an environment write');
+    assert.equal(r.json.ok, true, r.text);
+    assert.deepEqual(r.json.ref, envRef('e1'), 'the pointer is the environment object it made');
+    const stored = (await envItems())['note:e1'];
+    assert.deepEqual(stored.value.spaces, [camp]);
+    assert.equal(stored.by, as.key, 'the write is the agent\'s');
+    assert.ok((await shItems(`scope=space&space=${camp}`))['note:s1'], 'and the space write beside it');
+    // Read back by a handler: what is marked for this space, and nothing else of the environment.
+    const read = await call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: `${SH}:shared`, input: { key: 'note:e1', address: 'Not searched' } } });
+    ok(read, 'shared');
+    const seen = (await shItems(`scope=space&space=${camp}`))['probe:shared'].value;
+    assert.deepEqual(seen.keys, ['note:e1'], 'only the environment objects marked for this space');
+    assert.equal(seen.one.title, 'e1');
+    assert.equal(seen.inSpace, null, 'the space\'s own data is another place');
+    assert.equal(seen.lookups, false, 'no place search for an action that declares none');
+    // Changed, by a second request, with its marks as they were.
+    const edit = await sx({ writes: [envNote('e1', [camp], { title: 'e1 again' })], ref: envRef('e1') });
+    ok(edit, 'an edit');
+    assert.equal(edit.json.ok, true, edit.text);
+    const after = (await envItems())['note:e1'];
+    assert.equal(after.value.title, 'e1 again');
+    assert.equal(after.version, stored.version + 1);
+    // From another of the agent's spaces it is not there to read, and a write over it is refused whole.
+    const before = await shAll();
+    const elsewhere = await call('POST', `/api/spaces/${lodge}/action`, { ...T(), body: { action: `${SH}:shared`, input: { key: 'note:e1' } } });
+    ok(elsewhere, 'shared, from Lodge');
+    const there = (await shItems(`scope=space&space=${lodge}`))['probe:shared'].value;
+    assert.deepEqual(there.keys, [], 'Lodge is not marked on it');
+    assert.equal(there.one, null);
+    const all = await shAll();
+    assert.deepEqual(all.environment, before.environment);
+    await nothingChanged(await sx({ writes: [envNote('e1', [camp, lodge])] }, { space: lodge }), 409, CHANGED, all);
+  });
+
+  as = shAgents[1];
+  await test('hostile environment writes: no mark, another kind, another module, other spaces\' marks, an object of another space, too many', async () => {
+    // One the agent made, which the admin then also marks for Fort.
+    ok(await sx({ writes: [envNote('e2', [camp])] }), 'e2');
+    const e2 = (await envItems())['note:e2'];
+    ok(await call('PUT', `/api/modules/${SH}/data/note:e2?scope=environment`, { cookie: admin, body: { value: { ...e2.value, spaces: [camp, fort] }, version: e2.version } }), 'the admin marks it for Fort too');
+    const before = await shAll();
+    const unmarked = `${SHN}it tried to write environment data that is not marked for this space.`;
+    const marks = `${SHN}it tried to change which other spaces environment data is marked for.`;
+    const notShared = `${SHN}it tried to write environment data other than its own objects that are marked for spaces.`;
+    const place = `${SHN}it tried to write outside its own data in this space.`;
+    await nothingChanged(await sx({ writes: [envNote('h1', [])] }), 500, unmarked, before);
+    await nothingChanged(await sx({ writes: [envNote('h1', null)] }), 500, unmarked, before);
+    await nothingChanged(await sx({ writes: [envNote('h1', [fort])] }), 500, unmarked, before);
+    await nothingChanged(await sx({ writes: [envNote('h1', camp)] }), 500, unmarked, before);
+    await nothingChanged(await sx({ writes: [{ key: 'note:h1', scope: 'environment', value: 'note' }] }), 500, unmarked, before);
+    // A new one may mark this space only; one that is there keeps its other marks exactly.
+    await nothingChanged(await sx({ writes: [envNote('h1', [camp, fort])] }), 500, marks, before);
+    await nothingChanged(await sx({ writes: [envNote('h1', [camp, lodge])] }), 500, marks, before);
+    await nothingChanged(await sx({ writes: [envNote('e2', [camp])] }), 500, marks, before);
+    await nothingChanged(await sx({ writes: [envNote('e2', [camp, fort, lodge])] }), 500, marks, before);
+    // An object of a space the agent is not in: never taken over by adding this space's mark.
+    await nothingChanged(await sx({ writes: [envNote('fortonly', [camp, fort])] }), 409, CHANGED, before);
+    await nothingChanged(await sx({ writes: [envNote('fortonly', [camp])] }), 409, CHANGED, before);
+    as = shAgents[4]; // the next agent: each has 20 writes a minute
+    // Only the module's own kind that carries marks: not its other kind, not a key of no kind, not another module's.
+    await nothingChanged(await sx({ writes: [{ key: 'memo:m1', scope: 'environment', value: { title: 'm', spaces: [camp] } }] }), 500, notShared, before);
+    await nothingChanged(await sx({ writes: [{ key: 'probe:p1', scope: 'environment', value: { spaces: [camp] } }] }), 500, notShared, before);
+    await nothingChanged(await sx({ writes: [{ key: 'place:abc', scope: 'environment', value: { title: 'A place', spaces: [camp] } }] }), 500, notShared, before);
+    await nothingChanged(await sx({ writes: [{ key: 'note:../x', scope: 'environment', value: { title: 'x', spaces: [camp] } }] }), 500, notShared, before);
+    await nothingChanged(await sx({ writes: [{ ...envNote('h1', [camp]), module: 'maps' }] }), 500, place, before);
+    await nothingChanged(await sx({ writes: [{ ...envNote('h1', [camp]), space: fort }] }), 500, place, before);
+    await nothingChanged(await sx({ writes: [{ ...envNote('h1', [camp]), scope: 'host' }] }), 500, place, before);
+    await nothingChanged(await sx({ writes: [envNote('h1', [camp])], ref: envRef('other') }), 500, `${SHN}it pointed at something that is not its own in this space.`, before);
+    // More than the count, across both places.
+    const many = [...Array.from({ length: 6 }, (_, i) => envNote(`m${i}`, [camp])), ...Array.from({ length: 5 }, (_, i) => ({ key: `note:n${i}`, value: { title: 'n', byKey: as.key, by: 'Claude' } }))];
+    await nothingChanged(await sx({ writes: many }), 500, `${SHN}it tried to change more than 10 things at once.`, before);
+  });
+
+  as = shAgents[2];
+  await test('a module with no environment data, a write for the person, and the Agent column\'s write row', async () => {
+    const before = await shAll();
+    const beforeNotes = await data();
+    // The fixture itself has only the space scope.
+    const plain = await sx({ writes: [{ key: 'note:envx', scope: 'environment', value: { title: 'x', byKey: as.key, by: 'Claude', spaces: [camp] } }] }, { module: 'fixture-notes' });
+    faultSentence(plain, 'it tried to write outside its own data in this space');
+    assert.deepEqual(Object.keys(await data()).sort(), Object.keys(beforeNotes).sort(), 'nothing written');
+    // An agent has no data of its own: the whole request is refused, the space write before it included.
+    const person = 'An agent has no places of its own; save it for this space or for everyone.';
+    await nothingChanged(await sx({ writes: [{ key: 'note:mine', scope: 'person', value: { title: 'mine', byKey: as.key, by: 'Claude' } }] }), 403, person, before);
+    await nothingChanged(await sx({ writes: [{ key: 'note:s9', value: { title: 's9', byKey: as.key, by: 'Claude' } }, envNote('e9', [camp]), { key: 'note:mine', scope: 'person', value: { title: 'mine' } }] }), 403, person, before);
+    // Without the module's write permission in the Agent column nothing is asked for at all.
+    ok(await call('PATCH', '/api/roles/agent', { cookie: admin, body: { [`module.${SH}.edit`]: false } }), 'the write row off');
+    const refused = await sx({ writes: [envNote('e9', [camp])] });
+    assert.equal(refused.status, 403, refused.text);
+    assert.deepEqual(await shAll(), before, 'nothing was changed');
+    ok(await call('PATCH', '/api/roles/agent', { cookie: admin, body: { [`module.${SH}.edit`]: true } }), 'the write row back');
+  });
+
+  await test('one refusal puts back the environment writes with everything else', async () => {
+    const spaceNote = (id) => ({ key: `note:${id}`, value: { title: id, byKey: as.key, by: 'Claude' } });
+    const before = await shAll();
+    // A link that can't be made, after a space write and an environment write.
+    const link = await sx({ writes: [spaceNote('u1'), envNote('u2', [camp])], links: [{ add: { from: { module: SH, kind: 'note', id: 'u1', scope: 'space', space: camp }, to: { module: SH, kind: 'note', id: 'nowhere', scope: 'space', space: camp } } }] });
+    assert.equal(link.json.ok, false, link.text);
+    assert.ok(link.status >= 400 && link.status < 500, `refused: ${link.status}`);
+    assert.match(link.json.error, /^Nothing was changed: /);
+    assert.deepEqual(await shAll(), before, 'both writes are gone');
+    // A space write the guards refuse, after an environment write.
+    const guards = await sx({ writes: [envNote('u3', [camp]), { key: 'zzz:9', value: {} }] });
+    assert.equal(guards.json.ok, false, guards.text);
+    assert.deepEqual(await shAll(), before, 'the environment write is gone');
+    // An environment write the guards refuse (someone else named as its maker), after a space write.
+    const maker = await sx({ writes: [spaceNote('u4'), envNote('u5', [camp], { byKey: mia.key, by: 'Mia' })] });
+    assert.equal(maker.json.ok, false, maker.text);
+    assert.equal(maker.status, 403, 'the guards hold an environment write as they hold any');
+    assert.deepEqual(await shAll(), before, 'the space write is gone');
+    // An environment object that was there is put back as it was.
+    ok(await sx({ writes: [envNote('u6', [camp])] }), 'u6');
+    const made = await shAll();
+    const edit = await sx({ writes: [envNote('u6', [camp], { title: 'changed' }), { key: 'zzz:9', value: {} }] });
+    assert.equal(edit.json.ok, false, edit.text);
+    assert.deepEqual(await shAll(), made, 'its earlier value is back');
+  });
+
+  as = shAgents[3];
+  await test('the place search: nothing asked with no service; only the declared text leaves; small plain results; no way to ask again', async () => {
+    // A stand-in for the outside service, which keeps everything it is sent.
+    const asked = [];
+    const feature = (i) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [-9.1 - i / 100, 38.7 + i / 100] }, properties: { name: `Cafe ${i} ${'x'.repeat(400)}`, street: `Rua ${'y'.repeat(400)}`, city: 'Lisboa', country: 'Portugal', osm_type: 'N', osm_id: 1000 + i, osm_key: 'amenity', osm_value: 'cafe', secret: 'never passed on' } });
+    const service = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (d) => { body += d; });
+      req.on('end', () => {
+        asked.push({ method: req.method, url: req.url, headers: req.headers, body });
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ features: Array.from({ length: 10 }, (_, i) => feature(i)) }));
+      });
+    });
+    await new Promise((r) => service.listen(0, '127.0.0.1', r));
+    const find = (input) => call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: `${SH}:find`, input } });
+    const found = async () => (await shItems(`scope=space&space=${camp}`))['probe:find'].value;
+    const reads = async () => (await used()).reads.usedToday;
+    try {
+      // No service chosen (the default): nothing leaves, and the handler is told so with an empty list.
+      const r0 = await reads();
+      ok(await find({ address: 'Rua Augusta 1, Lisboa', title: 'Private title' }), 'find, no service');
+      const d0 = (await reads()) - r0;
+      let got = await found();
+      assert.equal(got.has, true);
+      assert.deepEqual(got.lookups, { address: [] });
+      assert.equal(asked.length, 0, 'nothing was sent anywhere');
+      // A service chosen by the admin.
+      ok(await call('PUT', `/api/modules/${SH}/settings/environment`, { cookie: admin, body: { values: { searchProvider: 'custom', search: `http://127.0.0.1:${service.address().port}/api` } } }), 'the admin chooses a service');
+      const r1 = await reads();
+      ok(await find({ address: '  Rua Augusta\n1,   Lisboa ', title: 'Private title', notes: 'Private notes about the trip' }), 'find');
+      const d1 = (await reads()) - r1;
+      assert.equal(asked.length, 1, 'one request left the server');
+      const sent = asked[0];
+      const url = new URL(sent.url, 'http://127.0.0.1');
+      assert.equal(sent.method, 'GET');
+      assert.equal(url.pathname, '/api');
+      assert.deepEqual([...url.searchParams.keys()].sort(), ['limit', 'q'], 'the text and a count, nothing else');
+      assert.equal(url.searchParams.get('q'), 'Rua Augusta 1, Lisboa', 'the declared input\'s text, on one line');
+      assert.equal(sent.body, '');
+      assert.deepEqual(Object.keys(sent.headers).filter((h) => !['accept', 'user-agent', 'host', 'connection', 'accept-language', 'accept-encoding', 'sec-fetch-mode'].includes(h)), [], 'no header beyond a plain fetch\'s');
+      const everythingSent = `${sent.url} ${JSON.stringify(sent.headers)}`;
+      for (const secret of ['Private', as.key, camp, tokens.get(as.key), 'Claude', SH, 'Camp']) assert.ok(!everythingSent.includes(secret), `nothing of the request, the agent or the space is sent (${String(secret).slice(0, 12)})`);
+      assert.equal(d1, d0 + 1, 'the search is one of the agent\'s reads');
+      got = await found();
+      const list = got.lookups.address;
+      assert.equal(list.length, 6, 'at most six results');
+      for (const row of list) {
+        assert.deepEqual(Object.keys(row).sort(), ['key', 'lat', 'lng', 'sub', 'title'], 'only the five fields');
+        assert.ok(row.title.length <= 200 && row.sub.length <= 300 && row.key.length <= 128, 'each short');
+        assert.ok(Number.isFinite(row.lat) && Number.isFinite(row.lng));
+      }
+      assert.ok(JSON.stringify(got.lookups).length <= 6 * 800, 'the whole answer is small');
+      assert.ok(!JSON.stringify(got.lookups).includes('never passed on'), 'nothing of the service\'s answer beyond those fields');
+      // The handler has plain data and no way to ask for more: no network, and no function but read and list.
+      assert.equal(got.plain, true);
+      assert.deepEqual(got.functions, ['list', 'read']);
+      assert.deepEqual(got.reach, { fetch: 'undefined', XMLHttpRequest: 'undefined', WebSocket: 'undefined', require: 'undefined', process: 'undefined', setTimeout: 'undefined' });
+      assert.equal(asked.length, 1, 'and nothing more was sent while it ran');
+      // No text, or one character: nothing is asked. An action that declares no lookup: nothing is asked, whatever its input.
+      ok(await find({ title: 'No address' }), 'find, no address');
+      assert.deepEqual((await found()).lookups, { address: [] });
+      ok(await find({ address: 'R' }), 'find, one character');
+      ok(await call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: `${SH}:shared`, input: { address: 'Rua Augusta 1, Lisboa' } } }), 'shared');
+      assert.equal(asked.length, 1, 'still one request');
+      // The agent's reads used up are not gone around: nor is a service that does not answer a failure of the request.
+      await new Promise((r) => service.close(r));
+      service.closeAllConnections?.();
+      const down = await find({ address: 'Rua Garrett 5, Lisboa' });
+      ok(down, 'find, the service down');
+      assert.equal(down.json.ok, true);
+      assert.deepEqual((await found()).lookups, { address: [] }, 'no results, and the handler decides what to say');
+    } finally {
+      if (service.listening) await new Promise((r) => service.close(r));
+      ok(await call('PUT', `/api/modules/${SH}/settings/environment`, { cookie: admin, body: { values: { searchProvider: 'none', search: '' } } }), 'no service again');
+    }
   });
 
   await test('a newer upload of the bundled module itself never reaches the runner', async () => {
