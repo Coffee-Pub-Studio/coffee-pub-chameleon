@@ -28,12 +28,12 @@
     "hash": "1ea934f0b82d8f7b"
   },
   "research": {
-    "version": "0.4.39",
-    "hash": "80e44ca2ee498382"
+    "version": "0.4.40",
+    "hash": "be229074044c47ad"
   },
   "schedule": {
-    "version": "0.1.10",
-    "hash": "25f955f2ba60cb23"
+    "version": "0.1.11",
+    "hash": "87a79847bd84ee4a"
   },
   "stream": {
     "version": "0.1.16",
@@ -44,8 +44,8 @@
     "hash": "bb2f055ab80d2f8a"
   },
   "travel": {
-    "version": "0.16.21",
-    "hash": "ef8c87a09716a971"
+    "version": "0.16.22",
+    "hash": "23ec7762b570843b"
   },
   "vault": {
     "version": "0.4.9",
