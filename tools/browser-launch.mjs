@@ -1,5 +1,6 @@
 // The one place the checks start a headless Chrome from, so one that is killed never leaves a browser behind.
 //   startBrowser(bin, args, dir)  starts it in a process group of its own and returns the child process
+//   launchBrowser(bin, flags, prefix)  starts it, waits up to 60 s for its DevTools address, retries the start once; returns { child, dir, url }
 //   stopBrowser(child, dir)       closes the browser (the whole group) and deletes its profile folder `dir`
 // What this guarantees (see tools/check-browser-orphans.mjs):
 //   - normal end, uncaught error: an 'exit' handler kills every browser this process started
@@ -9,6 +10,7 @@
 // Only the group this helper started is ever killed: its leader is the browser child, and the kill is by that group id.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import url from 'node:url';
 
@@ -61,4 +63,32 @@ export async function stopBrowser(child, dir) {
     killGroup(child.pid, 'SIGKILL'); // whatever is still in the group
   }
   if (dir) { await new Promise((r) => setTimeout(r, 100)); rm(dir); }
+}
+
+// The flags every check's browser needs on a CI runner: headless, no sandbox (a container runs as root), no GPU, /tmp not /dev/shm for
+// shared memory (a runner's /dev/shm is small), no first-run work, a DevTools port chosen by the browser.
+export const CI_FLAGS = ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--hide-scrollbars', '--no-first-run', '--remote-debugging-port=0'];
+
+// Start the browser and wait for its "DevTools listening on ws://..." line. A runner can be slow to start it (the first start after
+// a cold cache took over 20 s), so the wait is 60 s, and a start that fails or times out is tried once more with a fresh profile.
+// `flags` are the extra flags beyond CI_FLAGS; `prefix` names the profile folder under os.tmpdir() (listed in browser-profiles.mjs).
+export async function launchBrowser(bin, flags, prefix, { timeoutMs = 60000, attempts = 2 } = {}) {
+  let last;
+  for (let i = 1; i <= attempts; i += 1) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const child = startBrowser(bin, [...CI_FLAGS, ...flags, `--user-data-dir=${dir}`, 'about:blank'], dir);
+    try {
+      const url = await new Promise((resolve, reject) => {
+        let buf = '';
+        const t = setTimeout(() => reject(new Error(`the browser did not start in ${timeoutMs / 1000} s: ` + buf.slice(-300))), timeoutMs);
+        child.stderr.on('data', (d) => { buf += d; const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf); if (m) { clearTimeout(t); resolve(m[1]); } });
+        child.on('exit', (c) => { clearTimeout(t); reject(new Error('the browser exited (' + c + '): ' + buf.slice(-300))); });
+      });
+      return { child, dir, url };
+    } catch (e) {
+      last = e;
+      await stopBrowser(child, dir); // a browser that did not start is not left running
+    }
+  }
+  throw last;
 }
