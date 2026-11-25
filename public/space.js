@@ -3703,7 +3703,7 @@ function startRename(layoutId) {
 // Edit layout (plan-workspaces.md, decisions 40 and 45) is the same sheet on one of this person's editable workspaces
 // (`workspace`: 'workspace' or the id of one they added), the one shown: `start` is { record, moved } from
 // workspaceStart(). Yours alone, so no maker's notice; the Workspace has no Name (it is the space's). It opens on the
-// shape as it is on the canvas (step 2), or on step 1 with a line when things were moved off any shape. Save asks first
+// step 1 (Pick a shape) with the shape as it is on the canvas chosen, and a line when things were moved off any shape. Save asks first
 // what moves and what closes (confirmLayoutChange), then sends the shape of one the person added (PATCH .../workspaces/:id
 // { name?, shape? }; the Workspace's shape is the person's arrangement only) and places it (canvas.loadLayout: the
 // modules go into their areas, the rest close, and that is the workspace's arrangement from then on).
@@ -3758,14 +3758,14 @@ function openShapeSheet(layout = null, { workspace = null, start = null } = {}) 
     parts: canvas.compositeParts(),
     cantOpen: personal ? null : layoutList.cantOpen,
     bar: false,
+    step: 1, // the editor always opens on Pick a shape, the current shape chosen
     label: 'Layout',
     onChange: () => bar?.refresh(),
   });
   dlg.querySelector('#layout-shape-picker').appendChild(picker.el);
   const startRecord = picker.value(); // after the picker's read (carryAreas), so an unchanged sheet is not dirty
-  // Moved off any shape: step 1 first, and a line saying Save places the shape again (so Save is on as it opens).
+  // Moved off any shape: a line saying Save places the shape again (so Save is on as it opens).
   if (personal && start.moved) {
-    picker.setStep(1);
     const said = doc.createElement('p');
     said.className = 'layout-field-hint';
     said.id = 'layout-shape-moved';
