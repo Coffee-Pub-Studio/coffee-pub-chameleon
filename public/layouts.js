@@ -14,7 +14,7 @@
 // stack from the top: 0, 1, 2, with no gap), `h` (its share of the column's height, 0.1 to 0.9, the stack's shares
 // summing to 1) and `folded` (true while the person has collapsed it). They are listed one after the other, top first,
 // where the column is in the column order; the column's width is each one's `dockW`. A module with no `stack` is a column
-// of its own. The person's own remembered layout (canvas.js, `app.canvas.<space>`) keeps the same four keys on each
+// of its own. The Workspace's remembered arrangement (canvas.js; server/workspaces.js) keeps the same four keys on each
 // module's record. The stack's arithmetic (grouping, heights, the divider, the short canvas) is here too.
 
 import { MIN_W, MIN_H, DOCK_MIN, NARROW, gridFor, cellBox, resettle, fitDock } from '/snap-grid.js';
@@ -345,13 +345,17 @@ export function areaMayHold(shape, area, id, { parts = [] } = {}) {
 }
 
 // The columns a shape is made of, in order: each a list of area numbers, top first. An area outside `stacked` is a column
-// of its own; the stacked ones share one, where the first of them is. The layout picker draws its shapes from it too.
+// of its own; the stacked ones share one in pairs (each two in turn, as listed: Quarters' [1, 2, 3, 4] is two stacks),
+// where the first of the pair is. The layout picker draws its shapes from it too.
 export function shapeColumns(shape) {
   const stacked = Array.isArray(shape.stacked) ? shape.stacked : [];
+  const pairs = [];
+  for (let i = 0; i + 1 < stacked.length; i += 2) pairs.push([stacked[i], stacked[i + 1]].sort((x, y) => x - y));
   const cols = [];
   for (let a = 1; a <= shape.areas; a += 1) {
-    if (!stacked.includes(a)) cols.push([a]);
-    else if (a === Math.min(...stacked)) cols.push(stacked.slice().sort((x, y) => x - y));
+    const pair = pairs.find((p) => p.includes(a));
+    if (!pair) cols.push([a]);
+    else if (a === pair[0]) cols.push(pair);
   }
   return cols;
 }

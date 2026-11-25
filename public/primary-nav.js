@@ -263,15 +263,16 @@ export function destinationTools(list, { path = '', present = false } = {}) {
 // The layout tabs in the top bar's left zone, right after the space switcher (plan-layout-views.md, decisions 1, 2, 5,
 // 13 and 17, step 2): every view is a layout. The Workspace first, always (it can be renamed, never left out); then
 // the system layouts Calendar, Map, Conference, Whiteboards, Documents and Projects while the server lists them for this space and the person keeps their tab
-// (`tab` not false); then the person's favorite saved layouts in the order they were favorited, with no limit. `system`
-// is GET /api/spaces/:id/layouts's `system` list, `favorites` its favorite ids, `layouts` its shared and own layouts
-// (a favorite not among them is left out). A guest and an aside have none (decision: no tabs there); neither does a
-// page outside a space. `current` is the id of the layout shown. Returns [{ id: 'layout-tab-<layout id>', layout, kind,
-// icon, label, current, temp? }]; the ids are the tabs' element ids.
+// (`tab` not false), in the owner's order; then the workspaces this person added (plan-workspaces.md, decision 39: `own`,
+// GET /api/spaces/:id/workspaces's, { id, name }), in their order, kind `own`. There are no favorites (decision 44): a
+// layout for everyone (`layouts`, GET .../layouts's `shared`) has a tab only while it is the one shown (temp). A guest
+// has the Workspace alone (and no workspaces of their own); an aside and a page outside a space have none. `current` is
+// the id of the layout shown. Returns [{ id: 'layout-tab-<layout id>', layout, kind, icon, label, current, temp? }]; the
+// ids are the tabs' element ids.
 const TAB_ICON = /^[a-z0-9-]{1,40}$/;
+const OWN_ID = /^w[a-z0-9]{6}$/; // a workspace a person added (server/workspaces.js)
 const SYSTEM_TAB_DEFAULTS = { workspace: ['Workspace', 'columns'], calendar: ['Calendar', 'calendar-days'], map: ['Map', 'map-location-dot'], conference: ['Conference', 'video'], whiteboard: ['Whiteboards', 'chalkboard'], documents: ['Documents', 'file-lines'], schedule: ['Projects', 'diagram-project'] };
-export function layoutTabs({ system = [], favorites = [], layouts = [], current = 'workspace', guest = false, aside = false, space = '' } = {}) {
-  // A guest keeps no favorites: the Workspace, then every shared layout the list holds, to switch between, read-only.
+export function layoutTabs({ system = [], own = [], layouts = [], current = 'workspace', guest = false, aside = false, space = '' } = {}) {
   if (aside || !space) return [];
   const name = (s, fallback) => String((s && s.name) || '').trim().slice(0, 40) || fallback;
   const icon = (s, fallback) => (s && TAB_ICON.test(s.icon || '') ? s.icon : fallback);
@@ -290,19 +291,18 @@ export function layoutTabs({ system = [], favorites = [], layouts = [], current 
     // `pinned`: the owner shows it, so it is in the bar for everyone and nobody hides it (plan-templates-redesign.md, decision 35).
     out.push({ layout: s.id, kind: 'system', icon: icon(s, glyph), label: name(s, word), ...(s.pinned === true ? { pinned: true } : {}) });
   }
-  const known = Array.isArray(layouts) ? layouts.filter((l) => l && typeof l.id === 'string') : [];
-  for (const id of guest ? known.map((l) => l.id) : Array.isArray(favorites) ? favorites : []) {
-    const l = known.find((x) => x.id === id);
-    if (!l || SYSTEM_TAB_DEFAULTS[id] || out.some((t) => t.layout === id)) continue;
-    out.push({ layout: id, kind: 'user', icon: icon(l, 'object-group'), label: name(l, 'Layout') });
+  for (const w of guest || !Array.isArray(own) ? [] : own) {
+    if (!w || typeof w.id !== 'string' || !OWN_ID.test(w.id) || out.some((t) => t.layout === w.id)) continue;
+    out.push({ layout: w.id, kind: 'own', icon: 'object-group', label: name(w, 'Workspace') });
   }
-  // Any layout can be the one shown: a saved one that is not pinned (not a favorite) gets a temporary tab while it is
-  // shown, with its name; it is gone when another layout is shown. Not stored. The same for a fixed layout whose tab is off.
+  const known = Array.isArray(layouts) ? layouts.filter((l) => l && typeof l.id === 'string') : [];
+  // A layout for everyone gets a temporary tab while it is shown, with its name; it is gone when another layout is shown.
+  // Not stored. The same for a fixed layout whose tab is off.
   if (current !== 'workspace' && !out.some((t) => t.layout === current)) {
     const l = known.find((x) => x.id === current);
     if (l && !SYSTEM_TAB_DEFAULTS[current]) out.push({ layout: current, kind: 'user', icon: icon(l, 'object-group'), label: name(l, 'Layout'), temp: true });
-    // A fixed layout with no tab (this person hid it, or the owner did) can still be chosen from the Layout menu: it gets a
-    // temporary tab while it is shown, as a saved one does, and no heart to pin (the owner's hide cannot be undone by one).
+    // A fixed layout with no tab (the owner hid it) shown all the same (a first visit, a bring): a temporary tab while it is
+    // shown, as a layout for everyone gets.
     const fixed = list.find((s) => s.id === current);
     if (fixed) out.push({ layout: current, kind: 'system', icon: icon(fixed, SYSTEM_TAB_DEFAULTS[current][1]), label: name(fixed, SYSTEM_TAB_DEFAULTS[current][0]), temp: true });
   }

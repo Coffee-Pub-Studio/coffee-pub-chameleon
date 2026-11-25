@@ -8,7 +8,7 @@
  *      list of { id, show }; the first shown row opens first; the environment's template when the space has none of
  *      its own), then the owner owns them.
  *   3. The pin rule. A Fixed Workspace the owner shows is pinned: `pinned` is true on the system layouts, and nobody
- *      hides it for themselves, by any route (PATCH .../layouts/system/:id, DELETE .../layouts/:id/favorite, whoever
+ *      hides it for themselves, by any route (PATCH .../layouts/system/:id; the favorite routes are gone, plan-workspaces.md decision 44), whoever
  *      asks: a member, a moderator), 409 "The owner keeps this one in the bar."; a stored hide is ignored and never
  *      rewritten; the Workspace is always shown; the owner's own hide still wins and says its own sentence; a pin
  *      survives a template switch and a deleted template; a guest has no layouts to hide.
@@ -189,8 +189,6 @@ try {
       const want = who === 'mod' ? TAKE_OUT : PINNED; // those who set the bar are told where; a member is told who keeps it
       const r = await expect(`${who} hides ${id}`, 409, 'PATCH', SYS(B.id, id), { token: T[who], body: { tab: false } });
       assert.equal(r.json.error, want);
-      const f = await expect(`${who} unfavorites ${id}`, 409, 'DELETE', `${L(B.id)}/${id}/favorite`, { token: T[who] });
-      assert.equal(f.json.error, want);
     }
   }
   // The same refusal with other fields beside it: nothing is written (the name stays), and a malformed tab is a plain 400.
@@ -201,10 +199,8 @@ try {
   assert.equal((await expect('the admin hides one', 409, 'PATCH', SYS(B.id, 'calendar'), { token: admin, body: { tab: false } })).json.error, TAKE_OUT, 'the admin is told where');
   const w = await expect('hide the Workspace', 400, 'PATCH', SYS(B.id, 'workspace'), { token: T.member, body: { tab: false } });
   assert.equal(w.json.error, 'The Workspace is always shown.');
-  await expect('unfavorite the Workspace', 400, 'DELETE', `${L(B.id)}/workspace/favorite`, { token: T.member });
   // Turning one on is harmless (it is on).
   same((await expect('tab on', 200, 'PATCH', SYS(B.id, 'calendar'), { token: T.member, body: { tab: true } })).json.layout.tab, true, 'tab true on a pinned one is a 200 that changes nothing');
-  await expect('favorite', 200, 'PUT', `${L(B.id)}/calendar/favorite`, { token: T.member });
   // Renames and icons stay the person's own.
   same((await expect('rename', 200, 'PATCH', SYS(B.id, 'calendar'), { token: T.member, body: { name: 'Plans' } })).json.layout.name, 'Plans', 'a person still renames a pinned tab');
   // A space the person is not in, and a guest.
@@ -213,7 +209,6 @@ try {
   const link = (await expect('guest link', 200, 'POST', `/api/spaces/${B.id}/guest-link`, { token: admin, body: {} })).json.space.guestToken;
   const asGuest = `?guest=${encodeURIComponent(link)}`;
   await expect('a guest hides one', 403, 'PATCH', `${SYS(B.id, 'calendar')}${asGuest}`, { body: { tab: false } });
-  await expect('a guest unfavorites one', 403, 'DELETE', `${L(B.id)}/calendar/favorite${asGuest}`);
   same((await expect('a guest reads', 200, 'GET', `${L(B.id)}${asGuest}`)).json.system, [], 'a guest has no layouts to hide');
 
   // The owner's own hide wins and says its own sentence; showing it again pins it again.

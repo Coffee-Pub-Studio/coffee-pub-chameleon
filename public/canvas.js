@@ -12,7 +12,7 @@
 // when it is popped out: they open in whichever window the canvas is in.
 // See documentation/architecture/architecture-canvas.md.
 
-import { api, markModuleRead, followTheme, word, fill, noticeToast } from '/brand.js';
+import { api, markModuleRead, followTheme, word, fill, noticeToast, actionToast } from '/brand.js';
 import { mountModule, createFrameLift, openClearMenu, clearWithUndo, followClearable, registerDragRelay, createFrameBands, relayStreamToFrame, joinStream } from '/module-host.js';
 import { createModuleFrame } from '/module-frame.js';
 import { mountHostMenu, openHostMenu, hostMenuOpen, refreshHostMenu } from '/host-menu.js';
@@ -26,11 +26,17 @@ import { returnPlace } from '/pop-return.js';
 import { MIN_W, MIN_H, SNAP_GAP, gridFor, cellBox, snapCell, leastSpan, clampCell, nearestFree, nextFree, resettle, tidyBoxes, fillBoxes, TIDY_GAP, DOCK_MIN, FLEX_MIN, NARROW, dockLimit, fitDock } from '/snap-grid.js';
 import { composeList, aliasesFor, compositeById, compositesToAsk } from '/composites.js';
 
-// What each space remembers (`app.canvas.<space>`; brand.js moves the old `app.panels` keys): the modules open when the person last used it,
-// and each module's mode and sizes. `app.canvas` alone is what earlier versions kept for all
-// spaces, and is the starting point for a space with nothing saved yet.
-const STORE_KEY = 'app.canvas';
-const storeKey = (spaceId) => `${STORE_KEY}.${spaceId}`;
+// What each space's Workspace remembers: the modules open when the person last used it, and each module's mode and sizes.
+// A signed-in person's is kept on the server, the Workspace's arrangement among their workspaces (server/workspaces.js;
+// plan-workspaces.md, decision 49): read when the space is entered, written a moment after each change. A guest keeps
+// none on the server, so theirs is in this browser (`app.canvas.<space>`). The page keeps it as `saved` (each module's
+// record by id, and `__open`, `__placed`, `__mode`, `__snap`, `__stacks`); toWire and fromWire turn it into the
+// server's named arrangement and back.
+const GUEST_KEY = (spaceId) => `app.canvas.${spaceId}`;
+const ARRANGE_WAIT = 600; // ms after the last change before the arrangement is written
+const WIRE_RECORD = ['mode', 'dockW', 'box', 'cell', 'placed', 'layout', 'stack', 'at', 'h', 'folded', 'ownW', 'win'];
+const WIRE_ID = /^(dest:)?[a-z][a-z0-9-]{0,31}$/;
+const WIRE_MODULES = 60; // the server's limit on records (WORKSPACE_LIMITS.modules)
 // The module frame's title bar height (--mf-title-h, the moduleframe block of /sdk/system.css: 36px), read where it is used.
 const headH = () => {
   const h = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mf-title-h'));
@@ -47,28 +53,65 @@ function readStore(key) {
   }
 }
 
-function loadSaved(spaceId) {
-  const own = spaceId ? readStore(storeKey(spaceId)) : null;
-  if (own) return own;
-  const { __open, ...rest } = readStore(STORE_KEY) || {};
-  return rest;
+// The page's `saved` as the server's arrangement: known keys only, numbers that are numbers, so a stray value never
+// costs the whole write.
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+const orNull = (v) => (finite(v) ? v : null);
+export function toWire(saved) {
+  const out = {};
+  if (Array.isArray(saved.__open)) out.open = saved.__open.filter((id) => typeof id === 'string' && WIRE_ID.test(id)).slice(0, 40);
+  if (saved.__placed === true) out.placed = true;
+  if (saved.__mode === 'window' || saved.__mode === 'panel') out.mode = saved.__mode;
+  if (saved.__snap && typeof saved.__snap === 'object') {
+    const snap = {};
+    if (typeof saved.__snap.all === 'boolean') snap.all = saved.__snap.all;
+    if (finite(saved.__snap.pitch) && saved.__snap.pitch >= 50 && saved.__snap.pitch <= 320) snap.pitch = saved.__snap.pitch;
+    out.snap = snap;
+  }
+  if (Array.isArray(saved.__stacks)) {
+    out.stacks = saved.__stacks.filter((st) => st && Array.isArray(st.ids) && st.ids.length >= 2 && st.ids.length <= 3 && st.ids.every((id) => typeof id === 'string' && WIRE_ID.test(id))).slice(0, 20)
+      .map((st) => ({ ids: st.ids.slice(), width: orNull(st.width), h: st.ids.map((_, k) => orNull(st.h?.[k])), folded: st.ids.map((_, k) => st.folded?.[k] === true), ownW: st.ids.map((_, k) => orNull(st.ownW?.[k])) }));
+  }
+  const modules = {};
+  for (const [id, rec] of Object.entries(saved)) {
+    if (id.startsWith('__') || !WIRE_ID.test(id) || !rec || typeof rec !== 'object' || Object.keys(modules).length >= WIRE_MODULES) continue;
+    const kept = {};
+    for (const k of WIRE_RECORD) {
+      const v = rec[k];
+      if (v === undefined || v === null || (typeof v === 'number' && !Number.isFinite(v))) continue;
+      if (v && typeof v === 'object' && !Object.values(v).every(finite)) continue;
+      kept[k] = v;
+    }
+    modules[id] = kept;
+  }
+  out.modules = modules;
+  return out;
+}
+export function fromWire(a) {
+  if (!a || typeof a !== 'object') return {};
+  const saved = { ...(a.modules && typeof a.modules === 'object' ? structuredClone(a.modules) : {}) };
+  if (Array.isArray(a.open)) saved.__open = a.open.slice();
+  if (a.placed === true) saved.__placed = true;
+  if (a.mode) saved.__mode = a.mode;
+  if (a.snap) saved.__snap = { ...a.snap };
+  if (Array.isArray(a.stacks)) saved.__stacks = structuredClone(a.stacks);
+  return saved;
 }
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 
-// `onNote(text)`: a short line for the Layout menu's note (#modules-menu-note), '' to clear it. `onMenu(open)`: the
-// Layout menu opened (space.js reads its layouts again as it opens). `menuItems()`: the page's own entries for the
-// menu's end (the Layouts section, space.js), in the shared menu's item shape (host-menu.js). `noteEl`: the page's note
+// `onNote(text)`: a short line for the tab menu's note (#modules-menu-note), '' to clear it. `onMenu(open)`: the
+// tab menu opened (space.js reads its layouts again as it opens). `noteEl`: the page's note
 // element, drawn as the menu's last row. `frameParams()`: what a composite's page is handed besides its space (the same
 // handoff a page over the call gets: from=space and the names for its header), so a link inside it that leads on to
 // another page keeps its way back. `onCompositeLoad(frame)`: each page that loads in a composite's frame, so the page
 // can take the header links inside it (home, which must not navigate the top window away from the call).
-export function createCanvas({ guestToken = null, guest = Boolean(guestToken), onChatAsk = null, onChatAttach = null, onNote = null, onMenu = null, menuItems = null, noteEl = null, frameParams = null, onCompositeLoad = null, onTabs = null, onPopBlocked = null, onArrange = null, onOpening = null } = {}) {
+export function createCanvas({ guestToken = null, guest = Boolean(guestToken), onChatAsk = null, onChatAttach = null, onNote = null, onMenu = null, noteEl = null, frameParams = null, onCompositeLoad = null, onTabs = null, onPopBlocked = null, onArrange = null, onOpening = null } = {}) {
   // The phone's tab bar (#modules-menu, `sdk-tabbar-tabs` while the window is a phone's width: space.js's placeSubnav):
   // a tab per module, Chat first; the conference is not a tab there (the call is the bar's pinned call item, space.js).
-  // Wider than a phone the Layout menu (openMenu, below) is the one place to show and hide modules: the page's shared menu
-  // (host-menu.js) under the top bar's Layout button (#layout-menu, a nav tool of space.js).
+  // Wider than a phone the tab menu (openMenu, below) is the one place to show and hide modules: the page's shared menu
+  // (host-menu.js) under an editable workspace tab's caret (space.js).
   const menu = document.getElementById('modules-menu');
   // An inline menu (the tab bar) is always shown: it is never hidden or positioned by this file, only kept up to date.
   const inline = () => Boolean(menu && menu.classList.contains('sdk-tabbar-tabs'));
@@ -85,7 +128,7 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   const columnOwned = (p) => inColumn(p) || Boolean(p.lifted) || Boolean(p.popped);
   // Whether anything is open on the canvas itself (an empty area with its chooser counts).
   const onCanvas = () => [...opened.values()].some((p) => !inColumn(p) && !p.popped) || [...areas.values()].some((a) => !a.el.hidden);
-  let saved = loadSaved(null);
+  let saved = {};
   // Nothing is remembered until a join has restored the space's modules, and not while the space is
   // being torn down: closing every module on the way out must not become the layout.
   let suspended = true;
@@ -176,20 +219,77 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
 
   // `holdStore`: the grid-size slider's preview changes the layout on every step but writes it once, when let go.
   let holdStore = false;
-  // Only the Workspace remembers (plan-layout-views.md, decision 15): while another layout tab is shown (holdMemory),
-  // nothing is written to the browser, and `held` keeps the Workspace's arrangement as it was, for resumeMemory to put
-  // back. { space, saved }: the space it belongs to and a copy of what was remembered.
+  // Every editable workspace remembers its own arrangement (plan-workspaces.md, decisions 39 and 49): the Workspace and
+  // each one this person added. `workspaceId` is the one on the canvas now ('workspace' or an added one's id), and
+  // `arrangements` keeps the others' as last read or left, by id. While a fixed or shared layout is shown (holdMemory)
+  // nothing is written, and `held` keeps the editable workspace's arrangement as it was, for showWorkspace to put back.
+  // { space, saved }: the space it belongs to and a copy of what was remembered.
   let held = null;
+  let undoArrange = null; // Clean up's or Unstack all's Undo while it is offered: { before, after, label, toast, busy } (undoable)
+  let workspaceId = 'workspace';
+  const arrangements = new Map();
   // An arrangement (Panel Mode or Window Mode) chosen while the window is a phone's, for placeForWidth to put on the
   // canvas once it is wide again (GitHub #268).
   let arrangeOnWide = false;
   function persist() {
+    if (undoArrange && !undoArrange.busy && arrangeSig() !== undoArrange.after) dropUndo(); // any other change ends Undo
     if (spaceId && !suspended && !restoring) onArrange?.(); // the arrangement changed (space.js checks for Modified, once a frame)
     if (!spaceId || holdStore || held) return; // an aside remembers nothing; another tab than the Workspace neither
+    if (guest) {
+      try {
+        localStorage.setItem(GUEST_KEY(spaceId), JSON.stringify(saved));
+      } catch {
+        // private mode: modules still work, they just do not remember where they were
+      }
+      return;
+    }
+    // Written once the changes stop (a drag ends, a slider is let go), the last one only, and not when it is what the
+    // server already has (entering writes nothing).
+    const body = { arrangement: toWire(saved) };
+    const text = JSON.stringify(body.arrangement);
+    if (text === arrangedAs.get(workspaceId)) { pendingArrange = null; clearTimeout(arrangeTimer); return; }
+    if (pendingArrange && pendingArrange.workspace !== workspaceId) writeArrangement(); // another workspace's change goes first
+    pendingArrange = { space: spaceId, workspace: workspaceId, body, text };
+    clearTimeout(arrangeTimer);
+    arrangeTimer = setTimeout(writeArrangement, ARRANGE_WAIT);
+  }
+  // A workspace's arrangement on the server (server/workspaces.js, PUT .../workspaces/<id>/arrangement). `keepalive`
+  // when the page is going away, so the last change still arrives. A refusal changes nothing on the page.
+  let pendingArrange = null;
+  let arrangeTimer = 0;
+  const arrangedAs = new Map(); // workspace id -> the arrangement the server has for it in this space, as JSON
+  function writeArrangement({ leaving = false } = {}) {
+    clearTimeout(arrangeTimer);
+    const job = pendingArrange;
+    pendingArrange = null;
+    if (!job) return;
+    if (job.space === spaceId) arrangedAs.set(job.workspace, job.text);
+    const url = `/api/spaces/${encodeURIComponent(job.space)}/workspaces/${encodeURIComponent(job.workspace)}/arrangement`;
+    if (leaving) {
+      try { fetch(url, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(job.body), keepalive: true, credentials: 'same-origin' }); } catch { /* the page is going */ }
+      return;
+    }
+    api('PUT', url, job.body).catch(() => { if (job.space === spaceId && arrangedAs.get(job.workspace) === job.text) arrangedAs.delete(job.workspace); }); // tried again on the next change
+  }
+  window.addEventListener('pagehide', () => writeArrangement({ leaving: true }));
+  // What the Workspace remembers in space `id`: the person's own from the server, a guest's from this browser; {} for none.
+  // The person's added workspaces' arrangements are kept in `arrangements` as they are read, for showWorkspace.
+  async function readArrangement(id) {
+    if (guest) return readStore(GUEST_KEY(id)) || {};
     try {
-      localStorage.setItem(storeKey(spaceId), JSON.stringify(saved));
+      const answer = await api('GET', `/api/spaces/${encodeURIComponent(id)}/workspaces`);
+      if (spaceId !== id) return {};
+      let read = {};
+      for (const w of answer.workspaces || []) {
+        if (!w || typeof w.id !== 'string') continue;
+        const got = w.arrangement ? fromWire(w.arrangement) : null;
+        if (w.id === 'workspace') read = got || {};
+        else if (got) arrangements.set(w.id, got);
+        if (got) arrangedAs.set(w.id, JSON.stringify(toWire(got)));
+      }
+      return read;
     } catch {
-      // private mode: modules still work, they just do not remember where they were
+      return {};
     }
   }
 
@@ -508,6 +608,122 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     }
     return mods.length;
   }
+  // Clean up in Panel Mode (plan-workspaces.md, decision 41; Thomas, 2026-11-24: "given our changes to panels (stacking
+  // and reordering) cleanup should be an option for them too"): the docked columns as they are, nothing closed and none
+  // moved to another column, through the stacks' own arrange(): the order values given out again with no gaps, every
+  // fixed column the same width (the canvas shared by the columns, the flexible one keeping at least FLEX_MIN, none below
+  // DOCK_MIN), every stack's sections equal heights (evenShares, as Equal heights) and every collapsed section open. A
+  // waiting module keeps its place and waits. Answers how many columns there are.
+  function cleanUpPanels() {
+    if (isNarrow()) return 0;
+    const cols = currentColumns();
+    if (!cols.length) return 0;
+    const live = columnsFrom(dockedModules());
+    const flex = flexOf(live);
+    const fixed = live.filter((c) => c !== flex).length;
+    const room = canvasWidth() - FLEX_MIN;
+    const width = fixed ? clampDock(Math.max(DOCK_MIN, Math.min(Math.floor(canvasWidth() / live.length), Math.floor(room / fixed)))) : 0;
+    const flexIds = new Set(flex ? flex.mods.map((p) => p.id) : []);
+    arrange(cols.map((c) => ({ ...c, even: c.ids.length > 1, width: width && !c.ids.some((id) => flexIds.has(id)) ? width : c.width })));
+    for (const c of cols) {
+      if (c.ids.length > 1) {
+        for (const id of c.ids) if (!areas.has(id) && saved[id]?.folded) saved[id] = { ...saved[id], folded: false };
+        autoFolded.delete(c.stack);
+        keepOpen.delete(c.stack);
+        continue;
+      }
+      // A column of one keeps its width as a docked module does (`dockW`); arrange() sets a stack's.
+      const id = c.ids[0];
+      if (!width || flexIds.has(id)) continue;
+      const a = areas.get(id);
+      if (a) { a.width = width; continue; }
+      const p = opened.get(id);
+      if (p && p.mode === 'dock') p.width = width;
+      if (p && p.kind === 'module') remember(id, { dockW: width });
+    }
+    persist();
+    relayoutStacks();
+    syncDock();
+    update();
+    return cols.length;
+  }
+
+  // Undo for Clean up and Unstack all (plan-workspaces.md, decision 41; the designer's "Undo clean up"): the arrangement
+  // from before, put back once. Offered right after, as the toast's Undo (brand.js's actionToast) and as a row in Arrange,
+  // until the toast goes or anything else changes the arrangement (persist compares arrangeSig with the one the action
+  // left), or another workspace or space is shown. Nothing is closed or opened by it: the records, the order values, the
+  // widths and the floating boxes go back as they were, and the arrangement is saved as any change is (persist).
+  const arrangeSig = () => JSON.stringify([saved, holders().map((p) => [p.id, p.order, p.mode, p.width ?? null, p.waiting === true, isArea(p) ? [p.stack ?? null, p.at ?? null, p.h ?? null] : null])]);
+  function arrangementNow() {
+    return {
+      saved: structuredClone(saved),
+      slots: holders().map((p) => {
+        const f = isArea(p) ? null : floaterOf(p);
+        return { id: p.id, order: p.order, width: p.width, area: isArea(p) ? { stack: p.stack, at: p.at, h: p.h } : null, box: f ? currentBox(f) : null };
+      }),
+    };
+  }
+  function dropUndo() {
+    const was = undoArrange;
+    undoArrange = null;
+    if (was) { was.toast?.close(); refreshMenu(); }
+  }
+  // Run an arrange action (`act`, answering whether it did anything) so it can be undone; `said` is the toast's words.
+  function undoable(act, { said, label }) {
+    dropUndo();
+    const before = arrangementNow();
+    const sigBefore = arrangeSig();
+    act();
+    const after = arrangeSig();
+    if (after === sigBefore) { note('Nothing to clean up.'); return false; }
+    const entry = { before, after, label, toast: null, busy: false };
+    undoArrange = entry;
+    entry.toast = actionToast({
+      icon: 'broom',
+      title: said,
+      ms: 10000,
+      actions: [{ id: 'undo', label: 'Undo', primary: true }],
+      onAction: (id) => { if (id === 'undo') undoTidy(); return true; },
+      onClose: () => { if (undoArrange === entry) { undoArrange = null; refreshMenu(); } },
+    });
+    refreshMenu();
+    return true;
+  }
+  function undoTidy() {
+    const entry = undoArrange;
+    if (!entry) return false;
+    entry.busy = true;
+    const { before } = entry;
+    try {
+      for (const k of Object.keys(saved)) delete saved[k];
+      Object.assign(saved, structuredClone(before.saved));
+      for (const s of before.slots) {
+        const p = slotOf(s.id);
+        if (!p) continue;
+        p.order = s.order;
+        if (s.area) { Object.assign(p, s.area); if (s.width !== undefined) p.width = s.width; continue; }
+        p.width = s.width;
+        const f = floaterOf(p);
+        if (f && s.box) place(f, s.box);
+      }
+      persist();
+      relayoutStacks();
+      syncDock();
+      update();
+    } finally {
+      undoArrange = null;
+      entry.toast?.close();
+    }
+    note('Put back as it was.');
+    refreshMenu();
+    return true;
+  }
+  // Clean up from Arrange: the mode's own (Panels: cleanUpPanels; Windows: cleanUp), with its Undo.
+  function tidyUp() {
+    const windows = arrangeMode() === 'window';
+    return undoable(() => (windows ? cleanUp() : cleanUpPanels()), { said: 'Cleaned up', label: 'Undo clean up' });
+  }
+
   // The grid's size, from the space bar's slider: every snapped module is re-settled into the cells nearest the box it was
   // put in (`placed`), so it keeps about its size in pixels, not its count of cells, and none sits on another where the canvas
   // has room (snap-grid.js's resettle). Going back to the old size gives back the old boxes. While the slider moves
@@ -2828,29 +3044,63 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     held = { space: spaceId, saved: structuredClone(saved) };
   }
   function resumeMemory() {
-    if (!held) return false;
-    const back = held.space === spaceId ? held.saved : null;
+    return showWorkspace(workspaceId);
+  }
+  // Shows an editable workspace (plan-workspaces.md, decisions 39 and 49): the Workspace ('workspace') or one this person
+  // added (its id). The one on the canvas keeps its arrangement as it was (the copy held while another layout was shown,
+  // else what it remembers now), the canvas empties as for any layout (the call stays) and the chosen one opens as it
+  // was left, exactly as entering the space opens it (restore). One added and never arranged starts empty: nothing open,
+  // and nothing of the template's layout. A guest has only the Workspace. Answers whether the canvas changed.
+  function showWorkspace(id) {
+    if (!spaceId || typeof id !== 'string' || !id || (guest && id !== 'workspace')) return false;
+    if (id === workspaceId && !held) return false; // shown already
+    dropUndo(); // Undo is the shown workspace's
+    const leaving = held ? (held.space === spaceId ? held.saved : null) : saved;
     held = null;
-    if (!back) return false;
+    writeArrangement(); // the one left's last change goes first
+    if (leaving) arrangements.set(workspaceId, structuredClone(leaving));
     const keepCall = (p) => p.id === 'conference' && p.kind === 'builtin' && Boolean(p.def?.inCall?.());
     suspended = true;
     for (const p of [...opened.values()]) if (p.kind !== 'builtin' && !keepCall(p)) closeModule(p.id);
-    saved = back;
+    workspaceId = id;
+    const back = arrangements.get(id);
+    arrangements.delete(id);
+    saved = back ? structuredClone(back) : id === 'workspace' ? {} : { __open: [], __placed: true };
     restore();
     return true;
+  }
+  // An added workspace deleted: its arrangement is forgotten here too (the server took its own). Not the one shown: the
+  // page shows another first.
+  function forgetWorkspace(id) {
+    if (id === 'workspace' || id === workspaceId) return;
+    arrangements.delete(id);
+    arrangedAs.delete(id);
+    if (pendingArrange && pendingArrange.workspace === id) pendingArrange = null;
+  }
+  // How the canvas is arranged now, for Edit layout (plan-workspaces.md, decisions 40 and 45): `columns`, the docked
+  // columns left to right, each its holders top first (a module's id, as it reads here, or null for an empty area's
+  // placeholder); `loose`, the modules open but not in a column (floating, in a window of their own). The conference and
+  // the chat are the column's and never counted; nor is a module waiting for room (it still wants its column).
+  function arrangedNow() {
+    const counted = (p) => p.kind !== 'builtin' && !columnOwned(p);
+    const columns = columnsFrom(holders().filter((p) => wantsColumn(p) && (isArea(p) || counted(p))).sort(byOrder))
+      .map((c) => c.mods.map((p) => (isArea(p) ? null : p.id)));
+    const loose = [...opened.values()].filter((p) => counted(p) && !wantsColumn(p)).sort(byOrder).map((p) => p.id);
+    return { columns, loose };
   }
   // A module's name for the load's note, open or not, installed here or not (one left out has only its id).
   const nameOfLayout = (id) => builtins.get(id)?.name || available.find((x) => x.id === id)?.name || id.charAt(0).toUpperCase() + id.slice(1).replace(/-/g, ' ');
 
-  // --- the Layout menu and the phone's tab bar --------------------------------------
+  // --- the tab menu and the phone's tab bar --------------------------------------
 
-  // The one place to show and hide modules, wider than a phone: the Layout menu, the page's shared menu (host-menu.js)
-  // under the top bar's Layout button, so it looks and behaves as every other menu does (plan-layout-menu.md; Thomas,
-  // 2026-10-13). Its sections: Show, a switch per module (the conference and the chat too where they are the canvas's:
-  // a page with no side column), each showing or hiding its module and leaving the menu open; Arrange (not on a narrow
-  // canvas): Panel Mode and Window Mode, and in Window Mode Snap to grid, with the grid's size while it is on, and
-  // Clean up; then the page's own entries (menuItems: the Layouts section, space.js) and the note (noteEl). Drawn
-  // again from these items on every change while it is open (refreshMenu), so a switch flipped shows what happened.
+  // The menu on an editable workspace's tab (plan-workspaces.md, decision 40; Thomas, 2026-11-24: no new bar, the mode's
+  // flyout at the bottom): the page's shared menu (host-menu.js) under the tab's caret, opened by space.js (openMenu with
+  // the page's own entries). Its sections: Open for you, a switch per module (the conference and the chat too where they
+  // are the canvas's: a page with no side column), each showing or hiding its module and leaving the menu open; Open files;
+  // the page's entries (Layouts, Rename, Delete); then, last and not on a narrow canvas, Arrange: one row naming the mode
+  // (Panels or Windows) whose flyout holds the two modes and what each offers (Unstack all in Panels; Snap to grid, its
+  // grid size and Clean up in Windows). Then the note (noteEl). Drawn again from these items on every change while it is
+  // open (refreshMenu), so a switch flipped shows what happened.
   const snapSizeRow = document.createElement('label');
   snapSizeRow.className = 'host-menu-range';
   snapSizeRow.innerHTML = '<span>Grid size</span><input type="range" id="snap-size">';
@@ -2873,71 +3123,71 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     else open();
     update();
   }
-  function layoutMenuItems() {
+  // The two modes and what each offers: the Arrange row's flyout.
+  function arrangeItems() {
+    const windowMode = arrangeMode() === 'window';
+    const items = [
+      { radio: true, checked: !windowMode, icon: 'fa-solid fa-table-columns', label: 'Panels', onPick: () => setArrangeMode('panel') },
+      { radio: true, checked: windowMode, icon: 'window-restore', label: 'Windows', onPick: () => setArrangeMode('window') },
+    ];
+    // Panels: Clean up (decision 41), then every stack back to columns of their own (plan-panel-stacking.md, decision 9),
+    // only while there is one. Both can be undone.
+    if (!windowMode) {
+      items.push({ divider: true }, { icon: 'fa-solid fa-broom', label: 'Clean up', onPick: () => tidyUp() });
+      if (hasStacks()) items.push({ icon: 'object-ungroup', label: 'Unstack all', onPick: () => undoable(unstackAll, { said: 'Unstacked', label: 'Undo unstack all' }) });
+    }
+    if (windowMode) {
+      items.push({ divider: true }, { toggle: true, checked: snapAllOn(), icon: 'border-all', label: 'Snap to grid', onPick: () => setSnapAll(!snapAllOn()) });
+      if (snapAllOn()) {
+        snapSize.min = String(SNAP_PITCH.min); snapSize.max = String(SNAP_PITCH.max); snapSize.step = String(SNAP_PITCH.step);
+        snapSize.value = String(snapPitch());
+        items.push({ element: snapSizeRow });
+      }
+      items.push({ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: () => tidyUp() });
+    }
+    // Right after a Clean up or Unstack all, until anything else changes (undoable).
+    if (undoArrange) items.push({ divider: true }, { icon: 'rotate-left', label: undoArrange.label, onPick: () => undoTidy() });
+    return items;
+  }
+  function menuEntries() {
     const shown = (id) => opened.has(id) && !hiddenByView(id);
     const builtinList = columnMode() ? [] : [...builtins.values()].sort((a, b) => a.order - b.order).filter((def) => !def.allowed || def.allowed());
     const items = [{ heading: 'Open for you' }];
     for (const def of builtinList) items.push({ toggle: true, checked: shown(def.id), icon: def.icon, label: def.name, ...(def.description ? { hint: def.description, clamp: true } : {}), badge: builtinUnread[def.id] || 0, onPick: () => flipShown(def.id) });
     for (const m of available) items.push({ toggle: true, checked: shown(m.id), icon: m.icon, tint: colorOf(m.id), label: m.name, ...(m.description ? { hint: m.description, clamp: true } : {}), badge: unreadOf(m.id), onPick: () => flipShown(m.id) });
-    if (!isNarrow()) {
-      const windowMode = arrangeMode() === 'window';
-      items.push({ divider: true }, { heading: 'Arrange' });
-      items.push({ radio: true, checked: !windowMode, keepOpen: true, icon: 'fa-solid fa-table-columns', label: 'Panel Mode', onPick: () => setArrangeMode('panel') });
-      items.push({ radio: true, checked: windowMode, keepOpen: true, icon: 'window-restore', label: 'Window Mode', onPick: () => setArrangeMode('window') });
-      // Every stack back to columns of their own (plan-panel-stacking.md, decision 9); off while there is none.
-      if (!windowMode) items.push({ icon: 'object-ungroup', label: 'Unstack all', disabled: !hasStacks(), keepOpen: true, onPick: () => { unstackAll(); keepFocusInArrange(); } });
-      if (windowMode) {
-        items.push({ toggle: true, checked: snapAllOn(), icon: 'border-all', label: 'Snap to grid', onPick: () => setSnapAll(!snapAllOn()) });
-        if (snapAllOn()) {
-          snapSize.min = String(SNAP_PITCH.min); snapSize.max = String(SNAP_PITCH.max); snapSize.step = String(SNAP_PITCH.step);
-          snapSize.value = String(snapPitch());
-          items.push({ element: snapSizeRow });
-        }
-        items.push({ icon: 'fa-solid fa-broom', label: 'Clean up', onPick: () => cleanUp() });
-      }
-    }
     // The file windows (public/file-viewer.js) are over the canvas, not modules of it: one entry closes them all (plan-attachments-vault.md, decision 20).
     const filesOpen = fileWindowCount(canvasDoc());
     if (filesOpen) items.push({ divider: true }, { heading: 'Open files' }, { icon: 'xmark', label: 'Close all', badge: filesOpen, onPick: () => closeAllFiles(canvasDoc()) });
-    const extra = typeof menuItems === 'function' ? menuItems() : [];
+    const extra = typeof menuExtra === 'function' ? menuExtra() : [];
     if (Array.isArray(extra) && extra.length) items.push({ divider: true }, ...extra);
+    if (!isNarrow()) {
+      const windowMode = arrangeMode() === 'window';
+      items.push({ divider: true }, { heading: 'Arrange' });
+      items.push({ icon: windowMode ? 'window-restore' : 'fa-solid fa-table-columns', label: windowMode ? 'Windows' : 'Panels', ariaLabel: `Arrange: ${windowMode ? 'Windows' : 'Panels'}`, items: arrangeItems });
+    }
     if (noteEl) items.push({ element: noteEl });
     return items;
   }
-  let menuTrigger = null; // the button the Layout menu opened from (the top bar's Layout button, or its "..." when folded)
-  // After Unstack all its row is off: the keyboard stays in Arrange, on Panel Mode, not on the next row (Layouts). Once the
-  // menu has been drawn again after the pick (host-menu.js draws it right after onPick).
-  function keepFocusInArrange() {
-    setTimeout(() => {
-      const shown = menuOpen() ? menuTrigger.ownerDocument.querySelector('.host-menu:not(.host-menu-inline)') : null;
-      const rows = shown ? [...shown.querySelectorAll('.host-menu-item')] : [];
-      const row = rows.find((b) => b.querySelector('.host-menu-label')?.textContent.trim() === 'Panel Mode');
-      if (!row) return;
-      for (const r of rows) if (r.tabIndex === 0) r.tabIndex = -1;
-      row.tabIndex = 0;
-      row.focus();
-    }, 0);
-  }
+  let menuTrigger = null; // the tab's caret the menu opened from
+  let menuExtra = null; // the page's own entries for that tab
   const menuOpen = () => Boolean(menuTrigger) && hostMenuOpen(menuTrigger);
-  // Open the Layout menu under `trigger` (a popover: the page's shared menu, no Save; every entry acts at once), or close it
-  // when it is open from there already. Never on a phone, where the tab bar is the list. While it is open it is drawn again
-  // on every change (refreshMenu), so a switch flipped shows what happened.
-  function openMenu(trigger) {
+  // Open the tab menu under `trigger` (a popover: the page's shared menu, no Save; every entry acts at once), with the
+  // page's own entries (`extra()`), or close it when it is open from there already. Never on a phone, where the tab bar
+  // is the list. While it is open it is drawn again on every change (refreshMenu), so a switch flipped shows what happened.
+  function openMenu(trigger, extra = null) {
     if (inline() || !trigger) return;
-    if (hostMenuOpen(trigger)) { openHostMenu(trigger, layoutMenuItems); return; } // the same button again: closes it
+    if (hostMenuOpen(trigger)) { openHostMenu(trigger, menuEntries); return; } // the same button again: closes it
     menuTrigger = trigger;
+    menuExtra = extra;
     onMenu?.(true);
-    openHostMenu(trigger, layoutMenuItems);
+    openHostMenu(trigger, menuEntries);
   }
   function refreshMenu() {
     if (menuOpen()) refreshHostMenu();
   }
 
-  // The Layout button's count (unread in modules not shown), the phone's tabs, and the open menu drawn again.
+  // The phone's tabs, and the open menu drawn again.
   function update() {
-    const total = available.reduce((sum, m) => sum + unreadOf(m.id), 0)
-      + [...builtins.keys()].reduce((sum, id) => sum + (opened.has(id) ? 0 : builtinUnread[id] || 0), 0);
-    nav.setBadge('layout-menu', total);
     snapshot();
     paintDockButtons();
     if (canvasEmpty) canvasEmpty.hidden = onCanvas();
@@ -3035,8 +3285,13 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     arrangeOnWide = false; // an arrangement chosen on a phone is the space left's
     closeAllModules();
     note('');
+    writeArrangement(); // the space left's last change, before anything is read for the next
+    dropUndo();
     spaceId = id;
-    saved = loadSaved(id);
+    workspaceId = 'workspace';
+    arrangements.clear();
+    arrangedAs.clear();
+    saved = {};
     modules = [];
     available = [];
     aliases = {};
@@ -3046,10 +3301,14 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     spaceFirstVisit = null;
     entering = Boolean(id);
     if (id) {
+      const reading = readArrangement(id); // asked beside the modules, never refused (none reads as {})
       try {
         const q = new URLSearchParams({ space: id });
         if (guestToken) q.set('guest', guestToken);
         const answer = await api('GET', `/api/modules/for-space?${q}`);
+        const got = await reading;
+        if (spaceId !== id) return; // another space was entered while this one was read
+        saved = got;
         modules = (answer.modules || []).filter((m) => !m.canvas || m.canvas.menu !== false);
         // A composite that asks (the Map: Maps on here is not enough, the space's Map needs a map file; plan-map-places.md
         // step 3) is on only where its destination answers for this space. The same question the one bar's view and the
@@ -3069,6 +3328,9 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
           : { layout: 'workspace', shape: spaceShape };
         showBuiltin(answer.builtin);
       } catch {
+        const got = await reading;
+        if (spaceId !== id) return;
+        saved = got;
         available = [];
       }
     }
@@ -3179,6 +3441,10 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     snapAllOn,
     dockAll,
     cleanUp,
+    // Clean up in the mode shown, with Undo (the Arrange flyout's), and that Undo while it is offered.
+    tidyUp,
+    undoTidy,
+    canUndoTidy: () => Boolean(undoArrange),
     snapPitch,
     snapPitchRange: () => ({ ...SNAP_PITCH }),
     setSnapPitch,
@@ -3196,6 +3462,12 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
     // The layout tabs: only the Workspace remembers. Hold its memory while another tab shows; put it back on the Workspace.
     holdMemory,
     resumeMemory,
+    showWorkspace,
+    forgetWorkspace,
+    // Edit layout: how the canvas is arranged now, and the template's shape for the Workspace (null when it has none).
+    arrangedNow,
+    spaceShape: () => spaceShape,
+    workspaceShown: () => workspaceId,
     holdingMemory: () => Boolean(held),
     // Whether the canvas is narrow (640 px and below): the Layout panel's Layouts section is not drawn then.
     isNarrow,

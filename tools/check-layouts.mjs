@@ -1,21 +1,17 @@
 #!/usr/bin/env node
 /*
- * check-layouts.mjs -- saved layouts, step 1 (documentation/plans/plan-saved-layouts.md, GitHub #161): the pure shape
- * check cleanLayout(), the limits, DATA_DIR/layouts.json (shared per space, each person's own per space), the clean-up
- * when a space or a person is removed, and the four routes under /api/spaces/:id/layouts with their codes for an
- * owner, a moderator, a member, someone not in the space, a guest and nobody signed in. Step 4: a space's
- * defaultLayout (owners, the admin and moderators), cleared when its layout is deleted, carried by
- * GET /api/modules/for-space, and nothing stored before it changed. Favorite layouts, step 1
- * (documentation/plans/plan-favorite-layouts.md, GitHub #190): each person's own per space, in the order favorited, of
- * the layouts they can see, with no limit of their own; the clean-up when a layout or a person is removed; a file
- * without favorites; and GET's favorites with PUT and DELETE .../favorite. Steps 2 and 3's page parts: public/space.js
- * asks those routes, keeps their answer, and a guest never asks. The shape check, the file and the page parts run
- * in-process; the routes run against a throwaway server. Layout views, step 1 (documentation/plans/plan-layout-views.md):
- * layouts gain kind and icon; the system layouts workspace, calendar and map are made per space from what is on and
- * never stored; a person's own name, icon and tab for them are stored per person per space (PATCH
- * .../layouts/system/:systemId); the favorite routes take calendar and map; there is no limit on favorites. Step 5 (the
- * first visit as one choice): defaultLayout also takes calendar and map while they are on in the space, it and the template's layout
- * are independent, and GET .../layouts and GET /api/modules/for-space carry the resolved `firstVisit`.
+ * check-layouts.mjs -- layouts for everyone (documentation/plans/plan-saved-layouts.md, GitHub #161; plan-layout-picker.md,
+ * decision 5): the pure shape check cleanLayout(), the limit, DATA_DIR/layouts.json (shared per space), the clean-up when a
+ * space or a person is removed, and the four routes under /api/spaces/:id/layouts with their codes for an owner, a
+ * moderator, a member, someone not in the space, a guest and nobody signed in. A person's own layouts and favorites are
+ * gone (plan-workspaces.md, decision 44): POST takes only a layout for everyone, a file's `people` and `favorites` are
+ * dropped on read, and there is no .../favorite route. Step 4: a space's defaultLayout (owners, the admin and
+ * moderators), cleared when its layout is deleted, carried by GET /api/modules/for-space. Layout views, step 1
+ * (documentation/plans/plan-layout-views.md): layouts gain kind and icon; the system layouts are made per space from what
+ * is on and never stored; a person's own name and icon for them are stored per person per space (PATCH
+ * .../layouts/system/:systemId). Step 5 (the first visit as one choice): defaultLayout also takes calendar and map while
+ * they are on in the space, it and the template's layout are independent, and GET .../layouts and
+ * GET /api/modules/for-space carry the resolved `firstVisit`.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -282,16 +278,17 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
     s2: { shared: [entry('lfree02', { modules: [] })], people: {} },
   } }));
   const read = new Layouts(dir);
-  assert.deepEqual(read.listOf('s1', null).map((l) => l.id), ['lshape1', 'lunk001', 'ltodo01'], 'only the valid shapes stay (any modules, snap or arrange key drops an entry, null or text too; an unknown key is cut but the entry stays): a free-form one, a bad or missing shape, a wrong count and one with modules are dropped; a Calendar in a stacked area too, a To-do there is kept (the Calendar may be off)');
-  assert.deepEqual(Object.keys(read.listOf('s1', null).find((l) => l.id === 'lunk001')).sort(), ['areas', 'at', 'by', 'icon', 'id', 'name', 'shape'], 'only the shape fields are kept: an unknown key never reaches an answer');
-  assert.deepEqual(read.favorites('s1', 'pat'), ['lshape1', 'lown001'], 'a favorite that named a dropped layout is gone');
+  assert.deepEqual(read.sharedOf('s1').map((l) => l.id), ['lshape1', 'lunk001', 'ltodo01'], 'only the valid shapes stay (any modules, snap or arrange key drops an entry, null or text too; an unknown key is cut but the entry stays): a free-form one, a bad or missing shape, a wrong count and one with modules are dropped; a Calendar in a stacked area too, a To-do there is kept (the Calendar may be off)');
+  assert.deepEqual(Object.keys(read.sharedOf('s1').find((l) => l.id === 'lunk001')).sort(), ['areas', 'at', 'by', 'icon', 'id', 'name', 'shape'], 'only the shape fields are kept: an unknown key never reaches an answer');
+  assert.ok(!('people' in read.spaces.s1) && !('favorites' in read.spaces.s1), 'a file\'s own layouts and favorites are dropped on read (plan-workspaces.md, decision 44)');
   assert.equal(read.lastOf('s1', 'pat'), null, 'and so is a last layout');
   assert.equal(read.lastOf('s1', 'sam'), 'lshape1', 'one that names a shape stays');
-  assert.equal(read.find('s1', 'lfree01', 'pat'), null, 'a dropped one is not found');
+  assert.equal(read.find('s1', 'lfree01'), null, 'a dropped one is not found');
   assert.ok(!read.spaces.s2, 'a space left with nothing is dropped');
   assert.equal(readJson(file).spaces.s1.shared.length, 13, 'reading rewrites nothing');
-  read.add('s1', 'pat', { name: 'Later', modules: [], shared: false });
-  assert.deepEqual(readJson(file).spaces.s1.shared.map((l) => l.id), ['lshape1', 'lunk001', 'ltodo01'], 'the dropped ones leave the file at the next save');
+  read.add('s1', 'pat', { name: 'Later', shared: true, shape: 'one', areas: [null] });
+  assert.deepEqual(readJson(file).spaces.s1.shared.map((l) => l.id).slice(0, 3), ['lshape1', 'lunk001', 'ltodo01'], 'the dropped ones leave the file at the next save');
+  assert.ok(!('people' in readJson(file).spaces.s1), 'and a person\'s own with them');
   assert.ok(!('s2' in readJson(file).spaces), 'and their space with them');
   // The limit counts the shapes that are left, and a layout of the same name as a dropped one can be saved.
   assert.doesNotThrow(() => read.add('s1', 'pat', { name: 'Layout lfree01', shared: true, shape: 'one', areas: [null] }), 'the name of a dropped layout is free');
@@ -310,7 +307,7 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   fs.writeFileSync(path.join(dir2, 'app.json'), JSON.stringify(raw));
   const again = new Store(dir2);
   assert.equal(again.defaultLayoutOf(a.id), null, 'a default that names a dropped layout reads as none');
-  assert.equal(again.defaultLayoutOf(a.id) === null && again.layouts.find(a.id, 'lfree01', null), null);
+  assert.equal(again.defaultLayoutOf(a.id) === null && again.layouts.find(a.id, 'lfree01'), null);
   assert.throws(() => again.updateSpace(a.id, { defaultLayout: 'lfree01' }), (e) => e.status === 404, 'and cannot be set again');
   fs.rmSync(dir2, { recursive: true, force: true });
   n += 1;
@@ -328,47 +325,38 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   assert.equal(shared.by, 'pat');
   assert.ok(!Number.isNaN(Date.parse(shared.at)));
   assert.ok(!('shared' in shared), 'shared is where it is kept, not a field');
-  const mine = layouts.add('s1', 'pat', { ...g, name: 'game NIGHT' });
-  assert.notEqual(mine.id, shared.id, 'the same name in the other list is fine');
   const onDisk = readJson(path.join(dir, 'layouts.json'));
   assert.deepEqual(Object.keys(onDisk), ['spaces']);
   assert.equal(onDisk.spaces.s1.shared[0].id, shared.id);
-  assert.equal(onDisk.spaces.s1.people.pat[0].id, mine.id);
-  assert.deepEqual(new Layouts(dir).list('s1', 'pat'), layouts.list('s1', 'pat'), 'read back as written');
-  assert.deepEqual(layouts.list('s1', null).mine, [], 'a guest has none of their own');
-  assert.equal(layouts.list('s1', 'sam').mine.length, 0, "nobody sees another person's own");
-  assert.equal(layouts.list('s1', 'sam').shared.length, 1, 'everyone sees the shared ones');
-  assert.equal(layouts.find('s1', mine.id, 'sam'), null, "another person's own is not found for anyone else");
+  assert.deepEqual(new Layouts(dir).list('s1'), layouts.list('s1'), 'read back as written');
+  assert.deepEqual(Object.keys(layouts.list('s1')), ['shared'], 'only the layouts for everyone: a person\'s own is a workspace (plan-workspaces.md, decision 44)');
 
-  // Names unique in their list, regardless of case: 409 with the id of the one that has it.
-  assert.throws(() => layouts.add('s1', 'pat', { ...g, name: 'GAME night' }), (e) => e instanceof LayoutError && e.status === 409 && e.extra.id === mine.id && e.message === 'There is already a layout called game NIGHT.');
-  assert.throws(() => layouts.add('s1', 'sam', { ...g, ...SH, shared: true, name: 'Game Night' }), (e) => e.status === 409 && e.extra.id === shared.id);
-  assert.equal(layouts.add('s2', 'pat', { ...g }).name, 'Game night', 'the same name in another space is fine');
+  // Names unique, regardless of case: 409 with the id of the one that has it.
+  assert.throws(() => layouts.add('s1', 'sam', { ...g, ...SH, shared: true, name: 'GAME night' }), (e) => e instanceof LayoutError && e.status === 409 && e.extra.id === shared.id && e.message === 'There is already a layout called Game night.');
+  assert.equal(layouts.add('s2', 'pat', { ...g, ...SH, shared: true }).name, 'Game night', 'the same name in another space is fine');
 
-  // 10 personal per person per space, 10 shared per space.
-  for (let i = 1; i < 10; i += 1) layouts.add('s1', 'pat', { ...g, name: `Mine ${i}` });
-  assert.throws(() => layouts.add('s1', 'pat', { ...g, name: 'Eleventh' }), (e) => e.status === 409 && e.message === 'You have 10 saved layouts here. Delete one first.');
-  assert.ok(layouts.add('s1', 'sam', { ...g, name: 'Eleventh' }), 'the limit is per person');
+  // 10 shared per space.
   for (let i = 1; i < 10; i += 1) layouts.add('s1', 'sam', { ...g, ...SH, shared: true, name: `Shared ${i}` });
   assert.throws(() => layouts.add('s1', 'pat', { ...g, ...SH, shared: true, name: 'Eleventh shared' }), (e) => e.status === 409 && e.message === 'This space has 10 shared layouts. Delete one first.');
 
-  // Rename and replace; a rename onto a taken name is a 409; renaming to its own name in another case is fine.
-  assert.equal(layouts.update('s1', mine.id, 'pat', { name: 'Game Night' }).name, 'Game Night');
-  assert.throws(() => layouts.update('s1', mine.id, 'pat', { name: 'mine 1' }), (e) => e.status === 409);
-  const replaced = layouts.update('s1', shared.id, 'sam', { shape: 'one', areas: ['notes'] });
+  // Rename and replace; a rename onto a taken name is a 409.
+  assert.equal(layouts.update('s1', shared.id, { name: 'Game Night' }).name, 'Game Night');
+  assert.throws(() => layouts.update('s1', shared.id, { name: 'shared 1' }), (e) => e.status === 409);
+  const replaced = layouts.update('s1', shared.id, { shape: 'one', areas: ['notes'] });
   assert.deepEqual([replaced.shape, replaced.areas, 'modules' in replaced], ['one', ['notes'], false], 'a shared layout is replaced with a shape');
   assert.equal(replaced.by, 'pat', 'by stays who saved it first');
-  assert.equal(layouts.update('s1', mine.id, 'sam', { name: 'Taken' }), null, "nobody changes another person's own");
-  assert.equal(layouts.remove('s1', mine.id, 'sam'), false);
-  assert.equal(layouts.remove('s1', mine.id, 'pat'), true);
-  assert.equal(layouts.find('s1', mine.id, 'pat'), null);
+  assert.equal(layouts.update('s1', 'lnosuch', { name: 'Taken' }), null, 'nothing to change');
+  const extra = layouts.list('s1').shared.find((l) => l.name === 'Shared 9');
+  assert.equal(layouts.remove('s1', 'lnosuch'), false);
+  assert.equal(layouts.remove('s1', extra.id), true);
+  assert.equal(layouts.find('s1', extra.id), null);
 
-  // A removed space takes its layouts; a removed person takes their own everywhere, and the shared ones they saved stay.
+  // A removed space takes its layouts; a removed person's shared ones stay (they are the space's).
   layouts.forgetPerson('pat');
   const after = readJson(path.join(dir, 'layouts.json'));
-  assert.ok(!after.spaces.s1.people.pat && !after.spaces.s2, "pat's own are gone, and s2 had nothing else");
   assert.ok(after.spaces.s1.shared.some((l) => l.id === shared.id), 'the shared one pat saved stays');
   layouts.forgetSpace('s1');
+  layouts.forgetSpace('s2');
   assert.deepEqual(readJson(path.join(dir, 'layouts.json')), { spaces: {} });
   n += 1;
 
@@ -376,9 +364,9 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   const dir2 = tmp('extra');
   fs.writeFileSync(path.join(dir2, 'layouts.json'), JSON.stringify({ spaces: { s1: { shared: [{ id: 'lfuture', name: 'Future', by: 'x', at: 'now', shape: 'one', areas: ['notes'], later: true }, { id: 'lold', name: 'Free-form', by: 'x', at: 'now', modules: [{ id: 'chat', mode: 'dock' }] }, 'junk', { id: 7 }], people: { pat: 'junk' } } } }));
   const kept = new Layouts(dir2);
-  kept.add('s1', 'pat', { ...g });
+  kept.add('s1', 'pat', { ...g, ...SH, shared: true });
   const back = readJson(path.join(dir2, 'layouts.json')).spaces.s1;
-  assert.equal(back.shared.length, 1, 'the free-form shared layout is dropped on read, and the shape stays');
+  assert.equal(back.shared.length, 2, 'the free-form shared layout is dropped on read, and the shape stays (beside the new one)');
   assert.ok(!('later' in back.shared[0]), 'a shared layout keeps only the shape fields, so a field this version does not know is cut');
   n += 1;
 
@@ -386,139 +374,13 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   const dir3 = tmp('broken');
   fs.writeFileSync(path.join(dir3, 'layouts.json'), '{ not json');
   const broken = new Layouts(dir3);
-  assert.deepEqual(broken.list('s1', 'pat'), { mine: [], shared: [] });
-  assert.throws(() => broken.add('s1', 'pat', { ...g }), (e) => e.status === 500 && /cannot be read/.test(e.message));
+  assert.deepEqual(broken.list('s1'), { shared: [] });
+  assert.throws(() => broken.add('s1', 'pat', { ...g, ...SH, shared: true }), (e) => e.status === 500 && /cannot be read/.test(e.message));
   broken.forgetSpace('s1');
   broken.forgetPerson('pat');
   assert.equal(fs.readFileSync(path.join(dir3, 'layouts.json'), 'utf8'), '{ not json', 'left exactly as it was');
   n += 1;
   for (const d of [dir, dir2, dir3]) fs.rmSync(d, { recursive: true, force: true });
-}
-
-// --- favorites in the file (plan-favorite-layouts.md, step 1) ------------------------------------------------------
-
-{
-  const dir = tmp('favorites');
-  const file = path.join(dir, 'layouts.json');
-  const layouts = new Layouts(dir);
-  const g = cleanLayout(good()).layout;
-  const shared = Array.from({ length: 10 }, (_, i) => layouts.add('s1', 'mod', { ...g, ...SH, name: `Shared ${i}`, shared: true }));
-  const patOwn = Array.from({ length: 10 }, (_, i) => layouts.add('s1', 'pat', { ...g, name: `Pat ${i}` }));
-  const samOwn = layouts.add('s1', 'sam', { ...g, name: 'Sam' });
-  const before = fs.readFileSync(file, 'utf8');
-  assert.ok(!('favorites' in readJson(file).spaces.s1), 'no favorites key while nobody has one');
-  assert.deepEqual(layouts.favorites('s1', 'pat'), []);
-  assert.deepEqual(layouts.favorites('s1', null), [], 'a guest has none');
-
-  // Own and shared, in the order favorited; repeats change nothing; each person's are separate.
-  assert.deepEqual(layouts.setFavorite('s1', shared[3].id, 'pat', true), [shared[3].id]);
-  assert.deepEqual(layouts.setFavorite('s1', patOwn[0].id, 'pat', true), [shared[3].id, patOwn[0].id]);
-  assert.deepEqual(layouts.setFavorite('s1', shared[0].id, 'pat', true), [shared[3].id, patOwn[0].id, shared[0].id], 'appended, not sorted');
-  const once = fs.readFileSync(file, 'utf8');
-  assert.deepEqual(layouts.setFavorite('s1', shared[3].id, 'pat', true), [shared[3].id, patOwn[0].id, shared[0].id], 'a repeat favorite changes nothing');
-  assert.equal(fs.readFileSync(file, 'utf8'), once, 'and writes nothing');
-  assert.deepEqual(layouts.setFavorite('s1', shared[1].id, 'pat', false), [shared[3].id, patOwn[0].id, shared[0].id], 'unfavoriting one that is not a favorite changes nothing');
-  assert.deepEqual(layouts.setFavorite('s1', shared[3].id, 'sam', true), [shared[3].id], "sam's are his own");
-  assert.deepEqual(layouts.favorites('s1', 'pat'), [shared[3].id, patOwn[0].id, shared[0].id], "sam's favorite does not touch pat's");
-  assert.deepEqual(layouts.setFavorite('s1', patOwn[0].id, 'pat', false), [shared[3].id, shared[0].id], 'unfavorite keeps the order of the rest');
-  assert.deepEqual(layouts.setFavorite('s1', patOwn[0].id, 'pat', true), [shared[3].id, shared[0].id, patOwn[0].id], 'favoriting again puts it at the end');
-
-  // Only a layout this person can see: not another person's own, not an unknown id, not one in another space.
-  assert.equal(layouts.setFavorite('s1', samOwn.id, 'pat', true), null, "another person's own");
-  assert.equal(layouts.setFavorite('s1', 'lnosuch', 'pat', true), null, 'an unknown id');
-  assert.equal(layouts.setFavorite('s2', shared[0].id, 'pat', true), null, 'a layout of another space');
-  assert.equal(layouts.setFavorite('s1', shared[0].id, null, true), null, 'a guest');
-
-  // No limit (plan-layout-views.md, decision 13): a 4th, 5th and more are accepted, own and shared alike, appended in
-  // order; unfavoriting still works at any count.
-  assert.ok(!('favorites' in LAYOUT_LIMITS), 'there is no favorites limit');
-  assert.deepEqual(layouts.favorites('s1', 'pat'), [shared[3].id, shared[0].id, patOwn[0].id]);
-  for (const x of [shared[5], patOwn[1], shared[6], shared[7], patOwn[2], shared[8], patOwn[3], patOwn[4]]) layouts.setFavorite('s1', x.id, 'pat', true);
-  assert.deepEqual(layouts.favorites('s1', 'pat'), [shared[3], shared[0], patOwn[0], shared[5], patOwn[1], shared[6], shared[7], patOwn[2], shared[8], patOwn[3], patOwn[4]].map((l) => l.id), '11 favorites, in order');
-  for (const x of [shared[0], patOwn[1], shared[6], shared[7], patOwn[2], shared[8], patOwn[3], patOwn[4]]) layouts.setFavorite('s1', x.id, 'pat', false);
-  assert.deepEqual(layouts.favorites('s1', 'pat'), [shared[3].id, patOwn[0].id, shared[5].id], 'unfavorite at any count');
-  const all = readJson(file).spaces.s1.favorites.pat;
-  assert.deepEqual(all, [shared[3].id, patOwn[0].id, shared[5].id], 'the file holds them');
-  assert.deepEqual(new Layouts(dir).favorites('s1', 'pat'), layouts.favorites('s1', 'pat'), 'read back as written');
-
-  // Deleting a layout takes it out of every person's favorites; a removed person takes their favorites.
-  layouts.remove('s1', shared[3].id, 'mod');
-  assert.ok(!layouts.favorites('s1', 'pat').includes(shared[3].id), "gone from pat's");
-  assert.ok(!readJson(file).spaces.s1.favorites.sam, "sam's list was only that one, so it is dropped");
-  layouts.remove('s1', patOwn[0].id, 'pat');
-  assert.deepEqual(readJson(file).spaces.s1.favorites.pat, [shared[5].id], "pat's own layout deleted: gone from pat's favorites");
-  layouts.setFavorite('s1', shared[4].id, 'sam', true);
-  layouts.forgetPerson('pat');
-  assert.deepEqual(Object.keys(readJson(file).spaces.s1.favorites), ['sam'], "pat's favorites are gone, sam's stay");
-  layouts.forgetPerson('sam');
-  assert.ok(!('favorites' in readJson(file).spaces.s1), 'an empty favorites is dropped');
-  n += 1;
-
-  // A file from before favorites reads and writes as before; stored ids that are junk, repeated, or of a layout that
-  // is gone are not read back as favorites.
-  const dir2 = tmp('favorites-old');
-  fs.writeFileSync(path.join(dir2, 'layouts.json'), before);
-  const old = new Layouts(dir2);
-  assert.equal(old.list('s1', 'pat').mine.length, 10, 'its layouts read as before');
-  assert.equal(old.list('s1', 'pat').shared.length, 10);
-  assert.deepEqual(old.favorites('s1', 'pat'), [], 'no favorites key reads as none');
-  old.add('s1', 'sam', { ...g, name: 'Later' });
-  assert.ok(!('favorites' in readJson(path.join(dir2, 'layouts.json')).spaces.s1), 'and writing adds no key');
-  const raw = readJson(path.join(dir2, 'layouts.json'));
-  raw.spaces.s1.favorites = { pat: [shared[0].id, 7, shared[0].id, 'lgone12', patOwn[1].id], sam: 'junk', ann: [] };
-  fs.writeFileSync(path.join(dir2, 'layouts.json'), JSON.stringify(raw));
-  const odd = new Layouts(dir2);
-  assert.deepEqual(odd.favorites('s1', 'pat'), [shared[0].id, patOwn[1].id], 'junk and repeats dropped, a gone layout not shown');
-  assert.deepEqual(odd.favorites('s1', 'sam'), []);
-  // Tidied on load: ids of a gone layout, or of a layout that person cannot see, are not kept.
-  assert.deepEqual(odd.spaces.s1.favorites, { pat: [shared[0].id, patOwn[1].id] }, 'only ids pat can see are kept');
-  n += 1;
-
-  // A space entry holding only favorites that name nothing left is dropped on load; one naming a malformed layout too.
-  const dir3 = tmp('favorites-orphan');
-  fs.writeFileSync(path.join(dir3, 'layouts.json'), JSON.stringify({ spaces: {
-    s9: { shared: [], people: {}, favorites: { pat: ['lgone12'] } },
-    s8: { shared: [{ id: 'lbroken', name: 7, modules: [] }], people: {}, favorites: { pat: ['lbroken'] } },
-  } }));
-  const orphan = new Layouts(dir3);
-  assert.deepEqual(orphan.spaces, {}, 'a space left with only favorites of no layout is dropped on load');
-  n += 1;
-
-  // setFavorite writes back only the ids the person can see, plus the change: hand-edited ids leave the file.
-  const dir4 = tmp('favorites-hand');
-  const hand = readJson(path.join(dir2, 'layouts.json'));
-  hand.spaces.s1.favorites = { pat: [shared[0].id] };
-  fs.writeFileSync(path.join(dir4, 'layouts.json'), JSON.stringify(hand));
-  const edited = new Layouts(dir4);
-  edited.spaces.s1.favorites.pat.push('lhand01', samOwn.id); // as if the constructor had let them through
-  assert.deepEqual(edited.setFavorite('s1', patOwn[2].id, 'pat', true), [shared[0].id, patOwn[2].id]);
-  assert.deepEqual(readJson(path.join(dir4, 'layouts.json')).spaces.s1.favorites.pat, [shared[0].id, patOwn[2].id], 'a favorite writes back the visible list');
-  edited.spaces.s1.favorites.pat.push('lhand01');
-  assert.deepEqual(edited.setFavorite('s1', shared[0].id, 'pat', false), [patOwn[2].id]);
-  assert.deepEqual(readJson(path.join(dir4, 'layouts.json')).spaces.s1.favorites.pat, [patOwn[2].id], 'an unfavorite writes back the visible list');
-  edited.spaces.s1.favorites.pat.push('lhand01');
-  edited.setFavorite('s1', patOwn[2].id, 'pat', false);
-  assert.ok(!('favorites' in readJson(path.join(dir4, 'layouts.json')).spaces.s1), 'none left visible: the key is dropped');
-  n += 1;
-
-  // A stored list of more than 3 (from before the limit was lifted, or longer) reads whole: every visible id, in order;
-  // ids that are gone leave the file at the next write.
-  const dir5 = tmp('favorites-long');
-  const long = JSON.parse(before);
-  const tooMany = ['lgone12', shared[6].id, patOwn[2].id, shared[1].id, shared[8].id, patOwn[7].id];
-  long.spaces.s1.favorites = { pat: tooMany };
-  fs.writeFileSync(path.join(dir5, 'layouts.json'), JSON.stringify(long));
-  const kept = new Layouts(dir5);
-  const visible = [shared[6].id, patOwn[2].id, shared[1].id, shared[8].id, patOwn[7].id];
-  assert.deepEqual(kept.favorites('s1', 'pat'), visible, 'all the visible ones, in the order favorited');
-  assert.deepEqual(kept.list('s1', 'pat').mine.length, 10, 'its layouts read as before');
-  assert.deepEqual(readJson(path.join(dir5, 'layouts.json')).spaces.s1.favorites.pat, tooMany, 'reading changes nothing in the file');
-  kept.add('s1', 'sam', { ...g, name: 'Later' });
-  assert.deepEqual(readJson(path.join(dir5, 'layouts.json')).spaces.s1.favorites.pat, visible, 'the id of a gone layout leaves at the next write');
-  assert.deepEqual(kept.setFavorite('s1', shared[2].id, 'pat', true), [...visible, shared[2].id], 'a 6th is accepted');
-  assert.deepEqual(kept.setFavorite('s1', patOwn[2].id, 'pat', false), visible.filter((id) => id !== patOwn[2].id).concat(shared[2].id), 'an unfavorite writes back the rest');
-  n += 1;
-  for (const d of [dir, dir2, dir3, dir4, dir5]) fs.rmSync(d, { recursive: true, force: true });
 }
 
 // --- layout views, step 1: kind, icon and the system layouts' per-person record ----------------------------------------
@@ -533,28 +395,27 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   refused({ ...good(), icon: 'Bad Icon!' }, /Pick an icon/, 'a malformed icon id');
   assert.equal(cleanLayout({ icon: 'couch' }, { partial: true, icons: ['couch'] }).layout.icon, 'couch', 'a PUT may change only the icon');
 
-  // Stored user layouts have no kind or icon; the list reads them as kind user with the default icon, the file untouched.
+  // Stored layouts have no kind or icon; the list reads them as kind user with the default icon, the file untouched.
   const dir = tmp('system');
   const file = path.join(dir, 'layouts.json');
   const layouts = new Layouts(dir);
   const g = cleanLayout(good()).layout;
-  const plain = layouts.add('s1', 'pat', { ...g });
-  const iconed = layouts.add('s1', 'pat', { ...g, name: 'Iconed', icon: 'couch' });
-  assert.ok(!('kind' in readJson(file).spaces.s1.people.pat[0]) && !('icon' in readJson(file).spaces.s1.people.pat[0]), 'nothing is rewritten with a kind or an icon');
-  const listed = layouts.list('s1', 'pat');
-  assert.deepEqual(listed.mine.map((l) => [l.kind, l.icon]), [['user', 'object-group'], ['user', 'couch']], 'kind user, the default icon, or the stored one');
-  assert.equal(layouts.update('s1', iconed.id, 'pat', { icon: 'star' }).icon, 'star', 'a PUT changes a user layout\'s icon');
-  assert.equal(layouts.list('s1', 'pat').shared.length, 0);
-  layouts.remove('s1', plain.id, 'pat');
-  layouts.remove('s1', iconed.id, 'pat');
+  const plain = layouts.add('s1', 'pat', { ...g, ...SH, shared: true });
+  const iconed = layouts.add('s1', 'pat', { ...g, ...SH, shared: true, name: 'Iconed', icon: 'couch' });
+  assert.ok(!('kind' in readJson(file).spaces.s1.shared[0]) && !('icon' in readJson(file).spaces.s1.shared[0]), 'nothing is rewritten with a kind or an icon');
+  const listed = layouts.list('s1');
+  assert.deepEqual(listed.shared.map((l) => [l.kind, l.icon]), [['user', 'object-group'], ['user', 'couch']], 'kind user, the default icon, or the stored one');
+  assert.equal(layouts.update('s1', iconed.id, { icon: 'star' }).icon, 'star', 'a PUT changes a layout\'s icon');
+  layouts.remove('s1', plain.id);
+  layouts.remove('s1', iconed.id);
   assert.deepEqual(readJson(file), { spaces: {} });
 
-  // The per-person record: name, icon and tab, stored beside favorites, nothing else in the file.
+  // The per-person record: name, icon and tab, nothing else in the file.
   assert.deepEqual(layouts.systemOf('s1', 'pat'), {}, 'none to begin with');
   assert.deepEqual(layouts.systemOf('s1', null), {}, 'a guest has none');
   assert.deepEqual(layouts.setSystem('s1', 'pat', 'workspace', { name: 'Desk', icon: 'couch' }), { name: 'Desk', icon: 'couch' });
   assert.deepEqual(layouts.setSystem('s1', 'pat', 'map', { tab: false }), { tab: false });
-  assert.deepEqual(readJson(file), { spaces: { s1: { shared: [], people: {}, system: { pat: { workspace: { name: 'Desk', icon: 'couch' }, map: { tab: false } } } } } }, 'stored per person per space');
+  assert.deepEqual(readJson(file), { spaces: { s1: { shared: [], system: { pat: { workspace: { name: 'Desk', icon: 'couch' }, map: { tab: false } } } } } }, 'stored per person per space');
   assert.deepEqual(layouts.systemOf('s1', 'sam'), {}, "pat's choices are pat's");
   assert.deepEqual(layouts.systemOf('s2', 'pat'), {}, 'and this space\'s');
   assert.deepEqual(new Layouts(dir).systemOf('s1', 'pat'), layouts.systemOf('s1', 'pat'), 'read back as written');
@@ -566,9 +427,8 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   assert.ok(!('map' in readJson(file).spaces.s1.system.pat), 'and leaves nothing stored for it');
   layouts.setSystem('s1', 'pat', 'workspace', { icon: null });
   assert.deepEqual(readJson(file), { spaces: {} }, 'a record with nothing left is dropped, and the space with it');
-  // Beside favorites and layouts it is cleaned with them.
-  const own = layouts.add('s1', 'pat', { ...g });
-  layouts.setFavorite('s1', own.id, 'pat', true);
+  // Beside the layouts it is cleaned with them.
+  layouts.add('s1', 'pat', { ...g, ...SH, shared: true });
   layouts.setSystem('s1', 'pat', 'calendar', { name: 'Plans' });
   layouts.setSystem('s1', 'sam', 'calendar', { name: 'Ours' });
   layouts.forgetPerson('pat');
@@ -602,44 +462,6 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   for (const d of [dir, dir2]) fs.rmSync(d, { recursive: true, force: true });
 }
 
-// --- favorites on the page (plan-favorite-layouts.md, steps 2 and 3): the page asks the routes the server has --------
-
-{
-  const space = fs.readFileSync(path.join(ROOT, 'public/space.js'), 'utf8');
-  const server = fs.readFileSync(path.join(ROOT, 'server/index.js'), 'utf8');
-  // The server's two routes, and the page's request to them: PUT to favorite, DELETE to stop, no body.
-  assert.match(server, /app\.put\('\/api\/spaces\/:id\/layouts\/:layoutId\/favorite', layoutFavorite\(true\)\);/);
-  assert.match(server, /app\.delete\('\/api\/spaces\/:id\/layouts\/:layoutId\/favorite', layoutFavorite\(false\)\);/);
-  const setFn = space.slice(space.indexOf('async function setFavorite('), space.indexOf('async function setDefaultLayout('));
-  assert.match(setFn, /layoutRequest\(on \? 'PUT' : 'DELETE', `\/api\/spaces\/\$\{encodeURIComponent\(id\)\}\/layouts\/\$\{encodeURIComponent\(layout\.id\)\}\/favorite`\)/, 'no body, no guest query');
-  // It keeps what the answer says ({ favorites }) and GET's `favorites`, which the server answers for everyone.
-  assert.match(setFn, /const \{ favorites, layout: answered \} = await layoutRequest\(/);
-  assert.match(setFn, /if \(system\) system\.tab = answered && typeof answered\.tab === 'boolean' \? answered\.tab : on;/, 'Calendar and Map: the answer says whether their tab shows (plan-layout-views.md, step 2)');
-  assert.match(setFn, /layoutList\.favorites = Array\.isArray\(favorites\) \? favorites : \[\];/);
-  assert.match(server, /res\.json\(\{ mine, shared, system, defaultLayout: [^}]*favorites, canShare: found\.canShare, canSetDefault: found\.canSetDefault, \.\.\.\(found\.canShare \? withNames\(found, shared\) : \{\}\), \.\.\.\(found\.canSetDefault \? \{ tabs: tabsOf\(found\.space\.tabs\) \} : \{\}\), \.\.\.\(last \? \{ last \} : \{\}\) \}\);/);
-  assert.match(space, /favorites: Array\.isArray\(got\.favorites\) \? got\.favorites : \[\]/);
-  // A guest never asks: no ... entry, no favorite tabs (the server's 403 is the backstop).
-  assert.match(space, /const mayFavorite = \(\) => !guestToken && Boolean\(me\?\.key\) && me\.role !== 'guest';/);
-  assert.match(space, /favorites: mayFavorite\(\) && layoutList\.spaceId === layoutSpaceId\(\) \? layoutList\.favorites : \[\],/);
-  // The first visit on the page (plan-layout-views.md, step 5): the list keeps the server's resolved firstVisit, a
-  // system row is marked Default from it, and Make default sends `defaultLayout` alone (Opens with is never sent).
-  assert.match(space, /firstVisit: got\.firstVisit && typeof got\.firstVisit\.layout === 'string' \? got\.firstVisit : null,/);
-  assert.match(space, /tag: ownerHid \? 'Hidden in Set up' : l\.id !== 'workspace' && l\.id === layoutList\.firstVisit\?\.layout \? 'Default' : undefined,/);
-  const defaultFn = space.slice(space.indexOf('async function setDefaultLayout('), space.indexOf('async function replaceLayout('));
-  assert.match(defaultFn, /api\('PATCH', `\/api\/spaces\/\$\{encodeURIComponent\(id\)\}`, \{ defaultLayout: layoutId \}\)/);
-  assert.equal((defaultFn.match(/api\('PATCH'/g) || []).length, 1, 'Make default sends one PATCH, `defaultLayout` alone: never Opens with');
-  const setupSrc = fs.readFileSync(path.join(ROOT, 'public/space-setup.js'), 'utf8');
-  assert.match(setupSrc, /const fv = layouts\.firstVisit \|\| answer\.firstVisit;/, 'Set up starts from the resolved first visit');
-  assert.match(setupSrc, /if \(nowLayout !== wasLayout\) patch\.defaultLayout = nowLayout;/, 'the layout goes only when it changed');
-  // The layout tabs (plan-layout-views.md, steps 2 and 3) load the page's own copy, as a row in the menu does: a favorite
-  // from the saved lists, Calendar and Map from GET's `system` list (their `modules`, the composite docked).
-  // A layout for everyone is a shape ({ shape, areas }; plan-layout-picker.md, step 6): loaded the same way, by loadShape.
-  assert.match(space, /const layout = findSystemLayout\(id\) \|\| findLayout\(id\);\n\s*if \(!layout \|\| !\(Array\.isArray\(layout\.modules\) \|\| isShapeLayout\(layout\)\)\) return;/);
-  assert.match(space, /const findSystemLayout = \(id\) => layoutList\.system\.find\(\(l\) => l\.id === id\) \|\| null;/);
-  assert.match(space, /system: Array\.isArray\(got\.system\) \? got\.system : \[\],/, 'GET\'s `system` list read for the tabs');
-  n += 1;
-}
-
 // --- the store: removeSpace and removeUser take their layouts ---------------------------------------------------
 
 {
@@ -650,16 +472,17 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   const a = store.addSpace({ name: 'A', members: [pat.key, sam.key] });
   const b = store.addSpace({ name: 'B', members: [pat.key, sam.key] });
   const g = cleanLayout(good()).layout;
-  store.layouts.add(a.id, pat.key, { ...g });
   store.layouts.add(a.id, sam.key, { ...g, ...SH, shared: true });
-  store.layouts.add(b.id, pat.key, { ...g });
-  store.layouts.add(b.id, sam.key, { ...g });
+  store.layouts.add(b.id, pat.key, { ...g, ...SH, shared: true });
+  store.layouts.setSystem(b.id, pat.key, 'workspace', { name: 'Desk' });
+  store.layouts.setSystem(b.id, sam.key, 'workspace', { name: 'Mine' });
   store.removeSpace(a.id);
   let file = readJson(path.join(dir, 'layouts.json'));
-  assert.ok(!file.spaces[a.id], 'a removed space takes its shared and personal layouts');
+  assert.ok(!file.spaces[a.id], 'a removed space takes its layouts');
   store.removeUser(pat.key);
   file = readJson(path.join(dir, 'layouts.json'));
-  assert.deepEqual(Object.keys(file.spaces[b.id].people), [sam.key], 'a removed person takes their own');
+  assert.deepEqual(Object.keys(file.spaces[b.id].system), [sam.key], 'a removed person takes their own record');
+  assert.equal(file.spaces[b.id].shared.length, 1, 'and the shared layout they saved stays');
   assert.equal(path.dirname(store.layouts.file), dir, "layouts.json is in the environment's data folder, which its export and backup zip whole");
   fs.rmSync(dir, { recursive: true, force: true });
   n += 1;
@@ -802,21 +625,19 @@ function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in
   const g = cleanLayout(good()).layout;
   assert.ok(!('defaultLayout' in store.spaceById(a.id)), 'absent while not set');
   const shared = store.layouts.add(a.id, pat.key, { ...g, ...SH, shared: true });
-  const own = store.layouts.add(a.id, pat.key, { ...g, name: 'Mine' });
 
   // Setting it leaves the record's other fields alone; refusals change nothing. A space keeps no Opens with of its own
   // (the template decides, plan-templates-redesign.md, decision 8): asking to set one is refused and changes nothing.
   let space = store.updateSpace(a.id, { defaultLayout: shared.id });
   assert.equal(space.defaultLayout, shared.id);
   assert.ok(!('opensWith' in space) && !('layout' in space), 'the record keeps no layout of its own');
-  assert.deepEqual(store.defaultLayoutOf(a.id), store.layouts.find(a.id, shared.id, null).layout, 'the whole layout');
+  assert.deepEqual(store.defaultLayoutOf(a.id), store.layouts.find(a.id, shared.id).layout, 'the whole layout');
   const storeRefused = (patch, status, pattern, label) => {
     const before = JSON.stringify(store.spaceById(a.id));
     assert.throws(() => store.updateSpace(a.id, { name: 'Renamed', ...patch }), (e) => e.status === status && pattern.test(e.message) && /^[A-Z][^\n]*\.$/.test(e.message), label);
     assert.equal(JSON.stringify(store.spaceById(a.id)), before, `${label}: nothing changed`);
     n += 1;
   };
-  storeRefused({ defaultLayout: own.id }, 404, /no shared layout/, "a person's own layout cannot be the default");
   storeRefused({ defaultLayout: 'lnosuch' }, 404, /no shared layout/, 'no such layout');
   storeRefused({ defaultLayout: 7 }, 400, /shared layout's id/, 'not an id');
   storeRefused({ defaultLayout: 'calendar' }, 400, /Calendar is not on in this space/, 'Calendar with no way to tell it is on');
@@ -833,7 +654,7 @@ function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in
   assert.equal(space.defaultLayout, shared.id);
 
   // Replacing its modules leaves the default; a rename does not touch it.
-  store.layouts.update(a.id, shared.id, pat.key, { shape: 'one', areas: ['notes'] });
+  store.layouts.update(a.id, shared.id, { shape: 'one', areas: ['notes'] });
   store.syncDefaultLayout(a.id);
   assert.equal(store.spaceById(a.id).defaultLayout, shared.id);
 
@@ -850,10 +671,10 @@ function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in
   // Deleting it clears the default; deleting another changes nothing.
   store.updateSpace(a.id, { defaultLayout: shared.id });
   const other = store.layouts.add(a.id, pat.key, { ...g, ...SH, name: 'Other', shared: true });
-  store.layouts.remove(a.id, other.id, pat.key);
+  store.layouts.remove(a.id, other.id);
   store.syncDefaultLayout(a.id);
   assert.equal(store.spaceById(a.id).defaultLayout, shared.id, 'deleting another shared layout keeps the default');
-  store.layouts.remove(a.id, shared.id, pat.key);
+  store.layouts.remove(a.id, shared.id);
   store.syncDefaultLayout(a.id);
   assert.ok(!('defaultLayout' in store.spaceById(a.id)), 'deleting the default layout clears it');
   n += 1;
@@ -952,54 +773,41 @@ try {
 
   // Who may read.
   // The system layouts (plan-layout-views.md, step 1): with no Calendar or Map on, only the Workspace; a guest has none.
+  // No `mine` and no `favorites` (plan-workspaces.md, decision 44): a person's own is a workspace (server/workspaces.js).
   const workspace = { id: 'workspace', kind: 'system', name: 'Workspace', icon: 'columns', tab: true, shown: true, pinned: true, defaultName: 'Workspace', defaultIcon: 'columns', modules: [] };
   const empty = await expect('member reads', 200, 'GET', L, { cookie: pat });
-  assert.deepEqual(empty.json, { mine: [], shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: false, canSetDefault: false });
-  assert.deepEqual((await expect('moderator reads', 200, 'GET', L, { cookie: sam })).json, { mine: [], shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: true, canSetDefault: true, cantOpen: {}, names: {}, tabs: { order: [...SYSTEM_IDS], hide: [] } }, 'a moderator may set the default (plan-one-bar.md step 4)');
-  assert.deepEqual((await expect('owner reads', 200, 'GET', L, { cookie: owner })).json, { mine: [], shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: true, canSetDefault: true, cantOpen: {}, names: {}, tabs: { order: [...SYSTEM_IDS], hide: [] } });
-  assert.deepEqual((await expect('guest reads', 200, 'GET', `${L}${asGuest}`)).json, { mine: [], shared: [], system: [], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, favorites: [], canShare: false, canSetDefault: false });
+  assert.deepEqual(empty.json, { shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, canShare: false, canSetDefault: false });
+  assert.deepEqual((await expect('moderator reads', 200, 'GET', L, { cookie: sam })).json, { shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, canShare: true, canSetDefault: true, cantOpen: {}, names: {}, tabs: { order: [...SYSTEM_IDS], hide: [] } }, 'the moderator sets the tabs too');
+  assert.deepEqual((await expect('owner reads', 200, 'GET', L, { cookie: owner })).json, { shared: [], system: [workspace], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, canShare: true, canSetDefault: true, cantOpen: {}, names: {}, tabs: { order: [...SYSTEM_IDS], hide: [] } });
+  assert.deepEqual((await expect('guest reads', 200, 'GET', `${L}${asGuest}`)).json, { shared: [], system: [], defaultLayout: null, firstVisit: { layout: 'workspace', shape: ONE }, canShare: false, canSetDefault: false });
   await expect('nobody signed in', 401, 'GET', L);
   await expect('a member of another space', 404, 'GET', L, { cookie: out });
   await expect('no such space', 404, 'GET', '/api/spaces/nosuchsp/layouts', { cookie: pat });
   await expect('a guest of this space reading another', 403, 'GET', `/api/spaces/${(await call('GET', '/api/spaces', { cookie: owner })).json.spaces.find((s) => s.isLobby).id}/layouts${asGuest}`);
   n += 1;
 
-  // Saving: personal for any member; shared for owners, the admin and the space's moderators; never a guest.
-  const patOwn = await expect('member saves own', 201, 'POST', L, { cookie: pat, body: good() });
-  assert.equal(patOwn.json.layout.name, 'Game night');
-  assert.equal(patOwn.json.layout.by, patUser.key);
+  // Saving: only a layout for everyone, by owners, the admin and the space's moderators; never a member's own (a
+  // workspace now), never a guest.
+  const own = await expect('a member\'s own is refused', 400, 'POST', L, { cookie: pat, body: good() });
+  assert.equal(own.json.error, 'A layout of your own is a workspace now: add one with New workspace, in the tabs\' menu.');
+  await expect('so is a moderator\'s own', 400, 'POST', L, { cookie: sam, body: { name: 'Blank one', modules: [] } });
   const refusal = await expect('member saves shared', 403, 'POST', L, { cookie: pat, body: { ...SHB, name: 'Game night', shared: true } });
   assert.equal(refusal.json.error, "Only owners, the admin and this space's moderators can change shared layouts.");
   await expect('guest saves', 403, 'POST', `${L}${asGuest}`, { body: good() });
   await expect('guest saves shared', 403, 'POST', `${L}${asGuest}`, { body: { ...SHB, name: 'Game night', shared: true } });
   await expect('outsider saves', 404, 'POST', L, { cookie: out, body: good() });
-  await expect('bad shape', 400, 'POST', L, { cookie: pat, body: { ...good(), modules: [{ id: 'chat', mode: 'window' }] } });
-  // A blank layout (modules []) is saved like any layout: name required, the unique-name rule, a guest cannot create one.
-  const blank = await expect('member saves a blank layout', 201, 'POST', L, { cookie: pat, body: { name: 'Blank one', modules: [], arrange: 'window' } });
-  assert.deepEqual(blank.json.layout.modules, []);
-  assert.equal(blank.json.layout.arrange, 'window', 'the arrangement mode is kept');
-  assert.equal((await expect('blank name clash', 409, 'POST', L, { cookie: pat, body: { name: 'blank ONE', modules: [] } })).json.id, blank.json.layout.id);
-  await expect('blank without a name', 400, 'POST', L, { cookie: pat, body: { modules: [] } });
-  await expect('blank with a bad arrange', 400, 'POST', L, { cookie: pat, body: { name: 'Blank two', modules: [], arrange: 'x' } });
-  await expect('guest saves a blank layout', 403, 'POST', `${L}${asGuest}`, { body: { name: 'Blank g', modules: [] } });
-  assert.deepEqual((await call('GET', L, { cookie: pat })).json.mine.find((l) => l.id === blank.json.layout.id).modules, [], 'read back blank');
-  await expect('delete the blank one', 204, 'DELETE', `${L}/${blank.json.layout.id}`, { cookie: pat });
-  await expect('not JSON fields', 400, 'POST', L, { cookie: pat, body: { name: 'x' } });
   const samShared = await expect('moderator saves shared', 201, 'POST', L, { cookie: sam, body: { ...SHB, name: 'Planning', shared: true } });
   const ownerShared = await expect('owner saves shared', 201, 'POST', L, { cookie: owner, body: { ...SHB, name: 'Game night', shared: true } });
-  const taken = await expect('name taken in own list', 409, 'POST', L, { cookie: pat, body: { ...good(), name: 'GAME NIGHT' } });
-  assert.equal(taken.json.id, patOwn.json.layout.id, 'the 409 names the one with that name');
-  assert.equal(taken.json.error, 'There is already a layout called Game night.');
   const takenShared = await expect('name taken in shared list', 409, 'POST', L, { cookie: sam, body: { ...SHB, name: 'planning', shared: true } });
-  assert.equal(takenShared.json.id, samShared.json.layout.id);
+  assert.equal(takenShared.json.id, samShared.json.layout.id, 'the 409 names the one with that name');
+  assert.equal(takenShared.json.error, 'There is already a layout called Planning.');
   n += 1;
 
-  // Reading back: the shared ones for everyone, each person's own only for them.
+  // Reading back: the shared ones for everyone.
   const patList = (await call('GET', L, { cookie: pat })).json;
-  assert.deepEqual(patList.mine.map((l) => l.id), [patOwn.json.layout.id]);
+  assert.ok(!('mine' in patList) && !('favorites' in patList), 'no layouts or favorites of one\'s own');
   assert.deepEqual(patList.shared.map((l) => l.id), [samShared.json.layout.id, ownerShared.json.layout.id]);
   const guestList = (await call('GET', `${L}${asGuest}`)).json;
-  assert.deepEqual(guestList.mine, []);
   assert.equal(guestList.shared.length, 2, 'a guest reads the shared ones');
   assert.deepEqual(guestList.shared.map((l) => l.id), patList.shared.map((l) => l.id), 'the same shared layouts a member reads');
   assert.deepEqual(guestList.system, [], 'a guest has no system layouts of their own');
@@ -1015,20 +823,10 @@ try {
   await expect('guest of A writes to B', 403, 'POST', `/api/spaces/${spaceB.id}/layouts${asGuest}`, { body: good() });
   const onlyB = (await call('GET', `/api/spaces/${spaceB.id}/layouts`, { cookie: owner })).json.shared[0].id;
   await expect('B layout removed again', 204, 'DELETE', `/api/spaces/${spaceB.id}/layouts/${onlyB}`, { cookie: owner });
-  assert.deepEqual((await call('GET', L, { cookie: sam })).json.mine, [], "sam does not see pat's own");
   n += 1;
 
-  // Changing: own by their person; shared by anyone who may share; guests never.
-  const patPath = `${L}/${patOwn.json.layout.id}`;
+  // Changing: by anyone who may share; members and guests never.
   const samPath = `${L}/${samShared.json.layout.id}`;
-  const renamed = await expect('member renames own', 200, 'PUT', patPath, { cookie: pat, body: { name: 'Quiet night' } });
-  assert.equal(renamed.json.layout.name, 'Quiet night');
-  assert.deepEqual(renamed.json.layout.modules, good().modules, 'a rename keeps the modules');
-  const replaced = await expect('member replaces own', 200, 'PUT', patPath, { cookie: pat, body: { modules: [{ id: 'chat', mode: 'dock', dockW: 400 }], snap: { all: true, pitch: 100 } } });
-  assert.equal(replaced.json.layout.name, 'Quiet night');
-  assert.deepEqual(replaced.json.layout.snap, { all: true, pitch: 100 });
-  await expect("someone else's own is not there", 404, 'PUT', patPath, { cookie: sam, body: { name: 'Mine now' } });
-  await expect("the owner cannot reach a person's own either", 404, 'DELETE', patPath, { cookie: owner });
   await expect('member renames shared', 403, 'PUT', samPath, { cookie: pat, body: { name: 'Mine now' } });
   await expect('member deletes shared', 403, 'DELETE', samPath, { cookie: pat });
   await expect('guest renames shared', 403, 'PUT', `${samPath}${asGuest}`, { body: { name: 'Guest' } });
@@ -1044,102 +842,23 @@ try {
   assert.deepEqual((await call('GET', L, { cookie: pat })).json.shared.map((l) => l.name), ['Planning day']);
   n += 1;
 
-  // The limits through the routes.
-  for (let i = 1; i < 10; i += 1) await expect(`pat's own #${i + 1}`, 201, 'POST', L, { cookie: pat, body: { ...good(), name: `Mine ${i}` } });
-  const full = await expect('the eleventh own', 409, 'POST', L, { cookie: pat, body: { ...good(), name: 'Eleventh' } });
-  assert.equal(full.json.error, 'You have 10 saved layouts here. Delete one first.');
+  // The limit through the routes; the favorite routes are gone.
   for (let i = 1; i < 10; i += 1) await expect(`shared #${i + 1}`, 201, 'POST', L, { cookie: owner, body: { ...SHB, name: `Shared ${i}`, shared: true } });
   const fullShared = await expect('the eleventh shared', 409, 'POST', L, { cookie: sam, body: { ...SHB, name: 'Eleventh', shared: true } });
   assert.equal(fullShared.json.error, 'This space has 10 shared layouts. Delete one first.');
-  const samMine = (await expect('sam may still save his own', 201, 'POST', L, { cookie: sam, body: { ...good(), name: 'Mine' } })).json.layout;
+  const sharedIds = (await call('GET', L, { cookie: pat })).json.shared.map((l) => l.id);
+  for (const method of ['PUT', 'DELETE']) assert.equal((await call(method, `${L}/${sharedIds[0]}/favorite`, { cookie: pat })).status, 404, `no ${method} .../favorite`);
+  let r;
   n += 1;
 
-  // Favorites (plan-favorite-layouts.md, step 1): each person's own, of the layouts they can see, in the order favorited.
-  const seen = (await call('GET', L, { cookie: pat })).json;
-  const patIds = seen.mine.map((l) => l.id);
-  const sharedIds = seen.shared.map((l) => l.id);
-  assert.equal(patIds.length + sharedIds.length, 20, 'pat sees 20 layouts');
-  const fav = (id) => `${L}/${id}/favorite`;
-  let r = await expect('favorite a shared layout', 200, 'PUT', fav(sharedIds[2]), { cookie: pat });
-  assert.deepEqual(r.json, { favorites: [sharedIds[2]] });
-  r = await expect('favorite own', 200, 'PUT', fav(patIds[0]), { cookie: pat });
-  assert.deepEqual(r.json.favorites, [sharedIds[2], patIds[0]], 'appended');
-  r = await expect('favorite again', 200, 'PUT', fav(sharedIds[2]), { cookie: pat });
-  assert.deepEqual(r.json.favorites, [sharedIds[2], patIds[0]], 'a repeat changes nothing');
-  r = await expect('unfavorite one that is not', 200, 'DELETE', fav(sharedIds[5]), { cookie: pat });
-  assert.deepEqual(r.json.favorites, [sharedIds[2], patIds[0]], 'unfavoriting one that is not a favorite changes nothing');
-  r = await expect('unfavorite own', 200, 'DELETE', fav(patIds[0]), { cookie: pat });
-  assert.deepEqual(r.json.favorites, [sharedIds[2]]);
-  r = await expect('unfavorite again', 200, 'DELETE', fav(patIds[0]), { cookie: pat });
-  assert.deepEqual(r.json.favorites, [sharedIds[2]]);
-  assert.deepEqual((await call('GET', L, { cookie: pat })).json.favorites, [sharedIds[2]], 'GET carries them');
-  r = await expect('sam favorites a shared one', 200, 'PUT', fav(sharedIds[0]), { cookie: sam });
-  assert.deepEqual(r.json.favorites, [sharedIds[0]], "sam's are separate");
-  await expect('sam favorites his own', 200, 'PUT', fav(samMine.id), { cookie: sam });
-  assert.deepEqual((await call('GET', L, { cookie: pat })).json.favorites, [sharedIds[2]], "pat's are untouched by sam's");
-  assert.deepEqual((await call('GET', L, { cookie: owner })).json.favorites, [], 'the owner has none');
-  assert.deepEqual((await call('GET', `${L}${asGuest}`)).json.favorites, [], 'a guest reads []');
-
-  // Refusals: a guest 403, someone not in the space 404, nobody signed in 401; a layout this person cannot see 404.
-  const guestFav = await expect('guest favorites', 403, 'PUT', `${fav(sharedIds[0])}${asGuest}`);
-  assert.equal(guestFav.json.error, 'Guests can load shared layouts but not keep favorites.');
-  await expect('guest unfavorites', 403, 'DELETE', `${fav(sharedIds[0])}${asGuest}`);
-  await expect('outsider favorites', 404, 'PUT', fav(sharedIds[0]), { cookie: out });
-  await expect('nobody signed in', 401, 'PUT', fav(sharedIds[0]));
-  const notThere = await expect("another person's own", 404, 'PUT', fav(samMine.id), { cookie: pat });
-  assert.equal(notThere.json.error, 'There is no such layout here.');
-  await expect("another person's own, unfavorite", 404, 'DELETE', fav(samMine.id), { cookie: pat });
-  await expect('an unknown layout', 404, 'PUT', fav('lnosuch'), { cookie: pat });
-  await expect('no such space', 404, 'PUT', `/api/spaces/nosuchsp/layouts/${sharedIds[0]}/favorite`, { cookie: pat });
-  assert.deepEqual((await call('GET', L, { cookie: pat })).json.favorites, [sharedIds[2]], 'refusals changed nothing');
-
-  // No limit (plan-layout-views.md, decision 13): a 4th and a 5th PUT are a 200, appended; DELETE works at any count.
-  for (const id of [patIds[3], sharedIds[0], sharedIds[6], patIds[7]]) await expect('favorite past 3', 200, 'PUT', fav(id), { cookie: pat });
-  r = await expect('repeat past 3', 200, 'PUT', fav(patIds[3]), { cookie: pat });
-  assert.deepEqual(r.json.favorites, [sharedIds[2], patIds[3], sharedIds[0], sharedIds[6], patIds[7]], 'five favorites, in order, a repeat changes nothing');
-  await expect('unfavorite at five', 200, 'DELETE', fav(patIds[3]), { cookie: pat });
-  r = await expect('and another', 200, 'DELETE', fav(patIds[7]), { cookie: pat });
-  const order = [sharedIds[2], sharedIds[0], sharedIds[6]];
-  assert.deepEqual(r.json.favorites, order);
-  const stored = readJson(path.join(dataDir, 'layouts.json')).spaces[S].favorites;
-  assert.deepEqual(stored[patUser.key], order, 'kept in layouts.json under favorites, by user key');
-  assert.deepEqual(stored[samUser.key], [sharedIds[0], samMine.id]);
-
-  // Deleting a shared layout takes it out of everyone's favorites.
-  await expect('delete a shared favorite', 204, 'DELETE', `${L}/${sharedIds[0]}`, { cookie: owner });
-  assert.deepEqual((await call('GET', L, { cookie: pat })).json.favorites, order.filter((id) => id !== sharedIds[0]), "gone from pat's");
-  assert.deepEqual((await call('GET', L, { cookie: sam })).json.favorites, [samMine.id], "gone from sam's");
-  assert.ok(!readJson(path.join(dataDir, 'layouts.json')).spaces[S].favorites[samUser.key].includes(sharedIds[0]), 'and from the file');
-  await expect('a deleted layout', 404, 'PUT', fav(sharedIds[0]), { cookie: pat });
-  await expect('replace the shared one deleted', 201, 'POST', L, { cookie: owner, body: { ...SHB, name: 'Shared again', shared: true } });
-  n += 1;
-
-  // Kept across a restart, in DATA_DIR/layouts.json.
+  // Kept across a restart, in DATA_DIR/layouts.json, with no people or favorites in it.
   await stopServer();
   const file = readJson(path.join(dataDir, 'layouts.json'));
   assert.equal(file.spaces[S].shared.length, 10);
-  assert.equal(file.spaces[S].people[patUser.key].length, 10);
+  assert.ok(!('people' in file.spaces[S]) && !('favorites' in file.spaces[S]));
   await startServer();
   const pat2 = await login('pat', 'memberpass1234');
-  assert.equal((await call('GET', L, { cookie: pat2 })).json.mine.length, 10, 'read back after a restart');
-  assert.deepEqual((await call('GET', L, { cookie: pat2 })).json.favorites, order.filter((id) => id !== sharedIds[0]), 'favorites read back after a restart');
-
-  // A stored list of more than 3 (from before the limit was lifted): GET answers all its visible ids, in order.
-  await stopServer();
-  const visibleNow = [...file.spaces[S].people[patUser.key], ...file.spaces[S].shared].map((l) => l.id);
-  const longList = ['lgone12', ...visibleNow.slice(0, 6)];
-  file.spaces[S].favorites[patUser.key] = longList;
-  fs.writeFileSync(path.join(dataDir, 'layouts.json'), JSON.stringify(file));
-  await startServer();
-  const pat3 = await login('pat', 'memberpass1234');
-  assert.deepEqual((await expect('GET with a long stored list', 200, 'GET', L, { cookie: pat3 })).json.favorites, visibleNow.slice(0, 6), 'all six visible');
-  r = await expect('a 7th, over a long stored list', 200, 'PUT', fav(visibleNow[7]), { cookie: pat3 });
-  assert.deepEqual(r.json.favorites, [...visibleNow.slice(0, 6), visibleNow[7]]);
-  r = await expect('unfavorite one', 200, 'DELETE', fav(visibleNow[1]), { cookie: pat3 });
-  assert.deepEqual(r.json.favorites, [visibleNow[0], ...visibleNow.slice(2, 6), visibleNow[7]]);
-  assert.deepEqual(readJson(path.join(dataDir, 'layouts.json')).spaces[S].favorites[patUser.key], r.json.favorites, 'the file holds them, the gone id left');
-  r = await expect('and favorite it again', 200, 'PUT', fav(visibleNow[1]), { cookie: pat3 });
-  assert.deepEqual(r.json.favorites, [visibleNow[0], ...visibleNow.slice(2, 6), visibleNow[7], visibleNow[1]]);
+  assert.equal((await call('GET', L, { cookie: pat2 })).json.shared.length, 10, 'read back after a restart');
   n += 1;
 
   // The default layout (step 4), in a space of its own: owners only, Opens with in step both ways, cleared by a delete.
@@ -1151,7 +870,7 @@ try {
   await expect('sam made moderator of Camp', 200, 'PATCH', `/api/users/${samUser.key}/spaces/${camp.id}`, { cookie: owner2, body: { permissions: { moderator: true } } });
   const night = (await expect('moderator saves shared in Camp', 201, 'POST', `${C}/layouts`, { cookie: sam2, body: { ...SHB, name: 'Game night', shared: true } })).json.layout;
   const plan = (await expect('owner saves shared in Camp', 201, 'POST', `${C}/layouts`, { cookie: owner2, body: { ...SHB, name: 'Planning', shared: true } })).json.layout;
-  const ownCamp = (await expect('owner saves own in Camp', 201, 'POST', `${C}/layouts`, { cookie: owner2, body: { ...good(), name: 'Mine' } })).json.layout;
+  const ownCamp = (await expect('owner adds a workspace of their own in Camp', 201, 'POST', `${C}/workspaces`, { cookie: owner2, body: { name: 'Mine' } })).json.workspace;
   const forSpace = async (cookie, query = '') => (await expect('for-space', 200, 'GET', `/api/modules/for-space?space=${camp.id}${query}`, { cookie })).json;
   assert.equal((await forSpace(pat2)).defaultLayout, null, 'for-space: null while none is set');
   assert.equal((await call('GET', `${C}/layouts`, { cookie: pat2 })).json.defaultLayout, null);
@@ -1166,7 +885,7 @@ try {
   assert.equal((await call('GET', `${C}/layouts`, { cookie: pat2 })).json.defaultLayout, night.id, 'a moderator set it');
   await expect('moderator stops using it', 200, 'PATCH', C, { cookie: sam2, body: { defaultLayout: null } });
   assert.equal((await call('GET', `${C}/layouts`, { cookie: owner2 })).json.defaultLayout, null);
-  await expect("a person's own layout", 404, 'PATCH', C, { cookie: owner2, body: { defaultLayout: ownCamp.id } });
+  await expect("a person's own workspace", 404, 'PATCH', C, { cookie: owner2, body: { defaultLayout: ownCamp.id } });
   await expect('no such layout', 404, 'PATCH', C, { cookie: owner2, body: { defaultLayout: 'lnosuch' } });
   await expect('not an id', 400, 'PATCH', C, { cookie: owner2, body: { defaultLayout: 12 } });
   await expect('a layout of another space', 404, 'PATCH', C, { cookie: owner2, body: { defaultLayout: samShared.json.layout.id } });
@@ -1223,13 +942,12 @@ try {
   n += 1;
 
   // System layouts through the routes (plan-layout-views.md, step 1). First with the Calendar off: only the Workspace, and
-  // the Calendar's and Map's ids are not there (404) for a PATCH or a favorite.
+  // the Calendar's and Map's ids are not there (404) for a PATCH.
+  const pat3 = await login('pat', 'memberpass1234');
   const SYS = `${L}/system`;
   const idsOf = async (cookie) => (await call('GET', L, { cookie })).json.system.map((l) => l.id);
   assert.deepEqual(await idsOf(pat3), ['workspace'], 'no Calendar layout while the Calendar is off in the space');
   await expect('PATCH Calendar while off', 404, 'PATCH', `${SYS}/calendar`, { cookie: pat3, body: { name: 'x' } });
-  await expect('favorite Calendar while off', 404, 'PUT', fav('calendar'), { cookie: pat3 });
-  await expect('favorite Map with no Maps', 404, 'PUT', fav('map'), { cookie: pat3 });
   await expect('PATCH an unknown system id', 404, 'PATCH', `${SYS}/nosuch`, { cookie: pat3, body: { name: 'x' } });
 
   // The first visit cannot be Calendar or Map while it is not on in the space (step 5): one plain sentence, 404.
@@ -1303,39 +1021,17 @@ try {
   await expect('null back to Workspace', 200, 'PATCH', `/api/spaces/${S}`, { cookie: owner2, body: { defaultLayout: null } });
   assert.deepEqual(await firstVisitOf(pat3), { layout: 'workspace', shape: ONE });
 
-  // Favorites: a Fixed Workspace the owner shows is pinned (plan-templates-redesign.md, decision 9), so nobody takes its tab
-  // off for themselves: un-favoriting it is 409 and stores nothing; favoriting it is a 200 that changes nothing. The
-  // Workspace cannot be un-favorited; none counts toward anything else, and the saved layouts' favorites are unchanged.
-  const savedFavs = (await call('GET', L, { cookie: pat3 })).json.favorites;
-  r = await expect('unfavorite Calendar', 409, 'DELETE', fav('calendar'), { cookie: pat3 });
-  assert.equal(r.json.error, 'The owner keeps this one in the bar.');
-  assert.equal((await call('GET', L, { cookie: pat3 })).json.system[1].tab, true, 'its tab is still on');
-  assert.equal((await call('GET', L, { cookie: pat3 })).json.system[1].pinned, true, 'and pinned');
-  assert.ok(!('tab' in (readJson(path.join(dataDir, 'layouts.json')).spaces[S].system[patUser.key].calendar)), 'nothing was stored');
-  r = await expect('favorite Calendar', 200, 'PUT', fav('calendar'), { cookie: pat3 });
-  assert.deepEqual([r.json.layout.tab, r.json.layout.name], [true, 'Our plans']);
-  assert.deepEqual(r.json.favorites, savedFavs, 'the saved layouts\' favorites are unchanged');
-  assert.equal((await expect('unfavorite Workspace', 400, 'DELETE', fav('workspace'), { cookie: pat3 })).json.error, 'The Workspace is always shown.');
-  r = await expect('favorite Workspace', 200, 'PUT', fav('workspace'), { cookie: pat3 });
-  assert.equal(r.json.layout.tab, true, 'it always has its tab');
-  await expect('guest favorites Calendar', 403, 'PUT', `${fav('calendar')}${asGuest}`);
-  await expect('outsider favorites Calendar', 404, 'PUT', fav('calendar'), { cookie: out });
+  // A Fixed Workspace the owner shows is pinned (plan-templates-redesign.md, decision 9): nobody takes its tab off for
+  // themselves; the favorite routes are gone (plan-workspaces.md, decision 44).
+  assert.equal((await call('GET', L, { cookie: pat3 })).json.system[1].pinned, true, 'pinned');
+  assert.equal((await call('DELETE', `${L}/calendar/favorite`, { cookie: pat3 })).status, 404, 'no favorite route');
 
-  // More than three saved favorites in a space where the system layouts also have tabs: all accepted.
-  const many = (await call('GET', L, { cookie: pat3 })).json;
-  const others = [...many.mine, ...many.shared].map((l) => l.id).filter((id) => !many.favorites.includes(id));
-  for (const id of others.slice(0, 5)) await expect('another favorite', 200, 'PUT', fav(id), { cookie: pat3 });
-  assert.equal((await call('GET', L, { cookie: pat3 })).json.favorites.length, many.favorites.length + 5, 'no limit');
-
-  // User layouts carry kind and icon; a stored icon is checked against the icon list.
-  const iconed = await expect('save with an icon', 201, 'POST', L, { cookie: sam2, body: { ...good(), name: 'With icon', icon: 'couch' } });
-  assert.equal(iconed.json.layout.icon, 'couch');
-  await expect('save with a bad icon', 400, 'POST', L, { cookie: sam2, body: { ...good(), name: 'Bad icon', icon: 'no-such-icon-here' } });
+  // Layouts carry kind and icon; an icon is checked against the icon list.
+  r = await expect('change a layout\'s icon', 200, 'PUT', `${L}/${sharedIds[1]}`, { cookie: sam2, body: { icon: 'couch' } });
+  assert.equal(r.json.layout.icon, 'couch');
+  await expect('a bad icon', 400, 'PUT', `${L}/${sharedIds[1]}`, { cookie: sam2, body: { icon: 'no-such-icon-here' } });
   const listedNow = (await call('GET', L, { cookie: sam2 })).json;
-  assert.deepEqual(listedNow.mine.map((l) => [l.name, l.kind, l.icon]), [['Mine', 'user', 'object-group'], ['With icon', 'user', 'couch']], 'each own layout has kind user and an icon');
-  assert.ok(listedNow.shared.every((l) => l.kind === 'user' && typeof l.icon === 'string'), 'and each shared one');
-  r = await expect('change a layout\'s icon', 200, 'PUT', `${L}/${iconed.json.layout.id}`, { cookie: sam2, body: { icon: 'star' } });
-  assert.equal(r.json.layout.icon, 'star');
+  assert.ok(listedNow.shared.every((l) => l.kind === 'user' && typeof l.icon === 'string'), 'each shared one has kind user and an icon');
 
   // Turning the Calendar off takes the layout away, and the person's choices stay stored for when it is back.
   await expect('Calendar off', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: false } });
@@ -1398,10 +1094,10 @@ try {
   }
   await refusedShape('a hostile id twice', { shape: 'two-equal', areas: ['a\nb', 'a\nb'] });
   await refusedShape('an object as an area', { shape: 'one', areas: [{}] }, /^Area 1 takes a module or nothing\.$/);
-  // A personal layout stays free-form and takes no shape; a refusal for it too.
+  // A layout of one's own is a workspace now (plan-workspaces.md, decision 44): refused with or without a shape.
   const personalShape = await expect('a personal layout with a shape', 400, 'POST', LC, { cookie: pat3, body: { name: 'Mine shaped', ...SHB } });
-  assert.equal(personalShape.json.error, 'Only a layout for everyone is a shape; a layout of your own is saved as it is on the canvas.');
-  await expect('a personal layout with modules still saves', 201, 'POST', LC, { cookie: pat3, body: { name: 'Mine free', modules: [{ id: 'polls', mode: 'float', box: { x: 0.1, y: 0.1, w: 0.4, h: 0.4 } }] } });
+  assert.equal(personalShape.json.error, 'A layout of your own is a workspace now: add one with New workspace, in the tabs\' menu.');
+  await expect('a personal layout with modules too', 400, 'POST', LC, { cookie: pat3, body: { name: 'Mine free', modules: [{ id: 'polls', mode: 'float', box: { x: 0.1, y: 0.1, w: 0.4, h: 0.4 } }] } });
   // Who may: a member and a guest are refused (403) before anything is read, so they learn nothing about the space.
   assert.equal((await expect('member saves a shape', 403, 'POST', LC, { cookie: pat3, body: { name: 'Nope', shared: true, shape: 'nine', areas: 7 } })).json.error, "Only owners, the admin and this space's moderators can change shared layouts.");
   await expect('guest saves a shape', 403, 'POST', `${LC}${campGuest.replace('?', '?')}`, { body: { name: 'Nope', shared: true, ...SHB } });
@@ -1418,9 +1114,6 @@ try {
   assert.deepEqual((await sharedOf(pat3)).shared.find((l) => l.id === duo.id).areas, ['calendar', null, 'polls'], 'the refused replace left it as it was');
   await expect('member replaces a shape', 403, 'PUT', duoPath, { cookie: pat3, body: { shape: 'one', areas: [null] } });
   assert.equal((await expect('a PUT with nothing', 400, 'PUT', duoPath, { cookie: sam2, body: {} })).json.error, 'Send a new name, or a shape and its areas to replace the layout with.');
-  const patFree = (await sharedOf(pat3)).mine.find((l) => l.name === 'Mine free');
-  assert.equal((await expect('a shape on a personal PUT', 400, 'PUT', `${LC}/${patFree.id}`, { cookie: pat3, body: { shape: 'one', areas: [null] } })).json.error, 'Only a layout for everyone is a shape; a layout of your own is saved as it is on the canvas.');
-  await expect('a personal replace stays free-form', 200, 'PUT', `${LC}/${patFree.id}`, { cookie: pat3, body: { modules: [{ id: 'polls', mode: 'dock' }] } });
 
   // cantOpen: answered to the owner, the admin and the space's moderators, whether or not they saved the layout; never to a
   // member or a guest. Every module on in the space is in it, and a module a layout names that is off.
@@ -1507,16 +1200,12 @@ try {
   assert.deepEqual(listed.shared.find((l) => l.id === stackedShared.id).areas, ['calendar', 'polls', null], 'a member reads the shape');
   assert.equal(listed.defaultLayout, stackedShared.id, 'as the default layout');
   assert.deepEqual(listed.firstVisit.layout, stackedShared.id, 'and a first visit opens it');
-  const stackedOwn = (await expect('a person saves their own with a stack', 201, 'POST', `${C}/layouts`, { cookie: pat3, body: { name: 'Mine stacked', modules: stackBody } })).json.layout;
-  assert.deepEqual(stackedOwn.modules, stackBody, 'their own keeps it');
-  assert.deepEqual(readJson(path.join(dataDir, 'layouts.json')).spaces[camp.id].people[patUser.key].find((l) => l.id === stackedOwn.id).modules, stackBody, 'and it is stored');
-  const messy = [st('calendar', { stack: 's9', at: 0 }), st('chat', { stack: 'q', at: 0 }), st('todo', { stack: 'q', at: 1 }), st('polls', { stack: 'q', at: 2 })];
-  const cleanedPut = (await expect('a replace is cleaned', 200, 'PUT', `${C}/layouts/${stackedOwn.id}`, { cookie: pat3, body: { modules: messy } })).json.layout;
-  assert.deepEqual(cleanedPut.modules, [st('calendar'), st('chat'), st('todo', { stack: 'q', at: 0 }), st('polls', { stack: 'q', at: 1 })], 'a lone stack and Chat in a stack are cleaned');
+  // A person's own stacks are kept in their workspace's arrangement (server/workspaces.js, check-workspaces), not here.
+  await expect('a person\'s own layout with a stack is refused', 400, 'POST', `${C}/layouts`, { cookie: pat3, body: { name: 'Mine stacked', modules: stackBody } });
   n += 1;
 
   // A data folder that holds a free-form shared layout (from before shared layouts were shapes): it is not listed, a space's
-  // default that named it falls back to the Workspace, favorites and last layouts that named it are gone, and the shapes stay.
+  // default that named it falls back to the Workspace, last layouts that named it are gone, and the shapes stay.
   await stopServer();
   const oldFile = readJson(path.join(dataDir, 'layouts.json'));
   const campEntry = oldFile.spaces[camp.id];
@@ -1524,7 +1213,6 @@ try {
   keptShapes.push('lvault01');
   campEntry.shared.push({ id: 'lvault01', name: 'Names one', by: samUser.key, at: '2026-10-02T00:00:00.000Z', shape: 'two-equal', areas: ['vault', 'ghostmod'] });
   campEntry.shared.unshift({ id: 'lfreefm', name: 'Old free-form', by: samUser.key, at: '2026-10-01T00:00:00.000Z', modules: [{ id: 'calendar', mode: 'dock', dockW: 360 }], snap: { all: false, pitch: 130 } });
-  campEntry.favorites = { ...(campEntry.favorites || {}), [patUser.key]: ['lfreefm', keptShapes[0]] };
   campEntry.last = { ...(campEntry.last || {}), [patUser.key]: { layout: 'lfreefm', at: 1 } };
   fs.writeFileSync(path.join(dataDir, 'layouts.json'), JSON.stringify(oldFile));
   const appPath = path.join(dataDir, 'app.json');
@@ -1539,7 +1227,7 @@ try {
   assert.ok(oldRead.shared.every((l) => typeof l.shape === 'string' && Array.isArray(l.areas) && !('modules' in l)), 'every shared layout is a shape');
   assert.equal(oldRead.defaultLayout, null, 'a default that named it reads as none');
   assert.deepEqual(oldRead.firstVisit, { layout: 'workspace', shape: ONE }, 'the first visit falls back to the Workspace');
-  assert.ok(!oldRead.favorites.includes('lfreefm') && oldRead.last !== 'lfreefm', 'no favorite or last layout names it');
+  assert.ok(oldRead.last !== 'lfreefm', 'no last layout names it');
   assert.equal((await forSpace(pat4)).defaultLayout, null, 'for-space carries no default either');
   assert.equal((await call('GET', `${C}/layouts${campGuest}`)).json.defaultLayout, null, 'nor for a guest');
   await expect('the dropped layout is not there', 404, 'PUT', `${C}/layouts/lfreefm`, { cookie: sam4, body: { name: 'Back' } });
@@ -1597,12 +1285,10 @@ try {
   await expect('guests read the Plan again', 200, 'PATCH', '/api/roles/guest', { cookie: owner2, body: { 'module.schedule.view': true } });
   n += 1;
 
-  // A removed person takes their own layouts; a removed space takes all of its layouts.
+  // A removed person takes their own choices; a removed space takes all of its layouts.
   await expect('remove Camp', 200, 'DELETE', C, { cookie: owner2 });
   await expect('remove pat', 200, 'DELETE', `/api/users/${patUser.key}`, { cookie: owner2 });
-  assert.ok(!readJson(path.join(dataDir, 'layouts.json')).spaces[S].people[patUser.key], "pat's layouts are gone");
-  assert.ok(!readJson(path.join(dataDir, 'layouts.json')).spaces[S].system?.[patUser.key], "and pat's system choices");
-  assert.deepEqual(Object.keys(readJson(path.join(dataDir, 'layouts.json')).spaces[S].favorites), [samUser.key], "pat's favorites are gone, sam's stay");
+  assert.ok(!readJson(path.join(dataDir, 'layouts.json')).spaces[S].system?.[patUser.key], "pat's system choices are gone");
   assert.equal(readJson(path.join(dataDir, 'layouts.json')).spaces[S].shared.length, 10, 'the shared ones stay');
   await expect('remove the space', 200, 'DELETE', `/api/spaces/${S}`, { cookie: owner2 });
   assert.deepEqual(readJson(path.join(dataDir, 'layouts.json')), { spaces: {} }, "the space's layouts are gone");

@@ -16,7 +16,7 @@
  *      layoutRecord takes exactly what the server's cleanShape takes, for every shape and arrangement, Calendar on and off;
  *      a tick that moves modules says what moved (movedNote), and none of these lines carries a direction character.
  *   2. In Chromium (skipped, said so, when there is none), with real keys over the DevTools protocol, at 1280 and 390, light
- *      and dark: six shapes drawn in two rows of three, each with its number of areas at the shape's percentages; picking a
+ *      and dark: nine shapes drawn in three rows of three, each with its number of areas at the shape's percentages; picking a
  *      shape carries the areas sensibly and a shape change never loses the list it carries from; the area menu offers Empty
  *      first, then what the area may hold (no Calendar or Maps in a stacked area, no To-do there while the Calendar is on,
  *      To-do there when it is off); a module chosen in a second area leaves the first; the keyboard (arrows on the shapes,
@@ -360,26 +360,26 @@ else {
     const save = async (ids) => { await ev("document.querySelector('.action-bar-save').click()"); await wait(80); const r = await ev('JSON.stringify(window.__saved[window.__saved.length - 1] || null)').then(JSON.parse); records.push({ r, ids }); return r; };
 
     for (const mode of ['dark', 'light']) {
-      // --- the six shapes, at 1280 ---
+      // --- the nine shapes, at 1280 ---
       await open({ width: 1280, mode, opts: {} });
       const drawn = await ev(`[...document.querySelectorAll('.layout-picker-shape')].map((b) => { const r = b.getBoundingClientRect(); const view = b.querySelector('.layout-picker-view').getBoundingClientRect();
         const cols = [...b.querySelectorAll('.layout-picker-col')]; const gaps = (cols.length - 1) * parseFloat(getComputedStyle(b.querySelector('.layout-picker-view')).columnGap || 0);
         return { id: b.dataset.shape, role: b.getAttribute('role'), checked: b.getAttribute('aria-checked'), tab: b.tabIndex, top: Math.round(r.top), cells: b.querySelectorAll('.layout-picker-cell').length,
           band: b.querySelector('.layout-picker-band').getBoundingClientRect().width / b.querySelector('.layout-picker-drawing').getBoundingClientRect().width,
           shares: cols.map((c) => 100 * c.getBoundingClientRect().width / (view.width - gaps)), stacked: cols.map((c) => c.querySelectorAll('.layout-picker-cell').length) }; })`);
-      ok(drawn.length === 6, `${mode}: ${drawn.length} shapes drawn, wanted 6`);
-      ok(new Set(drawn.map((d) => d.top)).size === 2 && drawn.slice(0, 3).every((d) => d.top === drawn[0].top), `${mode}: the shapes are not two rows of three`);
+      ok(drawn.length === SHAPES.length, `${mode}: ${drawn.length} shapes drawn, wanted ${SHAPES.length}`);
+      ok(new Set(drawn.map((d) => d.top)).size === SHAPES.length / 3 && [0, 3, 6].every((r) => drawn.slice(r, r + 3).every((d) => d.top === drawn[r].top)), `${mode}: the shapes are not rows of three`);
       ok(await ev("document.querySelector('.layout-picker-shapes').getAttribute('role') === 'radiogroup' && Boolean(document.querySelector('.layout-picker-shapes').getAttribute('aria-labelledby'))"), `${mode}: the shapes are not a named radio group`);
-      ok(drawn.every((d) => d.role === 'radio' && d.checked === 'false') && drawn.filter((d) => d.tab === 0).length === 1, `${mode}: a new layout should have six radios, none checked, one Tab stop`);
+      ok(drawn.every((d) => d.role === 'radio' && d.checked === 'false') && drawn.filter((d) => d.tab === 0).length === 1, `${mode}: a new layout should have a radio per shape, none checked, one Tab stop`);
       for (const d of drawn) {
         const def = shapeById(d.id);
         ok(d.cells === def.areas, `${mode} ${d.id}: ${d.cells} areas drawn, wanted ${def.areas}`);
         ok(d.shares.length === def.columns.length && d.shares.every((x, i) => Math.abs(x - def.columns[i]) < 1.5), `${mode} ${d.id}: the columns are ${d.shares.map((x) => x.toFixed(1)).join(', ')} percent, wanted ${def.columns.map((x) => x.toFixed(1)).join(', ')}`);
-        ok(d.stacked.reduce((a, x) => a + x, 0) === def.areas && d.stacked.filter((x) => x === 2).length === (def.stacked.length ? 1 : 0), `${mode} ${d.id}: the stacked areas are not drawn in one column`);
+        ok(d.stacked.reduce((a, x) => a + x, 0) === def.areas && d.stacked.filter((x) => x === 2).length === def.stacked.length / 2, `${mode} ${d.id}: the stacked areas are not drawn two to a column`);
         ok(d.band > 0.08 && d.band < 0.2, `${mode} ${d.id}: the chat and call band is ${(d.band * 100).toFixed(0)}% of the drawing; it should be a narrow band`);
       }
-      eq((await ax('radio')).map((r) => r.name), ['One', 'Two equal', 'Large and narrow', 'Three equal', 'Two, right split', 'Large, right split'], `${mode}: each shape's name is its label alone`);
-      ok((await ax('radio')).every((r) => /^(One|Two|A|Three)\b.*\.$/.test(r.description)), `${mode}: a shape's description is missing`);
+      eq((await ax('radio')).map((r) => r.name), ['One', 'Two equal', 'Large and narrow', 'Three equal', 'Two, right split', 'Large, right split', 'Two large, right split', 'Two large, left split', 'Quarters'], `${mode}: each shape's name is its label alone`);
+      ok((await ax('radio')).every((r) => /^(One|Two|A|Three|Four)\b.*\.$/.test(r.description)), `${mode}: a shape's description is missing`);
       ok(await ev("document.querySelector('[data-step=\"2\"]').disabled"), `${mode}: step 2 is reachable before a shape is picked`);
       ok(await ev("document.querySelector('.action-bar-save').disabled"), `${mode}: Save is on before anything is picked`);
 
@@ -391,11 +391,13 @@ else {
       await key('ArrowDown');
       eq((await value()).shape, 'tall-split', `${mode}: ArrowDown picks the shape below`);
       await key('End');
-      eq((await value()).shape, 'wide-split', `${mode}: End picks the last shape`);
+      eq((await value()).shape, 'quarters', `${mode}: End picks the last shape`);
       await key('Home');
       eq((await value()).shape, 'one', `${mode}: Home picks the first shape`);
       await key('ArrowLeft');
-      eq((await value()).shape, 'wide-split', `${mode}: ArrowLeft wraps round`);
+      eq((await value()).shape, 'quarters', `${mode}: ArrowLeft wraps round`);
+      await key('ArrowUp');
+      eq((await value()).shape, 'wide-split', `${mode}: ArrowUp picks the shape above`);
       ok(await ev("document.querySelectorAll('.layout-picker-shape[aria-checked=\"true\"]').length === 1 && document.querySelector('.layout-picker-shape[aria-checked=\"true\"]').tabIndex === 0"), `${mode}: one shape checked and it is the Tab stop`);
       await key('Enter');
       ok((await ev('window.__p.step()')) === 2, `${mode}: Enter on a shape did not go on to step 2`);
@@ -542,7 +544,7 @@ else {
       eq(await save(MODS.map((m) => m.id)), { shape: 'wide-split', areas: ['calendar', 'goals', 'whiteboard'] }, `${mode} 390: a row's pick is saved`);
       await ev("document.querySelector('.layout-picker-nav').click()");
       const shapes = await ev("[...document.querySelectorAll('.layout-picker-shape')].map((b) => { const r = b.getBoundingClientRect(); return { top: Math.round(r.top), h: r.height, right: r.right }; })");
-      ok(new Set(shapes.map((x) => x.top)).size === 2 && shapes.every((x) => x.h >= 44 && x.right <= 390), `${mode} 390: the shapes are not two rows of three inside the screen: ${JSON.stringify(shapes)}`);
+      ok(new Set(shapes.map((x) => x.top)).size === SHAPES.length / 3 && shapes.every((x) => x.h >= 44 && x.right <= 390), `${mode} 390: the shapes are not rows of three inside the screen: ${JSON.stringify(shapes)}`);
     }
     // The Design System page shows each notice form: its layout-picker entries, run here as the page runs them.
     {
