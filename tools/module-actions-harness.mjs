@@ -70,6 +70,8 @@ export function standInHost(world, id) {
     schedule: async (spec) => { effect('schedule', spec); return { key: spec.key }; },
     cancelSchedule: async (key) => { effect('cancelSchedule', { key }); return { key, cancelled: true }; },
     notify: async (spec) => { effect('notify', spec); return { delivered: 1 }; },
+    // The main phase's end moved to cover a day (host.phasesCover): written down, and nothing of the world's is moved.
+    phasesCover: async (day) => { effect('phasesCover', { day }); return null; },
     objects: { setLinks: async (from, to, o) => { effect('setLinks', { from, to, ...(o || {}) }); return { links: to.length }; }, resolve: async (refs) => refs.map((r) => (world.summaries || []).find((s) => objectKey(s.ref) === objectKey(r)) || { error: 'gone' }) },
     storage: {
       list: async (prefix) => [...store].filter(([k]) => k.startsWith(prefix || '')).map(([key, v]) => ({ key, value: JSON.parse(JSON.stringify(v.value)), version: v.version })),
@@ -90,9 +92,9 @@ export function standInHost(world, id) {
 const carried = (credit) => ({ from: 'agent', by: credit.name, byKey: credit.key, credit });
 
 // Through the page adapter: { writes: [{ key, value }], ref, data, effects } or { refused }. `effects` is what the handler
-// answered beside its writes ({ links, schedules, notify }, as the runner's outcomeOf gives them), and `o.calls`, when
+// answered beside its writes ({ links, schedules, notify, phaseEnd? }, as the runner's outcomeOf gives them), and `o.calls`, when
 // given (an array), is filled with the host calls the adapter made for them, in order ({ call: 'setLinks' | 'schedule' | 'cancelSchedule' |
-// 'notify', ...what it was given }).
+// 'phasesCover' | 'notify', ...what it was given }).
 export async function onPage(id, action, input, world, o = {}) {
   const credit = o.credit || { name: 'Claude (agent)', key: 'agent1' };
   const { host, store, calls } = standInHost(world, id);
@@ -124,7 +126,10 @@ export async function onRunner(id, action, input, world, o = {}) {
   const answer = await runner.run({ code, filename: `modules/${id}/src/${id}-lib-actions.js`, action, inputText: JSON.stringify(input), ctxText: JSON.stringify(ctx), dataText: JSON.stringify(world.rows || {}), localeText: JSON.stringify(localeOf(id)) });
   const space = world.space && world.space.id;
   const kinds = o.kinds || null;
-  return outcomeOf(answer, { own: (ref) => ref.module === id && ref.scope === 'space' && ref.space === space && (!kinds || kinds.includes(ref.kind)) });
+  // The main phase's end only for an action whose manifest says so (`phaseEnd: true`), as server/index.js holds it.
+  let mayEnd = false;
+  try { mayEnd = (JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', id, 'module.json'), 'utf8')).actions?.provides || []).some((a) => a.name === action && a.phaseEnd === true); } catch { mayEnd = false; }
+  return outcomeOf(answer, { phaseEnd: mayEnd, own: (ref) => ref.module === id && ref.scope === 'space' && ref.space === space && (!kinds || kinds.includes(ref.kind)) });
 }
 
 // Both ways, for a test to compare: { page, runner }.

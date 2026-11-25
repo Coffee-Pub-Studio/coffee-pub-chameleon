@@ -25,8 +25,9 @@
 // it made or changed (`ref`, one of the module's own kinds in that space), a little plain data (`data`, with `data.note`
 // the line request_status shows) and, as plain data the server then carries out as the agent (server/action-effects.js):
 // `links` (at most 5 link changes from its own objects), `schedules` (at most 5 set or cancelled, about its own objects,
-// with the module's schedule hook) and `notify` (at most 1 notice, with its notify hook). A phase's end is still only a
-// page's. A throw is a refusal, and its message is the sentence the agent reads.
+// with the module's schedule hook), `notify` (at most 1 notice, with its notify hook) and `phaseEnd` ({ date }: the space's
+// main phase's end moved later to cover that day, only for an action whose manifest says `phaseEnd: true`). A throw is a
+// refusal, and its message is the sentence the agent reads.
 //
 // This file loads the code (only ever from the deployment's own modules/ folder, never from what is installed in
 // DATA_DIR, and only while the installed module is that very bundled version), runs it in a process of its own with a
@@ -180,12 +181,13 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
 }
 
 // What a handler answered, checked: { refused: sentence } | { fault } | { writes: [{ key, value }], ref, data, effects:
-// { links, schedules, notify } } (the effects as server/action-effects.js effectsOf checks them).
-// `own(ref)` says whether a pointer is one of the module's own kinds in the request's space. Nothing in the answer is
-// trusted: only these fields, of these types, within these sizes.
+// { links, schedules, notify, phaseEnd? } } (the effects as server/action-effects.js effectsOf checks them).
+// `own(ref)` says whether a pointer is one of the module's own kinds in the request's space; `phaseEnd` whether the action
+// may move the main phase's end (its manifest says so). Nothing in the answer is trusted: only these fields, of these
+// types, within these sizes.
 const plainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 const oneLine = (v) => String(v).replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, LIMITS.sentence);
-function outcomeOf(answer, { own }) {
+function outcomeOf(answer, { own, phaseEnd = false }) {
   if (!answer || typeof answer.text !== 'string') return { fault: answer && answer.fault ? answer.fault : 'unanswered' };
   if (answer.text.length > LIMITS.resultBytes) return { fault: 'size' };
   let parsed;
@@ -196,7 +198,7 @@ function outcomeOf(answer, { own }) {
   // A handler that answers nothing changed nothing.
   const result = parsed.result === null ? {} : parsed.result;
   if (!plainObject(result)) return { fault: 'result' };
-  for (const k of Object.keys(result)) if (!['writes', 'ref', 'data', 'links', 'schedules', 'notify'].includes(k)) return { fault: 'result' };
+  for (const k of Object.keys(result)) if (!['writes', 'ref', 'data', 'links', 'schedules', 'notify', 'phaseEnd'].includes(k)) return { fault: 'result' };
   const given = result.writes === undefined || result.writes === null ? [] : result.writes;
   if (!Array.isArray(given) || given.length > LIMITS.writes) return { fault: Array.isArray(given) ? 'writes' : 'result' };
   const writes = [];
@@ -224,8 +226,9 @@ function outcomeOf(answer, { own }) {
     if (text.length > LIMITS.answerDataBytes) return { fault: 'size' };
     data = JSON.parse(text);
   }
-  // What it asks the server to do beside the writes (server/action-effects.js): links, schedules and one notice.
-  const effects = effectsOf(result, { own });
+  // What it asks the server to do beside the writes (server/action-effects.js): links, schedules, the main phase's end
+  // and one notice.
+  const effects = effectsOf(result, { own, phaseEnd });
   if (effects.fault) return { fault: effects.fault };
   return { writes, ref, ...(data !== undefined ? { data } : {}), effects };
 }

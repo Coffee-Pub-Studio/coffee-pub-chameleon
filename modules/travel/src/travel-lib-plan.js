@@ -540,9 +540,9 @@
       });
     }
     // What only a page does once a request's writes are in: the plan shows them at once, tells the host what each entry points
-    // at and which files it has, asks for the summaries of what is new, moves the main phase's end when the plan has phases
-    // (the space's, which the server's runner leaves), and says the request's note here.
-    async function absorb({ writes, data }) {
+    // at and which files it has, asks for the summaries of what is new, reads the plan's days again when the request moved the
+    // main phase's end, and says the request's note here.
+    async function absorb({ writes, data, effects }) {
       for (const w of writes) remember(w.key, w.value, w.version);
       changed();
       for (const w of writes) {
@@ -553,12 +553,9 @@
         const was = before && linkOf(before) ? objectKey(linkOf(before)) : '';
         if (was !== (linkOf(cur.item) ? objectKey(linkOf(cur.item)) : '')) setLink(id, linkOf(cur.item), cur.item.files);
         if (((before && before.files) || []).map(objectKey).join() !== (cur.item.files || []).map(objectKey).join()) tellFiles(id, (before && before.files) || [], cur.item.files || []);
-        if (phased()) {
-          const current = withDates(trip);
-          const span = coverTrip(current, coverDaysOf(cur.item), cur.item, templatePhases());
-          if (span && span.end && current && span.end > current.end) await coverDay(span.end).catch(() => {});
-        }
       }
+      // The main phase's end the request moved (the handler's `phaseEnd`, done by the SDK): the plan reads its days again.
+      if (effects && effects.phaseEnd) refreshPhases();
       resolveSummaries().catch(() => {});
       if (data && data.note && tell) tell(data.note);
     }

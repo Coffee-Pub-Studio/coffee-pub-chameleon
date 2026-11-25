@@ -170,16 +170,40 @@ await test('updatePlan: "" clears the time, minutes, cost or notes (the manifest
   assert.equal(act.patch, true);
   assert.equal(m.actions.server, 'src/travel-lib-actions.js');
 });
-await test('with phases, carried on the server: the main phase\'s end is not moved, and the note says so', async () => {
+await test('with phases: the main phase\'s end is answered as phaseEnd, the same on a page and on the server, and nothing waits', async () => {
   const phased = world({}, { phases: [{ id: 'trip', main: true }], bands: [{ id: 'trip', label: 'Trip', main: true, start: '2026-10-01', end: '2026-10-03', dated: true }] });
-  const page = await onPage('travel', 'addStop', { title: 'Sintra', date: '2026-10-05' }, phased, { name: 'Planner - Itinerary' });
+  const calls = [];
+  const page = await onPage('travel', 'addStop', { title: 'Sintra', date: '2026-10-05' }, phased, { name: 'Planner - Itinerary', calls });
   assert.deepEqual(page.writes.map((w) => w.key), ['plan:n1'], 'no trip write with phases');
-  assert.equal(page.data, undefined, 'a page moves the phase after (absorb): nothing to say');
-  const server = await onRunner('travel', 'addStop', { title: 'Sintra', date: '2026-10-05' }, phased, { carrier: 'server', kinds: ['trip', 'plan'] });
-  assert.deepEqual(server.writes.map((w) => w.key), ['plan:n1'], 'nothing of the space\'s is written');
-  assert.equal(server.data.note, "That is after the plan's last day, 2026-10-03, which was not moved. A person can add days to the plan in the itinerary.");
-  const inside = await onRunner('travel', 'addStop', { title: 'Castle', date: '2026-10-02' }, phased, { carrier: 'server', kinds: ['trip', 'plan'] });
-  assert.equal(inside.data, undefined, 'a day on the plan: nothing to say');
+  assert.equal(page.data, undefined, 'nothing to say');
+  assert.deepEqual(page.effects.phaseEnd, { date: '2026-10-05' });
+  assert.deepEqual(calls, [{ call: 'phasesCover', day: '2026-10-05' }], 'the page\'s adapter moves it through the host');
+  for (const carrier of ['server', undefined]) {
+    const server = await onRunner('travel', 'addStop', { title: 'Sintra', date: '2026-10-05' }, phased, { carrier, kinds: ['trip', 'plan'] });
+    assert.equal(server.fault, undefined, `the runner takes it (${server.fault})`);
+    assert.deepEqual(server.writes.map((w) => w.key), ['plan:n1'], 'nothing of the space\'s is written by the module');
+    assert.equal(server.data, undefined, 'no note that a person must add days');
+    assert.deepEqual(server.effects.phaseEnd, page.effects.phaseEnd, 'the same answer as the page');
+  }
+  const inside = await both('travel', 'addStop', { title: 'Castle', date: '2026-10-02' }, phased, { name: 'Planner - Itinerary', carrier: 'server', kinds: ['trip', 'plan'] });
+  assert.deepEqual([inside.page.effects.phaseEnd, inside.runner.effects.phaseEnd, inside.runner.data], [undefined, undefined, undefined], 'a day on the plan: nothing moves');
+  // An edit that moves an entry past the last day, and an object handed in, answer it too; a day past 60 does not.
+  const moved = await both('travel', 'updatePlan', { entry: entry('f1'), date: '2026-10-08' }, { ...phased, rows: { ...phased.rows, 'plan:f1': { ...FLIGHT } } }, { name: 'Planner - Itinerary', carrier: 'server', kinds: ['trip', 'plan'] });
+  assert.deepEqual([moved.page.effects.phaseEnd, moved.runner.effects.phaseEnd], [{ date: '2026-10-08' }, { date: '2026-10-08' }]);
+  const handed = await both('travel', 'acceptSuggestion', { title: 'Museum', kind: 'museum', date: '2026-10-04' }, phased, { name: 'Planner - Itinerary', carrier: 'server', kinds: ['trip', 'plan'] });
+  assert.deepEqual([handed.page.effects.phaseEnd, handed.runner.effects.phaseEnd], [{ date: '2026-10-04' }, { date: '2026-10-04' }]);
+  const far = await both('travel', 'addStop', { title: 'Far', date: '2027-03-01' }, phased, { name: 'Planner - Itinerary', carrier: 'server', kinds: ['trip', 'plan'] });
+  assert.deepEqual([far.page.effects.phaseEnd, far.runner.effects.phaseEnd], [undefined, undefined], 'past the plan\'s 60 days: the end stays');
+  assert.equal(far.runner.data.note, far.page.data.note);
+  // Without the right to move the space's dates the page's request stands, and its note says why (as the server's does).
+  const kept = await onPage('travel', 'addStop', { title: 'Sintra', date: '2026-10-05' }, { ...phased, refuseEffect: (kind) => kind === 'phasesCover' }, { name: 'Planner - Itinerary' });
+  assert.deepEqual(kept.writes.map((w) => w.key), ['plan:n1'], 'the stop is kept');
+  assert.equal(kept.data.note, 'The last day was not moved to 2026-10-05: you may not do this');
+  // The library leaves nothing for a page, and no action that can add or move an entry lacks the manifest's word.
+  const lib = fs.readFileSync(new URL('../src/travel-lib-actions.js', import.meta.url), 'utf8');
+  assert.ok(!/carrier/.test(lib.replace(/\/\/.*$/gm, '')), 'the library does not ask who carries it');
+  const m = JSON.parse(fs.readFileSync(new URL('../module.json', import.meta.url), 'utf8'));
+  assert.deepEqual(m.actions.provides.filter((a) => a.phaseEnd).map((a) => a.name), ['addStop', 'addToDay', 'acceptSuggestion', 'updatePlan']);
 });
 await test('updatePlan: a later day stretches the trip, as an add does', async () => {
   const r = await same('updatePlan', { entry: entry('f1'), date: '2026-10-06' }, world({ 'plan:f1': { ...FLIGHT } }));
