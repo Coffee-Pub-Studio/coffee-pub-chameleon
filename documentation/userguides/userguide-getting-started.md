@@ -55,6 +55,21 @@ Camera access requires HTTPS, which the proxy provides. Players need nothing but
 1.12 or newer is required; the compose file pulls the latest release. With no LiveKit, **Manage** > **Modules** shows
 "Voice and video are not set up on this server" on the Conference card, with its switch off.
 
+## Let uploaded modules act for agents (optional)
+
+Skip this unless you upload modules from someone else and want Claude, or another agent, to ask them for changes. The modules that come with Chameleon need none of it. An agent's request to a module is carried out by a small program that runs in a process with no network. For a module you uploaded, Chameleon runs it only when the server can also put that process in a network namespace of its own, a kernel feature, and only after you have approved the module (see [Modules](userguide-modules.md), "Let an uploaded module act for agents").
+
+The compose file already sets `ACTION_RUNNER_NETWORK: "namespace"`, and the image already includes `unshare` (from `util-linux-misc`), which makes the namespace. What a default Docker container refuses is making one, so you add a security profile:
+
+1. Copy `deploy/seccomp-action-runner.json` from the repository to the server, for example to `/share/appdata/coffee-pub-chameleon-seccomp.json`. It is Docker's own default profile plus one rule: `unshare` is allowed, only for a user namespace and a network namespace. No other namespace and no extra capability is allowed.
+2. In `docker-compose.yml`, remove the `#` in front of the `security_opt` line so it names that file, and recreate the container. The line is commented out because a profile file that is missing stops the container from starting.
+3. Open the container's log. One of three lines says where you stand:
+   - "Modules' server actions: bundled modules run in a network namespace; uploaded modules may run, with the admin's approval." The wall is up.
+   - "... uploaded modules' actions are off, because ACTION_RUNNER_NETWORK is not namespace." Set it to `namespace`.
+   - "... uploaded modules' actions are off, because this server can't make a network namespace (see the seccomp profile in deploy/)." The profile is not in use, or the host's kernel allows no user namespaces at all. Then uploaded modules' actions stay off, and an agent's request to one is refused with a sentence saying so.
+
+Two things to know. Do not mount `docker.sock` into this container: the runner's network namespace does not stop a program from reaching a unix socket, and the lockdown inside the process is what holds that. And the process runs as the server's own user; it is not a separate container. Approve only code you trust. [Known issues](../known-issues.md), "Agent actions on the server: gaps", says what is not proven. Chameleon has not been tried in a real Docker container with this profile.
+
 ## Sign in as the admin
 
 The compose file holds one account, the server's **admin**: `ADMIN_LOGIN` and `ADMIN_PASSWORD`. On one environment this

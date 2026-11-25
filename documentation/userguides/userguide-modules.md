@@ -106,6 +106,25 @@ Press Escape to close the picker without changing the colour. **Opacity** is sho
 
 A new row in a list starts with one of the **Strong** colours, by its place in the list: red for the first row, then orange, gold, green and so on, so rows added in a run do not look alike.
 
+## What the check says about an uploaded module
+
+When you upload a zip, Chameleon checks it first. If the check finds a problem it can't accept, the upload is refused and the message says what to fix; nothing is installed. Anything else is only advice: the module installs, and its card on the Modules page lists what the check found, grouped by the kind of check (colours, words, reuse of the shared pieces). The first 12 show, and **Show all** opens the rest. Advice never stops a module from running. It is there so you can see, for example, that a module draws a colour of its own instead of following the theme.
+
+The module's author can see the same lines before you do by running the checker on their own computer ([Writing a module](../api/api-writing-modules.md)).
+
+## Let an uploaded module act for agents
+
+A module can have its actions run on the server, so an agent such as Claude can ask it for a change without anyone having the module open. The modules that come with Chameleon do this already. For a module you uploaded, nothing runs until the admin allows it, because it is someone else's code running on your server. Only the admin can do this: the account that runs the server, or on a server with several environments the host's administrator, signed in to this environment. An owner sees that the module is waiting and has no button.
+
+1. Open **Manage**, then **Modules**, and find the uploaded module's card. If it has actions for agents, the card has an **Actions for agents on the server** part with the first 12 characters of its library's hash and its version.
+2. Read the warning. The module's code runs on the server, inside a sandbox: a process with no network, files or settings. You approve this version and this exact library. A new version needs approving again.
+3. Choose **Let agents run this module's actions on the server**, then **Approve** to confirm. The card then says **Approved to run on the server**, by whom and when.
+4. To take it back, choose **Withdraw**. The next request an agent makes to the module is refused at once.
+
+The approval is for the exact files you saw. Uploading a new version, switching to another version, turning the module off or uninstalling it removes the approval, and an agent's request is refused with "Needs the admin's approval to run on the server." until you approve again.
+
+The module also needs the server itself to allow it. If the card shows a line such as "This server doesn't run uploaded modules' actions for agents: ACTION_RUNNER_NETWORK is not namespace." or "...: it can't make a network namespace (see the seccomp profile in deploy/).", approving is still allowed and is kept, but nothing runs until whoever runs the server changes the deploy ([Getting Started](userguide-getting-started.md), "Let uploaded modules act for agents (optional)"). There is no wall around this beyond the sandbox and your approval, so approve only code you trust.
+
 ## Who can use it
 
 An enabled module adds its permissions to the **Roles** tab, in a group named for the module. Untick one to take that ability from a role. Owners can always do everything, and a member marked Moderator in a space gets the Moderator role's permissions for a space module there. A module's data is stored per environment or per space, and a person only sees a space's module data if they are in that space.
@@ -129,6 +148,28 @@ When a module that ships with the server is new to your environment, or a newer 
 ## Recent activity
 
 Under the filters, **Recent activity** lists what modules have done lately, newest first, in a box that scrolls: the time, the module, what it did and who for. A line about something Chameleon refused or slowed is tinted and has a warning mark.
+
+## Weather
+
+Some modules show the weather on their days, such as the Itinerary on each day of a trip ([Planner - Itinerary](userguide-planner.md)). The weather has its own module, **Weather**, with no window of its own: its tab, **Modules**, then **Weather**, holds three settings for the environment.
+
+- **Service:** where the weather comes from. **None** is the default: no weather is shown and nothing is sent out. Only services that are free for commercial use are offered; Chameleon never uses a paid one. Today that is **MET Norway**.
+- **Temperatures:** **Celsius** or **Fahrenheit**.
+- **Icon style:** a note only. There is one style, and a choice appears when a second exists.
+
+The module's own switch on its card turns weather on and off for the whole environment. A module that has days cannot hide weather on its own while it is on, and a space cannot turn it off by itself.
+
+**The terms.** A service's terms are a legal agreement, so a person accepts them, once for the whole server, and Chameleon never accepts for you and no agent can. Until they are accepted, nothing is asked of that service, whatever **Service** says. On **Manage**, **Modules**, below the modules list, the **Weather terms** section lists each service with its credit, a link to read its terms, and **Accepted by** the administrator's name and the date, or **Not accepted**.
+
+1. Sign in as the admin, the account that runs the server. On a server with several environments, the host's administrator signs in to the host console instead (below).
+2. Open **Manage**, then **Modules**, and find **Weather terms**.
+3. Follow the **Read MET Norway's terms** link and read them.
+4. Tick **I have read the terms and accept them for this server.** and choose **Accept**.
+5. To take it back, choose **Withdraw** and confirm. Weather stops at once.
+
+On a server with several environments, the host's administrator does this on the host console, on the **Server** page, under **Weather terms**. An owner there sees the status and a line that the host's administrator accepts, with no buttons. If a service moves its terms, they have to be accepted again.
+
+MET Norway's data is shown with its credit, and it gives forecasts only: a day that has passed shows no weather, and the chance of rain is not shown. What leaves the server is only a position rounded to two decimals and the days, under the product's name and address as MET Norway asks. [Weather architecture](../architecture/architecture-weather.md) has the rest. Chameleon has not been tried against the real service from a server with a route out.
 
 ## The AI Assistant
 

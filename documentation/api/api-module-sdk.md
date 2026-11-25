@@ -2,11 +2,11 @@
 
 **Audience:** someone writing a Coffee Pub Chameleon module: what a module is made of, what it can ask Chameleon to do, and what it is not allowed to.
 
-To install and manage modules as an owner, read [userguide-modules](../userguides/userguide-modules.md). The server routes behind all of this are in [api-modules](api-modules.md), and how it is built is in [architecture-modules](../architecture/architecture-modules.md).
+To write a module outside this repository, start with [Writing a module](api-writing-modules.md). To install and manage modules as an owner, read [userguide-modules](../userguides/userguide-modules.md). The server routes behind all of this are in [api-modules](api-modules.md), and how it is built is in [architecture-modules](../architecture/architecture-modules.md).
 
 ## What a module is
 
-A module is a zip of static files that runs in the browser, inside a sandboxed frame. It never runs code on the server. It reaches Chameleon only through the calls in this document, and the server checks every one.
+A module is a zip of static files that runs in the browser, inside a sandboxed frame. Its page never runs code on the server. The one exception is an actions library for agents, which the server runs in a separate process with no network, and for an uploaded module only after the admin approves it ([Writing a module](api-writing-modules.md)). It reaches Chameleon only through the calls in this document, and the server checks every one.
 
 A module has one or two **surfaces**:
 
@@ -1004,7 +1004,7 @@ A module that needs a handshake like this declares both sides in `actions`, with
 
 ### Carrying out actions from a library (`host.actions.fromLibrary`)
 
-A bundled module that has the server carry out an agent's requests (`actions.server` in `module.json`, see [api-modules](api-modules.md), "Actions the server carries") keeps its action rules in one plain library, `src/<id>-lib-actions.js`, defining `const ACTION_HANDLERS = { <action>: (input, ctx) => ({ writes, ref?, data?, links?, schedules?, notify?, phaseEnd? }) }`. The page runs the very same code with:
+A module that has the server carry out an agent's requests (`actions.server` in `module.json`, see [api-modules](api-modules.md), "Actions the server carries") keeps its action rules in one plain library, `src/<id>-lib-actions.js`, defining `const ACTION_HANDLERS = { <action>: (input, ctx) => ({ writes, ref?, data?, links?, schedules?, notify?, phaseEnd? }) }`. The page runs the very same code with:
 
 ```js
 host.actions.provide({
@@ -1013,7 +1013,7 @@ host.actions.provide({
 });
 ```
 
-`fromLibrary` returns handlers for `host.actions.provide`. Any module may use it, an uploaded one too (it keeps the wait for an open page, and the page carries the request out this way). A page and the server give the same writes, pointer, note and refusals; the module's tests run every handler both ways and require identical results.
+`fromLibrary` returns handlers for `host.actions.provide`. Any module may use it, an uploaded one too (a person's own request is carried out by the page this way; an agent's is carried out by the server once the admin has approved the module). A page and the server give the same writes, pointer, note and refusals; the module's tests run every handler both ways and require identical results.
 
 - **`ctx`** is the runner's, with `carrier: 'page'` (the runner's is `'server'`) and `read` and `list` over this module's data here as it was when the request was taken, each a copy and each with its version. The facts (`space`, `people`, `refs`, `settings`, `util`) are the same plain data the runner hands a library.
 - **The rules** are the runner's, with the same sentences: at most 10 writes, each `{ key, value }`; no delete; a pointer only to the module's own objects; `data` plain and at most 8000 bytes; `links`, `schedules`, `notify` and `phaseEnd` with the same caps. A throw is a refusal and its message is the sentence the asker reads, on one line.

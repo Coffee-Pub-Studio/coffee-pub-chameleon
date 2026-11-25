@@ -13,7 +13,7 @@ It can:
 - Post a plain-text message in Chat, only while you have turned on **Post in Chat** for it (see below).
 - Ask a module to add or change something, when the module offers that as a change it can make: for example add a milestone or tick one off in Planner - Projects, add a stop or change a flight's gate in the Itinerary, add or change an event in the Calendar, or end a poll. The change is made at once and the agent is told how it went.
 - Ask a person to delete one object, only while you have turned on **Ask to delete** for it (see below).
-- Read the weather on a trip's days, when the admin has set up a weather service for the Itinerary.
+- Read the weather on the days of a module that has days, such as the Itinerary, when weather is set up (the Weather module is on, a service is chosen and the administrator has accepted its terms).
 
 It can't:
 
@@ -25,7 +25,7 @@ It can't:
 
 An agent has a member's rights and no more. If you take a permission from members on the Roles tab, the agent loses it too. It also needs **Send chat messages** on the member role to ask for a change, as any member does.
 
-A change an agent asks for is made at once, under the module's own rules and the agent's rights, with no page open. If a rule refuses it, the agent is told in one sentence and nothing changes; a change that is half done is put back. The agent's edits are not approved one by one, but you can see and undo them (see "What it changed" below). A module you uploaded yourself still waits until a person who may change it has it open.
+A change an agent asks for is made at once, under the module's own rules and the agent's rights, with no page open. If a rule refuses it, the agent is told in one sentence and nothing changes; a change that is half done is put back. The agent's edits are not approved one by one, but you can see and undo them (see "What it changed" below). A module you uploaded yourself is the exception: the server carries out its requests only after the admin has approved it to run on the server, and only on a server set up for it ([Modules](userguide-modules.md), "Let an uploaded module act for agents"). Until then the agent is told so at once and nothing is made.
 
 ## Turn agents on
 
@@ -147,7 +147,7 @@ On the agent's page, change the name and choose **Save name**.
 ## Good to know
 
 - A member can't see agents' tokens or logs, and an agent's token can't reach Manage.
-- A change an agent asks for is made when it asks, not when someone opens the module (an uploaded module is the exception). If a plan looks unchanged, check **What it did** and **What it changed**.
+- A change an agent asks for is made when it asks, not when someone opens the module (an uploaded module the admin has not approved is refused, not made later). If a plan looks unchanged, check **What it did** and **What it changed**.
 - What the assistant does with what it reads is up to it. Anything people write in a space can end up in front of it, so make an agent a member only of spaces whose content you are happy for it to read.
 - Next, [Connecting Claude](userguide-connecting-claude.md).
 - The routes are in the [Agents API](../api/api-agents.md); how it is built is in [Agent access architecture](../architecture/architecture-agent-access.md).

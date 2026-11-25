@@ -85,7 +85,7 @@ The same as any agent: it can't delete anything, change settings, roles or membe
 
 Reading is at once: Claude reads what a member of those spaces can read.
 
-A change is not. When Claude asks for one, the request waits until a person who may change that module has it open in that space. Their page then carries it out under the module's own rules. So Claude can say "I asked" before anything has changed. Open the module to let it through. Claude can ask how a request went with the `request_status` tool.
+A change is made at once. When Claude asks a module for one, the server carries it out under the module's own rules and Claude's rights, with no page open, and tells Claude how it went. If a rule refuses it, Claude is told in one sentence and nothing changes. The one exception is a module that was uploaded to this server: it is refused, with the reason, until the admin has approved it to run on the server ([Modules](userguide-modules.md), "Let an uploaded module act for agents"). Claude can ask how a request went with the `request_status` tool.
 
 **Post in Chat** is off until you turn it on, on the agent's page. Until then Claude can read Chat but a post is refused with "This agent can't post in Chat."
 
@@ -140,7 +140,7 @@ For the exact fields, follow Anthropic's documentation. The messages the server 
 - **401 although the token is right.** Something between Claude and the server may be dropping the `Authorization` header: some hosts and proxies do. Ask whoever runs the server to check that the header reaches it.
 - **`me` names no spaces.** The agent isn't a member of any. Add it.
 - **"This request came from another site, so it was refused."** The request carried an `Origin` for a different site. Claude Code doesn't send one; a browser page does.
-- **A change was asked for and nothing happened.** It is waiting for someone to open the module; see "Reading and writing".
+- **A change was asked for and nothing happened.** The agent was told why, in one sentence, and nothing was made. The usual cause is an uploaded module the admin has not approved to run on the server; see "Reading and writing" above.
 - **The Claude app says "Connection issue: Couldn't connect to the server."** The header value most likely lacks the word `Bearer` and a space before the token. Edit the header so it reads `Bearer agt_...`. Also check that the server is public on port 443.
 - **The form marks "Sign in now" as "Detected".** That is expected: the server's refusal names Bearer. Choose **No sign-in** and add the header instead; see "The Claude apps".
 - **A cloud Claude Code session can't see Chameleon.** A `claude mcp add` on your computer isn't seen by a cloud session. Add a connector in your account and start a new session.
