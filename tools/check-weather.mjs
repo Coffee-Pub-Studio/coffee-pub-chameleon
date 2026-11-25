@@ -20,8 +20,13 @@
  * And the agent read (step 5): an agent's token reads the route through the gate (the Agent column's view row, its own spaces,
  * never a closed one), the MCP tool read_weather answers the same days, each call one read and one log line naming the route,
  * and neither leaves any service address or key (there is none to leave).
- * The adapter used throughout is the test stand-in (server/weather-providers/test-standin.js); no real service is registered, and
- * the check asserts the Itinerary offers none but None.
+ * The adapter used throughout is the test stand-in (server/weather-providers/test-standin.js).
+ * And MET Norway's adapter (server/weather-providers/met-norway.js), never against the real service: its terms kept in the
+ * adapter (the credit, the terms' address, no key); every symbol MET lists mapped to one of the eight words; a week in MET's
+ * compact shape read into days (clear, rain, snow, storm, fog, drizzle, cloudy, partly), the place's own day from its
+ * longitude, a part day at the end dropped; what is sent (a rounded position; the User-Agent with the repository's address);
+ * never asked again before Expires or 3 hours, If-Modified-Since on the next ask and a 304 kept as fresh, 30 minutes' rest
+ * after a 429, past days never asked for, one ask for two askers; and the Itinerary offering it with None the default.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -89,15 +94,16 @@ await test('checking what an adapter gave', () => {
   assert.throws(() => STANDIN.parse({ hello: 1 }));
 });
 
-await test('the words table, and no service registered', () => {
+await test('the words table, and only MET Norway registered', () => {
   assert.deepEqual(Object.keys(WORD_TEXT), WORDS);
   for (const [word, words] of Object.entries(WORD_TEXT)) assert.ok(words && words.length <= 40 && /^[A-Z][a-z ]+$/.test(words), `${word}: plain words`);
   assert.equal(WORDS.length, 8);
   assert.deepEqual(dayAnswer({ code: 'rain', high: 22.4, low: 13.6, rain: 40 }), { code: 'rain', words: 'Rain', high: 22, low: 14, rain: 40 });
   assert.deepEqual(dayAnswer({ code: 'clear', high: 22, low: 0, rain: null }, 'f'), { code: 'clear', words: 'Clear sky', high: 72, low: 32, rain: null });
-  // The registry: with the stand-in's variable unset, no adapter is registered at all (a fresh process answers this).
+  // The registry: with the stand-in's variable unset, MET Norway is the only adapter (a fresh process answers this), by
+  // default, with no environment variable.
   const out = require('node:child_process').execFileSync(process.execPath, ['-e', "const r=require('./server/weather-providers'); console.log(JSON.stringify(r.list().map(p=>p.id)))"], { cwd: ROOT, env: { PATH: process.env.PATH } }).toString().trim();
-  assert.equal(out, '[]', 'no adapter is registered unless the check asks for the stand-in');
+  assert.equal(out, '["met-norway"]', 'MET Norway, and the stand-in only when the check asks for it');
   assert.ok(STANDIN.name.startsWith('Test') && /not a weather service/.test(STANDIN.name), 'the stand-in does not look like a product');
   const { valid } = require('../server/weather-providers');
   assert.ok(valid(STANDIN));
@@ -263,7 +269,7 @@ await test('the cache: ages, the window, what is kept', async () => {
     assert.match(k, /^-?\d+\.\d{2},-?\d+\.\d{2}\|\d{4}-\d{2}-\d{2}$/, 'a key is a rounded position and a day');
     assert.deepEqual(Object.keys(r).sort(), ['code', 'got', 'high', 'low', 'rain'], 'a record holds only its five fields');
   }
-  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|code|high|low|rain|got|null|clear|partly|cloudy|fog|drizzle|snow|storm)"|"rain"|null/g, '')), 'no name, word or address in the file');
+  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|asks|code|high|low|rain|got|null|clear|partly|cloudy|fog|drizzle|snow|storm)"|"rain"|null/g, '')), 'no name, word or address in the file');
   // Read back by a new cache.
   const back = new WeatherCache(dir, { now: () => now });
   assert.deepEqual(back.get(48.86, 2.29, '2026-12-01'), { code: 'rain', high: 12, low: 5, rain: 40, got: NOW });
@@ -334,6 +340,253 @@ await test('a run of days: kept first, one ask for the rest', async () => {
   c.flush();
 });
 
+// --- MET Norway (server/weather-providers/met-norway.js) ----------------------------------------------------------------------
+// Never the real service: its answers here are built in MET's compact shape (a GeoJSON Feature, properties.timeseries of
+// { time, data: { instant: { details: { air_temperature } }, next_1_hours | next_6_hours | next_12_hours: { summary:
+// { symbol_code }, details } } }), hourly first and then every six hours, as the Locationforecast documentation describes.
+const MET = require('../server/weather-providers/met-norway.js');
+const { REPOSITORY_URL, userAgent } = require('../server/product-name.js');
+// Every symbol MET lists (github.com/metno/weathericons, weather/legend.csv, read 2026-11-25), and whether it comes in
+// _day, _night and _polartwilight.
+const MET_SYMBOLS = {
+  clearsky: 1, fair: 1, partlycloudy: 1, cloudy: 0, lightrainshowers: 1, rainshowers: 1, heavyrainshowers: 1,
+  lightrainshowersandthunder: 1, rainshowersandthunder: 1, heavyrainshowersandthunder: 1, lightsleetshowers: 1, sleetshowers: 1,
+  heavysleetshowers: 1, lightssleetshowersandthunder: 1, sleetshowersandthunder: 1, heavysleetshowersandthunder: 1,
+  lightsnowshowers: 1, snowshowers: 1, heavysnowshowers: 1, lightssnowshowersandthunder: 1, snowshowersandthunder: 1,
+  heavysnowshowersandthunder: 1, lightrain: 0, rain: 0, heavyrain: 0, lightrainandthunder: 0, rainandthunder: 0,
+  heavyrainandthunder: 0, lightsleet: 0, sleet: 0, heavysleet: 0, lightsleetandthunder: 0, sleetandthunder: 0,
+  heavysleetandthunder: 0, lightsnow: 0, snow: 0, heavysnow: 0, lightsnowandthunder: 0, snowandthunder: 0, heavysnowandthunder: 0, fog: 0,
+};
+// The mapping, written out once more by rule so a slip in the adapter's table shows: thunder is a storm; sleet and snow are
+// snow; light rain (and light rain showers) is drizzle; other rain is rain; the sky words as they are named.
+const expectWord = (s) => (/thunder/.test(s) ? 'storm' : /sleet|snow/.test(s) ? 'snow' : /^lightrain/.test(s) ? 'drizzle' : /rain/.test(s) ? 'rain'
+  : { clearsky: 'clear', fair: 'partly', partlycloudy: 'partly', cloudy: 'cloudy', fog: 'fog' }[s]);
+// An answer: `rows` are [ISO time, temperature, symbol, hours (1, 6 or 12; 0 for none), chance of rain?].
+const metAnswer = (lon, rows) => ({
+  type: 'Feature',
+  geometry: { type: 'Point', coordinates: [lon, 48.86, 35] },
+  properties: {
+    meta: { updated_at: '2026-12-01T09:12:00Z', units: { air_temperature: 'celsius', precipitation_amount: 'mm' } },
+    timeseries: rows.map(([time, temp, symbol, hours, chance]) => ({
+      time,
+      data: {
+        instant: { details: { air_pressure_at_sea_level: 1010, air_temperature: temp, cloud_area_fraction: 50, relative_humidity: 80, wind_from_direction: 200, wind_speed: 3 } },
+        ...(hours ? { [`next_${hours}_hours`]: { summary: { symbol_code: symbol }, details: { precipitation_amount: 0, ...(chance === undefined ? {} : { probability_of_precipitation: chance }) } } } : {}),
+      },
+    })),
+  },
+});
+const iso = (ms) => new Date(ms).toISOString().replace('.000Z', 'Z');
+const H = 3600 * 1000;
+// Hourly readings from `from` for `n` hours, each with `symbolAt(i)` and a temperature `tempAt(i)`.
+const hourly = (from, n, symbolAt, tempAt = () => 5) => Array.from({ length: n }, (_, i) => [iso(Date.parse(from) + i * H), tempAt(i), symbolAt(i), 1]);
+const sixHourly = (day, symbols, temps) => symbols.map((s, i) => [`${day}T${String(i * 6).padStart(2, '0')}:00:00Z`, temps[i], s, 6]);
+// A week as the service gives it, from 2026-12-01 10:00 UTC (the check's now): hourly to 2026-12-03 12:00, then six-hourly to
+// 2026-12-10 06:00, the last day cut short.
+const metWeek = () => metAnswer(2.29, [
+  ...hourly('2026-12-01T10:00:00Z', 14, () => 'clearsky_day', (i) => 4 + i * 0.5), // the rest of today: clear, 4 to 10.5
+  ...hourly('2026-12-02T00:00:00Z', 24, (i) => (i >= 9 && i < 15 ? 'rain' : 'fair_night'), (i) => (i === 14 ? 11.2 : i === 3 ? -1.4 : 6)),
+  ...hourly('2026-12-03T00:00:00Z', 12, () => 'heavysnow', () => -2),
+  ['2026-12-03T12:00:00Z', -3, 'heavysnow', 6], ['2026-12-03T18:00:00Z', -6, 'lightsnowshowers_night', 6],
+  ...sixHourly('2026-12-04', ['cloudy', 'rainandthunder', 'rainandthunder', 'cloudy'], [8, 12, 15, 9]),
+  ...sixHourly('2026-12-05', ['fog', 'fog', 'fog', 'cloudy'], [1, 2, 3, 1]),
+  ...sixHourly('2026-12-06', ['cloudy', 'lightrain', 'lightrain', 'cloudy'], [3, 4, 5, 3]),
+  ...sixHourly('2026-12-07', ['cloudy', 'cloudy', 'partlycloudy_day', 'cloudy'], [3, 4, 5, 3]),
+  ...sixHourly('2026-12-08', ['clearsky_night', 'fair_day', 'fair_day', 'clearsky_night'], [0, 4, 7, 2]),
+  ...sixHourly('2026-12-09', ['cloudy', 'lightssleetshowersandthunder_polartwilight', 'cloudy', 'cloudy'], [0, 1, 2, 0]),
+  ['2026-12-10T00:00:00Z', 0, 'cloudy', 6], ['2026-12-10T06:00:00Z', 1, 'cloudy', 6], // a part day (12 hours): dropped
+]);
+
+await test('MET Norway: the terms are kept in the adapter', () => {
+  const { valid } = require('../server/weather-providers');
+  assert.ok(valid(MET));
+  assert.equal(MET.id, 'met-norway');
+  assert.equal(MET.needsKey, false);
+  assert.equal(MET.pastDays, false, 'forecasts only');
+  assert.ok(MET.minAskMs >= 3 * H, 'not asked again within 3 hours (Locationforecast: 30 minutes in the Nordic area, 3 hours elsewhere)');
+  assert.equal(MET.terms, 'https://api.met.no/doc/TermsOfService');
+  // CC BY 4.0: the source, the licence and its address, and that the daily summary is a change made here.
+  assert.equal(MET.credit, "Based on data from MET Norway, CC BY 4.0 (creativecommons.org/licenses/by/4.0); our daily summary, not MET Norway's.");
+  assert.ok(MET.credit.length <= 120, 'the popover shows 120 characters');
+  assert.ok(!/\b(Yr|NRK)\b/.test(MET.credit + MET.name), 'never looks made by Yr or NRK');
+  // No key anywhere: not in the address, not in a header, not in the code.
+  assert.equal(MET.request('48.86', '2.29', '2026-12-01', '2026-12-05'), 'https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=48.86&lon=2.29');
+  assert.deepEqual(Object.keys(MET.headers()), ['User-Agent']);
+  const src = fs.readFileSync(path.join(ROOT, 'server', 'weather-providers', 'met-norway.js'), 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  assert.ok(!/api[-_]?key|apikey|token|secret|password|process\.env/i.test(src.replace(/needsKey/g, '')), 'no key, token or setting in the adapter');
+  // The header comment names the terms, the day they were read, and the licence.
+  const head = fs.readFileSync(path.join(ROOT, 'server', 'weather-providers', 'met-norway.js'), 'utf8').split("'use strict'")[0];
+  for (const want of ['https://api.met.no/doc/TermsOfService', 'https://api.met.no/doc/License', 'read on 2026-11-25', 'CC BY 4.0', 'commercial']) assert.ok(head.includes(want), `the header says ${want}`);
+});
+
+await test('MET Norway: every symbol it lists', () => {
+  assert.deepEqual(Object.keys(MET.SYMBOLS).sort(), Object.keys(MET_SYMBOLS).sort(), 'the adapter knows exactly the 41 symbols MET lists');
+  for (const [s, variants] of Object.entries(MET_SYMBOLS)) {
+    const want = expectWord(s);
+    assert.ok(WORDS.includes(want), s);
+    assert.equal(MET.wordOf(s), want, s);
+    for (const v of ['day', 'night', 'polartwilight']) assert.equal(MET.wordOf(`${s}_${v}`), variants ? want : want, `${s}_${v}`);
+  }
+  for (const odd of ['', 'sunny', 'clearsky_noon', 'lightssleetshowersandthunder ', null, 3]) assert.equal(MET.wordOf(odd), null, String(odd));
+  // Each of the eight words is reached.
+  assert.deepEqual([...new Set(Object.values(MET.SYMBOLS))].sort(), [...WORDS].sort());
+});
+
+await test('MET Norway: a week read into days', () => {
+  const days = cleanDays(MET.parse(metWeek()));
+  assert.deepEqual(days, {
+    '2026-12-01': { code: 'clear', high: 10.5, low: 4, rain: null }, // the rest of today
+    '2026-12-02': { code: 'rain', high: 11.2, low: -1.4, rain: null }, // six daytime hours of rain
+    '2026-12-03': { code: 'snow', high: -2, low: -6, rain: null },
+    '2026-12-04': { code: 'storm', high: 15, low: 8, rain: null },
+    '2026-12-05': { code: 'fog', high: 3, low: 1, rain: null },
+    '2026-12-06': { code: 'drizzle', high: 5, low: 3, rain: null },
+    '2026-12-07': { code: 'cloudy', high: 5, low: 3, rain: null }, // 6 cloudy daytime hours against 6 partly: the cloudier
+    '2026-12-08': { code: 'partly', high: 7, low: 0, rain: null },
+    '2026-12-09': { code: 'storm', high: 2, low: 0, rain: null },
+  }, 'the compact form has no chance of rain: null, never guessed; 2026-12-10 is a part day and is dropped');
+  // A short wet spell does not make the day: two daytime hours of rain on a clear day is clear, three is rain.
+  const spell = (n) => MET.parse(metAnswer(0, hourly('2026-12-02T00:00:00Z', 24, (i) => (i >= 10 && i < 10 + n ? 'lightrain' : 'clearsky_day'))))['2026-12-02'].code;
+  assert.equal(spell(2), 'clear');
+  assert.equal(spell(3), 'drizzle');
+  // A night storm does not make the day either; with no daytime reading left, the whole day is read.
+  assert.equal(MET.parse(metAnswer(0, hourly('2026-12-02T00:00:00Z', 24, (i) => (i < 4 ? 'rainandthunder' : 'cloudy'))))['2026-12-02'].code, 'cloudy');
+  assert.deepEqual(MET.parse(metAnswer(0, hourly('2026-12-01T18:00:00Z', 6, () => 'snow')))['2026-12-01'].code, 'snow');
+  // The chance of rain, where the service gives one (the complete form, Nordic area): the day's highest.
+  const chance = MET.parse(metAnswer(0, hourly('2026-12-02T00:00:00Z', 24, () => 'rain').map((r, i) => [...r, i === 13 ? 70 : 20])));
+  assert.equal(chance['2026-12-02'].rain, 70);
+  // The first day needs 6 hours left; a later day 18 of its hours.
+  assert.deepEqual(Object.keys(MET.parse(metAnswer(0, [...hourly('2026-12-01T19:00:00Z', 5, () => 'fog'), ...hourly('2026-12-02T00:00:00Z', 17, () => 'fog')]))), [], 'five hours of today, seventeen of tomorrow: neither');
+  assert.deepEqual(Object.keys(MET.parse(metAnswer(0, [...hourly('2026-12-01T18:00:00Z', 6, () => 'fog'), ...hourly('2026-12-02T00:00:00Z', 18, () => 'fog')]))), ['2026-12-01', '2026-12-02']);
+  // Not its answer: refused, so the lookup says so.
+  assert.throws(() => MET.parse({ properties: {} }));
+  assert.throws(() => MET.parse({ days: [] }));
+  // A reading with no temperature or no symbol is not invented: a day of them is left out.
+  assert.deepEqual(MET.parse(metAnswer(0, hourly('2026-12-02T00:00:00Z', 24, () => 'nonsense'))), {});
+});
+
+await test('MET Norway: the place\'s own day, from its longitude', () => {
+  // San Francisco, longitude -122.42: 8 hours behind UTC. 2026-12-02 01:00 to 07:00 UTC are still the evening of 2026-12-01
+  // there, so that day's low is the 0 of 06:00 UTC, and 2026-12-02 runs from 08:00 UTC.
+  const sf = metAnswer(-122.42, [
+    ...hourly('2026-12-01T08:00:00Z', 24, (i) => (i < 18 ? 'clearsky_day' : 'rain'), (i) => (i === 22 ? 0 : 10)),
+    ...hourly('2026-12-02T08:00:00Z', 24, () => 'cloudy', () => 12),
+  ]);
+  const got = MET.parse(sf);
+  assert.deepEqual(Object.keys(got), ['2026-12-01', '2026-12-02']);
+  assert.equal(got['2026-12-01'].low, 0);
+  assert.equal(got['2026-12-01'].code, 'clear', 'the rain falls after 18:00 there');
+  assert.equal(got['2026-12-02'].high, 12);
+  // Read in UTC the same answer would have cut the days 8 hours early.
+  const utc = MET.parse({ ...sf, geometry: { type: 'Point', coordinates: [0, 48.86, 35] } });
+  assert.equal(utc['2026-12-01'].low, 10, 'in UTC, the evening\'s 0 would fall on the next day');
+});
+
+// The service, stood in for by `fetchImpl` (no network): it answers `metReply` and keeps what it was sent.
+const metSeen = [];
+let metReply = () => new Response('{}', { status: 500 });
+const metFetch = async (url, init) => { metSeen.push({ url, headers: { ...init.headers } }); return metReply(url, init); };
+const LAST_MODIFIED = 'Tue, 01 Dec 2026 09:12:00 GMT';
+const metOk = (expiresAt) => () => new Response(JSON.stringify(metWeek()), { status: 200, headers: { 'content-type': 'application/json', expires: new Date(expiresAt).toUTCString(), 'last-modified': LAST_MODIFIED } });
+
+await test('MET Norway: what is sent, Expires, If-Modified-Since and a 304', async () => {
+  let now = NOW;
+  const c = new WeatherCache(fs.mkdtempSync(path.join(os.tmpdir(), 'weather-met-')), { now: () => now, saveMs: 10 });
+  metSeen.length = 0;
+  metReply = metOk(NOW + 20 * 60 * 1000); // Expires in 20 minutes
+  const want = ['2026-12-01', '2026-12-02', '2026-12-09', '2026-12-10', '2026-12-11'];
+  const first = await weatherDays(c, MET, 48.858372, 2.294481, want, { fetchImpl: metFetch });
+  assert.equal(first.failed, null);
+  assert.equal(metSeen.length, 1, 'one ask');
+  assert.equal(metSeen[0].url, 'https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=48.86&lon=2.29', 'a rounded position and nothing else');
+  // The User-Agent the terms ask for: the app, its version and where to reach whoever runs it (the repository, where issues
+  // can be opened), and nothing personal.
+  assert.equal(metSeen[0].headers['User-Agent'], `${userAgent()} (+${REPOSITORY_URL})`);
+  assert.equal(metSeen[0].headers['User-Agent'], userAgent({ contact: REPOSITORY_URL }));
+  assert.match(metSeen[0].headers['User-Agent'], new RegExp(`^[\\x21-\\x7e]+/${pkg.version.replace(/[.]/g, '\\.')} \\(\\+https://github\\.com/Drowbe/coffee-pub-chameleon\\)$`));
+  assert.deepEqual(Object.keys(metSeen[0].headers).sort(), ['Accept', 'User-Agent'], 'no other header the first time');
+  assert.equal(first.days['2026-12-02'].code, 'rain');
+  assert.equal(first.days['2026-12-10'].state, 'unavailable', 'a part day: nothing drawn');
+  assert.equal(first.days['2026-12-11'].state, 'unavailable', 'past the forecast');
+  // Before Expires, and before 3 hours: never asked again, even for the days it left out.
+  metSeen.length = 0;
+  now = NOW + 2 * H;
+  assert.equal(W.wouldAsk(c, MET, 48.86, 2.29, want), false, 'the route counts no ask');
+  const soon = await weatherDays(c, MET, 48.86, 2.29, want, { fetchImpl: metFetch });
+  assert.equal(metSeen.length, 0, 'not asked again before 3 hours, though Expires has passed');
+  assert.equal(soon.days['2026-12-11'].state, 'unavailable');
+  assert.equal(soon.days['2026-12-02'].code, 'rain');
+  // After 3 hours: asked again, with If-Modified-Since the last Last-Modified, exactly; a 304 keeps what is kept, fresh.
+  now = NOW + 3 * H + 1;
+  assert.equal(c.get(48.86, 2.29, '2026-12-02'), null, 'no longer fresh');
+  assert.equal(W.wouldAsk(c, MET, 48.86, 2.29, want), true);
+  metReply = () => new Response(null, { status: 304, headers: { expires: new Date(now + 5 * H).toUTCString() } });
+  const again = await weatherDays(c, MET, 48.86, 2.29, want, { fetchImpl: metFetch });
+  assert.equal(metSeen.length, 1);
+  assert.equal(metSeen[0].headers['If-Modified-Since'], LAST_MODIFIED);
+  assert.equal(again.failed, null, 'a 304 is not a failure');
+  assert.equal(again.days['2026-12-02'].code, 'rain', 'the kept days are the answer still');
+  assert.ok(c.get(48.86, 2.29, '2026-12-02'), 'and fresh again from now');
+  // That 304 said Expires in 5 hours: nothing is asked before it, though 3 hours pass, and the kept days are still served.
+  metSeen.length = 0;
+  now += 4 * H;
+  const later = await weatherDays(c, MET, 48.86, 2.29, want, { fetchImpl: metFetch });
+  assert.equal(metSeen.length, 0, 'never before Expires');
+  assert.equal(later.days['2026-12-02'].code, 'rain', 'what the last answer gave is still served until it may be asked again');
+  // Past days: not in the answer, so never asked for; they answer unavailable.
+  metSeen.length = 0;
+  const past = await weatherDays(c, MET, 10, 10, ['2026-11-28', '2026-11-30'], { fetchImpl: metFetch });
+  assert.deepEqual(past.days, { '2026-11-28': { state: 'unavailable' }, '2026-11-30': { state: 'unavailable' } });
+  assert.equal(metSeen.length, 0, 'a forecast-only service is not asked for a past day');
+  assert.equal(W.wouldAsk(c, MET, 10, 10, ['2026-11-30']), false);
+  // Two askers at once for one position: one ask.
+  metSeen.length = 0;
+  metReply = metOk(now + 10 * 60 * 1000);
+  await Promise.all([weatherDays(c, MET, 20, 20, ['2026-12-02'], { fetchImpl: metFetch }), weatherDays(c, MET, 20, 20, ['2026-12-02'], { fetchImpl: metFetch })]);
+  assert.equal(metSeen.length, 1, 'one ask for two askers');
+  // A 429 (or 403): nothing asked for that position for 30 minutes; then asked again, If-Modified-Since kept.
+  now += 3 * H + 1;
+  metSeen.length = 0;
+  metReply = () => new Response('slow down', { status: 429 });
+  const throttled = await weatherDays(c, MET, 20, 20, ['2026-12-03'], { fetchImpl: metFetch });
+  assert.equal(throttled.failed.kind, 'status');
+  await weatherDays(c, MET, 20, 20, ['2026-12-03'], { fetchImpl: metFetch });
+  now += 29 * 60 * 1000;
+  await weatherDays(c, MET, 20, 20, ['2026-12-03'], { fetchImpl: metFetch });
+  assert.equal(metSeen.length, 1, 'not asked again within 30 minutes of a 429');
+  now += 2 * 60 * 1000;
+  metReply = metOk(now + H);
+  await weatherDays(c, MET, 20, 20, ['2026-12-03'], { fetchImpl: metFetch });
+  assert.equal(metSeen.length, 2);
+  assert.equal(metSeen[1].headers['If-Modified-Since'], LAST_MODIFIED, 'the last good answer\'s Last-Modified, not a refusal\'s');
+  // None chosen: nothing goes out.
+  metSeen.length = 0;
+  await weatherDays(c, null, 30, 30, ['2026-12-02'], { fetchImpl: metFetch });
+  assert.equal(metSeen.length, 0);
+  // What is kept: positions and times only; the Last-Modified is the service's date, nothing of a person.
+  c.flush();
+  const saved = JSON.parse(fs.readFileSync(c.file, 'utf8'));
+  for (const [k, a] of Object.entries(saved.asks)) {
+    assert.match(k, /^-?\d+\.\d{2},-?\d+\.\d{2}$/);
+    assert.deepEqual(Object.keys(a).sort(), ['answer', 'at', 'modified', 'until']);
+    assert.ok(a.modified === '' || a.modified === LAST_MODIFIED);
+  }
+  // Read back after a restart: still not asked before the saved Expires.
+  const back = new WeatherCache(path.dirname(c.file), { now: () => now });
+  assert.equal(back.mayAsk(20, 20), false);
+});
+
+await test('MET Norway: the Itinerary offers it, None is the default', () => {
+  const { cleanWeather } = require('../server/modules.js');
+  const travel = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'travel', 'module.json'), 'utf8'));
+  const settings = JSON.parse(JSON.stringify(travel.settings));
+  cleanWeather(travel.weather, settings, travel.scope);
+  const provider = settings.find((d) => d.key === travel.weather.provider);
+  assert.equal(provider.default, 'none', 'nothing goes out until an admin chooses');
+  assert.equal(provider.options[0].value, 'none');
+  assert.ok(provider.options.some((o) => o.value === 'met-norway' && o.label === 'MET Norway'), 'MET Norway is offered');
+});
+
 // Nothing in the module names a space, a person or an environment.
 await test('the module holds no link to a person', () => {
   const src = fs.readFileSync(new URL('../server/weather.js', import.meta.url), 'utf8').split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
@@ -354,7 +607,11 @@ await test('the declaration: settings of the right kind, where a day is, registe
   assert.deepEqual(cleanWeather(good, settings, scope), good);
   // The registered adapter (here the stand-in) is a choice of the provider setting, once however often it is cleaned.
   cleanWeather(good, settings, scope);
-  assert.deepEqual(settings[0].options.map((o) => o.value), ['none', 'standin']);
+  assert.deepEqual(settings[0].options.map((o) => o.value), ['none', 'met-norway', 'standin']);
+  // MET Norway's choice carries its credit and where its terms are, which choosing it accepts.
+  const met = settings[0].options.find((o) => o.value === 'met-norway');
+  assert.equal(met.label, 'MET Norway');
+  assert.match(met.help, /^Based on data from MET Norway, CC BY 4\.0 .*Choosing it accepts its terms: https:\/\/api\.met\.no\/doc\/TermsOfService$/);
   assert.deepEqual(cleanWeather({ provider: 'p', main: { key: 'trip:main' } }, mk(), scope), { provider: 'p', units: '', stops: null, main: { key: 'trip:main', place: '', from: '', to: '' } });
   const bad = (raw, re, sc = scope) => assert.throws(() => cleanWeather(raw, mk(), sc), (err) => err instanceof ModuleError && re.test(err.message), JSON.stringify(raw).slice(0, 80));
   bad({ ...good, provider: 't' }, /`provider` choice setting/);
@@ -751,7 +1008,13 @@ await live('what is kept: positions, days and numbers only', async () => {
     assert.match(k, /^-?\d+\.\d{2},-?\d+\.\d{2}\|\d{4}-\d{2}-\d{2}$/);
     assert.deepEqual(Object.keys(r).sort(), ['code', 'got', 'high', 'low', 'rain']);
   }
-  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|code|high|low|rain|got|null|clear|partly|cloudy|fog|drizzle|snow|storm)"|"rain"|null/g, '')), 'no name, word or address in the file');
+  // Beside them, per rounded position only, when the service was asked and what it said about asking again.
+  for (const [k, a] of Object.entries(saved.asks || {})) {
+    assert.match(k, /^-?\d+\.\d{2},-?\d+\.\d{2}$/);
+    assert.deepEqual(Object.keys(a).sort(), ['answer', 'at', 'modified', 'until']);
+    assert.equal(a.modified, '', 'the stand-in gives no Last-Modified');
+  }
+  assert.ok(!/[A-Za-z]{3,}/.test(raw.replace(/"(days|asks|at|until|modified|answer|code|high|low|rain|got|null|clear|partly|cloudy|fog|drizzle|snow|storm)"|"rain"|null/g, '')), 'no name, word or address in the file');
   assert.ok(!raw.includes('41.146938') && !raw.includes('38.787586'), 'no exact position');
 });
 
