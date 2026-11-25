@@ -38,6 +38,7 @@ const { ModuleSettings, SettingError } = require('./module-settings');
 const { effectiveLabels } = require('./module-labels');
 const { GeocodeCache, askService, keyOf: keyOfPlace, ENOUGH } = require('./geocode');
 const { FlightSchedule, FlightLookupError, findFlights, parseNumber: parseFlightNumber } = require('./flight-lookup');
+const weatherProviders = require('./weather-providers');
 const { WeatherCache, weatherDays, dayState: weatherDayState, daysBetween: weatherDaysBetween, positionKey: weatherPositionKey } = require('./weather');
 const airportList = require('./airports');
 const { RegionCutJobs, RegionCutError } = require('./region-cut');
@@ -13365,9 +13366,9 @@ app.post('/api/modules/:id/geocode/purge', requireOwner, (req, res) => {
 // A module that declares `weather` in its manifest (the Itinerary) has the weather of its days answered here
 // (documentation/plans/plan-itinerary-weather.md, step 2). Nothing goes out until an owner chooses a service in the module's
 // settings. What goes out then, and only then: to the weather service, a position rounded to 2 decimals, a first and a last
-// day, the fields wanted and the key when there is one (server/weather.js); and, only for a trip whose days need its main
+// day (server/weather.js, through a registered adapter); and, only for a trip whose days need its main
 // place and only when a place search is chosen (Maps'), that place's text to the place search, as a search for it would send.
-// Never who asks, the space, the environment or anything else of the trip. The key is read here and never answered.
+// Never who asks, the space, the environment or anything else of the trip.
 const WEATHER_OFF = { configured: false };
 const WEATHER_MAX_DAYS = 60;
 const WEATHER_MAX_PLACES = 8; // distinct stop places in one answer; days beyond them use the main place
@@ -13376,15 +13377,16 @@ const MAIN_PLACE_GOOD_MS = 24 * 3600 * 1000;
 const MAIN_PLACE_MISS_MS = 10 * 60 * 1000;
 const MAIN_PLACE_MAX = 500;
 const mainPlaces = new Map(); // `${environment slug}\n${module with the search}\n${text, folded}` -> { lat, lon (null: not found), at }. In memory only.
-// Where this module's weather comes from now: { address, key, httpsOnly, credit, units }, or null when none is chosen.
+// Where this module's weather comes from now: { provider (a registered adapter), credit, units }, or null when none is chosen.
 function weatherSetup(manifest) {
   const w = manifest.weather;
   const values = moduleSettings.values(manifest, 'environment', {});
   const chosen = values[w.provider];
   const units = w.units && values[w.units] === 'f' ? 'f' : 'c';
-  const key = () => (w.key ? moduleSettings.secret(manifest, w.key) || '' : '');
-  if (typeof chosen === 'string' && Object.hasOwn(w.providers, chosen)) return { address: w.providers[chosen].address, credit: w.providers[chosen].credit, httpsOnly: true, units, key: key() };
-  if (chosen === w.custom && typeof values[w.address] === 'string' && /^https?:\/\//i.test(values[w.address])) return { address: values[w.address], credit: '', httpsOnly: false, units, key: key() };
+  if (typeof chosen === 'string' && Object.hasOwn(weatherProviders.providers, chosen)) {
+    const provider = weatherProviders.providers[chosen];
+    return { provider, credit: provider.credit, units };
+  }
   return null;
 }
 // The first stop of each day that is at a place with a position, as this asker may see that place: Map(day -> { lat, lon }).
@@ -13559,7 +13561,7 @@ app.get('/api/modules/:id/weather', async (req, res) => {
   let failed = false;
   let some = false;
   await Promise.all([...runs.values()].map(async (r) => {
-    const got = await weatherDays(weatherCache, { address: setup.address, key: setup.key, httpsOnly: setup.httpsOnly }, r.lat, r.lon, r.days, { units: setup.units });
+    const got = await weatherDays(weatherCache, setup.provider, r.lat, r.lon, r.days, { units: setup.units });
     if (got.failed) failed = true;
     for (const d of r.days) { answer.days[d] = got.days[d]; if (got.days[d].state === 'forecast' || got.days[d].state === 'past') some = true; }
   }));

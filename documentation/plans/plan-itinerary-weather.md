@@ -58,7 +58,7 @@ choice, take the planner's lean and say so). Two or three options are given only
 
 1. **Where the lookup and its setting live.**
    - (a) The Itinerary declares a `weather` lookup in its manifest, as Maps declares `geocoder`: a provider choice setting
-     (None, Open-Meteo, Custom), a custom address setting, an optional secret key, a unit setting. The admin chooses in Module
+     (None, then each registered service), a unit setting. The admin chooses in Module
      Configuration, per environment. Costs: a second declaration kind beside `geocoder`. Rules out: environment variables for the
      address.
    - (b) Environment variables `WEATHER_ADDRESS` and `WEATHER_KEY`, as the story strip plan suggested. Costs: an admin edits
@@ -67,11 +67,18 @@ choice, take the planner's lean and say so). Two or three options are given only
    - **Lean: (a).** The story strip's step 9 then asks the same lookup (`server/weather.js`) and takes its provider from the
      Itinerary's settings, so there is one weather service, one cache and one credit line. The strip's two variables are not
      built; that plan's open question 1 is settled by this one if Thomas agrees.
-2. **The service.** Lean: Open-Meteo, the preset, because it is keyless for non-commercial use, gives a 16-day forecast and some
-   past days from one address, and can be run on one's own server. Its free use is non-commercial: a hosted install that charges
-   for environments needs its paid plan or its own server, so the builder reads the current terms on the build day and the
-   setting's help says so in one sentence. The custom address is an Open-Meteo-compatible one. A paid key goes in a `secret`
-   setting (not in the address) and is sent by the server as the service asks; it never reaches a page.
+2. **The service.** Decided (Thomas, 2026-11-25): never a paid service, never one whose free tier forbids commercial use; check the
+   terms before planning, not after. Open-Meteo is not free for commercial use, so nothing of it is built, and no admin-typed
+   address or key exists: a service is an adapter in `server/weather-providers/<id>.js` that the server registers, and the provider
+   setting offers `none` and each registered adapter. The contract: `{ id, name, credit, needsKey: false, request(lat, lon, from,
+   to) -> an https address, parse(json) -> { 'YYYY-MM-DD': { code, high, low, rain } } }`, `code` one of eight words (clear, partly,
+   cloudy, fog, drizzle, rain, snow, storm), `high` and `low` in Celsius, `rain` a percent or null. The lookup, its cache, limits,
+   redirect guard and privacy do not depend on any one service. Only a test stand-in is registered so far (and only when the check
+   sets `WEATHER_TEST_STANDIN`); no real service yet.
+   - **Next build, the first adapter: MET Norway Locationforecast.** Free including commercial use under CC BY 4.0, attribution
+     required (the adapter's `credit`), and it must identify itself in the User-Agent (so the adapter or the lookup needs to send
+     a contact the terms accept, which today's product-and-version User-Agent does not). It gives forecasts only, so past days
+     draw nothing (`unavailable`). Its terms were revised 2026-11-05: read the current terms on the build day, before the build.
 3. **Where a day's weather comes from.** Lean, in this order: the first stop of the day (by time, then by order) whose saved Maps
    place has a position; else the first stop of the day with a position that a person set; else the trip's main place; else
    nothing. A stay and a journey do not give a place (they carry names only, and a flight's two ends are not "where the day is").
@@ -87,7 +94,7 @@ choice, take the planner's lean and say so). Two or three options are given only
    cache serves both; the page converts and rounds. A per-person choice is later work.
 6. **Who reads it.** Lean: anyone who may see the Itinerary (its `view` permission), guests included, as they see the days.
 7. **Credit.** Lean: the service's credit text is part of every answer and is shown in the small popover a tap on the weather
-   opens, as Maps shows its search credit. Open-Meteo's licence needs the name shown.
+   opens, as Maps shows its search credit. A service's licence may need its name shown.
 8. **The agent read.** Lean: a read route and an MCP tool `read_weather` (`space`, `from?`, `to?`), counted as one read, answering
    what the page gets. Reasons under "Agents".
 9. **A quiet failure.** Lean: when the service fails, days draw nothing and the page asks again the next time it draws; no error on
@@ -104,26 +111,22 @@ heading "Weather":
 
 | Key | Type | Help (plain words) |
 |---|---|---|
-| `weatherProvider` | `choice`: `none` (default), `open-meteo`, `custom` | "Where the weather on each day comes from. None: no weather is shown and nothing is sent out." |
-| `weatherAddress` | `url`, used when the provider is custom | "The address of an Open-Meteo-compatible service." |
-| `weatherKey` | `secret` | "A key for the service, if it needs one. Open-Meteo's free use is for non-commercial use only." |
+| `weatherProvider` | `choice`: `none` (default), then each registered service (the server adds them) | "Where the weather on each day comes from. None: no weather is shown and nothing is sent out. Only services that are free for commercial use are offered." |
 | `weatherUnits` | `choice`: `c` (default), `f` | "Show temperatures in Celsius or Fahrenheit." |
 
-The manifest declares `"weather": { "provider": "weatherProvider", "address": "weatherAddress", "key": "weatherKey", "units": "weatherUnits", "custom": "custom", "providers": { "open-meteo": { "name": "Open-Meteo", "address": "https://api.open-meteo.com/v1/forecast", "credit": "Weather by Open-Meteo.com" } } }`, cleaned in `server/modules.js` by a `cleanWeather` beside `cleanGeocoder` (the same rules: each name must be a setting of the right type; a preset address must be https; at most 5 presets). Nothing is sent when the provider is `none` or when the environment has a picture map (an invented world has no real weather: the route answers `configured: false, pictureMap: true`, as the place search does).
+The manifest declares `"weather": { "provider": "weatherProvider", "units": "weatherUnits", "stops": {...}, "main": {...} }`, cleaned in `server/modules.js` by a `cleanWeather` beside `cleanGeocoder` (each name must be a setting of the right type; the registered adapters are added to the provider setting as choices). Nothing is sent when the provider is `none` or when the environment has a picture map (an invented world has no real weather: the route answers `configured: false, pictureMap: true`, as the place search does).
 
 ### What goes out, what is kept (server)
 
-- **Sent to the service:** a position rounded to 2 decimals (about 1 km), a first and a last day, and the daily fields it needs
-  (weather code, high, low, chance of rain), with the time zone set to automatic so each day is the place's own day. Never a name,
+- **Sent to the service:** a position rounded to 2 decimals (about 1 km), a first and a last day, and nothing else, in the address the adapter builds. Never a name,
   an address, a space, an environment, a person or the trip's text. A User-Agent as `server/geocode.js` sends
-  (`userAgent({ contact: REPOSITORY_URL })`). Time limit 6 seconds, body at most 400 KB, redirects followed, `https` only for
-  presets and `http` or `https` for a custom address, as `askService` does.
+  (`userAgent({ contact: REPOSITORY_URL })`). Time limit 6 seconds, body at most 400 KB, redirects followed (each checked), `https` only (the test stand-in alone may use `http`).
 - **Kept:** `DATA_DIR/weather.json`, at the host's level (one answer serves every space going to the same town), an object keyed by
   rounded position and day: `{ code, high, low, rain, got }` with `got` the time it was fetched. A forecast day is good for 3
   hours; a day before today for 24 hours (it no longer changes much); a day dropped once older than 40 days. A cap of 20,000 days,
   the oldest going first. Kept in memory and written a moment after a change, as `GeocodeCache` is. **Never kept:** what a person
   or an agent asked for, who asked, which space or environment, the destination text, the trip's dates as a whole, or the
-  service's address and key. The cache is not exported with an environment and holds no link to a person.
+  service's address. The cache is not exported with an environment and holds no link to a person.
 - A request to the service covers one position and one run of days, so a trip with several distinct day places makes one call
   for each, at most 8 places per request; days beyond those use the trip's main place.
 
@@ -197,8 +200,8 @@ call of one fixed position, run only when the owner presses it.
 Each step is a try build (one builder, one pass, its own checks; if it changes a module, that module's patch bump). Sizes are
 S (an hour or less), M (a few hours), L (a day).
 
-1. **The lookup and its cache** (server-development, core, M). `server/weather.js`: `parseWeather` for an Open-Meteo-shaped answer
-   (a stand-in is the test, no network), the `code` table, `askWeather(address, key, lat, lon, from, to)` with the limits above,
+1. **The lookup and its cache** (server-development, core, M). `server/weather.js`: the weather words table and `cleanDays` over an adapter's parse
+   (a stand-in is the test, no network), `askWeather(provider, lat, lon, from, to)` with the limits above,
    `WeatherCache` (memory, `DATA_DIR/weather.json`, ages, cap, no names, flush on shutdown like `GeocodeCache`), and
    `tools/check-weather.mjs` (parse, the table, the ages, the cap, nothing identifying in the saved file, a failing service,
    an oversized body, a redirect to a private address refused as `link-preview` refuses it). Add the check to the `check` script.
@@ -228,14 +231,14 @@ S (an hour or less), M (a few hours), L (a day).
   any name, space or person (it must hold none).
 - Step 2: `node tools/check-weather.mjs` (route cases), `node tools/check-modules.mjs` and `node tools/check-route-table.mjs`;
   `npm run check:module -- travel` for the manifest. By hand on `npm run dev` (command in `CLAUDE.md`): a stand-in service on
-  another port, the custom address set, then the Itinerary's days answer; the provider `none` answers `configured: false` and the
+  another port, the stand-in registered, then the Itinerary's days answer; the provider `none` answers `configured: false` and the
   stand-in sees no request.
 - Step 3: `check-design-system-catalog`, `check-no-raw-colours`, `check-phone-targets`, `check-narrow` and a look at the Design
   System page at a phone width and in a light theme.
 - Step 4: `npm run check:module -- travel`, and a look in the browser at a trip with forecast, past, far-out, no-place days at a
   phone width.
 - Step 5: `node tools/check-mcp.mjs`.
-- **Not checkable here:** the real Open-Meteo (the container has no route to it, and its current terms and field names are the
+- **Not checkable here:** a real weather service (the container has no route to it, and its current terms and field names are the
   builder's to read on the day); how the day header reads on a real phone and with a screen reader; a real call. A built step says
   which of these it did not do.
 
@@ -243,7 +246,7 @@ S (an hour or less), M (a few hours), L (a day).
 
 - **Privacy.** A trip's day places go to a third party from the server. Rounded to about 1 km, no names, no space, no person,
   and off until the admin chooses. The Itinerary's Module Configuration page says plainly who is asked.
-- **Terms.** Open-Meteo's free use is non-commercial. A hosted install that charges needs a key or its own server.
+- **Terms.** Some weather services are not free for commercial use. No paid service is bundled; the admin supplies the address and checks its terms.
 - **Cost of a long trip.** Several places and 60 days is a few calls, cached for hours; a limit and the 8-place cap hold it.
 - **Wrong place.** A stop's position that the person never meant for weather (a far-off sight) gives that day another town's
   weather. This is correct for where the day is, and the popover is the only place that says it is a forecast for somewhere.
