@@ -7,8 +7,10 @@
   //
   // Beside the runner's ctx it reads `ctx.settings`, the module's settings as host.settings.get() gives them
   // ({ addableByDefault, closeAfterDays }); the page hands them (polls.js) and the server's runner gives them too.
-  // One thing only the page does: telling the space in Chat that a poll has closed (polls.js announceClosed). The server
-  // carries every action out at once and can't tell it yet, so updatePoll refuses `closed: true` there (ctx.carrier 'server').
+  // A poll's closing is told by the server, page or not (plan-agent-server-actions.md, section 7): a poll with a closing time
+  // answers a schedule (`close:<id>`) whose notice the server sends at that time, and one ended now answers the notice at once
+  // (pollCloseEffects, which the page's own End poll, Reopen poll and Start poll use too). Telling other modules (the bus
+  // event `closed`) is still a page's: polls.js tellOthers, when the schedule fires or the page next opens.
 
   const pollActGiven = (v) => v !== undefined && v !== null;
   const pollActRef = (ctx, id) => ({ module: 'polls', kind: 'poll', id, scope: 'space', space: ctx.space.id });
@@ -21,6 +23,41 @@
     const s = ctx.settings && typeof ctx.settings === 'object' ? ctx.settings : {};
     const days = Number(s.closeAfterDays);
     return { addable: Boolean(s.addableByDefault), closeAfterDays: Number.isFinite(days) && days > 0 ? days : 0 };
+  }
+  // How a poll turned out, from its votes (each { options: [option id] }): { winner, tied, summary }, one copy for the
+  // notice and the page's `closed` event.
+  function pollOutcomeOf(p, votes) {
+    const counts = new Map((p.options || []).map((o) => [o.id, 0]));
+    for (const v of votes || []) for (const id of (v && Array.isArray(v.options) ? v.options : [])) if (counts.has(id)) counts.set(id, counts.get(id) + 1);
+    const max = Math.max(0, ...counts.values());
+    const top = max > 0 ? p.options.filter((o) => counts.get(o.id) === max) : [];
+    const winner = top.length === 1 ? top[0].text : null;
+    const tied = top.length > 1 ? top.map((o) => o.text).slice(0, 5) : [];
+    const summary = (winner ? `${p.question}: ${winner}` : tied.length ? `${p.question}: tied between ${tied.join(', ')}` : `${p.question}: no votes`).slice(0, 200);
+    return { winner, tied, summary };
+  }
+  // What a poll's change asks beside its write, so its closing is told with no page open: { schedules, notify }. `before` is
+  // the poll as it was (null for a new one), `after` as it is written, `about` the poll's pointer, `votes` its votes' values.
+  // Open with a closing time to come: the schedule `close:<id>` at that time, set again on every change (the server takes off
+  // a schedule about a poll a request changed, and its words follow the question). No longer so: the schedule cancelled.
+  // Ended now (closed by hand, not already closed): the notice at once, with how it turned out.
+  const POLL_CLOSED_TITLE = 'Poll closed';
+  function pollCloseEffects(before, after, { about, now, votes }) {
+    const timed = (p) => Boolean(p) && !p.closed && typeof p.closesAt === 'number' && p.closesAt > now;
+    const schedules = [];
+    const notify = [];
+    const key = `close:${after.id}`;
+    if (timed(after)) schedules.push({ set: { key, at: after.closesAt, about, notify: { title: POLL_CLOSED_TITLE, body: after.question }, payload: { poll: after.id } } });
+    else if (timed(before)) schedules.push({ cancel: { key } });
+    if (after.closed && before && !pollActClosed(before, now)) notify.push({ title: POLL_CLOSED_TITLE, body: pollOutcomeOf(after, votes).summary, about });
+    return { schedules, notify };
+  }
+  // A handler's answer with the effects beside it, each list only when it holds something (an empty one asks for no hook).
+  // On the environment's own page (no space) there is no space pointer to schedule about: the poll is written as it is.
+  function pollWithEffects(answer, ctx, before, after) {
+    if (!ctx.space.id) return answer;
+    const fx = pollCloseEffects(before, after, { about: pollActRef(ctx, after.id), now: ctx.now, votes: ctx.list(`vote:${after.id}:`).map((r) => r.value) });
+    return { ...answer, ...(fx.schedules.length ? { schedules: fx.schedules } : {}), ...(fx.notify.length ? { notify: fx.notify } : {}) };
   }
   const POLL_SAY_CHANGE = 'Say what to change: the question, the options, whether more than one answer is allowed, when it closes, or whether it is closed. Send "" to take the closing time off.';
 
@@ -41,13 +78,13 @@
         id, question: made.question, options: made.options.map((text, i) => ({ id: 'o' + (i + 1), text })),
         multi: made.multi, addable: s.addable, closed: false, closesAt, createdAt: ctx.now, by: ctx.credit.name, byKey: ctx.credit.key,
       };
-      return { writes: [{ key: `poll:${id}`, value: p }], ref: pollActRef(ctx, id) };
+      return pollWithEffects({ writes: [{ key: `poll:${id}`, value: p }], ref: pollActRef(ctx, id) }, ctx, null, p);
     },
     // Change a poll: only the fields given, with the form's own checks and sentences. Once anyone has voted, the options can
     // only be added to (the ones there, in order, then the new ones) and whether more than one answer is allowed stays, as the
     // server holds every writer to (the poll's `settled` guard); a closed poll's options don't change. `closed` true ends it as
-    // End poll does, false opens it again as Reopen poll does (its closing time taken off unless `closes` gives a new one).
-    // `closes` "" (the manifest's `clears`) takes the closing time off.
+    // End poll does (and the notice says so), false opens it again as Reopen poll does (its closing time taken off unless
+    // `closes` gives a new one). `closes` "" (the manifest's `clears`) takes the closing time off. Its closing schedule follows.
     updatePoll(input, ctx) {
       const ref = input.poll;
       const cur = pollActOurs(ref, ctx) ? ctx.read(`poll:${ref.id}`) : null;
@@ -68,10 +105,7 @@
       if (input.closes === '') next.closesAt = null;
       else if (pollActGiven(input.closes)) next.closesAt = pollClosesOf(input.closes, ctx.now, ctx.tz);
       if (pollActGiven(input.closed) && typeof input.closed !== 'boolean') throw new Error('Say whether it is closed with true or false.');
-      if (input.closed === true && !wasClosed) {
-        if (ctx.carrier === 'server') throw new Error('Ending a poll tells the space in Chat, which can\'t be done from here yet. Ask a person to press End poll, or give it a closing time with closes.');
-        next.closed = true; next.announced = true;
-      }
+      if (input.closed === true && !wasClosed) next.closed = true;
       if (input.closed === false && wasClosed) {
         next.closed = false;
         if (!pollActGiven(input.closes)) next.closesAt = null;
@@ -101,6 +135,6 @@
         }
       }
       if (JSON.stringify(next) === JSON.stringify(cur)) return { ref: pollActRef(ctx, ref.id), data: { note: 'That is already so; nothing changed.' } };
-      return { writes: [{ key: `poll:${ref.id}`, value: next }], ref: pollActRef(ctx, ref.id) };
+      return pollWithEffects({ writes: [{ key: `poll:${ref.id}`, value: next }], ref: pollActRef(ctx, ref.id) }, ctx, cur, next);
     },
   };
