@@ -31,6 +31,9 @@ const AGENT_ROUTES = Object.freeze([
   { kind: 'agent', method: 'get', path: '/api/objects/search', counts: 'read', place: 'spaceScope', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/objects/links', counts: 'read', place: 'linkRef', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/objects/kinds', counts: 'read', place: 'none', needs: 'always' },
+  // The objects format's JSON Schema: every kind and its typed details (plan-agent-edit-delete.md, "The contract", 5; MCP
+  // object_format).
+  { kind: 'agent', method: 'get', path: '/api/objects/format/schema', counts: 'read', place: 'none', needs: 'always' },
   { kind: 'agent', method: 'post', path: '/api/objects/resolve', counts: 'read', place: 'resolveRefs', needs: 'module' },
   { kind: 'agent', method: 'get', path: '/api/spaces/:id/members', counts: 'read', place: 'spaceParam', needs: 'agentMembers' },
   { kind: 'agent', method: 'get', path: '/api/spaces/:id/actions', counts: 'read', place: 'spaceParam', needs: 'module' },
@@ -89,11 +92,13 @@ const SETUP_DEFAULTS = Object.freeze({ agentMakeSpaces: false, agentChangeSpaces
 const SETUP_LIMITS = Object.freeze({ made: 5, changes: 30, waiting: 10 });
 
 // What a set-up agent may ask an owner about a person in a space it made (plan-admin-agent.md, "What it may do"): add them,
-// take them off, tick or untick them as the space's moderator. An ask waits SETUP_ASK_DAYS for an answer, then expires; an
-// owner may undo a direct change (making, renaming, a description, an icon) for SETUP_UNDO_DAYS.
+// take them off, tick or untick them as the space's moderator. An ask (either kind of agent's) waits AGENT_ASK_DAYS for an
+// answer, then expires; a person may undo an agent's direct change (a set-up agent's making, renaming, a description, an
+// icon; an ordinary agent's added, edited or deleted object) for AGENT_UNDO_DAYS (plan-agent-edit-delete.md, question 4:
+// one number for both kinds).
 const SETUP_ASKS = Object.freeze(['add', 'remove', 'moderator']);
-const SETUP_ASK_DAYS = 7;
-const SETUP_UNDO_DAYS = 7;
+const AGENT_ASK_DAYS = 7;
+const AGENT_UNDO_DAYS = 7;
 
 // The words a log line keeps for a set-up change (server/agent-log.js `change`): never a name or a description. An ask is
 // `ask:<what>`, alone on its line.
@@ -164,4 +169,4 @@ function assertAgentRoutes(list = AGENT_ROUTES) {
 
 assertAgentRoutes();
 
-module.exports = { AGENT_ROUTES, AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, SETUP_BUILT_IN, SETUP_DEFAULTS, SETUP_LIMITS, SETUP_CHANGES, SETUP_ASK_CHANGES, SETUP_ASKS, SETUP_ASK_DAYS, SETUP_UNDO_DAYS, agentMayAsk, agentModuleKeys, agentRouteProblems, assertAgentRoutes };
+module.exports = { AGENT_ROUTES, AGENT_ONLY_PERMISSIONS, AGENT_BUILT_IN, AGENT_DEFAULTS, SETUP_BUILT_IN, SETUP_DEFAULTS, SETUP_LIMITS, SETUP_CHANGES, SETUP_ASK_CHANGES, SETUP_ASKS, AGENT_ASK_DAYS, AGENT_UNDO_DAYS, agentMayAsk, agentModuleKeys, agentRouteProblems, assertAgentRoutes };

@@ -550,6 +550,7 @@ try {
     fs.cpSync(path.join(process.cwd(), 'modules', 'travel'), src, { recursive: true });
     const manifest = JSON.parse(fs.readFileSync(path.join(src, 'module.json'), 'utf8'));
     manifest.version = '99.0.0';
+    if (manifest.actions) delete manifest.actions.server; // an upload may not declare it (server/module-actions.js)
     manifest.permissions.push({ key: 'extra', label: 'Something new', default: { member: false, guest: false, moderator: false } });
     fs.writeFileSync(path.join(src, 'module.json'), JSON.stringify(manifest));
     const zip = buildModule(src).zip;
