@@ -15,6 +15,10 @@
  *     apart), the Calendar copy's {by} is the asker's name, a failed request logs no "carried out";
  *   - a person's own request is unchanged; the cap and the first-claim window survive a restart and a re-claim;
  *   - hosted (BASE_DOMAIN): a request of one environment is no use at another.
+ * No route makes an agent's request wait for a page since plan-agent-server-actions.md step 11d (the server carries it or refuses
+ * it at once; the first case checks that for this upload). A waiting one can still be in bus.json from before that step, and a
+ * person's request still waits, so these rules stand: askByAgent writes the agent's waiting request into bus.json with the
+ * server stopped, as the route made one before (its token's id, never the token), and starts the server again.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -44,7 +48,7 @@ async function startServer(dataDir, env = {}) {
     env: { PATH: process.env.PATH, HOME: process.env.HOME, PORT: '0', DATA_DIR: dataDir, TZ: 'UTC', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const server = { child, out: '', port: 0 };
+  const server = { child, out: '', port: 0, dataDir, env };
   child.stdout.on('data', (d) => { server.out += d; });
   child.stderr.on('data', (d) => { server.out += d; });
   server.port = await new Promise((resolve, reject) => {
@@ -93,9 +97,9 @@ const refused = (r, status, error, what) => {
   if (error) assert.equal(r.json?.error, error, `${what}: the sentence`);
 };
 
-// The bundled Planner uploaded as a module of its own: an upload may not declare actions.server, so the copy leaves it out and
-// its agents' requests wait for a page to claim them (the bundled one's run on the server, plan-agent-server-actions step 7).
-// It keeps its mirror, so its plans are still copied into the Calendar.
+// The bundled Planner uploaded as a module of its own, without server actions, so a page carries the requests made to it (an
+// agent's is refused at once since step 11d, and its waiting one is written into bus.json: askByAgent). It keeps its mirror, so
+// its plans are still copied into the Calendar.
 let plannerZip = null;
 const plannerUpload = () => {
   if (plannerZip) return plannerZip;
@@ -147,8 +151,21 @@ const pending = (w, who) => call(w.server, 'GET', `/api/bus/actions/pending?modu
 const activity = async (w) => (await call(w.server, 'GET', '/api/modules/activity', { host: w.host, cookie: w.cookie })).json.activity;
 const askByAgent = async (w, title) => {
   const r = await call(w.server, 'POST', `/api/spaces/${w.space}/action`, { host: w.host, token: w.token, body: { action: 'schedule:addMilestone', input: { title, date: '2026-12-01' } } });
-  ok(r, 'the agent asks');
-  return r.json.id;
+  ok(r, 'the agent\'s request to the upload is refused at once', 409);
+  const s = w.server;
+  await s.stop();
+  const at = w.host ? path.join(s.dataDir, 'environments', w.host) : s.dataDir;
+  const tokenId = JSON.parse(fs.readFileSync(path.join(at, 'tokens.json'), 'utf8')).tokens.filter((t) => t.kind === 'agent' && t.user === w.agent.key).at(-1).id;
+  const file = path.join(at, 'modules', 'bus.json');
+  let bus = { seq: 0, events: [], actions: [] };
+  try { bus = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* none yet */ }
+  bus.seq = (Number(bus.seq) || 0) + 1;
+  bus.actions.push({ id: bus.seq, at: Date.now(), from: 'schedule', provider: 'schedule', action: 'addMilestone', input: { title, date: '2026-12-01' }, scopeKey: `space:${w.space}`, by: w.agent.key, agent: true, agentToken: tokenId, status: 'pending', claimedAt: 0, result: null });
+  fs.writeFileSync(file, JSON.stringify(bus));
+  // The same server object, started again, so every place that holds it reaches the new process.
+  const fresh = await startServer(s.dataDir, s.env);
+  Object.assign(s, { child: fresh.child, port: fresh.port, stop: fresh.stop, out: fresh.out });
+  return bus.seq;
 };
 const askByPerson = async (w, who, title) => {
   const r = await call(w.server, 'POST', `/api/spaces/${w.space}/action`, { host: w.host, cookie: who, body: { action: 'schedule:addMilestone', input: { title, date: '2026-12-01' } } });
@@ -286,7 +303,8 @@ try {
     const saved = lines.find((l) => l.what === 'saved plan:p1');
     assert.deepEqual([saved.by, saved.carriedBy, saved.byName], [w.agent.key, adminKey, `Claude (agent), carried out by ${adminName}'s page`]);
     assert.equal(lines.find((l) => l.what === 'carried out addMilestone').byName, saved.byName);
-    assert.equal(lines.find((l) => l.what.startsWith('asked schedule to addMilestone') && l.by === w.agent.key).byName, 'Claude (agent)');
+    // Its ask was written into bus.json (askByAgent): the route refused the agent at once and noted no "asked" line for it.
+    assert.equal(lines.find((l) => l.what.startsWith('asked schedule to addMilestone') && l.by === w.agent.key), undefined);
     assert.equal(await copyBy('Pitch the tents'), 'Claude', 'the copy\'s {by} is the asker');
     const copyLine = lines.find((l) => l.what.startsWith('saved event:') && l.by === w.agent.key);
     assert.equal(copyLine?.carriedBy, adminKey, 'and the activity list names the carrier on the copy');

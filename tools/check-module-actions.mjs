@@ -8,8 +8,7 @@
  * module-actions/fixture-notes (`actions.server`: src/fixture-notes-lib-actions.js), so nothing under modules/ ships it.
  * Checked:
  *   - the declaration: a bundled module's actions.server is kept; a path that is not one of its own libraries is refused;
- *     an uploaded zip that declares it is refused at install with one sentence; the runner's process can't read a file
- *     or start a process (Node's permission model), whatever runs in it;
+ *     the runner's process can't read a file or start a process (Node's permission model), whatever runs in it;
  *   - an agent's request is done in the same call, as the agent (its key on the object and on the stored write, credit
  *     and ctx.by the agent's), with the new object's pointer; request_status gives the pointer; a second request can
  *     read it back and link to it; it counts as one write; the activity list names the agent;
@@ -28,9 +27,9 @@
  *   - input over the size cap is 413 and makes no request;
  *   - what changed while the handler ran is not overwritten (409); a request ended while it ran (Revoke) writes nothing;
  *   - a request the server was carrying when it stopped reads as done and failed after a restart;
- *   - an uploaded module (and a newer upload of the fixture itself) keeps the wait: pending with its waiting words,
- *     list_actions says now: false, wait_for_result holds until a page carries it or its seconds run out, at most two
- *     waits at once; MCP lists wait_for_result and the fixture's request is done through ask_for_change;
+ *   - nothing waits for a page (plan-agent-server-actions.md, step 11d): an uploaded module without server actions (and a
+ *     newer upload of the fixture itself) is refused at once, 409 with its sentence, list_actions shows may: false and why,
+ *     nothing is queued; there is no wait_for_result and no wait route; a person's own request still goes to a page;
  *   - the richer ctx (step 1b): ctx.util is the SDK's own helpers (public/sdk/host.js, loaded by the worker), frozen, with the
  *     environment's clock and words, and no way out through them (no constructor, stack frame or leftover of the SDK); the
  *     facts (space, people) are exactly the page's shape; refs only for the input's pointers, a pointer into another space or
@@ -38,14 +37,16 @@
  *   - the Itinerary and the Calendar carried by the server: acceptSuggestion with a full flight, updatePlan patching only the
  *     gate and terminal, createEvent with a 90 minute reminder and notes (the reminder marked as waiting for a page, and said),
  *     updateEvent clearing the reminder (the schedule a page set from the old event cancelled), each with the module tests'
- *     writes; the same request through an uploaded copy waits and never reaches the runner;
+ *     writes; an uploaded copy that may move the phase's end is refused at install, and one without server actions is refused
+ *     at once to the agent;
  *   - To-do carried by the server (step 2b): createTask with a reminder, then updateTask on its pointer at once (notes cleared
  *     with ""), the reminder marked as waiting for a page and the schedule a page set from the old task cancelled; setTaskDue
- *     clearing the due date; linkTask and unlinkTask on the Calendar's event; the same request through an uploaded copy waits.
+ *     clearing the due date; linkTask and unlinkTask on the Calendar's event; the same request through an uploaded copy is refused
+ *     at once.
  *   - plan-agent-server-actions.md steps 1 and 2: ctx.settings are what GET settings/values answers (person settings at their
  *     default); ctx.util gains label (the manifest's words, then the template's), order, rollup and geo, frozen and with no way
  *     out; ctx.space.phases carry their labels (the travel template, which this copy's templates let offer the fixture); a
- *     handler's data beyond its note reaches the agent in the answer, request_status, wait_for_result and MCP, capped; a ref
+ *     handler's data beyond its note reaches the agent in the answer, request_status and MCP, capped; a ref
  *     input may be declared in `clears`, and "" then clears it through the bus and the gate; checkToolInput keeps "" for a
  *     declared clear.
  *   - plan-agent-server-actions.md steps 4 and 5 (server/action-effects.js): a handler's answer may name links (add, remove),
@@ -91,6 +92,23 @@
  *     leave it without one and list them, none says so, the search off says so and sends nothing; an environment place
  *     marks the request's space; a place for the person is refused for the agent with its sentence and nothing is written;
  *     updatePlace and setPlacePoint on the environment place by its pointer; every Maps action an agent may ask is done now.
+ *   - plan-agent-server-actions.md step 11d, uploaded modules (the hostile cases of its Verify section). The slot share, with a
+ *     stand-in worker: at most 2 of the 4 running slots for uploaded modules, a third waits while bundled runs take the free
+ *     slots, at most 8 uploaded runs wait, and an uploaded run whose code does not hash to the approved hash never starts.
+ *     On a server without the wall, an upload with server actions installs, may be approved, and is refused at once with the
+ *     wall's sentence. On a second server with ACTION_RUNNER_NETWORK=namespace (where this machine gives a namespace; else the
+ *     start-up line and the refusal are checked and the live part is said to be skipped), with the upload fixture
+ *     (tools/fixtures/module-actions/fixture-upload: a library the module check accepts that reaches for everything at run
+ *     time): the admin sees the library's hash (the validator's), the wall and no approval; unapproved, its action is refused
+ *     at once (409, the sentence) and shown with may: false and why, through MCP too, nothing queued; only the admin approves
+ *     (an owner, a member, an agent's token, nobody signed in and another site are refused; another version or hash is 409;
+ *     a bundled module is 400); an approval for one module runs no other; approved, it runs as the agent in the namespace;
+ *     the library gets no require, process, network, eval, Function or constructor way out, no file through ctx.read and
+ *     none of the server's secrets; a long loop, a promise loop, memory, huge output and huge data are faults that write
+ *     nothing; it writes no environment or person data and moves no phase's end, even with its manifest edited on disk past
+ *     install (a place search declared on disk is refused before anything is searched); one byte changed in its installed
+ *     library is not run until approved again; taking the approval back while a run is going writes nothing; three uploaded
+ *     runs and a bundled one at once are all done; a new version, disabling, rolling back and uninstalling drop the approval.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -98,12 +116,16 @@ import path from 'node:path';
 import http from 'node:http';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
 const FIXTURE = path.join(ROOT, 'tools', 'fixtures', 'module-actions', 'fixture-notes');
+// An uploadable module whose library reaches for everything the server must hold, built from pieces so the module check lets it
+// through (plan-agent-server-actions.md, step 11d): only the worker, the wall and the admin's approval hold it.
+const UPLOAD_FIXTURE = path.join(ROOT, 'tools', 'fixtures', 'module-actions', 'fixture-upload');
 const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
 const ENDED = 'The agent that asked for this can no longer ask for it.';
 const CHANGED = 'That changed while it was being done, so nothing was changed. Read it again and ask again.';
@@ -365,7 +387,7 @@ try {
         assert.equal(runner.network.uploadedMayRun, may, `${name}/${network}: uploaded modules may run only with namespace and a real namespace`);
         const bundled = await runner.run(message);
         assert.deepEqual(JSON.parse(bundled.text), expected, `${name}/${network}: a bundled module's handler ran`);
-        const uploaded = await runner.run({ ...message, uploaded: true });
+        const uploaded = await runner.run({ ...message, uploaded: true, sha256: createHash('sha256').update(message.code).digest('hex') });
         if (may) assert.deepEqual(JSON.parse(uploaded.text), expected, `${name}/${network}: an uploaded module ran in the namespace`);
         else assert.deepEqual(uploaded, { fault: 'network' }, `${name}/${network}: an uploaded module is refused`);
       }
@@ -375,6 +397,43 @@ try {
     assert.match(line('auto', null), /bundled modules run with the lockdown only; uploaded modules' actions are off, because ACTION_RUNNER_NETWORK is not namespace\.$/);
     assert.match(line('namespace', null), /uploaded modules' actions are off, because this server can't make a network namespace \(see the seccomp profile in deploy\/\)\.$/);
     assert.equal(createModuleActions({ bundledDir: path.join(app, 'modules'), network: 'nonsense' }).network.known, false, 'an unknown word is said, and read as auto');
+  });
+
+  await test('the slot share: at most 2 of the 4 running slots for uploaded modules, a third waits while bundled runs go on', async () => {
+    const { createModuleActions, MODULE_ACTION_LIMITS } = require(path.join(ROOT, 'server', 'module-actions.js'));
+    assert.deepEqual([MODULE_ACTION_LIMITS.running, MODULE_ACTION_LIMITS.uploadedRunning, MODULE_ACTION_LIMITS.queued, MODULE_ACTION_LIMITS.uploadedQueued], [4, 2, 16, 8]);
+    // A stand-in worker that holds its slot for a while and answers, and a stand-in seal (env, which then runs node), so an
+    // uploaded run may start here whatever this machine's kernel allows; the real namespace is tried on a live server below.
+    const sleeper = path.join(base, 'sleeper.cjs');
+    fs.writeFileSync(sleeper, "let t = ''; process.stdin.on('data', (d) => { t += d; }); process.stdin.on('end', () => setTimeout(() => process.stdout.write(JSON.stringify({ text: JSON.stringify({ result: { writes: [], data: JSON.parse(t).action } }) }) + '\\n'), 900));");
+    const runner = createModuleActions({ bundledDir: path.join(app, 'modules'), workerFile: sleeper, network: 'namespace', sealOf: () => ({ command: '/usr/bin/env', args: [] }) });
+    assert.equal(runner.network.uploadedMayRun, true);
+    const code = 'const ACTION_HANDLERS = {};';
+    const sha256 = createHash('sha256').update(code).digest('hex');
+    const one = (action, uploaded) => runner.run({ code, filename: 'x.js', action, inputText: '{}', ctxText: '{}', dataText: '{}', uploaded, sha256: uploaded ? sha256 : null });
+    const finished = [];
+    const go = (action, uploaded) => one(action, uploaded).then((r) => { finished.push(action); return r; });
+    const runs = [go('u1', true), go('u2', true), go('u3', true)];
+    await sleep(250);
+    assert.deepEqual(runner.load(), { running: 2, uploaded: 2, waiting: 1, waitingUploaded: 1 }, 'the third uploaded run waits');
+    runs.push(go('b1', false), go('b2', false));
+    await sleep(250);
+    assert.deepEqual(runner.load(), { running: 4, uploaded: 2, waiting: 1, waitingUploaded: 1 }, 'bundled runs take the free slots past it');
+    const out = await Promise.all(runs);
+    for (const r of out) assert.ok(typeof r.text === 'string', `ran: ${JSON.stringify(r)}`);
+    assert.equal(finished.at(-1), 'u3', 'the third uploaded run went last');
+    assert.deepEqual(runner.load(), { running: 0, uploaded: 0, waiting: 0, waitingUploaded: 0 });
+    // At most 8 uploaded runs wait: the next is busy at once, and a bundled run still gets a slot.
+    const many = Array.from({ length: 11 }, (_, i) => one(`m${i}`, true));
+    const busy = await Promise.race([many[10], sleep(500).then(() => 'still waiting')]);
+    assert.deepEqual(busy, { fault: 'busy' }, 'the eleventh uploaded run is refused as busy');
+    const bundled = one('b3', false);
+    await sleep(250);
+    assert.equal(runner.load().running, 3, 'a bundled run started beside the two uploaded ones');
+    await Promise.all([...many, bundled]);
+    // What runs is what was approved: an uploaded run whose code does not hash to the approved hash never starts.
+    assert.deepEqual(await runner.run({ code: `${code} `, filename: 'x.js', action: 'a', inputText: '{}', ctxText: '{}', dataText: '{}', uploaded: true, sha256 }), { fault: 'approval' });
+    assert.deepEqual(await runner.run({ code, filename: 'x.js', action: 'a', inputText: '{}', ctxText: '{}', dataText: '{}', uploaded: true }), { fault: 'approval' }, 'nor one with no hash');
   });
 
   await test('an action\'s lookups: kept for a string input of a module with a place search, refused otherwise', async () => {
@@ -664,26 +723,25 @@ try {
     await newToken(as);
   });
 
-  await test('MCP: wait_for_result is listed, ask_for_change on the fixture is done at once', async () => {
+  await test('MCP: no wait_for_result (nothing waits for a page), ask_for_change on the fixture is done at once', async () => {
     as = agents[6];
     const rpc = (method, params) => call('POST', '/mcp', { ...T(), body: { jsonrpc: '2.0', id: 1, method, params } });
     const tools = (await rpc('tools/list', {})).json.result.tools;
-    const wait = tools.find((t) => t.name === 'wait_for_result');
-    assert.ok(wait, 'listed');
-    assert.deepEqual(wait.inputSchema.required, ['space', 'request']);
+    assert.equal(tools.find((t) => t.name === 'wait_for_result'), undefined, 'not listed');
     const r = await rpc('tools/call', { name: 'ask_for_change', arguments: { space: camp, action: 'fixture-notes:addNote', input: { title: 'By MCP' } } });
     const out = JSON.parse(r.json.result.content[0].text);
     assert.equal(out.status, 'done');
     assert.equal(out.ok, true);
     assert.equal(out.ref.kind, 'note');
-    const bad = await rpc('tools/call', { name: 'wait_for_result', arguments: { space: camp, request: out.id, seconds: 31 } });
-    assert.equal(bad.json.result.isError, true);
-    assert.equal(bad.json.result.content[0].text, 'seconds is a whole number from 1 to 30.');
-    const done = await rpc('tools/call', { name: 'wait_for_result', arguments: { space: camp, request: out.id, seconds: 5 } });
-    assert.equal(JSON.parse(done.json.result.content[0].text).ok, true, 'a done request answers at once');
+    const gone = await rpc('tools/call', { name: 'wait_for_result', arguments: { space: camp, request: out.id, seconds: 5 } });
+    assert.ok(gone.json.error || gone.json.result?.isError, 'wait_for_result is no tool');
+    const noRoute = await call('GET', `/api/spaces/${camp}/action/${out.id}/wait?seconds=1`, T());
+    ok(noRoute, 'and no route for an agent', 403);
+    assert.equal(noRoute.json.error, 'An agent can\'t do that.');
     const list = JSON.parse((await rpc('tools/call', { name: 'list_actions', arguments: { space: camp } })).json.result.content[0].text).actions;
     assert.equal(list.find((a) => a.action === 'fixture-notes:addNote').now, true, 'list_actions says now');
     assert.equal(list.find((a) => a.action === 'fixture-notes:addNote').waiting, undefined);
+    assert.equal(list.find((a) => a.action === 'fixture-notes:addNote').why, undefined);
   });
 
   // --- the richer ctx: the SDK's helpers, the facts, the refs (step 1b) --------------------------------------------------
@@ -804,7 +862,7 @@ try {
     }
   });
 
-  await test('a handler\'s data reaches the agent: the answer, request_status, wait_for_result and MCP', async () => {
+  await test('a handler\'s data reaches the agent: the answer, request_status and MCP', async () => {
     as = agents[13];
     // `data.note` is the answer's `note`; the rest of the handler's data comes as `data`.
     const want = { count: 3, list: ['a', 'b'], nested: { ok: true } };
@@ -813,14 +871,9 @@ try {
     assert.deepEqual(r.json, { id: r.json.id, status: 'done', ok: true, note: 'Here it is.', data: want });
     const status = await call('GET', `/api/spaces/${camp}/action/${r.json.id}`, T());
     assert.deepEqual(status.json, { id: r.json.id, status: 'done', ok: true, note: 'Here it is.', data: want }, 'request_status');
-    const waited = await call('GET', `/api/spaces/${camp}/action/${r.json.id}/wait?seconds=1`, T());
-    ok(waited, 'the wait route');
-    assert.deepEqual(waited.json.data, want, 'wait_for_result');
     const rpc = (method, params) => call('POST', '/mcp', { ...T(), body: { jsonrpc: '2.0', id: 1, method, params } });
     const viaMcp = JSON.parse((await rpc('tools/call', { name: 'ask_for_change', arguments: { space: camp, action: 'fixture-notes:answerData', input: {} } })).json.result.content[0].text);
     assert.deepEqual(viaMcp.data, want, 'ask_for_change');
-    const mcpWait = JSON.parse((await rpc('tools/call', { name: 'wait_for_result', arguments: { space: camp, request: viaMcp.id, seconds: 1 } })).json.result.content[0].text);
-    assert.deepEqual(mcpWait.data, want, 'wait_for_result through MCP');
     const mcpStatus = JSON.parse((await rpc('tools/call', { name: 'request_status', arguments: { space: camp, request: viaMcp.id } })).json.result.content[0].text);
     assert.deepEqual(mcpStatus.data, want, 'request_status through MCP');
     faultSentence(await ask('answerData', { big: true }), 'it answered more than the server takes');
@@ -1040,25 +1093,33 @@ try {
     }
   });
 
-  await test('the same requests through an uploaded copy of the Itinerary wait for a page and never reach the runner', async () => {
+  await test('an uploaded copy of the Itinerary: refused at install while it may move a phase\'s end; without, refused at once to an agent', async () => {
     as = agents[10];
     const up = path.join(base, 'variants', 'travel-upload');
     fs.cpSync(path.join(ROOT, 'modules', 'travel'), up, { recursive: true });
     const m = JSON.parse(fs.readFileSync(path.join(up, 'module.json'), 'utf8'));
     m.version = '9.9.9';
+    fs.writeFileSync(path.join(up, 'module.json'), JSON.stringify(m, null, 2));
+    const mover = m.actions.provides.find((a) => a.phaseEnd === true);
+    assert.ok(mover, 'the Itinerary has an action that moves the end');
+    const refused = await call('POST', '/api/modules', { cookie: admin, raw: zipOf(up), headers: { 'content-type': 'application/zip' } });
+    ok(refused, 'an upload that may move the end is refused', 400);
+    assert.equal(refused.json.error, `module.json: action "${mover.name}" asks to move the main phase's end, which only a module that ships with the server may do`);
+    // Without it, and without server actions: installed, and an agent's request is refused at once, never queued for a page.
     delete m.actions.server;
+    for (const a of m.actions.provides) delete a.phaseEnd;
     fs.writeFileSync(path.join(up, 'module.json'), JSON.stringify(m, null, 2));
     ok(await call('POST', '/api/modules', { cookie: admin, raw: zipOf(up), headers: { 'content-type': 'application/zip' } }), 'the upload installs', 201);
     const before = JSON.stringify(await travelData());
+    const ids = busIds();
     const r = await askIn('travel:updatePlan', { entry: flight, object: { kind: 'flight', details: { gate: 'Z9' } } });
-    ok(r, 'asked');
-    assert.equal(r.json.status, 'pending');
-    assert.match(r.json.waiting, /^Waiting for someone who may change Planner - Itinerary to open it in "Camp"\./);
-    const kept = busFile().actions.find((a) => a.id === r.json.id);
-    assert.ok(kept && !kept.server && kept.status === 'pending', 'on the queue for a page, not the server\'s');
+    const NONE = 'Planner - Itinerary has no actions that run on the server, so it can\'t do this for an agent.';
+    ok(r, 'refused at once', 409);
+    assert.deepEqual(r.json, { error: NONE });
+    assert.deepEqual(busIds(), ids, 'nothing queued for a page');
     assert.equal(JSON.stringify(await travelData()), before, 'nothing written');
-    const list = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions;
-    assert.equal(list.find((a) => a.action === 'travel:updatePlan').now, false);
+    const listed = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions.find((a) => a.action === 'travel:updatePlan');
+    assert.deepEqual([listed.may, listed.now, listed.why, listed.waiting], [false, false, NONE, undefined], 'list_actions: may false, with why');
   });
 
   // --- To-do, carried by the server (plan-agent-edit-delete.md, step 2b) -------------------------------------------------------
@@ -1631,7 +1692,7 @@ try {
     assert.equal(JSON.stringify(await todoData()), before, 'nothing written');
   });
 
-  await test('the same request through an uploaded copy of To-do waits for a page and never reaches the runner', async () => {
+  await test('the same request through an uploaded copy of To-do is refused at once and never reaches the runner or a page', async () => {
     as = todoAgent;
     const up = path.join(base, 'variants', 'todo-upload');
     fs.cpSync(path.join(ROOT, 'modules', 'todo'), up, { recursive: true });
@@ -1641,19 +1702,14 @@ try {
     fs.writeFileSync(path.join(up, 'module.json'), JSON.stringify(m, null, 2));
     ok(await call('POST', '/api/modules', { cookie: admin, raw: zipOf(up), headers: { 'content-type': 'application/zip' } }), 'the upload installs', 201);
     const before = JSON.stringify(await todoData());
-    const r = await askIn('todo:updateTask', { task, title: 'Waits' });
-    ok(r, 'asked');
-    assert.equal(r.json.status, 'pending');
-    assert.match(r.json.waiting, /^Waiting for someone who may change To-do to open it in "Camp"\./);
-    const kept = busFile().actions.find((a) => a.id === r.json.id);
-    assert.ok(kept && !kept.server && kept.status === 'pending', 'on the queue for a page, not the server\'s');
+    const ids = busIds();
+    for (const t of [task, lodgeTask]) {
+      const r = await askIn('todo:updateTask', { task: t, title: 'Waits' });
+      ok(r, 'refused at once', 409);
+      assert.deepEqual(r.json, { error: 'To-do has no actions that run on the server, so it can\'t do this for an agent.' });
+    }
+    assert.deepEqual(busIds(), ids, 'nothing queued for a page');
     assert.equal(JSON.stringify(await todoData()), before, 'nothing written');
-    // The pointer into the Lodge the server refused is the page's to judge here, as before.
-    const there = await askIn('todo:updateTask', { task: lodgeTask, title: 'Moved' });
-    ok(there, 'asked with a pointer into the Lodge');
-    assert.equal(there.json.status, 'pending');
-    const queued = busFile().actions.find((a) => a.id === there.json.id);
-    assert.ok(queued && !queued.server && queued.status === 'pending', 'on the queue for a page, unchanged');
   });
 
   await test('a request the server was carrying when it stopped reads as done and failed after a restart', async () => {
@@ -1673,53 +1729,51 @@ try {
     assert.equal(claim.json.ok, false, 'no page takes it after the restart');
   });
 
-  await test('an upload that declares actions.server is refused at install', async () => {
-    const dirUp = variant('upload-server', (m) => { m.id = 'fixture-upload'; m.name = 'Fixture upload'; });
-    const r = await call('POST', '/api/modules', { cookie: admin, raw: zipOf(dirUp), headers: { 'content-type': 'application/zip' } });
-    ok(r, 'refused', 400);
-    assert.equal(r.json.error, 'Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
-  });
-
-  await test('an uploaded module keeps the wait: waiting words, now false, wait_for_result, at most two waits', async () => {
+  await test('an uploaded module without server actions: may false with why, refused at once (409), nothing queued, no wait', async () => {
     as = agent;
-    const dirUp = variant('upload-plain', (m) => { m.id = 'fixture-upload'; m.name = 'Fixture upload'; delete m.actions.server; });
+    const dirUp = variant('upload-plain', (m) => { m.id = 'fixture-upload'; m.name = 'Fixture upload'; delete m.actions.server; for (const a of m.actions.provides) delete a.phaseEnd; });
     ok(await call('POST', '/api/modules', { cookie: admin, raw: zipOf(dirUp), headers: { 'content-type': 'application/zip' } }), 'installs', 201);
     ok(await call('PATCH', '/api/modules/fixture-upload', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'on');
-    const list = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions;
-    const entry = list.find((a) => a.action === 'fixture-upload:addNote');
-    assert.equal(entry.now, false);
-    assert.equal(entry.waiting, 'Waiting for someone who may change Fixture upload to open it in "Camp". Nothing has changed yet.');
+    const NONE = 'Fixture upload has no actions that run on the server, so it can\'t do this for an agent.';
+    const entry = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions.find((a) => a.action === 'fixture-upload:addNote');
+    assert.deepEqual([entry.may, entry.now, entry.why, entry.waiting], [false, false, NONE, undefined]);
+    const ids = busIds();
     const r = await call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: 'fixture-upload:addNote', input: { title: 'Waits' } } });
-    ok(r, 'asked');
-    assert.equal(r.json.status, 'pending');
-    assert.equal(r.json.waiting, entry.waiting);
-    const status = await call('GET', `/api/spaces/${camp}/action/${r.json.id}`, T());
-    assert.deepEqual(status.json, { id: r.json.id, status: 'pending', waiting: entry.waiting });
-    let t = Date.now();
-    const short = await call('GET', `/api/spaces/${camp}/action/${r.json.id}/wait?seconds=1`, T());
-    ok(short, 'a short wait');
-    assert.equal(short.json.status, 'pending');
-    assert.ok(Date.now() - t >= 900, 'it held about a second');
-    ok(await call('GET', `/api/spaces/${camp}/action/${r.json.id}/wait?seconds=0`, T()), 'seconds 0', 400);
-    // Two waits held at once; a third is refused.
-    t = Date.now();
-    const w1 = call('GET', `/api/spaces/${camp}/action/${r.json.id}/wait?seconds=10`, T());
-    const w2 = call('GET', `/api/spaces/${camp}/action/${r.json.id}/wait?seconds=10`, T());
-    await sleep(300);
-    const third = await call('GET', `/api/spaces/${camp}/action/${r.json.id}/wait?seconds=10`, T());
-    ok(third, 'a third wait', 429);
-    assert.equal(third.json.error, 'You are already waiting on 2 requests. Wait for one of them to finish.');
-    // A page carries it: both waits end with its result.
-    const claim = await call('POST', '/api/bus/actions/claim', { cookie: miaC, body: { module: 'fixture-upload', id: r.json.id, scope: 'space', space: camp } });
-    assert.equal(claim.json.ok, true, 'a page claims it');
-    const ref = { module: 'fixture-upload', kind: 'note', id: 'paged', scope: 'space', space: camp };
-    ok(await call('POST', '/api/bus/actions/complete', { cookie: miaC, body: { module: 'fixture-upload', id: r.json.id, scope: 'space', space: camp, result: { ok: true, ref } } }), 'and finishes it');
-    for (const w of await Promise.all([w1, w2])) {
-      ok(w, 'a wait');
-      assert.equal(w.json.status, 'done');
-      assert.deepEqual(w.json.ref, ref, 'with the page\'s pointer');
-    }
-    assert.ok(Date.now() - t < 5000, 'the waits ended when it was done');
+    ok(r, 'refused at once', 409);
+    assert.deepEqual(r.json, { error: NONE });
+    assert.deepEqual(busIds(), ids, 'nothing queued');
+    // A person's own request still goes to a page (Chat's Keep, Send to...).
+    const mine = await call('POST', `/api/spaces/${camp}/action`, { cookie: miaC, body: { action: 'fixture-upload:addNote', input: { title: 'Mia asks' } } });
+    ok(mine, 'a person asks');
+    assert.equal(mine.json.status, 'pending');
+    assert.equal(mine.json.waiting, undefined);
+    ok(await call('DELETE', '/api/modules/fixture-upload?keepData=0', { cookie: admin }), 'uninstalled');
+  });
+
+  await test('on a server without the network wall, an uploaded module with server actions installs, may be approved, and is refused at once', async () => {
+    as = agent;
+    const dirUp = variant('upload-server', (m) => { m.id = 'fixture-upload'; m.name = 'Fixture upload'; for (const a of m.actions.provides) delete a.phaseEnd; });
+    // The repository's own probe library names everything on the module check's list on purpose: as an upload it is refused
+    // for that. The upload fixture is what an outside author could send.
+    const named = await call('POST', '/api/modules', { cookie: admin, raw: zipOf(dirUp), headers: { 'content-type': 'application/zip' } });
+    ok(named, 'the probe library as an upload is refused', 400);
+    assert.match(named.json.error, /is not given to a module's actions on the server/);
+    ok(await call('POST', '/api/modules', { cookie: admin, raw: zipOf(UPLOAD_FIXTURE), headers: { 'content-type': 'application/zip' } }), 'the upload fixture installs', 201);
+    ok(await call('PATCH', '/api/modules/fixture-upload', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'on');
+    const view = (await call('GET', '/api/modules', { cookie: admin })).json.modules.find((x) => x.id === 'fixture-upload');
+    assert.equal(view.serverRun.wall, false, 'no wall here (ACTION_RUNNER_NETWORK is not set)');
+    assert.equal(view.serverRun.why, 'This server doesn\'t run uploaded modules\' actions for agents: ACTION_RUNNER_NETWORK is not namespace.');
+    assert.equal(view.serverRun.approved, false);
+    ok(await call('POST', '/api/modules/fixture-upload/server-run', { cookie: admin, body: { version: '1.0.0', sha256: view.serverRun.sha256 } }), 'the admin may approve before the wall is there');
+    const WALL = 'This server doesn\'t run uploaded modules\' actions for agents.';
+    const entry = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions.find((a) => a.action === 'fixture-upload:addNote');
+    assert.deepEqual([entry.may, entry.now, entry.why], [false, false, WALL]);
+    const ids = busIds();
+    const r = await call('POST', `/api/spaces/${camp}/action`, { ...T(), body: { action: 'fixture-upload:addNote', input: { title: 'No wall' } } });
+    ok(r, 'refused at once', 409);
+    assert.deepEqual(r.json, { error: WALL });
+    assert.deepEqual(busIds(), ids, 'nothing queued');
+    ok(await call('DELETE', '/api/modules/fixture-upload?keepData=0', { cookie: admin }), 'uninstalled');
   });
 
   // --- writes outside the space, and the place search (plan-agent-server-actions.md, sections 3 and 4, step 9) ---------------
@@ -2165,19 +2219,353 @@ try {
     }
   });
 
-  await test('a newer upload of the bundled module itself never reaches the runner', async () => {
-    const dirNext = variant('fixture-next', (m) => { m.version = '1.0.1'; delete m.actions.server; });
+  await test('a newer upload of the bundled module itself never reaches the runner, and a rollback to the bundled version is an upload\'s', async () => {
+    const dirNext = variant('fixture-next', (m) => { m.version = '1.0.1'; delete m.actions.server; for (const a of m.actions.provides) delete a.phaseEnd; });
     ok(await call('POST', '/api/modules', { cookie: admin, raw: zipOf(dirNext), headers: { 'content-type': 'application/zip' } }), 'installs', 201);
+    const ids = busIds();
     const r = await ask('addNote', { title: 'Uploaded now' });
-    ok(r, 'asked');
-    assert.equal(r.json.status, 'pending', 'it waits for a page');
+    ok(r, 'refused at once', 409);
+    assert.deepEqual(r.json, { error: 'Fixture notes has no actions that run on the server, so it can\'t do this for an agent.' });
     const list = (await call('GET', `/api/spaces/${camp}/actions`, T())).json.actions;
     assert.equal(list.find((a) => a.action === 'fixture-notes:addNote').now, false);
     ok(await call('POST', '/api/modules/fixture-notes/rollback', { cookie: admin, body: { version: '1.0.0' } }), 'rolled back to the bundled files');
+    // The module is no longer the deployment's own install: version 1.0.0's copy in DATA_DIR is an upload's, which runs only
+    // behind the wall and with the admin's approval, neither of which this server has.
     const still = await ask('addNote', { title: 'Rolled back' });
-    ok(still, 'asked again');
-    assert.equal(still.json.status, 'pending', 'still not carried: the module is no longer the deployment\'s own install');
+    ok(still, 'still refused', 409);
+    assert.deepEqual(still.json, { error: 'This server doesn\'t run uploaded modules\' actions for agents.' });
+    assert.deepEqual(busIds(), ids, 'nothing queued');
   });
+
+  // --- uploaded modules on the server (plan-agent-server-actions.md, decisions 2 and 3, section 8, step 11d) ------------------
+  // A second server, told ACTION_RUNNER_NETWORK=namespace, with the upload fixture (tools/fixtures/module-actions/fixture-upload):
+  // a library that names nothing the module check refuses but reaches for everything at run time.
+  {
+    const { MODULE_ACTION_NETWORK_SEAL } = require(path.join(ROOT, 'server', 'module-actions.js'));
+    const sealHere = MODULE_ACTION_NETWORK_SEAL();
+    const mainServer = server;
+    const nsDir = path.join(base, 'data-namespace');
+    const SECRET = 'lk-secret-for-the-check-7f3a9c';
+    const NS_ENV = { ...ENV, ACTION_RUNNER_NETWORK: 'namespace', LIVEKIT_API_KEY: 'devkey', LIVEKIT_API_SECRET: SECRET };
+    server = await startServer(nsDir, NS_ENV);
+    const nsLine = /Modules' server actions: [^\n]*/.exec(server.out)?.[0] || '';
+    const UP = 'fixture-upload';
+    const APPROVAL = 'Needs the admin\'s approval to run on the server.';
+    const UPN = 'Fixture upload could not carry that out: ';
+    const nsAdmin = await signIn('admin', 'admin-password-1');
+    ok(await call('PATCH', '/api/settings', { cookie: nsAdmin, body: { agents: true } }), 'Agents on');
+    const owner = (await call('POST', '/api/users', { cookie: nsAdmin, body: { login: 'olga', password: 'olga-password-1', displayName: 'Olga', role: 'owner' } })).json.user;
+    const nsMia = (await call('POST', '/api/users', { cookie: nsAdmin, body: { login: 'mia', password: 'mia-password-1', displayName: 'Mia', role: 'member' } })).json.user;
+    const upAgents = [];
+    for (let i = 0; i < 10; i += 1) upAgents.push((await call('POST', '/api/users', { cookie: nsAdmin, body: { agent: true } })).json.user);
+    const nsCamp = (await call('POST', '/api/spaces', { cookie: nsAdmin, body: { name: 'Camp', members: [...upAgents.map((a) => a.key), nsMia.key, owner.key] } })).json.space.id;
+    const ownerC = await signIn('olga', 'olga-password-1');
+    const nsMiaC = await signIn('mia', 'mia-password-1');
+    const nsTokens = new Map();
+    for (const a of upAgents) nsTokens.set(a.key, (await call('POST', `/api/users/${a.key}/token`, { cookie: nsAdmin })).json.token);
+    let upAs = upAgents[0];
+    const UT = () => ({ token: nsTokens.get(upAs.key) });
+    const upAsk = (action, input = {}) => call('POST', `/api/spaces/${nsCamp}/action`, { ...UT(), body: { action: `${UP}:${action}`, input } });
+    const upProbe = (what, extra = {}) => upAsk('probe', { what, ...extra });
+    const upData = async () => Object.fromEntries((await call('GET', `/api/modules/${UP}/data?scope=space&space=${nsCamp}`, { cookie: nsAdmin })).json.items.map((i) => [i.key, i.value]));
+    const upView = async () => (await call('GET', '/api/modules', { cookie: nsAdmin })).json.modules.find((x) => x.id === UP);
+    const approve = (body, cookie = nsAdmin) => call('POST', `/api/modules/${UP}/server-run`, { cookie, body });
+    const upZip = (version, edit) => {
+      const d = path.join(base, 'variants', `upload-${version}-${Math.random().toString(36).slice(2)}`);
+      fs.cpSync(UPLOAD_FIXTURE, d, { recursive: true });
+      const m = JSON.parse(fs.readFileSync(path.join(d, 'module.json'), 'utf8'));
+      m.version = version;
+      if (edit) edit(m, d);
+      fs.writeFileSync(path.join(d, 'module.json'), JSON.stringify(m, null, 2));
+      return zipOf(d);
+    };
+    const installUp = async (version, edit) => ok(await call('POST', '/api/modules', { cookie: nsAdmin, raw: upZip(version, edit), headers: { 'content-type': 'application/zip' } }), `${UP} ${version} installs`, 201);
+    const nsBus = () => { try { return JSON.parse(fs.readFileSync(path.join(nsDir, 'modules', 'bus.json'), 'utf8')).actions.map((a) => a.id); } catch { return []; } };
+    const installedLib = () => path.join(nsDir, 'modules', UP, 'versions', '1.0.0', 'src', `${UP}-lib-actions.js`);
+    const restart = async () => { await server.stop(); server = await startServer(nsDir, NS_ENV); };
+
+    try {
+      await installUp('1.0.0');
+      ok(await call('PATCH', `/api/modules/${UP}`, { cookie: nsAdmin, body: { enabled: true, allSpaces: true } }), 'on');
+      ok(await call('POST', '/api/modules/bundled/fixture-notes/install', { cookie: nsAdmin, body: {} }), 'the bundled fixture installs', 201);
+      ok(await call('PATCH', '/api/modules/fixture-notes', { cookie: nsAdmin, body: { enabled: true, allSpaces: true } }), 'on');
+
+      if (!sealHere) {
+        await test('namespace asked for, and this machine gives none: uploaded modules\' actions stay off', async () => {
+          assert.match(nsLine, /uploaded modules' actions are off, because this server can't make a network namespace/);
+          const v = await upView();
+          assert.equal(v.serverRun.wall, false);
+          const r = await upAsk('addNote', { title: 'No wall' });
+          ok(r, 'refused', 409);
+          console.log('check-module-actions: this machine gives no network namespace, so an uploaded module\'s run behind the wall was not tried.');
+        });
+      } else {
+        await test('the start-up line, and the admin sees the library\'s hash, the wall and no approval', async () => {
+          assert.equal(nsLine, 'Modules\' server actions: bundled modules run in a network namespace; uploaded modules may run, with the admin\'s approval.');
+          const v = await upView();
+          const { checkModule } = require(path.join(ROOT, 'server', 'module-check.js'));
+          const { readZip } = require(path.join(ROOT, 'server', 'modules.js'));
+          const checked = checkModule(await readZip(upZip('1.0.0')));
+          assert.deepEqual(v.serverRun, { sha256: checked.library, approved: false, approvedVersion: null, by: null, at: null, wall: true, why: null }, 'the hash is the one the validator printed');
+          assert.deepEqual(v.findings, [], 'the module check found nothing to advise');
+          const bundled = (await call('GET', '/api/modules', { cookie: nsAdmin })).json.modules.find((x) => x.id === 'fixture-notes');
+          assert.equal(bundled.serverRun, undefined, 'a bundled module has none');
+        });
+
+        await test('unapproved: refused at once (409) with the sentence, shown with may false and why, nothing queued or written', async () => {
+          const entry = (await call('GET', `/api/spaces/${nsCamp}/actions`, UT())).json.actions.find((a) => a.action === `${UP}:addNote`);
+          assert.deepEqual([entry.may, entry.now, entry.why], [false, false, APPROVAL]);
+          const ids = nsBus();
+          const r = await upAsk('addNote', { title: 'Too soon' });
+          ok(r, 'refused', 409);
+          assert.deepEqual(r.json, { error: APPROVAL });
+          assert.deepEqual(nsBus(), ids, 'no request made');
+          assert.deepEqual(await upData(), {}, 'nothing written');
+          // MCP says the same.
+          const rpc = (method, params) => call('POST', '/mcp', { ...UT(), body: { jsonrpc: '2.0', id: 1, method, params } });
+          const listed = JSON.parse((await rpc('tools/call', { name: 'list_actions', arguments: { space: nsCamp } })).json.result.content[0].text).actions.find((a) => a.action === `${UP}:addNote`);
+          assert.deepEqual([listed.may, listed.why], [false, APPROVAL], 'list_actions');
+          const viaMcp = await rpc('tools/call', { name: 'ask_for_change', arguments: { space: nsCamp, action: `${UP}:addNote`, input: { title: 'Too soon' } } });
+          assert.equal(viaMcp.json.result.isError, true);
+          assert.equal(viaMcp.json.result.content[0].text, APPROVAL);
+        });
+
+        await test('who may approve: the admin only; an owner, a member and an agent are refused; a stale version or hash is 409', async () => {
+          const v = await upView();
+          const good = { version: '1.0.0', sha256: v.serverRun.sha256 };
+          const byOwner = await approve(good, ownerC);
+          ok(byOwner, 'an owner', 403);
+          assert.equal(byOwner.json.error, 'Only the admin can approve running a module\'s actions on the server.');
+          ok(await approve(good, nsMiaC), 'a member', 403);
+          const byAgent = await call('POST', `/api/modules/${UP}/server-run`, { ...UT(), body: good });
+          ok(byAgent, 'an agent', 403);
+          assert.equal(byAgent.json.error, 'An agent can\'t do that.');
+          ok(await call('DELETE', `/api/modules/${UP}/server-run`, { ...UT() }), 'an agent takes nothing back', 403);
+          ok(await call('DELETE', `/api/modules/${UP}/server-run`, { cookie: ownerC }), 'nor an owner', 403);
+          ok(await call('POST', `/api/modules/${UP}/server-run`, { body: good }), 'nobody signed in', 401);
+          // Software on another site, with the admin's cookie: the same-origin rule refuses it.
+          ok(await call('POST', `/api/modules/${UP}/server-run`, { cookie: nsAdmin, body: good, headers: { origin: 'https://elsewhere.example', 'sec-fetch-site': 'cross-site' } }), 'another site', 403);
+          const stale = await approve({ version: '0.9.0', sha256: good.sha256 });
+          ok(stale, 'another version', 409);
+          assert.equal(stale.json.error, 'This version changed since you looked at it; look at it again.');
+          ok(await approve({ version: '1.0.0', sha256: 'a'.repeat(64) }), 'another hash', 409);
+          ok(await approve({ version: '1.0.0' }), 'no hash', 400);
+          ok(await approve({ version: '1.0.0', sha256: 'NOT-A-HASH' }), 'not a hash', 400);
+          const bundled = await call('POST', '/api/modules/fixture-notes/server-run', { cookie: nsAdmin, body: good });
+          ok(bundled, 'a bundled module', 400);
+          assert.equal(bundled.json.error, 'Fixture notes ships with the server, so its actions run there without an approval.');
+          ok(await call('POST', '/api/modules/nothing-here/server-run', { cookie: nsAdmin, body: good }), 'a module that is not installed', 404);
+          assert.equal((await upView()).serverRun.approved, false, 'nothing was approved');
+        });
+
+        await test('approval for another module or version runs neither', async () => {
+          // A second upload whose library is the first's with one byte more: its hash is not the first's.
+          const otherZip = upZip('1.0.0', (m, d) => {
+            m.id = 'fixture-other'; m.name = 'Fixture other'; m.actions.server = 'src/fixture-other-lib-actions.js';
+            m.refs.produces[0].key = 'note:{id}';
+            for (const f of fs.readdirSync(path.join(d, 'src'))) fs.renameSync(path.join(d, 'src', f), path.join(d, 'src', f.replace(UP, 'fixture-other')));
+            fs.appendFileSync(path.join(d, 'src', 'fixture-other-lib-actions.js'), '\n');
+          });
+          ok(await call('POST', '/api/modules', { cookie: nsAdmin, raw: otherZip, headers: { 'content-type': 'application/zip' } }), 'another upload', 201);
+          ok(await call('PATCH', '/api/modules/fixture-other', { cookie: nsAdmin, body: { enabled: true, allSpaces: true } }), 'on');
+          const mine = (await upView()).serverRun.sha256;
+          ok(await call('POST', '/api/modules/fixture-other/server-run', { cookie: nsAdmin, body: { version: '1.0.0', sha256: mine } }), 'the first module\'s hash for the other', 409);
+          ok(await approve({ version: '1.0.0', sha256: mine }), 'the first approved');
+          const other = await call('POST', `/api/spaces/${nsCamp}/action`, { ...UT(), body: { action: 'fixture-other:addNote', input: { title: 'Not approved' } } });
+          ok(other, 'the other is still refused', 409);
+          assert.deepEqual(other.json, { error: APPROVAL });
+          ok(await call('DELETE', '/api/modules/fixture-other?keepData=0', { cookie: nsAdmin }), 'gone');
+        });
+
+        let made = null;
+        await test('approved: the agent\'s request runs at once, in its own network namespace, as the agent, with its pointer', async () => {
+          const v = await upView();
+          assert.equal(v.serverRun.approved, true);
+          assert.equal(v.serverRun.approvedVersion, '1.0.0');
+          assert.equal(v.serverRun.by, 'admin', 'by the admin\'s login');
+          assert.ok(Date.parse(v.serverRun.at) > 0);
+          const entry = (await call('GET', `/api/spaces/${nsCamp}/actions`, UT())).json.actions.find((a) => a.action === `${UP}:addNote`);
+          assert.deepEqual([entry.may, entry.now, entry.why], [true, true, undefined]);
+          const r = await upAsk('addNote', { title: 'Approved' });
+          ok(r, 'done');
+          assert.equal(r.json.status, 'done');
+          assert.equal(r.json.ok, true, r.text);
+          assert.equal(r.json.note, 'Added.');
+          made = r.json.ref;
+          assert.equal(made.module, UP);
+          const value = (await upData())[`note:${made.id}`];
+          assert.equal(value.title, 'Approved');
+          assert.equal(value.byKey, upAs.key, 'the agent\'s, as the agent');
+          const status = await call('GET', `/api/spaces/${nsCamp}/action/${r.json.id}`, UT());
+          assert.deepEqual(status.json, { id: r.json.id, status: 'done', ok: true, note: 'Added.', ref: made }, 'request_status');
+        });
+
+        await test('a hostile library that passed the check gets nothing at run time: no require, process, network, eval, Function or constructor way out', async () => {
+          upAs = upAgents[1];
+          ok(await upProbe('escape'), 'escape');
+          const seen = (await upData())['probe:escape'];
+          for (const k of ['require', 'process', 'module', 'exports', 'Buffer', 'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'navigator', 'Worker', 'WebAssembly', 'setTimeout', 'setImmediate', 'console', 'Atomics', 'SharedArrayBuffer', 'window', 'document', '__ctx', '__input', '__data']) assert.equal(seen[k], 'undefined', k);
+          for (const k of ['fnCtor', 'asyncCtor', 'genCtor', 'globalCtor', 'readCtor', 'utilCtor', 'protoCtor', 'evalCall', 'reflectCtor', 'stackFrames', 'env']) assert.equal(seen[k], 'blocked', k);
+          assert.equal(seen.readOutside, 'null', 'no file through ctx.read');
+          ok(await upProbe('given'), 'given');
+          const given = (await upData())['probe:given'];
+          for (const secret of [SECRET, 'admin-password-1', 'devkey', nsTokens.get(upAs.key)]) {
+            assert.ok(!given.ctx.includes(secret) && !given.input.includes(secret) && !given.globals.includes(secret), 'none of the server\'s secrets reaches it');
+          }
+          let sessionSecret = null;
+          try { sessionSecret = JSON.parse(fs.readFileSync(path.join(nsDir, 'app.json'), 'utf8')).sessionSecret || null; } catch { sessionSecret = null; }
+          if (typeof sessionSecret === 'string' && sessionSecret) assert.ok(!given.ctx.includes(sessionSecret) && !given.globals.includes(sessionSecret), 'nor the session secret');
+          for (const name of ['process', 'require', 'Buffer', 'fetch', 'console']) assert.ok(!given.globals.split(',').includes(name), `no ${name} among its globals`);
+        });
+
+        await test('a hostile library\'s faults: a long loop, a promise loop, memory, huge output, a throw; nothing written, the server lives', async () => {
+          upAs = upAgents[2];
+          const before = JSON.stringify(await upData());
+          const fault = async (what, words, status = 500) => {
+            const r = await upProbe(what);
+            ok(r, what, status);
+            assert.equal(r.json.ok, false);
+            assert.equal(r.json.error, words);
+          };
+          await fault('loop', `${UPN}it took too long.`);
+          await fault('microloop', `${UPN}it took too long.`);
+          await fault('hog', `${UPN}it used too much memory.`);
+          await fault('big', `${UPN}it answered more than the server takes.`);
+          await fault('flood', `${UPN}it answered more than the server takes.`);
+          await fault('throw', 'The upload says no.', 422);
+          assert.equal(JSON.stringify(await upData()), before, 'nothing written');
+          ok(await call('GET', '/api/agent/me', UT()), 'the server lives');
+        });
+
+        await test('no more than a person\'s page of it: no environment data, no person data, no phase\'s end', async () => {
+          upAs = upAgents[3];
+          const before = JSON.stringify(await upData());
+          const env = await upProbe('environment');
+          ok(env, 'an environment write', 500);
+          assert.equal(env.json.error, `${UPN}it asked for something only a module that ships with the server may do.`);
+          const person = await upProbe('person');
+          ok(person, 'a write for the person', 403);
+          assert.equal(person.json.error, 'An agent has no places of its own; save it for this space or for everyone.');
+          const phase = await upProbe('phaseEnd');
+          ok(phase, 'a phase\'s end', 500);
+          assert.equal(phase.json.error, `${UPN}it asked for something only a module that ships with the server may do.`);
+          assert.equal(JSON.stringify(await upData()), before, 'nothing written');
+        });
+
+        await test('even with its manifest edited on disk past install: no environment write, no phase\'s end, no place search', async () => {
+          upAs = upAgents[4];
+          const file = path.join(nsDir, 'modules', UP, 'versions', '1.0.0', 'module.json');
+          const original = fs.readFileSync(file, 'utf8');
+          try {
+            const m = JSON.parse(original);
+            m.scope = ['space', 'environment'];
+            m.surfaces.page = { entry: 'canvas.html' };
+            m.refs.produces[0].summary.spaces = 'spaces';
+            m.actions.provides.find((a) => a.name === 'probe').phaseEnd = true;
+            fs.writeFileSync(file, JSON.stringify(m, null, 2));
+            await restart();
+            assert.equal((await upView()).serverRun.approved, true, 'the library is the same, so the approval stands');
+            const env = await upProbe('environment');
+            ok(env, 'an environment write', 500);
+            assert.equal(env.json.error, `${UPN}it asked for something only a module that ships with the server may do.`);
+            const phase = await upProbe('phaseEnd');
+            ok(phase, 'a phase\'s end', 500);
+            assert.equal(phase.json.error, `${UPN}it asked for something only a module that ships with the server may do.`);
+            const envData = (await call('GET', `/api/modules/${UP}/data?scope=environment`, { cookie: nsAdmin })).json;
+            assert.deepEqual(envData.items || [], [], 'no environment data');
+            // A place search declared on disk: refused before anything is searched or run.
+            m.settings = [{ key: 'searchProvider', label: 'Place search', type: 'choice', scope: 'environment', default: 'custom', options: [{ value: 'none', label: 'None' }, { value: 'custom', label: 'My own address' }] }, { key: 'search', label: 'Search address', type: 'url', scope: 'environment', default: 'http://127.0.0.1:9/search' }];
+            m.geocoder = { provider: 'searchProvider', address: 'search', custom: 'custom', providers: {} };
+            m.actions.provides.find((a) => a.name === 'addNote').lookups = { title: 'geocode' };
+            fs.writeFileSync(file, JSON.stringify(m, null, 2));
+            await restart();
+            const before = await call('GET', '/api/agent/me', UT());
+            const looked = await upAsk('addNote', { title: 'Lisbon' });
+            ok(looked, 'a place search', 500);
+            assert.equal(looked.json.error, `${UPN}it asked for something only a module that ships with the server may do.`);
+            const after = await call('GET', '/api/agent/me', UT());
+            assert.equal(after.json.limits.reads.usedToday, before.json.limits.reads.usedToday + 1, 'no search was counted (only the me between)');
+          } finally {
+            fs.writeFileSync(file, original);
+            await restart();
+          }
+        });
+
+        await test('one byte changed in the installed library: not run until approved again, and then exactly that runs', async () => {
+          upAs = upAgents[5];
+          const old = (await upView()).serverRun.sha256;
+          fs.appendFileSync(installedLib(), '\n// one more line\n');
+          const v = await upView();
+          assert.notEqual(v.serverRun.sha256, old, 'the admin sees the new hash');
+          assert.equal(v.serverRun.approved, false, 'and that it is not approved');
+          assert.equal(v.serverRun.approvedVersion, '1.0.0', 'what was approved before is still named');
+          const r = await upAsk('addNote', { title: 'Changed' });
+          ok(r, 'refused', 409);
+          assert.deepEqual(r.json, { error: APPROVAL });
+          ok(await approve({ version: '1.0.0', sha256: old }), 'the old hash is stale', 409);
+          ok(await approve({ version: '1.0.0', sha256: v.serverRun.sha256 }), 'approved again');
+          ok(await upAsk('addNote', { title: 'Changed and approved' }), 'runs');
+        });
+
+        await test('approval taken back while a run is going: the run writes nothing; and the next is refused', async () => {
+          upAs = upAgents[6];
+          const before = JSON.stringify(await upData());
+          const going = upProbe('slow', { ms: 700 });
+          await sleep(250);
+          ok(await call('DELETE', `/api/modules/${UP}/server-run`, { cookie: nsAdmin }), 'taken back');
+          const r = await going;
+          ok(r, 'ended', 409);
+          assert.equal(r.json.error, CHANGED);
+          assert.equal(JSON.stringify(await upData()), before, 'nothing written');
+          const next = await upAsk('addNote', { title: 'After' });
+          ok(next, 'refused', 409);
+          assert.deepEqual(next.json, { error: APPROVAL });
+          const v = await upView();
+          assert.deepEqual([v.serverRun.approved, v.serverRun.approvedVersion, v.serverRun.by], [false, null, null]);
+        });
+
+        await test('three uploaded runs at once and a bundled one: all done (the slots are shared, nothing refused)', async () => {
+          ok(await approve({ version: '1.0.0', sha256: (await upView()).serverRun.sha256 }), 'approved');
+          const asks = [7, 8, 9].map((i) => call('POST', `/api/spaces/${nsCamp}/action`, { token: nsTokens.get(upAgents[i].key), body: { action: `${UP}:probe`, input: { what: 'slow', ms: 600 } } }));
+          asks.push(call('POST', `/api/spaces/${nsCamp}/action`, { token: nsTokens.get(upAgents[0].key), body: { action: 'fixture-notes:addNote', input: { title: 'Bundled beside' } } }));
+          for (const r of await Promise.all(asks)) { ok(r, 'done'); assert.equal(r.json.ok, true, r.text); }
+        });
+
+        await test('a new version, disabling, rolling back and uninstalling each drop the approval', async () => {
+          upAs = upAgents[0];
+          const sha = () => upView().then((v) => v.serverRun.sha256);
+          const refused = async (what) => { const r = await upAsk('addNote', { title: what }); ok(r, what, 409); assert.deepEqual(r.json, { error: APPROVAL }); };
+          const registry = () => JSON.parse(fs.readFileSync(path.join(nsDir, 'modules', 'registry.json'), 'utf8')).modules[UP];
+          // A new version (replace).
+          await installUp('1.0.1');
+          assert.equal(registry().serverRun, undefined, 'replaced: the approval is gone');
+          await refused('new version');
+          ok(await approve({ version: '1.0.1', sha256: await sha() }), 'approved');
+          ok(await upAsk('addNote', { title: 'New version' }), 'runs');
+          // Disabled, then on again.
+          ok(await call('PATCH', `/api/modules/${UP}`, { cookie: nsAdmin, body: { enabled: false } }), 'off');
+          assert.equal(registry().serverRun, undefined, 'off: the approval is gone');
+          ok(await call('PATCH', `/api/modules/${UP}`, { cookie: nsAdmin, body: { enabled: true } }), 'on');
+          await refused('on again');
+          // Rolled back.
+          ok(await approve({ version: '1.0.1', sha256: await sha() }), 'approved');
+          ok(await call('POST', `/api/modules/${UP}/rollback`, { cookie: nsAdmin, body: { version: '1.0.0' } }), 'rolled back');
+          assert.equal(registry().serverRun, undefined, 'rolled back: the approval is gone');
+          await refused('rolled back');
+          // Uninstalled, then installed again.
+          ok(await approve({ version: '1.0.0', sha256: await sha() }), 'approved');
+          ok(await call('DELETE', `/api/modules/${UP}?keepData=0`, { cookie: nsAdmin }), 'uninstalled');
+          await installUp('1.0.0');
+          ok(await call('PATCH', `/api/modules/${UP}`, { cookie: nsAdmin, body: { enabled: true, allSpaces: true } }), 'on');
+          assert.equal(registry().serverRun, undefined, 'installed again: no approval');
+          await refused('installed again');
+        });
+      }
+    } finally {
+      await server.stop();
+      server = mainServer;
+    }
+  }
 
 } finally {
   for (const s of servers) await s.stop();

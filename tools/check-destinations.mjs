@@ -1023,7 +1023,7 @@ try {
   // The calendar's main by then: the bundled Calendar, which declares it and is in Travel's template (a stand-in module
   // is not in the template, so Home would not offer it a tile).
   if (!(await call('GET', '/api/destinations/calendar', { token: admin })).json?.main) {
-    // An upload may not declare actions.server (server/module-actions.js), so the copy leaves it out.
+    // An upload's server actions would need the admin's approval and the network wall, so the copy leaves them out.
     const calendarSrc = path.join(base, 'calendar-upload');
     fs.cpSync(path.join(ROOT, 'modules', 'calendar'), calendarSrc, { recursive: true });
     const calendarManifest = JSON.parse(fs.readFileSync(path.join(calendarSrc, 'module.json'), 'utf8'));

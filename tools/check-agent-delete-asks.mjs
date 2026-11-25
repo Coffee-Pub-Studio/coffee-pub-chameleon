@@ -255,7 +255,7 @@ try {
     fs.cpSync(path.join(ROOT, 'modules', id), src, { recursive: true });
     const manifest = withDelete(id, action);
     manifest.version = '99.0.0';
-    delete manifest.actions.server; // an upload may not declare it
+    delete manifest.actions.server; // an upload's server actions would need the admin's approval and the network wall
     fs.writeFileSync(path.join(src, 'module.json'), JSON.stringify(manifest));
     const up = await call('POST', '/api/modules', { cookie: admin, raw: buildModule(src).zip, type: 'application/zip' });
     ok(up, `${id} with its delete action uploads`, 201);

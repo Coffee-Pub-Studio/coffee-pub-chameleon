@@ -28,8 +28,8 @@ const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'];
 // The most of a route's answer a tool sends back. Past it the tool says so instead of sending part of it.
 const ANSWER_MAX = 1024 * 1024;
 const MAX_ID_LENGTH = 200;
-// How long a tool call waits for the route it wraps: every route answers at once except wait_for_result's, which holds for
-// at most 30 seconds (server/index.js, ACTION_WAIT_MAX).
+// How long a tool call waits for the route it wraps: every route answers at once (a module's action on the server within its
+// runner's limits, server/module-actions.js); this is only the last stop for one that never does.
 const DISPATCH_MS = 40000;
 // The path as the router matches it (any case, one trailing slash).
 const MCP_PATH = /^\/mcp\/?$/i;
@@ -171,7 +171,7 @@ const TOOLS = [
   {
     name: 'list_actions',
     title: 'What I can ask for',
-    description: 'The changes you may ask the modules in a space for (ask_for_change): each action\'s name, label, description, input and hints. clears: inputs you may send as "" to clear them (one left out is kept). patch: true: its object input changes only what it gives. objectKinds: the kinds an object input takes, with their details fields and types ("*": any kind, see object_format). now: true when it is made at once; else waiting says what it waits for. effect: "delete" with approval: "each": not for ask_for_change, use ask_to_delete. Read its description and hints before you call ask_for_change.',
+    description: 'The changes you may ask the modules in a space for (ask_for_change): each action\'s name, label, description, input and hints. clears: inputs you may send as "" to clear them (one left out is kept). patch: true: its object input changes only what it gives. objectKinds: the kinds an object input takes, with their details fields and types ("*": any kind, see object_format). now: true: made at once; may: false with why: refused at once. effect: "delete" with approval: "each": not for ask_for_change, use ask_to_delete. Read its description and hints before you call ask_for_change.',
     inputSchema: object({ space: SPACE }, ['space']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/actions` }),
@@ -179,7 +179,7 @@ const TOOLS = [
   {
     name: 'ask_for_change',
     title: 'Ask a module for a change',
-    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }, under its rules and your rights; read its description and hints in list_actions first. Where list_actions says now: true, it is done at once: the answer has ok, ref (what it changed), note and data (when the module says more) or the module\'s error. Otherwise it waits (up to seven days) for a person to open that module, as waiting says; see request_status, wait_for_result. Adds and edits are direct; the people who run the space may undo them for seven days. Counts as a write.',
+    description: 'Ask a module to add or change something in a space, like { action: "schedule:setDone", input: { ref, done: true } }, under its rules and your rights; read its description and hints in list_actions first. It is done at once: the answer has ok, ref (what it changed), note and data (when the module says more) or the module\'s error; where list_actions says may: false it is refused at once with why. Adds and edits are direct; the people who run the space may undo them for seven days. Counts as a write.',
     inputSchema: object({
       space: SPACE,
       action: { type: 'string', minLength: 3, maxLength: 100, description: '<module>:<name>, from list_actions.' },
@@ -191,22 +191,10 @@ const TOOLS = [
   {
     name: 'request_status',
     title: 'How a request went',
-    description: 'How one of your own requests from ask_for_change went: pending or claimed (with waiting, saying what it waits for), done (with ok, and error or note, ref, the pointer of what it made or changed, and data, what the module says back when it says more) or expired. Kept for ten minutes after it finished.',
+    description: 'How one of your own requests from ask_for_change went: claimed while the server is carrying it out, done (with ok, and error or note, ref, the pointer of what it made or changed, and data, what the module says back when it says more) or expired. Kept for ten minutes after it finished.',
     inputSchema: object({ space: SPACE, request: { type: 'integer', minimum: 1, description: 'The request id ask_for_change gave.' } }, ['space', 'request']),
     annotations: READ_ONLY,
     plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/action/${seg(a.request)}` }),
-  },
-  {
-    name: 'wait_for_result',
-    title: 'Wait for a request',
-    description: 'Wait for one of your requests from ask_for_change that is still pending: answers as request_status does as soon as it is done, or how it stands when seconds (1 to 30, default 30) have passed. For a module that waits for a person to open it, this may run out with the request still pending; say what is still waiting rather than asking again. At most two waits at once. Counts as a read.',
-    inputSchema: object({
-      space: SPACE,
-      request: { type: 'integer', minimum: 1, description: 'The request id ask_for_change gave.' },
-      seconds: { type: 'integer', minimum: 1, maximum: 30, description: 'How long to wait at most, 1 to 30 (default 30).' },
-    }, ['space', 'request']),
-    annotations: READ_ONLY,
-    plan: (a) => ({ method: 'GET', path: `/api/spaces/${seg(a.space)}/action/${seg(a.request)}/wait${query({ seconds: a.seconds })}` }),
   },
   {
     name: 'ask_to_delete',
@@ -341,7 +329,7 @@ const SETUP_TOOL_LIST = TOOLSETS.setup.list;
 
 // What initialize tells each kind.
 const INSTRUCTIONS = {
-  agent: 'You are an agent: an account a person made for you. Call me first to learn your spaces. You read what a member reads in your own spaces, ask modules for changes (most are made at once; some wait for a person to open the module), and post in Chat only when allowed. Every call counts against your limits and is in your owner\'s log.',
+  agent: 'You are an agent: an account a person made for you. Call me first to learn your spaces. You read what a member reads in your own spaces, ask modules for changes (made at once, or refused at once with the reason), and post in Chat only when allowed. Every call counts against your limits and is in your owner\'s log.',
   setup: 'You are a set-up agent: an account a person made for you. Call me first. You make spaces from a template, name them and change the ones you made, and ask an owner to add or take off a member or tick a moderator; nothing about people happens until an owner says yes. You read nothing in a space. Every call counts against your limits and is in your owner\'s log.',
 };
 
@@ -546,7 +534,7 @@ function createMcp(base) {
         resolve(answer);
         return res;
       };
-      // Every wrapped route answers at once (wait_for_result within 30 seconds); one that has not answered in DISPATCH_MS is
+      // Every wrapped route answers at once; one that has not answered in DISPATCH_MS is
       // given up on, so the outer call ends.
       const timer = setTimeout(() => { if (!ended) reject(new Error(`An MCP tool call to ${plan.method} ${plan.path.split('?')[0]} did not answer in time.`)); }, DISPATCH_MS);
       timer.unref();

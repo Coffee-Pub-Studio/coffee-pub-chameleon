@@ -902,7 +902,7 @@ test('the manifest field content is padded or flush, and nothing else', () => {
     assert.ok(typed.findings.every((f) => f.grade === 'advise') && typed.refused === null, 'words only advise');
     // a refusal installs nothing and carries every finding
     const before = mm.list().length;
-    await assert.rejects(mm.install(zip('uploaded', '', '', { actions: { server: 'src/uploaded-lib.js', provides: [] } })), (err) => err instanceof ModuleError && err.message === 'Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
+    await assert.rejects(mm.install(zip('uploaded', '', '', { actions: { server: 'src/uploaded-lib.js', provides: [] } })), (err) => err instanceof ModuleError && /actions\.server names "src\/uploaded-lib\.js", but that file is not in the zip/.test(err.message) && err.findings.some((f) => f.check === 'action library' && f.grade === 'refuse'));
     await assert.rejects(mm.install(zip('Bad Id', '')), (err) => err instanceof ModuleError && /"id" must be 2-32/.test(err.message) && err.findings.length === 1 && err.findings[0].grade === 'refuse' && err.findings[0].check === 'manifest');
     await assert.rejects(mm.install(zipFiles([['page.html', page('')]])), /module\.json is missing from the zip/);
     assert.equal(mm.list().length, before, 'nothing was installed by a refusal');
@@ -921,6 +921,9 @@ test('the manifest field content is padded or flush, and nothing else', () => {
     await assert.rejects(mm.install(lib('hostile2', 'const = ;'), { source: 'bundled' }), /Unexpected token/);
     const fine = lib('fine', 'const s = "fetch and process in a sentence"; // eval\nconst o = { process: 1 }; const f = (x) => x.fetch;');
     assert.equal((await mm.install(fine, { source: 'bundled' })).id, 'fine', 'names in strings, comments, keys and after a dot are not read');
+    // An upload is held to the names list: the same library refused uploaded, installed bundled.
+    await assert.rejects(mm.install(lib('hostileup', 'const x = typeof process;')), /"process" is not given/);
+    assert.equal((await mm.install(lib('fineup', 'const s = "fetch"; const o = { process: 1 };'))).id, 'fineup', 'an upload whose library names nothing refused installs');
     assert.match(checkModule(await (async () => { const { readZip } = createRequire(import.meta.url)('../server/modules.js'); return readZip(fine); })()).library, /^[0-9a-f]{64}$/, 'the library hash is a SHA-256');
     n += 1;
   } finally {
@@ -1006,8 +1009,10 @@ test('a module\'s test/ folder (modules/<id>/test/*.mjs, run by tools/check-modu
 });
 
 // `actions.server` (plan-agent-edit-delete.md, decision 4; server/module-actions.js): kept when it names one of the module's
-// own libraries, refused otherwise; an uploaded zip that declares it is refused at install, a bundled one is not; and every
-// module that ships with it (and the check's fixture) has a handler for each action an agent may ask it for.
+// own libraries, refused otherwise; an uploaded zip that declares it installs when its library is in the zip
+// (plan-agent-server-actions.md, step 11d), and is refused when it asks for what only a module that ships with the server may
+// (a place search, skipLookupWhen, moving a phase's end), each with its sentence, where a bundled one is not; and every module
+// that ships with it (and the check's fixtures) has a handler for each action an agent may ask it for.
 {
   const req = createRequire(import.meta.url);
   const { zipFiles, libraryOf, bundledModules } = req('../server/module-build.js');
@@ -1023,17 +1028,35 @@ test('a module\'s test/ folder (modules/<id>/test/*.mjs, run by tools/check-modu
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'check-modules-server-'));
   try {
     const mm = new ModuleManager(dir);
-    const zip = (id) => zipFiles([['module.json', Buffer.from(JSON.stringify({ id, name: id, version: '1.0.0', scope: ['environment'], surfaces: { page: { entry: 'page.html' } }, actions: { server: `src/${id}-lib-actions.js`, provides: [] } }))], ['page.html', Buffer.from('<!doctype html><body></body>')], ...(id === 'shipped' ? [[`src/${id}-lib-actions.js`, Buffer.from('const ACTION_HANDLERS = {};')]] : [])]);
-    await assert.rejects(mm.install(zip('uploaded')), (err) => err instanceof ModuleError && err.message === 'Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
-    assert.equal(mm.list().some((m) => m.id === 'uploaded'), false, 'nothing was installed');
+    const zip = (id, { lib = true, provides = [], extra = {} } = {}) => zipFiles([['module.json', Buffer.from(JSON.stringify({ id, name: id, version: '1.0.0', scope: ['environment'], surfaces: { page: { entry: 'page.html' } }, actions: { server: `src/${id}-lib-actions.js`, provides }, ...extra }))], ['page.html', Buffer.from('<!doctype html><body></body>')], ...(lib ? [[`src/${id}-lib-actions.js`, Buffer.from('const ACTION_HANDLERS = {};')]] : [])]);
+    assert.equal((await mm.install(zip('uploaded'))).id, 'uploaded', 'an upload may declare it, with its library');
+    assert.equal(mm.registry.modules.uploaded.serverRun, undefined, 'and is not approved to run on the server');
+    await assert.rejects(mm.install(zip('nolibrary', { lib: false })), (err) => err instanceof ModuleError && /actions\.server names "src\/nolibrary-lib-actions\.js", but that file is not in the zip/.test(err.message));
+    assert.equal(mm.list().some((m) => m.id === 'nolibrary'), false, 'nothing was installed');
     assert.equal((await mm.install(zip('shipped'), { source: 'bundled' })).id, 'shipped', 'a bundled module may declare it');
+    // What only a module that ships with the server may ask for: refused for an upload, each with its sentence, kept for a bundled one.
+    const geo = { settings: [{ key: 'searchProvider', label: 'Place search', type: 'choice', scope: 'environment', default: 'none', options: [{ value: 'none', label: 'None' }, { value: 'custom', label: 'My own address' }] }, { key: 'search', label: 'Search address', type: 'url', scope: 'environment', default: '' }], geocoder: { provider: 'searchProvider', address: 'search', custom: 'custom', providers: {} } };
+    const finding = { name: 'find', label: 'Find', description: 'Find a place.', effect: 'write', input: { address: 'string?', lat: 'number?' }, lookups: { address: 'geocode' }, skipLookupWhen: ['lat'] };
+    const mover = { name: 'move', label: 'Move', description: 'Move the end.', effect: 'write', input: { title: 'string' }, phaseEnd: true };
+    const sentences = (err) => err.findings.filter((f) => f.grade === 'refuse').map((f) => f.text);
+    await assert.rejects(mm.install(zip('finds', { provides: [finding], extra: geo })), (err) => {
+      assert.deepEqual(sentences(err), [
+        'module.json: action "find" asks the server to search places, which only a module that ships with the server may do',
+        'module.json: action "find" says when to skip a place search, which only a module that ships with the server may ask for',
+      ]);
+      return err.message === sentences(err)[0];
+    });
+    await assert.rejects(mm.install(zip('moves', { provides: [mover] })), (err) => err.message === 'module.json: action "move" asks to move the main phase\'s end, which only a module that ships with the server may do');
+    assert.equal(mm.list().some((m) => m.id === 'finds' || m.id === 'moves'), false, 'nothing was installed');
+    assert.equal((await mm.install(zip('findsbundled', { provides: [finding], extra: geo }), { source: 'bundled' })).id, 'findsbundled', 'a bundled module may search places');
+    assert.equal((await mm.install(zip('movesbundled', { provides: [mover] }), { source: 'bundled' })).id, 'movesbundled', 'and move the end');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'modules');
   const fixtures = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'module-actions');
   const declaring = [...bundledModules(root).map((m) => [root, m]), ...bundledModules(fixtures).map((m) => [fixtures, m])].filter(([, m]) => m.actions && m.actions.server !== undefined);
-  assert.ok(declaring.some(([, m]) => m.id === 'fixture-notes'), 'the fixture declares it');
+  assert.ok(declaring.some(([, m]) => m.id === 'fixture-notes') && declaring.some(([, m]) => m.id === 'fixture-upload'), 'the fixtures declare it');
   for (const [at, raw] of declaring) {
     // As the runner loads it: without the files only the page needs (actions.pageOnly), each one of its libraries.
     const all = libraryOf(path.join(at, raw.id), raw.id);
@@ -1051,7 +1074,9 @@ test('a module\'s test/ folder (modules/<id>/test/*.mjs, run by tools/check-modu
   n += 1;
 }
 
-// Every module that ships here, built as Manage > Modules builds it, passes the module check with no `refuse` finding.
+// Every module that ships here, built as Manage > Modules builds it, passes the module check with no `refuse` finding (as a
+// module that ships with the server: what only such a module may ask for, a place search or a phase's end, is not refused; the
+// library's list of names is held all the same).
 {
   const req = createRequire(import.meta.url);
   const { buildModule, bundledModules } = req('../server/module-build.js');
@@ -1061,7 +1086,7 @@ test('a module\'s test/ folder (modules/<id>/test/*.mjs, run by tools/check-modu
   const shipped = bundledModules(root);
   assert.ok(shipped.length >= 10, 'the bundled modules are found');
   for (const m of shipped) {
-    const result = checkModule(await readZip(buildModule(path.join(root, m.id)).zip));
+    const result = checkModule(await readZip(buildModule(path.join(root, m.id)).zip), { via: 'bundled' });
     assert.deepEqual(result.findings.filter((f) => f.grade === 'refuse'), [], `${m.id}: no refuse finding from the module check`);
     assert.equal(result.id, m.id);
     assert.equal(Boolean(result.library), Boolean(m.actions && m.actions.server), `${m.id}: a library hash exactly when it declares actions.server`);

@@ -22,6 +22,7 @@ const objectFormat = require('./object-format');
 const { cleanGuards, unreadableGuards } = require('./module-guards');
 const { cleanActionAi } = require('./action-catalog');
 const { SERVER_FILE_RE } = require('./module-actions');
+const { serverLibraryOf } = require('./module-build');
 
 // The text a person reads from a manifest, which may name levels by {space}-style placeholders (server/words.js's fill):
 // its description, the dashboard widget's title, its permissions' labels, its settings' labels and help (and their
@@ -1648,16 +1649,11 @@ class ModuleManager {
     } catch {
       throw new ModuleError("module.json isn't valid JSON");
     }
-    // Only the server's own modules run code on the server (plan-agent-edit-delete.md, decision 4): an uploaded module that
-    // asks to is refused, so nothing it declares is ever taken for the server's.
-    if (source !== 'bundled' && raw && typeof raw === 'object' && raw.actions && typeof raw.actions === 'object' && Object.hasOwn(raw.actions, 'server')) {
-      throw new ModuleError('Only a module that ships with the server can carry out actions on the server. Remove "server" from "actions" in module.json and upload it again.');
-    }
     // The one module check (server/module-check.js; plan-agent-server-actions.md, section 9) decides what refuses the install
     // (a `refuse` finding: the first one's sentence, with every finding in the error) and what is kept with the version (the
     // `advise` findings). Required here and not at the top: the check itself reads this file's cleanManifest.
     const { checkModule, keptFindings } = require('./module-check');
-    const checked = checkModule(files, { ownCode: source === 'bundled' });
+    const checked = checkModule(files, source === 'bundled' ? { via: 'bundled', ownCode: true } : { via: 'upload' });
     if (checked.refused) {
       const refusal = new ModuleError(checked.refused);
       refusal.findings = checked.findings;
@@ -1697,6 +1693,9 @@ class ModuleManager {
     entry.version = manifest.version;
     entry.updatedAt = now;
     entry.source = source; // 'bundled' (shipped with this deployment) or 'upload'
+    // A new version replaces what the admin approved to run on the server (plan-agent-server-actions.md, section 8): its library is
+    // approved again, or it does not run.
+    delete entry.serverRun;
     // An update keeps the module as it was: on stays on, with exactly what was approved before (entry.approved is not
     // touched). Anything the new version newly asks for is not granted until an owner approves it in Modules (view's
     // needsApproval and pending; update() with enabled: true approves it), so an update never widens access on its own.
@@ -1780,6 +1779,8 @@ class ModuleManager {
     // All accepted: apply at once.
     for (const r of switchOff) this.registry.modules[r].enabled = false;
     Object.assign(entry, draft);
+    // Turned off, it loses the admin's approval to run on the server, and so does each module turned off with it.
+    if (draft.enabled === false) for (const e of [entry, ...switchOff.map((r) => this.registry.modules[r])]) delete e.serverRun;
     this.save();
     return this.view(id);
   }
@@ -1788,11 +1789,65 @@ class ModuleManager {
     const entry = this.get(id);
     if (!entry.versions.includes(version) || version === entry.version) throw new ModuleError('that version is not available');
     if (this.manifestOf(id, version)?.outdated) throw new ModuleError(`${this.shownName(this.manifestOf(id, version))} ${version} was built for an older version of ${productName()}, so it can't be rolled back to.`, 409);
-    // As an update: on stays on with what was approved before; anything newly asked for waits for an owner (see install).
+    // As an update: on stays on with what was approved before; anything newly asked for waits for an owner (see install). The
+    // admin's approval to run it on the server goes: the version rolled back to is approved again, or it does not run.
     entry.version = version;
+    delete entry.serverRun;
     entry.updatedAt = new Date().toISOString();
     this.save();
     return this.view(id);
+  }
+
+  // --- running an uploaded module's actions on the server (plan-agent-server-actions.md, section 8) -----------------------
+  // The library its server actions would run from, read now from the installed copy of its active version: { js, files,
+  // declared, sha256 } (server/module-build.js serverLibraryOf), or null for a module that ships with the server, one whose
+  // version declares no actions.server, or one whose library can't be read.
+  serverLibrary(id) {
+    const entry = this.registry.modules[id];
+    if (!entry || entry.source === 'bundled') return null;
+    const manifest = this.manifestOf(id, entry.version);
+    if (!manifest || !manifest.actions || typeof manifest.actions.server !== 'string') return null;
+    try {
+      return serverLibraryOf(this.versionDir(id, entry.version), manifest);
+    } catch {
+      return null;
+    }
+  }
+
+  // The admin's approval of exactly this version and library, stored in the module's registry entry as serverRun: { version,
+  // sha256, by, at }. `version` and `sha256` are what the admin looked at; both must be the installed version's now, so an
+  // approval is never given to something the admin did not see. `by` is the approver's login. Checks of who may approve are the
+  // route's (server/index.js).
+  approveServerRun(id, { version, sha256, by }) {
+    const entry = this.get(id);
+    const name = this.shownName(this.manifestOf(id, entry.version) || { id, name: id });
+    if (entry.source === 'bundled') throw new ModuleError(`${name} ships with the server, so its actions run there without an approval.`);
+    const manifest = this.manifestOf(id, entry.version);
+    if (!manifest || !manifest.actions || typeof manifest.actions.server !== 'string') throw new ModuleError(`${name} ${entry.version} has no actions that run on the server.`);
+    if (typeof version !== 'string' || typeof sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(sha256)) throw new ModuleError('Send the version and the sha256 of the library you approve.');
+    const lib = this.serverLibrary(id);
+    if (!lib) throw new ModuleError(`${name} ${entry.version}'s library for the server can't be read, so it can't be approved.`, 409);
+    if (version !== entry.version || sha256 !== lib.sha256) throw new ModuleError('This version changed since you looked at it; look at it again.', 409);
+    entry.serverRun = { version, sha256, by: String(by || '').slice(0, 120), at: new Date().toISOString() };
+    this.save();
+    return entry.serverRun;
+  }
+
+  // Takes the approval back. Nothing happens when there is none.
+  withdrawServerRun(id) {
+    const entry = this.get(id);
+    if (entry.serverRun) {
+      delete entry.serverRun;
+      this.save();
+    }
+  }
+
+  // Whether the stored approval is of the active version and this very library (`sha256`, hashed from the text about to run).
+  serverRunApproved(id, sha256) {
+    const entry = this.registry.modules[id];
+    const run = entry && entry.serverRun;
+    return Boolean(run) && typeof run === 'object' && entry.source !== 'bundled' && run.version === entry.version
+      && typeof run.sha256 === 'string' && typeof sha256 === 'string' && run.sha256 === sha256;
   }
 
   // The folders (inside modules/<id>/) the module's file settings name, across its installed versions.

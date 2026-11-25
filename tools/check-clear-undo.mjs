@@ -550,7 +550,9 @@ try {
     fs.cpSync(path.join(process.cwd(), 'modules', 'travel'), src, { recursive: true });
     const manifest = JSON.parse(fs.readFileSync(path.join(src, 'module.json'), 'utf8'));
     manifest.version = '99.0.0';
-    if (manifest.actions) delete manifest.actions.server; // an upload may not declare it (server/module-actions.js)
+    // An upload: without server actions (they would need the admin's approval and the network wall) and without what only a
+    // module that ships with the server may ask for (moving a phase's end; plan-agent-server-actions.md, section 8).
+    if (manifest.actions) { delete manifest.actions.server; for (const a of manifest.actions.provides || []) { delete a.phaseEnd; delete a.lookups; delete a.skipLookupWhen; } }
     manifest.permissions.push({ key: 'extra', label: 'Something new', default: { member: false, guest: false, moderator: false } });
     fs.writeFileSync(path.join(src, 'module.json'), JSON.stringify(manifest));
     const zip = buildModule(src).zip;

@@ -17,7 +17,10 @@
  * Against a real server (single install, throwaway DATA_DIR):
  *   - an agent's add and edit carried by the server (To-do) are recorded as added and edited, the edit's earlier value held;
  *     a person's own write is not recorded; the owner's list on the agent's page says each in words, never a raw id;
- *   - a page write tied to the agent's claimed request (Maps, which waits for a page) is recorded; one with no tie is not;
+ *   - a page write tied to the agent's claimed request (Maps, uploaded without server actions) is recorded; one with no tie
+ *     is not. No route makes an agent's request wait for a page since plan-agent-server-actions.md step 11d (it is refused at
+ *     once, checked here), so the waiting request, as one left from before that step, is written into bus.json with the
+ *     server stopped;
  *   - Undo: edited puts back the held value; added removes the object; a second Undo is 409 "That was undone already.";
  *     an Undo after a later edit is 409 "That has been changed since, so undo would lose that change."; it is named in the
  *     module's activity list;
@@ -37,14 +40,15 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// Maps uploaded as a module of its own, so a page still carries its agents' requests: the bundled Maps runs them on the server
-// (plan-agent-server-actions.md, step 10), and an upload may not declare actions.server, so the copy leaves it out.
+// Maps uploaded as a module of its own, without server actions and without the place search only a module that ships with the
+// server may declare (plan-agent-server-actions.md, section 8).
 const mapsUploadZip = () => {
   const at = fs.mkdtempSync(path.join(os.tmpdir(), 'maps-upload-'));
   try {
     fs.cpSync(path.join(ROOT, 'modules', 'maps'), at, { recursive: true });
     const m = JSON.parse(fs.readFileSync(path.join(at, 'module.json'), 'utf8'));
     delete m.actions.server;
+    for (const a of m.actions.provides) { delete a.lookups; delete a.skipLookupWhen; }
     fs.writeFileSync(path.join(at, 'module.json'), JSON.stringify(m, null, 2));
     return createRequire(import.meta.url)(path.join(ROOT, 'server', 'module-build.js')).buildModule(at).zip;
   } finally {
@@ -414,9 +418,18 @@ try {
   });
 
   await test('a page write tied to the agent\'s claimed request is recorded; one with no tie is not', async () => {
-    const r = await ask('maps:addPlace', { title: 'Plan the walk' });
-    ok(r, 'addPlace waits for a page');
-    assert.equal(r.json.status, 'pending');
+    const refused = await ask('maps:addPlace', { title: 'Plan the walk' });
+    ok(refused, 'an agent\'s request to the upload is refused at once', 409);
+    // A waiting request as the route made one before step 11d: its token's id, written while the server is stopped.
+    await server.stop();
+    const tokenId = JSON.parse(fs.readFileSync(path.join(dir, 'tokens.json'), 'utf8')).tokens.filter((t) => t.kind === 'agent' && t.user === agent.key).at(-1).id;
+    let bus = { seq: 0, events: [], actions: [] };
+    try { bus = JSON.parse(fs.readFileSync(path.join(dir, 'modules', 'bus.json'), 'utf8')); } catch { /* none yet */ }
+    bus.seq = (Number(bus.seq) || 0) + 1;
+    const r = { json: { id: bus.seq } };
+    bus.actions.push({ id: bus.seq, at: Date.now(), from: 'maps', provider: 'maps', action: 'addPlace', input: { title: 'Plan the walk' }, scopeKey: `space:${camp}`, by: agent.key, agent: true, agentToken: tokenId, status: 'pending', claimedAt: 0, result: null });
+    fs.writeFileSync(path.join(dir, 'modules', 'bus.json'), JSON.stringify(bus));
+    server = await startServer(dir);
     const claim = await call('POST', '/api/bus/actions/claim', { cookie: admin, body: { module: 'maps', id: r.json.id, scope: 'space', space: camp } });
     assert.equal(claim.json.ok, true, 'the owner\'s page claims it');
     const value = (title) => ({ title, lat: 38.7, lng: -9.1 });

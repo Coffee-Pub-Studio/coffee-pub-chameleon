@@ -45,7 +45,7 @@ const { buildModule } = require(path.join(ROOT, 'server', 'module-build.js'));
 const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const ONLY_AGENTS = "This is for an agent's token only.";
-const TOOL_NAMES = ['me', 'read_context', 'read_data', 'read_weather', 'search_objects', 'object_links', 'object_kinds', 'object_format', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'wait_for_result', 'ask_to_delete', 'ask_status', 'read_chat', 'post_chat'];
+const TOOL_NAMES = ['me', 'read_context', 'read_data', 'read_weather', 'search_objects', 'object_links', 'object_kinds', 'object_format', 'resolve_objects', 'list_members', 'list_actions', 'ask_for_change', 'request_status', 'ask_to_delete', 'ask_status', 'read_chat', 'post_chat'];
 const SETUP_TOOL_NAMES = ['me', 'list_templates', 'list_icons', 'list_people', 'make_space', 'change_space', 'ask_owner', 'ask_status'];
 const CANT = "An agent can't do that.";
 // The 401 on /mcp names the sign-in server's metadata (server/oauth.js, plan-mcp-oauth.md); a REST route's 401 does not.
@@ -143,16 +143,9 @@ const rpcError = (r, status, code, what) => {
   assert.equal(typeof r.json.error.message, 'string');
 };
 
-// A bundled module uploaded as a module of its own: an upload may not declare actions.server (server/module-actions.js; it would
-// be refused), so the copy leaves it out and its agents' requests wait for a page, as an uploaded module's do.
-const uploadZipOf = (id) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `upload-${id}-`));
-  fs.cpSync(path.join(ROOT, 'modules', id), dir, { recursive: true });
-  const m = JSON.parse(fs.readFileSync(path.join(dir, 'module.json'), 'utf8'));
-  if (m.actions) delete m.actions.server;
-  fs.writeFileSync(path.join(dir, 'module.json'), JSON.stringify(m, null, 2));
-  return buildModule(dir).zip;
-};
+// The upload fixture of tools/check-module-actions.mjs: an uploaded module with server actions, which this server (no network
+// wall, no approval) does not run for agents (plan-agent-server-actions.md, section 8).
+const UPLOAD_FIXTURE = path.join(ROOT, 'tools', 'fixtures', 'module-actions', 'fixture-upload');
 const base = fs.mkdtempSync(path.join(os.tmpdir(), 'check-mcp-'));
 const single = path.join(base, 'single');
 const onEnv = { ADMIN_PASSWORD: 'admin-password-1', AGENT_TOKENS: 'true' };
@@ -161,8 +154,10 @@ try {
   const server = await startServer(single, onEnv);
   const admin = await signIn(server, 'admin', 'admin-password-1');
   ok(await call(server, 'PATCH', '/api/settings', { cookie: admin, body: { agents: true } }), 'Agents on');
-  ok(await call(server, 'POST', '/api/modules', { cookie: admin, raw: uploadZipOf('todo'), headers: { 'content-type': 'application/zip' } }), 'the To-do installs', 201);
+  ok(await call(server, 'POST', '/api/modules/bundled/todo/install', { cookie: admin, body: {} }), 'the To-do installs', 201);
   ok(await call(server, 'PATCH', '/api/modules/todo', { cookie: admin, body: { enabled: true } }), 'the To-do is on');
+  ok(await call(server, 'POST', '/api/modules', { cookie: admin, raw: buildModule(UPLOAD_FIXTURE).zip, headers: { 'content-type': 'application/zip' } }), 'an uploaded module with server actions installs', 201);
+  ok(await call(server, 'PATCH', '/api/modules/fixture-upload', { cookie: admin, body: { enabled: true } }), 'and is on');
   const mia = (await call(server, 'POST', '/api/users', { cookie: admin, body: { login: 'mia', displayName: 'Mia', password: 'mia-password-1', role: 'member' } })).json.user;
   const makeAgent = async (name, spaces) => {
     const agent = (await call(server, 'POST', '/api/users', { cookie: admin, body: { agent: true, displayName: name } })).json.user;
@@ -218,14 +213,14 @@ try {
       for (const old of ['room', 'table', 'stage', 'pane', 'tenant', 'item', 'card']) assert.doesNotMatch(words, new RegExp(`\\b${old}s?\\b`), `${t.name} says ${old}`);
     }
     assert.equal(tools.find((t) => t.name === 'ask_for_change').annotations.readOnlyHint, false);
-    assert.match(tools.find((t) => t.name === 'ask_for_change').description, /waits/, 'ask_for_change says it waits for a person');
-    // E3 of plan-agent-edit-delete.md: the wait, and the words saying what is done at once and what waits.
-    const wait = tools.find((t) => t.name === 'wait_for_result');
-    assert.deepEqual(wait.inputSchema.required, ['space', 'request']);
-    assert.equal(wait.inputSchema.properties.seconds.maximum, 30);
-    assert.equal(wait.annotations.readOnlyHint, true);
-    assert.match(tools.find((t) => t.name === 'ask_for_change').description, /now: true/, 'ask_for_change says what is done at once');
-    assert.match(tools.find((t) => t.name === 'request_status').description, /waiting/, 'request_status says what it waits for');
+    // plan-agent-server-actions.md, section 8: nothing waits for a page, so there is no wait_for_result, and the words say a
+    // change is done at once or refused at once with why.
+    assert.equal(tools.find((t) => t.name === 'wait_for_result'), undefined, 'no wait_for_result');
+    assert.match(tools.find((t) => t.name === 'ask_for_change').description, /It is done at once/, 'ask_for_change says it is done at once');
+    assert.match(tools.find((t) => t.name === 'ask_for_change').description, /may: false it is refused at once with why/, 'and what is refused at once');
+    assert.doesNotMatch(tools.find((t) => t.name === 'ask_for_change').description, /wait/, 'and nothing about waiting');
+    assert.match(tools.find((t) => t.name === 'list_actions').description, /may: false with why/, 'list_actions says may and why');
+    assert.match(tools.find((t) => t.name === 'request_status').description, /claimed while the server is carrying it out/, 'request_status says what claimed means');
     assert.match(tools.find((t) => t.name === 'post_chat').description, /permissions in me includes chat/, 'post_chat says it needs chat in me\'s permissions');
     assert.match(tools.find((t) => t.name === 'me').description, /permissions/, 'me says it carries permissions');
     // plan-itinerary-weather.md, step 5: read_weather names the space and the days only, and says what an empty answer means.
@@ -288,6 +283,19 @@ try {
     assert.match(tools.find((t) => t.name === 'ask_for_change').description, /description and hints in list_actions/);
   });
 
+  await test('list_actions: an uploaded module the server does not run shows may: false and why; ask_for_change is refused at once', async () => {
+    const WALL = 'This server doesn\'t run uploaded modules\' actions for agents.';
+    const U = { token: (await makeAgent('Uploads', [S1])).token }; // its own log, so the other tests' lines stay as they were
+    const listed = result(await tool(server, 'list_actions', { space: S1 }, U), 'list_actions');
+    const up = listed.json.actions.find((a) => a.action === 'fixture-upload:addNote');
+    assert.ok(up, 'listed');
+    assert.deepEqual([up.may, up.now, up.why, up.waiting], [false, false, WALL, undefined]);
+    const todo = listed.json.actions.find((a) => a.action === 'todo:createTask');
+    assert.deepEqual([todo.may, todo.now, todo.why, todo.waiting], [true, true, undefined, undefined], 'a bundled module\'s action is done at once');
+    const asked = result(await tool(server, 'ask_for_change', { space: S1, action: 'fixture-upload:addNote', input: { title: 'No' } }, U), 'ask_for_change');
+    assert.deepEqual([asked.isError, asked.text], [true, WALL]);
+  });
+
   await test('a tool call counts once, as its route, and is logged as that route', async () => {
     const before = await used();
     result(await tool(server, 'read_chat', { space: S1 }, T), 'read_chat');
@@ -297,9 +305,9 @@ try {
     assert.equal(after.writes.usedToday, before.writes.usedToday);
     const asked = result(await tool(server, 'ask_for_change', { space: S1, action: 'todo:createTask', input: { title: 'Secret title 5521' } }, T), 'ask_for_change');
     assert.equal(asked.isError, false, asked.text);
-    assert.equal(asked.json.status, 'pending');
+    assert.deepEqual([asked.json.status, asked.json.ok], ['done', true], 'done at once, on the server');
     const status = result(await tool(server, 'request_status', { space: S1, request: asked.json.id }, T), 'request_status');
-    assert.equal(status.json.status, 'pending');
+    assert.deepEqual([status.json.status, status.json.ok], ['done', true]);
     const before2 = after;
     after = await used();
     assert.equal(after.writes.usedToday, before2.writes.usedToday + 1, 'ask_for_change is one write');
@@ -382,7 +390,7 @@ try {
     assert.deepEqual(winery.ref, { module: 'maps', kind: 'place', id: 'p1', scope: 'environment' });
     assert.deepEqual(found.json.summaries.find((x) => x.title === 'Napa lodge').ref, { module: 'maps', kind: 'place', id: 'p2', scope: 'space', space: S1 });
     // Another module's name as `from` finds them too once it may link to places.
-    const bySpace = result(await tool(server, 'search_objects', { space: S1, from: 'maps', q: 'secret' }, C), 'the person\'s own');
+    const bySpace = result(await tool(server, 'search_objects', { space: S1, from: 'maps', kind: 'place', q: 'secret' }, C), 'the person\'s own');
     assert.deepEqual(bySpace.json.summaries, []);
     // The pointers resolve, and updatePlace takes them as its place: done at once by the server (Maps' actions run there,
     // plan-agent-server-actions.md step 10), the environment place with its mark for this space kept.
@@ -421,8 +429,6 @@ try {
       ['read_chat', { space: S1, extra: 1 }, 'extra is not an argument of this tool.'],
       ['read_data', { space: S1, module: '../x' }, 'module is not an id this server uses.'],
       ['request_status', { space: S1, request: 'one' }, 'request is a whole number of 1 or more.'],
-      ['wait_for_result', { space: S1, request: 1, seconds: 31 }, 'seconds is a whole number from 1 to 30.'],
-      ['wait_for_result', { space: S1, request: 1, seconds: 0 }, 'seconds is a whole number from 1 to 30.'],
       ['object_links', { from: 'todo', ref: { scope: 'space', space: S1 }, dir: 'up' }, 'dir is one of: to, from.'],
       ['post_chat', { space: S1, text: 42 }, 'text is text.'],
     ]) {
@@ -430,7 +436,7 @@ try {
       assert.deepEqual([out.isError, out.text], [true, sentence]);
     }
     const after = await used();
-    assert.equal(after.reads.usedToday, before.reads.usedToday + 10, 'each counted as one read');
+    assert.equal(after.reads.usedToday, before.reads.usedToday + 8, 'each counted as one read');
   });
 
   await test('20 writes a minute through MCP, then the gate\'s 429, every one logged', async () => {

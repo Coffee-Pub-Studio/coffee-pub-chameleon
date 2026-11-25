@@ -1,8 +1,9 @@
 'use strict';
-// The server runner for agents' requests to bundled modules (documentation/plans/plan-agent-edit-delete.md, decision 4 and
-// "Carrying out agent requests without an open page", E1; step 1 of "Left to build").
+// The server runner for agents' requests to modules (documentation/plans/plan-agent-edit-delete.md, decision 4 and
+// "Carrying out agent requests without an open page", E1; step 1 of "Left to build"; uploaded modules:
+// plan-agent-server-actions.md, decisions 2 and 3, section 8).
 //
-// A bundled module may declare `"actions": { "server": "src/<id>-lib-actions.js", ... }`: one of its own libraries, which
+// A module may declare `"actions": { "server": "src/<id>-lib-actions.js", ... }`: one of its own libraries, which
 // its page already carries (server/module-build.js libraryOf puts every src/<id>-lib*.js into the page), defining
 //   const ACTION_HANDLERS = { <action name>: (input, ctx) => ({ writes, ref?, data? }) };
 // with one handler for every action an agent may ask the module for. `ctx` is the page adapter's (public/sdk/host.js
@@ -38,19 +39,25 @@
 // module's place search before the run and the handler reads the answer as ctx.lookups.<input> (at most 6 of { title,
 // sub, lat, lng, key }). The run itself has no network and no way to ask for another search.
 //
-// This file loads the code (only ever from the deployment's own modules/ folder, never from what is installed in
-// DATA_DIR, and only while the installed module is that very bundled version), runs it in a process of its own with a
-// memory ceiling and Node's permission model, with Node's socket calls taken away (server/module-actions-lockdown.js) and,
-// where the kernel allows, in a network namespace of its own (networkSeal, below), in a vm context with a time limit
-// (server/module-actions-worker.js), and checks what it answered. It writes
-// nothing: server/index.js applies the writes through the same checked write path a person's page uses (putModuleValue),
-// as the agent, with the agent's own rights. Uploaded modules never come here: their code is not ours, and vm is no
-// security boundary, so they keep the wait for an open page.
+// This file loads the code, runs it in a process of its own with a memory ceiling and Node's permission model, with Node's
+// socket calls taken away (server/module-actions-lockdown.js) and, where the kernel allows, in a network namespace of its own
+// (networkSeal, below), in a vm context with a time limit (server/module-actions-worker.js), and checks what it answered. It
+// writes nothing: server/index.js applies the writes through the same checked write path a person's page uses
+// (putModuleValue), as the agent, with the agent's own rights.
+//
+// Where the code comes from (carriageOf). A bundled module's: only ever from the deployment's own modules/ folder, never from
+// what is installed in DATA_DIR, and only while the installed module is that very bundled version. An uploaded module's
+// (plan-agent-server-actions.md, decisions 2 and 3, section 8): from its installed copy in DATA_DIR, read and hashed (SHA-256)
+// on every run, and run only when the admin approved that very version and hash (the registry entry's serverRun), and only
+// behind the kernel's wall (`namespace`, and a namespace this server really made; never the lockdown alone). Its code is not
+// ours and vm is no boundary: the process is. An uploaded module also gets at most LIMITS.uploadedRunning of the running
+// slots, so it can't hold up the bundled modules, no place search, no environment writes and no move of a phase's end.
+// Nothing waits for a page: a request the server can't carry is refused at once, with `why`.
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { libraryOf } = require('./module-build');
+const { libraryOf, libraryHash, serverLibraryOf } = require('./module-build');
 const { word } = require('./words');
 const { effectsOf, EFFECT_FAULT_WORDS } = require('./action-effects');
 
@@ -66,6 +73,8 @@ const LIMITS = Object.freeze({
   writes: 10, // values one request may write (as many as a page's claim may name its asker on)
   running: 4, // runs at once on this server; more wait their turn
   queued: 16, // runs waiting their turn; past it the request is refused as busy
+  uploadedRunning: 2, // of `running`, at most this many for uploaded modules at once; the rest wait while bundled runs go on
+  uploadedQueued: 8, // of `queued`, at most this many for uploaded modules, so they can't fill the line for bundled ones
   sentence: 200, // a refusal's sentence, as the bus keeps a page's
 });
 
@@ -168,29 +177,84 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
     return out;
   }
 
-  // At most LIMITS.running processes at once; the rest wait in order, up to LIMITS.queued.
-  let running = 0;
-  const waiting = [];
-  const turn = () => new Promise((resolve, reject) => {
-    if (running < LIMITS.running) { running += 1; return resolve(); }
-    if (waiting.length >= LIMITS.queued) return reject(Object.assign(new Error('busy'), { busy: true }));
-    waiting.push(resolve);
-  });
-  const done = () => {
-    const next = waiting.shift();
-    if (next) next(); else running -= 1;
-  };
+  // An uploaded module's library, from its installed copy (`installedDir`, its active version's folder in DATA_DIR), read
+  // now and never kept: { code, filename, sha256 } or null. What is hashed is exactly the text a run sends to the worker.
+  function uploadedLibrary(found, installedDir) {
+    const { manifest } = found;
+    const declared = manifest.actions && typeof manifest.actions.server === 'string' ? manifest.actions.server : null;
+    if (!declared || !SERVER_FILE_RE(manifest.id).test(declared) || typeof installedDir !== 'string' || !installedDir) return null;
+    try {
+      const lib = serverLibraryOf(installedDir, manifest);
+      return lib ? { code: lib.js, filename: `modules/${manifest.id}/${declared}`, sha256: lib.sha256 } : null;
+    } catch {
+      return null;
+    }
+  }
 
-  // One run: { text } (the handler's answer as JSON text) or { fault } (start, sdk, network, library, timeout, memory, crashed,
-  // busy, missing, result, size, unanswered). `localeText` is { clock, words, labels } as JSON: the environment's clock and
-  // words and the module's labels in the space, for ctx.util's time, word and label. Never throws.
-  async function run({ code, filename, action, inputText, ctxText, dataText, sharedText = '{}', localeText = '{}', uploaded = false }) {
+  // How the server carries an agent's request to this module (`found`: { manifest, entry } of the enabled module): { lib:
+  // { code, filename, uploaded, sha256? } } to run it now, or { why } when it can't, and the request is then refused at once
+  // (nothing waits for a page): 'update' (a bundled module whose installed version is not the one this deployment ships),
+  // 'none' (no actions on the server, or a library that can't be read), 'wall' (an uploaded module on a server without the
+  // kernel's network wall) or 'approval' (an uploaded module whose active version and library hash are not the ones the
+  // admin approved). `approved(sha256)` says whether the stored approval is of the active version and that hash (the
+  // environment's ModuleManager serverRunApproved); `installedDir` is the active version's folder.
+  function carriageOf(found, { installedDir, approved } = {}) {
+    if (!found || !found.entry || !found.manifest) return { why: 'none' };
+    const declares = Boolean(found.manifest.actions && typeof found.manifest.actions.server === 'string');
+    if (found.entry.source === 'bundled') {
+      const lib = libraryFor(found);
+      return lib ? { lib: { ...lib, uploaded: false } } : { why: declares ? 'update' : 'none' };
+    }
+    if (!declares) return { why: 'none' };
+    if (!uploadedMayRun) return { why: 'wall' };
+    const lib = uploadedLibrary(found, installedDir);
+    if (!lib) return { why: 'none' };
+    if (typeof approved !== 'function' || approved(lib.sha256) !== true) return { why: 'approval' };
+    return { lib: { ...lib, uploaded: true } };
+  }
+
+  // At most LIMITS.running processes at once, and of those at most LIMITS.uploadedRunning for uploaded modules; the rest wait
+  // in order, up to LIMITS.queued (of them at most LIMITS.uploadedQueued uploaded). A waiting uploaded run never holds up a
+  // bundled one behind it: whoever fits a free slot starts, oldest first.
+  let running = 0;
+  let runningUploaded = 0;
+  const waiting = []; // { uploaded, resolve }
+  const fits = (uploaded) => running < LIMITS.running && (!uploaded || runningUploaded < LIMITS.uploadedRunning);
+  const start = (uploaded) => { running += 1; if (uploaded) runningUploaded += 1; };
+  const pump = () => {
+    for (let i = 0; i < waiting.length && running < LIMITS.running;) {
+      const w = waiting[i];
+      if (fits(w.uploaded)) { waiting.splice(i, 1); start(w.uploaded); w.resolve(); } else i += 1;
+    }
+  };
+  const turn = (uploaded) => new Promise((resolve, reject) => {
+    if (fits(uploaded)) { start(uploaded); return resolve(); }
+    const busy = () => reject(Object.assign(new Error('busy'), { busy: true }));
+    if (waiting.length >= LIMITS.queued) return busy();
+    if (uploaded && waiting.filter((w) => w.uploaded).length >= LIMITS.uploadedQueued) return busy();
+    waiting.push({ uploaded, resolve });
+  });
+  const done = (uploaded) => {
+    running -= 1;
+    if (uploaded) runningUploaded -= 1;
+    pump();
+  };
+  // How full the runner is now, for the checks: { running, uploaded, waiting, waitingUploaded }.
+  const load = () => ({ running, uploaded: runningUploaded, waiting: waiting.length, waitingUploaded: waiting.filter((w) => w.uploaded).length });
+
+  // One run: { text } (the handler's answer as JSON text) or { fault } (start, sdk, network, approval, library, timeout,
+  // memory, crashed, busy, missing, result, size, unanswered). `localeText` is { clock, words, labels } as JSON: the
+  // environment's clock and words and the module's labels in the space, for ctx.util's time, word and label. `uploaded`: an
+  // uploaded module's code, which runs only behind the kernel's wall and only when `code` hashes to `sha256` (the approved
+  // hash carriageOf compared), so what runs is exactly what was approved. Never throws.
+  async function run({ code, filename, action, inputText, ctxText, dataText, sharedText = '{}', localeText = '{}', uploaded = false, sha256 = null }) {
     const sdkSource = sdk();
     if (!sdkSource) return { fault: 'sdk' };
     // An uploaded module's code runs only behind the kernel wall: `namespace` asked for and a namespace made at start-up.
     // Never the lockdown alone. A bundled module runs without a namespace where there is none.
-    if (uploaded && !uploadedMayRun) return { fault: 'network' };
-    try { await turn(); } catch { return { fault: 'busy' }; }
+    if (uploaded && (!uploadedMayRun || !seal)) return { fault: 'network' };
+    if (uploaded && (typeof code !== 'string' || typeof sha256 !== 'string' || libraryHash(code) !== sha256)) return { fault: 'approval' };
+    try { await turn(uploaded); } catch { return { fault: 'busy' }; }
     try {
       return await new Promise((resolve) => {
         let settled = false;
@@ -230,11 +294,11 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
         child.stdin.end(JSON.stringify({ code, filename, action, inputText, ctxText, dataText, sharedText, sdk: sdkSource, localeText, timeoutMs: LIMITS.timeMs }));
       });
     } finally {
-      done();
+      done(uploaded);
     }
   }
 
-  return { libraryFor, run, network: networkState };
+  return { libraryFor, carriageOf, run, load, network: networkState };
 }
 
 // What a handler answered, checked: { refused: sentence } | { fault } | { denied: 'person' } (a write for the person, which
@@ -246,7 +310,7 @@ function createModuleActions({ bundledDir, workerFile = path.join(__dirname, 'mo
 // these types, within these sizes.
 const plainObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 const oneLine = (v) => String(v).replace(/[\p{Cc}\p{Cf}]+/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, LIMITS.sentence);
-function outcomeOf(answer, { own, shared = null, phaseEnd = false }) {
+function outcomeOf(answer, { own, shared = null, phaseEnd = false, uploaded = false }) {
   if (!answer || typeof answer.text !== 'string') return { fault: answer && answer.fault ? answer.fault : 'unanswered' };
   if (answer.text.length > LIMITS.resultBytes) return { fault: 'size' };
   let parsed;
@@ -258,6 +322,8 @@ function outcomeOf(answer, { own, shared = null, phaseEnd = false }) {
   const result = parsed.result === null ? {} : parsed.result;
   if (!plainObject(result)) return { fault: 'result' };
   for (const k of Object.keys(result)) if (!['writes', 'ref', 'data', 'links', 'schedules', 'notify', 'phaseEnd'].includes(k)) return { fault: 'result' };
+  // Nor does it move a phase's end, whatever its manifest says.
+  if (uploaded && result.phaseEnd !== undefined && result.phaseEnd !== null) return { fault: 'upload' };
   const given = result.writes === undefined || result.writes === null ? [] : result.writes;
   if (!Array.isArray(given) || given.length > LIMITS.writes) return { fault: Array.isArray(given) ? 'writes' : 'result' };
   const writes = [];
@@ -274,6 +340,8 @@ function outcomeOf(answer, { own, shared = null, phaseEnd = false }) {
     const scope = w.scope === undefined || w.scope === null ? 'space' : w.scope;
     if (scope === 'person') return { denied: 'person' };
     if (scope !== 'space' && scope !== 'environment') return { fault: 'place' };
+    // An uploaded module writes only in its own data in the request's space (plan-agent-server-actions.md, section 8).
+    if (uploaded && scope === 'environment') return { fault: 'upload' };
     if (typeof w.key !== 'string' || !w.key || w.key.length > 128 || seen.has(`${scope} ${w.key}`)) return { fault: 'result' };
     if (w.value === undefined) return { fault: 'result' };
     seen.add(`${scope} ${w.key}`);
@@ -309,6 +377,8 @@ const FAULT_WORDS = {
   sdk: () => 'the helpers its code uses did not load',
   start: () => 'its code could not be started',
   network: () => 'the server could not shut its code off from the network',
+  approval: () => 'its code is not the code the admin approved',
+  upload: () => `it asked for something only ${word('module', { a: true })} that ships with the server may do`,
   crashed: () => 'its code stopped',
   missing: () => 'it has no server code for that action',
   result: () => 'it answered something the server can\'t use',

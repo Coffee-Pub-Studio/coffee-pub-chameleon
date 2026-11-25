@@ -4,6 +4,7 @@
 // and by the server to install or update a module that ships with the app without uploading one.
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
@@ -107,6 +108,23 @@ function libraryFrom(srcFiles, owner, read, o = {}) {
   };
 }
 
+// The library a module's server actions run from, in an installed copy or a source folder `dir`, as the runner sends it to its
+// worker (server/module-actions.js): { js, files, declared, sha256 } with `declared` the manifest's actions.server and `sha256`
+// the hex SHA-256 of `js`, or null when the manifest declares no actions.server or the declared file is not in the library.
+// The files only the page needs (actions.pageOnly) are left out. Reads the files each time it is called; throws when they can't
+// be read. The module check hashes the same text from a zip (server/module-check.js, libraryFrom), so an admin's approval of a
+// hash is an approval of exactly this text (plan-agent-server-actions.md, section 8).
+function serverLibraryOf(dir, manifest) {
+  const actions = manifest && manifest.actions && typeof manifest.actions === 'object' ? manifest.actions : null;
+  const declared = actions && typeof actions.server === 'string' ? actions.server : null;
+  if (!declared) return null;
+  const lib = libraryOf(dir, manifest.id, { leaveOut: Array.isArray(actions.pageOnly) ? actions.pageOnly : [] });
+  if (!lib.files.includes(declared)) return null;
+  return { js: lib.js, files: lib.files, declared, sha256: libraryHash(lib.js) };
+}
+// The hash an approval names: SHA-256 of the library's text as UTF-8, in hex.
+const libraryHash = (js) => crypto.createHash('sha256').update(js).digest('hex');
+
 // The module in `dir`, built: { manifest, fileCount, zip }. Throws if the folder is not a module.
 function buildModule(dir) {
   const manifestPath = path.join(dir, 'module.json');
@@ -171,4 +189,4 @@ function bundledModules(rootDir) {
   return out;
 }
 
-module.exports = { libraryOf, libraryFrom, buildModule, bundledModules, zipFiles };
+module.exports = { libraryOf, libraryFrom, serverLibraryOf, libraryHash, buildModule, bundledModules, zipFiles };

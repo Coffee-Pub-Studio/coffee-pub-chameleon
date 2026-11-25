@@ -144,20 +144,33 @@ function filesUnder(dir) {
   return out;
 }
 
-// A copy of the To-do with three more actions an agent may never ask for: destructive, kept from AI, and asker-only.
+// A small uploaded module with only actions an agent may never ask for: a view (local), destructive, kept from AI, and
+// asker-only. The To-do itself is the bundled one, whose agent requests the server carries (an upload's run only with the
+// admin's approval and the network wall, plan-agent-server-actions.md section 8, which this check's server does not have).
 function testModuleZip(base) {
-  const src = path.join(base, 'todo-agent-check');
-  fs.cpSync(path.join(ROOT, 'modules', 'todo'), src, { recursive: true });
-  fs.rmSync(path.join(src, 'test'), { recursive: true, force: true });
-  const manifest = JSON.parse(fs.readFileSync(path.join(src, 'module.json'), 'utf8'));
-  manifest.version = '99.0.0';
-  delete manifest.actions.server; // an upload may not declare it (server/module-actions.js): its requests wait for a page
-  manifest.actions.provides.push(
-    { name: 'wipeTasks', label: 'Wipe every task', description: 'Remove every task.', effect: 'destructive', input: {} },
-    { name: 'quietTask', label: 'Add a quiet task', description: 'Add a task the AI is never offered.', ai: false, input: { title: 'string' } },
-    { name: 'myTask', label: 'Add a task of mine', description: 'Add a task in the asker\'s name.', askerOnly: true, input: { title: 'string' } },
-  );
+  const src = path.join(base, 'askcheck');
+  fs.mkdirSync(path.join(src, 'src'), { recursive: true });
+  const manifest = {
+    id: 'askcheck', name: 'Ask check', version: '1.0.0', scope: ['space'],
+    surfaces: { canvas: { entry: 'canvas.html', mode: ['dock'] } },
+    permissions: [
+      { key: 'view', label: 'See the tasks', default: { member: true, guest: true, moderator: true } },
+      { key: 'edit', label: 'Change the tasks', default: { member: true, guest: false, moderator: true } },
+    ],
+    access: { read: 'view', write: 'edit' },
+    actions: {
+      provides: [
+        { name: 'addTask', label: 'Add a task', description: 'Open the form to add a task.', local: true, input: { title: 'string' } },
+        { name: 'wipeTasks', label: 'Wipe every task', description: 'Remove every task.', effect: 'destructive', input: {} },
+        { name: 'quietTask', label: 'Add a quiet task', description: 'Add a task the AI is never offered.', ai: false, input: { title: 'string' } },
+        { name: 'myTask', label: 'Add a task of mine', description: 'Add a task in the asker\'s name.', askerOnly: true, input: { title: 'string' } },
+      ],
+    },
+  };
   fs.writeFileSync(path.join(src, 'module.json'), JSON.stringify(manifest, null, 2));
+  fs.writeFileSync(path.join(src, 'src', 'askcheck.html'), '<!doctype html><html><head><style>\n/*__CSS__*/\n</style></head><body><main></main><script>\n/*__JS__*/\n</script></body></html>');
+  fs.writeFileSync(path.join(src, 'src', 'askcheck.css'), '');
+  fs.writeFileSync(path.join(src, 'src', 'askcheck.js'), '');
   return buildModule(src).zip;
 }
 
@@ -178,8 +191,6 @@ const GATE_LIST = new Set([
   'GET /api/modules/:id/weather',
   'GET /api/objects/search', 'GET /api/objects/links', 'GET /api/objects/kinds', 'GET /api/objects/format/schema', 'POST /api/objects/resolve',
   'GET /api/spaces/:id/members', 'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
-  // Waiting for its own request (plan-agent-edit-delete.md, E3); tools/check-module-actions.mjs checks it.
-  'GET /api/spaces/:id/action/:requestId/wait',
   // Asking a person to delete one object, and its own ask's state (plan-agent-edit-delete.md, step 6);
   // tools/check-agent-delete-asks.mjs checks them. Approving and declining are never on the list.
   'POST /api/spaces/:id/delete-asks', 'GET /api/agent/asks/:id',
@@ -231,7 +242,9 @@ try {
   admin = await signIn(server, 'admin', 'admin-password-1');
   const zip = testModuleZip(base);
   const installed = await call(server, 'POST', '/api/modules', { cookie: admin, raw: zip, headers: { 'content-type': 'application/zip' } });
-  ok(installed, 'the test To-do installs', 201);
+  ok(installed, 'the test module installs', 201);
+  ok(await call(server, 'PATCH', '/api/modules/askcheck', { cookie: admin, body: { enabled: true } }), 'the test module is on');
+  ok(await call(server, 'POST', '/api/modules/bundled/todo/install', { cookie: admin, body: {} }), 'the To-do installs', 201);
   ok(await call(server, 'PATCH', '/api/modules/todo', { cookie: admin, body: { enabled: true } }), 'the To-do is on');
   // A member to show the agent is not one of "everyone".
   const mia = (await call(server, 'POST', '/api/users', { cookie: admin, body: { login: 'mia', password: 'mia-password-1', role: 'member' } })).json.user;
@@ -382,7 +395,7 @@ try {
     ok(actions, 'actions');
     const names = actions.json.actions.map((a) => a.action);
     assert.ok(names.includes('todo:createTask'), 'a write is listed');
-    for (const no of ['todo:addTask', 'todo:wipeTasks', 'todo:quietTask', 'todo:myTask']) assert.ok(!names.includes(no), `${no} is not listed`);
+    for (const no of ['todo:addTask', 'askcheck:addTask', 'askcheck:wipeTasks', 'askcheck:quietTask', 'askcheck:myTask']) assert.ok(!names.includes(no), `${no} is not listed`);
     const asked = await call(server, 'POST', `/api/spaces/${S1}/action`, { ...A(), body: { action: 'todo:createTask', input: { title: 'Secret title 4417' } } });
     ok(asked, 'a write action');
     ownRequest = asked.json.id;
@@ -430,7 +443,7 @@ try {
   });
 
   await test('local, asker-only, destructive and ai:false actions are refused', async () => {
-    for (const action of ['todo:addTask', 'todo:wipeTasks', 'todo:quietTask', 'todo:myTask']) {
+    for (const action of ['todo:addTask', 'askcheck:addTask', 'askcheck:wipeTasks', 'askcheck:quietTask', 'askcheck:myTask']) {
       refused(await call(server, 'POST', `/api/spaces/${S1}/action`, { ...A(), body: { action, input: { title: 'x', text: 'x' } } }), 403, CANT_ASK, action);
     }
   });
@@ -511,6 +524,10 @@ try {
     const seen = new Set(layers.filter((l) => l.kind === 'route').map((l) => `${l.method} ${l.path}`));
     assert.deepEqual(writtenRoutes().map(([m, p]) => `${m} ${p}`).filter((r) => !seen.has(r)), [], 'the walk has every route written in server/*.js');
     for (const r of GATE_LIST) assert.ok(seen.has(r), `${r} is a route of the app`);
+    // The admin's approval to run an uploaded module's actions on the server (plan-agent-server-actions.md, section 8): routes of
+    // the app, never on the gate's list, so the walk below refuses both to an agent's token. The wait for a page is gone.
+    for (const r of ['POST /api/modules/:id/server-run', 'DELETE /api/modules/:id/server-run']) assert.ok(seen.has(r) && !GATE_LIST.has(r), `${r} is walked, and refused`);
+    assert.ok(!seen.has('GET /api/spaces/:id/action/:requestId/wait'), 'no wait for a page');
     const urlOf = (pattern) => pattern.replace(/[{}]/g, '').replace(/\*[A-Za-z]+/g, 'a/b').replace(/:([A-Za-z]+)/g, 'x1234');
     let walked = 0;
     for (const { method, path: pattern } of routes) {
