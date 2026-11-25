@@ -720,8 +720,9 @@ function watchFit(bar, view) {
 const shownEl = (el) => !el.hidden && el.ownerDocument.defaultView.getComputedStyle(el).display !== 'none';
 const px = (v) => parseFloat(v) || 0;
 
-// A zone's natural width: its shown children side by side with its gap between them, plus the zone's own padding and
-// margins (the header's zones carry both, style.css `.topbar .nav-left`). Measured while the bar is
+// A zone's natural width: its shown children side by side with its gap between them, each with its own margins (the
+// branding's -16px and 6px, style.css `.topbar > .nav-left > .brand-home`: a child's margins take or give room in the row
+// as its width does), plus the zone's own padding and margins (the header's zones carry both, style.css `.topbar .nav-left`). Measured while the bar is
 // `nav-measuring` (style.css), when nothing in it shrinks, so each item counts at its full width.
 // `margins: false` for the left zone: its max-width (100%, style.css) holds its box, not its margins, to its column.
 // `n` is how many children counted, so a caller leaving one out (`skip`) knows whether a gap goes before it.
@@ -734,7 +735,8 @@ function naturalWidth(zone, skip, { margins = true } = {}) {
   const skipped = Array.isArray(skip) ? skip : [skip];
   for (const c of zone.children) {
     if (skipped.includes(c) || !shownEl(c)) continue;
-    w += c.getBoundingClientRect().width;
+    const cs = view.getComputedStyle(c);
+    w += c.getBoundingClientRect().width + px(cs.marginLeft) + px(cs.marginRight);
     n += 1;
   }
   return { w: w + gap * Math.max(0, n - 1), gap, n };

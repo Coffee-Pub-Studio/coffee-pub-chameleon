@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * check-agent-queue.mjs -- an agent's waiting requests end with its right to ask (documentation/plans/plan-agent-access.md,
- * "What a leaked token can do" and the kill switches), against a real server on a throwaway DATA_DIR, with the bundled Planner:
+ * "What a leaked token can do" and the kill switches), against a real server on a throwaway DATA_DIR, with bundled Maps (a module whose actions a page still carries):
  *   - a request an agent asked for is offered (GET /api/bus/actions/pending), claimed and finished only while the agent may
  *     still ask: AGENT_TOKENS and Agents on, the agent here, not turned off, holding the very token that asked, live, and still
  *     a member of the request's space who may work there;
@@ -104,8 +104,8 @@ try {
   const agent = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
   const camp = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Camp', members: [agent.key, mia.key] } })).json.space.id;
   const fort = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Fort', members: [agent.key, mia.key] } })).json.space.id;
-  ok(await call('POST', '/api/modules/bundled/schedule/install', { cookie: admin, body: {} }), 'the Planner installs', 201);
-  ok(await call('PATCH', '/api/modules/schedule', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'the Planner on');
+  ok(await call('POST', '/api/modules/bundled/maps/install', { cookie: admin, body: {} }), 'Maps installs', 201);
+  ok(await call('PATCH', '/api/modules/maps', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'Maps on');
   const miaCookie = await signIn('mia', 'mia-password-1');
   let token = null;
   const newToken = async () => {
@@ -117,17 +117,17 @@ try {
   await newToken();
 
   const ask = async (space, title, by = { token }) => {
-    const r = await call('POST', `/api/spaces/${space}/action`, { ...by, body: { action: 'schedule:addNote', input: { title } } });
+    const r = await call('POST', `/api/spaces/${space}/action`, { ...by, body: { action: 'maps:addPlace', input: { title } } });
     ok(r, `asks for ${title}`);
     return r.json.id;
   };
   const offered = async (space, id, cookie = miaCookie) => {
-    const r = await call('GET', `/api/bus/actions/pending?module=schedule&scope=space&space=${space}`, { cookie });
+    const r = await call('GET', `/api/bus/actions/pending?module=maps&scope=space&space=${space}`, { cookie });
     ok(r, 'pending');
     return r.json.actions.some((a) => a.id === id);
   };
-  const claim = (space, id, cookie = miaCookie) => call('POST', '/api/bus/actions/claim', { cookie, body: { module: 'schedule', id, scope: 'space', space } });
-  const complete = (space, id, cookie = miaCookie) => call('POST', '/api/bus/actions/complete', { cookie, body: { module: 'schedule', id, scope: 'space', space, result: { ok: true } } });
+  const claim = (space, id, cookie = miaCookie) => call('POST', '/api/bus/actions/claim', { cookie, body: { module: 'maps', id, scope: 'space', space } });
+  const complete = (space, id, cookie = miaCookie) => call('POST', '/api/bus/actions/complete', { cookie, body: { module: 'maps', id, scope: 'space', space, result: { ok: true } } });
   const activity = async () => (await call('GET', '/api/modules/activity', { cookie: admin })).json.activity;
   // Not offered, not claimed, not finished, and ended in the file with the sentence.
   const refusedEverywhere = async (space, id, what) => {
@@ -157,8 +157,8 @@ try {
     const c = await claim(camp, id);
     assert.equal(c.json.ok, true, 'claimed');
     assert.equal(c.json.action.byKey, agent.key);
-    ok(await call('PUT', `/api/modules/schedule/data/plan%3Alive?scope=space&space=${camp}`, { cookie: miaCookie, body: { value: { id: 'live', kind: 'note', title: 'Live one' }, for: agent.key, request: id } }), 'the write');
-    const line = (await activity()).find((l) => l.what === 'saved plan:live');
+    ok(await call('PUT', `/api/modules/maps/data/place%3Alive?scope=space&space=${camp}`, { cookie: miaCookie, body: { value: { title: 'Live one', lat: 38.7, lng: -9.1 }, for: agent.key, request: id } }), 'the write');
+    const line = (await activity()).find((l) => l.what === 'saved place:live');
     assert.equal(line.by, agent.key, 'the write names the agent');
     assert.equal(line.carriedBy, mia.key);
     assert.equal((await complete(camp, id)).json.ok, true, 'finished');
@@ -166,7 +166,7 @@ try {
 
   await test('a long-text input keeps its line breaks from the agent to the module; a one-line input does not', async () => {
     const notes = 'First paragraph.\n\nSecond paragraph.\nThird line.';
-    const r = await call('POST', `/api/spaces/${camp}/action`, { token, body: { action: 'schedule:addNote', input: { title: 'Two\nlines', notes: `${notes.replace(/\n/g, '\r\n')}\n\n` } } });
+    const r = await call('POST', `/api/spaces/${camp}/action`, { token, body: { action: 'maps:addPlace', input: { title: 'Two\nlines', notes: `${notes.replace(/\n/g, '\r\n')}\n\n` } } });
     ok(r, 'asks with paragraphs');
     const stored = busFile().actions.find((a) => a.id === r.json.id);
     assert.equal(stored.input.notes, notes, 'the notes reach the module as sent (\\r\\n read as \\n, ends trimmed)');
@@ -268,8 +268,8 @@ try {
     assert.equal((await claim(camp, id)).json.ok, true, 'claimed');
     ok(await call('DELETE', `/api/users/${agent.key}/token`, { cookie: admin }), 'revoke');
     const before = (await activity()).filter((l) => l.what.startsWith('sent a name')).length;
-    ok(await call('PUT', `/api/modules/schedule/data/plan%3Arace?scope=space&space=${camp}`, { cookie: miaCookie, body: { value: { id: 'race', kind: 'note', title: 'Racing' }, for: agent.key, request: id } }), 'the write');
-    const line = (await activity()).find((l) => l.what === 'saved plan:race');
+    ok(await call('PUT', `/api/modules/maps/data/place%3Arace?scope=space&space=${camp}`, { cookie: miaCookie, body: { value: { title: 'Racing', lat: 38.7, lng: -9.1 }, for: agent.key, request: id } }), 'the write');
+    const line = (await activity()).find((l) => l.what === 'saved place:race');
     assert.equal(line.by, mia.key, 'the carrier\'s own');
     assert.equal(line.carriedBy, undefined, 'nobody else named');
     assert.equal((await activity()).filter((l) => l.what.startsWith('sent a name')).length, before, 'the honest page is not blamed');

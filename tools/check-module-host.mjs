@@ -959,3 +959,19 @@ test('host.menu.show takes onClose and calls it once from the one cleanup', () =
   assert.ok(!/app:colour:/.test(sdk), 'the SDK keeps no Recent in the browser (app:colour:<moduleId> is gone)');
   console.log('ok - Recent colours: ui.colorRecent and ui.colorRecent.set answered by the page and the page host');
 }
+
+// A module in the page torn down while it is still starting (issue #1091, items 6 and 8: "host.ui.editor needs a <dialog>
+// element" on a reload of the demo space, "setting 'placeholder'" of null while placing or resizing): destroy() keeps the
+// module's markup (its script, part way through starting, finds its elements by id when it carries on), stops only its
+// sound and video, and a start still loading stops before it attaches anything or runs the script.
+{
+  const mh = fs.readFileSync(new URL('../public/module-host.js', import.meta.url), 'utf8');
+  const destroy = mh.slice(mh.indexOf('    destroy() {\n      if (!pageMode) releaseLift();'), mh.indexOf('\n    },\n  };\n}', mh.indexOf('    destroy() {\n      if (!pageMode) releaseLift();')));
+  assert.ok(destroy.length > 100, 'found the mount\'s destroy()');
+  assert.ok(!/shadowRoot\?\.replaceChildren\(\)|shadowRoot\.innerHTML\s*=/.test(destroy), 'destroy() never empties a module\'s shadow root');
+  assert.match(destroy, /destroyed = true;/, 'destroy() marks the mount torn down');
+  assert.match(destroy, /querySelectorAll\('audio, video'\)[^\n]*media\.pause\(\)/, 'and stops its sound and video');
+  const start = mh.slice(mh.indexOf('  async function startInPage() {'), mh.indexOf('\n  return {\n    send,'));
+  assert.ok(start.indexOf('if (destroyed) return;') > -1 && start.indexOf('if (destroyed) return;') < start.indexOf('container.attachShadow('), 'a start still loading stops before it attaches anything');
+  console.log('ok - a module torn down while starting keeps its markup and does not start late');
+}

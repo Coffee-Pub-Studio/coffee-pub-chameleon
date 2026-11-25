@@ -50,7 +50,9 @@ const INVALID = 'That agent token is not valid.';
 const OVER = 'The agent has done as much as it may for now.';
 const SETUP_LIST = new Set(AGENT_ROUTES.filter((e) => e.kind === 'setup').map((e) => `${e.method.toUpperCase()} ${e.path}`));
 // The routes only the set-up agent has: not its me, nor the MCP door both kinds have (check-mcp.mjs checks its tools).
-const SETUP_OWN = [...SETUP_LIST].filter((r) => r !== 'GET /api/agent/me' && !r.endsWith(' /mcp'));
+// Nor the read of its own ask, which the ordinary agent has for its delete asks (plan-agent-edit-delete.md, step 6): each
+// reads only its own (tools/check-agent-delete-asks.mjs).
+const SETUP_OWN = [...SETUP_LIST].filter((r) => r !== 'GET /api/agent/me' && r !== 'GET /api/agent/asks/:id' && !r.endsWith(' /mcp'));
 
 let n = 0;
 let failed = 0;

@@ -508,8 +508,9 @@ function cleanTakes(raw, action, permissionKeys) {
 const CLEARABLE_TYPES = ['string', 'text', 'number', 'date', 'ref'];
 const clearableType = (base) => CLEARABLE_TYPES.includes(base) || base.startsWith('ref:');
 
-// `permissionKeys`: the keys of the module's own permissions, which a `takes` entry may name.
-function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
+// `permissionKeys`: the keys of the module's own permissions, which a `takes` entry may name. `kinds`: the kinds of object
+// the module makes (refs.produces), which a delete action may point at.
+function cleanBus(rawEvents, rawActions, id, permissionKeys = [], kinds = []) {
   const events = { publishes: [], subscribes: [] };
   for (const p of Array.isArray(rawEvents?.publishes) ? rawEvents.publishes.slice(0, 10) : []) {
     const name = typeof p?.name === 'string' ? p.name.trim() : '';
@@ -600,6 +601,16 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = []) {
     if (p.patch === true && !objectFields.length) throw new ModuleError(`module.json: action "${name}" is a patch, so it needs an input of type "object"`);
     // What the AI is told of it and what it changes (server/action-catalog.js): `description`, `effect` and `ai`.
     const told = cleanActionAi(p, name, p.local === true, (message) => { throw new ModuleError(message); });
+    // `effect: "delete"` (plan-agent-edit-delete.md, "The contract", 2): an agent may ask to delete one object of this kind,
+    // and a person approves each ask. It has no handler (the server deletes, through the shared delete path), so it is one
+    // required pointer to one of the module's own kinds and nothing else, and a kind has at most one.
+    if (told.effect === 'delete') {
+      const fields = Object.entries(input);
+      const kind = fields.length === 1 ? (new RegExp(`^ref:${id}:([a-z][a-z0-9-]{0,31})$`).exec(fields[0][1]) || [])[1] : null;
+      if (!kind || !kinds.includes(kind)) throw new ModuleError(`module.json: action "${name}" deletes, so it takes exactly one input, required, of type "ref:${id}:<one of the module's own kinds>"`);
+      if (takes || p.askerOnly || needs.length || clears.length || p.patch === true || inputHints) throw new ModuleError(`module.json: action "${name}" deletes, so it has no takes, askerOnly, needs, clears, patch or inputHints`);
+      if (actions.provides.some((x) => x.effect === 'delete' && Object.values(x.input)[0] === fields[0][1])) throw new ModuleError(`module.json: only one action may delete the kind "${kind}"`);
+    }
     actions.provides.push({ name, label: String(p.label ?? '').replace(/\p{Cc}/gu, ' ').trim().slice(0, 60) || name, input, ...(inputHints ? { inputHints } : {}), ...(p.local === true ? { local: true } : {}), ...(p.askerOnly ? { askerOnly: true } : {}), ...(needs.length ? { needs } : {}), ...(takes ? { takes } : {}), ...(clears.length ? { clears } : {}), ...(p.patch === true ? { patch: true } : {}), ...told });
   }
   // `server` (plan-agent-edit-delete.md, decision 4): the module's own library whose handlers the server runs for an agent's
@@ -1063,7 +1074,7 @@ function cleanManifest(raw, files) {
   // What the server holds the module's data to beyond access.read and access.write (server/module-guards.js). It only
   // narrows what people may do, so it asks for no approval.
   const guards = cleanGuards(raw.guards, permissions.map((p) => p.key), ModuleError);
-  const { events, actions } = cleanBus(raw.events, raw.actions, id, permissions.map((p) => p.key));
+  const { events, actions } = cleanBus(raw.events, raw.actions, id, permissions.map((p) => p.key), refs.produces.map((p) => p.kind));
   const commands = cleanCommands(raw.commands, actions);
 
   // Which of the module's own permissions guards reading and writing its data. `personWrite`: the one that guards writing
@@ -1316,7 +1327,7 @@ class ModuleManager {
         manifest.guards = unreadableGuards(manifest.guards);
       }
       try {
-        const bus = cleanBus(manifest.events, manifest.actions, id, manifest.permissions.map((p) => p && p.key));
+        const bus = cleanBus(manifest.events, manifest.actions, id, manifest.permissions.map((p) => p && p.key), manifest.refs.produces.map((p) => p.kind));
         manifest.events = bus.events;
         manifest.actions = bus.actions;
       } catch {

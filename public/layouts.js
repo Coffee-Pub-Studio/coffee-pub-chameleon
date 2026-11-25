@@ -19,7 +19,7 @@
 
 import { MIN_W, MIN_H, DOCK_MIN, NARROW, gridFor, cellBox, resettle, fitDock } from '/snap-grid.js';
 
-// The server's limits (server/layouts.js, LAYOUT_LIMITS), so the page says what the server would refuse before asking.
+// The limits of an arrangement as the page keeps it; `shared` and `name` are the server's too (server/layouts.js, LAYOUT_LIMITS).
 // A stack: at most stackMax modules in one column, each one's share of the column's height from stackHMin to stackHMax,
 // the shares adding up to 1 within stackHSum.
 export const LAYOUT_LIMITS = Object.freeze({ personal: 10, shared: 10, name: 40, modules: 20, dockWMin: 160, dockWMax: 2000, pitchMin: 50, pitchMax: 320, stackMax: 3, stackHMin: 0.1, stackHMax: 0.9, stackHSum: 0.01 });

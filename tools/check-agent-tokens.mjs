@@ -178,6 +178,9 @@ const GATE_LIST = new Set([
   'GET /api/spaces/:id/members', 'GET /api/spaces/:id/actions', 'POST /api/spaces/:id/action', 'GET /api/spaces/:id/action/:requestId',
   // Waiting for its own request (plan-agent-edit-delete.md, E3); tools/check-module-actions.mjs checks it.
   'GET /api/spaces/:id/action/:requestId/wait',
+  // Asking a person to delete one object, and its own ask's state (plan-agent-edit-delete.md, step 6);
+  // tools/check-agent-delete-asks.mjs checks them. Approving and declining are never on the list.
+  'POST /api/spaces/:id/delete-asks', 'GET /api/agent/asks/:id',
   // Chat (step 5): reading and posting; tools/check-agent-chat.mjs checks them.
   'GET /api/spaces/:id/chat', 'POST /api/spaces/:id/chat',
   // The MCP door (server/mcp.js): tools/check-mcp.mjs checks it.

@@ -3,15 +3,14 @@
 // environment's export and the host console's backup, which zip the whole data folder, carry it):
 //
 //   { "spaces": { "<space id>": { "shared": [layout],
-//                                  "system": { "<user key>": { ... } },
 //                                  "last": { "<user key>": { "layout": "<layout id>", "at": <ms> } } } } }
 //
 // A person's own layouts and favorites are gone (plan-workspaces.md, decision 44): a person adds a workspace instead
-// (server/workspaces.js), which is a tab. A file's old `people` and `favorites` keys are dropped on read.
+// (server/workspaces.js), which is a tab. A person's own name, icon and tab for a system layout are gone too (issue #1091:
+// nobody renames or re-icons the owner's tabs). A file's old `people`, `favorites` and `system` keys are dropped on read.
 //
-// system (documentation/plans/plan-layout-views.md, step 1): the system layouts `workspace`, `calendar`, `map`,
-// `conference`, `whiteboard`, `documents` and `schedule` are never stored; server/index.js makes them per space from what is on. What is stored is each person's own choices for
-// them, per space: "system": { "<user key>": { "<system id>": { "name"?, "icon"?, "tab"?: false } } }.
+// The system layouts `workspace`, `calendar`, `map`, `conference`, `whiteboard`, `documents` and `schedule` are never
+// stored; server/index.js makes them per space from what is on, with their own names and icons.
 // last (documentation/plans/plan-workspaces.md, decision 20, step 11): the layout each signed-in person last used in a
 // space, so entering the space can open it: "last": { "<user key>": { "layout": "<layout id>", "at": <ms> } }. One entry per
 // person per space, about 100 bytes, no history; the server writes `at`. `layout` is a system id or a saved layout the
@@ -21,8 +20,6 @@
 // environment copy leaves it out (server/environment-export.js).
 // A user layout may carry an `icon`; one stored without reads as kind `user` with the default icon.
 //
-// cleanLayout() still reads a free-form layout ({ name, modules, snap?, arrange? }: the canvas's own words for an
-// arrangement, which the stack rules are written against); a route takes only a shared one (POST answers 400 otherwise).
 // A shared layout (for everyone in a space) is a shape and its areas, { id, name, by, at, shape, areas, icon? }
 // (documentation/plans/plan-layout-picker.md, decision 5): it has no modules, snap or arrange, and a stored shared entry
 // that is not a valid shape is dropped on read (nothing is converted or rewritten until the next save). cleanLayout()
@@ -41,21 +38,7 @@ const { cleanShape, COLUMN_IDS } = require('./layout-shapes');
 const LAYOUT_LIMITS = Object.freeze({
   shared: 10, // per space
   name: 40, // characters, after trimming
-  modules: 20, // entries in a layout's modules, the most a layout holds
-  dockWMin: 160,
-  dockWMax: 2000,
-  pitchMin: 50, // the snap grid's pitch in pixels, as the canvas's SNAP_PITCH
-  pitchMax: 320,
-  stackMax: 3, // modules in one stack (plan-panel-stacking.md decision 3)
-  stackHMin: 0.1, // a section's share of its column's height
-  stackHMax: 0.9,
-  stackHSum: 0.01, // the shares must add up to 1, within this
 });
-// Never stacked (plan-panel-stacking.md decision 2): the conference, Chat and the composites (dest:*; their ':' fails
-// MODULE_ID, so they never reach a layout, but the rule is kept here in words).
-const NEVER_STACKED = Object.freeze(['conference', 'chat']);
-const stackable = (id) => !NEVER_STACKED.includes(id) && !id.startsWith('dest:');
-const STACK_ID = /^[a-z0-9]{1,32}$/;
 // The system layouts' stable ids (a user layout's is `l` and six characters, so they never collide) and their default
 // icons; a user layout's default icon is the Layout button's.
 // The fixed set, in the default order (documentation/plans/plan-workspaces.md, "The fixed set"); Conference, Whiteboards and
@@ -67,75 +50,17 @@ const USER_ICON = 'object-group';
 const ICON_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 // A module id: the same rule as a template's module ids (server/layout-shapes.js).
 const MODULE_ID = /^[a-z][a-z0-9-]{0,31}$/;
-const MODES = ['dock', 'float'];
-const TOP_KEYS = ['name', 'shared', 'modules', 'snap', 'icon', 'arrange'];
-// A shared layout is a shape and its areas; these are the keys only a free-form (personal) layout takes, and the two only a shape takes.
+const TOP_KEYS = ['name', 'shared', 'shape', 'areas', 'icon'];
+// The canvas's own words for an arrangement, which a layout for everyone never takes (a stored entry with one is dropped on read).
 const FREE_FORM_KEYS = ['modules', 'snap', 'arrange'];
-const SHAPE_KEYS = ['shape', 'areas'];
-const ARRANGES = ['dock', 'window'];
-const MODULE_KEYS = ['id', 'mode', 'dockW', 'box', 'snap', 'stack', 'at', 'h', 'folded'];
-const BOX_KEYS = ['x', 'y', 'w', 'h'];
-const SNAP_KEYS = ['all', 'pitch'];
+// POST takes only a layout for everyone (plan-workspaces.md, decision 44).
+const OWN_LAYOUT_SENTENCE = 'A layout of your own is a workspace now: add one with New workspace, in the tabs\' menu.';
 const LAST_ID_MAX = 64; // a layout id as `last` keeps it
 const ADDED_WORKSPACE_ID = /^w[a-z0-9]{6}$/; // a workspace a person added (server/workspaces.js), as `last` may name
 const ID_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
 
 const isObject = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
-const isFraction = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
 const many = (key) => words.word(key, { many: true });
-
-// A stack (plan-panel-stacking.md, decision 4): a column of the canvas holding 2 or 3 docked modules one above the
-// other. It is carried on the members' own entries in `modules`, with four optional keys:
-//   stack   the stack's id, 1 to 32 characters of [a-z0-9]; members with the same id share one column
-//   at      the member's place in the stack, 0 (top) to 2
-//   h       the member's share of the column's height, 0.1 to 0.9; the members' shares add up to 1 (within 0.01)
-//   folded  true when the member is collapsed
-// A stack's width is the `dockW` of its members as for any docked module. An entry with none of the four is an
-// ordinary column, so layouts saved before stacks are unchanged. Stack keys are cleaned, never refused (cleanStacks):
-// a stack key on a float, the conference, Chat or a composite is dropped; a stack of one member, and members past the
-// third, become ordinary columns; members are put in `at` order (list order where `at` is missing or repeats), kept
-// together at the place of the stack's first member, and renumbered 0, 1, 2; `h` is kept (clamped to 0.1 to 0.9, rounded
-// to 4 places) only when every member has one and they add up to 1 within 0.01, else all are dropped (equal heights);
-// `folded` is kept only as true or false. The 20 entry limit counts every member (Opens with names every module too);
-// the server knows no column limit, so a stack being one column against the docked limit is the page's.
-function cleanStacks(entries) {
-  const groups = new Map();
-  entries.forEach((e, i) => {
-    const { stack } = e.raw;
-    if (e.kept.mode !== 'dock' || !stackable(e.kept.id) || typeof stack !== 'string' || !STACK_ID.test(stack)) return;
-    if (!groups.has(stack)) groups.set(stack, []);
-    groups.get(stack).push(i);
-  });
-  const placed = new Map(); // index of a stack's first member -> its cleaned, ordered members
-  const inStack = new Set();
-  for (const idx of groups.values()) {
-    const stack = entries[idx[0]].raw.stack;
-    const atOf = (i) => { const a = entries[i].raw.at; return Number.isInteger(a) && a >= 0 && a < LAYOUT_LIMITS.stackMax ? a : Infinity; };
-    const order = idx.map((i, n) => ({ i, n, at: atOf(i) }));
-    order.sort((a, b) => (a.at === b.at ? a.n - b.n : a.at - b.at));
-    const members = order.slice(0, LAYOUT_LIMITS.stackMax).map((o) => o.i);
-    if (members.length < 2) continue;
-    const hs = members.map((i) => entries[i].raw.h);
-    // Kept only when the members' own values add up to 1, checked before they are clamped.
-    const sound = hs.every((h) => typeof h === 'number' && Number.isFinite(h)) && Math.abs(hs.reduce((a, b) => a + b, 0) - 1) <= LAYOUT_LIMITS.stackHSum + 1e-9;
-    const heights = sound ? hs.map((h) => Math.round(Math.min(LAYOUT_LIMITS.stackHMax, Math.max(LAYOUT_LIMITS.stackHMin, h)) * 10000) / 10000) : null;
-    members.forEach((i, at) => {
-      const k = entries[i].kept;
-      k.stack = stack;
-      k.at = at;
-      if (sound) k.h = heights[at];
-      if (typeof entries[i].raw.folded === 'boolean') k.folded = entries[i].raw.folded;
-      inStack.add(i);
-    });
-    placed.set(Math.min(...members), members);
-  }
-  const out = [];
-  entries.forEach((e, i) => {
-    if (placed.has(i)) placed.get(i).forEach((m) => out.push(entries[m].kept));
-    else if (!inStack.has(i)) out.push(e.kept); // an entry cut from a stack stays, an ordinary column
-  });
-  return out;
-}
 
 // A layout's name as it is kept: control characters out, whitespace collapsed, trimmed.
 function cleanName(value) {
@@ -179,27 +104,29 @@ function checkShape(input, options) {
   return { shape: out.shape };
 }
 
-// The one shape check, pure. `input` is what a request sends. A personal layout: { name, shared?, modules, snap?, icon?,
-// arrange? }. A layout for everyone (`shared: true`): { name, shared: true, shape, areas, icon? }, a shape and its areas,
-// checked by cleanShape against `shapeOptions` ({ modules, on, names }; see checkShape); it takes no modules, snap or
-// arrange, and a personal layout takes no shape or areas (plan-layout-picker.md, decisions 5 and 15). With `partial` (a
-// PUT) any of name, modules (personal), shape with areas (shared) and snap may be left out, `shared` is not taken and
-// the option `shared` says which kind the layout being changed is. `icons`, when given, is the list of icon ids an
-// `icon` must come from. Returns { layout } with only the fields given, cleaned (numbers of pixels rounded), or
-// { error, problems, parts } with one sentence saying what is wrong (`problems` all the sentences, `parts` the field
-// each is about, as a template's refusal); anything wrong refuses the whole layout.
-function cleanLayout(input, { partial = false, icons = null, shared: sharedKind = false, shapeOptions = null } = {}) {
-  const out = cleanLayoutParts(input, { partial, icons, sharedKind, shapeOptions });
+// The one layout check, pure. `input` is what a request sends: a layout for everyone, { name, shared: true, shape, areas,
+// icon? }, a shape and its areas, checked by cleanShape against `shapeOptions` ({ modules, on, names }; see checkShape)
+// (plan-layout-picker.md, decisions 5 and 15). A person's own layout is a workspace (plan-workspaces.md, decision 44), so
+// `shared` must be true, and the free-form keys of the canvas's own arrangement (modules, snap, arrange) are refused. With
+// `partial` (a PUT) name and shape with areas may be left out and `shared` is not taken. `icons`, when given, is the list
+// of icon ids an `icon` must come from. Returns { layout } with only the fields given, cleaned, or { error, problems,
+// parts } with one sentence saying what is wrong (`problems` all the sentences, `parts` the field each is about, as a
+// template's refusal); anything wrong refuses the whole layout.
+function cleanLayout(input, { partial = false, icons = null, shapeOptions = null } = {}) {
+  const out = cleanLayoutParts(input, { partial, icons, shapeOptions });
   if (out.layout) return out;
   const problems = out.problems || [out.error];
   return { error: problems[0], problems, parts: out.parts || [out.part ?? null] };
 }
-function cleanLayoutParts(input, { partial, icons, sharedKind, shapeOptions }) {
+function cleanLayoutParts(input, { partial, icons, shapeOptions }) {
   const no = (error, part = null) => ({ error, part });
-  if (!isObject(input)) return no(`Send the layout as JSON: a name and the ${many('module')} it opens.`);
-  const allowed = [...(partial ? TOP_KEYS.filter((k) => k !== 'shared') : TOP_KEYS), ...SHAPE_KEYS];
+  if (!isObject(input)) return no('Send the layout as JSON: a name, a shape and its areas.');
+  const free = FREE_FORM_KEYS.find((k) => input[k] !== undefined);
+  if (free) return no('A layout for everyone is a shape; pick one with the picker.', 'shape');
+  const allowed = partial ? TOP_KEYS.filter((k) => k !== 'shared') : TOP_KEYS;
   const extra = Object.keys(input).find((k) => !allowed.includes(k));
-  if (extra) return no(partial && extra === 'shared' ? 'A saved layout cannot be moved between your own and the shared ones; save it again instead.' : `A layout does not take ${JSON.stringify(plainId(extra))}.`, null);
+  if (extra) return no(partial && extra === 'shared' ? 'A layout for everyone stays one; save a workspace instead.' : `A layout does not take ${JSON.stringify(plainId(extra))}.`, null);
+  if (!partial && input.shared !== true) return no(OWN_LAYOUT_SENTENCE, 'shared');
   const out = {};
 
   if (!partial || input.name !== undefined) {
@@ -209,67 +136,13 @@ function cleanLayoutParts(input, { partial, icons, sharedKind, shapeOptions }) {
     if ([...name].length > LAYOUT_LIMITS.name) return no(`A layout's name can be at most ${LAYOUT_LIMITS.name} characters.`, 'name');
     out.name = name;
   }
+  if (!partial) out.shared = true;
 
-  if (!partial && input.shared !== undefined) {
-    if (typeof input.shared !== 'boolean') return no('Say whether the layout is shared with true or false.', 'shared');
-    out.shared = input.shared;
-  }
-  const shared = partial ? Boolean(sharedKind) : input.shared === true;
-
-  if (shared) {
-    const free = FREE_FORM_KEYS.find((k) => input[k] !== undefined);
-    if (free) return no('A layout for everyone is a shape; pick one with the picker.', 'shape');
-    if (!partial || input.shape !== undefined || input.areas !== undefined) {
-      const checked = checkShape(input, shapeOptions);
-      if (!checked.shape) return { error: checked.problems[0], problems: checked.problems, parts: checked.parts };
-      out.shape = checked.shape.shape;
-      out.areas = checked.shape.areas;
-    }
-  } else {
-    const shapeKey = SHAPE_KEYS.find((k) => input[k] !== undefined);
-    if (shapeKey) return no(`Only a layout for everyone is a shape; a layout of your own is saved as it is on the ${words.word('canvas')}.`, 'shape');
-  }
-
-  if (!shared && (!partial || input.modules !== undefined)) {
-    if (!Array.isArray(input.modules)) return no(`List the ${many('module')} the layout opens (an empty list is a blank layout).`, 'modules');
-    if (input.modules.length > LAYOUT_LIMITS.modules) return no(`A layout can hold at most ${LAYOUT_LIMITS.modules} ${many('module')}.`, 'modules');
-    const seen = new Set();
-    const entries = [];
-    for (const entry of input.modules) {
-      if (!isObject(entry)) return no(`Each ${words.word('module')} in a layout needs an id and a mode.`, 'modules');
-      const id = entry.id;
-      if (typeof id !== 'string' || !MODULE_ID.test(id)) return no(`${JSON.stringify(typeof id === 'string' ? plainId(id) : id ?? null)} is not ${words.word('module', { a: true })} id.`, 'modules');
-      if (seen.has(id)) return no(`"${id}" is listed twice in the layout.`, 'modules');
-      seen.add(id);
-      const unknown = Object.keys(entry).find((k) => !MODULE_KEYS.includes(k));
-      if (unknown) return no(`"${id}": a layout does not keep ${JSON.stringify(plainId(unknown))}.`, 'modules');
-      if (!MODES.includes(entry.mode)) return no(`"${id}": mode must be dock or float.`, 'modules');
-      const kept = { id, mode: entry.mode };
-      if (entry.dockW !== undefined) {
-        const w = entry.dockW;
-        if (typeof w !== 'number' || !Number.isFinite(w) || w < LAYOUT_LIMITS.dockWMin || w > LAYOUT_LIMITS.dockWMax) {
-          return no(`"${id}": dockW must be a width in pixels from ${LAYOUT_LIMITS.dockWMin} to ${LAYOUT_LIMITS.dockWMax}.`, 'modules');
-        }
-        kept.dockW = Math.round(w);
-      }
-      if (entry.box !== undefined) {
-        const b = entry.box;
-        const bad = !isObject(b) || Object.keys(b).some((k) => !BOX_KEYS.includes(k)) || !BOX_KEYS.every((k) => isFraction(b[k])) || b.w === 0 || b.h === 0;
-        if (bad) return no(`"${id}": box must be { x, y, w, h }, each a fraction of the ${words.word('canvas')} from 0 to 1, with w and h above 0.`, 'modules');
-        kept.box = { x: b.x, y: b.y, w: b.w, h: b.h };
-      }
-      if (entry.snap !== undefined) {
-        if (typeof entry.snap !== 'boolean') return no(`"${id}": snap must be true or false.`, 'modules');
-        kept.snap = entry.snap;
-      }
-      entries.push({ kept, raw: entry });
-    }
-    out.modules = cleanStacks(entries);
-  }
-
-  if (input.arrange !== undefined) {
-    if (!ARRANGES.includes(input.arrange)) return no('Arrange must be dock or window.', 'arrange');
-    out.arrange = input.arrange;
+  if (!partial || input.shape !== undefined || input.areas !== undefined) {
+    const checked = checkShape(input, shapeOptions);
+    if (!checked.shape) return { error: checked.problems[0], problems: checked.problems, parts: checked.parts };
+    out.shape = checked.shape.shape;
+    out.areas = checked.shape.areas;
   }
 
   if (input.icon !== undefined) {
@@ -277,47 +150,7 @@ function cleanLayoutParts(input, { partial, icons, sharedKind, shapeOptions }) {
     if (bad) return no('Pick an icon from the list.', 'icon');
     out.icon = input.icon;
   }
-
-  if (input.snap !== undefined) {
-    const s = input.snap;
-    const pitch = s?.pitch;
-    const bad = !isObject(s) || Object.keys(s).some((k) => !SNAP_KEYS.includes(k)) || typeof s.all !== 'boolean'
-      || typeof pitch !== 'number' || !Number.isFinite(pitch) || pitch < LAYOUT_LIMITS.pitchMin || pitch > LAYOUT_LIMITS.pitchMax;
-    if (bad) return no(`A layout's snap must be { all, pitch }, with all true or false and pitch from ${LAYOUT_LIMITS.pitchMin} to ${LAYOUT_LIMITS.pitchMax} pixels.`, 'snap');
-    out.snap = { all: s.all, pitch: Math.round(pitch) };
-  }
   return { layout: out };
-}
-
-// A person's change to a system layout, pure: { name?, icon?, tab? }. `name` and `icon` null go back to the default;
-// `tab` is true or false. Returns { patch } cleaned or { error } with one sentence. Whether `tab: false` is allowed
-// for that layout (never for the Workspace) is the route's.
-function cleanSystemPatch(input, { icons = null } = {}) {
-  if (!isObject(input)) return { error: 'Send the change as JSON: a name, an icon or whether it is a tab.' };
-  const extra = Object.keys(input).find((k) => !['name', 'icon', 'tab'].includes(k));
-  if (extra) return { error: `A system layout does not take "${extra}".` };
-  const patch = {};
-  if (input.name !== undefined) {
-    if (input.name === null) patch.name = null;
-    else {
-      if (typeof input.name !== 'string') return { error: 'A layout\'s name must be text.' };
-      const name = cleanName(input.name);
-      if (!name) return { error: 'Give the layout a name.' };
-      if ([...name].length > LAYOUT_LIMITS.name) return { error: `A layout's name can be at most ${LAYOUT_LIMITS.name} characters.` };
-      patch.name = name;
-    }
-  }
-  if (input.icon !== undefined) {
-    if (input.icon === null) patch.icon = null;
-    else if (typeof input.icon !== 'string' || !ICON_RE.test(input.icon) || (Array.isArray(icons) && !icons.includes(input.icon))) return { error: 'Pick an icon from the list.' };
-    else patch.icon = input.icon;
-  }
-  if (input.tab !== undefined) {
-    if (typeof input.tab !== 'boolean') return { error: 'Say whether the layout is a tab with true or false.' };
-    patch.tab = input.tab;
-  }
-  if (!Object.keys(patch).length) return { error: 'Send a new name, an icon, or whether it is a tab.' };
-  return { patch };
 }
 
 // The owner's tabs on a space record (plan-workspaces.md, "Data"): { order?: [ids], hide?: [ids] }, ids from SYSTEM_IDS.
@@ -377,23 +210,6 @@ function tabsOf(stored) {
   return { order: tabs?.order ? [...tabs.order] : [...SYSTEM_IDS], hide: tabs?.hide ? [...tabs.hide] : [] };
 }
 
-// One person's stored choices for the system layouts, as read from the file: only what this version knows, cleaned.
-function storedSystem(raw) {
-  const out = {};
-  if (!isObject(raw)) return out;
-  for (const id of SYSTEM_IDS) {
-    const r = raw[id];
-    if (!isObject(r)) continue;
-    const kept = {};
-    const name = typeof r.name === 'string' ? cleanName(r.name) : '';
-    if (name && [...name].length <= LAYOUT_LIMITS.name) kept.name = name;
-    if (typeof r.icon === 'string' && ICON_RE.test(r.icon)) kept.icon = r.icon;
-    if (r.tab === false && id !== 'workspace') kept.tab = false;
-    if (Object.keys(kept).length) out[id] = kept;
-  }
-  return out;
-}
-
 class LayoutError extends Error {
   constructor(message, status = 400, extra = {}) {
     super(message);
@@ -429,11 +245,6 @@ class Layouts {
       if (!isObject(entry)) continue;
       const shared = storedSharedList(entry.shared);
       const sharedIds = new Set(shared.map((l) => l.id));
-      const system = {};
-      for (const [key, record] of Object.entries(isObject(entry.system) ? entry.system : {})) {
-        const kept = storedSystem(record);
-        if (Object.keys(kept).length) system[key] = kept;
-      }
       // Each person's last layout: one { layout, at } per person, kept only while it names a fixed layout, a shared layout
       // or a workspace id (a gone one, a malformed one or a hand-edited one is dropped), the id at most 64 characters.
       const last = {};
@@ -443,8 +254,8 @@ class Layouts {
         if (typeof layout !== 'string' || !layout || layout.length > LAST_ID_MAX || typeof at !== 'number' || !Number.isFinite(at)) continue;
         if (SYSTEM_IDS.includes(layout) || sharedIds.has(layout) || ADDED_WORKSPACE_ID.test(layout)) last[key] = { layout, at };
       }
-      if (shared.length || Object.keys(system).length || Object.keys(last).length) {
-        this.spaces[spaceId] = { shared, ...(Object.keys(system).length ? { system } : {}), ...(Object.keys(last).length ? { last } : {}) };
+      if (shared.length || Object.keys(last).length) {
+        this.spaces[spaceId] = { shared, ...(Object.keys(last).length ? { last } : {}) };
       }
     }
   }
@@ -477,12 +288,8 @@ class Layouts {
   tidy(spaceId) {
     const entry = this.spaces[spaceId];
     if (!entry) return;
-    if (entry.system) {
-      for (const [key, record] of Object.entries(entry.system)) if (!Object.keys(record).length) delete entry.system[key];
-      if (!Object.keys(entry.system).length) delete entry.system;
-    }
     if (entry.last && !Object.keys(entry.last).length) delete entry.last;
-    if (!entry.shared.length && !entry.system && !entry.last) delete this.spaces[spaceId];
+    if (!entry.shared.length && !entry.last) delete this.spaces[spaceId];
   }
 
   // { shared } in a space. Each is a copy with `kind: 'user'` and its `icon` (the default one when none was stored);
@@ -490,35 +297,6 @@ class Layouts {
   list(spaceId) {
     const shown = (l) => ({ ...copy(l), kind: 'user', icon: typeof l.icon === 'string' && l.icon ? l.icon : USER_ICON });
     return { shared: this.sharedOf(spaceId).map(shown) };
-  }
-
-  // `userKey`'s own choices for the system layouts in a space: { <system id>: { name?, icon?, tab? } }, only what they
-  // changed. A guest (`userKey` null) has none.
-  systemOf(spaceId, userKey) {
-    return userKey ? structuredClone(this.spaces[spaceId]?.system?.[userKey] || {}) : {};
-  }
-
-  // Sets or clears (`null`) a person's name or icon for one system layout, or its tab (`false` stored; `true` clears it).
-  // `patch` is cleanSystemPatch's answer; the caller has checked the id and that the Workspace keeps its tab. Returns
-  // that layout's choices after, as systemOf().
-  setSystem(spaceId, userKey, systemId, patch) {
-    this.mustWrite();
-    const now = this.systemOf(spaceId, userKey)[systemId] || {};
-    const next = { ...now };
-    for (const key of ['name', 'icon']) {
-      if (patch[key] === undefined) continue;
-      if (patch[key] === null) delete next[key]; else next[key] = patch[key];
-    }
-    if (patch.tab === false) next.tab = false;
-    else if (patch.tab === true) delete next.tab;
-    if (JSON.stringify(next) === JSON.stringify(now)) return next;
-    const entry = this.spaces[spaceId] || (this.spaces[spaceId] = { shared: [] });
-    entry.system = entry.system || {};
-    entry.system[userKey] = { ...(entry.system[userKey] || {}) };
-    if (Object.keys(next).length) entry.system[userKey][systemId] = next; else delete entry.system[userKey][systemId];
-    this.tidy(spaceId);
-    this.save();
-    return next;
   }
 
   // The layout id `userKey` last used in a space, as stored (null for a guest, or when there is none). Whether it is still
@@ -609,8 +387,7 @@ class Layouts {
     return true;
   }
 
-  // Every icon id a stored layout choice names, in every space: saved layouts' icons (shared and each person's) and each
-  // person's icon for a system layout. Read by Store#inUseIconIds, so an icon the owner removes from the environment's
+  // Every icon id a stored layout names, in every space: the shared layouts' icons. Read by Store#inUseIconIds, so an icon the owner removes from the environment's
   // list still draws where it is used. Ids only, each once; nothing is changed. Remembered until the next change
   // (mustWrite, save): signed-out /api/branding reads it on every call, and a big file takes milliseconds to walk.
   iconIds() {
@@ -618,9 +395,6 @@ class Layouts {
     const ids = new Set();
     for (const entry of Object.values(this.spaces)) {
       for (const l of entry.shared || []) if (typeof l.icon === 'string') ids.add(l.icon);
-      for (const record of Object.values(entry.system || {})) {
-        for (const choice of Object.values(record)) if (typeof choice.icon === 'string') ids.add(choice.icon);
-      }
     }
     this.iconCache = ids;
     return [...ids];
@@ -633,16 +407,15 @@ class Layouts {
     this.save();
   }
 
-  // A removed person takes their own choices and their last layout in every space. Shared layouts they saved stay: they
+  // A removed person takes their last layout in every space. Shared layouts they saved stay: they
   // are the space's.
   forgetPerson(userKey) {
     if (this.unreadable) return;
     let changed = false;
     for (const spaceId of Object.keys(this.spaces)) {
       const entry = this.spaces[spaceId];
-      if (entry.system?.[userKey] || entry.last?.[userKey]) {
-        if (entry.last) delete entry.last[userKey];
-        if (entry.system) delete entry.system[userKey];
+      if (entry.last?.[userKey]) {
+        delete entry.last[userKey];
         this.tidy(spaceId);
         changed = true;
       }
@@ -651,4 +424,4 @@ class Layouts {
   }
 }
 
-module.exports = { Layouts, LayoutError, cleanLayout, cleanSystemPatch, cleanTabs, tabsOf, LAYOUT_LIMITS, SYSTEM_IDS, SYSTEM_ICONS, USER_ICON };
+module.exports = { Layouts, LayoutError, cleanLayout, cleanTabs, tabsOf, LAYOUT_LIMITS, SYSTEM_IDS, SYSTEM_ICONS, USER_ICON };
