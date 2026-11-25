@@ -4,7 +4,8 @@
  * (server/layout-shapes.js), the page's copy (public/layout-shapes.js), cleanShape() and whoCantOpen().
  *   1. The list. Nine shapes, in order (the plan's six and decision 42's three). Every share is on the grid (100, 50, two-thirds, one-third), each shape's columns
  *      add up to 100, and its area count matches its columns and stacks. The page's copy equals the server's. The server's
- *      list of what can't share a column agrees with public/composites.js and with NEVER_STACKED in server/layouts.js.
+ *      list of what can't share a column agrees with public/composites.js, and the conference and Chat (the column) are
+ *      refused in a stacked area too (server/layouts.js no longer cleans free-form stacks; issue #1091, item 5).
  *   2. cleanShape(). Each shape is accepted with modules and with nulls; an unknown shape, a wrong length, an extra key
  *      (a width), a module twice, chat or conference, an unknown module, and Calendar, To-do, Maps or a composite id in
  *      a stacked area are each refused with one sentence. The same ids are fine in area 1.
@@ -77,10 +78,8 @@ ok(page.shapeById('one') && page.shapeById('nope') === null, "the page's shapeBy
 ok(Object.isFrozen(SHAPES) && SHAPES.every((s) => Object.isFrozen(s) && Object.isFrozen(s.columns) && Object.isFrozen(s.stacked)), 'the list is frozen');
 const parts = [...new Set(COMPOSITES.flatMap((c) => c.parts))].sort();
 same([...COMPOSITE_PARTS].sort(), parts, 'the modules that read as a composite agree with public/composites.js');
-const stackedRule = fs.readFileSync(path.join(ROOT, 'server/layouts.js'), 'utf8').match(/NEVER_STACKED = Object\.freeze\((\[[^\]]*\])\)/);
-ok(stackedRule, 'server/layouts.js still names NEVER_STACKED');
-const NEVER_STACKED = JSON.parse(stackedRule[1].replace(/'/g, '"'));
-ok(NEVER_STACKED.every((id) => cleanShape({ shape: 'tall-split', areas: [null, id, null] }).error), 'what server/layouts.js never stacks is refused in a stacked area here');
+ok(!/NEVER_STACKED|function cleanStacks/.test(fs.readFileSync(path.join(ROOT, 'server/layouts.js'), 'utf8')), 'server/layouts.js keeps no free-form stack rule of its own (the shape is the one check)');
+ok(['conference', 'chat'].every((id) => cleanShape({ shape: 'tall-split', areas: [null, id, null] }).error), 'the conference and Chat, which never stack, are refused in a stacked area here');
 
 // 2. cleanShape().
 const MODS = ['todo', 'calendar', 'maps', 'documents', 'goals', 'schedule'];

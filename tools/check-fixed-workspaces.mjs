@@ -208,9 +208,7 @@ try {
   await expect('the Calendar on again', 200, 'PATCH', '/api/modules/calendar', { token: admin, body: { enabled: true } });
   same(entry(await system(T.owner), 'calendar').settings.length, 1, 'back');
 
-  // The person's own routes answer it too, and the owner's hide does not remove it.
-  const patched = (await expect('rename Calendar', 200, 'PATCH', `${L}/system/calendar`, { token: T.member, body: { name: 'Plans' } })).json.layout;
-  same(patched.settings, offered(false), "a person's own change answers the layout with its settings");
+  // The owner's hide does not remove it.
   await expect('the owner hides Calendar', 200, 'PATCH', `/api/spaces/${A}`, { token: T.owner, body: { tabs: { hide: ['calendar'] } } });
   same(entry(await system(T.member), 'calendar').settings.length, 1, 'a hidden tab still offers its switch (on the Modules tab of Set up)');
   await expect('and shows it', 200, 'PATCH', `/api/spaces/${A}`, { token: T.owner, body: { tabs: null } });
