@@ -114,7 +114,7 @@ await test('the manifest: updateCost within the caps; actions.server is the libr
   }
   assert.equal(m.actions.server, 'src/budget-lib-actions.js', 'carried out on the server too');
   const lib = library('budget').js;
-  for (const name of m.actions.provides.filter((a) => !a.local).map((a) => a.name)) assert.match(lib, new RegExp(`\\n      ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
+  for (const name of m.actions.provides.filter((a) => !a.local && a.effect !== 'delete').map((a) => a.name)) assert.match(lib, new RegExp(`\\n      ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
 });
 
 if (!process.exitCode) console.log(`check-budget-actions: OK (${n} tests)`);

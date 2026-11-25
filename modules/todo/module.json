@@ -1,7 +1,7 @@
 {
   "id": "todo",
   "name": "To-do",
-  "version": "1.15.38",
+  "version": "1.15.39",
   "icon": "list-check",
   "color": "green",
   "description": "A shared to-do list for the whole {environment} and for each {space}, with due dates and reminders.",
@@ -176,6 +176,15 @@
         "local": true,
         "input": {
           "text": "string"
+        }
+      },
+      {
+        "name": "deleteTask",
+        "label": "Delete a task",
+        "description": "Delete one task.",
+        "effect": "delete",
+        "input": {
+          "task": "ref:todo:task"
         }
       }
     ],

@@ -93,7 +93,7 @@ await test('the manifest declares updateTask and createTask remind', () => {
   assert.equal(a.description, "Change a to-do task's title, notes or reminder.");
   assert.equal(manifest.actions.provides.find((x) => x.name === 'createTask').input.remind, 'boolean?');
   assert.equal(manifest.actions.provides.find((x) => x.name === 'setTaskDue').input.date, 'date?', 'setTaskDue: the date may be left out to clear it');
-  assert.ok(!manifest.actions.provides.some((x) => /delete/i.test(x.name)), 'no delete action');
+  assert.ok(!manifest.actions.provides.some((x) => /delete/i.test(x.name) && x.effect !== 'delete'), 'no direct delete action (the delete action only asks)');
 });
 await test('createTask without remind saves remind false, no reminder', async () => {
   const p = await page();

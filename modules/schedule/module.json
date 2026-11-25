@@ -1,7 +1,7 @@
 {
   "id": "schedule",
   "name": "Planner - Projects",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "content": "flush",
   "icon": "diagram-project",
   "color": "blue",
@@ -161,6 +161,15 @@
           "end": "date?",
           "owners": "text?",
           "notes": "text?"
+        }
+      },
+      {
+        "name": "deleteEntry",
+        "label": "Delete a plan entry",
+        "description": "Delete one milestone, piece of work or note from the plan.",
+        "effect": "delete",
+        "input": {
+          "entry": "ref:schedule:plan"
         }
       }
     ],

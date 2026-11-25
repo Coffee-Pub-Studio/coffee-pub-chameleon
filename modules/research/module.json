@@ -1,7 +1,7 @@
 {
   "id": "research",
   "name": "Research",
-  "version": "0.4.39",
+  "version": "0.4.40",
   "icon": "book-open",
   "color": "blue",
   "description": "What a group finds out while it plans: notes, links with the part that mattered, photos with a caption. Tagged, searchable, linkable from anywhere, and questioned or summarised by the AI the {owner} chose.",
@@ -263,6 +263,24 @@
         "local": true,
         "input": {
           "text": "string"
+        }
+      },
+      {
+        "name": "deleteNote",
+        "label": "Delete a research note",
+        "description": "Delete one research note.",
+        "effect": "delete",
+        "input": {
+          "note": "ref:research:note"
+        }
+      },
+      {
+        "name": "deleteLink",
+        "label": "Delete a research link",
+        "description": "Delete one saved link.",
+        "effect": "delete",
+        "input": {
+          "link": "ref:research:link"
         }
       }
     ],

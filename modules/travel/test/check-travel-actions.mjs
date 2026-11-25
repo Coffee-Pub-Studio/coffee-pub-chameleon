@@ -221,7 +221,7 @@ await test('the manifest: updatePlan, the object hint names the flight fields, w
   assert.ok(m.actions.provides.length <= 16);
   for (const a of m.actions.provides) assert.ok(Object.keys(a.input).length <= 20);
   const lib = fs.readFileSync(new URL('../src/travel-lib-actions.js', import.meta.url), 'utf8');
-  const agentActions = m.actions.provides.filter((a) => !a.local).map((a) => a.name).sort();
+  const agentActions = m.actions.provides.filter((a) => !a.local && a.effect !== 'delete').map((a) => a.name).sort();
   assert.deepEqual(agentActions, ['acceptSuggestion', 'addStop', 'addToDay', 'setStopPlace', 'updatePlan']);
   for (const name of agentActions) assert.match(lib, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
 });

@@ -70,7 +70,8 @@ const rawOf = (id) => JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', id, 
 const srcFiles = () => ({ has: () => true }); // every file the manifest names is taken as there: only the actions are asked about
 const withDelete = (id, action) => {
   const raw = rawOf(id);
-  raw.actions.provides = [...raw.actions.provides, action];
+  // The bundled module declares its own delete action now; the cases here put theirs in its place.
+  raw.actions.provides = [...raw.actions.provides.filter((a) => a.effect !== 'delete'), action];
   return raw;
 };
 const DELETE_POLL = { name: 'deletePoll', label: 'Delete a poll', description: 'Deletes a poll and its votes.', effect: 'delete', input: { poll: 'ref:polls:poll' } };
@@ -245,7 +246,7 @@ try {
     todo: { name: 'deleteTask', label: 'Delete a task', description: 'Deletes a task.', effect: 'delete', input: { task: 'ref:todo:task' } },
     calendar: { name: 'deleteEvent', label: 'Delete an event', description: 'Deletes an event.', effect: 'delete', input: { event: 'ref:calendar:event' } },
   };
-  for (const id of ['polls', 'todo', 'calendar', 'travel']) {
+  for (const id of ['polls', 'todo', 'calendar', 'travel', 'research']) {
     ok(await call('POST', `/api/modules/bundled/${id}/install`, { cookie: admin, body: {} }), `${id} installs`, 201);
     ok(await call('PATCH', `/api/modules/${id}`, { cookie: admin, body: { enabled: true, allSpaces: true } }), `${id} on`);
   }
@@ -335,7 +336,7 @@ try {
     refused(await askFor(ref('todo', 'task', 't1', away), T5, {}, away), 404, 'no such space', 'a space it is not in');
     refused(await askFor(ref('todo', 'task', 'f1', fort), T2, {}, fort), 404, 'no such space', 'another agent\'s space');
     refused(await askFor(ref('polls', 'vote', 'p1'), T5), 403, 'An agent can\'t ask to delete that kind of object.', 'a kind with no delete action');
-    refused(await askFor(ref('travel', 'plan', 'x1'), T5), 403, 'An agent can\'t ask to delete that kind of object.', 'a module with no delete action');
+    refused(await askFor(ref('research', 'photo', 'x1'), T5), 403, 'An agent can\'t ask to delete that kind of object.', 'a kind of a module that declares delete for others');
     refused(await askFor(ref('nothere', 'task', 't1'), T5), 404, 'no such module', 'no such module');
     refused(await askFor(ref('todo', 'task', 'nope'), T5), 404, 'That isn\'t there.', 'a missing object');
     // A Calendar copy of an itinerary entry: the agent asks for the original.

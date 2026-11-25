@@ -169,7 +169,7 @@ await test('the manifest: updateGoal and setGoalDone, within the caps; actions.s
   }
   assert.equal(m.actions.server, 'src/goals-lib-actions.js', 'carried out on the server too');
   const lib = library('goals').js;
-  for (const name of m.actions.provides.filter((a) => !a.local).map((a) => a.name)) assert.match(lib, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
+  for (const name of m.actions.provides.filter((a) => !a.local && a.effect !== 'delete').map((a) => a.name)) assert.match(lib, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
 });
 
 if (!process.exitCode) console.log(`check-goals-actions: OK (${n} tests)`);

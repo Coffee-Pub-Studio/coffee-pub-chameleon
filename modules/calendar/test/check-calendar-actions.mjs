@@ -313,7 +313,7 @@ await test('the manifest: updateEvent and notes, within the caps', async () => {
   assert.equal(act('createEvent').input.notes, 'text?');
   for (const name of ['createEvent', 'updateEvent']) assert.match(act(name).inputHints.remind, /40320/);
   const lib2 = library('calendar').js;
-  for (const name of m.actions.provides.filter((a) => !a.local).map((a) => a.name)) assert.match(lib2, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
+  for (const name of m.actions.provides.filter((a) => !a.local && a.effect !== 'delete').map((a) => a.name)) assert.match(lib2, new RegExp(`\\n    ${name}\\(input, ctx\\) \\{`), `${name} is a handler in the library`);
 });
 
 if (!process.exitCode) console.log(`check-calendar-actions: OK (${n} tests)`);

@@ -1,7 +1,7 @@
 {
   "id": "goals",
   "name": "Planner - Goals",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "icon": "bullseye",
   "color": "green",
   "description": "Plan goals together: each goal with its steps and how far along it is, dates optional.",
@@ -161,6 +161,15 @@
         "inputHints": {
           "entry": "The goal or step, as a pointer.",
           "done": "True for done, false for not done. A goal whose progress is its steps is done when they all are."
+        }
+      },
+      {
+        "name": "deleteEntry",
+        "label": "Delete a goal entry",
+        "description": "Delete one goal, step or note.",
+        "effect": "delete",
+        "input": {
+          "entry": "ref:goals:plan"
         }
       }
     ]
