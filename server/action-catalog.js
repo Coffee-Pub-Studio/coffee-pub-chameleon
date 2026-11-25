@@ -3,7 +3,9 @@
 // Each action a module provides may say, beside its name, label and input:
 //   description  one plain sentence, up to 200 characters, saying what it does (in the template's words: {space} and the
 //                other placeholders are filled as a label's are);
-//   effect       what it changes: "write" (the default) or "destructive" (takes something away that can't be had back);
+//   effect       what it changes: "write" (the default), "destructive" (takes something away that can't be had back) or
+//                "delete" (an agent may ask to delete one object of the module's own kind, and a person approves each ask;
+//                plan-agent-edit-delete.md, "The contract", 2: no handler, the server carries it out, and it is never a tool here);
 //   ai           false keeps it out of the catalog.
 // The catalog is generated from the enabled manifests whenever it is asked for, so it can't drift from them. An action is a
 // tool only when it acts on an object that already exists (a required pointer input, and no whole-object input: new
@@ -17,7 +19,7 @@
 const { word } = require('./words');
 const { dayText } = require('./prompts/tools/input');
 
-const EFFECTS = ['write', 'destructive'];
+const EFFECTS = ['write', 'destructive', 'delete'];
 const MAX_DESCRIPTION = 200;
 // Both providers take tool names of 1 to 64 letters, digits, _ and -.
 const TOOL_NAME_RE = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -43,7 +45,7 @@ function cleanActionAi(p, name, local, fail) {
   }
   if (p.effect !== undefined) {
     if (local) fail(`module.json: action "${name}" is local, which changes nothing, so it has no effect.`);
-    if (!EFFECTS.includes(p.effect)) fail(`module.json: action "${name}" effect must be ${EFFECTS.join(' or ')}.`);
+    if (!EFFECTS.includes(p.effect)) fail(`module.json: action "${name}" effect must be ${EFFECTS.slice(0, -1).join(', ')} or ${EFFECTS[EFFECTS.length - 1]}.`);
   }
   if (!local) out.effect = p.effect === undefined ? 'write' : p.effect;
   if (p.ai !== undefined) {
@@ -63,7 +65,7 @@ function whyLeftOut(moduleId, a) {
   if (a.local) return 'local';
   if (a.askerOnly) return 'asker-only';
   if (a.ai === false) return 'ai-off';
-  if (a.effect !== 'write') return a.effect === 'destructive' ? 'destructive' : 'no-effect';
+  if (a.effect !== 'write') return a.effect === 'destructive' ? 'destructive' : a.effect === 'delete' ? 'delete' : 'no-effect';
   if (!a.description) return 'no-description';
   const types = Object.values(a.input || {});
   if (types.some((t) => baseOf(t) === 'object')) return 'new-object';

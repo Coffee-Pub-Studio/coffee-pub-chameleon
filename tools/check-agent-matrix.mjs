@@ -261,7 +261,14 @@ try {
     const members = roles.permissions.find((p) => p.key === 'agentMembers');
     assert.ok(members && members.agentOnly === true && members.group === 'Agents', 'the Agents row');
     assert.match(members.label, /^See who is in /);
-    for (const p of roles.permissions.filter((x) => x.key !== 'agentMembers')) assert.ok(!p.agentOnly, `${p.key} is not agent-only`);
+    // Ask to delete (plan-agent-edit-delete.md, decision 2): an Agent-column row, off by default, no box for the set-up agent.
+    const del = roles.permissions.find((p) => p.key === 'agentDelete');
+    assert.ok(del && del.agentOnly === true && del.group === 'Agents', 'the Ask to delete row');
+    assert.match(del.label, /^Ask to delete /);
+    assert.equal(roles.roles.agent.agentDelete, false, 'off by default');
+    assert.ok(!roles.never.agent.includes('agentDelete'), 'tickable for an agent');
+    if (roles.never.setup) assert.ok(roles.never.setup.includes('agentDelete'), 'never the set-up agent\'s');
+    for (const p of roles.permissions.filter((x) => x.key !== 'agentMembers' && x.key !== 'agentDelete')) assert.ok(!p.agentOnly, `${p.key} is not agent-only`);
   });
 
   await test('the Agent column starts as agents work today', async () => {

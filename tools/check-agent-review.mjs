@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * check-agent-review.mjs -- the shared delete path, keyed holds and the agents' records with their review list and Undo
- * (documentation/plans/plan-agent-edit-delete.md, steps 4 and 5 of "Left to build"; "The contract", 4). Begun here; step 6
- * (delete asks and approval) adds its own cases.
+ * (documentation/plans/plan-agent-edit-delete.md, steps 4 and 5 of "Left to build"; "The contract", 4). Step 6 (delete asks
+ * and approval) has its own check, tools/check-agent-delete-asks.mjs.
  *
  * On their own (no server):
  *   - agent-records.json: written whole through a temporary file, private to the server (0600); a delete ask and the three
