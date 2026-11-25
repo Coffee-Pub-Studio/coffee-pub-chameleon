@@ -75,9 +75,9 @@ services:
       # AGENT_TOKENS: "true"
       # Set-up agents (an agent that makes and names spaces; needs AGENT_TOKENS too): "true" lets owners turn them on.
       # AGENT_SETUP: "true"
-      # Modules' actions for agents run in a process with no network. "namespace" also demands a kernel network namespace
-      # for it: Docker's default seccomp profile allows none, so with it set there no such action runs. Leave it unset there.
-      # ACTION_RUNNER_NETWORK: "namespace"
+      # Modules' actions for agents run in a process with no network. "namespace" lets uploaded modules' actions run, only
+      # inside a kernel network namespace (see security_opt below); bundled modules run either way. The start-up log says which.
+      ACTION_RUNNER_NETWORK: "namespace"
       # The Vault's files live in their own folder, so the in-app backups stay small. Back up both folders together.
       VAULT_DIR: "/app/vault"
       # Modules' live messages (pointers, nudges; never stored). Optional limits, shown with their defaults.
@@ -87,6 +87,10 @@ services:
       # MODULE_LIVE_PER_GUEST_LINK: "60" # messages a second for everyone on one guest link
       # MODULE_LIVE_TO: "20" # the most people one message may be sent to
       PORT: "3000"
+    # The wall for uploaded modules' actions: Docker's default seccomp profile plus one rule that lets the runner make a
+    # network namespace (`unshare -rn`). Copy deploy/seccomp-action-runner.json to the path below, then uncomment the line.
+    # Commented because a missing profile file stops the container from starting; with no uploaded modules you need none of it.
+    #  security_opt: ["seccomp=/share/appdata/coffee-pub-chameleon-seccomp.json"]
     volumes:
       - /share/appdata/coffee-pub-chameleon:/app/data # users, settings and images
       - /share/appdata/coffee-pub-chameleon-vault:/app/vault # the Vault's files (can be large)
