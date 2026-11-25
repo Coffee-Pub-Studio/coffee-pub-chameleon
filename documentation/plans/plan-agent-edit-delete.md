@@ -33,7 +33,7 @@ on both).
 7. The pages (#1113): `public/agent-review.js`, the space's **Agents** view, the approval dialog and the bell.
 8. Ten delete actions in nine modules (#1112).
 
-Not built or decided: a Roles row to narrow the Itinerary's phase end for agents (the right is the cover route's rule today; Thomas's call); a phase move by an agent is in the request's `effects` but not in the review list's Undo; environment-scope changes by an agent are not in the Undo either. Decision 8 was recorded twice on 2026-11-23: here as "every agent action runs on the server" and, in the workspaces decisions' pull request, as "the Itinerary's phase end rule stays as built". The build of [plan-agent-server-actions](plan-agent-server-actions.md) step 8 moves the end on the server for an agent, so the second wording is not carried here; Thomas should confirm.
+Not built: a phase move by an agent is in the request's `effects` but not in the review list's Undo; environment-scope changes by an agent are not in the Undo either. Decision 8 was recorded twice on 2026-11-23: here as "every agent action runs on the server" and, in the workspaces decisions' pull request, as "the Itinerary's phase end rule stays as built". The build of [plan-agent-server-actions](plan-agent-server-actions.md) step 8 moves the end on the server for an agent; Thomas confirmed on 2026-11-25 that this stays as built, with no Roles row for it (decision 10).
 
 ## Decisions
 
@@ -82,7 +82,12 @@ Only what Thomas decided. The planner's leans are under "Options" and "What is n
    library text, a changed upload needs approval again, the run has the same sandbox limits as a bundled module's and no
    permission beyond what the module already has; until it is approved its actions are refused to agents at once, not
    queued. The details are section 8 and step 11 of [plan-agent-server-actions](plan-agent-server-actions.md). Not
-   chosen: never offering an uploaded module's actions to agents; keeping the wait for them.
+   chosen: never offering an uploaded module's actions to agents; keeping the wait for them. Thomas added on 2026-11-25
+   that they run only where the server has the kernel network wall, and that a stand-alone validator shares one
+   implementation with the upload check (decisions 3 and 4 of plan-agent-server-actions).
+10. **The Itinerary's phase-end right stays as built** (Thomas, 2026-11-25). An agent moves the main phase's end on the
+    server within the rights the cover route already applies (step 8 of plan-agent-server-actions); there is no separate
+    Roles row for it. This settles the two wordings of decision 8 noted under Progress.
 
 ## What it is today
 
