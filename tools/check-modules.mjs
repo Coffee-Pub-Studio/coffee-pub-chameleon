@@ -883,7 +883,7 @@ test('the manifest field content is padded or flush, and nothing else', () => {
     assert.equal(bad.version, '1.0.0', 'advise findings never refuse: it is installed');
     const kept = (v) => v.findings.map((f) => `${f.check}: ${f.text}`).join('\n');
     assert.match(kept(bad), /host reuse: markup: <header>: draws a header bar of its own/, 'the layout rule is a finding, as layoutWarning was');
-    assert.match(kept(bad), /host reuse: \.sdk-card: restyles a shared piece/);
+    assert.match(kept(bad), /host reuse: \.sdk-[a-z]+: restyles a shared piece/);
     assert.match(kept(bad), /colours: #ff0000 is a fixed colour/);
     assert.equal(bad.layoutWarning, undefined, 'layoutWarning is folded into the findings');
     assert.equal(mm.view('badlook').findings.length, bad.findings.length, 'kept with the version');

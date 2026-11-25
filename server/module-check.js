@@ -120,13 +120,13 @@ function checkModule(given, o = {}) {
     const asks = result.asks;
     for (const p of manifest.permissions) {
       const roles = ['moderator', 'member', 'guest'].filter((r) => p.default && p.default[r]);
-      asks.push(`${p.label}: on by default for ${roles.length ? roles.map((r) => WORDS.DEFAULTS[r].many).join(', ') : 'nobody but owners'}.`);
+      asks.push(`${p.label}: on by default for ${roles.length ? roles.map((r) => WORDS.DEFAULTS[r].many).join(', ') : say('nobody but {owners}')}.`);
       const writes = !/^(?:view|see|read|list)(?:$|[_-])/i.test(p.key) && !/^(?:see|view|read|look)\b/i.test(p.label || '');
       if (writes && p.default && p.default.guest) add('permissions', 'advise', say(`{Guests} can change this {module}'s data unless an {owner} turns it off ("${p.key}").`), { file: 'module.json' });
     }
     for (const h of Object.keys(manifest.hooks || {}).filter((k) => manifest.hooks[k])) asks.push(`It asks for the "${h}" hook.`);
     if (manifest.uploads) asks.push('It asks to keep uploaded files.');
-    for (const c of manifest.refs.consumes) asks.push(`It reads ${c} objects from other ${say('{modules}')}.`);
+    for (const c of manifest.refs.consumes) asks.push(say(`It reads ${c} {objects} from other {modules}.`));
     for (const e of manifest.events.subscribes) asks.push(`It listens for the "${e}" event.`);
     for (const u of manifest.actions.uses) asks.push(`It asks other ${say('{modules}')} for "${u}" actions.`);
     if (manifest.actions.server) asks.push(`It carries out agents' requests on the server (${manifest.actions.server}).`);
@@ -152,7 +152,7 @@ function checkModule(given, o = {}) {
   for (const f of texts.filter((t) => /\.(?:html?|js)$/i.test(t.name))) {
     for (const h of oldNameHits(f.name, f.text, 'words', oldLevels) || []) wordHit(f.name, h.token, h.line, 'is an old name; use the current names');
     const { hits } = vocabularyScan(f.name, f.text);
-    for (const h of hits) wordHit(f.name, h.token, h.line, 'is typed where a person reads it; take it from the SDK (host.util.word, data-word or a {space}-style placeholder) so it follows the environment\'s words');
+    for (const h of hits) wordHit(f.name, h.token, h.line, say("is typed where a person reads it; take it from the SDK (host.util.word, data-word or a {space}-style placeholder) so it follows the {environment}'s words"));
   }
   if (manifestFile && raw !== null) {
     const { manifestTexts } = require('./modules');
@@ -195,8 +195,8 @@ function checkModule(given, o = {}) {
           }
           if (o.ownCode) continue;
           const code = codeOutsideStrings(text);
-          for (const m of code.matchAll(FORBIDDEN_RE)) refuse(`${file}: "${m[1]}" is not given to a module's actions on the server (they run with no network, files or settings)`, { file, line: lineOfIndex(code, m.index) });
-          for (const m of code.matchAll(CONSTRUCTOR_RE)) refuse(`${file}: ".constructor" is not allowed in a module's actions on the server`, { file, line: lineOfIndex(code, m.index) });
+          for (const m of code.matchAll(FORBIDDEN_RE)) refuse(say(`${file}: "${m[1]}" is not given to a {module}'s actions on the server (they run with no network, files or settings)`), { file, line: lineOfIndex(code, m.index) });
+          for (const m of code.matchAll(CONSTRUCTOR_RE)) refuse(say(`${file}: ".constructor" is not allowed in a {module}'s actions on the server`), { file, line: lineOfIndex(code, m.index) });
         }
         if (!findings.some((f) => f.check === 'action library')) {
           try {
