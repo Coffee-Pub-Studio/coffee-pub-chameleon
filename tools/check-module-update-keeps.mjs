@@ -53,7 +53,9 @@ const copyOf = (id, version, change = () => {}) => {
   const file = path.join(dir, 'module.json');
   const m = JSON.parse(fs.readFileSync(file, 'utf8'));
   m.version = version;
-  if (m.actions) delete m.actions.server; // an upload may not declare it (server/module-actions.js)
+  // An upload: without server actions (they would need the admin's approval and the network wall) and without what only a module
+  // that ships with the server may ask for (a place search, a phase's end; plan-agent-server-actions.md, section 8).
+  if (m.actions) { delete m.actions.server; for (const a of m.actions.provides || []) { delete a.phaseEnd; delete a.lookups; delete a.skipLookupWhen; } }
   change(m);
   fs.writeFileSync(file, JSON.stringify(m));
   return buildModule(dir).zip;

@@ -1913,7 +1913,7 @@ try {
     assert.equal((await as('POST', '/api/modules/bundled/todo/install')).status, 201);
     assert.equal((await as('PATCH', '/api/modules/todo', { enabled: true, allSpaces: true })).status, 200);
     const shipped = readJson(path.join(ROOT, 'modules', 'todo', 'module.json'));
-    // The copies below are uploads, which may not declare actions.server (server/module-actions.js): left out of them.
+    // The copies below are uploads, whose server actions would need the admin's approval and the network wall: left out of them.
     const uploaded = { ...shipped, actions: { ...shipped.actions } };
     delete uploaded.actions.server;
     for (const id of ['t1', 't2', 't3']) assert.equal((await as('PUT', `/api/modules/todo/data/task:${id}?scope=space&space=${side}`, { value: { title: id } })).status, 200);

@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 /*
  * check-agent-queue.mjs -- an agent's waiting requests end with its right to ask (documentation/plans/plan-agent-access.md,
- * "What a leaked token can do" and the kill switches), against a real server on a throwaway DATA_DIR, with Maps uploaded as a module of its own (its copy declares no server actions, so a page still carries them):
+ * "What a leaked token can do" and the kill switches), against a real server on a throwaway DATA_DIR, with Maps uploaded as a
+ * module of its own (its copy declares no server actions, so a page carries a person's requests).
+ *
+ * No route makes an agent's request wait for a page any more (plan-agent-server-actions.md, step 11d: the server carries it or
+ * refuses it at once, and the first case below holds that for this upload). A waiting one can still be in bus.json, left from
+ * before that step, so the guards that read it stay: the check writes such a request into bus.json while the server is
+ * stopped (seedAsk), exactly as the route used to make it, and holds the guards to what they promise:
  *   - a request an agent asked for is offered (GET /api/bus/actions/pending), claimed and finished only while the agent may
  *     still ask: AGENT_TOKENS and Agents on, the agent here, not turned off, holding the very token that asked, live, and still
  *     a member of the request's space who may work there;
@@ -27,14 +33,15 @@ import { createRequire } from 'node:module';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// Maps uploaded as a module of its own, so a page still carries its agents' requests: the bundled Maps runs them on the server
-// (plan-agent-server-actions.md, step 10), and an upload may not declare actions.server, so the copy leaves it out.
+// Maps uploaded as a module of its own, without server actions and without the place search only a module that ships with the
+// server may declare (plan-agent-server-actions.md, section 8), so a page carries a person's requests to it.
 const mapsUploadZip = () => {
   const at = fs.mkdtempSync(path.join(os.tmpdir(), 'maps-upload-'));
   try {
     fs.cpSync(path.join(ROOT, 'modules', 'maps'), at, { recursive: true });
     const m = JSON.parse(fs.readFileSync(path.join(at, 'module.json'), 'utf8'));
     delete m.actions.server;
+    for (const a of m.actions.provides) { delete a.lookups; delete a.skipLookupWhen; }
     fs.writeFileSync(path.join(at, 'module.json'), JSON.stringify(m, null, 2));
     return createRequire(import.meta.url)(path.join(ROOT, 'server', 'module-build.js')).buildModule(at).zip;
   } finally {
@@ -132,10 +139,28 @@ try {
   };
   await newToken();
 
-  const ask = async (space, title, by = { token }) => {
-    const r = await call('POST', `/api/spaces/${space}/action`, { ...by, body: { action: 'maps:addPlace', input: { title } } });
-    ok(r, `asks for ${title}`);
-    return r.json.id;
+  // A person asks through the route; an agent's waiting request is written into bus.json with the server stopped, as the route
+  // made one before step 11d (its token's id, never the token), and the server started again.
+  const ask = async (space, title, by = null) => {
+    if (by) {
+      const r = await call('POST', `/api/spaces/${space}/action`, { ...by, body: { action: 'maps:addPlace', input: { title } } });
+      ok(r, `asks for ${title}`);
+      return r.json.id;
+    }
+    return seedAsk(space, { title });
+  };
+  const seedAsk = async (space, input) => {
+    await server.stop();
+    const tokens = JSON.parse(fs.readFileSync(path.join(dir, 'tokens.json'), 'utf8')).tokens.filter((t) => t.kind === 'agent' && t.user === agent.key);
+    const tokenId = tokens.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)).at(-1)?.id || 'none';
+    let bus = { seq: 0, events: [], actions: [] };
+    try { bus = JSON.parse(fs.readFileSync(path.join(dir, 'modules', 'bus.json'), 'utf8')); } catch { /* none yet */ }
+    const id = (Number(bus.seq) || 0) + 1;
+    bus.seq = id;
+    bus.actions.push({ id, at: Date.now(), from: 'maps', provider: 'maps', action: 'addPlace', input, scopeKey: `space:${space}`, by: agent.key, agent: true, agentToken: tokenId, status: 'pending', claimedAt: 0, result: null });
+    fs.writeFileSync(path.join(dir, 'modules', 'bus.json'), JSON.stringify(bus));
+    server = await startServer(dir, ENV);
+    return id;
   };
   const offered = async (space, id, cookie = miaCookie) => {
     const r = await call('GET', `/api/bus/actions/pending?module=maps&scope=space&space=${space}`, { cookie });
@@ -163,7 +188,16 @@ try {
     assert.deepEqual(a.result, { ok: false, error: ENDED }, `${what}: failed with the sentence`);
   };
 
-  await test('a live agent\'s request is offered, claimed and finished, carries its token and names the agent', async () => {
+  await test('an agent\'s request to this upload is refused at once, and nothing waits for a page (step 11d)', async () => {
+    const count = () => { try { return busFile().actions.length; } catch { return 0; } };
+    const before = count();
+    const r = await call('POST', `/api/spaces/${camp}/action`, { token, body: { action: 'maps:addPlace', input: { title: 'Never waits' } } });
+    ok(r, 'refused at once', 409);
+    assert.match(r.json.error, /has no actions that run on the server, so it can't do this for an agent\.$/);
+    assert.equal(count(), before, 'nothing queued');
+  });
+
+  await test('a live agent\'s waiting request is offered, claimed and finished, carries its token and names the agent', async () => {
     const id = await ask(camp, 'Live one');
     const stored = busFile().actions.find((a) => a.id === id);
     assert.equal(stored.agent, true, 'marked an agent\'s');
@@ -180,16 +214,16 @@ try {
     assert.equal((await complete(camp, id)).json.ok, true, 'finished');
   });
 
-  await test('a long-text input keeps its line breaks from the agent to the module; a one-line input does not', async () => {
+  await test('a long-text input keeps its line breaks from the asker to the module; a one-line input does not', async () => {
     const notes = 'First paragraph.\n\nSecond paragraph.\nThird line.';
-    const r = await call('POST', `/api/spaces/${camp}/action`, { token, body: { action: 'maps:addPlace', input: { title: 'Two\nlines', notes: `${notes.replace(/\n/g, '\r\n')}\n\n` } } });
+    const r = await call('POST', `/api/spaces/${camp}/action`, { cookie: miaCookie, body: { action: 'maps:addPlace', input: { title: 'Two\nlines', notes: `${notes.replace(/\n/g, '\r\n')}\n\n` } } });
     ok(r, 'asks with paragraphs');
     const stored = busFile().actions.find((a) => a.id === r.json.id);
     assert.equal(stored.input.notes, notes, 'the notes reach the module as sent (\\r\\n read as \\n, ends trimmed)');
     assert.equal(stored.input.title, 'Two lines', 'a title is one line');
-    const c = await claim(camp, r.json.id);
+    const c = await claim(camp, r.json.id, admin);
     assert.equal(c.json.action.input.notes, notes, 'the page that claims it is handed the same text');
-    assert.equal((await complete(camp, r.json.id)).json.ok, true, 'finished');
+    assert.equal((await complete(camp, r.json.id, admin)).json.ok, true, 'finished');
   });
 
   await test('Revoke ends its waiting requests: not offered, claim and complete refused, one activity line', async () => {

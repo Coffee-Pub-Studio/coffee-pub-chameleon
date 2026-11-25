@@ -1,0 +1,104 @@
+{
+  "id": "fixture-upload",
+  "name": "Fixture upload",
+  "version": "1.0.0",
+  "icon": "note-sticky",
+  "description": "A test fixture for tools/check-module-actions.mjs, uploaded: its agent actions run on the server once the admin approves them.",
+  "author": "Coffee Pub",
+  "scope": [
+    "space"
+  ],
+  "surfaces": {
+    "canvas": {
+      "entry": "canvas.html",
+      "width": 320,
+      "height": 400,
+      "mode": [
+        "dock",
+        "float"
+      ]
+    }
+  },
+  "permissions": [
+    {
+      "key": "view",
+      "label": "See the notes",
+      "default": {
+        "member": true,
+        "guest": true,
+        "moderator": true
+      }
+    },
+    {
+      "key": "edit",
+      "label": "Add and change notes",
+      "default": {
+        "member": true,
+        "guest": false,
+        "moderator": true
+      }
+    }
+  ],
+  "access": {
+    "read": "view",
+    "write": "edit"
+  },
+  "guards": {
+    "clear": "owner",
+    "only": true,
+    "keys": [
+      {
+        "key": "note:{id}",
+        "owner": "byKey",
+        "ownerName": "by",
+        "need": "edit",
+        "fields": {
+          "title": {
+            "type": "string",
+            "required": true,
+            "maxLength": 200
+          }
+        }
+      },
+      {
+        "key": "probe:{id}"
+      }
+    ]
+  },
+  "refs": {
+    "produces": [
+      {
+        "kind": "note",
+        "name": "Note",
+        "key": "note:{id}",
+        "summary": {
+          "title": "title"
+        }
+      }
+    ]
+  },
+  "actions": {
+    "server": "src/fixture-upload-lib-actions.js",
+    "provides": [
+      {
+        "name": "addNote",
+        "label": "Add a note",
+        "description": "Add a note.",
+        "effect": "write",
+        "input": {
+          "title": "string"
+        }
+      },
+      {
+        "name": "probe",
+        "label": "Probe",
+        "description": "Try something the server must hold.",
+        "effect": "write",
+        "input": {
+          "what": "string",
+          "ms": "number?"
+        }
+      }
+    ]
+  }
+}

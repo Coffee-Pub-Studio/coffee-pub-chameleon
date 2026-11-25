@@ -17,12 +17,11 @@
 // `refuse` grades are what cleanManifest and the action library refuse; every other check only advises, so a module with a fixed
 // colour installs, and its author and the admin both see the line. Whatever a repository's own checks allow-list stays in those
 // checks (tools/check-*): this check has no allow-list.
-const crypto = require('crypto');
 const vm = require('vm');
 const { coloursInFile } = require('./colour-rule');
 const { LEVELS, split, oldNameHits, vocabularyScan, manifestVocabularyScan } = require('./words-rule');
 const { scanBuiltPage, describe } = require('./module-layout');
-const { libraryFrom } = require('./module-build');
+const { libraryFrom, libraryHash } = require('./module-build');
 const WORDS = require('./words');
 
 // The order the checks print in, for a caller that lists them all (the validator).
@@ -74,7 +73,9 @@ function syntaxLine(err, filename) {
   return m ? Number(m[1]) : 0;
 }
 
-// `o.ownCode` (the server's own bundled install, never an upload): leave out the list of names a library may not use. A bundled
+// `o.via`: 'upload' (the default: what the validator checks) or 'bundled' (a module that ships with the server), which is not
+// held to the upload-only refusals (section 8, above the checks). `o.ownCode` (the server's own bundled install, never an
+// upload): leave out the list of names a library may not use. A bundled
 // library is this repository's code, held by tools/check-modules.mjs, which runs every one through this check without the option;
 // the option is for the repository's own hostile test library (tools/fixtures/module-actions), which names every one of them on
 // purpose to prove the worker refuses it. Parsing, the declared file and the library set are still checked.
@@ -104,6 +105,17 @@ function checkModule(given, o = {}) {
       manifest = cleanManifest(raw, files);
     } catch (err) {
       add('manifest', 'refuse', err && err.message ? err.message : "module.json can't be read", { file: 'module.json' });
+    }
+  }
+  // What only a module that ships with the server may ask of it (plan-agent-server-actions.md, section 8): a place search before
+  // an action runs (`lookups`, and `skipLookupWhen` with it) and moving the main phase's end (`phaseEnd`). An upload declaring
+  // any is refused, each with its own sentence; the server's runner refuses them for an uploaded module too, whatever its
+  // manifest says (server/index.js carryOnServer).
+  if (manifest && o.via !== 'bundled') {
+    for (const a of manifest.actions.provides) {
+      if (a.lookups) add('manifest', 'refuse', say(`module.json: action "${a.name}" asks the server to search places, which only a {module} that ships with the server may do`), { file: 'module.json' });
+      if (a.skipLookupWhen) add('manifest', 'refuse', say(`module.json: action "${a.name}" says when to skip a place search, which only a {module} that ships with the server may ask for`), { file: 'module.json' });
+      if (a.phaseEnd) add('manifest', 'refuse', say(`module.json: action "${a.name}" asks to move the main phase's end, which only a {module} that ships with the server may do`), { file: 'module.json' });
     }
   }
   if (manifest) {
@@ -205,7 +217,7 @@ function checkModule(given, o = {}) {
             refuse(`the library's files don't work together: ${err.message}`);
           }
         }
-        result.library = crypto.createHash('sha256').update(lib.js).digest('hex');
+        result.library = libraryHash(lib.js);
       }
     }
   }

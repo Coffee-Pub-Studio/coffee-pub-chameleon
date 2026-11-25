@@ -75,7 +75,6 @@ const READS = {
   '/api/spaces/:id/members': (w) => `Read who is in ${w('space', { a: true })}`,
   '/api/spaces/:id/actions': () => 'Listed what it can ask for',
   '/api/spaces/:id/action/:requestId': () => 'Checked on a request',
-  '/api/spaces/:id/action/:requestId/wait': () => 'Waited on a request',
   '/api/spaces/:id/delete-asks': (w) => `Asked a person to delete ${w('object', { a: true })}`,
   '/mcp': () => 'Connected through MCP', // initialize, tools/list, ping and a client's GET that answers 405
   // The set-up agent's (plan-admin-agent.md). Making and changing a space are worded by their `change` in logLine.

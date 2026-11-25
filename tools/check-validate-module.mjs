@@ -9,10 +9,10 @@
  * ModuleManager.install() on a throwaway DATA_DIR. Verdict, findings and exit must agree:
  *   - refused: the validator's refusal sentence is install's message, and the findings are install's `findings`;
  *   - accepted: the validator's advise findings, as the install keeps them (keptFindings), are what the module's view shows.
- * The library fixtures are held to install as the server runs it today: an upload that declares actions.server is refused
- * whole until step 11d (the upload-only refusal comes out then), so a library that is missing is compared with a bundled
- * install, and the one naming `fetch` (which a bundled install lets through, its own code) is held to the same refusal and
- * the same findings as the check. Every bundled module validates as accepted, from its folder.
+ * The library fixtures are compared with an upload (step 11d: an upload may declare actions.server): a library that is
+ * missing, one naming `fetch`, one asking for a place search or a phase's end (what only a module that ships with the server
+ * may do) are refused alike, and a clean one is accepted with the same library hash install would approve. Every bundled
+ * module validates from its folder as accepted, or refused only for what it may ask because it ships with the server.
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -61,13 +61,13 @@ async function installed(zip, source) {
   const mm = new ModuleManager(dir);
   try {
     const view = await mm.install(zip, { source });
-    return { refused: null, kept: view.findings };
+    return { refused: null, kept: view.findings, sha256: mm.serverLibrary(view.id)?.sha256 || null };
   } catch (err) {
     return { refused: err.message, findings: err.findings || null };
   }
 }
 
-// `via`: how install is asked ('upload', 'bundled') or null when it can't give the same answer yet (see the header).
+// `via`: how install is asked ('upload', 'bundled').
 async function agree(name, dir, { via = 'upload', refuses = null, accepts = null } = {}) {
   const zipPath = path.join(tmp, `${name}.zip`);
   const built = buildModule(dir).zip;
@@ -96,10 +96,8 @@ async function agree(name, dir, { via = 'upload', refuses = null, accepts = null
     } else {
       assert.equal(up.refused, null, `${name}: install accepts what the validator accepts`);
       assert.deepEqual(up.kept, via === 'bundled' ? [] : keptFindings(out.findings), `${name}: install keeps the advise findings the validator printed`);
+      if (out.library) assert.equal(up.sha256, out.library, `${name}: the library hash the admin would approve is the validator's`);
     }
-  } else {
-    assert.equal(status, 1, `${name}: the validator refuses`);
-    assert.ok((await installed(built, 'upload')).refused, `${name}: an upload is refused too`);
   }
   n += 1;
   return out;
@@ -125,10 +123,12 @@ try {
 
   // The action library.
   const file = (id) => `src/${id}-lib-actions.js`;
-  await agree('nolib', make('nolib', { manifest: withLibrary('nolib', file('nolib')) }), { via: 'bundled', refuses: /is not in the zip/ });
-  const fetching = await agree('fetching', make('fetching', { manifest: withLibrary('fetching', file('fetching')), libs: { 'fetching-lib-actions.js': 'const a = 1;\nfetch("https://example.com");\n' } }), { via: null, refuses: /"fetch" is not given/ });
+  await agree('nolib', make('nolib', { manifest: withLibrary('nolib', file('nolib')) }), { refuses: /is not in the zip/ });
+  const fetching = await agree('fetching', make('fetching', { manifest: withLibrary('fetching', file('fetching')), libs: { 'fetching-lib-actions.js': 'const a = 1;\nfetch("https://example.com");\n' } }), { refuses: /"fetch" is not given/ });
   assert.equal(fetching.findings.find((f) => f.check === 'action library').line, 2, 'the finding names the line');
-  const fine = await agree('fine', make('fine', { manifest: withLibrary('fine', file('fine')), libs: { 'fine-lib-actions.js': 'const a = 1;\n' } }), { via: 'bundled' });
+  const mover = manifestOf('mover', { actions: { server: file('mover'), provides: [{ name: 'move', label: 'Move', description: 'Move the end.', effect: 'write', input: { title: 'string' }, phaseEnd: true }] } });
+  await agree('mover', make('mover', { manifest: mover, libs: { 'mover-lib-actions.js': 'const ACTION_HANDLERS = { move: () => ({}) };\n' } }), { refuses: /^module\.json: action "move" asks to move the main phase's end, which only a module that ships with the server may do$/ });
+  const fine = await agree('fine', make('fine', { manifest: withLibrary('fine', file('fine')), libs: { 'fine-lib-actions.js': 'const a = 1;\n' } }));
   assert.equal(fine.verdict, 'accepted');
   assert.match(fine.library, /^[0-9a-f]{64}$/);
   assert.match(run(path.join(tmp, 'fine.zip')).stdout, new RegExp(`sha256 ${fine.library.slice(0, 12)}\\) and a server with the network wall\\.$`, 'm'));
@@ -162,14 +162,23 @@ try {
   assert.ok(!/from '\.|require\('\./.test(source), 'it imports nothing else from the repository, no check among them');
   n += 1;
 
-  // Every bundled module, from its folder, validates as accepted.
+  // Every bundled module, from its folder, validates as accepted, or (as an upload) is refused only for what a module that ships
+  // with the server may ask for: a place search (Maps) or a phase's end (the Itinerary), one sentence for each.
   const root = path.join(ROOT, 'modules');
   const shipped = bundledModules(root);
   assert.ok(shipped.length >= 10, 'the bundled modules are found');
+  const onlyShipped = /^module\.json: action "[A-Za-z0-9]+" (asks the server to search places|says when to skip a place search|asks to move the main phase's end), which only a module that ships with the server may (do|ask for)$/;
   for (const m of shipped) {
     const r = run(path.join(root, m.id), '--json');
     const out = JSON.parse(r.stdout);
-    assert.equal(r.status, 0, `${m.id} validates as accepted (${(out.findings || []).filter((f) => f.grade === 'refuse').map((f) => f.text).join('; ')})`);
+    const refusals = (out.findings || []).filter((f) => f.grade === 'refuse');
+    const asks = (m.actions?.provides || []).filter((a) => a.lookups || a.skipLookupWhen || a.phaseEnd === true);
+    if (!asks.length) assert.equal(r.status, 0, `${m.id} validates as accepted (${refusals.map((f) => f.text).join('; ')})`);
+    else {
+      assert.equal(r.status, 1, `${m.id} would be refused as an upload`);
+      assert.ok(refusals.length && refusals.every((f) => f.check === 'manifest' && onlyShipped.test(f.text)), `${m.id}: refused only for what ships with the server (${refusals.map((f) => f.text).join('; ')})`);
+      assert.equal(refusals.length, asks.reduce((k, a) => k + (a.lookups ? 1 : 0) + (a.skipLookupWhen ? 1 : 0) + (a.phaseEnd === true ? 1 : 0), 0), `${m.id}: one sentence for each`);
+    }
     assert.equal(Boolean(out.library), Boolean(m.actions && m.actions.server), `${m.id}: a library hash exactly when it declares actions.server`);
   }
   n += 1;
