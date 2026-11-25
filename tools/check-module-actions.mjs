@@ -923,6 +923,53 @@ try {
     assert.equal(again.json.error, 'That task is not linked to that.');
   });
 
+  // --- Research and Planner - Projects on the server (plan-agent-server-actions.md, step 7) ----------------------------------
+  // Each module's own test runs every handler both ways; here one request each against a real server, as an agent.
+  for (const id of ['research', 'schedule']) {
+    ok(await call('POST', `/api/modules/bundled/${id}/install`, { cookie: admin, body: {} }), `${id} installs`, 201);
+    ok(await call('PATCH', `/api/modules/${id}`, { cookie: admin, body: { enabled: true, allSpaces: true } }), `${id} on`);
+  }
+  const linksFrom = async (module, ref) => (await call('GET', `/api/objects/links?from=${module}&dir=from&ref=${encodeURIComponent(JSON.stringify(ref))}`, { cookie: miaC })).json;
+  await test('Research: a note about an event and a link are done at once, the note linked to the event; the link changed after', async () => {
+    as = agents[13];
+    const ev = await askIn('calendar:createEvent', { title: 'Tram 28', date: '2030-12-02' });
+    ok(ev, 'an event to write about');
+    const r = await askIn('research:saveNote', { title: 'Tram 28 tips', body: 'Board at Martim Moniz', ref: ev.json.ref });
+    ok(r, 'saveNote');
+    assert.deepEqual([r.json.status, r.json.ok], ['done', true]);
+    const note = r.json.ref;
+    assert.deepEqual([note.module, note.kind, note.space], ['research', 'note', camp]);
+    const items = (await call('GET', `/api/modules/research/data?scope=space&space=${camp}`, { cookie: admin })).json.items;
+    const v = items.find((i) => i.key === `note:${note.id}`).value;
+    assert.deepEqual([v.title, v.body, v.by, v.ref], ['Tram 28 tips', 'Board at Martim Moniz', 'Claude', undefined], 'the note, credited to the agent, keeping no pointer');
+    const seen = await linksFrom('research', note);
+    assert.equal(JSON.stringify(seen).includes(ev.json.ref.id), true, 'linked to the event');
+    const l = await askIn('research:saveLink', { url: 'HTTPS://Example.org/tram 28', excerpt: 'Times' });
+    ok(l, 'saveLink');
+    const lv = (await call('GET', `/api/modules/research/data?scope=space&space=${camp}`, { cookie: admin })).json.items.find((i) => i.key === `link:${l.json.ref.id}`).value;
+    assert.deepEqual([lv.url, lv.title], ['https://example.org/tram%2028', 'example.org'], 'the address read as a browser reads it');
+    const u = await askIn('research:updateLink', { link: l.json.ref, title: 'Tram times' });
+    ok(u, 'updateLink');
+    assert.equal(u.json.ok, true);
+  });
+  await test('Planner - Projects: work done under a milestone settles the milestone in the same request; an entry from an event is linked', async () => {
+    as = agents[13];
+    const m = await askIn('schedule:addMilestone', { title: 'Launch', date: '2030-12-10' });
+    ok(m, 'addMilestone');
+    const w = await askIn('schedule:addWork', { title: 'Docs', object: { kind: 'work', title: 'Docs', details: { start: '2030-12-01', end: '2030-12-02', under: 'Launch' } } });
+    ok(w, 'addWork');
+    const done = await askIn('schedule:setDone', { ref: w.json.ref, done: true });
+    ok(done, 'setDone');
+    assert.deepEqual([done.json.status, done.json.ok], ['done', true]);
+    const plan = Object.fromEntries((await call('GET', `/api/modules/schedule/data?scope=space&space=${camp}`, { cookie: admin })).json.items.map((i) => [i.key, i.value]));
+    assert.deepEqual([plan[`plan:${w.json.ref.id}`].parent, plan[`plan:${w.json.ref.id}`].done], [m.json.ref.id, true]);
+    assert.deepEqual([plan[`plan:${m.json.ref.id}`].done, plan[`plan:${m.json.ref.id}`].progress], [true, 100], 'the milestone follows, with no page open');
+    const ev = await askIn('calendar:createEvent', { title: 'Review', date: '2030-12-03' });
+    const from = await askIn('schedule:addNote', { title: 'Review notes', ref: ev.json.ref });
+    ok(from, 'addNote from an event');
+    assert.equal(JSON.stringify(await linksFrom('schedule', from.json.ref)).includes(ev.json.ref.id), true, 'linked to the event');
+  });
+
   // --- links, schedules and a notice in the answer (plan-agent-server-actions.md, section 2, steps 4 and 5) -----------------
   // The fixture declares the schedule and notify hooks and may link to the Calendar's events; fixture-plain, the same code
   // bundled under another id, has no hook and may link to nothing. The `effects` action answers whatever its plan names.

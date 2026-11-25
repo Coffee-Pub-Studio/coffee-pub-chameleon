@@ -172,17 +172,17 @@ test('who added it: the asker\'s key, else the signed-in person\'s key', () => {
   assert.equal(upd(e, { title: 'Ship it' }).entry.by, 'agent-key');
 });
 
-test('the page carries the actions library: the edit right checked, the page facts given, the milestones settled after', () => {
-  // The handlers moved into src/schedule-lib-actions.js (plan-agent-edit-delete.md, step 2); modules/schedule/test/
-  // check-schedule-lib-actions.mjs runs them. The page runs them through host.actions.fromLibrary.
+test('the page carries the actions library: the edit right checked, the same handlers the server runs', () => {
+  // The handlers are in src/schedule-lib-actions.js (plan-agent-edit-delete.md, step 2); modules/schedule/test/
+  // check-schedule-lib-actions.mjs runs them both ways. The page runs them through host.actions.fromLibrary, as they are: the
+  // settings, words, order keys and phases come from the SDK's ctx, and the milestones and the link are in the answer.
   const actions = fs.readFileSync(path.join(dir, 'src', 'schedule-lib-actions.js'), 'utf8');
   assert.ok(/const by = scAddedBy\(ctx, ctx\.credit && ctx\.credit\.key\);/.test(actions), 'an add stores the asker\'s key');
   assert.ok(!/ctx\.by\b/.test(actions) && !/ctx\.by\b/.test(page), 'the asker\'s name is never stored as the person');
   assert.ok(/scSetDone\(e, input\.done/.test(actions) && /scUpdate\(e, input,/.test(actions));
-  assert.ok(/host\.actions\.fromLibrary\(Object\.fromEntries\(Object\.entries\(ACTION_HANDLERS\)/.test(page), 'the library is carried here');
+  assert.ok(/host\.actions\.fromLibrary\(ACTION_HANDLERS, \{ after: afterAction \}\)/.test(page), 'the library is carried here as it is');
   assert.ok(/if \(!canEdit\) throw new Error\(name\.startsWith\('add'\) \? REFUSED : CHANGE_REFUSED\)/.test(page), 'the edit right is checked');
-  assert.ok(/settings: \{ \.\.\.state\.settings \}/.test(page), 'the plan\'s settings are given (datesRequired)');
-  assert.ok(/await settleMilestones\(\);/.test(page.slice(page.indexOf('async function afterAction'))), 'the milestones follow');
+  assert.ok(/scMilestoneChanges\(next, ctx\.util\.rollup\(/.test(actions), 'the milestones follow, in the answer');
 });
 
 test('the manifest declares both, as writes that name a plan entry', () => {
