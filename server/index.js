@@ -25,6 +25,7 @@ const { ModuleLinks, objectKey } = require('./module-links');
 const { Backgrounds } = require('./backgrounds');
 const { ModuleBus, BUS_LIMITS } = require('./module-bus');
 const { createModuleActions, outcomeOf: moduleActionOutcome, faultWords: moduleActionFault, MODULE_ACTION_LIMITS } = require('./module-actions');
+const { createActionEffects } = require('./action-effects');
 const { liveLimits, effectiveLiveLimits, readSend, dataBytes } = require('./module-live');
 const { ChatHistory, cleanChatText, postedByAgent, CHAT_LIMITS } = require('./chat-history');
 const { cleanReport: cleanAttention } = require('./attention');
@@ -9129,7 +9130,9 @@ const ACTION_CHANGED = 'That changed while it was being done, so nothing was cha
 // size caps, object-sync and the live changes), each under the module's write limit as the agent, each only if nothing
 // changed it since the handler read it. One refused write puts back the ones before it, so a request is done whole or not
 // at all. The request is then finished once (completeServer); a request ended meanwhile (its agent's right taken away)
-// writes nothing. Answers 200 { id, status: 'done', ok: true, ref?, note?, data? } (`data` the handler's own beyond its note,
+// writes nothing. After the writes, in the same step, come the links, schedules and notice the handler answered (server/
+// action-effects.js); a refusal there puts back everything. Answers 200 { id, status: 'done', ok: true, ref?, note?, data?,
+// effects? } (`effects` what was done beside the writes; `data` the handler's own beyond its note,
 // agentData; plain and at most MODULE_ACTION_LIMITS.answerDataBytes as JSON, checked by outcomeOf), or the refusal's status with
 // { id, status: 'done', ok: false, error }: the module's own sentence (422), a guard's or the rights' (their status), a
 // change meanwhile (409), or "<Module> could not carry that out: <why>." (500, 503 when busy).
@@ -9144,7 +9147,7 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
     const r = finished ? result : (request.result || { ok: false, error: AGENT_ASK_ENDED }); // ended meanwhile: its own sentence
     const note = oneLineNote(r.data?.note);
     return res.status(r.ok ? 200 : finished ? status : 409).json({
-      id: request.id, status: 'done', ok: Boolean(r.ok), ...(r.ok ? {} : { error: oneLineNote(r.error) || `${shown} could not do that.` }), ...(r.ok && r.ref ? { ref: r.ref } : {}), ...(note ? { note } : {}), ...(r.ok && agentData(r.data) !== undefined ? { data: agentData(r.data) } : {}),
+      id: request.id, status: 'done', ok: Boolean(r.ok), ...(r.ok ? {} : { error: oneLineNote(r.error) || `${shown} could not do that.` }), ...(r.ok && r.ref ? { ref: r.ref } : {}), ...(note ? { note } : {}), ...(r.ok && agentData(r.data) !== undefined ? { data: agentData(r.data) } : {}), ...(r.ok && r.effects ? { effects: r.effects } : {}),
     });
   };
   const fault = (why) => end(why === 'busy' ? 503 : 500, { ok: false, error: `${shown} could not carry that out: ${moduleActionFault(why)}.` });
@@ -9163,7 +9166,7 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
   if (dataText.length > MODULE_ACTION_LIMITS.dataBytes) return fault('size');
   const agent = who.user;
   // The facts beside the data, as a page's adapter gives them (public/sdk/host.js libraryFacts), and the environment's clock and
-  // words for ctx.util. `carrier` says nothing only a page does is done here (a reminder, a link, a phase's end).
+  // words for ctx.util. `carrier` says the server is carrying it (a phase's end is still only a page's).
   // `settings` are the module's as host.settings.get() gives them in this space, with each person setting's default (an agent has
   // none of its own); `labels` the module's words as the space's template renames them (host.locale().labels), for ctx.util.label.
   const facts = actionFacts(who, space, manifest, input);
@@ -9222,18 +9225,24 @@ async function carryOnServer(res, { who, space, found, def, input, request, lib 
         return end(refusal.status, { ok: false, error: refusal.error });
       }
     }
-    // A schedule about an object this request changed was set by a page from the object as it was (a Calendar reminder: its
-    // time, its title, whether there is one at all), so it is taken off rather than left to fire wrongly; the module's page sets
-    // it again from the object as it is now (the handler marks what waits for that, and its note says so).
-    for (const a of applied) {
-      if (!a.had) continue;
-      const about = ownRefAt(now.manifest, scopeKey, a.key);
-      if (about) moduleHooks.cancelAbout(id, scopeKey, about);
+    // What the handler asked for beside its writes (links, schedules, one notice), done here as the agent, in this same step
+    // (server/action-effects.js). A schedule about an object this request changed was set from the object as it was (a
+    // reminder: its time, its title, whether there is one at all), so it is taken off first rather than left to fire wrongly;
+    // the handler answers it again if one should stand. One refusal puts back everything, the writes included.
+    const changed = applied.filter((a) => a.had).map((a) => ownRefAt(now.manifest, scopeKey, a.key)).filter(Boolean);
+    const effects = actionEffects().apply({ effects: outcome.effects, who, space: here, found: now, ctx, changed });
+    if (effects.refusal) {
+      undoCarried(ctx, applied);
+      return end(effects.refusal.status, { ok: false, error: effects.refusal.error });
     }
-    return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}) });
+    return end(200, { ok: true, ...(outcome.ref ? { ref: plainRef(outcome.ref) } : {}), ...(outcome.data !== undefined ? { data: outcome.data } : {}), ...(Object.keys(effects.done).length ? { effects: effects.done } : {}) });
   };
   return envContext.run(env, () => (inSpace ? spaceContext.run(inSpace, after) : after()));
 }
+// The links, schedules and notice a server-carried request's handler answers, done as the agent with the routes' own checks.
+// Made at the first request: some of what it is handed is defined further down this file.
+let actionEffectsMade = null;
+const actionEffects = () => (actionEffectsMade ||= createActionEffects({ moduleLinks, moduleHooks, modules, resolveRef, copySight, copyChangeText, hookGranted, overLimit, limitMessage, isLibraryFileRef, refFileSeen, markedForSpace, refShape, plainRef, objectKey }));
 // The pointer a stored key is in a space, by the module's own kinds (refs.produces' keys), or null.
 function ownRefAt(manifest, scopeKey, key) {
   if (typeof scopeKey !== 'string' || !scopeKey.startsWith('space:') || typeof key !== 'string') return null;
@@ -9386,6 +9395,8 @@ function requestOutcome(request, space) {
     // The handler's or the page's own data beside its note (agentData), so an agent can chain on it.
     const data = forAgent && out.ok ? agentData(request.result?.data) : undefined;
     if (data !== undefined) out.data = data;
+    // What the server did beside the writes for a request it carried (server/action-effects.js): links, schedules, a notice.
+    if (forAgent && out.ok && request.server && request.result?.effects) out.effects = request.result.effects;
   } else if (forAgent && (status === 'pending' || status === 'claimed')) {
     out.waiting = waitingWords(modules.enabled(request.provider)?.manifest || null, space, status);
   }
