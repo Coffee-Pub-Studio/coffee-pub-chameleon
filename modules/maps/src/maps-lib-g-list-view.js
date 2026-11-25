@@ -1684,20 +1684,24 @@ async function runList(env) {
   // place by name, and open the dialog for a new one where a map was clicked.
   // Said when someone who may not add places asks for the dialog; the Map reads it to take its add tools away quietly.
   const REFUSED = 'you may not add places here';
+  // The rules of what other modules and agents ask (addPlace, updatePlace, setPlacePoint, findPlace) are the actions library's
+  // (maps-lib-actions.js), the very code the server runs for an agent: this page carries everyone else's through the SDK's
+  // adapter, with the module's kinds (its environment places carry space marks) and the actions' place searches as the
+  // manifest declares them. After a write the stores it touched are read again, so the list shows it at once.
+  const LIBRARY_KINDS = [{ kind: 'place', key: 'place:{id}', marks: 'spaces' }];
+  const LIBRARY_LOOKUPS = { addPlace: { address: 'geocode' }, findPlace: { q: 'geocode' } };
+  const libraryAfter = async ({ writes }) => {
+    const touched = new Set((writes || []).map((w) => (w.scope === 'environment' ? 'global' : w.scope === 'person' ? (String(w.key).startsWith(SAVED_PREFIX) ? 'saved' : 'my') : 'space')));
+    for (const w of touched) {
+      if (w === 'saved') { if (saved) await saved.load().catch(() => {}); } else if (loadedStores.has(w) && stores[w]) await stores[w].load().catch(() => {});
+    }
+  };
+  const library = (only) => (host.actions.fromLibrary ? host.actions.fromLibrary(ACTION_HANDLERS, { only, kinds: LIBRARY_KINDS, lookups: LIBRARY_LOOKUPS, after: libraryAfter }) : {});
   if (host.actions && host.actions.provide) {
     host.actions.provide({
-      // An agent's search (plan: Maps issue 1077): a few matches it can read, to pick one for setPlacePoint. Carried out by an open
-      // page, since the search is the page's (the server runs no network from its action library). Off when no place search is
-      // chosen: nothing is sent, and it says so. The matches come as the note, which is what request_status shows an agent.
-      findPlace: async (input) => {
-        for (let i = 0; i < 50 && !state.loaded; i += 1) await new Promise((r) => setTimeout(r, 100));
-        if (!state.search) throw new Error('Place search is off. An admin chooses one in the Maps settings.');
-        const q = geo.oneLine(input && input.q, 200);
-        if (q.length < 2) throw new Error('nothing to look for');
-        const results = (await searchFor(q, null)).filter((h) => geo.inRange(Number(h.lat), Number(h.lng))).slice(0, 5)
-          .map((h) => ({ name: geo.oneLine(h.title, 80), address: geo.oneLine(h.sub, 120), lat: geo.round6(Number(h.lat)), lng: geo.round6(Number(h.lng)) }));
-        return { data: { note: findNote(q, results), results } };
-      },
+      // An agent's search (plan: Maps issue 1077): a few matches it can read, to pick one for setPlacePoint (the server carries an
+      // agent's; this page anyone else's). Off when no place search is chosen: nothing is sent, and it says so.
+      ...library(['findPlace']),
       searchPlaces: async (input) => {
         const q = geo.oneLine(input && input.q, 200);
         if (q.length < 2) throw new Error('nothing to look for');
@@ -1767,20 +1771,6 @@ async function runList(env) {
     }
     throw new Error('there is no such place, or it is no longer shared here');
   }
-  async function placeWhere(ticks, input, me) {
-    const target = homeFor(ticks);
-    if (target.error) throw new Error(target.error === 'spaces' ? `to show it in more than one ${word('space')}, it must be in the ${word('environment')} too` : 'say where it goes');
-    const to = wOfHome(target);
-    if (!writable(to)) throw new Error(REFUSED);
-    if (to === 'global' && target.marks.some((sp) => !canMark(sp))) throw new Error(REFUSED);
-    await ensureLoaded(to);
-    const place = placeFromRequest(input, me, state.people);
-    place.spaces = target.marks;
-    place.icon = lookOf(place, cats).icon;
-    const done = await stores[to].save(place);
-    if (target.mine) await keepSaved(null, to, done.id, true, done.title);
-    return { ref: placeRef(to, done.id) };
-  }
   if (host.actions && host.actions.provide) {
     const handlers = {
       // Share a place (the person's own private one, or a shared one into more places): the ticks it has now and the ones
@@ -1805,30 +1795,20 @@ async function runList(env) {
       },
     };
     if (inSpace) {
-      // Other modules' requests to add a place, as before only in a space (to that space and, by default, everyone).
-      handlers.addPlace = async (input, ctx) => {
-        const own = ownRequest(ctx);
-        const asked = ticksFromIn(input && input.in, here);
-        if (asked && asked.mine && !own) throw new Error('only that person can add to their own list');
-        const ticks = asked || defaultTicks('space', here, { everyone: canEveryone(), here: canHere(), mine: own && canMine() });
-        return placeWhere(ticks, input, (ctx && ctx.credit && ctx.credit.key) || info.user.key || '');
-      };
-      handlers.setPlacePoint = async (input) => {
-        const { w, p } = await placeOfRef(input && input.place);
-        if (!writable(w)) throw new Error(REFUSED);
-        const place = await stores[w].setPoint(p.id, { lat: input.lat, lng: input.lng });
-        return { ref: placeRef(w, place.id) };
-      };
-      // Change a place's title, type, category, status, address, notes or who it is for: only the fields given change.
-      handlers.updatePlace = async (input, ctx) => {
-        const { w, p } = await placeOfRef(input && input.place);
-        if (!writable(w)) throw new Error(REFUSED);
-        if (w === 'my' && !ownRequest(ctx)) throw new Error('only that person can change their own list');
-        const place = placeChanged(p, input, (ctx && ctx.credit && ctx.credit.key) || info.user.key || '', state.people);
-        if (!place.iconOwn) place.icon = lookOf(place, cats).icon;
-        const done = await stores[w].save(place, stores[w].versionOf(p.id));
-        return { ref: placeRef(w, done.id) };
-      };
+      // Other modules' requests to add, change and place a place, only in a space: the actions library's (above). Left without
+      // `in`, a place this page adds takes the same default as the form here (Everyone and this space, as far as this person may,
+      // and Mine only for their own request), said as `in` words for the library.
+      const lib = library(['addPlace', 'setPlacePoint', 'updatePlace']);
+      Object.assign(handlers, lib);
+      if (lib.addPlace) {
+        handlers.addPlace = (input, ctx) => {
+          const i = input || {};
+          if (i.in !== undefined && i.in !== null && i.in !== '') return lib.addPlace(i, ctx);
+          const t = defaultTicks('space', here, { everyone: canEveryone(), here: canHere(), mine: ownRequest(ctx) && canMine() });
+          const words = [t.everyone ? 'environment' : '', t.spaces.includes(here) ? 'space' : '', t.mine ? 'person' : ''].filter(Boolean).join(' ');
+          return lib.addPlace(words ? { ...i, in: words } : i, ctx);
+        };
+      }
     }
     host.actions.provide(handlers);
   }

@@ -507,6 +507,7 @@ function cleanTakes(raw, action, permissionKeys) {
 // pointer can be cleared (plan-agent-server-actions.md, section 6: Goals moving a note back to the top level).
 const CLEARABLE_TYPES = ['string', 'text', 'number', 'date', 'ref'];
 const ACTION_LOOKUPS_MAX = 2; // inputs one action may have the server look up before its handler runs
+const PAGE_ONLY_MAX = 12; // library files a module may keep out of what the server's runner loads (actions.pageOnly)
 const clearableType = (base) => CLEARABLE_TYPES.includes(base) || base.startsWith('ref:');
 
 // `permissionKeys`: the keys of the module's own permissions, which a `takes` entry may name. `kinds`: the kinds of object
@@ -641,6 +642,16 @@ function cleanBus(rawEvents, rawActions, id, permissionKeys = [], kinds = []) {
   if (rawActions && typeof rawActions === 'object' && rawActions.server !== undefined) {
     if (typeof rawActions.server !== 'string' || !SERVER_FILE_RE(id).test(rawActions.server)) throw new ModuleError(`module.json: actions.server must name one of the module's own libraries, such as "src/${id}-lib-actions.js"`);
     actions.server = rawActions.server;
+  }
+  // `pageOnly`: files of the module's library that only its page needs (a map's drawing code, a vendor bundle), which the
+  // server's runner leaves out of what it loads (server/module-actions.js libraryFor). Each one of the module's own library
+  // files, never the server's own.
+  if (rawActions && typeof rawActions === 'object' && rawActions.pageOnly !== undefined) {
+    const own = new RegExp(`^src/${id.replace(/[^a-z0-9-]/g, '')}-lib-[a-z0-9-]+\\.js$`);
+    if (!Array.isArray(rawActions.pageOnly) || rawActions.pageOnly.length > PAGE_ONLY_MAX || rawActions.pageOnly.some((f) => typeof f !== 'string' || !own.test(f) || f === actions.server)) {
+      throw new ModuleError(`module.json: actions.pageOnly must list at most ${PAGE_ONLY_MAX} of the module's own library files, such as "src/${id}-lib-map.js", and not the one in actions.server`);
+    }
+    if (rawActions.pageOnly.length) actions.pageOnly = [...new Set(rawActions.pageOnly)];
   }
   for (const c of Array.isArray(rawActions?.uses) ? rawActions.uses.slice(0, 20) : []) {
     if (typeof c !== 'string' || (c !== '*' && !BUS_USE_RE.test(c))) throw new ModuleError(`module.json: actions.uses "${c}" must be "*" or look like "module:action"`);

@@ -136,10 +136,11 @@ test('updatePlace: a place\'s own icon is kept for the page to decide', () => {
   assert.deepEqual([p.icon, p.iconOwn], ['anchor', true]);
 });
 
-test('the page passes people to addPlace and provides updatePlace', () => {
-  assert.match(view, /placeFromRequest\(input, me, state\.people\)/);
-  assert.match(view, /handlers\.updatePlace = /);
-  assert.match(view, /placeChanged\(p, input, [^\n]*state\.people\)/);
+test('the actions library passes the space\'s people to addPlace and updatePlace, and the page provides both from it', () => {
+  const lib = read('src/maps-lib-actions.js');
+  assert.match(lib, /M\.placeFromRequest\(i, [^\n]*ctx\.people\)/);
+  assert.match(lib, /M\.placeChanged\(p, input, [^\n]*ctx\.people\)/);
+  assert.match(view, /library\(\['addPlace', 'setPlacePoint', 'updatePlace'\]\)/);
 });
 
 const acts = Object.fromEntries(manifest.actions.provides.map((a) => [a.name, a]));

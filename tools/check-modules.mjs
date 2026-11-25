@@ -993,7 +993,10 @@ test('a module\'s test/ folder (modules/<id>/test/*.mjs, run by tools/check-modu
   const declaring = [...bundledModules(root).map((m) => [root, m]), ...bundledModules(fixtures).map((m) => [fixtures, m])].filter(([, m]) => m.actions && m.actions.server !== undefined);
   assert.ok(declaring.some(([, m]) => m.id === 'fixture-notes'), 'the fixture declares it');
   for (const [at, raw] of declaring) {
-    const lib = libraryOf(path.join(at, raw.id), raw.id);
+    // As the runner loads it: without the files only the page needs (actions.pageOnly), each one of its libraries.
+    const all = libraryOf(path.join(at, raw.id), raw.id);
+    for (const f of raw.actions.pageOnly || []) assert.ok(all.files.includes(f), `${raw.id}: ${f} in actions.pageOnly is one of its libraries`);
+    const lib = libraryOf(path.join(at, raw.id), raw.id, { leaveOut: raw.actions.pageOnly || [] });
     assert.ok(lib.files.includes(raw.actions.server), `${raw.id}: ${raw.actions.server} is one of its libraries`);
     const context = vm.createContext(Object.create(null));
     const names = vm.runInContext(`${lib.js}\n;typeof ACTION_HANDLERS === 'object' && ACTION_HANDLERS ? Object.keys(ACTION_HANDLERS).filter((k) => typeof ACTION_HANDLERS[k] === 'function').join(',') : ''`, context, { timeout: 2000 }).split(',');

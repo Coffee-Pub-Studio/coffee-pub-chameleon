@@ -69,11 +69,14 @@ function zipFiles(files) {
 // below) carries its own library the same way, from src/<id>-<part>-lib.js and src/<id>-<part>-lib-*.js, never the module's.
 // Plain data a library carries (src/<id>-lib-<name>.json) goes in first as `const LIB_<NAME> = <json>;` (dashes in the name
 // become underscores), so the file stays data a check can read and the code finds it as a constant.
-function libraryOf(dir, owner) {
+// `o.leaveOut`: library files (as `src/<name>`) to leave out of the script, the ones the manifest's actions.pageOnly names,
+// which the server's runner does not load; the page always gets every one.
+function libraryOf(dir, owner, o = {}) {
   const read = (name, ext) => fs.readFileSync(path.join(dir, 'src', `${name}.${ext}`), 'utf8');
   const srcFiles = fs.readdirSync(path.join(dir, 'src'));
   const libFile = `${owner}-lib.js`;
-  const isLib = (f) => f === libFile || (f.startsWith(`${owner}-lib-`) && f.endsWith('.js'));
+  const leaveOut = new Set(Array.isArray(o.leaveOut) ? o.leaveOut : []);
+  const isLib = (f) => (f === libFile || (f.startsWith(`${owner}-lib-`) && f.endsWith('.js'))) && !leaveOut.has(`src/${f}`);
   const libNames = srcFiles.filter(isLib).sort((x, y) => (x === libFile ? -1 : y === libFile ? 1 : x.localeCompare(y)));
   const dataLib = srcFiles.filter((f) => f.startsWith(`${owner}-lib-`) && f.endsWith('.json')).sort()
     .map((f) => {

@@ -1,7 +1,7 @@
 {
   "id": "maps",
   "name": "Maps",
-  "version": "0.10.16",
+  "version": "0.10.17",
   "content": "flush",
   "icon": "map-location-dot",
   "color": "pink",
@@ -259,9 +259,11 @@
           "owners": "Whose it is: keys or names as list_members shows them, separated by commas. Leave out for nobody.",
           "lat": "Latitude, from -90 to 90. Give it with lng.",
           "lng": "Longitude, from -180 to 180. Give it with lat.",
-          "in": "Where it is kept: environment, space or person, separated by spaces. Leave out for everyone and this space.",
+          "in": "Where it is kept: environment (everyone, and shown in this space), space, or both. Leave out for everyone and this space.",
+          "address": "The street address. With no lat and lng it is looked up, and one clear match sets the position; otherwise the note lists the matches.",
           "notes": "The notes. Line breaks are allowed."
-        }
+        },
+        "lookups": { "address": "geocode" }
       },
       {
         "name": "updatePlace",
@@ -317,7 +319,8 @@
         },
         "inputHints": {
           "q": "A name or an address, such as \"1575 Park Crest Ct, San Jose\". The answer's note lists the matches; if the place search is off it says so."
-        }
+        },
+        "lookups": { "q": "geocode" }
       },
       {
         "name": "searchPlaces",
@@ -417,7 +420,9 @@
     ],
     "uses": [
       "*"
-    ]
+    ],
+    "server": "src/maps-lib-actions.js",
+    "pageOnly": ["src/maps-lib-a-maplibre.js", "src/maps-lib-b-pmtiles.js", "src/maps-lib-c-geo.js", "src/maps-lib-d-style.js", "src/maps-lib-e-pins.js", "src/maps-lib-g-list-view.js"]
   },
   "refs": {
     "produces": [

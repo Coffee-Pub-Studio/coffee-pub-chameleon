@@ -716,7 +716,10 @@ await test('the page: Shows in, its line, the narrowing question, the menu, shar
   assert.equal(add.input.in, 'string?');
   assert.ok(share && share.local === true && share.input.place === 'ref:maps:place' && share.input.in === 'string?');
   assert.match(page, /if \(!ownRequest\(ctx\) \|\| !personal\) throw new Error\('only that person can share it'\);/);
-  assert.match(page, /if \(asked && asked\.mine && !own\) throw new Error\('only that person can add to their own list'\);/);
+  // addPlace is the actions library's (maps-lib-actions.js): Mine in the default only for the person's own request, and a write
+  // into someone's own list from anyone else's request refused by the SDK's adapter (public/sdk/host.js carryLibrary).
+  assert.match(page, /defaultTicks\('space', here, \{ everyone: canEveryone\(\), here: canHere\(\), mine: ownRequest\(ctx\) && canMine\(\) \}\)/);
+  assert.match(sdk, /if \(!mine\) throw Object\.assign\(new Error\('Only that person can save it for themselves\.'\), \{ status: 403 \}\);/);
   assert.equal(manifest.refs.produces[0].summary.spaces, 'spaces', 'the summary carries the marks');
   assert.match(manifest.version, /^0\.\d+\.\d+$/, 'Maps has a version');
 });

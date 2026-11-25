@@ -36,6 +36,21 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// Maps uploaded as a module of its own, so a page still carries its agents' requests: the bundled Maps runs them on the server
+// (plan-agent-server-actions.md, step 10), and an upload may not declare actions.server, so the copy leaves it out.
+const mapsUploadZip = () => {
+  const at = fs.mkdtempSync(path.join(os.tmpdir(), 'maps-upload-'));
+  try {
+    fs.cpSync(path.join(ROOT, 'modules', 'maps'), at, { recursive: true });
+    const m = JSON.parse(fs.readFileSync(path.join(at, 'module.json'), 'utf8'));
+    delete m.actions.server;
+    fs.writeFileSync(path.join(at, 'module.json'), JSON.stringify(m, null, 2));
+    return createRequire(import.meta.url)(path.join(ROOT, 'server', 'module-build.js')).buildModule(at).zip;
+  } finally {
+    fs.rmSync(at, { recursive: true, force: true });
+  }
+};
 const require = createRequire(import.meta.url);
 const { AgentRecords, AGENT_RECORDS_FILE } = require(path.join(ROOT, 'server', 'agent-records.js'));
 const { ModuleHolds, KEYED_MAX_BYTES, KEYED_TOTAL_BYTES } = require(path.join(ROOT, 'server', 'module-holds.js'));
@@ -259,10 +274,10 @@ async function startServer(dataDir) {
   return server;
 }
 let server = null;
-function call(method, urlPath, { body, cookie, token } = {}) {
-  const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+function call(method, urlPath, { body, cookie, token, zip } = {}) {
+  const payload = zip ? zip : body === undefined ? null : Buffer.from(JSON.stringify(body));
   const headers = { host: `127.0.0.1:${server.port}`, accept: 'application/json' };
-  if (payload) { headers['content-type'] = 'application/json'; headers['content-length'] = payload.length; }
+  if (payload) { headers['content-type'] = zip ? 'application/zip' : 'application/json'; headers['content-length'] = payload.length; }
   if (cookie) headers.cookie = cookie;
   if (token) headers.authorization = `Bearer ${token}`;
   return new Promise((resolve, reject) => {
@@ -298,10 +313,9 @@ try {
   const agent = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
   const camp = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Camp', members: [agent.key, mia.key, max.key] } })).json.space.id;
   const fort = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Fort', members: [agent.key, mia.key, max.key] } })).json.space.id;
-  for (const id of ['todo', 'schedule', 'calendar', 'maps']) {
-    ok(await call('POST', `/api/modules/bundled/${id}/install`, { cookie: admin, body: {} }), `${id} installs`, 201);
-    ok(await call('PATCH', `/api/modules/${id}`, { cookie: admin, body: { enabled: true, allSpaces: true } }), `${id} on`);
-  }
+  for (const id of ['todo', 'schedule', 'calendar']) ok(await call('POST', `/api/modules/bundled/${id}/install`, { cookie: admin, body: {} }), `${id} installs`, 201);
+  ok(await call('POST', '/api/modules', { cookie: admin, zip: mapsUploadZip() }), 'Maps uploads', 201);
+  for (const id of ['todo', 'schedule', 'calendar', 'maps']) ok(await call('PATCH', `/api/modules/${id}`, { cookie: admin, body: { enabled: true, allSpaces: true } }), `${id} on`);
   ok(await call('PATCH', `/api/users/${max.key}/spaces/${camp}`, { cookie: admin, body: { permissions: { moderator: true } } }), 'Max moderates Camp');
   const token = (await call('POST', `/api/users/${agent.key}/token`, { cookie: admin })).json.token;
   const T = { token };

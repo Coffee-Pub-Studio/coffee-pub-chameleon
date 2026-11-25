@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * check-agent-queue.mjs -- an agent's waiting requests end with its right to ask (documentation/plans/plan-agent-access.md,
- * "What a leaked token can do" and the kill switches), against a real server on a throwaway DATA_DIR, with bundled Maps (a module whose actions a page still carries):
+ * "What a leaked token can do" and the kill switches), against a real server on a throwaway DATA_DIR, with Maps uploaded as a module of its own (its copy declares no server actions, so a page still carries them):
  *   - a request an agent asked for is offered (GET /api/bus/actions/pending), claimed and finished only while the agent may
  *     still ask: AGENT_TOKENS and Agents on, the agent here, not turned off, holding the very token that asked, live, and still
  *     a member of the request's space who may work there;
@@ -23,8 +23,24 @@ import http from 'node:http';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// Maps uploaded as a module of its own, so a page still carries its agents' requests: the bundled Maps runs them on the server
+// (plan-agent-server-actions.md, step 10), and an upload may not declare actions.server, so the copy leaves it out.
+const mapsUploadZip = () => {
+  const at = fs.mkdtempSync(path.join(os.tmpdir(), 'maps-upload-'));
+  try {
+    fs.cpSync(path.join(ROOT, 'modules', 'maps'), at, { recursive: true });
+    const m = JSON.parse(fs.readFileSync(path.join(at, 'module.json'), 'utf8'));
+    delete m.actions.server;
+    fs.writeFileSync(path.join(at, 'module.json'), JSON.stringify(m, null, 2));
+    return createRequire(import.meta.url)(path.join(ROOT, 'server', 'module-build.js')).buildModule(at).zip;
+  } finally {
+    fs.rmSync(at, { recursive: true, force: true });
+  }
+};
 const ENDED = 'The agent that asked for this can no longer ask for it.';
 
 let n = 0;
@@ -56,10 +72,10 @@ async function startServer(dataDir, env = {}) {
 }
 
 let server = null;
-function call(method, urlPath, { body, cookie, token } = {}) {
-  const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
+function call(method, urlPath, { body, cookie, token, zip } = {}) {
+  const payload = zip ? zip : body === undefined ? null : Buffer.from(JSON.stringify(body));
   const headers = { host: `127.0.0.1:${server.port}`, accept: 'application/json' };
-  if (payload) { headers['content-type'] = 'application/json'; headers['content-length'] = payload.length; }
+  if (payload) { headers['content-type'] = zip ? 'application/zip' : 'application/json'; headers['content-length'] = payload.length; }
   if (cookie) headers.cookie = cookie;
   if (token) headers.authorization = `Bearer ${token}`;
   return new Promise((resolve, reject) => {
@@ -104,7 +120,7 @@ try {
   const agent = (await call('POST', '/api/users', { cookie: admin, body: { agent: true } })).json.user;
   const camp = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Camp', members: [agent.key, mia.key] } })).json.space.id;
   const fort = (await call('POST', '/api/spaces', { cookie: admin, body: { name: 'Fort', members: [agent.key, mia.key] } })).json.space.id;
-  ok(await call('POST', '/api/modules/bundled/maps/install', { cookie: admin, body: {} }), 'Maps installs', 201);
+  ok(await call('POST', '/api/modules', { cookie: admin, zip: mapsUploadZip() }), 'Maps uploads', 201);
   ok(await call('PATCH', '/api/modules/maps', { cookie: admin, body: { enabled: true, allSpaces: true } }), 'Maps on');
   const miaCookie = await signIn('mia', 'mia-password-1');
   let token = null;
