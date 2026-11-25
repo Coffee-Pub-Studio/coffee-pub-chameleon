@@ -106,6 +106,25 @@ await test('items are checked: what a kind needs, and nothing else', () => {
   assert.equal(lib.itemValue(photo).text, 'Harbour');
 });
 
+// A web address is read by Research's own code (rsUrl), because the server's runner has no URL: what it takes, it reads as the
+// browser's URL does (the same href), and what it refuses is refused or is an unusual form it does not read exactly.
+await test('web addresses: read as the browser\'s URL reads them, or refused', () => {
+  const same = [
+    'https://example.org', 'http://example.org/a/b?c=d#e', 'HTTPS://Example.ORG/Path', 'https:example.org', 'https:\\\\example.org\\a\\b',
+    'https://www.timeout.com/lisbon/restaurants?utm_source=x&y=1', 'https://a.org:443/', 'http://a.org:80/x', 'http://a.org:0080/x', 'https://a.org:8443/x',
+    'https://ex.org/a b/../c/./d/%2e%2E/e', 'https://ex.org/a/..', 'https://ex.org/a/.', 'https://ex.org//x//', 'https://münchen.de/ö?ä#ü',
+    'https://bücher.example/straße', 'https://例え.テスト/パス', 'https://a.org?', 'https://a.org#', 'https://a.org/?q="x"<y>\'z`', 'https://a.org/p"<>`{}|^/x',
+    'https://a.org/#f"<>`{} x', 'https://a..b/', 'https://EXAMPLE.org./', 'http://127.0.0.1:3000/x', 'https://[::1]:8080/', '  https://a.org/x  ',
+    'https://a.org/x\ty\nz', 'https://a.org/%zz%20', 'https://a.org/😀?😀#😀', 'https://xn--mnchen-3ya.de/', 'https://a-b_c.org/', 'https://a.org/a%2Fb',
+    'https://ΑΘΗΝΑΣ.gr/', 'https://straße.de/', 'https://Москва.рф/', 'https://서울.kr/', 'https://[0:0:0:0:0:0:0:1]/', 'https://[2001:DB8::0:1]:443/',
+  ];
+  for (const u of same) assert.equal(lib.cleanUrl(u), new URL(u.trim()).href, u);
+  for (const u of ['ftp://x.org', 'javascript:alert(1)', 'https://user:pw@a.org/', 'https://@a.org/', 'https://', 'https://a.org:99999/', 'https://a b.org/', 'https://1.2.3/', 'https://0x7f.1/', 'https://a.org:x/', 'example.org', '', 'https://ẞ.de/', 'https://ﬀ.org/', 'https://עברית.co.il/', 'https://[1::2::3]/']) {
+    assert.equal(lib.cleanUrl(u), null, u);
+  }
+  assert.equal(lib.cleanItem('link', 'x', { url: 'https://WWW.Example.org/a' }).site, 'example.org');
+});
+
 await test('tags and quick add', () => {
   assert.deepEqual(lib.parseTags('#Hotel, lisbon  food;food'), ['hotel', 'lisbon', 'food']);
   assert.equal(lib.parseTags(Array(20).fill('a').map((x, i) => x + i).join(' ')).length, 8);
@@ -152,7 +171,7 @@ await test('the store: save, edit with versions, remove (and the picture), and w
   await again.load();
   assert.equal(again.list().length, 1);
   r.provide('u1');
-  const out = await f.handlers.saveNote({ title: 'From elsewhere', body: 'text', tags: '#Hotel, Lisbon', ref: { module: 'maps', kind: 'place', id: 'p' } }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
+  const out = await f.handlers.saveNote({ title: 'From elsewhere', body: 'text', tags: '#Hotel, Lisbon', ref: { module: 'maps', kind: 'place', id: 'p', scope: 'space', space: 'r' } }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
   assert.equal(out.ref.kind, 'note');
   assert.equal(r.get(out.ref.id).by, 'u2', 'a note asked for by someone else is theirs, not the open page\'s');
   assert.deepEqual(r.get(out.ref.id).tags, ['hotel', 'lisbon']);
@@ -173,12 +192,11 @@ await test('the store: save, edit with versions, remove (and the picture), and w
   assert.equal(r.get(whole.ref.id).url, long, 'a 300-character address is saved whole');
   await assert.rejects(f.handlers.saveLink({ url: `https://example.org/${'l'.repeat(481)}` }), /web address/, 'over 500 is refused');
   await assert.rejects(f.handlers.saveLink({ url: 'ftp://x' }), /web address/);
-  // A person's own items are private: nothing is linked.
+  // A person's own items are private: their research takes no requests, so nothing in it is linked.
   const mine = lib.createResearch(f.host, { scope: 'person' });
+  const had = { ...f.handlers };
   mine.provide('u1');
-  const before = f.links.length;
-  await f.handlers.saveNote({ title: 'Private', ref: { module: 'maps', kind: 'place', id: 'p' } });
-  assert.equal(f.links.length, before);
+  assert.deepEqual(f.handlers, had, 'a person\'s own research offers nothing');
 });
 
 // --- objects handed in (plan-object-handoff.md, step 6) ----------------------------------------------------------------
@@ -229,7 +247,7 @@ await test('saveNote, saveLink and savePhoto with an object; the flat fields as 
   let thumbs = 0;
   let readied = 0;
   r.provide('u1', { ready: async () => { readied += 1; }, makeThumb: async (id) => { thumbs += 1; f.files.find((x) => x.id === id).hasThumb = true; } });
-  const note = await f.handlers.saveNote({ title: 'Southwest 2483', object: SOUTHWEST, ref: { module: 'maps', kind: 'place', id: 'p' } }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
+  const note = await f.handlers.saveNote({ title: 'Southwest 2483', object: SOUTHWEST, ref: { module: 'maps', kind: 'place', id: 'p', scope: 'space', space: 'r' } }, { by: 'u2', credit: { name: 'u2', key: 'u2' } });
   const kept = r.get(note.ref.id);
   assert.equal(kept.title, 'Southwest 2483');
   assert.ok(kept.body.startsWith('Booked with **points**.\n\nAirline: Southwest'));

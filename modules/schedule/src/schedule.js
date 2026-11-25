@@ -682,28 +682,19 @@
 
   // --- what other modules may ask of this one ----------------------------------------------------------------------------------
   // The actions library's handlers (ACTION_HANDLERS in schedule-lib-actions.js: addMilestone, addWork, addNote, setDone,
-  // updateEntry), carried out here by the SDK (host.actions.fromLibrary). Each request gets what only this page has beside the
-  // runner's ctx: the plan's settings, its words, the outline's order keys and the phases with their names. They run under the
-  // rights of the page that carries them (canEdit).
+  // updateEntry), carried out here by the SDK (host.actions.fromLibrary) when a person's page carries a request, as the server's
+  // runner carries an agent's (the manifest's actions.server). The handler reads what the SDK gives both ways (ctx.settings,
+  // ctx.util.label, order and rollup, ctx.space.phases) and answers everything an edit's save does: the entry, the milestones'
+  // done and progress, and the link to what it was made from. They run under the rights of the page that carries them (canEdit).
   const REFUSED = `You may not add to the ${label('plan')} here.`;
   const CHANGE_REFUSED = `You may not change the ${label('plan')} here.`;
-  const withPage = (fn) => (input, ctx) => {
-    takePhases();
-    return fn(input, Object.assign(ctx, { settings: { ...state.settings }, label: (k, o) => kindWord(k, o), order: (a, b) => host.util.order(a, b), phases: state.phases }));
-  };
-  // What only a page does once a request's entry is written, as an edit's save does (saveEntry): it shows at once, the host is
-  // told what it was made from, and the milestones' done and progress follow.
+  // Once a request's writes are made, they show at once.
   async function afterAction({ writes }) {
-    for (const w of writes) {
-      const id = String(w.key).slice(SC_PREFIX.length);
-      remember(id, w.value, w.version);
-      host.objects.setLinks(pointer(id), w.value && w.value.ref ? [w.value.ref] : []).catch(() => {});
-    }
-    await settleMilestones();
+    for (const w of writes) remember(String(w.key).slice(SC_PREFIX.length), w.value, w.version);
     render();
   }
   if (host.actions && host.actions.provide && host.actions.fromLibrary) {
-    const carried = host.actions.fromLibrary(Object.fromEntries(Object.entries(ACTION_HANDLERS).map(([name, fn]) => [name, withPage(fn)])), { after: afterAction });
+    const carried = host.actions.fromLibrary(ACTION_HANDLERS, { after: afterAction });
     host.actions.provide(Object.fromEntries(Object.entries(carried).map(([name, fn]) => [name, (input, by) => {
       if (!canEdit) throw new Error(name.startsWith('add') ? REFUSED : CHANGE_REFUSED);
       return fn(input, by);

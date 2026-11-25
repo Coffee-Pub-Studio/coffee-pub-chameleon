@@ -28,12 +28,12 @@
     "hash": "a8d573313059fbac"
   },
   "research": {
-    "version": "0.4.39",
-    "hash": "80e44ca2ee498382"
+    "version": "0.4.40",
+    "hash": "0110b3bdfa7b199a"
   },
   "schedule": {
-    "version": "0.1.10",
-    "hash": "25f955f2ba60cb23"
+    "version": "0.1.11",
+    "hash": "87a79847bd84ee4a"
   },
   "stream": {
     "version": "0.1.16",
