@@ -2,7 +2,7 @@
 
 **Audience:** Thomas decides which shape weather takes. server-development and experience-design build the option he picks; content-manager documents it.
 
-**Status:** Decided, 2026-11-25: Thomas chose option B, a core Weather part. Open questions below take the planner's leans unless he says otherwise. Not yet built. A decision paper; nothing is built from it. Thomas, on the weather work: "Weather as its own part: we need to discuss this and why a module is not the only right answer." It answers the question [plan-itinerary-weather](plan-itinerary-weather.md) left open ("whether weather should be its own route part rather than code in `server/index.js`"). Read against `main` at `8ad63a47` as code only; nothing was run.
+**Status:** Decided, 2026-11-25: Thomas chose option B, then refined it: the engine stays core and the options (on or off, service, C or F, icon style) live in a bundled Weather module, because people look for options on a module (Thomas, 2026-11-25). Open questions below take the planner's leans unless he says otherwise. Not yet built. A decision paper; nothing is built from it. Thomas, on the weather work: "Weather as its own part: we need to discuss this and why a module is not the only right answer." It answers the question [plan-itinerary-weather](plan-itinerary-weather.md) left open ("whether weather should be its own route part rather than code in `server/index.js`"). Read against `main` at `8ad63a47` as code only; nothing was run.
 
 ## What weather is today
 
