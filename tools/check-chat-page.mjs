@@ -454,7 +454,7 @@ test('a tint colours a message\'s portrait (no edge: the Chat family, step 29) a
   const canvasJs = read('public/canvas.js');
   assert.match(canvasJs, /title: m\.name,\s*\n\s*icon: m\.icon,\s*\n\s*tint: colorOf\(m\.id\),/, 'the window\'s frame: its title bar\'s icon in the module\'s tint');
   assert.match(read('public/module-frame.js'), /if \(TINT\.test\(opts\.tint \|\| ''\)\) headIcon\.dataset\.tint = opts\.tint;/);
-  assert.ok(canvasJs.includes("icon: m.icon, tint: colorOf(m.id), label: m.name, ...(m.description ? { hint: m.description, clamp: true } : {}), badge: unreadOf(m.id)"), 'the Layout menu\'s Show list tints each module\'s icon');
+  assert.ok(canvasJs.includes("icon: m.icon, tint: colorOf(m.id), label: m.name, ...(m.description ? { tip: m.description } : {}), badge: unreadOf(m.id)"), 'the tab menu\'s Open for you list tints each module\'s icon, its name only (the description is the tooltip)');
   assert.match(read('public/switch-list.js'), /data-tint="\$\{tint\}"/);
   // The popped-out page's titlebar (GitHub #229): the server's colour, else a stable pick from the id (module-tint.js).
   const moduleJs = read('public/module.js');

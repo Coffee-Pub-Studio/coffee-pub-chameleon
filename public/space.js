@@ -3546,9 +3546,10 @@ function openLayoutSheet({ title, name = '', what = 'layout', onSave }) {
   input.select();
   return sheet;
 }
-// New workspace (plan-workspaces.md, decisions 39 and 44): a workspace of this person's own, named here, starting empty
-// (no shape, nothing open). POST /api/spaces/:id/workspaces { name }, then its tab is shown. The server keeps the limit
-// (10 added in a space) and refuses a name the person already uses there; its sentence is shown under the name.
+// New workspace (plan-workspaces.md, decisions 39, 44 and 49): a workspace of this person's own, named here, starting empty
+// (no shape, nothing open). POST /api/spaces/:id/workspaces { name }, then its tab is shown and the shape picker opens for
+// it, as Edit layout does (editLayout: openShapeSheet with { workspace, start }); Cancel there leaves it empty. The server
+// keeps the limit (10 added in a space) and refuses a name the person already uses there; its sentence is shown under the name.
 function openNewWorkspace() {
   const id = layoutSpaceId();
   if (!id || !mayOwn()) return;
@@ -3562,7 +3563,8 @@ function openNewWorkspace() {
         await refreshLayouts();
         if (layoutSpaceId() === id && workspace) {
           pressLayoutTab(workspace.id);
-          layoutNote(`Added ${workspace.name}. Open what you need from its tab's menu.`);
+          layoutNote(`Added ${workspace.name}.`);
+          editLayout(workspace.id); // pick its shape now (decision 49)
         }
       } catch (err) {
         sheet.error(err.message);
@@ -3619,6 +3621,8 @@ function manageTabs() {
     spaceWord: word('space'),
     canSetUp: layoutList.canSetDefault || layoutList.canShare,
     opener: menuOpener(),
+    // After a failed Save, the list as the server has it now (onSave's finally has read it again).
+    reload: async () => layoutList.own,
     onSave: async ({ order, removed }) => {
       try {
         for (const gone of removed) {
@@ -4250,13 +4254,15 @@ function fitLayoutTabs(avail) {
   layoutTabsMore.hidden = false;
   const more = w(layoutTabsMore);
   layoutTabsMore.hidden = !always;
-  // A pixel spare: the bar counts the left zone in whole pixels (rounded up) when it decides what folds.
+  // A pixel spare: the bar counts the left zone in whole pixels (rounded up) when it decides what folds, so a row that
+  // fits here never folds the right zone; that pixel is the whole margin (no rounding down as well).
   const current = tabs.findIndex((b) => b.dataset.layoutTab === shownLayoutTab());
   // A tab, its faces and its caret leave together: its width is all three (the two buttons sit over the tab's end).
   const after = (el) => (el && !el.hidden ? w(el) + gap + parseFloat(doc.defaultView.getComputedStyle(el).marginLeft || '0') : 0);
   const widths = tabs.map((b, i) => w(b) + after(sides[i]) + after(carets[i]));
-  const room = always ? Math.floor(avail) - 1 - more - gap : Math.floor(avail) - 1; // the "..." is there whatever fits
-  const { out, more: showMore } = tabOverflow({ avail: room, gap, widths, more: always ? 0 : more, current, workspace: Math.max(0, tabs.findIndex((b) => b.dataset.layoutTab === 'workspace')) });
+  // The "..." and its gap are counted once, by tabOverflow (keepMore: it is there whatever fits).
+  const room = avail - 1;
+  const { out, more: showMore } = tabOverflow({ avail: room, gap, widths, more, keepMore: always, current, workspace: Math.max(0, tabs.findIndex((b) => b.dataset.layoutTab === 'workspace')) });
   tabs.forEach((b, i) => { b.classList.toggle('layout-tab-out', out.includes(i)); sides[i]?.classList.toggle('layout-tab-out', out.includes(i)); carets[i]?.classList.toggle('layout-tab-out', out.includes(i)); });
   layoutTabsMore.hidden = !(showMore || always);
   markLayoutTabs();
