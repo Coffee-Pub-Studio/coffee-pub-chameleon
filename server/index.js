@@ -3589,6 +3589,20 @@ function productAddress(req, res) {
   res.json(answer.free && addressOnDisk(answer.slug) ? { slug: answer.slug, free: false, reason: 'taken' } : answer);
 }
 hostRouter.get('/api/product/address', productAddress);
+// The weather terms' host routes (accepted once for the host; see 'who accepts a weather service's terms', below) belong here, before the catch-all.
+hostRouter.get('/api/host/weather/terms', requireHostAdmin, (_req, res) => res.json(weatherTermsView(true)));
+hostRouter.put('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
+  const adapter = weatherTermsPut(req, res);
+  if (!adapter) return;
+  weatherTerms.accept(adapter, currentHostAdmin(req).login || currentHostAdmin(req).displayName);
+  res.json(weatherTermsView(true));
+});
+hostRouter.delete('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
+  const adapter = weatherAdapter(req.params.service);
+  if (!adapter) return res.status(404).json({ error: 'This server has no such weather service.' });
+  weatherTerms.withdraw(adapter);
+  res.json(weatherTermsView(true));
+});
 hostRouter.use((_req, res) => res.status(404).json({ error: 'not found' }));
 
 // --- the door: resolve an environment for this request, or route to the host console -----------------------
@@ -13617,19 +13631,6 @@ app.put('/api/weather/terms/:service', requireOwner, (req, res) => {
 app.delete('/api/weather/terms/:service', requireOwner, (req, res) => {
   if (hostRegistry) return res.status(403).json({ error: WEATHER_TERMS_HOSTED });
   if (!isServerAdmin(req)) return res.status(403).json({ error: WEATHER_TERMS_ADMIN });
-  const adapter = weatherAdapter(req.params.service);
-  if (!adapter) return res.status(404).json({ error: 'This server has no such weather service.' });
-  weatherTerms.withdraw(adapter);
-  res.json(weatherTermsView(true));
-});
-hostRouter.get('/api/host/weather/terms', requireHostAdmin, (_req, res) => res.json(weatherTermsView(true)));
-hostRouter.put('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
-  const adapter = weatherTermsPut(req, res);
-  if (!adapter) return;
-  weatherTerms.accept(adapter, currentHostAdmin(req).login || currentHostAdmin(req).displayName);
-  res.json(weatherTermsView(true));
-});
-hostRouter.delete('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
   const adapter = weatherAdapter(req.params.service);
   if (!adapter) return res.status(404).json({ error: 'This server has no such weather service.' });
   weatherTerms.withdraw(adapter);
