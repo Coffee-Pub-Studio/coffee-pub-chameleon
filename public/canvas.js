@@ -3152,9 +3152,10 @@ export function createCanvas({ guestToken = null, guest = Boolean(guestToken), o
   function menuEntries() {
     const shown = (id) => opened.has(id) && !hiddenByView(id);
     const builtinList = columnMode() ? [] : [...builtins.values()].sort((a, b) => a.order - b.order).filter((def) => !def.allowed || def.allowed());
+    // Names only, so the menu stays short (issue #1091, item 4); a module's one-line description is the row's tooltip.
     const items = [{ heading: 'Open for you' }];
-    for (const def of builtinList) items.push({ toggle: true, checked: shown(def.id), icon: def.icon, label: def.name, ...(def.description ? { hint: def.description, clamp: true } : {}), badge: builtinUnread[def.id] || 0, onPick: () => flipShown(def.id) });
-    for (const m of available) items.push({ toggle: true, checked: shown(m.id), icon: m.icon, tint: colorOf(m.id), label: m.name, ...(m.description ? { hint: m.description, clamp: true } : {}), badge: unreadOf(m.id), onPick: () => flipShown(m.id) });
+    for (const def of builtinList) items.push({ toggle: true, checked: shown(def.id), icon: def.icon, label: def.name, ...(def.description ? { tip: def.description } : {}), badge: builtinUnread[def.id] || 0, onPick: () => flipShown(def.id) });
+    for (const m of available) items.push({ toggle: true, checked: shown(m.id), icon: m.icon, tint: colorOf(m.id), label: m.name, ...(m.description ? { tip: m.description } : {}), badge: unreadOf(m.id), onPick: () => flipShown(m.id) });
     // The file windows (public/file-viewer.js) are over the canvas, not modules of it: one entry closes them all (plan-attachments-vault.md, decision 20).
     const filesOpen = fileWindowCount(canvasDoc());
     if (filesOpen) items.push({ divider: true }, { heading: 'Open files' }, { icon: 'xmark', label: 'Close all', badge: filesOpen, onPick: () => closeAllFiles(canvasDoc()) });

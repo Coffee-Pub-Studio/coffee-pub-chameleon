@@ -314,17 +314,19 @@ export function layoutTabs({ system = [], own = [], layouts = [], current = 'wor
 // shown, as many staying as fit with the "..." (`more`, its width) beside them. The Workspace and the
 // tab shown now (`current`, its index; -1 for none) never leave (Thomas, 2026-10-13): they stay even where nothing
 // else fits, and the bar's other tools give way after them. Tabs are never shortened. `widths` are the tabs' widths in
-// order, `workspace` the Workspace's index (0, first, unless the owner put another layout before it), `gap` the space between two neighbours. Gives { out, count, more }: the indexes of the tabs in the "...", in
-// order, how many tabs show, and whether the "..." shows. Pure, for check-nav.
-export function tabOverflow({ avail, gap = 0, widths = [], more = 0, current = -1, workspace = 0 } = {}) {
+// order, `workspace` the Workspace's index (0, first, unless the owner put another layout before it), `gap` the space between two neighbours.
+// `keepMore`: the "..." shows whatever fits (it holds New workspace), so it and its gap are counted even when every tab
+// fits; they are counted once, here, and never taken off `avail` by the caller as well. Gives { out, count, more }: the
+// indexes of the tabs in the "...", in order, how many tabs show, and whether the "..." shows. Pure, for check-nav.
+export function tabOverflow({ avail, gap = 0, widths = [], more = 0, current = -1, workspace = 0, keepMore = false } = {}) {
   const limit = Number.isFinite(avail) ? avail : Infinity;
   const n = widths.length;
   const row = (list) => list.reduce((sum, i) => sum + widths[i], 0) + gap * Math.max(0, list.length - 1);
   const all = widths.map((_, i) => i);
-  if (row(all) <= limit + 0.5) return { out: [], count: n, more: false };
+  if (row(all) + (keepMore && n ? gap + more : 0) <= limit + 0.5) return { out: [], count: n, more: keepMore };
   const pinned = (i) => i === workspace || i === current; // `workspace`: the Workspace's index (first unless the owner moved it)
   const others = all.filter((i) => !pinned(i));
-  if (!others.length) return { out: [], count: n, more: false }; // nothing that may leave
+  if (!others.length) return { out: [], count: n, more: keepMore }; // nothing that may leave
   let keep = others.length - 1;
   const shownWith = (k) => all.filter((i) => pinned(i) || others.slice(0, k).includes(i));
   while (keep > 0 && row(shownWith(keep)) + gap + more > limit + 0.5) keep -= 1;

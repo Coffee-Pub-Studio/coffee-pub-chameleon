@@ -8,8 +8,8 @@
  * dropped on read, and there is no .../favorite route. Step 4: a space's defaultLayout (owners, the admin and
  * moderators), cleared when its layout is deleted, carried by GET /api/modules/for-space. Layout views, step 1
  * (documentation/plans/plan-layout-views.md): layouts gain kind and icon; the system layouts are made per space from what
- * is on and never stored; a person's own name and icon for them are stored per person per space (PATCH
- * .../layouts/system/:systemId). Step 5 (the first visit as one choice): defaultLayout also takes calendar and map while
+ * is on and never stored, with their own names and icons (a person's own name, icon and tab for them are gone, issue
+ * #1091, and a file's old `system` key is dropped on read). Step 5 (the first visit as one choice): defaultLayout also takes calendar and map while
  * they are on in the space, it and the template's layout are independent, and GET .../layouts and
  * GET /api/modules/for-space carry the resolved `firstVisit`.
  */
@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
-const { Layouts, LayoutError, cleanLayout, cleanSystemPatch, LAYOUT_LIMITS, SYSTEM_IDS } = require('../server/layouts.js');
+const { Layouts, LayoutError, cleanLayout, LAYOUT_LIMITS, SYSTEM_IDS } = require('../server/layouts.js');
 import { pathToFileURL } from 'node:url';
 const { Store } = require('../server/store.js');
 const SHB = { shape: 'one', areas: [null] }; // a shared layout's body: a shape and its areas
@@ -33,6 +33,9 @@ let n = 0;
 const tmp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `check-layouts-${name}-`));
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const SH = { shape: 'two-equal', areas: ['calendar', 'notes'] };
+const G = () => ({ name: 'Game night', shared: true, ...SH }); // a layout for everyone, as POST takes it
+// A free-form layout (the canvas's own arrangement), which only the page's layoutOf() and placeLayout() read now; the
+// server refuses it (a person's own layout is a workspace).
 const good = () => ({
   name: 'Game night',
   modules: [
@@ -51,8 +54,7 @@ const refused = (input, pattern, label, options) => {
 };
 
 // --- the conference and the chat in a layout (plan-one-bar.md, step 6) ------------------------------------------
-// They live in the always-on column, so the page's layoutOf() never saves them and placeLayout() leaves them alone;
-// the server keeps accepting them in a stored layout (an older one, or one a phone saved), so nothing stored breaks.
+// They live in the always-on column, so the page's layoutOf() never saves them and placeLayout() leaves them alone.
 {
   const dir = tmp('column');
   fs.copyFileSync(path.join(ROOT, 'public/snap-grid.js'), path.join(dir, 'snap-grid.mjs'));
@@ -67,7 +69,6 @@ const refused = (input, pattern, label, options) => {
   const placed = placeLayout(good(), area);
   assert.deepEqual(placed.modules.map((m) => m.id), ['calendar'], 'placeLayout() places neither');
   assert.deepEqual(placed.left, [], 'and names neither as left out');
-  assert.ok(cleanLayout(good()).layout, 'the server still accepts a layout naming them');
   n += 1;
   // The composite (plan-calendar-todo.md, step 3; public/composites.js's aliasesFor): a stored `calendar` is placed as
   // `dest:calendar`, once, with its mode and places; the layout itself is not rewritten, and where the Calendar is off a
@@ -86,7 +87,6 @@ const refused = (input, pattern, label, options) => {
   assert.deepEqual([none.modules, none.left], [[], []], 'and nothing, not left out, where the Calendar is off');
   const saved2 = layoutOf([{ id: 'calendar', mode: 'dock', order: 1, width: 360 }, { id: 'todo', mode: 'float', order: 2, box: { x: 10, y: 10, w: 300, h: 300 } }], area, {}, on);
   assert.deepEqual(saved2.modules.map((m) => m.id), ['dest:calendar', 'todo'], 'layoutOf() through the aliases saves the composite once and the To-do as itself');
-  assert.ok(!cleanLayout({ modules: [{ id: 'dest:calendar', mode: 'dock' }], snap: { all: false, pitch: 130 } }).layout, 'the server\'s store takes module ids only, so the page saves a composite under its main\'s id');
   // The Map (plan-map-places.md, step 3): a stored `maps` places `dest:map` once while the space's Map is
   // shown; with no map file (no aliases for it) it places as itself, and a stored `dest:map` places Maps.
   const mapOn = { maps: 'dest:map' };
@@ -99,9 +99,8 @@ const refused = (input, pattern, label, options) => {
   assert.deepEqual(placeLayout({ modules: [{ id: 'dest:map', mode: 'dock' }] }, area, () => true, { 'dest:map': ['maps'] }).modules.map((m) => m.id), ['maps'], 'a stored dest:map places Maps where there is no map file');
   assert.deepEqual(layoutOf([{ id: 'maps', mode: 'dock', order: 1, width: 360 }], area, {}, mapOn).modules.map((m) => m.id), ['dest:map'], 'layoutOf() through the aliases saves the Map once');
   // A module's own snap (Thomas, 2026-10-13: the canvas-level switch is the only one): an older stored layout with one
-  // still places, the field ignored; the server still accepts it; the page never saves it.
+  // still places, the field ignored; the page never saves it.
   const oldSnap = { name: 'Old', modules: [{ id: 'todo', mode: 'float', box: { x: 0.1, y: 0.1, w: 0.4, h: 0.5 }, snap: true }], snap: { all: false, pitch: 130 } };
-  assert.ok(cleanLayout(oldSnap).layout, 'the server still accepts a module\'s own snap');
   const oldPlaced = placeLayout(oldSnap, area);
   assert.deepEqual(oldPlaced.modules.map((m) => [m.id, m.snap, Boolean(m.cell)]), [['todo', false, false]], 'a module\'s own stored snap is ignored');
   assert.ok(placeLayout({ ...oldSnap, snap: { all: true, pitch: 130 } }, area).modules[0].cell, 'the canvas-level snap still snaps it');
@@ -109,69 +108,36 @@ const refused = (input, pattern, label, options) => {
   n += 1;
 }
 
-// --- cleanLayout: the shape -------------------------------------------------------------------------------------
+// --- cleanLayout: the name, the kind and a PUT ---------------------------------------------------------------------
+// A layout for everyone is the only kind (plan-workspaces.md, decision 44); the free-form keys of the canvas's own
+// arrangement (modules, snap, arrange) are refused whatever their value, and so is a layout that is not `shared: true`.
 
 {
-  const out = cleanLayout(good());
-  assert.deepEqual(out.layout, good(), 'a good layout comes back as sent');
-  const trimmed = cleanLayout({ ...good(), name: '  Game \t night  ', modules: [{ id: 'calendar', mode: 'dock', dockW: 360.4 }], snap: { all: true, pitch: 99.6 } }).layout;
-  assert.equal(trimmed.name, 'Game night', 'the name is trimmed, its whitespace collapsed');
-  assert.ok(!('shared' in trimmed), 'shared is not given when it was not sent');
-  assert.equal(trimmed.modules[0].dockW, 360, 'pixels rounded');
-  assert.equal(trimmed.snap.pitch, 100);
-  assert.ok(!('snap' in cleanLayout({ name: 'x', modules: [{ id: 'chat', mode: 'dock' }] }).layout), 'snap may be left out');
-  assert.equal(cleanLayout({ ...good(), name: 'é'.repeat(LAYOUT_LIMITS.name) }).layout.name.length, 40, '40 characters is allowed');
-  assert.equal(cleanLayout({ ...good(), modules: Array.from({ length: 20 }, (_, i) => ({ id: `m${i}`, mode: 'dock' })) }).layout.modules.length, 20, '20 modules is allowed');
-  const edge = cleanLayout({ name: 'Edge', modules: [{ id: 'a', mode: 'dock', dockW: 160 }, { id: 'b', mode: 'dock', dockW: 2000 }, { id: 'c', mode: 'float', box: { x: 0, y: 1, w: 1, h: 0.01 } }], snap: { all: true, pitch: 320 } });
-  assert.ok(edge.layout, `the limits themselves are allowed: ${edge.error}`);
-  assert.ok(cleanLayout({ ...good(), snap: { all: false, pitch: 50 } }).layout);
+  assert.deepEqual(cleanLayout(G()).layout, G(), 'a good layout comes back as sent');
+  assert.equal(cleanLayout({ ...G(), name: '  Game \t night  ' }).layout.name, 'Game night', 'the name is trimmed, its whitespace collapsed');
+  assert.equal(cleanLayout({ ...G(), name: '\u00e9'.repeat(LAYOUT_LIMITS.name) }).layout.name.length, 40, '40 characters is allowed');
+  assert.deepEqual(Object.keys(LAYOUT_LIMITS).sort(), ['name', 'shared'], 'the server keeps only the limits of a layout for everyone');
   n += 1;
 
   refused(null, /JSON/, 'not an object');
   refused([], /JSON/, 'a list');
-  refused({ ...good(), extra: 1 }, /"extra"/, 'an unknown top-level field');
-  refused({ ...good(), name: undefined }, /name/, 'no name');
-  refused({ ...good(), name: '   ' }, /name/, 'a blank name');
-  refused({ ...good(), name: 7 }, /text/, 'a name that is not text');
-  refused({ ...good(), name: 'x'.repeat(41) }, /40 characters/, 'a name of 41 characters');
-  refused({ ...good(), shared: 'yes' }, /shared with true or false/, 'shared not a boolean');
-  assert.deepEqual(cleanLayout({ name: 'Blank', modules: [], arrange: 'window' }).layout, { name: 'Blank', modules: [], arrange: 'window' }, 'an empty list is a blank layout, and keeps its arrange');
-  assert.ok(!('arrange' in cleanLayout({ ...good() }).layout), 'arrange may be left out');
-  refused({ ...good(), arrange: 'grid' }, /dock or window/, 'arrange must be dock or window');
-  refused({ ...good(), modules: undefined }, /List the/, 'no modules key');
-  refused({ ...good(), modules: 'chat' }, /List the/, 'modules not a list');
-  refused({ ...good(), modules: Array.from({ length: 21 }, (_, i) => ({ id: `m${i}`, mode: 'dock' })) }, /at most 20/, '21 modules');
-  refused({ ...good(), modules: ['chat'] }, /id and a mode/, 'a module that is a string');
-  refused({ ...good(), modules: [{ id: 'Chat', mode: 'dock' }] }, /"Chat" is not a module id/, 'a bad id');
-  refused({ ...good(), modules: [{ mode: 'dock' }] }, /null is not a module id/, 'no id');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'dock' }, { id: 'chat', mode: 'float' }] }, /listed twice/, 'an id twice');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'window' }] }, /dock or float/, 'mode window');
-  refused({ ...good(), modules: [{ id: 'chat' }] }, /dock or float/, 'no mode');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'dock', cell: 3 }] }, /"cell"/, 'an unknown module field');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'dock', dockW: 159 }] }, /160 to 2000/, 'dockW 159');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'dock', dockW: 2001 }] }, /160 to 2000/, 'dockW 2001');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'dock', dockW: '300' }] }, /160 to 2000/, 'dockW as text');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'float', box: { x: 0, y: 0, w: 1.2, h: 0.5 } }] }, /fraction/, 'a box wider than the canvas');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'float', box: { x: -0.1, y: 0, w: 0.5, h: 0.5 } }] }, /fraction/, 'a negative fraction');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'float', box: { x: 0, y: 0, w: 0, h: 0.5 } }] }, /above 0/, 'a box of no width');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'float', box: { x: 0, y: 0, w: 0.5 } }] }, /fraction/, 'a box with no h');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'float', box: { x: 0, y: 0, w: 0.5, h: 0.5, z: 1 } }] }, /fraction/, 'a box with z');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'float', snap: 'yes' }] }, /snap must be true or false/, 'a module snap not a boolean');
-  refused({ ...good(), snap: { all: false, pitch: 49 } }, /50 to 320/, 'pitch 49');
-  refused({ ...good(), snap: { all: false, pitch: 321 } }, /50 to 320/, 'pitch 321');
-  refused({ ...good(), snap: { pitch: 100 } }, /all true or false/, 'snap with no all');
-  refused({ ...good(), snap: true }, /snap must be/, 'snap not an object');
-  refused({ ...good(), snap: { all: true, pitch: 100, cells: 3 } }, /snap must be/, 'snap with an extra field');
-  refused({ ...good(), modules: [{ id: 'chat', mode: 'dock' }, { id: 'map', mode: 'dock', dockW: 50 }] }, /"map"/, 'one bad entry refuses the whole layout');
+  refused({ ...G(), extra: 1 }, /"extra"/, 'an unknown top-level field');
+  refused({ ...G(), name: undefined }, /name/, 'no name');
+  refused({ ...G(), name: '   ' }, /name/, 'a blank name');
+  refused({ ...G(), name: 7 }, /text/, 'a name that is not text');
+  refused({ ...G(), name: 'x'.repeat(41) }, /40 characters/, 'a name of 41 characters');
+  for (const shared of [undefined, false, 'yes']) refused({ ...G(), shared }, /^A layout of your own is a workspace now/, `shared ${JSON.stringify(shared)}`);
+  for (const [key, value] of [['modules', []], ['modules', null], ['snap', { all: true, pitch: 100 }], ['arrange', 'window']]) {
+    refused({ ...G(), [key]: value }, /^A layout for everyone is a shape; pick one with the picker\.$/, `${key} ${JSON.stringify(value)}`);
+  }
+  refused({ name: 'Mine', modules: [{ id: 'calendar', mode: 'dock' }] }, /^A layout for everyone is a shape/, 'a free-form layout');
 
-  // A PUT: any of name, modules, snap; never shared.
+  // A PUT: name, or shape with areas; never shared.
   assert.deepEqual(cleanLayout({ name: 'Planning' }, { partial: true }).layout, { name: 'Planning' });
   assert.deepEqual(cleanLayout({}, { partial: true }).layout, {});
-  assert.deepEqual(cleanLayout({ snap: { all: true, pitch: 80 } }, { partial: true }).layout, { snap: { all: true, pitch: 80 } });
-  refused({ shared: true }, /moved between/, 'a PUT cannot move a layout between lists', { partial: true });
+  refused({ shared: true }, /^A layout for everyone stays one/, 'a PUT cannot change the kind', { partial: true });
   refused({ name: '' }, /name/, 'a PUT with a blank name', { partial: true });
-  assert.deepEqual(cleanLayout({ modules: [], arrange: 'dock' }, { partial: true }).layout, { modules: [], arrange: 'dock' }, 'a PUT may empty the list');
-  refused({ modules: 'chat' }, /List the/, 'a PUT with modules not a list', { partial: true });
+  refused({ modules: [] }, /^A layout for everyone is a shape/, 'a PUT with modules', { partial: true });
 }
 
 // --- cleanLayout: a layout for everyone is a shape (plan-layout-picker.md, step 6; decision 5) -----------------------
@@ -231,22 +197,16 @@ const refused = (input, pattern, label, options) => {
   assert.ok(hostileName.layout, 'a hostile name only matters in a sentence');
   const dup = cleanLayout(sh('two-equal', ['notes', 'notes']), { shapeOptions: { modules: ['notes'], names: { notes: 'a\nb'.repeat(30) } } });
   assert.ok(!dup.error.includes('\n') && dup.error.length < 120, 'a name with a line break in a sentence is cleaned and cut');
-  // A personal layout takes no shape; a shared one is a shape, never free-form.
-  refused({ ...good(), shape: 'one', areas: [null] }, /^Only a layout for everyone is a shape/, 'a personal layout with a shape');
-  refused({ name: 'x', modules: [], areas: [null] }, /^Only a layout for everyone is a shape/, 'a personal layout with areas');
-  // A PUT: the layout's kind says which keys it takes.
-  const asShared = { partial: true, shared: true, ...opts };
+  // A PUT: a shape and its areas, or a name.
+  const asShared = { partial: true, ...opts };
   assert.deepEqual(cleanLayout({ name: 'Renamed' }, asShared).layout, { name: 'Renamed' }, 'a rename of a shape');
   assert.deepEqual(cleanLayout({ shape: 'two-equal', areas: ['polls', null] }, asShared).layout, { shape: 'two-equal', areas: ['polls', null] }, 'a replace');
   assert.deepEqual(cleanLayout({}, asShared).layout, {}, 'nothing to change is the route\'s to refuse');
   refused({ shape: 'two-equal' }, /^This shape has 2 areas\.$/, 'a shape with no areas', asShared);
   refused({ areas: [null] }, /^Pick a shape from the list\.$/, 'areas with no shape', asShared);
   refused({ modules: [] }, /^A layout for everyone is a shape/, 'modules on a shared PUT', asShared);
-  refused({ shape: 'one', areas: [null] }, /^Only a layout for everyone is a shape/, 'a shape on a personal PUT', { partial: true });
-  assert.deepEqual(cleanLayout({ modules: stackedDock() }, { partial: true }).layout.modules.map((m) => m.id), ['a', 'b'], 'a personal PUT is as it was');
   n += 1;
 }
-function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'dock' }]; }
 
 // --- the file: free-form shared layouts are dropped on read (plan-layout-picker.md, decision 5) ------------------------
 {
@@ -319,7 +279,7 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   const dir = tmp('file');
   const layouts = new Layouts(dir);
   assert.ok(!fs.existsSync(path.join(dir, 'layouts.json')), 'nothing written until something is saved');
-  const g = cleanLayout(good()).layout;
+  const g = cleanLayout(G()).layout;
   const shared = layouts.add('s1', 'pat', { ...g, ...SH, shared: true });
   assert.match(shared.id, /^l[a-z0-9]{6}$/);
   assert.equal(shared.by, 'pat');
@@ -383,23 +343,23 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   for (const d of [dir, dir2, dir3]) fs.rmSync(d, { recursive: true, force: true });
 }
 
-// --- layout views, step 1: kind, icon and the system layouts' per-person record ----------------------------------------
+// --- layout views, step 1: kind and icon; the system layouts store nothing per person -----------------------------------
 
 {
   assert.deepEqual([...SYSTEM_IDS], ['workspace', 'calendar', 'map', 'conference', 'whiteboard', 'documents', 'schedule']);
   // cleanLayout takes an icon (an id from the list it is given); the rest is as before.
-  assert.equal(cleanLayout({ ...good(), icon: 'couch' }, { icons: ['couch', 'columns'] }).layout.icon, 'couch', 'an icon from the list');
-  assert.equal(cleanLayout({ ...good(), icon: 'couch' }).layout.icon, 'couch', 'any well-formed id when no list is given');
-  refused({ ...good(), icon: 'sofa' }, /^Pick an icon from the list\.$/, 'an icon not in the list', { icons: ['couch'] });
-  refused({ ...good(), icon: 7 }, /Pick an icon/, 'an icon that is not text');
-  refused({ ...good(), icon: 'Bad Icon!' }, /Pick an icon/, 'a malformed icon id');
+  assert.equal(cleanLayout({ ...G(), icon: 'couch' }, { icons: ['couch', 'columns'] }).layout.icon, 'couch', 'an icon from the list');
+  assert.equal(cleanLayout({ ...G(), icon: 'couch' }).layout.icon, 'couch', 'any well-formed id when no list is given');
+  refused({ ...G(), icon: 'sofa' }, /^Pick an icon from the list\.$/, 'an icon not in the list', { icons: ['couch'] });
+  refused({ ...G(), icon: 7 }, /Pick an icon/, 'an icon that is not text');
+  refused({ ...G(), icon: 'Bad Icon!' }, /Pick an icon/, 'a malformed icon id');
   assert.equal(cleanLayout({ icon: 'couch' }, { partial: true, icons: ['couch'] }).layout.icon, 'couch', 'a PUT may change only the icon');
 
   // Stored layouts have no kind or icon; the list reads them as kind user with the default icon, the file untouched.
   const dir = tmp('system');
   const file = path.join(dir, 'layouts.json');
   const layouts = new Layouts(dir);
-  const g = cleanLayout(good()).layout;
+  const g = cleanLayout(G()).layout;
   const plain = layouts.add('s1', 'pat', { ...g, ...SH, shared: true });
   const iconed = layouts.add('s1', 'pat', { ...g, ...SH, shared: true, name: 'Iconed', icon: 'couch' });
   assert.ok(!('kind' in readJson(file).spaces.s1.shared[0]) && !('icon' in readJson(file).spaces.s1.shared[0]), 'nothing is rewritten with a kind or an icon');
@@ -410,54 +370,20 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   layouts.remove('s1', iconed.id);
   assert.deepEqual(readJson(file), { spaces: {} });
 
-  // The per-person record: name, icon and tab, nothing else in the file.
-  assert.deepEqual(layouts.systemOf('s1', 'pat'), {}, 'none to begin with');
-  assert.deepEqual(layouts.systemOf('s1', null), {}, 'a guest has none');
-  assert.deepEqual(layouts.setSystem('s1', 'pat', 'workspace', { name: 'Desk', icon: 'couch' }), { name: 'Desk', icon: 'couch' });
-  assert.deepEqual(layouts.setSystem('s1', 'pat', 'map', { tab: false }), { tab: false });
-  assert.deepEqual(readJson(file), { spaces: { s1: { shared: [], system: { pat: { workspace: { name: 'Desk', icon: 'couch' }, map: { tab: false } } } } } }, 'stored per person per space');
-  assert.deepEqual(layouts.systemOf('s1', 'sam'), {}, "pat's choices are pat's");
-  assert.deepEqual(layouts.systemOf('s2', 'pat'), {}, 'and this space\'s');
-  assert.deepEqual(new Layouts(dir).systemOf('s1', 'pat'), layouts.systemOf('s1', 'pat'), 'read back as written');
-  const once = fs.readFileSync(file, 'utf8');
-  layouts.setSystem('s1', 'pat', 'map', { tab: false });
-  assert.equal(fs.readFileSync(file, 'utf8'), once, 'doing what is already so writes nothing');
-  assert.deepEqual(layouts.setSystem('s1', 'pat', 'workspace', { name: null }), { icon: 'couch' }, 'null puts the default name back');
-  assert.deepEqual(layouts.setSystem('s1', 'pat', 'map', { tab: true }), {}, 'tab true puts the tab back');
-  assert.ok(!('map' in readJson(file).spaces.s1.system.pat), 'and leaves nothing stored for it');
-  layouts.setSystem('s1', 'pat', 'workspace', { icon: null });
-  assert.deepEqual(readJson(file), { spaces: {} }, 'a record with nothing left is dropped, and the space with it');
-  // Beside the layouts it is cleaned with them.
-  layouts.add('s1', 'pat', { ...g, ...SH, shared: true });
-  layouts.setSystem('s1', 'pat', 'calendar', { name: 'Plans' });
-  layouts.setSystem('s1', 'sam', 'calendar', { name: 'Ours' });
-  layouts.forgetPerson('pat');
-  assert.deepEqual(Object.keys(readJson(file).spaces.s1.system), ['sam'], "a removed person takes their record; sam's stays");
-  layouts.forgetSpace('s1');
-  assert.deepEqual(readJson(file), { spaces: {} }, 'a removed space takes the records');
-  // An unreadable-looking record is cleaned on load: unknown ids, a long name, a tab off for the Workspace.
-  const dir2 = tmp('system-junk');
-  fs.writeFileSync(path.join(dir2, 'layouts.json'), JSON.stringify({ spaces: { s1: { shared: [], people: {}, system: {
-    pat: { workspace: { name: 'x'.repeat(41), icon: 'Bad!', tab: false }, calendar: { name: ' Plans ', tab: false }, other: { name: 'no' } }, sam: 'junk', ann: {},
-  } } } }));
-  const junk = new Layouts(dir2);
-  assert.deepEqual(junk.systemOf('s1', 'pat'), { calendar: { name: 'Plans', tab: false } }, 'only what this version knows');
-  assert.deepEqual(Object.keys(junk.spaces.s1.system), ['pat']);
-  assert.throws(() => { fs.writeFileSync(path.join(dir2, 'layouts.json'), '{ not json'); new Layouts(dir2).setSystem('s1', 'pat', 'map', { tab: false }); }, (e) => e.status === 500, 'an unreadable file is never written over');
-
-  // The pure check of a person's change.
-  assert.deepEqual(cleanSystemPatch({ name: '  Our \t plans ', icon: 'couch', tab: false }, { icons: ['couch'] }).patch, { name: 'Our plans', icon: 'couch', tab: false });
-  assert.deepEqual(cleanSystemPatch({ name: null, icon: null }).patch, { name: null, icon: null }, 'null goes back to the default');
-  const bad = (input, pattern, label, o) => { const out = cleanSystemPatch(input, o); assert.ok(out.error && !out.patch && pattern.test(out.error) && /^[^\n]+\.$/.test(out.error), `${label}: ${JSON.stringify(out)}`); };
-  bad(null, /JSON/, 'not an object');
-  bad({}, /Send a new name/, 'nothing');
-  bad({ name: '   ' }, /Give the layout a name/, 'a blank name');
-  bad({ name: 7 }, /must be text/, 'a name that is not text');
-  bad({ name: 'x'.repeat(41) }, /40 characters/, 'a long name');
-  bad({ icon: 'sofa' }, /^Pick an icon from the list\.$/, 'an icon not in the list', { icons: ['couch'] });
-  bad({ icon: 4 }, /Pick an icon/, 'an icon that is not text');
-  bad({ tab: 'no' }, /true or false/, 'a tab that is not a boolean');
-  bad({ modules: [] }, /"modules"/, 'a field it does not take');
+  // A person's own name, icon and tab for a system layout are gone (issue #1091): a file's old `system` key is dropped on
+  // read, with `people` and `favorites`, and nothing is written for it. Each person's `last` stays.
+  const dir2 = tmp('system-gone');
+  fs.writeFileSync(path.join(dir2, 'layouts.json'), JSON.stringify({ spaces: {
+    s1: { shared: [], people: {}, favorites: {}, system: { pat: { workspace: { name: 'Desk', icon: 'couch' }, map: { tab: false } } } },
+    s2: { shared: [], system: { pat: { calendar: { name: 'Plans' } } }, last: { pat: { layout: 'calendar', at: 1 } } },
+  } }));
+  const gone = new Layouts(dir2);
+  assert.deepEqual(gone.spaces, { s2: { shared: [], last: { pat: { layout: 'calendar', at: 1 } } } }, 'the old system key is dropped on read');
+  assert.ok(!('systemOf' in gone) && !('setSystem' in gone), 'and nothing reads or writes it');
+  assert.deepEqual(gone.iconIds(), [], 'an old system icon is not counted as in use');
+  gone.setLast('s2', 'pat', 'map');
+  assert.ok(!('system' in readJson(path.join(dir2, 'layouts.json')).spaces.s2), 'the next save leaves it out');
+  assert.throws(() => { fs.writeFileSync(path.join(dir2, 'layouts.json'), '{ not json'); new Layouts(dir2).setLast('s1', 'pat', 'map'); }, (e) => e.status === 500, 'an unreadable file is never written over');
   n += 1;
   for (const d of [dir, dir2]) fs.rmSync(d, { recursive: true, force: true });
 }
@@ -471,125 +397,34 @@ function stackedDock() { return [{ id: 'a', mode: 'dock' }, { id: 'b', mode: 'do
   const sam = store.addUser({ login: 'sam', displayName: 'Sam', role: 'member', passwordHash: 'x' });
   const a = store.addSpace({ name: 'A', members: [pat.key, sam.key] });
   const b = store.addSpace({ name: 'B', members: [pat.key, sam.key] });
-  const g = cleanLayout(good()).layout;
+  const g = cleanLayout(G()).layout;
   store.layouts.add(a.id, sam.key, { ...g, ...SH, shared: true });
   store.layouts.add(b.id, pat.key, { ...g, ...SH, shared: true });
-  store.layouts.setSystem(b.id, pat.key, 'workspace', { name: 'Desk' });
-  store.layouts.setSystem(b.id, sam.key, 'workspace', { name: 'Mine' });
+  store.layouts.setLast(b.id, pat.key, 'workspace');
+  store.layouts.setLast(b.id, sam.key, 'workspace');
   store.removeSpace(a.id);
   let file = readJson(path.join(dir, 'layouts.json'));
   assert.ok(!file.spaces[a.id], 'a removed space takes its layouts');
   store.removeUser(pat.key);
   file = readJson(path.join(dir, 'layouts.json'));
-  assert.deepEqual(Object.keys(file.spaces[b.id].system), [sam.key], 'a removed person takes their own record');
+  assert.deepEqual(Object.keys(file.spaces[b.id].last), [sam.key], 'a removed person takes their last layout');
   assert.equal(file.spaces[b.id].shared.length, 1, 'and the shared layout they saved stays');
   assert.equal(path.dirname(store.layouts.file), dir, "layouts.json is in the environment's data folder, which its export and backup zip whole");
   fs.rmSync(dir, { recursive: true, force: true });
   n += 1;
 }
 
-// --- stacks (plan-panel-stacking.md, decision 4): cleanLayout() accepts and cleans them -----------------------------
-
-{
-  const dock = (id, extra = {}) => ({ id, mode: 'dock', dockW: 320, ...extra });
-  const mods = (modules, options) => cleanLayout({ name: 'Stacked', modules }, options).layout?.modules;
-  const stacked = [
-    dock('calendar'),
-    dock('todo', { stack: 's1', at: 0, h: 0.4 }),
-    dock('polls', { stack: 's1', at: 1, h: 0.6, folded: true }),
-  ];
-  // A stack round-trips: the same shape comes back, and cleaning it again changes nothing.
-  assert.deepEqual(mods(stacked), stacked, 'a stack of two round-trips');
-  assert.deepEqual(mods(mods(stacked)), stacked, 'and cleaning it twice is the same');
-  const three = [dock('todo', { stack: 'abc123', at: 0, h: 0.3 }), dock('polls', { stack: 'abc123', at: 1, h: 0.3 }), dock('notes', { stack: 'abc123', at: 2, h: 0.4, folded: false })];
-  assert.deepEqual(mods(three), three, 'a stack of three round-trips, folded false kept');
-  assert.deepEqual(mods([...stacked, dock('notes', { stack: 's2', at: 0 }), dock('budget', { stack: 's2', at: 1 })]).map((m) => m.stack), [undefined, 's1', 's1', 's2', 's2'], 'two stacks');
-  // Old layouts, with no stack keys, are unchanged.
-  assert.deepEqual(cleanLayout(good()).layout.modules, good().modules, 'a layout without stacks is as it was');
-  n += 4;
-
-  // Malformed shapes are cleaned, never refused and never trusted.
-  const same = (input, expected, label) => { assert.deepEqual(mods(input), expected, label); n += 1; };
-  same([dock('todo', { stack: 's1', at: 0, h: 0.5, folded: true })], [dock('todo')], 'one member is an ordinary column, all stack keys gone');
-  same([dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 }), dock('notes', { stack: 's1', at: 2 }), dock('budget', { stack: 's1', at: 3 })],
-    [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 }), dock('notes', { stack: 's1', at: 2 }), dock('budget')], 'a fourth member becomes an ordinary column');
-  same([dock('todo', { stack: 's1', at: 1 }), dock('polls', { stack: 's1', at: 0 })],
-    [dock('polls', { stack: 's1', at: 0 }), dock('todo', { stack: 's1', at: 1 })], 'members come back in at order');
-  same([dock('todo', { stack: 's1', at: 0 }), dock('x', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 7 })],
-    [dock('todo', { stack: 's1', at: 0 }), dock('x', { stack: 's1', at: 1 }), dock('polls', { stack: 's1', at: 2 })], 'a repeated or out of range at keeps list order and is renumbered');
-  same([dock('todo', { stack: 's1', at: 0 }), dock('calendar'), dock('polls', { stack: 's1', at: 1 })],
-    [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 }), dock('calendar')], 'members are kept together at the first one');
-  same([dock('todo', { stack: 's1', at: 0, h: 0.5 }), dock('polls', { stack: 's1', at: 1 })],
-    [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 })], 'h on some members only is ignored');
-  same([dock('todo', { stack: 's1', at: 0, h: 0.3 }), dock('polls', { stack: 's1', at: 1, h: 0.3 })],
-    [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 })], 'h not adding up to 1 is ignored');
-  same([dock('todo', { stack: 's1', at: 0, h: 'a' }), dock('polls', { stack: 's1', at: 1, h: 0.5 })],
-    [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 })], 'h as text is ignored');
-  same([dock('todo', { stack: 's1', at: 0, h: 0.02 }), dock('polls', { stack: 's1', at: 1, h: 0.98 })],
-    [dock('todo', { stack: 's1', at: 0, h: 0.1 }), dock('polls', { stack: 's1', at: 1, h: 0.9 })], 'h is clamped to 0.1 and 0.9');
-  same([dock('todo', { stack: 's1', at: 0, h: 0.02 }), dock('polls', { stack: 's1', at: 1, h: 0.5 })],
-    [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 })], 'h that no longer adds up to 1 once clamped is ignored');
-  same([dock('todo', { stack: 's1', at: 0, h: 0.1 }), dock('polls', { stack: 's1', at: 1, h: 0.9 })],
-    [dock('todo', { stack: 's1', at: 0, h: 0.1 }), dock('polls', { stack: 's1', at: 1, h: 0.9 })], 'the edges of h are allowed');
-  same([dock('todo', { stack: 's1', at: 0, h: 0.4, folded: 'yes' }), dock('polls', { stack: 's1', at: 1, h: 0.60004 })],
-    [dock('todo', { stack: 's1', at: 0, h: 0.4 }), dock('polls', { stack: 's1', at: 1, h: 0.6 })], 'folded not a boolean is dropped, h rounded');
-  for (const bad of ['', 'S1', 'a-b', 'x'.repeat(33), 7, null, {}]) {
-    same([dock('todo', { stack: bad, at: 0 }), dock('polls', { stack: bad, at: 1 })], [dock('todo'), dock('polls')], `stack id ${JSON.stringify(bad)} is dropped`);
-  }
-  same([dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 }), dock('notes', { stack: 's1', at: 1.5 })],
-    [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 }), dock('notes', { stack: 's1', at: 2 })], 'a fractional at is not trusted');
-  same([{ id: 'todo', mode: 'float', box: { x: 0, y: 0, w: 0.3, h: 0.3 }, stack: 's1', at: 0 }, dock('polls', { stack: 's1', at: 1 })],
-    [{ id: 'todo', mode: 'float', box: { x: 0, y: 0, w: 0.3, h: 0.3 } }, dock('polls')], 'a floating module cannot be in a stack');
-  assert.ok(cleanLayout({ name: 'x', modules: [dock('todo', { stack: 's1', at: 0, extra: 1 })] }).error, 'a key that is not a layout key is still refused');
-  assert.ok(cleanLayout({ name: 'x', modules: [dock('todo', { stack: 's1' }), dock('todo', { stack: 's1' })] }).error, 'a module listed twice is still refused');
-  n += 2;
-
-  // Never stacked: the conference, Chat and the composites.
-  same([dock('conference', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 })], [dock('conference'), dock('polls')], 'the conference cannot be stacked, so the other is alone');
-  same([dock('chat', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 }), dock('todo', { stack: 's1', at: 2 })],
-    [dock('chat'), dock('polls', { stack: 's1', at: 0 }), dock('todo', { stack: 's1', at: 1 })], 'Chat is left out of a stack, the rest stay stacked');
-  assert.ok(cleanLayout({ name: 'x', modules: [dock('dest:calendar', { stack: 's1', at: 0 })] }).error, 'a composite is not a module id at all');
-  assert.ok(!stackedOf(mods([dock('chat', { stack: 's1' }), dock('conference', { stack: 's1' })])), 'nothing is left stacked when only the refused were');
-  n += 2;
-
-  // The limits: a stack's members each count in the 20; the server holds no column limit.
-  const twenty = Array.from({ length: 20 }, (_, i) => dock(`m${i}`, i < 3 ? { stack: 's1', at: i } : {}));
-  assert.equal(mods(twenty).length, 20, '20 entries with a stack of three is allowed');
-  assert.ok(cleanLayout({ name: 'x', modules: [...twenty, dock('m20')] }).error, 'the 21st is refused, stacked or not');
-  // Nothing is lost to a bad stack: an entry a stack does not keep stays as an ordinary column, and the count is the same.
-  const first = mods([dock('polls', { stack: 's1', at: 2 }), dock('todo', { stack: 's1', at: 0 }), dock('budget', { stack: 's1', at: 1 }), dock('notes', { stack: 's1', at: 0 })]);
-  assert.equal(first.length, 4, 'the first-listed entry cut by the three-member limit is not lost');
-  assert.deepEqual(first.map((m) => m.id).sort(), ['budget', 'notes', 'polls', 'todo'], 'every module is still there');
-  assert.deepEqual(first.filter((m) => m.stack).map((m) => m.id), ['todo', 'notes', 'budget'], 'the three kept are the stack, in at order');
-  assert.ok(!('stack' in first.find((m) => m.id === 'polls')), 'and the one cut is an ordinary column');
-  const badAt = mods([dock('todo', { stack: 's1', at: 'x' }), dock('polls', { stack: 's1', at: 0 }), dock('notes', { stack: 's1', at: 1 }), dock('budget', { stack: 's1', at: 2 })]);
-  assert.equal(badAt.length, 4, 'a first-listed entry with a bad at is not lost');
-  assert.deepEqual(badAt.map((m) => m.id).sort(), ['budget', 'notes', 'polls', 'todo'], 'every module is still there (bad at)');
-  const crafted = Array.from({ length: 20 }, (_, i) => dock(`m${i}`, { stack: 's1', at: 19 - i }));
-  const craftedOut = mods(crafted);
-  assert.equal(craftedOut.length, 20, 'twenty modules all in one stack come back as twenty');
-  assert.deepEqual(craftedOut.map((m) => m.id).sort(), crafted.map((m) => m.id).sort(), 'none of the twenty is lost');
-  assert.equal(craftedOut.filter((m) => m.stack).length, 3, 'three of them are the stack');
-  // h is kept only when the members' own values add up to 1, before any clamping.
-  same([dock('todo', { stack: 's1', at: 0, h: 1e308 }), dock('polls', { stack: 's1', at: 1, h: -1e308 })], [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 })], 'h of 1e308 and -1e308 is ignored');
-  same([dock('todo', { stack: 's1', at: 0, h: 0.95 }), dock('polls', { stack: 's1', at: 1, h: 0.95 })], [dock('todo', { stack: 's1', at: 0 }), dock('polls', { stack: 's1', at: 1 })], 'h of 0.95 and 0.95 is ignored, not clamped to a sum of 1.8');
-  const patched = cleanLayout({ modules: stacked }, { partial: true }).layout;
-  assert.deepEqual(patched, { modules: stacked }, 'a PUT carries a stack too');
-  n += 3;
-}
-function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in m || 'h' in m || 'folded' in m); }
-
-// --- stacks, the page's half (plan-panel-stacking.md, step 6): public/layouts.js saves what cleanLayout() keeps -------
-// layoutOf() saves a stack top first where its column is, with an id of its own in the layout and shares the server
-// keeps as they are; placeLayout() reads it back, closing a stack up where a module is left out (one left is a column of
-// its own) and taking equal heights where the server dropped the shares. The limits are the server's.
+// --- stacks, the page's half (plan-panel-stacking.md, step 6): public/layouts.js --------------------------------------
+// layoutOf() saves a stack top first where its column is, with an id of its own in the layout; placeLayout() reads it
+// back, closing a stack up where a module is left out (one left is a column of its own) and taking equal heights where
+// there are no shares. The server keeps no free-form layout any more (a workspace's arrangement is server/workspaces.js's).
 {
   const dir = tmp('stack-page');
   fs.copyFileSync(path.join(ROOT, 'public/snap-grid.js'), path.join(dir, 'snap-grid.mjs'));
   fs.writeFileSync(path.join(dir, 'layouts.mjs'), fs.readFileSync(path.join(ROOT, 'public/layouts.js'), 'utf8').replace("from '/snap-grid.js'", "from './snap-grid.mjs'"));
   const page = await import(pathToFileURL(path.join(dir, 'layouts.mjs')).href);
   fs.rmSync(dir, { recursive: true, force: true });
-  for (const k of ['stackMax', 'stackHMin', 'stackHMax', 'stackHSum', 'modules', 'dockWMin', 'dockWMax']) assert.equal(page.LAYOUT_LIMITS[k], LAYOUT_LIMITS[k], `the page's LAYOUT_LIMITS.${k} is the server's`);
+  for (const k of ['shared', 'name']) assert.equal(page.LAYOUT_LIMITS[k], LAYOUT_LIMITS[k], `the page's LAYOUT_LIMITS.${k} is the server's`);
   const area = { x: 0, y: 0, w: 1200, h: 800 };
   const open = [
     { id: 'travel', mode: 'dock', order: 1, width: 400 },
@@ -599,20 +434,18 @@ function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in
   ];
   const saved = page.layoutOf(open, area);
   assert.deepEqual(saved.modules.map((m) => [m.id, m.stack, m.at, m.h, m.folded]), [['travel', undefined, undefined, undefined, undefined], ['todo', 's1', 0, 0.7, true], ['polls', 's1', 1, 0.3, false], ['notes', undefined, undefined, undefined, undefined]], 'layoutOf() saves the stack top first where its column is, and never a floating module in it');
-  const kept = cleanLayout({ name: 'Stacked', ...saved }).layout;
-  assert.deepEqual(kept.modules, saved.modules, 'the server keeps what the page saves, as it is');
+  const kept = { name: 'Stacked', ...saved };
   const back = page.placeLayout(kept, area);
   assert.deepEqual(back.modules.filter((m) => m.stack).map((m) => [m.id, m.at, m.h, m.folded]), [['todo', 0, 0.7, true], ['polls', 1, 0.3, false]], 'placeLayout() reads the stack back');
   const one = page.placeLayout(kept, area, (id) => id !== 'polls');
   assert.ok(!one.modules.some((m) => 'stack' in m) && one.left.includes('polls'), 'a stack left with one module is an ordinary column');
   const three = page.placeLayout({ modules: [{ id: 'a', mode: 'dock', stack: 'q', at: 0, h: 0.2 }, { id: 'b', mode: 'dock', stack: 'q', at: 1, h: 0.3 }, { id: 'c', mode: 'dock', stack: 'q', at: 2, h: 0.5 }] }, area, (id) => id !== 'b');
   assert.deepEqual(three.modules.map((m) => [m.id, m.at, m.h]), [['a', 0, 0.2857], ['c', 1, 0.7143]], 'one left out of three: the other two close up, their shares made whole');
-  const dropped = cleanLayout({ name: 'x', modules: [{ id: 'a', mode: 'dock', stack: 'q', at: 0, h: 0.3 }, { id: 'b', mode: 'dock', stack: 'q', at: 1, h: 0.3 }] }).layout;
-  assert.deepEqual(page.placeLayout(dropped, area).modules.map((m) => m.h), [0.5, 0.5], 'shares the server dropped are equal heights');
+  const unshared = { name: 'x', modules: [{ id: 'a', mode: 'dock', stack: 'q', at: 0 }, { id: 'b', mode: 'dock', stack: 'q', at: 1 }] };
+  assert.deepEqual(page.placeLayout(unshared, area).modules.map((m) => m.h), [0.5, 0.5], 'a stack with no shares is equal heights');
   const twenty = page.layoutOf(Array.from({ length: 21 }, (_, i) => ({ id: `m${i}`, mode: 'dock', order: i, ...(i >= 19 ? { stack: 'z', at: i - 19 } : {}) })), area);
   assert.ok(twenty.modules.length === 20 && !twenty.modules.some((m) => 'stack' in m), 'a stack cut by the 20 module limit is no stack');
-  assert.ok(cleanLayout({ name: 'x', ...twenty }).layout, 'and the server takes it');
-  n += 9;
+  n += 8;
 }
 
 // --- the store: a space's default layout (step 4) -----------------------------------------------------------------
@@ -622,7 +455,7 @@ function stackedOf(modules) { return modules.some((m) => 'stack' in m || 'at' in
   const store = new Store(dir);
   const pat = store.addUser({ login: 'pat', displayName: 'Pat', role: 'member', passwordHash: 'x' });
   const a = store.addSpace({ name: 'A', members: [pat.key] });
-  const g = cleanLayout(good()).layout;
+  const g = cleanLayout(G()).layout;
   assert.ok(!('defaultLayout' in store.spaceById(a.id)), 'absent while not set');
   const shared = store.layouts.add(a.id, pat.key, { ...g, ...SH, shared: true });
 
@@ -941,14 +774,17 @@ try {
   assert.ok(!('defaultLayout' in campRecord), 'the key is gone from the record');
   n += 1;
 
-  // System layouts through the routes (plan-layout-views.md, step 1). First with the Calendar off: only the Workspace, and
-  // the Calendar's and Map's ids are not there (404) for a PATCH.
+  // System layouts through the routes (plan-layout-views.md, step 1). First with the Calendar off: only the Workspace.
+  // A person's own rename, re-icon and tab for them are gone (issue #1091): there is no PATCH .../layouts/system/:id.
   const pat3 = await login('pat', 'memberpass1234');
   const SYS = `${L}/system`;
+  const noRoute = async (label, url, body, cookie = pat3) => {
+    const r = await call('PATCH', url, { cookie, body });
+    assert.equal(r.status, 404, `${label}: there is no such route (${r.status})`);
+    n += 1;
+  };
   const idsOf = async (cookie) => (await call('GET', L, { cookie })).json.system.map((l) => l.id);
   assert.deepEqual(await idsOf(pat3), ['workspace'], 'no Calendar layout while the Calendar is off in the space');
-  await expect('PATCH Calendar while off', 404, 'PATCH', `${SYS}/calendar`, { cookie: pat3, body: { name: 'x' } });
-  await expect('PATCH an unknown system id', 404, 'PATCH', `${SYS}/nosuch`, { cookie: pat3, body: { name: 'x' } });
 
   // The first visit cannot be Calendar or Map while it is not on in the space (step 5): one plain sentence, 404.
   r = await expect('Calendar as the default, off', 400, 'PATCH', `/api/spaces/${S}`, { cookie: owner2, body: { defaultLayout: 'calendar' } });
@@ -963,39 +799,19 @@ try {
   assert.deepEqual(await idsOf(sam2), ['workspace', 'calendar'], 'everyone in the space');
   assert.deepEqual((await call('GET', `${L}${asGuest}`)).json.system, [], 'a guest still has none');
   assert.deepEqual(await idsOf(pat3), ['workspace', 'calendar']);
-  await expect('Map still off (Maps not on)', 404, 'PATCH', `${SYS}/map`, { cookie: pat3, body: { tab: false } });
 
-  // Rename and change the icon: the person's own, per space; names clean as today.
-  r = await expect('rename Calendar', 200, 'PATCH', `${SYS}/calendar`, { cookie: pat3, body: { name: '  Our   plans ', icon: 'couch' } });
-  assert.deepEqual(r.json, { layout: { ...calendar, name: 'Our plans', icon: 'couch' } });
-  r = await expect('rename Workspace', 200, 'PATCH', `${SYS}/workspace`, { cookie: pat3, body: { name: 'Desk' } });
-  assert.deepEqual(r.json.layout, { ...workspace, name: 'Desk' });
-  assert.deepEqual((await call('GET', L, { cookie: pat3 })).json.system.map((l) => [l.id, l.name, l.icon]), [['workspace', 'Desk', 'columns'], ['calendar', 'Our plans', 'couch']], 'GET carries the choices');
-  assert.deepEqual((await call('GET', L, { cookie: sam2 })).json.system.map((l) => [l.name, l.icon]), [['Workspace', 'columns'], ['Calendar', 'calendar-days']], "sam's are his own");
-  r = await expect('back to the defaults', 200, 'PATCH', `${SYS}/calendar`, { cookie: pat3, body: { name: null, icon: null } });
-  assert.deepEqual(r.json.layout, calendar);
-  await expect('rename Calendar again', 200, 'PATCH', `${SYS}/calendar`, { cookie: pat3, body: { name: 'Our plans', icon: 'couch' } });
-  assert.deepEqual(readJson(path.join(dataDir, 'layouts.json')).spaces[S].system[patUser.key], { workspace: { name: 'Desk' }, calendar: { name: 'Our plans', icon: 'couch' } }, 'kept in layouts.json under system, by user key');
-  const sysBad = async (label, status, body, sentence, who = pat3) => {
-    const bad = await expect(label, status, 'PATCH', `${SYS}/calendar`, { cookie: who, body });
-    if (sentence) assert.equal(bad.json.error, sentence, label);
-  };
-  await sysBad('an icon not in the list', 400, { icon: 'no-such-icon-here' }, 'Pick an icon from the list.');
-  await sysBad('a blank name', 400, { name: '  ' }, 'Give the layout a name.');
-  await sysBad('a long name', 400, { name: 'x'.repeat(41) }, "A layout's name can be at most 40 characters.");
-  await sysBad('a name that is not text', 400, { name: 4 });
-  await sysBad('nothing to change', 400, {});
-  await sysBad('a field it does not take', 400, { modules: [] }, 'A system layout does not take "modules".');
-  await expect('the Workspace tab off', 400, 'PATCH', `${SYS}/workspace`, { cookie: pat3, body: { tab: false } }).then((x) => assert.equal(x.json.error, 'The Workspace is always shown.'));
-  await expect('guest changes a system layout', 403, 'PATCH', `${SYS}/calendar${asGuest}`, { body: { name: 'Guest' } });
-  await expect('outsider changes a system layout', 404, 'PATCH', `${SYS}/calendar`, { cookie: out, body: { name: 'x' } });
-  await expect('nobody signed in', 401, 'PATCH', `${SYS}/calendar`, { body: { name: 'x' } });
-  assert.equal((await call('GET', L, { cookie: pat3 })).json.system[1].name, 'Our plans', 'refusals changed nothing');
+  // Nobody renames, re-icons or hides a system layout for themselves: the route is gone, and nothing is stored for it.
+  for (const [label, body] of [['rename', { name: 'Our plans' }], ['re-icon', { icon: 'couch' }], ['hide', { tab: false }], ['back to the default', { name: null, icon: null }]]) {
+    await noRoute(`${label} Calendar`, `${SYS}/calendar`, body);
+  }
+  await noRoute('rename Workspace', `${SYS}/workspace`, { name: 'Desk' });
+  assert.deepEqual((await call('GET', L, { cookie: pat3 })).json.system, [workspace, calendar], 'each with its own name and icon');
+  assert.ok(!('system' in (readJson(path.join(dataDir, 'layouts.json')).spaces[S] || {})), 'nothing stored per person for them');
 
-  // Deleting, replacing and making a system layout the default are refused; the sentence names it as the person sees it.
-  assert.equal((await expect('delete Workspace', 400, 'DELETE', `${L}/workspace`, { cookie: pat3 })).json.error, "Desk can't be deleted.");
-  assert.equal((await expect('delete Calendar', 400, 'DELETE', `${L}/calendar`, { cookie: pat3 })).json.error, "Our plans can't be deleted.");
-  assert.equal((await expect('replace Calendar', 400, 'PUT', `${L}/calendar`, { cookie: pat3, body: { modules: [{ id: 'chat', mode: 'dock' }] } })).json.error, "Our plans can't be replaced.");
+  // Deleting, replacing and making a system layout the default are refused; the sentence names it.
+  assert.equal((await expect('delete Workspace', 400, 'DELETE', `${L}/workspace`, { cookie: pat3 })).json.error, "Workspace can't be deleted.");
+  assert.equal((await expect('delete Calendar', 400, 'DELETE', `${L}/calendar`, { cookie: pat3 })).json.error, "Calendar can't be deleted.");
+  assert.equal((await expect('replace Calendar', 400, 'PUT', `${L}/calendar`, { cookie: pat3, body: { name: 'x' } })).json.error, "Calendar can't be replaced.");
   await expect('delete Map while off', 400, 'DELETE', `${L}/map`, { cookie: pat3 });
   await expect('guest deletes a system layout', 403, 'DELETE', `${L}/workspace${asGuest}`);
   assert.equal((await call('GET', L, { cookie: pat3 })).json.system.length, 2, 'still there');
@@ -1033,16 +849,15 @@ try {
   const listedNow = (await call('GET', L, { cookie: sam2 })).json;
   assert.ok(listedNow.shared.every((l) => l.kind === 'user' && typeof l.icon === 'string'), 'each shared one has kind user and an icon');
 
-  // Turning the Calendar off takes the layout away, and the person's choices stay stored for when it is back.
+  // Turning the Calendar off takes the layout away; back on, it is there again.
   await expect('Calendar off', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: false } });
   assert.deepEqual(await idsOf(pat3), ['workspace'], 'the Calendar layout goes with the Calendar');
-  await expect('PATCH Calendar once off', 404, 'PATCH', `${SYS}/calendar`, { cookie: pat3, body: { name: 'x' } });
   await expect('Calendar on again', 200, 'PATCH', '/api/modules/calendar', { cookie: owner2, body: { enabled: true } });
-  assert.equal((await call('GET', L, { cookie: pat3 })).json.system[1].name, 'Our plans', 'and comes back as the person left it');
+  assert.equal((await call('GET', L, { cookie: pat3 })).json.system[1].name, 'Calendar', 'and comes back');
   n += 1;
 
   // Shared layouts are shapes (plan-layout-picker.md, step 6, decision 5): a layout for everyone is { shape, areas }, checked
-  // against the modules on in the space, with no modules, snap or arrange; a personal one stays free-form and takes no shape.
+  // against the modules on in the space, with no modules, snap or arrange; a personal one is a workspace.
   for (const id of ['polls', 'todo']) {
     await expect(`install ${id}`, 201, 'POST', `/api/modules/bundled/${id}/install`, { cookie: owner2 });
     await expect(`enable ${id}`, 200, 'PATCH', `/api/modules/${id}`, { cookie: owner2, body: { enabled: true, allSpaces: true } });

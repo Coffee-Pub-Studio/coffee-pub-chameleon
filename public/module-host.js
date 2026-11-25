@@ -2607,6 +2607,8 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
   // Live changes: one stream per scope the frame can see. For a module in the page, an event goes
   // straight to its SDK.
   let sdkEmit = null;
+  // Torn down (destroy): a start still loading stops before it attaches anything or runs the module's script.
+  let destroyed = false;
   function send(event, data) {
     // The host control the module is answering (a bar button, a toolbar item, a header icon, a nav tool, the "+"): where
     // focus goes back to when the editor window this opens is put back (liftFrame).
@@ -2737,6 +2739,7 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       return res.text();
     };
     const [sdkCss, systemCss, css, body] = await Promise.all([text('/sdk/host.css'), text('/sdk/system.css'), text(`${base}?part=css`), text(`${base}?part=body`)]);
+    if (destroyed) return; // closed while its parts loaded: nothing to start
     const root = container.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     // system.css after host.css, as the app's pages load it (the design system's tokens and roles; their :root is dropped here, so the module reads the page's, inherited).
@@ -2812,7 +2815,12 @@ export function mountModule({ module, frame = null, container = null, scope = 'e
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('pageshow', onPageShow);
       leaveDestination();
-      if (pageMode) container.shadowRoot?.replaceChildren();
+      destroyed = true;
+      // A module in the page keeps its markup: its script may still be part way through starting (awaiting a call) and
+      // finds its elements by id when it carries on, so emptying the root made it throw (issue #1091, items 6 and 8:
+      // "host.ui.editor needs a <dialog> element", "setting 'placeholder'" of null). The container leaves the page with
+      // its window and the markup goes with it; only its sound and video are stopped here. A frame is stopped by its src.
+      if (pageMode) { for (const media of container.shadowRoot?.querySelectorAll('audio, video') || []) media.pause(); }
       else frame.removeAttribute('src');
     },
   };

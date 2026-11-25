@@ -7,7 +7,9 @@
 // It is an edit surface, so it follows the action-bar rule (public/action-bar.js): the moves and removals are a draft, Save
 // sends them, Cancel and Escape drop them (asking first when something changed), and a click outside does nothing.
 // The page does the work: `onSave({ order, removed })` gets the ids kept, in their new order, and the ids removed; it
-// throws (an Error with the server's sentence) when it did not go through. Nothing here talks to the server.
+// throws (an Error with the server's sentence) when it did not go through. After a failure the sheet asks `reload()` for
+// this person's workspaces as the server has them now ([{ id, name }]), so one Save removed before failing is not listed
+// again: what is left of the draft stays as the person left it, against the fresh list. Nothing here talks to the server.
 import { escapeHtml } from '/brand.js';
 import { actionBar } from '/action-bar.js';
 
@@ -16,9 +18,9 @@ const glyph = (icon, fallback) => `<i class="fa-solid fa-${ICON.test(icon || '')
 
 // `owners`: [{ icon, label }], the owner's tabs as the bar shows them. `own`: [{ id, name }], this person's, in their
 // order. `ownerWord` and `spaceWord`: the environment's words. `canSetUp`: the person may change the owner's tabs in Set up.
-// `opener`: the control the keyboard goes back to when the sheet closes.
-export function openManageTabs({ doc = document, owners = [], own = [], ownerWord = 'owner', spaceWord = 'space', canSetUp = false, opener = null, onSave }) {
-  const kept = own.map((w) => ({ id: w.id, name: w.name }));
+// `opener`: the control the keyboard goes back to when the sheet closes. `reload`: see above.
+export function openManageTabs({ doc = document, owners = [], own = [], ownerWord = 'owner', spaceWord = 'space', canSetUp = false, opener = null, onSave, reload = null }) {
+  let kept = own.map((w) => ({ id: w.id, name: w.name }));
   let draft = kept.slice();
   const dlg = doc.createElement('dialog');
   dlg.className = 'layout-sheet manage-tabs-sheet';
@@ -70,6 +72,17 @@ export function openManageTabs({ doc = document, owners = [], own = [], ownerWor
     }
   }
 
+  // The server's list after a failed Save: it becomes what Save compares against; the draft keeps its order and removals
+  // for what is still there, and anything new there (added in another tab) is added at the end.
+  function takeFresh(list) {
+    if (!Array.isArray(list)) return;
+    const fresh = list.map((w) => ({ id: w.id, name: w.name }));
+    const has = (arr, id) => arr.some((w) => w.id === id);
+    draft = [...draft.filter((d) => has(fresh, d.id)).map((d) => fresh.find((f) => f.id === d.id)), ...fresh.filter((f) => !has(kept, f.id))];
+    kept = fresh;
+    paint();
+  }
+
   rowsEl.addEventListener('click', (event) => {
     const b = event.target.closest('[data-move]');
     if (!b || b.disabled) return;
@@ -106,6 +119,9 @@ export function openManageTabs({ doc = document, owners = [], own = [], ownerWor
       try {
         await onSave({ order: draft.map((w) => w.id), removed: removed().map((w) => w.id) });
       } catch (err) {
+        if (reload) {
+          try { takeFresh(await reload()); } catch { /* the list stays as it was; the error below still says why */ }
+        }
         errorEl.hidden = false;
         errorEl.textContent = err.message || 'That did not work. Try again.';
         return false;

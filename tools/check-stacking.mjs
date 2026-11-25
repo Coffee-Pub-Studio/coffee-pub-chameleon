@@ -18,7 +18,9 @@
 //   9. A phone (390 px): no stack is drawn (one view at a time, no divider, no collapse, no stack entries), the stack is
 //      kept in what is remembered, and it is drawn again when the window is wide.
 //  10. A short canvas collapses the lowest section by itself and opens it again when the height returns.
-//  11. (A person's own saved layouts are gone, plan-workspaces.md decision 44: the Workspace's arrangement keeps the stack.)
+//  11. A layout for everyone whose shape stacks two areas (wide-split: the Itinerary, then Polls over Research; a shape
+//      never puts Maps in a shared column) loads as a stack of two, equal heights, beside an ordinary column, from the
+//      Workspace tab's menu; a reload opens it again (the last layout) with the same stack; the Workspace tab then brings back the Workspace's own arrangement (issue #1091, item 7).
 //  12. Unstack all, in the Workspace tab menu's Arrange flyout, puts every module of every stack in a column of its own.
 //  13. Inside a stack Tab goes top section, divider, next section; nothing in a module starts again when the page's order
 //      follows the stack; a drag inside a stack keeps the shares; Escape stops a drag; a module out of a stack has its own
@@ -75,6 +77,11 @@ async function main() {
     server = boot.server;
     const S = { base: server.base, ctx: boot.ctx, cookies: boot.cookies };
     browser = await launch(bin);
+    // 11's layout for everyone, made by the admin (a moderator or the owner may; the members see it in the tab menu).
+    const adminCookie = S.cookies.admin.map((c) => `${c.name}=${c.value}`).join('; ');
+    const made = await fetch(`${S.base}/api/spaces/${S.ctx.trip}/layouts`, { method: 'POST', headers: { cookie: adminCookie, 'content-type': 'application/json', origin: S.base }, body: JSON.stringify({ name: 'Stacked for all', shared: true, shape: 'wide-split', areas: ['travel', 'polls', 'research'] }) });
+    if (made.status !== 201) throw new Error(`the layout for everyone was refused: ${made.status} ${await made.text()}`);
+    const forAll = (await made.json()).layout.id;
     // The Workspace's arrangement is the person's on the server (server/workspaces.js), written a moment after each change.
     const WS = `/api/spaces/${S.ctx.trip}/workspaces`;
     const only = process.argv.find((a) => a.startsWith('--mode='))?.slice(7);
@@ -503,8 +510,30 @@ async function main() {
         await sleep(1500);
         expect(await widths() === '460,460', `${L} after 390 px and a reload at 1280 the stack's stored width is ${await widths()}, not 460,460`);
 
+        // 11. A layout for everyone that stacks (wide-split): Polls over Research in one column, equal heights, the Itinerary its own
+        // column; a reload opens it again with the same stack; the Workspace tab brings the Workspace's own stack back.
+        const workspaceStack = whole(await state());
+        const forAllStack = (st) => ({ stack: st.docked.filter((d) => d.stacked).sort((a, b) => a.top - b.top).map((d) => d.id).join(), travel: st.docked.find((d) => d.id === 'travel'), groups: st.groups, hs: st.docked.filter((d) => d.stacked).map((d) => d.h) });
+        await showTab();
+        expect(await pick('Stacked for all'), `${L} the tab menu has no "Stacked for all" under Layouts`);
+        await closeMenus();
+        await tab.waitFor(`[data-layout-tab="${forAll}"][aria-current="page"]`);
+        await sleep(1500);
+        let fa = forAllStack(await state());
+        expect(fa.stack === 'polls,research' && fa.travel && !fa.travel.stacked && fa.groups.length === 1 && fa.groups[0] === 'Stacked: Polls, Research' && Math.abs(fa.hs[0] - fa.hs[1]) <= 2, `${L} the layout for everyone did not load as a stack of two beside the Itinerary: ${JSON.stringify(fa)}`);
+        await tab.cdp.send('Page.reload', {}, tab.sid);
+        await tab.waitFor(`[data-layout-tab="${forAll}"][aria-current="page"]`);
+        await tab.waitFor('#canvas .module-docked.in-stack');
+        await sleep(1500);
+        fa = forAllStack(await state());
+        expect(fa.stack === 'polls,research' && fa.groups.length === 1 && Math.abs(fa.hs[0] - fa.hs[1]) <= 2, `${L} after a reload the layout for everyone came back as ${JSON.stringify(fa)}`);
+        await tab.click('[data-layout-tab="workspace"]');
+        await tab.waitFor('#canvas .module-docked.in-stack');
+        await sleep(1500);
+        expect(sameStack(whole(await state()), workspaceStack), `${L} the Workspace tab brought back ${whole(await state())}, not ${workspaceStack}`);
+
         if (errors.length) failures.push(`${L} the page threw: ${errors.slice(0, 3).join(' | ')}`);
-        say(`${mode}: stacked by menu and drag, divider 8 px within 156 px by pointer and keys, collapse and the last one open, a fourth refused, one column of the limit, out by the drag, reload, close to one, composites refused, short canvas, phone, Unstack all, Windows and back, Clean up and Undo`);
+        say(`${mode}: stacked by menu and drag, divider 8 px within 156 px by pointer and keys, collapse and the last one open, a fourth refused, one column of the limit, out by the drag, reload, close to one, composites refused, short canvas, phone, Unstack all, Windows and back, Clean up and Undo, a layout for everyone that stacks`);
       } finally {
         tab.cdp.listeners = tab.cdp.listeners.filter((f) => f !== listen);
         await tab.close();

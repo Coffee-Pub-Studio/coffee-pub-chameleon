@@ -214,7 +214,6 @@
   {"kind":"route","method":"POST","path":"/api/spaces/:id/layouts","name":null,"part":null},
   {"kind":"route","method":"PUT","path":"/api/spaces/:id/layouts/:layoutId","name":null,"part":null},
   {"kind":"route","method":"DELETE","path":"/api/spaces/:id/layouts/:layoutId","name":null,"part":null},
-  {"kind":"route","method":"PATCH","path":"/api/spaces/:id/layouts/system/:systemId","name":null,"part":null},
   {"kind":"route","method":"GET","path":"/api/spaces/:id/workspaces","name":null,"part":null},
   {"kind":"route","method":"POST","path":"/api/spaces/:id/workspaces","name":null,"part":null},
   {"kind":"route","method":"PUT","path":"/api/spaces/:id/workspaces/order","name":null,"part":null},
