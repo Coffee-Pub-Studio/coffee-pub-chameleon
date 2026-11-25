@@ -39,6 +39,7 @@ const { effectiveLabels } = require('./module-labels');
 const { GeocodeCache, askService, keyOf: keyOfPlace, ENOUGH } = require('./geocode');
 const { FlightSchedule, FlightLookupError, findFlights, parseNumber: parseFlightNumber } = require('./flight-lookup');
 const weatherProviders = require('./weather-providers');
+const { WeatherTerms } = require('./weather-terms');
 const { WeatherCache, weatherDays, wouldAsk: weatherWouldAsk, dayState: weatherDayState, daysBetween: weatherDaysBetween, positionKey: weatherPositionKey } = require('./weather');
 const airportList = require('./airports');
 const { RegionCutJobs, RegionCutError } = require('./region-cut');
@@ -351,7 +352,7 @@ const BUNDLED_DIR = path.join(__dirname, '..', 'modules');
 // 4): its code only ever comes from here, the deployment's own modules, never from what an environment has installed.
 const moduleActions = createModuleActions({ bundledDir: BUNDLED_DIR, network: ACTION_RUNNER_NETWORK.trim().toLowerCase() || 'auto' });
 if (!moduleActions.network.known) console.warn(`ACTION_RUNNER_NETWORK is "${ACTION_RUNNER_NETWORK}", which is not auto or namespace: read as auto.`);
-if (moduleActions.network.mode === 'namespace' && !moduleActions.network.namespace) console.warn('ACTION_RUNNER_NETWORK is namespace, but this server can\'t make a network namespace (unshare is missing or not allowed), so no module\'s server action will run.');
+console.log(moduleActions.network.line);
 // (Up here for the same reason: environmentFor() gives a module's display icon its built-in icons, at module load.)
 // The two panes that ship with the app, listed beside the installed modules. They are always on and
 // cannot be removed (for now); their permissions are the built-in ones on the Roles tab.
@@ -580,7 +581,7 @@ function migrateIfNeeded() {
   if (fs.existsSync(dest)) throw new Error(`${dest} already exists; migration already ran`);
   fs.mkdirSync(dest, { recursive: true });
   for (const entry of fs.readdirSync(DATA_DIR)) {
-    if (['host.json', 'fontawesome-pro', 'environments', 'environments-deleted', 'pre-names-host', 'flight-schedule.json', 'vault'].includes(entry)) continue; // the flight schedule is the host's; the vault folder holds every environment's files
+    if (['host.json', 'fontawesome-pro', 'environments', 'environments-deleted', 'pre-names-host', 'flight-schedule.json', 'weather-terms.json', 'vault'].includes(entry)) continue; // the flight schedule is the host's; the vault folder holds every environment's files
     fs.renameSync(path.join(DATA_DIR, entry), path.join(dest, entry));
   }
   hostRegistry.addEnvironment({ slug, name: slug, plan: { modules: 'all' } });
@@ -675,6 +676,8 @@ process.on('exit', () => flightSchedule.flush());
 // The weather kept for a while, one file for the whole server (server/weather.js): keyed by a rounded position and a day only.
 const weatherCache = new WeatherCache(DATA_DIR);
 process.on('exit', () => weatherCache.flush());
+// Which weather services' terms a person in authority has accepted, once for the whole server (server/weather-terms.js).
+const weatherTerms = new WeatherTerms(DATA_DIR);
 
 // On a first start with BASE_DOMAIN where a shared folder (documentation/plans/plan-environments.md, "Shared files:
 // the host's map") does not exist yet: if exactly one environment has files in its own, pre-shared folder for
@@ -13381,8 +13384,8 @@ app.post('/api/modules/:id/geocode/purge', requireOwner, (req, res) => {
 });
 // --- the weather on a day, from the server ----------------------------------------------------------------------------------
 // A module that declares `weather` in its manifest (the Itinerary) has the weather of its days answered here
-// (documentation/plans/plan-itinerary-weather.md, step 2). Nothing goes out until an owner chooses a service in the module's
-// settings. What goes out then, and only then: to the weather service, a position rounded to 2 decimals, a first and a last
+// (documentation/plans/plan-itinerary-weather.md, step 2). Nothing goes out until an owner chooses a service in the Weather
+// module's settings and a person in authority has accepted its terms (weatherSetup). What goes out then, and only then: to the weather service, a position rounded to 2 decimals, a first and a last
 // day (server/weather.js, through a registered adapter); and, only for a trip whose days need its main
 // place and only when a place search is chosen (Maps'), that place's text to the place search, as a search for it would send.
 // Never who asks, the space, the environment or anything else of the trip.
@@ -13394,17 +13397,18 @@ const MAIN_PLACE_GOOD_MS = 24 * 3600 * 1000;
 const MAIN_PLACE_MISS_MS = 10 * 60 * 1000;
 const MAIN_PLACE_MAX = 500;
 const mainPlaces = new Map(); // `${environment slug}\n${module with the search}\n${text, folded}` -> { lat, lon (null: not found), at }. In memory only.
-// Where this module's weather comes from now: { provider (a registered adapter), credit, units }, or null when none is chosen.
-function weatherSetup(manifest) {
-  const w = manifest.weather;
-  const values = moduleSettings.values(manifest, 'environment', {});
-  const chosen = values[w.provider];
-  const units = w.units && values[w.units] === 'f' ? 'f' : 'c';
-  if (typeof chosen === 'string' && Object.hasOwn(weatherProviders.providers, chosen)) {
-    const provider = weatherProviders.providers[chosen];
-    return { provider, credit: provider.credit, units };
-  }
-  return null;
+// Where the weather comes from now: { provider (a registered adapter), credit, units }, or null: off. Off is the Weather module
+// not installed or not on in this environment, its service None, a service the server no longer has, or one whose terms no
+// person in authority has accepted (weatherTerms). Nothing is asked of any service while it is null.
+function weatherSetup() {
+  const found = modules.enabled('weather');
+  if (!found) return null;
+  const values = moduleSettings.values(found.manifest, 'environment', {});
+  const chosen = values.service;
+  if (typeof chosen !== 'string' || !Object.hasOwn(weatherProviders.providers, chosen)) return null;
+  const provider = weatherProviders.providers[chosen];
+  if (!weatherTerms.accepted(provider)) return null;
+  return { provider, credit: provider.credit, units: values.units === 'f' ? 'f' : 'c' };
 }
 // The first stop of each day that is at a place with a position, as this asker may see that place: Map(day -> { lat, lon }).
 // A stop's place is a pointer (to a Maps place); it is looked up as the asker, so a place they may not see gives no position.
@@ -13535,7 +13539,7 @@ app.get('/api/modules/:id/weather', async (req, res) => {
   if (ctx.scope !== 'space') return res.status(400).json({ error: `The weather is for ${word('space', { a: true })}: ask with scope=space.` });
   // An invented world has no real weather: nothing is asked.
   if (pictureMapOf()) return res.json({ ...WEATHER_OFF, pictureMap: true });
-  const setup = weatherSetup(ctx.manifest);
+  const setup = weatherSetup();
   if (!setup) return res.json(WEATHER_OFF);
   const asked = weatherDaysAsked(ctx, req.query);
   if (asked.error) return res.status(400).json({ error: asked.error });
@@ -13584,6 +13588,52 @@ app.get('/api/modules/:id/weather', async (req, res) => {
   }));
   if (failed && !some) return res.status(502).json({ error: 'weather is not available right now' });
   res.json(answer);
+});
+// --- who accepts a weather service's terms ----------------------------------------------------------------------------------
+// A service's terms are accepted by a person in authority, once for the whole server (server/weather-terms.js): on a single
+// install the signed-in `admin`; on a hosted one the host's administrator, on the host console. Never an agent, never software
+// acting alone: the call needs a signed-in administrator's own session, a same-origin write and an explicit `{ accept: true }`.
+// An owner may read which services are accepted (to choose one in the Weather module's settings), not accept.
+const weatherAdapter = (id) => (Object.hasOwn(weatherProviders.providers, id) ? weatherProviders.providers[id] : null);
+const isServerAdmin = (req) => { const u = currentUser(req); return Boolean(u && u.role === 'admin' && !u.hostAdmin && !u.agent); };
+const WEATHER_TERMS_HOSTED = 'On a hosted server the host\'s administrator accepts a weather service\'s terms, on the host console.';
+const WEATHER_TERMS_ADMIN = 'Only the server\'s administrator can accept a weather service\'s terms.';
+const weatherTermsView = (mayAccept) => ({ services: weatherTerms.view(weatherProviders.list()), mayAccept });
+function weatherTermsPut(req, res) {
+  const adapter = weatherAdapter(req.params.service);
+  if (!adapter) { res.status(404).json({ error: 'This server has no such weather service.' }); return null; }
+  if (!req.body || req.body.accept !== true) { res.status(400).json({ error: `Send { "accept": true } to accept ${adapter.name}'s terms${adapter.terms ? ` (${adapter.terms})` : ''}.` }); return null; }
+  return adapter;
+}
+app.get('/api/weather/terms', requireOwner, (req, res) => res.json(weatherTermsView(!hostRegistry && isServerAdmin(req))));
+app.put('/api/weather/terms/:service', requireOwner, (req, res) => {
+  if (hostRegistry) return res.status(403).json({ error: WEATHER_TERMS_HOSTED });
+  if (!isServerAdmin(req)) return res.status(403).json({ error: WEATHER_TERMS_ADMIN });
+  const adapter = weatherTermsPut(req, res);
+  if (!adapter) return;
+  weatherTerms.accept(adapter, currentUser(req).login || currentUser(req).displayName);
+  res.json(weatherTermsView(true));
+});
+app.delete('/api/weather/terms/:service', requireOwner, (req, res) => {
+  if (hostRegistry) return res.status(403).json({ error: WEATHER_TERMS_HOSTED });
+  if (!isServerAdmin(req)) return res.status(403).json({ error: WEATHER_TERMS_ADMIN });
+  const adapter = weatherAdapter(req.params.service);
+  if (!adapter) return res.status(404).json({ error: 'This server has no such weather service.' });
+  weatherTerms.withdraw(adapter);
+  res.json(weatherTermsView(true));
+});
+hostRouter.get('/api/host/weather/terms', requireHostAdmin, (_req, res) => res.json(weatherTermsView(true)));
+hostRouter.put('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
+  const adapter = weatherTermsPut(req, res);
+  if (!adapter) return;
+  weatherTerms.accept(adapter, currentHostAdmin(req).login || currentHostAdmin(req).displayName);
+  res.json(weatherTermsView(true));
+});
+hostRouter.delete('/api/host/weather/terms/:service', requireHostAdmin, (req, res) => {
+  const adapter = weatherAdapter(req.params.service);
+  if (!adapter) return res.status(404).json({ error: 'This server has no such weather service.' });
+  weatherTerms.withdraw(adapter);
+  res.json(weatherTermsView(true));
 });
 // --- flight lookup, from the server -----------------------------------------------------------------------------------------
 // A module that declares `"lookups": ["flight"]` in its manifest (the Planner) may look a flight number up in the schedule this

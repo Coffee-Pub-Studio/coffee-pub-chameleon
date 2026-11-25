@@ -576,15 +576,39 @@ await test('MET Norway: what is sent, Expires, If-Modified-Since and a 304', asy
   assert.equal(back.mayAsk(20, 20), false);
 });
 
-await test('MET Norway: the Itinerary offers it, None is the default', () => {
-  const { cleanWeather } = require('../server/modules.js');
+await test('MET Norway: the Weather module offers it, None is the default, the Itinerary has no setting for it', () => {
+  const { fillWeatherAdapters } = require('../server/modules.js');
+  const weather = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'weather', 'module.json'), 'utf8'));
+  const settings = JSON.parse(JSON.stringify(weather.settings));
+  fillWeatherAdapters(settings);
+  const service = settings.find((d) => d.key === 'service');
+  assert.equal(service.default, 'none', 'nothing goes out until an admin chooses');
+  assert.equal(service.options[0].value, 'none');
+  assert.ok(service.options.some((o) => o.value === 'met-norway' && o.label === 'MET Norway'), 'MET Norway is offered');
+  assert.match(service.help, /administrator of this server has accepted its terms/, 'the help says how it is accepted');
+  assert.deepEqual(settings.find((d) => d.key === 'units').options.map((o) => o.value), ['c', 'f']);
+  const style = settings.find((d) => d.key === 'iconStyle');
+  assert.equal(style.type, 'note', 'one icon style exists, so it is a note, not a choice');
+  assert.equal(weather.hooks.weather, true);
   const travel = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'travel', 'module.json'), 'utf8'));
-  const settings = JSON.parse(JSON.stringify(travel.settings));
-  cleanWeather(travel.weather, settings, travel.scope);
-  const provider = settings.find((d) => d.key === travel.weather.provider);
-  assert.equal(provider.default, 'none', 'nothing goes out until an admin chooses');
-  assert.equal(provider.options[0].value, 'none');
-  assert.ok(provider.options.some((o) => o.value === 'met-norway' && o.label === 'MET Norway'), 'MET Norway is offered');
+  assert.ok(!travel.settings.some((d) => /^weather/.test(d.key)), 'the Itinerary keeps no weather setting');
+});
+
+await test('the terms: accepted by a person once, for those terms only, kept on disk', () => {
+  const { WeatherTerms } = require('../server/weather-terms.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wx-terms-'));
+  const a = { id: 'svc', name: 'Svc', credit: 'c', terms: 'https://example.test/terms' };
+  const t = new WeatherTerms(dir);
+  assert.equal(t.accepted(a), false, 'nothing is accepted by itself');
+  t.accept(a, 'admin', new Date('2026-11-25T10:00:00Z'));
+  assert.equal(t.accepted(a), true);
+  assert.deepEqual(t.view([a]), [{ id: 'svc', name: 'Svc', credit: 'c', terms: 'https://example.test/terms', accepted: true, by: 'admin', at: '2026-11-25T10:00:00.000Z' }]);
+  assert.equal(new WeatherTerms(dir).accepted(a), true, 'read back from the file');
+  assert.equal(new WeatherTerms(dir).accepted({ ...a, terms: 'https://example.test/terms-v2' }), false, 'moved terms must be accepted again');
+  assert.equal(t.withdraw(a), true);
+  assert.equal(new WeatherTerms(dir).accepted(a), false);
+  fs.writeFileSync(path.join(dir, 'weather-terms.json'), '{ not json');
+  assert.equal(new WeatherTerms(dir).accepted(a), false, 'a broken file accepts nothing');
 });
 
 // Nothing in the module names a space, a person or an environment.
@@ -594,42 +618,33 @@ await test('the module holds no link to a person', () => {
 });
 
 // --- the manifest's declaration ---------------------------------------------------------------------------------------------
-await test('the declaration: settings of the right kind, where a day is, registered adapters as choices', () => {
+await test('the declaration: only where a day is; the service and units are not the module\'s', () => {
   const { cleanWeather, ModuleError } = require('../server/modules.js');
-  const mk = () => [
-    { key: 'p', type: 'choice', scope: 'environment', options: [{ value: 'none', label: 'None' }] }, { key: 'u', type: 'choice', scope: 'environment' },
-    { key: 't', type: 'text', scope: 'environment' }, { key: 'sp', type: 'choice', scope: 'space' },
-  ];
-  const settings = mk();
-  const good = { provider: 'p', units: 'u', stops: { prefix: 'plan:', day: 'date', time: 'time', order: 'order', place: 'placeRef' }, main: { key: 'trip:main', place: 'destination', from: 'start', to: 'end' } };
+  const good = { stops: { prefix: 'plan:', day: 'date', time: 'time', order: 'order', place: 'placeRef' }, main: { key: 'trip:main', place: 'destination', from: 'start', to: 'end' } };
   const scope = ['environment', 'space'];
-  assert.equal(cleanWeather(undefined, settings, scope), null, 'none by default');
-  assert.deepEqual(cleanWeather(good, settings, scope), good);
-  // The registered adapter (here the stand-in) is a choice of the provider setting, once however often it is cleaned.
-  cleanWeather(good, settings, scope);
-  assert.deepEqual(settings[0].options.map((o) => o.value), ['none', 'met-norway', 'standin']);
-  // MET Norway's choice carries its credit and where its terms are, which choosing it accepts.
-  const met = settings[0].options.find((o) => o.value === 'met-norway');
-  assert.equal(met.label, 'MET Norway');
-  assert.match(met.help, /^Based on data from MET Norway, CC BY 4\.0 .*Choosing it accepts its terms: https:\/\/api\.met\.no\/doc\/TermsOfService$/);
-  assert.deepEqual(cleanWeather({ provider: 'p', main: { key: 'trip:main' } }, mk(), scope), { provider: 'p', units: '', stops: null, main: { key: 'trip:main', place: '', from: '', to: '' } });
-  const bad = (raw, re, sc = scope) => assert.throws(() => cleanWeather(raw, mk(), sc), (err) => err instanceof ModuleError && re.test(err.message), JSON.stringify(raw).slice(0, 80));
-  bad({ ...good, provider: 't' }, /`provider` choice setting/);
-  bad({ ...good, provider: 'sp' }, /`provider` choice setting/);
-  bad({ ...good, units: 'a' }, /`units` must name a choice setting/);
+  assert.equal(cleanWeather(undefined, scope), null, 'none by default');
+  assert.deepEqual(cleanWeather(good, scope), good);
+  assert.deepEqual(cleanWeather({ main: { key: 'trip:main' } }, scope), { stops: null, main: { key: 'trip:main', place: '', from: '', to: '' } });
+  const bad = (raw, re, sc = scope) => assert.throws(() => cleanWeather(raw, sc), (err) => err instanceof ModuleError && re.test(err.message), JSON.stringify(raw).slice(0, 80));
+  bad({ ...good, provider: 'p' }, /the Weather module's settings/);
+  bad({ ...good, units: 'u' }, /the Weather module's settings/);
   bad({ ...good, stops: undefined, main: undefined }, /`stops` or `main`/);
   bad({ ...good, stops: { prefix: 'plan:', day: 'date' } }, /stops `place` must be a field name/);
   bad({ ...good, stops: { ...good.stops, day: '__proto__' } }, /field name/);
   bad({ ...good, main: { key: '../x' } }, /main needs a `key`/);
   bad(good, /"space" scope/, ['environment']);
-  // The Itinerary's own declaration reads, none is the default, and no service, address or key is in it.
+  // The Itinerary's own declaration reads, and no service, address or key is in it.
   const travel = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'travel', 'module.json'), 'utf8'));
-  const provider = travel.settings.find((d) => d.key === travel.weather.provider);
-  assert.equal(provider.default, 'none');
-  assert.deepEqual(provider.options.map((o) => o.value), ['none'], 'the Itinerary names no service: the server offers the registered ones');
-  assert.deepEqual(Object.keys(travel.weather).sort(), ['main', 'provider', 'stops', 'units']);
-  assert.ok(!travel.settings.some((d) => /^weather(Address|Key)$/.test(d.key)), 'no address or key to type');
+  assert.deepEqual(Object.keys(travel.weather).sort(), ['main', 'stops']);
+  assert.deepEqual(cleanWeather(travel.weather, travel.scope).stops.prefix, 'plan:');
   assert.ok(!/open-?meteo|apikey|https?:\/\/api\./i.test(JSON.stringify(travel)), 'no service named or addressed');
+  // The Weather module is a service-only module: no surface, the weather hook.
+  const { cleanManifest } = require('../server/modules.js');
+  const wm = JSON.parse(fs.readFileSync(path.join(ROOT, 'modules', 'weather', 'module.json'), 'utf8'));
+  const files = new Set(fs.readdirSync(path.join(ROOT, 'modules', 'weather', 'src')).map((f) => `src/${f}`));
+  const clean = cleanManifest(wm, files);
+  assert.deepEqual([clean.hooks.weather, Object.keys(clean.surfaces)], [true, []]);
+  assert.deepEqual(clean.settings.find((d) => d.key === 'service').options.map((o) => o.value), ['none', 'met-norway', 'standin']);
 });
 
 // --- the route, on a real server ------------------------------------------------------------------------------------------
@@ -691,7 +706,7 @@ const plus = (k) => new Date(Date.parse(`${today}T00:00:00Z`) + k * 86400000).to
 const SECRET = `127.0.0.1:${wx.address().port}`; // the service's address: never answered, never written down
 const S = {};
 const weatherOf = (space, who, q = '') => call('GET', `/api/modules/travel/weather?scope=space&space=${space}${q}`, who);
-const setTravel = (values) => call('PUT', '/api/modules/travel/settings/environment', { token: S.admin, body: { values } });
+const setWeather = (values) => call('PUT', '/api/modules/weather/settings/environment', { token: S.admin, body: { values } });
 const put = (module, space, key, value, token = S.admin) => call('PUT', `/api/modules/${module}/data/${encodeURIComponent(key)}?scope=space&space=${space}`, { token, body: { value } });
 const params = (r) => Object.fromEntries(new URL(r.url, 'http://x').searchParams);
 
@@ -744,12 +759,58 @@ await live('no provider chosen: not configured, and nothing is sent anywhere', a
   assert.equal(fs.existsSync(path.join(dataDir, 'weather.json')), false, 'nothing is kept');
 });
 
+await live('the switch: the Weather module on, a service chosen, its terms accepted by an administrator', async () => {
+  const sent = () => wxSeen.length + geoSeen.length;
+  wxSeen.length = 0; geoSeen.length = 0;
+  // Not installed: nothing to choose, and no weather.
+  assert.equal((await setWeather({ service: 'standin' })).status, 404, 'no Weather module yet');
+  ok(await call('POST', '/api/modules/bundled/weather/install', { token: S.admin, body: {} }), 'the Weather module installs', 201);
+  ok(await call('PATCH', '/api/modules/weather', { token: S.admin, body: { enabled: true, allSpaces: true } }), 'the Weather module turns on');
+  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'on, none chosen').json, { configured: false });
+  // Chosen, but nobody has accepted its terms: still off, nothing sent.
+  ok(await setWeather({ service: 'standin' }), 'the stand-in is chosen');
+  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'chosen, not accepted').json, { configured: false });
+  assert.equal(sent(), 0, 'nothing leaves the server before the terms are accepted');
+  assert.equal(fs.existsSync(path.join(dataDir, 'weather-terms.json')), false);
+  // Who may accept: only the signed-in administrator, with the explicit flag. Never a member, an agent or a missing flag.
+  const terms = (m, who, body) => call(m, '/api/weather/terms/standin', { token: who, body });
+  const view = ok(await call('GET', '/api/weather/terms', { token: S.admin }), 'the admin reads the terms').json;
+  assert.deepEqual([view.mayAccept, view.services.map((x) => [x.id, x.accepted]), view.services.find((x) => x.id === 'met-norway').terms], [true, [['met-norway', false], ['standin', false]], 'https://api.met.no/doc/TermsOfService']);
+  assert.equal((await call('GET', '/api/weather/terms', { token: S.mia })).status, 403, 'a member does not read them');
+  assert.equal((await terms('PUT', S.mia, { accept: true })).status, 403, 'a member cannot accept');
+  assert.ok([401, 403].includes((await terms('PUT', S.agent, { accept: true })).status), 'an agent cannot accept');
+  assert.equal((await terms('PUT', null, { accept: true })).status, 401, 'nobody signed in cannot accept');
+  assert.equal((await terms('PUT', S.admin, {})).status, 400, 'no flag, no acceptance');
+  assert.equal((await terms('PUT', S.admin, { accept: 'yes' })).status, 400, 'only true accepts');
+  assert.equal((await call('PUT', '/api/weather/terms/nowhere', { token: S.admin, body: { accept: true } })).status, 404, 'a service the server has not');
+  assert.equal((await terms('DELETE', S.mia)).status, 403, 'a member cannot withdraw');
+  assert.equal(fs.existsSync(path.join(dataDir, 'weather-terms.json')), false, 'all of that accepted nothing');
+  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'still not accepted').json, { configured: false });
+  const done = ok(await terms('PUT', S.admin, { accept: true }), 'the admin accepts').json;
+  const mine = done.services.find((x) => x.id === 'standin');
+  assert.deepEqual([mine.accepted, mine.by], [true, 'admin']);
+  assert.ok(!Number.isNaN(Date.parse(mine.at)));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'weather-terms.json'), 'utf8')).services.standin.by, 'admin');
+  assert.equal(ok(await weatherOf(S.trip, { token: S.mia }, `&from=${plus(40)}&to=${plus(41)}`), 'accepted').json.configured, true, 'chosen and accepted: on (days out of range, so nothing is asked or kept)');
+  // Off again by every switch, each time with nothing asked.
+  wxSeen.length = 0; geoSeen.length = 0;
+  ok(await terms('DELETE', S.admin), 'the admin withdraws');
+  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'withdrawn').json, { configured: false });
+  ok(await terms('PUT', S.admin, { accept: true }), 'accepted again');
+  ok(await call('PATCH', '/api/modules/weather', { token: S.admin, body: { enabled: false } }), 'the Weather module off');
+  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'module off').json, { configured: false });
+  ok(await call('PATCH', '/api/modules/weather', { token: S.admin, body: { enabled: true } }), 'the Weather module on again');
+  ok(await setWeather({ service: 'none' }), 'service none');
+  assert.deepEqual(ok(await weatherOf(S.trip, { token: S.mia }), 'none').json, { configured: false });
+  assert.equal(sent(), 0, 'nothing left the server while it was off');
+  ok(await setWeather({ service: 'standin' }), 'the stand-in again');
+});
+
 await live('a trip\'s days: the first stop at a saved place, else the main place; only rounded positions and days go out', async () => {
-  ok(await setTravel({ weatherProvider: 'standin' }), 'the stand-in is chosen');
-  const none = await setTravel({ weatherProvider: 'custom' });
+  const none = await setWeather({ service: 'custom' });
   assert.equal(none.status, 400, 'a service that is not registered is not a choice');
-  assert.equal((await setTravel({ weatherAddress: 'https://x.example/' })).status, 400, 'there is no address to type');
-  assert.equal((await setTravel({ weatherKey: 'k' })).status, 400, 'there is no key to keep');
+  assert.equal((await setWeather({ weatherAddress: 'https://x.example/' })).status, 400, 'there is no address to type');
+  assert.equal((await setWeather({ weatherKey: 'k' })).status, 400, 'there is no key to keep');
   wxSeen.length = 0; geoSeen.length = 0;
   const r = ok(await weatherOf(S.trip, { token: S.mia }), 'the weather of the trip\'s own days');
   assert.equal(r.json.configured, true);
@@ -781,12 +842,12 @@ await live('a trip\'s days: the first stop at a saved place, else the main place
   assert.deepEqual(again.json, r.json);
   assert.equal(wxSeen.length + geoSeen.length, 0, 'nothing is asked twice');
   // Fahrenheit is the page's unit only: from what is kept, nothing asked.
-  ok(await setTravel({ weatherUnits: 'f' }), 'Fahrenheit');
+  ok(await setWeather({ units: 'f' }), 'Fahrenheit');
   const f = ok(await weatherOf(S.trip, { token: S.mia }), 'in Fahrenheit').json;
   assert.equal(f.units, 'f');
   assert.deepEqual([f.days[plus(1)].high, f.days[plus(1)].low], [54, 41]);
   assert.equal(wxSeen.length, 0);
-  ok(await setTravel({ weatherUnits: 'c' }), 'Celsius again');
+  ok(await setWeather({ units: 'c' }), 'Celsius again');
 });
 
 await live('the range: 30 days back to 13 ahead, at most 60 days, real days', async () => {
@@ -896,25 +957,25 @@ await live('an agent reads the weather through the gate, and through read_weathe
   assert.ok(!JSON.stringify(line).includes('Rain') && !JSON.stringify(line).includes('"high"'), 'the log holds no weather');
   // read_weather: the same days, one read (the tool call is counted as the route it wraps, never twice).
   const b2 = await readsToday();
-  const t = await mcp('read_weather', { space: S.trip });
+  const t = await mcp('read_weather', { module: 'travel', space: S.trip });
   assert.equal(t.status, 200);
   assert.equal(t.isError, false, t.text);
   assert.deepEqual(t.json, person, 'read_weather answers what the route does');
   assert.equal(await readsToday(), b2 + 2, 'read_weather is one read (and the me one more)');
-  const ranged = await mcp('read_weather', { space: S.trip, from: plus(1), to: plus(2) });
+  const ranged = await mcp('read_weather', { module: 'travel', space: S.trip, from: plus(1), to: plus(2) });
   assert.deepEqual(Object.keys(ranged.json.days), [plus(1), plus(2)], 'from and to');
-  const far = await mcp('read_weather', { space: S.trip, from: plus(40), to: plus(41) });
+  const far = await mcp('read_weather', { module: 'travel', space: S.trip, from: plus(40), to: plus(41) });
   assert.deepEqual(far.json.days, { [plus(40)]: { state: 'outOfRange' }, [plus(41)]: { state: 'outOfRange' } }, 'a day beyond the window carries only its state');
   assert.equal(wxSeen.length + geoSeen.length, 0, 'what is kept is answered, nothing is asked');
-  const bad = await mcp('read_weather', { space: S.trip, from: 'tomorrow' });
+  const bad = await mcp('read_weather', { module: 'travel', space: S.trip, from: 'tomorrow' });
   assert.equal(bad.isError, true);
   assert.match(bad.text, /YYYY-MM-DD/, 'the route\'s own sentence');
-  assert.equal((await mcp('read_weather', { space: S.trip, module: 'maps' })).isError, true, 'the module is fixed');
+  assert.equal((await mcp('read_weather', { module: 'travel', space: S.trip, module: 'maps' })).isError, true, 'the module is fixed');
   // A space it is not in: the gate's 404 "no such space", as for every agent read (it never learns the space exists).
   const notIn = await weatherOf(S.other, { token: S.agent });
   assert.equal(notIn.status, 404, 'a space the agent is not in');
   assert.deepEqual(notIn.json, { error: 'no such space' });
-  const tNotIn = await mcp('read_weather', { space: S.other });
+  const tNotIn = await mcp('read_weather', { module: 'travel', space: S.other });
   assert.equal(tNotIn.isError, true, 'read_weather in a space it is not in');
   assert.equal(tNotIn.text, 'no such space', 'the route\'s sentence');
   // An unticked view row in the Agent column: 403.
@@ -922,7 +983,7 @@ await live('an agent reads the weather through the gate, and through read_weathe
   const unticked = await weatherOf(S.trip, { token: S.agent });
   assert.equal(unticked.status, 403, 'an agent without the view row');
   assert.equal(unticked.json.days, undefined);
-  assert.equal((await mcp('read_weather', { space: S.trip })).isError, true, 'nor through read_weather');
+  assert.equal((await mcp('read_weather', { module: 'travel', space: S.trip })).isError, true, 'nor through read_weather');
   ok(await call('PATCH', '/api/roles/agent', { token: S.admin, body: { 'module.travel.view': true } }), 'the agent may again');
   // A closed space: refused, and nothing is asked.
   ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: true } }), 'the space is closed');
@@ -930,17 +991,17 @@ await live('an agent reads the weather through the gate, and through read_weathe
   const shut = await weatherOf(S.trip, { token: S.agent }, `&from=${plus(4)}&to=${plus(6)}`);
   assert.equal(shut.status, 404, 'an agent in a closed space: as a space it is not in');
   assert.deepEqual(shut.json, { error: 'no such space' });
-  const tShut = await mcp('read_weather', { space: S.trip, from: plus(4), to: plus(6) });
+  const tShut = await mcp('read_weather', { module: 'travel', space: S.trip, from: plus(4), to: plus(6) });
   assert.equal(tShut.isError, true, 'read_weather in a closed space');
   assert.equal(wxSeen.length + geoSeen.length, 0, 'nothing is asked for a closed space');
   ok(await call('PATCH', `/api/spaces/${S.trip}`, { token: S.admin, body: { closed: false } }), 'the space is open again');
   // Not configured: { configured: false }, said as the route says it.
-  ok(await setTravel({ weatherProvider: 'none' }), 'no provider');
-  assert.deepEqual((await mcp('read_weather', { space: S.trip })).json, { configured: false });
-  ok(await setTravel({ weatherProvider: 'standin' }), 'the stand-in again');
+  ok(await setWeather({ service: 'none' }), 'no provider');
+  assert.deepEqual((await mcp('read_weather', { module: 'travel', space: S.trip })).json, { configured: false });
+  ok(await setWeather({ service: 'standin' }), 'the stand-in again');
   // The address: never in the answer of either.
   assert.ok(!(await weatherOf(S.trip, { token: S.agent })).text.includes(SECRET), 'the route answers the agent the address');
-  assert.ok(!(await mcp('read_weather', { space: S.trip })).raw.includes(SECRET), 'read_weather answers the address');
+  assert.ok(!(await mcp('read_weather', { module: 'travel', space: S.trip })).raw.includes(SECRET), 'read_weather answers the address');
 });
 
 await live('the service\'s address is never answered, and never written in the open', async () => {
@@ -962,7 +1023,7 @@ await live('the service\'s address is never answered, and never written in the o
   const set = ok(await call('GET', '/api/modules/travel/settings/values?scope=environment', { token: S.admin }), 'the settings').json;
   assert.equal(set.values.weatherKey, undefined, 'there is no key setting');
   assert.equal(set.values.weatherAddress, undefined, 'there is no address setting');
-  assert.ok(!ok(await setTravel({ weatherUnits: 'c' }), 'a save').text.includes(SECRET), 'saving answers the address');
+  assert.ok(!ok(await setWeather({ units: 'c' }), 'a save').text.includes(SECRET), 'saving answers the address');
   // On disk: nowhere in the open, and weather.json holds only positions, days and numbers.
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
   for (const f of walk(dataDir)) assert.ok(!fs.readFileSync(f).includes(SECRET), `${path.relative(dataDir, f)} holds the address in the open`);

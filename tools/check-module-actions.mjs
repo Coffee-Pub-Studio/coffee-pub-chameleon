@@ -350,17 +350,30 @@ try {
     assert.deepEqual(r.hits.filter((h) => h !== 'unix'), [], 'the listening server saw no request');
   });
 
-  await test('a run goes through the lockdown and the namespace; told to need a namespace, it runs nothing without one', async () => {
+  await test('a run uses a namespace where there is one; only `namespace` with a real one lets an uploaded module run', async () => {
     const { createModuleActions, MODULE_ACTION_NETWORK_SEAL } = require(path.join(ROOT, 'server', 'module-actions.js'));
-    const seal = MODULE_ACTION_NETWORK_SEAL();
+    const real = MODULE_ACTION_NETWORK_SEAL();
     const message = { code: 'const ACTION_HANDLERS = { go: (input, ctx) => ({ writes: [{ key: "a", value: [ctx.read("k"), ctx.read("k", "environment"), ctx.list("", "environment").length] }] }) };', filename: 'x.js', action: 'go', inputText: '{}', ctxText: '{}', dataText: '{"k":1}', sharedText: '{"k":2}' };
-    for (const network of ['auto', 'namespace']) {
-      const runner = createModuleActions({ bundledDir: path.join(app, 'modules'), network });
-      assert.equal(runner.network.namespace, Boolean(seal));
-      const answer = await runner.run(message);
-      if (network === 'namespace' && !seal) { assert.deepEqual(answer, { fault: 'network' }, 'nothing runs'); continue; }
-      assert.deepEqual(JSON.parse(answer.text), { result: { writes: [{ key: 'a', value: [1, 2, 1] }] } }, `${network}: the handler ran and read both places`);
+    const expected = { result: { writes: [{ key: 'a', value: [1, 2, 1] }] } };
+    // A stand-in for the kernel: the real seal where this machine has one, and none at all.
+    const cases = [{ name: 'none', seal: null }, ...(real ? [{ name: 'real', seal: real }] : [])];
+    for (const { name, seal } of cases) {
+      for (const network of ['auto', 'namespace', 'nonsense']) {
+        const runner = createModuleActions({ bundledDir: path.join(app, 'modules'), network, sealOf: () => seal });
+        assert.equal(runner.network.namespace, Boolean(seal));
+        const may = network === 'namespace' && Boolean(seal);
+        assert.equal(runner.network.uploadedMayRun, may, `${name}/${network}: uploaded modules may run only with namespace and a real namespace`);
+        const bundled = await runner.run(message);
+        assert.deepEqual(JSON.parse(bundled.text), expected, `${name}/${network}: a bundled module's handler ran`);
+        const uploaded = await runner.run({ ...message, uploaded: true });
+        if (may) assert.deepEqual(JSON.parse(uploaded.text), expected, `${name}/${network}: an uploaded module ran in the namespace`);
+        else assert.deepEqual(uploaded, { fault: 'network' }, `${name}/${network}: an uploaded module is refused`);
+      }
     }
+    const line = (network, seal) => createModuleActions({ bundledDir: path.join(app, 'modules'), network, sealOf: () => seal }).network.line;
+    assert.match(line('namespace', { command: process.execPath, args: [] }), /uploaded modules may run, with the admin's approval\.$/);
+    assert.match(line('auto', null), /bundled modules run with the lockdown only; uploaded modules' actions are off, because ACTION_RUNNER_NETWORK is not namespace\.$/);
+    assert.match(line('namespace', null), /uploaded modules' actions are off, because this server can't make a network namespace \(see the seccomp profile in deploy\/\)\.$/);
     assert.equal(createModuleActions({ bundledDir: path.join(app, 'modules'), network: 'nonsense' }).network.known, false, 'an unknown word is said, and read as auto');
   });
 
